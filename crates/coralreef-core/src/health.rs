@@ -95,7 +95,7 @@ pub struct HealthReport {
     pub status: HealthStatus,
     /// Timestamp of the report.
     pub timestamp: Timestamp,
-    /// Arbitrary key-value details (BTreeMap for deterministic serialization).
+    /// Arbitrary key-value details (`BTreeMap` for deterministic serialization).
     pub details: BTreeMap<String, String>,
 }
 

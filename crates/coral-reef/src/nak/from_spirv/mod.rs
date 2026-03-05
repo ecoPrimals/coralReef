@@ -12,6 +12,8 @@ use coral_reef_stubs::cfg::CFGBuilder;
 
 pub(super) mod expr;
 pub(super) mod func;
+mod func_builtins;
+mod func_math;
 
 fn mem_access_global_b32() -> MemAccess {
     MemAccess {

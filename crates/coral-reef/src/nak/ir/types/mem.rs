@@ -292,7 +292,10 @@ impl StCacheOp {
     ) -> Self {
         match space {
             MemSpace::Global(_) => match order {
-                MemOrder::Constant => panic!("Cannot store to constant"),
+                MemOrder::Constant => {
+                    debug_assert!(false, "Cannot store to constant memory");
+                    StCacheOp::WriteThrough
+                }
                 MemOrder::Strong(MemScope::System) => StCacheOp::WriteThrough,
                 _ => {
                     // See the corresponding comment in LdCacheOp::select()
@@ -349,28 +352,27 @@ pub enum AtomType {
 }
 
 impl AtomType {
-    pub fn F(bits: u8) -> AtomType {
+    pub fn F(bits: u8) -> Option<AtomType> {
         match bits {
-            16 => panic!("16-bit float atomics not yet supported"),
-            32 => AtomType::F32,
-            64 => AtomType::F64,
-            _ => panic!("Invalid float atomic type"),
+            32 => Some(AtomType::F32),
+            64 => Some(AtomType::F64),
+            _ => None,
         }
     }
 
-    pub fn U(bits: u8) -> AtomType {
+    pub fn U(bits: u8) -> Option<AtomType> {
         match bits {
-            32 => AtomType::U32,
-            64 => AtomType::U64,
-            _ => panic!("Invalid uint atomic type"),
+            32 => Some(AtomType::U32),
+            64 => Some(AtomType::U64),
+            _ => None,
         }
     }
 
-    pub fn I(bits: u8) -> AtomType {
+    pub fn I(bits: u8) -> Option<AtomType> {
         match bits {
-            32 => AtomType::I32,
-            64 => AtomType::I64,
-            _ => panic!("Invalid int atomic type"),
+            32 => Some(AtomType::I32),
+            64 => Some(AtomType::I64),
+            _ => None,
         }
     }
 
@@ -623,24 +625,22 @@ mod tests {
 
     #[test]
     fn test_atom_type_f_u_i() {
-        assert!(matches!(AtomType::F(32), AtomType::F32));
-        assert!(matches!(AtomType::F(64), AtomType::F64));
-        assert!(matches!(AtomType::U(32), AtomType::U32));
-        assert!(matches!(AtomType::U(64), AtomType::U64));
-        assert!(matches!(AtomType::I(32), AtomType::I32));
-        assert!(matches!(AtomType::I(64), AtomType::I64));
+        assert!(matches!(AtomType::F(32), Some(AtomType::F32)));
+        assert!(matches!(AtomType::F(64), Some(AtomType::F64)));
+        assert!(matches!(AtomType::U(32), Some(AtomType::U32)));
+        assert!(matches!(AtomType::U(64), Some(AtomType::U64)));
+        assert!(matches!(AtomType::I(32), Some(AtomType::I32)));
+        assert!(matches!(AtomType::I(64), Some(AtomType::I64)));
     }
 
     #[test]
-    #[should_panic(expected = "16-bit float atomics not yet supported")]
-    fn test_atom_type_f_16_panics() {
-        AtomType::F(16);
+    fn test_atom_type_f_16_returns_none() {
+        assert!(AtomType::F(16).is_none());
     }
 
     #[test]
-    #[should_panic(expected = "Invalid uint atomic type")]
-    fn test_atom_type_u_invalid_panics() {
-        AtomType::U(16);
+    fn test_atom_type_u_invalid_returns_none() {
+        assert!(AtomType::U(16).is_none());
     }
 
     #[test]
