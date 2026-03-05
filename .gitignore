@@ -1,0 +1,25 @@
+# Rust build artifacts
+/target/
+**/*.rs.bak
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Coverage
+lcov.info
+*.profraw
+*.profdata
+tarpaulin-report.html

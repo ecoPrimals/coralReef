@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/coralnak-core",
+    "crates/coral-nak",
+    "crates/coral-nak-isa",
+    "crates/coral-nak-stubs",
+    "crates/coral-nak-bitview",
+    "crates/nak-ir-proc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+repository = "https://github.com/ecoPrimals/coralNak"
+authors = ["ecoPrimals Project"]
+rust-version = "1.85"
+
+[workspace.dependencies]
+# ecoPrimals core
+sourdough-core = { path = "../sourDough/crates/sourdough-core" }
+
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# CLI (uniBin)
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# IPC — JSON-RPC 2.0 + tarpc
+jsonrpsee = { version = "0.24", features = ["server", "client", "macros"] }
+tarpc = { version = "0.35", features = ["tokio1", "serde-transport", "tcp"] }
+tokio-serde = { version = "0.9", features = ["json"] }
+futures = "0.3"
+
+# Error handling
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Compiler internals
+rustc-hash = "2"
+paste = "1"
+bitview = { path = "crates/coral-nak-bitview" }
+nak_ir_proc = { path = "crates/nak-ir-proc" }
+
+# Internal crates
+coral-nak = { path = "crates/coral-nak" }
+coral-nak-isa = { path = "crates/coral-nak-isa" }
+coral-nak-stubs = { path = "crates/coral-nak-stubs" }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"

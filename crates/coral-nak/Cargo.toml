@@ -1,0 +1,25 @@
+[package]
+name = "coral-nak"
+description = "Sovereign Rust NVIDIA shader compiler — forked from Mesa NAK"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+coral-nak-isa = { workspace = true }
+coral-nak-stubs = { workspace = true }
+bitview = { workspace = true }
+rustc-hash = { workspace = true }
+paste = { workspace = true }
+nak_ir_proc = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+naga = { version = "24", features = ["wgsl-in", "spv-out"] }

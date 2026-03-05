@@ -1,0 +1,15 @@
+[package]
+name = "nak_ir_proc"
+description = "Proc-macro derives for NAK IR types — SrcsAsSlice, DstsAsSlice, DisplayOp"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+rust-version = "1.85"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }

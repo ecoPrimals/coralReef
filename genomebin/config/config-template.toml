@@ -1,0 +1,28 @@
+# Configuration template — copy to config.toml and adjust for your environment
+#
+# This primal starts with zero knowledge and discovers its capabilities
+# and peers at runtime. No hardcoded peer names or addresses.
+
+[compiler]
+# Default target architecture (populated from GpuArch::default() at build time)
+# Valid values are advertised by the `doctor` subcommand.
+opt_level = 2
+fp64_software = true
+
+[primal]
+log_level = "info"
+
+[ipc]
+# Port 0 = OS-assigned. Zero-knowledge: let the OS pick an available port
+# and advertise it via discovery. No assumptions about port availability.
+jsonrpc_bind = "127.0.0.1:0"
+tarpc_bind = "127.0.0.1:0"
+
+[discovery]
+# Capability-based discovery — this primal advertises what it CAN DO
+# (compile shaders for specific GPU architectures) and discovers peers
+# by their capabilities, not by name. The universal adapter resolves
+# capability requests to available providers at runtime.
+enabled = true
+# Discovery transport: "multicast" (LAN), "adapter" (universal adapter), "static" (dev only)
+transport = "multicast"
