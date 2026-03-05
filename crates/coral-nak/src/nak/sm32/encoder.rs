@@ -105,12 +105,13 @@ impl ShaderModel for ShaderModel32 {
         32
     }
 
-    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) {
+    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), crate::CompileError> {
         op.legalize(b);
+        Ok(())
     }
 
-    fn encode_shader(&self, s: &Shader<'_>) -> Vec<u32> {
-        super::encode_sm32_shader(self, s)
+    fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
+        Ok(super::encode_sm32_shader(self, s))
     }
 }
 

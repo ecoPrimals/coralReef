@@ -19,7 +19,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1.40", features = ["full"] }
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
 
 # CLI (uniBin)
 clap = { version = "4", features = ["derive"] }
@@ -28,9 +28,13 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# Zero-copy IPC payloads
+bytes = { version = "1", features = ["serde"] }
+
 # IPC — JSON-RPC 2.0 + tarpc
 jsonrpsee = { version = "0.24", features = ["server", "client", "macros"] }
-tarpc = { version = "0.35", features = ["tokio1", "serde-transport", "tcp"] }
+tarpc = { version = "0.37", features = ["tokio1", "serde-transport", "tcp"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 tokio-serde = { version = "0.9", features = ["json"] }
 futures = "0.3"
 
@@ -43,7 +47,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Compiler internals
 rustc-hash = "2"
-paste = "1"
 bitview = { path = "crates/coral-nak-bitview" }
 nak_ir_proc = { path = "crates/nak-ir-proc" }
 

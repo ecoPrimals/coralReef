@@ -2,10 +2,17 @@
 //! IPC transports — JSON-RPC 2.0 and tarpc servers.
 //!
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
-//! - JSON-RPC 2.0 as primary protocol
-//! - tarpc as optional high-performance channel
+//! - JSON-RPC 2.0 as primary protocol (TCP/HTTP — external, debuggable)
+//! - tarpc as optional high-performance channel (TCP or Unix socket — internal)
 //! - Semantic method names: `compiler.compile`, `compiler.health`
+//!
+//! ## Platform-agnostic transport (ecoBin compliance)
+//!
+//! On Unix platforms, tarpc defaults to Unix domain sockets for lower overhead
+//! on local primal-to-primal communication. JSON-RPC stays TCP-based (HTTP).
+//! On non-Unix platforms, both protocols use TCP loopback.
 
+use std::fmt;
 use std::net::SocketAddr;
 
 use futures::StreamExt;
@@ -33,8 +40,56 @@ pub(crate) enum IpcError {
     Tarpc(#[from] std::io::Error),
 }
 
-/// Loopback with OS-assigned port — zero-knowledge default binding.
-pub(crate) const DEFAULT_BIND: &str = "127.0.0.1:0";
+/// Transport-agnostic bound address reported by servers.
+#[derive(Debug, Clone)]
+pub(crate) enum BoundAddr {
+    /// TCP socket address (host:port).
+    Tcp(SocketAddr),
+    /// Unix domain socket path (Unix platforms only).
+    #[cfg(unix)]
+    Unix(std::path::PathBuf),
+}
+
+impl BoundAddr {
+    /// Protocol name for capability advertisement.
+    pub(crate) fn protocol(&self) -> &'static str {
+        match self {
+            BoundAddr::Tcp(_) => "tcp",
+            #[cfg(unix)]
+            BoundAddr::Unix(_) => "unix",
+        }
+    }
+}
+
+impl fmt::Display for BoundAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BoundAddr::Tcp(addr) => write!(f, "{addr}"),
+            #[cfg(unix)]
+            BoundAddr::Unix(path) => write!(f, "unix://{}", path.display()),
+        }
+    }
+}
+
+/// TCP loopback with OS-assigned port.
+pub(crate) const DEFAULT_TCP_BIND: &str = "127.0.0.1:0";
+
+/// Platform-aware default bind address for tarpc.
+///
+/// On Unix: returns a path for a Unix domain socket under `$XDG_RUNTIME_DIR`
+/// (or `/tmp` as fallback), namespaced by the primal binary name.
+/// On non-Unix: returns TCP loopback with OS-assigned port.
+pub(crate) fn default_tarpc_bind() -> String {
+    #[cfg(unix)]
+    {
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_owned());
+        format!("unix://{runtime_dir}/{}/tarpc.sock", env!("CARGO_PKG_NAME"))
+    }
+    #[cfg(not(unix))]
+    {
+        DEFAULT_TCP_BIND.to_owned()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // JSON-RPC 2.0 — semantic method names per wateringHole standard
@@ -83,7 +138,7 @@ impl CoralNakRpcServer for RpcImpl {
     }
 }
 
-/// Start the JSON-RPC 2.0 server.
+/// Start the JSON-RPC 2.0 server (always TCP — HTTP transport).
 ///
 /// Returns the bound address and server handle for graceful shutdown.
 /// The server runs in a background task until [`ServerHandle::stop`] is called.
@@ -110,7 +165,7 @@ pub async fn start_jsonrpc_server(bind: &str) -> Result<(SocketAddr, ServerHandl
 }
 
 // ---------------------------------------------------------------------------
-// tarpc — high-performance binary protocol
+// tarpc — high-performance binary protocol (TCP or Unix socket)
 // ---------------------------------------------------------------------------
 
 /// tarpc service definition (mirrors JSON-RPC methods).
@@ -143,25 +198,23 @@ impl CoralNakTarpc for TarpcServer {
     }
 }
 
-/// Start the tarpc server with JSON codec over TCP.
+/// Start a tarpc server over TCP.
 ///
 /// Returns the bound address and join handle for graceful shutdown.
-/// When `shutdown_rx` is notified (sender sends), the server stops accepting new
-/// connections and the join handle completes after in-flight requests finish.
 ///
 /// # Errors
 ///
 /// Returns an error if the server fails to bind.
-pub async fn start_tarpc_server(
+pub async fn start_tarpc_tcp_server(
     bind: &str,
     shutdown_rx: watch::Receiver<()>,
-) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), IpcError> {
+) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
     use tarpc::server::{self, Channel};
     use tokio_serde::formats::Json;
 
     let addr: SocketAddr = bind.parse()?;
     let listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?;
-    let bound = listener.local_addr();
+    let bound = BoundAddr::Tcp(listener.local_addr());
 
     let handle = tokio::spawn(async move {
         let mut shutdown_rx = shutdown_rx;
@@ -181,31 +234,145 @@ pub async fn start_tarpc_server(
             .await;
     });
 
-    tracing::info!(%bound, "tarpc server listening");
+    tracing::info!(%bound, "tarpc server listening (tcp)");
     Ok((bound, handle))
+}
+
+/// Start a tarpc server over a Unix domain socket.
+///
+/// Creates the socket file at `path`, removing any stale socket first.
+/// Returns the bound path and join handle for graceful shutdown.
+///
+/// # Errors
+///
+/// Returns an error if the socket cannot be created.
+#[cfg(unix)]
+#[allow(clippy::unused_async)]
+pub async fn start_tarpc_unix_server(
+    path: &std::path::Path,
+    shutdown_rx: watch::Receiver<()>,
+) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
+    use tarpc::server::{self, Channel};
+    use tokio::net::UnixListener;
+    use tokio_serde::formats::Json;
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(IpcError::Tarpc)?;
+    }
+    let _ = std::fs::remove_file(path);
+
+    let listener = UnixListener::bind(path).map_err(IpcError::Tarpc)?;
+    let bound = BoundAddr::Unix(path.to_path_buf());
+
+    let handle = tokio::spawn(async move {
+        let mut shutdown_rx = shutdown_rx;
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    match result {
+                        Ok((stream, _addr)) => {
+                            let framed = LengthDelimitedBuilder::new().new_framed(stream);
+                            let transport = tarpc::serde_transport::new(
+                                framed,
+                                Json::default(),
+                            );
+                            tokio::spawn(
+                                server::BaseChannel::with_defaults(transport)
+                                    .execute(TarpcServer.serve())
+                                    .for_each(|response| async move {
+                                        tokio::spawn(response);
+                                    }),
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "tarpc unix: failed to accept connection");
+                        }
+                    }
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
+    });
+
+    tracing::info!(%bound, "tarpc server listening (unix)");
+    Ok((bound, handle))
+}
+
+/// Start a tarpc server, automatically selecting transport from the bind string.
+///
+/// - `unix:///path/to/socket` → Unix domain socket (Unix platforms only)
+/// - `host:port` → TCP
+///
+/// # Errors
+///
+/// Returns an error if the server fails to bind.
+pub async fn start_tarpc_server(
+    bind: &str,
+    shutdown_rx: watch::Receiver<()>,
+) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
+    #[cfg(unix)]
+    if let Some(path) = bind.strip_prefix("unix://") {
+        return start_tarpc_unix_server(std::path::Path::new(path), shutdown_rx).await;
+    }
+    start_tarpc_tcp_server(bind, shutdown_rx).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Returns (sender, receiver). Caller must hold the sender for the test duration
-    /// so the server does not receive a shutdown signal.
     fn test_shutdown_channel() -> (watch::Sender<()>, watch::Receiver<()>) {
         watch::channel(())
     }
 
     #[tokio::test]
     async fn test_jsonrpc_server_starts() {
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
         assert_ne!(addr.port(), 0);
     }
 
     #[tokio::test]
-    async fn test_tarpc_server_starts() {
+    async fn test_tarpc_tcp_server_starts() {
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_server(DEFAULT_BIND, rx).await.unwrap();
-        assert_ne!(addr.port(), 0);
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        assert!(matches!(addr, BoundAddr::Tcp(_)));
+    }
+
+    #[tokio::test]
+    async fn test_tarpc_server_auto_tcp() {
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        assert!(matches!(addr, BoundAddr::Tcp(_)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_tarpc_unix_server_starts() {
+        let dir = std::env::temp_dir().join("coralnak-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("test-{}.sock", std::process::id()));
+
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_unix_server(&path, rx).await.unwrap();
+        assert!(matches!(addr, BoundAddr::Unix(_)));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_tarpc_server_auto_unix() {
+        let dir = std::env::temp_dir().join("coralnak-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let sock_path = dir.join(format!("auto-{}.sock", std::process::id()));
+        let bind = format!("unix://{}", sock_path.display());
+
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_server(&bind, rx).await.unwrap();
+        assert!(matches!(addr, BoundAddr::Unix(_)));
+
+        let _ = std::fs::remove_file(&sock_path);
     }
 
     #[tokio::test]
@@ -213,7 +380,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -231,7 +398,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -249,7 +416,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -271,9 +438,12 @@ mod tests {
         use tokio_serde::formats::Json;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_server(DEFAULT_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let BoundAddr::Tcp(tcp_addr) = addr else {
+            panic!("expected TCP address");
+        };
 
-        let transport = tarpc::serde_transport::tcp::connect(addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
         let client = CoralNakTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
@@ -291,9 +461,12 @@ mod tests {
         use tokio_serde::formats::Json;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_server(DEFAULT_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let BoundAddr::Tcp(tcp_addr) = addr else {
+            panic!("expected TCP address");
+        };
 
-        let transport = tarpc::serde_transport::tcp::connect(addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
         let client = CoralNakTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
@@ -311,5 +484,31 @@ mod tests {
             .unwrap();
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_bound_addr_display() {
+        let tcp = BoundAddr::Tcp("127.0.0.1:8080".parse().unwrap());
+        assert_eq!(tcp.to_string(), "127.0.0.1:8080");
+        assert_eq!(tcp.protocol(), "tcp");
+
+        #[cfg(unix)]
+        {
+            let unix = BoundAddr::Unix(std::path::PathBuf::from("/tmp/test.sock"));
+            assert_eq!(unix.to_string(), "unix:///tmp/test.sock");
+            assert_eq!(unix.protocol(), "unix");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_default_tarpc_bind() {
+        let bind = default_tarpc_bind();
+        #[cfg(unix)]
+        assert!(
+            bind.starts_with("unix://"),
+            "Unix should default to unix socket"
+        );
+        #[cfg(not(unix))]
+        assert_eq!(bind, DEFAULT_TCP_BIND);
     }
 }

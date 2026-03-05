@@ -68,6 +68,7 @@ mod const_tracker;
 pub(crate) mod debug;
 pub(crate) mod ir;
 mod legalize;
+mod lower_f64;
 mod liveness;
 mod lower_copy_swap;
 mod lower_par_copies;
@@ -102,4 +103,4 @@ mod ssa_value;
 mod to_cssa;
 mod union_find;
 
-// Phase 3: SPIR-V frontend via naga — will be `mod from_spirv;`
+pub(crate) mod from_spirv;

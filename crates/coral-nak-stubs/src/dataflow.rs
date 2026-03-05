@@ -493,4 +493,227 @@ mod tests {
         assert!(count > 0);
         assert!(count < 100);
     }
+
+    #[test]
+    fn test_forward_dataflow_closure_api() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        let c = builder.add_block("c");
+        builder.add_edge(a, b);
+        builder.add_edge(b, c);
+        let cfg = builder.build();
+
+        let n = cfg.len();
+        let mut block_in = vec![0u32; n];
+        let mut block_out = vec![0u32; n];
+
+        let mut transfer = |_idx: usize, block: &&str, out: &mut u32, inp: &u32| {
+            let prev = *out;
+            *out = if *block == "a" { 1 } else { *inp };
+            *out != prev
+        };
+        let mut join = |dst: &mut u32, src: &u32| *dst = (*dst).max(*src);
+
+        let mut fwd = ForwardDataflow {
+            cfg: &cfg,
+            block_in: &mut block_in,
+            block_out: &mut block_out,
+            transfer: &mut transfer,
+            join: &mut join,
+        };
+        fwd.solve();
+
+        assert_eq!(block_out[a], 1);
+        assert_eq!(block_out[b], 1);
+        assert_eq!(block_out[c], 1);
+    }
+
+    #[test]
+    fn test_backward_dataflow_closure_api() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        let c = builder.add_block("c");
+        builder.add_edge(a, b);
+        builder.add_edge(b, c);
+        let cfg = builder.build();
+
+        let n = cfg.len();
+        let mut block_in = vec![0u32; n];
+        let mut block_out = vec![0u32; n];
+
+        let mut transfer = |idx: usize, _block: &&str, inp: &mut u32, out: &u32| {
+            let prev = *inp;
+            *inp = if idx == 1 { 1 } else { *out };
+            *inp != prev
+        };
+        let mut join = |dst: &mut u32, src: &u32| *dst = (*dst).max(*src);
+
+        let mut bwd = BackwardDataflow {
+            cfg: &cfg,
+            block_in: &mut block_in,
+            block_out: &mut block_out,
+            transfer: &mut transfer,
+            join: &mut join,
+        };
+        bwd.solve();
+
+        assert_eq!(block_in[1], 1);
+    }
+
+    #[test]
+    fn test_backward_dataflow_bi_closure_api() {
+        #[derive(Default)]
+        struct State(u32);
+
+        impl Clone for State {
+            fn clone(&self) -> Self {
+                Self(self.0)
+            }
+        }
+
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        builder.add_edge(a, b);
+        let cfg = builder.build();
+
+        let n = cfg.len();
+        let mut block_in: Vec<State> = (0..n).map(|_| State::default()).collect();
+        let mut block_out: Vec<State> = (0..n).map(|_| State::default()).collect();
+
+        let mut transfer = |_idx: usize, _block: &&str, inp: &mut State, out: &State| {
+            let prev = inp.0;
+            inp.0 = out.0 + 1;
+            inp.0 != prev
+        };
+        let mut join = |dst: &mut State, src: &State| dst.0 = dst.0.max(src.0);
+
+        let mut bi = BackwardDataflowBi {
+            cfg: &cfg,
+            block_in: &mut block_in,
+            block_out: &mut block_out,
+            transfer: &mut transfer,
+            join: &mut join,
+        };
+        bi.solve();
+
+        assert!(block_out[a].0 >= block_out[b].0);
+    }
+
+    #[test]
+    fn test_forward_dataflow_entry_no_predecessors() {
+        let mut builder = CFGBuilder::new();
+        let entry = builder.add_block("entry");
+        let exit = builder.add_block("exit");
+        builder.add_edge(entry, exit);
+        let cfg = builder.build();
+
+        let n = cfg.len();
+        let mut block_in = vec![false; n];
+        let mut block_out = vec![false; n];
+
+        let mut transfer = |_idx: usize, block: &&str, out: &mut bool, inp: &bool| {
+            let prev = *out;
+            *out = *block == "entry" || *inp;
+            *out != prev
+        };
+        let mut join = |dst: &mut bool, src: &bool| *dst = *dst || *src;
+
+        let mut fwd = ForwardDataflow {
+            cfg: &cfg,
+            block_in: &mut block_in,
+            block_out: &mut block_out,
+            transfer: &mut transfer,
+            join: &mut join,
+        };
+        fwd.solve();
+
+        assert!(block_out[entry]);
+        assert!(block_out[exit]);
+    }
+
+    #[test]
+    fn test_backward_dataflow_exit_no_successors() {
+        let mut builder = CFGBuilder::new();
+        let entry = builder.add_block("entry");
+        let exit = builder.add_block("exit");
+        builder.add_edge(entry, exit);
+        let cfg = builder.build();
+
+        let n = cfg.len();
+        let mut block_in = vec![0u32; n];
+        let mut block_out = vec![0u32; n];
+
+        let mut transfer = |idx: usize, _block: &&str, inp: &mut u32, out: &u32| {
+            let prev = *inp;
+            *inp = if idx == 1 { 42 } else { *out };
+            *inp != prev
+        };
+        let mut join = |dst: &mut u32, src: &u32| *dst = (*dst).max(*src);
+
+        let mut bwd = BackwardDataflow {
+            cfg: &cfg,
+            block_in: &mut block_in,
+            block_out: &mut block_out,
+            transfer: &mut transfer,
+            join: &mut join,
+        };
+        bwd.solve();
+
+        assert_eq!(block_in[1], 42);
+    }
+
+    #[test]
+    fn test_solve_forward_no_change_path() {
+        struct IdTransfer;
+
+        impl ForwardDataflowAnalysis for IdTransfer {
+            type State = ReachingConst;
+            type Block = &'static str;
+
+            fn transfer(&self, _block: &&'static str, input: &ReachingConst) -> ReachingConst {
+                input.clone()
+            }
+        }
+
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("pass");
+        let b = builder.add_block("pass");
+        builder.add_edge(a, b);
+        let cfg = builder.build();
+
+        let result = solve_forward(&IdTransfer, &cfg);
+        assert_eq!(result[a].0, ReachingConst(false));
+        assert_eq!(result[a].1, ReachingConst(false));
+        assert_eq!(result[b].0, ReachingConst(false));
+        assert_eq!(result[b].1, ReachingConst(false));
+    }
+
+    #[test]
+    fn test_solve_backward_no_change_path() {
+        struct IdTransfer;
+
+        impl BackwardDataflowAnalysis for IdTransfer {
+            type State = ReachingConst;
+            type Block = &'static str;
+
+            fn transfer(&self, _block: &&'static str, output: &ReachingConst) -> ReachingConst {
+                output.clone()
+            }
+        }
+
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("pass");
+        let b = builder.add_block("pass");
+        builder.add_edge(a, b);
+        let cfg = builder.build();
+
+        let result = solve_backward(&IdTransfer, &cfg);
+        assert_eq!(result[a].0, ReachingConst(false));
+        assert_eq!(result[a].1, ReachingConst(false));
+        assert_eq!(result[b].0, ReachingConst(false));
+        assert_eq!(result[b].1, ReachingConst(false));
+    }
 }

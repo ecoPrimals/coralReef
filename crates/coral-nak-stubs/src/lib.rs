@@ -9,28 +9,23 @@
 //!
 //! | Original Mesa dependency    | Replacement module          | Status |
 //! |----------------------------|-----------------------------|--------|
-//! | `compiler::bindings`       | [`bindings`]                | Stub   |
 //! | `compiler::cfg`            | [`mod@cfg`]                 | Evolved (CFG + dominator tree) |
 //! | `compiler::dataflow`       | [`dataflow`]                | Evolved (worklist solver) |
 //! | `compiler::bitset`         | [`bitset`]                  | Evolved (dense bitmap) |
 //! | `compiler::smallvec`       | [`smallvec`]                | Evolved (zero/one/many) |
 //! | `compiler::as_slice`       | [`as_slice`]                | Evolved (type-safe views) |
-//! | `compiler::nir`            | [`nir`]                     | Stub   |
-//! | `compiler::nir_instr_printer` | [`nir_instr_printer`]    | Stub   |
-//! | `nak_bindings`             | [`nak_bindings`]            | Stub   |
 //! | `nvidia_headers`           | [`nvidia_headers`]          | Stub   |
 //! | `nak_latencies`            | [`nak_latencies`]           | Evolved (SM100 latency model) |
+//!
+//! Legacy FFI stubs (`bindings`, `nir`, `nir_instr_printer`, `nak_bindings`) were removed in Phase 4.
 //!
 //! ## Evolution Strategy
 //!
 //! 1. **Phase 1**: Empty stubs to make `cargo check` parse the workspace *(complete)*
 //! 2. **Phase 2**: Port core Mesa utility types to pure Rust *(complete — 6 modules evolved)*
 //! 3. **Phase 3**: Replace NIR frontend with naga SPIR-V → coral-nak IR
-//! 4. **Phase 4**: Remove remaining legacy FFI stubs
-
-/// Replacements for `compiler::bindings::*` (Mesa C FFI structs).
-#[deprecated(note = "Legacy Mesa FFI — will be removed when from_nir is replaced by from_spirv")]
-pub mod bindings;
+//! 4. **Phase 4**: Remove remaining legacy FFI stubs *(complete)*
+//!
 
 /// Replacement for `compiler::cfg` (control-flow graph).
 pub mod cfg;
@@ -47,19 +42,6 @@ pub mod smallvec;
 /// Replacement for `compiler::as_slice`.
 pub mod as_slice;
 
-/// Replacement for `compiler::nir` (NIR IR types).
-#[deprecated(note = "Legacy Mesa FFI — will be removed when from_nir is replaced by from_spirv")]
-pub mod nir;
-
-/// Replacement for `compiler::nir_instr_printer`.
-///
-/// **Legacy**: will be removed when `from_nir` is replaced by `from_spirv`.
-pub mod nir_instr_printer;
-
-/// Replacement for `nak_bindings::*` (NAK-specific C bindings).
-#[deprecated(note = "Legacy Mesa FFI — will be removed when from_nir is replaced by from_spirv")]
-pub mod nak_bindings;
-
 /// Replacement for `nvidia_headers` (NVIDIA class definitions).
 pub mod nvidia_headers;
 
@@ -68,8 +50,6 @@ pub mod nak_latencies;
 
 #[cfg(test)]
 mod tests {
-    #![allow(deprecated)]
-
     use super::*;
 
     #[test]
@@ -82,9 +62,6 @@ mod tests {
     fn all_modules_compile() {
         let _: bitset::BitSet<u32> = bitset::BitSet::new(8);
         let _ = cfg::CFGBuilder::<()>::new();
-        let _ = nir_instr_printer::NirInstrPrinter::new();
-        let _ = nir::nir_shader;
-        let _ = nak_bindings::nak_compiler { sm: 70 };
         let _ = nvidia_headers::classes::clc3c0::VOLTA_COMPUTE_A;
     }
 }

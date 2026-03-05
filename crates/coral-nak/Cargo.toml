@@ -16,10 +16,7 @@ coral-nak-isa = { workspace = true }
 coral-nak-stubs = { workspace = true }
 bitview = { workspace = true }
 rustc-hash = { workspace = true }
-paste = { workspace = true }
 nak_ir_proc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-
-[dev-dependencies]
-naga = { version = "24", features = ["wgsl-in", "spv-out"] }
+naga = { version = "24", features = ["wgsl-in", "spv-in"] }

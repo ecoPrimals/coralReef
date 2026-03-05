@@ -46,7 +46,8 @@ impl PhiMap {
     }
 
     fn phi_srcs(&self, idx: &Phi) -> &[SSAValue] {
-        self.phi_ssa.get(idx).unwrap()
+        static EMPTY: [SSAValue; 0] = [];
+        self.phi_ssa.get(idx).map(|v| v.as_slice()).unwrap_or(&EMPTY)
     }
 }
 
@@ -175,8 +176,8 @@ impl BarPropPass {
                     Op::BMov(op) => {
                         assert!(!op.clear);
                         assert!(op.src.is_unmodified());
-                        let dst = op.dst.as_ssa().unwrap();
-                        let src = op.src.as_ssa().unwrap();
+                        let Some(dst) = op.dst.as_ssa() else { continue };
+                        let Some(src) = op.src.as_ssa() else { continue };
                         assert!(dst.comps() == 1 && src.comps() == 1);
 
                         self.add_copy(dst[0], src[0]);
@@ -200,9 +201,9 @@ impl BarPropPass {
                     for (idx, src) in op.srcs.iter_mut() {
                         if self.phi_is_bar.contains(*idx) {
                             // Barrier immediates don't exist
-                            let ssa = src.as_ssa().unwrap();
-                            let bar = *self.map_bar(&ssa[0]).unwrap();
-                            *src = bar.into();
+                            let Some(ssa) = src.as_ssa() else { continue };
+                            let Some(bar) = self.map_bar(&ssa[0]) else { continue };
+                            *src = (*bar).into();
                         }
                     }
                     MappedInstrs::One(instr)
@@ -211,9 +212,10 @@ impl BarPropPass {
                     let mut bmovs = Vec::new();
                     for (idx, dst) in op.dsts.iter_mut() {
                         if self.phi_is_bar.contains(*idx) {
-                            let ssa = dst.as_ssa().unwrap().clone();
-                            let bar = *self.ssa_map.get(&ssa[0]).unwrap();
-                            *dst = bar.into();
+                            let Some(ssa) = dst.as_ssa() else { continue };
+                            let ssa = ssa.clone();
+                            let Some(bar) = self.ssa_map.get(&ssa[0]) else { continue };
+                            *dst = (*bar).into();
 
                             // On the off chance that someone still wants the
                             // GPR version of this barrier, insert an OpBMov to
@@ -221,7 +223,7 @@ impl BarPropPass {
                             // never used.
                             bmovs.push(Instr::new(OpBMov {
                                 dst: ssa.into(),
-                                src: bar.into(),
+                                src: (*bar).into(),
                                 clear: false,
                             }));
                         }
@@ -264,6 +266,134 @@ impl Shader<'_> {
     pub fn opt_bar_prop(&mut self) {
         for f in &mut self.functions {
             BarPropPass::new().run(f);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nak::ir::{
+        BasicBlock, ComputeShaderInfo, Dst, Function, Instr, LabelAllocator, Op, OpBMov, OpBSync,
+        OpExit, PhiAllocator, Shader, ShaderInfo, ShaderIoInfo, ShaderStageInfo, Src,
+        SSAValueAllocator,
+    };
+    use coral_nak_stubs::cfg::CFGBuilder;
+
+    fn make_shader_with_function(
+        instrs: Vec<Instr>,
+        ssa_alloc: SSAValueAllocator,
+    ) -> Shader<'static> {
+        let sm = Box::leak(Box::new(ShaderModelInfo::new(70, 64)));
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        let block = BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        };
+        cfg_builder.add_block(block);
+        let function = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        Shader {
+            sm,
+            info: ShaderInfo {
+                max_warps_per_sm: 0,
+                num_gprs: 0,
+                num_control_barriers: 0,
+                num_instrs: 0,
+                num_static_cycles: 0,
+                num_spills_to_mem: 0,
+                num_fills_from_mem: 0,
+                num_spills_to_reg: 0,
+                num_fills_from_reg: 0,
+                slm_size: 0,
+                max_crs_depth: 0,
+                uses_global_mem: false,
+                writes_global_mem: false,
+                uses_fp64: false,
+                stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                    local_size: [1, 1, 1],
+                    smem_size: 0,
+                }),
+                io: ShaderIoInfo::None,
+            },
+            functions: vec![function],
+        }
+    }
+
+    #[test]
+    fn test_bar_prop_basic() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let bar_ssa = ssa_alloc.alloc(RegFile::Bar);
+        let gpr_ssa = ssa_alloc.alloc(RegFile::GPR);
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpBMov {
+                    dst: gpr_ssa.into(),
+                    src: bar_ssa.into(),
+                    clear: false,
+                }),
+                Instr::new(OpBSync {
+                    bar: gpr_ssa.into(),
+                    cond: true.into(),
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+
+        shader.opt_bar_prop();
+
+        let bsync = &shader.functions[0].blocks[0].instrs[1];
+        let Op::BSync(op) = &bsync.op else {
+            panic!("expected BSync");
+        };
+        let SrcRef::SSA(ssa) = &op.bar.src_ref else {
+            panic!("expected SSA bar source");
+        };
+        assert_eq!(ssa[0], bar_ssa, "bar should be propagated to original bar");
+    }
+
+    #[test]
+    fn test_bar_prop_multiple_bsync_same_bar() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let bar_ssa = ssa_alloc.alloc(RegFile::Bar);
+        let gpr_ssa = ssa_alloc.alloc(RegFile::GPR);
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpBMov {
+                    dst: gpr_ssa.into(),
+                    src: bar_ssa.into(),
+                    clear: false,
+                }),
+                Instr::new(OpBSync {
+                    bar: gpr_ssa.into(),
+                    cond: true.into(),
+                }),
+                Instr::new(OpBSync {
+                    bar: gpr_ssa.into(),
+                    cond: true.into(),
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+
+        shader.opt_bar_prop();
+
+        for i in [1, 2] {
+            let bsync = &shader.functions[0].blocks[0].instrs[i];
+            let Op::BSync(op) = &bsync.op else {
+                panic!("expected BSync");
+            };
+            let SrcRef::SSA(ssa) = &op.bar.src_ref else {
+                panic!("expected SSA bar source");
+            };
+            assert_eq!(ssa[0], bar_ssa);
         }
     }
 }

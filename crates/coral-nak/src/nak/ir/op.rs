@@ -31,6 +31,12 @@ pub enum Op {
     FSwz(Box<OpFSwz>),
     DAdd(Box<OpDAdd>),
     DFma(Box<OpDFma>),
+    F64Exp2(Box<OpF64Exp2>),
+    F64Log2(Box<OpF64Log2>),
+    F64Rcp(Box<OpF64Rcp>),
+    F64Sin(Box<OpF64Sin>),
+    F64Cos(Box<OpF64Cos>),
+    F64Sqrt(Box<OpF64Sqrt>),
     DMnMx(Box<OpDMnMx>),
     DMul(Box<OpDMul>),
     DSetP(Box<OpDSetP>),
@@ -167,7 +173,17 @@ impl Op {
     pub fn is_fp64(&self) -> bool {
         match self {
             Op::MuFu(op) => matches!(op.op, MuFuOp::Rcp64H | MuFuOp::Rsq64H),
-            Op::DAdd(_) | Op::DFma(_) | Op::DMnMx(_) | Op::DMul(_) | Op::DSetP(_) => true,
+            Op::DAdd(_)
+            | Op::DFma(_)
+            | Op::F64Exp2(_)
+            | Op::F64Log2(_)
+            | Op::F64Rcp(_)
+            | Op::F64Sin(_)
+            | Op::F64Cos(_)
+            | Op::F64Sqrt(_)
+            | Op::DMnMx(_)
+            | Op::DMul(_)
+            | Op::DSetP(_) => true,
             Op::F2F(op) => op.src_type.bits() == 64 || op.dst_type.bits() == 64,
             Op::F2I(op) => op.src_type.bits() == 64 || op.dst_type.bits() == 64,
             Op::I2F(op) => op.src_type.bits() == 64 || op.dst_type.bits() == 64,
@@ -298,6 +314,9 @@ impl Op {
             | Op::S2R(_)
             | Op::Match(_) => false,
             Op::Nop(_) | Op::Vote(_) => true,
+
+            // f64 transcendental placeholders (lowered before legalize)
+            Op::F64Exp2(_) | Op::F64Log2(_) | Op::F64Rcp(_) | Op::F64Sin(_) | Op::F64Cos(_) | Op::F64Sqrt(_) => false,
 
             // Virtual ops
             Op::Undef(_)
@@ -460,6 +479,9 @@ impl Op {
             | Op::Match(_)
             | Op::Nop(_)
             | Op::Vote(_) => false,
+
+            // f64 transcendental placeholders (lowered before legalize)
+            Op::F64Exp2(_) | Op::F64Log2(_) | Op::F64Rcp(_) | Op::F64Sin(_) | Op::F64Cos(_) | Op::F64Sqrt(_) => true,
 
             // Virtual ops
             Op::Undef(_)

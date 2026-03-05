@@ -21,7 +21,7 @@ use tracing_subscriber::EnvFilter;
 mod ipc;
 mod service;
 
-use ipc::DEFAULT_BIND;
+use ipc::DEFAULT_TCP_BIND;
 
 #[derive(Parser)]
 #[command(name = env!("CARGO_PKG_NAME"), version, about, long_about = None)]
@@ -38,13 +38,15 @@ struct Cli {
 enum Commands {
     /// Start the IPC server (JSON-RPC 2.0 + tarpc).
     Server {
-        /// Bind address for JSON-RPC server.
-        #[arg(long, default_value = DEFAULT_BIND)]
+        /// Bind address for JSON-RPC server (TCP only — HTTP transport).
+        #[arg(long, default_value = DEFAULT_TCP_BIND)]
         rpc_bind: String,
 
         /// Bind address for tarpc server.
-        #[arg(long, default_value = DEFAULT_BIND)]
-        tarpc_bind: String,
+        /// TCP: `127.0.0.1:0`; Unix socket: `unix:///path/to/socket`.
+        /// Defaults to platform-native transport (Unix socket on Linux/macOS).
+        #[arg(long)]
+        tarpc_bind: Option<String>,
     },
 
     /// Compile a shader file.
@@ -113,7 +115,10 @@ async fn main() -> ExitCode {
         Commands::Server {
             rpc_bind,
             tarpc_bind,
-        } => cmd_server(&rpc_bind, &tarpc_bind).await,
+        } => {
+            let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
+            cmd_server(&rpc_bind, &tarpc_bind).await
+        }
         Commands::Compile {
             input,
             output,
@@ -168,7 +173,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         }
     };
 
-    let (tarpc_addr, tarpc_handle) = match ipc::start_tarpc_server(tarpc_bind, shutdown_rx).await {
+    let (tarpc_bound, tarpc_handle) = match ipc::start_tarpc_server(tarpc_bind, shutdown_rx).await {
         Ok(x) => x,
         Err(e) => {
             tracing::error!(error = %e, "failed to start tarpc server");
@@ -186,14 +191,14 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
                 address: rpc_addr.to_string(),
             },
             coralnak_core::capability::Transport {
-                protocol: "tarpc".to_owned(),
-                address: tarpc_addr.to_string(),
+                protocol: format!("tarpc+{}", tarpc_bound.protocol()),
+                address: tarpc_bound.to_string(),
             },
         ],
     );
     tracing::info!(
         rpc_addr = %rpc_addr,
-        tarpc_addr = %tarpc_addr,
+        tarpc_addr = %tarpc_bound,
         provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
         requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
         "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")

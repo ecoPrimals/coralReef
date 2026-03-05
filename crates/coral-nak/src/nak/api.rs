@@ -4,8 +4,8 @@
 //!
 //! The Mesa C API (`extern "C"` entry points, bindgen types, NIR integration)
 //! has been removed. The public Rust API lives in `coral-nak/src/lib.rs`.
-//! This module provides the internal compilation pipeline that will be
-//! connected once `from_spirv` replaces `from_nir` (Phase 3).
+//! This module provides the internal compilation pipeline, connected
+//! via `from_spirv` (naga frontend).
 
 #![allow(clippy::wildcard_imports)]
 

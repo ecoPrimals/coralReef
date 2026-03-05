@@ -3,6 +3,7 @@
 //!
 //! Follows wateringHole semantic method naming: `compiler.{operation}`.
 
+use bytes::Bytes;
 use coral_nak::{CompileError, CompileOptions, GpuArch};
 use serde::{Deserialize, Serialize};
 
@@ -20,10 +21,13 @@ pub struct CompileRequest {
 }
 
 /// Response from shader compilation.
+///
+/// Uses `bytes::Bytes` for zero-copy IPC payloads — `Bytes::from(Vec<u8>)`
+/// takes ownership of the allocation without copying.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResponse {
-    /// Compiled GPU binary.
-    pub binary: Vec<u8>,
+    /// Compiled GPU binary (zero-copy via `bytes::Bytes`).
+    pub binary: Bytes,
     /// Size in bytes.
     pub size: usize,
 }
@@ -67,7 +71,10 @@ pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileEr
     };
     let binary = coral_nak::compile(&req.spirv_words, &options)?;
     let size = binary.len();
-    Ok(CompileResponse { binary, size })
+    Ok(CompileResponse {
+        binary: Bytes::from(binary),
+        size,
+    })
 }
 
 /// Generate a health response.

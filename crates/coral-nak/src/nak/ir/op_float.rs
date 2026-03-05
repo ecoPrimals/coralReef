@@ -311,6 +311,7 @@ impl DisplayOp for OpFSwz {
 }
 impl_display_for_op!(OpFSwz);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RroOp {
     SinCos,
     Exp2,
@@ -348,7 +349,7 @@ impl DisplayOp for OpRro {
 impl_display_for_op!(OpRro);
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MuFuOp {
     Cos,
     Sin,
@@ -466,6 +467,114 @@ impl DisplayOp for OpDFma {
     }
 }
 impl_display_for_op!(OpDFma);
+
+/// Placeholder op for f64 sqrt. Lowered to Newton-Raphson via MUFU.Rsq64H + DFMA.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpF64Sqrt {
+    #[dst_type(F64)]
+    pub dst: Dst,
+
+    #[src_type(F64)]
+    pub src: Src,
+}
+
+impl DisplayOp for OpF64Sqrt {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f64sqrt {}", self.src)
+    }
+}
+impl_display_for_op!(OpF64Sqrt);
+
+/// Placeholder op for f64 reciprocal. Lowered to Newton-Raphson via MUFU.RCP64H + DFMA.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpF64Rcp {
+    #[dst_type(F64)]
+    pub dst: Dst,
+
+    #[src_type(F64)]
+    pub src: Src,
+}
+
+impl DisplayOp for OpF64Rcp {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f64rcp {}", self.src)
+    }
+}
+impl_display_for_op!(OpF64Rcp);
+
+/// Placeholder op for f64 exp2. Lowered to Horner polynomial via DFMA.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpF64Exp2 {
+    #[dst_type(F64)]
+    pub dst: Dst,
+
+    #[src_type(F64)]
+    pub src: Src,
+}
+
+impl DisplayOp for OpF64Exp2 {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f64exp2 {}", self.src)
+    }
+}
+impl_display_for_op!(OpF64Exp2);
+
+/// Placeholder op for f64 log2. Lowered to MUFU.LOG2 f32 seed extended to f64.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpF64Log2 {
+    #[dst_type(F64)]
+    pub dst: Dst,
+
+    #[src_type(F64)]
+    pub src: Src,
+}
+
+impl DisplayOp for OpF64Log2 {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f64log2 {}", self.src)
+    }
+}
+impl_display_for_op!(OpF64Log2);
+
+/// Placeholder op for f64 sin. Lowered to minimax polynomial.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpF64Sin {
+    #[dst_type(F64)]
+    pub dst: Dst,
+
+    #[src_type(F64)]
+    pub src: Src,
+}
+
+impl DisplayOp for OpF64Sin {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f64sin {}", self.src)
+    }
+}
+impl_display_for_op!(OpF64Sin);
+
+/// Placeholder op for f64 cos. Lowered to minimax polynomial.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpF64Cos {
+    #[dst_type(F64)]
+    pub dst: Dst,
+
+    #[src_type(F64)]
+    pub src: Src,
+}
+
+impl DisplayOp for OpF64Cos {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f64cos {}", self.src)
+    }
+}
+impl_display_for_op!(OpF64Cos);
 
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]

@@ -1,14 +1,16 @@
 # coralNak — Start Here
 
-Welcome to coralNak, the sovereign Rust shader compiler.
+Welcome to coralNak, the sovereign Rust NVIDIA shader compiler.
 
 ---
 
 ## What is this?
 
-coralNak extracts Mesa's NAK shader compiler into a standalone Rust crate.
-It fixes the f64 transcendental emission gap and evolves into a pure-Rust
-GPU compiler with zero-knowledge, capability-based architecture.
+coralNak compiles WGSL and SPIR-V compute shaders to native NVIDIA SM70+
+GPU binaries. It includes full f64 transcendental support via DFMA software
+lowering — something the original Mesa NAK compiler cannot do.
+
+Built as a standalone Rust workspace with zero C dependencies.
 
 ## Prerequisites
 
@@ -20,8 +22,8 @@ GPU compiler with zero-knowledge, capability-based architecture.
 ```bash
 cd coralNak
 cargo check --workspace
-cargo test --workspace     # 193 tests
-cargo clippy --workspace
+cargo test --workspace     # 390 tests
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
@@ -32,53 +34,66 @@ coralNak/
 ├── crates/
 │   ├── coralnak-core/         Primal lifecycle + IPC (JSON-RPC, tarpc)
 │   ├── coral-nak/             Shader compiler
-│   │   └── src/nak/           NAK sources
-│   │       ├── ir/            IR types — 12 submodules
+│   │   └── src/nak/           NAK compiler core
+│   │       ├── ir/            SSA IR types — 12 submodules
+│   │       ├── from_spirv/    naga → NAK IR translation — 3 files
+│   │       ├── lower_f64/     f64 transcendental expansion — 3 files
 │   │       ├── sm70_encode/   Turing+ encoder — 6 submodules
 │   │       ├── sm50/          Maxwell encoder — 6 submodules
 │   │       ├── sm32/          Kepler encoder — 6 submodules
 │   │       ├── sm20/          Fermi encoder — 6 submodules
-│   │       └── pipeline.rs    Full compilation pipeline (16 passes)
+│   │       ├── assign_regs/   Register allocation — 5 files
+│   │       ├── calc_instr_deps/ Instruction dependency analysis — 3 files
+│   │       ├── spill_values/  Register spilling — 3 files
+│   │       ├── builder/       IR construction helpers — 2 files
+│   │       └── pipeline.rs    Full compilation pipeline
 │   ├── coral-nak-bitview/     Bit-level field access for GPU encoding
 │   ├── coral-nak-isa/         ISA tables, latency model, SPH
-│   ├── coral-nak-stubs/       Mesa dependency replacements (evolving to real)
+│   ├── coral-nak-stubs/       Pure-Rust Mesa replacements (all evolved)
 │   └── nak-ir-proc/           Proc-macro derives for IR types
 ├── specs/                     Architecture specification
-├── whitePaper/                Theory docs (f64 lowering, DFMA, MuFu)
+├── whitePaper/                Theory docs (f64 lowering, MUFU)
 ├── genomebin/                 Deployment scaffolding
-└── .github/workflows/         CI
+└── STATUS.md                  Current status and grades
 ```
 
 ## Key Documents
 
 | Document | Purpose |
 |----------|---------|
-| `specs/CORALNAK_SPECIFICATION.md` | Architecture and roadmap |
 | `STATUS.md` | Current grades and phase status |
-| `WHATS_NEXT.md` | Prioritized task list |
+| `WHATS_NEXT.md` | Completed phases and future work |
+| `specs/CORALNAK_SPECIFICATION.md` | Architecture and crate layout |
 | `CONVENTIONS.md` | Coding standards |
 | `CONTRIBUTING.md` | How to contribute |
-| `whitePaper/F64_LOWERING_THEORY.md` | DFMA polynomial design |
-| `whitePaper/MUFU_ANALYSIS.md` | MuFu instruction analysis |
+| `whitePaper/F64_LOWERING_THEORY.md` | DFMA polynomial lowering design |
+| `whitePaper/MUFU_ANALYSIS.md` | NVIDIA MUFU instruction reference |
 | `whitePaper/SOVEREIGN_COMPILER_ARCHITECTURE.md` | Architecture rationale |
 
-## How NAK Sources Work
+## How the Compiler Works
 
-The `crates/coral-nak/src/nak/` directory contains the NAK compiler sources
-extracted from Mesa and wired against pure-Rust stub replacements. Large files
-have been refactored into directory modules with logical submodules:
+```
+WGSL / SPIR-V  →  naga parse  →  from_spirv (NAK IR)  →  lower_f64
+    →  optimize (copy prop, DCE, bar prop, scheduling)
+    →  legalize  →  assign_regs  →  encode  →  native binary
+```
 
-- **`ir/`** — Intermediate representation (registers, src/dst types, op structs,
-  type enums, shader info) split across 12 files
-- **`sm70_encode/`** — SM70+ instruction encoding (encoder core, ALU, texture,
-  memory, control flow)
-- **`sm50/`**, **`sm32/`**, **`sm20/`** — Maxwell, Kepler, Fermi encoders (same pattern)
-- **`pipeline.rs`** — Full compilation pipeline: 16 optimization, scheduling,
-  legalization, and allocation passes followed by architecture-specific encoding
+Key modules in `crates/coral-nak/src/nak/`:
 
-The `coral-nak-stubs` crate provides pure-Rust replacements for Mesa's C FFI
-bindings. The `nak-ir-proc` crate provides proc-macro derives that generate
-trait implementations for IR instruction types.
+- **`from_spirv/`** — Translates naga's IR into NAK's SSA-based IR. Handles
+  expressions, statements, control flow, memory operations, and builtins.
+- **`lower_f64/`** — Expands f64 transcendental placeholder ops into DFMA-based
+  instruction sequences (Newton-Raphson for sqrt/rcp, Horner polynomial for
+  exp2, MUFU seed + refinement for log2, Cody-Waite + minimax for sin/cos).
+- **`pipeline.rs`** — Orchestrates the full compilation: optimize → lower_f64 →
+  legalize → register allocation → encode.
+- **`ir/`** — SSA intermediate representation with typed registers, predication,
+  memory access descriptors, and shader metadata.
+- **`sm70_encode/`** — Encodes NAK IR instructions to SM70+ native binary format.
+
+The `coral-nak-stubs` crate provides pure-Rust replacements for Mesa's C
+dependencies (CFG, BitSet, dataflow, nvidia_headers). The `nak-ir-proc`
+crate generates trait implementations for IR instruction types via derives.
 
 ## Architecture
 
@@ -88,4 +103,4 @@ peers by capability, not by name.
 
 ---
 
-*Read `WHATS_NEXT.md` for what to work on next.*
+*Read `WHATS_NEXT.md` for completed phases and future work.*

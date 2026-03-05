@@ -190,3 +190,84 @@ impl Shader<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nak::ir::{
+        BasicBlock, Function, Instr, LabelAllocator, Op, OpCopy, OpExit, OpRegOut, PhiAllocator,
+        RegFile, Src, SSAValueAllocator,
+    };
+    use coral_nak_stubs::cfg::CFGBuilder;
+
+    fn make_function_with_instrs(instrs: Vec<Instr>) -> Function {
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        let block = BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        };
+        cfg_builder.add_block(block);
+        Function {
+            ssa_alloc: SSAValueAllocator::new(),
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        }
+    }
+
+    #[test]
+    fn test_dce_eliminates_unreachable_instructions() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        let mut f = make_function_with_instrs(vec![
+            Instr::new(OpCopy {
+                dst: dst_a.into(),
+                src: Src::ZERO,
+            }),
+            Instr::new(OpCopy {
+                dst: dst_b.into(),
+                src: Src::ZERO,
+            }),
+            Instr::new(OpExit {}),
+        ]);
+        f.ssa_alloc = ssa_alloc;
+
+        let before_count = f.blocks[0].instrs.len();
+        assert_eq!(before_count, 3);
+
+        f.opt_dce();
+
+        let after_count = f.blocks[0].instrs.len();
+        assert_eq!(after_count, 1, "only exit should remain");
+        assert!(matches!(f.blocks[0].instrs[0].op, Op::Exit(_)));
+    }
+
+    #[test]
+    fn test_dce_preserves_used_instructions() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        let mut f = make_function_with_instrs(vec![
+            Instr::new(OpCopy {
+                dst: dst_a.into(),
+                src: Src::ZERO,
+            }),
+            Instr::new(OpCopy {
+                dst: dst_b.into(),
+                src: dst_a.into(),
+            }),
+            Instr::new(OpRegOut {
+                srcs: vec![dst_b.into()],
+            }),
+            Instr::new(OpExit {}),
+        ]);
+        f.ssa_alloc = ssa_alloc;
+
+        f.opt_dce();
+
+        let after_count = f.blocks[0].instrs.len();
+        assert_eq!(after_count, 4, "all instructions should be preserved");
+    }
+}

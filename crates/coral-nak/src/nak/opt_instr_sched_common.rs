@@ -101,7 +101,17 @@ pub fn side_effect_type(op: &Op) -> SideEffect {
         Op::Rro(_) | Op::MuFu(_) => SideEffect::None,
 
         // Double-precision float ALU
-        Op::DAdd(_) | Op::DFma(_) | Op::DMnMx(_) | Op::DMul(_) | Op::DSetP(_) => SideEffect::None,
+        Op::DAdd(_)
+        | Op::DFma(_)
+        | Op::F64Exp2(_)
+        | Op::F64Log2(_)
+        | Op::F64Rcp(_)
+        | Op::F64Sin(_)
+        | Op::F64Cos(_)
+        | Op::F64Sqrt(_)
+        | Op::DMnMx(_)
+        | Op::DMul(_)
+        | Op::DSetP(_) => SideEffect::None,
 
         // Integer ALU
         Op::BRev(_)
@@ -249,6 +259,9 @@ pub fn estimate_variable_latency(sm: &ShaderModelInfo, op: &Op) -> u32 {
         // Double-precision float ALU
         Op::DFma(_) | Op::DSetP(_) => 54,
         Op::DAdd(_) | Op::DMnMx(_) | Op::DMul(_) => 48,
+
+        // f64 transcendental placeholders (expand to MUFU + several DFMA/DMul)
+        Op::F64Exp2(_) | Op::F64Log2(_) | Op::F64Rcp(_) | Op::F64Sin(_) | Op::F64Cos(_) | Op::F64Sqrt(_) => 200,
 
         // Integer ALU
         Op::BRev(_) | Op::Flo(_) | Op::PopC(_) => 15,

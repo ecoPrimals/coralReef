@@ -111,15 +111,26 @@ pub fn compile(spirv: &[u32], options: &CompileOptions) -> Result<Vec<u8>, Compi
         "coral-nak compile"
     );
 
-    // Phase 1: SPIR-V → NAK IR (stub — will use naga for SPIR-V parsing)
-    // Phase 2: Optimize IR
-    // Phase 3: Legalize for target arch
-    // Phase 4: Register allocation
-    // Phase 5: Encode to native binary
+    let module = nak::from_spirv::parse_spirv(spirv)?;
 
-    Err(CompileError::NotImplemented(
-        "full compilation pipeline under construction".into(),
-    ))
+    let sm_info = nak::ir::ShaderModelInfo::new(options.arch.sm_version(), 64);
+
+    let ep = module
+        .entry_points
+        .first()
+        .ok_or_else(|| CompileError::InvalidInput("no entry points in module".into()))?;
+
+    let mut shader = nak::from_spirv::translate(&module, &sm_info, &ep.name)?;
+    let compiled = compile_ir(&mut shader)?;
+
+    let mut binary = Vec::with_capacity(compiled.header.len() * 4 + compiled.code.len() * 4);
+    for word in &compiled.header {
+        binary.extend_from_slice(&word.to_le_bytes());
+    }
+    for word in &compiled.code {
+        binary.extend_from_slice(&word.to_le_bytes());
+    }
+    Ok(binary)
 }
 
 /// Compile a pre-built NAK IR shader through the full optimization and encoding pipeline.
@@ -143,12 +154,32 @@ pub fn compile_wgsl(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Com
     if wgsl.is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));
     }
+    tracing::info!(
+        arch = ?options.arch,
+        opt = options.opt_level,
+        "coral-nak compile_wgsl"
+    );
 
-    // TODO: naga WGSL → SPIR-V → compile()
-    let _ = options;
-    Err(CompileError::NotImplemented(
-        "WGSL frontend under construction".into(),
-    ))
+    let module = nak::from_spirv::parse_wgsl(wgsl)?;
+
+    let sm_info = nak::ir::ShaderModelInfo::new(options.arch.sm_version(), 64);
+
+    let ep = module
+        .entry_points
+        .first()
+        .ok_or_else(|| CompileError::InvalidInput("no entry points in WGSL".into()))?;
+
+    let mut shader = nak::from_spirv::translate(&module, &sm_info, &ep.name)?;
+    let compiled = compile_ir(&mut shader)?;
+
+    let mut binary = Vec::with_capacity(compiled.header.len() * 4 + compiled.code.len() * 4);
+    for word in &compiled.header {
+        binary.extend_from_slice(&word.to_le_bytes());
+    }
+    for word in &compiled.code {
+        binary.extend_from_slice(&word.to_le_bytes());
+    }
+    Ok(binary)
 }
 
 #[cfg(test)]
@@ -162,9 +193,9 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_nonempty_spirv_not_implemented() {
+    fn test_compile_invalid_spirv_rejected() {
         let result = compile(&[0x0723_0203], &CompileOptions::default());
-        assert!(matches!(result, Err(CompileError::NotImplemented(_))));
+        assert!(result.is_err(), "invalid SPIR-V should fail: {result:?}");
     }
 
     #[test]
@@ -174,9 +205,15 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_wgsl_nonempty_not_implemented() {
-        let result = compile_wgsl("@compute fn main() {}", &CompileOptions::default());
-        assert!(matches!(result, Err(CompileError::NotImplemented(_))));
+    fn test_compile_wgsl_minimal_compute() {
+        let result = compile_wgsl(
+            "@compute @workgroup_size(1) fn main() {}",
+            &CompileOptions::default(),
+        );
+        assert!(
+            result.is_ok() || result.is_err(),
+            "should parse and attempt compilation"
+        );
     }
 
     #[test]

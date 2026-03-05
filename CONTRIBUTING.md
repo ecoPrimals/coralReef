@@ -11,8 +11,8 @@ rustup update stable
 # Clone and check
 git clone https://github.com/ecoPrimals/coralNak.git
 cd coralNak
-cargo check
-cargo test
+cargo check --workspace
+cargo test --workspace            # 390 tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -24,18 +24,20 @@ coralNak follows ecoPrimals ecosystem conventions from `wateringHole/`.
 - **License**: AGPL-3.0-only (see LICENSE). NAK-derived files retain MIT.
 - **Linting**: `clippy::all` + `clippy::pedantic` + `missing_docs`, zero warnings
 - **Formatting**: `cargo fmt` — no exceptions
-- **Max file size**: 1000 lines for new code
-- **Test coverage**: 90%+ line coverage (measured with `cargo llvm-cov`)
-- **Unsafe**: zero `unsafe` in new code; audited removal in NAK-derived code
-- **Error handling**: `thiserror` for libraries, proper `Result` propagation
-- **No `unwrap()` in production**: use `?`, `.ok_or()`, or `.expect("reason")`
+- **Max file size**: 1000 lines (all files currently comply)
+- **Test coverage**: 90%+ target (measured with `cargo llvm-cov`)
+- **Unsafe**: zero `unsafe` in new code
+- **Error handling**: `Result<_, CompileError>` propagation; optimizer passes skip instead of panicking
+- **No `panic!` in new production code**: use `?`, `.ok_or()`, `debug_assert!`, or graceful fallback
 
 ## Architecture
 
 See `specs/CORALNAK_SPECIFICATION.md` and `START_HERE.md`.
 
-Large NAK files have been refactored into directory modules (`ir/`, `sm70_encode/`,
-`sm50/`, `sm32/`) — follow the same pattern for new encoder or IR work.
+Key module patterns:
+- **Directory modules**: Large files are split into directories (`ir/`, `from_spirv/`, `lower_f64/`, `sm70_encode/`)
+- **Virtual ops**: f64 transcendentals use placeholder ops expanded by `lower_f64` before legalization
+- **Pipeline**: `pipeline.rs` orchestrates the full compilation with `Result` propagation
 
 ## Commit Messages
 

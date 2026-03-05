@@ -1,7 +1,7 @@
 # f64 Transcendental Lowering — Theory
 
-**Status**: Draft  
-**Date**: March 4, 2026
+**Status**: Implemented  
+**Date**: March 5, 2026
 
 ---
 
@@ -92,4 +92,4 @@ intermediate computation (double-double where needed).
 
 ---
 
-*This document evolves as lowering implementations mature.*
+*All six lowering strategies are implemented in `crates/coral-nak/src/nak/lower_f64/`.*

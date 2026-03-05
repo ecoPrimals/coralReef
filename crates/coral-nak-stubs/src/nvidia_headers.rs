@@ -8,6 +8,72 @@
 // Hardware register names must match NVIDIA spec verbatim.
 #![allow(non_snake_case, missing_docs)]
 
+use std::fmt;
+
+/// NVIDIA hardware class identifier.
+///
+/// These 16-bit values identify GPU engine classes (compute dispatch, DMA, SPH, etc.)
+/// and correspond to specific SM (Streaming Multiprocessor) generations.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NvClass(pub u32);
+
+impl NvClass {
+    /// Kepler (SM30/SM35) — Shader Program Header class.
+    pub const KEPLER_SPH: Self = Self(0xA097);
+
+    /// Kepler (SM30/SM35) — Compute A class.
+    pub const KEPLER_COMPUTE_A: Self = Self(0xA0C0);
+
+    /// Maxwell (SM50) — Compute A class.
+    pub const MAXWELL_COMPUTE_A: Self = Self(0xB0C0);
+
+    /// Maxwell (SM50) — Compute B class.
+    pub const MAXWELL_COMPUTE_B: Self = Self(0xB1C0);
+
+    /// Pascal (SM60/SM61) — Compute class.
+    pub const PASCAL_COMPUTE: Self = Self(0xC0C0);
+
+    /// Volta (SM70) — Compute A class.
+    pub const VOLTA_COMPUTE_A: Self = Self(0xC3C0);
+
+    /// Ampere (SM80/SM86/SM87) — Compute A class.
+    pub const AMPERE_COMPUTE_A: Self = Self(0xC6C0);
+
+    /// Hopper (SM90) — Compute A class.
+    pub const HOPPER_COMPUTE_A: Self = Self(0xCBC0);
+
+    /// Blackwell (SM100) — Compute class.
+    pub const BLACKWELL_COMPUTE: Self = Self(0xCDC0);
+
+    /// Fermi — DMA Copy class.
+    pub const FERMI_DMA_COPY: Self = Self(0x90B5);
+}
+
+impl fmt::Display for NvClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match *self {
+            Self::KEPLER_SPH => "Kepler SPH",
+            Self::KEPLER_COMPUTE_A => "Kepler Compute A",
+            Self::MAXWELL_COMPUTE_A => "Maxwell Compute A",
+            Self::MAXWELL_COMPUTE_B => "Maxwell Compute B",
+            Self::PASCAL_COMPUTE => "Pascal Compute",
+            Self::VOLTA_COMPUTE_A => "Volta Compute A",
+            Self::AMPERE_COMPUTE_A => "Ampere Compute A",
+            Self::HOPPER_COMPUTE_A => "Hopper Compute A",
+            Self::BLACKWELL_COMPUTE => "Blackwell Compute",
+            Self::FERMI_DMA_COPY => "Fermi DMA Copy",
+            _ => "Unknown",
+        };
+        write!(f, "{} (0x{:04X})", name, self.0)
+    }
+}
+
+impl From<NvClass> for u32 {
+    fn from(c: NvClass) -> Self {
+        c.0
+    }
+}
+
 /// NVIDIA hardware class definitions.
 pub mod classes {
     /// Kepler A — Shader Program Header.
@@ -134,8 +200,8 @@ pub mod classes {
 
     /// Volta Compute A (class c3c0).
     pub mod clc3c0 {
-        /// Class constant.
-        pub const VOLTA_COMPUTE_A: u32 = 0xC3C0;
+        /// Class constant (u32 for backward compatibility).
+        pub const VOLTA_COMPUTE_A: u32 = super::super::NvClass::VOLTA_COMPUTE_A.0;
         /// Method definitions.
         pub mod mthd {}
 
@@ -195,8 +261,8 @@ pub mod classes {
 
     /// Ampere Compute A (class c6c0).
     pub mod clc6c0 {
-        /// Class constant.
-        pub const AMPERE_COMPUTE_A: u32 = 0xC6C0;
+        /// Class constant (u32 for backward compatibility).
+        pub const AMPERE_COMPUTE_A: u32 = super::super::NvClass::AMPERE_COMPUTE_A.0;
         /// Method definitions.
         pub mod mthd {}
 
@@ -255,8 +321,8 @@ pub mod classes {
 
     /// Hopper Compute A.
     pub mod clcbc0 {
-        /// Class constant.
-        pub const HOPPER_COMPUTE_A: u32 = 0xCBC0;
+        /// Class constant (u32 for backward compatibility).
+        pub const HOPPER_COMPUTE_A: u32 = super::super::NvClass::HOPPER_COMPUTE_A.0;
         /// QMD v4.0 definitions for Hopper.
         pub mod qmd {
             #![allow(non_upper_case_globals)]
@@ -377,9 +443,166 @@ pub mod classes {
 
     /// Maxwell Compute B.
     pub mod clb1c0 {
-        /// Class constant.
-        pub const MAXWELL_COMPUTE_B: u32 = 0xB1C0;
+        /// Class constant (u32 for backward compatibility).
+        pub const MAXWELL_COMPUTE_B: u32 = super::super::NvClass::MAXWELL_COMPUTE_B.0;
         /// Method definitions.
         pub mod mthd {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NvClass, classes};
+
+    #[test]
+    fn nv_class_key_constants_match_expected_values() {
+        assert_eq!(NvClass::VOLTA_COMPUTE_A.0, 0xC3C0);
+        assert_eq!(NvClass::AMPERE_COMPUTE_A.0, 0xC6C0);
+        assert_eq!(NvClass::HOPPER_COMPUTE_A.0, 0xCBC0);
+        assert_eq!(NvClass::MAXWELL_COMPUTE_B.0, 0xB1C0);
+        assert_eq!(NvClass::PASCAL_COMPUTE.0, 0xC0C0);
+        assert_eq!(NvClass::KEPLER_COMPUTE_A.0, 0xA0C0);
+    }
+
+    #[test]
+    fn nv_class_display_shows_name_and_hex() {
+        let s = format!("{}", NvClass::VOLTA_COMPUTE_A);
+        assert!(s.contains("Volta"));
+        assert!(s.contains("C3C0"));
+    }
+
+    #[test]
+    fn nv_class_from_u32() {
+        let v: u32 = NvClass::VOLTA_COMPUTE_A.into();
+        assert_eq!(v, 0xC3C0);
+    }
+
+    #[test]
+    fn submodule_constants_backward_compatible() {
+        assert_eq!(classes::clc3c0::VOLTA_COMPUTE_A, 0xC3C0);
+        assert_eq!(classes::clc6c0::AMPERE_COMPUTE_A, 0xC6C0);
+        assert_eq!(classes::clcbc0::HOPPER_COMPUTE_A, 0xCBC0);
+        assert_eq!(classes::clb1c0::MAXWELL_COMPUTE_B, 0xB1C0);
+    }
+
+    #[test]
+    fn nv_class_display_all_variants() {
+        assert!(format!("{}", NvClass::KEPLER_SPH).contains("Kepler SPH"));
+        assert!(format!("{}", NvClass::KEPLER_COMPUTE_A).contains("Kepler Compute A"));
+        assert!(format!("{}", NvClass::MAXWELL_COMPUTE_A).contains("Maxwell Compute A"));
+        assert!(format!("{}", NvClass::MAXWELL_COMPUTE_B).contains("Maxwell Compute B"));
+        assert!(format!("{}", NvClass::PASCAL_COMPUTE).contains("Pascal Compute"));
+        assert!(format!("{}", NvClass::VOLTA_COMPUTE_A).contains("Volta Compute A"));
+        assert!(format!("{}", NvClass::AMPERE_COMPUTE_A).contains("Ampere Compute A"));
+        assert!(format!("{}", NvClass::HOPPER_COMPUTE_A).contains("Hopper Compute A"));
+        assert!(format!("{}", NvClass::BLACKWELL_COMPUTE).contains("Blackwell Compute"));
+        assert!(format!("{}", NvClass::FERMI_DMA_COPY).contains("Fermi DMA Copy"));
+        assert!(format!("{}", NvClass(0xDEAD)).contains("Unknown"));
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn qmdv00_06_field_ranges_within_max_bit() {
+        use classes::cla0c0::qmd;
+        assert!(qmd::QMDV00_06_CTA_RASTER_WIDTH.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        assert!(qmd::QMDV00_06_CTA_RASTER_HEIGHT.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        assert!(qmd::QMDV00_06_CTA_THREAD_DIMENSION0.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        assert!(qmd::QMDV00_06_REGISTER_COUNT.end <= qmd::QMDV00_06_MAX_BIT + 1);
+    }
+
+    #[test]
+    fn qmdv00_06_critical_fields_non_overlapping() {
+        use classes::cla0c0::qmd;
+        fn disjoint(a: std::ops::Range<usize>, b: std::ops::Range<usize>) -> bool {
+            a.end <= b.start || b.end <= a.start
+        }
+        assert!(disjoint(qmd::QMDV00_06_QMD_MAJOR_VERSION, qmd::QMDV00_06_QMD_VERSION));
+        assert!(disjoint(qmd::QMDV00_06_CTA_RASTER_WIDTH, qmd::QMDV00_06_CTA_RASTER_HEIGHT));
+        assert!(disjoint(qmd::QMDV00_06_CTA_THREAD_DIMENSION0, qmd::QMDV00_06_CTA_THREAD_DIMENSION1));
+    }
+
+    #[test]
+    fn qmdv00_06_constant_buffer_accessors() {
+        use classes::cla0c0::qmd;
+        let r0 = qmd::QMDV00_06_CONSTANT_BUFFER_ADDR_LOWER(0);
+        assert_eq!(r0, 1536..1568);
+        let r1 = qmd::QMDV00_06_CONSTANT_BUFFER_ADDR_UPPER(0);
+        assert_eq!(r1, 1568..1576);
+        let r2 = qmd::QMDV00_06_CONSTANT_BUFFER_SIZE(1);
+        assert_eq!(r2, 1640..1657);
+        let r3 = qmd::QMDV00_06_CONSTANT_BUFFER_VALID(2);
+        assert_eq!(r3, 1721..1722);
+    }
+
+    #[test]
+    fn qmdv02_01_constant_buffer_accessors() {
+        use classes::clc0c0::qmd;
+        let r0 = qmd::QMDV02_01_CONSTANT_BUFFER_ADDR_LOWER(0);
+        assert_eq!(r0, 1536..1568);
+        let r1 = qmd::QMDV02_01_CONSTANT_BUFFER_SIZE_SHIFTED4(1);
+        assert_eq!(r1, 1640..1657);
+        let r2 = qmd::QMDV02_01_CONSTANT_BUFFER_VALID(2);
+        assert_eq!(r2, 1721..1722);
+    }
+
+    #[test]
+    fn qmdv02_02_constant_buffer_accessors() {
+        use classes::clc3c0::qmd;
+        let r0 = qmd::QMDV02_02_CONSTANT_BUFFER_ADDR_LOWER(0);
+        assert_eq!(r0, 1536..1568);
+        let r1 = qmd::QMDV02_02_CONSTANT_BUFFER_SIZE_SHIFTED4(1);
+        assert_eq!(r1, 1640..1657);
+    }
+
+    #[test]
+    fn qmdv03_00_constant_buffer_accessors() {
+        use classes::clc6c0::qmd;
+        let r0 = qmd::QMDV03_00_CONSTANT_BUFFER_ADDR_LOWER(0);
+        assert_eq!(r0, 1536..1568);
+        let r1 = qmd::QMDV03_00_CONSTANT_BUFFER_VALID(3);
+        assert_eq!(r1, 1785..1786);
+    }
+
+    #[test]
+    fn qmdv04_00_version_and_constant_buffer_accessors() {
+        use classes::clcbc0::qmd;
+        assert_eq!(qmd::QMDV04_00_MAX_BIT, 3071);
+        let r0 = qmd::QMDV04_00_CONSTANT_BUFFER_ADDR_LOWER_SHIFTED6(0);
+        assert_eq!(r0, 2048..2074);
+        let r1 = qmd::QMDV04_00_CONSTANT_BUFFER_ADDR_UPPER_SHIFTED6(0);
+        assert_eq!(r1, 2074..2091);
+        let r2 = qmd::QMDV04_00_CONSTANT_BUFFER_SIZE_SHIFTED4(1);
+        assert_eq!(r2, 2155..2172);
+        let r3 = qmd::QMDV04_00_CONSTANT_BUFFER_VALID(2);
+        assert_eq!(r3, 2236..2237);
+    }
+
+    #[test]
+    fn qmdv05_00_version_and_constant_buffer_accessors() {
+        use classes::clcdc0::qmd;
+        assert_eq!(qmd::QMDV05_00_MAX_BIT, 3071);
+        let r0 = qmd::QMDV05_00_CONSTANT_BUFFER_ADDR_LOWER_SHIFTED6(0);
+        assert_eq!(r0, 2048..2074);
+        let r1 = qmd::QMDV05_00_CONSTANT_BUFFER_VALID(1);
+        assert_eq!(r1, 2172..2173);
+    }
+
+    #[test]
+    fn qmd_version_fields_defined() {
+        use classes::cla0c0::qmd as q06;
+        use classes::clc0c0::qmd as q21;
+        use classes::clc3c0::qmd as q22;
+        use classes::clc6c0::qmd as q30;
+        use classes::clcbc0::qmd as q40;
+        use classes::clcdc0::qmd as q50;
+        assert_eq!(q06::QMDV00_06_QMD_MAJOR_VERSION, 0..4);
+        assert_eq!(q06::QMDV00_06_QMD_VERSION, 4..8);
+        assert_eq!(q21::QMDV02_01_QMD_MAJOR_VERSION, 0..4);
+        assert_eq!(q22::QMDV02_02_QMD_VERSION, 4..8);
+        assert_eq!(q30::QMDV03_00_QMD_VERSION, 4..8);
+        assert_eq!(q40::QMDV04_00_QMD_MAJOR_VERSION, 68..72);
+        assert_eq!(q40::QMDV04_00_QMD_VERSION, 64..68);
+        assert_eq!(q50::QMDV05_00_QMD_MAJOR_VERSION, 68..72);
+        assert_eq!(q50::QMDV05_00_QMD_VERSION, 64..68);
     }
 }

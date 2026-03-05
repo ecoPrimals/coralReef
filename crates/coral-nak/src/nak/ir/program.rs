@@ -24,9 +24,17 @@ pub struct InstrIdx {
 
 impl InstrIdx {
     pub fn new(bi: usize, ii: usize) -> Self {
+        let block_idx = bi.try_into().unwrap_or_else(|_| {
+            debug_assert!(false, "Block index overflow");
+            0
+        });
+        let instr_idx = ii.try_into().unwrap_or_else(|_| {
+            debug_assert!(false, "Instruction index overflow");
+            0
+        });
         Self {
-            block_idx: bi.try_into().expect("Block index overflow"),
-            instr_idx: ii.try_into().expect("Instruction index overflow"),
+            block_idx,
+            instr_idx,
         }
     }
 }
@@ -72,17 +80,17 @@ impl BasicBlock {
     }
 
     pub fn phi_dsts(&self) -> Option<&super::op_misc::OpPhiDsts> {
-        self.phi_dsts_ip().map(|ip| match &self.instrs[ip].op {
-            Op::PhiDsts(phi) => phi.deref(),
-            _ => panic!("Expected to find the phi"),
+        self.phi_dsts_ip().and_then(|ip| match &self.instrs[ip].op {
+            Op::PhiDsts(phi) => Some(phi.deref()),
+            _ => None,
         })
     }
 
     #[allow(dead_code)]
     pub fn phi_dsts_mut(&mut self) -> Option<&mut super::op_misc::OpPhiDsts> {
-        self.phi_dsts_ip().map(|ip| match &mut self.instrs[ip].op {
-            Op::PhiDsts(phi) => phi.deref_mut(),
-            _ => panic!("Expected to find the phi"),
+        self.phi_dsts_ip().and_then(|ip| match &mut self.instrs[ip].op {
+            Op::PhiDsts(phi) => Some(phi.deref_mut()),
+            _ => None,
         })
     }
 
@@ -98,16 +106,16 @@ impl BasicBlock {
         None
     }
     pub fn phi_srcs(&self) -> Option<&super::op_misc::OpPhiSrcs> {
-        self.phi_srcs_ip().map(|ip| match &self.instrs[ip].op {
-            Op::PhiSrcs(phi) => phi.deref(),
-            _ => panic!("Expected to find the phi"),
+        self.phi_srcs_ip().and_then(|ip| match &self.instrs[ip].op {
+            Op::PhiSrcs(phi) => Some(phi.deref()),
+            _ => None,
         })
     }
 
     pub fn phi_srcs_mut(&mut self) -> Option<&mut super::op_misc::OpPhiSrcs> {
-        self.phi_srcs_ip().map(|ip| match &mut self.instrs[ip].op {
-            Op::PhiSrcs(phi) => phi.deref_mut(),
-            _ => panic!("Expected to find the phi"),
+        self.phi_srcs_ip().and_then(|ip| match &mut self.instrs[ip].op {
+            Op::PhiSrcs(phi) => Some(phi.deref_mut()),
+            _ => None,
         })
     }
 
@@ -237,8 +245,8 @@ impl Index<InstrIdx> for Function {
 
     fn index(&self, index: InstrIdx) -> &Self::Output {
         // Removed at compile time (except for 16-bit targets)
-        let block_idx: usize = index.block_idx.try_into().unwrap();
-        let instr_idx: usize = index.instr_idx.try_into().unwrap();
+        let block_idx: usize = index.block_idx.try_into().unwrap_or(0);
+        let instr_idx: usize = index.instr_idx.try_into().unwrap_or(0);
         &self.blocks[block_idx].instrs[instr_idx]
     }
 }

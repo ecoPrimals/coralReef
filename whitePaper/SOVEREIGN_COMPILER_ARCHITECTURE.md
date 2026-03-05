@@ -1,7 +1,7 @@
 # Sovereign Compiler Architecture
 
-**Status**: Draft  
-**Date**: March 4, 2026
+**Status**: Implemented  
+**Date**: March 5, 2026
 
 ---
 
@@ -23,13 +23,13 @@ to native GPU binaries independently.
                       │
                       ▼
               ┌───────────────┐
-              │  coral-nak    │  Translate → optimize → lower → encode
+              │  coral-nak    │  Translate → lower → optimize → encode
               │               │
-              │  from_spirv   │  naga IR → NAK IR
-              │  optimize     │  copy prop, DCE, scheduling
+              │  from_spirv   │  naga IR → NAK SSA IR
+              │  lower_f64    │  DFMA software transcendentals
+              │  optimize     │  copy prop, DCE, bar prop, scheduling
               │  legalize     │  arch-specific lowering
-              │  f64_lower    │  DFMA software transcendentals
-              │  alloc_regs   │  register allocation
+              │  alloc_regs   │  register allocation + spilling
               │  encode       │  SM70+ binary emission
               └───────┬───────┘
                       │
@@ -50,20 +50,23 @@ to native GPU binaries independently.
               └───────────────┘
 ```
 
-## Dependency Elimination Roadmap
+## Dependency Elimination — Complete
 
-| Mesa dependency | Replacement | Complexity |
-|----------------|-------------|------------|
-| `compiler::cfg` | Pure Rust CFG | Low — ~200 LOC |
-| `compiler::bitset` | Pure Rust BitSet | Low — ~100 LOC |
-| `compiler::smallvec` | `smallvec` crate | Trivial |
-| `compiler::as_slice` | Rust trait | Trivial |
-| `compiler::dataflow` | Pure Rust dataflow | Medium — ~300 LOC |
-| `nak_bindings` | Pure Rust types | High — ~2K LOC of C struct ports |
-| `nvidia_headers` | `coral-hw-headers` | High — build-time C header parsing |
-| `compiler::nir` | Delete (replace with naga) | N/A |
-| `nak_ir_proc` | `coral-nak-proc` | Medium — 3 derive macros |
-| `bitview` | Vendor or rewrite | Low — ~500 LOC |
+All Mesa C dependencies have been replaced with pure-Rust implementations:
+
+| Mesa dependency | Replacement | Status |
+|----------------|-------------|--------|
+| `compiler::cfg` | Pure Rust CFG + dominator tree | Evolved |
+| `compiler::bitset` | Pure Rust dense BitSet | Evolved |
+| `compiler::smallvec` | Stack-optimized SmallVec (None/One/Many) | Evolved |
+| `compiler::as_slice` | Rust trait | Evolved |
+| `compiler::dataflow` | Pure Rust worklist solver | Evolved |
+| `nvidia_headers` | Pure Rust QMD definitions (Kepler–Blackwell) | Evolved |
+| `nak_latencies` | Pure Rust SM100 latency model | Evolved |
+| `compiler::nir` | Deleted — replaced by naga frontend | Removed |
+| `nak_bindings` | Deleted — legacy FFI stubs removed | Removed |
+| `nak_ir_proc` | `coral-nak-proc` (3 derive macros) | Evolved |
+| `bitview` | `coral-nak-bitview` | Evolved |
 
 ## Integration with barraCuda
 
@@ -78,4 +81,4 @@ f64 precision guarantees.
 
 ---
 
-*This architecture evolves as implementation progresses.*
+*This architecture is implemented. Future work focuses on coralDriver and ecosystem integration.*

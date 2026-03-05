@@ -2,20 +2,12 @@
 // SPDX-License-Identifier: MIT
 #![allow(non_camel_case_types, clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use super::ir::*;
-
-// This contains the register scheduling information provided by NVIDIA.  This
-// file is for Turing only.
-
-// Coupled instructions are ones with fixed latencies, they need delays but not
-// scoreboards.  Decoupled instructions are ones with variable latencies, need
-// scoreboards but not delays.  There are also redirected instructions which
-// depending on the SM, can be coupled or decoupled so both delays and
-// scoreboards needs to be provided.
+use super::super::ir::*;
+use super::pred;
 
 #[allow(dead_code)]
 #[derive(Debug)]
-enum RegLatencySM75 {
+pub(super) enum RegLatencySM75 {
     CoupledDisp64,
     CoupledDisp,
     CoupledAlu,
@@ -37,12 +29,8 @@ enum RegLatencySM75 {
     GuardPredicate,
 }
 
-pub const fn pred(has_pred: bool, a: u32, b: u32) -> u32 {
-    if has_pred { a + b } else { b }
-}
-
 impl RegLatencySM75 {
-    fn op_category(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM75 {
+    pub(super) fn op_category(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM75 {
         use RegLatencySM75::*;
         match op {
             // this will need updating if imad grows support for input predicates
@@ -177,7 +165,7 @@ impl RegLatencySM75 {
         }
     }
 
-    pub fn read_after_write(writer: RegLatencySM75, reader: RegLatencySM75) -> u32 {
+    pub(super) fn read_after_write(writer: RegLatencySM75, reader: RegLatencySM75) -> u32 {
         use RegLatencySM75::*;
         match writer {
             IMADWideAB | DecoupledOther => {
@@ -250,7 +238,7 @@ impl RegLatencySM75 {
                 },
                 IMADWideUpper => match writer {
                     CoupledDisp64 => 4,
-                    CoupledAlu | CoupledDisp => 3,
+                    CoupledDisp | CoupledAlu => 3,
                     CoupledFMA | IMADLo => 2,
                     IMADWideLower => 2,
                     IMADWideUpper => 2,
@@ -269,7 +257,7 @@ impl RegLatencySM75 {
             },
             RedirectedFP64 => match writer {
                 CoupledDisp64 => 6,
-                CoupledAlu | CoupledDisp => 6,
+                CoupledDisp | CoupledAlu => 6,
                 CoupledFMA | IMADLo => 6,
                 IMADWideLower => 6,
                 IMADWideUpper => 6,
@@ -284,7 +272,7 @@ impl RegLatencySM75 {
             },
             RedirectedFP16 => match writer {
                 CoupledDisp64 => 6,
-                CoupledAlu | CoupledDisp => 6,
+                CoupledDisp | CoupledAlu => 6,
                 CoupledFMA | IMADLo => 6,
                 IMADWideLower => 6,
                 IMADWideUpper => 6,
@@ -299,7 +287,7 @@ impl RegLatencySM75 {
             },
             RedirectedHMMA_884_F16(read_idx) => match writer {
                 CoupledDisp64 => 6,
-                CoupledAlu | CoupledDisp => 6,
+                CoupledDisp | CoupledAlu => 6,
                 CoupledFMA | IMADLo => 6,
                 IMADWideLower => 6,
                 IMADWideUpper => 6,
@@ -315,7 +303,7 @@ impl RegLatencySM75 {
             },
             RedirectedHMMA_884_F32(read_idx) => match writer {
                 CoupledDisp64 => 6,
-                CoupledAlu | CoupledDisp => 6,
+                CoupledDisp | CoupledAlu => 6,
                 CoupledFMA | IMADLo => 6,
                 IMADWideLower => 6,
                 IMADWideUpper => 6,
@@ -331,7 +319,7 @@ impl RegLatencySM75 {
             },
             RedirectedHMMA_1688 | RedirectedHMMA_16816 | Decoupled => match writer {
                 CoupledDisp64 => 6,
-                CoupledAlu | CoupledDisp => 6,
+                CoupledDisp | CoupledAlu => 6,
                 CoupledFMA | IMADLo => 6,
                 IMADWideLower => 6,
                 IMADWideUpper => 6,
@@ -346,7 +334,7 @@ impl RegLatencySM75 {
             },
             IMMA(read_idx) => match writer {
                 CoupledDisp64 => 8,
-                CoupledAlu | CoupledDisp => 8,
+                CoupledDisp | CoupledAlu => 8,
                 CoupledFMA | IMADLo => 8,
                 IMADWideLower => 8,
                 IMADWideUpper => 8,
@@ -362,7 +350,7 @@ impl RegLatencySM75 {
             },
             DecoupledOther => match writer {
                 CoupledDisp64 => 8,
-                CoupledAlu | CoupledDisp => 8,
+                CoupledDisp | CoupledAlu => 8,
                 CoupledFMA | IMADLo => 8,
                 IMADWideLower => 8,
                 IMADWideUpper => 8,
@@ -381,7 +369,11 @@ impl RegLatencySM75 {
         }
     }
 
-    fn write_after_write(writer1: RegLatencySM75, writer2: RegLatencySM75, has_pred: bool) -> u32 {
+    pub(super) fn write_after_write(
+        writer1: RegLatencySM75,
+        writer2: RegLatencySM75,
+        has_pred: bool,
+    ) -> u32 {
         use RegLatencySM75::*;
         match writer1 {
             IMADWideAB | DecoupledOther => {
@@ -577,7 +569,7 @@ impl RegLatencySM75 {
         }
     }
 
-    fn write_after_read(reader: RegLatencySM75, writer: RegLatencySM75) -> u32 {
+    pub(super) fn write_after_read(reader: RegLatencySM75, writer: RegLatencySM75) -> u32 {
         use RegLatencySM75::*;
         match writer {
             CoupledDisp64 | CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideLower
@@ -651,7 +643,7 @@ impl RegLatencySM75 {
         }
     }
 
-    fn pred_read_after_write(writer: RegLatencySM75, reader: RegLatencySM75) -> u32 {
+    pub(super) fn pred_read_after_write(writer: RegLatencySM75, reader: RegLatencySM75) -> u32 {
         use RegLatencySM75::*;
         match reader {
             CoupledDisp => match writer {
@@ -735,7 +727,7 @@ impl RegLatencySM75 {
         }
     }
 
-    fn pred_write_after_write(
+    pub(super) fn pred_write_after_write(
         writer1: RegLatencySM75,
         writer2: RegLatencySM75,
         has_pred: bool,
@@ -798,7 +790,7 @@ impl RegLatencySM75 {
         }
     }
 
-    fn pred_write_after_read(reader: RegLatencySM75, writer: RegLatencySM75) -> u32 {
+    pub(super) fn pred_write_after_read(reader: RegLatencySM75, writer: RegLatencySM75) -> u32 {
         use RegLatencySM75::*;
         match writer {
             CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower => 1,
@@ -820,433 +812,6 @@ impl RegLatencySM75 {
             _ => {
                 panic!("Illegal WAR category in Predicates");
             }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum URegLatencySM75 {
-    Udp,
-    VectorCoupled,
-    VectorDecoupled,
-    Uldc,
-    Umov,
-    VectorCoupledBindless,
-    VectorDecoupledBindless,
-    VoteU,
-    GuardPredicate,
-    R2UR,
-}
-
-impl URegLatencySM75 {
-    fn op_category(op: &Op, reader: bool, op_reg_idx: usize) -> URegLatencySM75 {
-        use URegLatencySM75::*;
-        // is this using a bindless cbuf as a src register.
-        // this decides between the category types for readers.
-        let bindless = reader && op.srcs_as_slice()[op_reg_idx].is_bindless_cbuf();
-
-        let vcoupled = if bindless {
-            VectorCoupledBindless
-        } else {
-            VectorCoupled
-        };
-        let vdecoupled = if bindless {
-            VectorDecoupledBindless
-        } else {
-            VectorDecoupled
-        };
-
-        // if this is a reader from a ureg, it could be a U* instruction or a regular instruction.
-        let uniform_op = op.is_uniform();
-
-        let vcoupled = if uniform_op { Udp } else { vcoupled };
-        let vdecoupled = if uniform_op { Udp } else { vdecoupled };
-
-        match op {
-            Op::BMsk(_) => vcoupled,
-            Op::BRev(_) => vcoupled,
-            // uclea?
-            Op::Flo(_) => vdecoupled,
-            Op::IAdd3(_) | Op::IAdd3X(_) => vcoupled,
-            Op::IAbs(_) => vcoupled,
-            Op::IDp4(_) => vcoupled,
-            Op::IMnMx(_) => vcoupled,
-            Op::IMad(_) => vcoupled,
-
-            Op::IMad64(_) => vcoupled,
-            Op::ISetP(_) => vcoupled,
-            Op::Ldc(_) => {
-                if uniform_op {
-                    Uldc
-                } else {
-                    vdecoupled
-                }
-            }
-            Op::Lea(_) => vcoupled,
-            Op::LeaX(_) => vcoupled,
-            Op::Lop2(_) | Op::Lop3(_) => vcoupled,
-
-            Op::MuFu(_) => vdecoupled,
-            Op::Mov(_) => {
-                if uniform_op {
-                    Umov
-                } else {
-                    vcoupled
-                }
-            }
-
-            // mov32i => URegLatency::Uldc,
-            // p2ur => Udp,
-            Op::PLop3(_) => vcoupled,
-            Op::PopC(_) => vdecoupled,
-            Op::Prmt(_) => vcoupled,
-            Op::PSetP(_) => vcoupled,
-            // UR2UP
-            Op::Sel(_) => vcoupled,
-            Op::Sgxt(_) => vcoupled,
-            Op::Shf(_) => vcoupled,
-            Op::Shfl(_) => vdecoupled,
-
-            Op::I2F(_) => vdecoupled,
-            Op::F2I(_) => vdecoupled,
-            Op::F2F(_) => vdecoupled,
-            Op::R2UR(_) => {
-                if !reader {
-                    R2UR
-                } else {
-                    panic!("Illegal R2UR in ureg");
-                }
-            }
-            Op::S2R(_) => {
-                if !reader {
-                    R2UR
-                } else {
-                    panic!("Illegal S2UR in ureg");
-                }
-            }
-            Op::Vote(_) => VoteU,
-
-            Op::FRnd(_) => vdecoupled,
-            Op::FAdd(_)
-            | Op::FMul(_)
-            | Op::FFma(_)
-            | Op::FSet(_)
-            | Op::FSetP(_)
-            | Op::FMnMx(_)
-            | Op::HAdd2(_)
-            | Op::HMul2(_)
-            | Op::HSet2(_)
-            | Op::HFma2(_)
-            | Op::HSetP2(_) => vcoupled,
-            Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => vdecoupled,
-            _ => {
-                panic!("Illegal instuction in ureg category {}", op);
-            }
-        }
-    }
-
-    fn read_after_write(writer: URegLatencySM75, reader: URegLatencySM75) -> u32 {
-        use URegLatencySM75::*;
-        match reader {
-            Udp => match writer {
-                Udp => 4,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 2,
-                _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
-                }
-            },
-            VectorCoupled => match writer {
-                Udp => 6,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 2,
-                _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
-                }
-            },
-            VectorDecoupled => match writer {
-                Udp => 9,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 2,
-                _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
-                }
-            },
-            Uldc | VectorCoupledBindless | VectorDecoupledBindless => match writer {
-                Udp => 12,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 5,
-                _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
-                }
-            },
-            Umov => match writer {
-                Udp => 7,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 2,
-                _ => {
-                    panic!("Illegal writer in raw ureg latency")
-                }
-            },
-            _ => {
-                panic!("Illegal read in ureg raw latency")
-            }
-        }
-    }
-
-    fn write_after_write(
-        writer1: URegLatencySM75,
-        writer2: URegLatencySM75,
-        has_pred: bool,
-    ) -> u32 {
-        use URegLatencySM75::*;
-        match writer2 {
-            Udp => match writer1 {
-                Udp => 1,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 1,
-                _ => {
-                    panic!("Illegal writer in ureg waw latency")
-                }
-            },
-            R2UR => match writer1 {
-                Udp => pred(has_pred, 4, 6),
-                R2UR => 2,
-                Uldc | VoteU | Umov => 4,
-                _ => {
-                    panic!("Illegal writer in ureg waw latency")
-                }
-            },
-            Uldc | VoteU | Umov => match writer1 {
-                Udp => 7,
-                R2UR => 2,
-                Uldc | VoteU | Umov => 1,
-                _ => {
-                    panic!("Illegal writer in ureg waw latency")
-                }
-            },
-            _ => {
-                panic!("Illegal writer in ureg waw latency")
-            }
-        }
-    }
-
-    fn write_after_read(reader: URegLatencySM75, writer: URegLatencySM75) -> u32 {
-        use URegLatencySM75::*;
-        match writer {
-            Udp => 1,
-            R2UR => 1,
-            Uldc | VoteU | Umov => match reader {
-                Udp => 3,
-                _ => 1,
-            },
-            _ => {
-                panic!("Illegal writer in ureg war latency")
-            }
-        }
-    }
-
-    fn pred_read_after_write(writer: URegLatencySM75, reader: URegLatencySM75) -> u32 {
-        use URegLatencySM75::*;
-        match reader {
-            Udp => match writer {
-                Udp => 4,
-                VoteU => 1,
-                _ => {
-                    panic!("Illegal writer in upred raw latency")
-                }
-            },
-            VectorCoupled => match writer {
-                Udp => 6,
-                VoteU => 1,
-                _ => {
-                    panic!("Illegal writer in upred raw latency")
-                }
-            },
-            GuardPredicate => match writer {
-                Udp => 11,
-                VoteU => 5,
-                _ => {
-                    panic!("Illegal writer in upred raw latency")
-                }
-            },
-            _ => {
-                panic!("Illegal reader in upred raw latency")
-            }
-        }
-    }
-
-    fn pred_write_after_write(writer1: URegLatencySM75, writer2: URegLatencySM75) -> u32 {
-        use URegLatencySM75::*;
-        match writer2 {
-            Udp => 1,
-            VoteU => match writer1 {
-                Udp => 7,
-                VoteU => 1,
-                _ => {
-                    panic!("Illegal writer1 in upred raw latency")
-                }
-            },
-            _ => {
-                panic!("Illegal writer2 in upred raw latency")
-            }
-        }
-    }
-
-    fn pred_write_after_read(reader: URegLatencySM75, writer: URegLatencySM75) -> u32 {
-        use URegLatencySM75::*;
-        match writer {
-            Udp => 1,
-            VoteU => match reader {
-                Udp => 2,
-                _ => 1,
-            },
-            _ => {
-                panic!("Illegal writer2 in upred raw latency")
-            }
-        }
-    }
-}
-
-pub struct SM75Latency {}
-
-impl SM75Latency {
-    pub fn needs_scoreboards(op: &Op) -> bool {
-        if op.is_uniform() {
-            matches!(
-                URegLatencySM75::op_category(op, false, 0),
-                URegLatencySM75::R2UR
-            )
-        } else {
-            match RegLatencySM75::op_category(op, false, 0) {
-                RegLatencySM75::RedirectedFP64 |
-                // We don't think fp16 needs scoreboarding on any known hw
-                // Put this back if we figure out it does.
-                //RegLatencySM75::RedirectedFP16 |
-                RegLatencySM75::RedirectedHMMA_884_F16(_) |
-                RegLatencySM75::RedirectedHMMA_884_F32(_) |
-                RegLatencySM75::RedirectedHMMA_1688 |
-                RegLatencySM75::RedirectedHMMA_16816 |
-                RegLatencySM75::IMMA(_) |
-                RegLatencySM75::Decoupled => true,
-                _ => false
-            }
-        }
-    }
-
-    /// if read is None pick the worst case raw latency
-    pub fn raw(write: &Op, dst_idx: usize, read: Option<&Op>, src_idx: usize) -> u32 {
-        let Some(dst_file) = write.dsts_as_slice()[dst_idx].file() else {
-            return 0;
-        };
-
-        match dst_file {
-            RegFile::GPR => {
-                let write_latency = RegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = match read {
-                    Some(op) => RegLatencySM75::op_category(op, true, src_idx),
-                    None => RegLatencySM75::RedirectedFP64,
-                };
-
-                RegLatencySM75::read_after_write(write_latency, read_latency)
-            }
-            RegFile::UGPR => {
-                let write_latency = URegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = match read {
-                    Some(op) => URegLatencySM75::op_category(op, true, src_idx),
-                    None => URegLatencySM75::Uldc,
-                };
-
-                URegLatencySM75::read_after_write(write_latency, read_latency)
-            }
-            RegFile::Pred => {
-                let write_latency = RegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = match read {
-                    Some(op) => RegLatencySM75::op_category(op, true, src_idx),
-                    None => RegLatencySM75::GuardPredicate,
-                };
-
-                RegLatencySM75::pred_read_after_write(write_latency, read_latency)
-            }
-            RegFile::UPred => {
-                let write_latency = URegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = match read {
-                    Some(op) => URegLatencySM75::op_category(op, true, src_idx),
-                    None => URegLatencySM75::GuardPredicate,
-                };
-
-                URegLatencySM75::pred_read_after_write(write_latency, read_latency)
-            }
-            RegFile::Bar => 0, // Barriers have a HW scoreboard
-            _ => panic!("Not a register"),
-        }
-    }
-
-    pub fn war(read: &Op, src_idx: usize, write: &Op, dst_idx: usize) -> u32 {
-        let Some(dst_file) = write.dsts_as_slice()[dst_idx].file() else {
-            return 0;
-        };
-
-        match dst_file {
-            RegFile::GPR => {
-                let write_latency = RegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = RegLatencySM75::op_category(read, true, src_idx);
-
-                RegLatencySM75::write_after_read(read_latency, write_latency)
-            }
-            RegFile::UGPR => {
-                let write_latency = URegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = URegLatencySM75::op_category(read, true, src_idx);
-
-                URegLatencySM75::write_after_read(read_latency, write_latency)
-            }
-            RegFile::Pred => {
-                let write_latency = RegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = RegLatencySM75::op_category(read, true, src_idx);
-
-                RegLatencySM75::pred_write_after_read(read_latency, write_latency)
-            }
-            RegFile::UPred => {
-                let write_latency = URegLatencySM75::op_category(write, false, dst_idx);
-                let read_latency = URegLatencySM75::op_category(read, true, src_idx);
-
-                URegLatencySM75::pred_write_after_read(read_latency, write_latency)
-            }
-            _ => panic!("Not a register"),
-        }
-    }
-
-    pub fn waw(a: &Op, a_dst_idx: usize, b: &Op, b_dst_idx: usize, a_op_pred: bool) -> u32 {
-        let Some(dst_file) = a.dsts_as_slice()[a_dst_idx].file() else {
-            return 0;
-        };
-
-        match dst_file {
-            RegFile::GPR => {
-                let write1_latency = RegLatencySM75::op_category(a, false, a_dst_idx);
-                let write2_latency = RegLatencySM75::op_category(b, false, b_dst_idx);
-
-                RegLatencySM75::write_after_write(write1_latency, write2_latency, a_op_pred)
-            }
-            RegFile::UGPR => {
-                let write1_latency = URegLatencySM75::op_category(a, false, a_dst_idx);
-                let write2_latency = URegLatencySM75::op_category(b, false, b_dst_idx);
-
-                URegLatencySM75::write_after_write(write1_latency, write2_latency, a_op_pred)
-            }
-            RegFile::Pred => {
-                let write1_latency = RegLatencySM75::op_category(a, false, a_dst_idx);
-                let write2_latency = RegLatencySM75::op_category(b, false, b_dst_idx);
-
-                RegLatencySM75::pred_write_after_write(write1_latency, write2_latency, a_op_pred)
-            }
-            RegFile::UPred => {
-                let write1_latency = URegLatencySM75::op_category(a, false, a_dst_idx);
-                let write2_latency = URegLatencySM75::op_category(b, false, b_dst_idx);
-
-                URegLatencySM75::pred_write_after_write(write1_latency, write2_latency)
-            }
-            _ => panic!("Not a register"),
         }
     }
 }

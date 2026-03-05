@@ -26,5 +26,7 @@ tarpc = { workspace = true }
 tokio-serde = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
+bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tokio-util = { workspace = true }

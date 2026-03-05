@@ -27,7 +27,10 @@ pub trait Builder {
 
     fn lop2_to(&mut self, dst: Dst, op: LogicOp2, mut x: Src, mut y: Src) {
         let is_predicate = match &dst {
-            Dst::None => panic!("No LOP destination"),
+            Dst::None => {
+                debug_assert!(false, "No LOP destination");
+                return;
+            }
             Dst::SSA(ssa) => ssa.is_predicate(),
             Dst::Reg(reg) => reg.is_predicate(),
         };
@@ -150,7 +153,8 @@ impl InstrBuilder<'_> {
 impl Builder for InstrBuilder<'_> {
     fn push_instr(&mut self, instr: Instr) -> &mut Instr {
         self.instrs.push(instr);
-        self.instrs.last_mut().unwrap()
+        // SAFETY: push() always adds at least one element
+        unsafe { self.instrs.last_mut().unwrap_unchecked() }
     }
 
     fn sm(&self) -> u8 {
@@ -254,7 +258,7 @@ impl<T: Builder> Builder for UniformBuilder<'_, T> {
 impl<T: SSABuilder> SSABuilder for UniformBuilder<'_, T> {
     fn alloc_ssa(&mut self, file: RegFile) -> SSAValue {
         let file = if self.uniform {
-            file.to_uniform().unwrap()
+            file.to_uniform().unwrap_or(file)
         } else {
             file
         };
@@ -263,10 +267,283 @@ impl<T: SSABuilder> SSABuilder for UniformBuilder<'_, T> {
 
     fn alloc_ssa_vec(&mut self, file: RegFile, comps: u8) -> SSARef {
         let file = if self.uniform {
-            file.to_uniform().unwrap()
+            file.to_uniform().unwrap_or(file)
         } else {
             file
         };
         self.b.alloc_ssa_vec(file, comps)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nak::ir::{
+        FloatCmpOp, IntCmpOp, IntCmpType, LogicOp2, MuFuOp, Op, OpFAdd, OpMuFu, OpNop, OpRro,
+        OpSel, RegFile, RroOp, ShaderModelInfo,
+    };
+
+    fn make_sm70() -> ShaderModelInfo {
+        ShaderModelInfo::new(70, 64)
+    }
+
+    fn make_sm50() -> ShaderModelInfo {
+        ShaderModelInfo::new(50, 64)
+    }
+
+    #[test]
+    fn test_instr_builder_new_creates_empty() {
+        let sm = make_sm70();
+        let builder = InstrBuilder::new(&sm);
+        let instrs = builder.into_vec();
+        assert!(instrs.is_empty());
+    }
+
+    #[test]
+    fn test_push_instr_and_build_block() {
+        let sm = make_sm70();
+        let mut builder = InstrBuilder::new(&sm);
+        builder.push_op(OpNop { label: None });
+        builder.push_op(OpNop { label: None });
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 2);
+        assert!(matches!(instrs[0].op, Op::Nop(_)));
+        assert!(matches!(instrs[1].op, Op::Nop(_)));
+    }
+
+    #[test]
+    fn test_alloc_ssa_unique_values() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let a = builder.alloc_ssa(RegFile::GPR);
+        let b = builder.alloc_ssa(RegFile::GPR);
+        let c = builder.alloc_ssa(RegFile::Pred);
+        assert_ne!(a.idx(), b.idx());
+        assert_ne!(b.idx(), c.idx());
+        assert_ne!(a.idx(), c.idx());
+        assert!(a.file().is_gpr());
+        assert!(c.file().is_predicate());
+    }
+
+    #[test]
+    fn test_alloc_ssa_vec_component_count() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let vec2 = builder.alloc_ssa_vec(RegFile::GPR, 2);
+        let vec4 = builder.alloc_ssa_vec(RegFile::GPR, 4);
+        assert_eq!(vec2.comps(), 2);
+        assert_eq!(vec4.comps(), 4);
+        assert_eq!(vec2.len(), 2);
+        assert_eq!(vec4.len(), 4);
+    }
+
+    #[test]
+    fn test_lop2_helper() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let result = builder.lop2(LogicOp2::And, x.into(), y.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(result.file().is_gpr());
+    }
+
+    #[test]
+    fn test_mufu_emits_op() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let src = builder.alloc_ssa(RegFile::GPR);
+        let result = builder.mufu(MuFuOp::Sin, src.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(result.file().is_gpr());
+        let Op::MuFu(op) = &instrs[0].op else {
+            panic!("expected MuFu");
+        };
+        assert!(matches!(op.op, MuFuOp::Sin));
+    }
+
+    #[test]
+    fn test_fsin_sm70_uses_fmul_and_mufu() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let src = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.fsin(src.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 2, "fsin on SM70: fmul + mufu");
+        assert!(matches!(instrs[0].op, Op::FMul(_)));
+        assert!(matches!(instrs[1].op, Op::MuFu(_)));
+    }
+
+    #[test]
+    fn test_fcos_sm70_uses_fmul_and_mufu() {
+        let sm = make_sm50();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let src = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.fcos(src.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 2, "fcos on SM50: rro + mufu");
+        assert!(matches!(instrs[0].op, Op::Rro(_)));
+        let Op::Rro(rro) = &instrs[0].op else { unreachable!() };
+        assert!(matches!(rro.op, RroOp::SinCos));
+        assert!(matches!(instrs[1].op, Op::MuFu(_)));
+    }
+
+    #[test]
+    fn test_fexp2_sm70_passes_through_to_mufu() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let src = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.fexp2(src.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1, "fexp2 on SM70: direct mufu");
+        let Op::MuFu(op) = &instrs[0].op else {
+            panic!("expected MuFu");
+        };
+        assert!(matches!(op.op, MuFuOp::Exp2));
+    }
+
+    #[test]
+    fn test_fexp2_sm50_uses_rro_and_mufu() {
+        let sm = make_sm50();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let src = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.fexp2(src.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 2, "fexp2 on SM50: rro + mufu");
+        assert!(matches!(instrs[0].op, Op::Rro(_)));
+        let Op::Rro(rro) = &instrs[0].op else { unreachable!() };
+        assert!(matches!(rro.op, RroOp::Exp2));
+    }
+
+    #[test]
+    fn test_fadd_fmul_fset() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.fadd(x.into(), y.into());
+        let _ = builder.fmul(x.into(), y.into());
+        let _ = builder.fset(FloatCmpOp::OrdEq, x.into(), y.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 3);
+        assert!(matches!(instrs[0].op, Op::FAdd(_)));
+        assert!(matches!(instrs[1].op, Op::FMul(_)));
+        assert!(matches!(instrs[2].op, Op::FSet(_)));
+    }
+
+    #[test]
+    fn test_sel_gpr() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let cond = builder.alloc_ssa(RegFile::Pred);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let result = builder.sel(cond.into(), x.into(), y.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(result.file().is_gpr());
+        assert!(matches!(instrs[0].op, Op::Sel(_)));
+    }
+
+    #[test]
+    fn test_copy_allocates_correct_file() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let gpr = builder.alloc_ssa(RegFile::GPR);
+        let pred = builder.alloc_ssa(RegFile::Pred);
+        let gpr_result = builder.copy(gpr.into());
+        let pred_result = builder.copy(pred.into());
+        assert!(gpr_result.file().is_gpr());
+        assert!(pred_result.file().is_predicate());
+    }
+
+    #[test]
+    fn test_shl_shr_urol_uror() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let shift = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.shl(x.into(), shift.into());
+        let _ = builder.shr(x.into(), shift.into(), false);
+        let _ = builder.urol(x.into(), shift.into());
+        let _ = builder.uror(x.into(), shift.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 4);
+        assert!(matches!(instrs[0].op, Op::Shf(_)));
+        assert!(matches!(instrs[1].op, Op::Shf(_)));
+        assert!(matches!(instrs[2].op, Op::Shf(_)));
+        assert!(matches!(instrs[3].op, Op::Shf(_)));
+    }
+
+    #[test]
+    fn test_iadd_ineg_imul() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.iadd(x.into(), y.into(), 0.into());
+        let _ = builder.ineg(x.into());
+        let _ = builder.imul(x.into(), y.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 3);
+        assert!(matches!(instrs[0].op, Op::IAdd3(_)));
+        assert!(matches!(instrs[1].op, Op::IAdd3(_)));
+        assert!(matches!(instrs[2].op, Op::IMad(_)));
+    }
+
+    #[test]
+    fn test_isetp_brev() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let pred = builder.isetp(IntCmpType::U32, IntCmpOp::Eq, x.into(), y.into());
+        assert!(pred.file().is_predicate());
+        let _ = builder.brev(x.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 2);
+        assert!(matches!(instrs[0].op, Op::ISetP(_)));
+        assert!(matches!(instrs[1].op, Op::BRev(_)));
+    }
+
+    #[test]
+    fn test_prmt_identity_optimizes_to_copy() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.prmt(x.into(), y.into(), [0, 1, 2, 3]);
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(matches!(instrs[0].op, Op::Copy(_)));
+    }
+
+    #[test]
+    fn test_undef() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let result = builder.undef();
+        assert!(result.file().is_gpr());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(matches!(instrs[0].op, Op::Undef(_)));
     }
 }

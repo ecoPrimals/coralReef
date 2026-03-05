@@ -1,7 +1,7 @@
 # MUFU Instruction Analysis
 
-**Status**: Draft  
-**Date**: March 4, 2026
+**Status**: Reference  
+**Date**: March 5, 2026
 
 ---
 

@@ -34,8 +34,11 @@ pub(crate) fn compile_shader(
     // Pre-RA scheduling
     shader.opt_instr_sched_prepass();
 
+    // f64 transcendental software lowering
+    shader.lower_f64_transcendentals();
+
     // Legalize for target arch
-    shader.legalize();
+    shader.legalize()?;
 
     // Register allocation
     shader.assign_regs();
@@ -51,13 +54,13 @@ pub(crate) fn compile_shader(
     shader.opt_instr_sched_postpass();
 
     // Gather info for header encoding (uses num_gprs from RA)
-    shader.gather_info();
+    shader.gather_info()?;
 
     // Remove annotations before encoding
     shader.remove_annotations();
 
     // Encode to binary
-    let code = shader.sm.encode_shader(shader);
+    let code = shader.sm.encode_shader(shader)?;
     let header = sph::encode_header(shader.sm, &shader.info, None);
 
     Ok(CompiledShader { header, code })

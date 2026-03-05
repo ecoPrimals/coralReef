@@ -5,6 +5,7 @@
 #![allow(clippy::wildcard_imports)]
 
 use super::*;
+use crate::CompileError;
 
 /// Tessellation domain constants (matches NVIDIA encoding).
 pub const NAK_TS_DOMAIN_ISOLINE: u8 = 0;
@@ -136,7 +137,7 @@ pub struct VtgIoInfo {
 }
 
 impl VtgIoInfo {
-    fn mark_attrs(&mut self, addrs: Range<u16>, written: bool) {
+    fn mark_attrs(&mut self, addrs: Range<u16>, written: bool) -> Result<(), CompileError> {
         let sysvals = if written {
             &mut self.sysvals_out
         } else {
@@ -164,45 +165,51 @@ impl VtgIoInfo {
                 let attr_idx = (addr - 0x080) as usize / 4;
                 attr.set_bit(attr_idx, true);
             } else if addr < 0x2c0 {
-                panic!("FF color I/O not supported");
+                return Err(CompileError::NotImplemented("FF color I/O not supported".into()));
             } else if addr < 0x300 {
                 sysvals.c |= 1 << ((addr - 0x2c0) / 4);
             } else if addr >= 0x3a0 && addr < 0x3c0 {
                 *sysvals_d |= 1 << ((addr - 0x3a0) / 4);
             }
         }
+        Ok(())
     }
 
-    pub fn mark_attrs_read(&mut self, addrs: Range<u16>) {
-        self.mark_attrs(addrs, false);
+    pub fn mark_attrs_read(&mut self, addrs: Range<u16>) -> Result<(), CompileError> {
+        self.mark_attrs(addrs, false)
     }
 
-    pub fn mark_attrs_written(&mut self, addrs: Range<u16>) {
-        self.mark_attrs(addrs, true);
+    pub fn mark_attrs_written(&mut self, addrs: Range<u16>) -> Result<(), CompileError> {
+        self.mark_attrs(addrs, true)
     }
 
-    pub fn attr_written(&self, addr: u16) -> bool {
-        if addr < 0x080 {
+    pub fn attr_written(&self, addr: u16) -> Result<bool, CompileError> {
+        Ok(if addr < 0x080 {
             self.sysvals_out.ab & (1 << (addr / 4)) != 0
         } else if addr < 0x280 {
             let attr_idx = (addr - 0x080) as usize / 4;
             self.attr_out.get_bit(attr_idx)
         } else if addr < 0x2c0 {
-            panic!("FF color I/O not supported");
+            return Err(CompileError::NotImplemented("FF color I/O not supported".into()));
         } else if addr < 0x300 {
             self.sysvals_out.c & (1 << ((addr - 0x2c0) / 4)) != 0
         } else if addr >= 0x3a0 && addr < 0x3c0 {
             self.sysvals_out_d & (1 << ((addr - 0x3a0) / 4)) != 0
         } else {
-            panic!("Unknown I/O address");
-        }
+            return Err(CompileError::InvalidInput(format!("unknown I/O address 0x{addr:03x}")));
+        })
     }
 
-    pub fn mark_store_req(&mut self, addrs: Range<u16>) {
-        let start = (addrs.start / 4).try_into().unwrap();
-        let end = ((addrs.end - 1) / 4).try_into().unwrap();
+    pub fn mark_store_req(&mut self, addrs: Range<u16>) -> Result<(), CompileError> {
+        let start: u8 = (addrs.start / 4)
+            .try_into()
+            .map_err(|_| CompileError::InvalidInput("store_req start index out of range".into()))?;
+        let end: u8 = ((addrs.end - 1) / 4)
+            .try_into()
+            .map_err(|_| CompileError::InvalidInput("store_req end index out of range".into()))?;
         self.store_req_start = min(self.store_req_start, start);
         self.store_req_end = max(self.store_req_end, end);
+        Ok(())
     }
 }
 
@@ -220,29 +227,32 @@ pub struct FragmentIoInfo {
 }
 
 impl FragmentIoInfo {
-    pub fn mark_attr_read(&mut self, addr: u16, interp: PixelImap) {
+    pub fn mark_attr_read(&mut self, addr: u16, interp: PixelImap) -> Result<(), CompileError> {
         if addr < 0x080 {
             self.sysvals_in.ab |= 1 << (addr / 4);
         } else if addr < 0x280 {
             let attr_idx = (addr - 0x080) as usize / 4;
             self.attr_in[attr_idx] = interp;
         } else if addr < 0x2c0 {
-            panic!("FF color I/O not supported");
+            return Err(CompileError::NotImplemented("FF color I/O not supported".into()));
         } else if addr < 0x300 {
             self.sysvals_in.c |= 1 << ((addr - 0x2c0) / 4);
         } else if addr >= 0x3a0 && addr < 0x3c0 {
             let attr_idx = (addr - 0x3a0) as usize / 4;
             self.sysvals_in_d[attr_idx] = interp;
         }
+        Ok(())
     }
 
-    pub fn mark_barycentric_attr_in(&mut self, addr: u16) {
-        assert!(addr >= 0x80 && addr < 0x280);
-
-        let mut attr = &mut self.barycentric_attr_in;
-
+    pub fn mark_barycentric_attr_in(&mut self, addr: u16) -> Result<(), CompileError> {
+        if !(addr >= 0x80 && addr < 0x280) {
+            return Err(CompileError::InvalidInput(format!(
+                "barycentric attr addr 0x{addr:03x} out of range 0x080..0x280"
+            )));
+        }
         let attr_idx = (addr - 0x080) as usize / 4;
-        attr.set_bit(attr_idx, true);
+        self.barycentric_attr_in.set_bit(attr_idx, true);
+        Ok(())
     }
 }
 
@@ -387,8 +397,8 @@ pub trait ShaderModel {
     /// Maximum encodable instruction delay
     fn max_instr_delay(&self) -> u8;
 
-    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op);
-    fn encode_shader(&self, s: &Shader<'_>) -> Vec<u32>;
+    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), CompileError>;
+    fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, CompileError>;
 }
 
 pub struct ShaderModelInfo {
@@ -420,6 +430,27 @@ macro_rules! sm_match {
             panic!("Unsupported shader model");
         }
     };
+}
+
+/// Like sm_match! but returns Result for pipeline entry points that can fail.
+macro_rules! sm_match_result {
+    ($self: expr, |$x: ident| $y: expr) => {{
+        if $self.sm >= 70 {
+            let $x = ShaderModel70::new($self.sm);
+            Ok($y)
+        } else if $self.sm >= 50 {
+            let $x = ShaderModel50::new($self.sm);
+            Ok($y)
+        } else if $self.sm >= 32 {
+            let $x = ShaderModel32::new($self.sm);
+            Ok($y)
+        } else if $self.sm >= 20 {
+            let $x = ShaderModel20::new($self.sm);
+            Ok($y)
+        } else {
+            Err(CompileError::UnsupportedArch(format!("sm_{}", $self.sm)))
+        }
+    }};
 }
 
 impl ShaderModel for ShaderModelInfo {
@@ -480,11 +511,11 @@ impl ShaderModel for ShaderModelInfo {
     fn max_instr_delay(&self) -> u8 {
         sm_match!(self, |sm| sm.max_instr_delay())
     }
-    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) {
-        sm_match!(self, |sm| sm.legalize_op(b, op));
+    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), CompileError> {
+        sm_match_result!(self, |sm| sm.legalize_op(b, op)?)
     }
-    fn encode_shader(&self, s: &Shader<'_>) -> Vec<u32> {
-        sm_match!(self, |sm| sm.encode_shader(s))
+    fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, CompileError> {
+        sm_match_result!(self, |sm| sm.encode_shader(s)?)
     }
 }
 
@@ -667,7 +698,12 @@ impl Shader<'_> {
         });
     }
 
-    pub fn gather_info(&mut self) {
+    /// Gather shader metadata (instruction counts, GPR usage, stage info).
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompileError::InvalidInput` if vertex shader has no functions.
+    pub fn gather_info(&mut self) -> Result<(), CompileError> {
         let mut num_instrs = 0;
         let mut uses_global_mem = false;
         let mut writes_global_mem = false;
@@ -701,11 +737,13 @@ impl Shader<'_> {
 
         if self.sm.sm() >= 50 {
             if let ShaderStageInfo::Vertex(vertex_info) = &mut self.info.stage {
-                assert!(self.functions.len() == 1);
-                vertex_info.isbe_space_sharing_enable =
-                    can_isbe_space_sharing_be_enabled(self.functions.first().unwrap());
+                let func = self.functions.first().ok_or_else(|| {
+                    CompileError::InvalidInput("vertex shader must have exactly one function".into())
+                })?;
+                vertex_info.isbe_space_sharing_enable = can_isbe_space_sharing_be_enabled(func);
             }
         }
+        Ok(())
     }
 }
 

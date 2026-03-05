@@ -241,3 +241,156 @@ pub mod sm100 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::sm100::{
+        PredLatencySM100, RegLatencySM100, UregLatencySM100, UpredLatencySM100,
+    };
+
+    #[test]
+    fn reg_latency_raw_hmma() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Hmma, RegLatencySM100::Alu, false), 16);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Alu, RegLatencySM100::Hmma, false), 16);
+    }
+
+    #[test]
+    fn reg_latency_raw_imma() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Imma, RegLatencySM100::Fma, false), 12);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Alu, RegLatencySM100::Imma, false), 12);
+    }
+
+    #[test]
+    fn reg_latency_raw_dmma_disp64_redirected_fp64() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Dmma, RegLatencySM100::Alu, false), 10);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Disp64, RegLatencySM100::Fma, false), 10);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::RedirectedFp64, RegLatencySM100::Alu, false), 10);
+    }
+
+    #[test]
+    fn reg_latency_raw_fma_fma_and_alu_alu() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Fma, RegLatencySM100::Fma, false), 5);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Alu, RegLatencySM100::Alu, false), 5);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Dualalu, RegLatencySM100::Dualalu, false), 5);
+    }
+
+    #[test]
+    fn reg_latency_raw_fp16_variants() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Fp16, RegLatencySM100::Alu, false), 5);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Fp16Alu, RegLatencySM100::Fma, false), 5);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Fp16F32, RegLatencySM100::Alu, false), 5);
+    }
+
+    #[test]
+    fn reg_latency_raw_default() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Decoupled, RegLatencySM100::Alu, false), 6);
+        assert_eq!(RegLatencySM100::raw(RegLatencySM100::Branch, RegLatencySM100::Fma, false), 6);
+    }
+
+    #[test]
+    fn reg_latency_war_hmma_imma() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::war(RegLatencySM100::Hmma, RegLatencySM100::Alu, false), 2);
+        assert_eq!(RegLatencySM100::war(RegLatencySM100::Imma, RegLatencySM100::Fma, false), 2);
+        assert_eq!(RegLatencySM100::war(RegLatencySM100::Alu, RegLatencySM100::Hmma, false), 2);
+    }
+
+    #[test]
+    fn reg_latency_war_default() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::war(RegLatencySM100::Alu, RegLatencySM100::Fma, false), 1);
+    }
+
+    #[test]
+    fn reg_latency_waw_hmma() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::waw(RegLatencySM100::Hmma, RegLatencySM100::Alu, false), 2);
+        assert_eq!(RegLatencySM100::waw(RegLatencySM100::Alu, RegLatencySM100::Hmma, false), 2);
+    }
+
+    #[test]
+    fn reg_latency_waw_default() {
+        use super::sm100::RegLatencySM100;
+        assert_eq!(RegLatencySM100::waw(RegLatencySM100::Alu, RegLatencySM100::Fma, false), 1);
+    }
+
+    #[test]
+    fn pred_latency_raw_fma_fma() {
+        assert_eq!(PredLatencySM100::raw(PredLatencySM100::Fma, PredLatencySM100::Fma, false), 5);
+    }
+
+    #[test]
+    fn pred_latency_raw_redirected_fp64() {
+        assert_eq!(PredLatencySM100::raw(PredLatencySM100::RedirectedFp64, PredLatencySM100::Coupled, false), 10);
+        assert_eq!(PredLatencySM100::raw(PredLatencySM100::Coupled, PredLatencySM100::RedirectedFp64, false), 10);
+    }
+
+    #[test]
+    fn pred_latency_raw_default() {
+        assert_eq!(PredLatencySM100::raw(PredLatencySM100::Coupled, PredLatencySM100::Dualalu, false), 6);
+    }
+
+    #[test]
+    fn pred_latency_war_waw() {
+        assert_eq!(PredLatencySM100::war(PredLatencySM100::Fma, PredLatencySM100::Coupled, false), 1);
+        assert_eq!(PredLatencySM100::waw(PredLatencySM100::Fma, PredLatencySM100::Decoupled, false), 1);
+    }
+
+    #[test]
+    fn ureg_latency_raw_fma_fma() {
+        assert_eq!(UregLatencySM100::raw(UregLatencySM100::Fma, UregLatencySM100::Fma, false), 5);
+    }
+
+    #[test]
+    fn ureg_latency_raw_uldc_tex() {
+        assert_eq!(UregLatencySM100::raw(UregLatencySM100::Uldc, UregLatencySM100::Coupled, false), 8);
+        assert_eq!(UregLatencySM100::raw(UregLatencySM100::Tex, UregLatencySM100::Fma, false), 8);
+    }
+
+    #[test]
+    fn ureg_latency_raw_default() {
+        assert_eq!(UregLatencySM100::raw(UregLatencySM100::Coupled, UregLatencySM100::Decoupled, false), 6);
+    }
+
+    #[test]
+    fn ureg_latency_war_waw() {
+        assert_eq!(UregLatencySM100::war(UregLatencySM100::Fma, UregLatencySM100::Tex, false), 1);
+        assert_eq!(UregLatencySM100::waw(UregLatencySM100::Uldc, UregLatencySM100::Coupled, false), 1);
+    }
+
+    #[test]
+    fn upred_latency_raw_fma_fma() {
+        assert_eq!(UpredLatencySM100::raw(UpredLatencySM100::Fma, UpredLatencySM100::Fma, false), 5);
+    }
+
+    #[test]
+    fn upred_latency_raw_default() {
+        assert_eq!(UpredLatencySM100::raw(UpredLatencySM100::Coupled, UpredLatencySM100::Decoupled, false), 6);
+    }
+
+    #[test]
+    fn upred_latency_war_waw() {
+        assert_eq!(UpredLatencySM100::war(UpredLatencySM100::Fma, UpredLatencySM100::BraJmp, false), 1);
+        assert_eq!(UpredLatencySM100::waw(UpredLatencySM100::UGuard, UpredLatencySM100::Voteu, false), 1);
+    }
+
+    #[test]
+    fn latency_enums_derive_traits() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let r = RegLatencySM100::Alu;
+        let _ = format!("{r:?}");
+        let _ = r;
+        assert_eq!(r, RegLatencySM100::Alu);
+        let mut h = DefaultHasher::new();
+        r.hash(&mut h);
+        let _ = h.finish();
+    }
+}

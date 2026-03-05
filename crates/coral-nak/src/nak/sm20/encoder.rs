@@ -103,16 +103,17 @@ impl ShaderModel for ShaderModel20 {
         32
     }
 
-    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) {
+    fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), crate::CompileError> {
         op.legalize(b);
+        Ok(())
     }
 
-    fn encode_shader(&self, s: &Shader<'_>) -> Vec<u32> {
-        if self.sm >= 30 {
+    fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
+        Ok(if self.sm >= 30 {
             super::encode_sm30_shader(self, s)
         } else {
             encode_sm20_shader(self, s)
-        }
+        })
     }
 }
 
