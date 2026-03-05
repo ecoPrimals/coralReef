@@ -102,14 +102,14 @@ fn derive_as_slice(
 
     if matched.is_empty() {
         return TokenStream::from(quote! {
-            impl #impl_generics coral_nak_stubs::as_slice::AsSlice<#elem_type>
+            impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
                 for #struct_name #ty_generics #where_clause
             {
                 type Attr = #type_enum;
                 fn as_slice(&self) -> &[#elem_type] { &[] }
                 fn as_mut_slice(&mut self) -> &mut [#elem_type] { &mut [] }
-                fn attrs(&self) -> coral_nak_stubs::as_slice::AttrList<#type_enum> {
-                    coral_nak_stubs::as_slice::AttrList::List(Vec::new())
+                fn attrs(&self) -> coral_reef_stubs::as_slice::AttrList<#type_enum> {
+                    coral_reef_stubs::as_slice::AttrList::List(Vec::new())
                 }
             }
         });
@@ -180,7 +180,7 @@ fn derive_as_slice(
             .map(|v| quote! { #type_enum::#v })
             .unwrap_or_else(|| quote! { #type_enum::#default_variant });
         quote! {
-            coral_nak_stubs::as_slice::AttrList::Uniform(#variant)
+            coral_reef_stubs::as_slice::AttrList::Uniform(#variant)
         }
     } else {
         let mut attr_entries = Vec::new();
@@ -195,14 +195,14 @@ fn derive_as_slice(
             }
         }
         quote! {
-            coral_nak_stubs::as_slice::AttrList::List(
+            coral_reef_stubs::as_slice::AttrList::List(
                 vec![#(#attr_entries),*]
             )
         }
     };
 
     let expanded = quote! {
-        impl #impl_generics coral_nak_stubs::as_slice::AsSlice<#elem_type>
+        impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
             for #struct_name #ty_generics #where_clause
         {
             type Attr = #type_enum;
@@ -215,7 +215,7 @@ fn derive_as_slice(
                 #as_mut_slice_body
             }
 
-            fn attrs(&self) -> coral_nak_stubs::as_slice::AttrList<#type_enum> {
+            fn attrs(&self) -> coral_reef_stubs::as_slice::AttrList<#type_enum> {
                 #attrs_body
             }
         }
@@ -261,29 +261,29 @@ fn derive_as_slice_enum(
 
         if boxed {
             slice_arms.extend(quote! {
-                #enum_name::#case(x) => coral_nak_stubs::as_slice::AsSlice::<#elem_type>::as_slice(x.as_ref()),
+                #enum_name::#case(x) => coral_reef_stubs::as_slice::AsSlice::<#elem_type>::as_slice(x.as_ref()),
             });
             mut_slice_arms.extend(quote! {
-                #enum_name::#case(x) => coral_nak_stubs::as_slice::AsSlice::<#elem_type>::as_mut_slice(x.as_mut()),
+                #enum_name::#case(x) => coral_reef_stubs::as_slice::AsSlice::<#elem_type>::as_mut_slice(x.as_mut()),
             });
             attrs_arms.extend(quote! {
-                #enum_name::#case(x) => coral_nak_stubs::as_slice::AsSlice::<#elem_type>::attrs(x.as_ref()),
+                #enum_name::#case(x) => coral_reef_stubs::as_slice::AsSlice::<#elem_type>::attrs(x.as_ref()),
             });
         } else {
             slice_arms.extend(quote! {
-                #enum_name::#case(x) => coral_nak_stubs::as_slice::AsSlice::<#elem_type>::as_slice(x),
+                #enum_name::#case(x) => coral_reef_stubs::as_slice::AsSlice::<#elem_type>::as_slice(x),
             });
             mut_slice_arms.extend(quote! {
-                #enum_name::#case(x) => coral_nak_stubs::as_slice::AsSlice::<#elem_type>::as_mut_slice(x),
+                #enum_name::#case(x) => coral_reef_stubs::as_slice::AsSlice::<#elem_type>::as_mut_slice(x),
             });
             attrs_arms.extend(quote! {
-                #enum_name::#case(x) => coral_nak_stubs::as_slice::AsSlice::<#elem_type>::attrs(x),
+                #enum_name::#case(x) => coral_reef_stubs::as_slice::AsSlice::<#elem_type>::attrs(x),
             });
         }
     }
 
     let expanded = quote! {
-        impl #impl_generics coral_nak_stubs::as_slice::AsSlice<#elem_type>
+        impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
             for #enum_name #ty_generics #where_clause
         {
             type Attr = #type_enum;
@@ -300,7 +300,7 @@ fn derive_as_slice_enum(
                 }
             }
 
-            fn attrs(&self) -> coral_nak_stubs::as_slice::AttrList<#type_enum> {
+            fn attrs(&self) -> coral_reef_stubs::as_slice::AttrList<#type_enum> {
                 match self {
                     #attrs_arms
                 }

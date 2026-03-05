@@ -1,4 +1,4 @@
-# coralNak — Status
+# coralReef — Status
 
 **Last updated**: March 5, 2026
 

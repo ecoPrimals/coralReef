@@ -1,4 +1,4 @@
-# coralNak — What's Next
+# coralReef — What's Next
 
 **Last updated**: March 5, 2026
 
@@ -8,8 +8,8 @@
 
 ### Phase 1 — Scaffold
 - [x] NAK sources extracted from Mesa (46 files, 51K LOC)
-- [x] Mesa stub crate (`coral-nak-stubs`) with 7 evolved modules
-- [x] ISA crate (`coral-nak-isa`) with SPH, latency tables
+- [x] Mesa stub crate (`coral-reef-stubs`) with 7 evolved modules
+- [x] ISA crate (`coral-reef-isa`) with SPH, latency tables
 
 ### Phase 1.5 — Foundation
 - [x] License: AGPL-3.0-only (NAK files retain MIT)
@@ -21,7 +21,7 @@
 - [x] Capability-based discovery, zero-knowledge startup
 
 ### Phase 2 — Wire NAK Sources
-- [x] `mod nak;` wired into `coral-nak/src/lib.rs`
+- [x] `mod nak;` wired into `coral-reef/src/lib.rs`
 - [x] `nak-ir-proc` proc-macro crate with 4 derives
 - [x] Full compilation pipeline wired via `pipeline.rs`
 - [x] `compile()` and `compile_wgsl()` public API
@@ -91,7 +91,7 @@
 ### Ecosystem
 - [ ] Phase 6: coralDriver — userspace GPU driver
 - [ ] Phase 7: coralGpu — unified Rust GPU abstraction
-- [ ] barraCuda integration: WGSL → coral-nak → native binary → coralDriver → GPU
+- [ ] barraCuda integration: WGSL → coral-reef → native binary → coralDriver → GPU
 - [ ] crates.io publication
 
 ### Debt

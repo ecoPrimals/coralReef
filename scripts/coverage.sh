@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 set -euo pipefail
 
-echo "=== coralNak Coverage Report ==="
+echo "=== coralReef Coverage Report ==="
 cargo llvm-cov --all --summary-only
 
 echo ""
 echo "=== Per-crate coverage ==="
-for crate in coralnak-core coral-nak coral-nak-stubs bitview coral-nak-isa; do
+for crate in coralreef-core coral-reef coral-reef-stubs bitview coral-reef-isa; do
     echo "--- $crate ---"
     cargo llvm-cov --package "$crate" --summary-only 2>/dev/null || echo "  (no tests)"
 done

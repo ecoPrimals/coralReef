@@ -92,4 +92,4 @@ intermediate computation (double-double where needed).
 
 ---
 
-*All six lowering strategies are implemented in `crates/coral-nak/src/nak/lower_f64/`.*
+*All six lowering strategies are implemented in `crates/coral-reef/src/nak/lower_f64/`.*

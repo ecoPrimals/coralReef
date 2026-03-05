@@ -1,4 +1,4 @@
-# coralNak
+# coralReef
 
 **Status**: Phase 5 Complete — Standalone Sovereign Compiler  
 **Purpose**: Sovereign Rust NVIDIA shader compiler — forked from Mesa NAK
@@ -7,7 +7,7 @@
 
 ## Overview
 
-coralNak is a pure-Rust NVIDIA GPU shader compiler. It compiles WGSL and
+coralReef is a pure-Rust NVIDIA GPU shader compiler. It compiles WGSL and
 SPIR-V compute shaders to native SM70+ GPU binaries, with full f64
 transcendental support via DFMA software lowering.
 
@@ -33,7 +33,7 @@ WGSL / SPIR-V input
 └────────┬─────────┘
          ▼
 ┌──────────────────┐
-│  coral-nak        │  Compiler pipeline
+│  coral-reef        │  Compiler pipeline
 │  ├ from_spirv     │  naga IR → NAK SSA IR
 │  ├ lower_f64      │  f64 transcendental expansion (DFMA)
 │  ├ optimize       │  copy prop, DCE, scheduling, bar prop
@@ -48,11 +48,11 @@ WGSL / SPIR-V input
 ## Structure
 
 ```
-coralNak/
+coralReef/
 ├── Cargo.toml                    # Workspace root
 ├── crates/
-│   ├── coralnak-core/            # Primal lifecycle + IPC (JSON-RPC, tarpc)
-│   ├── coral-nak/                # Shader compiler
+│   ├── coralreef-core/            # Primal lifecycle + IPC (JSON-RPC, tarpc)
+│   ├── coral-reef/                # Shader compiler
 │   │   ├── src/nak/
 │   │   │   ├── ir/               # SSA IR types (12 submodules)
 │   │   │   ├── from_spirv/       # naga → NAK IR translation (3 files)
@@ -62,9 +62,9 @@ coralNak/
 │   │   │   ├── sm32/             # Kepler encoder (6 submodules)
 │   │   │   └── pipeline.rs       # Full compilation pipeline
 │   │   └── tests/                # Integration tests
-│   ├── coral-nak-bitview/        # Bit-level field access for GPU encoding
-│   ├── coral-nak-isa/            # ISA tables, latency model, SPH
-│   ├── coral-nak-stubs/          # Pure-Rust Mesa replacements (all evolved)
+│   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
+│   ├── coral-reef-isa/            # ISA tables, latency model, SPH
+│   ├── coral-reef-stubs/          # Pure-Rust Mesa replacements (all evolved)
 │   └── nak-ir-proc/              # Proc-macro derives for IR types
 ├── specs/                        # Architecture specification
 ├── whitePaper/                   # Theory docs (f64 lowering, MUFU)
@@ -75,11 +75,11 @@ coralNak/
 
 | Crate | Purpose |
 |-------|---------|
-| `coralnak-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, zero-copy `Bytes` |
-| `coral-nak` | Shader compiler — naga frontend, f64 lowering, optimizers, register allocation, SM70+ encoding |
-| `coral-nak-bitview` | `BitViewable`/`BitMutViewable` traits for GPU instruction encoding |
-| `coral-nak-isa` | ISA encoding tables, instruction latencies (SM30–SM120), Shader Program Header |
-| `coral-nak-stubs` | Pure-Rust Mesa replacements: CFG, BitSet, dataflow, SmallVec, nvidia_headers (all evolved) |
+| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, zero-copy `Bytes` |
+| `coral-reef` | Shader compiler — naga frontend, f64 lowering, optimizers, register allocation, SM70+ encoding |
+| `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits for GPU instruction encoding |
+| `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120), Shader Program Header |
+| `coral-reef-stubs` | Pure-Rust Mesa replacements: CFG, BitSet, dataflow, SmallVec, nvidia_headers (all evolved) |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants` |
 
 ## f64 Transcendental Support

@@ -662,7 +662,7 @@ For more information on this, and how to apply and follow the GNU AGPL, see
 
 ---
 
-Files under crates/coral-nak/src/nak/ are derived from Mesa's NAK compiler
+Files under crates/coral-reef/src/nak/ are derived from Mesa's NAK compiler
 (src/nouveau/compiler/nak/) and retain their original MIT license.
 Copyright © 2022-2024 Collabora, Ltd.
 SPDX-License-Identifier: MIT

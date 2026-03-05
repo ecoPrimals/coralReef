@@ -10,7 +10,7 @@ This primal follows the ecoPrimals coding conventions (modeled on wateringHole s
 - **Docs**: `#![warn(missing_docs)]`
 - **Max file size**: 1000 LOC (all files currently comply)
 - **Test coverage**: 90%+ target (37.1% line — structural floor from encoder match arms)
-- **License**: AGPL-3.0-only (NAK-derived files in `crates/coral-nak/src/nak/` retain MIT)
+- **License**: AGPL-3.0-only (NAK-derived files in `crates/coral-reef/src/nak/` retain MIT)
 - **Error handling**: `thiserror` for libraries, `Result` propagation throughout pipeline
 
 ## NAK Module Conventions

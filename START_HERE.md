@@ -1,12 +1,12 @@
-# coralNak — Start Here
+# coralReef — Start Here
 
-Welcome to coralNak, the sovereign Rust NVIDIA shader compiler.
+Welcome to coralReef, the sovereign Rust NVIDIA shader compiler.
 
 ---
 
 ## What is this?
 
-coralNak compiles WGSL and SPIR-V compute shaders to native NVIDIA SM70+
+coralReef compiles WGSL and SPIR-V compute shaders to native NVIDIA SM70+
 GPU binaries. It includes full f64 transcendental support via DFMA software
 lowering — something the original Mesa NAK compiler cannot do.
 
@@ -20,7 +20,7 @@ Built as a standalone Rust workspace with zero C dependencies.
 ## Quick Start
 
 ```bash
-cd coralNak
+cd coralReef
 cargo check --workspace
 cargo test --workspace     # 390 tests
 cargo clippy --workspace --all-targets -- -D warnings
@@ -30,10 +30,10 @@ cargo fmt --check
 ## Repository Layout
 
 ```
-coralNak/
+coralReef/
 ├── crates/
-│   ├── coralnak-core/         Primal lifecycle + IPC (JSON-RPC, tarpc)
-│   ├── coral-nak/             Shader compiler
+│   ├── coralreef-core/         Primal lifecycle + IPC (JSON-RPC, tarpc)
+│   ├── coral-reef/             Shader compiler
 │   │   └── src/nak/           NAK compiler core
 │   │       ├── ir/            SSA IR types — 12 submodules
 │   │       ├── from_spirv/    naga → NAK IR translation — 3 files
@@ -47,9 +47,9 @@ coralNak/
 │   │       ├── spill_values/  Register spilling — 3 files
 │   │       ├── builder/       IR construction helpers — 2 files
 │   │       └── pipeline.rs    Full compilation pipeline
-│   ├── coral-nak-bitview/     Bit-level field access for GPU encoding
-│   ├── coral-nak-isa/         ISA tables, latency model, SPH
-│   ├── coral-nak-stubs/       Pure-Rust Mesa replacements (all evolved)
+│   ├── coral-reef-bitview/     Bit-level field access for GPU encoding
+│   ├── coral-reef-isa/         ISA tables, latency model, SPH
+│   ├── coral-reef-stubs/       Pure-Rust Mesa replacements (all evolved)
 │   └── nak-ir-proc/           Proc-macro derives for IR types
 ├── specs/                     Architecture specification
 ├── whitePaper/                Theory docs (f64 lowering, MUFU)
@@ -63,7 +63,7 @@ coralNak/
 |----------|---------|
 | `STATUS.md` | Current grades and phase status |
 | `WHATS_NEXT.md` | Completed phases and future work |
-| `specs/CORALNAK_SPECIFICATION.md` | Architecture and crate layout |
+| `specs/CORALREEF_SPECIFICATION.md` | Architecture and crate layout |
 | `CONVENTIONS.md` | Coding standards |
 | `CONTRIBUTING.md` | How to contribute |
 | `whitePaper/F64_LOWERING_THEORY.md` | DFMA polynomial lowering design |
@@ -78,7 +78,7 @@ WGSL / SPIR-V  →  naga parse  →  from_spirv (NAK IR)  →  lower_f64
     →  legalize  →  assign_regs  →  encode  →  native binary
 ```
 
-Key modules in `crates/coral-nak/src/nak/`:
+Key modules in `crates/coral-reef/src/nak/`:
 
 - **`from_spirv/`** — Translates naga's IR into NAK's SSA-based IR. Handles
   expressions, statements, control flow, memory operations, and builtins.
@@ -91,7 +91,7 @@ Key modules in `crates/coral-nak/src/nak/`:
   memory access descriptors, and shader metadata.
 - **`sm70_encode/`** — Encodes NAK IR instructions to SM70+ native binary format.
 
-The `coral-nak-stubs` crate provides pure-Rust replacements for Mesa's C
+The `coral-reef-stubs` crate provides pure-Rust replacements for Mesa's C
 dependencies (CFG, BitSet, dataflow, nvidia_headers). The `nak-ir-proc`
 crate generates trait implementations for IR instruction types via derives.
 

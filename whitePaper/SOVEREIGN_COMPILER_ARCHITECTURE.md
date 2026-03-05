@@ -23,7 +23,7 @@ to native GPU binaries independently.
                       │
                       ▼
               ┌───────────────┐
-              │  coral-nak    │  Translate → lower → optimize → encode
+              │  coral-reef    │  Translate → lower → optimize → encode
               │               │
               │  from_spirv   │  naga IR → NAK SSA IR
               │  lower_f64    │  DFMA software transcendentals
@@ -35,7 +35,7 @@ to native GPU binaries independently.
                       │
                       ▼
               ┌───────────────┐
-              │  coral-nak-isa│  Instruction encoding tables
+              │  coral-reef-isa│  Instruction encoding tables
               │               │  SPH / QMD generation
               └───────┬───────┘
                       │
@@ -65,14 +65,14 @@ All Mesa C dependencies have been replaced with pure-Rust implementations:
 | `nak_latencies` | Pure Rust SM100 latency model | Evolved |
 | `compiler::nir` | Deleted — replaced by naga frontend | Removed |
 | `nak_bindings` | Deleted — legacy FFI stubs removed | Removed |
-| `nak_ir_proc` | `coral-nak-proc` (3 derive macros) | Evolved |
-| `bitview` | `coral-nak-bitview` | Evolved |
+| `nak_ir_proc` | `coral-reef-proc` (3 derive macros) | Evolved |
+| `bitview` | `coral-reef-bitview` | Evolved |
 
 ## Integration with barraCuda
 
 ```
 barraCuda (current):  WGSL → naga → SPIR-V → wgpu → driver → GPU
-barraCuda (future):   WGSL → naga → coral-nak → native binary → coralDriver → GPU
+barraCuda (future):   WGSL → naga → coral-reef → native binary → coralDriver → GPU
 ```
 
 The coral path eliminates the SPIR-V → driver compiler round-trip,

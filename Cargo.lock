@@ -240,12 +240,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "coral-nak"
+name = "coral-reef"
 version = "0.1.0"
 dependencies = [
  "bitview",
- "coral-nak-isa",
- "coral-nak-stubs",
+ "coral-reef-isa",
+ "coral-reef-stubs",
  "naga",
  "nak_ir_proc",
  "rustc-hash 2.1.1",
@@ -254,20 +254,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "coral-nak-isa"
+name = "coral-reef-isa"
 version = "0.1.0"
 
 [[package]]
-name = "coral-nak-stubs"
+name = "coral-reef-stubs"
 version = "0.1.0"
 
 [[package]]
-name = "coralnak-core"
+name = "coralreef-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "clap",
- "coral-nak",
+ "coral-reef",
  "futures",
  "jsonrpsee",
  "serde",
@@ -2552,9 +2552,9 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"
-version = "0.7.14"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
 ]

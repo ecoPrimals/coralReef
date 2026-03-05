@@ -1,6 +1,6 @@
-# Contributing to coralNak
+# Contributing to coralReef
 
-Thank you for your interest in coralNak — a sovereign Rust NVIDIA shader compiler.
+Thank you for your interest in coralReef — a sovereign Rust NVIDIA shader compiler.
 
 ## Getting Started
 
@@ -9,8 +9,8 @@ Thank you for your interest in coralNak — a sovereign Rust NVIDIA shader compi
 rustup update stable
 
 # Clone and check
-git clone https://github.com/ecoPrimals/coralNak.git
-cd coralNak
+git clone https://github.com/ecoPrimals/coralReef.git
+cd coralReef
 cargo check --workspace
 cargo test --workspace            # 390 tests
 cargo clippy --all-targets -- -D warnings
@@ -19,7 +19,7 @@ cargo fmt --check
 
 ## Standards
 
-coralNak follows ecoPrimals ecosystem conventions from `wateringHole/`.
+coralReef follows ecoPrimals ecosystem conventions from `wateringHole/`.
 
 - **License**: AGPL-3.0-only (see LICENSE). NAK-derived files retain MIT.
 - **Linting**: `clippy::all` + `clippy::pedantic` + `missing_docs`, zero warnings
@@ -32,7 +32,7 @@ coralNak follows ecoPrimals ecosystem conventions from `wateringHole/`.
 
 ## Architecture
 
-See `specs/CORALNAK_SPECIFICATION.md` and `START_HERE.md`.
+See `specs/CORALREEF_SPECIFICATION.md` and `START_HERE.md`.
 
 Key module patterns:
 - **Directory modules**: Large files are split into directories (`ir/`, `from_spirv/`, `lower_f64/`, `sm70_encode/`)

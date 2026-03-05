@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/coralnak-core",
-    "crates/coral-nak",
-    "crates/coral-nak-isa",
-    "crates/coral-nak-stubs",
-    "crates/coral-nak-bitview",
+    "crates/coralreef-core",
+    "crates/coral-reef",
+    "crates/coral-reef-isa",
+    "crates/coral-reef-stubs",
+    "crates/coral-reef-bitview",
     "crates/nak-ir-proc",
 ]
 
@@ -13,7 +13,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-repository = "https://github.com/ecoPrimals/coralNak"
+repository = "https://github.com/ecoPrimals/coralReef"
 authors = ["ecoPrimals Project"]
 rust-version = "1.85"
 
@@ -47,13 +47,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Compiler internals
 rustc-hash = "2"
-bitview = { path = "crates/coral-nak-bitview" }
+bitview = { path = "crates/coral-reef-bitview" }
 nak_ir_proc = { path = "crates/nak-ir-proc" }
 
 # Internal crates
-coral-nak = { path = "crates/coral-nak" }
-coral-nak-isa = { path = "crates/coral-nak-isa" }
-coral-nak-stubs = { path = "crates/coral-nak-stubs" }
+coral-reef = { path = "crates/coral-reef" }
+coral-reef-isa = { path = "crates/coral-reef-isa" }
+coral-reef-stubs = { path = "crates/coral-reef-stubs" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

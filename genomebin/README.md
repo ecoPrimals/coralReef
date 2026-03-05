@@ -1,6 +1,6 @@
-# coralNak — genomeBin
+# coralReef — genomeBin
 
-Deployment scaffolding for the coralNak primal.
+Deployment scaffolding for the coralReef primal.
 
 ## Structure
 
