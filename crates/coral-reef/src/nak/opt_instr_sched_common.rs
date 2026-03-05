@@ -421,7 +421,7 @@ pub fn save_graphviz(instrs: &[Box<Instr>], g: &DepGraph) -> std::io::Result<()>
     use std::fs::File;
     use std::io::{BufWriter, Write};
 
-    let file = File::create("/tmp/instr_dep_graph.dot")?;
+    let file = File::create(std::env::temp_dir().join("instr_dep_graph.dot"))?;
     let mut w = BufWriter::new(file);
 
     writeln!(w, "digraph {{")?;

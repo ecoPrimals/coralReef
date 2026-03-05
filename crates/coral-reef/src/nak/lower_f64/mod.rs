@@ -5,6 +5,15 @@
 //! NVIDIA MUFU only supports f32 transcendentals. For f64 sqrt and rcp,
 //! we expand to Newton-Raphson sequences using MUFU.RSQ64H/RCP64H seeds + DFMA.
 //! For exp2, log2, sin, cos we use polynomial approximation.
+//!
+//! ## Cross-spring provenance
+//!
+//! Algorithms and ULP targets derive from:
+//! - **hotSpring**: DF64 precision requirements for Yukawa force / molecular dynamics
+//! - **barraCuda**: `math_f64.wgsl`, `df64_transcendentals.wgsl` reference coefficients
+//! - **groundSpring**: 13-tier tolerance architecture (`tol::ANALYTICAL` ≈ 1e-10 for
+//!   single-transcendental paths), validation pipeline (34 binaries, 395 checks)
+//! - **F64_LOWERING_THEORY.md**: MUFU seed + Newton-Raphson + Horner + Cody-Waite theory
 
 #![allow(clippy::wildcard_imports)]
 

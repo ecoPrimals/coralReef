@@ -1,6 +1,9 @@
 // Copyright © 2023 Collabora, Ltd.
 // SPDX-License-Identifier: MIT
 //! Newton-Raphson lowering for f64 sqrt and rcp.
+//!
+//! Provenance: MUFU.RSQ64H/RCP64H seeds from NVIDIA ISA; 2-iteration refinement
+//! targets ≤1 ULP (per hotSpring DF64 requirements and groundSpring `tol::ANALYTICAL`).
 
 #![allow(clippy::wildcard_imports)]
 

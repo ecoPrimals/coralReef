@@ -244,9 +244,8 @@ impl Index<InstrIdx> for Function {
     type Output = Instr;
 
     fn index(&self, index: InstrIdx) -> &Self::Output {
-        // Removed at compile time (except for 16-bit targets)
-        let block_idx: usize = index.block_idx.try_into().unwrap_or(0);
-        let instr_idx: usize = index.instr_idx.try_into().unwrap_or(0);
+        let block_idx: usize = index.block_idx as usize;
+        let instr_idx: usize = index.instr_idx as usize;
         &self.blocks[block_idx].instrs[instr_idx]
     }
 }

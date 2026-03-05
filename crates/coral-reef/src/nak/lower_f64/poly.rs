@@ -1,6 +1,10 @@
 // Copyright © 2023 Collabora, Ltd.
 // SPDX-License-Identifier: MIT
 //! Polynomial lowering for f64 exp2, log2, sin, cos.
+//!
+//! Provenance: Horner coefficients from Cephes/FDLIBM; Cody-Waite range reduction
+//! for sin/cos from Payne-Hanek literature. ULP budgets: exp2/log2 ≤2, sin/cos ≤4
+//! (per barraCuda `df64_transcendentals.wgsl` and groundSpring validation targets).
 
 #![allow(clippy::wildcard_imports)]
 

@@ -153,8 +153,7 @@ impl InstrBuilder<'_> {
 impl Builder for InstrBuilder<'_> {
     fn push_instr(&mut self, instr: Instr) -> &mut Instr {
         self.instrs.push(instr);
-        // SAFETY: push() always adds at least one element
-        unsafe { self.instrs.last_mut().unwrap_unchecked() }
+        self.instrs.last_mut().unwrap()
     }
 
     fn sm(&self) -> u8 {

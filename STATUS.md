@@ -69,6 +69,20 @@
 - **SM70 encoders** (~2,000 lines, 10-20%) — requires encoding every instruction variant
 - **IR op structs** (~1,200 lines, 0%) — proc-macro generated code
 
+## Spring Absorption
+
+Patterns absorbed from ecoPrimals springs (via wateringHole):
+
+| Pattern | Source | Applied |
+|---------|--------|---------|
+| BTreeMap for deterministic serialization | groundSpring V73 tolerance arch | health.rs |
+| Silent-default audit | groundSpring V76 "silent defaults are bugs" | program.rs |
+| Cross-spring provenance doc-comments | CROSS_SPRING_SHADER_EVOLUTION | lower_f64/ |
+| Unsafe code eliminated | groundSpring CONTRIBUTING | builder/mod.rs |
+| Capability-based discovery (verified) | groundSpring CAPABILITY_SURFACE | capability.rs |
+| No hardcoded primal names (verified) | groundSpring primal isolation | workspace-wide |
+| Result propagation (prior session) | groundSpring error handling patterns | pipeline |
+
 ## Future Work
 
 See `WHATS_NEXT.md` for precision improvements, coverage goals, and

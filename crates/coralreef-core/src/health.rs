@@ -5,7 +5,7 @@
 //! status, and exposes readiness via IPC. No compile-time coupling to other
 //! primals.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::time::SystemTime;
 
@@ -95,8 +95,8 @@ pub struct HealthReport {
     pub status: HealthStatus,
     /// Timestamp of the report.
     pub timestamp: Timestamp,
-    /// Arbitrary key-value details.
-    pub details: HashMap<String, String>,
+    /// Arbitrary key-value details (BTreeMap for deterministic serialization).
+    pub details: BTreeMap<String, String>,
 }
 
 impl HealthReport {
@@ -108,7 +108,7 @@ impl HealthReport {
             version: version.into(),
             status: HealthStatus::Unknown,
             timestamp: Timestamp::now(),
-            details: HashMap::new(),
+            details: BTreeMap::new(),
         }
     }
 
