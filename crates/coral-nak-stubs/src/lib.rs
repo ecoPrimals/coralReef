@@ -10,24 +10,23 @@
 //! | Original Mesa dependency    | Replacement module          | Status |
 //! |----------------------------|-----------------------------|--------|
 //! | `compiler::bindings`       | [`bindings`]                | Stub   |
-//! | `compiler::cfg`            | [`mod@cfg`]                 | Stub   |
-//! | `compiler::dataflow`       | [`dataflow`]                | Stub   |
-//! | `compiler::bitset`         | [`bitset`]                  | Stub   |
-//! | `compiler::smallvec`       | [`smallvec`]                | Stub   |
-//! | `compiler::as_slice`       | [`as_slice`]                | Stub   |
+//! | `compiler::cfg`            | [`mod@cfg`]                 | Evolved (CFG + dominator tree) |
+//! | `compiler::dataflow`       | [`dataflow`]                | Evolved (worklist solver) |
+//! | `compiler::bitset`         | [`bitset`]                  | Evolved (dense bitmap) |
+//! | `compiler::smallvec`       | [`smallvec`]                | Evolved (zero/one/many) |
+//! | `compiler::as_slice`       | [`as_slice`]                | Evolved (type-safe views) |
 //! | `compiler::nir`            | [`nir`]                     | Stub   |
 //! | `compiler::nir_instr_printer` | [`nir_instr_printer`]    | Stub   |
-//! | `compiler_proc::as_slice`  | [`compiler_proc`]           | Stub   |
 //! | `nak_bindings`             | [`nak_bindings`]            | Stub   |
 //! | `nvidia_headers`           | [`nvidia_headers`]          | Stub   |
-//! | `nak_latencies`            | [`nak_latencies`]           | Stub   |
+//! | `nak_latencies`            | [`nak_latencies`]           | Evolved (SM100 latency model) |
 //!
 //! ## Evolution Strategy
 //!
-//! 1. **Phase 1 (current)**: Empty stubs to make `cargo check` parse the workspace
-//! 2. **Phase 2**: Port core Mesa utility types to pure Rust
+//! 1. **Phase 1**: Empty stubs to make `cargo check` parse the workspace *(complete)*
+//! 2. **Phase 2**: Port core Mesa utility types to pure Rust *(complete — 6 modules evolved)*
 //! 3. **Phase 3**: Replace NIR frontend with naga SPIR-V → coral-nak IR
-//! 4. **Phase 4**: Remove stubs entirely once all Mesa deps are replaced
+//! 4. **Phase 4**: Remove remaining legacy FFI stubs
 
 /// Replacements for `compiler::bindings::*` (Mesa C FFI structs).
 #[deprecated(note = "Legacy Mesa FFI — will be removed when from_nir is replaced by from_spirv")]
@@ -53,14 +52,9 @@ pub mod as_slice;
 pub mod nir;
 
 /// Replacement for `compiler::nir_instr_printer`.
-#[deprecated(note = "Legacy Mesa FFI — will be removed when from_nir is replaced by from_spirv")]
+///
+/// **Legacy**: will be removed when `from_nir` is replaced by `from_spirv`.
 pub mod nir_instr_printer;
-
-/// Replacement for `compiler_proc::as_slice` (proc macro helpers).
-#[deprecated(
-    note = "Legacy — nak_ir_proc uses coral_nak_stubs::as_slice directly; this stub is unused"
-)]
-pub mod compiler_proc;
 
 /// Replacement for `nak_bindings::*` (NAK-specific C bindings).
 #[deprecated(note = "Legacy Mesa FFI — will be removed when from_nir is replaced by from_spirv")]
@@ -79,9 +73,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stubs_exist() {
-        let _ = bindings::STUB_MARKER;
-        let _ = cfg::STUB_MARKER;
+    fn core_types_exist() {
+        let _: bitset::BitSet<u32> = bitset::BitSet::new(8);
+        let _ = cfg::CFGBuilder::<()>::new();
     }
 
     #[test]
@@ -92,6 +86,5 @@ mod tests {
         let _ = nir::nir_shader;
         let _ = nak_bindings::nak_compiler { sm: 70 };
         let _ = nvidia_headers::classes::clc3c0::VOLTA_COMPUTE_A;
-        let _ = compiler_proc::as_slice::AsSliceDerive;
     }
 }

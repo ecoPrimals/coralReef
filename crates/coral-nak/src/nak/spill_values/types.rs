@@ -1,0 +1,435 @@
+// Copyright © 2023 Collabora, Ltd.
+// SPDX-License-Identifier: MIT
+
+#![allow(clippy::wildcard_imports)]
+
+use super::*;
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::cmp::{Ordering, Reverse, max};
+use std::collections::BinaryHeap;
+
+#[derive(Default)]
+pub(super) struct PhiDstMap {
+    phi_ssa: FxHashMap<Phi, SSAValue>,
+    ssa_phi: FxHashMap<SSAValue, Phi>,
+}
+
+impl PhiDstMap {
+    fn new() -> PhiDstMap {
+        PhiDstMap {
+            phi_ssa: FxHashMap::default(),
+            ssa_phi: FxHashMap::default(),
+        }
+    }
+
+    fn add_phi_dst(&mut self, phi: Phi, dst: &Dst) {
+        let vec = dst.as_ssa().expect("Not an SSA destination");
+        debug_assert!(vec.comps() == 1);
+        self.phi_ssa.insert(phi, vec[0]);
+        self.ssa_phi.insert(vec[0], phi);
+    }
+
+    pub fn from_block(block: &BasicBlock) -> PhiDstMap {
+        let mut map = PhiDstMap::new();
+        if let Some(op) = block.phi_dsts() {
+            for (idx, dst) in op.dsts.iter() {
+                map.add_phi_dst(*idx, dst);
+            }
+        }
+        map
+    }
+
+    pub fn get_phi(&self, ssa: &SSAValue) -> Option<&Phi> {
+        self.ssa_phi.get(ssa)
+    }
+
+    pub fn get_dst_ssa(&self, phi: &Phi) -> Option<&SSAValue> {
+        self.phi_ssa.get(phi)
+    }
+}
+
+#[derive(Default)]
+pub(super) struct PhiSrcMap {
+    src_phi: FxHashMap<SSAValue, Phi>,
+}
+
+impl PhiSrcMap {
+    fn new() -> PhiSrcMap {
+        PhiSrcMap::default()
+    }
+
+    fn add_phi_src(&mut self, phi: Phi, src: &Src) {
+        debug_assert!(src.is_unmodified());
+        let vec = src.src_ref.as_ssa().expect("Not an SSA source");
+        debug_assert!(vec.comps() == 1);
+        self.src_phi.insert(vec[0], phi);
+    }
+
+    pub fn from_block(block: &BasicBlock) -> PhiSrcMap {
+        let mut map = PhiSrcMap::new();
+        if let Some(op) = block.phi_srcs() {
+            for (phi, src) in op.srcs.iter() {
+                map.add_phi_src(*phi, src);
+            }
+        }
+        map
+    }
+
+    pub fn get_phi(&self, ssa: &SSAValue) -> Option<&Phi> {
+        self.src_phi.get(ssa)
+    }
+}
+
+pub(super) trait Spill {
+    fn spill_file(&self, file: RegFile) -> RegFile;
+    fn spill(&mut self, dst: SSAValue, src: Src) -> Instr;
+    fn fill(&mut self, dst: Dst, src: SSAValue) -> Instr;
+}
+
+pub(super) struct SpillUniform<'a> {
+    info: &'a mut ShaderInfo,
+}
+
+impl<'a> SpillUniform<'a> {
+    pub fn new(info: &'a mut ShaderInfo) -> Self {
+        Self { info }
+    }
+}
+
+impl Spill for SpillUniform<'_> {
+    fn spill_file(&self, file: RegFile) -> RegFile {
+        debug_assert!(file.is_uniform());
+        file.to_warp()
+    }
+
+    fn spill(&mut self, dst: SSAValue, src: Src) -> Instr {
+        self.info.num_spills_to_reg += 1;
+        Instr::new(OpCopy {
+            dst: dst.into(),
+            src,
+        })
+    }
+
+    fn fill(&mut self, dst: Dst, src: SSAValue) -> Instr {
+        self.info.num_fills_from_reg += 1;
+        Instr::new(OpR2UR {
+            dst,
+            src: src.into(),
+        })
+    }
+}
+
+pub(super) struct SpillPred<'a> {
+    info: &'a mut ShaderInfo,
+}
+
+impl<'a> SpillPred<'a> {
+    pub fn new(info: &'a mut ShaderInfo) -> Self {
+        Self { info }
+    }
+}
+
+impl Spill for SpillPred<'_> {
+    fn spill_file(&self, file: RegFile) -> RegFile {
+        match file {
+            RegFile::Pred => RegFile::GPR,
+            RegFile::UPred => RegFile::UGPR,
+            _ => panic!("Unsupported register file"),
+        }
+    }
+
+    fn spill(&mut self, dst: SSAValue, src: Src) -> Instr {
+        assert!(matches!(dst.file(), RegFile::GPR | RegFile::UGPR));
+        self.info.num_spills_to_reg += 1;
+        if let Some(b) = src.as_bool() {
+            let u32_src = Src::from(if b { !0 } else { 0 });
+            Instr::new(OpCopy {
+                dst: dst.into(),
+                src: u32_src,
+            })
+        } else {
+            Instr::new(OpSel {
+                dst: dst.into(),
+                cond: src.bnot(),
+                srcs: [0.into(), (!0).into()],
+            })
+        }
+    }
+
+    fn fill(&mut self, dst: Dst, src: SSAValue) -> Instr {
+        assert!(matches!(src.file(), RegFile::GPR | RegFile::UGPR));
+        self.info.num_fills_from_reg += 1;
+        Instr::new(OpISetP {
+            dst,
+            set_op: PredSetOp::And,
+            cmp_op: IntCmpOp::Ne,
+            cmp_type: IntCmpType::U32,
+            ex: false,
+            srcs: [0.into(), src.into()],
+            accum: true.into(),
+            low_cmp: true.into(),
+        })
+    }
+}
+
+pub(super) struct SpillBar<'a> {
+    info: &'a mut ShaderInfo,
+}
+
+impl<'a> SpillBar<'a> {
+    pub fn new(info: &'a mut ShaderInfo) -> Self {
+        Self { info }
+    }
+}
+
+impl Spill for SpillBar<'_> {
+    fn spill_file(&self, file: RegFile) -> RegFile {
+        assert!(file == RegFile::Bar);
+        RegFile::GPR
+    }
+
+    fn spill(&mut self, dst: SSAValue, src: Src) -> Instr {
+        assert!(dst.file() == RegFile::GPR);
+        self.info.num_spills_to_reg += 1;
+        Instr::new(OpBMov {
+            dst: dst.into(),
+            src,
+            clear: false,
+        })
+    }
+
+    fn fill(&mut self, dst: Dst, src: SSAValue) -> Instr {
+        assert!(src.file() == RegFile::GPR);
+        self.info.num_fills_from_reg += 1;
+        Instr::new(OpBMov {
+            dst,
+            src: src.into(),
+            clear: false,
+        })
+    }
+}
+
+pub(super) struct SpillGPR<'a> {
+    info: &'a mut ShaderInfo,
+}
+
+impl<'a> SpillGPR<'a> {
+    pub fn new(info: &'a mut ShaderInfo) -> Self {
+        Self { info }
+    }
+}
+
+impl Spill for SpillGPR<'_> {
+    fn spill_file(&self, file: RegFile) -> RegFile {
+        assert!(file == RegFile::GPR);
+        RegFile::Mem
+    }
+
+    fn spill(&mut self, dst: SSAValue, src: Src) -> Instr {
+        assert!(dst.file() == RegFile::Mem);
+        self.info.num_spills_to_mem += 1;
+        if let Some(ssa) = src.as_ssa() {
+            assert!(ssa.file() == RegFile::GPR);
+            Instr::new(OpCopy {
+                dst: dst.into(),
+                src,
+            })
+        } else {
+            // We use parallel copies for spilling non-GPR things to Mem
+            let mut pcopy = OpParCopy::new();
+            pcopy.push(dst.into(), src);
+            Instr::new(pcopy)
+        }
+    }
+
+    fn fill(&mut self, dst: Dst, src: SSAValue) -> Instr {
+        assert!(src.file() == RegFile::Mem);
+        self.info.num_fills_from_mem += 1;
+        Instr::new(OpCopy {
+            dst,
+            src: src.into(),
+        })
+    }
+}
+
+#[derive(Eq, PartialEq)]
+pub(super) struct SSANextUse {
+    pub(super) ssa: SSAValue,
+    next_use: usize,
+}
+
+impl SSANextUse {
+    pub fn new(ssa: SSAValue, next_use: usize) -> SSANextUse {
+        SSANextUse { ssa, next_use }
+    }
+}
+
+impl Ord for SSANextUse {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.next_use
+            .cmp(&other.next_use)
+            .then_with(|| self.ssa.idx().cmp(&other.ssa.idx()))
+    }
+}
+
+impl PartialOrd for SSANextUse {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+pub(super) struct SpillCache<'a, S: Spill> {
+    pub alloc: &'a mut SSAValueAllocator,
+    spill: S,
+    const_tracker: ConstTracker,
+    val_spill: FxHashMap<SSAValue, SSAValue>,
+}
+
+impl<'a, S: Spill> SpillCache<'a, S> {
+    pub fn new(alloc: &'a mut SSAValueAllocator, spill: S) -> SpillCache<'a, S> {
+        SpillCache {
+            alloc,
+            spill,
+            const_tracker: ConstTracker::new(),
+            val_spill: FxHashMap::default(),
+        }
+    }
+
+    pub fn add_copy_if_const(&mut self, op: &OpCopy) {
+        self.const_tracker.add_copy(op);
+    }
+
+    pub fn is_const(&self, ssa: &SSAValue) -> bool {
+        self.const_tracker.contains(ssa)
+    }
+
+    pub fn spill_file(&self, file: RegFile) -> RegFile {
+        self.spill.spill_file(file)
+    }
+
+    pub fn get_spill(&mut self, ssa: SSAValue) -> SSAValue {
+        *self
+            .val_spill
+            .entry(ssa)
+            .or_insert_with(|| self.alloc.alloc(self.spill.spill_file(ssa.file())))
+    }
+
+    fn spill_src(&mut self, ssa: SSAValue, src: Src) -> Instr {
+        let dst = self.get_spill(ssa);
+        self.spill.spill(dst, src)
+    }
+
+    pub fn spill(&mut self, ssa: SSAValue) -> Instr {
+        if let Some(c) = self.const_tracker.get(&ssa) {
+            self.spill_src(ssa, c.clone().into())
+        } else {
+            self.spill_src(ssa, ssa.into())
+        }
+    }
+
+    pub fn fill_dst(&mut self, dst: Dst, ssa: SSAValue) -> Instr {
+        let src = self.get_spill(ssa);
+        self.spill.fill(dst, src)
+    }
+
+    pub fn fill(&mut self, ssa: SSAValue) -> Instr {
+        if let Some(c) = self.const_tracker.get(&ssa) {
+            Instr::new(OpCopy {
+                dst: ssa.into(),
+                src: c.clone().into(),
+            })
+        } else {
+            self.fill_dst(ssa.into(), ssa)
+        }
+    }
+}
+
+pub(super) struct SpillChooser<'a> {
+    bl: &'a NextUseBlockLiveness,
+    pinned: &'a FxHashSet<SSAValue>,
+    ip: usize,
+    count: usize,
+    spills: BinaryHeap<Reverse<SSANextUse>>,
+    min_next_use: usize,
+}
+
+pub(super) struct SpillChoiceIter {
+    spills: BinaryHeap<Reverse<SSANextUse>>,
+}
+
+impl<'a> SpillChooser<'a> {
+    pub fn new(
+        bl: &'a NextUseBlockLiveness,
+        pinned: &'a FxHashSet<SSAValue>,
+        ip: usize,
+        count: usize,
+    ) -> Self {
+        Self {
+            bl,
+            pinned,
+            ip,
+            count,
+            spills: BinaryHeap::new(),
+            min_next_use: ip + 1,
+        }
+    }
+
+    pub fn add_candidate(&mut self, ssa: SSAValue) {
+        // Don't spill anything that's pinned
+        if self.pinned.contains(&ssa) {
+            return;
+        }
+
+        // Ignore anything used sonner than spill options we've already
+        // rejected.
+        let next_use = self.bl.next_use_after_or_at_ip(&ssa, self.ip).unwrap();
+        if next_use < self.min_next_use {
+            return;
+        }
+
+        self.spills.push(Reverse(SSANextUse::new(ssa, next_use)));
+
+        if self.spills.len() > self.count {
+            // Because we reversed the heap, pop actually removes the
+            // one with the lowest next_use which is what we want here.
+            let old = self.spills.pop().unwrap();
+            debug_assert!(self.spills.len() == self.count);
+            self.min_next_use = max(self.min_next_use, old.0.next_use);
+        }
+    }
+}
+
+impl IntoIterator for SpillChooser<'_> {
+    type Item = SSAValue;
+    type IntoIter = SpillChoiceIter;
+
+    fn into_iter(self) -> SpillChoiceIter {
+        SpillChoiceIter {
+            spills: self.spills,
+        }
+    }
+}
+
+impl Iterator for SpillChoiceIter {
+    type Item = SSAValue;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.spills.len();
+        (len, Some(len))
+    }
+
+    fn next(&mut self) -> Option<SSAValue> {
+        self.spills.pop().map(|x| x.0.ssa)
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct SSAState {
+    // The set of variables which currently exist in registers
+    pub w: LiveSet,
+    // The set of variables which have already been spilled.  These don't need
+    // to be spilled again.
+    pub s: FxHashSet<SSAValue>,
+    // The set of pinned variables
+    pub p: FxHashSet<SSAValue>,
+}

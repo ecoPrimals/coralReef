@@ -3,12 +3,7 @@
 
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use super::debug::{DEBUG, GetDebugFlags};
-use super::ir::*;
-use super::opt_instr_sched_common::estimate_block_weight;
-use super::reg_tracker::{RegRefIterable, RegTracker, SparseRegTracker};
-
-use coral_nak_stubs::dataflow::{BackwardDataflow, ForwardDataflow};
+use super::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::max;
 use std::hash::Hash;
@@ -16,7 +11,7 @@ use std::ops::Range;
 use std::slice;
 
 #[derive(Clone)]
-enum RegUse<T: Clone> {
+pub(super) enum RegUse<T: Clone> {
     None,
     Write(T),
     Reads(Vec<T>),
@@ -63,7 +58,7 @@ impl<T: Clone> RegUse<T> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum RegReadWrite {
+pub(super) enum RegReadWrite {
     Read,
     Write,
 }
@@ -81,7 +76,7 @@ enum RegReadWrite {
 /// We cannot flush writes after a read operation since we can still
 /// encounter other, slower reads that could interfere with the write.
 #[derive(Clone, PartialEq, Eq, Default)]
-struct RegUseMap<K: Hash + Eq, V> {
+pub(super) struct RegUseMap<K: Hash + Eq, V> {
     map: FxHashMap<(RegReadWrite, K), V>,
 }
 
@@ -114,6 +109,14 @@ where
             .map(|(k, v)| (&k.1, v))
     }
 
+    pub fn retain(&mut self, f: impl FnMut(&(RegReadWrite, K), &mut V) -> bool) {
+        self.map.retain(f);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
     /// Merge two instances using a custom merger for value conflicts
     pub fn merge_with(&mut self, other: &Self, mut merger: impl FnMut(&V, &V) -> V) {
         use std::collections::hash_map::Entry;
@@ -136,7 +139,7 @@ struct DepNode {
     first_wait: Option<(usize, usize)>,
 }
 
-struct DepGraph {
+pub(super) struct DepGraph {
     deps: Vec<DepNode>,
     instr_deps: FxHashMap<(usize, usize), (usize, usize)>,
     instr_waits: FxHashMap<(usize, usize), Vec<usize>>,
@@ -239,7 +242,7 @@ impl DepGraph {
     }
 }
 
-struct BarAlloc {
+pub(super) struct BarAlloc {
     num_bars: u8,
     bar_dep: [usize; 6],
 }
@@ -542,198 +545,11 @@ impl TexQueueSimulationState {
     }
 }
 
-fn instr_needs_texbar(instr: &Instr) -> bool {
-    matches!(
-        instr.op,
-        Op::Tex(_) | Op::Tld(_) | Op::Tmml(_) | Op::Tld4(_) | Op::Txd(_) | Op::Txq(_)
-    )
-}
-
-/// Hardware has a FIFO queue of texture that are still fetching,
-/// when the oldest tex finishes executing, it's written to the reg,
-/// removed from the queue and it begins executing the new one.
-/// The problem arises when a texture is read while it is still being fetched
-/// to avoid it, we have a `texdepbar {i}` instruction that stalls until
-/// the texture fetch queue has at most {i} elements.
-/// e.g. the most simple solution is to have texdepbar 0 after each texture
-/// instruction, but this would stall the pipeline until the texture fetch
-/// finishes executing.
-/// This algorithm inserts `texdepbar` at each use of the texture results,
-/// simulating the texture queue execution.
-///
-/// Note that the texture queue has for each entry (texture data, register output)
-/// and each register can be on the queue only once (we don't want to have multiple texture
-/// operations in-flight that write to the same registers).
-/// This can lead to a neat algorithm:
-/// instead of tracking the queue directly, which can exponentially explode in complexity,
-/// track the position of each register, which needs at most 255/63 positions.
-/// For branches the state is duplicated in each basic block,
-/// for joins instead we want to keep both the minimum position of each
-/// entry and the maximum length og the queue to avoid overflows.
-///
-/// TODO: IF this pass is too slow, there are still optimizations left:
-/// - Our data-flow computes barrier levels and discards them,
-///   but since most CFG blocks do not need recomputation, we could save
-///   the barrier levels in a vec and save a pass later.
-/// - Instead of pushing by 1 each element in the queue on a `push` op,
-///   we could keep track of an in-flight range and use a wrapping timestamp
-///   this improves performance but needs careful implementation to avoid bugs
-fn insert_texture_barriers(f: &mut Function, sm: &ShaderModelInfo) {
-    assert!(sm.is_kepler()); // Only kepler has texture barriers!
-
-    let mut state_in: Vec<_> = (0..f.blocks.len())
-        .map(|_| TexQueueSimulationState::new())
-        .collect();
-    let mut state_out: Vec<_> = (0..f.blocks.len())
-        .map(|_| TexQueueSimulationState::new())
-        .collect();
-    ForwardDataflow {
-        cfg: &f.blocks,
-        block_in: &mut state_in[..],
-        block_out: &mut state_out[..],
-        transfer: |_block_idx,
-                   block: &super::ir::BasicBlock,
-                   sim_out: &mut TexQueueSimulationState,
-                   sim_in: &TexQueueSimulationState| {
-            let mut sim = sim_in.clone();
-
-            for instr in &block.instrs {
-                // Ignore the barrier, we will recompute this later
-                let _bar = sim.visit_instr(instr);
-            }
-
-            if *sim_out == sim {
-                false
-            } else {
-                *sim_out = sim;
-                true
-            }
-        },
-        join: |sim_in: &mut TexQueueSimulationState, pred_sim_out: &TexQueueSimulationState| {
-            sim_in.merge(pred_sim_out);
-        },
-    }
-    .solve();
-
-    for (block, mut sim) in f.blocks.iter_mut().zip(state_in.into_iter()) {
-        block.map_instrs(|instr| {
-            if let Some(textures_left) = sim.visit_instr(&instr) {
-                let bar = Instr::new(OpTexDepBar { textures_left });
-                MappedInstrs::Many(vec![bar, instr])
-            } else {
-                MappedInstrs::One(instr)
-            }
-        });
-    }
-}
-
-fn assign_barriers(f: &mut Function, sm: &ShaderModelInfo) {
-    let mut uses = Box::new(RegTracker::new_with(&|| RegUse::None));
-    let mut deps = DepGraph::new();
-
-    for (bi, b) in f.blocks.iter().enumerate() {
-        for (ip, instr) in b.instrs.iter().enumerate() {
-            if instr.is_branch() {
-                deps.add_barrier(bi, ip);
-            } else {
-                // Execution predicates are handled immediately and we don't
-                // need barriers for them, regardless of whether or not it's a
-                // fixed-latency instruction.
-                let mut waits = Vec::new();
-                uses.for_each_instr_pred_mut(instr, |u| {
-                    let u = u.clear_write();
-                    waits.extend_from_slice(u.deps());
-                });
-
-                if sm.op_needs_scoreboard(&instr.op) {
-                    let (rd, wr) = deps.add_instr(bi, ip);
-                    uses.for_each_instr_src_mut(instr, |_, u| {
-                        // Only mark a dep as signaled if we actually have
-                        // something that shows up in the register file as
-                        // needing scoreboarding
-                        deps.add_signal(rd);
-                        let u = u.add_read(rd);
-                        waits.extend_from_slice(u.deps());
-                    });
-                    uses.for_each_instr_dst_mut(instr, |_, u| {
-                        // Only mark a dep as signaled if we actually have
-                        // something that shows up in the register file as
-                        // needing scoreboarding
-                        deps.add_signal(wr);
-                        let u = u.set_write(wr);
-                        for dep in u.deps() {
-                            // Don't wait on ourselves
-                            if *dep != rd {
-                                waits.push(*dep);
-                            }
-                        }
-                    });
-                } else {
-                    // Delays will cover us here.  We just need to make sure
-                    // that we wait on any uses that we consume.
-                    uses.for_each_instr_src_mut(instr, |_, u| {
-                        let u = u.clear_write();
-                        waits.extend_from_slice(u.deps());
-                    });
-                    uses.for_each_instr_dst_mut(instr, |_, u| {
-                        let u = u.clear();
-                        waits.extend_from_slice(u.deps());
-                    });
-                }
-                deps.add_waits(bi, ip, waits);
-            }
-        }
-    }
-
-    let mut bars = BarAlloc::new();
-
-    for (bi, b) in f.blocks.iter_mut().enumerate() {
-        for (ip, instr) in b.instrs.iter_mut().enumerate() {
-            let mut wait_mask = 0_u8;
-            for dep in deps.get_instr_waits(bi, ip) {
-                if let Some(bar) = bars.get_bar_for_dep(*dep) {
-                    wait_mask |= 1 << bar;
-                    bars.free_bar(bar);
-                }
-            }
-            instr.deps.add_wt_bar_mask(wait_mask);
-
-            if instr.needs_yield() {
-                instr.deps.set_yield(true);
-            }
-
-            if !sm.op_needs_scoreboard(&instr.op) {
-                continue;
-            }
-
-            let (rd_dep, wr_dep) = deps.get_instr_deps(bi, ip);
-            if deps.dep_is_waited_after(rd_dep, bi, ip) {
-                let rd_bar = bars.try_find_free_bar().unwrap_or_else(|| {
-                    let bar = bars.free_some_bar();
-                    instr.deps.add_wt_bar(bar);
-                    bar
-                });
-                bars.set_bar_dep(rd_bar, rd_dep);
-                instr.deps.set_rd_bar(rd_bar);
-            }
-            if deps.dep_is_waited_after(wr_dep, bi, ip) {
-                let wr_bar = bars.try_find_free_bar().unwrap_or_else(|| {
-                    let bar = bars.free_some_bar();
-                    instr.deps.add_wt_bar(bar);
-                    bar
-                });
-                bars.set_bar_dep(wr_bar, wr_dep);
-                instr.deps.set_wr_bar(wr_bar);
-            }
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct RegOrigin {
-    loc: InstrIdx,
+pub(super) struct RegOrigin {
+    pub(super) loc: InstrIdx,
     // Index of the src (for reads) or dst (for writes) in the instruction.
-    src_dst_idx: u16,
+    pub(super) src_dst_idx: u16,
 }
 
 impl Default for RegOrigin {
@@ -747,18 +563,18 @@ impl Default for RegOrigin {
 }
 
 // Delay accumulated from the blocks it passed, used to check for cross-block hazards.
-type AccumulatedDelay = u8;
-type DelayRegTracker = SparseRegTracker<RegUseMap<RegOrigin, AccumulatedDelay>>;
+pub(super) type AccumulatedDelay = u8;
+pub(super) type DelayRegTracker = SparseRegTracker<RegUseMap<RegOrigin, AccumulatedDelay>>;
 
-struct BlockDelayScheduler<'a> {
-    sm: &'a ShaderModelInfo,
-    f: &'a Function,
+pub(super) struct BlockDelayScheduler<'a> {
+    pub(super) sm: &'a ShaderModelInfo,
+    pub(super) f: &'a Function,
     // Map from barrier to last waited cycle
-    bars: [u32; 6],
+    pub(super) bars: [u32; 6],
     // Current cycle count until end-of-block.
-    current_cycle: u32,
+    pub(super) current_cycle: u32,
     // Map from idx (block, instr) to block-relative cycle
-    instr_cycles: &'a mut Vec<Vec<u32>>,
+    pub(super) instr_cycles: &'a mut Vec<Vec<u32>>,
 }
 
 impl BlockDelayScheduler<'_> {
@@ -788,7 +604,7 @@ impl BlockDelayScheduler<'_> {
         }
     }
 
-    fn process_instr(&mut self, loc: InstrIdx, reg_uses: &mut DelayRegTracker) {
+    pub(super) fn process_instr(&mut self, loc: InstrIdx, reg_uses: &mut DelayRegTracker) {
         let instr = &self.f[loc];
 
         let mut min_start = self.current_cycle + self.sm.exec_latency(&instr.op);
@@ -895,282 +711,9 @@ impl BlockDelayScheduler<'_> {
     }
 }
 
-fn calc_delays(f: &mut Function, sm: &ShaderModelInfo) -> u64 {
-    let mut instr_cycles: Vec<Vec<u32>> =
-        f.blocks.iter().map(|b| vec![0; b.instrs.len()]).collect();
-
-    let mut state_in: Vec<_> = vec![DelayRegTracker::default(); f.blocks.len()];
-    let mut state_out: Vec<_> = vec![DelayRegTracker::default(); f.blocks.len()];
-
-    let latency_upper_bound: u8 = sm
-        .latency_upper_bound()
-        .try_into()
-        .expect("Latency upper bound too large!");
-
-    // Compute instruction delays using an optimistic backwards data-flow
-    // algorithm.  For back-cycles we assume the best and recompute when
-    // new data is available.  This is yields correct results as long as
-    // the data flow analysis is run until completion.
-    BackwardDataflow {
-        cfg: &f.blocks,
-        block_in: &mut state_in[..],
-        block_out: &mut state_out[..],
-        transfer: |block_idx,
-                   block: &super::ir::BasicBlock,
-                   reg_in: &mut DelayRegTracker,
-                   reg_out: &DelayRegTracker| {
-            let mut uses = reg_out.clone();
-
-            let mut sched = BlockDelayScheduler {
-                sm,
-                f,
-                // Barriers are handled by `assign_barriers`, and it does
-                // not handle cross-block barrier signal/wait.
-                // We can safely assume that no barrier is active at the
-                // start and end of the block
-                bars: [0_u32; 6],
-                current_cycle: 0_u32,
-                instr_cycles: &mut instr_cycles,
-            };
-
-            for ip in (0..block.instrs.len()).rev() {
-                let loc = InstrIdx::new(block_idx, ip);
-                sched.process_instr(loc, &mut uses);
-            }
-
-            // Update accumulated delay
-            let block_cycles = sched.current_cycle;
-            uses.retain(|reg_use| {
-                reg_use.map.retain(|(_rw, k), v| {
-                    let overcount = if k.loc.block_idx as usize == block_idx {
-                        // Only instrs before instr_idx must be counted
-                        instr_cycles[k.loc.block_idx as usize][k.loc.instr_idx as usize]
-                    } else {
-                        0
-                    };
-                    let instr_executed = (block_cycles - overcount).try_into().unwrap_or(u8::MAX);
-                    // We only care about the accumulated delay until it
-                    // is bigger than the maximum delay of an instruction.
-                    // after that, it cannot cause hazards.
-                    let (added, overflow) = (*v).overflowing_add(instr_executed);
-                    *v = added;
-                    // Stop keeping track of entries that happened too
-                    // many cycles "in the future", and cannot affect
-                    // scheduling anymore
-                    !overflow && added <= latency_upper_bound
-                });
-                !reg_use.map.is_empty()
-            });
-
-            if *reg_in == uses {
-                false
-            } else {
-                *reg_in = uses;
-                true
-            }
-        },
-        join: |curr_in: &mut DelayRegTracker, succ_out: &DelayRegTracker| {
-            // We start with an optimistic assumption and gradually make it
-            // less optimistic.  So in the join operation we need to keep
-            // the "worst" accumulated latency, that is the lowest one.
-            // i.e. if an instruction has an accumulated latency of 2 cycles,
-            // it can interfere with the next block, while if it had 200 cycles
-            // it's highly unlikely that it could interfere.
-            curr_in.merge_with(succ_out, |a, b| a.merge_with(b, |ai, bi| (*ai).min(*bi)));
-        },
-    }
-    .solve();
-
-    // Update the deps.delay for each instruction and compute
-    for (bi, b) in f.blocks.iter_mut().enumerate() {
-        let cycles = &instr_cycles[bi];
-        for (ip, i) in b.instrs.iter_mut().enumerate() {
-            let delay = cycles[ip] - cycles.get(ip + 1).copied().unwrap_or(0);
-            let delay: u8 = delay.try_into().expect("Delay overflow");
-            i.deps.delay = delay.max(MIN_INSTR_DELAY);
-        }
-    }
-
-    let min_num_static_cycles = instr_cycles
-        .iter()
-        .enumerate()
-        .map(|(block_idx, cycles)| {
-            let cycles = cycles.last().copied().unwrap_or(0);
-            let block_weight = estimate_block_weight(&f.blocks, block_idx);
-            u64::from(cycles)
-                .checked_mul(block_weight)
-                .expect("Cycle count estimate overflow")
-        })
-        .reduce(|a, b| a.checked_add(b).expect("Cycle count estimate overflow"))
-        .unwrap_or(0);
-
-    let max_instr_delay = sm.max_instr_delay();
-    f.map_instrs(|mut instr, _| {
-        if instr.deps.delay > max_instr_delay {
-            let mut delay = instr.deps.delay - max_instr_delay;
-            instr.deps.set_delay(max_instr_delay);
-            let mut instrs = vec![instr];
-            while delay > 0 {
-                let mut nop = Instr::new(OpNop { label: None });
-                nop.deps.set_delay(delay.min(max_instr_delay));
-                delay -= nop.deps.delay;
-                instrs.push(nop);
-            }
-            MappedInstrs::Many(instrs)
-        } else if matches!(instr.op, Op::SrcBar(_)) {
-            instr.op = Op::Nop(OpNop { label: None });
-            MappedInstrs::One(instr)
-        } else if sm.exec_latency(&instr.op) > 1 {
-            // It's unclear exactly why but the blob inserts a Nop with a delay
-            // of 2 after every instruction which has an exec latency.  Perhaps
-            // it has something to do with .yld?  In any case, the extra 2
-            // cycles aren't worth the chance of weird bugs.
-            let mut nop = Instr::new(OpNop { label: None });
-            nop.deps.set_delay(2);
-            MappedInstrs::Many(vec![instr, nop])
-        } else {
-            MappedInstrs::One(instr)
-        }
-    });
-
-    min_num_static_cycles
-}
-
-impl Shader<'_> {
-    pub fn assign_deps_serial(&mut self) {
-        for f in &mut self.functions {
-            for b in &mut f.blocks.iter_mut().rev() {
-                let mut wt = 0_u8;
-                for instr in &mut b.instrs {
-                    if matches!(&instr.op, Op::Bar(_))
-                        || matches!(&instr.op, Op::BClear(_))
-                        || matches!(&instr.op, Op::BSSy(_))
-                        || matches!(&instr.op, Op::BSync(_))
-                    {
-                        instr.deps.set_yield(true);
-                    } else if instr.is_branch() {
-                        instr.deps.add_wt_bar_mask(0x3f);
-                    } else {
-                        instr.deps.add_wt_bar_mask(wt);
-                        if instr.dsts().len() > 0 {
-                            instr.deps.set_wr_bar(0);
-                            wt |= 1 << 0;
-                        }
-                        if !instr.pred.pred_ref.is_none() || instr.srcs().len() > 0 {
-                            instr.deps.set_rd_bar(1);
-                            wt |= 1 << 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn calc_instr_deps(&mut self) {
-        if self.sm.is_kepler() {
-            for f in &mut self.functions {
-                insert_texture_barriers(f, self.sm);
-            }
-        }
-
-        if DEBUG.serial() {
-            self.assign_deps_serial();
-        } else {
-            let mut min_num_static_cycles = 0u64;
-            for f in &mut self.functions {
-                assign_barriers(f, self.sm);
-                min_num_static_cycles += calc_delays(f, self.sm);
-            }
-
-            if DEBUG.cycles() {
-                // This is useful for debugging differences in the scheduler
-                // cycle count model and the calc_delays() model.  However, it
-                // isn't totally valid since assign_barriers() can add extra
-                // dependencies for barrier re-use and those may add cycles.
-                // The chances of it doing this are low, thanks to our LRU
-                // allocation strategy, but it's still not an assert we want
-                // running in production.
-                assert!(self.info.num_static_cycles >= min_num_static_cycles);
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn reg_gpr(range: Range<usize>) -> RegRef {
-        RegRef::new(
-            RegFile::GPR,
-            range.start as u32,
-            (range.end - range.start) as u8,
-        )
-    }
-
-    #[test]
-    fn test_texdepbar_basic() {
-        let mut sim = TexQueueSimulationState::new();
-
-        // RaW
-        assert_eq!(sim.push(reg_gpr(0..4)), None);
-        assert_eq!(sim.flush(reg_gpr(2..3)), Some(0));
-
-        // 2 entries in the queue
-        assert_eq!(sim.push(reg_gpr(0..2)), None); // [A]
-        assert_eq!(sim.push(reg_gpr(2..4)), None); // [B, A]
-        assert_eq!(sim.flush(reg_gpr(0..1)), Some(1)); // [B]
-        assert_eq!(sim.flush(reg_gpr(3..4)), Some(0)); // []
-
-        // Test bucket conflicts
-        assert_eq!(sim.push(reg_gpr(0..1)), None);
-        assert_eq!(sim.flush(reg_gpr(1..3)), None);
-        assert_eq!(sim.flush(reg_gpr(0..3)), Some(0));
-
-        // Bucket conflict part 2: Electric Boogaloo
-        assert_eq!(sim.push(reg_gpr(1..2)), None);
-        assert_eq!(sim.push(reg_gpr(0..1)), None);
-        assert_eq!(sim.flush(reg_gpr(1..2)), Some(1));
-        assert_eq!(sim.flush(reg_gpr(0..1)), Some(0));
-
-        // Interesting CFG case that the old pass got wrong.
-        // CFG: A -> [B, C] -> D
-        // A pushes
-        assert_eq!(sim.push(reg_gpr(0..4)), None);
-        // B: pushes a tex then flushes it
-        let mut b_sim = sim.clone();
-        assert_eq!(b_sim.push(reg_gpr(4..8)), None);
-        assert_eq!(b_sim.flush(reg_gpr(4..8)), Some(0));
-        // C: pushes 3 tex and never flishes them
-        let mut c_sim = sim.clone();
-        assert_eq!(c_sim.push(reg_gpr(4..5)), None);
-        assert_eq!(c_sim.push(reg_gpr(5..6)), None);
-        assert_eq!(c_sim.push(reg_gpr(6..7)), None);
-        // D: flushes the tex pushed by A
-        let mut d_sim = b_sim;
-        d_sim.merge(&c_sim);
-        assert_eq!(c_sim.flush(reg_gpr(0..4)), Some(3));
-        // the "shortest push path" would pass by B but in fact
-        // by passing in B our texture is flushed off the queue.
-        // (old algorithm would insert a texdepbar 1)
-    }
-
-    #[test]
-    fn test_texdepbar_overflow() {
-        let mut sim = TexQueueSimulationState::new();
-
-        // Fill the texture queue
-        for i in 0..(usize::from(OpTexDepBar::MAX_TEXTURES_LEFT) + 1) {
-            assert_eq!(sim.push(reg_gpr(i..(i + 1))), None);
-        }
-        // The new push would overflow the queue, we NEED a barrier
-        assert_eq!(
-            sim.push(reg_gpr(64..65)),
-            Some(OpTexDepBar::MAX_TEXTURES_LEFT)
-        );
-        assert_eq!(
-            sim.push(reg_gpr(65..66)),
-            Some(OpTexDepBar::MAX_TEXTURES_LEFT)
-        );
-    }
+fn instr_needs_texbar(instr: &Instr) -> bool {
+    matches!(
+        instr.op,
+        Op::Tex(_) | Op::Tld(_) | Op::Tmml(_) | Op::Tld4(_) | Op::Txd(_) | Op::Txq(_)
+    )
 }

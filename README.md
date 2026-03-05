@@ -1,6 +1,6 @@
 # coralNak
 
-**Status**: Phase 2 — NAK Sources Wired  
+**Status**: Phase 2.8 — Standalone Sovereign Primal  
 **Purpose**: Sovereign Rust NVIDIA shader compiler — forked from Mesa NAK
 
 ---
@@ -57,7 +57,7 @@ coralNak/
 
 1. **Scaffold** — Extract NAK sources, create Mesa stubs *(complete)*
 2. **Foundation** — UniBin, IPC, stubs evolved, test coverage *(complete)*
-3. **Wire NAK** — NAK sources compile against stubs *(in progress — 17 errors remaining)*
+3. **Wire NAK** — NAK sources compile against stubs *(complete — 193 tests passing)*
 4. **Replace NIR** — naga SPIR-V frontend instead of Mesa NIR
 5. **f64 Fix** — DFMA-based software lowering for transcendentals
 6. **Standalone** — Remove all Mesa dependencies, publish
@@ -65,4 +65,4 @@ coralNak/
 ---
 
 **License**: AGPL-3.0-only (NAK-derived files retain MIT per upstream)  
-**Created with sourDough**
+**Standalone primal** — lifecycle and health patterns modeled on sourDough, zero compile-time dependency

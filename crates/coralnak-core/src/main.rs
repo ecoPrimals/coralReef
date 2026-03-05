@@ -152,6 +152,8 @@ fn install_panic_hook() {
     }));
 }
 
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
     tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
@@ -205,8 +207,6 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     let _ = shutdown_tx.send(());
     let _ = rpc_handle.stop();
 
-    // 2. Finish in-flight requests with timeout (30 seconds)
-    const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
     let rpc_stopped = rpc_handle.clone().stopped();
     let shutdown_result = tokio::time::timeout(SHUTDOWN_TIMEOUT, async move {
         rpc_stopped.await;
@@ -317,7 +317,8 @@ fn error_to_exit_code(e: &CompileError) -> UniBinExit {
 
 async fn cmd_doctor() -> UniBinExit {
     use coralnak_core::CoralNakPrimal;
-    use sourdough_core::{PrimalHealth, PrimalLifecycle};
+    use coralnak_core::health::PrimalHealth;
+    use coralnak_core::lifecycle::PrimalLifecycle;
 
     println!("{} doctor — diagnostic check\n", env!("CARGO_PKG_NAME"));
 

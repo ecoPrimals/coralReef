@@ -11,10 +11,15 @@ use crate::cfg::CFG;
 /// Construct with `cfg`, `block_in`, `block_out`, `transfer`, and `join` closures,
 /// then call `.solve()` to run to fixed point.
 pub struct ForwardDataflow<'a, T, S, F, J> {
+    /// Control-flow graph to analyze.
     pub cfg: &'a CFG<T>,
+    /// Per-block input state.
     pub block_in: &'a mut [S],
+    /// Per-block output state.
     pub block_out: &'a mut [S],
+    /// Transfer function: `(block_idx, block, out, in) -> changed`.
     pub transfer: F,
+    /// Join function: merges predecessor output into successor input.
     pub join: J,
 }
 
@@ -24,6 +29,11 @@ where
     F: FnMut(usize, &T, &mut S, &S) -> bool,
     J: FnMut(&mut S, &S),
 {
+    /// Run forward dataflow to fixed point.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a node in the reverse post-order is not present in the CFG.
     pub fn solve(&mut self) {
         let order = self.cfg.reverse_post_order();
         loop {
@@ -52,10 +62,15 @@ where
 
 /// NAK-style backward dataflow runner (same type for in/out).
 pub struct BackwardDataflow<'a, T, S, F, J> {
+    /// Control-flow graph to analyze.
     pub cfg: &'a CFG<T>,
+    /// Per-block input state.
     pub block_in: &'a mut [S],
+    /// Per-block output state.
     pub block_out: &'a mut [S],
+    /// Transfer function: `(block_idx, block, in, out) -> changed`.
     pub transfer: F,
+    /// Join function: merges successor input into predecessor output.
     pub join: J,
 }
 
@@ -65,6 +80,11 @@ where
     F: FnMut(usize, &T, &mut S, &S) -> bool,
     J: FnMut(&mut S, &S),
 {
+    /// Run backward dataflow to fixed point.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a node in the reverse post-order is not present in the CFG.
     pub fn solve(&mut self) {
         let mut order = self.cfg.reverse_post_order();
         order.reverse();
@@ -94,10 +114,15 @@ where
 
 /// Backward dataflow with different types for `block_in` and `block_out`.
 pub struct BackwardDataflowBi<'a, T, SIn, SOut, F, J> {
+    /// Control-flow graph to analyze.
     pub cfg: &'a CFG<T>,
+    /// Per-block input state.
     pub block_in: &'a mut [SIn],
+    /// Per-block output state.
     pub block_out: &'a mut [SOut],
+    /// Transfer function: `(block_idx, block, in, out) -> changed`.
     pub transfer: F,
+    /// Join function: merges successor input into predecessor output.
     pub join: J,
 }
 
@@ -107,6 +132,11 @@ where
     F: FnMut(usize, &T, &mut SIn, &SOut) -> bool,
     J: FnMut(&mut SOut, &SIn),
 {
+    /// Run backward bi-type dataflow to fixed point.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a node in the reverse post-order is not present in the CFG.
     pub fn solve(&mut self) {
         let mut order = self.cfg.reverse_post_order();
         order.reverse();

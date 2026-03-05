@@ -38,7 +38,7 @@ Native GPU binary (SM70+)
 | `coralnak-core` | Primal lifecycle, health, IPC |
 | `coral-nak` | Shader compiler (NAK extraction) |
 | `coral-nak-isa` | NVIDIA ISA tables and encoding |
-| `coral-nak-stubs` | Mesa dependency replacements (temporary) |
+| `coral-nak-stubs` | Mesa dependency replacements (6 evolved, legacy FFI stubs remain for Phase 3) |
 
 ## f64 Transcendental Gap
 
@@ -58,8 +58,8 @@ adds software lowering using DFMA (Double-precision Fused Multiply-Add):
 | Level | Milestone | Status |
 |-------|-----------|--------|
 | 1 | barraCuda DF64 pipeline (workaround) | Complete |
-| 2 | Fork NAK, fix f64 emission | In progress |
-| 3 | Standalone Rust crate | Scaffolded |
+| 2 | Fork NAK, fix f64 emission | Complete (pipeline wired, frontend pending) |
+| 3 | Standalone Rust crate | In progress (standalone lifecycle, zero external primal deps) |
 | 4 | coralDriver (userspace GPU driver) | Planned |
 | 5 | coralGpu (unified Rust GPU abstraction) | Planned |
 

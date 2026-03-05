@@ -18,9 +18,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      # sourDough-core is a path dependency — clone it
-      - name: Clone sourDough
-        run: git clone --depth 1 https://github.com/ecoPrimals/sourDough.git ../sourDough
       - name: Check
         run: cargo check --workspace
       - name: Clippy

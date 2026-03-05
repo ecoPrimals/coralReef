@@ -124,14 +124,27 @@ fn derive_as_slice(
     } else {
         let total = total_count;
         quote! {
-            // SAFETY: The struct has #[repr(C)] and all matched fields (Elem or [Elem; N])
-            // are contiguous in memory with no other fields between them. The pointer
-            // points to the first such field and the length is the sum of all element
-            // counts, so the resulting slice is valid.
-            unsafe {
+            // Compile-time layout verification: the struct must be at least large enough
+            // to hold `total` elements of `elem_type`, and sufficiently aligned.
+            const _: () = assert!(
+                std::mem::size_of::<#struct_name>() >= std::mem::size_of::<#elem_type>() * #total,
+                "AsSlice: struct size must be >= elem_type size * element count"
+            );
+            const _: () = assert!(
+                std::mem::align_of::<#struct_name>() >= std::mem::align_of::<#elem_type>(),
+                "AsSlice: struct alignment must be >= elem_type alignment"
+            );
+            // SAFETY: The struct has #[repr(C)] (required by convention for op structs).
+            // In repr(C), fields are laid out in declaration order with no reordering.
+            // All matched fields (Elem or [Elem; N]) are contiguous with no other fields
+            // between them. The pointer points to the first matched field and the length
+            // equals the sum of all element counts. The slice lifetime is bounded by &self.
+            let slice = unsafe {
                 let ptr = &self.#first_field as *const #elem_type;
                 std::slice::from_raw_parts(ptr, #total)
-            }
+            };
+            debug_assert_eq!(slice.len(), #total, "AsSlice length mismatch");
+            slice
         }
     };
 
@@ -142,14 +155,27 @@ fn derive_as_slice(
     } else {
         let total = total_count;
         quote! {
-            // SAFETY: The struct has #[repr(C)] and all matched fields (Elem or [Elem; N])
-            // are contiguous in memory with no other fields between them. The pointer
-            // points to the first such field and the length is the sum of all element
-            // counts, so the resulting slice is valid.
-            unsafe {
+            // Compile-time layout verification: the struct must be at least large enough
+            // to hold `total` elements of `elem_type`, and sufficiently aligned.
+            const _: () = assert!(
+                std::mem::size_of::<#struct_name>() >= std::mem::size_of::<#elem_type>() * #total,
+                "AsSlice: struct size must be >= elem_type size * element count"
+            );
+            const _: () = assert!(
+                std::mem::align_of::<#struct_name>() >= std::mem::align_of::<#elem_type>(),
+                "AsSlice: struct alignment must be >= elem_type alignment"
+            );
+            // SAFETY: The struct has #[repr(C)] (required by convention for op structs).
+            // In repr(C), fields are laid out in declaration order with no reordering.
+            // All matched fields (Elem or [Elem; N]) are contiguous with no other fields
+            // between them. The pointer points to the first matched field and the length
+            // equals the sum of all element counts. The slice lifetime is bounded by &mut self.
+            let slice = unsafe {
                 let ptr = &mut self.#first_field as *mut #elem_type;
                 std::slice::from_raw_parts_mut(ptr, #total)
-            }
+            };
+            debug_assert_eq!(slice.len(), #total, "AsSlice length mismatch");
+            slice
         }
     };
 

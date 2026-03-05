@@ -11,7 +11,9 @@ use std::marker::PhantomData;
 use std::ops::{BitOr, BitOrAssign, RangeFull, Sub};
 
 /// Index trait for bit-set membership.
-pub trait IntoBitIndex {
+///
+/// All implementors are `Copy` — methods accept `impl IntoBitIndex` by value.
+pub trait IntoBitIndex: Copy {
     /// Convert to a zero-based bit index.
     fn bit_index(&self) -> usize;
 }
@@ -75,6 +77,7 @@ impl<T> BitSet<T> {
     }
 
     /// Insert a bit. Returns `true` if the bit was newly set.
+    #[allow(clippy::needless_pass_by_value)] // IntoBitIndex: Copy
     pub fn insert(&mut self, index: impl IntoBitIndex) -> bool {
         let idx = index.bit_index();
         let (word, bit) = Self::word_bit(idx);
@@ -87,6 +90,7 @@ impl<T> BitSet<T> {
     }
 
     /// Remove a bit. Returns `true` if the bit was previously set.
+    #[allow(clippy::needless_pass_by_value)] // IntoBitIndex: Copy
     pub fn remove(&mut self, index: impl IntoBitIndex) -> bool {
         let idx = index.bit_index();
         let (word, bit) = Self::word_bit(idx);
@@ -100,6 +104,7 @@ impl<T> BitSet<T> {
 
     /// Check if a bit is set.
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // IntoBitIndex: Copy
     pub fn contains(&self, index: impl IntoBitIndex) -> bool {
         let idx = index.bit_index();
         let (word, bit) = Self::word_bit(idx);
@@ -434,8 +439,8 @@ mod tests {
     #[test]
     fn test_find_aligned_unset_range_no_space() {
         let mut bs = BitSet::<()>::new(32);
-        for i in 0..32 {
-            bs.insert(i as usize);
+        for i in 0_usize..32 {
+            bs.insert(i);
         }
         assert_eq!(bs.find_aligned_unset_range(0, 1, 1, 0), None);
     }
@@ -487,13 +492,13 @@ mod tests {
     #[test]
     fn test_clear_removes_all() {
         let mut bs = BitSet::<()>::new(128);
-        for i in 0..64 {
-            bs.insert(i as usize);
+        for i in 0_usize..64 {
+            bs.insert(i);
         }
         bs.clear();
         assert!(bs.is_empty());
-        for i in 0..64 {
-            assert!(!bs.contains(i as usize));
+        for i in 0_usize..64 {
+            assert!(!bs.contains(i));
         }
     }
 

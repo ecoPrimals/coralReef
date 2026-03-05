@@ -5,6 +5,8 @@
 //! classes (compute dispatch, DMA copy, shader program headers, etc.).
 
 #![allow(non_upper_case_globals)]
+// Hardware register names must match NVIDIA spec verbatim.
+#![allow(non_snake_case, missing_docs)]
 
 /// NVIDIA hardware class definitions.
 pub mod classes {

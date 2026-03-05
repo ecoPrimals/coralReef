@@ -17,7 +17,7 @@
 - [x] JSON-RPC 2.0 + tarpc IPC with semantic method names
 - [x] Stubs evolved: BitSet → dense bitmap, CFG → dominator tree, dataflow → worklist solver
 - [x] SmallVec evolved to stack-optimized enum (None/One/Many)
-- [x] 183 tests passing
+- [x] 193 tests passing
 - [x] `bitview` crate: `BitViewable`/`BitMutViewable` with `BitCastU64`
 - [x] `#[non_exhaustive]` on public enums
 - [x] CONTRIBUTING.md, capability-based discovery
@@ -75,11 +75,36 @@
 3. All files under 1000 lines
 4. Publish to crates.io
 
+### Phase 2.75 — Debt Reduction
+- [x] Full workspace `clippy --all-targets -D warnings` passes (was 735+ errors)
+- [x] NAK module-level allows with documented justifications
+- [x] `Box<dyn Error>` → concrete `IpcError` type with `thiserror`
+- [x] SPDX header added to `sm30_instr_latencies.rs` (was missing)
+- [x] STUB_MARKER debt flags removed from cfg.rs and bindings.rs
+- [x] Stubs documentation evolved: 6 modules marked "Evolved", 6 remain "Stub (legacy FFI)"
+- [x] `unsafe` in nak-ir-proc: compile-time layout assertions + runtime debug checks added
+- [x] `assign_regs.rs` (1511 LOC) → `assign_regs/` directory (5 files, all <500 LOC)
+- [x] `calc_instr_deps.rs` (1176 LOC) → `calc_instr_deps/` directory (3 files, all <720 LOC)
+- [x] `spill_values.rs` (1100 LOC) → `spill_values/` directory (3 files, all <600 LOC)
+- [x] `builder.rs` (1063 LOC) → `builder/` directory (2 files, all <810 LOC)
+- [x] `llvm-cov` configured with `scripts/coverage.sh` (11.83% baseline)
+- [x] `bitview` crate: `BitCastU64: Copy` bound, signed cast safety documented
+- [x] `cfg.rs` `compute_dom_analysis` refactored from 155-line monolith to 5 focused methods
+- [x] `dataflow.rs` `solve()` methods: `# Panics` docs added
+- [x] `nak_latencies.rs` match arms consolidated with nested or-patterns
+- [x] `nir_instr_printer` `#[deprecated]` removed (module docs state legacy status)
+
+### Phase 2.8 — Sovereignty
+- [x] `sourdough-core` dependency removed — standalone `PrimalLifecycle`, `PrimalHealth`, `PrimalError`, `HealthReport`, `HealthStatus` (modeled on sourDough, zero compile-time coupling)
+- [x] CI no longer clones sourDough repo
+- [x] Dead `compiler_proc` stub module removed
+- [x] All docs updated to reflect standalone status
+
 ## Safe Rust Evolution
 
 | Pattern | Count | Strategy |
 |---------|-------|----------|
-| `panic!()` | ~596 | Convert to `Result` returns, use `thiserror` |
-| `.unwrap()` | ~287 | Replace with `?`, `.ok_or()`, `.expect("reason")` |
-| `unsafe` | ~68 | Remove C FFI (Phase 5), use safe abstractions |
-| `#[allow(...)]` | ~58 | Audit each, fix underlying issue or document reason |
+| `panic!()` | ~596 | Convert to `Result` returns, use `thiserror` (Phase 5) |
+| `.unwrap()` | ~287 | Replace with `?`, `.ok_or()`, `.expect("reason")` (Phase 5) |
+| `unsafe` | 2 | nak-ir-proc only; compile-time + runtime safety checks added |
+| `#[allow(...)]` | ~40 | NAK module: documented justifications; non-NAK: all resolved |

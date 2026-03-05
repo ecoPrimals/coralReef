@@ -33,10 +33,10 @@ impl<A: Copy> AttrList<A> {
 impl<A: Copy> std::ops::Index<usize> for AttrList<A> {
     type Output = A;
 
-    fn index(&self, _idx: usize) -> &A {
+    fn index(&self, idx: usize) -> &A {
         match self {
             AttrList::Uniform(a) => a,
-            AttrList::List(v) => &v[_idx],
+            AttrList::List(v) => &v[idx],
         }
     }
 }

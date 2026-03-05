@@ -77,7 +77,7 @@ pub fn handle_health() -> HealthResponse {
         name: env!("CARGO_PKG_NAME").to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         status: "operational".to_owned(),
-        supported_archs: GpuArch::ALL.iter().map(|a| a.to_string()).collect(),
+        supported_archs: GpuArch::ALL.iter().map(ToString::to_string).collect(),
     }
 }
 

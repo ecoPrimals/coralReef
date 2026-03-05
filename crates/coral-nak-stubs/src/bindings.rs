@@ -16,9 +16,6 @@
 
 #![allow(non_camel_case_types, non_upper_case_globals, dead_code)]
 
-/// Marker so tests can verify the module exists.
-pub const STUB_MARKER: bool = true;
-
 /// Shader stage identifiers (replaces `MESA_SHADER_*`).
 pub const MESA_SHADER_VERTEX: u32 = 0;
 /// Fragment shader stage.

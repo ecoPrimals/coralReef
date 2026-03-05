@@ -22,9 +22,6 @@ struct DomAnalysis {
     has_loop: bool,
 }
 
-/// Marker so tests can verify the module exists.
-pub const STUB_MARKER: bool = true;
-
 /// A node index in the CFG.
 pub type NodeId = usize;
 
@@ -320,6 +317,21 @@ impl<T> CFG<T> {
             };
         }
 
+        let dom_parent = self.compute_dominators(&rpo, n);
+        let has_loop = self.detect_back_edges(&dom_parent, n);
+        let loop_depth = self.compute_loop_depth(&dom_parent, n, has_loop);
+        let dom_dfs_pre = Self::compute_dom_dfs_pre(&dom_parent, rpo[0], n);
+
+        DomAnalysis {
+            dom_parent,
+            dom_dfs_pre,
+            loop_depth,
+            has_loop,
+        }
+    }
+
+    /// Cooper-Harvey-Kennedy iterative dominator tree algorithm.
+    fn compute_dominators(&self, rpo: &[NodeId], n: usize) -> Vec<Option<NodeId>> {
         let entry = rpo[0];
         let mut rpo_number: Vec<usize> = vec![0; n];
         for (i, &node) in rpo.iter().enumerate() {
@@ -328,35 +340,15 @@ impl<T> CFG<T> {
             }
         }
 
-        // Cooper-Harvey-Kennedy: doms[b] = idom of b
         let mut doms: Vec<Option<NodeId>> = vec![None; n];
         doms[entry] = Some(entry);
 
-        let intersect = |doms: &[Option<NodeId>], rpo_number: &[usize], b1: NodeId, b2: NodeId| {
-            let mut finger1 = b1;
-            let mut finger2 = b2;
-            while finger1 != finger2 {
-                while rpo_number.get(finger1).copied().unwrap_or(0)
-                    > rpo_number.get(finger2).copied().unwrap_or(0)
-                {
-                    finger1 = doms.get(finger1).and_then(|&p| p).unwrap_or(finger1);
-                }
-                while rpo_number.get(finger2).copied().unwrap_or(0)
-                    > rpo_number.get(finger1).copied().unwrap_or(0)
-                {
-                    finger2 = doms.get(finger2).and_then(|&p| p).unwrap_or(finger2);
-                }
-            }
-            finger1
-        };
-
         let mut changed = true;
-        let mut iterations = 0;
-        const MAX_ITERATIONS: usize = 1000;
+        let mut iterations = 0usize;
         while changed {
             iterations += 1;
             assert!(
-                iterations <= MAX_ITERATIONS,
+                iterations <= 1000,
                 "Cooper-Harvey-Kennedy dominator computation did not converge"
             );
             changed = false;
@@ -364,12 +356,11 @@ impl<T> CFG<T> {
                 if b >= n {
                     continue;
                 }
-                let preds = self.predecessors(b);
                 let mut new_idom = None;
-                for &p in preds {
+                for &p in self.predecessors(b) {
                     if doms.get(p).and_then(|&x| x).is_some() {
                         new_idom = Some(match new_idom {
-                            Some(prev) => intersect(&doms, &rpo_number, p, prev),
+                            Some(prev) => Self::intersect(&doms, &rpo_number, p, prev),
                             None => p,
                         });
                     }
@@ -384,82 +375,99 @@ impl<T> CFG<T> {
             }
         }
 
-        // dom_parent: for entry, we store Some(entry); for others, idom
-        let dom_parent: Vec<Option<NodeId>> =
-            (0..n).map(|i| doms.get(i).copied().flatten()).collect();
+        (0..n).map(|i| doms.get(i).copied().flatten()).collect()
+    }
 
-        // Detect back edges: (from, to) is back edge if to dominates from
-        let mut has_loop = false;
+    fn intersect(doms: &[Option<NodeId>], rpo_number: &[usize], b1: NodeId, b2: NodeId) -> NodeId {
+        let mut finger1 = b1;
+        let mut finger2 = b2;
+        while finger1 != finger2 {
+            while rpo_number.get(finger1).copied().unwrap_or(0)
+                > rpo_number.get(finger2).copied().unwrap_or(0)
+            {
+                finger1 = doms.get(finger1).and_then(|&p| p).unwrap_or(finger1);
+            }
+            while rpo_number.get(finger2).copied().unwrap_or(0)
+                > rpo_number.get(finger1).copied().unwrap_or(0)
+            {
+                finger2 = doms.get(finger2).and_then(|&p| p).unwrap_or(finger2);
+            }
+        }
+        finger1
+    }
+
+    /// Walk dominator tree from `from` towards root; return whether `target` is reached.
+    fn dom_path_reaches(dom_parent: &[Option<NodeId>], from: NodeId, target: NodeId) -> bool {
+        let mut finger = from;
+        while finger != target {
+            match dom_parent.get(finger).and_then(|&p| p) {
+                Some(p) if p != finger => finger = p,
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    /// Detect whether the CFG has any back edges (loops).
+    fn detect_back_edges(&self, dom_parent: &[Option<NodeId>], n: usize) -> bool {
         for (from, succs) in &self.successors {
             for &to in succs {
-                if to < n && *from < n && dom_parent.get(to).and_then(|&x| x).is_some() {
-                    let to_dominates_from = {
-                        let mut finger = *from;
-                        while finger != to {
-                            match dom_parent.get(finger).and_then(|&p| p) {
-                                Some(p) if p != finger => finger = p,
-                                _ => break,
-                            }
-                        }
-                        finger == to
-                    };
-                    if to_dominates_from {
-                        has_loop = true;
-                        break;
-                    }
+                if to < n
+                    && *from < n
+                    && dom_parent.get(to).and_then(|&x| x).is_some()
+                    && Self::dom_path_reaches(dom_parent, *from, to)
+                {
+                    return true;
                 }
             }
-            if has_loop {
-                break;
-            }
         }
+        false
+    }
 
-        // Compute loop depth: for each unique loop (by header), natural loop
-        // = header + nodes reachable from tail by reverse traversal.
-        // Deduplicate by header so multiple back edges to same header count once.
+    /// Compute loop depth for each node via natural loop detection.
+    fn compute_loop_depth(
+        &self,
+        dom_parent: &[Option<NodeId>],
+        n: usize,
+        has_loop: bool,
+    ) -> Vec<usize> {
         let mut loop_depth = vec![0usize; n];
-        if has_loop {
-            let mut processed_headers: HashSet<NodeId> = HashSet::new();
-            for (from, succs) in &self.successors {
-                for &to in succs {
-                    if to >= n || *from >= n || processed_headers.contains(&to) {
-                        continue;
+        if !has_loop {
+            return loop_depth;
+        }
+        let mut processed_headers: HashSet<NodeId> = HashSet::new();
+        for (from, succs) in &self.successors {
+            for &to in succs {
+                if to >= n
+                    || *from >= n
+                    || processed_headers.contains(&to)
+                    || !Self::dom_path_reaches(dom_parent, *from, to)
+                {
+                    continue;
+                }
+                processed_headers.insert(to);
+                let mut in_loop = HashSet::new();
+                in_loop.insert(to);
+                let mut stack = vec![*from];
+                while let Some(node) = stack.pop() {
+                    if in_loop.insert(node) {
+                        for &p in self.predecessors(node) {
+                            stack.push(p);
+                        }
                     }
-                    let to_dominates_from = {
-                        let mut finger = *from;
-                        while finger != to {
-                            match dom_parent.get(finger).and_then(|&p| p) {
-                                Some(p) if p != finger => finger = p,
-                                _ => break,
-                            }
-                        }
-                        finger == to
-                    };
-                    if to_dominates_from {
-                        processed_headers.insert(to);
-                        // Back edge (from -> to). Loop body = {to} ∪ nodes
-                        // reachable from from by following predecessors
-                        let mut in_loop = HashSet::new();
-                        in_loop.insert(to);
-                        let mut stack = vec![*from];
-                        while let Some(node) = stack.pop() {
-                            if in_loop.insert(node) {
-                                for &p in self.predecessors(node) {
-                                    stack.push(p);
-                                }
-                            }
-                        }
-                        for &node in &in_loop {
-                            if node < loop_depth.len() {
-                                loop_depth[node] = loop_depth[node].saturating_add(1);
-                            }
-                        }
+                }
+                for &node in &in_loop {
+                    if node < loop_depth.len() {
+                        loop_depth[node] = loop_depth[node].saturating_add(1);
                     }
                 }
             }
         }
+        loop_depth
+    }
 
-        // Dominator tree DFS pre-order (iterative to avoid stack overflow)
+    /// Iterative DFS pre-order over the dominator tree.
+    fn compute_dom_dfs_pre(dom_parent: &[Option<NodeId>], entry: NodeId, n: usize) -> Vec<usize> {
         let mut dom_dfs_pre = vec![0usize; n];
         let mut counter = 0;
         let mut stack = vec![entry];
@@ -475,13 +483,7 @@ impl<T> CFG<T> {
                 }
             }
         }
-
-        DomAnalysis {
-            dom_parent,
-            dom_dfs_pre,
-            loop_depth,
-            has_loop,
-        }
+        dom_dfs_pre
     }
 
     /// Drain blocks from the CFG.

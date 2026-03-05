@@ -354,8 +354,8 @@ mod tests {
     #[test]
     fn test_ssa_value_print() {
         let ssa = SSAValue::new(RegFile::UPred, 42);
-        assert_eq!(format!("{}", ssa), "%up42");
-        assert_eq!(format!("{:?}", ssa), "%up42");
+        assert_eq!(format!("{ssa}"), "%up42");
+        assert_eq!(format!("{ssa:?}"), "%up42");
     }
 
     #[test]

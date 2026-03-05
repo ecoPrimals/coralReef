@@ -2,10 +2,11 @@
 //! GPU architecture targets.
 
 /// NVIDIA GPU architecture (Shader Model).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub enum GpuArch {
     /// Volta (Titan V, GV100) — first with independent thread scheduling.
+    #[default]
     Sm70,
     /// Turing (RTX 20xx) — tensor cores, RT cores.
     Sm75,
@@ -47,8 +48,9 @@ impl GpuArch {
         }
     }
 
-    /// Shader model version as u8 (for ShaderModelInfo, etc.).
+    /// Shader model version as u8 (for `ShaderModelInfo`, etc.).
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)] // sm() is 70-89, always fits in u8
     pub const fn sm_version(self) -> u8 {
         self.sm() as u8
     }
@@ -87,18 +89,15 @@ impl GpuArch {
     }
 }
 
-impl Default for GpuArch {
-    fn default() -> Self {
-        Self::Sm70
-    }
-}
-
 impl std::str::FromStr for GpuArch {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s).ok_or_else(|| {
-            let valid: Vec<String> = Self::ALL.iter().map(|a| a.to_string()).collect();
+            let valid: Vec<String> = Self::ALL
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect();
             format!("unknown architecture '{s}', valid: {}", valid.join(", "))
         })
     }

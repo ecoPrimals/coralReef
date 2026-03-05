@@ -18,9 +18,6 @@ authors = ["ecoPrimals Project"]
 rust-version = "1.85"
 
 [workspace.dependencies]
-# ecoPrimals core
-sourdough-core = { path = "../sourDough/crates/sourdough-core" }
-
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
 

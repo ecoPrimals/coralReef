@@ -54,15 +54,14 @@ pub mod sm100 {
                 Alu, Disp64, Dmma, Dualalu, Fma, Fp16, Fp16Alu, Fp16F32, Hmma, Imma, RedirectedFp64,
             };
             match (write, read) {
-                (Fma, Fma) | (Alu, Alu) | (Dualalu, Dualalu) => 5,
                 (Hmma, _) | (_, Hmma) => 16,
                 (Imma, _) | (_, Imma) => 12,
-                (Dmma, _) | (_, Dmma) => 10,
-                (Disp64, _) | (_, Disp64) => 10,
-                (Fp16, _) | (_, Fp16) => 5,
-                (Fp16Alu, _) | (_, Fp16Alu) => 5,
-                (Fp16F32, _) | (_, Fp16F32) => 5,
-                (RedirectedFp64, _) | (_, RedirectedFp64) => 10,
+                (Dmma | Disp64 | RedirectedFp64, _) | (_, Dmma | Disp64 | RedirectedFp64) => 10,
+                (Fma, Fma)
+                | (Alu, Alu)
+                | (Dualalu, Dualalu)
+                | (Fp16 | Fp16Alu | Fp16F32, _)
+                | (_, Fp16 | Fp16Alu | Fp16F32) => 5,
                 _ => 6,
             }
         }
@@ -72,8 +71,7 @@ pub mod sm100 {
         pub fn war(read: Self, write: Self, _coupled: bool) -> u32 {
             use RegLatencySM100::{Hmma, Imma};
             match (read, write) {
-                (Hmma, _) | (_, Hmma) => 2,
-                (Imma, _) | (_, Imma) => 2,
+                (Hmma | Imma, _) | (_, Hmma | Imma) => 2,
                 _ => 1,
             }
         }
@@ -172,14 +170,10 @@ pub mod sm100 {
         /// Raw uniform register latency in cycles.
         #[must_use]
         pub fn raw(write: Self, read: Self, _coupled: bool) -> u32 {
-            use UregLatencySM100::{Fma, Tex, ToUr, Udp, Uldc, Voteu};
+            use UregLatencySM100::{Fma, Tex, Uldc};
             match (write, read) {
                 (Fma, Fma) => 5,
-                (Uldc, _) | (_, Uldc) => 8,
-                (ToUr, _) | (_, ToUr) => 6,
-                (Tex, _) | (_, Tex) => 8,
-                (Udp, _) | (_, Udp) => 6,
-                (Voteu, _) | (_, Voteu) => 6,
+                (Uldc | Tex, _) | (_, Uldc | Tex) => 8,
                 _ => 6,
             }
         }
@@ -225,10 +219,9 @@ pub mod sm100 {
         /// Raw uniform predicate latency in cycles.
         #[must_use]
         pub fn raw(write: Self, read: Self, _coupled: bool) -> u32 {
-            use UpredLatencySM100::{Fma, UGuard};
+            use UpredLatencySM100::Fma;
             match (write, read) {
                 (Fma, Fma) => 5,
-                (UGuard, _) | (_, UGuard) => 6,
                 _ => 6,
             }
         }

@@ -73,8 +73,11 @@ pub trait BitMutViewable: BitViewable {
 ///
 /// Unlike `Into<u64>`, this handles signed integers by taking their bit
 /// representation (two's complement truncated to the field width).
-pub trait BitCastU64 {
+pub trait BitCastU64: Copy {
     /// Bit pattern as u64.
+    ///
+    /// Takes `self` by value because all implementors are `Copy`.
+    #[allow(clippy::wrong_self_convention)]
     fn as_bits(self) -> u64;
 }
 
@@ -99,21 +102,25 @@ impl BitCastU64 for u8 {
     }
 }
 impl BitCastU64 for i64 {
+    #[allow(clippy::cast_sign_loss)]
     fn as_bits(self) -> u64 {
         self as u64
     }
 }
 impl BitCastU64 for i32 {
+    #[allow(clippy::cast_sign_loss)]
     fn as_bits(self) -> u64 {
         u64::from(self as u32)
     }
 }
 impl BitCastU64 for i16 {
+    #[allow(clippy::cast_sign_loss)]
     fn as_bits(self) -> u64 {
         u64::from(self as u16)
     }
 }
 impl BitCastU64 for i8 {
+    #[allow(clippy::cast_sign_loss)]
     fn as_bits(self) -> u64 {
         u64::from(self as u8)
     }
@@ -402,9 +409,9 @@ mod tests {
     fn test_subset_view_offset() {
         let mut buf = [0u32; 4];
         let mut sub = BitMutSubsetView::new(&mut buf, 64, 64);
-        sub.set_field(0..32, 0xDEADBEEFu32);
-        assert_eq!(sub.get_field(0..32), 0xDEADBEEF);
-        assert_eq!(buf[2], 0xDEADBEEF);
+        sub.set_field(0..32, 0xDEAD_BEEFu32);
+        assert_eq!(sub.get_field(0..32), 0xDEAD_BEEF);
+        assert_eq!(buf[2], 0xDEAD_BEEF);
     }
 
     #[test]
@@ -427,9 +434,9 @@ mod tests {
     #[test]
     fn test_edge_case_full_width_single_word() {
         let mut buf = [0u32; 2];
-        buf.set_field(0..32, 0xFFFFFFFFu32);
-        assert_eq!(buf.get_field(0..32), 0xFFFFFFFF);
-        assert_eq!(buf[0], 0xFFFFFFFF);
+        buf.set_field(0..32, 0xFFFF_FFFFu32);
+        assert_eq!(buf.get_field(0..32), 0xFFFF_FFFF);
+        assert_eq!(buf[0], 0xFFFF_FFFF);
     }
 
     #[test]
@@ -437,8 +444,8 @@ mod tests {
         let mut buf = [0u32; 2];
         buf.set_field(0..64, 0xFFFF_FFFF_FFFF_FFFFu64);
         assert_eq!(buf.get_field(0..64), 0xFFFF_FFFF_FFFF_FFFF);
-        assert_eq!(buf[0], 0xFFFFFFFF);
-        assert_eq!(buf[1], 0xFFFFFFFF);
+        assert_eq!(buf[0], 0xFFFF_FFFF);
+        assert_eq!(buf[1], 0xFFFF_FFFF);
     }
 
     #[test]

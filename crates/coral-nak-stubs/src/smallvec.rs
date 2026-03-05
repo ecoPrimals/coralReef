@@ -24,10 +24,7 @@ impl<T, const N: usize> SmallVec<T, N> {
         match std::mem::replace(self, SmallVec::None) {
             SmallVec::None => *self = SmallVec::One(item),
             SmallVec::One(existing) => {
-                let mut v = Vec::with_capacity(2);
-                v.push(existing);
-                v.push(item);
-                *self = SmallVec::Many(v);
+                *self = SmallVec::Many(vec![existing, item]);
             }
             SmallVec::Many(mut v) => {
                 v.push(item);

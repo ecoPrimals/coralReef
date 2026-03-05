@@ -1,8 +1,6 @@
 # Coding Conventions
 
-This primal follows the ecoPrimals coding conventions.
-
-See: `../sourDough/CONVENTIONS.md` for complete guidelines.
+This primal follows the ecoPrimals coding conventions (modeled on wateringHole standards).
 
 ## Quick Reference
 

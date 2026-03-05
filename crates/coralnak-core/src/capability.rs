@@ -53,7 +53,7 @@ pub struct Transport {
 /// knows about itself from its own code and configuration.
 #[must_use]
 pub fn self_description() -> SelfDescription {
-    let supported: Vec<String> = GpuArch::ALL.iter().map(|a| a.to_string()).collect();
+    let supported: Vec<String> = GpuArch::ALL.iter().map(ToString::to_string).collect();
 
     SelfDescription {
         provides: vec![
@@ -86,6 +86,7 @@ pub fn self_description() -> SelfDescription {
 ///
 /// Called after IPC servers bind to OS-assigned ports, before
 /// advertising to the universal adapter.
+#[must_use]
 pub fn with_transports(mut desc: SelfDescription, transports: Vec<Transport>) -> SelfDescription {
     desc.transports = transports;
     desc

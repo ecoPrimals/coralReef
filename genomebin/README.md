@@ -14,6 +14,5 @@ genomebin/
 
 ## Status
 
-Not yet configured — coralNak is in scaffold phase.
-genomeBin deployment will be configured once the compiler
-produces functional output.
+Pending — genomeBin deployment will be configured once the compiler
+produces functional output (Phase 3: SPIR-V frontend).

@@ -36,9 +36,11 @@
 //! ```
 
 pub mod capability;
+pub mod health;
+pub mod lifecycle;
 
-use sourdough_core::health::{HealthReport, HealthStatus};
-use sourdough_core::{PrimalError, PrimalHealth, PrimalLifecycle, PrimalState};
+use health::{HealthReport, HealthStatus, PrimalHealth};
+use lifecycle::{PrimalError, PrimalLifecycle, PrimalState};
 
 /// coralNak primal — sovereign NVIDIA shader compiler.
 pub struct CoralNakPrimal {

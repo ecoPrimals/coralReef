@@ -20,7 +20,7 @@ GPU compiler with zero-knowledge, capability-based architecture.
 ```bash
 cd coralNak
 cargo check --workspace
-cargo test --workspace     # 183 tests
+cargo test --workspace     # 193 tests
 cargo clippy --workspace
 cargo fmt --check
 ```

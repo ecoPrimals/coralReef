@@ -17,6 +17,22 @@ use tokio::sync::watch;
 
 use crate::service;
 
+/// Errors from IPC server operations.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum IpcError {
+    /// Failed to parse bind address.
+    #[error("invalid bind address: {0}")]
+    InvalidAddress(#[from] std::net::AddrParseError),
+
+    /// JSON-RPC server failed to bind or start.
+    #[error("JSON-RPC server error: {0}")]
+    JsonRpc(#[source] std::io::Error),
+
+    /// tarpc listener failed to bind.
+    #[error("tarpc server error: {0}")]
+    Tarpc(#[from] std::io::Error),
+}
+
 /// Loopback with OS-assigned port — zero-knowledge default binding.
 pub(crate) const DEFAULT_BIND: &str = "127.0.0.1:0";
 
@@ -75,12 +91,13 @@ impl CoralNakRpcServer for RpcImpl {
 /// # Errors
 ///
 /// Returns an error if the server fails to bind.
-pub async fn start_jsonrpc_server(
-    bind: &str,
-) -> Result<(SocketAddr, ServerHandle), Box<dyn std::error::Error>> {
+pub async fn start_jsonrpc_server(bind: &str) -> Result<(SocketAddr, ServerHandle), IpcError> {
     let addr: SocketAddr = bind.parse()?;
-    let server = Server::builder().build(addr).await?;
-    let bound = server.local_addr()?;
+    let server = Server::builder()
+        .build(addr)
+        .await
+        .map_err(IpcError::JsonRpc)?;
+    let bound = server.local_addr().map_err(IpcError::JsonRpc)?;
     let handle = server.start(RpcImpl.into_rpc());
     let handle_for_task = handle.clone();
 
@@ -138,7 +155,7 @@ impl CoralNakTarpc for TarpcServer {
 pub async fn start_tarpc_server(
     bind: &str,
     shutdown_rx: watch::Receiver<()>,
-) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), IpcError> {
     use tarpc::server::{self, Channel};
     use tokio_serde::formats::Json;
 

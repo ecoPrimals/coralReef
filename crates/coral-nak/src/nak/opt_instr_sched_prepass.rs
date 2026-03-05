@@ -945,7 +945,7 @@ impl Shader<'_> {
     ///     allocation in large basic blocks. In Proceedings of the 2nd
     ///     international conference on Supercomputing (ICS '88). Association
     ///     for Computing Machinery, New York, NY, USA, 442–452.
-    ///     https://doi.org/10.1145/55364.55407
+    ///     <https://doi.org/10.1145/55364.55407>
     pub fn opt_instr_sched_prepass(&mut self) {
         if DEBUG.annotate() {
             self.remove_annotations();

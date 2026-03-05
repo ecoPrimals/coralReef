@@ -16,7 +16,6 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-sourdough-core = { workspace = true }
 coral-nak = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
