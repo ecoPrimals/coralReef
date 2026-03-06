@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Dense bit set backed by `u64` words.
 //!
-//! Replaces `compiler::bitset` from Mesa. Used by NAK for register tracking
+//! Replaces upstream `compiler::bitset`. Used for register tracking
 //! and liveness sets where performance matters.
 //!
 //! The phantom type parameter `T` provides type-safe indices (e.g.
@@ -125,7 +125,7 @@ impl<T> BitSet<T> {
 
     /// Capacity (maximum index + 1).
     #[must_use]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.capacity
     }
 
@@ -144,14 +144,14 @@ impl<T> BitSet<T> {
         }
     }
 
-    /// Alias for `union` (Mesa compatibility).
+    /// Alias for `union` (compat).
     pub fn union_with(&mut self, other: &Self) {
         self.union(other);
     }
 
-    /// Slice view for bitwise expressions (Mesa compatibility). Returns `self`.
+    /// Slice view for bitwise expressions (compat). Returns `self`.
     #[must_use]
-    pub fn s(&self, _: RangeFull) -> &Self {
+    pub const fn s(&self, _: RangeFull) -> &Self {
         self
     }
 
@@ -188,7 +188,7 @@ impl<T> BitSet<T> {
         }
     }
 
-    fn word_bit(index: usize) -> (usize, u64) {
+    const fn word_bit(index: usize) -> (usize, u64) {
         (index / BITS_PER_WORD, 1u64 << (index % BITS_PER_WORD))
     }
 
@@ -277,16 +277,16 @@ impl<T> Sub for &BitSet<T> {
     }
 }
 
-impl<T> Sub<&BitSet<T>> for BitSet<T> {
-    type Output = BitSet<T>;
+impl<T> Sub<&Self> for BitSet<T> {
+    type Output = Self;
 
-    fn sub(self, rhs: &BitSet<T>) -> BitSet<T> {
+    fn sub(self, rhs: &Self) -> Self {
         &self - rhs
     }
 }
 
-impl<T> BitOrAssign<&BitSet<T>> for BitSet<T> {
-    fn bitor_assign(&mut self, rhs: &BitSet<T>) {
+impl<T> BitOrAssign<&Self> for BitSet<T> {
+    fn bitor_assign(&mut self, rhs: &Self) {
         self.union(rhs);
     }
 }

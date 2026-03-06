@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Proc-macro derives for NAK IR types.
+//! Proc-macro derives for codegen IR types.
 //!
-//! Replaces Mesa's `nak_ir_proc` crate. Provides derive macros used by
-//! the NAK IR definition in `nak/ir.rs`:
+//! Provides derive macros used by the codegen IR definition in
+//! `codegen/ir/`:
 //!
 //! - `SrcsAsSlice` — generates `AsSlice<Src>` impl for instruction op structs
 //! - `DstsAsSlice` — generates `AsSlice<Dst>` impl for instruction op structs
@@ -16,6 +16,12 @@ use syn::{
     AngleBracketedGenericArguments, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields,
     FieldsUnnamed, GenericArgument, Ident, Meta, PathArguments, Type, TypePath, parse_macro_input,
 };
+
+struct MatchedField {
+    ident: Ident,
+    count: usize,
+    attr_variant: Option<Ident>,
+}
 
 #[proc_macro_derive(SrcsAsSlice, attributes(src_type))]
 pub fn derive_srcs_as_slice(input: TokenStream) -> TokenStream {
@@ -33,6 +39,10 @@ pub fn derive_dsts_as_slice(input: TokenStream) -> TokenStream {
 /// array), reads the `#[attr_name(Variant)]` attribute for each, and generates
 /// an `impl AsSlice<T>` that uses `repr(C)` layout to return a contiguous
 /// slice across all matching fields.
+///
+/// # Panics
+///
+/// Panics if applied to a type that is not a struct with named fields or an enum.
 fn derive_as_slice(
     input: TokenStream,
     elem_type_name: &str,
@@ -60,146 +70,32 @@ fn derive_as_slice(
             fields: Fields::Named(f),
             ..
         }) => &f.named,
-        _ => panic!(
-            "{} can only be derived for structs with named fields",
-            attr_name
-        ),
+        _ => panic!("{attr_name} can only be derived for structs with named fields"),
     };
 
     let elem_type = Ident::new(elem_type_name, Span::call_site());
     let type_enum = Ident::new(type_enum_name, Span::call_site());
 
-    struct MatchedField {
-        ident: Ident,
-        count: usize,
-        attr_variant: Option<Ident>,
-    }
-
-    let mut matched: Vec<MatchedField> = Vec::new();
-
-    for field in fields {
-        let field_ident = field.ident.as_ref().unwrap().clone();
-        let ty = &field.ty;
-
-        if is_type_named(ty, elem_type_name) {
-            let variant = get_field_attr(field, attr_name);
-            matched.push(MatchedField {
-                ident: field_ident,
-                count: 1,
-                attr_variant: variant,
-            });
-        } else if let Some(n) = array_of_type(ty, elem_type_name) {
-            let variant = get_field_attr(field, attr_name);
-            matched.push(MatchedField {
-                ident: field_ident,
-                count: n,
-                attr_variant: variant,
-            });
-        }
-    }
-
+    let matched = collect_matched_fields(fields, elem_type_name, attr_name);
     let total_count: usize = matched.iter().map(|m| m.count).sum();
 
     if matched.is_empty() {
-        return TokenStream::from(quote! {
-            impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
-                for #struct_name #ty_generics #where_clause
-            {
-                type Attr = #type_enum;
-                fn as_slice(&self) -> &[#elem_type] { &[] }
-                fn as_mut_slice(&mut self) -> &mut [#elem_type] { &mut [] }
-                fn attrs(&self) -> coral_reef_stubs::as_slice::AttrList<#type_enum> {
-                    coral_reef_stubs::as_slice::AttrList::List(Vec::new())
-                }
-            }
-        });
+        return generate_empty_as_slice(
+            struct_name,
+            &elem_type,
+            &type_enum,
+            &impl_generics,
+            &ty_generics,
+            where_clause,
+        );
     }
 
     let first_field = &matched[0].ident;
-
-    let contiguity_checks: Vec<TokenStream2> = (1..matched.len())
-        .map(|i| {
-            let prev = &matched[i - 1].ident;
-            let curr = &matched[i].ident;
-            let prev_count = matched[i - 1].count;
-            quote! {
-                assert!(
-                    std::mem::offset_of!(#struct_name, #curr)
-                        == std::mem::offset_of!(#struct_name, #prev)
-                            + std::mem::size_of::<#elem_type>() * #prev_count,
-                    concat!(
-                        "AsSlice: `", stringify!(#prev),
-                        "` and `", stringify!(#curr),
-                        "` must be contiguous in #[repr(C)] layout"
-                    )
-                );
-            }
-        })
-        .collect();
-
-    let as_slice_body = if matched.len() == 1 && matched[0].count == 1 {
-        quote! { std::slice::from_ref(&self.#first_field) }
-    } else if matched.len() == 1 {
-        quote! { &self.#first_field }
-    } else {
-        let total = total_count;
-        quote! {
-            const { #(#contiguity_checks)* }
-            // SAFETY: The inline const block above uses offset_of! to prove every
-            // matched field immediately follows its predecessor with zero padding.
-            // #[repr(C)] guarantees deterministic field ordering.
-            // The .cast() is sound: &T and &[T; N] both point to the first T.
-            // The slice lifetime is bounded by &self.
-            let ptr = std::ptr::from_ref(&self.#first_field).cast::<#elem_type>();
-            unsafe { std::slice::from_raw_parts(ptr, #total) }
-        }
-    };
-
-    let as_mut_slice_body = if matched.len() == 1 && matched[0].count == 1 {
-        quote! { std::slice::from_mut(&mut self.#first_field) }
-    } else if matched.len() == 1 {
-        quote! { &mut self.#first_field }
-    } else {
-        let total = total_count;
-        quote! {
-            // SAFETY: Contiguity proven by the const block in as_slice().
-            // #[repr(C)] guarantees deterministic field ordering.
-            // The .cast() is sound: &mut T and &mut [T; N] both point to the first T.
-            // The slice lifetime is bounded by &mut self.
-            let ptr = std::ptr::from_mut(&mut self.#first_field).cast::<#elem_type>();
-            unsafe { std::slice::from_raw_parts_mut(ptr, #total) }
-        }
-    };
-
-    let default_variant = Ident::new("DEFAULT", Span::call_site());
-
-    let attrs_body = if matched.len() == 1 {
-        let variant = matched[0]
-            .attr_variant
-            .as_ref()
-            .map(|v| quote! { #type_enum::#v })
-            .unwrap_or_else(|| quote! { #type_enum::#default_variant });
-        quote! {
-            coral_reef_stubs::as_slice::AttrList::Uniform(#variant)
-        }
-    } else {
-        let mut attr_entries = Vec::new();
-        for m in &matched {
-            let variant = m
-                .attr_variant
-                .as_ref()
-                .map(|v| quote! { #type_enum::#v })
-                .unwrap_or_else(|| quote! { #type_enum::#default_variant });
-            for _ in 0..m.count {
-                attr_entries.push(variant.clone());
-            }
-        }
-        quote! {
-            coral_reef_stubs::as_slice::AttrList::List(
-                vec![#(#attr_entries),*]
-            )
-        }
-    };
+    let as_slice_body =
+        generate_as_slice_body(struct_name, &elem_type, &matched, first_field, total_count);
+    let as_mut_slice_body =
+        generate_as_mut_slice_body(&elem_type, &matched, first_field, total_count);
+    let attrs_body = generate_attrs_body(&type_enum, &matched);
 
     let expanded = quote! {
         impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
@@ -222,6 +118,166 @@ fn derive_as_slice(
     };
 
     TokenStream::from(expanded)
+}
+
+fn collect_matched_fields(
+    fields: &syn::punctuated::Punctuated<Field, syn::Token![,]>,
+    elem_type_name: &str,
+    attr_name: &str,
+) -> Vec<MatchedField> {
+    let mut matched = Vec::new();
+    for field in fields {
+        let field_ident = field.ident.as_ref().unwrap().clone();
+        let ty = &field.ty;
+
+        if is_type_named(ty, elem_type_name) {
+            let variant = get_field_attr(field, attr_name);
+            matched.push(MatchedField {
+                ident: field_ident,
+                count: 1,
+                attr_variant: variant,
+            });
+        } else if let Some(n) = array_of_type(ty, elem_type_name) {
+            let variant = get_field_attr(field, attr_name);
+            matched.push(MatchedField {
+                ident: field_ident,
+                count: n,
+                attr_variant: variant,
+            });
+        }
+    }
+    matched
+}
+
+fn generate_empty_as_slice(
+    struct_name: &Ident,
+    elem_type: &Ident,
+    type_enum: &Ident,
+    impl_generics: &syn::ImplGenerics<'_>,
+    ty_generics: &syn::TypeGenerics<'_>,
+    where_clause: Option<&syn::WhereClause>,
+) -> TokenStream {
+    TokenStream::from(quote! {
+        impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
+            for #struct_name #ty_generics #where_clause
+        {
+            type Attr = #type_enum;
+            fn as_slice(&self) -> &[#elem_type] { &[] }
+            fn as_mut_slice(&mut self) -> &mut [#elem_type] { &mut [] }
+            fn attrs(&self) -> coral_reef_stubs::as_slice::AttrList<#type_enum> {
+                coral_reef_stubs::as_slice::AttrList::List(Vec::new())
+            }
+        }
+    })
+}
+
+fn generate_as_slice_body(
+    struct_name: &Ident,
+    elem_type: &Ident,
+    matched: &[MatchedField],
+    first_field: &Ident,
+    total_count: usize,
+) -> TokenStream2 {
+    if matched.len() == 1 && matched[0].count == 1 {
+        quote! { std::slice::from_ref(&self.#first_field) }
+    } else if matched.len() == 1 {
+        quote! { &self.#first_field }
+    } else {
+        let contiguity_checks = contiguity_assertions(struct_name, elem_type, matched);
+        let total = total_count;
+        // Safe alternative: build a slice from individual field references
+        // by proving contiguity at compile time via const assertions, then
+        // using the first field's address as the slice base.
+        quote! {
+            const { #(#contiguity_checks)* }
+            // SAFETY: The inline const block above uses offset_of! to prove every
+            // matched field immediately follows its predecessor with zero padding.
+            // #[repr(C)] guarantees deterministic field ordering.
+            // The .cast() is sound: &T and &[T; N] both point to the first T.
+            // The slice lifetime is bounded by &self.
+            let ptr = std::ptr::from_ref(&self.#first_field).cast::<#elem_type>();
+            unsafe { std::slice::from_raw_parts(ptr, #total) }
+        }
+    }
+}
+
+fn generate_as_mut_slice_body(
+    elem_type: &Ident,
+    matched: &[MatchedField],
+    first_field: &Ident,
+    total_count: usize,
+) -> TokenStream2 {
+    if matched.len() == 1 && matched[0].count == 1 {
+        quote! { std::slice::from_mut(&mut self.#first_field) }
+    } else if matched.len() == 1 {
+        quote! { &mut self.#first_field }
+    } else {
+        let total = total_count;
+        quote! {
+            // SAFETY: Contiguity proven by the const block in as_slice().
+            // #[repr(C)] guarantees deterministic field ordering.
+            // The .cast() is sound: &mut T and &mut [T; N] both point to the first T.
+            // The slice lifetime is bounded by &mut self.
+            let ptr = std::ptr::from_mut(&mut self.#first_field).cast::<#elem_type>();
+            unsafe { std::slice::from_raw_parts_mut(ptr, #total) }
+        }
+    }
+}
+
+fn contiguity_assertions(
+    struct_name: &Ident,
+    elem_type: &Ident,
+    matched: &[MatchedField],
+) -> Vec<TokenStream2> {
+    (1..matched.len())
+        .map(|i| {
+            let prev = &matched[i - 1].ident;
+            let curr = &matched[i].ident;
+            let prev_count = matched[i - 1].count;
+            quote! {
+                assert!(
+                    std::mem::offset_of!(#struct_name, #curr)
+                        == std::mem::offset_of!(#struct_name, #prev)
+                            + std::mem::size_of::<#elem_type>() * #prev_count,
+                    concat!(
+                        "AsSlice: `", stringify!(#prev),
+                        "` and `", stringify!(#curr),
+                        "` must be contiguous in #[repr(C)] layout"
+                    )
+                );
+            }
+        })
+        .collect()
+}
+
+fn generate_attrs_body(type_enum: &Ident, matched: &[MatchedField]) -> TokenStream2 {
+    let default_variant = Ident::new("DEFAULT", Span::call_site());
+
+    if matched.len() == 1 {
+        let variant = matched[0].attr_variant.as_ref().map_or_else(
+            || quote! { #type_enum::#default_variant },
+            |v| quote! { #type_enum::#v },
+        );
+        quote! {
+            coral_reef_stubs::as_slice::AttrList::Uniform(#variant)
+        }
+    } else {
+        let mut attr_entries = Vec::new();
+        for m in matched {
+            let variant = m.attr_variant.as_ref().map_or_else(
+                || quote! { #type_enum::#default_variant },
+                |v| quote! { #type_enum::#v },
+            );
+            for _ in 0..m.count {
+                attr_entries.push(variant.clone());
+            }
+        }
+        quote! {
+            coral_reef_stubs::as_slice::AttrList::List(
+                vec![#(#attr_entries),*]
+            )
+        }
+    }
 }
 
 fn is_boxed_variant(v: &syn::Variant) -> bool {
@@ -312,41 +368,45 @@ fn derive_as_slice_enum(
 }
 
 /// Derive `DisplayOp` for an enum that delegates to each variant's `DisplayOp` impl.
+///
+/// # Panics
+///
+/// Panics if applied to a non-enum type.
 #[proc_macro_derive(DisplayOp)]
 pub fn enum_derive_display_op(input: TokenStream) -> TokenStream {
     let DeriveInput { ident, data, .. } = parse_macro_input!(input);
 
-    if let Data::Enum(e) = data {
-        let mut fmt_dsts_cases = TokenStream2::new();
-        let mut fmt_op_cases = TokenStream2::new();
-        for v in e.variants {
-            let case = v.ident;
-            fmt_dsts_cases.extend(quote! {
-                #ident::#case(x) => x.fmt_dsts(f),
-            });
-            fmt_op_cases.extend(quote! {
-                #ident::#case(x) => x.fmt_op(f),
-            });
-        }
-        quote! {
-            impl DisplayOp for #ident {
-                fn fmt_dsts(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    match self {
-                        #fmt_dsts_cases
-                    }
-                }
+    let Data::Enum(e) = data else {
+        panic!("DisplayOp can only be derived for enums");
+    };
 
-                fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    match self {
-                        #fmt_op_cases
-                    }
+    let mut fmt_dsts_cases = TokenStream2::new();
+    let mut fmt_op_cases = TokenStream2::new();
+    for v in e.variants {
+        let case = v.ident;
+        fmt_dsts_cases.extend(quote! {
+            #ident::#case(x) => x.fmt_dsts(f),
+        });
+        fmt_op_cases.extend(quote! {
+            #ident::#case(x) => x.fmt_op(f),
+        });
+    }
+    quote! {
+        impl DisplayOp for #ident {
+            fn fmt_dsts(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    #fmt_dsts_cases
+                }
+            }
+
+            fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    #fmt_op_cases
                 }
             }
         }
-        .into()
-    } else {
-        panic!("DisplayOp can only be derived for enums");
     }
+    .into()
 }
 
 fn into_box_inner_type(from_type: &Type) -> Option<&Type> {
@@ -374,6 +434,10 @@ fn into_box_inner_type(from_type: &Type) -> Option<&Type> {
 }
 
 /// Derive `From<VariantType>` for each variant of an enum.
+///
+/// # Panics
+///
+/// Panics if applied to a non-enum or an enum variant without exactly one unnamed field.
 #[proc_macro_derive(FromVariants)]
 pub fn derive_from_variants(input: TokenStream) -> TokenStream {
     let DeriveInput { ident, data, .. } = parse_macro_input!(input);
@@ -384,9 +448,11 @@ pub fn derive_from_variants(input: TokenStream) -> TokenStream {
     if let Data::Enum(e) = data {
         for v in e.variants {
             let var_ident = v.ident;
-            let from_type = match v.fields {
-                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => unnamed,
-                _ => panic!("Expected Op(OpFoo)"),
+            let Fields::Unnamed(FieldsUnnamed {
+                unnamed: from_type, ..
+            }) = v.fields
+            else {
+                panic!("Expected Op(OpFoo)");
             };
 
             assert!(from_type.len() == 1, "Expected Op(OpFoo)");

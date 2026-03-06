@@ -64,7 +64,7 @@ pub fn parse_arch(s: &str) -> Result<GpuArch, CompileError> {
 pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileError> {
     let arch = parse_arch(&req.arch)?;
     let options = CompileOptions {
-        arch,
+        target: arch.into(),
         opt_level: req.opt_level,
         debug_info: false,
         fp64_software: req.fp64_software,

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Forward and backward dataflow analysis — replacement for `compiler::dataflow`.
 //!
-//! NAK uses these for liveness analysis and dependency tracking.
+//! Used for liveness analysis and dependency tracking.
 //! Implements a worklist-based fixed-point algorithm.
 
 use crate::cfg::CFG;
 
-/// NAK-style forward dataflow runner.
+/// Forward dataflow runner.
 ///
 /// Construct with `cfg`, `block_in`, `block_out`, `transfer`, and `join` closures,
 /// then call `.solve()` to run to fixed point.
@@ -60,7 +60,7 @@ where
     }
 }
 
-/// NAK-style backward dataflow runner (same type for in/out).
+/// Backward dataflow runner (same type for in/out).
 pub struct BackwardDataflow<'a, T, S, F, J> {
     /// Control-flow graph to analyze.
     pub cfg: &'a CFG<T>,

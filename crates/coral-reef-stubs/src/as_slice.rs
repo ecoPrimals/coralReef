@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Slice view traits — replacement for `compiler::as_slice`.
 //!
-//! Used by NAK IR for accessing instruction sources and destinations as
+//! Used by codegen IR for accessing instruction sources and destinations as
 //! contiguous slices, enabling zero-copy iteration over operands.
 //!
 //! The `Attr` associated type carries per-element metadata (e.g. `SrcType`,
@@ -24,8 +24,8 @@ impl<A: Copy> AttrList<A> {
     /// Panics if `idx` is out of range for a `List` variant.
     pub fn at(&self, idx: usize) -> A {
         match self {
-            AttrList::Uniform(a) => *a,
-            AttrList::List(v) => v[idx],
+            Self::Uniform(a) => *a,
+            Self::List(v) => v[idx],
         }
     }
 }
@@ -35,15 +35,15 @@ impl<A: Copy> std::ops::Index<usize> for AttrList<A> {
 
     fn index(&self, idx: usize) -> &A {
         match self {
-            AttrList::Uniform(a) => a,
-            AttrList::List(v) => &v[idx],
+            Self::Uniform(a) => a,
+            Self::List(v) => &v[idx],
         }
     }
 }
 
 /// Trait for types that can be viewed as a slice of `T` with per-element attributes.
 ///
-/// This is the core abstraction for NAK instruction operands. Each instruction
+/// This is the core abstraction for codegen instruction operands. Each instruction
 /// op struct derives `SrcsAsSlice` / `DstsAsSlice` which generate `AsSlice<Src>`
 /// / `AsSlice<Dst>` implementations.
 pub trait AsSlice<T> {

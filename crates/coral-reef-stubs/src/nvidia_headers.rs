@@ -80,7 +80,16 @@ pub mod classes {
     pub mod cla097 {
         /// SPH definitions.
         pub mod sph {
-            // Stub — SPH field definitions will be extracted from nvidia_headers
+            pub const SPH_TYPE_COMPUTE: u32 = 1;
+            pub const SPH_TYPE_VERTEX: u32 = 2;
+            pub const SPH_TYPE_FRAGMENT: u32 = 5;
+            pub const SPH_VERSION_SM70: u32 = 3;
+            pub const NUM_GPRS_OFFSET: usize = 64;
+            pub const NUM_GPRS_WIDTH: usize = 8;
+            pub const NUM_BARRIERS_OFFSET: usize = 144;
+            pub const NUM_BARRIERS_WIDTH: usize = 5;
+            pub const SHARED_MEM_OFFSET: usize = 149;
+            pub const SHARED_MEM_WIDTH: usize = 11;
         }
     }
 
@@ -516,9 +525,18 @@ mod tests {
         fn disjoint(a: std::ops::Range<usize>, b: std::ops::Range<usize>) -> bool {
             a.end <= b.start || b.end <= a.start
         }
-        assert!(disjoint(qmd::QMDV00_06_QMD_MAJOR_VERSION, qmd::QMDV00_06_QMD_VERSION));
-        assert!(disjoint(qmd::QMDV00_06_CTA_RASTER_WIDTH, qmd::QMDV00_06_CTA_RASTER_HEIGHT));
-        assert!(disjoint(qmd::QMDV00_06_CTA_THREAD_DIMENSION0, qmd::QMDV00_06_CTA_THREAD_DIMENSION1));
+        assert!(disjoint(
+            qmd::QMDV00_06_QMD_MAJOR_VERSION,
+            qmd::QMDV00_06_QMD_VERSION
+        ));
+        assert!(disjoint(
+            qmd::QMDV00_06_CTA_RASTER_WIDTH,
+            qmd::QMDV00_06_CTA_RASTER_HEIGHT
+        ));
+        assert!(disjoint(
+            qmd::QMDV00_06_CTA_THREAD_DIMENSION0,
+            qmd::QMDV00_06_CTA_THREAD_DIMENSION1
+        ));
     }
 
     #[test]
@@ -585,6 +603,21 @@ mod tests {
         assert_eq!(r0, 2048..2074);
         let r1 = qmd::QMDV05_00_CONSTANT_BUFFER_VALID(1);
         assert_eq!(r1, 2172..2173);
+    }
+
+    #[test]
+    fn sph_field_constants_defined() {
+        use classes::cla097::sph;
+        assert_eq!(sph::SPH_TYPE_COMPUTE, 1);
+        assert_eq!(sph::SPH_TYPE_VERTEX, 2);
+        assert_eq!(sph::SPH_TYPE_FRAGMENT, 5);
+        assert_eq!(sph::SPH_VERSION_SM70, 3);
+        assert_eq!(sph::NUM_GPRS_OFFSET, 64);
+        assert_eq!(sph::NUM_GPRS_WIDTH, 8);
+        assert_eq!(sph::NUM_BARRIERS_OFFSET, 144);
+        assert_eq!(sph::NUM_BARRIERS_WIDTH, 5);
+        assert_eq!(sph::SHARED_MEM_OFFSET, 149);
+        assert_eq!(sph::SHARED_MEM_WIDTH, 11);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! Control-flow graph — replacement for `compiler::cfg`.
 //!
 //! Provides a directed graph over basic blocks with predecessor/successor
-//! tracking, used by NAK for dominance analysis, loop detection, and
+//! tracking, used for dominance analysis, loop detection, and
 //! instruction scheduling.
 
 use std::cell::RefCell;
@@ -228,7 +228,7 @@ impl<T> CFG<T> {
     }
 
     /// Mutable reference to the blocks vec.
-    pub fn blocks_mut(&mut self) -> &mut Vec<T> {
+    pub const fn blocks_mut(&mut self) -> &mut Vec<T> {
         &mut self.blocks
     }
 
@@ -359,10 +359,9 @@ impl<T> CFG<T> {
                 let mut new_idom = None;
                 for &p in self.predecessors(b) {
                     if doms.get(p).and_then(|&x| x).is_some() {
-                        new_idom = Some(match new_idom {
-                            Some(prev) => Self::intersect(&doms, &rpo_number, p, prev),
-                            None => p,
-                        });
+                        new_idom = Some(
+                            new_idom.map_or(p, |prev| Self::intersect(&doms, &rpo_number, p, prev)),
+                        );
                     }
                 }
                 let new_idom = new_idom.unwrap_or(entry);
@@ -513,7 +512,7 @@ pub struct CFGBuilder<T> {
 impl<T> CFGBuilder<T> {
     /// Create a new builder.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             blocks: Vec::new(),
             edges: Vec::new(),

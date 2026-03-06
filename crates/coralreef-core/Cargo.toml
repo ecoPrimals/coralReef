@@ -30,3 +30,6 @@ bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio-util = { workspace = true }
+
+[dev-dependencies]
+naga = { version = "28", features = ["wgsl-in", "spv-out"] }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Small vector with zero/one/many optimization.
 //!
-//! NAK uses this for instruction mapping results where most operations
+//! Used for instruction mapping results where most operations
 //! produce exactly one output instruction (one-to-one), some produce zero
 //! (dead code elimination), and a few produce multiple (lowering).
 
@@ -21,14 +21,14 @@ pub enum SmallVec<T, const N: usize = 4> {
 impl<T, const N: usize> SmallVec<T, N> {
     /// Push an item onto the vector.
     pub fn push(&mut self, item: T) {
-        match std::mem::replace(self, SmallVec::None) {
-            SmallVec::None => *self = SmallVec::One(item),
-            SmallVec::One(existing) => {
-                *self = SmallVec::Many(vec![existing, item]);
+        match std::mem::replace(self, Self::None) {
+            Self::None => *self = Self::One(item),
+            Self::One(existing) => {
+                *self = Self::Many(vec![existing, item]);
             }
-            SmallVec::Many(mut v) => {
+            Self::Many(mut v) => {
                 v.push(item);
-                *self = SmallVec::Many(v);
+                *self = Self::Many(v);
             }
         }
     }
@@ -36,25 +36,25 @@ impl<T, const N: usize> SmallVec<T, N> {
     /// Get a mutable reference to the last item.
     pub fn last_mut(&mut self) -> Option<&mut T> {
         match self {
-            SmallVec::None => None,
-            SmallVec::One(x) => Some(x),
-            SmallVec::Many(v) => v.last_mut(),
+            Self::None => None,
+            Self::One(x) => Some(x),
+            Self::Many(v) => v.last_mut(),
         }
     }
 
     /// Appends items from another `SmallVec`.
     pub fn append(&mut self, other: &mut Vec<T>) {
-        match std::mem::replace(self, SmallVec::None) {
-            SmallVec::None => *self = SmallVec::Many(std::mem::take(other)),
-            SmallVec::One(item) => {
+        match std::mem::replace(self, Self::None) {
+            Self::None => *self = Self::Many(std::mem::take(other)),
+            Self::One(item) => {
                 let mut v = Vec::with_capacity(1 + other.len());
                 v.push(item);
                 v.append(other);
-                *self = SmallVec::Many(v);
+                *self = Self::Many(v);
             }
-            SmallVec::Many(mut v) => {
+            Self::Many(mut v) => {
                 v.append(other);
-                *self = SmallVec::Many(v);
+                *self = Self::Many(v);
             }
         }
     }

@@ -1,30 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! # coral-reef-stubs — Mesa Dependency Replacements
+//! # coral-reef-stubs — Pure-Rust Dependency Replacements
 //!
-//! This crate provides standalone Rust replacements for Mesa C dependencies
-//! that the original NAK compiler relied upon.  Each sub-module replaces a
-//! specific Mesa crate or module.
+//! This crate provides standalone Rust replacements for upstream C dependencies
+//! that the original compiler relied upon. Each sub-module replaces a specific
+//! upstream crate or module.
 //!
 //! ## Replacement Map
 //!
-//! | Original Mesa dependency    | Replacement module          | Status |
+//! | Original dependency         | Replacement module          | Status |
 //! |----------------------------|-----------------------------|--------|
 //! | `compiler::cfg`            | [`mod@cfg`]                 | Evolved (CFG + dominator tree) |
 //! | `compiler::dataflow`       | [`dataflow`]                | Evolved (worklist solver) |
 //! | `compiler::bitset`         | [`bitset`]                  | Evolved (dense bitmap) |
 //! | `compiler::smallvec`       | [`smallvec`]                | Evolved (zero/one/many) |
 //! | `compiler::as_slice`       | [`as_slice`]                | Evolved (type-safe views) |
-//! | `nvidia_headers`           | [`nvidia_headers`]          | Stub   |
+//! | `nvidia_headers`           | [`nvidia_headers`]          | Evolved (full QMD) |
 //! | `nak_latencies`            | [`nak_latencies`]           | Evolved (SM100 latency model) |
+//! | `rustc-hash`               | [`fxhash`]                  | Evolved (`FxHash` internalized) |
 //!
-//! Legacy FFI stubs (`bindings`, `nir`, `nir_instr_printer`, `nak_bindings`) were removed in Phase 4.
-//!
-//! ## Evolution Strategy
-//!
-//! 1. **Phase 1**: Empty stubs to make `cargo check` parse the workspace *(complete)*
-//! 2. **Phase 2**: Port core Mesa utility types to pure Rust *(complete — 6 modules evolved)*
-//! 3. **Phase 3**: Replace NIR frontend with naga SPIR-V → coral-reef IR
-//! 4. **Phase 4**: Remove remaining legacy FFI stubs *(complete)*
+//! All modules fully evolved to pure Rust with zero C dependencies.
 //!
 
 /// Replacement for `compiler::cfg` (control-flow graph).
@@ -47,6 +41,9 @@ pub mod nvidia_headers;
 
 /// Replacement for `nak_latencies` (instruction latency tables).
 pub mod nak_latencies;
+
+/// Fast non-cryptographic hash — replaces `rustc-hash` external crate.
+pub mod fxhash;
 
 #[cfg(test)]
 mod tests {

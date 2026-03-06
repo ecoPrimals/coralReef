@@ -15,8 +15,7 @@ workspace = true
 coral-reef-isa = { workspace = true }
 coral-reef-stubs = { workspace = true }
 bitview = { workspace = true }
-rustc-hash = { workspace = true }
 nak_ir_proc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-naga = { version = "24", features = ["wgsl-in", "spv-in"] }
+naga = { version = "28", features = ["wgsl-in", "spv-in", "spv-out"] }

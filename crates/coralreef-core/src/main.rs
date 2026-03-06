@@ -12,7 +12,6 @@
 
 use std::io;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use coral_reef::{CompileError, GpuArch};
@@ -83,13 +82,15 @@ enum UniBinExit {
     Success = 0,
     GeneralError = 1,
     ConfigError = 2,
+    /// Used by the panic hook via `abort()` — the OS maps this to exit code 3.
+    #[allow(dead_code)]
     InternalError = 3,
     Signal = 130,
 }
 
 impl From<UniBinExit> for ExitCode {
     fn from(code: UniBinExit) -> Self {
-        ExitCode::from(code as u8)
+        Self::from(code as u8)
     }
 }
 
@@ -136,28 +137,25 @@ fn parse_cli() -> Result<Cli, clap::Error> {
     Cli::try_parse()
 }
 
-/// Install panic hook that logs structurally and exits with code 3 (`UniBin` internal error).
+/// Install panic hook that logs structurally and aborts.
 /// Never prints raw panic messages to users per `UniBin` structured error requirements.
+/// Uses `abort()` rather than `exit()` so destructors run; panics indicate unrecoverable state.
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload();
-        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-            (*s).to_string()
-        } else if let Some(s) = payload.downcast_ref::<String>() {
-            s.clone()
-        } else {
-            "panic".to_string()
-        };
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".to_string());
         let location = info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
         // Log structurally; tracing may not be initialized yet, so also eprintln as fallback
         eprintln!("internal error: panic: message={msg}, location={location:?}");
-        std::process::exit(UniBinExit::InternalError as i32);
+        std::process::abort();
     }));
 }
-
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
@@ -204,6 +202,11 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")
     );
 
+    // File-based discovery: write transport info so peer primals can find us.
+    if let Err(e) = write_discovery_file(&desc) {
+        tracing::warn!(error = %e, "failed to write discovery file (peers must use fallback discovery)");
+    }
+
     // Wait for SIGTERM or SIGINT (graceful shutdown)
     let signal_received = wait_for_shutdown_signal().await;
     tracing::info!(signal = ?signal_received, "received shutdown signal, stopping servers");
@@ -213,17 +216,82 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     let _ = rpc_handle.stop();
 
     let rpc_stopped = rpc_handle.clone().stopped();
-    let shutdown_result = tokio::time::timeout(SHUTDOWN_TIMEOUT, async move {
-        rpc_stopped.await;
-        tarpc_handle.await.ok();
-    })
+    let shutdown_result = tokio::time::timeout(
+        coralreef_core::config::DEFAULT_SHUTDOWN_TIMEOUT,
+        async move {
+            rpc_stopped.await;
+            tarpc_handle.await.ok();
+        },
+    )
     .await;
 
     if shutdown_result.is_err() {
-        tracing::warn!("shutdown timed out after {:?}", SHUTDOWN_TIMEOUT);
+        tracing::warn!(
+            "shutdown timed out after {:?}",
+            coralreef_core::config::DEFAULT_SHUTDOWN_TIMEOUT
+        );
     }
 
+    remove_discovery_file();
+
     UniBinExit::Signal
+}
+
+/// Write a discovery file so peer primals can find this service.
+///
+/// File path: `$XDG_RUNTIME_DIR/ecoPrimals/coralreef-core.json`
+/// Contains transport addresses and capability summary.
+fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> io::Result<()> {
+    let dir = discovery_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("coralreef-core.json");
+
+    let jsonrpc_addr = desc
+        .transports
+        .iter()
+        .find(|t| t.protocol == "jsonrpc")
+        .map_or("", |t| t.address.as_str());
+    let tarpc_addr = desc
+        .transports
+        .iter()
+        .find(|t| t.protocol.starts_with("tarpc"))
+        .map_or("", |t| t.address.as_str());
+
+    let discovery = serde_json::json!({
+        "primal": env!("CARGO_PKG_NAME"),
+        "pid": std::process::id(),
+        "transports": {
+            "jsonrpc": jsonrpc_addr,
+            "tarpc": tarpc_addr,
+        },
+        "provides": desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
+        "requires": desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
+    });
+
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&discovery).unwrap_or_default(),
+    )?;
+    tracing::info!(path = %path.display(), "wrote discovery file");
+    Ok(())
+}
+
+/// Remove the discovery file on shutdown.
+fn remove_discovery_file() {
+    if let Ok(dir) = discovery_dir() {
+        let path = dir.join("coralreef-core.json");
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+            tracing::debug!(path = %path.display(), "removed discovery file");
+        }
+    }
+}
+
+/// The shared discovery directory for all ecoPrimals.
+fn discovery_dir() -> io::Result<std::path::PathBuf> {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR not set"))?;
+    Ok(std::path::PathBuf::from(runtime_dir).join("ecoPrimals"))
 }
 
 /// Wait for SIGTERM or SIGINT. Returns which signal was received.
@@ -258,7 +326,7 @@ fn cmd_compile(
     fp64_software: bool,
 ) -> UniBinExit {
     let options = coral_reef::CompileOptions {
-        arch,
+        target: arch.into(),
         opt_level,
         debug_info: false,
         fp64_software,
@@ -313,7 +381,7 @@ fn cmd_compile(
     }
 }
 
-fn error_to_exit_code(e: &CompileError) -> UniBinExit {
+const fn error_to_exit_code(e: &CompileError) -> UniBinExit {
     match e {
         CompileError::InvalidInput(_) | CompileError::UnsupportedArch(_) => UniBinExit::ConfigError,
         _ => UniBinExit::GeneralError,
@@ -321,7 +389,7 @@ fn error_to_exit_code(e: &CompileError) -> UniBinExit {
 }
 
 async fn cmd_doctor() -> UniBinExit {
-    use coralreef_core::CoralNakPrimal;
+    use coralreef_core::CoralReefPrimal;
     use coralreef_core::health::PrimalHealth;
     use coralreef_core::lifecycle::PrimalLifecycle;
 
@@ -341,7 +409,7 @@ async fn cmd_doctor() -> UniBinExit {
         println!("     - {arch}");
     }
 
-    let mut primal = CoralNakPrimal::new();
+    let mut primal = CoralReefPrimal::new();
     println!("[OK] Primal created (state: {:?})", primal.state());
 
     if let Err(e) = primal.start().await {

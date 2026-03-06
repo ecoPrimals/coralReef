@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! # coral-reef-isa — NVIDIA GPU ISA Tables
+//! # coral-reef-isa — GPU ISA Tables
 //!
-//! Instruction encoding tables and latency data for NVIDIA GPU architectures.
+//! Instruction encoding tables and latency data for GPU architectures.
 //!
-//! ## Extracted from NAK
+//! ## Contents
 //!
-//! The original NAK sources contain instruction encoding in:
-//! - `sm70.rs` / `sm70_encode.rs` — Volta+ encoding (primary target)
-//! - `sm50.rs` — Maxwell encoding
-//! - `sm32.rs` — Kepler encoding
-//! - `sm20.rs` — Fermi encoding (legacy)
-//! - `sm*_instr_latencies.rs` — scheduling latency tables
-//! - `sph.rs` — Shader Program Header
-//! - `qmd.rs` — Queue Management Descriptor
+//! Encoding and scheduling data evolved from upstream sources:
+//! - SM70+ encoding — Volta+ (primary target)
+//! - SM50 encoding — Maxwell
+//! - SM32 encoding — Kepler
+//! - SM20 encoding — Fermi (legacy)
+//! - `sm*_instr_latencies` — scheduling latency tables
+//! - Shader Program Header
+//! - Queue Management Descriptor
 //!
 //! ## Public API (target)
 //!

@@ -73,7 +73,7 @@ pub fn self_description() -> SelfDescription {
         ],
         requires: vec![Capability {
             id: "gpu.dispatch".to_owned(),
-            version: ">=0.1.0".to_owned(),
+            version: format!(">={}", env!("CARGO_PKG_VERSION")),
             metadata: serde_json::json!({
                 "reason": "QMD submission for compiled shaders",
             }),

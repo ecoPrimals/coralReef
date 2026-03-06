@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Bit-level field access for GPU instruction encoding.
 //!
-//! Replaces Mesa's `bitview` crate. Provides zero-copy bit-level read/write
-//! over `[u32]` buffers, used by NAK's instruction encoders and SPH.
+//! Replaces upstream `bitview` crate. Provides zero-copy bit-level read/write
+//! over `[u32]` buffers, used by instruction encoders and Shader Program Header.
 //!
 //! # Traits
 //!
@@ -10,7 +10,7 @@
 //! - `BitMutViewable` — read-write: extends `BitViewable` with `set_bit()`,
 //!   `set_field()`
 //!
-//! Mesa compat aliases: `BitView = BitViewable`, `BitMutView = BitMutViewable`,
+//! Compat aliases: `BitView = BitViewable`, `BitMutView = BitMutViewable`,
 //! `SetBit`, `SetField`.
 
 use std::fmt;
@@ -136,19 +136,19 @@ impl BitCastU64 for usize {
     }
 }
 
-/// Mesa compatibility alias.
+/// Compat alias.
 pub trait BitView: BitViewable {}
 impl<T: BitViewable + ?Sized> BitView for T {}
 
-/// Mesa compatibility alias.
+/// Compat alias.
 pub trait BitMutView: BitMutViewable {}
 impl<T: BitMutViewable + ?Sized> BitMutView for T {}
 
-/// NAK macro compat — marker trait.
+/// Macro compat — marker trait.
 pub trait SetBit: BitMutViewable {}
 impl<T: BitMutViewable + ?Sized> SetBit for T {}
 
-/// NAK macro compat — marker trait.
+/// Macro compat — marker trait.
 pub trait SetField: BitMutViewable {}
 impl<T: BitMutViewable + ?Sized> SetField for T {}
 
@@ -161,7 +161,7 @@ pub struct BitMutSubsetView<'a> {
 
 impl<'a> BitMutSubsetView<'a> {
     /// Create a subset view starting at `offset` bits with `num_bits` width.
-    pub fn new(data: &'a mut [u32], offset: usize, num_bits: usize) -> Self {
+    pub const fn new(data: &'a mut [u32], offset: usize, num_bits: usize) -> Self {
         Self {
             data,
             offset,
@@ -189,7 +189,7 @@ impl BitMutViewable for BitMutSubsetView<'_> {
 }
 
 /// Create a subset view into a mutable word buffer.
-pub fn new_subset(data: &mut [u32], offset: usize, num_bits: usize) -> BitMutSubsetView<'_> {
+pub const fn new_subset(data: &mut [u32], offset: usize, num_bits: usize) -> BitMutSubsetView<'_> {
     BitMutSubsetView::new(data, offset, num_bits)
 }
 

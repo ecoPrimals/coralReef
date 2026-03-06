@@ -7,9 +7,9 @@
 
 ## Vision
 
-A pure-Rust NVIDIA GPU compilation pipeline that operates without
-any Mesa C code, enabling the ecoPrimals ecosystem to compile shaders
-to native GPU binaries independently.
+A pure-Rust GPU compilation pipeline with vendor-agnostic architecture,
+enabling the ecoPrimals ecosystem to compile shaders to native GPU
+binaries independently — zero C dependencies, zero vendor lock-in.
 
 ## Architecture Layers
 
@@ -18,19 +18,26 @@ to native GPU binaries independently.
                       │
                       ▼
               ┌───────────────┐
-              │     naga      │  Parse WGSL/SPIR-V → naga IR
+              │  Frontend      │  Parse WGSL/SPIR-V → naga IR
+              │  (pluggable)  │  NagaFrontend is the default
               └───────┬───────┘
                       │
                       ▼
               ┌───────────────┐
-              │  coral-reef    │  Translate → lower → optimize → encode
+              │  codegen       │  Translate → lower → optimize → encode
               │               │
-              │  from_spirv   │  naga IR → NAK SSA IR
+              │  naga_translate│  naga IR → codegen SSA IR
               │  lower_f64    │  DFMA software transcendentals
               │  optimize     │  copy prop, DCE, bar prop, scheduling
-              │  legalize     │  arch-specific lowering
-              │  alloc_regs   │  register allocation + spilling
-              │  encode       │  SM70+ binary emission
+              │  legalize     │  target-specific lowering
+              │  assign_regs  │  register allocation + spilling
+              │  nv/encode    │  NVIDIA binary emission
+              └───────┬───────┘
+                      │
+                      ▼
+              ┌───────────────┐
+              │  Backend       │  Vendor-specific encoding
+              │  (pluggable)  │  NvidiaBackend, AmdBackend, IntelBackend
               └───────┬───────┘
                       │
                       ▼
@@ -52,10 +59,10 @@ to native GPU binaries independently.
 
 ## Dependency Elimination — Complete
 
-All Mesa C dependencies have been replaced with pure-Rust implementations:
+All upstream C dependencies have been replaced with pure-Rust implementations:
 
-| Mesa dependency | Replacement | Status |
-|----------------|-------------|--------|
+| Upstream dependency | Replacement | Status |
+|---------------------|-------------|--------|
 | `compiler::cfg` | Pure Rust CFG + dominator tree | Evolved |
 | `compiler::bitset` | Pure Rust dense BitSet | Evolved |
 | `compiler::smallvec` | Stack-optimized SmallVec (None/One/Many) | Evolved |
@@ -65,8 +72,9 @@ All Mesa C dependencies have been replaced with pure-Rust implementations:
 | `nak_latencies` | Pure Rust SM100 latency model | Evolved |
 | `compiler::nir` | Deleted — replaced by naga frontend | Removed |
 | `nak_bindings` | Deleted — legacy FFI stubs removed | Removed |
-| `nak_ir_proc` | `coral-reef-proc` (3 derive macros) | Evolved |
+| `nak_ir_proc` | `nak-ir-proc` crate (4 derive macros) | Evolved |
 | `bitview` | `coral-reef-bitview` | Evolved |
+| `rustc-hash` | Internalized as `fxhash` module | Evolved |
 
 ## Integration with barraCuda
 
@@ -81,4 +89,5 @@ f64 precision guarantees.
 
 ---
 
-*This architecture is implemented. Future work focuses on coralDriver and ecosystem integration.*
+*This architecture is implemented. Future work focuses on multi-vendor
+backends, coralDriver, and ecosystem integration.*

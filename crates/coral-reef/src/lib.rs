@@ -1,18 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! # coral-reef — Sovereign Rust NVIDIA Shader Compiler
+//! # coral-reef — Sovereign Rust GPU Compiler
 //!
-//! Forked from Mesa's NAK compiler (`src/nouveau/compiler/nak/`).
-//! Evolves to a standalone Rust crate that fixes f64 transcendental
-//! emission and operates independently of the Mesa C build system.
+//! Multi-vendor GPU compiler: WGSL/SPIR-V → vendor-specific binary.
+//! Currently targets NVIDIA (SM70+), with AMD and Intel backends planned.
 //!
-//! ## Status
+//! ## f64 Transcendental Lowering
 //!
-//! **Level 2**: NAK sources extracted, Mesa dependency stubs in place.
-//! Compilation pipeline is being evolved to standalone Rust.
-//!
-//! ## f64 Transcendental Gap
-//!
-//! NAK's MUFU (Multi-Function Unit) instructions are f32-only.
+//! Hardware transcendental units (MUFU on NVIDIA) are f32-only.
 //! coralReef adds software lowering for f64 transcendentals:
 //!
 //! | Function | Strategy |
@@ -29,51 +23,51 @@
 //! use coral_reef::{compile, CompileOptions, GpuArch};
 //!
 //! let binary = compile(&spirv_words, &CompileOptions {
-//!     arch: GpuArch::Sm70,
+//!     target: GpuArch::Sm70.into(),
 //!     opt_level: 2,
 //!     fp64_software: true,
 //!     ..Default::default()
 //! })?;
 //! ```
 
+pub mod backend;
 pub mod error;
+pub mod frontend;
 pub mod gpu_arch;
 pub mod ir;
 
-// NAK code ported from Mesa's C codebase — retains NVIDIA naming conventions
-// (e.g. OpFAdd, SrcType, UGPR) and has incomplete code paths for GPU
-// architectures still being evolved. These allows are scoped to this module
-// only and should be narrowed further as the code matures.
+// Codegen module — derived from upstream, evolving to idiomatic Rust.
+// ISA types use naming conventions that don't follow Rust defaults (e.g.
+// OpFAdd, SrcType, UGPR). These allows are scoped to this module only
+// and should be narrowed further as the code matures.
 #[allow(
-    // NVIDIA ISA types use CamelCase variants that don't follow Rust conventions
     non_camel_case_types,
     non_snake_case,
     non_upper_case_globals,
-    // Ported code has many defined-but-not-yet-wired types and functions
     dead_code,
     unused_imports,
     unused_variables,
     unused_mut,
     unused_assignments,
     unused_macros,
-    // Internal compiler module — docs added incrementally
     missing_docs,
-    // Match exhaustiveness evolves as GPU architectures are added
     unreachable_patterns,
-    irrefutable_let_patterns,
+    irrefutable_let_patterns
 )]
-mod nak;
+mod codegen;
 
+pub use backend::{Backend, CompiledBinary, NvidiaBackend};
+pub use codegen::ir::Shader;
+pub use codegen::pipeline::CompiledShader;
 pub use error::CompileError;
-pub use gpu_arch::GpuArch;
-pub use nak::ir::Shader;
-pub use nak::pipeline::CompiledShader;
+pub use frontend::{Frontend, NagaFrontend};
+pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
 
 /// Compile options for the shader compiler.
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
-    /// Target GPU architecture.
-    pub arch: GpuArch,
+    /// Target GPU — vendor-discriminated.
+    pub target: GpuTarget,
     /// Optimization level (0-3).
     pub opt_level: u32,
     /// Include debug info in output.
@@ -82,10 +76,32 @@ pub struct CompileOptions {
     pub fp64_software: bool,
 }
 
+impl CompileOptions {
+    /// Convenience: the NVIDIA architecture, if the target is NVIDIA.
+    #[must_use]
+    pub fn nv_arch(&self) -> Option<NvArch> {
+        self.target.as_nvidia()
+    }
+
+    /// Backward-compatible accessor — returns the `NvArch` or panics.
+    ///
+    /// Prefer [`Self::nv_arch`] in new code.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the target is not an NVIDIA GPU.
+    #[must_use]
+    pub fn arch(&self) -> GpuArch {
+        self.target
+            .as_nvidia()
+            .expect("CompileOptions::arch() called on non-NVIDIA target")
+    }
+}
+
 impl Default for CompileOptions {
     fn default() -> Self {
         Self {
-            arch: GpuArch::default(),
+            target: GpuTarget::default(),
             opt_level: 2,
             debug_info: false,
             fp64_software: true,
@@ -93,85 +109,97 @@ impl Default for CompileOptions {
     }
 }
 
-/// Compile SPIR-V to native NVIDIA GPU binary.
+/// Compile SPIR-V to native GPU binary.
 ///
-/// This is the primary entry point for the compiler.
+/// This is the primary entry point for the compiler.  Uses the default
+/// [`NagaFrontend`]; call [`compile_with`] to supply a custom frontend.
 ///
 /// # Errors
 ///
 /// Returns [`CompileError`] if compilation fails.
 pub fn compile(spirv: &[u32], options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
+    compile_with(&NagaFrontend, spirv, options)
+}
+
+/// Compile SPIR-V to native GPU binary using a custom [`Frontend`].
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if compilation fails.
+pub fn compile_with(
+    frontend: &dyn Frontend,
+    spirv: &[u32],
+    options: &CompileOptions,
+) -> Result<Vec<u8>, CompileError> {
     if spirv.is_empty() {
         return Err(CompileError::InvalidInput("empty SPIR-V module".into()));
     }
+    let nv = options
+        .nv_arch()
+        .ok_or(CompileError::UnsupportedArch(options.target.to_string()))?;
     tracing::info!(
-        arch = ?options.arch,
+        target = %options.target,
         opt = options.opt_level,
         fp64 = options.fp64_software,
         "coral-reef compile"
     );
 
-    let module = nak::from_spirv::parse_spirv(spirv)?;
-
-    let sm_info = nak::ir::ShaderModelInfo::new(options.arch.sm_version(), 64);
-
-    let ep = module
-        .entry_points
-        .first()
-        .ok_or_else(|| CompileError::InvalidInput("no entry points in module".into()))?;
-
-    let mut shader = nak::from_spirv::translate(&module, &sm_info, &ep.name)?;
+    let sm_info = codegen::ir::ShaderModelInfo::new(nv.sm_version(), 64);
+    let mut shader = frontend.compile_spirv(spirv, &sm_info)?;
     let compiled = compile_ir(&mut shader)?;
-
-    let mut binary = Vec::with_capacity(compiled.header.len() * 4 + compiled.code.len() * 4);
-    for word in &compiled.header {
-        binary.extend_from_slice(&word.to_le_bytes());
-    }
-    for word in &compiled.code {
-        binary.extend_from_slice(&word.to_le_bytes());
-    }
-    Ok(binary)
+    Ok(emit_binary(&compiled))
 }
 
-/// Compile a pre-built NAK IR shader through the full optimization and encoding pipeline.
-/// This is the internal entry point used once the SPIR-V → IR frontend is wired.
+/// Compile a pre-built IR shader through the full optimization and encoding pipeline.
 ///
 /// # Errors
 ///
 /// Returns [`CompileError`] if compilation fails.
 pub fn compile_ir(shader: &mut Shader<'_>) -> Result<CompiledShader, CompileError> {
-    nak::pipeline::compile_shader(shader, false)
+    codegen::pipeline::compile_shader(shader, false)
 }
 
-/// Compile WGSL source to native NVIDIA GPU binary.
+/// Compile WGSL source to native GPU binary.
 ///
-/// Convenience wrapper that uses naga to parse WGSL → SPIR-V, then compiles.
+/// Convenience wrapper using the default [`NagaFrontend`].
+/// Call [`compile_wgsl_with`] to supply a custom frontend.
 ///
 /// # Errors
 ///
 /// Returns [`CompileError`] if parsing or compilation fails.
 pub fn compile_wgsl(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
+    compile_wgsl_with(&NagaFrontend, wgsl, options)
+}
+
+/// Compile WGSL source to native GPU binary using a custom [`Frontend`].
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_wgsl_with(
+    frontend: &dyn Frontend,
+    wgsl: &str,
+    options: &CompileOptions,
+) -> Result<Vec<u8>, CompileError> {
     if wgsl.is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));
     }
+    let nv = options
+        .nv_arch()
+        .ok_or(CompileError::UnsupportedArch(options.target.to_string()))?;
     tracing::info!(
-        arch = ?options.arch,
+        target = %options.target,
         opt = options.opt_level,
         "coral-reef compile_wgsl"
     );
 
-    let module = nak::from_spirv::parse_wgsl(wgsl)?;
-
-    let sm_info = nak::ir::ShaderModelInfo::new(options.arch.sm_version(), 64);
-
-    let ep = module
-        .entry_points
-        .first()
-        .ok_or_else(|| CompileError::InvalidInput("no entry points in WGSL".into()))?;
-
-    let mut shader = nak::from_spirv::translate(&module, &sm_info, &ep.name)?;
+    let sm_info = codegen::ir::ShaderModelInfo::new(nv.sm_version(), 64);
+    let mut shader = frontend.compile_wgsl(wgsl, &sm_info)?;
     let compiled = compile_ir(&mut shader)?;
+    Ok(emit_binary(&compiled))
+}
 
+fn emit_binary(compiled: &CompiledShader) -> Vec<u8> {
     let mut binary = Vec::with_capacity(compiled.header.len() * 4 + compiled.code.len() * 4);
     for word in &compiled.header {
         binary.extend_from_slice(&word.to_le_bytes());
@@ -179,7 +207,7 @@ pub fn compile_wgsl(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Com
     for word in &compiled.code {
         binary.extend_from_slice(&word.to_le_bytes());
     }
-    Ok(binary)
+    binary
 }
 
 #[cfg(test)]
@@ -219,7 +247,7 @@ mod tests {
     #[test]
     fn test_default_options() {
         let opts = CompileOptions::default();
-        assert_eq!(opts.arch, GpuArch::Sm70);
+        assert_eq!(opts.arch(), GpuArch::Sm70);
         assert_eq!(opts.opt_level, 2);
         assert!(opts.fp64_software);
         assert!(!opts.debug_info);
@@ -228,13 +256,13 @@ mod tests {
     #[test]
     fn test_options_clone() {
         let opts = CompileOptions {
-            arch: GpuArch::Sm89,
+            target: GpuArch::Sm89.into(),
             opt_level: 3,
             debug_info: true,
             fp64_software: false,
         };
-        let cloned = opts.clone();
-        assert_eq!(cloned.arch, GpuArch::Sm89);
+        let cloned = opts;
+        assert_eq!(cloned.arch(), GpuArch::Sm89);
         assert_eq!(cloned.opt_level, 3);
         assert!(cloned.debug_info);
         assert!(!cloned.fp64_software);
@@ -257,7 +285,7 @@ mod tests {
             GpuArch::Sm89,
         ] {
             let opts = CompileOptions {
-                arch,
+                target: arch.into(),
                 ..CompileOptions::default()
             };
             let result = compile(&[0x0723_0203], &opts);

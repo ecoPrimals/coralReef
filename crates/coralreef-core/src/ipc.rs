@@ -26,7 +26,7 @@ use crate::service;
 
 /// Errors from IPC server operations.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum IpcError {
+pub enum IpcError {
     /// Failed to parse bind address.
     #[error("invalid bind address: {0}")]
     InvalidAddress(#[from] std::net::AddrParseError),
@@ -42,7 +42,7 @@ pub(crate) enum IpcError {
 
 /// Transport-agnostic bound address reported by servers.
 #[derive(Debug, Clone)]
-pub(crate) enum BoundAddr {
+pub enum BoundAddr {
     /// TCP socket address (host:port).
     Tcp(SocketAddr),
     /// Unix domain socket path (Unix platforms only).
@@ -52,11 +52,11 @@ pub(crate) enum BoundAddr {
 
 impl BoundAddr {
     /// Protocol name for capability advertisement.
-    pub(crate) fn protocol(&self) -> &'static str {
+    pub(crate) const fn protocol(&self) -> &'static str {
         match self {
-            BoundAddr::Tcp(_) => "tcp",
+            Self::Tcp(_) => "tcp",
             #[cfg(unix)]
-            BoundAddr::Unix(_) => "unix",
+            Self::Unix(_) => "unix",
         }
     }
 }
@@ -64,25 +64,27 @@ impl BoundAddr {
 impl fmt::Display for BoundAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BoundAddr::Tcp(addr) => write!(f, "{addr}"),
+            Self::Tcp(addr) => write!(f, "{addr}"),
             #[cfg(unix)]
-            BoundAddr::Unix(path) => write!(f, "unix://{}", path.display()),
+            Self::Unix(path) => write!(f, "unix://{}", path.display()),
         }
     }
 }
 
 /// TCP loopback with OS-assigned port.
-pub(crate) const DEFAULT_TCP_BIND: &str = "127.0.0.1:0";
+pub const DEFAULT_TCP_BIND: &str = "127.0.0.1:0";
 
 /// Platform-aware default bind address for tarpc.
 ///
 /// On Unix: returns a path for a Unix domain socket under `$XDG_RUNTIME_DIR`
-/// (or `/tmp` as fallback), namespaced by the primal binary name.
+/// (or `std::env::temp_dir()` as fallback — no hardcoded paths per ecoBin),
+/// namespaced by the primal binary name.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
-pub(crate) fn default_tarpc_bind() -> String {
+pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
     {
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_owned());
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+            .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().into_owned());
         format!("unix://{runtime_dir}/{}/tarpc.sock", env!("CARGO_PKG_NAME"))
     }
     #[cfg(not(unix))]
@@ -99,7 +101,7 @@ pub(crate) fn default_tarpc_bind() -> String {
 ///
 /// Method names follow `domain.operation` format.
 #[rpc(server)]
-trait CoralNakRpc {
+trait CoralReefRpc {
     /// `compiler.compile` — compile SPIR-V to native GPU binary.
     #[method(name = "compiler.compile")]
     async fn compiler_compile(
@@ -119,7 +121,7 @@ trait CoralNakRpc {
 struct RpcImpl;
 
 #[async_trait]
-impl CoralNakRpcServer for RpcImpl {
+impl CoralReefRpcServer for RpcImpl {
     async fn compiler_compile(
         &self,
         request: service::CompileRequest,
@@ -170,7 +172,7 @@ pub async fn start_jsonrpc_server(bind: &str) -> Result<(SocketAddr, ServerHandl
 
 /// tarpc service definition (mirrors JSON-RPC methods).
 #[tarpc::service]
-pub trait CoralNakTarpc {
+pub trait CoralReefTarpc {
     /// Compile SPIR-V to native GPU binary.
     async fn compiler_compile(
         request: service::CompileRequest,
@@ -184,7 +186,7 @@ pub trait CoralNakTarpc {
 #[derive(Clone)]
 struct TarpcServer;
 
-impl CoralNakTarpc for TarpcServer {
+impl CoralReefTarpc for TarpcServer {
     async fn compiler_compile(
         self,
         _ctx: tarpc::context::Context,
@@ -326,6 +328,21 @@ mod tests {
         watch::channel(())
     }
 
+    /// Generate valid SPIR-V for a minimal compute shader via naga (WGSL → SPIR-V).
+    /// Uses the same shader as `compiler_integration::test_pipeline_minimal_compute_produces_binary`.
+    fn valid_spirv_minimal_compute() -> Vec<u32> {
+        let wgsl = "@compute @workgroup_size(1) fn main() {}";
+        let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::default(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .expect("module should validate");
+        naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
+            .expect("SPIR-V write should succeed")
+    }
+
     #[tokio::test]
     async fn test_jsonrpc_server_starts() {
         let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
@@ -446,7 +463,7 @@ mod tests {
         let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
-        let client = CoralNakTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
         let response = client
             .compiler_health(tarpc::context::current())
@@ -469,7 +486,7 @@ mod tests {
         let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
-        let client = CoralNakTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
         let req = service::CompileRequest {
             spirv_words: vec![],
@@ -484,6 +501,270 @@ mod tests {
             .unwrap();
 
         assert!(result.is_err());
+    }
+
+    // ---------------------------------------------------------------------------
+    // JSON-RPC E2E compile tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_jsonrpc_compile_valid_shader() {
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let url = format!("http://{addr}");
+        let client = HttpClientBuilder::default().build(&url).unwrap();
+
+        let spirv = valid_spirv_minimal_compute();
+        let req = service::CompileRequest {
+            spirv_words: spirv,
+            arch: coral_reef::GpuArch::default().to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+
+        let response: Result<service::CompileResponse, _> =
+            client.request("compiler.compile", [req]).await;
+
+        match response {
+            Ok(resp) => {
+                assert!(
+                    !resp.binary.is_empty(),
+                    "response should contain non-empty binary"
+                );
+                assert_eq!(resp.size, resp.binary.len());
+            }
+            Err(e) => {
+                // SPIR-V from naga round-trip may trigger NotImplemented (e.g. function calls)
+                let msg = format!("{e:?}");
+                assert!(
+                    msg.contains("not implemented") || msg.contains("-32000"),
+                    "IPC should propagate compile errors: {msg}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Compile endpoint only supports SPIR-V; WGSL not yet exposed via IPC"]
+    async fn test_jsonrpc_compile_wgsl_shader() {
+        // When a compiler.compile_wgsl or wgsl_source field is added to CompileRequest,
+        // un-ignore and implement this test.
+        unimplemented!("WGSL not yet supported by IPC compile endpoint");
+    }
+
+    #[tokio::test]
+    async fn test_jsonrpc_compile_error_propagation() {
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let url = format!("http://{addr}");
+        let client = HttpClientBuilder::default().build(&url).unwrap();
+
+        // Invalid arch
+        let req_bad_arch = service::CompileRequest {
+            spirv_words: valid_spirv_minimal_compute(),
+            arch: "sm_99".to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let err: Result<service::CompileResponse, _> =
+            client.request("compiler.compile", [req_bad_arch]).await;
+        assert!(err.is_err(), "invalid arch should return JSON-RPC error");
+        let err_msg = format!("{:?}", err.unwrap_err());
+        assert!(
+            err_msg.contains("-32000")
+                || err_msg.contains("sm_99")
+                || err_msg.contains("UnsupportedArch"),
+            "error should indicate compile failure: {err_msg}"
+        );
+
+        // Bad SPIR-V (wrong magic)
+        let req_bad_spirv = service::CompileRequest {
+            spirv_words: vec![0xDEAD_BEEF, 0x0001_0000, 0, 0, 0],
+            arch: coral_reef::GpuArch::default().to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let err2: Result<service::CompileResponse, _> =
+            client.request("compiler.compile", [req_bad_spirv]).await;
+        assert!(err2.is_err(), "bad SPIR-V should return JSON-RPC error");
+    }
+
+    // ---------------------------------------------------------------------------
+    // tarpc E2E compile tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_tarpc_compile_valid_shader() {
+        use tokio_serde::formats::Json;
+
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let BoundAddr::Tcp(tcp_addr) = addr else {
+            panic!("expected TCP address");
+        };
+
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+            .await
+            .unwrap();
+        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+        let spirv = valid_spirv_minimal_compute();
+        let req = service::CompileRequest {
+            spirv_words: spirv,
+            arch: coral_reef::GpuArch::default().to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+
+        let response = client
+            .compiler_compile(tarpc::context::current(), req)
+            .await
+            .unwrap();
+
+        match response {
+            Ok(resp) => {
+                assert!(
+                    !resp.binary.is_empty(),
+                    "response should contain non-empty binary"
+                );
+                assert_eq!(resp.size, resp.binary.len());
+            }
+            Err(msg) => {
+                // SPIR-V from naga round-trip may trigger NotImplemented (e.g. function calls)
+                assert!(
+                    msg.contains("not implemented") || msg.contains("NotImplemented"),
+                    "IPC should propagate compile errors: {msg}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tarpc_compile_error_propagation() {
+        use tokio_serde::formats::Json;
+
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let BoundAddr::Tcp(tcp_addr) = addr else {
+            panic!("expected TCP address");
+        };
+
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+            .await
+            .unwrap();
+        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+        // Invalid arch
+        let req_bad_arch = service::CompileRequest {
+            spirv_words: valid_spirv_minimal_compute(),
+            arch: "sm_99".to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let result = client
+            .compiler_compile(tarpc::context::current(), req_bad_arch)
+            .await
+            .unwrap();
+        assert!(result.is_err(), "invalid arch should return Err");
+
+        // Bad SPIR-V
+        let req_bad_spirv = service::CompileRequest {
+            spirv_words: vec![0xDEAD_BEEF, 0x0001_0000, 0, 0, 0],
+            arch: coral_reef::GpuArch::default().to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let result2 = client
+            .compiler_compile(tarpc::context::current(), req_bad_spirv)
+            .await
+            .unwrap();
+        assert!(result2.is_err(), "bad SPIR-V should return Err");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Cross-protocol consistency
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_cross_protocol_health_consistency() {
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+        use tokio_serde::formats::Json;
+
+        let (rpc_addr, _rpc_handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (_tx, rx) = test_shutdown_channel();
+        let (tarpc_addr, _tarpc_handle) =
+            start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+
+        let url = format!("http://{rpc_addr}");
+        let rpc_client = HttpClientBuilder::default().build(&url).unwrap();
+        let jsonrpc_health: service::HealthResponse = rpc_client
+            .request("compiler.health", jsonrpsee::rpc_params![])
+            .await
+            .unwrap();
+
+        let BoundAddr::Tcp(tcp_addr) = tarpc_addr else {
+            panic!("expected TCP address");
+        };
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+            .await
+            .unwrap();
+        let tarpc_client =
+            CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let tarpc_health = tarpc_client
+            .compiler_health(tarpc::context::current())
+            .await
+            .unwrap();
+
+        assert_eq!(jsonrpc_health.name, tarpc_health.name);
+        assert_eq!(jsonrpc_health.version, tarpc_health.version);
+        assert_eq!(jsonrpc_health.status, tarpc_health.status);
+        assert_eq!(jsonrpc_health.supported_archs, tarpc_health.supported_archs);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Shutdown tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_graceful_shutdown() {
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+
+        let (shutdown_tx, shutdown_rx) = test_shutdown_channel();
+        let (rpc_addr, rpc_handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (_tarpc_addr, tarpc_handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, shutdown_rx)
+            .await
+            .unwrap();
+
+        // Verify servers are up
+        let url = format!("http://{rpc_addr}");
+        let client = HttpClientBuilder::default().build(&url).unwrap();
+        let _health: service::HealthResponse = client
+            .request("compiler.health", jsonrpsee::rpc_params![])
+            .await
+            .unwrap();
+
+        // Signal shutdown
+        let _ = shutdown_tx.send(());
+        let _ = rpc_handle.stop();
+
+        let shutdown_timeout = std::time::Duration::from_secs(5);
+        let rpc_stopped = rpc_handle.clone().stopped();
+        let shutdown_result = tokio::time::timeout(shutdown_timeout, async move {
+            rpc_stopped.await;
+            tarpc_handle.await.ok();
+        })
+        .await;
+
+        assert!(
+            shutdown_result.is_ok(),
+            "servers should shut down cleanly within timeout"
+        );
     }
 
     #[tokio::test]

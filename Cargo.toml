@@ -46,7 +46,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Compiler internals
-rustc-hash = "2"
 bitview = { path = "crates/coral-reef-bitview" }
 nak_ir_proc = { path = "crates/nak-ir-proc" }
 
