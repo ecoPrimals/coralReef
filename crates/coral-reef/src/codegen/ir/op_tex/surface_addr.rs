@@ -120,7 +120,7 @@ pub struct OpIMadSp {
 }
 
 impl Foldable for OpIMadSp {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let src0 = f.get_u32_src(self, &self.srcs[0]);
         let src1 = f.get_u32_src(self, &self.srcs[1]);
         let src2 = f.get_u32_src(self, &self.srcs[2]);

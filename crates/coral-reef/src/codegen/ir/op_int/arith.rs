@@ -15,7 +15,7 @@ pub struct OpIAbs {
 }
 
 impl Foldable for OpIAbs {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let src = f.get_u32_src(self, &self.src);
         let dst = (src as i32).unsigned_abs();
         f.set_u32_dst(self, &self.dst, dst);
@@ -43,7 +43,7 @@ pub struct OpIAdd2 {
 }
 
 impl Foldable for OpIAdd2 {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_src(self, &self.srcs[0]),
             f.get_u32_src(self, &self.srcs[1]),
@@ -88,7 +88,7 @@ pub struct OpIAdd2X {
 }
 
 impl Foldable for OpIAdd2X {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_bnot_src(self, &self.srcs[0]),
             f.get_u32_bnot_src(self, &self.srcs[1]),
@@ -127,7 +127,7 @@ pub struct OpIAdd3 {
 }
 
 impl Foldable for OpIAdd3 {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_src(self, &self.srcs[0]),
             f.get_u32_src(self, &self.srcs[1]),
@@ -179,7 +179,7 @@ pub struct OpIAdd3X {
 }
 
 impl Foldable for OpIAdd3X {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_bnot_src(self, &self.srcs[0]),
             f.get_u32_bnot_src(self, &self.srcs[1]),
@@ -329,7 +329,7 @@ pub struct OpIMnMx {
 }
 
 impl Foldable for OpIMnMx {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let (a, b) = (
             f.get_u32_bnot_src(self, &self.srcs[0]),
             f.get_u32_bnot_src(self, &self.srcs[1]),
@@ -380,7 +380,7 @@ pub struct OpISetP {
 }
 
 impl Foldable for OpISetP {
-    fn fold(&self, sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let x = f.get_u32_src(self, &self.srcs[0]);
         let y = f.get_u32_src(self, &self.srcs[1]);
         let accum = f.get_pred_src(self, &self.accum);

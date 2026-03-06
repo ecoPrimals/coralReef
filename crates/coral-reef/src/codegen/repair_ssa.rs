@@ -44,7 +44,7 @@ fn get_ssa_or_phi(
     worklist.push(Reverse(b_idx));
 
     loop {
-        let b_idx = worklist.peek().unwrap().0;
+        let b_idx = worklist.peek().expect("worklist must not be empty").0;
         let b = &blocks[b_idx];
 
         if let Some(&b_ssa) = b.defs.borrow().get(&ssa) {
@@ -99,7 +99,11 @@ fn get_ssa_or_phi(
                     continue;
                 }
                 // Earlier iterations of the loop ensured this exists
-                let p_ssa = *blocks[p_idx].defs.borrow().get(&ssa).unwrap();
+                let p_ssa = *blocks[p_idx]
+                    .defs
+                    .borrow()
+                    .get(&ssa)
+                    .expect("predecessor must have def for SSA value");
                 pt.srcs.insert(p_idx, p_ssa);
             }
             blocks[b_idx].phis.borrow_mut().push(pt);
@@ -339,7 +343,10 @@ impl Function {
                 if !s_phis.is_empty() {
                     let phi_src = get_or_insert_phi_srcs(bb);
                     for pt in s_phis.iter() {
-                        let mut ssa = *pt.srcs.get(&b_idx).unwrap();
+                        let mut ssa = *pt
+                            .srcs
+                            .get(&b_idx)
+                            .expect("phi must have source for predecessor block");
                         ssa = ssa_map.find(ssa);
                         phi_src.srcs.push(pt.phi, ssa.into());
                     }

@@ -6,7 +6,7 @@
 //! uses the `naga` crate for WGSL and SPIR-V, but alternative frontends
 //! can be plugged in without changing the compilation pipeline.
 
-use crate::codegen::ir::{Shader, ShaderModelInfo};
+use crate::codegen::ir::{Shader, ShaderModel};
 use crate::error::CompileError;
 
 /// A shader-source frontend that parses input into the compiler's IR.
@@ -23,7 +23,7 @@ pub trait Frontend {
     fn compile_wgsl<'a>(
         &self,
         source: &str,
-        sm: &'a ShaderModelInfo,
+        sm: &'a dyn ShaderModel,
     ) -> Result<Shader<'a>, CompileError>;
 
     /// Parse SPIR-V words and lower to the compiler IR.
@@ -35,7 +35,7 @@ pub trait Frontend {
     fn compile_spirv<'a>(
         &self,
         spirv: &[u32],
-        sm: &'a ShaderModelInfo,
+        sm: &'a dyn ShaderModel,
     ) -> Result<Shader<'a>, CompileError>;
 }
 
@@ -46,7 +46,7 @@ impl Frontend for NagaFrontend {
     fn compile_wgsl<'a>(
         &self,
         source: &str,
-        sm: &'a ShaderModelInfo,
+        sm: &'a dyn ShaderModel,
     ) -> Result<Shader<'a>, CompileError> {
         let module = crate::codegen::naga_translate::parse_wgsl(source)?;
         translate_first_entry(&module, sm)
@@ -55,7 +55,7 @@ impl Frontend for NagaFrontend {
     fn compile_spirv<'a>(
         &self,
         spirv: &[u32],
-        sm: &'a ShaderModelInfo,
+        sm: &'a dyn ShaderModel,
     ) -> Result<Shader<'a>, CompileError> {
         let module = crate::codegen::naga_translate::parse_spirv(spirv)?;
         translate_first_entry(&module, sm)
@@ -64,7 +64,7 @@ impl Frontend for NagaFrontend {
 
 fn translate_first_entry<'sm>(
     module: &naga::Module,
-    sm: &'sm ShaderModelInfo,
+    sm: &'sm dyn ShaderModel,
 ) -> Result<Shader<'sm>, CompileError> {
     let ep = module
         .entry_points

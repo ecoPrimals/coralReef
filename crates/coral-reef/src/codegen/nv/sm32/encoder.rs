@@ -5,8 +5,7 @@
 #![allow(clippy::wildcard_imports)]
 
 pub(super) use super::super::sm30_instr_latencies::{
-    KeplerInstructionEncoder, encode_kepler_shader, instr_exec_latency, instr_latency,
-    latency_upper_bound,
+    KeplerInstructionEncoder, instr_exec_latency, instr_latency, latency_upper_bound,
 };
 pub(super) use crate::codegen::ir::*;
 pub(super) use crate::codegen::legalize::{
@@ -113,6 +112,10 @@ impl ShaderModel for ShaderModel32 {
 
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
         Ok(super::encode_sm32_shader(self, s))
+    }
+
+    fn max_warps(&self) -> u32 {
+        64
     }
 }
 
@@ -523,7 +526,7 @@ impl KeplerInstructionEncoder for ShaderModel32 {
     }
 
     fn prepare_sched_instr<'a>(&self, sched_instr: &'a mut [u32; 2]) -> impl BitMutViewable + 'a {
-        let mut bv = sched_instr;
+        let bv = sched_instr;
         bv.set_field(0..2, 0b00);
         bv.set_field(58..64, 0b00_0010); // 0x08
 

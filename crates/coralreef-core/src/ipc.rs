@@ -83,9 +83,11 @@ pub const DEFAULT_TCP_BIND: &str = "127.0.0.1:0";
 pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
     {
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-            .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().into_owned());
-        format!("unix://{runtime_dir}/{}/tarpc.sock", env!("CARGO_PKG_NAME"))
+        let dir = coralreef_core::config::discovery_dir().unwrap_or_else(|_| {
+            std::env::temp_dir().join(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+        });
+        let sock = dir.join(format!("{}-tarpc.sock", env!("CARGO_PKG_NAME")));
+        format!("unix://{}", sock.display())
     }
     #[cfg(not(unix))]
     {
@@ -549,9 +551,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "Compile endpoint only supports SPIR-V; WGSL not yet exposed via IPC"]
     async fn test_jsonrpc_compile_wgsl_shader() {
-        // When a compiler.compile_wgsl or wgsl_source field is added to CompileRequest,
-        // un-ignore and implement this test.
-        unimplemented!("WGSL not yet supported by IPC compile endpoint");
+        // Placeholder: when `compiler.compile_wgsl` or a `wgsl_source` field
+        // is added to CompileRequest, un-ignore and implement this test.
     }
 
     #[tokio::test]

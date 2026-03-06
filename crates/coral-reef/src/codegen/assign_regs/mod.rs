@@ -7,7 +7,6 @@
 use super::debug::{DEBUG, GetDebugFlags};
 use super::ir::*;
 use super::liveness::{Liveness, SimpleLiveness};
-use super::*;
 
 use std::cmp::{max, min};
 
@@ -16,10 +15,10 @@ mod instr_assign;
 mod reg_allocator;
 mod types;
 
-pub(super) use block::*;
-pub(super) use instr_assign::*;
-pub(super) use reg_allocator::*;
-pub(super) use types::*;
+use block::*;
+use instr_assign::*;
+use reg_allocator::*;
+use types::*;
 
 impl Shader<'_> {
     pub fn assign_regs(&mut self) {
@@ -71,7 +70,8 @@ impl Shader<'_> {
                     match &instr.op {
                         Op::Exit(_) => (),
                         Op::RegOut(op) => {
-                            let out_gprs = u32::try_from(op.srcs.len()).unwrap();
+                            let out_gprs =
+                                u32::try_from(op.srcs.len()).expect("RegOut srcs len overflow");
                             max_gpr_count = max(max_gpr_count, out_gprs);
                         }
                         _ => break,
@@ -115,7 +115,7 @@ impl Shader<'_> {
             gpr_limit += free_gprs;
         }
 
-        self.info.gpr_count = total_gprs.try_into().unwrap();
+        self.info.gpr_count = total_gprs.try_into().expect("gpr_count overflow");
 
         let limit = PerRegFile::new_with(|file| {
             if file == RegFile::GPR {

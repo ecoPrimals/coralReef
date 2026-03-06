@@ -125,11 +125,11 @@ pub trait Builder {
 
 pub struct InstrBuilder<'a> {
     instrs: MappedInstrs,
-    sm: &'a ShaderModelInfo,
+    sm: &'a dyn ShaderModel,
 }
 
 impl<'a> InstrBuilder<'a> {
-    pub const fn new(sm: &'a ShaderModelInfo) -> Self {
+    pub fn new(sm: &'a dyn ShaderModel) -> Self {
         Self {
             instrs: MappedInstrs::None,
             sm,
@@ -171,7 +171,7 @@ pub struct SSAInstrBuilder<'a> {
 }
 
 impl<'a> SSAInstrBuilder<'a> {
-    pub const fn new(sm: &'a ShaderModelInfo, alloc: &'a mut SSAValueAllocator) -> Self {
+    pub fn new(sm: &'a dyn ShaderModel, alloc: &'a mut SSAValueAllocator) -> Self {
         Self {
             b: InstrBuilder::new(sm),
             alloc,
@@ -282,8 +282,8 @@ impl<T: SSABuilder> SSABuilder for UniformBuilder<'_, T> {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        FloatCmpOp, IntCmpOp, IntCmpType, LogicOp2, Op, OpFAdd, OpNop, OpRro, OpSel,
-        OpTranscendental, RegFile, RroOp, ShaderModelInfo, TranscendentalOp,
+        FloatCmpOp, IntCmpOp, IntCmpType, LogicOp2, Op, OpNop, RegFile, RroOp, ShaderModelInfo,
+        TranscendentalOp,
     };
 
     fn make_sm70() -> ShaderModelInfo {

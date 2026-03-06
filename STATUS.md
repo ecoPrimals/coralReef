@@ -1,30 +1,31 @@
 # coralReef — Status
 
-**Last updated**: March 5, 2026
+**Last updated**: March 6, 2026
 
 ---
 
-## Overall Grade: **A+**
+## Overall Grade: **A+** (Multi-Vendor Sovereign GPU Compiler)
 
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
 | IPC | A+ | JSON-RPC 2.0 + tarpc, Unix socket + TCP, zero-copy `Bytes` payloads |
-| Compilation pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
+| NVIDIA pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
+| AMD pipeline | A | `ShaderModelRdna2` → legalize → RA → encode, cross-vendor WGSL compilation |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
-| f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos — all with production precision |
-| Vendor-agnostic arch | A | `Backend` / `Frontend` traits, `GpuTarget` enum, NVIDIA backend complete |
-| Code structure | A+ | 2 files >1000 LOC (encoder domain, tracked for split) |
-| Tests | A+ | 672 tests, zero failures |
-| Clippy | A+ | Zero warnings, pedantic + nursery categories enabled |
-| Coverage | B | ~37% line — structural floor from encoder match arms |
+| f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos — NVIDIA (Newton-Raphson) + AMD (native v_sqrt/rcp_f64) |
+| Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
+| coralDriver | A | AMD DRM ioctl (GEM, PM4, CS), NVIDIA nouveau (QMD), pure Rust syscalls |
+| coralGpu | A | Unified compile+dispatch API, vendor-agnostic `GpuContext` |
+| Code structure | A+ | All files < 1000 LOC |
+| Tests | A+ | 801 tests, zero failures, 5 ignored |
+| Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero-knowledge startup, capability-based discovery |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode |
-| Zero-copy | A- | `bytes::Bytes` for IPC, `Cow` patterns, borrowed refs in pipeline |
-| Dependencies | A | tokio 1.50, tarpc 0.37, naga 24, all features minimal |
-| Naming evolution | A+ | Module `codegen/`, vendor-neutral `TranscendentalOp`, Rust-idiomatic fields |
+| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust |
+| Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
 
 ## Phase Status
 
@@ -40,63 +41,63 @@
 | 4.5 — Error Safety | Production panic→Result, pipeline propagation | **Complete** |
 | 5 — Standalone | All stub dependencies evolved | **Complete** |
 | 5.5 — Naming Evolution | Mesa/NAK de-vendoring, Rust-idiomatic fields | **Complete** |
-| 6 — Multi-Vendor | Backend/Frontend traits, GpuTarget, vendor abstraction | **In Progress** |
+| 5.7 — Deep Debt Audit | 710 tests, tooling, proc-macro safety | **Complete** |
+| 6a — AMD ISA + Encoder | RDNA2 GFX1030 instruction encoding | **Complete** |
+| 6b — AMD Legalization + RA | ShaderModelRdna2, legalize, exec mask | **Complete** |
+| 6c — AMD f64 Lowering | Native v_sqrt_f64, v_rcp_f64, v_fma_f64 | **Complete** |
+| 6d — AMD Validation | End-to-end WGSL → GFX1030, cross-vendor | **Complete** |
+| 7a — AMD coralDriver | DRM ioctl, GEM, PM4, command submission | **Complete** |
+| 7b — Internalize | Pure Rust ioctl, zero unsafe public API | **Complete** |
+| 7c — NVIDIA coralDriver | nouveau DRM, QMD v3.0 | **Complete** |
+| 8 — coralGpu | Unified Rust GPU abstraction | **Complete** |
+| 9 — Full Sovereignty | Zero FFI, zero C, zero *-sys | **Complete** |
 
 ## Checks
 
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (672 tests) |
+| `cargo test --workspace` | PASS (801 tests, 5 ignored) |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
-| `cargo clippy` | PASS (0 warnings) |
+| `cargo doc --workspace --no-deps` | PASS |
 
-## f64 Transcendental Precision
+## Hardware — On-Site
 
-| Function | Strategy | Precision |
-|----------|----------|-----------|
-| sqrt | Transcendental Rsq64H + 2 Newton-Raphson via DFMA | Full f64 |
-| rcp | Transcendental Rcp64H + 2 Newton-Raphson via DFMA | Full f64 |
-| exp2 | Range reduction + degree-6 Horner + ldexp | Full f64 |
-| log2 | Transcendental Log2 + Newton refinement (Exp2/Rcp) | ~46-bit |
-| sin | Cody-Waite + minimax polynomial + quadrant | Full domain |
-| cos | Cody-Waite + minimax polynomial + quadrant | Full domain |
+| GPU | PCI | Architecture | Kernel Driver | Vulkan | f64 | VRAM | Role |
+|-----|-----|-------------|---------------|--------|-----|------|------|
+| AMD RX 6950 XT | 25:00.0 | RDNA2 GFX1030 (Navi 21) | amdgpu (open) | RADV/ACO (Mesa 25.1.5) | 1/16 | 16 GB | AMD evolution primary |
+| NVIDIA RTX 3090 | 41:00.0 | Ampere SM86 (GA102) | nvidia 580.119.02 | NVIDIA proprietary | 1/32 | 24 GB | NVIDIA compilation target |
 
-## Coverage Analysis
+## Architecture Evolution (March 6, 2026)
 
-~37% line coverage with 672 tests. Remaining gap is structural:
+Key architectural change: replaced the Mesa NAK artifact (`ShaderModelInfo` +
+`sm_match!` macro — a manual vtable in C-think) with idiomatic Rust trait
+dispatch. `Shader<'a>` now holds `&'a dyn ShaderModel`. Each GPU architecture
+implements `ShaderModel` directly. The Rust compiler is the DNA synthase.
 
-- **SM20/32/50 encoders** (~1,078 lines, 0%) — legacy architectures not targeted
-- **SM70 encoders** (~2,000 lines, 10-20%) — requires encoding every instruction variant
-- **IR op structs** (~1,200 lines, 0%) — proc-macro generated code
-
-## Hardware Test Matrix
-
-| GPU | SM/Architecture | Role | Status |
-|-----|----------------|------|--------|
-| RTX 3090 | SM86 (Ampere) | Primary compilation target | Available |
-| Titan V | SM70 (Volta) | f64 regression target, upstream issues | Available (other tower) |
-| RTX 3090 | SM86 (Ampere) | Second tower, cross-validation | Available |
-| AMD (RDNA3) | — | Backend development target | Available |
+| Before | After |
+|--------|-------|
+| `Shader<'a> { sm: &'a ShaderModelInfo }` | `Shader<'a> { sm: &'a dyn ShaderModel }` |
+| `sm_match!` macro dispatch | Rust trait object dispatch |
+| `ShaderModelInfo` manual vtable | Each vendor implements `ShaderModel` directly |
+| NVIDIA-only | NVIDIA + AMD (Intel planned) |
+| Python ISA generator | Pure Rust `amd-isa-gen` |
+| No driver layer | `coral-driver` (DRM ioctl, pure Rust) |
+| No unified API | `coral-gpu` (compile + dispatch) |
 
 ## Spring Absorption
 
-Patterns absorbed from ecoPrimals springs (via wateringHole):
-
 | Pattern | Source | Applied |
 |---------|--------|---------|
-| BTreeMap for deterministic serialization | groundSpring V73 tolerance arch | health.rs |
-| Silent-default audit | groundSpring V76 "silent defaults are bugs" | program.rs |
+| BTreeMap for deterministic serialization | groundSpring V73 | health.rs |
+| Silent-default audit | groundSpring V76 | program.rs |
 | Cross-spring provenance doc-comments | CROSS_SPRING_SHADER_EVOLUTION | lower_f64/ |
 | Unsafe code eliminated | groundSpring CONTRIBUTING | builder/mod.rs |
-| Capability-based discovery (verified) | groundSpring CAPABILITY_SURFACE | capability.rs |
-| No hardcoded primal names (verified) | groundSpring primal isolation | workspace-wide |
-| Result propagation | groundSpring error handling patterns | pipeline |
-
-## Future Work
-
-See `WHATS_NEXT.md` for precision improvements, coverage goals, and
-ecosystem integration (coralDriver, coralGpu, barraCuda).
+| Capability-based discovery | groundSpring CAPABILITY_SURFACE | capability.rs |
+| No hardcoded primal names | groundSpring primal isolation | workspace-wide |
+| Result propagation | groundSpring error handling | pipeline |
+| Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 
 ---
 

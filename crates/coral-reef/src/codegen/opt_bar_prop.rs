@@ -282,9 +282,8 @@ impl Shader<'_> {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        BasicBlock, ComputeShaderInfo, Dst, Function, Instr, LabelAllocator, Op, OpBMov, OpBSync,
+        BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, Op, OpBMov, OpBSync,
         OpExit, PhiAllocator, SSAValueAllocator, Shader, ShaderInfo, ShaderIoInfo, ShaderStageInfo,
-        Src,
     };
     use coral_reef_stubs::cfg::CFGBuilder;
 

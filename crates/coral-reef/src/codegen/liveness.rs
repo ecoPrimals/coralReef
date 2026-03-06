@@ -7,7 +7,6 @@
 use super::ir::*;
 
 use coral_reef_stubs::bitset::BitSet;
-use coral_reef_stubs::dataflow::{BackwardDataflow, BackwardDataflowBi};
 use coral_reef_stubs::fxhash::{FxHashMap, FxHashSet};
 use std::cmp::{Ord, Ordering, max, min};
 
@@ -180,7 +179,7 @@ pub trait BlockLiveness {
         PerRegFile::new_with(|file| {
             max(0, max(vec_dst_live[file], live[file]))
                 .try_into()
-                .unwrap()
+                .expect("register pressure must fit in u8")
         })
     }
 }
@@ -218,7 +217,11 @@ pub trait Liveness {
                     // This should be the last instruction.  Everything should
                     // be dead once we've processed it.
                     debug_assert!(live.count(RegFile::GPR) == 0);
-                    let gpr_output_count = reg_out.srcs.len().try_into().unwrap();
+                    let gpr_output_count = reg_out
+                        .srcs
+                        .len()
+                        .try_into()
+                        .expect("register output count must fit in u32");
                     max_live[RegFile::GPR] = max(max_live[RegFile::GPR], gpr_output_count);
                 }
             }
@@ -350,7 +353,10 @@ impl SimpleLiveness {
 
 impl SimpleLiveness {
     pub fn def_block_ip(&self, ssa: &SSAValue) -> (usize, usize) {
-        *self.ssa_block_ip.get(ssa).unwrap()
+        *self
+            .ssa_block_ip
+            .get(ssa)
+            .expect("SSA value must be defined in block")
     }
 
     pub fn interferes(&self, a: &SSAValue, b: &SSAValue) -> bool {
@@ -615,7 +621,7 @@ impl Liveness for NextUseLiveness {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        BasicBlock, Function, Instr, LabelAllocator, Op, OpCopy, OpExit, OpRegOut, PhiAllocator,
+        BasicBlock, Function, Instr, LabelAllocator, OpCopy, OpExit, OpRegOut, PhiAllocator,
         RegFile, SSAValueAllocator, Src,
     };
     use coral_reef_stubs::cfg::CFGBuilder;

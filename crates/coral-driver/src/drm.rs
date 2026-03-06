@@ -1,0 +1,200 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//! Pure Rust DRM ioctl interface — no `drm-sys`, no `nix`.
+//!
+//! All ioctl numbers and structures are defined here from the Linux
+//! kernel headers (GPL-2.0-only) via clean-room constant extraction.
+
+use crate::error::{DriverError, DriverResult};
+use std::fs::{File, OpenOptions};
+use std::os::unix::io::{AsRawFd, RawFd};
+
+/// DRM ioctl direction flags.
+const _IOC_NONE: u32 = 0;
+const IOC_WRITE: u32 = 1;
+const IOC_READ: u32 = 2;
+
+const IOC_NRBITS: u32 = 8;
+const IOC_TYPEBITS: u32 = 8;
+const IOC_SIZEBITS: u32 = 14;
+
+const IOC_NRSHIFT: u32 = 0;
+const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
+const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
+const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
+
+const DRM_IOCTL_BASE: u32 = b'd' as u32;
+
+/// Construct a DRM ioctl number.
+const fn drm_ioctl(dir: u32, nr: u32, size: u32) -> u64 {
+    ((dir << IOC_DIRSHIFT) | (DRM_IOCTL_BASE << IOC_TYPESHIFT) | (nr << IOC_NRSHIFT) | (size << IOC_SIZESHIFT)) as u64
+}
+
+const fn _drm_io(nr: u32) -> u64 {
+    drm_ioctl(_IOC_NONE, nr, 0)
+}
+
+const fn drm_iowr(nr: u32, size: u32) -> u64 {
+    drm_ioctl(IOC_READ | IOC_WRITE, nr, size)
+}
+
+const fn drm_iow(nr: u32, size: u32) -> u64 {
+    drm_ioctl(IOC_WRITE, nr, size)
+}
+
+const fn _drm_ior(nr: u32, size: u32) -> u64 {
+    drm_ioctl(IOC_READ, nr, size)
+}
+
+/// DRM_IOCTL_VERSION
+pub const DRM_IOCTL_VERSION: u64 = drm_iowr(0x00, 32);
+
+/// Public helper for submodules to construct IOWR ioctl numbers.
+pub const fn drm_iowr_pub(nr: u32, size: u32) -> u64 {
+    drm_iowr(nr, size)
+}
+
+/// Public helper for submodules to construct IOW ioctl numbers.
+pub const fn drm_iow_pub(nr: u32, size: u32) -> u64 {
+    drm_iow(nr, size)
+}
+
+/// DRM version info returned by the kernel.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct DrmVersion {
+    pub version_major: i32,
+    pub version_minor: i32,
+    pub version_patchlevel: i32,
+    pub name_len: u64,
+    pub name: u64,
+    pub date_len: u64,
+    pub date: u64,
+    pub desc_len: u64,
+    pub desc: u64,
+}
+
+/// A DRM render node file descriptor.
+pub struct DrmDevice {
+    file: File,
+    pub path: String,
+}
+
+impl DrmDevice {
+    /// Open a DRM render node.
+    pub fn open(path: &str) -> DriverResult<Self> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?;
+        Ok(Self {
+            file,
+            path: path.to_string(),
+        })
+    }
+
+    /// Open the first available render node.
+    pub fn open_default() -> DriverResult<Self> {
+        for idx in 128..=191 {
+            let path = format!("/dev/dri/renderD{idx}");
+            if let Ok(dev) = Self::open(&path) {
+                return Ok(dev);
+            }
+        }
+        Err(DriverError::DeviceNotFound(
+            "no DRM render node found".into(),
+        ))
+    }
+
+    /// Raw file descriptor for ioctl calls.
+    pub fn fd(&self) -> RawFd {
+        self.file.as_raw_fd()
+    }
+
+    /// Query the DRM driver name.
+    pub fn driver_name(&self) -> DriverResult<String> {
+        let mut name_buf = [0u8; 64];
+        let mut ver = DrmVersion {
+            name_len: name_buf.len() as u64,
+            name: name_buf.as_mut_ptr() as u64,
+            ..Default::default()
+        };
+        // Safety: ioctl call with properly sized buffer
+        let ret = unsafe { libc_ioctl(self.fd(), DRM_IOCTL_VERSION, &mut ver as *mut _ as u64) };
+        if ret < 0 {
+            return Err(DriverError::IoctlFailed {
+                name: "DRM_IOCTL_VERSION",
+                errno: -ret,
+            });
+        }
+        let len = ver.name_len as usize;
+        let len = len.min(name_buf.len());
+        Ok(String::from_utf8_lossy(&name_buf[..len])
+            .trim_end_matches('\0')
+            .to_string())
+    }
+}
+
+impl Drop for DrmDevice {
+    fn drop(&mut self) {
+        // File is closed automatically when dropped
+    }
+}
+
+/// Raw ioctl syscall wrapper.
+///
+/// # Safety
+///
+/// The caller must ensure `arg` points to a valid structure for the ioctl.
+unsafe fn libc_ioctl(fd: RawFd, request: u64, arg: u64) -> i32 {
+    let ret: i64;
+    // SYS_ioctl = 16 on x86_64
+    unsafe {
+        std::arch::asm!(
+            "syscall",
+            in("rax") 16_u64,
+            in("rdi") fd as u64,
+            in("rsi") request,
+            in("rdx") arg,
+            lateout("rax") ret,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret as i32
+}
+
+/// Perform a DRM ioctl.
+///
+/// # Safety
+///
+/// The caller must ensure `arg` points to a valid structure of the correct
+/// type for the given ioctl request.
+pub unsafe fn drm_ioctl_call(fd: RawFd, request: u64, arg: *mut u8) -> DriverResult<()> {
+    let ret = unsafe { libc_ioctl(fd, request, arg as u64) };
+    if ret < 0 {
+        return Err(DriverError::IoctlFailed {
+            name: "drm_ioctl",
+            errno: -ret,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ioctl_numbers_are_consistent() {
+        // DRM_IOCTL_VERSION should be _IOWR('d', 0x00, struct drm_version)
+        // On x86_64: direction=3 (R|W), type='d'=100, nr=0, size=32
+        assert_eq!(DRM_IOCTL_VERSION & 0xFF, 0);
+    }
+
+    #[test]
+    fn drm_device_not_found_on_invalid_path() {
+        let result = DrmDevice::open("/dev/dri/renderD999");
+        assert!(result.is_err());
+    }
+}

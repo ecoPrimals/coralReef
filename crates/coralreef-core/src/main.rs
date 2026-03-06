@@ -11,10 +11,12 @@
 //! - 130 = SIGTERM/SIGINT (graceful shutdown)
 
 use std::io;
+use std::path::Path;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use coral_reef::{CompileError, GpuArch};
+use coral_reef::GpuArch;
+use coralreef_core::commands;
 use tracing_subscriber::EnvFilter;
 
 mod ipc;
@@ -239,12 +241,12 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
 
 /// Write a discovery file so peer primals can find this service.
 ///
-/// File path: `$XDG_RUNTIME_DIR/ecoPrimals/coralreef-core.json`
+/// File path: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/{CARGO_PKG_NAME}.json`
 /// Contains transport addresses and capability summary.
 fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> io::Result<()> {
     let dir = discovery_dir()?;
     std::fs::create_dir_all(&dir)?;
-    let path = dir.join("coralreef-core.json");
+    let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
 
     let jsonrpc_addr = desc
         .transports
@@ -279,7 +281,7 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
 /// Remove the discovery file on shutdown.
 fn remove_discovery_file() {
     if let Ok(dir) = discovery_dir() {
-        let path = dir.join("coralreef-core.json");
+        let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
         if path.exists() {
             let _ = std::fs::remove_file(&path);
             tracing::debug!(path = %path.display(), "removed discovery file");
@@ -289,9 +291,7 @@ fn remove_discovery_file() {
 
 /// The shared discovery directory for all ecoPrimals.
 fn discovery_dir() -> io::Result<std::path::PathBuf> {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR not set"))?;
-    Ok(std::path::PathBuf::from(runtime_dir).join("ecoPrimals"))
+    coralreef_core::config::discovery_dir()
 }
 
 /// Wait for SIGTERM or SIGINT. Returns which signal was received.
@@ -319,53 +319,15 @@ async fn wait_for_shutdown_signal() -> &'static str {
 }
 
 fn cmd_compile(
-    input: &std::path::Path,
-    output: Option<&std::path::Path>,
+    input: &Path,
+    output: Option<&Path>,
     arch: GpuArch,
     opt_level: u32,
     fp64_software: bool,
 ) -> UniBinExit {
-    let options = coral_reef::CompileOptions {
-        target: arch.into(),
-        opt_level,
-        debug_info: false,
-        fp64_software,
-    };
-
-    let input_bytes = match std::fs::read(input) {
-        Ok(b) => b,
-        Err(e) => {
-            let code = if e.kind() == io::ErrorKind::NotFound {
-                UniBinExit::ConfigError
-            } else {
-                UniBinExit::GeneralError
-            };
-            tracing::error!(path = %input.display(), error = %e, "failed to read input");
-            return code;
-        }
-    };
-
-    let result = if input.extension().is_some_and(|e| e == "wgsl") {
-        let source = match String::from_utf8(input_bytes) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!(error = %e, "invalid UTF-8 in WGSL source");
-                return UniBinExit::ConfigError;
-            }
-        };
-        coral_reef::compile_wgsl(&source, &options)
-    } else {
-        let words: Vec<u32> = input_bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
-        coral_reef::compile(&words, &options)
-    };
-
-    match result {
+    match commands::compile_file(input, arch, opt_level, fp64_software) {
         Ok(binary) => {
-            let out_path =
-                output.map_or_else(|| input.with_extension("bin"), std::path::Path::to_path_buf);
+            let out_path = output.map_or_else(|| input.with_extension("bin"), Path::to_path_buf);
             if let Err(e) = std::fs::write(&out_path, &binary) {
                 tracing::error!(path = %out_path.display(), error = %e, "failed to write output");
                 return UniBinExit::GeneralError;
@@ -373,79 +335,25 @@ fn cmd_compile(
             tracing::info!(path = %out_path.display(), size = binary.len(), "compiled");
             UniBinExit::Success
         }
-        Err(e) => {
-            let code = error_to_exit_code(&e);
-            tracing::error!(error = %e, "compilation failed");
-            code
+        Err((status, msg)) => {
+            tracing::error!(error = %msg, "compilation failed");
+            match status {
+                commands::ExitStatus::ConfigError => UniBinExit::ConfigError,
+                _ => UniBinExit::GeneralError,
+            }
         }
-    }
-}
-
-const fn error_to_exit_code(e: &CompileError) -> UniBinExit {
-    match e {
-        CompileError::InvalidInput(_) | CompileError::UnsupportedArch(_) => UniBinExit::ConfigError,
-        _ => UniBinExit::GeneralError,
     }
 }
 
 async fn cmd_doctor() -> UniBinExit {
-    use coralreef_core::CoralReefPrimal;
-    use coralreef_core::health::PrimalHealth;
-    use coralreef_core::lifecycle::PrimalLifecycle;
-
-    println!("{} doctor — diagnostic check\n", env!("CARGO_PKG_NAME"));
-
-    let desc = coralreef_core::capability::self_description();
-    println!("[OK] Capabilities (provides):");
-    for cap in &desc.provides {
-        println!("     - {} v{}", cap.id, cap.version);
-    }
-    println!("[OK] Capabilities (requires):");
-    for cap in &desc.requires {
-        println!("     - {} v{}", cap.id, cap.version);
-    }
-    println!("[OK] Supported architectures:");
-    for arch in GpuArch::ALL {
-        println!("     - {arch}");
-    }
-
-    let mut primal = CoralReefPrimal::new();
-    println!("[OK] Primal created (state: {:?})", primal.state());
-
-    if let Err(e) = primal.start().await {
-        tracing::error!(error = %e, "primal start failed");
-        return UniBinExit::GeneralError;
-    }
-    println!("[OK] Primal started (state: {:?})", primal.state());
-
-    let report = match primal.health_check().await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!(error = %e, "health check failed");
-            let _ = primal.stop().await;
-            return UniBinExit::GeneralError;
-        }
-    };
-    println!("[OK] Health: {:?}", report.status);
-
-    let test_opts = coral_reef::CompileOptions::default();
-    match coral_reef::compile(&[0x0723_0203], &test_opts) {
-        Ok(_) => println!("[OK] Compile pipeline operational"),
-        Err(coral_reef::CompileError::NotImplemented(_)) => {
-            println!("[WARN] Compile pipeline: not yet implemented");
+    match commands::run_doctor().await {
+        Ok(report) => {
+            println!("{report}");
+            UniBinExit::Success
         }
         Err(e) => {
-            tracing::error!(error = %e, "compile pipeline failed");
-            let _ = primal.stop().await;
-            return UniBinExit::GeneralError;
+            tracing::error!(error = %e, "doctor failed");
+            UniBinExit::GeneralError
         }
     }
-
-    if let Err(e) = primal.stop().await {
-        tracing::error!(error = %e, "primal stop failed");
-        return UniBinExit::GeneralError;
-    }
-    println!("[OK] Primal stopped cleanly");
-    println!("\nDiagnostic complete.");
-    UniBinExit::Success
 }

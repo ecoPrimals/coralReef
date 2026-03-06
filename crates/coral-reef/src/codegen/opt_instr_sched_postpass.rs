@@ -35,7 +35,7 @@ impl<T: Clone> RegUse<T> {
     }
 }
 
-fn generate_dep_graph(sm: &ShaderModelInfo, instrs: &[Instr]) -> DepGraph {
+fn generate_dep_graph(sm: &dyn ShaderModel, instrs: &[Instr]) -> DepGraph {
     let mut g = DepGraph::new((0..instrs.len()).map(|_| NodeLabel::default()));
 
     // Maps registers to RegUse<ip, src_dst_idx>.  Predicates are
@@ -196,7 +196,7 @@ fn generate_order(g: &mut DepGraph, init_ready_list: Vec<usize>) -> (Vec<usize>,
 }
 
 fn sched_buffer(
-    sm: &ShaderModelInfo,
+    sm: &dyn ShaderModel,
     instrs: Vec<Instr>,
 ) -> (impl Iterator<Item = Instr> + use<>, u64) {
     let mut g = generate_dep_graph(sm, &instrs);
@@ -215,7 +215,7 @@ fn sched_buffer(
 }
 
 impl Function {
-    pub fn opt_instr_sched_postpass(&mut self, sm: &ShaderModelInfo) -> u64 {
+    pub fn opt_instr_sched_postpass(&mut self, sm: &dyn ShaderModel) -> u64 {
         let mut static_cycle_count = 0u64;
         for i in 0..self.blocks.len() {
             let block = &mut self.blocks[i];

@@ -83,6 +83,7 @@ mod liveness;
 mod lower_copy_swap;
 mod lower_f64;
 mod lower_par_copies;
+pub mod amd;
 pub mod nv;
 mod opt_bar_prop;
 mod opt_copy_prop;

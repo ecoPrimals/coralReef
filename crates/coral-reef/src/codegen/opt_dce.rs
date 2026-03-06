@@ -194,7 +194,6 @@ impl Shader<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::codegen::ir::{
         BasicBlock, Function, Instr, LabelAllocator, Op, OpCopy, OpExit, OpRegOut, PhiAllocator,
         RegFile, SSAValueAllocator, Src,

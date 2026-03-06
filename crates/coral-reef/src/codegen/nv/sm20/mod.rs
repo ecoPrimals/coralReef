@@ -14,7 +14,6 @@ mod mem;
 mod tex;
 
 use super::sm30_instr_latencies::encode_kepler_shader;
-use crate::codegen::ir::*;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 pub(super) fn encode_sm20_shader(sm: &ShaderModel20, s: &Shader<'_>) -> Vec<u32> {

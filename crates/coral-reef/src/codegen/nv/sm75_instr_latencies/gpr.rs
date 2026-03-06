@@ -129,7 +129,6 @@ impl RegLatencySM75 {
                 (HmmaSize::M16N8K16, _) => RedirectedHMMA_16816,
                 _ => panic!("Illegal HMMA in reg category {h}"),
             },
-            Op::F2FP(_) => CoupledAlu, // undocumented, copy Ampere
             // S2UR  => Decoupled,
             Op::R2UR(_) => {
                 if reader {

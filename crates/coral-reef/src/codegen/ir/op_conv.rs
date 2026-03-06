@@ -499,7 +499,7 @@ impl OpPrmt {
 }
 
 impl Foldable for OpPrmt {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_src(self, &self.srcs[0]),
             f.get_u32_src(self, &self.srcs[1]),
@@ -576,7 +576,7 @@ impl DisplayOp for OpSgxt {
 impl_display_for_op!(OpSgxt);
 
 impl Foldable for OpSgxt {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let a = f.get_u32_src(self, &self.a);
         let bits = f.get_u32_src(self, &self.bits);
 
@@ -684,7 +684,7 @@ pub struct OpPSetP {
 }
 
 impl Foldable for OpPSetP {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_pred_src(self, &self.srcs[0]),
             f.get_pred_src(self, &self.srcs[1]),
@@ -723,7 +723,7 @@ pub struct OpPopC {
 }
 
 impl Foldable for OpPopC {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let src = f.get_u32_bnot_src(self, &self.src);
         let dst = src.count_ones();
         f.set_u32_dst(self, &self.dst, dst);

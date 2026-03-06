@@ -163,6 +163,10 @@ impl ShaderModel for ShaderModel50 {
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
         Ok(encode_sm50_shader(self, s))
     }
+
+    fn max_warps(&self) -> u32 {
+        64
+    }
 }
 
 pub(super) trait SM50Op {
@@ -488,12 +492,15 @@ impl SM50Encoder<'_> {
 
 impl SM50Encoder<'_> {
     pub(super) fn set_rel_offset(&mut self, range: Range<usize>, label: &Label) {
-        let ip = u32::try_from(self.ip).unwrap();
-        let ip = i32::try_from(ip).unwrap();
+        let ip = u32::try_from(self.ip).expect("instruction pointer overflow");
+        let ip = i32::try_from(ip).expect("instruction pointer overflow");
 
-        let target_ip = *self.labels.get(label).unwrap();
-        let target_ip = u32::try_from(target_ip).unwrap();
-        let target_ip = i32::try_from(target_ip).unwrap();
+        let target_ip = *self
+            .labels
+            .get(label)
+            .expect("label must exist in well-formed IR");
+        let target_ip = u32::try_from(target_ip).expect("target instruction pointer overflow");
+        let target_ip = i32::try_from(target_ip).expect("target instruction pointer overflow");
 
         let rel_offset = target_ip - ip - 8;
 

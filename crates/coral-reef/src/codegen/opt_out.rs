@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_opt_out_noop_for_compute() {
-        let mut ssa_alloc = SSAValueAllocator::new();
+        let ssa_alloc = SSAValueAllocator::new();
         let mut shader = make_geometry_shader_with_emit_cut(vec![Instr::new(OpExit {})], ssa_alloc);
         shader.info.stage = ShaderStageInfo::Compute(ComputeShaderInfo {
             local_size: [1, 1, 1],

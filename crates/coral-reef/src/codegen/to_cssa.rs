@@ -147,7 +147,10 @@ impl<'a> CoalesceGraph<'a> {
                     self.sets.push(CoalesceSet { nodes: vec![ni] });
                 }
                 CoalesceItem::Phi(phi) => {
-                    let (pn, _) = self.phi_node_file.get_mut(phi).unwrap();
+                    let (pn, _) = self
+                        .phi_node_file
+                        .get_mut(phi)
+                        .expect("phi must be in phi_node_file");
 
                     // We only want one set per phi and phi_node contains the
                     // index to any one of the nodes.
@@ -246,11 +249,18 @@ impl<'a> CoalesceGraph<'a> {
     }
 
     pub fn ssa_set(&self, ssa: &SSAValue) -> usize {
-        self.nodes[*self.ssa_node.get(ssa).unwrap()].set
+        self.nodes[*self
+            .ssa_node
+            .get(ssa)
+            .expect("SSA value must be in coalesce graph")]
+        .set
     }
 
     pub fn phi_set_file(&self, phi: &Phi) -> (usize, RegFile) {
-        let (n, file) = self.phi_node_file.get(phi).unwrap();
+        let (n, file) = self
+            .phi_node_file
+            .get(phi)
+            .expect("phi must be in phi_node_file");
         (self.nodes[*n].set, *file)
     }
 }
@@ -290,7 +300,7 @@ impl Function {
         for (bi, b) in self.blocks.iter().enumerate() {
             if let Some(phi) = b.phi_dsts() {
                 for (idx, dst) in phi.dsts.iter() {
-                    let vec = dst.as_ssa().unwrap();
+                    let vec = dst.as_ssa().expect("phi dst must be SSA value");
                     debug_assert!(vec.comps() == 1);
                     cg.add_ssa(vec[0]);
                     cg.add_phi_dst(*idx, vec[0].file(), bi);
@@ -320,7 +330,7 @@ impl Function {
                         for (idx, dst) in phi.dsts.iter_mut() {
                             let (ps, file) = cg.phi_set_file(idx);
 
-                            let vec = dst.as_ssa().unwrap();
+                            let vec = dst.as_ssa().expect("phi dst must be SSA value");
                             debug_assert!(vec.comps() == 1);
                             debug_assert!(vec[0].file() == file);
                             let ds = cg.ssa_set(&vec[0]);

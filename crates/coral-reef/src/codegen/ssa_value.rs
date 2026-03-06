@@ -32,12 +32,16 @@ pub struct SSAValue {
 impl SSAValue {
     /// Returns an SSA value with the given register file and index
     fn new(file: RegFile, idx: u32) -> Self {
-        assert!(idx > 0 && idx < (1 << 29) - u32::try_from(SSARef::LARGE_SIZE).unwrap());
+        assert!(
+            idx > 0
+                && idx
+                    < (1 << 29) - u32::try_from(SSARef::LARGE_SIZE).expect("SSARef size overflow")
+        );
         let mut packed = idx;
         assert!(u8::from(file) < 8);
         packed |= u32::from(u8::from(file)) << 29;
         Self {
-            packed: packed.try_into().unwrap(),
+            packed: packed.try_into().expect("SSAValue packed overflow"),
         }
     }
 
@@ -50,7 +54,7 @@ impl SSAValue {
 impl HasRegFile for SSAValue {
     /// Returns the register file of this SSA value
     fn file(&self) -> RegFile {
-        RegFile::try_from(self.packed.get() >> 29).unwrap()
+        RegFile::try_from(self.packed.get() >> 29).expect("SSAValue file overflow")
     }
 }
 
@@ -96,14 +100,17 @@ impl<const SIZE: usize> SSAValueArray<SIZE> {
         r.v[..comps.len()].copy_from_slice(comps);
 
         if comps.len() < SIZE {
-            r.v[SIZE - 1].packed = (comps.len() as u32).wrapping_neg().try_into().unwrap();
+            r.v[SIZE - 1].packed = (comps.len() as u32)
+                .wrapping_neg()
+                .try_into()
+                .expect("SSAValueArray packed overflow");
         }
         r
     }
 
     /// Returns the number of components in this SSA reference.
     fn comps(&self) -> u8 {
-        let size: u8 = SIZE.try_into().unwrap();
+        let size: u8 = SIZE.try_into().expect("SSAValueArray size overflow");
         if self.v[SIZE - 1].packed.get() >= u32::MAX - (u32::from(size) - 1) {
             self.v[SIZE - 1].packed.get().wrapping_neg() as u8
         } else {

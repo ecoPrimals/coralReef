@@ -19,7 +19,7 @@ pub fn lower_f64_sqrt(
     op: &OpF64Sqrt,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &ShaderModelInfo,
+    _sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -232,7 +232,7 @@ pub fn lower_f64_rcp(
     op: &OpF64Rcp,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &ShaderModelInfo,
+    _sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -384,7 +384,6 @@ pub fn lower_f64_rcp(
 mod tests {
     use super::*;
     use crate::codegen::ir::{OpF64Rcp, OpF64Sqrt, Pred};
-    use coral_reef_stubs::cfg::CFG;
 
     fn make_sm70() -> ShaderModelInfo {
         ShaderModelInfo::new(70, 64)

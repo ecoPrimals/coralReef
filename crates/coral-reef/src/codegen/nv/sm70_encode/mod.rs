@@ -6,7 +6,7 @@
 #![allow(clippy::wildcard_imports)]
 
 mod encoder;
-pub use self::encoder::*;
+use self::encoder::*;
 
 mod alu;
 mod control;
@@ -14,7 +14,6 @@ mod mem;
 mod tex;
 
 use super::sm70::ShaderModel70;
-use crate::codegen::ir::*;
 use crate::codegen::legalize::LegalizeBuilder;
 use coral_reef_stubs::fxhash::FxHashMap;
 
@@ -61,7 +60,7 @@ pub fn encode_sm70_shader(sm: &ShaderModel70, s: &Shader<'_>) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::ir::{Dst, OffsetStride, RegFile, RegRef, Src, SrcMod, SrcRef, SrcSwizzle};
+    use crate::codegen::ir::{Dst, OffsetStride, RegFile, RegRef, Src, SrcMod, SrcSwizzle};
     use crate::codegen::ssa_value::SSAValueAllocator;
 
     #[test]

@@ -158,7 +158,11 @@ impl AssignRegsBlock {
                 self.ra.free_killed(srcs_killed);
 
                 if let Dst::SSA(ssa) = &op.bar_out {
-                    let reg = *op.bar_in.reference.as_reg().unwrap();
+                    let reg = *op
+                        .bar_in
+                        .reference
+                        .as_reg()
+                        .expect("bar_in must be register after RA");
                     self.ra.assign_reg(ssa[0], reg);
                     op.bar_out = reg.into();
                 }
@@ -179,7 +183,11 @@ impl AssignRegsBlock {
                 self.ra.free_killed(srcs_killed);
 
                 if let Dst::SSA(ssa) = &op.bar_out {
-                    let reg = *op.bar_in.reference.as_reg().unwrap();
+                    let reg = *op
+                        .bar_in
+                        .reference
+                        .as_reg()
+                        .expect("bar_in must be register after RA");
                     self.ra.assign_reg(ssa[0], reg);
                     op.bar_out = reg.into();
                 }
@@ -230,8 +238,8 @@ impl AssignRegsBlock {
                 // These basically act as a vector version of OpCopy except that
                 // they only work on SSA values and we pin the destination if
                 // it's OpPin.
-                let src_vec = src.as_ssa().unwrap();
-                let dst_vec = dst.as_ssa().unwrap();
+                let src_vec = src.as_ssa().expect("Pin/Unpin src must be SSA value");
+                let dst_vec = dst.as_ssa().expect("Pin/Unpin dst must be SSA value");
                 assert!(src_vec.comps() == dst_vec.comps());
 
                 if srcs_killed.len() == src_vec.comps().into() && src_vec.file() == dst_vec.file() {
@@ -328,7 +336,7 @@ impl AssignRegsBlock {
                 debug_assert!(self.ra[RegFile::GPR].used_reg_count() == 0);
 
                 for (i, src) in out.srcs.iter().enumerate() {
-                    let reg = u32::try_from(i).unwrap();
+                    let reg = u32::try_from(i).expect("RegOut index must fit in u32");
                     let dst = RegRef::new(RegFile::GPR, reg, 1);
                     pcopy.push(dst.into(), src.clone());
                 }
@@ -459,7 +467,11 @@ impl AssignRegsBlock {
         for lv in &target.live_in {
             let src = match lv.live_ref {
                 LiveRef::SSA(ssa) => SrcRef::from(self.get_scalar(ssa)),
-                LiveRef::Phi(phi) => self.phi_out.get(&phi).unwrap().clone(),
+                LiveRef::Phi(phi) => self
+                    .phi_out
+                    .get(&phi)
+                    .expect("phi must have been assigned in first pass")
+                    .clone(),
             };
             let dst = lv.reg_ref;
             if let SrcRef::Reg(src_reg) = src {

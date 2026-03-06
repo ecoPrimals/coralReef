@@ -2,7 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-use super::*;
 use crate::codegen::ir::LogicOp3;
 use crate::codegen::ir::{
     BasicBlock, ComputeShaderInfo, Dst, FRndMode, Function, Instr, LabelAllocator, Op, OpCopy,

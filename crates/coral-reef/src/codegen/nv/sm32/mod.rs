@@ -14,7 +14,6 @@ mod mem;
 mod tex;
 
 use super::sm30_instr_latencies::encode_kepler_shader;
-use crate::codegen::ir::*;
 
 fn encode_sm32_shader(sm: &ShaderModel32, s: &Shader<'_>) -> Vec<u32> {
     encode_kepler_shader(sm, s)

@@ -4,7 +4,6 @@
 
 #![allow(clippy::wildcard_imports)]
 
-use super::super::ir::*;
 use super::*;
 
 use coral_reef_stubs::bitset::BitSet;
@@ -22,7 +21,7 @@ pub(super) struct RegAllocator {
 
 impl RegAllocator {
     pub fn new(file: RegFile, reg_count: u32) -> Self {
-        let cap = usize::try_from(reg_count).unwrap();
+        let cap = usize::try_from(reg_count).expect("reg_count overflow");
         Self {
             file,
             reg_count,
@@ -38,15 +37,20 @@ impl RegAllocator {
     }
 
     pub fn used_reg_count(&self) -> u32 {
-        self.ssa_reg.len().try_into().unwrap()
+        self.ssa_reg
+            .len()
+            .try_into()
+            .expect("used_reg_count overflow")
     }
 
     pub fn reg_is_used(&self, reg: u32) -> bool {
-        self.used.contains(usize::try_from(reg).unwrap())
+        self.used
+            .contains(usize::try_from(reg).expect("register index overflow"))
     }
 
     pub fn reg_is_pinned(&self, reg: u32) -> bool {
-        self.pinned.contains(usize::try_from(reg).unwrap())
+        self.pinned
+            .contains(usize::try_from(reg).expect("register index overflow"))
     }
 
     pub fn try_get_reg(&self, ssa: SSAValue) -> Option<u32> {
@@ -55,7 +59,10 @@ impl RegAllocator {
 
     pub fn try_get_ssa(&self, reg: u32) -> Option<SSAValue> {
         if self.reg_is_used(reg) {
-            Some(self.reg_ssa[usize::try_from(reg).unwrap()].unwrap())
+            Some(
+                self.reg_ssa[usize::try_from(reg).expect("register index overflow")]
+                    .expect("reg_ssa must be set for used reg"),
+            )
         } else {
             None
         }
@@ -63,7 +70,7 @@ impl RegAllocator {
 
     pub fn try_get_vec_reg(&self, vec: &[SSAValue]) -> Option<u32> {
         let reg = self.try_get_reg(vec[0])?;
-        let comps = u8::try_from(vec.len()).unwrap();
+        let comps = u8::try_from(vec.len()).expect("vector length overflow");
 
         let align = u32::from(comps).next_power_of_two();
         if reg % align != 0 {
@@ -81,9 +88,12 @@ impl RegAllocator {
 
     pub fn free_ssa(&mut self, ssa: SSAValue) -> u32 {
         assert!(ssa.file() == self.file);
-        let reg = self.ssa_reg.remove(&ssa).unwrap();
+        let reg = self
+            .ssa_reg
+            .remove(&ssa)
+            .expect("SSA must be allocated to free");
         assert!(self.reg_is_used(reg));
-        let reg_usize = usize::try_from(reg).unwrap();
+        let reg_usize = usize::try_from(reg).expect("register index overflow");
         assert!(self.reg_ssa[reg_usize] == Some(ssa));
         self.used.remove(reg_usize);
         self.pinned.remove(reg_usize);
@@ -95,7 +105,7 @@ impl RegAllocator {
         assert!(reg < self.reg_count);
         assert!(!self.reg_is_used(reg));
 
-        let reg_usize = usize::try_from(reg).unwrap();
+        let reg_usize = usize::try_from(reg).expect("register index overflow");
         if reg_usize >= self.reg_ssa.len() {
             self.reg_ssa.resize(reg_usize + 1, None);
         }
@@ -107,12 +117,13 @@ impl RegAllocator {
 
     pub fn pin_reg(&mut self, reg: u32) {
         assert!(self.reg_is_used(reg));
-        self.pinned.insert(usize::try_from(reg).unwrap());
+        self.pinned
+            .insert(usize::try_from(reg).expect("register index overflow"));
     }
 
     fn reg_range_is_unset(set: &BitSet<usize>, reg: u32, comps: u8) -> bool {
         for c in 0..u32::from(comps) {
-            if set.contains(usize::try_from(reg + c).unwrap()) {
+            if set.contains(usize::try_from(reg + c).expect("register index overflow")) {
                 return false;
             }
         }
@@ -128,12 +139,12 @@ impl RegAllocator {
         align_offset: u8,
     ) -> Option<u32> {
         let res = set.find_aligned_unset_range(
-            usize::try_from(start_reg).unwrap(),
+            usize::try_from(start_reg).expect("register index overflow"),
             comps.into(),
             align_mul.into(),
             align_offset.into(),
         )?;
-        let res = u32::try_from(res).unwrap();
+        let res = u32::try_from(res).expect("register index overflow");
         if res + u32::from(comps) <= self.reg_count {
             Some(res)
         } else {
@@ -252,7 +263,8 @@ impl<'a> VecRegAllocator<'a> {
     }
 
     fn pin_reg(&mut self, reg: u32) {
-        self.pinned.insert(usize::try_from(reg).unwrap());
+        self.pinned
+            .insert(usize::try_from(reg).expect("register index overflow"));
     }
 
     fn pin_reg_range(&mut self, reg: u32, comps: u8) {
@@ -262,7 +274,8 @@ impl<'a> VecRegAllocator<'a> {
     }
 
     fn reg_is_pinned(&self, reg: u32) -> bool {
-        self.pinned.contains(usize::try_from(reg).unwrap())
+        self.pinned
+            .contains(usize::try_from(reg).expect("register index overflow"))
     }
 
     fn reg_range_is_unpinned(&self, reg: u32, comps: u8) -> bool {
@@ -378,12 +391,12 @@ impl<'a> VecRegAllocator<'a> {
 
     pub fn collect_vector(&mut self, vec: &[SSAValue]) -> RegRef {
         if let Some(reg) = self.try_get_vec_reg(vec) {
-            let comps = u8::try_from(vec.len()).unwrap();
+            let comps = u8::try_from(vec.len()).expect("vector length overflow");
             self.pin_reg_range(reg, comps);
             return RegRef::new(self.file(), reg, comps);
         }
 
-        let comps = u8::try_from(vec.len()).unwrap();
+        let comps = u8::try_from(vec.len()).expect("vector length overflow");
         let align = comps.next_power_of_two();
 
         let reg = self

@@ -15,9 +15,6 @@ use super::nv::sm50::ShaderModel50;
 use super::nv::sm70::ShaderModel70;
 pub use super::ssa_value::*;
 use coral_reef_stubs::as_slice::*;
-use coral_reef_stubs::cfg::CFG;
-use coral_reef_stubs::dataflow::ForwardDataflow;
-use coral_reef_stubs::smallvec::SmallVec;
 use nak_ir_proc::*;
 use std::cmp::{max, min};
 use std::fmt;
@@ -33,7 +30,7 @@ pub use src_dst::*;
 
 use std::fmt::Write;
 use std::iter::Zip;
-use std::ops::{BitAnd, BitOr, Deref, DerefMut, Index, IndexMut, Not, Range};
+use std::ops::Range;
 use std::slice;
 
 #[derive(Clone, PartialEq)]
@@ -653,7 +650,7 @@ impl OpFoldData<'_> {
 }
 
 pub trait Foldable: SrcsAsSlice + DstsAsSlice {
-    fn fold(&self, sm: &ShaderModelInfo, f: &mut OpFoldData<'_>);
+    fn fold(&self, sm: &dyn ShaderModel, f: &mut OpFoldData<'_>);
 }
 
 pub trait DisplayOp: DstsAsSlice {

@@ -8,7 +8,7 @@ use std::fmt;
 use coral_reef_stubs::smallvec::SmallVec;
 
 use super::op::Op;
-use super::{DstsAsSlice, Fmt, IsUniform, MemSpace, OpBra, Pred, SrcTypeList, SrcsAsSlice};
+use super::{DstsAsSlice, Fmt, IsUniform, MemSpace, Pred, SrcTypeList, SrcsAsSlice};
 
 pub const MIN_INSTR_DELAY: u8 = 1;
 
@@ -37,7 +37,7 @@ impl InstrDeps {
         if self.rd_bar < 0 {
             None
         } else {
-            Some(self.rd_bar.try_into().unwrap())
+            Some(self.rd_bar.try_into().expect("rd_bar index overflow"))
         }
     }
 
@@ -45,7 +45,7 @@ impl InstrDeps {
         if self.wr_bar < 0 {
             None
         } else {
-            Some(self.wr_bar.try_into().unwrap())
+            Some(self.wr_bar.try_into().expect("wr_bar index overflow"))
         }
     }
 
@@ -59,12 +59,12 @@ impl InstrDeps {
 
     pub fn set_rd_bar(&mut self, idx: u8) {
         assert!(idx < 6);
-        self.rd_bar = idx.try_into().unwrap();
+        self.rd_bar = idx.try_into().expect("rd_bar index overflow");
     }
 
     pub fn set_wr_bar(&mut self, idx: u8) {
         assert!(idx < 6);
-        self.wr_bar = idx.try_into().unwrap();
+        self.wr_bar = idx.try_into().expect("wr_bar index overflow");
     }
 
     pub fn add_wt_bar(&mut self, idx: u8) {

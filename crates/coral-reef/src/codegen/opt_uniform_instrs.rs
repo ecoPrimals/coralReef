@@ -9,7 +9,7 @@ use super::ir::*;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 fn should_lower_to_warp(
-    sm: &ShaderModelInfo,
+    sm: &dyn ShaderModel,
     instr: &Instr,
     r2ur: &FxHashMap<SSAValue, SSAValue>,
 ) -> bool {
@@ -90,7 +90,10 @@ impl Shader<'_> {
                         instr.for_each_ssa_use_mut(|ssa| {
                             let file = ssa.file();
                             if !file.is_uniform() {
-                                let u = alloc.alloc(file.to_uniform().unwrap());
+                                let u = alloc.alloc(
+                                    file.to_uniform()
+                                        .expect("non-uniform file must have uniform variant"),
+                                );
                                 b.push_op(OpR2UR {
                                     dst: u.into(),
                                     src: (*ssa).into(),

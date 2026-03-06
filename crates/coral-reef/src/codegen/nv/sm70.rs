@@ -296,4 +296,8 @@ impl ShaderModel for ShaderModel70 {
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
         Ok(encode_sm70_shader(self, s))
     }
+
+    fn max_warps(&self) -> u32 {
+        64
+    }
 }

@@ -12,8 +12,8 @@ use super::reg_tracker::{RegRefIterable, RegTracker, SparseRegTracker};
 mod analysis;
 mod types;
 
-pub(super) use analysis::*;
-pub(super) use types::*;
+use analysis::*;
+use types::*;
 
 impl Shader<'_> {
     pub fn assign_deps_serial(&mut self) {
@@ -79,8 +79,8 @@ impl Shader<'_> {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        BasicBlock, Dst, Function, Instr, LabelAllocator, OpCopy, OpExit, OpIAdd2, OpRegOut,
-        PhiAllocator, RegFile, SSAValueAllocator, ShaderModelInfo, Src,
+        BasicBlock, Function, Instr, LabelAllocator, PhiAllocator, RegFile, SSAValueAllocator,
+        ShaderModelInfo,
     };
     use coral_reef_stubs::cfg::CFGBuilder;
     use std::ops::Range;

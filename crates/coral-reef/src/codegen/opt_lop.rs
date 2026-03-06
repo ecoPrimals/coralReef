@@ -100,7 +100,10 @@ impl LopPass {
                 return;
             };
 
-            let entry_use_count = *self.use_counts.get(&ssa).unwrap();
+            let entry_use_count = *self
+                .use_counts
+                .get(&ssa)
+                .expect("SSA value in ssa_lop must have use count");
             if entry.srcs_used.count_ones() > 1 && entry_use_count > 1 {
                 return;
             }

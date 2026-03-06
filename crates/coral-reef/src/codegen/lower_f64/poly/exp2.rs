@@ -13,7 +13,7 @@ pub fn lower_f64_exp2(
     op: &OpF64Exp2,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &ShaderModelInfo,
+    _sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -85,7 +85,7 @@ pub fn lower_f64_exp2(
     let c6 = emit_f64_const(&mut out, alloc, pred, C6);
 
     // Horner: p = c0 + f*(c1 + f*(c2 + f*(c3 + f*(c4 + f*(c5 + f*c6)))))
-    let mut p = alloc.alloc_vec(RegFile::GPR, 2);
+    let p = alloc.alloc_vec(RegFile::GPR, 2);
     out.push(with_pred(
         Instr::new(OpDFma {
             dst: p.clone().into(),
@@ -166,7 +166,7 @@ pub fn lower_f64_exp2(
         pred,
     ));
 
-    let dst_ssa = op.dst.as_ssa().unwrap();
+    let dst_ssa = op.dst.as_ssa().expect("exp2 destination must be SSA value");
     out.push(with_pred(
         Instr::new(OpCopy {
             dst: dst_ssa[0].into(),

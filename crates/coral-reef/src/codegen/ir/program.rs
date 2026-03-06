@@ -12,7 +12,7 @@ use std::cmp::max;
 
 use super::instr::{Instr, MappedInstrs};
 use super::op::Op;
-use super::{DisplayOp, Fmt, IsUniform, Label};
+use super::{DisplayOp, Fmt, Label};
 
 /// Stores the index of an instruction in a given Function
 ///
@@ -199,7 +199,7 @@ impl fmt::Display for Function {
             blocks.push(instrs);
         }
 
-        for (i, mut b) in blocks.into_iter().enumerate() {
+        for (i, b) in blocks.into_iter().enumerate() {
             let u = if self.blocks[i].uniform { ".u" } else { "" };
             write!(f, "block{u} {} {} [", i, self.blocks[i].label)?;
             for (pi, p) in self.blocks.pred_indices(i).iter().enumerate() {

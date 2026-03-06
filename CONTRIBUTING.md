@@ -12,7 +12,7 @@ rustup update stable
 git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace            # 672 tests
+cargo test --workspace            # 801 tests
 cargo clippy --all-targets
 cargo fmt --check
 ```
@@ -39,7 +39,7 @@ Key module patterns:
 - **Directory modules**: Large files are split into directories (`ir/`, `naga_translate/`, `lower_f64/`, `nv/sm70_encode/`)
 - **Virtual ops**: f64 transcendentals use placeholder ops expanded by `lower_f64` before legalization
 - **Pipeline**: `pipeline.rs` orchestrates the full compilation with `Result` propagation
-- **Vendor backends**: `nv/` for NVIDIA, with `amd/` and `intel/` planned
+- **Vendor backends**: `nv/` for NVIDIA, `amd/` for AMD, with `intel/` planned
 
 ## Commit Messages
 

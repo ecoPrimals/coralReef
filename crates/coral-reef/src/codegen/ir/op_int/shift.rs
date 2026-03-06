@@ -28,7 +28,7 @@ pub struct OpLea {
 }
 
 impl Foldable for OpLea {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let a = f.get_u32_src(self, &self.a);
         let mut b = f.get_u32_src(self, &self.b);
         let a_high = f.get_u32_src(self, &self.a_high);
@@ -107,7 +107,7 @@ pub struct OpLeaX {
 }
 
 impl Foldable for OpLeaX {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let a = f.get_u32_src(self, &self.a);
         let mut b = f.get_u32_src(self, &self.b);
         let a_high = f.get_u32_src(self, &self.a_high);
@@ -196,18 +196,26 @@ impl OpShf {
     /// Reduces the shift immediate, if any.  Out-of-range shifts are either
     /// clamped to the maximum or wrapped as needed.
     pub fn reduce_shift_imm(&mut self) {
-        let bits = self.data_type.bits().try_into().unwrap();
+        let bits = self
+            .data_type
+            .bits()
+            .try_into()
+            .expect("IntType bits must fit in u32");
         reduce_shift_imm(&mut self.shift, self.wrap, bits);
     }
 }
 
 impl Foldable for OpShf {
-    fn fold(&self, sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let low = f.get_u32_src(self, &self.low);
         let high = f.get_u32_src(self, &self.high);
         let shift = f.get_u32_src(self, &self.shift);
 
-        let bits: u32 = self.data_type.bits().try_into().unwrap();
+        let bits: u32 = self
+            .data_type
+            .bits()
+            .try_into()
+            .expect("IntType bits must fit in u32");
         let shift = if self.wrap {
             shift & (bits - 1)
         } else {
@@ -301,7 +309,7 @@ impl DisplayOp for OpShl {
 }
 
 impl Foldable for OpShl {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let x = f.get_u32_src(self, &self.src);
         let shift = f.get_u32_src(self, &self.shift);
 
@@ -354,7 +362,7 @@ impl OpShr {
 }
 
 impl Foldable for OpShr {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let x = f.get_u32_src(self, &self.src);
         let shift = f.get_u32_src(self, &self.shift);
 

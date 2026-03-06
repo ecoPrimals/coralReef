@@ -3,7 +3,7 @@
 // Derived from Collabora, Ltd. (2023) — upstream NAK.
 //! Compilation pipeline: optimization passes, legalization, RA, encoding.
 
-use super::ir::{Shader, ShaderModel};
+use super::ir::Shader;
 use super::nv::shader_header::{self, CURRENT_MAX_SHADER_HEADER_SIZE};
 
 /// Output of the compilation pipeline: shader program header and code.

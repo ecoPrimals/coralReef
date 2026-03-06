@@ -218,19 +218,108 @@ pub type GpuArch = NvArch;
 // AMD architectures (placeholder)
 // ---------------------------------------------------------------------------
 
-/// AMD GPU architecture (future).
+/// AMD GPU architecture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum AmdArch {
-    /// RDNA 3 (RX 7000 series).
+    /// RDNA 2 (RX 6000 series — GFX1030+).
+    Rdna2,
+    /// RDNA 3 (RX 7000 series — GFX1100+).
     Rdna3,
     /// RDNA 4 (RX 9000 series).
     Rdna4,
 }
 
+impl AmdArch {
+    /// All supported AMD architectures, ordered by generation.
+    pub const ALL: &[Self] = &[Self::Rdna2, Self::Rdna3, Self::Rdna4];
+
+    /// GFX version major number for this architecture.
+    #[must_use]
+    pub const fn gfx_major(self) -> u8 {
+        match self {
+            Self::Rdna2 => 10,
+            Self::Rdna3 => 11,
+            Self::Rdna4 => 12,
+        }
+    }
+
+    /// Default wave size for this architecture.
+    #[must_use]
+    pub const fn default_wave_size(self) -> u8 {
+        32
+    }
+
+    /// Whether this architecture supports wave64 execution.
+    #[must_use]
+    pub const fn supports_wave64(self) -> bool {
+        true
+    }
+
+    /// Whether this architecture has native f64 instructions.
+    #[must_use]
+    pub const fn has_native_f64(self) -> bool {
+        true
+    }
+
+    /// Native f64 rate relative to f32 (denominator: 1/N of f32 rate).
+    #[must_use]
+    pub const fn f64_rate_divisor(self) -> u32 {
+        16
+    }
+
+    /// Maximum VGPRs per wave.
+    #[must_use]
+    pub const fn max_vgprs(self) -> u32 {
+        256
+    }
+
+    /// Maximum SGPRs per wave.
+    #[must_use]
+    pub const fn max_sgprs(self) -> u32 {
+        106
+    }
+
+    /// Maximum shared memory (LDS) per workgroup in bytes.
+    #[must_use]
+    pub const fn max_lds(self) -> u32 {
+        65_536
+    }
+
+    /// Parse an architecture string (`"rdna2"`, `"gfx1030"`, etc.).
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "rdna2" | "gfx1030" | "gfx1031" | "gfx1032" => Some(Self::Rdna2),
+            "rdna3" | "gfx1100" | "gfx1101" | "gfx1102" => Some(Self::Rdna3),
+            "rdna4" | "gfx1200" => Some(Self::Rdna4),
+            _ => None,
+        }
+    }
+}
+
+impl std::str::FromStr for AmdArch {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or_else(|| {
+            let valid: Vec<&str> = Self::ALL
+                .iter()
+                .map(|a| match a {
+                    Self::Rdna2 => "rdna2",
+                    Self::Rdna3 => "rdna3",
+                    Self::Rdna4 => "rdna4",
+                })
+                .collect();
+            format!("unknown AMD architecture '{s}', valid: {}", valid.join(", "))
+        })
+    }
+}
+
 impl std::fmt::Display for AmdArch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Rdna2 => write!(f, "rdna2"),
             Self::Rdna3 => write!(f, "rdna3"),
             Self::Rdna4 => write!(f, "rdna4"),
         }
@@ -281,7 +370,7 @@ mod tests {
     fn test_gpu_target_vendor() {
         let nv = GpuTarget::Nvidia(NvArch::Sm70);
         assert_eq!(nv.vendor(), "nvidia");
-        let amd = GpuTarget::Amd(AmdArch::Rdna3);
+        let amd = GpuTarget::Amd(AmdArch::Rdna2);
         assert_eq!(amd.vendor(), "amd");
         let intel = GpuTarget::Intel(IntelArch::XeHpg);
         assert_eq!(intel.vendor(), "intel");
@@ -303,6 +392,7 @@ mod tests {
     #[test]
     fn test_gpu_target_display() {
         assert_eq!(GpuTarget::Nvidia(NvArch::Sm70).to_string(), "sm_70");
+        assert_eq!(GpuTarget::Amd(AmdArch::Rdna2).to_string(), "rdna2");
         assert_eq!(GpuTarget::Amd(AmdArch::Rdna3).to_string(), "rdna3");
         assert_eq!(GpuTarget::Intel(IntelArch::XeHpg).to_string(), "xe_hpg");
     }
@@ -353,5 +443,34 @@ mod tests {
         let amd = GpuTarget::Amd(AmdArch::Rdna4);
         assert!(amd.as_nvidia().is_none());
         assert!(amd.as_amd().is_some());
+    }
+
+    #[test]
+    fn test_amd_arch_parse() {
+        assert_eq!(AmdArch::parse("rdna2"), Some(AmdArch::Rdna2));
+        assert_eq!(AmdArch::parse("gfx1030"), Some(AmdArch::Rdna2));
+        assert_eq!(AmdArch::parse("rdna3"), Some(AmdArch::Rdna3));
+        assert_eq!(AmdArch::parse("gfx1100"), Some(AmdArch::Rdna3));
+        assert_eq!(AmdArch::parse("rdna4"), Some(AmdArch::Rdna4));
+        assert_eq!(AmdArch::parse("sm_70"), None);
+    }
+
+    #[test]
+    fn test_amd_arch_roundtrip() {
+        for &arch in AmdArch::ALL {
+            let s = arch.to_string();
+            assert_eq!(AmdArch::parse(&s), Some(arch));
+        }
+    }
+
+    #[test]
+    fn test_amd_arch_properties() {
+        assert_eq!(AmdArch::Rdna2.gfx_major(), 10);
+        assert_eq!(AmdArch::Rdna3.gfx_major(), 11);
+        assert!(AmdArch::Rdna2.has_native_f64());
+        assert_eq!(AmdArch::Rdna2.f64_rate_divisor(), 16);
+        assert_eq!(AmdArch::Rdna2.max_vgprs(), 256);
+        assert_eq!(AmdArch::Rdna2.max_sgprs(), 106);
+        assert_eq!(AmdArch::Rdna2.default_wave_size(), 32);
     }
 }

@@ -36,7 +36,7 @@ fn emit_sin_poly(
     let s2 = emit_f64_const(out, alloc, pred, S2);
     let s3 = emit_f64_const(out, alloc, pred, S3);
     let s4 = emit_f64_const(out, alloc, pred, S4);
-    let mut inner = alloc.alloc_vec(RegFile::GPR, 2);
+    let inner = alloc.alloc_vec(RegFile::GPR, 2);
     out.push(with_pred(
         Instr::new(OpDFma {
             dst: inner.clone().into(),
@@ -90,7 +90,7 @@ pub fn lower_f64_sin(
     op: &OpF64Sin,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &ShaderModelInfo,
+    _sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -115,7 +115,7 @@ pub fn lower_f64_sin(
     let s3 = emit_f64_const(&mut out, alloc, pred, S3);
     let s4 = emit_f64_const(&mut out, alloc, pred, S4);
 
-    let mut inner = alloc.alloc_vec(RegFile::GPR, 2);
+    let inner = alloc.alloc_vec(RegFile::GPR, 2);
     out.push(with_pred(
         Instr::new(OpDFma {
             dst: inner.clone().into(),
@@ -194,7 +194,7 @@ fn emit_cos_poly(
     let c2 = emit_f64_const(out, alloc, pred, COS_C2);
     let c3 = emit_f64_const(out, alloc, pred, COS_C3);
     let c4 = emit_f64_const(out, alloc, pred, COS_C4);
-    let mut inner = alloc.alloc_vec(RegFile::GPR, 2);
+    let inner = alloc.alloc_vec(RegFile::GPR, 2);
     out.push(with_pred(
         Instr::new(OpDFma {
             dst: inner.clone().into(),
@@ -239,7 +239,7 @@ pub fn lower_f64_cos(
     op: &OpF64Cos,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &ShaderModelInfo,
+    _sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -325,16 +325,17 @@ pub fn lower_f64_cos(
     ));
     let result = emit_f64_sel(&mut out, alloc, pred, p_neg, neg_picked, picked);
 
+    let dst_ssa = op.dst.as_ssa().expect("trig destination must be SSA value");
     out.push(with_pred(
         Instr::new(OpCopy {
-            dst: op.dst.as_ssa().unwrap()[0].into(),
+            dst: dst_ssa[0].into(),
             src: result[0].into(),
         }),
         pred,
     ));
     out.push(with_pred(
         Instr::new(OpCopy {
-            dst: op.dst.as_ssa().unwrap()[1].into(),
+            dst: dst_ssa[1].into(),
             src: result[1].into(),
         }),
         pred,

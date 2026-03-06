@@ -8,7 +8,6 @@
 #![allow(clippy::wildcard_imports)]
 use super::ir::*;
 use crate::error::CompileError;
-use coral_reef_stubs::cfg::CFGBuilder;
 
 pub(super) mod expr;
 pub(super) mod func;
@@ -79,12 +78,12 @@ mod sys_regs {
 
 /// Top-level translator state.
 pub struct NagaTranslator<'sm, 'mod_lt> {
-    sm: &'sm ShaderModelInfo,
+    sm: &'sm dyn ShaderModel,
     module: &'mod_lt naga::Module,
 }
 
 impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
-    pub fn new(sm: &'sm ShaderModelInfo, module: &'mod_lt naga::Module) -> Self {
+    pub fn new(sm: &'sm dyn ShaderModel, module: &'mod_lt naga::Module) -> Self {
         Self { sm, module }
     }
 
@@ -190,7 +189,7 @@ pub fn parse_wgsl(source: &str) -> Result<naga::Module, CompileError> {
 /// Translate a naga Module into a Shader for a compute entry point.
 pub fn translate<'sm>(
     module: &naga::Module,
-    sm: &'sm ShaderModelInfo,
+    sm: &'sm dyn ShaderModel,
     entry_point_name: &str,
 ) -> Result<Shader<'sm>, CompileError> {
     let ep = module

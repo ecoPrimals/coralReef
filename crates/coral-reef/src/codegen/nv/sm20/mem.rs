@@ -234,7 +234,7 @@ impl SM20Op for OpAtom {
             let mut cmpr_data = Vec::new();
             cmpr_data.extend_from_slice(&cmpr);
             cmpr_data.extend_from_slice(&data);
-            let cmpr_data = SSARef::try_from(cmpr_data).unwrap();
+            let cmpr_data = SSARef::try_from(cmpr_data).expect("cmpr+data must form valid SSARef");
             self.cmpr = 0.into();
             self.data = cmpr_data.into();
             self.atom_op = AtomOp::CmpExch(AtomCmpSrc::Packed);
@@ -294,7 +294,11 @@ impl SM20Op for OpAtom {
 
         if let AtomOp::CmpExch(cmp_src) = self.atom_op {
             assert!(cmp_src == AtomCmpSrc::Packed);
-            let cmpr_data = self.data.reference.as_reg().unwrap();
+            let cmpr_data = self
+                .data
+                .reference
+                .as_reg()
+                .expect("CmpExch packed must have register");
             assert!(cmpr_data.comps() % 2 == 0);
             let data_comps = cmpr_data.comps() / 2;
             let data_idx = cmpr_data.base_idx() + u32::from(data_comps);

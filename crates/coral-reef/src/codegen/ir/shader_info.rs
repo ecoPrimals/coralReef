@@ -141,7 +141,7 @@ impl VtgIoInfo {
             &mut self.sysvals_in_d
         };
 
-        let mut attr = if written {
+        let attr = if written {
             &mut self.attr_out
         } else {
             &mut self.attr_in
@@ -285,8 +285,6 @@ pub struct ShaderInfo {
 pub trait ShaderModel {
     fn sm(&self) -> u8;
 
-    /// Fermi architecture (SM 2.x). Part of the ShaderModel API.
-    #[allow(dead_code)]
     fn is_fermi(&self) -> bool {
         self.sm() >= 20 && self.sm() < 30
     }
@@ -307,14 +305,10 @@ pub trait ShaderModel {
     // The following helpers are pulled from GetSpaVersion in the open-source
     // NVIDIA kernel driver sources
 
-    /// Maxwell architecture (SM 5.x). Part of the ShaderModel API.
-    #[allow(dead_code)]
     fn is_maxwell(&self) -> bool {
         self.sm() >= 50 && self.sm() < 60
     }
 
-    /// Pascal architecture (SM 6.x). Part of the ShaderModel API.
-    #[allow(dead_code)]
     fn is_pascal(&self) -> bool {
         self.sm() >= 60 && self.sm() < 70
     }
@@ -335,8 +329,6 @@ pub trait ShaderModel {
         self.sm() == 89
     }
 
-    /// Hopper architecture (SM 9.x). Part of the ShaderModel API.
-    #[allow(dead_code)]
     fn is_hopper(&self) -> bool {
         self.sm() >= 90 && self.sm() < 100
     }
@@ -402,8 +394,20 @@ pub trait ShaderModel {
 
     fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), CompileError>;
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, CompileError>;
+
+    /// Maximum concurrent warps/waves per streaming multiprocessor or compute unit.
+    ///
+    /// NVIDIA: warps per SM.  AMD: waves per CU.  Used by the scheduler
+    /// to compute occupancy cliffs.
+    fn max_warps(&self) -> u32;
 }
 
+/// NVIDIA shader model — delegates to generation-specific implementations.
+///
+/// This is a compatibility adapter that dispatches to the appropriate
+/// NVIDIA generation (SM20/SM32/SM50/SM70) based on `sm` version.
+/// New vendor backends should implement [`ShaderModel`] directly on
+/// their own types (see `ShaderModelRdna2` for AMD).
 pub struct ShaderModelInfo {
     sm: u8,
     warps_per_sm: u8,
@@ -474,22 +478,18 @@ impl ShaderModel for ShaderModelInfo {
         sm_match!(self, |sm| sm.op_can_be_uniform(op))
     }
 
-    /// Latency before another non-NOP can execute
     fn exec_latency(&self, op: &Op) -> u32 {
         sm_match!(self, |sm| sm.exec_latency(op))
     }
 
-    /// Read-after-read latency
     fn raw_latency(&self, write: &Op, dst_idx: usize, read: &Op, src_idx: usize) -> u32 {
         sm_match!(self, |sm| sm.raw_latency(write, dst_idx, read, src_idx))
     }
 
-    /// Write-after-read latency
     fn war_latency(&self, read: &Op, src_idx: usize, write: &Op, dst_idx: usize) -> u32 {
         sm_match!(self, |sm| sm.war_latency(read, src_idx, write, dst_idx))
     }
 
-    /// Write-after-write latency
     fn waw_latency(
         &self,
         a: &Op,
@@ -520,6 +520,9 @@ impl ShaderModel for ShaderModelInfo {
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, CompileError> {
         sm_match_result!(self, |sm| sm.encode_shader(s)?)
     }
+    fn max_warps(&self) -> u32 {
+        self.warps_per_sm.into()
+    }
 }
 
 pub const fn prev_multiple_of(x: u32, y: u32) -> u32 {
@@ -541,18 +544,16 @@ pub fn gpr_limit_from_local_size(local_size: &[u16; 3]) -> u32 {
     min(out, 255)
 }
 
-pub fn max_warps_per_sm(sm: &ShaderModelInfo, gprs: u32) -> u32 {
-    // TODO: Take local_size and shared mem limit into account for compute
+pub fn max_warps_per_sm(sm: &dyn ShaderModel, gprs: u32) -> u32 {
     let total_regs: u32 = 65_536;
-    // GPRs are allocated in multiples of 8
     let gprs = max(gprs, 1);
     let gprs = gprs.next_multiple_of(8);
     let max_warps = prev_multiple_of((total_regs / 32) / gprs, 4);
-    min(max_warps, sm.warps_per_sm.into())
+    min(max_warps, sm.max_warps())
 }
 
 pub struct Shader<'a> {
-    pub sm: &'a ShaderModelInfo,
+    pub sm: &'a dyn ShaderModel,
     pub info: ShaderInfo,
     pub functions: Vec<Function>,
 }

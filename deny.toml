@@ -1,0 +1,50 @@
+# coralReef — cargo-deny configuration
+# Run: cargo deny check
+#
+# Enforces ecoBin compliance: AGPL-3.0, no C sys crates, audited deps.
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+notice = "warn"
+
+[licenses]
+unlicensed = "deny"
+copyleft = "allow"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "AGPL-3.0-only",
+    "Zlib",
+    "BSL-1.0",
+    "OpenSSL",
+    "CC0-1.0",
+]
+deny = [
+    "GPL-2.0-only",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    # ecoBin: no C sys crates in the dependency tree
+    { name = "openssl-sys", wrappers = [] },
+    { name = "ring", wrappers = [] },
+    { name = "libz-sys", wrappers = [] },
+    { name = "curl-sys", wrappers = [] },
+    { name = "libssh2-sys", wrappers = [] },
+    { name = "libgit2-sys", wrappers = [] },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

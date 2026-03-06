@@ -36,7 +36,7 @@ use coral_reef_stubs::dataflow::{BackwardDataflow, ForwardDataflow};
 /// - Instead of pushing by 1 each element in the queue on a `push` op,
 ///   we could keep track of an in-flight range and use a wrapping timestamp
 ///   this improves performance but needs careful implementation to avoid bugs
-pub(super) fn insert_texture_barriers(f: &mut Function, sm: &ShaderModelInfo) {
+pub(super) fn insert_texture_barriers(f: &mut Function, sm: &dyn ShaderModel) {
     assert!(sm.is_kepler()); // Only kepler has texture barriers!
 
     let mut state_in: Vec<_> = (0..f.blocks.len())
@@ -85,7 +85,7 @@ pub(super) fn insert_texture_barriers(f: &mut Function, sm: &ShaderModelInfo) {
     }
 }
 
-pub(super) fn assign_barriers(f: &mut Function, sm: &ShaderModelInfo) {
+pub(super) fn assign_barriers(f: &mut Function, sm: &dyn ShaderModel) {
     let mut uses = Box::new(RegTracker::new_with(&|| RegUse::None));
     let mut deps = DepGraph::new();
 
@@ -187,7 +187,7 @@ pub(super) fn assign_barriers(f: &mut Function, sm: &ShaderModelInfo) {
     }
 }
 
-pub(super) fn calc_delays(f: &mut Function, sm: &ShaderModelInfo) -> u64 {
+pub(super) fn calc_delays(f: &mut Function, sm: &dyn ShaderModel) -> u64 {
     let mut instr_cycles: Vec<Vec<u32>> =
         f.blocks.iter().map(|b| vec![0; b.instrs.len()]).collect();
 

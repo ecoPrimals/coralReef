@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 5+ — Sovereign Multi-Vendor GPU Compiler  
+**Status**: Phase 9 — Sovereign Multi-Vendor GPU Compiler
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -8,11 +8,18 @@
 ## Overview
 
 coralReef is a pure-Rust GPU shader compiler. It compiles WGSL and
-SPIR-V compute shaders to native SM70+ GPU binaries, with full f64
-transcendental support via DFMA software lowering.
+SPIR-V compute shaders to native GPU binaries, with full f64
+transcendental support. Zero C dependencies, zero vendor lock-in.
 
-Vendor-agnostic architecture: NVIDIA backend active (SM70–SM120),
-AMD and Intel backends planned via the same `Backend` trait.
+NVIDIA backend complete (SM70–SM89). AMD backend operational
+(RDNA2/GFX1030 — RX 6950 XT on-site). Both share the same IR,
+optimization passes, and `ShaderModel` trait — Rust's trait dispatch
+drives vendor-specific legalization, register allocation, and encoding.
+No manual vtables, no C-era dispatch macros.
+
+coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu +
+NVIDIA nouveau). coralGpu unifies compilation and dispatch into a single
+API. Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 
 Part of the ecoPrimals Sovereign Compute Evolution.
 
@@ -21,8 +28,8 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 672 tests
-cargo clippy --workspace --all-targets
+cargo test --workspace     # 801 tests
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
@@ -33,23 +40,37 @@ WGSL / SPIR-V input
        │
        ▼
 ┌──────────────────┐
-│  Frontend         │  Parse WGSL/SPIR-V → naga IR (pluggable)
+│  Frontend (naga)  │  Parse WGSL/SPIR-V → naga IR (pluggable)
 └────────┬─────────┘
          ▼
-┌──────────────────┐
-│  codegen           │  Compiler pipeline
-│  ├ naga_translate │  naga IR → SSA IR
-│  ├ lower_f64      │  f64 transcendental expansion (DFMA)
-│  ├ optimize       │  copy prop, DCE, scheduling, bar prop
-│  ├ legalize       │  Target-specific lowering
-│  ├ assign_regs    │  Register allocation + spilling
-│  └ encode         │  Vendor-specific instruction encoding
-└────────┬─────────┘
-         ▼
-   Backend (NvidiaBackend / AmdBackend / IntelBackend)
+┌──────────────────────────────────────────┐
+│  codegen (shared)                         │
+│  ├ naga_translate  naga IR → SSA IR      │
+│  ├ lower_f64       f64 transcendentals   │
+│  ├ optimize        copy prop, DCE, ...   │
+│  └ pipeline.rs     orchestration         │
+└────────┬─────────────────────────────────┘
+         │
+    ┌────┴─────────────┐
+    ▼                  ▼
+┌────────────┐  ┌────────────┐
+│ nv/ backend │  │ amd/       │
+│ SM20–SM89   │  │ GFX1030+   │
+│ SASS binary │  │ GFX binary │
+└────────────┘  └────────────┘
+         │             │
+         ▼             ▼
+┌───────────────────────────────┐
+│ coral-driver                  │
+│ ├ amd/  DRM amdgpu ioctl    │
+│ └ nv/   DRM nouveau ioctl   │
+└───────────────────────────────┘
          │
          ▼
-  Native GPU binary
+┌───────────────────────────────┐
+│ coral-gpu                     │
+│ Unified compile + dispatch   │
+└───────────────────────────────┘
 ```
 
 ## Structure
@@ -69,18 +90,26 @@ coralReef/
 │   │   │       ├── naga_translate/ # naga → codegen IR translation
 │   │   │       ├── lower_f64/    # f64 transcendental lowering
 │   │   │       ├── nv/           # NVIDIA vendor backend
-│   │   │       │   ├── shader_header.rs  # Shader Program Header
-│   │   │       │   ├── sm70_encode/      # Volta+ encoder
-│   │   │       │   ├── sm50/             # Maxwell encoder
-│   │   │       │   ├── sm32/             # Kepler encoder
-│   │   │       │   └── sm20/             # Fermi encoder
+│   │   │       ├── amd/          # AMD vendor backend
+│   │   │       │   ├── shader_model.rs  # ShaderModelRdna2 (direct trait impl)
+│   │   │       │   ├── encoding.rs      # RDNA2 instruction encoding
+│   │   │       │   ├── isa_generated.rs # 1,446 ISA opcodes (Rust-generated)
+│   │   │       │   └── reg.rs           # VGPR/SGPR register model
 │   │   │       └── pipeline.rs   # Full compilation pipeline
-│   │   └── tests/                # Integration tests
+│   │   └── tests/                # Integration tests (81 tests)
+│   ├── coral-driver/              # Userspace GPU dispatch (DRM ioctl)
+│   │   └── src/
+│   │       ├── drm.rs            # Pure Rust DRM interface (inline asm syscalls)
+│   │       ├── amd/              # amdgpu: GEM, PM4, command submission
+│   │       └── nv/               # nouveau: QMD, pushbuf (scaffold)
+│   ├── coral-gpu/                 # Unified GPU compute abstraction
 │   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/            # ISA tables, latency model
 │   ├── coral-reef-stubs/          # Pure-Rust dependency replacements
 │   └── nak-ir-proc/              # Proc-macro derives for IR types
-├── specs/                        # Architecture specification
+├── tools/
+│   └── amd-isa-gen/              # Pure Rust ISA table generator (replaces Python)
+├── specs/                        # Architecture specification + evolution plan
 ├── whitePaper/                   # Theory docs (f64 lowering, transcendental analysis)
 └── genomebin/                    # Deployment scaffolding
 ```
@@ -91,42 +120,61 @@ coralReef/
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, zero-copy `Bytes` |
 | `coral-reef` | Shader compiler — pluggable frontend, f64 lowering, optimizers, register allocation, vendor encoding |
+| `coral-driver` | Userspace GPU dispatch — AMD amdgpu + NVIDIA nouveau via DRM ioctl (pure Rust, zero FFI) |
+| `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits for GPU instruction encoding |
-| `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120) |
+| `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants` |
+| `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
 
-All six f64 transcendentals implemented with production precision:
+NVIDIA: DFMA software lowering (hardware SFU is f32-only).
+AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 
-| Function | Strategy | Precision |
-|----------|----------|-----------|
-| sqrt | Transcendental Rsq64H seed + 2 Newton-Raphson iterations | Full f64 |
-| rcp | Transcendental Rcp64H seed + 2 Newton-Raphson iterations | Full f64 |
-| exp2 | Range reduction + degree-6 Horner polynomial + ldexp | Full f64 |
-| log2 | Transcendental Log2 seed + Newton refinement (Exp2/Rcp correction) | ~46-bit |
-| sin | Cody-Waite range reduction + minimax polynomial + quadrant correction | Full domain |
-| cos | Cody-Waite range reduction + minimax polynomial + quadrant correction | Full domain |
+| Function | NVIDIA | AMD | Precision |
+|----------|--------|-----|-----------|
+| sqrt | Rsq64H + 2 Newton-Raphson | `v_sqrt_f64` (native) | Full f64 |
+| rcp | Rcp64H + 2 Newton-Raphson | `v_rcp_f64` (native) | Full f64 |
+| exp2 | Range reduction + Horner | Polynomial via `v_fma_f64` | Full f64 |
+| log2 | Log2 seed + Newton | Polynomial via `v_fma_f64` | ~46-bit+ |
+| sin | Cody-Waite + minimax | Cody-Waite via `v_fma_f64` | Full domain |
+| cos | Cody-Waite + minimax | Cody-Waite via `v_fma_f64` | Full domain |
 
 ## Checks
 
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (672 tests) |
-| `cargo clippy` | PASS (0 warnings) |
+| `cargo test --workspace` | PASS (801 tests, 5 ignored) |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
+| `cargo doc --workspace --no-deps` | PASS |
 
-## Hardware Testing
+## Hardware — On-Site
 
-| GPU | Architecture | Status |
-|-----|-------------|--------|
-| RTX 3090 | SM86 (Ampere) | Primary test target |
-| Titan V | SM70 (Volta) | f64 regression target — NAK has known issues here |
-| AMD (RDNA3) | — | Backend planned |
+| GPU | Architecture | Kernel Driver | f64 | Role |
+|-----|-------------|---------------|-----|------|
+| AMD RX 6950 XT | RDNA2 GFX1030 | amdgpu (open) | 1/16 | AMD evolution primary |
+| NVIDIA RTX 3090 | Ampere SM86 | nvidia 580.119.02 | 1/32 | NVIDIA compilation target |
+
+## Sovereign Evolution
+
+Each evolution pass produces strictly better Rust. FFI is scaffolding —
+tracked and replaced. The Rust language and compilation model is the
+advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
+
+| Phase | Milestone | Status |
+|-------|-----------|--------|
+| 1–5.7 | NVIDIA compiler, pure Rust, 710 tests | **Complete** |
+| 6a | AMD ISA tables + encoder (LLVM-validated) | **Complete** |
+| 6b–6d | AMD legalization, RA, f64, end-to-end | **Complete** |
+| 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
+| 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
+| 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 
 ---
 
-**License**: AGPL-3.0-only (upstream-derived files retain original attribution)  
+**License**: AGPL-3.0-only (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals

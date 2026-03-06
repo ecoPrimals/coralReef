@@ -7,6 +7,9 @@ members = [
     "crates/coral-reef-stubs",
     "crates/coral-reef-bitview",
     "crates/nak-ir-proc",
+    "tools/amd-isa-gen",
+    "crates/coral-driver",
+    "crates/coral-gpu",
 ]
 
 [workspace.package]
@@ -48,6 +51,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Compiler internals
 bitview = { path = "crates/coral-reef-bitview" }
 nak_ir_proc = { path = "crates/nak-ir-proc" }
+
+# Testing
+proptest = "1"
 
 # Internal crates
 coral-reef = { path = "crates/coral-reef" }

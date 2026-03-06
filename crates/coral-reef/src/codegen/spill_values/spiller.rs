@@ -57,7 +57,10 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                 continue;
             };
 
-            let mut parent_uses = loop_uses.get(&dom_lh_idx).unwrap().borrow_mut();
+            let mut parent_uses = loop_uses
+                .get(&dom_lh_idx)
+                .expect("dominator loop header must be in loop_uses")
+                .borrow_mut();
             for ssa in uses.iter() {
                 parent_uses.insert(*ssa);
             }
@@ -114,13 +117,18 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                 }
             }
 
-            let lu = loop_uses.get(&b_idx).unwrap().borrow();
+            let lu = loop_uses
+                .get(&b_idx)
+                .expect("loop header must have loop uses")
+                .borrow();
             let mut w = LiveSet::new();
 
             let mut some = BinaryHeap::new();
             for ssa in &i_b {
                 if lu.contains(ssa) {
-                    let next_use = bl.first_use(ssa).unwrap();
+                    let next_use = bl
+                        .first_use(ssa)
+                        .expect("live-in SSA value must have next use in block");
                     some.push(Reverse(SSANextUse::new(*ssa, next_use)));
                 }
             }
@@ -137,7 +145,9 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                 for ssa in &i_b {
                     debug_assert!(ssa.file() == file);
                     if !lu.contains(ssa) {
-                        let next_use = bl.first_use(ssa).unwrap();
+                        let next_use = bl
+                            .first_use(ssa)
+                            .expect("live-in SSA value must have next use");
                         some.push(Reverse(SSANextUse::new(*ssa, next_use)));
                     }
                 }
@@ -165,7 +175,9 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
 
                 for mut ssa in ssa_state_out[*p_idx].w.iter().copied() {
                     if let Some(phi) = phi_src_map.get_phi(&ssa) {
-                        ssa = *phi_dst_map.get_dst_ssa(phi).unwrap();
+                        ssa = *phi_dst_map
+                            .get_dst_ssa(phi)
+                            .expect("phi must have destination in phi_dst_map");
                     }
 
                     if let Some(next_use) = bl.first_use(&ssa) {
@@ -270,7 +282,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                     // For phis, anything that is not in W needs to be spilled
                     // by setting the destination to some spill value.
                     for (phi, dst) in op.dsts.iter_mut() {
-                        let vec = dst.as_ssa().unwrap();
+                        let vec = dst.as_ssa().expect("phi dst must be SSA value");
                         debug_assert!(vec.comps() == 1);
                         let ssa = &vec[0];
 
@@ -287,7 +299,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                 Op::ParCopy(pcopy) => {
                     let mut num_w_dsts = 0_u32;
                     for (dst, src) in pcopy.dsts_srcs.iter_mut() {
-                        let dst_vec = dst.as_ssa().unwrap();
+                        let dst_vec = dst.as_ssa().expect("par copy dst must be SSA value");
                         debug_assert!(dst_vec.comps() == 1);
                         let dst_ssa = &dst_vec[0];
 
@@ -338,11 +350,11 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                         assert!(bb.uniform || !file.is_uniform());
 
                         let count = num_w_dsts - rel_limit;
-                        let count = count.try_into().unwrap();
+                        let count = count.try_into().expect("spill count must fit in u32");
 
                         let mut spills = SpillChooser::new(bl, &b.p, ip, count);
                         for (dst, _) in pcopy.dsts_srcs.iter() {
-                            let dst_ssa = &dst.as_ssa().unwrap()[0];
+                            let dst_ssa = &dst.as_ssa().expect("par copy dst must be SSA value")[0];
                             if dst_ssa.file() == file {
                                 spills.add_candidate(*dst_ssa);
                             }
@@ -351,8 +363,11 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                         let spills: FxHashSet<SSAValue> = FxHashSet::from_iter(spills);
 
                         for (dst, src) in pcopy.dsts_srcs.iter_mut() {
-                            let dst_ssa = &dst.as_ssa().unwrap()[0];
-                            let src_ssa = &src.reference.as_ssa().unwrap()[0];
+                            let dst_ssa = &dst.as_ssa().expect("par copy dst must be SSA value")[0];
+                            let src_ssa = &src
+                                .reference
+                                .as_ssa()
+                                .expect("par copy src must be SSA value")[0];
                             if spills.contains(dst_ssa) {
                                 if b.s.insert(*src_ssa) {
                                     if DEBUG.annotate() {
@@ -370,7 +385,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                     }
 
                     for (dst, _) in pcopy.dsts_srcs.iter() {
-                        let dst_ssa = &dst.as_ssa().unwrap()[0];
+                        let dst_ssa = &dst.as_ssa().expect("par copy dst must be SSA value")[0];
                         if dst_ssa.file() == file {
                             b.w.insert(*dst_ssa);
                         }
@@ -442,7 +457,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
 
                         if abs_pressure > limit {
                             let count = abs_pressure - limit;
-                            let count = count.try_into().unwrap();
+                            let count = count.try_into().expect("spill count must fit in u32");
 
                             let mut spills = SpillChooser::new(bl, &b.p, ip, count);
                             for ssa in b.w.iter() {
@@ -522,7 +537,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
         if let Some(op) = pb.phi_srcs_mut() {
             for (phi, src) in op.srcs.iter_mut() {
                 debug_assert!(src.is_unmodified());
-                let vec = src.reference.as_ssa().unwrap();
+                let vec = src.reference.as_ssa().expect("phi src must be SSA value");
                 debug_assert!(vec.comps() == 1);
                 let ssa = &vec[0];
 

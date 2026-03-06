@@ -33,3 +33,5 @@ tokio-util = { workspace = true }
 
 [dev-dependencies]
 naga = { version = "28", features = ["wgsl-in", "spv-out"] }
+proptest = { workspace = true }
+tokio = { workspace = true }

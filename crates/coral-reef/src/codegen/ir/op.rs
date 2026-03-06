@@ -9,13 +9,8 @@ use std::fmt;
 
 use nak_ir_proc::*;
 
-use super::op_cf::*;
 use super::op_conv::*;
-use super::op_float::*;
-use super::op_int::*;
-use super::op_mem::*;
 use super::op_misc::*;
-use super::op_tex::*;
 use super::*;
 
 #[derive(DisplayOp, DstsAsSlice, SrcsAsSlice, FromVariants)]

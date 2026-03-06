@@ -9,12 +9,15 @@ use super::encoder::*;
 
 impl SM70Encoder<'_> {
     fn get_rel_offset(&self, label: &Label) -> i64 {
-        let ip = u64::try_from(self.ip).unwrap();
-        let ip = i64::try_from(ip).unwrap();
+        let ip = u64::try_from(self.ip).expect("instruction pointer overflow");
+        let ip = i64::try_from(ip).expect("instruction pointer overflow");
 
-        let target_ip = *self.labels.get(label).unwrap();
-        let target_ip = u64::try_from(target_ip).unwrap();
-        let target_ip = i64::try_from(target_ip).unwrap();
+        let target_ip = *self
+            .labels
+            .get(label)
+            .expect("label must exist in well-formed IR");
+        let target_ip = u64::try_from(target_ip).expect("target instruction pointer overflow");
+        let target_ip = i64::try_from(target_ip).expect("target instruction pointer overflow");
 
         target_ip - ip - 4
     }
@@ -187,7 +190,14 @@ impl SM70Op for OpCS2R {
         e.set_opcode(0x805);
         e.set_dst(&self.dst);
         e.set_field(72..80, self.idx);
-        e.set_bit(80, self.dst.as_reg().unwrap().comps() == 2); // .64
+        e.set_bit(
+            80,
+            self.dst
+                .as_reg()
+                .expect("CS2R dst must be register")
+                .comps()
+                == 2,
+        ); // .64
     }
 }
 

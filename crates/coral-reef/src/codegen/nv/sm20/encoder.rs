@@ -5,8 +5,7 @@
 #![allow(clippy::wildcard_imports)]
 
 pub(super) use super::super::sm30_instr_latencies::{
-    KeplerInstructionEncoder, encode_kepler_shader, instr_exec_latency, instr_latency,
-    latency_upper_bound,
+    KeplerInstructionEncoder, instr_exec_latency, instr_latency, latency_upper_bound,
 };
 pub(super) use super::encode_sm20_shader;
 pub(super) use crate::codegen::ir::*;
@@ -115,6 +114,10 @@ impl ShaderModel for ShaderModel20 {
         } else {
             encode_sm20_shader(self, s)
         })
+    }
+
+    fn max_warps(&self) -> u32 {
+        48
     }
 }
 
@@ -625,11 +628,14 @@ impl SM20Encoder<'_> {
     }
 
     pub(super) fn set_rel_offset(&mut self, range: Range<usize>, label: &Label) {
-        let ip = u32::try_from(self.ip).unwrap();
-        let ip = i32::try_from(ip).unwrap();
-        let target_ip = *self.labels.get(label).unwrap();
-        let target_ip = u32::try_from(target_ip).unwrap();
-        let target_ip = i32::try_from(target_ip).unwrap();
+        let ip = u32::try_from(self.ip).expect("instruction pointer overflow");
+        let ip = i32::try_from(ip).expect("instruction pointer overflow");
+        let target_ip = *self
+            .labels
+            .get(label)
+            .expect("label must exist in well-formed IR");
+        let target_ip = u32::try_from(target_ip).expect("target instruction pointer overflow");
+        let target_ip = i32::try_from(target_ip).expect("target instruction pointer overflow");
         let rel_offset = target_ip - ip - 8;
         self.set_field(range, rel_offset);
     }

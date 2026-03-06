@@ -227,7 +227,7 @@ pub struct OpSuClamp {
 }
 
 impl Foldable for OpSuClamp {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let src = f.get_u32_src(self, &self.coords);
         let params = f.get_u32_src(self, &self.params);
         let imm = self.imm; // i6
@@ -262,7 +262,7 @@ impl Foldable for OpSuClamp {
         };
 
         let mut out = 0u32;
-        let mut bv = &mut out;
+        let bv = &mut out;
         if pitch_linear {
             if !self.is_2d {
                 // simple clamp mode, NO BITFIELD
@@ -343,7 +343,7 @@ pub struct OpSuBfm {
 }
 
 impl Foldable for OpSuBfm {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let x_raw = f.get_u32_src(self, &self.srcs[0]);
         let y_raw = f.get_u32_src(self, &self.srcs[1]);
         let z_raw = f.get_u32_src(self, &self.srcs[2]);
@@ -353,7 +353,7 @@ impl Foldable for OpSuBfm {
         let z = &z_raw;
 
         let mut o_raw = 0u32;
-        let mut o = &mut o_raw;
+        let o = &mut o_raw;
 
         let is_pitch_linear_2d = x.get_bit(30) || y.get_bit(30);
 
@@ -477,7 +477,7 @@ pub struct OpSuEau {
 }
 
 impl Foldable for OpSuEau {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let off_raw = f.get_u32_src(self, &self.off);
         let bf_raw = f.get_u32_src(self, &self.bit_field);
         let addr = f.get_u32_src(self, &self.addr);

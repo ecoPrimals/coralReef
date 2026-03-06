@@ -10,18 +10,6 @@
 #![allow(clippy::wildcard_imports)]
 
 pub use super::debug::{DEBUG, GetDebugFlags};
-use super::ir::*;
-
-macro_rules! pass {
-    ($s: expr, $pass: ident) => {
-        $s.$pass();
-        if DEBUG.print() {
-            eprintln!("IR after {}:\n{}", stringify!($pass), $s);
-        }
-    };
-}
-
-pub(super) use pass;
 
 pub(super) fn eprint_hex(label: &str, data: &[u32]) {
     eprint!("{label}:");

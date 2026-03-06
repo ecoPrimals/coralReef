@@ -289,7 +289,11 @@ impl Iterator for RegFileSet {
         if self.is_empty() {
             None
         } else {
-            let file = self.bits.trailing_zeros().try_into().unwrap();
+            let file = self
+                .bits
+                .trailing_zeros()
+                .try_into()
+                .expect("RegFile index overflow");
             self.remove(file);
             Some(file)
         }
@@ -404,7 +408,9 @@ impl RegRef {
 
     /// Returns the number of registers referenced.
     pub fn comps(&self) -> u8 {
-        (((self.packed >> 26) & 0x7) + 1).try_into().unwrap()
+        (((self.packed >> 26) & 0x7) + 1)
+            .try_into()
+            .expect("RegRef comps overflow")
     }
 
     /// Returns a reference to the single register at `base_idx() + c`.
@@ -416,7 +422,9 @@ impl RegRef {
 
 impl HasRegFile for RegRef {
     fn file(&self) -> RegFile {
-        ((self.packed >> 29) & 0x7).try_into().unwrap()
+        ((self.packed >> 29) & 0x7)
+            .try_into()
+            .expect("RegRef file overflow")
     }
 }
 

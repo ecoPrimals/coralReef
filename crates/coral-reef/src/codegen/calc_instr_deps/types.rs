@@ -229,7 +229,10 @@ impl DepGraph {
     }
 
     pub fn get_instr_deps(&self, block_idx: usize, ip: usize) -> (usize, usize) {
-        *self.instr_deps.get(&(block_idx, ip)).unwrap()
+        *self
+            .instr_deps
+            .get(&(block_idx, ip))
+            .expect("instruction must have dependency info")
     }
 
     pub fn get_instr_waits(&self, block_idx: usize, ip: usize) -> &[usize] {
@@ -531,7 +534,9 @@ impl TexQueueSimulationState {
         // Push registers (if we are a tex instruction)
         // We might need to insert a barrier if the queue is full
         let push_level = if instr_needs_texbar(instr) {
-            let dst = instr.dsts()[0].as_reg().unwrap();
+            let dst = instr.dsts()[0]
+                .as_reg()
+                .expect("tex instruction must have register destination");
             self.push(*dst)
         } else {
             None
@@ -566,7 +571,7 @@ pub(super) type AccumulatedDelay = u8;
 pub(super) type DelayRegTracker = SparseRegTracker<RegUseMap<RegOrigin, AccumulatedDelay>>;
 
 pub(super) struct BlockDelayScheduler<'a> {
-    pub(super) sm: &'a ShaderModelInfo,
+    pub(super) sm: &'a dyn ShaderModel,
     pub(super) f: &'a Function,
     // Map from barrier to last waited cycle
     pub(super) bars: [u32; 6],

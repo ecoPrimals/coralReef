@@ -103,7 +103,7 @@ pub struct OpFlo {
 }
 
 impl Foldable for OpFlo {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let src = f.get_u32_src(self, &self.src);
         let leading = if self.signed && (src & 0x8000_0000) != 0 {
             (!src).leading_zeros()
@@ -149,7 +149,7 @@ impl DisplayOp for OpLop2 {
 }
 
 impl Foldable for OpLop2 {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_bnot_src(self, &self.srcs[0]),
             f.get_u32_bnot_src(self, &self.srcs[1]),
@@ -177,7 +177,7 @@ pub struct OpLop3 {
 }
 
 impl Foldable for OpLop3 {
-    fn fold(&self, _sm: &ShaderModelInfo, f: &mut OpFoldData<'_>) {
+    fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let srcs = [
             f.get_u32_bnot_src(self, &self.srcs[0]),
             f.get_u32_bnot_src(self, &self.srcs[1]),

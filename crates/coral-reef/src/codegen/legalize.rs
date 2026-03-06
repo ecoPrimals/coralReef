@@ -339,7 +339,7 @@ pub struct LegalizeBuilder<'a> {
 
 impl<'a> LegalizeBuilder<'a> {
     fn new(
-        sm: &'a ShaderModelInfo,
+        sm: &'a dyn ShaderModel,
         alloc: &'a mut SSAValueAllocator,
         const_tracker: &'a mut ConstTracker,
     ) -> Self {
@@ -393,7 +393,7 @@ impl<'a> SSABuilder for LegalizeBuilder<'a> {
 impl LegalizeBuildHelpers for LegalizeBuilder<'_> {}
 
 fn legalize_instr(
-    sm: &ShaderModelInfo,
+    sm: &dyn ShaderModel,
     b: &mut LegalizeBuilder,
     bl: &impl BlockLiveness,
     block_uniform: bool,
@@ -470,7 +470,10 @@ fn legalize_instr(
 
     // OpBreak and OpBSsy impose additional RA constraints
     let mut legalize_break_bssy = |bar_in: &mut Src, bar_out: &mut Dst| {
-        let bar_in_ssa = bar_in.reference.as_ssa().unwrap();
+        let bar_in_ssa = bar_in
+            .reference
+            .as_ssa()
+            .expect("bar_in source must be SSA value");
         if !bar_out.is_none() && bl.is_live_after_ip(&bar_in_ssa[0], ip) {
             let gpr = b.bmov_to_gpr(bar_in.clone());
             let tmp = b.bmov_to_bar(gpr.into());
@@ -571,8 +574,8 @@ impl Shader<'_> {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        BasicBlock, ComputeShaderInfo, Dst, FRndMode, Function, Instr, LabelAllocator, Op, OpCopy,
-        OpExit, OpFAdd, OpRegOut, PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo,
+        BasicBlock, ComputeShaderInfo, FRndMode, Function, Instr, LabelAllocator, OpCopy, OpExit,
+        OpFAdd, OpRegOut, PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo,
         ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, Src, SrcMod, SrcRef, SrcSwizzle,
     };
     use coral_reef_stubs::cfg::CFGBuilder;

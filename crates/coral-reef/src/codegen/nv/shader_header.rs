@@ -4,7 +4,7 @@
 
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use crate::codegen::ir::{ShaderInfo, ShaderIoInfo, ShaderModel, ShaderModelInfo, ShaderStageInfo};
+use crate::codegen::ir::{ShaderInfo, ShaderIoInfo, ShaderModel, ShaderStageInfo};
 
 use std::ops::Range;
 
@@ -482,7 +482,7 @@ impl ShaderProgramHeader {
 }
 
 pub fn encode_header(
-    sm: &ShaderModelInfo,
+    sm: &dyn ShaderModel,
     shader_info: &ShaderInfo,
     fs_key: Option<&FragmentShaderKey>,
 ) -> [u32; CURRENT_MAX_SHADER_HEADER_SIZE] {

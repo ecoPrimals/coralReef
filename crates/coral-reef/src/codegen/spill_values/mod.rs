@@ -12,8 +12,8 @@ use super::liveness::{BlockLiveness, LiveSet, Liveness, NextUseBlockLiveness, Ne
 mod spiller;
 mod types;
 
-pub(super) use spiller::*;
-pub(super) use types::*;
+use spiller::*;
+use types::*;
 
 impl Function {
     /// Spill values from @file to fit within @limit registers

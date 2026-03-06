@@ -252,7 +252,7 @@ impl SM32Op for OpAtom {
             let mut cmpr_data = Vec::new();
             cmpr_data.extend_from_slice(&cmpr);
             cmpr_data.extend_from_slice(&data);
-            let cmpr_data = SSARef::try_from(cmpr_data).unwrap();
+            let cmpr_data = SSARef::try_from(cmpr_data).expect("cmpr+data must form valid SSARef");
 
             self.cmpr = 0.into();
             self.data = cmpr_data.into();

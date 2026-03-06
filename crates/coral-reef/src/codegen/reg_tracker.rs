@@ -45,8 +45,8 @@ impl<T> Index<RegRef> for RegTracker<T> {
     fn index(&self, reg: RegRef) -> &[T] {
         let range = reg.idx_range();
         let range = Range {
-            start: usize::try_from(range.start).unwrap(),
-            end: usize::try_from(range.end).unwrap(),
+            start: usize::try_from(range.start).expect("register index must fit in usize"),
+            end: usize::try_from(range.end).expect("register index must fit in usize"),
         };
 
         match reg.file() {
@@ -65,8 +65,8 @@ impl<T> IndexMut<RegRef> for RegTracker<T> {
     fn index_mut(&mut self, reg: RegRef) -> &mut [T] {
         let range = reg.idx_range();
         let range = Range {
-            start: usize::try_from(range.start).unwrap(),
-            end: usize::try_from(range.end).unwrap(),
+            start: usize::try_from(range.start).expect("register index must fit in usize"),
+            end: usize::try_from(range.end).expect("register index must fit in usize"),
         };
 
         match reg.file() {

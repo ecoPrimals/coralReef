@@ -120,7 +120,7 @@ impl SSAUseMap {
             match &instr.op {
                 Op::RegOut(op) => {
                     for (i, src) in op.srcs.iter().enumerate() {
-                        let out_reg = u32::try_from(i).unwrap();
+                        let out_reg = u32::try_from(i).expect("RegOut index must fit in u32");
                         if let Some(ssa) = src_ssa_ref(src) {
                             assert!(ssa.len() == 1);
                             self.add_fixed_reg_use(ip, ssa[0], out_reg);

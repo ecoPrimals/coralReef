@@ -1,0 +1,15 @@
+[package]
+name = "amd-isa-gen"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Generates Rust encoding tables from AMD ISA XML specifications"
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "amd-isa-gen"
+path = "src/main.rs"
+
+[dependencies]
+quick-xml = { version = "0.37", features = ["serialize"] }
+serde = { version = "1", features = ["derive"] }

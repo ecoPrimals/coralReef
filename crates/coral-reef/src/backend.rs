@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Vendor-specific compiler backend abstraction.
+//! Vendor-agnostic compiler backend abstraction.
 //!
 //! The [`Backend`] trait defines the contract that vendor backends
 //! implement.  Each backend takes an IR [`Shader`] (produced by a
 //! [`Frontend`](crate::frontend::Frontend)) and produces a native GPU
 //! binary.
 //!
-//! The default backend, [`NvidiaBackend`], drives the codegen
-//! pipeline (optimize → legalize → register-allocate → encode).
-//! AMD and Intel backends will implement the same trait.
+//! Backends are resolved via [`backend_for`], which maps a [`GpuTarget`]
+//! to the appropriate implementation.
 
 use crate::codegen::ir::Shader;
 use crate::error::CompileError;
@@ -37,8 +36,6 @@ pub struct CompilationInfo {
 /// Backends take a parsed and (optionally) pre-optimized [`Shader`] and
 /// produce a native GPU binary for the target architecture.
 pub trait Backend {
-    /// The GPU targets this backend supports.
-    ///
     /// Returns `true` if `target` can be compiled by this backend.
     fn supports(&self, target: GpuTarget) -> bool;
 
@@ -80,10 +77,34 @@ impl Backend for NvidiaBackend {
     }
 }
 
+/// AMD backend — drives the RDNA2+ codegen pipeline.
+pub struct AmdBackend;
+
+impl Backend for AmdBackend {
+    fn supports(&self, target: GpuTarget) -> bool {
+        target.as_amd().is_some()
+    }
+
+    fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError> {
+        let compiled = crate::codegen::pipeline::compile_shader(shader, false)?;
+
+        // AMD compute shaders have no SPH — only instruction words
+        let mut binary = Vec::with_capacity(compiled.code.len() * 4);
+        for word in &compiled.code {
+            binary.extend_from_slice(&word.to_le_bytes());
+        }
+
+        Ok(CompiledBinary {
+            binary,
+            info: CompilationInfo {
+                gpr_count: u32::from(shader.info.gpr_count),
+                instr_count: shader.info.instr_count,
+            },
+        })
+    }
+}
+
 /// Resolve a backend for the given target.
-///
-/// Currently only NVIDIA is supported; future AMD/Intel backends will
-/// be registered here.
 ///
 /// # Errors
 ///
@@ -91,6 +112,9 @@ impl Backend for NvidiaBackend {
 pub fn backend_for(target: GpuTarget) -> Result<Box<dyn Backend>, CompileError> {
     if target.as_nvidia().is_some() {
         return Ok(Box::new(NvidiaBackend));
+    }
+    if target.as_amd().is_some() {
+        return Ok(Box::new(AmdBackend));
     }
     Err(CompileError::UnsupportedArch(target.to_string()))
 }
@@ -110,7 +134,7 @@ mod tests {
     #[test]
     fn nvidia_backend_rejects_amd() {
         let be = NvidiaBackend;
-        assert!(!be.supports(GpuTarget::Amd(AmdArch::Rdna3)));
+        assert!(!be.supports(GpuTarget::Amd(AmdArch::Rdna2)));
     }
 
     #[test]
@@ -120,14 +144,33 @@ mod tests {
     }
 
     #[test]
+    fn amd_backend_supports_amd() {
+        let be = AmdBackend;
+        assert!(be.supports(GpuTarget::Amd(AmdArch::Rdna2)));
+        assert!(be.supports(GpuTarget::Amd(AmdArch::Rdna3)));
+    }
+
+    #[test]
+    fn amd_backend_rejects_nvidia() {
+        let be = AmdBackend;
+        assert!(!be.supports(GpuTarget::Nvidia(NvArch::Sm70)));
+    }
+
+    #[test]
     fn backend_for_nvidia_resolves() {
         let be = backend_for(GpuTarget::Nvidia(NvArch::Sm70));
         assert!(be.is_ok());
     }
 
     #[test]
-    fn backend_for_amd_fails() {
-        let be = backend_for(GpuTarget::Amd(AmdArch::Rdna3));
+    fn backend_for_amd_resolves() {
+        let be = backend_for(GpuTarget::Amd(AmdArch::Rdna2));
+        assert!(be.is_ok());
+    }
+
+    #[test]
+    fn backend_for_intel_fails() {
+        let be = backend_for(GpuTarget::Intel(IntelArch::XeHpg));
         assert!(be.is_err());
     }
 }

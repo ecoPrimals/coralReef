@@ -4,7 +4,6 @@
 
 #![allow(clippy::wildcard_imports)]
 
-use super::super::ir::*;
 use super::*;
 
 fn instr_remap_srcs_file(instr: &mut Instr, ra: &mut VecRegAllocator) {
@@ -153,8 +152,13 @@ pub(super) fn instr_assign_regs_file(
         instr_remap_srcs_file(instr, &mut vra);
 
         for vec_dst in &mut vec_dsts {
-            let src_vec = vec_dst.killed.as_ref().unwrap();
-            vec_dst.reg = vra.try_get_vec_reg(src_vec).unwrap();
+            let src_vec = vec_dst
+                .killed
+                .as_ref()
+                .expect("vec_dst must have killed source when mapping to killed srcs");
+            vec_dst.reg = vra
+                .try_get_vec_reg(src_vec)
+                .expect("vector reg must exist for killed source");
         }
 
         vra.free_killed(killed);
@@ -162,7 +166,11 @@ pub(super) fn instr_assign_regs_file(
         for vec_dst in vec_dsts {
             let dst = &mut instr.dsts_mut()[vec_dst.dst_idx];
             *dst = vra
-                .assign_pin_vec_reg(dst.as_ssa().unwrap(), vec_dst.reg)
+                .assign_pin_vec_reg(
+                    dst.as_ssa()
+                        .expect("destination must be SSA value for vector alloc"),
+                    vec_dst.reg,
+                )
                 .into();
         }
 
@@ -174,7 +182,11 @@ pub(super) fn instr_assign_regs_file(
         for vec_dst in vec_dsts {
             let dst = &mut instr.dsts_mut()[vec_dst.dst_idx];
             *dst = vra
-                .assign_pin_vec_reg(dst.as_ssa().unwrap(), vec_dst.reg)
+                .assign_pin_vec_reg(
+                    dst.as_ssa()
+                        .expect("destination must be SSA value for vector alloc"),
+                    vec_dst.reg,
+                )
                 .into();
         }
 

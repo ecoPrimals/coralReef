@@ -1,0 +1,11 @@
+# coralReef — Clippy configuration
+# Applied by `cargo clippy` across the entire workspace.
+
+# 1000 LOC per file (wateringHole standard)
+too-many-lines-threshold = 1000
+
+# Keep type complexity readable
+type-complexity-threshold = 300
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30

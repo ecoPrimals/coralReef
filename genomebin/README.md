@@ -9,7 +9,7 @@ genomebin/
 └── config/     config templates, environment configs
 ```
 
-Planned (Phase 6 — coralDriver):
+Planned:
 
 - `wrapper/` — genome-wrapper.sh, system detection
 - `services/` — systemd, launchd, rc.d templates
@@ -18,5 +18,7 @@ Planned (Phase 6 — coralDriver):
 ## Status
 
 Pending — genomeBin deployment will be configured once coralDriver
-(Phase 6) provides the runtime execution target for compiled binaries.
-The compiler pipeline is fully functional via `cargo run -- compile`.
+is hardened for production GPU dispatch. The compiler pipeline is
+fully functional via `cargo run -- compile`. coralDriver (DRM ioctl)
+and coralGpu (unified API) are implemented but need hardware
+validation before production deployment wrappers are built.

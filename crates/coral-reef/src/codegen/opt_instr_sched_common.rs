@@ -248,7 +248,7 @@ pub fn estimate_block_weight(cfg: &CFG<BasicBlock>, block_idx: usize) -> u64 {
 /// Memory instructions were copied from L1 data cache latencies.
 /// For instructions not mentioned in the paper, I made up numbers.
 /// This could probably be improved.
-pub fn estimate_variable_latency(sm: &ShaderModelInfo, op: &Op) -> u32 {
+pub fn estimate_variable_latency(sm: &dyn ShaderModel, op: &Op) -> u32 {
     if !sm.op_needs_scoreboard(op) {
         return 0;
     }
@@ -366,7 +366,11 @@ pub fn calc_statistics(g: &mut DepGraph) -> Vec<usize> {
         }
         let node = &mut g.nodes[i];
         node.label.cycles_to_end = max_delay;
-        node.label.use_count = node.outgoing_edges.len().try_into().unwrap();
+        node.label.use_count = node
+            .outgoing_edges
+            .len()
+            .try_into()
+            .expect("outgoing edge count must fit in u32");
         if node.label.use_count == 0 {
             initial_ready_list.push(i);
         }

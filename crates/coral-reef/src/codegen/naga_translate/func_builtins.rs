@@ -3,7 +3,6 @@
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;
-use naga::Handle;
 
 use super::sys_regs;
 

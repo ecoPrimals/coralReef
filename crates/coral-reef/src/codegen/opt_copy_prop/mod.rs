@@ -11,12 +11,12 @@ use coral_reef_stubs::fxhash::FxHashMap;
 use types::{CBufRule, ConvBoolToInt, CopyEntry, CopyPropEntry, PrmtEntry};
 
 struct CopyPropPass<'a> {
-    sm: &'a ShaderModelInfo,
+    sm: &'a dyn ShaderModel,
     ssa_map: FxHashMap<SSAValue, CopyPropEntry>,
 }
 
 impl<'a> CopyPropPass<'a> {
-    pub fn new(sm: &'a ShaderModelInfo) -> Self {
+    pub fn new(sm: &'a dyn ShaderModel) -> Self {
         CopyPropPass {
             sm,
             ssa_map: FxHashMap::default(),

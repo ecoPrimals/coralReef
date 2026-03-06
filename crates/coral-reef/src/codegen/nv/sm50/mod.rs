@@ -13,7 +13,6 @@ mod control;
 mod mem;
 mod tex;
 
-use crate::codegen::ir::*;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 fn encode_instr(

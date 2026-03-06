@@ -12,7 +12,7 @@ pub fn lower_f64_log2(
     op: &OpF64Log2,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &ShaderModelInfo,
+    _sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 /// Per-function translation state.
 pub(super) struct FuncTranslator<'a, 'b> {
-    pub(super) sm: &'a ShaderModelInfo,
+    pub(super) sm: &'a dyn ShaderModel,
     pub(super) module: &'b naga::Module,
     pub(super) func: &'b naga::Function,
     pub(super) ssa_alloc: SSAValueAllocator,
@@ -24,7 +24,7 @@ pub(super) struct FuncTranslator<'a, 'b> {
 
 impl<'a, 'b> FuncTranslator<'a, 'b> {
     pub(super) fn new(
-        sm: &'a ShaderModelInfo,
+        sm: &'a dyn ShaderModel,
         module: &'b naga::Module,
         func: &'b naga::Function,
     ) -> Self {
@@ -217,7 +217,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 Ok(())
             }
             naga::Statement::Call {
-                function,
+                function: _,
                 ref arguments,
                 result,
             } => {
@@ -527,7 +527,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         comps: u8,
         l: SSARef,
         r: SSARef,
-        mut f: impl FnMut(&mut Self, SSAValue, SSAValue) -> SSAValue,
+        f: impl FnMut(&mut Self, SSAValue, SSAValue) -> SSAValue,
     ) -> Result<SSARef, CompileError> {
         self.emit_componentwise(comps, l, r, f)
     }

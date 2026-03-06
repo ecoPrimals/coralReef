@@ -5,7 +5,6 @@
 //! texture types, memory types, interpolation modes, etc.
 
 use std::fmt;
-use std::ops::{BitAnd, BitOr, Not, Range};
 
 use super::{ShaderModel, Src};
 

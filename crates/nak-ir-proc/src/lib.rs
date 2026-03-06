@@ -14,7 +14,8 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
     AngleBracketedGenericArguments, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields,
-    FieldsUnnamed, GenericArgument, Ident, Meta, PathArguments, Type, TypePath, parse_macro_input,
+    FieldsUnnamed, GenericArgument, Ident, LitStr, Meta, PathArguments, Type, TypePath,
+    parse_macro_input,
 };
 
 struct MatchedField {
@@ -70,7 +71,11 @@ fn derive_as_slice(
             fields: Fields::Named(f),
             ..
         }) => &f.named,
-        _ => panic!("{attr_name} can only be derived for structs with named fields"),
+        _ => {
+            let msg = format!("{attr_name} can only be derived for structs with named fields");
+            let lit = LitStr::new(&msg, Span::call_site());
+            return TokenStream::from(quote! { compile_error!(#lit); });
+        }
     };
 
     let elem_type = Ident::new(elem_type_name, Span::call_site());
@@ -127,7 +132,9 @@ fn collect_matched_fields(
 ) -> Vec<MatchedField> {
     let mut matched = Vec::new();
     for field in fields {
-        let field_ident = field.ident.as_ref().unwrap().clone();
+        let Some(field_ident) = field.ident.clone() else {
+            continue;
+        };
         let ty = &field.ty;
 
         if is_type_named(ty, elem_type_name) {
@@ -283,7 +290,10 @@ fn generate_attrs_body(type_enum: &Ident, matched: &[MatchedField]) -> TokenStre
 fn is_boxed_variant(v: &syn::Variant) -> bool {
     match &v.fields {
         Fields::Unnamed(FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => {
-            let ty = &unnamed.first().unwrap().ty;
+            let Some(first) = unnamed.first() else {
+                return false;
+            };
+            let ty = &first.ty;
             if let Type::Path(TypePath { path, .. }) = ty {
                 if let Some(seg) = path.segments.last() {
                     return seg.ident == "Box";
@@ -377,7 +387,9 @@ pub fn enum_derive_display_op(input: TokenStream) -> TokenStream {
     let DeriveInput { ident, data, .. } = parse_macro_input!(input);
 
     let Data::Enum(e) = data else {
-        panic!("DisplayOp can only be derived for enums");
+        return TokenStream::from(quote! {
+            compile_error!("DisplayOp can only be derived for enums");
+        });
     };
 
     let mut fmt_dsts_cases = TokenStream2::new();
@@ -422,15 +434,16 @@ fn into_box_inner_type(from_type: &Type) -> Option<&Type> {
     let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
         &last.arguments
     else {
-        panic!("Expected Box<T> (with angle brackets)");
+        return None;
     };
 
-    for arg in args {
+    args.iter().find_map(|arg| {
         if let GenericArgument::Type(inner_type) = arg {
-            return Some(inner_type);
+            Some(inner_type)
+        } else {
+            None
         }
-    }
-    panic!("Expected Box to use a type argument");
+    })
 }
 
 /// Derive `From<VariantType>` for each variant of an enum.
@@ -452,11 +465,23 @@ pub fn derive_from_variants(input: TokenStream) -> TokenStream {
                 unnamed: from_type, ..
             }) = v.fields
             else {
-                panic!("Expected Op(OpFoo)");
+                let msg = format!(
+                    "FromVariants: variant `{var_ident}` must have exactly one unnamed field"
+                );
+                let lit = LitStr::new(&msg, Span::call_site());
+                return TokenStream::from(quote! { compile_error!(#lit); });
             };
 
-            assert!(from_type.len() == 1, "Expected Op(OpFoo)");
-            let from_type = &from_type.first().unwrap().ty;
+            if from_type.len() != 1 {
+                let msg =
+                    format!("FromVariants: variant `{var_ident}` must have exactly one field");
+                let lit = LitStr::new(&msg, Span::call_site());
+                return TokenStream::from(quote! { compile_error!(#lit); });
+            }
+            let Some(first) = from_type.first() else {
+                continue;
+            };
+            let from_type = &first.ty;
 
             impls.extend(quote! {
                 impl From<#from_type> for #enum_type {

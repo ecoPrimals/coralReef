@@ -19,3 +19,6 @@ nak_ir_proc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 naga = { version = "28", features = ["wgsl-in", "spv-in", "spv-out"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
