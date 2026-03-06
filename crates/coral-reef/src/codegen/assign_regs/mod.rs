@@ -130,17 +130,13 @@ impl Shader<'_> {
         let mut blocks: Vec<AssignRegsBlock> = Vec::new();
         for b_idx in 0..f.blocks.len() {
             let pred = f.blocks.pred_indices(b_idx);
-            let pred_ra = if pred.is_empty() {
-                None
-            } else {
-                // Start with the previous block's.
-                Some(&blocks[pred[0]].ra)
-            };
+            let pred_ras: Vec<&PerRegFile<RegAllocator>> =
+                pred.iter().map(|&p| &blocks[p].ra).collect();
 
             let bl = live.block_live(b_idx);
 
-            let mut arb = AssignRegsBlock::new(&limit, tmp_gprs);
-            arb.first_pass(&mut f.blocks[b_idx], bl, pred_ra, &mut phi_webs);
+            let mut arb = AssignRegsBlock::new(&limit, tmp_gprs, b_idx);
+            arb.first_pass(&mut f.blocks[b_idx], bl, &pred_ras, &mut phi_webs);
 
             assert!(blocks.len() == b_idx);
             blocks.push(arb);

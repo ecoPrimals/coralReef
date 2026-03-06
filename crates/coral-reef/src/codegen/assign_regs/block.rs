@@ -16,21 +16,30 @@ pub(super) struct AssignRegsBlock {
     pcopy_tmp_gprs: u8,
     live_in: Vec<LiveValue>,
     phi_out: FxHashMap<Phi, SrcRef>,
+    block_idx: usize,
 }
 
 impl AssignRegsBlock {
-    pub(super) fn new(reg_count: &PerRegFile<u32>, pcopy_tmp_gprs: u8) -> Self {
+    pub(super) fn new(reg_count: &PerRegFile<u32>, pcopy_tmp_gprs: u8, block_idx: usize) -> Self {
         Self {
             ra: PerRegFile::new_with(|file| RegAllocator::new(file, reg_count[file])),
             pcopy_tmp_gprs,
             live_in: Vec::new(),
             phi_out: FxHashMap::default(),
+            block_idx,
         }
     }
 
     fn get_scalar(&self, ssa: SSAValue) -> RegRef {
         let ra = &self.ra[ssa.file()];
-        let reg = ra.try_get_reg(ssa).expect("Unknown SSA value");
+        let reg = ra.try_get_reg(ssa).unwrap_or_else(|| {
+            let known: Vec<_> = ra.ssa_reg.keys().collect();
+            panic!(
+                "Unknown SSA value {ssa:?} (file={:?}) in block {}. Allocated SSAs: {known:?}",
+                ssa.file(),
+                self.block_idx,
+            );
+        });
         RegRef::new(ssa.file(), reg, 1)
     }
 
@@ -340,15 +349,16 @@ impl AssignRegsBlock {
         &mut self,
         b: &mut BasicBlock,
         bl: &BL,
-        pred_ra: Option<&PerRegFile<RegAllocator>>,
+        pred_ras: &[&PerRegFile<RegAllocator>],
         phi_webs: &mut PhiWebs,
     ) {
-        // Populate live in from the register file we're handed.  We'll add more
-        // live in when we process the OpPhiDst, if any.
-        if let Some(pred_ra) = pred_ra {
+        // Populate live-in from ALL predecessors' register files. For
+        // multi-predecessor blocks (e.g. if/else merge after barrier), SSA
+        // values may only exist in one predecessor — we must check them all.
+        for pred_ra in pred_ras {
             for (raf, pred_raf) in self.ra.values_mut().zip(pred_ra.values()) {
                 for (ssa, reg) in &pred_raf.ssa_reg {
-                    if bl.is_live_in(ssa) {
+                    if bl.is_live_in(ssa) && raf.try_get_reg(*ssa).is_none() {
                         raf.assign_reg(*ssa, *reg);
                         if pred_raf.reg_is_pinned(*reg) {
                             raf.pin_reg(*reg);

@@ -404,35 +404,69 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     ) -> Result<(), CompileError> {
         let cond = self.ensure_expr(condition)?;
         let merge_label = self.label_alloc.alloc();
+        let cond_src: Src = cond[0].into();
 
-        let cond_block = self.finish_block_no_fallthrough()?;
+        if reject.is_empty() {
+            // No else clause: branch to merge when !cond, fall through to
+            // accept when cond. Avoids creating an empty reject block that
+            // would become orphaned after opt_jump_thread.
+            self.push_instr(Instr::new(OpBra {
+                target: merge_label,
+                cond: cond_src.bnot(),
+            }));
+            let cond_block = self.finish_block_no_fallthrough()?;
 
-        self.start_block();
-        self.translate_block(accept)?;
-        self.push_instr(Instr::new(OpBra {
-            target: merge_label,
-            cond: SrcRef::True.into(),
-        }));
-        let accept_block = self.finish_block_no_fallthrough()?;
-        self.cfg_builder.add_edge(cond_block, accept_block);
+            self.start_block();
+            self.translate_block(accept)?;
+            self.push_instr(Instr::new(OpBra {
+                target: merge_label,
+                cond: SrcRef::True.into(),
+            }));
+            let accept_block = self.finish_block_no_fallthrough()?;
+            self.cfg_builder.add_edge(cond_block, accept_block);
 
-        self.start_block();
-        self.translate_block(reject)?;
-        self.push_instr(Instr::new(OpBra {
-            target: merge_label,
-            cond: SrcRef::True.into(),
-        }));
-        let reject_block = self.finish_block_no_fallthrough()?;
-        self.cfg_builder.add_edge(cond_block, reject_block);
+            self.start_block();
+            self.current_label = merge_label;
+            let merge_block = self.next_block_id;
+            self.cfg_builder.add_edge(cond_block, merge_block);
+            self.cfg_builder.add_edge(accept_block, merge_block);
+            self.current_block_id = None;
+        } else {
+            let reject_label = self.label_alloc.alloc();
 
-        self.start_block();
-        self.current_label = merge_label;
-        let merge_block = self.next_block_id;
-        self.cfg_builder.add_edge(accept_block, merge_block);
-        self.cfg_builder.add_edge(reject_block, merge_block);
-        self.current_block_id = None;
+            self.push_instr(Instr::new(OpBra {
+                target: reject_label,
+                cond: cond_src.bnot(),
+            }));
+            let cond_block = self.finish_block_no_fallthrough()?;
 
-        let _ = cond;
+            self.start_block();
+            self.translate_block(accept)?;
+            self.push_instr(Instr::new(OpBra {
+                target: merge_label,
+                cond: SrcRef::True.into(),
+            }));
+            let accept_block = self.finish_block_no_fallthrough()?;
+            self.cfg_builder.add_edge(cond_block, accept_block);
+
+            self.start_block();
+            self.current_label = reject_label;
+            self.translate_block(reject)?;
+            self.push_instr(Instr::new(OpBra {
+                target: merge_label,
+                cond: SrcRef::True.into(),
+            }));
+            let reject_block = self.finish_block_no_fallthrough()?;
+            self.cfg_builder.add_edge(cond_block, reject_block);
+
+            self.start_block();
+            self.current_label = merge_label;
+            let merge_block = self.next_block_id;
+            self.cfg_builder.add_edge(accept_block, merge_block);
+            self.cfg_builder.add_edge(reject_block, merge_block);
+            self.current_block_id = None;
+        }
+
         Ok(())
     }
 
