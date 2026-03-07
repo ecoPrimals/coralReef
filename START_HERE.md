@@ -28,7 +28,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 904 tests (883 passing, 21 ignored)
+cargo test --workspace     # 974 tests (952 passing, 22 ignored)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -52,7 +52,7 @@ coralReef/
 │   │           ├── amd/           AMD vendor backend (RDNA2 GFX1030)
 │   │           │   ├── shader_model.rs  ShaderModelRdna2 (trait impl)
 │   │           │   ├── encoding.rs      instruction encoding
-│   │           │   ├── isa_generated.rs 1,446 opcodes (Rust-generated)
+│   │           │   ├── isa_generated/   1,446 opcodes (Rust-generated)
 │   │           │   └── reg.rs           VGPR/SGPR register model
 │   │           ├── assign_regs/   Register allocation — 5 files
 │   │           ├── calc_instr_deps/ Instruction dependency analysis
@@ -62,8 +62,8 @@ coralReef/
 │   ├── coral-driver/            Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
 │   │       ├── drm.rs           Pure Rust DRM interface (via libc)
-│   │       ├── amd/             amdgpu: GEM, PM4, command submission
-│   │       └── nv/              nouveau: QMD, pushbuf
+│   │       ├── amd/             amdgpu: GEM, PM4, command submission, fence
+│   │       └── nv/              nouveau: channel, GEM, QMD, pushbuf submit
 │   ├── coral-gpu/               Unified GPU compute abstraction
 │   ├── coral-reef-bitview/     Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/         ISA tables, latency model

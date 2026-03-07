@@ -13,7 +13,7 @@ pub mod pm4;
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
-use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain};
+use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use std::collections::HashMap;
 
@@ -65,9 +65,10 @@ impl AmdDevice {
 }
 
 /// Reinterpret a `&[u32]` as `&[u8]` for buffer upload.
-const fn u32_slice_as_bytes(words: &[u32]) -> &[u8] {
-    // Safety: u32 is a POD type; reinterpreting as bytes is always valid.
-    unsafe { std::slice::from_raw_parts(words.as_ptr().cast::<u8>(), std::mem::size_of_val(words)) }
+///
+/// Uses native-endian byte order (matches GPU expectations on little-endian).
+fn u32_slice_as_bytes(words: &[u32]) -> &[u8] {
+    bytemuck::cast_slice(words)
 }
 
 impl ComputeDevice for AmdDevice {
@@ -107,8 +108,10 @@ impl ComputeDevice for AmdDevice {
         shader: &[u8],
         buffers: &[BufferHandle],
         dims: DispatchDims,
+        _info: &ShaderInfo,
     ) -> DriverResult<()> {
-        let shader_size = u64::try_from(shader.len()).expect("shader size fits in u64");
+        let shader_size = u64::try_from(shader.len())
+            .map_err(|_| DriverError::platform_overflow("shader size fits in u64"))?;
         let shader_handle = self.alloc(shader_size, MemoryDomain::Gtt)?;
         self.upload(shader_handle, 0, shader)?;
 
@@ -116,11 +119,13 @@ impl ComputeDevice for AmdDevice {
         let pm4_words = pm4::build_compute_dispatch(shader_va, dims);
 
         let pm4_bytes = u32_slice_as_bytes(&pm4_words);
-        let ib_size = u64::try_from(pm4_bytes.len()).expect("IB size fits in u64");
+        let ib_size = u64::try_from(pm4_bytes.len())
+            .map_err(|_| DriverError::platform_overflow("IB size fits in u64"))?;
         let ib_handle = self.alloc(ib_size, MemoryDomain::Gtt)?;
         self.upload(ib_handle, 0, pm4_bytes)?;
         let ib_va = self.buffers.get(&ib_handle.0).map_or(0, |g| g.gpu_va);
-        let ib_bytes = u32::try_from(pm4_bytes.len()).expect("IB bytes fit in u32");
+        let ib_bytes = u32::try_from(pm4_bytes.len())
+            .map_err(|_| DriverError::platform_overflow("IB bytes fit in u32"))?;
 
         let mut gem_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 2);
         if let Some(gem) = self.buffers.get(&shader_handle.0) {

@@ -138,19 +138,18 @@ impl DrmDevice {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the version ioctl fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the name buffer length exceeds `u64::MAX` (impossible in
-    /// practice — the buffer is 64 bytes).
     pub fn driver_name(&self) -> DriverResult<String> {
         let mut name_buf = [0u8; 64];
         let mut ver = DrmVersion {
-            name_len: u64::try_from(name_buf.len()).expect("buffer len fits in u64"),
+            name_len: u64::try_from(name_buf.len())
+                .map_err(|_| DriverError::platform_overflow("buffer len fits in u64"))?,
             name: name_buf.as_mut_ptr() as u64,
             ..Default::default()
         };
-        // Safety: DrmVersion is #[repr(C)] and matches the kernel ioctl struct.
+        // SAFETY: `DrmVersion` is `#[repr(C)]` with layout matching the kernel's
+        // `drm_version` struct. `ver` is stack-allocated and valid for the ioctl's
+        // synchronous lifetime. The kernel writes into `name_buf` via the `name`
+        // pointer, bounded by `name_len`.
         unsafe { drm_ioctl_typed(self.fd(), DRM_IOCTL_VERSION, &mut ver)? };
         let len = usize::try_from(ver.name_len).unwrap_or(0);
         let len = len.min(name_buf.len());
@@ -170,7 +169,10 @@ impl DrmDevice {
 ///
 /// Returns [`DriverError::IoctlFailed`] if the kernel returns an error.
 pub(crate) unsafe fn drm_ioctl_typed<T>(fd: RawFd, request: u64, arg: &mut T) -> DriverResult<()> {
-    // libc::ioctl expects c_ulong for the request on Linux.
+    // SAFETY: The caller guarantees `T` is the correct `#[repr(C)]` kernel
+    // struct for `request`. `arg` is a valid mutable reference (non-null,
+    // aligned, initialized). `libc::ioctl` performs a synchronous syscall —
+    // the pointer does not escape the call.
     let ret = unsafe { libc::ioctl(fd, request as libc::c_ulong, std::ptr::from_mut::<T>(arg)) };
     if ret < 0 {
         return Err(DriverError::IoctlFailed {

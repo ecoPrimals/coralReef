@@ -4,6 +4,7 @@ description = "Core primal library for coralReef — sovereign Rust NVIDIA shade
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
@@ -35,3 +36,7 @@ tokio-util = { workspace = true }
 naga = { version = "28", features = ["wgsl-in", "spv-out"] }
 proptest = { workspace = true }
 tokio = { workspace = true }
+# JSON-RPC HTTP client — tests only. This activates the "client" feature which
+# pulls in rustls/ring for TLS. Not present in the production binary.
+# In deployment, external TLS is provided by Tower Atomic (Songbird + BearDog).
+jsonrpsee = { version = "0.24", features = ["client"] }

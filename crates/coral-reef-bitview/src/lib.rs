@@ -322,6 +322,103 @@ impl fmt::Debug for BitViewDisplay<'_> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Const-generic typed bit fields
+// ---------------------------------------------------------------------------
+
+/// A compile-time bit field descriptor.
+///
+/// Encodes the offset and width of an instruction field at the type level,
+/// enabling the Rust compiler to catch encoding errors statically.
+///
+/// # Example
+///
+/// ```
+/// use bitview::TypedBitField;
+///
+/// type OpField = TypedBitField<18, 7>;
+/// let mut words = [0u32; 2];
+/// OpField::set(&mut words, 42);
+/// assert_eq!(OpField::get(&words), 42);
+/// ```
+pub struct TypedBitField<const OFFSET: u32, const WIDTH: u32>;
+
+impl<const OFFSET: u32, const WIDTH: u32> TypedBitField<OFFSET, WIDTH> {
+    /// Maximum value this field can hold.
+    pub const MAX_VALUE: u64 = if WIDTH >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << WIDTH) - 1
+    };
+
+    /// Bit range as `start..end`.
+    pub const RANGE: std::ops::Range<usize> = (OFFSET as usize)..((OFFSET + WIDTH) as usize);
+
+    /// Read this field from a word buffer.
+    #[must_use]
+    pub fn get(buf: &(impl BitViewable + ?Sized)) -> u64 {
+        buf.get_bit_range_u64(Self::RANGE)
+    }
+
+    /// Write this field into a mutable word buffer.
+    ///
+    /// In debug builds, panics if `value` exceeds `MAX_VALUE`.
+    pub fn set(buf: &mut (impl BitMutViewable + ?Sized), value: impl BitCastU64) {
+        let bits = value.as_bits();
+        debug_assert!(
+            bits <= Self::MAX_VALUE,
+            "value {bits:#x} exceeds {WIDTH}-bit field max {:#x}",
+            Self::MAX_VALUE
+        );
+        buf.set_bit_range_u64(Self::RANGE, bits);
+    }
+}
+
+/// A const-generic instruction word builder.
+///
+/// Accumulates field writes into a fixed-size `[u32; N]` buffer.
+/// All field access goes through `TypedBitField` for compile-time safety.
+///
+/// # Example
+///
+/// ```
+/// use bitview::{InstrBuilder, TypedBitField};
+///
+/// type Prefix = TypedBitField<26, 6>;
+/// type Op = TypedBitField<16, 10>;
+/// type Dst = TypedBitField<0, 8>;
+///
+/// let mut builder = InstrBuilder::<2>::new();
+/// Prefix::set(&mut builder.words, 0b110101u32);
+/// Op::set(&mut builder.words, 356u32);
+/// Dst::set(&mut builder.words, 0u32);
+/// assert_eq!(builder.words[0] >> 26 & 0x3F, 0b110101);
+/// ```
+pub struct InstrBuilder<const N: usize> {
+    /// The instruction word buffer.
+    pub words: [u32; N],
+}
+
+impl<const N: usize> InstrBuilder<N> {
+    /// Create a zero-initialized builder.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { words: [0; N] }
+    }
+
+    /// Consume the builder, returning the instruction words.
+    #[must_use]
+    pub const fn into_words(self) -> [u32; N] {
+        self.words
+    }
+}
+
+impl<const N: usize> Default for InstrBuilder<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,5 +560,58 @@ mod tests {
         let mut data = [0u32; 2];
         let sub = BitMutSubsetView::new(&mut data, 0, 48);
         assert_eq!(sub.bits(), 48);
+    }
+
+    #[test]
+    fn typed_bitfield_get_set() {
+        type Prefix = TypedBitField<26, 6>;
+        type Opcode = TypedBitField<16, 10>;
+        type Dst = TypedBitField<0, 8>;
+
+        let mut words = [0u32; 2];
+        Prefix::set(&mut words, 0b11_0101_u32);
+        Opcode::set(&mut words, 356u32);
+        Dst::set(&mut words, 42u32);
+
+        assert_eq!(Prefix::get(&words), 0b11_0101);
+        assert_eq!(Opcode::get(&words), 356);
+        assert_eq!(Dst::get(&words), 42);
+    }
+
+    #[test]
+    fn typed_bitfield_max_value() {
+        assert_eq!(TypedBitField::<0, 1>::MAX_VALUE, 1);
+        assert_eq!(TypedBitField::<0, 8>::MAX_VALUE, 255);
+        assert_eq!(TypedBitField::<0, 16>::MAX_VALUE, 65535);
+        assert_eq!(TypedBitField::<0, 32>::MAX_VALUE, 0xFFFF_FFFF);
+    }
+
+    #[test]
+    fn typed_bitfield_cross_word() {
+        type CrossField = TypedBitField<28, 8>;
+        let mut words = [0u32; 2];
+        CrossField::set(&mut words, 0xABu32);
+        assert_eq!(CrossField::get(&words), 0xAB);
+    }
+
+    #[test]
+    fn instr_builder_roundtrip() {
+        type Op = TypedBitField<18, 7>;
+        type Enc = TypedBitField<26, 6>;
+
+        let mut b = InstrBuilder::<2>::new();
+        Enc::set(&mut b.words, 0b11_0111_u32);
+        Op::set(&mut b.words, 12u32);
+        let w = b.into_words();
+        assert_eq!((w[0] >> 26) & 0x3F, 0b11_0111);
+        assert_eq!((w[0] >> 18) & 0x7F, 12);
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds")]
+    fn typed_bitfield_overflow_panics_in_debug() {
+        type SmallField = TypedBitField<0, 3>;
+        let mut words = [0u32; 1];
+        SmallField::set(&mut words, 8u32); // 8 > max 7 for 3-bit field
     }
 }

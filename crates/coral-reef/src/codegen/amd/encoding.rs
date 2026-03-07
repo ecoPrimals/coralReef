@@ -278,6 +278,122 @@ pub fn encode_v_mul_f64(dst: AmdRegRef, src0: u16, src1: u16) -> Vec<u32> {
     Rdna2Encoder::encode_vop3(isa::vop3::V_MUL_F64, dst, src0, src1, 0)
 }
 
+// ---- FLAT encoding (64-bit) ----
+// Word 0 (bits [31:0]):
+//   [31:26] = 110111 (FLAT encoding prefix)
+//   [25:18] = OP (7-bit opcode)
+//   [17]    = SLC
+//   [16]    = GLC
+//   [15:14] = SEG (00=flat, 01=scratch, 10=global)
+//   [13]    = LDS
+//   [12]    = DLC
+//   [11:0]  = OFFSET (12-bit signed)
+// Word 1 (bits [63:32]):
+//   [63:56] = VDST (8-bit)
+//   [55:48] = SADDR (7-bit scalar address, or 0x7F=disabled)
+//   [47:40] = DATA (8-bit VGPR data source for stores)
+//   [39:32] = ADDR (8-bit VGPR 64-bit address)
+
+impl Rdna2Encoder {
+    /// Encode a FLAT load instruction.
+    pub fn encode_flat_load(opcode: u16, addr_vgpr: u16, dst_vgpr: u16, offset: i16) -> Vec<u32> {
+        let mut e = Self::new_64();
+        e.set_field_w0(26, 6, 0b11_0111);
+        e.set_field_w0(18, 7, u32::from(opcode));
+        e.set_field_w0(0, 12, (offset as u16 as u32) & 0xFFF);
+        // Word 1
+        e.set_field_w1(0, 8, u32::from(addr_vgpr));
+        e.set_field_w1(16, 7, 0x7F); // SADDR disabled
+        e.set_field_w1(24, 8, u32::from(dst_vgpr));
+        e.into_words()
+    }
+
+    /// Encode a FLAT store instruction.
+    pub fn encode_flat_store(opcode: u16, addr_vgpr: u16, data_vgpr: u16, offset: i16) -> Vec<u32> {
+        let mut e = Self::new_64();
+        e.set_field_w0(26, 6, 0b11_0111);
+        e.set_field_w0(18, 7, u32::from(opcode));
+        e.set_field_w0(0, 12, (offset as u16 as u32) & 0xFFF);
+        // Word 1
+        e.set_field_w1(0, 8, u32::from(addr_vgpr));
+        e.set_field_w1(8, 8, u32::from(data_vgpr));
+        e.set_field_w1(16, 7, 0x7F); // SADDR disabled
+        e.into_words()
+    }
+
+    /// Encode a FLAT atomic instruction (returns original value to VDST).
+    pub fn encode_flat_atomic(
+        opcode: u16,
+        addr_vgpr: u16,
+        data_vgpr: u16,
+        dst_vgpr: u16,
+        offset: i16,
+    ) -> Vec<u32> {
+        let mut e = Self::new_64();
+        e.set_field_w0(26, 6, 0b11_0111);
+        e.set_field_w0(18, 7, u32::from(opcode));
+        e.set_field_w0(16, 1, 1); // GLC=1 for return value
+        e.set_field_w0(0, 12, (offset as u16 as u32) & 0xFFF);
+        // Word 1
+        e.set_field_w1(0, 8, u32::from(addr_vgpr));
+        e.set_field_w1(8, 8, u32::from(data_vgpr));
+        e.set_field_w1(16, 7, 0x7F); // SADDR disabled
+        e.set_field_w1(24, 8, u32::from(dst_vgpr));
+        e.into_words()
+    }
+
+    // ---- VOPC encoding (32-bit) ----
+    // [31:25] = 0111110 (7-bit encoding prefix)
+    // [24:17] = OP (8-bit opcode)
+    // [16:9]  = VSRC1 (8-bit VGPR index)
+    // [8:0]   = SRC0 (9-bit source — VGPR/SGPR/const/literal)
+
+    /// Encode a VOPC instruction (vector comparison → VCC).
+    pub fn encode_vopc(opcode: u16, src0: u16, vsrc1: u16) -> Vec<u32> {
+        let mut e = Self::new_32();
+        e.set_field_w0(25, 7, 0b011_1110);
+        e.set_field_w0(17, 8, u32::from(opcode));
+        e.set_field_w0(9, 8, u32::from(vsrc1));
+        e.set_field_w0(0, 9, u32::from(src0));
+        e.into_words()
+    }
+
+    /// Encode `s_branch` — unconditional relative branch.
+    pub fn encode_s_branch(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_BRANCH, offset_words as u16)
+    }
+
+    /// Encode `s_cbranch_scc1` — branch if SCC == 1.
+    pub fn encode_s_cbranch_scc1(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_CBRANCH_SCC1, offset_words as u16)
+    }
+
+    /// Encode `s_cbranch_scc0` — branch if SCC == 0.
+    pub fn encode_s_cbranch_scc0(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_CBRANCH_SCC0, offset_words as u16)
+    }
+
+    /// Encode `s_cbranch_vccnz` — branch if VCC != 0 (any lane set).
+    pub fn encode_s_cbranch_vccnz(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_CBRANCH_VCCNZ, offset_words as u16)
+    }
+
+    /// Encode `s_cbranch_vccz` — branch if VCC == 0 (no lanes set).
+    pub fn encode_s_cbranch_vccz(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_CBRANCH_VCCZ, offset_words as u16)
+    }
+
+    /// Encode `s_cbranch_execnz` — branch if EXEC != 0.
+    pub fn encode_s_cbranch_execnz(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_CBRANCH_EXECNZ, offset_words as u16)
+    }
+
+    /// Encode `s_cbranch_execz` — branch if EXEC == 0.
+    pub fn encode_s_cbranch_execz(offset_words: i16) -> Vec<u32> {
+        Self::encode_sopp(isa::sopp::S_CBRANCH_EXECZ, offset_words as u16)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::reg::AmdRegRef;
@@ -523,5 +639,65 @@ mod tests {
         let branch = isa_generated::sopp::lookup(2).expect("S_BRANCH should exist");
         assert_eq!(branch.name, "S_BRANCH");
         assert!(branch.is_branch);
+    }
+
+    #[test]
+    fn flat_load_encoding_structure() {
+        let words = Rdna2Encoder::encode_flat_load(isa::flat::FLAT_LOAD_DWORD, 0, 5, 0);
+        assert_eq!(words.len(), 2, "FLAT is 64-bit");
+        let prefix = (words[0] >> 26) & 0x3F;
+        assert_eq!(prefix, 0b11_0111, "FLAT encoding prefix");
+        let opcode = (words[0] >> 18) & 0x7F;
+        assert_eq!(opcode, u32::from(isa::flat::FLAT_LOAD_DWORD));
+    }
+
+    #[test]
+    fn flat_store_encoding_structure() {
+        let words = Rdna2Encoder::encode_flat_store(isa::flat::FLAT_STORE_DWORD, 0, 1, 0);
+        assert_eq!(words.len(), 2);
+        let opcode = (words[0] >> 18) & 0x7F;
+        assert_eq!(opcode, u32::from(isa::flat::FLAT_STORE_DWORD));
+    }
+
+    #[test]
+    fn flat_atomic_encoding_has_glc() {
+        let words = Rdna2Encoder::encode_flat_atomic(isa::flat::FLAT_ATOMIC_ADD, 0, 1, 2, 0);
+        assert_eq!(words.len(), 2);
+        let glc = (words[0] >> 16) & 1;
+        assert_eq!(glc, 1, "GLC must be set for atomic return");
+    }
+
+    #[test]
+    fn vopc_encoding_structure() {
+        let words = Rdna2Encoder::encode_vopc(isa::vopc::V_CMP_EQ_F32, 256, 1);
+        assert_eq!(words.len(), 1, "VOPC is 32-bit");
+        let prefix = (words[0] >> 25) & 0x7F;
+        assert_eq!(prefix, 0b011_1110, "VOPC encoding prefix");
+    }
+
+    #[test]
+    fn s_branch_encoding() {
+        let words = Rdna2Encoder::encode_s_branch(4);
+        assert_eq!(words.len(), 1);
+        let opcode = (words[0] >> 16) & 0x7F;
+        assert_eq!(opcode, u32::from(isa::sopp::S_BRANCH));
+        let simm16 = words[0] & 0xFFFF;
+        assert_eq!(simm16, 4);
+    }
+
+    #[test]
+    fn s_cbranch_scc1_encoding() {
+        let words = Rdna2Encoder::encode_s_cbranch_scc1(0);
+        let opcode = (words[0] >> 16) & 0x7F;
+        assert_eq!(opcode, u32::from(isa::sopp::S_CBRANCH_SCC1));
+    }
+
+    #[test]
+    fn s_cbranch_vccnz_encoding() {
+        let words = Rdna2Encoder::encode_s_cbranch_vccnz(-2i16);
+        let opcode = (words[0] >> 16) & 0x7F;
+        assert_eq!(opcode, u32::from(isa::sopp::S_CBRANCH_VCCNZ));
+        let simm16 = words[0] & 0xFFFF;
+        assert_eq!(simm16, (-2i16 as u16) as u32);
     }
 }

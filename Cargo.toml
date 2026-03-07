@@ -16,6 +16,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
+publish = false
 repository = "https://github.com/ecoPrimals/coralReef"
 authors = ["ecoPrimals Project"]
 rust-version = "1.85"
@@ -35,7 +36,11 @@ serde_json = "1.0"
 bytes = { version = "1", features = ["serde"] }
 
 # IPC — JSON-RPC 2.0 + tarpc
-jsonrpsee = { version = "0.24", features = ["server", "client", "macros"] }
+# Production: server + macros only (no TLS, no ring).
+# External TLS provided by Tower Atomic (Songbird + BearDog) in deployment.
+# The "client" feature (which pulls in rustls/ring) is gated behind the
+# "jsonrpc-client" feature flag, enabled only for tests.
+jsonrpsee = { version = "0.24", features = ["server", "macros"] }
 tarpc = { version = "0.37", features = ["tokio1", "serde-transport", "tcp"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tokio-serde = { version = "0.9", features = ["json"] }

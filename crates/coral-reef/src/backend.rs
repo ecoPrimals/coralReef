@@ -10,6 +10,7 @@
 //! to the appropriate implementation.
 
 use crate::codegen::ir::Shader;
+use crate::codegen::ir::ShaderStageInfo;
 use crate::error::CompileError;
 use crate::gpu_arch::GpuTarget;
 
@@ -29,6 +30,10 @@ pub struct CompilationInfo {
     pub gpr_count: u32,
     /// Number of instructions emitted.
     pub instr_count: u32,
+    /// Shared memory used by the shader (bytes).
+    pub shared_mem_bytes: u32,
+    /// Number of barriers used.
+    pub barrier_count: u32,
 }
 
 /// A vendor-specific compiler backend.
@@ -46,6 +51,16 @@ pub trait Backend {
     /// Returns [`CompileError`] if optimization, register allocation,
     /// or encoding fails.
     fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError>;
+}
+
+/// Extract shared memory and barrier count from shader stage info.
+fn compute_info(shader: &Shader<'_>) -> (u32, u32) {
+    let shared = match &shader.info.stage {
+        ShaderStageInfo::Compute(cs) => u32::from(cs.shared_mem_size),
+        _ => 0,
+    };
+    let barriers = u32::from(shader.info.control_barrier_count);
+    (shared, barriers)
 }
 
 /// NVIDIA backend — drives the codegen pipeline (SM70+).
@@ -67,11 +82,14 @@ impl Backend for NvidiaBackend {
             binary.extend_from_slice(&word.to_le_bytes());
         }
 
+        let (shared_mem_bytes, barrier_count) = compute_info(shader);
         Ok(CompiledBinary {
             binary,
             info: CompilationInfo {
                 gpr_count: u32::from(shader.info.gpr_count),
                 instr_count: shader.info.instr_count,
+                shared_mem_bytes,
+                barrier_count,
             },
         })
     }
@@ -88,17 +106,19 @@ impl Backend for AmdBackend {
     fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError> {
         let compiled = crate::codegen::pipeline::compile_shader(shader, false)?;
 
-        // AMD compute shaders have no SPH — only instruction words
         let mut binary = Vec::with_capacity(compiled.code.len() * 4);
         for word in &compiled.code {
             binary.extend_from_slice(&word.to_le_bytes());
         }
 
+        let (shared_mem_bytes, barrier_count) = compute_info(shader);
         Ok(CompiledBinary {
             binary,
             info: CompilationInfo {
                 gpr_count: u32::from(shader.info.gpr_count),
                 instr_count: shader.info.instr_count,
+                shared_mem_bytes,
+                barrier_count,
             },
         })
     }

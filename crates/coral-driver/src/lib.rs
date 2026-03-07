@@ -7,8 +7,8 @@
 //!
 //! ## Supported backends
 //!
-//! - **AMD**: `amdgpu` DRM driver — GEM buffers, PM4 command streams, SDMA
-//! - **NVIDIA**: `nouveau` DRM driver — pushbuf submission, QMD (planned)
+//! - **AMD**: `amdgpu` DRM driver — GEM buffers, PM4 command streams, CS submit, fence sync
+//! - **NVIDIA**: `nouveau` DRM driver — channel, GEM, push buffer, QMD dispatch
 //!
 //! ## Architecture
 //!
@@ -17,7 +17,7 @@
 //! │  ComputeDevice trait │  ← vendor-agnostic API
 //! ├──────────────────────┤
 //! │  AmdDevice           │  ← amdgpu DRM backend
-//! │  NvDevice (planned)  │  ← nouveau DRM backend
+//! │  NvDevice            │  ← nouveau DRM backend
 //! └──────────────────────┘
 //!          │
 //!     ioctl::drm       ← pure Rust ioctl wrappers
@@ -63,6 +63,22 @@ pub struct DispatchDims {
     pub x: u32,
     pub y: u32,
     pub z: u32,
+}
+
+/// Compiler-derived metadata passed to the driver for QMD construction.
+///
+/// Without this, the driver must guess register counts and shared memory
+/// sizing, leading to incorrect hardware configuration.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ShaderInfo {
+    /// General-purpose register count (from compiler RA).
+    pub gpr_count: u32,
+    /// Shared memory in bytes (from shader analysis).
+    pub shared_mem_bytes: u32,
+    /// Barrier count used by the shader.
+    pub barrier_count: u32,
+    /// Workgroup size (threads per CTA), from `@workgroup_size`.
+    pub workgroup: [u32; 3],
 }
 
 impl DispatchDims {
@@ -117,7 +133,9 @@ pub trait ComputeDevice {
     ///
     /// `shader` is the compiled binary (from `coral-reef`).
     /// `buffers` are the buffer handles bound as shader resources.
-    /// `dims` are the workgroup dispatch dimensions.
+    /// `dims` are the workgroup dispatch dimensions (grid size in CTAs).
+    /// `info` is compiler-derived metadata (GPR count, shared memory, etc.)
+    /// used for QMD construction.
     ///
     /// # Errors
     ///
@@ -128,6 +146,7 @@ pub trait ComputeDevice {
         shader: &[u8],
         buffers: &[BufferHandle],
         dims: DispatchDims,
+        info: &ShaderInfo,
     ) -> DriverResult<()>;
 
     /// Wait for all submitted work to complete.

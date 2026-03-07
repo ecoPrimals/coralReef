@@ -27,7 +27,7 @@
 //! ```rust,ignore
 //! use coral_gpu::{GpuContext, GpuTarget};
 //!
-//! let ctx = GpuContext::new(GpuTarget::auto())?;
+//! let ctx = GpuContext::auto()?;
 //! let shader = ctx.compile_wgsl("@compute @workgroup_size(64) fn main() {}")?;
 //! let buf = ctx.alloc(1024)?;
 //! ctx.dispatch(&shader, &[buf], [16, 1, 1])?;
@@ -35,7 +35,7 @@
 //! let data = ctx.readback(buf, 1024)?;
 //! ```
 
-pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain};
+pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 pub use coral_reef::{AmdArch, CompileOptions, GpuTarget, NvArch};
 
 /// Errors from the unified GPU abstraction.
@@ -49,6 +49,9 @@ pub enum GpuError {
 
     #[error("no GPU device available for target {0}")]
     NoDevice(std::borrow::Cow<'static, str>),
+
+    #[error("no device attached — call `auto()` or `with_device()` to bind hardware")]
+    NoDeviceAttached,
 }
 
 pub type GpuResult<T> = Result<T, GpuError>;
@@ -62,6 +65,14 @@ pub struct CompiledKernel {
     pub source_hash: u64,
     /// Target this was compiled for.
     pub target: GpuTarget,
+    /// GPR count from the compiler (for QMD construction).
+    pub gpr_count: u32,
+    /// Instruction count (for diagnostics).
+    pub instr_count: u32,
+    /// Shared memory used by the shader (bytes, for QMD).
+    pub shared_mem_bytes: u32,
+    /// Barrier count used by the shader (for QMD).
+    pub barrier_count: u32,
 }
 
 /// GPU compute context — unified compile + dispatch.
@@ -71,10 +82,14 @@ pub struct CompiledKernel {
 pub struct GpuContext {
     target: GpuTarget,
     options: CompileOptions,
+    device: Option<Box<dyn ComputeDevice>>,
 }
 
 impl GpuContext {
-    /// Create a new GPU context for the given target.
+    /// Create a new GPU context for the given target (compile-only, no device).
+    ///
+    /// Use [`with_device`](Self::with_device) or [`auto`](Self::auto) to
+    /// attach a hardware device for dispatch.
     ///
     /// # Errors
     ///
@@ -84,33 +99,83 @@ impl GpuContext {
             target,
             ..CompileOptions::default()
         };
-        Ok(Self { target, options })
+        Ok(Self {
+            target,
+            options,
+            device: None,
+        })
     }
 
-    /// Auto-detect the best available GPU.
+    /// Create a context with an explicit device (for testing or manual wiring).
+    pub fn with_device(target: GpuTarget, device: Box<dyn ComputeDevice>) -> GpuResult<Self> {
+        let options = CompileOptions {
+            target,
+            ..CompileOptions::default()
+        };
+        Ok(Self {
+            target,
+            options,
+            device: Some(device),
+        })
+    }
+
+    /// Auto-detect the best available GPU via DRM render node probing.
     ///
-    /// Probes DRM render nodes and selects the first available device.
+    /// Scans `/dev/dri/renderD*`, queries the kernel driver name, and
+    /// selects the appropriate backend + compilation target.
     ///
     /// # Errors
     ///
     /// Returns [`GpuError`] if no suitable GPU is found.
+    #[cfg(target_os = "linux")]
     pub fn auto() -> GpuResult<Self> {
-        // Default to NVIDIA SM70 for now; hardware probing requires
-        // coral-driver device enumeration.
+        use coral_driver::drm::DrmDevice;
+
+        let drm = DrmDevice::open_default().map_err(GpuError::Driver)?;
+        let driver = drm.driver_name().map_err(GpuError::Driver)?;
+
+        match driver.as_str() {
+            "amdgpu" => {
+                let dev = coral_driver::amd::AmdDevice::open().map_err(GpuError::Driver)?;
+                let target = GpuTarget::Amd(AmdArch::Rdna2);
+                Self::with_device(target, Box::new(dev))
+            }
+            #[cfg(feature = "nouveau")]
+            "nouveau" => {
+                let dev = coral_driver::nv::NvDevice::open().map_err(GpuError::Driver)?;
+                let target = GpuTarget::Nvidia(NvArch::Sm70);
+                Self::with_device(target, Box::new(dev))
+            }
+            other => Err(GpuError::NoDevice(
+                format!("unsupported DRM driver '{other}' — expected amdgpu or nouveau").into(),
+            )),
+        }
+    }
+
+    /// Fallback auto-detect for non-Linux (compile-only).
+    #[cfg(not(target_os = "linux"))]
+    pub fn auto() -> GpuResult<Self> {
         Self::new(GpuTarget::default())
     }
 
     /// Compile WGSL source to a native GPU kernel.
     ///
+    /// Returns a [`CompiledKernel`] with the binary and compiler metadata
+    /// (GPR count, instruction count) needed for QMD construction.
+    ///
     /// # Errors
     ///
     /// Returns [`GpuError::Compile`] if parsing or compilation fails.
     pub fn compile_wgsl(&self, wgsl: &str) -> GpuResult<CompiledKernel> {
-        let binary = coral_reef::compile_wgsl(wgsl, &self.options)?;
+        let compiled = coral_reef::compile_wgsl_full(wgsl, &self.options)?;
         Ok(CompiledKernel {
-            binary,
+            binary: compiled.binary,
             source_hash: hash_wgsl(wgsl),
             target: self.target,
+            gpr_count: compiled.info.gpr_count,
+            instr_count: compiled.info.instr_count,
+            shared_mem_bytes: compiled.info.shared_mem_bytes,
+            barrier_count: compiled.info.barrier_count,
         })
     }
 
@@ -125,6 +190,10 @@ impl GpuContext {
             binary,
             source_hash: 0,
             target: self.target,
+            gpr_count: 0,
+            instr_count: 0,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
         })
     }
 
@@ -132,6 +201,106 @@ impl GpuContext {
     #[must_use]
     pub const fn target(&self) -> GpuTarget {
         self.target
+    }
+
+    /// Whether a hardware device is attached.
+    #[must_use]
+    pub fn has_device(&self) -> bool {
+        self.device.is_some()
+    }
+
+    fn device_mut(&mut self) -> GpuResult<&mut dyn ComputeDevice> {
+        match self.device.as_mut() {
+            Some(d) => Ok(d.as_mut()),
+            None => Err(GpuError::NoDeviceAttached),
+        }
+    }
+
+    fn device_ref(&self) -> GpuResult<&dyn ComputeDevice> {
+        match self.device.as_ref() {
+            Some(d) => Ok(d.as_ref()),
+            None => Err(GpuError::NoDeviceAttached),
+        }
+    }
+
+    /// Allocate a GPU buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if no device is attached or allocation fails.
+    pub fn alloc(&mut self, size: u64) -> GpuResult<BufferHandle> {
+        Ok(self.device_mut()?.alloc(size, MemoryDomain::VramOrGtt)?)
+    }
+
+    /// Allocate a GPU buffer in a specific memory domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if no device is attached or allocation fails.
+    pub fn alloc_in(&mut self, size: u64, domain: MemoryDomain) -> GpuResult<BufferHandle> {
+        Ok(self.device_mut()?.alloc(size, domain)?)
+    }
+
+    /// Free a GPU buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the handle is invalid or no device is attached.
+    pub fn free(&mut self, handle: BufferHandle) -> GpuResult<()> {
+        Ok(self.device_mut()?.free(handle)?)
+    }
+
+    /// Upload data from host to a GPU buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the handle is invalid, data exceeds buffer bounds,
+    /// or no device is attached.
+    pub fn upload(&mut self, handle: BufferHandle, data: &[u8]) -> GpuResult<()> {
+        Ok(self.device_mut()?.upload(handle, 0, data)?)
+    }
+
+    /// Read data back from a GPU buffer to host.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the handle is invalid or no device is attached.
+    pub fn readback(&self, handle: BufferHandle, len: usize) -> GpuResult<Vec<u8>> {
+        Ok(self.device_ref()?.readback(handle, 0, len)?)
+    }
+
+    /// Dispatch a compiled kernel on the GPU.
+    ///
+    /// Binds `buffers` as shader resources and launches `dims` workgroups.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if no device is attached or dispatch fails.
+    pub fn dispatch(
+        &mut self,
+        kernel: &CompiledKernel,
+        buffers: &[BufferHandle],
+        dims: [u32; 3],
+    ) -> GpuResult<()> {
+        let dispatch_dims = DispatchDims::new(dims[0], dims[1], dims[2]);
+        let info = ShaderInfo {
+            gpr_count: kernel.gpr_count,
+            shared_mem_bytes: kernel.shared_mem_bytes,
+            barrier_count: kernel.barrier_count,
+            workgroup: [64, 1, 1],
+        };
+        Ok(self
+            .device_mut()?
+            .dispatch(&kernel.binary, buffers, dispatch_dims, &info)?)
+    }
+
+    /// Wait for all submitted GPU work to complete.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the fence wait fails or no device is attached.
+    pub fn sync(&self) -> GpuResult<()> {
+        Ok(self.device_ref()?.sync()?)
     }
 }
 
@@ -149,14 +318,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gpu_context_creation() {
-        let ctx = GpuContext::auto();
-        assert!(ctx.is_ok());
+    fn gpu_context_compile_only() {
+        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
+        assert!(!ctx.has_device());
     }
 
     #[test]
     fn gpu_context_compile_wgsl() {
-        let ctx = GpuContext::auto().unwrap();
+        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
         let kernel = ctx.compile_wgsl("@compute @workgroup_size(1) fn main() {}");
         assert!(kernel.is_ok());
         let k = kernel.unwrap();
@@ -186,5 +355,38 @@ mod tests {
         let c = hash_wgsl("world");
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn alloc_fails_without_device() {
+        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
+        let err = ctx.alloc(1024).unwrap_err();
+        assert!(matches!(err, GpuError::NoDeviceAttached));
+    }
+
+    #[test]
+    fn dispatch_fails_without_device() {
+        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
+        let kernel = ctx
+            .compile_wgsl("@compute @workgroup_size(1) fn main() {}")
+            .unwrap();
+        let err = ctx.dispatch(&kernel, &[], [1, 1, 1]).unwrap_err();
+        assert!(matches!(err, GpuError::NoDeviceAttached));
+    }
+
+    #[test]
+    fn sync_fails_without_device() {
+        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
+        let err = ctx.sync().unwrap_err();
+        assert!(matches!(err, GpuError::NoDeviceAttached));
+    }
+
+    #[test]
+    fn readback_fails_without_device() {
+        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
+        // Cannot construct BufferHandle from outside coral-driver, so we
+        // test via sync which also requires a device.
+        let err = ctx.sync().unwrap_err();
+        assert!(matches!(err, GpuError::NoDeviceAttached));
     }
 }

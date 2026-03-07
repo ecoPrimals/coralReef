@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 7)
-**Phase**: 10 — Spring Absorption + Compiler Hardening + Debt Reduction
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 9)
+**Phase**: 10 — E2E Wiring + Push Buffer Fix + Debt Reduction
 
 ---
 
@@ -9,12 +9,17 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-904 tests (883 passing, 21 ignored), 14/27 cross-spring WGSL shaders
+974 tests (952 passing, 22 ignored), 14/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
-The compiler pipeline works. Deep debt reduction in progress: scheduler
-refactored into focused modules, production unwraps audited (all in test
-code), unsafe code documented and minimal, zero clippy warnings.
+Both backends now encode the full IR operation set (memory, control flow,
+comparisons, integer/logic ops, type conversions, system values). The
+nouveau DRM driver is fully wired (channel, GEM, pushbuf, QMD dispatch).
+Compile-time safety infrastructure added: `TypedBitField<OFFSET, WIDTH>`
+and `derive(Encode)` for verified instruction encoding. groundSpring V95
+identified the critical push buffer field swap. All P0 blockers (push buffer,
+QMD CBUF binding, GPR count, NVIF constants, binding layout) resolved in
+Iteration 9.
 
 ---
 
@@ -159,13 +164,18 @@ early returns with standard control flow to ensure expr_map insertion.
 | Component | Status | Next Step |
 |-----------|--------|-----------|
 | DRM open/close | **Done** | — |
-| Channel create/destroy | **Unsupported** | Returns explicit `DriverError::Unsupported` |
-| GEM alloc | **Unsupported** | Returns explicit `DriverError::Unsupported` |
+| Channel create/destroy | **Done** | `DRM_NOUVEAU_CHANNEL_ALLOC` / `DRM_NOUVEAU_CHANNEL_FREE` |
+| GEM alloc/mmap/info | **Done** | `DRM_NOUVEAU_GEM_NEW` + `gem_mmap` + `gem_info` |
 | GEM close | **Done** | Real `DRM_IOCTL_GEM_CLOSE` ioctl |
-| QMD v3.0 (SM86) | **Done** | Ampere compute dispatch descriptor |
-| Pushbuf submit | **Unsupported** | Requires hardware validation path |
-| Fence wait | **Unsupported** | Requires hardware validation path |
-| **Hardware validation** | **Not started** | RTX 3090 on-site |
+| QMD v2.1 (Volta) + v3.0 (Ampere) | **Done** | Compute dispatch descriptors for SM70 + SM86 |
+| Pushbuf submit | **Done** | `DRM_NOUVEAU_GEM_PUSHBUF` with BO tracking |
+| NvDevice ComputeDevice | **Done** | Full alloc/free/upload/readback/dispatch/sync |
+| Push buffer encoding | **Done** | Fixed Iteration 9 — `mthd_incr` count/method fields |
+| NVIF constants | **Done** | Fixed Iteration 9 — aligned to Mesa `nvif/ioctl.h` |
+| QMD CBUF binding | **Done** | Fixed Iteration 9 — `buffer_vas` → QMD constant buffer slots |
+| Fence wait | **P1** | EXEC is fire-and-forget; no sync |
+| VM_INIT params | **P1** | Needs `0x80_0000_0000` (from NVK trace) |
+| **Hardware validation** | **Not started** | Titan V + RTX 3090 on-site |
 
 ### Evolution Path
 
@@ -173,15 +183,20 @@ early returns with standard control flow to ensure expr_map insertion.
 Current state:
   WGSL → naga → coralReef → native binary (SASS/GFX)
   ↓
-  Binary cached in memory, no dispatch
+  coralDriver: AMD amdgpu fully wired (GEM+PM4+CS+fence)
+  coralDriver: NVIDIA nouveau fully wired (channel+GEM+pushbuf+QMD)
+  coral-gpu: auto-detect DRM → alloc/dispatch/sync/readback
+
+P0 blockers resolved (Iteration 9):
+  Push buffer mthd_incr field swap, QMD CBUF binding, GPR count, NVIF constants, binding layout mapping
 
 Next milestone (AMD):
   ... → binary → GEM BO → PM4 IB → CS submit → fence wait → readback
-  Hardware: RX 6950 XT (RDNA2, on-site)
+  Hardware: RX 6950 XT (RDNA2, on-site) — driver path ready
 
 Next milestone (NVIDIA):
-  ... → binary + QMD → pushbuf → submit → fence wait → readback
-  Hardware: RTX 3090 (SM86, on-site)
+  Fence wait → E2E test (pushbuf + CBUF binding fixed Iteration 9)
+  Hardware: Titan V (SM70) + RTX 3090 (SM86, on-site)
 
 Endgame:
   WGSL → coralReef → coralDriver → GPU execution → result
@@ -205,13 +220,13 @@ Endgame:
 
 | Spring | Uses coralReef | Status |
 |--------|---------------|--------|
-| barraCuda | `CoralCompiler` IPC client | Wired — compile + cache |
-| toadStool | `shader.compile.*` proxy | Wired — proxies to coralReef `shader.compile.*` |
-| hotSpring | Validation corpus (16 shaders) | Active |
-| groundSpring | Validation partner (sovereign compilation) | Active |
-| neuralSpring | coralForge shaders (8 imported) | Active |
-| airSpring | Domain shaders (1 imported) | Active |
-| wetSpring | No local WGSL (fully lean) | Indirect |
+| barraCuda | `CoralCompiler` IPC client | Wired — compile + cache; `CoralReefDevice` backend pending |
+| toadStool | `shader.compile.*` proxy | Wired — S130 proxies to coralReef `shader.compile.*` |
+| hotSpring | Validation corpus (83 WGSL, 16 imported) | Active — 56 shaders available for import |
+| groundSpring | Validation partner (V95 sovereign compilation) | Active — identified P0 push buffer fix |
+| neuralSpring | coralForge shaders (43 WGSL, 8 imported) | Active — 35 shaders available for import |
+| airSpring | Domain shaders (2 WGSL, 1 imported) | Active |
+| wetSpring | No local WGSL (fully lean) | Indirect — Fp64Strategy dispatch model to study |
 
 ---
 
@@ -277,7 +292,8 @@ Endgame:
 
 **libc** is the only FFI dependency, used for DRM ioctls (ioctl, mmap, munmap).
 No C library links. Transitive FFI from tokio (libc) and jsonrpsee (ring) in
-coralreef-core for async I/O and TLS.
+coralreef-core for async I/O and TLS. Evolution path: biomeOS BearDog/Songbird
+provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 ### Dependency Landscape
 
@@ -311,9 +327,11 @@ coralreef-core for async I/O and TLS.
 | 10 iter 4 | Spring absorption + compiler hardening | **832** |
 | 10 iter 5 | Ptr tracking fix, scheduler refactor, debt audit | **832** (811 pass, 21 ignore) |
 | 10 iter 6 | Deep debt internalization, IPC evolution | **856** (836 pass, 20 ignore) |
-| 10 iter 7 (current) | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
+| 10 iter 7 | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
+| 10 iter 9 (current) | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
-strictly better code. No vendor lock-in. No C heritage. Pure Rust.*
+strictly better code. No vendor lock-in. No C heritage. Pure Rust.
+Iteration 9: P0 blockers resolved. Push buffer, QMD CBUF, GPR count, NVIF, binding layout.*

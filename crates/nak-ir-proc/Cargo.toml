@@ -4,6 +4,7 @@ description = "Proc-macro derives for NAK IR types — SrcsAsSlice, DstsAsSlice,
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
+publish = false
 rust-version = "1.85"
 
 [lib]

@@ -423,6 +423,21 @@ pub trait ShaderModel {
     /// NVIDIA: warps per SM.  AMD: waves per CU.  Used by the scheduler
     /// to compute occupancy cliffs.
     fn max_warps(&self) -> u32;
+
+    /// Threads per warp (NVIDIA) or lanes per wave (AMD).
+    ///
+    /// NVIDIA: always 32. AMD RDNA2: 32 (wave32) or 64 (wave64).
+    fn wave_size(&self) -> u32 {
+        32
+    }
+
+    /// Total 32-bit register file entries per SM/CU.
+    ///
+    /// NVIDIA: 65536 registers per SM (all architectures SM70+).
+    /// AMD RDNA2: 1024 VGPRs per SIMD × 2 SIMDs = 2048 (in wave32 units).
+    fn total_reg_file(&self) -> u32 {
+        65_536
+    }
 }
 
 /// NVIDIA shader model — delegates to generation-specific implementations.
@@ -557,26 +572,33 @@ pub const fn prev_multiple_of(x: u32, y: u32) -> u32 {
 /// For compute shaders, large values of local_size impose an additional limit
 /// on the number of GPRs per thread.
 ///
-/// NVIDIA-specific: assumes 65536 registers/SM and 32 threads/warp.
-/// AMD register allocation uses a different model (see `ShaderModelRdna2`).
+/// Uses the shader model's `total_reg_file()` and `wave_size()` for
+/// vendor-agnostic computation. Falls back to NVIDIA defaults for
+/// `ShaderModelInfo`.
 pub fn gpr_limit_from_local_size(local_size: &[u16; 3]) -> u32 {
-    const NV_TOTAL_REGS: u32 = 65_536;
-    const NV_WARP_SIZE: u32 = 32;
-    let local_size = local_size[0] * local_size[1] * local_size[2];
-    let local_size = local_size.next_multiple_of(4 * NV_WARP_SIZE as u16) as u32;
+    gpr_limit_from_local_size_sm(local_size, 65_536, 32)
+}
 
-    let out = NV_TOTAL_REGS / local_size;
+/// Vendor-agnostic variant using SM parameters.
+pub fn gpr_limit_from_local_size_sm(local_size: &[u16; 3], total_regs: u32, wave_size: u32) -> u32 {
+    let local_size = local_size[0] * local_size[1] * local_size[2];
+    let local_size = local_size.next_multiple_of(4 * wave_size as u16) as u32;
+
+    let out = total_regs / local_size;
     let out = prev_multiple_of(out, 8);
     min(out, 255)
 }
 
-/// NVIDIA-specific: compute max concurrent warps from GPR usage.
+/// Compute max concurrent warps/waves from GPR usage.
+///
+/// Uses the shader model's `total_reg_file()` and `wave_size()` for
+/// vendor-agnostic computation.
 pub fn max_warps_per_sm(sm: &dyn ShaderModel, gprs: u32) -> u32 {
-    const NV_TOTAL_REGS: u32 = 65_536;
-    const NV_WARP_SIZE: u32 = 32;
+    let total_regs = sm.total_reg_file();
+    let wave_size = sm.wave_size();
     let gprs = max(gprs, 1);
     let gprs = gprs.next_multiple_of(8);
-    let max_warps = prev_multiple_of((NV_TOTAL_REGS / NV_WARP_SIZE) / gprs, 4);
+    let max_warps = prev_multiple_of((total_regs / wave_size) / gprs, 4);
     min(max_warps, sm.max_warps())
 }
 

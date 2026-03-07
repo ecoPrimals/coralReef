@@ -71,6 +71,7 @@ impl CoralReefRpcServer for RpcImpl {
         &self,
         request: service::CompileRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned> {
+        // handle_compile converts spirv_words to Bytes at the boundary (JSON-RPC wire format unchanged).
         service::handle_compile(&request).map_err(|e| compile_error_to_rpc(&e))
     }
 

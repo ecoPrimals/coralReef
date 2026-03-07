@@ -31,8 +31,8 @@ const TARGET_FREE: i32 = 4;
 /// many GPRs you can use without costing occupancy, assuming you always need at
 /// least `x` GPRs.
 fn next_occupancy_cliff(sm: &dyn ShaderModel, x: u32) -> u32 {
-    let total_regs: u32 = 65_536;
-    let threads = max_warps_per_sm(sm, x) * 32;
+    let total_regs = sm.total_reg_file();
+    let threads = max_warps_per_sm(sm, x) * sm.wave_size();
 
     // This function doesn't actually model the maximum number of registers
     // correctly - callers need to worry about that separately. We do,

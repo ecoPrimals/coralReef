@@ -1,0 +1,36 @@
+# coralReef genomeBin Manifest
+# ============================
+#
+# Per-primal genomeBin deployment manifest.
+# Follows ecoPrimals genomeBin Architecture Standard.
+#
+# See: wateringHole/GENOMEBIN_ARCHITECTURE_STANDARD.md
+
+[primal]
+name = "coralreef"
+version = "0.1.0"
+license = "AGPL-3.0-only"
+binary = "coralreef"
+description = "Sovereign Rust GPU shader compiler. Compiles WGSL and SPIR-V compute shaders to native GPU binaries. coralDriver + coralGpu. Zero C dependencies."
+
+[capabilities]
+list = [
+    "shader.compile.spirv",
+    "shader.compile.wgsl",
+    "shader.compile.status",
+    "shader.compile.capabilities",
+]
+
+[dependencies]
+# Sovereign — zero external service dependencies
+external = []
+
+[platforms]
+primary = "linux-x86_64"
+cross_ready = ["linux-aarch64"]
+
+[ipc_transports]
+# JSON-RPC 2.0 over TCP
+jsonrpc = "tcp"
+# tarpc over Unix socket + TCP
+tarpc = ["unix_socket", "tcp"]

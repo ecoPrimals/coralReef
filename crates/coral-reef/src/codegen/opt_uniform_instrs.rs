@@ -117,3 +117,61 @@ impl Shader<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::ir::{
+        Instr, OpCopy, OpNop, RegFile, SSAValueAllocator, ShaderModelInfo, Src,
+    };
+    use coral_reef_stubs::fxhash::FxHashMap;
+
+    fn make_sm70() -> ShaderModelInfo {
+        ShaderModelInfo::new(70, 64)
+    }
+
+    #[test]
+    fn test_should_lower_to_warp_op_cannot_be_uniform() {
+        let sm = make_sm70();
+        let instr = Instr::new(OpNop { label: None });
+        let r2ur = FxHashMap::default();
+        assert!(
+            should_lower_to_warp(&sm, &instr, &r2ur),
+            "OpNop cannot be uniform, should lower to warp"
+        );
+    }
+
+    #[test]
+    fn test_propagate_r2ur_replaces_mapped_src() {
+        let mut alloc = SSAValueAllocator::new();
+        let gpr_src = alloc.alloc(RegFile::GPR);
+        let ugpr_dst = alloc.alloc(RegFile::UGPR);
+        let mut r2ur = FxHashMap::default();
+        r2ur.insert(gpr_src, ugpr_dst);
+
+        let mut instr = Instr::new(OpCopy {
+            dst: ugpr_dst.into(),
+            src: Src::from(gpr_src),
+        });
+        let progress = propagate_r2ur(&mut instr, &r2ur);
+        assert!(progress);
+        let mut uses = Vec::new();
+        instr.for_each_ssa_use(|ssa| uses.push(*ssa));
+        assert_eq!(uses, [ugpr_dst]);
+    }
+
+    #[test]
+    fn test_propagate_r2ur_no_progress_when_not_mapped() {
+        let mut alloc = SSAValueAllocator::new();
+        let gpr_src = alloc.alloc(RegFile::GPR);
+        let ugpr_dst = alloc.alloc(RegFile::UGPR);
+        let r2ur = FxHashMap::default();
+
+        let mut instr = Instr::new(OpCopy {
+            dst: ugpr_dst.into(),
+            src: Src::from(gpr_src),
+        });
+        let progress = propagate_r2ur(&mut instr, &r2ur);
+        assert!(!progress);
+    }
+}

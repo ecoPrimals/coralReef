@@ -3,6 +3,7 @@ name = "coral-gpu"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Unified GPU compute abstraction — compile + dispatch in one API"
 
 [dependencies]
@@ -10,5 +11,9 @@ coral-reef = { path = "../coral-reef" }
 coral-driver = { path = "../coral-driver" }
 thiserror.workspace = true
 tracing.workspace = true
+
+[features]
+default = []
+nouveau = ["coral-driver/nouveau"]
 
 [dev-dependencies]

@@ -437,3 +437,188 @@ pub(super) struct SSAState {
     // The set of pinned variables
     pub p: FxHashSet<SSAValue>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::ir::{
+        BasicBlock, Dst, Function, Instr, LabelAllocator, OpCopy, OpExit, OpPhiDsts, OpPhiSrcs,
+        PhiAllocator, RegFile, RegFileSet, SSAValueAllocator, Src,
+    };
+    use crate::codegen::liveness::{Liveness, NextUseLiveness};
+    use coral_reef_stubs::cfg::CFGBuilder;
+    use std::cmp::Ordering;
+
+    fn make_empty_block() -> BasicBlock {
+        BasicBlock {
+            label: LabelAllocator::new().alloc(),
+            uniform: false,
+            instrs: vec![],
+        }
+    }
+
+    fn make_block_with_phi_dsts(phi: Phi, dst_ssa: SSAValue) -> BasicBlock {
+        let mut instrs = vec![];
+        let mut phi_dsts = OpPhiDsts::new();
+        phi_dsts.dsts.push(phi, Dst::from(dst_ssa));
+        instrs.push(Instr::new(phi_dsts));
+        instrs.push(Instr::new(OpExit {}));
+        BasicBlock {
+            label: LabelAllocator::new().alloc(),
+            uniform: false,
+            instrs,
+        }
+    }
+
+    fn make_block_with_phi_srcs(phi: Phi, src_ssa: SSAValue) -> BasicBlock {
+        let mut instrs = vec![];
+        instrs.push(Instr::new(OpCopy {
+            dst: src_ssa.into(),
+            src: Src::ZERO,
+        }));
+        let mut phi_srcs = OpPhiSrcs::new();
+        phi_srcs.srcs.push(phi, Src::from(src_ssa));
+        instrs.push(Instr::new(phi_srcs));
+        instrs.push(Instr::new(OpExit {}));
+        BasicBlock {
+            label: LabelAllocator::new().alloc(),
+            uniform: false,
+            instrs,
+        }
+    }
+
+    #[test]
+    fn test_phi_dst_map_from_empty_block() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let some_ssa = ssa_alloc.alloc(RegFile::GPR);
+        let block = make_empty_block();
+        let map = PhiDstMap::from_block(&block);
+        assert!(map.get_phi(&some_ssa).is_none());
+    }
+
+    #[test]
+    fn test_phi_src_map_from_empty_block() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let some_ssa = ssa_alloc.alloc(RegFile::GPR);
+        let block = make_empty_block();
+        let map = PhiSrcMap::from_block(&block);
+        assert!(map.get_phi(&some_ssa).is_none());
+    }
+
+    #[test]
+    fn test_phi_dst_map_from_block_with_phi() {
+        let mut phi_alloc = PhiAllocator::new();
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let phi = phi_alloc.alloc();
+        let dst_ssa = ssa_alloc.alloc(RegFile::GPR);
+        let block = make_block_with_phi_dsts(phi, dst_ssa);
+        let map = PhiDstMap::from_block(&block);
+        assert!(map.get_phi(&dst_ssa).is_some_and(|p| *p == phi));
+        assert_eq!(map.get_dst_ssa(&phi), Some(&dst_ssa));
+    }
+
+    #[test]
+    fn test_phi_src_map_from_block_with_phi() {
+        let mut phi_alloc = PhiAllocator::new();
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let phi = phi_alloc.alloc();
+        let src_ssa = ssa_alloc.alloc(RegFile::GPR);
+        let block = make_block_with_phi_srcs(phi, src_ssa);
+        let map = PhiSrcMap::from_block(&block);
+        assert!(map.get_phi(&src_ssa).is_some_and(|p| *p == phi));
+    }
+
+    #[test]
+    fn test_ssa_next_use_construction() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let ssa = ssa_alloc.alloc(RegFile::GPR);
+        let nu = SSANextUse::new(ssa, 10);
+        assert_eq!(nu.ssa, ssa);
+    }
+
+    #[test]
+    fn test_ssa_next_use_ord() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let ssa1 = ssa_alloc.alloc(RegFile::GPR);
+        let ssa2 = ssa_alloc.alloc(RegFile::GPR);
+        let nu1 = SSANextUse::new(ssa1, 5);
+        let nu2 = SSANextUse::new(ssa2, 10);
+        assert_eq!(nu1.cmp(&nu2), Ordering::Less);
+        assert_eq!(nu2.cmp(&nu1), Ordering::Greater);
+    }
+
+    #[test]
+    fn test_ssa_next_use_ord_same_next_use_tiebreak_by_idx() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let ssa1 = ssa_alloc.alloc(RegFile::GPR);
+        let ssa2 = ssa_alloc.alloc(RegFile::GPR);
+        let nu1 = SSANextUse::new(ssa1, 5);
+        let nu2 = SSANextUse::new(ssa2, 5);
+        assert_eq!(nu1.cmp(&nu2), Ordering::Less);
+        assert_eq!(nu2.cmp(&nu1), Ordering::Greater);
+    }
+
+    #[test]
+    fn test_ssa_next_use_partial_ord() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let ssa = ssa_alloc.alloc(RegFile::GPR);
+        let nu = SSANextUse::new(ssa, 5);
+        assert_eq!(nu.partial_cmp(&nu), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn test_ssa_state_construction() {
+        let w = LiveSet::new();
+        let s = FxHashSet::default();
+        let p = FxHashSet::default();
+        let state = SSAState { w, s, p };
+        assert!(state.w.iter().next().is_none());
+        assert!(state.s.is_empty());
+        assert!(state.p.is_empty());
+    }
+
+    #[test]
+    fn test_spill_chooser_iterator() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let mut instrs = vec![];
+        let a = ssa_alloc.alloc(RegFile::GPR);
+        let b = ssa_alloc.alloc(RegFile::GPR);
+        let c = ssa_alloc.alloc(RegFile::GPR);
+        instrs.push(Instr::new(OpCopy {
+            dst: a.into(),
+            src: Src::ZERO,
+        }));
+        instrs.push(Instr::new(OpCopy {
+            dst: b.into(),
+            src: a.into(),
+        }));
+        instrs.push(Instr::new(OpCopy {
+            dst: c.into(),
+            src: b.into(),
+        }));
+        instrs.push(Instr::new(OpExit {}));
+
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        });
+        let func = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+
+        let files = RegFileSet::from_iter([RegFile::GPR]);
+        let live = NextUseLiveness::for_function(&func, &files);
+        let bl = live.block_live(0);
+        let pinned = FxHashSet::default();
+        let mut chooser = SpillChooser::new(bl, &pinned, 0, 1);
+        chooser.add_candidate(a);
+        chooser.add_candidate(b);
+        let spills: Vec<_> = chooser.into_iter().collect();
+        assert!(!spills.is_empty());
+    }
+}

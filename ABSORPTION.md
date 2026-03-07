@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 7: Safety + Coverage)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 9: E2E Wiring + Push Buffer Fix + Debt Reduction)
 
 ---
 
@@ -28,29 +28,42 @@
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
-| ~~81 WGSL shaders as validation corpus~~ | ~~Yes~~ | ~~P1~~ | **Absorbed** — 27 shaders imported (5 springs), 14 compiling SM70 |
+| ~~81 WGSL shaders as validation corpus~~ | ~~Yes~~ | ~~P1~~ | **Partially absorbed** — 16 of 83 imported, 14 compiling SM70 |
 | ~~Dielectric Mermin, BCS bisection~~ | ~~Yes~~ | ~~P1~~ | **Imported** — precision shaders (stable W(z), cancellation-safe BCS v²) |
 | ~~SU(3) gauge force~~ | ~~Yes~~ | ~~P1~~ | **Imported** — heavy f64 staple sum + TA projection |
 | ~~Stress virial (MD)~~ | ~~Yes~~ | ~~P2~~ | **Imported** — cross-spring: used by wetSpring for mechanical properties |
+| Deformed HFB shaders (5) | Yes | P2 | `deformed_{hamiltonian,potentials,wavefunction,density_energy,gradient}_f64.wgsl` |
+| Lattice shaders (32 new) | Yes | P2 | HMC, pseudofermion, Polyakov loop, staggered fermion, PRNG, CG variants |
+| MD shaders (10 new) | Yes | P2 | VACF, ESN, additional Yukawa variants, Verlet |
 | NVK f64 workarounds (reciprocal multiply, floor-modulo) | Study | P2 | Legalization pass should handle these patterns |
 | Gradient flow as Titan V validation target | Yes | P2 | Embarrassingly parallel, f64-heavy, ideal coralDriver test |
+| FMA control / `NoContraction` | Yes | P1 | Bit-exact CPU parity for precision stability |
 
-### groundSpring (V89)
+### groundSpring (V95)
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
-| f64 shared-memory reduction shaders (6 patterns) | Yes | P0 | Add as regression tests — these exposed 2 bugs |
+| ~~**Push buffer encoding fix** (`mthd_incr` field swap)~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — groundSpring V95 root cause: count/method fields transposed in Kepler+ Type 1 header |
+| ~~**NVIF constant alignment** (Mesa `nvif/ioctl.h`)~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — `ROUTE_NVIF=0x00`, `OWNER_ANY=0xFF` |
+| ~~**QMD CBUF binding**~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — `buffer_vas` → QMD constant buffer slots |
+| ~~**GPR count from compiler**~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — QMD now receives actual count from compiler |
+| Fence synchronization | Yes | P1 | EXEC is fire-and-forget |
+| NvDevice VM_INIT params | Yes | P1 | `kernel_managed_addr=0x80_0000_0000` from NVK trace |
+| NVK ioctl trace reference | Study | P1 | `/tmp/nvk_compute_trace.log` — golden reference for all NVIDIA dispatch parameters |
+| f64 shared-memory reduction shaders (6 patterns) | Yes | P1 | Add as regression tests — these exposed 2 bugs in V85 |
 | ~~13-tier tolerance architecture~~ | ~~Study~~ | ~~P3~~ | **Absorbed** — `tol.rs` with 13 tiers + `eps::` guards + `within()` + `compare_all()` |
 | ~~Anderson Lyapunov WGSL (f64)~~ | ~~Yes~~ | ~~P1~~ | **Imported** — xoshiro128**, transfer matrix, uniform bindings |
 | Level 4 assignment (coralDriver, coralMem, coralQueue) | Yes | P1 | groundSpring is the validation partner |
 
-### neuralSpring (S128)
+### neuralSpring (S129)
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
 | ~~coralForge WGSL shaders~~ | ~~Yes~~ | ~~P2~~ | **Imported** — gelu, layer_norm, softmax, sdpa_scores, sigmoid, kl_divergence |
 | ~~RK4 parallel ODE solver~~ | ~~Yes~~ | ~~P2~~ | **Imported** — complex control flow, exercises scheduling |
 | ~~Mean reduce (f32)~~ | ~~Yes~~ | ~~P2~~ | **Imported + passing** — single-workgroup reduction |
+| AlphaFold/protein structure shaders (35 new) | Yes | P2 | triangle_attention, ipa_scores, msa_attention, backbone_update, torsion_angles |
+| Bio-evolution shaders | Yes | P2 | wright_fisher_step, swarm_nn, batch_fitness_eval, locus_variance |
 | 4-tier matmul router | Study | P3 | Precision routing pattern |
 
 ### wetSpring (V97d)
@@ -125,7 +138,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 5)
+### Blocker Triage (current — iteration 9)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
@@ -153,7 +166,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 
 ## Ecosystem Integration Points
 
-### toadStool S128
+### toadStool S130
 
 | Endpoint | Protocol | Status |
 |----------|----------|--------|
@@ -175,6 +188,15 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 ```
 Current:  WGSL → naga → NVK → NAK → (bad SASS) → GPU   [9-149× gap]
 Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
+
+Status (groundSpring V95, Iteration 9):
+  ✅ WGSL → SASS compilation (SM70/SM86)
+  ✅ QMD v2.1 (Volta) / v3.0 (Ampere)
+  ✅ DRM VM_INIT + VM_BIND + EXEC
+  ✅ NVIF class object creation
+  ✅ Push buffer SET_OBJECT (field swap fixed Iteration 9)
+  ✅ QMD CBUF binding (resolved Iteration 9)
+  ❌ Fence wait (P1)
 ```
 
 | Metric | NVK/NAK | coralReef (target) | vs PTXAS |
@@ -188,10 +210,11 @@ Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 904 tests (883 pass), coralDriver AMD fully wired (BO list, CS submit, fence sync) |
-| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD driver complete — needs hardware validation on RX 6950 XT |
-| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD driver complete, nouveau explicit `Unsupported` |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 7 complete |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 974 tests (952 pass), both drivers fully wired |
+| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD + nouveau drivers complete — needs hardware validation |
+| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD fully wired, nouveau fully wired (channel+GEM+pushbuf) |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 9 complete |
+| hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM now operational; P0 is QMD CBUF binding (groundSpring V95) |
 
 ---
 
@@ -210,5 +233,7 @@ Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
 
 ---
 
-*14/27 cross-spring shaders compile to native SASS. The compiler evolves —
-each iteration unlocks more shaders. Next: hardware validation.*
+*14/27 cross-spring shaders compile to native SASS. 974 tests (952 pass).
+91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
+The compiler evolves — each iteration unlocks more shaders. P0 blockers (push buffer,
+QMD CBUF, GPR count, NVIF, binding layout) resolved in Iteration 9. Next: hardware validation.*

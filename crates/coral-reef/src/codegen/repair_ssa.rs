@@ -358,3 +358,80 @@ impl Function {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::codegen::ir::{
+        BasicBlock, Function, Instr, LabelAllocator, OpCopy, OpExit, PhiAllocator, RegFile,
+        SSAValueAllocator, Src,
+    };
+    use coral_reef_stubs::cfg::CFGBuilder;
+
+    #[test]
+    fn test_repair_ssa_no_op_for_single_def() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let a = ssa_alloc.alloc(RegFile::GPR);
+        let instrs = vec![
+            Instr::new(OpCopy {
+                dst: a.into(),
+                src: Src::ZERO,
+            }),
+            Instr::new(OpExit {}),
+        ];
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        });
+        let mut func = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        let instr_count_before = func.blocks[0].instrs.len();
+        func.repair_ssa();
+        let instr_count_after = func.blocks[0].instrs.len();
+        assert_eq!(
+            instr_count_before, instr_count_after,
+            "single def should not add phis"
+        );
+    }
+
+    #[test]
+    fn test_repair_ssa_handles_multi_def() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let a = ssa_alloc.alloc(RegFile::GPR);
+        let b = ssa_alloc.alloc(RegFile::GPR);
+        let instrs = vec![
+            Instr::new(OpCopy {
+                dst: a.into(),
+                src: Src::ZERO,
+            }),
+            Instr::new(OpCopy {
+                dst: b.into(),
+                src: a.into(),
+            }),
+            Instr::new(OpCopy {
+                dst: a.into(),
+                src: b.into(),
+            }),
+            Instr::new(OpExit {}),
+        ];
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        });
+        let mut func = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        func.repair_ssa();
+        assert!(!func.blocks[0].instrs.is_empty());
+    }
+}

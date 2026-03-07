@@ -201,7 +201,6 @@ fn sched_buffer(
 ) -> (impl Iterator<Item = Instr> + use<>, u64) {
     let mut g = generate_dep_graph(sm, &instrs);
     let init_ready_list = calc_statistics(&mut g);
-    // save_graphviz(&instrs, &g).unwrap();
     g.reverse();
     let (new_order, cycle_count) = generate_order(&mut g, init_ready_list);
 

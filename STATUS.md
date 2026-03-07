@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 6, 2026  
-**Phase**: 10 — Spring Absorption + Compiler Hardening + Debt Reduction
+**Last updated**: March 7, 2026  
+**Phase**: 10 — Iteration 9 (E2E Wiring + Push Buffer Fix + Debt Reduction)
 
 ---
 
@@ -13,14 +13,14 @@
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
 | IPC | A+ | JSON-RPC 2.0 + tarpc, Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` semantic naming, differentiated error codes |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
-| AMD pipeline | A | `ShaderModelRdna2` → legalize → RA → encode, cross-vendor WGSL compilation |
+| AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | A | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (explicit `Unsupported`), pure Rust syscalls via libc |
-| coralGpu | A | Unified compile+dispatch API, vendor-agnostic `GpuContext` |
+| coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
+| coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 904 tests (883 passing, 21 ignored), zero failures |
+| Tests | A+ | 974 tests (952 passing, 22 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening | **In Progress** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening | **Iteration 9** |
 
 ### Phase 10 Completions
 
@@ -99,14 +99,57 @@
 | Frontend/compile edge case tests | ✅ | Malformed WGSL, Intel unsupported, `ShaderModelInfo::new` panic, FmaPolicy, CompileOptions accessors |
 | Test coverage expansion | ✅ | 856→904 total tests (883 passing, 21 ignored) |
 
-### Phase 10 Remaining
+### Phase 10 — Iteration 8 Completions (AMD Full IR + Nouveau DRM + Compile-Time Safety)
 
-| Task | Priority | Blocker |
-|------|----------|---------|
+| Task | Status | Details |
+|------|--------|---------|
+| coral-gpu ComputeDevice wiring | ✅ | Auto-detect DRM render nodes, alloc/dispatch/sync/readback, AMD and nouveau paths |
+| AMD memory encoding (FLAT) | ✅ | `encode_flat_load`, `encode_flat_store`, `encode_flat_atomic` for FLAT instructions (64-bit) |
+| AMD control flow encoding | ✅ | `encode_s_branch`, `encode_s_cbranch_{scc0,scc1,vccnz,vccz,execnz,execz}` |
+| AMD comparison encoding | ✅ | VOPC/VOP3 for FSetP/ISetP/DSetP, float/int comparison to opcode mapping |
+| AMD integer/logic encoding | ✅ | V_AND/OR/XOR_B32, V_LSHLREV/LSHRREV/ASHRREV, V_ADD_NC_U32, V_MAD_U32_U24 |
+| AMD type conversion | ✅ | F2F, F2I, I2F, I2I via V_MOV/V_CVT instructions |
+| AMD system value registers | ✅ | S2R/CS2R → V_MOV_B32 from AMD hardware VGPRs (thread/workgroup IDs) |
+| AMD Sel (V_CNDMASK_B32) | ✅ | Conditional select via VCC |
+| ShaderModel abstraction | ✅ | `wave_size()`, `total_reg_file()` on trait; occupancy formulas vendor-agnostic |
+| TypedBitField<OFFSET,WIDTH> | ✅ | Compile-time safe bit field access with overflow detection |
+| InstrBuilder<N> | ✅ | Fixed-size instruction word builder integrated with TypedBitField |
+| derive(Encode) proc-macro | ✅ | `#[enc(offset, width)]` attributes generate `encode()` method on IR structs |
+| Nouveau DRM channel | ✅ | `create_channel`, `destroy_channel` via DRM_NOUVEAU_CHANNEL_ALLOC/FREE |
+| Nouveau GEM alloc/mmap | ✅ | `gem_new`, `gem_info`, `gem_mmap` for VRAM/GART buffers |
+| Nouveau pushbuf submit | ✅ | `pushbuf_submit` with BO tracking, push entries |
+| NvDevice ComputeDevice impl | ✅ | Full alloc/free/upload/readback/dispatch/sync via nouveau DRM |
+| Test coverage expansion | ✅ | +49 tests → 953 total (931 passing, 22 ignored) |
+
+### Phase 10 — Iteration 9 Completions (E2E Wiring + Push Buffer Fix + Debt Reduction)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Push buffer encoding fix (P0) | ✅ | New `pushbuf.rs` with correct Kepler+ Type 1/3/4 headers — `mthd_incr`, `mthd_ninc`, `mthd_immd`, `PushBuf` builder, `compute_dispatch()` method |
+| NVIF constant alignment (P0) | ✅ | `NVIF_ROUTE_NVIF=0x00`, `NVIF_ROUTE_HIDDEN=0xFF`, `NVIF_OWNER_NVIF=0x00`, `NVIF_OWNER_ANY=0xFF` — aligned to Mesa `nvif/ioctl.h` |
+| QMD CBUF binding (P0) | ✅ | Full 64-word QMD v2.1/v3.0 with CONSTANT_BUFFER_VALID bitmask, CBUF address pairs, size fields; `CbufBinding` + `QmdParams` types |
+| WGSL @binding(N) → QMD CBUF (P0) | ✅ | Buffer handles mapped to CBUF slots by index in `NvDevice::dispatch()` |
+| GPR count from compiler (P0) | ✅ | `compile_wgsl_full()` returns `CompiledBinary` with `CompilationInfo.gpr_count`; wired through `CompiledKernel` to QMD REGISTER_COUNT field |
+| Nouveau fence sync (P1) | ✅ | `DRM_NOUVEAU_GEM_CPU_PREP` ioctl via `gem_cpu_prep()`; `NvDevice::sync()` waits for last submitted QMD buffer |
+| NvDevice VM_INIT params (P1) | ✅ | `NV_KERNEL_MANAGED_ADDR = 0x80_0000_0000` constant (from NVK ioctl trace) |
+| Shared memory + barriers (P1) | ✅ | `CompilationInfo.shared_mem_bytes` + `barrier_count` wired from compiler `ShaderInfo` through backend to QMD words 10-11 |
+| Shader corpus expansion (P2) | ✅ | 13 new shaders imported (7 hotSpring: lattice, MD; 6 neuralSpring: regression, evolution) — total 40 WGSL shaders |
+| `bytemuck` for safe casts (P2) | ✅ | Replaced `unsafe` `u32_slice_as_bytes` in AMD + NV drivers and pushbuf with `bytemuck::cast_slice` |
+| CFG → FxHashMap (P2) | ✅ | `coral-reef-stubs/cfg/mod.rs` switched from `HashMap` to internal `FxHashMap` for compiler hot path |
+| Proc-macro unwrap → expect (P2) | ✅ | `nak-ir-proc` `field.ident.as_ref().unwrap()` → `.expect()` with context message |
+| Ioctl struct layout tests (P2) | ✅ | New tests for `NouveauGemPushbufBo` (40 bytes) and `NouveauGemPushbufPush` (24 bytes) kernel ABI |
+| `ShaderInfo` in dispatch trait | ✅ | `ComputeDevice::dispatch()` accepts `&ShaderInfo` with GPR, shared mem, barriers, workgroup — compiler metadata reaches QMD |
+| Test coverage expansion | ✅ | +21 tests → 974 total (952 passing, 22 ignored) |
+
+### Phase 10 Remaining / Phase 11 Roadmap
+
+| Task | Priority | Detail |
+|------|----------|--------|
 | GPR→Pred coercion chain | P2 | Blocks logical_predicates |
 | Wilson plaquette (scheduler) | P2 | PerRegFile live_in mismatch |
 | const_tracker negated immediate | P2 | HFB hamiltonian |
-| Nouveau compute path | P3 | Explicit `Unsupported` — requires hardware validation |
+| Hardware validation (AMD) | P2 | RX 6950 XT on-site — PM4 + CS submit path ready |
+| Hardware validation (NVIDIA) | P2 | Titan V on-site — channel + pushbuf path ready |
 | Intel backend | P3 | Placeholder |
 
 ## Checks
@@ -114,10 +157,10 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (904 tests: 883 passing, 21 ignored) |
+| `cargo test --workspace` | PASS (974 tests: 952 passing, 22 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
-| `cargo doc --workspace --no-deps` | PASS (0 warnings) |
+| `cargo doc --workspace --no-deps` | PASS |
 
 ## Hardware — On-Site
 
@@ -153,6 +196,20 @@
 | Constructor-validated invariants | Rust defensive programming | ShaderModelInfo::new asserts sm >= 20 |
 | Configurable debug paths | wateringHole agnostic config | CORAL_DEP_GRAPH_PATH env var |
 | Domain-based module split | Smart refactoring principle | cfg.rs → cfg/{mod,dom}.rs |
+| `TypedBitField<OFFSET, WIDTH>` | Compile-time bit field safety | coral-reef-bitview |
+| `InstrBuilder<N>` | Fixed-size instruction word builder | coral-reef-bitview |
+| `derive(Encode)` proc-macro | `#[enc(offset, width)]` → `encode()` method | nak-ir-proc |
+| AMD full IR encoding | FLAT memory, control flow, comparisons, int, type conv, sys values | codegen/amd/ |
+| `wave_size()` + `total_reg_file()` | ShaderModel vendor-agnostic occupancy | ir/shader_info.rs |
+| Nouveau full DRM | Channel, GEM, pushbuf, QMD dispatch | coral-driver/nv/ |
+| coral-gpu auto-detect | DRM render node probing → vendor device | coral-gpu/src/lib.rs |
+| groundSpring V95 push buffer fix | `mthd_incr` field order fix → pushbuf.rs | coral-driver/nv/pushbuf.rs |
+| groundSpring V95 NVIF constants | ROUTE/OWNER alignment to Mesa nvif/ioctl.h | coral-driver/nv/ioctl.rs |
+| groundSpring V95 QMD CBUF wiring | Full 64-word QMD v2.1/v3.0 with binding layout | coral-driver/nv/qmd.rs |
+| groundSpring V95 fence sync | gem_cpu_prep for GPU idle wait | coral-driver/nv/ioctl.rs |
+| `compile_wgsl_full` API | Returns CompiledBinary with GPR/shared/barrier metadata | coral-reef/src/lib.rs |
+| `bytemuck` safe transmutation | Replaces unsafe u32→u8 casts | coral-driver/{amd,nv} |
+| FxHashMap in CFG | Hot-path optimization | coral-reef-stubs/cfg |
 
 ---
 

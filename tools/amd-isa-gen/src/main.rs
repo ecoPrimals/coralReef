@@ -333,12 +333,8 @@ fn parse_xml(
     (encoding_fields, instructions)
 }
 
-fn generate_rust(
-    encoding_fields: &BTreeMap<String, EncodingInfo>,
-    instructions: &BTreeMap<String, Vec<InstrInfo>>,
-) -> String {
-    let mut out = String::with_capacity(256 * 1024);
-
+fn file_header() -> String {
+    let mut out = String::new();
     writeln!(out, "// SPDX-License-Identifier: AGPL-3.0-only").unwrap();
     writeln!(out, "// Copyright © 2026 ecoPrimals").unwrap();
     writeln!(
@@ -361,10 +357,11 @@ fn generate_rust(
     writeln!(out, "//! DO NOT EDIT BY HAND. Regenerate with:").unwrap();
     writeln!(out, "//!   cargo run -p amd-isa-gen").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "#![allow(dead_code, missing_docs)]").unwrap();
-    writeln!(out).unwrap();
+    out
+}
 
-    // Bit field struct
+fn generate_types_file() -> String {
+    let mut out = file_header();
     writeln!(out, "/// Bit field within an encoding format.").unwrap();
     writeln!(out, "#[derive(Debug, Clone, Copy)]").unwrap();
     writeln!(out, "pub struct BitField {{").unwrap();
@@ -374,31 +371,6 @@ fn generate_rust(
     writeln!(out, "    pub width: u32,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
-
-    // Encoding field layouts
-    for (enc_name, info) in encoding_fields {
-        let mod_name = encoding_to_rust_mod(enc_name);
-        writeln!(out, "/// {enc_name} encoding fields ({} bits).", info.bits).unwrap();
-        writeln!(out, "pub mod {mod_name}_fields {{").unwrap();
-        writeln!(out, "    use super::BitField;").unwrap();
-
-        let mut sorted_fields = info.fields.clone();
-        sorted_fields.sort_by_key(|f| f.offset);
-
-        for field in &sorted_fields {
-            let const_name = field.name.to_uppercase();
-            writeln!(
-                out,
-                "    pub const {const_name}: BitField = BitField {{ offset: {}, width: {} }};",
-                field.offset, field.width
-            )
-            .unwrap();
-        }
-        writeln!(out, "}}").unwrap();
-        writeln!(out).unwrap();
-    }
-
-    // Instruction entry struct
     writeln!(out, "/// Instruction entry in the opcode table.").unwrap();
     writeln!(out, "#[derive(Debug, Clone, Copy)]").unwrap();
     writeln!(out, "pub struct InstrEntry {{").unwrap();
@@ -416,65 +388,138 @@ fn generate_rust(
     writeln!(out, "    pub is_terminator: bool,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
+    out
+}
 
-    // Opcode modules
-    let mut total_instrs = 0usize;
-    for (enc_name, instrs) in instructions {
-        let mod_name = encoding_to_rust_mod(enc_name);
-        total_instrs += instrs.len();
+const MAX_LINES_PER_FILE: usize = 950;
+const LINES_PER_INSTR: usize = 8;
 
+struct EncodingOutput {
+    main_file: String,
+    table_file: Option<String>,
+}
+
+fn generate_encoding_file(
+    enc_name: &str,
+    info: &EncodingInfo,
+    instrs: Option<&Vec<InstrInfo>>,
+) -> EncodingOutput {
+    let mod_name = encoding_to_rust_mod(enc_name);
+    let estimated_lines = instrs.map_or(0, |v| v.len() * LINES_PER_INSTR + 30);
+    let needs_split = estimated_lines > MAX_LINES_PER_FILE;
+
+    let mut out = file_header();
+    writeln!(out, "use super::isa_types::{{BitField, InstrEntry}};").unwrap();
+
+    if needs_split {
+        writeln!(out, "mod table;").unwrap();
+        writeln!(out, "pub use table::{{TABLE, lookup}};").unwrap();
+    }
+    writeln!(out).unwrap();
+
+    // Fields
+    writeln!(out, "/// {enc_name} encoding fields ({} bits).", info.bits).unwrap();
+    writeln!(out, "pub mod fields {{").unwrap();
+    writeln!(out, "    use super::BitField;").unwrap();
+    let mut sorted_fields = info.fields.clone();
+    sorted_fields.sort_by_key(|f| f.offset);
+    for field in &sorted_fields {
+        let const_name = field.name.to_uppercase();
         writeln!(
             out,
-            "/// {enc_name} opcodes ({} instructions).",
-            instrs.len()
+            "    pub const {const_name}: BitField = BitField {{ offset: {}, width: {} }};",
+            field.offset, field.width
         )
         .unwrap();
-        writeln!(out, "pub mod {mod_name} {{").unwrap();
+    }
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
 
+    let mut table_file = None;
+
+    if let Some(instrs) = instrs {
+        // Opcode constants always go in the main file
         for instr in instrs {
             let const_name = instr.name.to_uppercase();
             if !instr.desc.is_empty() {
-                writeln!(out, "    /// {}", instr.desc).unwrap();
+                writeln!(out, "/// {}", instr.desc).unwrap();
             }
-            writeln!(out, "    pub const {const_name}: u16 = {};", instr.opcode).unwrap();
+            writeln!(out, "pub const {const_name}: u16 = {};", instr.opcode).unwrap();
         }
 
-        writeln!(out).unwrap();
-        writeln!(out, "    /// All {enc_name} instructions.").unwrap();
-        writeln!(out, "    pub const TABLE: &[super::InstrEntry] = &[").unwrap();
-        for instr in instrs {
-            writeln!(
-                out,
-                "        super::InstrEntry {{ name: \"{}\", opcode: {}, is_branch: {}, is_terminator: {} }},",
-                instr.name, instr.opcode, instr.is_branch, instr.is_terminator
-            )
-            .unwrap();
+        if needs_split {
+            // TABLE + lookup go in a sub-file
+            let mut tbl = file_header();
+            writeln!(tbl, "use super::super::isa_types::InstrEntry;").unwrap();
+            writeln!(tbl).unwrap();
+            write_table_and_lookup(&mut tbl, enc_name, instrs);
+            table_file = Some(tbl);
+        } else {
+            writeln!(out).unwrap();
+            write_table_and_lookup(&mut out, enc_name, instrs);
         }
-        writeln!(out, "    ];").unwrap();
-
-        writeln!(out).unwrap();
-        writeln!(out, "    /// Look up an instruction by opcode.").unwrap();
-        writeln!(
-            out,
-            "    pub fn lookup(opcode: u16) -> Option<&'static super::InstrEntry> {{"
-        )
-        .unwrap();
-        writeln!(out, "        TABLE.iter().find(|e| e.opcode == opcode)").unwrap();
-        writeln!(out, "    }}").unwrap();
-        writeln!(out, "}}").unwrap();
-        writeln!(out).unwrap();
     }
-
-    writeln!(
-        out,
-        "/// Total instruction count across all compute-relevant encodings: {total_instrs}"
-    )
-    .unwrap();
-    writeln!(out, "pub const TOTAL_INSTRUCTIONS: usize = {total_instrs};").unwrap();
     writeln!(out).unwrap();
 
-    // Encoding bits lookup
-    writeln!(out, "/// Look up encoding field info by name.").unwrap();
+    let _ = mod_name;
+    EncodingOutput {
+        main_file: out,
+        table_file,
+    }
+}
+
+fn write_table_and_lookup(out: &mut String, enc_name: &str, instrs: &[InstrInfo]) {
+    writeln!(out, "/// All {enc_name} instructions.").unwrap();
+    writeln!(out, "pub const TABLE: &[InstrEntry] = &[").unwrap();
+    for instr in instrs {
+        writeln!(
+            out,
+            "    InstrEntry {{ name: \"{}\", opcode: {}, is_branch: {}, is_terminator: {} }},",
+            instr.name, instr.opcode, instr.is_branch, instr.is_terminator
+        )
+        .unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "/// Look up an instruction by opcode.").unwrap();
+    writeln!(out, "#[must_use]").unwrap();
+    writeln!(
+        out,
+        "pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {{"
+    )
+    .unwrap();
+    writeln!(out, "    TABLE.iter().find(|e| e.opcode == opcode)").unwrap();
+    writeln!(out, "}}").unwrap();
+}
+
+fn generate_mod_file(
+    encoding_fields: &BTreeMap<String, EncodingInfo>,
+    instructions: &BTreeMap<String, Vec<InstrInfo>>,
+) -> String {
+    let mut out = file_header();
+
+    writeln!(out, "#[allow(dead_code, missing_docs)]").unwrap();
+    writeln!(out, "pub mod isa_types;").unwrap();
+    writeln!(out).unwrap();
+
+    for enc_name in encoding_fields.keys() {
+        let mod_name = encoding_to_rust_mod(enc_name);
+        writeln!(out, "#[allow(dead_code, missing_docs, unused_imports)]").unwrap();
+        writeln!(out, "pub mod {mod_name};").unwrap();
+    }
+    writeln!(out).unwrap();
+
+    let total: usize = instructions.values().map(Vec::len).sum();
+    writeln!(
+        out,
+        "/// Total instruction count across all compute-relevant encodings: {total}"
+    )
+    .unwrap();
+    writeln!(out, "pub const TOTAL_INSTRUCTIONS: usize = {total};").unwrap();
+    writeln!(out).unwrap();
+
+    writeln!(out, "/// Look up encoding width in bits by name.").unwrap();
+    writeln!(out, "#[must_use]").unwrap();
     writeln!(out, "pub fn encoding_bits(name: &str) -> Option<u32> {{").unwrap();
     writeln!(out, "    match name {{").unwrap();
     for (enc_name, info) in encoding_fields {
@@ -491,27 +536,69 @@ fn generate_rust(
 fn main() {
     let root = repo_root();
     let xml_path = root.join("specs").join("amd").join("amdgpu_isa_rdna2.xml");
-    let output_path = root
+    let output_dir = root
         .join("crates")
         .join("coral-reef")
         .join("src")
         .join("codegen")
         .join("amd")
-        .join("isa_generated.rs");
+        .join("isa_generated");
 
     let (encoding_fields, instructions) = parse_xml(&xml_path);
-    let rust_code = generate_rust(&encoding_fields, &instructions);
 
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent).ok();
-    }
-    fs::write(&output_path, &rust_code).unwrap_or_else(|e| {
-        eprintln!("ERROR: Cannot write {}: {e}", output_path.display());
+    fs::create_dir_all(&output_dir).unwrap_or_else(|e| {
+        eprintln!("ERROR: Cannot create {}: {e}", output_dir.display());
         std::process::exit(1);
     });
 
+    let write_file = |name: &str, content: &str| {
+        let path = output_dir.join(name);
+        fs::write(&path, content).unwrap_or_else(|e| {
+            eprintln!("ERROR: Cannot write {}: {e}", path.display());
+            std::process::exit(1);
+        });
+        let lines = content.lines().count();
+        println!("  {name}: {lines} lines");
+    };
+
+    write_file(
+        "mod.rs",
+        &generate_mod_file(&encoding_fields, &instructions),
+    );
+    write_file("isa_types.rs", &generate_types_file());
+
+    for (enc_name, info) in &encoding_fields {
+        let mod_name = encoding_to_rust_mod(enc_name);
+        let instrs = instructions.get(enc_name);
+        let output = generate_encoding_file(enc_name, info, instrs);
+
+        if output.table_file.is_some() {
+            let enc_dir = output_dir.join(&mod_name);
+            fs::create_dir_all(&enc_dir).unwrap_or_else(|e| {
+                eprintln!("ERROR: Cannot create {}: {e}", enc_dir.display());
+                std::process::exit(1);
+            });
+            let write_enc = |name: &str, content: &str| {
+                let path = enc_dir.join(name);
+                fs::write(&path, content).unwrap_or_else(|e| {
+                    eprintln!("ERROR: Cannot write {}: {e}", path.display());
+                    std::process::exit(1);
+                });
+                let lines = content.lines().count();
+                println!("  {mod_name}/{name}: {lines} lines");
+            };
+            write_enc("mod.rs", &output.main_file);
+            if let Some(tbl) = &output.table_file {
+                write_enc("table.rs", tbl);
+            }
+        } else {
+            let filename = format!("{mod_name}.rs");
+            write_file(&filename, &output.main_file);
+        }
+    }
+
     let total: usize = instructions.values().map(std::vec::Vec::len).sum();
-    println!("Generated {}", output_path.display());
+    println!("Generated {}", output_dir.display());
     println!("  Encodings: {}", encoding_fields.len());
     println!("  Instructions: {total}");
     for (enc_name, instrs) in &instructions {

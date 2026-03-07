@@ -131,6 +131,16 @@ impl ShaderModel for ShaderModelRdna2 {
         // Conservative: 32 waves per SIMD
         32
     }
+
+    fn wave_size(&self) -> u32 {
+        u32::from(self.wave_size)
+    }
+
+    fn total_reg_file(&self) -> u32 {
+        // RDNA2: 1024 VGPRs per SIMD in wave32 mode (each 32-bit)
+        // 2 SIMDs per CU → 2048 VGPRs total per CU
+        1024 * 2
+    }
 }
 
 /// AMD-specific legalization for RDNA2.
@@ -300,8 +310,8 @@ fn estimate_instr_size(op: &Op) -> usize {
 fn encode_rdna2_op(
     op: &Op,
     _pred: &Pred,
-    _labels: &FxHashMap<Label, usize>,
-    _ip: usize,
+    labels: &FxHashMap<Label, usize>,
+    ip: usize,
 ) -> Result<Vec<u32>, CompileError> {
     match op {
         Op::Exit(_) => Ok(super::encoding::encode_s_endpgm()),
@@ -342,7 +352,6 @@ fn encode_rdna2_op(
             &op.srcs[1],
             &op.srcs[2],
         ),
-        // f64 sqrt: v_sqrt_f64 (native, no Newton-Raphson needed)
         Op::F64Sqrt(op) => {
             let dst_reg = dst_to_vgpr_index(&op.dst)?;
             let src_enc = src_to_encoding(&Src::from(op.src.reference.clone()))?;
@@ -354,8 +363,6 @@ fn encode_rdna2_op(
                 0,
             ))
         }
-
-        // f64 rcp: v_rcp_f64 (native)
         Op::F64Rcp(op) => {
             let dst_reg = dst_to_vgpr_index(&op.dst)?;
             let src_enc = src_to_encoding(&Src::from(op.src.reference.clone()))?;
@@ -367,8 +374,6 @@ fn encode_rdna2_op(
                 0,
             ))
         }
-
-        // Move: v_mov_b32
         Op::Mov(op) => {
             let dst_reg = dst_to_vgpr_index(&op.dst)?;
             let src_enc = src_to_encoding(&op.src)?;
@@ -378,6 +383,51 @@ fn encode_rdna2_op(
                 src_enc,
             ))
         }
+
+        // ---- Memory operations (FLAT encoding) ----
+        Op::Ld(op) => encode_flat_load_op(op),
+        Op::St(op) => encode_flat_store_op(op),
+        Op::Atom(op) => encode_flat_atomic_op(op),
+
+        // ---- Control flow ----
+        Op::Bra(op) => encode_branch(op, labels, ip),
+
+        // ---- Comparisons (VOPC → VCC) ----
+        Op::FSetP(op) => encode_fsetp(op),
+        Op::ISetP(op) => encode_isetp(op),
+        Op::DSetP(op) => encode_dsetp(op),
+
+        // ---- Select (conditional move) ----
+        Op::Sel(op) => encode_sel(op),
+
+        // ---- Integer bitwise (VOP2) ----
+        Op::Lop2(op) => encode_lop2(op),
+
+        // ---- Shifts (VOP2) ----
+        Op::Shl(op) => encode_shl(op),
+        Op::Shr(op) => encode_shr(op),
+
+        // ---- Integer add / multiply-add ----
+        Op::IAdd3(op) => {
+            encode_vop2_from_srcs(isa::vop2::V_ADD_NC_U32, &op.dst, &op.srcs[0], &op.srcs[1])
+        }
+        Op::IMad(op) => encode_vop3_from_srcs(
+            isa::vop3::V_MAD_U32_U24,
+            &op.dst,
+            &op.srcs[0],
+            &op.srcs[1],
+            &op.srcs[2],
+        ),
+
+        // ---- System registers ----
+        Op::S2R(op) => encode_s2r(op),
+        Op::CS2R(op) => encode_cs2r(op),
+
+        // ---- Conversion ops ----
+        Op::F2F(op) => encode_f2f(op),
+        Op::F2I(op) => encode_f2i(op),
+        Op::I2F(op) => encode_i2f(op),
+        Op::I2I(op) => encode_i2i(op),
 
         Op::Undef(_)
         | Op::PhiSrcs(_)
@@ -400,6 +450,361 @@ fn encode_rdna2_op(
         )),
     }
 }
+
+// ---- FLAT memory encoding helpers ----
+
+fn encode_flat_load_op(op: &OpLd) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let addr_reg = src_to_vgpr_index(&op.addr)?;
+    let flat_opcode = mem_type_to_flat_load(op.access.mem_type)?;
+    let offset = i16::try_from(op.offset).unwrap_or(0);
+    Ok(Rdna2Encoder::encode_flat_load(
+        flat_opcode,
+        addr_reg,
+        dst_reg,
+        offset,
+    ))
+}
+
+fn encode_flat_store_op(op: &OpSt) -> Result<Vec<u32>, CompileError> {
+    let addr_reg = src_to_vgpr_index(&op.addr)?;
+    let data_reg = src_to_vgpr_index(&op.data)?;
+    let flat_opcode = mem_type_to_flat_store(op.access.mem_type)?;
+    let offset = i16::try_from(op.offset).unwrap_or(0);
+    Ok(Rdna2Encoder::encode_flat_store(
+        flat_opcode,
+        addr_reg,
+        data_reg,
+        offset,
+    ))
+}
+
+fn encode_flat_atomic_op(op: &OpAtom) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let addr_reg = src_to_vgpr_index(&op.addr)?;
+    let data_reg = src_to_vgpr_index(&op.data)?;
+    let flat_opcode = atom_op_to_flat(op.atom_op)?;
+    let offset = i16::try_from(op.addr_offset).unwrap_or(0);
+    Ok(Rdna2Encoder::encode_flat_atomic(
+        flat_opcode,
+        addr_reg,
+        data_reg,
+        dst_reg,
+        offset,
+    ))
+}
+
+fn mem_type_to_flat_load(mt: MemType) -> Result<u16, CompileError> {
+    Ok(match mt {
+        MemType::U8 => isa::flat::FLAT_LOAD_UBYTE,
+        MemType::I8 => isa::flat::FLAT_LOAD_SBYTE,
+        MemType::U16 => isa::flat::FLAT_LOAD_USHORT,
+        MemType::I16 => isa::flat::FLAT_LOAD_SSHORT,
+        MemType::B32 => isa::flat::FLAT_LOAD_DWORD,
+        MemType::B64 => isa::flat::FLAT_LOAD_DWORDX2,
+        MemType::B128 => isa::flat::FLAT_LOAD_DWORDX4,
+    })
+}
+
+fn mem_type_to_flat_store(mt: MemType) -> Result<u16, CompileError> {
+    Ok(match mt {
+        MemType::U8 | MemType::I8 => isa::flat::FLAT_STORE_BYTE,
+        MemType::U16 | MemType::I16 => isa::flat::FLAT_STORE_SHORT,
+        MemType::B32 => isa::flat::FLAT_STORE_DWORD,
+        MemType::B64 => isa::flat::FLAT_STORE_DWORDX2,
+        MemType::B128 => isa::flat::FLAT_STORE_DWORDX4,
+    })
+}
+
+fn atom_op_to_flat(op: AtomOp) -> Result<u16, CompileError> {
+    Ok(match op {
+        AtomOp::Add => isa::flat::FLAT_ATOMIC_ADD,
+        AtomOp::Min => isa::flat::FLAT_ATOMIC_SMIN,
+        AtomOp::Max => isa::flat::FLAT_ATOMIC_SMAX,
+        AtomOp::Inc => isa::flat::FLAT_ATOMIC_INC,
+        AtomOp::Dec => isa::flat::FLAT_ATOMIC_DEC,
+        AtomOp::And => isa::flat::FLAT_ATOMIC_AND,
+        AtomOp::Or => isa::flat::FLAT_ATOMIC_OR,
+        AtomOp::Xor => isa::flat::FLAT_ATOMIC_XOR,
+        AtomOp::Exch => isa::flat::FLAT_ATOMIC_SWAP,
+        AtomOp::CmpExch(_) => isa::flat::FLAT_ATOMIC_CMPSWAP,
+    })
+}
+
+// ---- Branch encoding ----
+
+fn encode_branch(
+    op: &OpBra,
+    labels: &FxHashMap<Label, usize>,
+    ip: usize,
+) -> Result<Vec<u32>, CompileError> {
+    let target_ip = labels
+        .get(&op.target)
+        .copied()
+        .ok_or_else(|| CompileError::InvalidInput("branch target label not found".into()))?;
+    let next_ip = ip + 1; // SOPP is 1 word
+    let offset = i32::try_from(target_ip)
+        .unwrap_or(0)
+        .wrapping_sub(i32::try_from(next_ip).unwrap_or(0));
+    let offset_i16 = i16::try_from(offset).unwrap_or(0);
+
+    if matches!(op.cond.reference, SrcRef::True) {
+        Ok(Rdna2Encoder::encode_s_branch(offset_i16))
+    } else {
+        Ok(Rdna2Encoder::encode_s_cbranch_vccnz(offset_i16))
+    }
+}
+
+// ---- Comparison encoding ----
+
+fn encode_fsetp(op: &OpFSetP) -> Result<Vec<u32>, CompileError> {
+    let src0_enc = src_to_encoding(&op.srcs[0])?;
+    let src1_vgpr = src_to_vgpr_index(&op.srcs[1])?;
+    let vopc_opcode = float_cmp_to_vopc_f32(op.cmp_op);
+    Ok(Rdna2Encoder::encode_vopc(vopc_opcode, src0_enc, src1_vgpr))
+}
+
+fn encode_dsetp(op: &OpDSetP) -> Result<Vec<u32>, CompileError> {
+    let src0_enc = src_to_encoding(&op.srcs[0])?;
+    let src1_enc = src_to_encoding(&op.srcs[1])?;
+    let vop3_opcode = float_cmp_to_vop3_f64(op.cmp_op);
+    let dst = AmdRegRef::vgpr(0); // VCC implicit for comparison
+    Ok(Rdna2Encoder::encode_vop3(
+        vop3_opcode,
+        dst,
+        src0_enc,
+        src1_enc,
+        0,
+    ))
+}
+
+fn encode_isetp(op: &OpISetP) -> Result<Vec<u32>, CompileError> {
+    let src0_enc = src_to_encoding(&op.srcs[0])?;
+    let src1_vgpr = src_to_vgpr_index(&op.srcs[1])?;
+    let vopc_opcode = int_cmp_to_vopc(op.cmp_op, op.cmp_type);
+    Ok(Rdna2Encoder::encode_vopc(vopc_opcode, src0_enc, src1_vgpr))
+}
+
+fn float_cmp_to_vopc_f32(cmp: FloatCmpOp) -> u16 {
+    match cmp {
+        FloatCmpOp::OrdEq => isa::vopc::V_CMP_EQ_F32,
+        FloatCmpOp::OrdNe => isa::vopc::V_CMP_NEQ_F32,
+        FloatCmpOp::OrdLt => isa::vopc::V_CMP_LT_F32,
+        FloatCmpOp::OrdLe => isa::vopc::V_CMP_LE_F32,
+        FloatCmpOp::OrdGt => isa::vopc::V_CMP_GT_F32,
+        FloatCmpOp::OrdGe => isa::vopc::V_CMP_GE_F32,
+        FloatCmpOp::UnordEq => isa::vopc::V_CMP_NLG_F32,
+        FloatCmpOp::UnordNe => isa::vopc::V_CMP_NLE_F32,
+        FloatCmpOp::UnordLt => isa::vopc::V_CMP_NGE_F32,
+        FloatCmpOp::UnordLe => isa::vopc::V_CMP_NGT_F32,
+        FloatCmpOp::UnordGt => isa::vopc::V_CMP_NLE_F32,
+        FloatCmpOp::UnordGe => isa::vopc::V_CMP_NLT_F32,
+        FloatCmpOp::IsNum => isa::vopc::V_CMP_O_F32,
+        FloatCmpOp::IsNan => isa::vopc::V_CMP_U_F32,
+    }
+}
+
+fn float_cmp_to_vop3_f64(cmp: FloatCmpOp) -> u16 {
+    match cmp {
+        FloatCmpOp::OrdEq => isa::vop3::V_CMP_EQ_F64,
+        FloatCmpOp::OrdNe => isa::vop3::V_CMP_NEQ_F64,
+        FloatCmpOp::OrdLt => isa::vop3::V_CMP_LT_F64,
+        FloatCmpOp::OrdLe => isa::vop3::V_CMP_LE_F64,
+        FloatCmpOp::OrdGt => isa::vop3::V_CMP_GT_F64,
+        FloatCmpOp::OrdGe => isa::vop3::V_CMP_GE_F64,
+        FloatCmpOp::UnordEq
+        | FloatCmpOp::UnordNe
+        | FloatCmpOp::UnordLt
+        | FloatCmpOp::UnordLe
+        | FloatCmpOp::UnordGt
+        | FloatCmpOp::UnordGe => isa::vop3::V_CMP_U_F64,
+        FloatCmpOp::IsNum => isa::vop3::V_CMP_O_F64,
+        FloatCmpOp::IsNan => isa::vop3::V_CMP_U_F64,
+    }
+}
+
+fn int_cmp_to_vopc(cmp: IntCmpOp, cmp_type: IntCmpType) -> u16 {
+    if cmp_type.is_signed() {
+        match cmp {
+            IntCmpOp::False => isa::vopc::V_CMP_F_I32,
+            IntCmpOp::True => isa::vopc::V_CMP_T_I32,
+            IntCmpOp::Eq => isa::vopc::V_CMP_EQ_I32,
+            IntCmpOp::Ne => isa::vopc::V_CMP_NE_I32,
+            IntCmpOp::Lt => isa::vopc::V_CMP_LT_I32,
+            IntCmpOp::Le => isa::vopc::V_CMP_LE_I32,
+            IntCmpOp::Gt => isa::vopc::V_CMP_GT_I32,
+            IntCmpOp::Ge => isa::vopc::V_CMP_GE_I32,
+        }
+    } else {
+        match cmp {
+            IntCmpOp::False => isa::vopc::V_CMP_F_U32,
+            IntCmpOp::True => isa::vopc::V_CMP_T_U32,
+            IntCmpOp::Eq => isa::vopc::V_CMP_EQ_U32,
+            IntCmpOp::Ne => isa::vopc::V_CMP_NE_U32,
+            IntCmpOp::Lt => isa::vopc::V_CMP_LT_U32,
+            IntCmpOp::Le => isa::vopc::V_CMP_LE_U32,
+            IntCmpOp::Gt => isa::vopc::V_CMP_GT_U32,
+            IntCmpOp::Ge => isa::vopc::V_CMP_GE_U32,
+        }
+    }
+}
+
+// ---- Select (v_cndmask_b32: result = VCC ? src1 : src0) ----
+
+fn encode_sel(op: &OpSel) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src0_enc = src_to_encoding(&op.srcs[0])?;
+    let src1_vgpr = src_to_vgpr_index(&op.srcs[1])?;
+    Ok(Rdna2Encoder::encode_vop2(
+        isa::vop2::V_CNDMASK_B32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        src0_enc,
+        super::reg::AmdRegRef::vgpr(src1_vgpr),
+    ))
+}
+
+// ---- Bitwise logic (VOP2) ----
+
+fn encode_lop2(op: &OpLop2) -> Result<Vec<u32>, CompileError> {
+    let vop2_opcode = match op.op {
+        LogicOp2::And => isa::vop2::V_AND_B32,
+        LogicOp2::Or => isa::vop2::V_OR_B32,
+        LogicOp2::Xor => isa::vop2::V_XOR_B32,
+        LogicOp2::PassB => {
+            let dst_reg = dst_to_vgpr_index(&op.dst)?;
+            let src_enc = src_to_encoding(&op.srcs[1])?;
+            return Ok(Rdna2Encoder::encode_vop1(
+                isa::vop1::V_MOV_B32,
+                super::reg::AmdRegRef::vgpr(dst_reg),
+                src_enc,
+            ));
+        }
+    };
+    encode_vop2_from_srcs(vop2_opcode, &op.dst, &op.srcs[0], &op.srcs[1])
+}
+
+// ---- Shifts (VOP2 reversed-operand forms) ----
+
+fn encode_shl(op: &OpShl) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let shift_enc = src_to_encoding(&op.shift)?;
+    let src_vgpr = src_to_vgpr_index(&op.src)?;
+    Ok(Rdna2Encoder::encode_vop2(
+        isa::vop2::V_LSHLREV_B32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        shift_enc,
+        super::reg::AmdRegRef::vgpr(src_vgpr),
+    ))
+}
+
+fn encode_shr(op: &OpShr) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let shift_enc = src_to_encoding(&op.shift)?;
+    let src_vgpr = src_to_vgpr_index(&op.src)?;
+    let opcode = if op.signed {
+        isa::vop2::V_ASHRREV_I32
+    } else {
+        isa::vop2::V_LSHRREV_B32
+    };
+    Ok(Rdna2Encoder::encode_vop2(
+        opcode,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        shift_enc,
+        super::reg::AmdRegRef::vgpr(src_vgpr),
+    ))
+}
+
+// ---- System registers (S2R / CS2R) ----
+// RDNA2 thread IDs are pre-loaded into VGPRs by the hardware dispatch.
+// v0 = thread_id_x, v1 = thread_id_y, v2 = thread_id_z
+// Workgroup IDs come from SGPRs (s0/s1/s2 if the shader descriptor sets it up).
+// For now, we map NVIDIA SR indices to v_mov_b32 from the hardware registers.
+
+fn encode_s2r(op: &OpS2R) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src_vgpr = amd_sys_reg_vgpr(op.idx)?;
+    Ok(Rdna2Encoder::encode_vop1(
+        isa::vop1::V_MOV_B32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        256 + src_vgpr,
+    ))
+}
+
+fn encode_cs2r(op: &OpCS2R) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src_vgpr = amd_sys_reg_vgpr(op.idx)?;
+    Ok(Rdna2Encoder::encode_vop1(
+        isa::vop1::V_MOV_B32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        256 + src_vgpr,
+    ))
+}
+
+/// Map NVIDIA system register indices to AMD RDNA2 hardware VGPR locations.
+///
+/// RDNA2 compute dispatch pre-loads:
+/// - v0 = thread_id_x, v1 = thread_id_y, v2 = thread_id_z
+/// - Workgroup ID comes from SGPR user data (s0/s1/s2 by convention).
+fn amd_sys_reg_vgpr(nv_idx: u8) -> Result<u16, CompileError> {
+    Ok(match nv_idx {
+        0x21 => 0, // SR_TID_X → v0
+        0x22 => 1, // SR_TID_Y → v1
+        0x23 => 2, // SR_TID_Z → v2
+        0x25 => 3, // SR_CTAID_X → v3 (mapped from SGPR user data)
+        0x26 => 4, // SR_CTAID_Y → v4
+        0x27 => 5, // SR_CTAID_Z → v5
+        0x00 => 0, // SR_LANEID → v0 (lane within wave)
+        other => {
+            return Err(CompileError::NotImplemented(
+                format!("AMD sys reg mapping for NVIDIA SR index 0x{other:02x}").into(),
+            ));
+        }
+    })
+}
+
+// ---- Conversion ops ----
+
+fn encode_f2f(op: &OpF2F) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src_enc = src_to_encoding(&op.src)?;
+    Ok(Rdna2Encoder::encode_vop1(
+        isa::vop1::V_MOV_B32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        src_enc,
+    ))
+}
+
+fn encode_f2i(op: &OpF2I) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src_enc = src_to_encoding(&op.src)?;
+    Ok(Rdna2Encoder::encode_vop1(
+        isa::vop1::V_CVT_I32_F32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        src_enc,
+    ))
+}
+
+fn encode_i2f(op: &OpI2F) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src_enc = src_to_encoding(&op.src)?;
+    Ok(Rdna2Encoder::encode_vop1(
+        isa::vop1::V_CVT_F32_I32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        src_enc,
+    ))
+}
+
+fn encode_i2i(op: &OpI2I) -> Result<Vec<u32>, CompileError> {
+    let dst_reg = dst_to_vgpr_index(&op.dst)?;
+    let src_enc = src_to_encoding(&op.src)?;
+    Ok(Rdna2Encoder::encode_vop1(
+        isa::vop1::V_MOV_B32,
+        super::reg::AmdRegRef::vgpr(dst_reg),
+        src_enc,
+    ))
+}
+
+use super::reg::AmdRegRef;
 
 fn encode_vop2_from_srcs(
     opcode: u16,

@@ -227,6 +227,46 @@ pub fn compile_wgsl(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Com
     compile_wgsl_with(&NagaFrontend, wgsl, options)
 }
 
+/// Compile WGSL source to [`CompiledBinary`] with full metadata.
+///
+/// Returns the native GPU binary plus compilation info (GPR count,
+/// instruction count) needed by the driver for QMD construction.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_wgsl_full(
+    wgsl: &str,
+    options: &CompileOptions,
+) -> Result<CompiledBinary, CompileError> {
+    compile_wgsl_full_with(&NagaFrontend, wgsl, options)
+}
+
+/// Compile WGSL source to [`CompiledBinary`] using a custom [`Frontend`].
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_wgsl_full_with(
+    frontend: &dyn Frontend,
+    wgsl: &str,
+    options: &CompileOptions,
+) -> Result<CompiledBinary, CompileError> {
+    if wgsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty WGSL source".into()));
+    }
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_wgsl_full"
+    );
+
+    let sm = shader_model_for(options.target)?;
+    let mut shader = frontend.compile_wgsl(wgsl, sm.as_ref())?;
+    let backend = backend::backend_for(options.target)?;
+    backend.compile(&mut shader)
+}
+
 /// Compile WGSL source to native GPU binary using a custom [`Frontend`].
 ///
 /// # Errors

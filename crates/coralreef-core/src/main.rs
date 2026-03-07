@@ -24,7 +24,7 @@ mod service;
 
 use ipc::DEFAULT_TCP_BIND;
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"), version, about, long_about = None)]
 struct Cli {
     /// Log level (trace, debug, info, warn, error).
@@ -35,7 +35,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Commands {
     /// Start the IPC server (JSON-RPC 2.0 + tarpc).
     Server {
@@ -136,7 +136,16 @@ async fn main() -> ExitCode {
 }
 
 fn parse_cli() -> Result<Cli, clap::Error> {
-    Cli::try_parse()
+    parse_cli_from(std::env::args_os())
+}
+
+/// Parse CLI from given args. Used by `main` and tests.
+fn parse_cli_from<I, T>(args: I) -> Result<Cli, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    Cli::try_parse_from(args)
 }
 
 /// Install panic hook that logs structurally and aborts.
@@ -295,6 +304,11 @@ fn discovery_dir() -> io::Result<std::path::PathBuf> {
 }
 
 /// Wait for SIGTERM or SIGINT. Returns which signal was received.
+///
+/// # Panics
+///
+/// Panics if signal registration fails (e.g. tokio runtime or OS limits).
+/// Failure is unrecoverable — the process cannot gracefully shut down.
 async fn wait_for_shutdown_signal() -> &'static str {
     #[cfg(unix)]
     {
@@ -355,5 +369,164 @@ async fn cmd_doctor() -> UniBinExit {
             tracing::error!(error = %e, "doctor failed");
             UniBinExit::GeneralError
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coralreef_core::capability::{Capability, SelfDescription, Transport};
+
+    #[test]
+    fn parse_cli_doctor() {
+        let cli = parse_cli_from(["coralreef", "doctor"]).unwrap();
+        assert!(matches!(cli.command, Commands::Doctor));
+    }
+
+    #[test]
+    fn parse_cli_server_defaults() {
+        let cli = parse_cli_from(["coralreef", "server"]).unwrap();
+        match &cli.command {
+            Commands::Server {
+                rpc_bind,
+                tarpc_bind,
+            } => {
+                assert!(rpc_bind.contains("127.0.0.1"));
+                assert!(tarpc_bind.is_none());
+            }
+            _ => panic!("expected Server command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_compile_minimal() {
+        let cli = parse_cli_from(["coralreef", "compile", "input.wgsl"]).unwrap();
+        match &cli.command {
+            Commands::Compile { input, output, .. } => {
+                assert_eq!(input.to_string_lossy(), "input.wgsl");
+                assert!(output.is_none());
+            }
+            _ => panic!("expected Compile command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_compile_with_options() {
+        let cli = parse_cli_from([
+            "coralreef",
+            "compile",
+            "shader.wgsl",
+            "--output",
+            "out.bin",
+            "--arch",
+            "sm70",
+            "--opt-level",
+            "3",
+        ])
+        .unwrap();
+        match &cli.command {
+            Commands::Compile {
+                input,
+                output,
+                arch,
+                opt_level,
+                ..
+            } => {
+                assert_eq!(input.to_string_lossy(), "shader.wgsl");
+                assert_eq!(output.as_ref().unwrap().to_string_lossy(), "out.bin");
+                assert_eq!(*arch, GpuArch::Sm70);
+                assert_eq!(*opt_level, 3);
+            }
+            _ => panic!("expected Compile command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_rejects_missing_subcommand() {
+        assert!(parse_cli_from(["coralreef"]).is_err());
+    }
+
+    #[test]
+    fn parse_cli_rejects_unknown_subcommand() {
+        let err = parse_cli_from(["coralreef", "nonexistent"]).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("subcommand"));
+    }
+
+    #[test]
+    fn parse_cli_rejects_compile_without_input() {
+        assert!(parse_cli_from(["coralreef", "compile"]).is_err());
+    }
+
+    #[test]
+    fn install_panic_hook_sets_hook() {
+        let prev = std::panic::take_hook();
+        install_panic_hook();
+        std::panic::set_hook(prev); // Restore so other tests can panic normally
+    }
+
+    #[test]
+    fn unibin_exit_to_exit_code_success() {
+        let ec: ExitCode = UniBinExit::Success.into();
+        assert_eq!(ec, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn unibin_exit_to_exit_code_general_error() {
+        let ec: ExitCode = UniBinExit::GeneralError.into();
+        assert_eq!(ec, ExitCode::from(1u8));
+    }
+
+    #[test]
+    fn unibin_exit_to_exit_code_config_error() {
+        let ec: ExitCode = UniBinExit::ConfigError.into();
+        assert_eq!(ec, ExitCode::from(2u8));
+    }
+
+    #[test]
+    fn unibin_exit_to_exit_code_internal_error() {
+        let ec: ExitCode = UniBinExit::InternalError.into();
+        assert_eq!(ec, ExitCode::from(3u8));
+    }
+
+    #[test]
+    fn unibin_exit_to_exit_code_signal() {
+        let ec: ExitCode = UniBinExit::Signal.into();
+        assert_eq!(ec, ExitCode::from(130u8));
+    }
+
+    #[test]
+    fn discovery_dir_returns_path() {
+        let dir = discovery_dir().unwrap();
+        assert!(dir.ends_with(coralreef_core::config::ECOSYSTEM_NAMESPACE));
+    }
+
+    #[test]
+    fn write_and_remove_discovery_file() {
+        let desc = SelfDescription {
+            provides: vec![Capability {
+                id: "test.provide".to_owned(),
+                version: "1.0".to_owned(),
+                metadata: serde_json::Value::Null,
+            }],
+            requires: vec![],
+            transports: vec![
+                Transport {
+                    protocol: "jsonrpc".to_owned(),
+                    address: "127.0.0.1:12345".to_owned(),
+                },
+                Transport {
+                    protocol: "tarpc+tcp".to_owned(),
+                    address: "127.0.0.1:12346".to_owned(),
+                },
+            ],
+        };
+
+        write_discovery_file(&desc).unwrap();
+        let dir = discovery_dir().unwrap();
+        let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        assert!(path.exists(), "discovery file should exist after write");
+
+        remove_discovery_file();
+        assert!(!path.exists(), "discovery file should be removed");
     }
 }

@@ -13,10 +13,16 @@ use super::{BoundAddr, IpcError};
 /// Method names align with `shader.compile.*` JSON-RPC endpoints.
 /// The trait name `ShaderCompileTarpc` provides the namespace;
 /// methods use bare names per tarpc convention.
+///
+/// SPIR-V input uses `Bytes` for zero-copy IPC — clients can send raw bytes
+/// without parsing into words first.
 #[tarpc::service]
 pub trait ShaderCompileTarpc {
     /// Compile SPIR-V to native GPU binary (`shader.compile.spirv`).
-    async fn spirv(request: service::CompileRequest) -> Result<service::CompileResponse, String>;
+    /// Uses `Bytes` for zero-copy SPIR-V input.
+    async fn spirv(
+        request: service::CompileSpirvRequestTarpc,
+    ) -> Result<service::CompileResponse, String>;
 
     /// Compile WGSL source to native GPU binary (`shader.compile.wgsl`).
     async fn wgsl(request: service::CompileWgslRequest)
@@ -37,9 +43,15 @@ impl ShaderCompileTarpc for TarpcServer {
     async fn spirv(
         self,
         _ctx: tarpc::context::Context,
-        request: service::CompileRequest,
+        request: service::CompileSpirvRequestTarpc,
     ) -> Result<service::CompileResponse, String> {
-        service::handle_compile(&request).map_err(|e| e.to_string())
+        service::handle_compile_spirv(
+            &request.spirv,
+            &request.arch,
+            request.opt_level,
+            request.fp64_software,
+        )
+        .map_err(|e| e.to_string())
     }
 
     async fn wgsl(

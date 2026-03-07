@@ -7,10 +7,26 @@ use bytes::Bytes;
 use coral_reef::{AmdArch, CompileError, CompileOptions, GpuTarget, NvArch};
 use serde::{Deserialize, Serialize};
 
-/// Request to compile a shader.
+/// tarpc-only SPIR-V compile request (zero-copy via `Bytes`).
+///
+/// Uses `bytes::Bytes` so SPIR-V can be shared without copying over the wire.
+/// Serializes as base64 when using JSON transport.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileSpirvRequestTarpc {
+    /// Raw SPIR-V bytes (zero-copy).
+    pub spirv: Bytes,
+    /// Target GPU architecture name (e.g. `sm_70`, `rdna2`).
+    pub arch: String,
+    /// Optimization level (0-3).
+    pub opt_level: u32,
+    /// Enable f64 software transcendentals.
+    pub fp64_software: bool,
+}
+
+/// Request to compile a shader (JSON-RPC wire format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileRequest {
-    /// SPIR-V words (base64-encoded in JSON-RPC, raw in tarpc).
+    /// SPIR-V words (JSON array of u32; base64 in tarpc uses [`CompileSpirvRequestTarpc`]).
     pub spirv_words: Vec<u32>,
     /// Target GPU architecture name (e.g. `sm_70`, `rdna2`).
     pub arch: String,
@@ -90,19 +106,63 @@ fn build_options(
     })
 }
 
-/// Execute a compile request (SPIR-V input).
+/// Convert SPIR-V bytes to words for the compiler.
+fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
+    if bytes.len() % 4 != 0 {
+        return Err(CompileError::InvalidInput(
+            "SPIR-V must be multiple of 4 bytes".into(),
+        ));
+    }
+    let mut words = Vec::with_capacity(bytes.len() / 4);
+    for chunk in bytes.chunks_exact(4) {
+        words.push(u32::from_le_bytes(
+            chunk.try_into().expect("chunks_exact(4) yields 4 bytes"),
+        ));
+    }
+    Ok(words)
+}
+
+/// Execute a SPIR-V compile from raw bytes (zero-copy friendly).
+///
+/// Accepts `Bytes` or `&[u8]` so IPC transports can pass SPIR-V without
+/// copying. The compiler expects `&[u32]`, so we convert once at this boundary.
 ///
 /// # Errors
 ///
 /// Returns [`CompileError`] on invalid input or compilation failure.
-pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileError> {
-    let options = build_options(&req.arch, req.opt_level, req.fp64_software)?;
-    let binary = coral_reef::compile(&req.spirv_words, &options)?;
+pub fn handle_compile_spirv(
+    spirv: impl AsRef<[u8]>,
+    arch: &str,
+    opt_level: u32,
+    fp64_software: bool,
+) -> Result<CompileResponse, CompileError> {
+    let options = build_options(arch, opt_level, fp64_software)?;
+    let words = bytes_to_spirv_words(spirv.as_ref())?;
+    if words.is_empty() {
+        return Err(CompileError::InvalidInput("empty SPIR-V module".into()));
+    }
+    let binary = coral_reef::compile(&words, &options)?;
     let size = binary.len();
     Ok(CompileResponse {
         binary: Bytes::from(binary),
         size,
     })
+}
+
+/// Execute a compile request (SPIR-V input).
+///
+/// Kept for backward compatibility with [`CompileRequest`] (JSON-RPC wire format).
+///
+/// # Errors
+///
+/// Returns [`CompileError`] on invalid input or compilation failure.
+pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileError> {
+    let bytes: Vec<u8> = req
+        .spirv_words
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+    handle_compile_spirv(bytes, &req.arch, req.opt_level, req.fp64_software)
 }
 
 /// Execute a WGSL compile request.

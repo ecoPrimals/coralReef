@@ -105,6 +105,9 @@ fn kernel_ptr<T>(r: &T) -> u64 {
 /// `T` must be `#[repr(C)]` and at least `size_of::<R>()` bytes.
 /// The kernel must have successfully written output via the ioctl.
 const unsafe fn read_ioctl_output<T, R: Copy>(arg: &T) -> R {
+    // SAFETY: Caller guarantees `T` is `#[repr(C)]` with at least
+    // `size_of::<R>()` bytes at offset 0. The kernel wrote valid data
+    // there during the preceding successful ioctl call.
     unsafe { std::ptr::read(std::ptr::from_ref(arg).cast::<R>()) }
 }
 
@@ -118,7 +121,8 @@ pub fn create_context(fd: RawFd) -> DriverResult<u32> {
         op: AMDGPU_CTX_OP_ALLOC_CTX,
         ..Default::default()
     };
-    // Safety: AmdgpuCtx is #[repr(C)] and matches the kernel struct.
+    // SAFETY: `AmdgpuCtx` is `#[repr(C)]` matching the kernel's `drm_amdgpu_ctx`.
+    // Stack-allocated, valid for the synchronous ioctl lifetime.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,
@@ -140,7 +144,7 @@ pub fn destroy_context(fd: RawFd, ctx_id: u32) -> DriverResult<()> {
         ctx_id,
         ..Default::default()
     };
-    // Safety: AmdgpuCtx is #[repr(C)] and matches the kernel struct.
+    // SAFETY: `AmdgpuCtx` is `#[repr(C)]` matching the kernel struct. Synchronous ioctl.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,
@@ -162,7 +166,7 @@ pub fn gem_create(fd: RawFd, size: u64, domains: u32) -> DriverResult<(u32, u64)
         domains: domains.into(),
         ..Default::default()
     };
-    // Safety: AmdgpuGemCreate is #[repr(C)] and matches the kernel struct.
+    // SAFETY: AmdgpuGemCreate is #[repr(C)] and matches the kernel struct.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,
@@ -183,7 +187,7 @@ pub fn gem_mmap_offset(fd: RawFd, handle: u32) -> DriverResult<u64> {
         handle,
         ..Default::default()
     };
-    // Safety: AmdgpuGemMmap is #[repr(C)] and matches the kernel struct.
+    // SAFETY: AmdgpuGemMmap is #[repr(C)] and matches the kernel struct.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,
@@ -207,7 +211,7 @@ pub fn gem_va_map(fd: RawFd, handle: u32, va: u64, size: u64) -> DriverResult<()
         map_size: size,
         ..Default::default()
     };
-    // Safety: AmdgpuGemVa is #[repr(C)] and matches the kernel struct.
+    // SAFETY: AmdgpuGemVa is #[repr(C)] and matches the kernel struct.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,
@@ -299,10 +303,6 @@ struct AmdgpuWaitCsIn {
 /// # Errors
 ///
 /// Returns [`DriverError`] if the BO list creation ioctl fails.
-///
-/// # Panics
-///
-/// Panics if `handles` contains more than `u32::MAX` entries.
 pub fn create_bo_list(fd: RawFd, handles: &[u32]) -> DriverResult<u32> {
     let entries: Vec<AmdgpuBoListEntry> = handles
         .iter()
@@ -314,13 +314,14 @@ pub fn create_bo_list(fd: RawFd, handles: &[u32]) -> DriverResult<u32> {
 
     let mut req = AmdgpuBoListIn {
         operation: AMDGPU_BO_LIST_OP_CREATE,
-        bo_number: u32::try_from(entries.len()).expect("BO count fits in u32"),
+        bo_number: u32::try_from(entries.len())
+            .map_err(|_| crate::error::DriverError::platform_overflow("BO count fits in u32"))?,
         bo_info_size: size_of_u32::<AmdgpuBoListEntry>(),
         bo_info_ptr: entries.first().map_or(0, kernel_ptr),
         ..Default::default()
     };
 
-    // Safety: AmdgpuBoListIn is #[repr(C)] and matches the kernel union size.
+    // SAFETY: AmdgpuBoListIn is #[repr(C)] and matches the kernel union size.
     // entries slice lives until after the ioctl returns.
     unsafe {
         crate::drm::drm_ioctl_typed(
@@ -331,7 +332,7 @@ pub fn create_bo_list(fd: RawFd, handles: &[u32]) -> DriverResult<u32> {
     }
 
     // Kernel writes list_handle to first u32 (union overlay with drm_amdgpu_bo_list_out).
-    // Safety: kernel writes list_handle (u32) at offset 0 of the output union.
+    // SAFETY: kernel writes list_handle (u32) at offset 0 of the output union.
     Ok(unsafe { read_ioctl_output::<_, u32>(&req) })
 }
 
@@ -347,7 +348,7 @@ pub fn destroy_bo_list(fd: RawFd, list_handle: u32) -> DriverResult<()> {
         ..Default::default()
     };
 
-    // Safety: AmdgpuBoListIn is #[repr(C)] and matches the kernel union.
+    // SAFETY: AmdgpuBoListIn is #[repr(C)] and matches the kernel union.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,
@@ -397,7 +398,7 @@ pub fn submit_command(
 
     tracing::debug!(ctx = ctx_id, ib_va, ib_bytes, "AMD CS submit");
 
-    // Safety: All structs are #[repr(C)] and stack-allocated;
+    // SAFETY: All structs are #[repr(C)] and stack-allocated;
     // pointers remain valid for the duration of the synchronous ioctl.
     unsafe {
         crate::drm::drm_ioctl_typed(
@@ -408,7 +409,7 @@ pub fn submit_command(
     }
 
     // Kernel writes fence handle to first 8 bytes (union drm_amdgpu_cs.out.handle).
-    // Safety: kernel writes fence handle (u64) at offset 0 of the output union.
+    // SAFETY: kernel writes fence handle (u64) at offset 0 of the output union.
     let fence = unsafe { read_ioctl_output::<_, u64>(&cs) };
     Ok(fence)
 }
@@ -433,7 +434,7 @@ pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) ->
 
     tracing::debug!(ctx = ctx_id, fence = fence_handle, "AMD fence sync");
 
-    // Safety: AmdgpuWaitCsIn is #[repr(C)] and matches the kernel union.
+    // SAFETY: AmdgpuWaitCsIn is #[repr(C)] and matches the kernel union.
     unsafe {
         crate::drm::drm_ioctl_typed(
             fd,

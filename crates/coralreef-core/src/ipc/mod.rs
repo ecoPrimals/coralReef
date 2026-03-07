@@ -250,6 +250,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tarpc_compile_empty_spirv() {
+        use bytes::Bytes;
         use tokio_serde::formats::Json;
 
         let (_tx, rx) = test_shutdown_channel();
@@ -264,8 +265,8 @@ mod tests {
         let client =
             ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
-        let req = service::CompileRequest {
-            spirv_words: vec![],
+        let req = service::CompileSpirvRequestTarpc {
+            spirv: Bytes::new(),
             arch: coral_reef::GpuArch::default().to_string(),
             opt_level: 2,
             fp64_software: true,
@@ -399,6 +400,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tarpc_compile_valid_shader() {
+        use bytes::Bytes;
         use tokio_serde::formats::Json;
 
         let (_tx, rx) = test_shutdown_channel();
@@ -413,9 +415,10 @@ mod tests {
         let client =
             ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
-        let spirv = valid_spirv_minimal_compute();
-        let req = service::CompileRequest {
-            spirv_words: spirv,
+        let spirv_words = valid_spirv_minimal_compute();
+        let spirv_bytes: Vec<u8> = spirv_words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let req = service::CompileSpirvRequestTarpc {
+            spirv: Bytes::from(spirv_bytes),
             arch: coral_reef::GpuArch::default().to_string(),
             opt_level: 2,
             fp64_software: true,
@@ -442,6 +445,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tarpc_compile_error_propagation() {
+        use bytes::Bytes;
         use tokio_serde::formats::Json;
 
         let (_tx, rx) = test_shutdown_channel();
@@ -456,8 +460,12 @@ mod tests {
         let client =
             ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
-        let req_bad_arch = service::CompileRequest {
-            spirv_words: valid_spirv_minimal_compute(),
+        let spirv_bytes: Vec<u8> = valid_spirv_minimal_compute()
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .collect();
+        let req_bad_arch = service::CompileSpirvRequestTarpc {
+            spirv: Bytes::from(spirv_bytes),
             arch: "sm_99".to_string(),
             opt_level: 2,
             fp64_software: true,
@@ -468,8 +476,13 @@ mod tests {
             .unwrap();
         assert!(result.is_err(), "invalid arch should return Err");
 
-        let req_bad_spirv = service::CompileRequest {
-            spirv_words: vec![0xDEAD_BEEF, 0x0001_0000, 0, 0, 0],
+        let bad_spirv_words = [0xDEAD_BEEF_u32, 0x0001_0000, 0, 0, 0];
+        let bad_spirv_bytes: Vec<u8> = bad_spirv_words
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .collect();
+        let req_bad_spirv = service::CompileSpirvRequestTarpc {
+            spirv: Bytes::from(bad_spirv_bytes),
             arch: coral_reef::GpuArch::default().to_string(),
             opt_level: 2,
             fp64_software: true,

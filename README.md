@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Spring Absorption + Compiler Hardening + Debt Reduction
+**Status**: Phase 10 — Iteration 9 (E2E Wiring + Push Buffer Fix + Debt Reduction)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -17,9 +17,12 @@ optimization passes, and `ShaderModel` trait — Rust's trait dispatch
 drives vendor-specific legalization, register allocation, and encoding.
 No manual vtables, no C-era dispatch macros.
 
-coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu +
-NVIDIA nouveau). coralGpu unifies compilation and dispatch into a single
-API. Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
+coralDriver provides userspace GPU dispatch via DRM ioctl — AMD amdgpu
+(fully wired: GEM, PM4, CS submit, fence sync) and NVIDIA nouveau
+(channel alloc, GEM, pushbuf submit, QMD dispatch). coralGpu unifies
+compilation and dispatch into a single API with automatic hardware
+detection. Every layer pure Rust — zero FFI, zero `*-sys`, zero
+`extern "C"`.
 
 Part of the ecoPrimals Sovereign Compute Evolution.
 
@@ -28,7 +31,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 904 tests (883 passing, 21 ignored)
+cargo test --workspace     # 974 tests (952 passing, 22 ignored)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -93,7 +96,7 @@ coralReef/
 │   │   │       ├── amd/          # AMD vendor backend
 │   │   │       │   ├── shader_model.rs  # ShaderModelRdna2 (direct trait impl)
 │   │   │       │   ├── encoding.rs      # RDNA2 instruction encoding
-│   │   │       │   ├── isa_generated.rs # 1,446 ISA opcodes (Rust-generated)
+│   │   │       │   ├── isa_generated/   # 1,446 ISA opcodes (Rust-generated)
 │   │   │       │   └── reg.rs           # VGPR/SGPR register model
 │   │   │       └── pipeline.rs   # Full compilation pipeline
 │   │   ├── src/tol.rs            # 13-tier numerical tolerance model
@@ -101,8 +104,8 @@ coralReef/
 │   ├── coral-driver/              # Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
 │   │       ├── drm.rs            # Pure Rust DRM interface (via libc)
-│   │       ├── amd/              # amdgpu: GEM, PM4, command submission
-│   │       └── nv/               # nouveau: QMD, pushbuf (unsupported — explicit errors)
+│   │       ├── amd/              # amdgpu: GEM, PM4, command submission, fence
+│   │       └── nv/               # nouveau: channel, GEM, QMD, pushbuf submit
 │   ├── coral-gpu/                 # Unified GPU compute abstraction
 │   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/            # ISA tables, latency model
@@ -121,12 +124,12 @@ coralReef/
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, FMA control |
 | `coral-reef` | Shader compiler — 14/27 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
-| `coral-driver` | Userspace GPU dispatch — AMD amdgpu + NVIDIA nouveau via DRM ioctl (pure Rust, zero FFI) |
-| `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API |
-| `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits for GPU instruction encoding |
+| `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (channel+GEM+pushbuf+QMD+CBUF+fence) via DRM ioctl (pure Rust, bytemuck, zero FFI) |
+| `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API, auto-detect DRM render nodes |
+| `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
 | `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
-| `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants` |
+| `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
@@ -148,7 +151,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (904 tests — 883 passing, 21 ignored) |
+| `cargo test --workspace` | PASS (974 tests — 952 passing, 22 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |
@@ -174,7 +177,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, deep debt | **In Progress** |
+| 10 | Spring absorption, compiler hardening, deep debt | **Iteration 9** |
 
 ---
 

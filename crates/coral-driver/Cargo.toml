@@ -3,12 +3,18 @@ name = "coral-driver"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Sovereign GPU driver — DRM ioctl dispatch for AMD (amdgpu) and NVIDIA (nouveau)"
 
 [dependencies]
+bytemuck = { version = "1", features = ["derive"] }
 libc = "0.2.182"
 thiserror.workspace = true
 tracing.workspace = true
+
+[features]
+default = []
+nouveau = []
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # libc for POSIX syscalls (ioctl, mmap, munmap) — cross-architecture.

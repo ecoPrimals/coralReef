@@ -11,8 +11,9 @@
 pub(crate) mod dom;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
+
+use crate::fxhash::FxHashMap;
 
 /// A node index in the CFG.
 pub type NodeId = usize;
@@ -33,8 +34,8 @@ pub struct Edge {
 #[derive(Debug)]
 pub struct CFG<T> {
     pub(crate) blocks: Vec<T>,
-    pub(crate) successors: HashMap<NodeId, Vec<NodeId>>,
-    pub(crate) predecessors: HashMap<NodeId, Vec<NodeId>>,
+    pub(crate) successors: FxHashMap<NodeId, Vec<NodeId>>,
+    pub(crate) predecessors: FxHashMap<NodeId, Vec<NodeId>>,
     pub(crate) dom_analysis: RefCell<Option<dom::DomAnalysis>>,
 }
 
@@ -200,8 +201,8 @@ impl<T> Default for CFG<T> {
     fn default() -> Self {
         Self {
             blocks: Vec::new(),
-            successors: HashMap::new(),
-            predecessors: HashMap::new(),
+            successors: FxHashMap::default(),
+            predecessors: FxHashMap::default(),
             dom_analysis: RefCell::new(None),
         }
     }
@@ -269,8 +270,8 @@ impl<T> CFGBuilder<T> {
     /// Build the CFG, consuming the builder.
     #[must_use]
     pub fn build(self) -> CFG<T> {
-        let mut successors: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
-        let mut predecessors: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        let mut successors: FxHashMap<NodeId, Vec<NodeId>> = FxHashMap::default();
+        let mut predecessors: FxHashMap<NodeId, Vec<NodeId>> = FxHashMap::default();
 
         for edge in &self.edges {
             successors.entry(edge.from).or_default().push(edge.to);

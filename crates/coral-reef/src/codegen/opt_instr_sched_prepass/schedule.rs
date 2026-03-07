@@ -67,8 +67,6 @@ impl ScheduleUnitGraph {
 
         let init_ready_list = calc_statistics(&mut g);
 
-        // use super::opt_instr_sched_common::save_graphviz;
-        // save_graphviz(instrs, &g).unwrap();
         g.reverse();
 
         Self { g, init_ready_list }

@@ -543,3 +543,130 @@ fn get_field_attr(field: &Field, attr_name: &str) -> Option<Ident> {
     }
     None
 }
+
+// ---------------------------------------------------------------------------
+// #[derive(Encode)] — type-safe instruction encoding via TypedBitField
+// ---------------------------------------------------------------------------
+
+/// Derive macro for generating an `encode()` method on AMD instruction structs.
+///
+/// Fields annotated with `#[enc(offset = N, width = M)]` produce typed
+/// bitfield writes. The struct must also have `#[encoding(FORMAT)]` on the
+/// struct level to select the word count.
+///
+/// # Example (conceptual — requires `bitview::TypedBitField` in scope)
+///
+/// ```ignore
+/// #[derive(Encode)]
+/// #[encoding(VOP3)] // 64-bit → 2 words
+/// struct EncodedVop3Add {
+///     #[enc(offset = 26, width = 6)]
+///     prefix: u32,
+///     #[enc(offset = 16, width = 10)]
+///     opcode: u16,
+///     #[enc(offset = 0, width = 8)]
+///     vdst: u8,
+///     #[enc(offset = 32, width = 9)]  // word 1
+///     src0: u16,
+///     #[enc(offset = 41, width = 9)]
+///     src1: u16,
+///     #[enc(offset = 50, width = 9)]
+///     src2: u16,
+/// }
+/// ```
+#[proc_macro_derive(Encode, attributes(enc, encoding))]
+pub fn derive_encode(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let struct_name = &input.ident;
+
+    let word_count = get_encoding_word_count(&input);
+
+    let fields = match &input.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Named(named),
+            ..
+        }) => &named.named,
+        _ => {
+            return syn::Error::new(
+                Span::call_site(),
+                "Encode only supports structs with named fields",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let mut set_statements = Vec::new();
+    for field in fields {
+        if let Some((offset, width)) = get_enc_attr(field) {
+            let field_name = field
+                .ident
+                .as_ref()
+                .expect("named field in #[derive(Encode)]");
+            set_statements.push(quote! {
+                {
+                    let range = (#offset as usize)..((#offset + #width) as usize);
+                    let val: u64 = bitview::BitCastU64::as_bits(self.#field_name);
+                    buf.set_bit_range_u64(range, val);
+                }
+            });
+        }
+    }
+
+    let expanded = quote! {
+        impl #struct_name {
+            /// Encode this instruction into `u32` words.
+            pub fn encode(&self) -> [u32; #word_count] {
+                use bitview::BitMutViewable;
+                let mut buf = [0u32; #word_count];
+                #(#set_statements)*
+                buf
+            }
+        }
+    };
+
+    expanded.into()
+}
+
+fn get_encoding_word_count(input: &DeriveInput) -> usize {
+    for attr in &input.attrs {
+        if attr.path().is_ident("encoding") {
+            if let Meta::List(list) = &attr.meta {
+                let tokens = list.tokens.to_string();
+                let format = tokens.trim();
+                return match format {
+                    "SOP1" | "SOP2" | "SOPC" | "SOPK" | "SOPP" | "VOP1" | "VOP2" | "VOPC" => 1,
+                    "VOP3" | "SMEM" | "DS" | "FLAT" | "MUBUF" | "MTBUF" | "MIMG" | "EXP" => 2,
+                    _ => 2,
+                };
+            }
+        }
+    }
+    2
+}
+
+fn get_enc_attr(field: &Field) -> Option<(u32, u32)> {
+    for attr in &field.attrs {
+        if attr.path().is_ident("enc") {
+            if let Meta::List(list) = &attr.meta {
+                let content = list.tokens.to_string();
+                let mut offset = None;
+                let mut width = None;
+                for part in content.split(',') {
+                    let part = part.trim();
+                    if let Some(val) = part.strip_prefix("offset") {
+                        let val = val.trim().trim_start_matches('=').trim();
+                        offset = val.parse::<u32>().ok();
+                    } else if let Some(val) = part.strip_prefix("width") {
+                        let val = val.trim().trim_start_matches('=').trim();
+                        width = val.parse::<u32>().ok();
+                    }
+                }
+                if let (Some(o), Some(w)) = (offset, width) {
+                    return Some((o, w));
+                }
+            }
+        }
+    }
+    None
+}

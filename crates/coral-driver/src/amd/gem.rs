@@ -22,7 +22,9 @@ impl MappedRegion {
         fd: RawFd,
         offset: libc::off_t,
     ) -> DriverResult<Self> {
-        // Safety: standard POSIX mmap with validated arguments.
+        // SAFETY: Standard POSIX mmap. Arguments are validated by the caller:
+        // `len` > 0, `fd` is a valid open DRM GEM handle, `offset` is from
+        // `gem_mmap_offset`. The kernel returns MAP_FAILED on error (checked below).
         let ptr = unsafe { libc::mmap(ptr::null_mut(), len, prot, flags, fd, offset) };
         if ptr == libc::MAP_FAILED {
             return Err(DriverError::MmapFailed("mmap returned MAP_FAILED".into()));
@@ -37,7 +39,9 @@ impl MappedRegion {
 
 impl Drop for MappedRegion {
     fn drop(&mut self) {
-        // Safety: ptr was returned by a successful mmap call with the same len.
+        // SAFETY: `ptr` was returned by a successful `mmap` call (MAP_FAILED
+        // was checked in `new`). `len` is the same value passed to `mmap`.
+        // This runs exactly once via the Drop impl.
         unsafe { libc::munmap(self.ptr, self.len) };
     }
 }
@@ -87,11 +91,6 @@ impl GemBuffer {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the write exceeds buffer bounds or mmap fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer size or offset exceeds the platform pointer width
-    /// (impossible on 64-bit systems where this driver runs).
     pub fn write(&self, fd: RawFd, offset: u64, data: &[u8]) -> DriverResult<()> {
         if offset + data.len() as u64 > self.size {
             return Err(DriverError::MmapFailed(
@@ -104,10 +103,12 @@ impl GemBuffer {
             ));
         }
         let mmap_offset = ioctl::gem_mmap_offset(fd, self.gem_handle)?;
-        let buf_len =
-            usize::try_from(self.size).expect("buffer size exceeds platform pointer width");
-        let mmap_off =
-            libc::off_t::try_from(mmap_offset).expect("mmap offset exceeds platform off_t range");
+        let buf_len = usize::try_from(self.size).map_err(|_| {
+            DriverError::platform_overflow("buffer size exceeds platform pointer width")
+        })?;
+        let mmap_off = libc::off_t::try_from(mmap_offset).map_err(|_| {
+            DriverError::platform_overflow("mmap offset exceeds platform off_t range")
+        })?;
         let region = MappedRegion::new(
             buf_len,
             libc::PROT_READ | libc::PROT_WRITE,
@@ -115,8 +116,11 @@ impl GemBuffer {
             fd,
             mmap_off,
         )?;
-        let byte_offset = usize::try_from(offset).expect("offset exceeds platform pointer width");
-        // Safety: region is valid for self.size bytes, bounds checked above.
+        let byte_offset = usize::try_from(offset)
+            .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
+        // SAFETY: `region` is valid for `self.size` bytes (mapped with PROT_WRITE).
+        // Bounds check above guarantees `byte_offset + data.len() <= self.size`.
+        // Source (`data`) is a valid slice. Regions cannot overlap (kernel ↔ user).
         unsafe {
             ptr::copy_nonoverlapping(data.as_ptr(), region.as_ptr().add(byte_offset), data.len());
         }
@@ -128,11 +132,6 @@ impl GemBuffer {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the read exceeds buffer bounds or mmap fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer size or offset exceeds the platform pointer width
-    /// (impossible on 64-bit systems where this driver runs).
     pub fn read(&self, fd: RawFd, offset: u64, len: usize) -> DriverResult<Vec<u8>> {
         if offset + len as u64 > self.size {
             return Err(DriverError::MmapFailed(
@@ -144,14 +143,19 @@ impl GemBuffer {
             ));
         }
         let mmap_offset = ioctl::gem_mmap_offset(fd, self.gem_handle)?;
-        let buf_len =
-            usize::try_from(self.size).expect("buffer size exceeds platform pointer width");
-        let mmap_off =
-            libc::off_t::try_from(mmap_offset).expect("mmap offset exceeds platform off_t range");
+        let buf_len = usize::try_from(self.size).map_err(|_| {
+            DriverError::platform_overflow("buffer size exceeds platform pointer width")
+        })?;
+        let mmap_off = libc::off_t::try_from(mmap_offset).map_err(|_| {
+            DriverError::platform_overflow("mmap offset exceeds platform off_t range")
+        })?;
         let region = MappedRegion::new(buf_len, libc::PROT_READ, libc::MAP_SHARED, fd, mmap_off)?;
-        let byte_offset = usize::try_from(offset).expect("offset exceeds platform pointer width");
+        let byte_offset = usize::try_from(offset)
+            .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
         let mut result = vec![0u8; len];
-        // Safety: region is valid for self.size bytes, bounds checked above.
+        // SAFETY: `region` is valid for `self.size` bytes (mapped with PROT_READ).
+        // Bounds check above guarantees `byte_offset + len <= self.size`.
+        // `result` is freshly allocated with exactly `len` bytes. No overlap.
         unsafe {
             ptr::copy_nonoverlapping(region.as_ptr().add(byte_offset), result.as_mut_ptr(), len);
         }
@@ -168,7 +172,8 @@ impl GemBuffer {
             handle: self.gem_handle,
             pad: 0,
         };
-        // Safety: DrmGemClose is #[repr(C)] and matches the kernel struct.
+        // SAFETY: `DrmGemClose` is `#[repr(C)]` matching the kernel's `drm_gem_close`.
+        // `args` is stack-allocated with the correct handle. Synchronous ioctl.
         unsafe { crate::drm::drm_ioctl_typed(fd, crate::drm::DRM_IOCTL_GEM_CLOSE, &mut args)? };
         tracing::debug!(handle = self.gem_handle, "GEM buffer closed");
         Ok(())
