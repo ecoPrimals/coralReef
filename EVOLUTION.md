@@ -196,17 +196,17 @@ Endgame:
 
 | Method | JSON-RPC | tarpc | Status |
 |--------|----------|-------|--------|
-| `compiler.compile` | ✅ | ✅ | SPIR-V → native binary |
-| `compiler.compile_wgsl` | ✅ | ✅ | WGSL → native binary |
-| `compiler.health` | ✅ | ✅ | name, version, supported_archs |
-| `compiler.supported_archs` | ✅ | — | dynamic arch enumeration |
+| `shader.compile.spirv` | ✅ | ✅ | SPIR-V → native binary |
+| `shader.compile.wgsl` | ✅ | ✅ | WGSL → native binary |
+| `shader.compile.status` | ✅ | ✅ | name, version, supported_archs |
+| `shader.compile.capabilities` | ✅ | ✅ | dynamic arch enumeration |
 
 ### Spring Integration Status
 
 | Spring | Uses coralReef | Status |
 |--------|---------------|--------|
 | barraCuda | `CoralCompiler` IPC client | Wired — compile + cache |
-| toadStool | `shader.compile.*` proxy | Ready — maps to `compiler.*` |
+| toadStool | `shader.compile.*` proxy | Wired — proxies to coralReef `shader.compile.*` |
 | hotSpring | Validation corpus (16 shaders) | Active |
 | groundSpring | Validation partner (sovereign compilation) | Active |
 | neuralSpring | coralForge shaders (8 imported) | Active |

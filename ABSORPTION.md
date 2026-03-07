@@ -157,10 +157,10 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 
 | Endpoint | Protocol | Status |
 |----------|----------|--------|
-| `compiler.compile_wgsl` | tarpc + JSON-RPC | **Implemented** — `compile_wgsl` on both transports |
-| `compiler.compile` | tarpc + JSON-RPC | **Implemented** — SPIR-V compilation |
-| `compiler.health` | tarpc + JSON-RPC | **Implemented** — returns supported_archs |
-| `compiler.supported_archs` | JSON-RPC | **Implemented** — dynamic arch enumeration |
+| `shader.compile.wgsl` | tarpc + JSON-RPC | **Implemented** — WGSL → native binary |
+| `shader.compile.spirv` | tarpc + JSON-RPC | **Implemented** — SPIR-V → native binary |
+| `shader.compile.status` | tarpc + JSON-RPC | **Implemented** — health, supported_archs |
+| `shader.compile.capabilities` | tarpc + JSON-RPC | **Implemented** — dynamic arch enumeration |
 
 ### barraCuda
 

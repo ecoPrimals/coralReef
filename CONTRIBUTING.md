@@ -64,6 +64,6 @@ docs(spec): update f64 lowering strategy
 
 When implementing IPC endpoints, follow `wateringHole/SEMANTIC_METHOD_NAMING_STANDARD.md`:
 
-- Method format: `{domain}.{operation}` (e.g. `compiler.compile`, `compiler.health`)
+- Method format: `{domain}.{capability}.{operation}` (e.g. `shader.compile.spirv`, `shader.compile.status`)
 - JSON-RPC 2.0 as primary protocol
 - tarpc as optional high-performance channel
