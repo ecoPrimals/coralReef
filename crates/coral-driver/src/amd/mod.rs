@@ -66,17 +66,26 @@ impl ComputeDevice for AmdDevice {
     }
 
     fn free(&mut self, handle: BufferHandle) -> DriverResult<()> {
-        let gem = self.buffers.remove(&handle.0).ok_or(DriverError::BufferNotFound(handle))?;
+        let gem = self
+            .buffers
+            .remove(&handle.0)
+            .ok_or(DriverError::BufferNotFound(handle))?;
         gem.close(self.drm.fd())
     }
 
     fn upload(&mut self, handle: BufferHandle, offset: u64, data: &[u8]) -> DriverResult<()> {
-        let gem = self.buffers.get(&handle.0).ok_or(DriverError::BufferNotFound(handle))?;
+        let gem = self
+            .buffers
+            .get(&handle.0)
+            .ok_or(DriverError::BufferNotFound(handle))?;
         gem.write(self.drm.fd(), offset, data)
     }
 
     fn readback(&self, handle: BufferHandle, offset: u64, len: usize) -> DriverResult<Vec<u8>> {
-        let gem = self.buffers.get(&handle.0).ok_or(DriverError::BufferNotFound(handle))?;
+        let gem = self
+            .buffers
+            .get(&handle.0)
+            .ok_or(DriverError::BufferNotFound(handle))?;
         gem.read(self.drm.fd(), offset, len)
     }
 
@@ -100,16 +109,14 @@ impl ComputeDevice for AmdDevice {
         }
 
         let pm4_words = pm4::build_compute_dispatch(
-            self.buffers.get(&shader_handle.0).map(|g| g.gpu_va).unwrap_or(0),
+            self.buffers
+                .get(&shader_handle.0)
+                .map(|g| g.gpu_va)
+                .unwrap_or(0),
             dims,
         );
 
-        ioctl::submit_command(
-            self.drm.fd(),
-            self.ctx_handle,
-            &gem_handles,
-            &pm4_words,
-        )?;
+        ioctl::submit_command(self.drm.fd(), self.ctx_handle, &gem_handles, &pm4_words)?;
 
         self.free(shader_handle)?;
         Ok(())

@@ -30,7 +30,7 @@ pub mod poly;
 /// sqrt/rcp. Transcendentals (sin/cos/exp2/log2) still need polynomial
 /// lowering on both vendors.
 pub fn lower_f64_function(func: &mut Function, sm: &dyn ShaderModel) {
-    let is_amd = sm.sm() >= 100;
+    let is_amd = sm.is_amd();
     if !is_amd && sm.sm() < 70 {
         return;
     }
@@ -42,35 +42,51 @@ pub fn lower_instr(
     alloc: &mut SSAValueAllocator,
     sm: &dyn ShaderModel,
 ) -> MappedInstrs {
-    let is_amd = sm.sm() >= 100;
+    let is_amd = sm.is_amd();
     let pred = instr.pred;
     match instr.op {
         Op::F64Exp2(op) => {
             if is_amd {
                 // AMD: polynomial via v_fma_f64 (same algorithm, different seed)
                 // For now, pass through — encoder handles natively
-                return MappedInstrs::One(Instr { op: Op::F64Exp2(op), pred, ..instr });
+                return MappedInstrs::One(Instr {
+                    op: Op::F64Exp2(op),
+                    pred,
+                    ..instr
+                });
             }
             let seq = poly::lower_f64_exp2(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)
         }
         Op::F64Log2(op) => {
             if is_amd {
-                return MappedInstrs::One(Instr { op: Op::F64Log2(op), pred, ..instr });
+                return MappedInstrs::One(Instr {
+                    op: Op::F64Log2(op),
+                    pred,
+                    ..instr
+                });
             }
             let seq = poly::lower_f64_log2(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)
         }
         Op::F64Sin(op) => {
             if is_amd {
-                return MappedInstrs::One(Instr { op: Op::F64Sin(op), pred, ..instr });
+                return MappedInstrs::One(Instr {
+                    op: Op::F64Sin(op),
+                    pred,
+                    ..instr
+                });
             }
             let seq = poly::lower_f64_sin(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)
         }
         Op::F64Cos(op) => {
             if is_amd {
-                return MappedInstrs::One(Instr { op: Op::F64Cos(op), pred, ..instr });
+                return MappedInstrs::One(Instr {
+                    op: Op::F64Cos(op),
+                    pred,
+                    ..instr
+                });
             }
             let seq = poly::lower_f64_cos(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)
@@ -78,7 +94,11 @@ pub fn lower_instr(
         Op::F64Sqrt(op) => {
             if is_amd {
                 // AMD: native v_sqrt_f64 — no lowering needed
-                return MappedInstrs::One(Instr { op: Op::F64Sqrt(op), pred, ..instr });
+                return MappedInstrs::One(Instr {
+                    op: Op::F64Sqrt(op),
+                    pred,
+                    ..instr
+                });
             }
             let seq = newton::lower_f64_sqrt(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)
@@ -86,7 +106,11 @@ pub fn lower_instr(
         Op::F64Rcp(op) => {
             if is_amd {
                 // AMD: native v_rcp_f64 — no lowering needed
-                return MappedInstrs::One(Instr { op: Op::F64Rcp(op), pred, ..instr });
+                return MappedInstrs::One(Instr {
+                    op: Op::F64Rcp(op),
+                    pred,
+                    ..instr
+                });
             }
             let seq = newton::lower_f64_rcp(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)
@@ -121,6 +145,27 @@ pub(super) fn emit_f64_zero(
         pred,
     ));
     zero
+}
+
+/// Emit a single f64 fused multiply-add, allocating a fresh SSA destination.
+pub(super) fn emit_f64_dfma(
+    out: &mut Vec<Instr>,
+    alloc: &mut SSAValueAllocator,
+    pred: Pred,
+    a: Src,
+    b: Src,
+    c: Src,
+) -> SSARef {
+    let dst = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDFma {
+            dst: dst.clone().into(),
+            srcs: [a, b, c],
+            rnd_mode: FRndMode::NearestEven,
+        }),
+        pred,
+    ));
+    dst
 }
 
 pub(super) fn emit_f64_const(

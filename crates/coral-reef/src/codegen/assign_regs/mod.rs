@@ -128,24 +128,36 @@ impl Shader<'_> {
         let mut phi_webs = PhiWebs::new(f);
 
         let mut blocks: Vec<AssignRegsBlock> = Vec::new();
+        let mut unreachable: Vec<bool> = Vec::new();
         for b_idx in 0..f.blocks.len() {
             let pred = f.blocks.pred_indices(b_idx);
-            let pred_ras: Vec<&PerRegFile<RegAllocator>> =
-                pred.iter().map(|&p| &blocks[p].ra).collect();
+            let fwd_preds: Vec<usize> = pred.iter().filter(|&&p| p < b_idx).copied().collect();
 
-            let bl = live.block_live(b_idx);
+            let is_unreachable = b_idx != 0 && pred.is_empty();
+            unreachable.push(is_unreachable);
 
             let mut arb = AssignRegsBlock::new(&limit, tmp_gprs, b_idx);
-            arb.first_pass(&mut f.blocks[b_idx], bl, &pred_ras, &mut phi_webs);
+            if !is_unreachable {
+                let pred_ras: Vec<&PerRegFile<RegAllocator>> =
+                    fwd_preds.iter().map(|&p| &blocks[p].ra).collect();
+
+                let bl = live.block_live(b_idx);
+                arb.first_pass(&mut f.blocks[b_idx], bl, &pred_ras, &mut phi_webs);
+            }
 
             assert!(blocks.len() == b_idx);
             blocks.push(arb);
         }
 
         for b_idx in 0..f.blocks.len() {
+            if unreachable[b_idx] {
+                continue;
+            }
             let arb = &blocks[b_idx];
             for sb_idx in f.blocks.succ_indices(b_idx).to_vec() {
-                arb.second_pass(&blocks[sb_idx], &mut f.blocks[b_idx]);
+                if !unreachable[sb_idx] {
+                    arb.second_pass(&blocks[sb_idx], &mut f.blocks[b_idx]);
+                }
             }
         }
     }

@@ -36,44 +36,32 @@ fn emit_sin_poly(
     let s2 = emit_f64_const(out, alloc, pred, S2);
     let s3 = emit_f64_const(out, alloc, pred, S3);
     let s4 = emit_f64_const(out, alloc, pred, S4);
-    let inner = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [r_sq_src.clone(), Src::from(s4), Src::from(s3)],
-            rnd_mode: rnd,
-        }),
+    let inner = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
-    let inner_src = Src::from(inner.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [r_sq_src.clone(), inner_src, Src::from(s2)],
-            rnd_mode: rnd,
-        }),
+        r_sq_src.clone(),
+        Src::from(s4),
+        Src::from(s3),
+    );
+    let inner = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
-    let inner_src = Src::from(inner.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [r_sq_src.clone(), inner_src, Src::from(s1)],
-            rnd_mode: rnd,
-        }),
+        r_sq_src.clone(),
+        Src::from(inner),
+        Src::from(s2),
+    );
+    let inner = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
+        r_sq_src.clone(),
+        Src::from(inner),
+        Src::from(s1),
+    );
     let one = emit_f64_const(out, alloc, pred, 1.0);
-    let inner_src = Src::from(inner);
-    let poly = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: poly.clone().into(),
-            srcs: [r_sq_src, inner_src, Src::from(one)],
-            rnd_mode: rnd,
-        }),
-        pred,
-    ));
+    let poly = emit_f64_dfma(out, alloc, pred, r_sq_src, Src::from(inner), Src::from(one));
     let result = alloc.alloc_vec(RegFile::GPR, 2);
     out.push(with_pred(
         Instr::new(OpDMul {
@@ -115,45 +103,40 @@ pub fn lower_f64_sin(
     let s3 = emit_f64_const(&mut out, alloc, pred, S3);
     let s4 = emit_f64_const(&mut out, alloc, pred, S4);
 
-    let inner = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [x_sq_src.clone(), Src::from(s4), Src::from(s3)],
-            rnd_mode: rnd,
-        }),
+    let inner = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let inner_src = Src::from(inner.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [x_sq_src.clone(), inner_src, Src::from(s2)],
-            rnd_mode: rnd,
-        }),
+        x_sq_src.clone(),
+        Src::from(s4),
+        Src::from(s3),
+    );
+    let inner = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let inner_src = Src::from(inner.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [x_sq_src.clone(), inner_src, Src::from(s1)],
-            rnd_mode: rnd,
-        }),
+        x_sq_src.clone(),
+        Src::from(inner),
+        Src::from(s2),
+    );
+    let inner = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
+        x_sq_src.clone(),
+        Src::from(inner),
+        Src::from(s1),
+    );
 
     let one = emit_f64_const(&mut out, alloc, pred, 1.0);
-    let inner_src = Src::from(inner);
-    let poly = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: poly.clone().into(),
-            srcs: [x_sq_src, inner_src, Src::from(one)],
-            rnd_mode: rnd,
-        }),
+    let poly = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
+        x_sq_src,
+        Src::from(inner),
+        Src::from(one),
+    );
 
     out.push(with_pred(
         Instr::new(OpDMul {
@@ -194,45 +177,32 @@ fn emit_cos_poly(
     let c2 = emit_f64_const(out, alloc, pred, COS_C2);
     let c3 = emit_f64_const(out, alloc, pred, COS_C3);
     let c4 = emit_f64_const(out, alloc, pred, COS_C4);
-    let inner = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [r_sq_src.clone(), Src::from(c4), Src::from(c3)],
-            rnd_mode: rnd,
-        }),
+    let inner = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
-    let inner_src = Src::from(inner.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [r_sq_src.clone(), inner_src, Src::from(c2)],
-            rnd_mode: rnd,
-        }),
+        r_sq_src.clone(),
+        Src::from(c4),
+        Src::from(c3),
+    );
+    let inner = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
-    let inner_src = Src::from(inner.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: inner.clone().into(),
-            srcs: [r_sq_src.clone(), inner_src, Src::from(c1)],
-            rnd_mode: rnd,
-        }),
+        r_sq_src.clone(),
+        Src::from(inner),
+        Src::from(c2),
+    );
+    let inner = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
+        r_sq_src.clone(),
+        Src::from(inner),
+        Src::from(c1),
+    );
     let one = emit_f64_const(out, alloc, pred, 1.0);
-    let inner_src = Src::from(inner);
-    let result = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: result.clone().into(),
-            srcs: [r_sq_src, inner_src, Src::from(one)],
-            rnd_mode: rnd,
-        }),
-        pred,
-    ));
-    result
+    emit_f64_dfma(out, alloc, pred, r_sq_src, Src::from(inner), Src::from(one))
 }
 
 pub fn lower_f64_cos(

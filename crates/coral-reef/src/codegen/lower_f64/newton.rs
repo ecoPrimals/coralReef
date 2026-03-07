@@ -10,6 +10,32 @@
 
 use super::*;
 
+/// Ensure `src` is a 2-component SSA ref. If copy propagation folded it to
+/// immediates or CBuf references, materialize via OpCopy.
+fn ensure_f64_ssa(src: &Src, alloc: &mut SSAValueAllocator, out: &mut Vec<Instr>) -> SSARef {
+    if let SrcRef::SSA(ssa) = &src.reference {
+        if ssa.comps() == 2 {
+            return ssa.clone();
+        }
+    }
+    let dst = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(Instr::new(OpCopy {
+        dst: dst[0].into(),
+        src: src.clone(),
+    }));
+    let mut hi_src = src.clone();
+    if let SrcRef::SSA(ssa) = &hi_src.reference {
+        if ssa.comps() >= 2 {
+            hi_src.reference = SrcRef::SSA(SSARef::from(ssa[1]));
+        }
+    }
+    out.push(Instr::new(OpCopy {
+        dst: dst[1].into(),
+        src: hi_src,
+    }));
+    dst
+}
+
 const F64_NEG_HALF: u32 = 0xBFE0_0000; // -0.5 as f32 bits (high word of f64)
 const F64_ONE_HALF: u32 = 0x3FF8_0000; // 1.5
 
@@ -24,8 +50,7 @@ pub fn lower_f64_sqrt(
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
 
-    let x = op.src.reference.clone().to_ssa();
-    assert!(x.comps() == 2, "f64 sqrt src must have 2 components");
+    let x = ensure_f64_ssa(&op.src, alloc, &mut out);
     let x_src = Src::from(x.clone());
     let x_hi = Src::from(x[1]);
 
@@ -237,8 +262,7 @@ pub fn lower_f64_rcp(
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
 
-    let x = op.src.reference.clone().to_ssa();
-    assert!(x.comps() == 2, "f64 rcp src must have 2 components");
+    let x = ensure_f64_ssa(&op.src, alloc, &mut out);
     let x_src = Src::from(x.clone());
     let x_hi = Src::from(x[1]);
 

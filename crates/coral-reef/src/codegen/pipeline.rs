@@ -51,14 +51,14 @@ pub fn compile_shader(
     // Dependency calculation
     shader.assign_deps_serial();
 
+    // Remove annotations before post-RA scheduling (they're not hardware ops)
+    shader.remove_annotations();
+
     // Post-RA scheduling
     shader.opt_instr_sched_postpass();
 
     // Gather info for header encoding (uses gpr_count from RA)
     shader.gather_info()?;
-
-    // Remove annotations before encoding
-    shader.remove_annotations();
 
     // Encode to binary
     let code = shader.sm.encode_shader(shader)?;

@@ -15,14 +15,15 @@
 use std::fmt;
 use std::net::SocketAddr;
 
-use futures::StreamExt;
-use jsonrpsee::core::async_trait;
-use jsonrpsee::proc_macros::rpc;
-use jsonrpsee::server::{Server, ServerHandle};
-use jsonrpsee::types::ErrorObjectOwned;
-use tokio::sync::watch;
+mod jsonrpc;
+pub use jsonrpc::start_jsonrpc_server;
 
-use crate::service;
+mod tarpc_transport;
+pub use tarpc_transport::start_tarpc_server;
+#[cfg(all(test, unix))]
+pub use tarpc_transport::start_tarpc_unix_server;
+#[cfg(test)]
+pub use tarpc_transport::{CoralReefTarpcClient, start_tarpc_tcp_server};
 
 /// Errors from IPC server operations.
 #[derive(Debug, thiserror::Error)]
@@ -95,243 +96,17 @@ pub fn default_tarpc_bind() -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// JSON-RPC 2.0 — semantic method names per wateringHole standard
-// ---------------------------------------------------------------------------
-
-/// JSON-RPC 2.0 API definition.
-///
-/// Method names follow `domain.operation` format.
-#[rpc(server)]
-trait CoralReefRpc {
-    /// `compiler.compile` — compile SPIR-V to native GPU binary.
-    #[method(name = "compiler.compile")]
-    async fn compiler_compile(
-        &self,
-        request: service::CompileRequest,
-    ) -> Result<service::CompileResponse, ErrorObjectOwned>;
-
-    /// `compiler.health` — health check.
-    #[method(name = "compiler.health")]
-    async fn compiler_health(&self) -> Result<service::HealthResponse, ErrorObjectOwned>;
-
-    /// `compiler.supported_archs` — list supported GPU architectures.
-    #[method(name = "compiler.supported_archs")]
-    async fn compiler_supported_archs(&self) -> Result<Vec<String>, ErrorObjectOwned>;
-}
-
-struct RpcImpl;
-
-#[async_trait]
-impl CoralReefRpcServer for RpcImpl {
-    async fn compiler_compile(
-        &self,
-        request: service::CompileRequest,
-    ) -> Result<service::CompileResponse, ErrorObjectOwned> {
-        service::handle_compile(&request)
-            .map_err(|e| ErrorObjectOwned::owned(-32000, e.to_string(), None::<()>))
-    }
-
-    async fn compiler_health(&self) -> Result<service::HealthResponse, ErrorObjectOwned> {
-        Ok(service::handle_health())
-    }
-
-    async fn compiler_supported_archs(&self) -> Result<Vec<String>, ErrorObjectOwned> {
-        let health = service::handle_health();
-        Ok(health.supported_archs)
-    }
-}
-
-/// Start the JSON-RPC 2.0 server (always TCP — HTTP transport).
-///
-/// Returns the bound address and server handle for graceful shutdown.
-/// The server runs in a background task until [`ServerHandle::stop`] is called.
-///
-/// # Errors
-///
-/// Returns an error if the server fails to bind.
-pub async fn start_jsonrpc_server(bind: &str) -> Result<(SocketAddr, ServerHandle), IpcError> {
-    let addr: SocketAddr = bind.parse()?;
-    let server = Server::builder()
-        .build(addr)
-        .await
-        .map_err(IpcError::JsonRpc)?;
-    let bound = server.local_addr().map_err(IpcError::JsonRpc)?;
-    let handle = server.start(RpcImpl.into_rpc());
-    let handle_for_task = handle.clone();
-
-    tokio::spawn(async move {
-        handle_for_task.stopped().await;
-    });
-
-    tracing::info!(%bound, "JSON-RPC server listening");
-    Ok((bound, handle))
-}
-
-// ---------------------------------------------------------------------------
-// tarpc — high-performance binary protocol (TCP or Unix socket)
-// ---------------------------------------------------------------------------
-
-/// tarpc service definition (mirrors JSON-RPC methods).
-#[tarpc::service]
-pub trait CoralReefTarpc {
-    /// Compile SPIR-V to native GPU binary.
-    async fn compiler_compile(
-        request: service::CompileRequest,
-    ) -> Result<service::CompileResponse, String>;
-
-    /// Health check.
-    async fn compiler_health() -> service::HealthResponse;
-}
-
-/// tarpc server implementation.
-#[derive(Clone)]
-struct TarpcServer;
-
-impl CoralReefTarpc for TarpcServer {
-    async fn compiler_compile(
-        self,
-        _ctx: tarpc::context::Context,
-        request: service::CompileRequest,
-    ) -> Result<service::CompileResponse, String> {
-        service::handle_compile(&request).map_err(|e| e.to_string())
-    }
-
-    async fn compiler_health(self, _ctx: tarpc::context::Context) -> service::HealthResponse {
-        service::handle_health()
-    }
-}
-
-/// Start a tarpc server over TCP.
-///
-/// Returns the bound address and join handle for graceful shutdown.
-///
-/// # Errors
-///
-/// Returns an error if the server fails to bind.
-pub async fn start_tarpc_tcp_server(
-    bind: &str,
-    shutdown_rx: watch::Receiver<()>,
-) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
-    use tarpc::server::{self, Channel};
-    use tokio_serde::formats::Json;
-
-    let addr: SocketAddr = bind.parse()?;
-    let listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?;
-    let bound = BoundAddr::Tcp(listener.local_addr());
-
-    let handle = tokio::spawn(async move {
-        let mut shutdown_rx = shutdown_rx;
-        listener
-            .take_until(async move {
-                let _ = shutdown_rx.changed().await;
-            })
-            .filter_map(|r| futures::future::ready(r.ok()))
-            .map(server::BaseChannel::with_defaults)
-            .for_each(|channel| async move {
-                tokio::spawn(channel.execute(TarpcServer.serve()).for_each(
-                    |response| async move {
-                        tokio::spawn(response);
-                    },
-                ));
-            })
-            .await;
-    });
-
-    tracing::info!(%bound, "tarpc server listening (tcp)");
-    Ok((bound, handle))
-}
-
-/// Start a tarpc server over a Unix domain socket.
-///
-/// Creates the socket file at `path`, removing any stale socket first.
-/// Returns the bound path and join handle for graceful shutdown.
-///
-/// # Errors
-///
-/// Returns an error if the socket cannot be created.
-#[cfg(unix)]
-#[allow(clippy::unused_async)]
-pub async fn start_tarpc_unix_server(
-    path: &std::path::Path,
-    shutdown_rx: watch::Receiver<()>,
-) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
-    use tarpc::server::{self, Channel};
-    use tokio::net::UnixListener;
-    use tokio_serde::formats::Json;
-    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(IpcError::Tarpc)?;
-    }
-    let _ = std::fs::remove_file(path);
-
-    let listener = UnixListener::bind(path).map_err(IpcError::Tarpc)?;
-    let bound = BoundAddr::Unix(path.to_path_buf());
-
-    let handle = tokio::spawn(async move {
-        let mut shutdown_rx = shutdown_rx;
-        loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    match result {
-                        Ok((stream, _addr)) => {
-                            let framed = LengthDelimitedBuilder::new().new_framed(stream);
-                            let transport = tarpc::serde_transport::new(
-                                framed,
-                                Json::default(),
-                            );
-                            tokio::spawn(
-                                server::BaseChannel::with_defaults(transport)
-                                    .execute(TarpcServer.serve())
-                                    .for_each(|response| async move {
-                                        tokio::spawn(response);
-                                    }),
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "tarpc unix: failed to accept connection");
-                        }
-                    }
-                }
-                _ = shutdown_rx.changed() => break,
-            }
-        }
-    });
-
-    tracing::info!(%bound, "tarpc server listening (unix)");
-    Ok((bound, handle))
-}
-
-/// Start a tarpc server, automatically selecting transport from the bind string.
-///
-/// - `unix:///path/to/socket` → Unix domain socket (Unix platforms only)
-/// - `host:port` → TCP
-///
-/// # Errors
-///
-/// Returns an error if the server fails to bind.
-pub async fn start_tarpc_server(
-    bind: &str,
-    shutdown_rx: watch::Receiver<()>,
-) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
-    #[cfg(unix)]
-    if let Some(path) = bind.strip_prefix("unix://") {
-        return start_tarpc_unix_server(std::path::Path::new(path), shutdown_rx).await;
-    }
-    start_tarpc_tcp_server(bind, shutdown_rx).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service;
+    use tokio::sync::watch;
 
     fn test_shutdown_channel() -> (watch::Sender<()>, watch::Receiver<()>) {
         watch::channel(())
     }
 
     /// Generate valid SPIR-V for a minimal compute shader via naga (WGSL → SPIR-V).
-    /// Uses the same shader as `compiler_integration::test_pipeline_minimal_compute_produces_binary`.
     fn valid_spirv_minimal_compute() -> Vec<u32> {
         let wgsl = "@compute @workgroup_size(1) fn main() {}";
         let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
@@ -467,10 +242,7 @@ mod tests {
             .unwrap();
         let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
-        let response = client
-            .compiler_health(tarpc::context::current())
-            .await
-            .unwrap();
+        let response = client.health(tarpc::context::current()).await.unwrap();
 
         assert_eq!(response.name, env!("CARGO_PKG_NAME"));
     }
@@ -498,7 +270,7 @@ mod tests {
         };
 
         let result = client
-            .compiler_compile(tarpc::context::current(), req)
+            .compile(tarpc::context::current(), req)
             .await
             .unwrap();
 
@@ -538,7 +310,6 @@ mod tests {
                 assert_eq!(resp.size, resp.binary.len());
             }
             Err(e) => {
-                // SPIR-V from naga round-trip may trigger NotImplemented (e.g. function calls)
                 let msg = format!("{e:?}");
                 assert!(
                     msg.contains("not implemented") || msg.contains("-32000"),
@@ -549,10 +320,40 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Compile endpoint only supports SPIR-V; WGSL not yet exposed via IPC"]
     async fn test_jsonrpc_compile_wgsl_shader() {
-        // Placeholder: when `compiler.compile_wgsl` or a `wgsl_source` field
-        // is added to CompileRequest, un-ignore and implement this test.
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let url = format!("http://{addr}");
+        let client = HttpClientBuilder::default().build(&url).unwrap();
+
+        let req = service::CompileWgslRequest {
+            wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
+            arch: "sm_70".to_owned(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+
+        let response: Result<service::CompileResponse, _> =
+            client.request("compiler.compile_wgsl", [req]).await;
+
+        match response {
+            Ok(resp) => {
+                assert!(
+                    !resp.binary.is_empty(),
+                    "WGSL compile should produce non-empty binary"
+                );
+                assert_eq!(resp.size, resp.binary.len());
+            }
+            Err(e) => {
+                let msg = format!("{e:?}");
+                assert!(
+                    msg.contains("-32000"),
+                    "IPC should propagate compile errors: {msg}"
+                );
+            }
+        }
     }
 
     #[tokio::test]
@@ -564,7 +365,6 @@ mod tests {
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
-        // Invalid arch
         let req_bad_arch = service::CompileRequest {
             spirv_words: valid_spirv_minimal_compute(),
             arch: "sm_99".to_string(),
@@ -582,7 +382,6 @@ mod tests {
             "error should indicate compile failure: {err_msg}"
         );
 
-        // Bad SPIR-V (wrong magic)
         let req_bad_spirv = service::CompileRequest {
             spirv_words: vec![0xDEAD_BEEF, 0x0001_0000, 0, 0, 0],
             arch: coral_reef::GpuArch::default().to_string(),
@@ -622,7 +421,7 @@ mod tests {
         };
 
         let response = client
-            .compiler_compile(tarpc::context::current(), req)
+            .compile(tarpc::context::current(), req)
             .await
             .unwrap();
 
@@ -635,7 +434,6 @@ mod tests {
                 assert_eq!(resp.size, resp.binary.len());
             }
             Err(msg) => {
-                // SPIR-V from naga round-trip may trigger NotImplemented (e.g. function calls)
                 assert!(
                     msg.contains("not implemented") || msg.contains("NotImplemented"),
                     "IPC should propagate compile errors: {msg}"
@@ -659,7 +457,6 @@ mod tests {
             .unwrap();
         let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
-        // Invalid arch
         let req_bad_arch = service::CompileRequest {
             spirv_words: valid_spirv_minimal_compute(),
             arch: "sm_99".to_string(),
@@ -667,12 +464,11 @@ mod tests {
             fp64_software: true,
         };
         let result = client
-            .compiler_compile(tarpc::context::current(), req_bad_arch)
+            .compile(tarpc::context::current(), req_bad_arch)
             .await
             .unwrap();
         assert!(result.is_err(), "invalid arch should return Err");
 
-        // Bad SPIR-V
         let req_bad_spirv = service::CompileRequest {
             spirv_words: vec![0xDEAD_BEEF, 0x0001_0000, 0, 0, 0],
             arch: coral_reef::GpuArch::default().to_string(),
@@ -680,7 +476,7 @@ mod tests {
             fp64_software: true,
         };
         let result2 = client
-            .compiler_compile(tarpc::context::current(), req_bad_spirv)
+            .compile(tarpc::context::current(), req_bad_spirv)
             .await
             .unwrap();
         assert!(result2.is_err(), "bad SPIR-V should return Err");
@@ -717,7 +513,7 @@ mod tests {
         let tarpc_client =
             CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
         let tarpc_health = tarpc_client
-            .compiler_health(tarpc::context::current())
+            .health(tarpc::context::current())
             .await
             .unwrap();
 
@@ -742,7 +538,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Verify servers are up
         let url = format!("http://{rpc_addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
         let _health: service::HealthResponse = client
@@ -750,7 +545,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Signal shutdown
         let _ = shutdown_tx.send(());
         let _ = rpc_handle.stop();
 

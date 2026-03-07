@@ -36,7 +36,9 @@ impl ConstTracker {
         debug_assert!(dst.comps() == 1);
         let dst = dst[0];
 
-        debug_assert!(op.src.is_unmodified());
+        if !op.src.is_unmodified() {
+            return;
+        }
         let is_const = match &op.src.reference {
             SrcRef::Zero | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) => true,
             SrcRef::CBuf(cb) => matches!(cb.buf, CBuf::Binding(_)),

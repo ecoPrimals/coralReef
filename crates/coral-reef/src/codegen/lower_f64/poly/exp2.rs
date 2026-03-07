@@ -85,60 +85,54 @@ pub fn lower_f64_exp2(
     let c6 = emit_f64_const(&mut out, alloc, pred, C6);
 
     // Horner: p = c0 + f*(c1 + f*(c2 + f*(c3 + f*(c4 + f*(c5 + f*c6)))))
-    let p = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: p.clone().into(),
-            srcs: [f_src.clone(), Src::from(c6), Src::from(c5)],
-            rnd_mode: rnd,
-        }),
+    let p = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let p_src = Src::from(p.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: p.clone().into(),
-            srcs: [f_src.clone(), p_src, Src::from(c4)],
-            rnd_mode: rnd,
-        }),
+        f_src.clone(),
+        Src::from(c6),
+        Src::from(c5),
+    );
+    let p = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let p_src = Src::from(p.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: p.clone().into(),
-            srcs: [f_src.clone(), p_src, Src::from(c3)],
-            rnd_mode: rnd,
-        }),
+        f_src.clone(),
+        Src::from(p),
+        Src::from(c4),
+    );
+    let p = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let p_src = Src::from(p.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: p.clone().into(),
-            srcs: [f_src.clone(), p_src, Src::from(c2)],
-            rnd_mode: rnd,
-        }),
+        f_src.clone(),
+        Src::from(p),
+        Src::from(c3),
+    );
+    let p = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let p_src = Src::from(p.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: p.clone().into(),
-            srcs: [f_src.clone(), p_src, Src::from(c1)],
-            rnd_mode: rnd,
-        }),
+        f_src.clone(),
+        Src::from(p),
+        Src::from(c2),
+    );
+    let p = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
-    let p_src = Src::from(p.clone());
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: p.clone().into(),
-            srcs: [f_src.clone(), p_src, Src::from(c0)],
-            rnd_mode: rnd,
-        }),
+        f_src.clone(),
+        Src::from(p),
+        Src::from(c1),
+    );
+    let p = emit_f64_dfma(
+        &mut out,
+        alloc,
         pred,
-    ));
+        f_src.clone(),
+        Src::from(p),
+        Src::from(c0),
+    );
 
     // ldexp(p, n): add n << 20 to the high word of p
     let n_shifted = alloc.alloc(RegFile::GPR);

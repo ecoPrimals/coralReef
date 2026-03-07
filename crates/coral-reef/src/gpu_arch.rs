@@ -189,6 +189,28 @@ impl NvArch {
             Self::Sm80 | Self::Sm86 | Self::Sm89 => 102_400,
         }
     }
+
+    /// Maximum concurrent warps per SM for this architecture.
+    #[must_use]
+    pub const fn max_warps_per_sm(self) -> u32 {
+        match self {
+            Self::Sm70 | Self::Sm80 => 64,
+            Self::Sm75 => 32,
+            Self::Sm86 | Self::Sm89 => 48,
+        }
+    }
+
+    /// Total register file size (32-bit registers per SM).
+    #[must_use]
+    pub const fn total_reg_file(self) -> u32 {
+        65_536
+    }
+
+    /// Warp size (threads per warp).
+    #[must_use]
+    pub const fn warp_size(self) -> u32 {
+        32
+    }
 }
 
 impl std::str::FromStr for NvArch {
@@ -311,7 +333,10 @@ impl std::str::FromStr for AmdArch {
                     Self::Rdna4 => "rdna4",
                 })
                 .collect();
-            format!("unknown AMD architecture '{s}', valid: {}", valid.join(", "))
+            format!(
+                "unknown AMD architecture '{s}', valid: {}",
+                valid.join(", ")
+            )
         })
     }
 }

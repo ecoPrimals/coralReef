@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 9 — Sovereign Multi-Vendor GPU Compiler
+**Status**: Phase 10 — Spring Absorption + Compiler Hardening + Debt Reduction
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -28,7 +28,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 801 tests
+cargo test --workspace     # 832 tests (811 passing, 21 ignored)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -86,7 +86,7 @@ coralReef/
 │   │   │   ├── frontend.rs       # Frontend trait (pluggable parsers)
 │   │   │   ├── gpu_arch.rs       # GpuTarget: Nvidia/Amd/Intel
 │   │   │   └── codegen/          # Compiler core
-│   │   │       ├── ir/           # SSA IR types (12 submodules)
+│   │   │       ├── ir/           # SSA IR types
 │   │   │       ├── naga_translate/ # naga → codegen IR translation
 │   │   │       ├── lower_f64/    # f64 transcendental lowering
 │   │   │       ├── nv/           # NVIDIA vendor backend
@@ -96,10 +96,11 @@ coralReef/
 │   │   │       │   ├── isa_generated.rs # 1,446 ISA opcodes (Rust-generated)
 │   │   │       │   └── reg.rs           # VGPR/SGPR register model
 │   │   │       └── pipeline.rs   # Full compilation pipeline
-│   │   └── tests/                # Integration tests (81 tests)
+│   │   ├── src/tol.rs            # 13-tier numerical tolerance model
+│   │   └── tests/                # Integration tests + WGSL corpus
 │   ├── coral-driver/              # Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
-│   │       ├── drm.rs            # Pure Rust DRM interface (inline asm syscalls)
+│   │       ├── drm.rs            # Pure Rust DRM interface (via libc)
 │   │       ├── amd/              # amdgpu: GEM, PM4, command submission
 │   │       └── nv/               # nouveau: QMD, pushbuf (scaffold)
 │   ├── coral-gpu/                 # Unified GPU compute abstraction
@@ -118,8 +119,8 @@ coralReef/
 
 | Crate | Purpose |
 |-------|---------|
-| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, zero-copy `Bytes` |
-| `coral-reef` | Shader compiler — pluggable frontend, f64 lowering, optimizers, register allocation, vendor encoding |
+| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, FMA control |
+| `coral-reef` | Shader compiler — 14/27 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu + NVIDIA nouveau via DRM ioctl (pure Rust, zero FFI) |
 | `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits for GPU instruction encoding |
@@ -147,7 +148,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (801 tests, 5 ignored) |
+| `cargo test --workspace` | PASS (832 tests — 811 passing, 21 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |
@@ -173,6 +174,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
+| 10 | Spring absorption, compiler hardening, deep debt | **In Progress** |
 
 ---
 

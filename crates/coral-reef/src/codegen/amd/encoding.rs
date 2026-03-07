@@ -55,15 +55,26 @@ impl Rdna2Encoder {
 
     /// Set a bit field in word 0 (low word).
     pub fn set_field_w0(&mut self, offset: u32, width: u32, value: u32) {
-        let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+        let mask = if width >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << width) - 1
+        };
         self.words[0] &= !(mask << offset);
         self.words[0] |= (value & mask) << offset;
     }
 
     /// Set a bit field in word 1 (high word, 64-bit instructions only).
     pub fn set_field_w1(&mut self, offset: u32, width: u32, value: u32) {
-        debug_assert!(self.words.len() >= 2, "word 1 only available for 64-bit encodings");
-        let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+        debug_assert!(
+            self.words.len() >= 2,
+            "word 1 only available for 64-bit encodings"
+        );
+        let mask = if width >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << width) - 1
+        };
         self.words[1] &= !(mask << offset);
         self.words[1] |= (value & mask) << offset;
     }
@@ -184,13 +195,7 @@ impl Rdna2Encoder {
     //   [8:0]   = SRC0 (9-bit source 0)
 
     /// Encode a VOP3 instruction (vector ALU, 3 sources with modifiers).
-    pub fn encode_vop3(
-        opcode: u16,
-        dst: AmdRegRef,
-        src0: u16,
-        src1: u16,
-        src2: u16,
-    ) -> Vec<u32> {
+    pub fn encode_vop3(opcode: u16, dst: AmdRegRef, src0: u16, src1: u16, src2: u16) -> Vec<u32> {
         let mut e = Self::new_64();
         // Word 0
         e.set_field_w0(26, 6, 0b11_0101);
@@ -275,8 +280,8 @@ pub fn encode_v_mul_f64(dst: AmdRegRef, src0: u16, src1: u16) -> Vec<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::reg::AmdRegRef;
+    use super::*;
 
     #[test]
     fn s_endpgm_encoding() {
@@ -372,7 +377,9 @@ mod tests {
         let words = Rdna2Encoder::encode_vop3_mod(
             isa::vop3::V_FMA_F64,
             dst,
-            256, 258, 260,
+            256,
+            258,
+            260,
             [true, false, false],
             [false, true, false],
         );

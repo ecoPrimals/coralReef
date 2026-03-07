@@ -1,8 +1,8 @@
 # coralReef — Specification
 
-**Version**: 0.4.0
+**Version**: 0.5.0
 **Date**: March 6, 2026
-**Status**: Complete — Phase 9 (Sovereign Multi-Vendor Pipeline)
+**Status**: Phase 10 — Spring Absorption + Compiler Hardening
 
 ---
 
@@ -12,21 +12,21 @@ coralReef is a sovereign Rust GPU compiler. It compiles WGSL and
 SPIR-V compute shaders to native GPU binaries with full f64
 transcendental support, as a standalone pure-Rust workspace.
 
-Multi-vendor architecture: NVIDIA backend active (SM70–SM89),
-AMD backend in evolution (RDNA2/GFX1030 — RX 6950 XT on-site),
-Intel backend planned. All backends share the same IR, optimizer
-passes, and `Backend` trait.
+Multi-vendor architecture: NVIDIA (SM70–SM89) and AMD (RDNA2 GFX1030)
+backends operational. Both share the same IR, optimizer passes, and
+`ShaderModel` trait — Rust trait dispatch, no manual vtables.
 
-Future phases add coralDriver (userspace GPU dispatch) to complete
-the sovereign pipeline from shader source to GPU silicon with zero
-C dependencies.
+coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
+NVIDIA nouveau). coralGpu wraps compilation and dispatch into a unified
+API. Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 
 ## Target Hardware
 
 | GPU | Architecture | ISA | Kernel Driver | f64 | Role |
 |-----|-------------|-----|---------------|-----|------|
 | NVIDIA RTX 3090 | Ampere SM86 | SASS | nvidia (proprietary) | 1/32, DF64 | NVIDIA compilation target |
-| AMD RX 6950 XT | RDNA2 GFX1030 | GCN/RDNA | amdgpu (open) | 1/16, native `v_fma_f64` | AMD evolution target |
+| NVIDIA Titan V | Volta SM70 | SASS | nouveau (open) | 1/2, native | Sovereign f64 endgame |
+| AMD RX 6950 XT | RDNA2 GFX1030 | GCN/RDNA | amdgpu (open) | 1/16, native `v_fma_f64` | AMD compilation target |
 
 ## Architecture
 
@@ -62,10 +62,16 @@ WGSL / SPIR-V input
        │                  │
        ▼                  ▼
 ┌───────────────────────────────────┐
-│  coralDriver (future)              │
+│  coral-driver                      │
 │  ├ AmdDevice   DRM + PM4 dispatch │
 │  ├ NvDevice    DRM + pushbuf      │
 │  └ ComputeDevice trait            │
+└──────────────┬────────────────────┘
+               ▼
+┌───────────────────────────────────┐
+│  coral-gpu                         │
+│  GpuContext — unified API         │
+│  compile_wgsl() + dispatch()      │
 └───────────────────────────────────┘
 ```
 
@@ -75,10 +81,13 @@ WGSL / SPIR-V input
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, IPC (JSON-RPC 2.0, tarpc), zero-copy `Bytes` |
 | `coral-reef` | Shader compiler: pluggable frontend, f64 lowering, optimizers, RA, vendor encoding |
-| `coral-reef-isa` | ISA tables, instruction latencies (SM30–SM120, AMD planned) |
+| `coral-driver` | Userspace GPU dispatch: AMD amdgpu DRM + NVIDIA nouveau DRM, pure Rust syscalls |
+| `coral-gpu` | Unified GPU compute: compile WGSL + dispatch on hardware in one API |
+| `coral-reef-isa` | ISA tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `coral-reef-bitview` | Bit-level field manipulation for instruction encoding |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants` |
+| `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs |
 
 ## f64 Transcendental Lowering
 
@@ -138,4 +147,4 @@ plan, pass definitions, and dependency tracking.
 ---
 
 **Date**: March 6, 2026
-**Version**: 0.4.0
+**Version**: 0.5.0

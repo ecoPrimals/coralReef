@@ -28,7 +28,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 801 tests
+cargo test --workspace     # 832 tests (811 passing, 21 ignored)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -45,7 +45,7 @@ coralReef/
 │   │       ├── frontend.rs     Frontend trait (pluggable parsers)
 │   │       ├── gpu_arch.rs     GpuTarget: Nvidia/Amd/Intel
 │   │       └── codegen/        Compiler core
-│   │           ├── ir/            SSA IR types — 12 submodules
+│   │           ├── ir/            SSA IR types
 │   │           ├── naga_translate/ naga → codegen IR translation
 │   │           ├── lower_f64/     f64 transcendental expansion
 │   │           ├── nv/            NVIDIA vendor backend (SM20–SM89)
@@ -61,7 +61,7 @@ coralReef/
 │   │           └── pipeline.rs    Full compilation pipeline
 │   ├── coral-driver/            Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
-│   │       ├── drm.rs           Pure Rust DRM interface (inline asm)
+│   │       ├── drm.rs           Pure Rust DRM interface (via libc)
 │   │       ├── amd/             amdgpu: GEM, PM4, command submission
 │   │       └── nv/              nouveau: QMD, pushbuf
 │   ├── coral-gpu/               Unified GPU compute abstraction

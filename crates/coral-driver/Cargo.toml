@@ -6,11 +6,12 @@ license.workspace = true
 description = "Sovereign GPU driver — DRM ioctl dispatch for AMD (amdgpu) and NVIDIA (nouveau)"
 
 [dependencies]
+libc = "0.2.182"
 thiserror.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# No external crate dependencies for ioctl — pure Rust via libc syscall wrappers.
-# All DRM structures are defined internally.
+# libc for POSIX syscalls (ioctl, mmap, munmap) — cross-architecture.
+# All DRM structures are defined internally (no drm-sys).
 
 [dev-dependencies]

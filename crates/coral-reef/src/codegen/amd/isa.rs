@@ -81,12 +81,27 @@ impl EncodingFormat {
     /// Base instruction size in bits.
     pub const fn bit_count(self) -> u32 {
         match self {
-            Self::Sop1 | Self::Sop2 | Self::Sopc | Self::Sopk | Self::Sopp
-            | Self::Vop1 | Self::Vop2 | Self::Vopc | Self::Vintrp => 32,
+            Self::Sop1
+            | Self::Sop2
+            | Self::Sopc
+            | Self::Sopk
+            | Self::Sopp
+            | Self::Vop1
+            | Self::Vop2
+            | Self::Vopc
+            | Self::Vintrp => 32,
 
-            Self::Smem | Self::Vop3 | Self::Vop3p | Self::Ds
-            | Self::Flat | Self::FlatGlobal | Self::FlatScratch
-            | Self::Mubuf | Self::Mtbuf | Self::Mimg | Self::Exp => 64,
+            Self::Smem
+            | Self::Vop3
+            | Self::Vop3p
+            | Self::Ds
+            | Self::Flat
+            | Self::FlatGlobal
+            | Self::FlatScratch
+            | Self::Mubuf
+            | Self::Mtbuf
+            | Self::Mimg
+            | Self::Exp => 64,
         }
     }
 
@@ -97,9 +112,17 @@ impl EncodingFormat {
 
     /// Whether this encoding may be followed by a 32-bit literal constant.
     pub const fn can_have_literal(self) -> bool {
-        matches!(self,
-            Self::Sop1 | Self::Sop2 | Self::Sopc | Self::Sopk
-            | Self::Vop1 | Self::Vop2 | Self::Vopc | Self::Vop3 | Self::Vop3p
+        matches!(
+            self,
+            Self::Sop1
+                | Self::Sop2
+                | Self::Sopc
+                | Self::Sopk
+                | Self::Vop1
+                | Self::Vop2
+                | Self::Vopc
+                | Self::Vop3
+                | Self::Vop3p
         )
     }
 }
@@ -154,13 +177,25 @@ pub struct GfxVersion {
 
 impl GfxVersion {
     /// GFX 10.3.0 — Navi 21 (RX 6800/6900/6950 XT).
-    pub const GFX1030: Self = Self { major: 10, minor: 3, stepping: 0 };
+    pub const GFX1030: Self = Self {
+        major: 10,
+        minor: 3,
+        stepping: 0,
+    };
 
     /// GFX 10.3.1 — Navi 22 (RX 6700 XT).
-    pub const GFX1031: Self = Self { major: 10, minor: 3, stepping: 1 };
+    pub const GFX1031: Self = Self {
+        major: 10,
+        minor: 3,
+        stepping: 1,
+    };
 
     /// GFX 10.3.2 — Navi 23 (RX 6600 XT).
-    pub const GFX1032: Self = Self { major: 10, minor: 3, stepping: 2 };
+    pub const GFX1032: Self = Self {
+        major: 10,
+        minor: 3,
+        stepping: 2,
+    };
 }
 
 impl std::fmt::Display for GfxVersion {

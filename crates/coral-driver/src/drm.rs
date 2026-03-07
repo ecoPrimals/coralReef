@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Pure Rust DRM ioctl interface — no `drm-sys`, no `nix`.
+//! Pure Rust DRM ioctl interface — uses `libc` for syscalls, no `drm-sys` or `nix`.
 //!
 //! All ioctl numbers and structures are defined here from the Linux
 //! kernel headers (GPL-2.0-only) via clean-room constant extraction.
+//! Syscalls go through `libc` for cross-architecture portability.
 
 use crate::error::{DriverError, DriverResult};
 use std::fs::{File, OpenOptions};
@@ -26,7 +27,10 @@ const DRM_IOCTL_BASE: u32 = b'd' as u32;
 
 /// Construct a DRM ioctl number.
 const fn drm_ioctl(dir: u32, nr: u32, size: u32) -> u64 {
-    ((dir << IOC_DIRSHIFT) | (DRM_IOCTL_BASE << IOC_TYPESHIFT) | (nr << IOC_NRSHIFT) | (size << IOC_SIZESHIFT)) as u64
+    ((dir << IOC_DIRSHIFT)
+        | (DRM_IOCTL_BASE << IOC_TYPESHIFT)
+        | (nr << IOC_NRSHIFT)
+        | (size << IOC_SIZESHIFT)) as u64
 }
 
 const fn _drm_io(nr: u32) -> u64 {
@@ -47,6 +51,17 @@ const fn _drm_ior(nr: u32, size: u32) -> u64 {
 
 /// DRM_IOCTL_VERSION
 pub const DRM_IOCTL_VERSION: u64 = drm_iowr(0x00, 32);
+
+/// DRM_IOCTL_GEM_CLOSE (generic, not vendor-specific)
+pub const DRM_IOCTL_GEM_CLOSE: u64 = drm_iow(0x09, 8);
+
+/// Argument for `DRM_IOCTL_GEM_CLOSE`.
+#[repr(C)]
+#[derive(Default)]
+pub struct DrmGemClose {
+    pub handle: u32,
+    pub pad: u32,
+}
 
 /// Public helper for submodules to construct IOWR ioctl numbers.
 pub const fn drm_iowr_pub(nr: u32, size: u32) -> u64 {
@@ -82,10 +97,7 @@ pub struct DrmDevice {
 impl DrmDevice {
     /// Open a DRM render node.
     pub fn open(path: &str) -> DriverResult<Self> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)?;
+        let file = OpenOptions::new().read(true).write(true).open(path)?;
         Ok(Self {
             file,
             path: path.to_string(),
@@ -118,14 +130,8 @@ impl DrmDevice {
             name: name_buf.as_mut_ptr() as u64,
             ..Default::default()
         };
-        // Safety: ioctl call with properly sized buffer
-        let ret = unsafe { libc_ioctl(self.fd(), DRM_IOCTL_VERSION, &mut ver as *mut _ as u64) };
-        if ret < 0 {
-            return Err(DriverError::IoctlFailed {
-                name: "DRM_IOCTL_VERSION",
-                errno: -ret,
-            });
-        }
+        // Safety: DrmVersion is #[repr(C)] and matches the kernel ioctl struct.
+        unsafe { drm_ioctl_typed(self.fd(), DRM_IOCTL_VERSION, &mut ver)? };
         let len = ver.name_len as usize;
         let len = len.min(name_buf.len());
         Ok(String::from_utf8_lossy(&name_buf[..len])
@@ -140,38 +146,14 @@ impl Drop for DrmDevice {
     }
 }
 
-/// Raw ioctl syscall wrapper.
+/// Perform a DRM ioctl on a `#[repr(C)]` structure.
 ///
 /// # Safety
 ///
-/// The caller must ensure `arg` points to a valid structure for the ioctl.
-unsafe fn libc_ioctl(fd: RawFd, request: u64, arg: u64) -> i32 {
-    let ret: i64;
-    // SYS_ioctl = 16 on x86_64
-    unsafe {
-        std::arch::asm!(
-            "syscall",
-            in("rax") 16_u64,
-            in("rdi") fd as u64,
-            in("rsi") request,
-            in("rdx") arg,
-            lateout("rax") ret,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-        );
-    }
-    ret as i32
-}
-
-/// Perform a DRM ioctl.
-///
-/// # Safety
-///
-/// The caller must ensure `arg` points to a valid structure of the correct
-/// type for the given ioctl request.
-pub unsafe fn drm_ioctl_call(fd: RawFd, request: u64, arg: *mut u8) -> DriverResult<()> {
-    let ret = unsafe { libc_ioctl(fd, request, arg as u64) };
+/// The caller must ensure `T` is the correct `#[repr(C)]` struct for `request`.
+pub unsafe fn drm_ioctl_typed<T>(fd: RawFd, request: u64, arg: &mut T) -> DriverResult<()> {
+    // libc::ioctl expects c_ulong for the request on Linux.
+    let ret = unsafe { libc::ioctl(fd, request as libc::c_ulong, arg as *mut T) };
     if ret < 0 {
         return Err(DriverError::IoctlFailed {
             name: "drm_ioctl",

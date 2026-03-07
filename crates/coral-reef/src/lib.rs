@@ -7,7 +7,7 @@
 //! ## Architecture
 //!
 //! The compiler pipeline is vendor-agnostic: each GPU architecture
-//! implements the [`ShaderModel`](codegen::ir::ShaderModel) trait
+//! implements the [`ShaderModel`] trait
 //! directly. No manual vtables — Rust's trait dispatch drives
 //! vendor-specific legalization, register allocation, and encoding.
 //!
@@ -47,6 +47,7 @@ pub mod error;
 pub mod frontend;
 pub mod gpu_arch;
 pub mod ir;
+pub mod tol;
 
 // Codegen module — evolved from upstream NAK into idiomatic Rust.
 // ISA domain types intentionally use naming conventions that mirror
@@ -63,11 +64,27 @@ pub mod ir;
 mod codegen;
 
 pub use backend::{AmdBackend, Backend, CompiledBinary, NvidiaBackend};
-pub use codegen::ir::Shader;
+pub use codegen::ir::{Shader, ShaderModel};
 pub use codegen::pipeline::CompiledShader;
 pub use error::CompileError;
 pub use frontend::{Frontend, NagaFrontend};
 pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
+
+/// FMA (fused multiply-add) control policy.
+///
+/// SPIR-V `NoContraction` and WGSL `@fma_control` decorations map to this.
+/// Controls whether the compiler may fuse `a*b + c` into a single FMA
+/// instruction, which changes rounding behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FmaPolicy {
+    /// Compiler is free to fuse multiply-add into FMA (default, fastest).
+    #[default]
+    AllowFusion,
+    /// Preserve individual operations — no FMA fusion.
+    /// Equivalent to SPIR-V `NoContraction`.
+    /// Required for bit-exact CPU parity in precision-critical workloads.
+    NoContraction,
+}
 
 /// Compile options for the shader compiler.
 #[derive(Debug, Clone)]
@@ -80,6 +97,8 @@ pub struct CompileOptions {
     pub debug_info: bool,
     /// Enable software lowering for f64 transcendentals.
     pub fp64_software: bool,
+    /// FMA fusion policy — controls whether `a*b + c` may be fused.
+    pub fma_policy: FmaPolicy,
 }
 
 impl CompileOptions {
@@ -117,6 +136,7 @@ impl Default for CompileOptions {
             opt_level: 2,
             debug_info: false,
             fp64_software: true,
+            fma_policy: FmaPolicy::default(),
         }
     }
 }
@@ -125,17 +145,22 @@ impl Default for CompileOptions {
 ///
 /// This replaces the old `ShaderModelInfo::new(sm, warps_per_sm)` approach
 /// with direct construction of the vendor-specific model.
-fn shader_model_for(
-    target: GpuTarget,
-) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
+fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
     match target {
-        GpuTarget::Nvidia(nv) => Ok(Box::new(codegen::ir::ShaderModelInfo::new(
-            nv.sm_version(),
-            64,
-        ))),
-        GpuTarget::Amd(_) => Ok(Box::new(
-            codegen::amd::shader_model::ShaderModelRdna2::new(103),
-        )),
+        GpuTarget::Nvidia(nv) => {
+            #[allow(clippy::cast_possible_truncation)]
+            let warps = nv.max_warps_per_sm() as u8;
+            Ok(Box::new(codegen::ir::ShaderModelInfo::new(
+                nv.sm_version(),
+                warps,
+            )))
+        }
+        GpuTarget::Amd(amd) => {
+            let gfx = amd.gfx_major() * 10 + 3;
+            Ok(Box::new(codegen::amd::shader_model::ShaderModelRdna2::new(
+                gfx,
+            )))
+        }
         GpuTarget::Intel(_) => Err(CompileError::UnsupportedArch(target.to_string())),
     }
 }
@@ -292,6 +317,7 @@ mod tests {
             opt_level: 3,
             debug_info: true,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let cloned = opts;
         assert_eq!(cloned.arch(), GpuArch::Sm89);
@@ -380,15 +406,24 @@ mod tests {
         let amd_result = compile_wgsl(wgsl, &amd_opts);
 
         // Both should compile (or both fail at the same pipeline stage)
-        assert!(nv_result.is_ok(), "NVIDIA compilation failed: {nv_result:?}");
+        assert!(
+            nv_result.is_ok(),
+            "NVIDIA compilation failed: {nv_result:?}"
+        );
         assert!(amd_result.is_ok(), "AMD compilation failed: {amd_result:?}");
 
         let nv_bin = nv_result.unwrap();
         let amd_bin = amd_result.unwrap();
 
         // NVIDIA binary includes SPH header, AMD does not
-        assert!(nv_bin.len() > amd_bin.len(), "NVIDIA binary should be larger (includes SPH)");
+        assert!(
+            nv_bin.len() > amd_bin.len(),
+            "NVIDIA binary should be larger (includes SPH)"
+        );
         // AMD binary should be non-empty (at least s_endpgm)
-        assert!(!amd_bin.is_empty(), "AMD binary should contain at least s_endpgm");
+        assert!(
+            !amd_bin.is_empty(),
+            "AMD binary should contain at least s_endpgm"
+        );
     }
 }

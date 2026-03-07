@@ -75,22 +75,38 @@ pub struct AmdRegRef {
 impl AmdRegRef {
     /// Create a single VGPR reference.
     pub const fn vgpr(index: u16) -> Self {
-        Self { file: AmdRegFile::Vgpr, index, count: 1 }
+        Self {
+            file: AmdRegFile::Vgpr,
+            index,
+            count: 1,
+        }
     }
 
     /// Create a single SGPR reference.
     pub const fn sgpr(index: u16) -> Self {
-        Self { file: AmdRegFile::Sgpr, index, count: 1 }
+        Self {
+            file: AmdRegFile::Sgpr,
+            index,
+            count: 1,
+        }
     }
 
     /// Create a 64-bit VGPR pair (e.g. for f64 operations).
     pub const fn vgpr_pair(index: u16) -> Self {
-        Self { file: AmdRegFile::Vgpr, index, count: 2 }
+        Self {
+            file: AmdRegFile::Vgpr,
+            index,
+            count: 2,
+        }
     }
 
     /// Create a 64-bit SGPR pair.
     pub const fn sgpr_pair(index: u16) -> Self {
-        Self { file: AmdRegFile::Sgpr, index, count: 2 }
+        Self {
+            file: AmdRegFile::Sgpr,
+            index,
+            count: 2,
+        }
     }
 
     /// Hardware encoding value for this register in instruction fields.
@@ -119,11 +135,21 @@ impl std::fmt::Display for AmdRegRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.file {
             AmdRegFile::Vgpr if self.count > 1 => {
-                write!(f, "v[{}:{}]", self.index, self.index + u16::from(self.count) - 1)
+                write!(
+                    f,
+                    "v[{}:{}]",
+                    self.index,
+                    self.index + u16::from(self.count) - 1
+                )
             }
             AmdRegFile::Vgpr => write!(f, "v{}", self.index),
             AmdRegFile::Sgpr if self.count > 1 => {
-                write!(f, "s[{}:{}]", self.index, self.index + u16::from(self.count) - 1)
+                write!(
+                    f,
+                    "s[{}:{}]",
+                    self.index,
+                    self.index + u16::from(self.count) - 1
+                )
             }
             AmdRegFile::Sgpr => write!(f, "s{}", self.index),
             AmdRegFile::Vcc => write!(f, "vcc"),
@@ -190,10 +216,42 @@ mod tests {
 
     #[test]
     fn hw_encoding_special() {
-        assert_eq!(AmdRegRef { file: AmdRegFile::Vcc, index: 0, count: 1 }.hw_encoding(), 106);
-        assert_eq!(AmdRegRef { file: AmdRegFile::Exec, index: 0, count: 1 }.hw_encoding(), 126);
-        assert_eq!(AmdRegRef { file: AmdRegFile::Scc, index: 0, count: 1 }.hw_encoding(), 253);
-        assert_eq!(AmdRegRef { file: AmdRegFile::M0, index: 0, count: 1 }.hw_encoding(), 124);
+        assert_eq!(
+            AmdRegRef {
+                file: AmdRegFile::Vcc,
+                index: 0,
+                count: 1
+            }
+            .hw_encoding(),
+            106
+        );
+        assert_eq!(
+            AmdRegRef {
+                file: AmdRegFile::Exec,
+                index: 0,
+                count: 1
+            }
+            .hw_encoding(),
+            126
+        );
+        assert_eq!(
+            AmdRegRef {
+                file: AmdRegFile::Scc,
+                index: 0,
+                count: 1
+            }
+            .hw_encoding(),
+            253
+        );
+        assert_eq!(
+            AmdRegRef {
+                file: AmdRegFile::M0,
+                index: 0,
+                count: 1
+            }
+            .hw_encoding(),
+            124
+        );
     }
 
     #[test]

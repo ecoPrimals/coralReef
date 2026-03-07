@@ -71,6 +71,7 @@
     clippy::fallible_impl_from,
 )]
 
+pub mod amd;
 mod api;
 mod assign_regs;
 mod builder;
@@ -83,7 +84,6 @@ mod liveness;
 mod lower_copy_swap;
 mod lower_f64;
 mod lower_par_copies;
-pub mod amd;
 pub mod nv;
 mod opt_bar_prop;
 mod opt_copy_prop;

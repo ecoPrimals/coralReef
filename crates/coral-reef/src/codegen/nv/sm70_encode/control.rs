@@ -168,15 +168,18 @@ impl SM70Op for OpBar {
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
-        // BAR.SYNC encoding for SM70+
-        // TODO(coralReef): opex table value needs investigation — nvdisasm
-        // reports undefined 0x10 for TABLES_opex_0.  The barrier count field
-        // encoding differs between Volta immediate/register forms.
-        e.set_opcode(0xb1d);
+        // BAR.SYNC — 9-bit base opcode 0x11d, form=1 (register)
+        // Full 12-bit: (1 << 9) | 0x11d = 0x31d
+        e.set_opcode(0x31d);
 
+        // Barrier ID register (barrier 0 via zero register)
         e.set_reg_src(32..40, &SrcRef::Zero.into());
-        e.set_field(74..76, 0_u8); // RED.POPC
-        e.set_field(77..79, 0_u8); // SYNC mode
+
+        // 00: SYNC, 01: ARV, 02: RED, 03: SCAN
+        e.set_field(77..79, 0_u8);
+        // Reduction op (only for RED): 00: POPC, 01: AND, 02: OR
+        e.set_field(74..76, 0_u8);
+
         e.set_pred_src(87..90, 90, &SrcRef::True.into());
     }
 }

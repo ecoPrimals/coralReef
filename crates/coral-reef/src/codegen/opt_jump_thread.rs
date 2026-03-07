@@ -81,7 +81,7 @@ fn jump_thread(func: &mut Function) -> bool {
                     replacements.insert(block_label, clone_branch(&instr.op));
                 }
             }
-            [] => {
+            [] if i + 1 < func.blocks.len() => {
                 // Empty block - falls through
                 // Our successor might be trivial, so we need to
                 // apply the rewrite map to uphold invariant 2

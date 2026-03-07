@@ -51,6 +51,7 @@ fn test_compile_wgsl_sm70() {
             opt_level,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile_wgsl(source, &opts);
         match result {
@@ -70,6 +71,7 @@ fn test_compile_wgsl_sm75() {
             opt_level,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile_wgsl(source, &opts);
         match result {
@@ -89,6 +91,7 @@ fn test_compile_wgsl_sm80() {
             opt_level,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile_wgsl(source, &opts);
         match result {
@@ -108,6 +111,7 @@ fn test_compile_wgsl_sm86() {
             opt_level,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile_wgsl(source, &opts);
         match result {
@@ -127,6 +131,7 @@ fn test_compile_wgsl_sm89() {
             opt_level,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile_wgsl(source, &opts);
         match result {
@@ -182,6 +187,7 @@ fn test_all_archs_accept_input() {
             opt_level: 2,
             debug_info: false,
             fp64_software: true,
+            ..CompileOptions::default()
         };
         let result = compile(&spirv, &opts);
         assert!(
@@ -266,6 +272,7 @@ fn test_spirv_input_all_archs() {
             opt_level: 2,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile(&spirv, &opts);
         match result {
@@ -296,6 +303,7 @@ fn test_e2e_wgsl_compute_shader() {
             opt_level: 2,
             debug_info: false,
             fp64_software: false,
+            ..CompileOptions::default()
         };
         let result = compile_wgsl(wgsl, &opts);
         if let Err(e) = &result {

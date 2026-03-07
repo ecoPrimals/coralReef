@@ -47,6 +47,7 @@ fn chaos_determinism_stress() {
         opt_level: 2,
         debug_info: false,
         fp64_software: true,
+        ..CompileOptions::default()
     };
 
     let results: Vec<_> = (0..50).map(|_| compile_wgsl(wgsl, &opts)).collect();

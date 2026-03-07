@@ -544,16 +544,19 @@ impl<T> CFGBuilder<T> {
     }
 
     /// Number of blocks.
+    #[must_use]
     pub fn block_count(&self) -> usize {
         self.blocks.len()
     }
 
     /// Number of edges.
+    #[must_use]
     pub fn edge_count(&self) -> usize {
         self.edges.len()
     }
 
     /// Debug-print edges.
+    #[must_use]
     pub fn edges_debug(&self) -> Vec<(usize, usize)> {
         self.edges.iter().map(|e| (e.from, e.to)).collect()
     }

@@ -156,7 +156,9 @@ mod tests {
     #[test]
     fn compiled_kernel_has_target() {
         let ctx = GpuContext::new(GpuTarget::Nvidia(NvArch::Sm86)).unwrap();
-        let kernel = ctx.compile_wgsl("@compute @workgroup_size(1) fn main() {}").unwrap();
+        let kernel = ctx
+            .compile_wgsl("@compute @workgroup_size(1) fn main() {}")
+            .unwrap();
         assert!(matches!(kernel.target, GpuTarget::Nvidia(NvArch::Sm86)));
     }
 

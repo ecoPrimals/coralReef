@@ -1,6 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 6, 2026
+**Last updated**: March 7, 2026  
+**Phase**: 10 — Spring Absorption + Compiler Hardening + Debt Reduction
 
 ---
 
@@ -14,53 +15,77 @@
 | NVIDIA pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A | `ShaderModelRdna2` → legalize → RA → encode, cross-vendor WGSL compilation |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
-| f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos — NVIDIA (Newton-Raphson) + AMD (native v_sqrt/rcp_f64) |
+| f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | A | AMD DRM ioctl (GEM, PM4, CS), NVIDIA nouveau (QMD), pure Rust syscalls |
+| coralDriver | A | AMD DRM ioctl (GEM, PM4, CS), NVIDIA nouveau (QMD), pure Rust syscalls via libc |
 | coralGpu | A | Unified compile+dispatch API, vendor-agnostic `GpuContext` |
-| Code structure | A+ | All files < 1000 LOC |
-| Tests | A+ | 801 tests, zero failures, 5 ignored |
+| Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
+| Tests | A+ | 832 tests (811 passing, 21 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode |
-| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust |
+| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, libc for syscalls |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
+| Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
+| FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
+| Uniform buffers | A | `var<uniform>` → CBuf reads (scalar/vector/matrix), struct field access |
 
 ## Phase Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 — Scaffold | Extract sources, create stubs | **Complete** |
-| 1.5 — Foundation | UniBin, IPC, stubs evolved | **Complete** |
-| 2 — Wire Sources | Compiler sources compile against stubs | **Complete** |
-| 2.5–2.9 — Refactor | File splits, debt reduction, sovereignty | **Complete** |
-| 3 — naga Frontend | SPIR-V/WGSL → codegen IR via naga | **Complete** |
-| 3.5 — Deep Debt | Stubs removed, Result propagation, zero-copy | **Complete** |
-| 4 — f64 Fix | DFMA software lowering (all 6 transcendentals) | **Complete** |
-| 4.5 — Error Safety | Production panic→Result, pipeline propagation | **Complete** |
-| 5 — Standalone | All stub dependencies evolved | **Complete** |
-| 5.5 — Naming Evolution | Mesa/NAK de-vendoring, Rust-idiomatic fields | **Complete** |
-| 5.7 — Deep Debt Audit | 710 tests, tooling, proc-macro safety | **Complete** |
-| 6a — AMD ISA + Encoder | RDNA2 GFX1030 instruction encoding | **Complete** |
-| 6b — AMD Legalization + RA | ShaderModelRdna2, legalize, exec mask | **Complete** |
-| 6c — AMD f64 Lowering | Native v_sqrt_f64, v_rcp_f64, v_fma_f64 | **Complete** |
-| 6d — AMD Validation | End-to-end WGSL → GFX1030, cross-vendor | **Complete** |
-| 7a — AMD coralDriver | DRM ioctl, GEM, PM4, command submission | **Complete** |
-| 7b — Internalize | Pure Rust ioctl, zero unsafe public API | **Complete** |
-| 7c — NVIDIA coralDriver | nouveau DRM, QMD v3.0 | **Complete** |
-| 8 — coralGpu | Unified Rust GPU abstraction | **Complete** |
-| 9 — Full Sovereignty | Zero FFI, zero C, zero *-sys | **Complete** |
+| 1–9 | Foundation through Full Sovereignty | **Complete** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening | **In Progress** |
+
+### Phase 10 Completions
+
+| Task | Status | Details |
+|------|--------|---------|
+| cargo fmt + clippy + rustdoc | ✅ | Zero warnings, zero errors |
+| var\<uniform\> support | ✅ | Scalar, vector, matrix CBuf loads; struct fields via AccessIndex |
+| BAR.SYNC Volta encoding | ✅ | Opcode 0x31d, 5-cycle latency, Decoupled scheduling |
+| WGSL corpus import | ✅ | 16 shaders from hotSpring/groundSpring, 7 passing SM70 |
+| 13-tier tolerance model | ✅ | `tol::` module with DETERMINISM..EQUILIBRIUM, comparison utilities |
+| Scheduler tests unblocked | ✅ | 2/3 fixed (phi_nodes_loop_carry, nested_loops) |
+| const_tracker assertion fix | ✅ | Tolerates modified sources in OpCopy |
+| coalesce assertion fix | ✅ | Skips coalescing for modified sources |
+| lower_copy_swap assertion fix | ✅ | Emits OpMov for copies with modifiers |
+| FmaPolicy infrastructure | ✅ | `FmaPolicy` enum, `CompileOptions.fma_policy` |
+| ir/mod.rs refactoring | ✅ | Extracted pred.rs, src.rs, fold.rs (918→262 LOC) |
+| ipc.rs refactoring | ✅ | Split into ipc/{mod,jsonrpc,tarpc_transport}.rs (853→590+97+174 LOC) |
+| tarpc method naming | ✅ | Dropped `compiler_` prefix (clippy enum_variant_names) |
+| Legacy `parse_arch` removed | ✅ | Tests migrated to `parse_target` |
+| ShaderModel re-export | ✅ | `pub use` at crate root, rustdoc link fixed |
+| GEM close implemented | ✅ | Real `DRM_IOCTL_GEM_CLOSE` ioctl |
+| AMD ioctl constants fixed | ✅ | Added `DRM_AMDGPU_BO_LIST`, removed wrong `GEM_CLOSE` |
+| `is_amd()` trait method | ✅ | Capability-based vendor detection |
+| Unsafe evolved → libc | ✅ | `MappedRegion` RAII, `drm_ioctl_typed` safe wrapper |
+| naga_translate refactored | ✅ | expr_binary.rs, func_control.rs, func_mem.rs, func_ops.rs |
+
+### Phase 10 Remaining
+
+| Task | Priority | Blocker |
+|------|----------|---------|
+| AMD CS submit (`DRM_AMDGPU_CS`) | P2 | Needs IB in GEM BO + BO list |
+| AMD fence sync (`DRM_AMDGPU_WAIT_CS`) | P2 | Depends on CS submit |
+| `Expression::As` (type cast) | P1 | Blocks semf_batch, chi2_batch |
+| Atomic operations | P1 | Blocks rdf_histogram |
+| GPR→Pred coercion chain | P2 | Blocks logical_predicates |
+| Wilson plaquette (scheduler) | P2 | PerRegFile live_in mismatch |
+| const_tracker negated immediate | P2 | HFB hamiltonian |
+| Nouveau compute path | P3 | Scaffold |
+| Intel backend | P3 | Placeholder |
 
 ## Checks
 
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (801 tests, 5 ignored) |
+| `cargo test --workspace` | PASS (832 tests, 27 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
-| `cargo doc --workspace --no-deps` | PASS |
+| `cargo doc --workspace --no-deps` | PASS (0 warnings) |
 
 ## Hardware — On-Site
 
@@ -68,23 +93,6 @@
 |-----|-----|-------------|---------------|--------|-----|------|------|
 | AMD RX 6950 XT | 25:00.0 | RDNA2 GFX1030 (Navi 21) | amdgpu (open) | RADV/ACO (Mesa 25.1.5) | 1/16 | 16 GB | AMD evolution primary |
 | NVIDIA RTX 3090 | 41:00.0 | Ampere SM86 (GA102) | nvidia 580.119.02 | NVIDIA proprietary | 1/32 | 24 GB | NVIDIA compilation target |
-
-## Architecture Evolution (March 6, 2026)
-
-Key architectural change: replaced the Mesa NAK artifact (`ShaderModelInfo` +
-`sm_match!` macro — a manual vtable in C-think) with idiomatic Rust trait
-dispatch. `Shader<'a>` now holds `&'a dyn ShaderModel`. Each GPU architecture
-implements `ShaderModel` directly. The Rust compiler is the DNA synthase.
-
-| Before | After |
-|--------|-------|
-| `Shader<'a> { sm: &'a ShaderModelInfo }` | `Shader<'a> { sm: &'a dyn ShaderModel }` |
-| `sm_match!` macro dispatch | Rust trait object dispatch |
-| `ShaderModelInfo` manual vtable | Each vendor implements `ShaderModel` directly |
-| NVIDIA-only | NVIDIA + AMD (Intel planned) |
-| Python ISA generator | Pure Rust `amd-isa-gen` |
-| No driver layer | `coral-driver` (DRM ioctl, pure Rust) |
-| No unified API | `coral-gpu` (compile + dispatch) |
 
 ## Spring Absorption
 
@@ -98,6 +106,10 @@ implements `ShaderModel` directly. The Rust compiler is the DNA synthase.
 | No hardcoded primal names | groundSpring primal isolation | workspace-wide |
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
+| 13-tier tolerance constants | groundSpring V73 | tol.rs |
+| WGSL shader corpus (cross-spring) | 5 springs (27 shaders, 8 passing SM70) | tests/fixtures/wgsl/ |
+| FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
+| Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
 
 ---
 

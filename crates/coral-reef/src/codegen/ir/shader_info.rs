@@ -285,6 +285,16 @@ pub struct ShaderInfo {
 pub trait ShaderModel {
     fn sm(&self) -> u8;
 
+    /// Whether this is an NVIDIA shader model. Default: true (legacy compat).
+    fn is_nvidia(&self) -> bool {
+        !self.is_amd()
+    }
+
+    /// Whether this is an AMD shader model. Default: false.
+    fn is_amd(&self) -> bool {
+        false
+    }
+
     fn is_fermi(&self) -> bool {
         self.sm() >= 20 && self.sm() < 30
     }
@@ -392,7 +402,20 @@ pub trait ShaderModel {
     /// Maximum encodable instruction delay
     fn max_instr_delay(&self) -> u8;
 
+    /// Legalize a single IR operation for the target architecture.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompileError`] if the operation cannot be legalized
+    /// for this architecture (unsupported opcode, invalid operand, etc.).
     fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), CompileError>;
+
+    /// Encode a fully lowered shader into the target's binary instruction words.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompileError`] if encoding fails (unresolved labels,
+    /// unsupported instructions, register overflow, etc.).
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, CompileError>;
 
     /// Maximum concurrent warps/waves per streaming multiprocessor or compute unit.
@@ -530,25 +553,28 @@ pub const fn prev_multiple_of(x: u32, y: u32) -> u32 {
 }
 
 /// For compute shaders, large values of local_size impose an additional limit
-/// on the number of GPRs per thread
+/// on the number of GPRs per thread.
+///
+/// NVIDIA-specific: assumes 65536 registers/SM and 32 threads/warp.
+/// AMD register allocation uses a different model (see `ShaderModelRdna2`).
 pub fn gpr_limit_from_local_size(local_size: &[u16; 3]) -> u32 {
+    const NV_TOTAL_REGS: u32 = 65_536;
+    const NV_WARP_SIZE: u32 = 32;
     let local_size = local_size[0] * local_size[1] * local_size[2];
-    // Warps are allocated in multiples of 4
-    // Multiply that by 32 threads/warp
-    let local_size = local_size.next_multiple_of(4 * 32) as u32;
-    let total_regs: u32 = 65_536;
+    let local_size = local_size.next_multiple_of(4 * NV_WARP_SIZE as u16) as u32;
 
-    let out = total_regs / local_size;
-    // GPRs are allocated in multiples of 8
+    let out = NV_TOTAL_REGS / local_size;
     let out = prev_multiple_of(out, 8);
     min(out, 255)
 }
 
+/// NVIDIA-specific: compute max concurrent warps from GPR usage.
 pub fn max_warps_per_sm(sm: &dyn ShaderModel, gprs: u32) -> u32 {
-    let total_regs: u32 = 65_536;
+    const NV_TOTAL_REGS: u32 = 65_536;
+    const NV_WARP_SIZE: u32 = 32;
     let gprs = max(gprs, 1);
     let gprs = gprs.next_multiple_of(8);
-    let max_warps = prev_multiple_of((total_regs / 32) / gprs, 4);
+    let max_warps = prev_multiple_of((NV_TOTAL_REGS / NV_WARP_SIZE) / gprs, 4);
     min(max_warps, sm.max_warps())
 }
 

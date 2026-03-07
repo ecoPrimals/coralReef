@@ -58,6 +58,7 @@ pub fn compile_file(
         opt_level,
         debug_info: false,
         fp64_software,
+        ..CompileOptions::default()
     };
 
     if input.extension().is_some_and(|e| e == "wgsl") {

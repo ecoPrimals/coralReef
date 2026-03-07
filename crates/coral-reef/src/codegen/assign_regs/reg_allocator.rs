@@ -111,7 +111,11 @@ impl RegAllocator {
         }
         self.reg_ssa[reg_usize] = Some(ssa);
         let old = self.ssa_reg.insert(ssa, reg);
-        assert!(old.is_none());
+        assert!(
+            old.is_none(),
+            "SSA value {ssa:?} already assigned to reg {}, now trying reg {reg}",
+            old.unwrap()
+        );
         self.used.insert(reg_usize);
     }
 
@@ -350,7 +354,10 @@ impl<'a> VecRegAllocator<'a> {
 
             self.assign_pin_reg(ssa, new_reg);
         } else {
-            panic!("Unknown SSA value");
+            panic!(
+                "Unknown SSA value {ssa:?} (file={:?}) — not in active regs or evicted set",
+                self.file()
+            );
         }
     }
 

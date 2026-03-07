@@ -21,7 +21,10 @@ fn amd_empty_compute_shader() {
     let bin = result.unwrap();
     assert!(!bin.is_empty(), "binary should contain at least s_endpgm");
     // AMD binary has no SPH header
-    assert!(bin.len() < 128, "AMD binary should be smaller than NVIDIA (no SPH)");
+    assert!(
+        bin.len() < 128,
+        "AMD binary should be smaller than NVIDIA (no SPH)"
+    );
 }
 
 #[test]
@@ -29,7 +32,10 @@ fn amd_workgroup_size_variations() {
     for wg in ["1", "64", "256"] {
         let src = format!("@compute @workgroup_size({wg}) fn main() {{}}");
         let result = compile_wgsl(&src, &amd_opts());
-        assert!(result.is_ok(), "workgroup_size({wg}) should compile: {result:?}");
+        assert!(
+            result.is_ok(),
+            "workgroup_size({wg}) should compile: {result:?}"
+        );
     }
 }
 
@@ -58,14 +64,14 @@ fn cross_vendor_both_compile_empty_shader() {
 
 #[test]
 fn cross_vendor_scalar_addition() {
-    let wgsl = r#"
+    let wgsl = "
 @group(0) @binding(0) var<storage, read_write> data: array<f32>;
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     data[id.x] = data[id.x] + 1.0;
 }
-"#;
+";
 
     let nv = compile_wgsl(wgsl, &CompileOptions::default());
     let amd = compile_wgsl(wgsl, &amd_opts());
@@ -111,5 +117,8 @@ fn amd_backend_resolves() {
 #[test]
 fn amd_backend_supports_rdna2() {
     let be = coral_reef::AmdBackend;
-    assert!(coral_reef::Backend::supports(&be, GpuTarget::Amd(AmdArch::Rdna2)));
+    assert!(coral_reef::Backend::supports(
+        &be,
+        GpuTarget::Amd(AmdArch::Rdna2)
+    ));
 }

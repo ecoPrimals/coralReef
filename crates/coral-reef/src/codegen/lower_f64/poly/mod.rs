@@ -74,31 +74,22 @@ fn emit_cody_waite_reduction(
 
     let pi_half_hi = emit_f64_const(out, alloc, pred, PI_HALF_HI);
     let pi_half_lo = emit_f64_const(out, alloc, pred, PI_HALF_LO);
-    let r = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: r.clone().into(),
-            srcs: [
-                Src::from(n_f64.clone()).fneg(),
-                Src::from(pi_half_hi),
-                x_src,
-            ],
-            rnd_mode: rnd,
-        }),
+    let r = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
-    out.push(with_pred(
-        Instr::new(OpDFma {
-            dst: r.clone().into(),
-            srcs: [
-                Src::from(n_f64).fneg(),
-                Src::from(pi_half_lo),
-                Src::from(r.clone()),
-            ],
-            rnd_mode: rnd,
-        }),
+        Src::from(n_f64.clone()).fneg(),
+        Src::from(pi_half_hi),
+        x_src,
+    );
+    let r = emit_f64_dfma(
+        out,
+        alloc,
         pred,
-    ));
+        Src::from(n_f64).fneg(),
+        Src::from(pi_half_lo),
+        Src::from(r),
+    );
 
     (r, n_i32)
 }

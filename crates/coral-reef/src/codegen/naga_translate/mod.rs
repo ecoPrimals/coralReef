@@ -10,9 +10,13 @@ use super::ir::*;
 use crate::error::CompileError;
 
 pub(super) mod expr;
+mod expr_binary;
 pub(super) mod func;
 mod func_builtins;
+mod func_control;
 mod func_math;
+mod func_mem;
+mod func_ops;
 
 fn mem_access_global_b32() -> MemAccess {
     MemAccess {
@@ -156,6 +160,7 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
         let mut ft = func::FuncTranslator::new(self.sm, self.module, func);
 
         ft.start_block();
+        ft.pre_allocate_local_vars();
 
         if let Some(ep) = entry_point {
             if ep.stage == naga::ShaderStage::Compute {

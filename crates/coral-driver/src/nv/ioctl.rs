@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Nouveau-specific DRM ioctl definitions.
 
-use crate::error::DriverResult;
 use crate::MemoryDomain;
+use crate::error::DriverResult;
 use std::os::unix::io::RawFd;
 
 /// Create a nouveau GPU channel for command submission.

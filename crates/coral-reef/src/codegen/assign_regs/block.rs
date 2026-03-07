@@ -63,7 +63,9 @@ impl AssignRegsBlock {
     }
 
     fn try_coalesce(&mut self, ssa: SSAValue, src: &Src) -> bool {
-        debug_assert!(src.is_unmodified());
+        if !src.is_unmodified() {
+            return false;
+        }
         let SrcRef::Reg(src_reg) = src.reference else {
             return false;
         };

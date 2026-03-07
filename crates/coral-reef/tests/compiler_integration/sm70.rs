@@ -224,12 +224,8 @@ fn test_sm70_mem_ops() {
         target: GpuArch::Sm70.into(),
         ..CompileOptions::default()
     };
-    let result = compile_wgsl(wgsl, &opts);
-    match result {
-        Ok(binary) => assert!(!binary.is_empty()),
-        Err(CompileError::NotImplemented(_)) => {}
-        Err(e) => panic!("unexpected error: {e}"),
-    }
+    let binary = compile_wgsl(wgsl, &opts).expect("var<uniform> should compile");
+    assert!(!binary.is_empty());
 }
 
 /// Exercises workgroup shared memory paths: `shared_data`, `workgroupBarrier`.
@@ -479,4 +475,74 @@ fn test_multi_arch_stress_all_shaders() {
             }
         }
     }
+}
+
+#[test]
+fn test_sm70_f64_storage_load_store() {
+    let wgsl = "
+        @group(0) @binding(0) var<storage, read> inp: array<f64>;
+        @group(0) @binding(1) var<storage, read_write> out: array<f64>;
+        @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            let a = inp[gid.x];
+            let b = inp[gid.x + 1u];
+            out[gid.x] = a + b;
+        }
+    ";
+    let opts = CompileOptions {
+        target: GpuArch::Sm70.into(),
+        opt_level: 2,
+        debug_info: false,
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "f64 storage load/store should compile: {result:?}"
+    );
+    assert!(!result.unwrap().is_empty());
+}
+
+#[test]
+fn test_sm70_f64_storage_multiply() {
+    let wgsl = "
+        @group(0) @binding(0) var<storage, read> a_buf: array<f64>;
+        @group(0) @binding(1) var<storage, read> b_buf: array<f64>;
+        @group(0) @binding(2) var<storage, read_write> out: array<f64>;
+        @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            out[gid.x] = a_buf[gid.x] * b_buf[gid.x];
+        }
+    ";
+    let opts = CompileOptions {
+        target: GpuArch::Sm70.into(),
+        opt_level: 2,
+        debug_info: false,
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(result.is_ok(), "f64 multiply should compile: {result:?}");
+    assert!(!result.unwrap().is_empty());
+}
+
+#[test]
+fn test_sm70_f64_divide() {
+    let wgsl = "
+        @group(0) @binding(0) var<storage, read_write> out: array<f64>;
+        @compute @workgroup_size(1) fn main() {
+            let x: f64 = 3.14;
+            let y: f64 = 2.0;
+            out[0] = x / y;
+        }
+    ";
+    let opts = CompileOptions {
+        target: GpuArch::Sm70.into(),
+        opt_level: 2,
+        debug_info: false,
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(result.is_ok(), "f64 divide should compile: {result:?}");
+    assert!(!result.unwrap().is_empty());
 }

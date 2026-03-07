@@ -327,7 +327,9 @@ impl<'a> CopyPropPass<'a> {
                 _ => return,
             };
 
-            assert!(src_ssa.comps() == 2);
+            if src_ssa.comps() != 2 {
+                return;
+            }
 
             // First, try to propagate the two halves individually.  Source
             // modifiers only apply to the high 32 bits so we have to reject
@@ -636,10 +638,9 @@ impl<'a> CopyPropPass<'a> {
 
                 self.prop_to_pred(&mut instr.pred);
 
-                let cbuf_rule = if self.sm.sm() >= 100 {
-                    // Blackwell+ doesn't allow cbufs directly in instruction
-                    // sources anymore and instead have to be explicitly loaded
-                    // with OpLdc.
+                let cbuf_rule = if self.sm.is_amd() || self.sm.sm() >= 100 {
+                    // AMD uses SMEM/VMEM, not CBuf; Blackwell+ requires OpLdc
+                    // for constant buffer access.
                     CBufRule::No
                 } else if instr.is_uniform() {
                     CBufRule::No

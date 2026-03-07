@@ -1,10 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+//! Per-function translation state: types, constructors, block management, statement dispatch.
 #![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use crate::error::CompileError;
 use coral_reef_stubs::cfg::CFGBuilder;
 use naga::Handle;
 use std::collections::HashMap;
+
+/// Reference to a register-promoted local variable (or component thereof).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum VarRef {
+    Full(usize),
+    Component(usize, u32),
+}
+
+/// Active loop context for Break/Continue translation.
+pub(super) struct LoopContext {
+    pub exit_label: Label,
+    pub continue_label: Label,
+    pub continue_block_id: usize,
+    pub break_blocks: Vec<usize>,
+    pub continue_blocks: Vec<usize>,
+    /// Phi identifiers for loop-header (back-edge) merges.
+    pub slot_phis: Vec<Vec<Phi>>,
+    /// Phi identifiers for the loop *exit* path — collects values from Break
+    /// statements and break_if so the post-loop code uses properly defined SSA.
+    pub exit_slot_phis: Vec<Vec<Phi>>,
+    /// Phi identifiers for the *continuing* block entry — merges values from
+    /// the normal body path and any Continue statement paths.
+    pub continue_slot_phis: Vec<Vec<Phi>>,
+}
 
 /// Per-function translation state.
 pub(super) struct FuncTranslator<'a, 'b> {
@@ -16,10 +41,28 @@ pub(super) struct FuncTranslator<'a, 'b> {
     pub(super) label_alloc: LabelAllocator,
     pub(super) cfg_builder: CFGBuilder<BasicBlock>,
     pub(super) expr_map: HashMap<Handle<naga::Expression>, SSARef>,
+    /// Tracks expressions that refer to uniform CBuf data: (cbuf_idx, byte_offset).
+    pub(super) uniform_refs: HashMap<Handle<naga::Expression>, (u8, u16)>,
+    /// Register-promoted local variable slots (shared across inline boundaries).
+    pub(super) var_storage: Vec<SSARef>,
+    /// Maps expression handles to local variable references (per-function context).
+    pub(super) expr_to_var: HashMap<Handle<naga::Expression>, VarRef>,
+    /// Pre-allocated local variable handle → var_storage slot index.
+    pub(super) local_var_slots: HashMap<Handle<naga::LocalVariable>, usize>,
+    /// During inline: by-value argument SSA values indexed by argument position.
+    pub(super) inline_args: Option<Vec<SSARef>>,
+    /// During inline: pointer argument → var slot mappings.
+    pub(super) inline_ptr_arg_slots: HashMap<u32, usize>,
+    /// Captured return value during inline expansion.
+    pub(super) inline_return: Option<SSARef>,
+    /// Loop context stack for Break/Continue translation.
+    pub(super) loop_stack: Vec<LoopContext>,
     pub(super) current_instrs: Vec<Instr>,
     pub(super) current_label: Label,
     pub(super) current_block_id: Option<usize>,
     pub(super) next_block_id: usize,
+    /// True when accumulated instructions are in unreachable code (after Break/Continue).
+    pub(super) dead_code: bool,
 }
 
 impl<'a, 'b> FuncTranslator<'a, 'b> {
@@ -39,10 +82,19 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             label_alloc: la,
             cfg_builder: CFGBuilder::new(),
             expr_map: HashMap::new(),
+            uniform_refs: HashMap::new(),
+            var_storage: Vec::new(),
+            expr_to_var: HashMap::new(),
+            local_var_slots: HashMap::new(),
+            inline_args: None,
+            inline_ptr_arg_slots: HashMap::new(),
+            inline_return: None,
+            loop_stack: Vec::new(),
             current_instrs: Vec::new(),
             current_label: initial_label,
             current_block_id: None,
             next_block_id: 0,
+            dead_code: false,
         }
     }
 
@@ -66,13 +118,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         }
         self.next_block_id += 1;
         if let Some(prev) = self.current_block_id {
-            self.cfg_builder.add_edge(prev, id);
+            self.add_cfg_edge(prev, id);
         }
         self.current_block_id = Some(id);
         Ok(id)
     }
 
-    fn finish_block_no_fallthrough(&mut self) -> Result<usize, CompileError> {
+    pub(super) fn finish_block_no_fallthrough(&mut self) -> Result<usize, CompileError> {
         let bb = BasicBlock {
             label: self.current_label,
             uniform: false,
@@ -87,14 +139,20 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         }
         self.next_block_id += 1;
         if let Some(prev) = self.current_block_id {
-            self.cfg_builder.add_edge(prev, id);
+            self.add_cfg_edge(prev, id);
         }
         self.current_block_id = None;
         Ok(id)
     }
 
     pub(super) fn push_instr(&mut self, instr: Instr) {
-        self.current_instrs.push(instr);
+        if !self.dead_code {
+            self.current_instrs.push(instr);
+        }
+    }
+
+    pub(super) fn add_cfg_edge(&mut self, from: usize, to: usize) {
+        self.cfg_builder.add_edge(from, to);
     }
 
     pub(super) fn alloc_ssa(&mut self, file: RegFile) -> SSAValue {
@@ -113,6 +171,26 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         }
     }
 
+    /// Pre-allocate var_storage slots for all register-promotable local variables
+    /// so they exist before any loops or ifs create phis.
+    pub(super) fn pre_allocate_local_vars(&mut self) {
+        for (lv_handle, lv) in self.func.local_variables.iter() {
+            let comps = self.type_reg_comps(lv.ty);
+            if comps > 0 {
+                let ssa = self.alloc_ssa_vec(RegFile::GPR, comps);
+                for c in 0..comps as usize {
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: ssa[c].into(),
+                        src: Src::ZERO,
+                    }));
+                }
+                let slot_id = self.var_storage.len();
+                self.var_storage.push(ssa);
+                self.local_var_slots.insert(lv_handle, slot_id);
+            }
+        }
+    }
+
     pub(super) fn emit_compute_prologue(&self, _ep: &naga::EntryPoint) -> Result<(), CompileError> {
         for (_handle, gv) in self.module.global_variables.iter() {
             let Some(binding) = &gv.binding else {
@@ -120,14 +198,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             };
             match gv.space {
                 naga::AddressSpace::Storage { .. } => {
-                    // Storage buffers: addresses are loaded from CBuf when the variable
-                    // is used (see expr.rs GlobalVariable). No prologue setup needed.
-                    let _ = binding; // group/binding used at use site
+                    let _ = binding;
                 }
                 naga::AddressSpace::Uniform => {
-                    return Err(CompileError::NotImplemented(
-                        "uniform buffer bindings in compute prologue not yet supported".into(),
-                    ));
+                    let _ = binding;
                 }
                 naga::AddressSpace::Handle => {
                     return Err(CompileError::NotImplemented(
@@ -146,9 +220,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 naga::AddressSpace::Function
                 | naga::AddressSpace::Private
-                | naga::AddressSpace::WorkGroup => {
-                    // These typically don't have resource bindings
-                }
+                | naga::AddressSpace::WorkGroup => {}
             }
         }
         Ok(())
@@ -162,6 +234,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     }
 
     fn translate_statement(&mut self, stmt: &naga::Statement) -> Result<(), CompileError> {
+        if self.dead_code {
+            return Ok(());
+        }
         match *stmt {
             naga::Statement::Emit(ref range) => {
                 for expr_handle in range.clone() {
@@ -186,8 +261,20 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             } => self.translate_loop(body, continuing, break_if),
             naga::Statement::Return { value } => {
                 if let Some(val) = value {
-                    self.ensure_expr(val)?;
+                    let ssa = self.ensure_expr(val)?;
+                    if self.inline_args.is_some() {
+                        self.inline_return = Some(ssa);
+                    }
                 }
+                if self.inline_args.is_none() {
+                    self.push_instr(Instr::new(OpExit {}));
+                    self.finish_block_no_fallthrough()?;
+                    self.start_block();
+                    self.current_instrs.push(Instr::new(OpExit {}));
+                } else {
+                    // During inlining: mark as dead; inline_call handles cleanup.
+                }
+                self.dead_code = true;
                 Ok(())
             }
             naga::Statement::Block(ref inner) => self.translate_block(inner),
@@ -210,469 +297,75 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 Ok(())
             }
-            naga::Statement::Break => Ok(()),
-            naga::Statement::Continue => Ok(()),
+            naga::Statement::Break => {
+                let loop_ctx = self
+                    .loop_stack
+                    .last()
+                    .ok_or_else(|| CompileError::NotImplemented("break outside loop".into()))?;
+                let exit_label = loop_ctx.exit_label;
+                self.emit_loop_exit_phi_srcs()?;
+                self.push_instr(Instr::new(OpBra {
+                    target: exit_label,
+                    cond: SrcRef::True.into(),
+                }));
+                let break_block = self.finish_block_no_fallthrough()?;
+                self.loop_stack
+                    .last_mut()
+                    .ok_or_else(|| CompileError::NotImplemented("break outside loop".into()))?
+                    .break_blocks
+                    .push(break_block);
+                self.start_block();
+                self.current_instrs.push(Instr::new(OpExit {}));
+                self.dead_code = true;
+                Ok(())
+            }
+            naga::Statement::Continue => {
+                let loop_ctx = self
+                    .loop_stack
+                    .last()
+                    .ok_or_else(|| CompileError::NotImplemented("continue outside loop".into()))?;
+                let continue_label = loop_ctx.continue_label;
+                self.emit_loop_continue_phi_srcs()?;
+                self.push_instr(Instr::new(OpBra {
+                    target: continue_label,
+                    cond: SrcRef::True.into(),
+                }));
+                let cont_block = self.finish_block_no_fallthrough()?;
+                self.loop_stack
+                    .last_mut()
+                    .ok_or_else(|| CompileError::NotImplemented("continue outside loop".into()))?
+                    .continue_blocks
+                    .push(cont_block);
+                self.start_block();
+                self.current_instrs.push(Instr::new(OpExit {}));
+                self.dead_code = true;
+                Ok(())
+            }
             naga::Statement::Kill => {
                 self.push_instr(Instr::new(OpKill {}));
                 Ok(())
             }
             naga::Statement::Call {
-                function: _,
+                function,
                 ref arguments,
                 result,
             } => {
-                for &arg in arguments {
-                    self.ensure_expr(arg)?;
-                }
-                if let Some(res) = result {
-                    let dst = self.alloc_ssa(RegFile::GPR);
-                    self.expr_map.insert(res, dst.into());
-                }
-                Err(CompileError::NotImplemented(
-                    "function calls not yet supported".into(),
-                ))
+                self.inline_call(function, arguments, result)?;
+                Ok(())
+            }
+            naga::Statement::Atomic {
+                pointer,
+                ref fun,
+                value,
+                result,
+            } => {
+                self.emit_atomic(pointer, fun, value, result)?;
+                Ok(())
             }
             _ => Err(CompileError::NotImplemented(format!(
                 "statement {:?} not yet supported",
                 std::mem::discriminant(stmt),
             ))),
         }
-    }
-
-    pub(super) fn emit_store(
-        &mut self,
-        pointer: Handle<naga::Expression>,
-        value: Handle<naga::Expression>,
-    ) -> Result<(), CompileError> {
-        let addr = self
-            .expr_map
-            .get(&pointer)
-            .cloned()
-            .ok_or_else(|| CompileError::InvalidInput("store pointer not resolved".into()))?;
-        let val = self
-            .expr_map
-            .get(&value)
-            .cloned()
-            .ok_or_else(|| CompileError::InvalidInput("store value not resolved".into()))?;
-
-        for c in 0..val.comps() as usize {
-            self.push_instr(Instr::new(OpSt {
-                addr: addr[0].into(),
-                data: val[c].into(),
-                offset: (c as i32) * 4,
-                stride: OffsetStride::X1,
-                access: super::mem_access_global_b32(),
-            }));
-        }
-        Ok(())
-    }
-
-    pub(super) fn emit_load(&mut self, addr: SSARef) -> Result<SSARef, CompileError> {
-        let dst = self.alloc_ssa(RegFile::GPR);
-        self.push_instr(Instr::new(OpLd {
-            dst: dst.into(),
-            addr: addr[0].into(),
-            offset: 0,
-            stride: OffsetStride::X1,
-            access: super::mem_access_global_b32(),
-        }));
-        Ok(dst.into())
-    }
-
-    pub(super) fn emit_access(
-        &mut self,
-        base: SSARef,
-        index: SSARef,
-        base_handle: Handle<naga::Expression>,
-    ) -> Result<SSARef, CompileError> {
-        let stride = self.type_stride(base_handle)?;
-        let scaled_idx = self.emit_imad(index[0].into(), Src::new_imm_u32(stride), Src::ZERO);
-        if base.comps() >= 2 {
-            let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-            if self.sm.sm() >= 70 {
-                self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst[0].into(),
-                    srcs: [base[0].into(), scaled_idx.into(), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
-                }));
-            } else {
-                self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst[0].into(),
-                    srcs: [base[0].into(), scaled_idx.into()],
-                    carry_out: Dst::None,
-                }));
-            }
-            self.push_instr(Instr::new(OpCopy {
-                dst: dst[1].into(),
-                src: base[1].into(),
-            }));
-            Ok(dst)
-        } else {
-            let dst = self.alloc_ssa(RegFile::GPR);
-            if self.sm.sm() >= 70 {
-                self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst.into(),
-                    srcs: [base[0].into(), scaled_idx.into(), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
-                }));
-            } else {
-                self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst.into(),
-                    srcs: [base[0].into(), scaled_idx.into()],
-                    carry_out: Dst::None,
-                }));
-            }
-            Ok(dst.into())
-        }
-    }
-
-    pub(super) fn emit_access_index(
-        &mut self,
-        base: SSARef,
-        index: u32,
-        base_handle: Handle<naga::Expression>,
-    ) -> Result<SSARef, CompileError> {
-        let stride = self.type_stride(base_handle)?;
-        let byte_offset = index * stride;
-        if byte_offset == 0 {
-            return Ok(base);
-        }
-        if base.comps() >= 2 {
-            let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-            if self.sm.sm() >= 70 {
-                self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst[0].into(),
-                    srcs: [base[0].into(), Src::new_imm_u32(byte_offset), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
-                }));
-            } else {
-                self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst[0].into(),
-                    srcs: [base[0].into(), Src::new_imm_u32(byte_offset)],
-                    carry_out: Dst::None,
-                }));
-            }
-            self.push_instr(Instr::new(OpCopy {
-                dst: dst[1].into(),
-                src: base[1].into(),
-            }));
-            Ok(dst)
-        } else {
-            let dst = self.alloc_ssa(RegFile::GPR);
-            if self.sm.sm() >= 70 {
-                self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst.into(),
-                    srcs: [base[0].into(), Src::new_imm_u32(byte_offset), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
-                }));
-            } else {
-                self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst.into(),
-                    srcs: [base[0].into(), Src::new_imm_u32(byte_offset)],
-                    carry_out: Dst::None,
-                }));
-            }
-            Ok(dst.into())
-        }
-    }
-
-    pub(super) fn type_stride(
-        &self,
-        base_handle: Handle<naga::Expression>,
-    ) -> Result<u32, CompileError> {
-        let ty_handle = self.resolve_expr_type_handle(base_handle)?;
-        let inner = &self.module.types[ty_handle].inner;
-        Ok(match *inner {
-            naga::TypeInner::Array { stride, .. } => stride,
-            naga::TypeInner::Vector { scalar, .. } => scalar.width as u32,
-            naga::TypeInner::Pointer { base, .. } => {
-                let base_inner = &self.module.types[base].inner;
-                match *base_inner {
-                    naga::TypeInner::Array { stride, .. } => stride,
-                    _ => base_inner.size(self.module.to_ctx()),
-                }
-            }
-            _ => inner.size(self.module.to_ctx()),
-        })
-    }
-
-    fn translate_if(
-        &mut self,
-        condition: Handle<naga::Expression>,
-        accept: &naga::Block,
-        reject: &naga::Block,
-    ) -> Result<(), CompileError> {
-        let cond = self.ensure_expr(condition)?;
-        let merge_label = self.label_alloc.alloc();
-        let cond_src: Src = cond[0].into();
-
-        if reject.is_empty() {
-            // No else clause: branch to merge when !cond, fall through to
-            // accept when cond. Avoids creating an empty reject block that
-            // would become orphaned after opt_jump_thread.
-            self.push_instr(Instr::new(OpBra {
-                target: merge_label,
-                cond: cond_src.bnot(),
-            }));
-            let cond_block = self.finish_block_no_fallthrough()?;
-
-            self.start_block();
-            self.translate_block(accept)?;
-            self.push_instr(Instr::new(OpBra {
-                target: merge_label,
-                cond: SrcRef::True.into(),
-            }));
-            let accept_block = self.finish_block_no_fallthrough()?;
-            self.cfg_builder.add_edge(cond_block, accept_block);
-
-            self.start_block();
-            self.current_label = merge_label;
-            let merge_block = self.next_block_id;
-            self.cfg_builder.add_edge(cond_block, merge_block);
-            self.cfg_builder.add_edge(accept_block, merge_block);
-            self.current_block_id = None;
-        } else {
-            let reject_label = self.label_alloc.alloc();
-
-            self.push_instr(Instr::new(OpBra {
-                target: reject_label,
-                cond: cond_src.bnot(),
-            }));
-            let cond_block = self.finish_block_no_fallthrough()?;
-
-            self.start_block();
-            self.translate_block(accept)?;
-            self.push_instr(Instr::new(OpBra {
-                target: merge_label,
-                cond: SrcRef::True.into(),
-            }));
-            let accept_block = self.finish_block_no_fallthrough()?;
-            self.cfg_builder.add_edge(cond_block, accept_block);
-
-            self.start_block();
-            self.current_label = reject_label;
-            self.translate_block(reject)?;
-            self.push_instr(Instr::new(OpBra {
-                target: merge_label,
-                cond: SrcRef::True.into(),
-            }));
-            let reject_block = self.finish_block_no_fallthrough()?;
-            self.cfg_builder.add_edge(cond_block, reject_block);
-
-            self.start_block();
-            self.current_label = merge_label;
-            let merge_block = self.next_block_id;
-            self.cfg_builder.add_edge(accept_block, merge_block);
-            self.cfg_builder.add_edge(reject_block, merge_block);
-            self.current_block_id = None;
-        }
-
-        Ok(())
-    }
-
-    fn translate_loop(
-        &mut self,
-        body: &naga::Block,
-        continuing: &naga::Block,
-        _break_if: Option<Handle<naga::Expression>>,
-    ) -> Result<(), CompileError> {
-        let header_label = self.label_alloc.alloc();
-        let _exit_label = self.label_alloc.alloc();
-
-        let pre_block = self.finish_block_no_fallthrough()?;
-
-        self.start_block();
-        self.current_label = header_label;
-        let header_block_id = self.next_block_id;
-        self.cfg_builder.add_edge(pre_block, header_block_id);
-        self.translate_block(body)?;
-        self.translate_block(continuing)?;
-        self.push_instr(Instr::new(OpBra {
-            target: header_label,
-            cond: SrcRef::True.into(),
-        }));
-        let body_block = self.finish_block_no_fallthrough()?;
-        if body_block != header_block_id {
-            self.cfg_builder.add_edge(body_block, header_block_id);
-        }
-
-        self.start_block();
-        self.current_block_id = None;
-
-        Ok(())
-    }
-
-    pub(super) fn emit_componentwise(
-        &mut self,
-        comps: u8,
-        l: SSARef,
-        r: SSARef,
-        mut f: impl FnMut(&mut Self, SSAValue, SSAValue) -> SSAValue,
-    ) -> Result<SSARef, CompileError> {
-        let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
-        for c in 0..comps as usize {
-            let lc = if c < l.comps() as usize { l[c] } else { l[0] };
-            let rc = if c < r.comps() as usize { r[c] } else { r[0] };
-            let result = f(self, lc, rc);
-            self.push_instr(Instr::new(OpCopy {
-                dst: dst[c].into(),
-                src: result.into(),
-            }));
-        }
-        Ok(dst)
-    }
-
-    pub(super) fn emit_int_componentwise(
-        &mut self,
-        comps: u8,
-        l: SSARef,
-        r: SSARef,
-        f: impl FnMut(&mut Self, SSAValue, SSAValue) -> SSAValue,
-    ) -> Result<SSARef, CompileError> {
-        self.emit_componentwise(comps, l, r, f)
-    }
-
-    pub(super) fn emit_cmp_componentwise(
-        &mut self,
-        _comps: u8,
-        l: SSARef,
-        r: SSARef,
-        mut f: impl FnMut(&mut Self, SSAValue, SSAValue) -> SSAValue,
-    ) -> Result<SSARef, CompileError> {
-        let result = f(self, l[0], r[0]);
-        Ok(result.into())
-    }
-
-    pub(super) fn translate_unary(
-        &mut self,
-        op: naga::UnaryOperator,
-        val: SSARef,
-        inner_handle: Handle<naga::Expression>,
-    ) -> Result<SSARef, CompileError> {
-        let is_float = self.is_float_expr(inner_handle);
-        let comps = val.comps();
-        let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
-
-        for c in 0..comps as usize {
-            match op {
-                naga::UnaryOperator::Negate if is_float => {
-                    self.push_instr(Instr::new(OpFAdd {
-                        dst: dst[c].into(),
-                        srcs: [Src::ZERO, Src::from(val[c]).fneg()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                    }));
-                }
-                naga::UnaryOperator::Negate => {
-                    if self.sm.sm() >= 70 {
-                        self.push_instr(Instr::new(OpIAdd3 {
-                            dst: dst[c].into(),
-                            srcs: [Src::ZERO, Src::from(val[c]).ineg(), Src::ZERO],
-                            overflow: [Dst::None, Dst::None],
-                        }));
-                    } else {
-                        self.push_instr(Instr::new(OpIAdd2 {
-                            dst: dst[c].into(),
-                            srcs: [Src::ZERO, Src::from(val[c]).ineg()],
-                            carry_out: Dst::None,
-                        }));
-                    }
-                }
-                naga::UnaryOperator::LogicalNot => {
-                    let pred_dst = self.alloc_ssa(RegFile::Pred);
-                    self.push_instr(Instr::new(OpCopy {
-                        dst: pred_dst.into(),
-                        src: Src::from(val[c]).bnot(),
-                    }));
-                    self.push_instr(Instr::new(OpCopy {
-                        dst: dst[c].into(),
-                        src: pred_dst.into(),
-                    }));
-                }
-                naga::UnaryOperator::BitwiseNot => {
-                    if self.sm.sm() >= 70 {
-                        self.push_instr(Instr::new(OpLop3 {
-                            dst: dst[c].into(),
-                            srcs: [val[c].into(), Src::ZERO, Src::ZERO],
-                            op: LogicOp3::new_lut(&|x, _, _| !x),
-                        }));
-                    } else {
-                        self.push_instr(Instr::new(OpLop2 {
-                            dst: dst[c].into(),
-                            srcs: [val[c].into(), Src::ZERO],
-                            op: LogicOp2::And,
-                        }));
-                    }
-                }
-            }
-        }
-        Ok(dst)
-    }
-
-    pub(super) fn translate_select(
-        &mut self,
-        cond: SSARef,
-        accept: SSARef,
-        reject: SSARef,
-    ) -> Result<SSARef, CompileError> {
-        let comps = accept.comps().max(reject.comps());
-        let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
-        for c in 0..comps as usize {
-            let acc = if (c as u8) < accept.comps() {
-                accept[c]
-            } else {
-                accept[0]
-            };
-            let rej = if (c as u8) < reject.comps() {
-                reject[c]
-            } else {
-                reject[0]
-            };
-            self.push_instr(Instr::new(OpSel {
-                dst: dst[c].into(),
-                cond: cond[0].into(),
-                srcs: [acc.into(), rej.into()],
-            }));
-        }
-        Ok(dst)
-    }
-
-    pub(super) fn translate_cast(
-        &mut self,
-        val: SSARef,
-        kind: naga::ScalarKind,
-        convert: Option<naga::Bytes>,
-        _inner_handle: Handle<naga::Expression>,
-    ) -> Result<SSARef, CompileError> {
-        let dst = self.alloc_ssa(RegFile::GPR);
-        match (kind, convert) {
-            (naga::ScalarKind::Float, Some(4)) => {
-                self.push_instr(Instr::new(OpI2F {
-                    dst: dst.into(),
-                    src: val[0].into(),
-                    dst_type: FloatType::F32,
-                    src_type: IntType::I32,
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-            }
-            (naga::ScalarKind::Uint | naga::ScalarKind::Sint, Some(4)) => {
-                self.push_instr(Instr::new(OpF2I {
-                    dst: dst.into(),
-                    src: val[0].into(),
-                    dst_type: IntType::I32,
-                    src_type: FloatType::F32,
-                    rnd_mode: FRndMode::NearestEven,
-                    ftz: false,
-                }));
-            }
-            _ => {
-                self.push_instr(Instr::new(OpCopy {
-                    dst: dst.into(),
-                    src: val[0].into(),
-                }));
-            }
-        }
-        Ok(dst.into())
     }
 }

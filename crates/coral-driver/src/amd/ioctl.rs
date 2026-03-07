@@ -9,13 +9,13 @@ use std::os::unix::io::RawFd;
 
 // amdgpu DRM ioctl command numbers (from amdgpu_drm.h)
 const DRM_COMMAND_BASE: u32 = 0x40;
-const DRM_AMDGPU_GEM_CREATE: u32 = DRM_COMMAND_BASE + 0x00;
+const DRM_AMDGPU_GEM_CREATE: u32 = DRM_COMMAND_BASE;
 const DRM_AMDGPU_GEM_MMAP: u32 = DRM_COMMAND_BASE + 0x01;
 const DRM_AMDGPU_CTX: u32 = DRM_COMMAND_BASE + 0x02;
 const DRM_AMDGPU_GEM_VA: u32 = DRM_COMMAND_BASE + 0x08;
-const _DRM_AMDGPU_WAIT_CS: u32 = DRM_COMMAND_BASE + 0x09;
+const _DRM_AMDGPU_BO_LIST: u32 = DRM_COMMAND_BASE + 0x03;
 const _DRM_AMDGPU_CS: u32 = DRM_COMMAND_BASE + 0x04;
-const _DRM_AMDGPU_GEM_CLOSE: u32 = DRM_COMMAND_BASE + 0x09;
+const _DRM_AMDGPU_WAIT_CS: u32 = DRM_COMMAND_BASE + 0x09;
 
 // Domain flags
 pub const AMDGPU_GEM_DOMAIN_VRAM: u32 = 0x4;
@@ -80,18 +80,15 @@ pub fn create_context(fd: RawFd) -> DriverResult<u32> {
         op: AMDGPU_CTX_OP_ALLOC_CTX,
         ..Default::default()
     };
-    // Safety: properly sized struct for the ioctl
-    let ret = unsafe {
-        crate::drm::drm_ioctl_call(
+    // Safety: AmdgpuCtx is #[repr(C)] and matches the kernel struct.
+    unsafe {
+        crate::drm::drm_ioctl_typed(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_CTX, std::mem::size_of::<AmdgpuCtx>() as u32),
-            &mut ctx as *mut _ as *mut u8,
-        )
-    };
-    match ret {
-        Ok(()) => Ok(ctx.ctx_id),
-        Err(e) => Err(e),
+            &mut ctx,
+        )?;
     }
+    Ok(ctx.ctx_id)
 }
 
 /// Destroy an amdgpu GPU context.
@@ -101,11 +98,12 @@ pub fn destroy_context(fd: RawFd, ctx_id: u32) -> DriverResult<()> {
         ctx_id,
         ..Default::default()
     };
+    // Safety: AmdgpuCtx is #[repr(C)] and matches the kernel struct.
     unsafe {
-        crate::drm::drm_ioctl_call(
+        crate::drm::drm_ioctl_typed(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_CTX, std::mem::size_of::<AmdgpuCtx>() as u32),
-            &mut ctx as *mut _ as *mut u8,
+            &mut ctx,
         )
     }
 }
@@ -118,14 +116,15 @@ pub fn gem_create(fd: RawFd, size: u64, domains: u32) -> DriverResult<(u32, u64)
         domains: domains.into(),
         ..Default::default()
     };
+    // Safety: AmdgpuGemCreate is #[repr(C)] and matches the kernel struct.
     unsafe {
-        crate::drm::drm_ioctl_call(
+        crate::drm::drm_ioctl_typed(
             fd,
             crate::drm::drm_iowr_pub(
                 DRM_AMDGPU_GEM_CREATE,
                 std::mem::size_of::<AmdgpuGemCreate>() as u32,
             ),
-            &mut req as *mut _ as *mut u8,
+            &mut req,
         )?;
     }
     Ok((req.handle, req.bo_size))
@@ -137,14 +136,15 @@ pub fn gem_mmap_offset(fd: RawFd, handle: u32) -> DriverResult<u64> {
         handle,
         ..Default::default()
     };
+    // Safety: AmdgpuGemMmap is #[repr(C)] and matches the kernel struct.
     unsafe {
-        crate::drm::drm_ioctl_call(
+        crate::drm::drm_ioctl_typed(
             fd,
             crate::drm::drm_iowr_pub(
                 DRM_AMDGPU_GEM_MMAP,
                 std::mem::size_of::<AmdgpuGemMmap>() as u32,
             ),
-            &mut req as *mut _ as *mut u8,
+            &mut req,
         )?;
     }
     Ok(req.offset)
@@ -159,14 +159,12 @@ pub fn gem_va_map(fd: RawFd, handle: u32, va: u64, size: u64) -> DriverResult<()
         map_size: size,
         ..Default::default()
     };
+    // Safety: AmdgpuGemVa is #[repr(C)] and matches the kernel struct.
     unsafe {
-        crate::drm::drm_ioctl_call(
+        crate::drm::drm_ioctl_typed(
             fd,
-            crate::drm::drm_iow_pub(
-                DRM_AMDGPU_GEM_VA,
-                std::mem::size_of::<AmdgpuGemVa>() as u32,
-            ),
-            &mut req as *mut _ as *mut u8,
+            crate::drm::drm_iow_pub(DRM_AMDGPU_GEM_VA, std::mem::size_of::<AmdgpuGemVa>() as u32),
+            &mut req,
         )
     }
 }
@@ -178,9 +176,6 @@ pub fn submit_command(
     _gem_handles: &[u32],
     _pm4_words: &[u32],
 ) -> DriverResult<()> {
-    // Full DRM_AMDGPU_CS submission requires building the cs_ioctl struct
-    // with chunks for IB (indirect buffer), BO list, and dependencies.
-    // This is the structural scaffold — actual submission requires hardware.
     tracing::debug!(
         ctx = _ctx_id,
         bos = _gem_handles.len(),

@@ -4,20 +4,18 @@
 
 #![allow(clippy::wildcard_imports)]
 
+mod generate_order;
+mod net_live;
 mod schedule;
+
+use generate_order::{GenerateOrder, ScheduleThresholds, calc_used_gprs, generate_dep_graph};
 use schedule::*;
 
 use super::debug::{DEBUG, GetDebugFlags};
 use super::ir::*;
 use super::liveness::{BlockLiveness, LiveSet, Liveness, SimpleLiveness};
-use super::opt_instr_sched_common::{
-    DepGraph, EdgeLabel, FutureReadyInstr, NodeLabel, ReadyInstr, SideEffect, calc_statistics,
-    estimate_variable_latency, side_effect_type,
-};
-use coral_reef_stubs::fxhash::FxHashMap;
-use std::cmp::Reverse;
+use super::opt_instr_sched_common::{DepGraph, SideEffect, calc_statistics, side_effect_type};
 use std::cmp::{max, min};
-use std::collections::BTreeSet;
 
 // This is the maximum number of reserved gprs - (TODO: Model more cases where
 // we actually need 2)
@@ -69,522 +67,6 @@ fn next_occupancy_cliff_with_reserved(sm: &dyn ShaderModel, gprs: i32, reserved:
         - reserved
 }
 
-fn generate_dep_graph(sm: &dyn ShaderModel, instrs: &[Instr]) -> DepGraph {
-    let mut g = DepGraph::new((0..instrs.len()).map(|_| NodeLabel::default()));
-
-    let mut defs = FxHashMap::<SSAValue, (usize, usize)>::default();
-
-    let mut last_memory_op = None;
-    let mut last_barrier_op = None;
-
-    for ip in 0..instrs.len() {
-        let instr = &instrs[ip];
-
-        if let Some(bar_ip) = last_barrier_op {
-            g.add_edge(bar_ip, ip, EdgeLabel { latency: 0 });
-        }
-
-        match side_effect_type(&instr.op) {
-            SideEffect::None => (),
-            SideEffect::Barrier => {
-                let first_ip = last_barrier_op.unwrap_or(0);
-                for other_ip in first_ip..ip {
-                    g.add_edge(other_ip, ip, EdgeLabel { latency: 0 });
-                }
-                last_barrier_op = Some(ip);
-            }
-            SideEffect::Memory => {
-                if let Some(mem_ip) = last_memory_op {
-                    g.add_edge(mem_ip, ip, EdgeLabel { latency: 0 });
-                }
-                last_memory_op = Some(ip);
-            }
-        }
-
-        for (i, src) in instr.srcs().iter().enumerate() {
-            for ssa in src.reference.iter_ssa() {
-                if let Some(&(def_ip, def_idx)) = defs.get(ssa) {
-                    let def_instr = &instrs[def_ip];
-                    let latency = if def_instr.op.is_virtual() || instr.op.is_virtual() {
-                        0
-                    } else {
-                        max(
-                            sm.raw_latency(&def_instr.op, def_idx, &instr.op, i),
-                            estimate_variable_latency(sm, &def_instr.op),
-                        )
-                    };
-
-                    g.add_edge(def_ip, ip, EdgeLabel { latency });
-                }
-            }
-        }
-
-        if let PredRef::SSA(ssa) = &instr.pred.predicate {
-            if let Some(&(def_ip, def_idx)) = defs.get(ssa) {
-                let def_instr = &instrs[def_ip];
-
-                let latency = if def_instr.op.is_virtual() {
-                    0
-                } else {
-                    max(
-                        sm.paw_latency(&def_instr.op, def_idx),
-                        estimate_variable_latency(sm, &def_instr.op),
-                    )
-                };
-
-                g.add_edge(def_ip, ip, EdgeLabel { latency });
-            }
-        }
-
-        for (i, dst) in instr.dsts().iter().enumerate() {
-            for &ssa in dst.iter_ssa() {
-                defs.insert(ssa, (ip, i));
-            }
-        }
-    }
-
-    g
-}
-
-mod net_live {
-    use crate::codegen::ir::*;
-    use crate::codegen::liveness::LiveSet;
-    use coral_reef_stubs::fxhash::FxHashMap;
-    use std::ops::Index;
-
-    /// The net change in live values, from the end of an instruction to a
-    /// specific point during the instruction's execution
-    pub(super) struct InstrCount {
-        /// The net change in live values across the whole instruction
-        pub net: PerRegFile<i8>,
-
-        /// peak1 is at the end of the instruction, where any immediately-killed
-        /// defs are live
-        pub peak1: PerRegFile<i8>,
-
-        /// peak2 is just before sources are read, and after vector defs are live
-        pub peak2: PerRegFile<i8>,
-    }
-
-    /// For each instruction, keep track of a "net live" value, which is how
-    /// much the size of the live values set will change if we chedule a given
-    /// instruction next. This is tracked per-register-file.
-    ///
-    /// Assumes that we are iterating over instructions in reverse order
-    pub(super) struct NetLive {
-        counts: Vec<InstrCount>,
-        ssa_to_instr: FxHashMap<SSAValue, Vec<usize>>,
-    }
-
-    impl NetLive {
-        pub(super) fn new(instrs: &[Instr], live_out: &LiveSet) -> Self {
-            let mut use_set = LiveSet::new();
-            let mut ssa_to_instr = FxHashMap::default();
-
-            let mut counts: Vec<InstrCount> = instrs
-                .iter()
-                .enumerate()
-                .map(|(instr_idx, instr)| {
-                    use_set.clear();
-                    for ssa in instr.ssa_uses() {
-                        if !live_out.contains(ssa) {
-                            if use_set.insert(*ssa) {
-                                ssa_to_instr
-                                    .entry(*ssa)
-                                    .or_insert_with(Vec::new)
-                                    .push(instr_idx);
-                            }
-                        }
-                    }
-
-                    let net = PerRegFile::new_with(|f| {
-                        use_set
-                            .count(f)
-                            .try_into()
-                            .expect("live count must fit in i8")
-                    });
-                    InstrCount {
-                        net,
-                        peak1: PerRegFile::default(),
-                        peak2: net,
-                    }
-                })
-                .collect();
-
-            for (instr_idx, instr) in instrs.iter().enumerate() {
-                for dst in instr.dsts() {
-                    let is_vector = dst.iter_ssa().len() > 1;
-                    let count = &mut counts[instr_idx];
-
-                    for &ssa in dst.iter_ssa() {
-                        if ssa_to_instr.contains_key(&ssa) || live_out.contains(&ssa) {
-                            count.net[ssa.file()] -= 1;
-                        } else {
-                            count.peak1[ssa.file()] += 1;
-                            count.peak2[ssa.file()] += 1;
-                        }
-
-                        if !is_vector {
-                            count.peak2[ssa.file()] -= 1;
-                        }
-                    }
-                }
-            }
-
-            Self {
-                counts,
-                ssa_to_instr,
-            }
-        }
-
-        pub(super) fn remove(&mut self, ssa: SSAValue) -> bool {
-            match self.ssa_to_instr.remove(&ssa) {
-                Some(instr_idxs) => {
-                    assert!(!instr_idxs.is_empty());
-                    let file = ssa.file();
-                    for i in instr_idxs {
-                        self.counts[i].net[file] -= 1;
-                        self.counts[i].peak2[file] -= 1;
-                    }
-                    true
-                }
-                None => false,
-            }
-        }
-    }
-
-    impl Index<usize> for NetLive {
-        type Output = InstrCount;
-
-        fn index(&self, index: usize) -> &Self::Output {
-            &self.counts[index]
-        }
-    }
-}
-
-use net_live::NetLive;
-
-/// The third element of each tuple is a weight meant to approximate the cost of
-/// spilling a value from the first register file to the second. Right now, the
-/// values are meant to approximate the cost of a spill + fill, in cycles
-const SPILL_FILES: [(RegFile, RegFile, i32); 5] = [
-    (RegFile::Bar, RegFile::GPR, 6 + 6),
-    (RegFile::Pred, RegFile::GPR, 12 + 6),
-    (RegFile::UPred, RegFile::UGPR, 12 + 6),
-    (RegFile::UGPR, RegFile::GPR, 15 + 6),
-    (RegFile::GPR, RegFile::Mem, 32 + 32),
-];
-
-/// Models how many gprs will be used after spilling other register files
-fn calc_used_gprs(mut p: PerRegFile<i32>, max_reg_count: PerRegFile<i32>) -> i32 {
-    for (src, dest, _) in SPILL_FILES {
-        if p[src] > max_reg_count[src] {
-            p[dest] += p[src] - max_reg_count[src];
-        }
-    }
-
-    p[RegFile::GPR]
-}
-
-fn calc_score_part(mut p: PerRegFile<i32>, max_reg_count: PerRegFile<i32>) -> (i32, i32) {
-    // We separate "badness" and "goodness" because we don't want eg. two extra
-    // free predicates to offset the weight of spilling a UGPR - the spill is
-    // always more important than keeping extra registers free
-    let mut badness: i32 = 0;
-    let mut goodness: i32 = 0;
-
-    for (src, dest, weight) in SPILL_FILES {
-        if p[src] > max_reg_count[src] {
-            let spill_count = p[src] - max_reg_count[src];
-            p[dest] += spill_count;
-            badness += spill_count * weight;
-        } else {
-            let free_count = max_reg_count[src] - p[src];
-            goodness += free_count * weight;
-        }
-    }
-    (badness, goodness)
-}
-
-type Score = (bool, Reverse<i32>, i32);
-fn calc_score(
-    net: PerRegFile<i32>,
-    peak1: PerRegFile<i32>,
-    peak2: PerRegFile<i32>,
-    max_reg_count: PerRegFile<i32>,
-    delay_cycles: u32,
-    thresholds: ScheduleThresholds,
-) -> Score {
-    let peak_gprs = max(
-        calc_used_gprs(peak1, max_reg_count),
-        calc_used_gprs(peak2, max_reg_count),
-    );
-    let instruction_usable = peak_gprs <= thresholds.quit_threshold;
-    if !instruction_usable {
-        return (false, Reverse(0), 0);
-    }
-
-    let (mut badness, goodness) = calc_score_part(net, max_reg_count);
-    badness += i32::try_from(delay_cycles).expect("delay_cycles must fit in i32");
-
-    (true, Reverse(badness), goodness)
-}
-
-#[derive(Copy, Clone)]
-struct ScheduleThresholds {
-    /// Start scheduling for pressure if we use this many gprs
-    heuristic_threshold: i32,
-
-    /// Give up if we use this many gprs
-    quit_threshold: i32,
-}
-
-struct GenerateOrder<'a> {
-    max_reg_count: PerRegFile<i32>,
-    net_live: NetLive,
-    live: LiveSet,
-    instrs: &'a [Instr],
-}
-
-impl<'a> GenerateOrder<'a> {
-    fn new(max_reg_count: PerRegFile<i32>, instrs: &'a [Instr], live_out: &LiveSet) -> Self {
-        let net_live = NetLive::new(instrs, live_out);
-        let live: LiveSet = live_out.clone();
-
-        GenerateOrder {
-            max_reg_count,
-            net_live,
-            live,
-            instrs,
-        }
-    }
-
-    fn new_used_regs(&self, net: PerRegFile<i8>) -> PerRegFile<i32> {
-        PerRegFile::new_with(|file| {
-            i32::try_from(self.live.count(file)).expect("live count must fit in i32")
-                + (net[file] as i32)
-        })
-    }
-
-    fn current_used_gprs(&self) -> i32 {
-        calc_used_gprs(
-            PerRegFile::new_with(|f| {
-                self.live
-                    .count(f)
-                    .try_into()
-                    .expect("live count must fit in i32")
-            }),
-            self.max_reg_count,
-        )
-    }
-
-    fn new_used_gprs_net(&self, instr_index: usize) -> i32 {
-        calc_used_gprs(
-            self.new_used_regs(self.net_live[instr_index].net),
-            self.max_reg_count,
-        )
-    }
-
-    fn new_used_gprs_peak1(&self, instr_index: usize) -> i32 {
-        calc_used_gprs(
-            self.new_used_regs(self.net_live[instr_index].peak1),
-            self.max_reg_count,
-        )
-    }
-
-    fn new_used_gprs_peak2(&self, instr_index: usize) -> i32 {
-        calc_used_gprs(
-            self.new_used_regs(self.net_live[instr_index].peak2),
-            self.max_reg_count,
-        )
-    }
-
-    fn new_score(
-        &self,
-        instr_index: usize,
-        delay_cycles: u32,
-        thresholds: ScheduleThresholds,
-    ) -> Score {
-        calc_score(
-            self.new_used_regs(self.net_live[instr_index].net),
-            self.new_used_regs(self.net_live[instr_index].peak1),
-            self.new_used_regs(self.net_live[instr_index].peak2),
-            self.max_reg_count,
-            delay_cycles,
-            thresholds,
-        )
-    }
-
-    fn generate_order(
-        mut self,
-        g: &DepGraph,
-        init_ready_list: &[usize],
-        thresholds: ScheduleThresholds,
-    ) -> Option<(Vec<usize>, PerRegFile<i32>)> {
-        let mut ready_instrs: BTreeSet<ReadyInstr> = init_ready_list
-            .iter()
-            .map(|&i| ReadyInstr::new(g, i))
-            .collect();
-        let mut future_ready_instrs = BTreeSet::new();
-
-        struct InstrInfo {
-            use_count: u32,
-            ready_cycle: u32,
-        }
-        let mut instr_info: Vec<InstrInfo> = g
-            .nodes
-            .iter()
-            .map(|node| InstrInfo {
-                use_count: node.label.use_count,
-                ready_cycle: node.label.ready_cycle,
-            })
-            .collect();
-
-        let mut current_cycle = 0;
-        let mut instr_order = Vec::with_capacity(g.nodes.len());
-        loop {
-            let used_gprs = self.current_used_gprs();
-
-            // Move ready instructions to the ready list
-            loop {
-                match future_ready_instrs.last() {
-                    None => break,
-                    Some(FutureReadyInstr {
-                        ready_cycle: std::cmp::Reverse(ready_cycle),
-                        index,
-                    }) => {
-                        if current_cycle >= *ready_cycle {
-                            ready_instrs.insert(ReadyInstr::new(g, *index));
-                            future_ready_instrs.pop_last();
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if ready_instrs.is_empty() {
-                match future_ready_instrs.last() {
-                    None => break, // Both lists are empty. We're done!
-                    Some(&FutureReadyInstr {
-                        ready_cycle: Reverse(ready_cycle),
-                        ..
-                    }) => {
-                        // Fast-forward time to when the next instr is ready
-                        assert!(ready_cycle > current_cycle);
-                        current_cycle = ready_cycle;
-                        continue;
-                    }
-                }
-            }
-
-            // Pick an instruction to schedule
-            let next_idx = if used_gprs <= thresholds.heuristic_threshold {
-                let ReadyInstr { index, .. } = ready_instrs
-                    .pop_last()
-                    .expect("ready_instrs must not be empty when used");
-                index
-            } else {
-                let (new_score, ready_instr) = ready_instrs
-                    .iter()
-                    .map(|ready_instr| {
-                        (
-                            self.new_score(ready_instr.index, 0, thresholds),
-                            ready_instr.clone(),
-                        )
-                    })
-                    .max()
-                    .expect("ready_instrs must not be empty when scheduling for pressure");
-
-                let better_candidate = future_ready_instrs
-                    .iter()
-                    .filter_map(|future_ready_instr| {
-                        let ready_cycle = future_ready_instr.ready_cycle.0;
-                        let s = self.new_score(
-                            future_ready_instr.index,
-                            ready_cycle - current_cycle,
-                            thresholds,
-                        );
-                        if s > new_score {
-                            Some((s, future_ready_instr.clone()))
-                        } else {
-                            None
-                        }
-                    })
-                    .max();
-
-                if let Some((_, future_ready_instr)) = better_candidate {
-                    future_ready_instrs.remove(&future_ready_instr);
-                    let ready_cycle = future_ready_instr.ready_cycle.0;
-                    // Fast-forward time to when this instr is ready
-                    assert!(ready_cycle > current_cycle);
-                    current_cycle = ready_cycle;
-                    future_ready_instr.index
-                } else {
-                    ready_instrs.remove(&ready_instr);
-                    ready_instr.index
-                }
-            };
-
-            // Schedule the instuction
-            let predicted_new_used_gprs_peak = max(
-                self.new_used_gprs_peak1(next_idx),
-                self.new_used_gprs_peak2(next_idx),
-            );
-            let predicted_new_used_gprs_net = self.new_used_gprs_net(next_idx);
-
-            if predicted_new_used_gprs_peak > thresholds.quit_threshold {
-                return None;
-            }
-
-            let outgoing_edges = &g.nodes[next_idx].outgoing_edges;
-            for edge in outgoing_edges {
-                let dep_instr = &mut instr_info[edge.head_idx];
-                dep_instr.ready_cycle =
-                    max(dep_instr.ready_cycle, current_cycle + edge.label.latency);
-                dep_instr.use_count -= 1;
-                if dep_instr.use_count <= 0 {
-                    future_ready_instrs.insert(FutureReadyInstr::new(g, edge.head_idx));
-                }
-            }
-
-            // We're walking backwards, so the instr's defs are killed
-            let instr = &self.instrs[next_idx];
-            for dst in instr.dsts() {
-                for ssa in dst.iter_ssa() {
-                    self.live.remove(ssa);
-                }
-            }
-
-            // We're walking backwards, so uses are now live
-            for &ssa in instr.ssa_uses() {
-                if self.net_live.remove(ssa) {
-                    self.live.insert(ssa);
-                } else {
-                    // This branch should only happen if one instruction
-                    // uses the same SSAValue multiple times
-                    debug_assert!(!self.live.insert(ssa));
-                }
-            }
-
-            instr_order.push(next_idx);
-            current_cycle += 1;
-
-            debug_assert_eq!(self.current_used_gprs(), predicted_new_used_gprs_net);
-        }
-
-        return Some((
-            instr_order,
-            PerRegFile::new_with(|f| {
-                self.live
-                    .count(f)
-                    .try_into()
-                    .expect("live count must fit in i32")
-            }),
-        ));
-    }
-}
-
 impl Function {
     pub fn opt_instr_sched_prepass(
         &mut self,
@@ -610,18 +92,28 @@ impl Function {
 
         for block_idx in 0..self.blocks.len() {
             let block_live = liveness.block_live(block_idx);
-            let mut live_set = match self.blocks.pred_indices(block_idx) {
-                [] => LiveSet::new(),
-                [pred, ..] => LiveSet::from_iter(
-                    live_out_sets[*pred]
-                        .iter()
-                        .filter(|ssa| block_live.is_live_in(ssa))
-                        .copied(),
-                ),
+            let mut live_set = {
+                let mut set = LiveSet::new();
+                for &pred in self.blocks.pred_indices(block_idx) {
+                    if pred < live_out_sets.len() {
+                        for ssa in live_out_sets[pred].iter() {
+                            if block_live.is_live_in(ssa) {
+                                set.insert(*ssa);
+                            }
+                        }
+                    }
+                }
+                set
             };
 
+            let has_back_edge_pred = self
+                .blocks
+                .pred_indices(block_idx)
+                .iter()
+                .any(|&p| p >= block_idx);
             let block = &mut self.blocks[block_idx];
             let mut unit: ScheduleUnit = ScheduleUnit::default();
+            unit.skip_schedule = has_back_edge_pred;
 
             for (ip, instr) in std::mem::take(&mut block.instrs).into_iter().enumerate() {
                 let starts_block = match instr.op {
@@ -713,7 +205,7 @@ impl Function {
         schedule_types.reverse();
 
         for u in &mut schedule_units {
-            if u.instrs.is_empty() {
+            if u.instrs.is_empty() || u.skip_schedule {
                 continue;
             }
             loop {
@@ -725,20 +217,12 @@ impl Function {
                 u.schedule(sm, max_reg_count, schedule_type, thresholds);
 
                 if u.has_new_order() {
-                    // Success!
                     break;
                 }
 
                 if schedule_types.len() > 1 {
-                    // We've failed to schedule using the existing settings, so
-                    // switch to the next schedule type, which will have more
-                    // gprs
                     schedule_types.pop();
                 } else {
-                    // No other schedule types to try - this implies that the
-                    // original program has a better instruction order than what
-                    // our heuristics can generate. Just keep the original
-                    // instruction order
                     break;
                 }
             }
@@ -751,8 +235,6 @@ impl Function {
             .expect("schedule_types must not be empty");
 
         for (mut u, block) in schedule_units.into_iter().zip(self.blocks.iter_mut()) {
-            // If the global register limit has increased, then we can schedule
-            // again with the new parameters
             if !u.instrs.is_empty() && u.last_tried_schedule_type != Some(schedule_type) {
                 let thresholds = schedule_type.thresholds(max_reg_count, &u);
                 u.schedule(sm, max_reg_count, schedule_type, thresholds);
@@ -771,7 +253,6 @@ impl Function {
         );
 
         if let ScheduleType::RegLimit(limit) = schedule_type {
-            // Our liveness calculations should ideally agree with SimpleLiveness
             debug_assert!(
                 {
                     let live = SimpleLiveness::for_function(self);
@@ -797,7 +278,7 @@ impl Shader<'_> {
     /// section 3, although the heuristic from that paper cannot be used
     /// directly here because they assume a single register file and we have
     /// multiple. Care is also taken to model quirks of register pressure on
-    /// NVIDIA GPUs corretly.
+    /// NVIDIA GPUs correctly.
     ///
     /// J. R. Goodman and W.-C. Hsu. 1988. Code scheduling and register
     ///     allocation in large basic blocks. In Proceedings of the 2nd

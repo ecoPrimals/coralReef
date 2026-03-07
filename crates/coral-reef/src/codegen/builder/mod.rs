@@ -15,6 +15,10 @@ pub trait Builder {
 
     fn sm(&self) -> u8;
 
+    fn is_amd(&self) -> bool {
+        false
+    }
+
     fn push_op(&mut self, op: impl Into<Op>) -> &mut Instr {
         self.push_instr(Instr::new(op))
     }
@@ -163,6 +167,10 @@ impl Builder for InstrBuilder<'_> {
     fn sm(&self) -> u8 {
         self.sm.sm()
     }
+
+    fn is_amd(&self) -> bool {
+        self.sm.is_amd()
+    }
 }
 
 pub struct SSAInstrBuilder<'a> {
@@ -197,6 +205,10 @@ impl Builder for SSAInstrBuilder<'_> {
     fn sm(&self) -> u8 {
         self.b.sm()
     }
+
+    fn is_amd(&self) -> bool {
+        self.b.is_amd()
+    }
 }
 
 impl SSABuilder for SSAInstrBuilder<'_> {
@@ -224,6 +236,10 @@ impl<T: Builder> Builder for PredicatedBuilder<'_, T> {
 
     fn sm(&self) -> u8 {
         self.b.sm()
+    }
+
+    fn is_amd(&self) -> bool {
+        self.b.is_amd()
     }
 }
 
@@ -255,6 +271,10 @@ impl<T: Builder> Builder for UniformBuilder<'_, T> {
 
     fn sm(&self) -> u8 {
         self.b.sm()
+    }
+
+    fn is_amd(&self) -> bool {
+        self.b.is_amd()
     }
 }
 

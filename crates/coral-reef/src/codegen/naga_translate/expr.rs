@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+//! Expression translation for Naga IR → coralReef IR.
+//!
+//! ## OpUndef for pointer/reference slots
+//!
+//! Naga expressions that represent memory locations (pointers, references,
+//! uniform bindings) are translated into `OpUndef` placeholders. These SSA
+//! values act as keys in `expr_map` to identify the memory location, but
+//! carry no runtime data — actual values are read via `Load` / written via
+//! `Store`. This is intentional: Naga's type system distinguishes value and
+//! reference types, and we preserve that distinction in the IR.
 #![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
@@ -72,65 +82,184 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 self.translate_select(cond, acc, rej)
             }
             naga::Expression::FunctionArgument(idx) => {
-                let binding = self
-                    .func
-                    .arguments
-                    .get(idx as usize)
-                    .and_then(|a| a.binding.as_ref());
-                if let Some(naga::Binding::BuiltIn(builtin)) = binding {
-                    self.resolve_builtin(*builtin)
+                if let Some(ref args) = self.inline_args {
+                    if let Some(&slot) = self.inline_ptr_arg_slots.get(&idx) {
+                        self.expr_to_var
+                            .insert(handle, super::func::VarRef::Full(slot));
+                        let placeholder = self.alloc_ssa(RegFile::GPR);
+                        self.push_instr(Instr::new(OpUndef {
+                            dst: placeholder.into(),
+                        }));
+                        Ok(placeholder.into())
+                    } else {
+                        Ok(args[idx as usize].clone())
+                    }
                 } else {
-                    let dst = self.alloc_ssa(RegFile::GPR);
-                    self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
-                    Ok(dst.into())
+                    let binding = self
+                        .func
+                        .arguments
+                        .get(idx as usize)
+                        .and_then(|a| a.binding.as_ref());
+                    if let Some(naga::Binding::BuiltIn(builtin)) = binding {
+                        self.resolve_builtin(*builtin)
+                    } else {
+                        let dst = self.alloc_ssa(RegFile::GPR);
+                        self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
+                        Ok(dst.into())
+                    }
                 }
             }
             naga::Expression::GlobalVariable(gv) => {
                 let global = &self.module.global_variables[gv];
                 if let Some(binding) = &global.binding {
-                    let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
-                    let buf_idx = binding.group as u8;
-                    let base_offset = (binding.binding * 8) as u16;
-                    let cbuf = CBufRef {
-                        buf: CBuf::Binding(buf_idx),
-                        offset: base_offset,
-                    };
-                    self.push_instr(Instr::new(OpCopy {
-                        dst: addr[0].into(),
-                        src: Src::from(SrcRef::CBuf(cbuf)),
-                    }));
-                    let cbuf_hi = CBufRef {
-                        buf: CBuf::Binding(buf_idx),
-                        offset: base_offset + 4,
-                    };
-                    self.push_instr(Instr::new(OpCopy {
-                        dst: addr[1].into(),
-                        src: Src::from(SrcRef::CBuf(cbuf_hi)),
-                    }));
-                    Ok(addr)
+                    if global.space == naga::AddressSpace::Uniform {
+                        // Uniform buffers: data is directly in CBuf. Record the
+                        // base reference; actual reads happen in Load via CBuf.
+                        let buf_idx = binding.group as u8;
+                        self.uniform_refs.insert(handle, (buf_idx, 0));
+                        let dummy = self.alloc_ssa(RegFile::GPR);
+                        self.push_instr(Instr::new(OpUndef { dst: dummy.into() }));
+                        Ok(dummy.into())
+                    } else {
+                        // Storage buffers: CBuf holds descriptor address
+                        let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
+                        let buf_idx = binding.group as u8;
+                        let base_offset = (binding.binding * 8) as u16;
+                        let cbuf = CBufRef {
+                            buf: CBuf::Binding(buf_idx),
+                            offset: base_offset,
+                        };
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: addr[0].into(),
+                            src: Src::from(SrcRef::CBuf(cbuf)),
+                        }));
+                        let cbuf_hi = CBufRef {
+                            buf: CBuf::Binding(buf_idx),
+                            offset: base_offset + 4,
+                        };
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: addr[1].into(),
+                            src: Src::from(SrcRef::CBuf(cbuf_hi)),
+                        }));
+                        Ok(addr)
+                    }
                 } else {
                     let dst = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
                     Ok(dst.into())
                 }
             }
-            naga::Expression::LocalVariable(_) => {
-                let dst = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
-                Ok(dst.into())
+            naga::Expression::LocalVariable(lv) => {
+                if let Some(&slot_id) = self.local_var_slots.get(&lv) {
+                    self.expr_to_var
+                        .insert(handle, super::func::VarRef::Full(slot_id));
+                    let placeholder = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpUndef {
+                        dst: placeholder.into(),
+                    }));
+                    Ok(placeholder.into())
+                } else {
+                    let lv_ty = self.func.local_variables[lv].ty;
+                    let comps = self.type_reg_comps(lv_ty);
+                    if comps > 0 {
+                        let ssa = self.alloc_ssa_vec(RegFile::GPR, comps);
+                        for c in 0..comps as usize {
+                            self.push_instr(Instr::new(OpCopy {
+                                dst: ssa[c].into(),
+                                src: Src::ZERO,
+                            }));
+                        }
+                        let slot_id = self.var_storage.len();
+                        self.var_storage.push(ssa.clone());
+                        self.expr_to_var
+                            .insert(handle, super::func::VarRef::Full(slot_id));
+                        let placeholder = self.alloc_ssa(RegFile::GPR);
+                        self.push_instr(Instr::new(OpUndef {
+                            dst: placeholder.into(),
+                        }));
+                        Ok(placeholder.into())
+                    } else {
+                        let dst = self.alloc_ssa(RegFile::GPR);
+                        self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
+                        Ok(dst.into())
+                    }
+                }
             }
             naga::Expression::Load { pointer } => {
-                let addr = self.ensure_expr(pointer)?;
-                self.emit_load(addr)
+                if let Some(var_ref) = self.expr_to_var.get(&pointer).copied() {
+                    let result = match var_ref {
+                        super::func::VarRef::Full(slot) => self.var_storage[slot].clone(),
+                        super::func::VarRef::Component(slot, comp) => {
+                            let full = &self.var_storage[slot];
+                            full[comp as usize].into()
+                        }
+                    };
+                    self.expr_map.insert(handle, result.clone());
+                    return Ok(result);
+                }
+                if let Some(&(cbuf_idx, offset)) = self.uniform_refs.get(&pointer) {
+                    return self.emit_uniform_load(pointer, cbuf_idx, offset);
+                } else {
+                    let addr = self.ensure_expr(pointer)?;
+                    let ptr_ty = self.resolve_expr_type_handle(pointer)?;
+                    let load_ty = match &self.module.types[ptr_ty].inner {
+                        naga::TypeInner::Pointer { base, .. } => *base,
+                        _ => ptr_ty,
+                    };
+                    let is_64bit = match &self.module.types[load_ty].inner {
+                        naga::TypeInner::Scalar(s) => s.width == 8,
+                        _ => false,
+                    };
+                    if is_64bit {
+                        self.emit_load_f64(addr)
+                    } else {
+                        self.emit_load(addr)
+                    }
+                }
             }
             naga::Expression::Access { base, index } => {
+                if let Some(&(cbuf_idx, base_offset)) = self.uniform_refs.get(&base) {
+                    let stride = self.type_stride(base)?;
+                    let idx_val = self.ensure_expr(index)?;
+                    return self.emit_uniform_dynamic_access(
+                        handle,
+                        cbuf_idx,
+                        base_offset,
+                        stride,
+                        idx_val,
+                    );
+                }
                 let base_val = self.ensure_expr(base)?;
                 let idx_val = self.ensure_expr(index)?;
                 self.emit_access(base_val, idx_val, base)
             }
             naga::Expression::AccessIndex { base, index } => {
-                let base_val = self.ensure_expr(base)?;
-                self.emit_access_index(base_val, index, base)
+                if let Some(&(cbuf_idx, base_offset)) = self.uniform_refs.get(&base) {
+                    let field_offset = self.uniform_field_byte_offset(base, index)?;
+                    let total_offset = base_offset + field_offset;
+                    self.uniform_refs.insert(handle, (cbuf_idx, total_offset));
+                    let dummy = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpUndef { dst: dummy.into() }));
+                    Ok(dummy.into())
+                } else if let Some(var_ref) = self.expr_to_var.get(&base).copied() {
+                    let sub_ref = match var_ref {
+                        super::func::VarRef::Full(slot) => {
+                            super::func::VarRef::Component(slot, index)
+                        }
+                        super::func::VarRef::Component(slot, base_comp) => {
+                            super::func::VarRef::Component(slot, base_comp + index)
+                        }
+                    };
+                    self.expr_to_var.insert(handle, sub_ref);
+                    let placeholder = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpUndef {
+                        dst: placeholder.into(),
+                    }));
+                    Ok(placeholder.into())
+                } else {
+                    let base_val = self.ensure_expr(base)?;
+                    self.emit_access_index(base_val, index, base)
+                }
             }
             naga::Expression::Compose {
                 ty: _,
@@ -211,6 +340,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let val = self.ensure_expr(inner)?;
                 self.translate_cast(val, kind, convert, inner)
             }
+            naga::Expression::ArrayLength(ptr_expr) => self.translate_array_length(ptr_expr),
             _ => Err(CompileError::NotImplemented(format!(
                 "expression {:?} not yet supported",
                 std::mem::discriminant(expr),
@@ -363,6 +493,17 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     _ => Ok(ptr_ty),
                 }
             }
+            naga::Expression::As { kind, convert, .. } => {
+                let width = convert.unwrap_or(4);
+                self.scalar_type_handle(naga::Scalar { kind, width })
+            }
+            naga::Expression::Math { arg, .. } => self.resolve_expr_type_handle(arg),
+            naga::Expression::Select { accept, .. } => self.resolve_expr_type_handle(accept),
+            naga::Expression::Splat { value, .. } => self.resolve_expr_type_handle(value),
+            naga::Expression::Swizzle { vector, .. } => self.resolve_expr_type_handle(vector),
+            naga::Expression::Relational { argument, .. } => {
+                self.resolve_expr_type_handle(argument)
+            }
             _ => self.any_type_handle(),
         }
     }
@@ -383,6 +524,31 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }
         }
         self.any_type_handle()
+    }
+
+    fn uniform_field_byte_offset(
+        &self,
+        base: Handle<naga::Expression>,
+        field_index: u32,
+    ) -> Result<u16, CompileError> {
+        let ty_handle = self.resolve_expr_type_handle(base)?;
+        let inner = &self.module.types[ty_handle].inner;
+        let members = match inner {
+            naga::TypeInner::Struct { members, .. } => members,
+            naga::TypeInner::Pointer { base, .. } => match &self.module.types[*base].inner {
+                naga::TypeInner::Struct { members, .. } => members,
+                _ => return Ok(field_index as u16 * 4),
+            },
+            _ => return Ok(field_index as u16 * 4),
+        };
+        let member = members.get(field_index as usize).ok_or_else(|| {
+            CompileError::InvalidInput(format!(
+                "uniform struct field index {} out of range (struct has {} members)",
+                field_index,
+                members.len()
+            ))
+        })?;
+        Ok(member.offset as u16)
     }
 
     pub(super) fn is_float_expr(&self, handle: Handle<naga::Expression>) -> bool {
@@ -436,460 +602,6 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     _ => false,
                 }
             }
-        }
-    }
-
-    fn translate_binary(
-        &mut self,
-        op: naga::BinaryOperator,
-        l: SSARef,
-        r: SSARef,
-        left_handle: Handle<naga::Expression>,
-        _right_handle: Handle<naga::Expression>,
-    ) -> Result<SSARef, CompileError> {
-        let is_float = self.is_float_expr(left_handle);
-        let comps = l.comps().max(1);
-
-        match op {
-            naga::BinaryOperator::Add if is_float => {
-                self.emit_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    s.push_instr(Instr::new(OpFAdd {
-                        dst: dst.into(),
-                        srcs: [a.into(), b.into()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Add => self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                let dst = s.alloc_ssa(RegFile::GPR);
-                if s.sm.sm() >= 70 {
-                    s.push_instr(Instr::new(OpIAdd3 {
-                        dst: dst.into(),
-                        srcs: [a.into(), b.into(), Src::ZERO],
-                        overflow: [Dst::None, Dst::None],
-                    }));
-                } else {
-                    s.push_instr(Instr::new(OpIAdd2 {
-                        dst: dst.into(),
-                        srcs: [a.into(), b.into()],
-                        carry_out: Dst::None,
-                    }));
-                }
-                dst
-            }),
-            naga::BinaryOperator::Subtract if is_float => {
-                self.emit_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    s.push_instr(Instr::new(OpFAdd {
-                        dst: dst.into(),
-                        srcs: [a.into(), Src::from(b).fneg()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Subtract => {
-                self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    if s.sm.sm() >= 70 {
-                        s.push_instr(Instr::new(OpIAdd3 {
-                            dst: dst.into(),
-                            srcs: [a.into(), Src::from(b).ineg(), Src::ZERO],
-                            overflow: [Dst::None, Dst::None],
-                        }));
-                    } else {
-                        s.push_instr(Instr::new(OpIAdd2 {
-                            dst: dst.into(),
-                            srcs: [a.into(), Src::from(b).ineg()],
-                            carry_out: Dst::None,
-                        }));
-                    }
-                    dst
-                })
-            }
-            naga::BinaryOperator::Multiply if is_float => {
-                self.emit_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    s.push_instr(Instr::new(OpFMul {
-                        dst: dst.into(),
-                        srcs: [a.into(), b.into()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                        dnz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Multiply => {
-                self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    if s.sm.sm() >= 70 {
-                        s.push_instr(Instr::new(OpIMad {
-                            dst: dst.into(),
-                            srcs: [a.into(), b.into(), Src::ZERO],
-                            signed: false,
-                        }));
-                    } else {
-                        s.push_instr(Instr::new(OpIMul {
-                            dst: dst.into(),
-                            srcs: [a.into(), b.into()],
-                            signed: [false; 2],
-                            high: false,
-                        }));
-                    }
-                    dst
-                })
-            }
-            naga::BinaryOperator::Divide if is_float => {
-                self.emit_componentwise(comps, l, r, |s, a, b| {
-                    let rcp = s.alloc_ssa(RegFile::GPR);
-                    s.push_instr(Instr::new(OpTranscendental {
-                        dst: rcp.into(),
-                        op: TranscendentalOp::Rcp,
-                        src: b.into(),
-                    }));
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    s.push_instr(Instr::new(OpFMul {
-                        dst: dst.into(),
-                        srcs: [a.into(), rcp.into()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                        dnz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::And => self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                let dst = s.alloc_ssa(RegFile::GPR);
-                if s.sm.sm() >= 70 {
-                    s.push_instr(Instr::new(OpLop3 {
-                        dst: dst.into(),
-                        srcs: [a.into(), b.into(), Src::ZERO],
-                        op: LogicOp3::new_lut(&|x, y, _| x & y),
-                    }));
-                } else {
-                    s.push_instr(Instr::new(OpLop2 {
-                        dst: dst.into(),
-                        srcs: [a.into(), b.into()],
-                        op: LogicOp2::And,
-                    }));
-                }
-                dst
-            }),
-            naga::BinaryOperator::InclusiveOr => {
-                self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    if s.sm.sm() >= 70 {
-                        s.push_instr(Instr::new(OpLop3 {
-                            dst: dst.into(),
-                            srcs: [a.into(), b.into(), Src::ZERO],
-                            op: LogicOp3::new_lut(&|x, y, _| x | y),
-                        }));
-                    } else {
-                        s.push_instr(Instr::new(OpLop2 {
-                            dst: dst.into(),
-                            srcs: [a.into(), b.into()],
-                            op: LogicOp2::Or,
-                        }));
-                    }
-                    dst
-                })
-            }
-            naga::BinaryOperator::ExclusiveOr => {
-                self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    if s.sm.sm() >= 70 {
-                        s.push_instr(Instr::new(OpLop3 {
-                            dst: dst.into(),
-                            srcs: [a.into(), b.into(), Src::ZERO],
-                            op: LogicOp3::new_lut(&|x, y, _| x ^ y),
-                        }));
-                    } else {
-                        s.push_instr(Instr::new(OpLop2 {
-                            dst: dst.into(),
-                            srcs: [a.into(), b.into()],
-                            op: LogicOp2::Xor,
-                        }));
-                    }
-                    dst
-                })
-            }
-            naga::BinaryOperator::ShiftLeft => {
-                self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    if s.sm.sm() >= 70 {
-                        s.push_instr(Instr::new(OpShf {
-                            dst: dst.into(),
-                            low: a.into(),
-                            high: Src::ZERO,
-                            shift: b.into(),
-                            right: false,
-                            wrap: true,
-                            data_type: IntType::I32,
-                            dst_high: false,
-                        }));
-                    } else {
-                        s.push_instr(Instr::new(OpShl {
-                            dst: dst.into(),
-                            src: a.into(),
-                            shift: b.into(),
-                            wrap: true,
-                        }));
-                    }
-                    dst
-                })
-            }
-            naga::BinaryOperator::ShiftRight => {
-                self.emit_int_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::GPR);
-                    if s.sm.sm() >= 70 {
-                        s.push_instr(Instr::new(OpShf {
-                            dst: dst.into(),
-                            low: Src::ZERO,
-                            high: a.into(),
-                            shift: b.into(),
-                            right: true,
-                            wrap: true,
-                            data_type: IntType::U32,
-                            dst_high: true,
-                        }));
-                    } else {
-                        s.push_instr(Instr::new(OpShr {
-                            dst: dst.into(),
-                            src: a.into(),
-                            shift: b.into(),
-                            wrap: true,
-                            signed: false,
-                        }));
-                    }
-                    dst
-                })
-            }
-            naga::BinaryOperator::Equal if is_float => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpFSetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: FloatCmpOp::OrdEq,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Equal => self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                let dst = s.alloc_ssa(RegFile::Pred);
-                s.push_instr(Instr::new(OpISetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: IntCmpOp::Eq,
-                    cmp_type: IntCmpType::U32,
-                    ex: false,
-                    srcs: [a.into(), b.into()],
-                    accum: true.into(),
-                    low_cmp: true.into(),
-                }));
-                dst
-            }),
-            naga::BinaryOperator::NotEqual if is_float => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpFSetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: FloatCmpOp::OrdNe,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::NotEqual => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpISetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: IntCmpOp::Ne,
-                        cmp_type: IntCmpType::U32,
-                        ex: false,
-                        srcs: [a.into(), b.into()],
-                        accum: true.into(),
-                        low_cmp: true.into(),
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Less if is_float => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpFSetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: FloatCmpOp::OrdLt,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Less => self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                let dst = s.alloc_ssa(RegFile::Pred);
-                s.push_instr(Instr::new(OpISetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: IntCmpOp::Lt,
-                    cmp_type: IntCmpType::U32,
-                    ex: false,
-                    srcs: [a.into(), b.into()],
-                    accum: true.into(),
-                    low_cmp: true.into(),
-                }));
-                dst
-            }),
-            naga::BinaryOperator::LessEqual if is_float => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpFSetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: FloatCmpOp::OrdLe,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::LessEqual => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpISetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: IntCmpOp::Le,
-                        cmp_type: IntCmpType::U32,
-                        ex: false,
-                        srcs: [a.into(), b.into()],
-                        accum: true.into(),
-                        low_cmp: true.into(),
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Greater if is_float => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpFSetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: FloatCmpOp::OrdGt,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::Greater => self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                let dst = s.alloc_ssa(RegFile::Pred);
-                s.push_instr(Instr::new(OpISetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: IntCmpOp::Gt,
-                    cmp_type: IntCmpType::U32,
-                    ex: false,
-                    srcs: [a.into(), b.into()],
-                    accum: true.into(),
-                    low_cmp: true.into(),
-                }));
-                dst
-            }),
-            naga::BinaryOperator::GreaterEqual if is_float => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpFSetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: FloatCmpOp::OrdGe,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
-                        ftz: false,
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::GreaterEqual => {
-                self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
-                    let dst = s.alloc_ssa(RegFile::Pred);
-                    s.push_instr(Instr::new(OpISetP {
-                        dst: dst.into(),
-                        set_op: PredSetOp::And,
-                        cmp_op: IntCmpOp::Ge,
-                        cmp_type: IntCmpType::U32,
-                        ex: false,
-                        srcs: [a.into(), b.into()],
-                        accum: true.into(),
-                        low_cmp: true.into(),
-                    }));
-                    dst
-                })
-            }
-            naga::BinaryOperator::LogicalAnd => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                if self.sm.sm() >= 70 {
-                    self.push_instr(Instr::new(OpPLop3 {
-                        dsts: [dst.into(), Dst::None],
-                        srcs: [l[0].into(), r[0].into(), true.into()],
-                        ops: [
-                            LogicOp3::new_lut(&|x, y, _| x & y),
-                            LogicOp3::new_const(false),
-                        ],
-                    }));
-                } else {
-                    self.push_instr(Instr::new(OpPSetP {
-                        dsts: [dst.into(), Dst::None],
-                        ops: [PredSetOp::And, PredSetOp::And],
-                        srcs: [l[0].into(), r[0].into(), true.into()],
-                    }));
-                }
-                Ok(dst.into())
-            }
-            naga::BinaryOperator::LogicalOr => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                if self.sm.sm() >= 70 {
-                    self.push_instr(Instr::new(OpPLop3 {
-                        dsts: [dst.into(), Dst::None],
-                        srcs: [l[0].into(), r[0].into(), true.into()],
-                        ops: [
-                            LogicOp3::new_lut(&|x, y, _| x | y),
-                            LogicOp3::new_const(false),
-                        ],
-                    }));
-                } else {
-                    self.push_instr(Instr::new(OpPSetP {
-                        dsts: [dst.into(), Dst::None],
-                        ops: [PredSetOp::Or, PredSetOp::And],
-                        srcs: [l[0].into(), r[0].into(), true.into()],
-                    }));
-                }
-                Ok(dst.into())
-            }
-            _ => Err(CompileError::NotImplemented(format!(
-                "binary op {op:?} not yet supported"
-            ))),
         }
     }
 }

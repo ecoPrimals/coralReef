@@ -69,8 +69,7 @@ fn encoding_to_rust_mod(enc: &str) -> String {
 }
 
 fn repo_root() -> PathBuf {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(manifest_dir)
         .parent()
         .and_then(|p| p.parent())
@@ -80,7 +79,10 @@ fn repo_root() -> PathBuf {
 
 fn parse_xml(
     xml_path: &std::path::Path,
-) -> (BTreeMap<String, EncodingInfo>, BTreeMap<String, Vec<InstrInfo>>) {
+) -> (
+    BTreeMap<String, EncodingInfo>,
+    BTreeMap<String, Vec<InstrInfo>>,
+) {
     let xml_content = fs::read_to_string(xml_path).unwrap_or_else(|e| {
         eprintln!("ERROR: Cannot read {}: {e}", xml_path.display());
         eprintln!("Download from: https://gpuopen.com/download/machine-readable-isa/latest/");
@@ -158,9 +160,16 @@ fn parse_xml(
                         current_ie_opcode = 0;
                         current_ie_condition.clear();
                     }
-                    "EncodingName" | "BitCount" | "BitOffset" | "FieldName"
-                    | "InstructionName" | "Description" | "IsBranch"
-                    | "IsProgramTerminator" | "Opcode" | "EncodingCondition" => {
+                    "EncodingName"
+                    | "BitCount"
+                    | "BitOffset"
+                    | "FieldName"
+                    | "InstructionName"
+                    | "Description"
+                    | "IsBranch"
+                    | "IsProgramTerminator"
+                    | "Opcode"
+                    | "EncodingCondition" => {
                         current_text_target = tag;
                     }
                     _ => {}
@@ -203,10 +212,7 @@ fn parse_xml(
                             && current_ie_condition == "default"
                             && compute_set.contains(current_ie_enc_name.as_str())
                         {
-                            ie_defaults.push((
-                                current_ie_enc_name.clone(),
-                                current_ie_opcode,
-                            ));
+                            ie_defaults.push((current_ie_enc_name.clone(), current_ie_opcode));
                         }
                         in_instr_encoding = false;
                     }
@@ -251,10 +257,8 @@ fn parse_xml(
                     _ => {}
                 }
 
-                if let Some(last) = path.last() {
-                    if *last == tag {
-                        path.pop();
-                    }
+                if path.last().is_some_and(|last| *last == tag) {
+                    path.pop();
                 }
                 current_text_target.clear();
             }
@@ -278,10 +282,10 @@ fn parse_xml(
                         }
                     }
                     "BitOffset" => {
-                        if let Ok(v) = text.parse::<u32>() {
-                            if in_field {
-                                current_field_offset = v;
-                            }
+                        if let Ok(v) = text.parse::<u32>()
+                            && in_field
+                        {
+                            current_field_offset = v;
                         }
                     }
                     "FieldName" => {
@@ -338,7 +342,11 @@ fn generate_rust(
 
     writeln!(out, "// SPDX-License-Identifier: AGPL-3.0-only").unwrap();
     writeln!(out, "// Copyright © 2026 ecoPrimals").unwrap();
-    writeln!(out, "//! AUTO-GENERATED from AMD RDNA2 ISA XML specification.").unwrap();
+    writeln!(
+        out,
+        "//! AUTO-GENERATED from AMD RDNA2 ISA XML specification."
+    )
+    .unwrap();
     writeln!(out, "//!").unwrap();
     writeln!(
         out,
@@ -401,7 +409,11 @@ fn generate_rust(
     writeln!(out, "    pub opcode: u16,").unwrap();
     writeln!(out, "    /// Whether this instruction is a branch.").unwrap();
     writeln!(out, "    pub is_branch: bool,").unwrap();
-    writeln!(out, "    /// Whether this instruction terminates the program.").unwrap();
+    writeln!(
+        out,
+        "    /// Whether this instruction terminates the program."
+    )
+    .unwrap();
     writeln!(out, "    pub is_terminator: bool,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();

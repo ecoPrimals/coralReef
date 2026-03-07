@@ -68,28 +68,38 @@ impl ComputeDevice for NvDevice {
         let gpu_va = 0x0002_0000_0000_u64 + u64::from(gem_handle) * 0x1000_0000;
 
         let handle_id = self.alloc_handle();
-        self.buffers.insert(handle_id, NvBuffer {
-            gem_handle,
-            size,
-            gpu_va,
-            domain,
-        });
+        self.buffers.insert(
+            handle_id,
+            NvBuffer {
+                gem_handle,
+                size,
+                gpu_va,
+                domain,
+            },
+        );
         Ok(BufferHandle(handle_id))
     }
 
     fn free(&mut self, handle: BufferHandle) -> DriverResult<()> {
-        let _buf = self.buffers.remove(&handle.0).ok_or(DriverError::BufferNotFound(handle))?;
+        let _buf = self
+            .buffers
+            .remove(&handle.0)
+            .ok_or(DriverError::BufferNotFound(handle))?;
         // DRM_IOCTL_GEM_CLOSE
         tracing::debug!(handle = _buf.gem_handle, "nouveau GEM close (scaffold)");
         Ok(())
     }
 
     fn upload(&mut self, _handle: BufferHandle, _offset: u64, _data: &[u8]) -> DriverResult<()> {
-        Err(DriverError::Unsupported("nouveau upload not yet implemented".into()))
+        Err(DriverError::Unsupported(
+            "nouveau upload not yet implemented".into(),
+        ))
     }
 
     fn readback(&self, _handle: BufferHandle, _offset: u64, _len: usize) -> DriverResult<Vec<u8>> {
-        Err(DriverError::Unsupported("nouveau readback not yet implemented".into()))
+        Err(DriverError::Unsupported(
+            "nouveau readback not yet implemented".into(),
+        ))
     }
 
     fn dispatch(

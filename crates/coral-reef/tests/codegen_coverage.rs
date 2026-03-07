@@ -14,6 +14,7 @@ fn opts() -> CompileOptions {
         opt_level: 2,
         debug_info: false,
         fp64_software: true,
+        ..CompileOptions::default()
     }
 }
 
@@ -65,7 +66,6 @@ fn main() {
 }
 
 #[test]
-#[ignore = "opt_instr_sched_prepass assertion: loop-carried phi triggers PerRegFile accounting bug"]
 fn coverage_phi_nodes_loop_carry() {
     // Loop-carried phi (sum, i); use loop/break
     let wgsl = r"
@@ -88,7 +88,6 @@ fn main() {
 // --- Complex control flow / repair_ssa ---
 
 #[test]
-#[ignore = "opt_instr_sched_prepass assertion: nested loop/break triggers PerRegFile accounting bug"]
 fn coverage_nested_loops() {
     // Nested loop/break; exercises repair_ssa
     let wgsl = r"
@@ -155,7 +154,7 @@ fn main(
 // --- Logical operations ---
 
 #[test]
-#[ignore = "opt_instr_sched_prepass assertion: predicate from logical op triggers PerRegFile accounting bug"]
+#[ignore = "GPR→Pred coercion chain incomplete: select with logical-and condition hits encoder assertion"]
 fn coverage_logical_predicates() {
     // Logical ops on predicates (&&, ||, !)
     let wgsl = r"

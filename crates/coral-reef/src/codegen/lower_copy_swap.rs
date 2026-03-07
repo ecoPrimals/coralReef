@@ -30,8 +30,16 @@ impl LowerCopySwap {
             .as_reg()
             .expect("OpCopy dst is always Reg after register allocation");
         assert!(dst_reg.comps() == 1);
-        assert!(copy.src.is_unmodified());
         assert!(copy.src.is_uniform() || !dst_reg.is_uniform());
+
+        if !copy.src.is_unmodified() {
+            b.push_op(OpMov {
+                dst: copy.dst,
+                src: copy.src,
+                quad_lanes: 0xf,
+            });
+            return;
+        }
 
         match dst_reg.file() {
             RegFile::GPR | RegFile::UGPR => match copy.src.reference {
@@ -44,7 +52,7 @@ impl LowerCopySwap {
                 }
                 SrcRef::CBuf(_) => match dst_reg.file() {
                     RegFile::GPR => {
-                        if b.sm() >= 100 {
+                        if b.is_amd() || b.sm() >= 100 {
                             b.push_op(OpLdc {
                                 dst: copy.dst,
                                 cb: copy.src,

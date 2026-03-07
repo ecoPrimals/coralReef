@@ -12,6 +12,7 @@
 //! | Pred | Exec mask bits / SCC |
 //! | warp (32 threads) | wave (32 or 64 lanes) |
 
+#[allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::super::legalize::{LegalizeBuildHelpers, LegalizeBuilder};
 use super::encoding::Rdna2Encoder;
@@ -48,6 +49,10 @@ impl ShaderModelRdna2 {
 impl ShaderModel for ShaderModelRdna2 {
     fn sm(&self) -> u8 {
         self.gfx_version
+    }
+
+    fn is_amd(&self) -> bool {
+        true
     }
 
     fn reg_count(&self, file: RegFile) -> u32 {
@@ -209,8 +214,14 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
             b.copy_alu_src_if_not_reg(&mut op.src, gpr, SrcType::ALU);
         }
         Op::Bar(_) | Op::S2R(_) | Op::CS2R(_) => {}
-        Op::Undef(_) | Op::PhiSrcs(_) | Op::PhiDsts(_) | Op::Pin(_) | Op::Unpin(_)
-        | Op::RegOut(_) | Op::SrcBar(_) | Op::Annotate(_) => {}
+        Op::Undef(_)
+        | Op::PhiSrcs(_)
+        | Op::PhiDsts(_)
+        | Op::Pin(_)
+        | Op::Unpin(_)
+        | Op::RegOut(_)
+        | Op::SrcBar(_)
+        | Op::Annotate(_) => {}
         _ => {}
     }
     Ok(())
@@ -219,10 +230,7 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
 /// Encode an AMD RDNA2 shader to instruction words.
 ///
 /// Compute shaders have no header (unlike NVIDIA's SPH).
-fn encode_rdna2_shader(
-    _sm: &ShaderModelRdna2,
-    s: &Shader<'_>,
-) -> Result<Vec<u32>, CompileError> {
+fn encode_rdna2_shader(_sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>, CompileError> {
     if s.functions.is_empty() {
         return Err(CompileError::InvalidInput("empty shader".into()));
     }
@@ -263,14 +271,27 @@ fn ends_with_endpgm(words: &[u32]) -> bool {
 
 fn estimate_instr_size(op: &Op) -> usize {
     match op {
-        Op::DAdd(_) | Op::DFma(_) | Op::DMul(_) | Op::DMnMx(_) | Op::DSetP(_)
-        | Op::F64Sqrt(_) | Op::F64Rcp(_) => 2,
+        Op::DAdd(_)
+        | Op::DFma(_)
+        | Op::DMul(_)
+        | Op::DMnMx(_)
+        | Op::DSetP(_)
+        | Op::F64Sqrt(_)
+        | Op::F64Rcp(_) => 2,
         Op::FAdd(_) | Op::FMul(_) | Op::Mov(_) => 1,
         Op::FFma(_) => 2,
         Op::Bra(_) | Op::Exit(_) | Op::Nop(_) | Op::Bar(_) => 1,
         Op::Ld(_) | Op::St(_) | Op::Atom(_) => 2,
-        Op::Undef(_) | Op::PhiSrcs(_) | Op::PhiDsts(_) | Op::Pin(_) | Op::Unpin(_)
-        | Op::RegOut(_) | Op::SrcBar(_) | Op::Annotate(_) | Op::Copy(_) | Op::Swap(_)
+        Op::Undef(_)
+        | Op::PhiSrcs(_)
+        | Op::PhiDsts(_)
+        | Op::Pin(_)
+        | Op::Unpin(_)
+        | Op::RegOut(_)
+        | Op::SrcBar(_)
+        | Op::Annotate(_)
+        | Op::Copy(_)
+        | Op::Swap(_)
         | Op::ParCopy(_) => 0,
         _ => 1,
     }
@@ -287,18 +308,12 @@ fn encode_rdna2_op(
         Op::Nop(_) => Ok(super::encoding::encode_s_nop(0)),
         Op::Bar(_) => Ok(super::encoding::encode_s_barrier()),
 
-        Op::FAdd(op) => encode_vop2_from_srcs(
-            isa::vop2::V_ADD_F32,
-            &op.dst,
-            &op.srcs[0],
-            &op.srcs[1],
-        ),
-        Op::FMul(op) => encode_vop2_from_srcs(
-            isa::vop2::V_MUL_F32,
-            &op.dst,
-            &op.srcs[0],
-            &op.srcs[1],
-        ),
+        Op::FAdd(op) => {
+            encode_vop2_from_srcs(isa::vop2::V_ADD_F32, &op.dst, &op.srcs[0], &op.srcs[1])
+        }
+        Op::FMul(op) => {
+            encode_vop2_from_srcs(isa::vop2::V_MUL_F32, &op.dst, &op.srcs[0], &op.srcs[1])
+        }
         Op::FFma(op) => encode_vop3_from_srcs(
             isa::vop3::V_FMA_F32,
             &op.dst,
@@ -364,8 +379,16 @@ fn encode_rdna2_op(
             ))
         }
 
-        Op::Undef(_) | Op::PhiSrcs(_) | Op::PhiDsts(_) | Op::Pin(_) | Op::Unpin(_)
-        | Op::RegOut(_) | Op::SrcBar(_) | Op::Annotate(_) | Op::Copy(_) | Op::Swap(_)
+        Op::Undef(_)
+        | Op::PhiSrcs(_)
+        | Op::PhiDsts(_)
+        | Op::Pin(_)
+        | Op::Unpin(_)
+        | Op::RegOut(_)
+        | Op::SrcBar(_)
+        | Op::Annotate(_)
+        | Op::Copy(_)
+        | Op::Swap(_)
         | Op::ParCopy(_) => Ok(Vec::new()),
 
         other => Err(CompileError::NotImplemented(format!(

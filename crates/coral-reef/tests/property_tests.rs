@@ -31,6 +31,7 @@ proptest! {
             opt_level: opt,
             debug_info: false,
             fp64_software: true,
+            ..CompileOptions::default()
         };
         let _ = compile(&data, &opts);
     }
@@ -57,6 +58,7 @@ proptest! {
             opt_level: opt,
             debug_info: false,
             fp64_software: true,
+            ..CompileOptions::default()
         };
         let r1 = compile_wgsl(wgsl, &opts);
         let r2 = compile_wgsl(wgsl, &opts);
