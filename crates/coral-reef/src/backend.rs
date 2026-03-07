@@ -34,6 +34,8 @@ pub struct CompilationInfo {
     pub shared_mem_bytes: u32,
     /// Number of barriers used.
     pub barrier_count: u32,
+    /// Workgroup dimensions from `@workgroup_size(x, y, z)`.
+    pub local_size: [u32; 3],
 }
 
 /// A vendor-specific compiler backend.
@@ -53,14 +55,20 @@ pub trait Backend {
     fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError>;
 }
 
-/// Extract shared memory and barrier count from shader stage info.
-fn compute_info(shader: &Shader<'_>) -> (u32, u32) {
-    let shared = match &shader.info.stage {
-        ShaderStageInfo::Compute(cs) => u32::from(cs.shared_mem_size),
-        _ => 0,
-    };
-    let barriers = u32::from(shader.info.control_barrier_count);
-    (shared, barriers)
+/// Extract compute-specific metadata from shader stage info.
+fn compute_info(shader: &Shader<'_>) -> (u32, u32, [u32; 3]) {
+    match &shader.info.stage {
+        ShaderStageInfo::Compute(cs) => (
+            u32::from(cs.shared_mem_size),
+            u32::from(shader.info.control_barrier_count),
+            [
+                u32::from(cs.local_size[0]),
+                u32::from(cs.local_size[1]),
+                u32::from(cs.local_size[2]),
+            ],
+        ),
+        _ => (0, u32::from(shader.info.control_barrier_count), [1, 1, 1]),
+    }
 }
 
 /// NVIDIA backend — drives the codegen pipeline (SM70+).
@@ -82,7 +90,7 @@ impl Backend for NvidiaBackend {
             binary.extend_from_slice(&word.to_le_bytes());
         }
 
-        let (shared_mem_bytes, barrier_count) = compute_info(shader);
+        let (shared_mem_bytes, barrier_count, local_size) = compute_info(shader);
         Ok(CompiledBinary {
             binary,
             info: CompilationInfo {
@@ -90,6 +98,7 @@ impl Backend for NvidiaBackend {
                 instr_count: shader.info.instr_count,
                 shared_mem_bytes,
                 barrier_count,
+                local_size,
             },
         })
     }
@@ -111,7 +120,7 @@ impl Backend for AmdBackend {
             binary.extend_from_slice(&word.to_le_bytes());
         }
 
-        let (shared_mem_bytes, barrier_count) = compute_info(shader);
+        let (shared_mem_bytes, barrier_count, local_size) = compute_info(shader);
         Ok(CompiledBinary {
             binary,
             info: CompilationInfo {
@@ -119,6 +128,7 @@ impl Backend for AmdBackend {
                 instr_count: shader.info.instr_count,
                 shared_mem_bytes,
                 barrier_count,
+                local_size,
             },
         })
     }

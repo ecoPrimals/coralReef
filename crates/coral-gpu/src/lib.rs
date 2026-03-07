@@ -73,6 +73,8 @@ pub struct CompiledKernel {
     pub shared_mem_bytes: u32,
     /// Barrier count used by the shader (for QMD).
     pub barrier_count: u32,
+    /// Workgroup dimensions from `@workgroup_size(x, y, z)`.
+    pub workgroup: [u32; 3],
 }
 
 /// GPU compute context — unified compile + dispatch.
@@ -176,6 +178,7 @@ impl GpuContext {
             instr_count: compiled.info.instr_count,
             shared_mem_bytes: compiled.info.shared_mem_bytes,
             barrier_count: compiled.info.barrier_count,
+            workgroup: compiled.info.local_size,
         })
     }
 
@@ -194,6 +197,7 @@ impl GpuContext {
             instr_count: 0,
             shared_mem_bytes: 0,
             barrier_count: 0,
+            workgroup: [1, 1, 1],
         })
     }
 
@@ -287,7 +291,7 @@ impl GpuContext {
             gpr_count: kernel.gpr_count,
             shared_mem_bytes: kernel.shared_mem_bytes,
             barrier_count: kernel.barrier_count,
-            workgroup: [64, 1, 1],
+            workgroup: kernel.workgroup,
         };
         Ok(self
             .device_mut()?
@@ -299,8 +303,8 @@ impl GpuContext {
     /// # Errors
     ///
     /// Returns [`GpuError`] if the fence wait fails or no device is attached.
-    pub fn sync(&self) -> GpuResult<()> {
-        Ok(self.device_ref()?.sync()?)
+    pub fn sync(&mut self) -> GpuResult<()> {
+        Ok(self.device_mut()?.sync()?)
     }
 }
 
@@ -376,16 +380,14 @@ mod tests {
 
     #[test]
     fn sync_fails_without_device() {
-        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
+        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
         let err = ctx.sync().unwrap_err();
         assert!(matches!(err, GpuError::NoDeviceAttached));
     }
 
     #[test]
     fn readback_fails_without_device() {
-        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        // Cannot construct BufferHandle from outside coral-driver, so we
-        // test via sync which also requires a device.
+        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
         let err = ctx.sync().unwrap_err();
         assert!(matches!(err, GpuError::NoDeviceAttached));
     }

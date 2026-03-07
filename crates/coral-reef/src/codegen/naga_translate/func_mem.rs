@@ -58,7 +58,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         for c in 0..val.comps() as usize {
             self.push_instr(Instr::new(OpSt {
-                addr: addr[0].into(),
+                addr: addr.clone().into(),
                 data: val[c].into(),
                 offset: (c as i32) * 4,
                 stride: OffsetStride::X1,
@@ -72,7 +72,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let dst = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpLd {
             dst: dst.into(),
-            addr: addr[0].into(),
+            addr: addr.into(),
             offset: 0,
             stride: OffsetStride::X1,
             access: super::mem_access_global_b32(),
@@ -84,14 +84,14 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
         self.push_instr(Instr::new(OpLd {
             dst: dst[0].into(),
-            addr: addr[0].into(),
+            addr: addr.clone().into(),
             offset: 0,
             stride: OffsetStride::X1,
             access: super::mem_access_global_b32(),
         }));
         self.push_instr(Instr::new(OpLd {
             dst: dst[1].into(),
-            addr: addr[0].into(),
+            addr: addr.into(),
             offset: 4,
             stride: OffsetStride::X1,
             access: super::mem_access_global_b32(),
@@ -349,7 +349,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         self.push_instr(Instr::new(OpAtom {
             dst: result_ssa.map_or(Dst::None, Dst::from),
-            addr: addr[0].into(),
+            addr: addr.into(),
             cmpr: Src::ZERO,
             data: data_src,
             atom_op,

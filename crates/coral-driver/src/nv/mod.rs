@@ -270,7 +270,7 @@ impl ComputeDevice for NvDevice {
         Ok(())
     }
 
-    fn sync(&self) -> DriverResult<()> {
+    fn sync(&mut self) -> DriverResult<()> {
         // Wait for the last submitted GEM buffer to become idle via
         // DRM_NOUVEAU_GEM_CPU_PREP. If no dispatch has been issued,
         // sync is a no-op.

@@ -392,6 +392,32 @@ impl Rdna2Encoder {
     pub fn encode_s_cbranch_execz(offset_words: i16) -> Vec<u32> {
         Self::encode_sopp(isa::sopp::S_CBRANCH_EXECZ, offset_words as u16)
     }
+
+    // ---- SMEM encoding (64-bit) ----
+    // Word 0 (bits [31:0]):
+    //   [31:26] = 111101 (6-bit SMEM encoding prefix)
+    //   [25:18] = OP (8-bit opcode)
+    //   [16]    = GLC
+    //   [14]    = DLC
+    //   [12:6]  = SDATA (7-bit destination SGPR index)
+    //   [5:0]   = SBASE (6-bit, SGPR pair index — actual SGPR# >> 1)
+    // Word 1 (bits [63:32]):
+    //   [63:57] = SOFFSET (7-bit scalar offset register, 0x7F = none)
+    //   [52:32] = OFFSET (21-bit unsigned byte offset)
+
+    /// Encode an SMEM instruction (scalar memory load from buffer descriptor).
+    pub fn encode_smem(opcode: u16, dst: AmdRegRef, sbase: u16, offset: u32) -> Vec<u32> {
+        let mut e = Self::new_64();
+        // Word 0
+        e.set_field_w0(26, 6, 0b11_1101);
+        e.set_field_w0(18, 8, u32::from(opcode));
+        e.set_field_w0(6, 7, u32::from(dst.index));
+        e.set_field_w0(0, 6, u32::from(sbase));
+        // Word 1
+        e.set_field_w1(0, 21, offset & 0x1F_FFFF);
+        e.set_field_w1(25, 7, 0x7F); // SOFFSET = none
+        e.into_words()
+    }
 }
 
 #[cfg(test)]

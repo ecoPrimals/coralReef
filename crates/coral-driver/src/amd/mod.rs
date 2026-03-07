@@ -24,6 +24,8 @@ pub struct AmdDevice {
     buffers: HashMap<u32, gem::GemBuffer>,
     next_handle: u32,
     last_fence: u64,
+    /// Buffers allocated during dispatch that must survive until sync.
+    inflight: Vec<BufferHandle>,
 }
 
 impl AmdDevice {
@@ -54,13 +56,19 @@ impl AmdDevice {
             buffers: HashMap::new(),
             next_handle: 1,
             last_fence: 0,
+            inflight: Vec::new(),
         })
     }
 
-    const fn alloc_handle(&mut self) -> u32 {
+    fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h
+    }
+
+    /// Return the GPU virtual address for a buffer (for diagnostics).
+    pub fn buffer_gpu_va(&self, handle: BufferHandle) -> Option<u64> {
+        self.buffers.get(&handle.0).map(|g| g.gpu_va)
     }
 }
 
@@ -108,7 +116,7 @@ impl ComputeDevice for AmdDevice {
         shader: &[u8],
         buffers: &[BufferHandle],
         dims: DispatchDims,
-        _info: &ShaderInfo,
+        info: &ShaderInfo,
     ) -> DriverResult<()> {
         let shader_size = u64::try_from(shader.len())
             .map_err(|_| DriverError::platform_overflow("shader size fits in u64"))?;
@@ -116,7 +124,12 @@ impl ComputeDevice for AmdDevice {
         self.upload(shader_handle, 0, shader)?;
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |g| g.gpu_va);
-        let pm4_words = pm4::build_compute_dispatch(shader_va, dims);
+
+        let buffer_vas: Vec<u64> = buffers
+            .iter()
+            .filter_map(|bh| self.buffers.get(&bh.0).map(|g| g.gpu_va))
+            .collect();
+        let pm4_words = pm4::build_compute_dispatch(shader_va, dims, info, &buffer_vas);
 
         let pm4_bytes = u32_slice_as_bytes(&pm4_words);
         let ib_size = u64::try_from(pm4_bytes.len())
@@ -146,12 +159,12 @@ impl ComputeDevice for AmdDevice {
         let _ = ioctl::destroy_bo_list(self.drm.fd(), bo_list);
 
         self.last_fence = submit_result?;
-        self.free(ib_handle)?;
-        self.free(shader_handle)?;
+        self.inflight.push(ib_handle);
+        self.inflight.push(shader_handle);
         Ok(())
     }
 
-    fn sync(&self) -> DriverResult<()> {
+    fn sync(&mut self) -> DriverResult<()> {
         if self.last_fence == 0 {
             return Ok(());
         }
@@ -160,7 +173,12 @@ impl ComputeDevice for AmdDevice {
             self.ctx_handle,
             self.last_fence,
             5_000_000_000,
-        )
+        )?;
+        let inflight = std::mem::take(&mut self.inflight);
+        for handle in inflight {
+            let _ = self.free(handle);
+        }
+        Ok(())
     }
 }
 

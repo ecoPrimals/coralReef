@@ -151,10 +151,12 @@ pub trait ComputeDevice {
 
     /// Wait for all submitted work to complete.
     ///
+    /// May free in-flight temporary buffers after the fence signals.
+    ///
     /// # Errors
     ///
     /// Returns [`DriverError`] if the fence wait fails or times out.
-    fn sync(&self) -> DriverResult<()>;
+    fn sync(&mut self) -> DriverResult<()>;
 }
 
 #[cfg(test)]

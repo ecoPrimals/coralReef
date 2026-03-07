@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 9)
-**Phase**: 10 — E2E Wiring + Push Buffer Fix + Debt Reduction
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 10)
+**Phase**: 10 — E2E GPU Dispatch Verified on AMD
 
 ---
 
@@ -9,17 +9,14 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-974 tests (952 passing, 22 ignored), 14/27 cross-spring WGSL shaders
+990 tests (953 passing, 37 ignored), 14/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
-Both backends now encode the full IR operation set (memory, control flow,
-comparisons, integer/logic ops, type conversions, system values). The
-nouveau DRM driver is fully wired (channel, GEM, pushbuf, QMD dispatch).
-Compile-time safety infrastructure added: `TypedBitField<OFFSET, WIDTH>`
-and `derive(Encode)` for verified instruction encoding. groundSpring V95
-identified the critical push buffer field swap. All P0 blockers (push buffer,
-QMD CBUF binding, GPR count, NVIF constants, binding layout) resolved in
-Iteration 9.
+**Iteration 10 milestone**: First successful end-to-end sovereign GPU
+dispatch — WGSL compiled by `coral-reef`, dispatched by `coral-driver`
+via PM4, executed on the AMD RX 6950 XT, and verified by host readback.
+Three critical bugs fixed: wave32 dispatch mode, literal constant emission,
+and 64-bit address pair construction in FLAT memory operations.
 
 ---
 
@@ -328,10 +325,11 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 5 | Ptr tracking fix, scheduler refactor, debt audit | **832** (811 pass, 21 ignore) |
 | 10 iter 6 | Deep debt internalization, IPC evolution | **856** (836 pass, 20 ignore) |
 | 10 iter 7 | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
-| 10 iter 9 (current) | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
+| 10 iter 9 | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
+| 10 iter 10 (current) | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **990** (953 pass, 37 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 9: P0 blockers resolved. Push buffer, QMD CBUF, GPR count, NVIF, binding layout.*
+Iteration 10: AMD E2E verified — sovereign pipeline proven on hardware.*

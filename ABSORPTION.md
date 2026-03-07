@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 9: E2E Wiring + Push Buffer Fix + Debt Reduction)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 10: E2E GPU Dispatch Verified on AMD)
 
 ---
 
@@ -210,11 +210,11 @@ Status (groundSpring V95, Iteration 9):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 974 tests (952 pass), both drivers fully wired |
-| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD + nouveau drivers complete — needs hardware validation |
-| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD fully wired, nouveau fully wired (channel+GEM+pushbuf) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 9 complete |
-| hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM now operational; P0 is QMD CBUF binding (groundSpring V95) |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 990 tests (953 pass), both drivers wired, AMD E2E verified |
+| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau wired, awaiting HW validation |
+| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired (channel+GEM+pushbuf) |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 10 — AMD E2E proven |
+| hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; QMD CBUF binding resolved (Iteration 9) |
 
 ---
 
@@ -233,7 +233,7 @@ Status (groundSpring V95, Iteration 9):
 
 ---
 
-*14/27 cross-spring shaders compile to native SASS. 974 tests (952 pass).
+*14/27 cross-spring shaders compile to native SASS. 990 tests (953 pass).
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
-The compiler evolves — each iteration unlocks more shaders. P0 blockers (push buffer,
-QMD CBUF, GPR count, NVIF, binding layout) resolved in Iteration 9. Next: hardware validation.*
+The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
+(Iteration 10). Next: NVIDIA hardware validation.*

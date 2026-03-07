@@ -74,7 +74,7 @@ impl GemBuffer {
 
         let (handle, actual_size) = ioctl::gem_create(fd, size, domain_flags)?;
 
-        let gpu_va = 0x0001_0000_0000_u64 + u64::from(handle) * 0x1000_0000;
+        let gpu_va = 0x0000_8000_0000_u64 + u64::from(handle) * 0x0100_0000;
 
         ioctl::gem_va_map(fd, handle, gpu_va, actual_size)?;
 

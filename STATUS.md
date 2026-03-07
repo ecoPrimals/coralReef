@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 7, 2026  
-**Phase**: 10 — Iteration 9 (E2E Wiring + Push Buffer Fix + Debt Reduction)
+**Phase**: 10 — Iteration 10 (E2E GPU Dispatch Verified on AMD)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 974 tests (952 passing, 22 ignored), zero failures |
+| Tests | A+ | 990 tests (953 passing, 37 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening | **Iteration 9** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 10** |
 
 ### Phase 10 Completions
 
@@ -141,6 +141,19 @@
 | `ShaderInfo` in dispatch trait | ✅ | `ComputeDevice::dispatch()` accepts `&ShaderInfo` with GPR, shared mem, barriers, workgroup — compiler metadata reaches QMD |
 | Test coverage expansion | ✅ | +21 tests → 974 total (952 passing, 22 ignored) |
 
+### Phase 10 — Iteration 10 Completions (E2E GPU Dispatch Verified on AMD)
+
+| Task | Status | Details |
+|------|--------|---------|
+| **AMD E2E: WGSL → compile → dispatch → readback → verify** | ✅ | Full sovereign pipeline on RX 6950 XT — `out[0] = 42u` writes 42, readback verified |
+| CS_W32_EN wave32 dispatch | ✅ | DISPATCH_INITIATOR bit 15 — fixes VGPR allocation (wave64 allocated only 4 VGPRs) |
+| SrcEncoding literal DWORD emission | ✅ | `SrcRef::Imm32` returned SRC0=255 without appending literal — FLAT store was consumed as "literal", corrupting instruction stream |
+| Inline constant range (0–64, -1..-16) | ✅ | Full RDNA2 inline constant map: 128=0, 129–192=1..64, 193–208=-1..-16 |
+| 64-bit address pair for FLAT stores | ✅ | `func_mem.rs` passed `addr[0]` (32-bit lo) instead of full 2-component SSARef — addr_hi eliminated by DCE |
+| `unwrap_or(0)` audit → proper errors | ✅ | Register index, branch offset, FLAT offset: all return `CompileError` instead of silent truncation |
+| Diagnostic hw tests cleaned | ✅ | `hardcoded_va_store_42_shader` simplified to regression test |
+| Test expansion | ✅ | 990 total (953 passing, 37 ignored) |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -148,7 +161,7 @@
 | GPR→Pred coercion chain | P2 | Blocks logical_predicates |
 | Wilson plaquette (scheduler) | P2 | PerRegFile live_in mismatch |
 | const_tracker negated immediate | P2 | HFB hamiltonian |
-| Hardware validation (AMD) | P2 | RX 6950 XT on-site — PM4 + CS submit path ready |
+| Hardware validation (AMD) | ✅ | **E2E verified** — RX 6950 XT, WGSL compile + dispatch + readback |
 | Hardware validation (NVIDIA) | P2 | Titan V on-site — channel + pushbuf path ready |
 | Intel backend | P3 | Placeholder |
 
@@ -157,7 +170,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (974 tests: 952 passing, 22 ignored) |
+| `cargo test --workspace` | PASS (990 tests: 953 passing, 37 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

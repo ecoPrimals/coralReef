@@ -21,3 +21,4 @@ nouveau = []
 # All DRM structures are defined internally (no drm-sys).
 
 [dev-dependencies]
+coral-reef.workspace = true

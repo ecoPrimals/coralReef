@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 9)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 10)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 9)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 10)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -169,7 +169,14 @@ the full Spring absorption map.
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
 - [ ] Titan V (SM70) hardware execution validation
 - [ ] RTX 3090 (SM86) hardware execution validation
-- [ ] RX 6950 XT (GFX1030) hardware execution validation
+- [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
+
+### P0 — AMD E2E critical fixes (Iteration 10)
+- [x] **CS_W32_EN wave32 dispatch** — `DISPATCH_INITIATOR` bit 15 not set → wave64 mode → only 4 VGPRs allocated (v0-v3), v4+ unmapped
+- [x] **SrcEncoding literal DWORD emission** — `src_to_encoding` returned SRC0=255 for `Imm32` values without appending literal DWORD → FLAT store consumed as "literal", instruction stream corrupted
+- [x] **Inline constant range** — Full RDNA2 map: 128=0, 129–192=1..64, 193–208=-1..-16; `SrcEncoding` struct bundles SRC0 + optional literal
+- [x] **64-bit address pair for FLAT** — `func_mem.rs` passed `addr[0].into()` (only addr_lo) → DCE eliminated addr_hi → corrupted 64-bit address; fixed to `addr.clone().into()`
+- [x] **`unwrap_or(0)` audit** — register index, branch offset, FLAT offset overflow: all return `CompileError` instead of silent truncation
 
 ### P2 — barraCuda integration
 - [ ] `ComputeDispatch::CoralReef` variant in barraCuda
@@ -190,6 +197,7 @@ the full Spring absorption map.
 - [x] Test coverage: +24 new tests (856 total, 836 passing, 20 ignored)
 - [x] Iteration 7: +48 tests → 904 total (883 passing, 21 ignored), `#[deny(unsafe_code)]` on 6 crates, ioctl layout tests, cfg.rs domain-split
 - [x] Iteration 9: +21 tests → 974 total (952 passing, 22 ignored), E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants, binding layout mapping
+- [x] Iteration 10: +16 tests → 990 total (953 passing, 37 ignored), AMD E2E verified (wave32, SrcEncoding, 64-bit addr, unwrap_or audit)
 
 ### P3 — Remaining debt
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
@@ -199,7 +207,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 14/27 cross-spring shaders compile to native SASS.
-974 tests, zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
-AMD driver fully wired. Nouveau driver fully wired. Both backends encode full IR.
-P0 blockers (push buffer, QMD CBUF, GPR count, NVIF, binding layout) resolved in Iteration 9.
+990 tests, zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
+Nouveau driver fully wired. Both backends encode full IR.
 All pure Rust.*

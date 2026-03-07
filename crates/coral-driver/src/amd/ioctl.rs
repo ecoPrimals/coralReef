@@ -32,7 +32,15 @@ pub const AMDGPU_VA_OP_MAP: u32 = 1;
 pub const AMDGPU_VA_OP_UNMAP: u32 = 2;
 pub const AMDGPU_VA_FLAGS_NONE: u64 = 0;
 
-/// GEM create input/output.
+// VM page protection flags (from amdgpu_drm.h)
+pub const AMDGPU_VM_PAGE_READABLE: u32 = 1 << 1;
+pub const AMDGPU_VM_PAGE_WRITEABLE: u32 = 1 << 2;
+pub const AMDGPU_VM_PAGE_EXECUTABLE: u32 = 1 << 3;
+
+/// GEM create — matches `union drm_amdgpu_gem_create` (32 bytes).
+///
+/// Input: bo_size, alignment, domains, domain_flags.
+/// Output: kernel overwrites first 8 bytes with `{ handle: u32, pad: u32 }`.
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct AmdgpuGemCreate {
@@ -40,17 +48,16 @@ pub struct AmdgpuGemCreate {
     pub alignment: u64,
     pub domains: u64,
     pub domain_flags: u64,
-    pub handle: u32,
-    pub pad: u32,
 }
 
-/// GEM mmap output.
+/// GEM mmap — matches `union drm_amdgpu_gem_mmap` (8 bytes).
+///
+/// Input: `handle` (u32) at offset 0.
+/// Output: kernel overwrites with `addr_ptr` (u64) at offset 0.
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct AmdgpuGemMmap {
-    pub handle: u32,
-    pub pad: u32,
-    pub offset: u64,
+    pub handle_or_addr: u64,
 }
 
 /// Context operation input/output.
@@ -124,13 +131,17 @@ pub fn create_context(fd: RawFd) -> DriverResult<u32> {
     // SAFETY: `AmdgpuCtx` is `#[repr(C)]` matching the kernel's `drm_amdgpu_ctx`.
     // Stack-allocated, valid for the synchronous ioctl lifetime.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_CTX, size_of_u32::<AmdgpuCtx>()),
             &mut ctx,
+            "AMDGPU_CTX_ALLOC",
         )?;
     }
-    Ok(ctx.ctx_id)
+    // Kernel writes { ctx_id: u32, _pad: u32 } at offset 0 (output union overlay).
+    // SAFETY: kernel wrote ctx_id at offset 0 after successful alloc.
+    let ctx_id = unsafe { read_ioctl_output::<_, u32>(&ctx) };
+    Ok(ctx_id)
 }
 
 /// Destroy an amdgpu GPU context.
@@ -146,10 +157,11 @@ pub fn destroy_context(fd: RawFd, ctx_id: u32) -> DriverResult<()> {
     };
     // SAFETY: `AmdgpuCtx` is `#[repr(C)]` matching the kernel struct. Synchronous ioctl.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_CTX, size_of_u32::<AmdgpuCtx>()),
             &mut ctx,
+            "AMDGPU_CTX_FREE",
         )
     }
 }
@@ -160,21 +172,27 @@ pub fn destroy_context(fd: RawFd, ctx_id: u32) -> DriverResult<()> {
 ///
 /// Returns [`DriverError`] if the GEM create ioctl fails.
 pub fn gem_create(fd: RawFd, size: u64, domains: u32) -> DriverResult<(u32, u64)> {
+    let page_size = 4096_u64;
+    let aligned_size = size.next_multiple_of(page_size);
     let mut req = AmdgpuGemCreate {
-        bo_size: size,
-        alignment: 4096,
+        bo_size: aligned_size,
+        alignment: page_size,
         domains: domains.into(),
         ..Default::default()
     };
-    // SAFETY: AmdgpuGemCreate is #[repr(C)] and matches the kernel struct.
+    // SAFETY: AmdgpuGemCreate is #[repr(C)] and matches the kernel union (32 bytes).
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_GEM_CREATE, size_of_u32::<AmdgpuGemCreate>()),
             &mut req,
+            "AMDGPU_GEM_CREATE",
         )?;
     }
-    Ok((req.handle, req.bo_size))
+    // Kernel writes { handle: u32, pad: u32 } at offset 0 (union overlay).
+    // SAFETY: kernel wrote output at offset 0 after successful ioctl.
+    let handle = unsafe { read_ioctl_output::<_, u32>(&req) };
+    Ok((handle, aligned_size))
 }
 
 /// Get the mmap offset for a GEM buffer.
@@ -184,18 +202,19 @@ pub fn gem_create(fd: RawFd, size: u64, domains: u32) -> DriverResult<(u32, u64)
 /// Returns [`DriverError`] if the GEM mmap ioctl fails.
 pub fn gem_mmap_offset(fd: RawFd, handle: u32) -> DriverResult<u64> {
     let mut req = AmdgpuGemMmap {
-        handle,
-        ..Default::default()
+        handle_or_addr: u64::from(handle),
     };
-    // SAFETY: AmdgpuGemMmap is #[repr(C)] and matches the kernel struct.
+    // SAFETY: AmdgpuGemMmap is #[repr(C)] and matches the kernel union (8 bytes).
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_GEM_MMAP, size_of_u32::<AmdgpuGemMmap>()),
             &mut req,
+            "AMDGPU_GEM_MMAP",
         )?;
     }
-    Ok(req.offset)
+    // Kernel writes addr_ptr (u64) at offset 0.
+    Ok(req.handle_or_addr)
 }
 
 /// Map a GEM buffer to a GPU virtual address.
@@ -204,19 +223,22 @@ pub fn gem_mmap_offset(fd: RawFd, handle: u32) -> DriverResult<u64> {
 ///
 /// Returns [`DriverError`] if the VA map ioctl fails.
 pub fn gem_va_map(fd: RawFd, handle: u32, va: u64, size: u64) -> DriverResult<()> {
+    let flags = AMDGPU_VM_PAGE_READABLE | AMDGPU_VM_PAGE_WRITEABLE | AMDGPU_VM_PAGE_EXECUTABLE;
     let mut req = AmdgpuGemVa {
         handle,
         operation: AMDGPU_VA_OP_MAP,
+        flags,
         va_address: va,
         map_size: size,
         ..Default::default()
     };
     // SAFETY: AmdgpuGemVa is #[repr(C)] and matches the kernel struct.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iow_pub(DRM_AMDGPU_GEM_VA, size_of_u32::<AmdgpuGemVa>()),
             &mut req,
+            "AMDGPU_GEM_VA_MAP",
         )
     }
 }
@@ -324,10 +346,11 @@ pub fn create_bo_list(fd: RawFd, handles: &[u32]) -> DriverResult<u32> {
     // SAFETY: AmdgpuBoListIn is #[repr(C)] and matches the kernel union size.
     // entries slice lives until after the ioctl returns.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_BO_LIST, size_of_u32::<AmdgpuBoListIn>()),
             &mut req,
+            "AMDGPU_BO_LIST_CREATE",
         )?;
     }
 
@@ -350,10 +373,11 @@ pub fn destroy_bo_list(fd: RawFd, list_handle: u32) -> DriverResult<()> {
 
     // SAFETY: AmdgpuBoListIn is #[repr(C)] and matches the kernel union.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_BO_LIST, size_of_u32::<AmdgpuBoListIn>()),
             &mut req,
+            "AMDGPU_BO_LIST_DESTROY",
         )
     }
 }
@@ -401,10 +425,11 @@ pub fn submit_command(
     // SAFETY: All structs are #[repr(C)] and stack-allocated;
     // pointers remain valid for the duration of the synchronous ioctl.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_CS, size_of_u32::<AmdgpuCsIn>()),
             &mut cs,
+            "AMDGPU_CS_SUBMIT",
         )?;
     }
 
@@ -424,9 +449,19 @@ pub fn submit_command(
 /// Returns [`DriverError::FenceTimeout`] if the fence does not complete
 /// within `timeout_ns`, or [`DriverError`] if the ioctl fails.
 pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) -> DriverResult<()> {
+    // amdgpu WAIT_CS expects an absolute timeout (CLOCK_MONOTONIC nanoseconds)
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: timespec is a valid output struct for clock_gettime.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    let now_ns = ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64;
+    let abs_timeout = now_ns.saturating_add(timeout_ns);
+
     let mut wait = AmdgpuWaitCsIn {
         handle: fence_handle,
-        timeout: timeout_ns,
+        timeout: abs_timeout,
         ip_type: AMDGPU_HW_IP_COMPUTE,
         ctx_id,
         ..Default::default()
@@ -436,10 +471,11 @@ pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) ->
 
     // SAFETY: AmdgpuWaitCsIn is #[repr(C)] and matches the kernel union.
     unsafe {
-        crate::drm::drm_ioctl_typed(
+        crate::drm::drm_ioctl_named(
             fd,
             crate::drm::drm_iowr_pub(DRM_AMDGPU_WAIT_CS, size_of_u32::<AmdgpuWaitCsIn>()),
             &mut wait,
+            "AMDGPU_WAIT_CS",
         )?;
     }
 
@@ -461,20 +497,17 @@ mod tests {
 
     #[test]
     fn gem_create_layout() {
-        assert_eq!(size_of::<AmdgpuGemCreate>(), 40);
+        assert_eq!(size_of::<AmdgpuGemCreate>(), 32);
         assert_eq!(offset_of!(AmdgpuGemCreate, bo_size), 0);
         assert_eq!(offset_of!(AmdgpuGemCreate, alignment), 8);
         assert_eq!(offset_of!(AmdgpuGemCreate, domains), 16);
         assert_eq!(offset_of!(AmdgpuGemCreate, domain_flags), 24);
-        assert_eq!(offset_of!(AmdgpuGemCreate, handle), 32);
-        assert_eq!(offset_of!(AmdgpuGemCreate, pad), 36);
     }
 
     #[test]
     fn gem_mmap_layout() {
-        assert_eq!(size_of::<AmdgpuGemMmap>(), 16);
-        assert_eq!(offset_of!(AmdgpuGemMmap, handle), 0);
-        assert_eq!(offset_of!(AmdgpuGemMmap, offset), 8);
+        assert_eq!(size_of::<AmdgpuGemMmap>(), 8);
+        assert_eq!(offset_of!(AmdgpuGemMmap, handle_or_addr), 0);
     }
 
     #[test]
@@ -556,9 +589,9 @@ mod tests {
 
     #[test]
     fn size_of_u32_helper() {
-        assert_eq!(size_of_u32::<AmdgpuGemCreate>(), 40);
+        assert_eq!(size_of_u32::<AmdgpuGemCreate>(), 32);
         assert_eq!(size_of_u32::<AmdgpuCtx>(), 16);
-        assert_eq!(size_of_u32::<AmdgpuGemMmap>(), 16);
+        assert_eq!(size_of_u32::<AmdgpuGemMmap>(), 8);
         assert_eq!(size_of_u32::<AmdgpuGemVa>(), 40);
         assert_eq!(size_of_u32::<AmdgpuBoListIn>(), 24);
         assert_eq!(size_of_u32::<AmdgpuCsIn>(), 24);
@@ -587,7 +620,7 @@ mod tests {
     fn default_structs_are_zeroed() {
         let gem = AmdgpuGemCreate::default();
         assert_eq!(gem.bo_size, 0);
-        assert_eq!(gem.handle, 0);
+        assert_eq!(gem.domains, 0);
 
         let ctx = AmdgpuCtx::default();
         assert_eq!(ctx.op, 0);

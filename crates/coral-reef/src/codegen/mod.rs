@@ -85,6 +85,7 @@ mod lower_copy_swap;
 mod lower_f64;
 mod lower_par_copies;
 pub mod nv;
+pub mod ops;
 mod opt_bar_prop;
 mod opt_copy_prop;
 mod opt_crs;

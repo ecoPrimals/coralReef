@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Integration tests for the coral-reef compiler pipeline.
 //!
-//! Phase 3 (naga SPIR-V/WGSL frontend) is now active. Compute shader
-//! compilation through the full pipeline is exercised here.
+//! Compute shader compilation through the full pipeline is exercised here.
+//! naga frontend (SPIR-V/WGSL), codegen, vendor backend, and driver wiring.
 
 mod amd;
 mod pipeline;

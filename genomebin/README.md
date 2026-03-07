@@ -17,8 +17,8 @@ Planned:
 
 ## Status
 
-Pending — genomeBin deployment will be configured once coralDriver
-is hardened for production GPU dispatch. The compiler pipeline is
-fully functional via `cargo run -- compile`. coralDriver (DRM ioctl)
-and coralGpu (unified API) are implemented but need hardware
-validation before production deployment wrappers are built.
+Pending — genomeBin deployment will be configured once both AMD and
+NVIDIA hardware paths are validated end-to-end. AMD E2E dispatch is
+verified (RX 6950 XT, Iteration 10). NVIDIA nouveau path is wired
+but awaits hardware validation. The compiler pipeline is fully
+functional via `cargo run -- compile`.
