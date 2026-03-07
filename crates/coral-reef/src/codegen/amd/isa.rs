@@ -157,7 +157,7 @@ pub struct AmdOpcode {
 
 // Re-export authoritative opcode tables from XML-generated module.
 // These are the machine-readable ISA values — always prefer these over
-// hand-coded constants. See tools/amd-isa-gen/gen_rdna2_opcodes.py.
+// hand-coded constants. See tools/amd-isa-gen/src/main.rs.
 //
 // All encoding modules are exported even if not yet consumed internally;
 // they form the public API for the AMD backend's ISA layer.

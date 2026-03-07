@@ -28,7 +28,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 832 tests (811 passing, 21 ignored)
+cargo test --workspace     # 904 tests (883 passing, 21 ignored)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

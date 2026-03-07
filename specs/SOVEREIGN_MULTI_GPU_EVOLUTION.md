@@ -198,11 +198,11 @@ is proven.
 
 | Task | Scaffolds From | Status |
 |------|---------------|--------|
-| nouveau DRM ioctl interface | NVK `nvk_cmd_dispatch.c` | Not started |
-| QMD construction (SM86 Ampere) | coralReef `nvidia_headers` (QMD v3.0) | QMD structs exist |
-| Pushbuf command buffer | nouveau `nouveau_pushbuf.c` | Not started |
-| Memory management (GEM) | NVK + nouveau | Not started |
-| Fence/sync | nouveau fence API | Not started |
+| nouveau DRM ioctl interface | NVK `nvk_cmd_dispatch.c` | Explicit `Unsupported` — returns `DriverError::Unsupported` |
+| QMD construction (SM86 Ampere) | coralReef `nvidia_headers` (QMD v3.0) | QMD v3.0 complete |
+| Pushbuf command buffer | nouveau `nouveau_pushbuf.c` | Explicit `Unsupported` |
+| Memory management (GEM) | NVK + nouveau | GEM close implemented; alloc returns `Unsupported` |
+| Fence/sync | nouveau fence API | Explicit `Unsupported` |
 
 **Blocker**: nouveau compute dispatch is unstable (known system freezes
 on Volta). The AMD path validates the architecture first, then NVIDIA
@@ -373,7 +373,7 @@ All evolution passes must maintain:
 | 6b — AMD legalization + RA | VGPR/SGPR allocation, wave32/64 | 2-3 weeks | 6a |
 | 6c — AMD f64 lowering | v_fma_f64 native + DF64 | 3-5 days | 6b |
 | 6d — AMD compilation validation | WGSL → GFX1030 binary verified | 1 week | 6c |
-| 7a — coralDriver AMD (scaffold) | DRM ioctl dispatch to RX 6950 XT | 2-3 weeks | 6d |
+| 7a — coralDriver AMD (complete) | DRM ioctl dispatch to RX 6950 XT | ✅ Done | 6d |
 | 7b — coralDriver AMD (internalize) | Pure Rust DRM layer | 2-3 weeks | 7a |
 | 7c — coralDriver NVIDIA | nouveau dispatch (if stable) | 3-4 weeks | 7b |
 | 8 — coralGpu | Unified Rust GPU abstraction | 4-6 weeks | 7b |

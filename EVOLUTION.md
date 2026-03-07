@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 5)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 7)
 **Phase**: 10 — Spring Absorption + Compiler Hardening + Debt Reduction
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-832 tests (811 passing, 21 ignored), 14/27 cross-spring WGSL shaders
+904 tests (883 passing, 21 ignored), 14/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
 The compiler pipeline works. Deep debt reduction in progress: scheduler
@@ -256,7 +256,7 @@ Endgame:
 | Module | Before | After | Strategy |
 |--------|--------|-------|----------|
 | `opt_instr_sched_prepass/mod.rs` | 842 LOC monolith | 313 LOC orchestration | Extracted `generate_order.rs` (408), `net_live.rs` (117) by logical boundary |
-| `cfg.rs` | 897 LOC | Kept — 705 production + 192 tests | Dominator analysis is tightly coupled to CFG; splitting would create artificial seams |
+| `cfg.rs` | 897 LOC | **Split** → `cfg/mod.rs` (593) + `cfg/dom.rs` (298) — domain-based split (Iteration 7) |
 
 ### unwrap() Audit
 
@@ -309,7 +309,9 @@ coralreef-core for async I/O and TLS.
 | 8 | coralGpu (unified API) | 797 |
 | 9 | Full sovereignty (zero FFI) | 801 |
 | 10 iter 4 | Spring absorption + compiler hardening | **832** |
-| 10 iter 5 (current) | Ptr tracking fix, scheduler refactor, debt audit | **832** (811 pass, 21 ignore) |
+| 10 iter 5 | Ptr tracking fix, scheduler refactor, debt audit | **832** (811 pass, 21 ignore) |
+| 10 iter 6 | Deep debt internalization, IPC evolution | **856** (836 pass, 20 ignore) |
+| 10 iter 7 (current) | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
 
 ---
 

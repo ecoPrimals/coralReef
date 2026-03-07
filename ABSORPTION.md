@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 5: Debt Reduction)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 7: Safety + Coverage)
 
 ---
 
@@ -28,7 +28,7 @@
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
-| ~~81 WGSL shaders as validation corpus~~ | ~~Yes~~ | ~~P1~~ | **Absorbed** — 27 shaders imported (5 springs), 8 passing SM70 |
+| ~~81 WGSL shaders as validation corpus~~ | ~~Yes~~ | ~~P1~~ | **Absorbed** — 27 shaders imported (5 springs), 14 compiling SM70 |
 | ~~Dielectric Mermin, BCS bisection~~ | ~~Yes~~ | ~~P1~~ | **Imported** — precision shaders (stable W(z), cancellation-safe BCS v²) |
 | ~~SU(3) gauge force~~ | ~~Yes~~ | ~~P1~~ | **Imported** — heavy f64 staple sum + TA projection |
 | ~~Stress virial (MD)~~ | ~~Yes~~ | ~~P2~~ | **Imported** — cross-spring: used by wetSpring for mechanical properties |
@@ -188,10 +188,10 @@ Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 856 tests (836 pass), coralDriver AMD fully wired (BO list, CS submit, fence sync) |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 904 tests (883 pass), coralDriver AMD fully wired (BO list, CS submit, fence sync) |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD driver complete — needs hardware validation on RX 6950 XT |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD driver complete, nouveau explicit `Unsupported` |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 6 in progress |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 7 complete |
 
 ---
 
