@@ -426,12 +426,13 @@ impl FutureReadyInstr {
 
 #[allow(dead_code)]
 pub fn save_graphviz(instrs: &[Box<Instr>], g: &DepGraph) -> std::io::Result<()> {
-    // dot /tmp/instr_dep_graph.dot -Tsvg > /tmp/instr_dep_graph.svg
-
     use std::fs::File;
     use std::io::{BufWriter, Write};
 
-    let file = File::create(std::env::temp_dir().join("instr_dep_graph.dot"))?;
+    let path = std::env::var("CORAL_DEP_GRAPH_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir().join("instr_dep_graph.dot"));
+    let file = File::create(&path)?;
     let mut w = BufWriter::new(file);
 
     writeln!(w, "digraph {{")?;

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![deny(unsafe_code)]
 //! # coral-reef-stubs — Pure-Rust Dependency Replacements
 //!
 //! This crate provides standalone Rust replacements for upstream C dependencies

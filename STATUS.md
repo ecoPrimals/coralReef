@@ -1,6 +1,6 @@
 # coralReef — Status
 
-**Last updated**: March 7, 2026  
+**Last updated**: March 6, 2026  
 **Phase**: 10 — Spring Absorption + Compiler Hardening + Debt Reduction
 
 ---
@@ -19,11 +19,11 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (explicit `Unsupported`), pure Rust syscalls via libc |
 | coralGpu | A | Unified compile+dispatch API, vendor-agnostic `GpuContext` |
-| Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 856 tests (836 passing, 20 ignored), zero failures |
+| Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
+| Tests | A+ | 904 tests (883 passing, 21 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, libc for syscalls, FxHashMap internalized |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
@@ -84,6 +84,21 @@
 | Zero production `unwrap()` / `todo!()` | ✅ | Swept — zero instances in non-test code |
 | Test coverage expansion | ✅ | +24 new tests (lifecycle, health, gpu_arch, IPC, nv/ioctl) |
 
+### Phase 10 — Iteration 7 Completions (Safety Boundary + Coverage)
+
+| Task | Status | Details |
+|------|--------|---------|
+| `#[deny(unsafe_code)]` on non-driver crates | ✅ | 6/8 crates enforce safety at compile time (coral-reef, coralreef-core, coral-gpu, coral-reef-stubs, coral-reef-bitview, coral-reef-isa) |
+| Ioctl struct layout tests | ✅ | 14 tests verify `#[repr(C)]` struct size and field offsets against kernel ABI |
+| `sm_match!` panic eliminated | ✅ | Constructor `ShaderModelInfo::new` asserts `sm >= 20`, macro branches are exhaustive |
+| Debug path configurable | ✅ | `save_graphviz` uses `CORAL_DEP_GRAPH_PATH` env var (falls back to `temp_dir()`) |
+| CFG smart refactoring | ✅ | `cfg.rs` (897 LOC) → `cfg/mod.rs` (593) + `cfg/dom.rs` (298): domain-based split |
+| GEM buffer bounds tests | ✅ | Out-of-bounds write/read return `DriverError`, field access, Debug |
+| NV `u32_slice_as_bytes` tests | ✅ | Empty, single, multi-word byte reinterpretation verified |
+| NV dispatch/sync Unsupported tests | ✅ | Explicit error paths verified |
+| Frontend/compile edge case tests | ✅ | Malformed WGSL, Intel unsupported, `ShaderModelInfo::new` panic, FmaPolicy, CompileOptions accessors |
+| Test coverage expansion | ✅ | 856→904 total tests (883 passing, 21 ignored) |
+
 ### Phase 10 Remaining
 
 | Task | Priority | Blocker |
@@ -99,7 +114,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (856 tests, 20 ignored) |
+| `cargo test --workspace` | PASS (904 tests: 883 passing, 21 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS (0 warnings) |
@@ -133,6 +148,11 @@
 | Sealed FFI boundary | wateringHole sovereignty | `drm_ioctl_typed` pub(crate), `BufferHandle` pub(crate) |
 | `shader.compile.*` semantic naming | wateringHole PRIMAL_IPC_PROTOCOL | JSON-RPC + tarpc |
 | Differentiated IPC error codes | wateringHole PRIMAL_IPC_PROTOCOL | jsonrpc.rs |
+| `#[deny(unsafe_code)]` safety boundary | Rust best practice | 6 non-driver crates |
+| Ioctl struct layout tests | Kernel ABI correctness | 14 tests in amd/ioctl.rs |
+| Constructor-validated invariants | Rust defensive programming | ShaderModelInfo::new asserts sm >= 20 |
+| Configurable debug paths | wateringHole agnostic config | CORAL_DEP_GRAPH_PATH env var |
+| Domain-based module split | Smart refactoring principle | cfg.rs → cfg/{mod,dom}.rs |
 
 ---
 

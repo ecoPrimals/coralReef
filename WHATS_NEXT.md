@@ -154,6 +154,7 @@ the full Spring absorption map.
 - [x] Unsafe helpers: `kernel_ptr`, `read_ioctl_output` (encapsulated pointer ops)
 - [x] Zero production `unwrap()` / `todo!()` / `unimplemented!()`
 - [x] Test coverage: +24 new tests (856 total, 836 passing, 20 ignored)
+- [x] Iteration 7: +48 tests → 904 total (883 passing, 21 ignored), `#[deny(unsafe_code)]` on 6 crates, ioctl layout tests, cfg.rs domain-split
 
 ### P3 — Remaining debt
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
@@ -163,5 +164,5 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 14/27 cross-spring shaders compile to native SASS.
-856 tests, zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+904 tests, zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD driver fully wired. All pure Rust. The Titan V has never heard of NVIDIA.*

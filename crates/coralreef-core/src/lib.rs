@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![deny(unsafe_code)]
 //! # coralReef Core
 //!
 //! Core primal library for coralReef — a sovereign Rust GPU compiler.

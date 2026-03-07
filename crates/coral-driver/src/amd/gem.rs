@@ -174,3 +174,63 @@ impl GemBuffer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gem_buffer_fields() {
+        let buf = GemBuffer {
+            gem_handle: 42,
+            size: 4096,
+            gpu_va: 0x1000,
+            domain: MemoryDomain::Vram,
+        };
+        assert_eq!(buf.gem_handle, 42);
+        assert_eq!(buf.size, 4096);
+        assert_eq!(buf.gpu_va, 0x1000);
+        assert!(matches!(buf.domain, MemoryDomain::Vram));
+    }
+
+    #[test]
+    fn gem_buffer_debug() {
+        let buf = GemBuffer {
+            gem_handle: 1,
+            size: 256,
+            gpu_va: 0x2000,
+            domain: MemoryDomain::Gtt,
+        };
+        let dbg = format!("{buf:?}");
+        assert!(dbg.contains("GemBuffer"));
+        assert!(dbg.contains("256"));
+    }
+
+    #[test]
+    fn write_out_of_bounds_returns_error() {
+        let buf = GemBuffer {
+            gem_handle: 0,
+            size: 100,
+            gpu_va: 0,
+            domain: MemoryDomain::Vram,
+        };
+        // Write beyond buffer size - should fail at bounds check before ioctl
+        let result = buf.write(-1, 50, &[0u8; 100]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn read_out_of_bounds_returns_error() {
+        let buf = GemBuffer {
+            gem_handle: 0,
+            size: 100,
+            gpu_va: 0,
+            domain: MemoryDomain::Vram,
+        };
+        // Read beyond buffer size
+        let result = buf.read(-1, 50, 100);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
+}

@@ -65,6 +65,19 @@ impl NvDevice {
         self.next_handle += 1;
         h
     }
+
+    /// Create a minimal `NvDevice` for testing Unsupported stub paths.
+    /// Uses any available DRM render node; dispatch/sync do not require nouveau.
+    #[cfg(test)]
+    fn new_for_testing() -> DriverResult<Self> {
+        let drm = DrmDevice::open_default()?;
+        Ok(Self {
+            drm,
+            channel: 0,
+            buffers: HashMap::new(),
+            next_handle: 1,
+        })
+    }
 }
 
 impl ComputeDevice for NvDevice {
@@ -141,5 +154,28 @@ impl Drop for NvDevice {
             let _ = self.free(h);
         }
         let _ = ioctl::destroy_channel(self.drm.fd(), self.channel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_returns_unsupported() {
+        let mut dev = NvDevice::new_for_testing().expect("need a DRM render node for test");
+        let err = dev
+            .dispatch(&[], &[], DispatchDims::new(1, 1, 1))
+            .unwrap_err();
+        assert!(matches!(err, DriverError::Unsupported(_)));
+        assert!(err.to_string().contains("nouveau compute dispatch"));
+    }
+
+    #[test]
+    fn sync_returns_unsupported() {
+        let dev = NvDevice::new_for_testing().expect("need a DRM render node for test");
+        let err = dev.sync().unwrap_err();
+        assert!(matches!(err, DriverError::Unsupported(_)));
+        assert!(err.to_string().contains("nouveau fence sync"));
     }
 }

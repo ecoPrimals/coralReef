@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
+#![deny(unsafe_code)]
 //! # coral-gpu — Unified GPU Compute
 //!
 //! Sovereign GPU compute abstraction: compile WGSL → native binary →

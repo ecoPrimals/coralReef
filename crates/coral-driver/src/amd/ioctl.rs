@@ -452,3 +452,148 @@ pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) ->
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::{offset_of, size_of};
+
+    #[test]
+    fn gem_create_layout() {
+        assert_eq!(size_of::<AmdgpuGemCreate>(), 40);
+        assert_eq!(offset_of!(AmdgpuGemCreate, bo_size), 0);
+        assert_eq!(offset_of!(AmdgpuGemCreate, alignment), 8);
+        assert_eq!(offset_of!(AmdgpuGemCreate, domains), 16);
+        assert_eq!(offset_of!(AmdgpuGemCreate, domain_flags), 24);
+        assert_eq!(offset_of!(AmdgpuGemCreate, handle), 32);
+        assert_eq!(offset_of!(AmdgpuGemCreate, pad), 36);
+    }
+
+    #[test]
+    fn gem_mmap_layout() {
+        assert_eq!(size_of::<AmdgpuGemMmap>(), 16);
+        assert_eq!(offset_of!(AmdgpuGemMmap, handle), 0);
+        assert_eq!(offset_of!(AmdgpuGemMmap, offset), 8);
+    }
+
+    #[test]
+    fn ctx_layout() {
+        assert_eq!(size_of::<AmdgpuCtx>(), 16);
+        assert_eq!(offset_of!(AmdgpuCtx, op), 0);
+        assert_eq!(offset_of!(AmdgpuCtx, flags), 4);
+        assert_eq!(offset_of!(AmdgpuCtx, ctx_id), 8);
+    }
+
+    #[test]
+    fn gem_va_layout() {
+        assert_eq!(size_of::<AmdgpuGemVa>(), 40);
+        assert_eq!(offset_of!(AmdgpuGemVa, handle), 0);
+        assert_eq!(offset_of!(AmdgpuGemVa, operation), 8);
+        assert_eq!(offset_of!(AmdgpuGemVa, flags), 12);
+        assert_eq!(offset_of!(AmdgpuGemVa, va_address), 16);
+        assert_eq!(offset_of!(AmdgpuGemVa, offset_in_bo), 24);
+        assert_eq!(offset_of!(AmdgpuGemVa, map_size), 32);
+    }
+
+    #[test]
+    fn bo_list_entry_layout() {
+        assert_eq!(size_of::<AmdgpuBoListEntry>(), 8);
+        assert_eq!(offset_of!(AmdgpuBoListEntry, bo_handle), 0);
+        assert_eq!(offset_of!(AmdgpuBoListEntry, bo_priority), 4);
+    }
+
+    #[test]
+    fn bo_list_in_layout() {
+        assert_eq!(size_of::<AmdgpuBoListIn>(), 24);
+        assert_eq!(offset_of!(AmdgpuBoListIn, operation), 0);
+        assert_eq!(offset_of!(AmdgpuBoListIn, list_handle), 4);
+        assert_eq!(offset_of!(AmdgpuBoListIn, bo_number), 8);
+        assert_eq!(offset_of!(AmdgpuBoListIn, bo_info_size), 12);
+        assert_eq!(offset_of!(AmdgpuBoListIn, bo_info_ptr), 16);
+    }
+
+    #[test]
+    fn cs_chunk_layout() {
+        assert_eq!(size_of::<AmdgpuCsChunk>(), 16);
+        assert_eq!(offset_of!(AmdgpuCsChunk, chunk_id), 0);
+        assert_eq!(offset_of!(AmdgpuCsChunk, length_dw), 4);
+        assert_eq!(offset_of!(AmdgpuCsChunk, chunk_data), 8);
+    }
+
+    #[test]
+    fn cs_chunk_ib_layout() {
+        assert_eq!(size_of::<AmdgpuCsChunkIb>(), 32);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, pad), 0);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, flags), 4);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, va_start), 8);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, ib_bytes), 16);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, ip_type), 20);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, ip_instance), 24);
+        assert_eq!(offset_of!(AmdgpuCsChunkIb, ring), 28);
+    }
+
+    #[test]
+    fn cs_in_layout() {
+        assert_eq!(size_of::<AmdgpuCsIn>(), 24);
+        assert_eq!(offset_of!(AmdgpuCsIn, ctx_id), 0);
+        assert_eq!(offset_of!(AmdgpuCsIn, bo_list_handle), 4);
+        assert_eq!(offset_of!(AmdgpuCsIn, num_chunks), 8);
+        assert_eq!(offset_of!(AmdgpuCsIn, flags), 12);
+        assert_eq!(offset_of!(AmdgpuCsIn, chunks), 16);
+    }
+
+    #[test]
+    fn wait_cs_in_layout() {
+        assert_eq!(size_of::<AmdgpuWaitCsIn>(), 32);
+        assert_eq!(offset_of!(AmdgpuWaitCsIn, handle), 0);
+        assert_eq!(offset_of!(AmdgpuWaitCsIn, timeout), 8);
+        assert_eq!(offset_of!(AmdgpuWaitCsIn, ip_type), 16);
+        assert_eq!(offset_of!(AmdgpuWaitCsIn, ip_instance), 20);
+        assert_eq!(offset_of!(AmdgpuWaitCsIn, ring), 24);
+        assert_eq!(offset_of!(AmdgpuWaitCsIn, ctx_id), 28);
+    }
+
+    #[test]
+    fn size_of_u32_helper() {
+        assert_eq!(size_of_u32::<AmdgpuGemCreate>(), 40);
+        assert_eq!(size_of_u32::<AmdgpuCtx>(), 16);
+        assert_eq!(size_of_u32::<AmdgpuGemMmap>(), 16);
+        assert_eq!(size_of_u32::<AmdgpuGemVa>(), 40);
+        assert_eq!(size_of_u32::<AmdgpuBoListIn>(), 24);
+        assert_eq!(size_of_u32::<AmdgpuCsIn>(), 24);
+        assert_eq!(size_of_u32::<AmdgpuWaitCsIn>(), 32);
+    }
+
+    #[test]
+    fn read_ioctl_output_extracts_first_field() {
+        let cs = AmdgpuCsIn {
+            ctx_id: 0xDEAD_BEEF,
+            bo_list_handle: 0xCAFE,
+            ..Default::default()
+        };
+        let out: u32 = unsafe { read_ioctl_output(&cs) };
+        assert_eq!(out, 0xDEAD_BEEF);
+    }
+
+    #[test]
+    fn kernel_ptr_round_trips() {
+        let val: u32 = 42;
+        let ptr = kernel_ptr(&val);
+        assert_eq!(ptr, std::ptr::from_ref(&val) as u64);
+    }
+
+    #[test]
+    fn default_structs_are_zeroed() {
+        let gem = AmdgpuGemCreate::default();
+        assert_eq!(gem.bo_size, 0);
+        assert_eq!(gem.handle, 0);
+
+        let ctx = AmdgpuCtx::default();
+        assert_eq!(ctx.op, 0);
+        assert_eq!(ctx.ctx_id, 0);
+
+        let wait = AmdgpuWaitCsIn::default();
+        assert_eq!(wait.handle, 0);
+        assert_eq!(wait.timeout, 0);
+    }
+}

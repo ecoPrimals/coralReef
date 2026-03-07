@@ -437,7 +437,11 @@ pub struct ShaderModelInfo {
 }
 
 impl ShaderModelInfo {
+    /// # Panics
+    ///
+    /// Panics if `sm < 20`. All NVIDIA shader models are SM 2.0+.
     pub fn new(sm: u8, warps_per_sm: u8) -> Self {
+        assert!(sm >= 20, "NVIDIA shader model must be >= SM 2.0, got {sm}");
         Self { sm, warps_per_sm }
     }
 }
@@ -453,16 +457,16 @@ macro_rules! sm_match {
         } else if $self.sm >= 32 {
             let $x = ShaderModel32::new($self.sm);
             $y
-        } else if $self.sm >= 20 {
+        } else {
             let $x = ShaderModel20::new($self.sm);
             $y
-        } else {
-            panic!("Unsupported shader model");
         }
     };
 }
 
-/// Like sm_match! but returns Result for pipeline entry points that can fail.
+/// Like sm_match! but wraps the result in `Ok(...)`.
+///
+/// Constructor invariant (`sm >= 20`) guarantees all branches are reachable.
 macro_rules! sm_match_result {
     ($self: expr, |$x: ident| $y: expr) => {{
         if $self.sm >= 70 {
@@ -474,13 +478,9 @@ macro_rules! sm_match_result {
         } else if $self.sm >= 32 {
             let $x = ShaderModel32::new($self.sm);
             Ok($y)
-        } else if $self.sm >= 20 {
+        } else {
             let $x = ShaderModel20::new($self.sm);
             Ok($y)
-        } else {
-            Err(CompileError::UnsupportedArch(
-                format!("sm_{}", $self.sm).into(),
-            ))
         }
     }};
 }

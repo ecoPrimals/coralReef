@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![deny(unsafe_code)]
 //! # coral-reef — Sovereign Rust GPU Compiler
 //!
 //! Multi-vendor GPU compiler: WGSL/SPIR-V → vendor-specific binary.
@@ -427,6 +428,113 @@ mod tests {
         assert!(
             !amd_bin.is_empty(),
             "AMD binary should contain at least s_endpgm"
+        );
+
+        // NVIDIA binary includes SPH header (32 bytes); compute shaders use zeroed header
+        assert!(
+            nv_bin.len() >= 32,
+            "NVIDIA binary should have at least 32 bytes (SPH header)"
+        );
+        // AMD binary has no SPH header — size difference confirms structural difference
+    }
+
+    #[test]
+    #[should_panic(expected = "NVIDIA shader model must be >= SM 2.0")]
+    fn test_shader_model_info_new_panics_for_sm_below_20() {
+        let _ = codegen::ir::ShaderModelInfo::new(19, 4);
+    }
+
+    #[test]
+    fn test_fma_policy_default() {
+        assert_eq!(FmaPolicy::default(), FmaPolicy::AllowFusion);
+    }
+
+    #[test]
+    fn test_fma_policy_debug() {
+        let dbg = format!("{:?}", FmaPolicy::AllowFusion);
+        assert!(dbg.contains("AllowFusion"));
+        let dbg = format!("{:?}", FmaPolicy::NoContraction);
+        assert!(dbg.contains("NoContraction"));
+    }
+
+    #[test]
+    fn test_fma_policy_equality() {
+        assert_eq!(FmaPolicy::AllowFusion, FmaPolicy::AllowFusion);
+        assert_eq!(FmaPolicy::NoContraction, FmaPolicy::NoContraction);
+        assert_ne!(FmaPolicy::AllowFusion, FmaPolicy::NoContraction);
+    }
+
+    #[test]
+    fn test_compile_options_nv_arch() {
+        let nv_opts = CompileOptions {
+            target: GpuTarget::Nvidia(NvArch::Sm86),
+            ..CompileOptions::default()
+        };
+        let amd_opts = CompileOptions {
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+            ..CompileOptions::default()
+        };
+        assert_eq!(nv_opts.nv_arch(), Some(NvArch::Sm86));
+        assert_eq!(amd_opts.nv_arch(), None);
+    }
+
+    #[test]
+    fn test_compile_options_amd_arch() {
+        let nv_opts = CompileOptions {
+            target: GpuTarget::Nvidia(NvArch::Sm86),
+            ..CompileOptions::default()
+        };
+        let amd_opts = CompileOptions {
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+            ..CompileOptions::default()
+        };
+        assert_eq!(amd_opts.amd_arch(), Some(AmdArch::Rdna2));
+        assert_eq!(nv_opts.amd_arch(), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "CompileOptions::arch() called on non-NVIDIA target")]
+    fn test_compile_options_arch_panics_for_amd() {
+        let opts = CompileOptions {
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+            ..CompileOptions::default()
+        };
+        let _ = opts.arch();
+    }
+
+    #[test]
+    fn test_compile_wgsl_malformed_returns_error() {
+        let opts = CompileOptions::default();
+        let result = compile_wgsl("not valid wgsl", &opts);
+        assert!(
+            result.is_err(),
+            "malformed WGSL should return error: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_intel_returns_unsupported_arch() {
+        let opts = CompileOptions {
+            target: GpuTarget::Intel(IntelArch::XeHpg),
+            ..CompileOptions::default()
+        };
+        let result = compile_wgsl("@compute @workgroup_size(1) fn main() {}", &opts);
+        assert!(
+            matches!(result, Err(CompileError::UnsupportedArch(_))),
+            "compile_wgsl with Intel target should return UnsupportedArch: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_intel_returns_unsupported_arch() {
+        let opts = CompileOptions {
+            target: GpuTarget::Intel(IntelArch::XeHpg),
+            ..CompileOptions::default()
+        };
+        let result = compile(&[0x0723_0203], &opts);
+        assert!(
+            matches!(result, Err(CompileError::UnsupportedArch(_))),
+            "compile with Intel target should return UnsupportedArch: {result:?}"
         );
     }
 }

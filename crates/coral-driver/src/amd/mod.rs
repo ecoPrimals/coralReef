@@ -168,3 +168,35 @@ impl Drop for AmdDevice {
         let _ = ioctl::destroy_context(self.drm.fd(), self.ctx_handle);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn u32_slice_as_bytes_empty() {
+        let words: &[u32] = &[];
+        let bytes = u32_slice_as_bytes(words);
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn u32_slice_as_bytes_single_u32_little_endian() {
+        let words: &[u32] = &[0x1234_5678];
+        let bytes = u32_slice_as_bytes(words);
+        assert_eq!(bytes.len(), 4);
+        assert_eq!(bytes[0], 0x78);
+        assert_eq!(bytes[1], 0x56);
+        assert_eq!(bytes[2], 0x34);
+        assert_eq!(bytes[3], 0x12);
+    }
+
+    #[test]
+    fn u32_slice_as_bytes_multi_word() {
+        let words: &[u32] = &[0xDEAD_BEEF, 0xCAFE_BABE];
+        let bytes = u32_slice_as_bytes(words);
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(bytes[0..4], [0xEF, 0xBE, 0xAD, 0xDE]);
+        assert_eq!(bytes[4..8], [0xBE, 0xBA, 0xFE, 0xCA]);
+    }
+}

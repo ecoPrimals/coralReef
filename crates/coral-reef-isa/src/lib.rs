@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![deny(unsafe_code)]
 //! # coral-reef-isa — GPU ISA Tables
 //!
 //! Instruction encoding tables and latency data for GPU architectures.
