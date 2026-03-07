@@ -510,7 +510,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::assertions_on_constants)]
+    #[expect(
+        clippy::assertions_on_constants,
+        reason = "compile-time validation of header constants"
+    )]
     fn qmdv00_06_field_ranges_within_max_bit() {
         use classes::cla0c0::qmd;
         assert!(qmd::QMDV00_06_CTA_RASTER_WIDTH.end <= qmd::QMDV00_06_MAX_BIT + 1);

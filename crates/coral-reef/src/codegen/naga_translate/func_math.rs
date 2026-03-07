@@ -395,9 +395,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     Ok(dst.into())
                 }
             }
-            _ => Err(CompileError::NotImplemented(format!(
-                "math function {fun:?} not yet supported"
-            ))),
+            _ => Err(CompileError::NotImplemented(
+                format!("math function {fun:?} not yet supported").into(),
+            )),
         }
     }
 

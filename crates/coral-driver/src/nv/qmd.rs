@@ -16,7 +16,12 @@ pub const QMD_SIZE_WORDS: usize = 16;
 /// Build a compute QMD for dispatch.
 ///
 /// Returns the QMD as fixed-size array suitable for pushbuf submission.
-pub fn build_compute_qmd(
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "QMD register fields are 32-bit"
+)]
+pub const fn build_compute_qmd(
     shader_va: u64,
     dims: DispatchDims,
     _code_size: u32,
@@ -32,9 +37,9 @@ pub fn build_compute_qmd(
     qmd[4] = dims.z;
 
     // QMD word 8: shader address (low 32 bits, 256-byte aligned)
-    qmd[8] = (shader_va >> 8) as u32;
+    qmd[8] = (shader_va >> 8) as u32; // intentional truncation: ISA field is 32-bit
     // QMD word 9: shader address (high 32 bits)
-    qmd[9] = (shader_va >> 40) as u32;
+    qmd[9] = (shader_va >> 40) as u32; // intentional truncation: ISA field is 32-bit
 
     // QMD word 10: GPR allocation (16 GPRs, 16 UGPRs)
     let gpr_alloc = 16_u32;
@@ -60,7 +65,12 @@ mod tests {
     fn qmd_shader_address() {
         let va = 0x0001_0000_0000_u64;
         let qmd = build_compute_qmd(va, DispatchDims::linear(1), 256);
-        assert_eq!(qmd[8], (va >> 8) as u32);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "test value is known to fit"
+        )]
+        let expected = (va >> 8) as u32;
+        assert_eq!(qmd[8], expected);
     }
 
     #[test]

@@ -49,7 +49,7 @@ impl MemType {
     /// # Panics
     ///
     /// Panics if `size` is not 1, 2, 4, 8, or 16.
-    #[allow(clippy::missing_const_for_fn)]
+    #[expect(clippy::missing_const_for_fn, reason = "calls non-const .expect()")]
     pub fn from_size(size: u8, is_signed: bool) -> Self {
         Self::try_from_size(size, is_signed).expect("invalid memory load/store size")
     }

@@ -191,9 +191,9 @@ impl VtgIoInfo {
         } else if addr >= 0x3a0 && addr < 0x3c0 {
             self.sysvals_out_d & (1 << ((addr - 0x3a0) / 4)) != 0
         } else {
-            return Err(CompileError::InvalidInput(format!(
-                "unknown I/O address 0x{addr:03x}"
-            )));
+            return Err(CompileError::InvalidInput(
+                format!("unknown I/O address 0x{addr:03x}").into(),
+            ));
         })
     }
 
@@ -245,9 +245,9 @@ impl FragmentIoInfo {
 
     pub fn mark_barycentric_attr_in(&mut self, addr: u16) -> Result<(), CompileError> {
         if !(addr >= 0x80 && addr < 0x280) {
-            return Err(CompileError::InvalidInput(format!(
-                "barycentric attr addr 0x{addr:03x} out of range 0x080..0x280"
-            )));
+            return Err(CompileError::InvalidInput(
+                format!("barycentric attr addr 0x{addr:03x} out of range 0x080..0x280").into(),
+            ));
         }
         let attr_idx = (addr - 0x080) as usize / 4;
         self.barycentric_attr_in.set_bit(attr_idx, true);
@@ -478,7 +478,9 @@ macro_rules! sm_match_result {
             let $x = ShaderModel20::new($self.sm);
             Ok($y)
         } else {
-            Err(CompileError::UnsupportedArch(format!("sm_{}", $self.sm)))
+            Err(CompileError::UnsupportedArch(
+                format!("sm_{}", $self.sm).into(),
+            ))
         }
     }};
 }

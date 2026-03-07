@@ -102,7 +102,7 @@ impl IntType {
     /// # Panics
     ///
     /// Panics if `bits` is not 8, 16, 32, or 64.
-    #[allow(clippy::missing_const_for_fn)]
+    #[expect(clippy::missing_const_for_fn, reason = "calls non-const .expect()")]
     pub fn from_bits(bits: usize, is_signed: bool) -> Self {
         Self::try_from_bits(bits, is_signed).expect("invalid integer type bit width")
     }

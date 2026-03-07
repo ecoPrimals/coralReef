@@ -147,11 +147,11 @@ early returns with standard control flow to ensure expr_map insertion.
 |-----------|--------|-----------|
 | DRM open/close | **Done** | — |
 | GEM create/mmap | **Done** | — |
-| GEM close | **Done** | Real `DRM_IOCTL_GEM_CLOSE` |
+| GEM close | **Done** | — |
 | PM4 command buffer | **Done** | SET_SH_REG + DISPATCH_DIRECT |
-| BO list (buffer tracking) | Scaffold | `DRM_AMDGPU_BO_LIST` ioctl |
-| CS submit | Scaffold | `DRM_AMDGPU_CS` with IB + BO list |
-| Fence wait | Not started | `DRM_AMDGPU_WAIT_CS` |
+| BO list (buffer tracking) | **Done** | `DRM_AMDGPU_BO_LIST` create/destroy ioctl |
+| CS submit | **Done** | `DRM_AMDGPU_CS` with IB + BO list |
+| Fence wait | **Done** | `DRM_AMDGPU_WAIT_CS` with 5s timeout |
 | **Hardware validation** | **Not started** | RX 6950 XT on-site |
 
 ### NVIDIA (nouveau DRM)
@@ -159,11 +159,12 @@ early returns with standard control flow to ensure expr_map insertion.
 | Component | Status | Next Step |
 |-----------|--------|-----------|
 | DRM open/close | **Done** | — |
-| Channel create/destroy | Scaffold | — |
-| GEM alloc | Scaffold | — |
+| Channel create/destroy | **Unsupported** | Returns explicit `DriverError::Unsupported` |
+| GEM alloc | **Unsupported** | Returns explicit `DriverError::Unsupported` |
+| GEM close | **Done** | Real `DRM_IOCTL_GEM_CLOSE` ioctl |
 | QMD v3.0 (SM86) | **Done** | Ampere compute dispatch descriptor |
-| Pushbuf submit | Not started | nouveau SUBMIT ioctl |
-| Fence wait | Not started | — |
+| Pushbuf submit | **Unsupported** | Requires hardware validation path |
+| Fence wait | **Unsupported** | Requires hardware validation path |
 | **Hardware validation** | **Not started** | RTX 3090 on-site |
 
 ### Evolution Path

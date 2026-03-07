@@ -139,7 +139,10 @@ pub fn compare_all(reference: &[f64], actual: &[f64], tier: f64) -> ComparisonSu
         passed,
         failed,
         max_diff,
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "tolerance comparison: precision loss is acceptable for ULP comparison"
+        )]
         mean_diff: if total > 0 {
             sum_diff / total as f64
         } else {

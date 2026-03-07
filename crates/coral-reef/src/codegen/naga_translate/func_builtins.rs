@@ -133,9 +133,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }));
                 Ok(v)
             }
-            other => Err(CompileError::NotImplemented(format!(
-                "builtin {other:?} not yet supported"
-            ))),
+            other => Err(CompileError::NotImplemented(
+                format!("builtin {other:?} not yet supported").into(),
+            )),
         }
     }
 

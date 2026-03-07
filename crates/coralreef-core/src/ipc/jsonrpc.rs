@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! JSON-RPC 2.0 server — semantic method names per wateringHole standard.
+//!
+//! Method namespace: `shader.compile.*` — aligned with capability
+//! advertisement (`shader.compile`) per `SEMANTIC_METHOD_NAMING_STANDARD`.
 
 use std::net::SocketAddr;
 
+use coral_reef::CompileError;
 use jsonrpsee::core::async_trait;
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::server::{Server, ServerHandle};
@@ -12,59 +16,76 @@ use crate::service;
 
 use super::IpcError;
 
+/// Application-defined JSON-RPC error codes (server error range: -32000..-32099).
+///
+/// Per wateringHole `PRIMAL_IPC_PROTOCOL` v2.0.
+const JSONRPC_INVALID_INPUT: i32 = -32001;
+const JSONRPC_NOT_IMPLEMENTED: i32 = -32002;
+const JSONRPC_UNSUPPORTED_ARCH: i32 = -32003;
+const JSONRPC_INTERNAL_COMPILE: i32 = -32000;
+
+fn compile_error_to_rpc(e: &CompileError) -> ErrorObjectOwned {
+    let code = match e {
+        CompileError::InvalidInput(_) => JSONRPC_INVALID_INPUT,
+        CompileError::NotImplemented(_) => JSONRPC_NOT_IMPLEMENTED,
+        CompileError::UnsupportedArch(_) => JSONRPC_UNSUPPORTED_ARCH,
+        _ => JSONRPC_INTERNAL_COMPILE,
+    };
+    ErrorObjectOwned::owned(code, e.to_string(), None::<()>)
+}
+
 /// JSON-RPC 2.0 API definition.
 ///
-/// Method names follow `domain.operation` format.
+/// Method names follow `shader.compile.*` — aligned with capability
+/// advertisement and wateringHole `SEMANTIC_METHOD_NAMING_STANDARD`.
 #[rpc(server)]
 trait CoralReefRpc {
-    /// `compiler.compile` — compile SPIR-V to native GPU binary.
-    #[method(name = "compiler.compile")]
-    async fn compiler_compile(
+    /// `shader.compile.spirv` — compile SPIR-V to native GPU binary.
+    #[method(name = "shader.compile.spirv")]
+    async fn shader_compile_spirv(
         &self,
         request: service::CompileRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned>;
 
-    /// `compiler.compile_wgsl` — compile WGSL source to native GPU binary.
-    #[method(name = "compiler.compile_wgsl")]
-    async fn compiler_compile_wgsl(
+    /// `shader.compile.wgsl` — compile WGSL source to native GPU binary.
+    #[method(name = "shader.compile.wgsl")]
+    async fn shader_compile_wgsl(
         &self,
         request: service::CompileWgslRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned>;
 
-    /// `compiler.health` — health check.
-    #[method(name = "compiler.health")]
-    async fn compiler_health(&self) -> Result<service::HealthResponse, ErrorObjectOwned>;
+    /// `shader.compile.status` — health/status check.
+    #[method(name = "shader.compile.status")]
+    async fn shader_compile_status(&self) -> Result<service::HealthResponse, ErrorObjectOwned>;
 
-    /// `compiler.supported_archs` — list supported GPU architectures.
-    #[method(name = "compiler.supported_archs")]
-    async fn compiler_supported_archs(&self) -> Result<Vec<String>, ErrorObjectOwned>;
+    /// `shader.compile.capabilities` — list supported GPU architectures.
+    #[method(name = "shader.compile.capabilities")]
+    async fn shader_compile_capabilities(&self) -> Result<Vec<String>, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
 
 #[async_trait]
 impl CoralReefRpcServer for RpcImpl {
-    async fn compiler_compile(
+    async fn shader_compile_spirv(
         &self,
         request: service::CompileRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned> {
-        service::handle_compile(&request)
-            .map_err(|e| ErrorObjectOwned::owned(-32000, e.to_string(), None::<()>))
+        service::handle_compile(&request).map_err(|e| compile_error_to_rpc(&e))
     }
 
-    async fn compiler_compile_wgsl(
+    async fn shader_compile_wgsl(
         &self,
         request: service::CompileWgslRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned> {
-        service::handle_compile_wgsl(&request)
-            .map_err(|e| ErrorObjectOwned::owned(-32000, e.to_string(), None::<()>))
+        service::handle_compile_wgsl(&request).map_err(|e| compile_error_to_rpc(&e))
     }
 
-    async fn compiler_health(&self) -> Result<service::HealthResponse, ErrorObjectOwned> {
+    async fn shader_compile_status(&self) -> Result<service::HealthResponse, ErrorObjectOwned> {
         Ok(service::handle_health())
     }
 
-    async fn compiler_supported_archs(&self) -> Result<Vec<String>, ErrorObjectOwned> {
+    async fn shader_compile_capabilities(&self) -> Result<Vec<String>, ErrorObjectOwned> {
         let health = service::handle_health();
         Ok(health.supported_archs)
     }

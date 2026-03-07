@@ -4,6 +4,7 @@
 //! Each primal manages its own state transitions. No compile-time coupling to
 //! other primals; discovery happens at runtime via capability-based IPC.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -58,11 +59,11 @@ impl fmt::Display for PrimalState {
 pub enum PrimalError {
     /// Invalid state transition.
     #[error("lifecycle error: {0}")]
-    Lifecycle(String),
+    Lifecycle(Cow<'static, str>),
 
     /// Health check failure.
     #[error("health error: {0}")]
-    Health(String),
+    Health(Cow<'static, str>),
 
     /// I/O failure.
     #[error("I/O error: {0}")]
@@ -70,12 +71,12 @@ pub enum PrimalError {
 
     /// Internal error.
     #[error("internal error: {0}")]
-    Internal(String),
+    Internal(Cow<'static, str>),
 }
 
 impl PrimalError {
     /// Create a lifecycle error.
-    pub fn lifecycle(msg: impl Into<String>) -> Self {
+    pub fn lifecycle(msg: impl Into<Cow<'static, str>>) -> Self {
         Self::Lifecycle(msg.into())
     }
 }
@@ -109,6 +110,14 @@ mod tests {
     }
 
     #[test]
+    fn is_running() {
+        assert!(PrimalState::Running.is_running());
+        assert!(!PrimalState::Created.is_running());
+        assert!(!PrimalState::Stopped.is_running());
+        assert!(!PrimalState::Failed.is_running());
+    }
+
+    #[test]
     fn state_display() {
         assert_eq!(PrimalState::Created.to_string(), "created");
         assert_eq!(PrimalState::Running.to_string(), "running");
@@ -117,9 +126,42 @@ mod tests {
     }
 
     #[test]
-    fn error_display() {
+    fn error_lifecycle() {
         let e = PrimalError::lifecycle("cannot start");
         assert!(e.to_string().contains("lifecycle"));
         assert!(e.to_string().contains("cannot start"));
+    }
+
+    #[test]
+    fn error_lifecycle_static_is_zero_alloc() {
+        let e = PrimalError::Lifecycle("static message".into());
+        assert!(e.to_string().contains("static message"));
+    }
+
+    #[test]
+    fn error_health() {
+        let e = PrimalError::Health("check failed".into());
+        assert!(e.to_string().contains("health"));
+        assert!(e.to_string().contains("check failed"));
+    }
+
+    #[test]
+    fn error_internal() {
+        let e = PrimalError::Internal("unexpected state".into());
+        assert!(e.to_string().contains("internal"));
+        assert!(e.to_string().contains("unexpected state"));
+    }
+
+    #[test]
+    fn error_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let e: PrimalError = io_err.into();
+        assert!(e.to_string().contains("file missing"));
+    }
+
+    #[test]
+    fn error_is_std_error() {
+        let e: Box<dyn std::error::Error> = Box::new(PrimalError::lifecycle("test"));
+        assert!(e.to_string().contains("test"));
     }
 }

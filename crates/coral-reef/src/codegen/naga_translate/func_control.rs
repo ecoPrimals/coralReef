@@ -105,9 +105,6 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 self.push_instr(Instr::new(phi_dsts));
             }
-
-            self.dead_code = false;
-            self.current_block_id = None;
         } else {
             let reject_label = self.label_alloc.alloc();
 
@@ -213,10 +210,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 self.push_instr(Instr::new(phi_dsts));
             }
-
-            self.dead_code = false;
-            self.current_block_id = None;
         }
+
+        self.dead_code = false;
+        self.current_block_id = None;
 
         Ok(())
     }

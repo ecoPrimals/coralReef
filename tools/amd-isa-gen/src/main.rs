@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
-//! Pure Rust AMD ISA table generator — replaces gen_rdna2_opcodes.py.
+//! Pure Rust AMD ISA table generator — replaces `gen_rdna2_opcodes.py`.
 //!
 //! Parses AMD's machine-readable ISA XML specification and generates
 //! Rust source code with encoding field layouts and opcode tables.
@@ -73,8 +73,7 @@ fn repo_root() -> PathBuf {
     PathBuf::from(manifest_dir)
         .parent()
         .and_then(|p| p.parent())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
+        .map_or_else(|| PathBuf::from("."), std::path::Path::to_path_buf)
 }
 
 fn parse_xml(
@@ -511,7 +510,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    let total: usize = instructions.values().map(|v| v.len()).sum();
+    let total: usize = instructions.values().map(std::vec::Vec::len).sum();
     println!("Generated {}", output_path.display());
     println!("  Encodings: {}", encoding_fields.len());
     println!("  Instructions: {total}");

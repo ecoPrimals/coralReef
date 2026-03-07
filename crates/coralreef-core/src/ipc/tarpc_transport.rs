@@ -10,29 +10,31 @@ use super::{BoundAddr, IpcError};
 
 /// tarpc service definition.
 ///
-/// Method names are bare (`compile`, `compile_wgsl`, `health`) —
-/// the trait name `CoralReefTarpc` already provides the namespace.
-/// JSON-RPC equivalents use the `compiler.{method}` dotted form.
+/// Method names align with `shader.compile.*` JSON-RPC endpoints.
+/// The trait name `ShaderCompileTarpc` provides the namespace;
+/// methods use bare names per tarpc convention.
 #[tarpc::service]
-pub trait CoralReefTarpc {
-    /// Compile SPIR-V to native GPU binary.
-    async fn compile(request: service::CompileRequest) -> Result<service::CompileResponse, String>;
+pub trait ShaderCompileTarpc {
+    /// Compile SPIR-V to native GPU binary (`shader.compile.spirv`).
+    async fn spirv(request: service::CompileRequest) -> Result<service::CompileResponse, String>;
 
-    /// Compile WGSL source to native GPU binary.
-    async fn compile_wgsl(
-        request: service::CompileWgslRequest,
-    ) -> Result<service::CompileResponse, String>;
+    /// Compile WGSL source to native GPU binary (`shader.compile.wgsl`).
+    async fn wgsl(request: service::CompileWgslRequest)
+    -> Result<service::CompileResponse, String>;
 
-    /// Health check.
-    async fn health() -> service::HealthResponse;
+    /// Health/status check (`shader.compile.status`).
+    async fn status() -> service::HealthResponse;
+
+    /// List supported GPU architectures (`shader.compile.capabilities`).
+    async fn capabilities() -> Vec<String>;
 }
 
 /// tarpc server implementation.
 #[derive(Clone)]
 struct TarpcServer;
 
-impl CoralReefTarpc for TarpcServer {
-    async fn compile(
+impl ShaderCompileTarpc for TarpcServer {
+    async fn spirv(
         self,
         _ctx: tarpc::context::Context,
         request: service::CompileRequest,
@@ -40,7 +42,7 @@ impl CoralReefTarpc for TarpcServer {
         service::handle_compile(&request).map_err(|e| e.to_string())
     }
 
-    async fn compile_wgsl(
+    async fn wgsl(
         self,
         _ctx: tarpc::context::Context,
         request: service::CompileWgslRequest,
@@ -48,8 +50,12 @@ impl CoralReefTarpc for TarpcServer {
         service::handle_compile_wgsl(&request).map_err(|e| e.to_string())
     }
 
-    async fn health(self, _ctx: tarpc::context::Context) -> service::HealthResponse {
+    async fn status(self, _ctx: tarpc::context::Context) -> service::HealthResponse {
         service::handle_health()
+    }
+
+    async fn capabilities(self, _ctx: tarpc::context::Context) -> Vec<String> {
+        service::handle_health().supported_archs
     }
 }
 
@@ -102,7 +108,10 @@ pub async fn start_tarpc_tcp_server(
 ///
 /// Returns an error if the socket cannot be created.
 #[cfg(unix)]
-#[allow(clippy::unused_async)]
+#[allow(
+    clippy::unused_async,
+    reason = "false positive: tokio::select! contains awaits"
+)]
 pub async fn start_tarpc_unix_server(
     path: &std::path::Path,
     shutdown_rx: watch::Receiver<()>,

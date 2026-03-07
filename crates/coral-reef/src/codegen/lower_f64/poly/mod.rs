@@ -20,9 +20,15 @@ pub use log2::lower_f64_log2;
 pub use trig::{lower_f64_cos, lower_f64_sin};
 
 // Cody-Waite constants: 2/π, (π/2)_hi, (π/2)_lo (high-precision for range reduction)
-#[allow(clippy::approx_constant)]
+#[expect(
+    clippy::approx_constant,
+    reason = "exact Cody-Waite coefficient, not std::f64::consts"
+)]
 const TWO_OVER_PI: f64 = 0.636_619_772_367_581_4;
-#[allow(clippy::approx_constant)]
+#[expect(
+    clippy::approx_constant,
+    reason = "exact Cody-Waite coefficient, not std::f64::consts"
+)]
 const PI_HALF_HI: f64 = 1.570_796_326_794_896_6;
 const PI_HALF_LO: f64 = 6.123_233_995_736_766e-17;
 

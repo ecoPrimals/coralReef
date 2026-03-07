@@ -28,11 +28,16 @@ const SI_SH_REG_BASE: u32 = 0x2C00;
 
 /// Build a PM4 command stream for a compute dispatch.
 ///
-/// Returns the PM4 words ready for submission via DRM_AMDGPU_CS.
+/// Returns the PM4 words ready for submission via `DRM_AMDGPU_CS`.
+#[must_use]
 pub fn build_compute_dispatch(shader_va: u64, dims: DispatchDims) -> Vec<u32> {
     let mut pm4 = Vec::with_capacity(32);
 
     // SET_SH_REG: COMPUTE_PGM_LO/HI (shader address, 256-byte aligned)
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "ISA register field is 32-bit wide"
+    )]
     let pgm_lo = (shader_va >> 8) as u32;
     let pgm_hi = (shader_va >> 40) as u32;
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_LO, &[pgm_lo, pgm_hi]);
@@ -56,8 +61,12 @@ pub fn build_compute_dispatch(shader_va: u64, dims: DispatchDims) -> Vec<u32> {
     pm4
 }
 
-/// Emit a PM4 SET_SH_REG packet.
+/// Emit a PM4 `SET_SH_REG` packet.
 fn emit_set_sh_reg(pm4: &mut Vec<u32>, reg_offset: u32, values: &[u32]) {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "register values list is always small"
+    )]
     let count = values.len() as u32;
     let header = pm4_type3_header(PM4_SET_SH_REG, count + 1);
     pm4.push(header);
@@ -65,7 +74,7 @@ fn emit_set_sh_reg(pm4: &mut Vec<u32>, reg_offset: u32, values: &[u32]) {
     pm4.extend_from_slice(values);
 }
 
-/// Emit a PM4 DISPATCH_DIRECT packet.
+/// Emit a PM4 `DISPATCH_DIRECT` packet.
 fn emit_dispatch_direct(pm4: &mut Vec<u32>, dims: DispatchDims) {
     let header = pm4_type3_header(PM4_DISPATCH_DIRECT, 4);
     pm4.push(header);
@@ -78,19 +87,19 @@ fn emit_dispatch_direct(pm4: &mut Vec<u32>, dims: DispatchDims) {
 /// Build a PM4 Type 3 packet header.
 ///
 /// Format: [31:30]=3 (type), [29:16]=count-1, [15:8]=opcode, [7:0]=reserved
-fn pm4_type3_header(opcode: u32, count: u32) -> u32 {
+const fn pm4_type3_header(opcode: u32, count: u32) -> u32 {
     PM4_TYPE3 | (((count - 1) & 0x3FFF) << 16) | ((opcode & 0xFF) << 8)
 }
 
-/// Build COMPUTE_PGM_RSRC1 register value.
-fn compute_pgm_rsrc1(num_vgprs: u32, num_sgprs: u32) -> u32 {
-    let vgprs_field = (num_vgprs.div_ceil(8)).saturating_sub(1);
-    let sgprs_field = (num_sgprs.div_ceil(16)).saturating_sub(1);
-    vgprs_field | (sgprs_field << 6)
+/// Build `COMPUTE_PGM_RSRC1` register value.
+const fn compute_pgm_rsrc1(vgpr_count: u32, sgpr_count: u32) -> u32 {
+    let vgpr_encoded = (vgpr_count.div_ceil(8)).saturating_sub(1);
+    let sgpr_encoded = (sgpr_count.div_ceil(16)).saturating_sub(1);
+    vgpr_encoded | (sgpr_encoded << 6)
 }
 
-/// Build COMPUTE_PGM_RSRC2 register value.
-fn compute_pgm_rsrc2() -> u32 {
+/// Build `COMPUTE_PGM_RSRC2` register value.
+const fn compute_pgm_rsrc2() -> u32 {
     // Enable scratch, user SGPR count = 2, TGID enables for X
     let user_sgpr = 2_u32;
     let tgid_x_en = 1_u32;

@@ -97,10 +97,9 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
         entry_point: &naga::EntryPoint,
     ) -> Result<Shader<'sm>, CompileError> {
         if entry_point.stage != naga::ShaderStage::Compute {
-            return Err(CompileError::InvalidInput(format!(
-                "expected compute stage, got {:?}",
-                entry_point.stage,
-            )));
+            return Err(CompileError::InvalidInput(
+                format!("expected compute stage, got {:?}", entry_point.stage,).into(),
+            ));
         }
 
         let function = self.translate_function(&entry_point.function, Some(entry_point))?;
@@ -182,13 +181,13 @@ pub fn parse_spirv(data: &[u32]) -> Result<naga::Module, CompileError> {
     let bytes: Vec<u8> = data.iter().flat_map(|w| w.to_le_bytes()).collect();
     let opts = naga::front::spv::Options::default();
     naga::front::spv::parse_u8_slice(&bytes, &opts)
-        .map_err(|e| CompileError::InvalidInput(format!("SPIR-V parse error: {e}")))
+        .map_err(|e| CompileError::InvalidInput(format!("SPIR-V parse error: {e}").into()))
 }
 
 /// Parse WGSL source into a naga Module.
 pub fn parse_wgsl(source: &str) -> Result<naga::Module, CompileError> {
     naga::front::wgsl::parse_str(source)
-        .map_err(|e| CompileError::InvalidInput(format!("WGSL parse error: {e}")))
+        .map_err(|e| CompileError::InvalidInput(format!("WGSL parse error: {e}").into()))
 }
 
 /// Translate a naga Module into a Shader for a compute entry point.
@@ -202,7 +201,9 @@ pub fn translate<'sm>(
         .iter()
         .find(|ep| ep.name == entry_point_name)
         .ok_or_else(|| {
-            CompileError::InvalidInput(format!("entry point '{}' not found", entry_point_name,))
+            CompileError::InvalidInput(
+                format!("entry point '{}' not found", entry_point_name,).into(),
+            )
         })?;
 
     let translator = NagaTranslator::new(sm, module);

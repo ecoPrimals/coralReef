@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Driver error types.
 
+use std::borrow::Cow;
+
 /// Result alias for driver operations.
 pub type DriverResult<T> = Result<T, DriverError>;
 
 /// Errors from GPU device operations.
+///
+/// String-carrying variants use `Cow<'static, str>` so that static messages
+/// (the common case) are zero-alloc, while dynamic messages still work via
+/// `format!("...").into()`.
 #[derive(Debug, thiserror::Error)]
 pub enum DriverError {
     #[error("device not found: {0}")]
-    DeviceNotFound(String),
+    DeviceNotFound(Cow<'static, str>),
 
     #[error("DRM ioctl failed: {name} returned {errno}")]
     IoctlFailed { name: &'static str, errno: i32 },
@@ -23,17 +29,91 @@ pub enum DriverError {
     BufferNotFound(crate::BufferHandle),
 
     #[error("mmap failed: {0}")]
-    MmapFailed(String),
+    MmapFailed(Cow<'static, str>),
 
     #[error("command submission failed: {0}")]
-    SubmitFailed(String),
+    SubmitFailed(Cow<'static, str>),
 
     #[error("fence timeout after {ms}ms")]
     FenceTimeout { ms: u64 },
 
     #[error("unsupported operation: {0}")]
-    Unsupported(String),
+    Unsupported(Cow<'static, str>),
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_display_device_not_found() {
+        let e = DriverError::DeviceNotFound("no amdgpu".into());
+        assert!(e.to_string().contains("no amdgpu"));
+    }
+
+    #[test]
+    fn error_display_ioctl_failed() {
+        let e = DriverError::IoctlFailed {
+            name: "drm_ioctl",
+            errno: -22,
+        };
+        let msg = e.to_string();
+        assert!(msg.contains("drm_ioctl"));
+        assert!(msg.contains("-22"));
+    }
+
+    #[test]
+    fn error_display_alloc_failed() {
+        let e = DriverError::AllocFailed {
+            size: 4096,
+            domain: crate::MemoryDomain::Vram,
+        };
+        assert!(e.to_string().contains("4096"));
+    }
+
+    #[test]
+    fn error_display_buffer_not_found() {
+        let e = DriverError::BufferNotFound(crate::BufferHandle(42));
+        assert!(e.to_string().contains("42"));
+    }
+
+    #[test]
+    fn error_display_mmap_failed() {
+        let e = DriverError::MmapFailed("out of memory".into());
+        assert!(e.to_string().contains("out of memory"));
+    }
+
+    #[test]
+    fn error_display_submit_failed() {
+        let e = DriverError::SubmitFailed("context lost".into());
+        assert!(e.to_string().contains("context lost"));
+    }
+
+    #[test]
+    fn error_display_fence_timeout() {
+        let e = DriverError::FenceTimeout { ms: 5000 };
+        assert!(e.to_string().contains("5000"));
+    }
+
+    #[test]
+    fn error_display_unsupported() {
+        let e = DriverError::Unsupported("nouveau upload".into());
+        assert!(e.to_string().contains("nouveau upload"));
+    }
+
+    #[test]
+    fn error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "no device");
+        let e: DriverError = io_err.into();
+        assert!(e.to_string().contains("no device"));
+    }
+
+    #[test]
+    fn error_is_std_error() {
+        let e: Box<dyn std::error::Error> = Box::new(DriverError::DeviceNotFound("test".into()));
+        assert!(e.to_string().contains("test"));
+    }
 }

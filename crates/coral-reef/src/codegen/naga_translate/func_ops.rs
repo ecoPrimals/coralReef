@@ -4,8 +4,8 @@
 use super::super::ir::*;
 use super::func::{FuncTranslator, VarRef};
 use crate::error::CompileError;
+use coral_reef_stubs::fxhash::FxHashMap;
 use naga::Handle;
-use std::collections::HashMap;
 
 impl<'a, 'b> FuncTranslator<'a, 'b> {
     pub(super) fn emit_componentwise(
@@ -195,7 +195,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let callee = &module.functions[function];
 
         let mut by_value_args: Vec<SSARef> = Vec::with_capacity(arguments.len());
-        let mut ptr_arg_slots: HashMap<u32, usize> = HashMap::new();
+        let mut ptr_arg_slots: FxHashMap<u32, usize> = FxHashMap::default();
 
         for (i, &arg_handle) in arguments.iter().enumerate() {
             let callee_arg_ty = &module.types[callee.arguments[i].ty].inner;
@@ -383,10 +383,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
             }
             naga::TypeInner::Pointer { base, .. } => self.array_element_stride(*base),
-            _ => Err(CompileError::InvalidInput(format!(
-                "arrayLength on non-array type: {:?}",
-                self.module.types[ty].inner
-            ))),
+            _ => Err(CompileError::InvalidInput(
+                format!(
+                    "arrayLength on non-array type: {:?}",
+                    self.module.types[ty].inner
+                )
+                .into(),
+            )),
         }
     }
 

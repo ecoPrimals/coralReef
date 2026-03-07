@@ -188,10 +188,10 @@ Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 832 tests (811 pass), coralDriver hardened (GEM close real, AMD ioctls fixed) |
-| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | Scaffold exists, needs hardware validation |
-| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | Scaffold exists (AMD + NVIDIA) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 in progress |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 856 tests (836 pass), coralDriver AMD fully wired (BO list, CS submit, fence sync) |
+| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD driver complete — needs hardware validation on RX 6950 XT |
+| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD driver complete, nouveau explicit `Unsupported` |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 6 in progress |
 
 ---
 

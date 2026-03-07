@@ -38,9 +38,13 @@ pub mod nv;
 
 pub use error::{DriverError, DriverResult};
 
-/// A GPU buffer handle.
+/// An opaque GPU buffer handle.
+///
+/// Handles are created by [`ComputeDevice::alloc`] and consumed by other
+/// device operations. The raw ID is not exposed — callers cannot forge
+/// handles, ensuring the driver owns the validity invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BufferHandle(pub u32);
+pub struct BufferHandle(pub(crate) u32);
 
 /// GPU memory domain for buffer placement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,12 +67,12 @@ pub struct DispatchDims {
 
 impl DispatchDims {
     #[must_use]
-    pub fn new(x: u32, y: u32, z: u32) -> Self {
+    pub const fn new(x: u32, y: u32, z: u32) -> Self {
         Self { x, y, z }
     }
 
     #[must_use]
-    pub fn linear(n: u32) -> Self {
+    pub const fn linear(n: u32) -> Self {
         Self { x: n, y: 1, z: 1 }
     }
 }
@@ -80,15 +84,33 @@ impl DispatchDims {
 /// and read back results.
 pub trait ComputeDevice {
     /// Allocate a GPU buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if allocation fails (OOM, invalid domain).
     fn alloc(&mut self, size: u64, domain: MemoryDomain) -> DriverResult<BufferHandle>;
 
     /// Free a GPU buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the handle is invalid or the free ioctl fails.
     fn free(&mut self, handle: BufferHandle) -> DriverResult<()>;
 
     /// Upload data from host to a GPU buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the buffer handle is invalid or the
+    /// write exceeds the buffer bounds.
     fn upload(&mut self, handle: BufferHandle, offset: u64, data: &[u8]) -> DriverResult<()>;
 
     /// Read data from a GPU buffer to host.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the buffer handle is invalid or the
+    /// read exceeds the buffer bounds.
     fn readback(&self, handle: BufferHandle, offset: u64, len: usize) -> DriverResult<Vec<u8>>;
 
     /// Dispatch a compute shader.
@@ -96,6 +118,11 @@ pub trait ComputeDevice {
     /// `shader` is the compiled binary (from `coral-reef`).
     /// `buffers` are the buffer handles bound as shader resources.
     /// `dims` are the workgroup dispatch dimensions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if shader upload, command construction, or
+    /// submission fails.
     fn dispatch(
         &mut self,
         shader: &[u8],
@@ -104,5 +131,73 @@ pub trait ComputeDevice {
     ) -> DriverResult<()>;
 
     /// Wait for all submitted work to complete.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the fence wait fails or times out.
     fn sync(&self) -> DriverResult<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_handle_equality() {
+        assert_eq!(BufferHandle(1), BufferHandle(1));
+        assert_ne!(BufferHandle(1), BufferHandle(2));
+    }
+
+    #[test]
+    fn buffer_handle_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(BufferHandle(1));
+        set.insert(BufferHandle(2));
+        assert!(set.contains(&BufferHandle(1)));
+        assert!(!set.contains(&BufferHandle(99)));
+    }
+
+    #[test]
+    fn dispatch_dims_new() {
+        let d = DispatchDims::new(8, 4, 2);
+        assert_eq!(d.x, 8);
+        assert_eq!(d.y, 4);
+        assert_eq!(d.z, 2);
+    }
+
+    #[test]
+    fn dispatch_dims_linear() {
+        let d = DispatchDims::linear(256);
+        assert_eq!(d.x, 256);
+        assert_eq!(d.y, 1);
+        assert_eq!(d.z, 1);
+    }
+
+    #[test]
+    fn dispatch_dims_debug_format() {
+        let d = DispatchDims::new(1, 1, 1);
+        let debug = format!("{d:?}");
+        assert!(debug.contains("DispatchDims"));
+    }
+
+    #[test]
+    fn memory_domain_equality() {
+        assert_eq!(MemoryDomain::Vram, MemoryDomain::Vram);
+        assert_ne!(MemoryDomain::Vram, MemoryDomain::Gtt);
+        assert_ne!(MemoryDomain::Gtt, MemoryDomain::VramOrGtt);
+    }
+
+    #[test]
+    fn memory_domain_debug_format() {
+        let domains = [
+            MemoryDomain::Vram,
+            MemoryDomain::Gtt,
+            MemoryDomain::VramOrGtt,
+        ];
+        for d in domains {
+            let debug = format!("{d:?}");
+            assert!(!debug.is_empty());
+        }
+    }
 }

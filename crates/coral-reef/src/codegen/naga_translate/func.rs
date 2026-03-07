@@ -4,8 +4,8 @@
 use super::super::ir::*;
 use crate::error::CompileError;
 use coral_reef_stubs::cfg::CFGBuilder;
+use coral_reef_stubs::fxhash::FxHashMap;
 use naga::Handle;
-use std::collections::HashMap;
 
 /// Reference to a register-promoted local variable (or component thereof).
 #[derive(Clone, Copy, Debug)]
@@ -40,19 +40,19 @@ pub(super) struct FuncTranslator<'a, 'b> {
     pub(super) phi_alloc: PhiAllocator,
     pub(super) label_alloc: LabelAllocator,
     pub(super) cfg_builder: CFGBuilder<BasicBlock>,
-    pub(super) expr_map: HashMap<Handle<naga::Expression>, SSARef>,
+    pub(super) expr_map: FxHashMap<Handle<naga::Expression>, SSARef>,
     /// Tracks expressions that refer to uniform CBuf data: (cbuf_idx, byte_offset).
-    pub(super) uniform_refs: HashMap<Handle<naga::Expression>, (u8, u16)>,
+    pub(super) uniform_refs: FxHashMap<Handle<naga::Expression>, (u8, u16)>,
     /// Register-promoted local variable slots (shared across inline boundaries).
     pub(super) var_storage: Vec<SSARef>,
     /// Maps expression handles to local variable references (per-function context).
-    pub(super) expr_to_var: HashMap<Handle<naga::Expression>, VarRef>,
+    pub(super) expr_to_var: FxHashMap<Handle<naga::Expression>, VarRef>,
     /// Pre-allocated local variable handle → var_storage slot index.
-    pub(super) local_var_slots: HashMap<Handle<naga::LocalVariable>, usize>,
+    pub(super) local_var_slots: FxHashMap<Handle<naga::LocalVariable>, usize>,
     /// During inline: by-value argument SSA values indexed by argument position.
     pub(super) inline_args: Option<Vec<SSARef>>,
     /// During inline: pointer argument → var slot mappings.
-    pub(super) inline_ptr_arg_slots: HashMap<u32, usize>,
+    pub(super) inline_ptr_arg_slots: FxHashMap<u32, usize>,
     /// Captured return value during inline expansion.
     pub(super) inline_return: Option<SSARef>,
     /// Loop context stack for Break/Continue translation.
@@ -81,13 +81,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             phi_alloc: PhiAllocator::new(),
             label_alloc: la,
             cfg_builder: CFGBuilder::new(),
-            expr_map: HashMap::new(),
-            uniform_refs: HashMap::new(),
+            expr_map: FxHashMap::default(),
+            uniform_refs: FxHashMap::default(),
             var_storage: Vec::new(),
-            expr_to_var: HashMap::new(),
-            local_var_slots: HashMap::new(),
+            expr_to_var: FxHashMap::default(),
+            local_var_slots: FxHashMap::default(),
             inline_args: None,
-            inline_ptr_arg_slots: HashMap::new(),
+            inline_ptr_arg_slots: FxHashMap::default(),
             inline_return: None,
             loop_stack: Vec::new(),
             current_instrs: Vec::new(),
@@ -111,10 +111,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         };
         let id = self.cfg_builder.add_block(bb);
         if id != self.next_block_id {
-            return Err(CompileError::InvalidInput(format!(
-                "CFG block id mismatch: expected {}, got {}",
-                self.next_block_id, id
-            )));
+            return Err(CompileError::InvalidInput(
+                format!(
+                    "CFG block id mismatch: expected {}, got {}",
+                    self.next_block_id, id
+                )
+                .into(),
+            ));
         }
         self.next_block_id += 1;
         if let Some(prev) = self.current_block_id {
@@ -132,10 +135,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         };
         let id = self.cfg_builder.add_block(bb);
         if id != self.next_block_id {
-            return Err(CompileError::InvalidInput(format!(
-                "CFG block id mismatch: expected {}, got {}",
-                self.next_block_id, id
-            )));
+            return Err(CompileError::InvalidInput(
+                format!(
+                    "CFG block id mismatch: expected {}, got {}",
+                    self.next_block_id, id
+                )
+                .into(),
+            ));
         }
         self.next_block_id += 1;
         if let Some(prev) = self.current_block_id {
@@ -362,10 +368,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 self.emit_atomic(pointer, fun, value, result)?;
                 Ok(())
             }
-            _ => Err(CompileError::NotImplemented(format!(
-                "statement {:?} not yet supported",
-                std::mem::discriminant(stmt),
-            ))),
+            _ => Err(CompileError::NotImplemented(
+                format!(
+                    "statement {:?} not yet supported",
+                    std::mem::discriminant(stmt),
+                )
+                .into(),
+            )),
         }
     }
 }

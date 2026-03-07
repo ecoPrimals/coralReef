@@ -3,6 +3,9 @@
 //! AUTO-GENERATED from AMD RDNA2 ISA XML specification.
 //!
 //! Source: specs/amd/amdgpu_isa_rdna2.xml (MIT license, AMD GPUOpen)
+//!
+//! **Exempt from 1000-LOC convention**: machine-generated ISA encoding tables.
+//! Regenerate with `cargo run -p amd-isa-gen -- specs/amd/amdgpu_isa_rdna2.xml`.
 //! Generator: tools/amd-isa-gen (pure Rust, sovereign toolchain)
 //!
 //! DO NOT EDIT BY HAND. Regenerate with:

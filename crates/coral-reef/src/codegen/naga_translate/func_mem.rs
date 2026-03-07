@@ -191,7 +191,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     /// we report this as not yet implemented; all known spring WGSL shaders
     /// use static (`AccessIndex`) paths for uniform structs.
     pub(super) fn emit_uniform_dynamic_access(
-        &mut self,
+        &self,
         _handle: Handle<naga::Expression>,
         _cbuf_idx: u8,
         _base_offset: u16,

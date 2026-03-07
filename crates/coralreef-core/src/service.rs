@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Compiler service — shared logic for both JSON-RPC and tarpc transports.
 //!
-//! Follows wateringHole semantic method naming: `compiler.{operation}`.
+//! Follows wateringHole semantic method naming: `shader.compile.{operation}`.
 
 use bytes::Bytes;
 use coral_reef::{AmdArch, CompileError, CompileOptions, GpuTarget, NvArch};
@@ -72,7 +72,7 @@ pub fn parse_target(s: &str) -> Result<GpuTarget, CompileError> {
     if let Some(amd) = AmdArch::parse(s) {
         return Ok(GpuTarget::Amd(amd));
     }
-    Err(CompileError::UnsupportedArch(s.to_owned()))
+    Err(CompileError::UnsupportedArch(s.to_owned().into()))
 }
 
 fn build_options(

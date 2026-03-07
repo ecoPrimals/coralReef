@@ -104,13 +104,13 @@ pub struct CompileOptions {
 impl CompileOptions {
     /// Convenience: the NVIDIA architecture, if the target is NVIDIA.
     #[must_use]
-    pub fn nv_arch(&self) -> Option<NvArch> {
+    pub const fn nv_arch(&self) -> Option<NvArch> {
         self.target.as_nvidia()
     }
 
     /// Convenience: the AMD architecture, if the target is AMD.
     #[must_use]
-    pub fn amd_arch(&self) -> Option<AmdArch> {
+    pub const fn amd_arch(&self) -> Option<AmdArch> {
         self.target.as_amd()
     }
 
@@ -122,7 +122,7 @@ impl CompileOptions {
     ///
     /// Panics if the target is not an NVIDIA GPU.
     #[must_use]
-    pub fn arch(&self) -> GpuArch {
+    pub const fn arch(&self) -> GpuArch {
         self.target
             .as_nvidia()
             .expect("CompileOptions::arch() called on non-NVIDIA target")
@@ -148,7 +148,10 @@ impl Default for CompileOptions {
 fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
     match target {
         GpuTarget::Nvidia(nv) => {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "warps_per_sm is always <= 64"
+            )]
             let warps = nv.max_warps_per_sm() as u8;
             Ok(Box::new(codegen::ir::ShaderModelInfo::new(
                 nv.sm_version(),
@@ -161,7 +164,7 @@ fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderMode
                 gfx,
             )))
         }
-        GpuTarget::Intel(_) => Err(CompileError::UnsupportedArch(target.to_string())),
+        GpuTarget::Intel(_) => Err(CompileError::UnsupportedArch(target.to_string().into())),
     }
 }
 

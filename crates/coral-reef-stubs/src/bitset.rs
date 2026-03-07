@@ -77,7 +77,6 @@ impl<T> BitSet<T> {
     }
 
     /// Insert a bit. Returns `true` if the bit was newly set.
-    #[allow(clippy::needless_pass_by_value)] // IntoBitIndex: Copy
     pub fn insert(&mut self, index: impl IntoBitIndex) -> bool {
         let idx = index.bit_index();
         let (word, bit) = Self::word_bit(idx);
@@ -90,7 +89,6 @@ impl<T> BitSet<T> {
     }
 
     /// Remove a bit. Returns `true` if the bit was previously set.
-    #[allow(clippy::needless_pass_by_value)] // IntoBitIndex: Copy
     pub fn remove(&mut self, index: impl IntoBitIndex) -> bool {
         let idx = index.bit_index();
         let (word, bit) = Self::word_bit(idx);
@@ -104,7 +102,6 @@ impl<T> BitSet<T> {
 
     /// Check if a bit is set.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)] // IntoBitIndex: Copy
     pub fn contains(&self, index: impl IntoBitIndex) -> bool {
         let idx = index.bit_index();
         let (word, bit) = Self::word_bit(idx);

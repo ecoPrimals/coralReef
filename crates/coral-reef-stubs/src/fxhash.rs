@@ -20,7 +20,7 @@ pub struct FxHasher {
 
 impl FxHasher {
     #[inline]
-    fn add_to_hash(&mut self, word: u64) {
+    const fn add_to_hash(&mut self, word: u64) {
         self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(SEED);
     }
 }

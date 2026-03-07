@@ -35,13 +35,18 @@ pub struct NvBuffer {
 
 impl NvDevice {
     /// Open the NVIDIA GPU device via nouveau.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if no nouveau render node is found or
+    /// channel creation fails.
     pub fn open() -> DriverResult<Self> {
         let drm = DrmDevice::open_default()?;
         let driver = drm.driver_name()?;
         if driver != "nouveau" {
-            return Err(DriverError::DeviceNotFound(format!(
-                "expected nouveau driver, found '{driver}'"
-            )));
+            return Err(DriverError::DeviceNotFound(
+                format!("expected nouveau driver, found '{driver}'").into(),
+            ));
         }
 
         let channel = ioctl::create_channel(drm.fd())?;
@@ -55,7 +60,7 @@ impl NvDevice {
         })
     }
 
-    fn alloc_handle(&mut self) -> u32 {
+    const fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h
@@ -81,13 +86,22 @@ impl ComputeDevice for NvDevice {
     }
 
     fn free(&mut self, handle: BufferHandle) -> DriverResult<()> {
-        let _buf = self
+        let buf = self
             .buffers
             .remove(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
-        // DRM_IOCTL_GEM_CLOSE
-        tracing::debug!(handle = _buf.gem_handle, "nouveau GEM close (scaffold)");
-        Ok(())
+        let mut close_arg = crate::drm::DrmGemClose {
+            handle: buf.gem_handle,
+            pad: 0,
+        };
+        // Safety: DrmGemClose is #[repr(C)] and matches the kernel struct.
+        unsafe {
+            crate::drm::drm_ioctl_typed(
+                self.drm.fd(),
+                crate::drm::DRM_IOCTL_GEM_CLOSE,
+                &mut close_arg,
+            )
+        }
     }
 
     fn upload(&mut self, _handle: BufferHandle, _offset: u64, _data: &[u8]) -> DriverResult<()> {
@@ -104,28 +118,19 @@ impl ComputeDevice for NvDevice {
 
     fn dispatch(
         &mut self,
-        shader: &[u8],
-        buffers: &[BufferHandle],
-        dims: DispatchDims,
+        _shader: &[u8],
+        _buffers: &[BufferHandle],
+        _dims: DispatchDims,
     ) -> DriverResult<()> {
-        let _qmd = qmd::build_compute_qmd(
-            0, // shader VA
-            dims,
-            shader.len() as u32,
-        );
-
-        tracing::debug!(
-            channel = self.channel,
-            buffers = buffers.len(),
-            dims_x = dims.x,
-            "nouveau compute dispatch (scaffold)"
-        );
-        Ok(())
+        Err(DriverError::Unsupported(
+            "nouveau compute dispatch not yet implemented".into(),
+        ))
     }
 
     fn sync(&self) -> DriverResult<()> {
-        tracing::debug!(channel = self.channel, "nouveau fence sync (scaffold)");
-        Ok(())
+        Err(DriverError::Unsupported(
+            "nouveau fence sync not yet implemented".into(),
+        ))
     }
 }
 

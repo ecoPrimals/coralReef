@@ -391,10 +391,13 @@ fn encode_rdna2_op(
         | Op::Swap(_)
         | Op::ParCopy(_) => Ok(Vec::new()),
 
-        other => Err(CompileError::NotImplemented(format!(
-            "AMD encoding not implemented for {:?}",
-            std::mem::discriminant(other)
-        ))),
+        other => Err(CompileError::NotImplemented(
+            format!(
+                "AMD encoding not implemented for {:?}",
+                std::mem::discriminant(other)
+            )
+            .into(),
+        )),
     }
 }
 

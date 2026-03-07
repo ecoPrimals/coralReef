@@ -47,7 +47,7 @@ pub enum GpuError {
     Driver(#[from] coral_driver::DriverError),
 
     #[error("no GPU device available for target {0}")]
-    NoDevice(String),
+    NoDevice(std::borrow::Cow<'static, str>),
 }
 
 pub type GpuResult<T> = Result<T, GpuError>;
@@ -74,6 +74,10 @@ pub struct GpuContext {
 
 impl GpuContext {
     /// Create a new GPU context for the given target.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the target is unsupported.
     pub fn new(target: GpuTarget) -> GpuResult<Self> {
         let options = CompileOptions {
             target,
@@ -85,6 +89,10 @@ impl GpuContext {
     /// Auto-detect the best available GPU.
     ///
     /// Probes DRM render nodes and selects the first available device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if no suitable GPU is found.
     pub fn auto() -> GpuResult<Self> {
         // Default to NVIDIA SM70 for now; hardware probing requires
         // coral-driver device enumeration.
@@ -92,6 +100,10 @@ impl GpuContext {
     }
 
     /// Compile WGSL source to a native GPU kernel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::Compile`] if parsing or compilation fails.
     pub fn compile_wgsl(&self, wgsl: &str) -> GpuResult<CompiledKernel> {
         let binary = coral_reef::compile_wgsl(wgsl, &self.options)?;
         Ok(CompiledKernel {
@@ -102,6 +114,10 @@ impl GpuContext {
     }
 
     /// Compile SPIR-V to a native GPU kernel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::Compile`] if the SPIR-V is invalid or compilation fails.
     pub fn compile_spirv(&self, spirv: &[u32]) -> GpuResult<CompiledKernel> {
         let binary = coral_reef::compile(spirv, &self.options)?;
         Ok(CompiledKernel {
@@ -113,7 +129,7 @@ impl GpuContext {
 
     /// Get the target GPU.
     #[must_use]
-    pub fn target(&self) -> GpuTarget {
+    pub const fn target(&self) -> GpuTarget {
         self.target
     }
 }

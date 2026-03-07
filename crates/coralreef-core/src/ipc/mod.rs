@@ -4,7 +4,7 @@
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
 //! - JSON-RPC 2.0 as primary protocol (TCP/HTTP — external, debuggable)
 //! - tarpc as optional high-performance channel (TCP or Unix socket — internal)
-//! - Semantic method names: `compiler.compile`, `compiler.health`
+//! - Semantic method names: `shader.compile.{spirv,wgsl,status,capabilities}`
 //!
 //! ## Platform-agnostic transport (ecoBin compliance)
 //!
@@ -23,7 +23,7 @@ pub use tarpc_transport::start_tarpc_server;
 #[cfg(all(test, unix))]
 pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(test)]
-pub use tarpc_transport::{CoralReefTarpcClient, start_tarpc_tcp_server};
+pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 /// Errors from IPC server operations.
 #[derive(Debug, thiserror::Error)]
@@ -179,7 +179,7 @@ mod tests {
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
         let response: service::HealthResponse = client
-            .request("compiler.health", jsonrpsee::rpc_params![])
+            .request("shader.compile.status", jsonrpsee::rpc_params![])
             .await
             .unwrap();
 
@@ -197,7 +197,7 @@ mod tests {
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
         let archs: Vec<String> = client
-            .request("compiler.supported_archs", jsonrpsee::rpc_params![])
+            .request("shader.compile.capabilities", jsonrpsee::rpc_params![])
             .await
             .unwrap();
 
@@ -222,7 +222,7 @@ mod tests {
         };
 
         let result: Result<service::CompileResponse, _> =
-            client.request("compiler.compile", [req]).await;
+            client.request("shader.compile.spirv", [req]).await;
 
         assert!(result.is_err());
     }
@@ -240,9 +240,10 @@ mod tests {
         let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
-        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let client =
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
-        let response = client.health(tarpc::context::current()).await.unwrap();
+        let response = client.status(tarpc::context::current()).await.unwrap();
 
         assert_eq!(response.name, env!("CARGO_PKG_NAME"));
     }
@@ -260,7 +261,8 @@ mod tests {
         let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
-        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let client =
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
         let req = service::CompileRequest {
             spirv_words: vec![],
@@ -269,10 +271,7 @@ mod tests {
             fp64_software: true,
         };
 
-        let result = client
-            .compile(tarpc::context::current(), req)
-            .await
-            .unwrap();
+        let result = client.spirv(tarpc::context::current(), req).await.unwrap();
 
         assert!(result.is_err());
     }
@@ -299,7 +298,7 @@ mod tests {
         };
 
         let response: Result<service::CompileResponse, _> =
-            client.request("compiler.compile", [req]).await;
+            client.request("shader.compile.spirv", [req]).await;
 
         match response {
             Ok(resp) => {
@@ -336,7 +335,7 @@ mod tests {
         };
 
         let response: Result<service::CompileResponse, _> =
-            client.request("compiler.compile_wgsl", [req]).await;
+            client.request("shader.compile.wgsl", [req]).await;
 
         match response {
             Ok(resp) => {
@@ -372,7 +371,7 @@ mod tests {
             fp64_software: true,
         };
         let err: Result<service::CompileResponse, _> =
-            client.request("compiler.compile", [req_bad_arch]).await;
+            client.request("shader.compile.spirv", [req_bad_arch]).await;
         assert!(err.is_err(), "invalid arch should return JSON-RPC error");
         let err_msg = format!("{:?}", err.unwrap_err());
         assert!(
@@ -388,8 +387,9 @@ mod tests {
             opt_level: 2,
             fp64_software: true,
         };
-        let err2: Result<service::CompileResponse, _> =
-            client.request("compiler.compile", [req_bad_spirv]).await;
+        let err2: Result<service::CompileResponse, _> = client
+            .request("shader.compile.spirv", [req_bad_spirv])
+            .await;
         assert!(err2.is_err(), "bad SPIR-V should return JSON-RPC error");
     }
 
@@ -410,7 +410,8 @@ mod tests {
         let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
-        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let client =
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
         let spirv = valid_spirv_minimal_compute();
         let req = service::CompileRequest {
@@ -420,10 +421,7 @@ mod tests {
             fp64_software: true,
         };
 
-        let response = client
-            .compile(tarpc::context::current(), req)
-            .await
-            .unwrap();
+        let response = client.spirv(tarpc::context::current(), req).await.unwrap();
 
         match response {
             Ok(resp) => {
@@ -455,7 +453,8 @@ mod tests {
         let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
             .await
             .unwrap();
-        let client = CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+        let client =
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
         let req_bad_arch = service::CompileRequest {
             spirv_words: valid_spirv_minimal_compute(),
@@ -464,7 +463,7 @@ mod tests {
             fp64_software: true,
         };
         let result = client
-            .compile(tarpc::context::current(), req_bad_arch)
+            .spirv(tarpc::context::current(), req_bad_arch)
             .await
             .unwrap();
         assert!(result.is_err(), "invalid arch should return Err");
@@ -476,7 +475,7 @@ mod tests {
             fp64_software: true,
         };
         let result2 = client
-            .compile(tarpc::context::current(), req_bad_spirv)
+            .spirv(tarpc::context::current(), req_bad_spirv)
             .await
             .unwrap();
         assert!(result2.is_err(), "bad SPIR-V should return Err");
@@ -500,7 +499,7 @@ mod tests {
         let url = format!("http://{rpc_addr}");
         let rpc_client = HttpClientBuilder::default().build(&url).unwrap();
         let jsonrpc_health: service::HealthResponse = rpc_client
-            .request("compiler.health", jsonrpsee::rpc_params![])
+            .request("shader.compile.status", jsonrpsee::rpc_params![])
             .await
             .unwrap();
 
@@ -511,9 +510,9 @@ mod tests {
             .await
             .unwrap();
         let tarpc_client =
-            CoralReefTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
         let tarpc_health = tarpc_client
-            .health(tarpc::context::current())
+            .status(tarpc::context::current())
             .await
             .unwrap();
 
@@ -541,7 +540,7 @@ mod tests {
         let url = format!("http://{rpc_addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
         let _health: service::HealthResponse = client
-            .request("compiler.health", jsonrpsee::rpc_params![])
+            .request("shader.compile.status", jsonrpsee::rpc_params![])
             .await
             .unwrap();
 
@@ -586,5 +585,117 @@ mod tests {
         );
         #[cfg(not(unix))]
         assert_eq!(bind, DEFAULT_TCP_BIND);
+    }
+
+    // ---------------------------------------------------------------------------
+    // tarpc capabilities endpoint
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_tarpc_capabilities() {
+        use tokio_serde::formats::Json;
+
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let BoundAddr::Tcp(tcp_addr) = addr else {
+            panic!("expected TCP address");
+        };
+
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+            .await
+            .unwrap();
+        let client =
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+        let caps = client
+            .capabilities(tarpc::context::current())
+            .await
+            .unwrap();
+        assert!(!caps.is_empty(), "capabilities must list at least one arch");
+        assert!(
+            caps.iter().any(|a| a == "sm_70"),
+            "must include sm_70 baseline"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // tarpc WGSL compile endpoint
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_tarpc_compile_wgsl() {
+        use tokio_serde::formats::Json;
+
+        let (_tx, rx) = test_shutdown_channel();
+        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let BoundAddr::Tcp(tcp_addr) = addr else {
+            panic!("expected TCP address");
+        };
+
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+            .await
+            .unwrap();
+        let client =
+            ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+        let req = service::CompileWgslRequest {
+            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_string(),
+            arch: coral_reef::GpuArch::default().to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let result = client.wgsl(tarpc::context::current(), req).await.unwrap();
+        assert!(result.is_ok(), "WGSL compile should succeed");
+        let resp = result.unwrap();
+        assert!(!resp.binary.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // JSON-RPC differentiated error codes
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_jsonrpc_error_code_invalid_input() {
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let url = format!("http://{addr}");
+        let client = HttpClientBuilder::default().build(&url).unwrap();
+
+        let req = service::CompileRequest {
+            spirv_words: vec![0xDEAD_BEEF],
+            arch: coral_reef::GpuArch::default().to_string(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+
+        let result: Result<service::CompileResponse, _> =
+            client.request("shader.compile.spirv", [req]).await;
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("-32001") || err_str.contains("invalid input"),
+            "bad SPIR-V should produce error code -32001: got {err_str}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_jsonrpc_capabilities_endpoint() {
+        use jsonrpsee::core::client::ClientT;
+        use jsonrpsee::http_client::HttpClientBuilder;
+
+        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let url = format!("http://{addr}");
+        let client = HttpClientBuilder::default().build(&url).unwrap();
+
+        let archs: Vec<String> = client
+            .request("shader.compile.capabilities", jsonrpsee::rpc_params![])
+            .await
+            .unwrap();
+        assert!(!archs.is_empty());
+        assert!(archs.iter().any(|a| a == "sm_70"));
     }
 }

@@ -28,7 +28,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 832 tests (811 passing, 21 ignored)
+cargo test --workspace     # 856 tests (836 passing, 20 ignored)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -102,7 +102,7 @@ coralReef/
 │   │   └── src/
 │   │       ├── drm.rs            # Pure Rust DRM interface (via libc)
 │   │       ├── amd/              # amdgpu: GEM, PM4, command submission
-│   │       └── nv/               # nouveau: QMD, pushbuf (scaffold)
+│   │       └── nv/               # nouveau: QMD, pushbuf (unsupported — explicit errors)
 │   ├── coral-gpu/                 # Unified GPU compute abstraction
 │   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/            # ISA tables, latency model
@@ -148,7 +148,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (832 tests — 811 passing, 21 ignored) |
+| `cargo test --workspace` | PASS (856 tests — 836 passing, 20 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

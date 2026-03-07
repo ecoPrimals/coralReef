@@ -170,7 +170,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                             }));
                         }
                         let slot_id = self.var_storage.len();
-                        self.var_storage.push(ssa.clone());
+                        self.var_storage.push(ssa);
                         self.expr_to_var
                             .insert(handle, super::func::VarRef::Full(slot_id));
                         let placeholder = self.alloc_ssa(RegFile::GPR);
@@ -341,10 +341,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 self.translate_cast(val, kind, convert, inner)
             }
             naga::Expression::ArrayLength(ptr_expr) => self.translate_array_length(ptr_expr),
-            _ => Err(CompileError::NotImplemented(format!(
-                "expression {:?} not yet supported",
-                std::mem::discriminant(expr),
-            ))),
+            _ => Err(CompileError::NotImplemented(
+                format!(
+                    "expression {:?} not yet supported",
+                    std::mem::discriminant(expr),
+                )
+                .into(),
+            )),
         }?;
 
         self.expr_map.insert(handle, result.clone());
@@ -433,9 +436,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }));
                 Ok(dst)
             }
-            _ => Err(CompileError::NotImplemented(format!(
-                "literal {lit:?} not yet supported"
-            ))),
+            _ => Err(CompileError::NotImplemented(
+                format!("literal {lit:?} not yet supported").into(),
+            )),
         }
     }
 
@@ -542,11 +545,14 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             _ => return Ok(field_index as u16 * 4),
         };
         let member = members.get(field_index as usize).ok_or_else(|| {
-            CompileError::InvalidInput(format!(
-                "uniform struct field index {} out of range (struct has {} members)",
-                field_index,
-                members.len()
-            ))
+            CompileError::InvalidInput(
+                format!(
+                    "uniform struct field index {} out of range (struct has {} members)",
+                    field_index,
+                    members.len()
+                )
+                .into(),
+            )
         })?;
         Ok(member.offset as u16)
     }

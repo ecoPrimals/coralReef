@@ -66,16 +66,16 @@ fn derive_as_slice(
         );
     }
 
-    let fields = match &input.data {
-        Data::Struct(DataStruct {
-            fields: Fields::Named(f),
-            ..
-        }) => &f.named,
-        _ => {
-            let msg = format!("{attr_name} can only be derived for structs with named fields");
-            let lit = LitStr::new(&msg, Span::call_site());
-            return TokenStream::from(quote! { compile_error!(#lit); });
-        }
+    let fields = if let Data::Struct(DataStruct {
+        fields: Fields::Named(f),
+        ..
+    }) = &input.data
+    {
+        &f.named
+    } else {
+        let msg = format!("{attr_name} can only be derived for structs with named fields");
+        let lit = LitStr::new(&msg, Span::call_site());
+        return TokenStream::from(quote! { compile_error!(#lit); });
     };
 
     let elem_type = Ident::new(elem_type_name, Span::call_site());

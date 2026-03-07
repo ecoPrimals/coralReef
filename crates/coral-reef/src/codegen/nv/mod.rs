@@ -9,14 +9,14 @@
 //! shared compiler infrastructure to prepare for multi-vendor backend
 //! extraction into dedicated crates.
 
-pub(crate) mod shader_header;
-pub(crate) mod sm120_instr_latencies;
-pub(crate) mod sm20;
-pub(crate) mod sm30_instr_latencies;
-pub(crate) mod sm32;
-pub(crate) mod sm50;
-pub(crate) mod sm70;
-pub(crate) mod sm70_encode;
-pub(crate) mod sm70_instr_latencies;
-pub(crate) mod sm75_instr_latencies;
-pub(crate) mod sm80_instr_latencies;
+pub mod shader_header;
+pub mod sm120_instr_latencies;
+pub mod sm20;
+pub mod sm30_instr_latencies;
+pub mod sm32;
+pub mod sm50;
+pub mod sm70;
+pub mod sm70_encode;
+pub mod sm70_instr_latencies;
+pub mod sm75_instr_latencies;
+pub mod sm80_instr_latencies;

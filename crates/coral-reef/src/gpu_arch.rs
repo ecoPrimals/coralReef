@@ -152,7 +152,10 @@ impl NvArch {
 
     /// Shader model version as u8 (for `ShaderModelInfo`, etc.).
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)] // sm() is 70-89, always fits in u8
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "sm() is 70-89, always fits in u8"
+    )]
     pub const fn sm_version(self) -> u8 {
         self.sm() as u8
     }
@@ -492,10 +495,68 @@ mod tests {
     fn test_amd_arch_properties() {
         assert_eq!(AmdArch::Rdna2.gfx_major(), 10);
         assert_eq!(AmdArch::Rdna3.gfx_major(), 11);
+        assert_eq!(AmdArch::Rdna4.gfx_major(), 12);
         assert!(AmdArch::Rdna2.has_native_f64());
         assert_eq!(AmdArch::Rdna2.f64_rate_divisor(), 16);
         assert_eq!(AmdArch::Rdna2.max_vgprs(), 256);
         assert_eq!(AmdArch::Rdna2.max_sgprs(), 106);
         assert_eq!(AmdArch::Rdna2.default_wave_size(), 32);
+        assert!(AmdArch::Rdna2.supports_wave64());
+        assert_eq!(AmdArch::Rdna2.max_lds(), 65_536);
+    }
+
+    #[test]
+    fn test_nv_arch_hw_properties() {
+        for &arch in NvArch::ALL {
+            assert!(arch.has_dfma(), "{arch} should support DFMA");
+        }
+
+        assert_eq!(NvArch::Sm70.warp_size(), 32);
+        assert_eq!(NvArch::Sm89.warp_size(), 32);
+
+        assert_eq!(NvArch::Sm70.sm_version(), 70);
+        assert_eq!(NvArch::Sm89.sm_version(), 89);
+
+        assert!(NvArch::Sm70.max_reg_count() > 0);
+        assert!(NvArch::Sm89.max_reg_count() >= NvArch::Sm70.max_reg_count());
+
+        assert!(NvArch::Sm70.max_warps_per_sm() > 0);
+        assert!(NvArch::Sm70.total_reg_file() > 0);
+    }
+
+    #[test]
+    fn test_nv_arch_fromstr_error() {
+        let result: Result<NvArch, _> = "not_a_gpu".parse();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("unknown"));
+    }
+
+    #[test]
+    fn test_amd_arch_fromstr_error() {
+        let result: Result<AmdArch, _> = "not_a_gpu".parse();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("unknown"));
+    }
+
+    #[test]
+    fn test_gpu_target_from_amd() {
+        let t: GpuTarget = AmdArch::Rdna3.into();
+        assert_eq!(t, GpuTarget::Amd(AmdArch::Rdna3));
+        assert!(t.as_amd().is_some());
+    }
+
+    #[test]
+    fn test_gpu_target_from_intel() {
+        let t: GpuTarget = IntelArch::XeHpg.into();
+        assert_eq!(t, GpuTarget::Intel(IntelArch::XeHpg));
+        assert!(t.as_intel().is_some());
+    }
+
+    #[test]
+    fn test_intel_display() {
+        assert_eq!(IntelArch::XeHpg.to_string(), "xe_hpg");
+        assert_eq!(IntelArch::Xe2Hpg.to_string(), "xe2_hpg");
     }
 }

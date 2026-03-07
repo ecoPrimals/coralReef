@@ -77,7 +77,6 @@ pub trait BitCastU64: Copy {
     /// Bit pattern as u64.
     ///
     /// Takes `self` by value because all implementors are `Copy`.
-    #[allow(clippy::wrong_self_convention)]
     fn as_bits(self) -> u64;
 }
 
@@ -102,25 +101,25 @@ impl BitCastU64 for u8 {
     }
 }
 impl BitCastU64 for i64 {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "bit-pattern reinterpretation")]
     fn as_bits(self) -> u64 {
         self as u64
     }
 }
 impl BitCastU64 for i32 {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "bit-pattern reinterpretation")]
     fn as_bits(self) -> u64 {
         u64::from(self as u32)
     }
 }
 impl BitCastU64 for i16 {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "bit-pattern reinterpretation")]
     fn as_bits(self) -> u64 {
         u64::from(self as u16)
     }
 }
 impl BitCastU64 for i8 {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "bit-pattern reinterpretation")]
     fn as_bits(self) -> u64 {
         u64::from(self as u8)
     }

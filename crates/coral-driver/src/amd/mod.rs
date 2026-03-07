@@ -23,6 +23,7 @@ pub struct AmdDevice {
     ctx_handle: u32,
     buffers: HashMap<u32, gem::GemBuffer>,
     next_handle: u32,
+    last_fence: u64,
 }
 
 impl AmdDevice {
@@ -30,13 +31,18 @@ impl AmdDevice {
     ///
     /// Probes `/dev/dri/renderD*` for an amdgpu driver and creates a
     /// GPU context for compute submission.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if no amdgpu render node is found or
+    /// context creation fails.
     pub fn open() -> DriverResult<Self> {
         let drm = DrmDevice::open_default()?;
         let driver = drm.driver_name()?;
         if driver != "amdgpu" {
-            return Err(DriverError::DeviceNotFound(format!(
-                "expected amdgpu driver, found '{driver}'"
-            )));
+            return Err(DriverError::DeviceNotFound(
+                format!("expected amdgpu driver, found '{driver}'").into(),
+            ));
         }
 
         let ctx_handle = ioctl::create_context(drm.fd())?;
@@ -47,14 +53,21 @@ impl AmdDevice {
             ctx_handle,
             buffers: HashMap::new(),
             next_handle: 1,
+            last_fence: 0,
         })
     }
 
-    fn alloc_handle(&mut self) -> u32 {
+    const fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h
     }
+}
+
+/// Reinterpret a `&[u32]` as `&[u8]` for buffer upload.
+const fn u32_slice_as_bytes(words: &[u32]) -> &[u8] {
+    // Safety: u32 is a POD type; reinterpreting as bytes is always valid.
+    unsafe { std::slice::from_raw_parts(words.as_ptr().cast::<u8>(), std::mem::size_of_val(words)) }
 }
 
 impl ComputeDevice for AmdDevice {
@@ -95,11 +108,25 @@ impl ComputeDevice for AmdDevice {
         buffers: &[BufferHandle],
         dims: DispatchDims,
     ) -> DriverResult<()> {
-        let shader_handle = self.alloc(shader.len() as u64, MemoryDomain::Gtt)?;
+        let shader_size = u64::try_from(shader.len()).expect("shader size fits in u64");
+        let shader_handle = self.alloc(shader_size, MemoryDomain::Gtt)?;
         self.upload(shader_handle, 0, shader)?;
 
-        let mut gem_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 1);
+        let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |g| g.gpu_va);
+        let pm4_words = pm4::build_compute_dispatch(shader_va, dims);
+
+        let pm4_bytes = u32_slice_as_bytes(&pm4_words);
+        let ib_size = u64::try_from(pm4_bytes.len()).expect("IB size fits in u64");
+        let ib_handle = self.alloc(ib_size, MemoryDomain::Gtt)?;
+        self.upload(ib_handle, 0, pm4_bytes)?;
+        let ib_va = self.buffers.get(&ib_handle.0).map_or(0, |g| g.gpu_va);
+        let ib_bytes = u32::try_from(pm4_bytes.len()).expect("IB bytes fit in u32");
+
+        let mut gem_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 2);
         if let Some(gem) = self.buffers.get(&shader_handle.0) {
+            gem_handles.push(gem.gem_handle);
+        }
+        if let Some(gem) = self.buffers.get(&ib_handle.0) {
             gem_handles.push(gem.gem_handle);
         }
         for bh in buffers {
@@ -108,22 +135,27 @@ impl ComputeDevice for AmdDevice {
             }
         }
 
-        let pm4_words = pm4::build_compute_dispatch(
-            self.buffers
-                .get(&shader_handle.0)
-                .map(|g| g.gpu_va)
-                .unwrap_or(0),
-            dims,
-        );
+        let bo_list = ioctl::create_bo_list(self.drm.fd(), &gem_handles)?;
+        let submit_result =
+            ioctl::submit_command(self.drm.fd(), self.ctx_handle, bo_list, ib_va, ib_bytes);
+        let _ = ioctl::destroy_bo_list(self.drm.fd(), bo_list);
 
-        ioctl::submit_command(self.drm.fd(), self.ctx_handle, &gem_handles, &pm4_words)?;
-
+        self.last_fence = submit_result?;
+        self.free(ib_handle)?;
         self.free(shader_handle)?;
         Ok(())
     }
 
     fn sync(&self) -> DriverResult<()> {
-        ioctl::sync_fence(self.drm.fd(), self.ctx_handle)
+        if self.last_fence == 0 {
+            return Ok(());
+        }
+        ioctl::sync_fence(
+            self.drm.fd(),
+            self.ctx_handle,
+            self.last_fence,
+            5_000_000_000,
+        )
     }
 }
 

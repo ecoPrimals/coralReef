@@ -273,7 +273,10 @@ impl Function {
                     let b = &blocks[b_idx];
                     b.phis.borrow_mut().retain_mut(|phi| {
                         let mut ssa = None;
-                        #[allow(clippy::explicit_iter_loop)]
+                        #[expect(
+                            clippy::explicit_iter_loop,
+                            reason = "phi.srcs type requires explicit .iter_mut()"
+                        )]
                         for (_, p_ssa) in phi.srcs.iter_mut() {
                             // Apply the remap to the phi sources so that we
                             // pick up any remaps from previous loop iterations.

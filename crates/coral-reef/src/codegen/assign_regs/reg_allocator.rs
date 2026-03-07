@@ -110,12 +110,9 @@ impl RegAllocator {
             self.reg_ssa.resize(reg_usize + 1, None);
         }
         self.reg_ssa[reg_usize] = Some(ssa);
-        let old = self.ssa_reg.insert(ssa, reg);
-        assert!(
-            old.is_none(),
-            "SSA value {ssa:?} already assigned to reg {}, now trying reg {reg}",
-            old.unwrap()
-        );
+        if let Some(prev) = self.ssa_reg.insert(ssa, reg) {
+            panic!("SSA value {ssa:?} already assigned to reg {prev}, now trying reg {reg}");
+        }
         self.used.insert(reg_usize);
     }
 

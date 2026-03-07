@@ -757,9 +757,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 Ok(dst.into())
             }
-            _ => Err(CompileError::NotImplemented(format!(
-                "binary op {op:?} not yet supported"
-            ))),
+            _ => Err(CompileError::NotImplemented(
+                format!("binary op {op:?} not yet supported").into(),
+            )),
         }
     }
 }

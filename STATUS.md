@@ -11,21 +11,21 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
-| IPC | A+ | JSON-RPC 2.0 + tarpc, Unix socket + TCP, zero-copy `Bytes` payloads |
+| IPC | A+ | JSON-RPC 2.0 + tarpc, Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` semantic naming, differentiated error codes |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A | `ShaderModelRdna2` → legalize → RA → encode, cross-vendor WGSL compilation |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | A | AMD DRM ioctl (GEM, PM4, CS), NVIDIA nouveau (QMD), pure Rust syscalls via libc |
+| coralDriver | A | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (explicit `Unsupported`), pure Rust syscalls via libc |
 | coralGpu | A | Unified compile+dispatch API, vendor-agnostic `GpuContext` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 832 tests (811 passing, 21 ignored), zero failures |
+| Tests | A+ | 856 tests (836 passing, 20 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup |
-| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode |
-| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, libc for syscalls |
+| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
+| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, libc for syscalls, FxHashMap internalized |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
@@ -63,18 +63,35 @@
 | Unsafe evolved → libc | ✅ | `MappedRegion` RAII, `drm_ioctl_typed` safe wrapper |
 | naga_translate refactored | ✅ | expr_binary.rs, func_control.rs, func_mem.rs, func_ops.rs |
 
+### Phase 10 — Iteration 6 Completions (Debt Reduction + Internalization)
+
+| Task | Status | Details |
+|------|--------|---------|
+| AMD CS submit (`DRM_AMDGPU_CS`) | ✅ | Full IOCTL: BO list, IB submission, fence return |
+| AMD fence sync (`DRM_AMDGPU_WAIT_CS`) | ✅ | Full IOCTL: `sync_fence` with 5s timeout |
+| `Expression::As` (type cast) | ✅ | Resolved (Iteration 3) |
+| Atomic operations | ✅ | Resolved (Iteration 4) |
+| IPC semantic naming | ✅ | `shader.compile.{spirv,wgsl,status,capabilities}` |
+| IPC differentiated error codes | ✅ | `-32001` InvalidInput, `-32002` NotImplemented, `-32003` UnsupportedArch |
+| Error types → `Cow<'static, str>` | ✅ | Zero-allocation static error paths across all error enums |
+| `BufferHandle` sealed | ✅ | `pub(crate)` inner field — driver owns validity invariant |
+| `drm_ioctl_typed` sealed | ✅ | `pub(crate)` — FFI confined to `coral-driver` |
+| `DrmDevice` Drop removed | ✅ | `std::fs::File` already handles close |
+| `HashMap` → `FxHashMap` | ✅ | Performance-critical compiler paths (`naga_translate`) |
+| `#[allow]` → `#[expect]` | ✅ | All non-wildcard `#[allow]` converted with reason strings |
+| Nouveau scaffolds → explicit errors | ✅ | `DriverError::Unsupported` with clear messages |
+| Unsafe helpers (`kernel_ptr`, `read_ioctl_output`) | ✅ | Encapsulated raw pointer ops with safety documentation |
+| Zero production `unwrap()` / `todo!()` | ✅ | Swept — zero instances in non-test code |
+| Test coverage expansion | ✅ | +24 new tests (lifecycle, health, gpu_arch, IPC, nv/ioctl) |
+
 ### Phase 10 Remaining
 
 | Task | Priority | Blocker |
 |------|----------|---------|
-| AMD CS submit (`DRM_AMDGPU_CS`) | P2 | Needs IB in GEM BO + BO list |
-| AMD fence sync (`DRM_AMDGPU_WAIT_CS`) | P2 | Depends on CS submit |
-| `Expression::As` (type cast) | P1 | Blocks semf_batch, chi2_batch |
-| Atomic operations | P1 | Blocks rdf_histogram |
 | GPR→Pred coercion chain | P2 | Blocks logical_predicates |
 | Wilson plaquette (scheduler) | P2 | PerRegFile live_in mismatch |
 | const_tracker negated immediate | P2 | HFB hamiltonian |
-| Nouveau compute path | P3 | Scaffold |
+| Nouveau compute path | P3 | Explicit `Unsupported` — requires hardware validation |
 | Intel backend | P3 | Placeholder |
 
 ## Checks
@@ -82,7 +99,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (832 tests, 27 ignored) |
+| `cargo test --workspace` | PASS (856 tests, 20 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS (0 warnings) |
@@ -107,9 +124,15 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 5 springs (27 shaders, 8 passing SM70) | tests/fixtures/wgsl/ |
+| WGSL shader corpus (cross-spring) | 5 springs (27 shaders, 14 compiling SM70) | tests/fixtures/wgsl/ |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
 | Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
+| `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |
+| `#[expect]` with reasons | Rust 2024 idiom | workspace-wide (replaces `#[allow]`) |
+| `FxHashMap` in hot paths | Performance internalization | naga_translate/func.rs, func_ops.rs |
+| Sealed FFI boundary | wateringHole sovereignty | `drm_ioctl_typed` pub(crate), `BufferHandle` pub(crate) |
+| `shader.compile.*` semantic naming | wateringHole PRIMAL_IPC_PROTOCOL | JSON-RPC + tarpc |
+| Differentiated IPC error codes | wateringHole PRIMAL_IPC_PROTOCOL | jsonrpc.rs |
 
 ---
 

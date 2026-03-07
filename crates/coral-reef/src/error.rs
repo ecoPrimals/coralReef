@@ -1,33 +1,39 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Compiler error types.
 
+use std::borrow::Cow;
+
 /// Errors from the coral-reef compiler.
+///
+/// All message-carrying variants use `Cow<'static, str>`: static strings
+/// (the common case for `NotImplemented`, `UnsupportedArch`) are zero-alloc,
+/// while dynamic messages from `format!()` allocate only when needed.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum CompileError {
     /// Invalid input (empty module, malformed SPIR-V, etc.)
     #[error("invalid input: {0}")]
-    InvalidInput(String),
+    InvalidInput(Cow<'static, str>),
 
-    /// Feature not yet implemented (stub phase).
+    /// Feature not yet implemented.
     #[error("not implemented: {0}")]
-    NotImplemented(String),
+    NotImplemented(Cow<'static, str>),
 
     /// IR validation failure.
     #[error("IR validation: {0}")]
-    Validation(String),
+    Validation(Cow<'static, str>),
 
     /// Register allocation failure.
     #[error("register allocation: {0}")]
-    RegisterAllocation(String),
+    RegisterAllocation(Cow<'static, str>),
 
     /// Encoding failure (target-specific).
     #[error("encoding: {0}")]
-    Encoding(String),
+    Encoding(Cow<'static, str>),
 
     /// Unsupported GPU architecture.
     #[error("unsupported architecture: {0}")]
-    UnsupportedArch(String),
+    UnsupportedArch(Cow<'static, str>),
 }
 
 #[cfg(test)]

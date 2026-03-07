@@ -173,9 +173,23 @@ mod tests {
     }
 
     #[test]
-    fn status_display() {
+    fn status_display_all_variants() {
         assert_eq!(HealthStatus::Healthy.to_string(), "healthy");
         assert_eq!(HealthStatus::Unknown.to_string(), "unknown");
+
+        let degraded = HealthStatus::Degraded {
+            reason: "thermal".into(),
+        };
+        let degraded_str = degraded.to_string();
+        assert!(degraded_str.contains("degraded"));
+        assert!(degraded_str.contains("thermal"));
+
+        let unhealthy = HealthStatus::Unhealthy {
+            reason: "oom".into(),
+        };
+        let unhealthy_str = unhealthy.to_string();
+        assert!(unhealthy_str.contains("unhealthy"));
+        assert!(unhealthy_str.contains("oom"));
     }
 
     #[test]
@@ -190,8 +204,30 @@ mod tests {
     }
 
     #[test]
+    fn report_multiple_details() {
+        let r = HealthReport::new("test", "0.1.0")
+            .with_detail("a", "1")
+            .with_detail("b", "2");
+        assert_eq!(r.details.len(), 2);
+    }
+
+    #[test]
+    fn report_default_status_is_unknown() {
+        let r = HealthReport::new("test", "0.1.0");
+        assert!(!r.status.is_healthy());
+        assert!(!r.status.is_serving());
+    }
+
+    #[test]
     fn timestamp_is_recent() {
         let ts = Timestamp::now();
         assert!(ts.secs > 1_700_000_000);
+    }
+
+    #[test]
+    fn timestamp_debug() {
+        let ts = Timestamp::now();
+        let debug = format!("{ts:?}");
+        assert!(debug.contains("secs"));
     }
 }

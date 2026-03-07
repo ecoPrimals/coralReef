@@ -116,7 +116,7 @@ pub fn backend_for(target: GpuTarget) -> Result<Box<dyn Backend>, CompileError> 
     if target.as_amd().is_some() {
         return Ok(Box::new(AmdBackend));
     }
-    Err(CompileError::UnsupportedArch(target.to_string()))
+    Err(CompileError::UnsupportedArch(target.to_string().into()))
 }
 
 #[cfg(test)]

@@ -383,7 +383,10 @@ impl<'a> SpillChooser<'a> {
 
         // Ignore anything used sonner than spill options we've already
         // rejected.
-        let next_use = self.bl.next_use_after_or_at_ip(&ssa, self.ip).unwrap();
+        let next_use = self
+            .bl
+            .next_use_after_or_at_ip(&ssa, self.ip)
+            .expect("spill candidate SSA must have a next use");
         if next_use < self.min_next_use {
             return;
         }
@@ -393,7 +396,7 @@ impl<'a> SpillChooser<'a> {
         if self.spills.len() > self.count {
             // Because we reversed the heap, pop actually removes the
             // one with the lowest next_use which is what we want here.
-            let old = self.spills.pop().unwrap();
+            let old = self.spills.pop().expect("heap non-empty after len check");
             debug_assert!(self.spills.len() == self.count);
             self.min_next_use = max(self.min_next_use, old.0.next_use);
         }
