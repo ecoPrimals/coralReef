@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 12: Compiler Gaps + Math Coverage + Wiring)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 15: AMD Safe Slices + Typed DRM Wrappers)
 
 ---
 
@@ -37,7 +37,7 @@
 | MD shaders (10 new) | Yes | P2 | VACF, ESN, additional Yukawa variants, Verlet |
 | NVK f64 workarounds (reciprocal multiply, floor-modulo) | Study | P2 | Legalization pass should handle these patterns |
 | Gradient flow as Titan V validation target | Yes | P2 | Embarrassingly parallel, f64-heavy, ideal coralDriver test |
-| FMA control / `NoContraction` | Yes | P1 | Bit-exact CPU parity for precision stability |
+| ~~FMA control / `NoContraction`~~ | ~~Yes~~ | ~~P1~~ | **Resolved** — `FmaPolicy` enum (AllowFusion / NoContraction) in CompileOptions |
 
 ### groundSpring (V96)
 
@@ -47,8 +47,8 @@
 | ~~**NVIF constant alignment** (Mesa `nvif/ioctl.h`)~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — `ROUTE_NVIF=0x00`, `OWNER_ANY=0xFF` |
 | ~~**QMD CBUF binding**~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — `buffer_vas` → QMD constant buffer slots |
 | ~~**GPR count from compiler**~~ | ~~Yes~~ | ~~P0~~ | **Resolved Iteration 9** — QMD now receives actual count from compiler |
-| Fence synchronization | Yes | P1 | EXEC is fire-and-forget |
-| NvDevice VM_INIT params | Yes | P1 | `kernel_managed_addr=0x80_0000_0000` from NVK trace |
+| ~~Fence synchronization~~ | ~~Yes~~ | ~~P1~~ | **Resolved Iteration 9** — `gem_cpu_prep` waits for last submitted QMD |
+| ~~NvDevice VM_INIT params~~ | ~~Yes~~ | ~~P1~~ | **Resolved Iteration 9** — `NV_KERNEL_MANAGED_ADDR = 0x80_0000_0000` |
 | NVK ioctl trace reference | Study | P1 | `/tmp/nvk_compute_trace.log` — golden reference for all NVIDIA dispatch parameters |
 | f64 shared-memory reduction shaders (6 patterns) | Yes | P1 | Add as regression tests — these exposed 2 bugs in V85 |
 | ~~13-tier tolerance architecture~~ | ~~Study~~ | ~~P3~~ | **Absorbed** — `tol.rs` with 13 tiers + `eps::` guards + `within()` + `compare_all()` |
@@ -70,7 +70,7 @@
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
-| Fp64Strategy dispatch model | Study | P2 | coralReef CompileOptions should support Native/Hybrid/F32Only |
+| ~~Fp64Strategy dispatch model~~ | ~~Study~~ | ~~P2~~ | **Resolved Iteration 13** — `Fp64Strategy` enum (Native/DoubleFloat/F32Only) in CompileOptions |
 | DF64 fused ops gap analysis | Study | P2 | VarianceF64, CorrelationF64 return zeros — compiler or shader? |
 | Zero local WGSL | — | — | Fully lean on upstream; no direct absorption |
 
@@ -103,21 +103,21 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | hotSpring/md | Molecular dynamics | — | **PASS** (iter 5) |
 | `rdf_histogram_f64` | hotSpring/md | Molecular dynamics | — | **PASS** (iter 4) |
 | `dielectric_mermin_f64` | hotSpring/physics | Plasma physics | wetSpring precision gap analysis refs | external include |
-| `bcs_bisection_f64` | hotSpring/physics | Nuclear physics | Cancellation-safe BCS v² → all springs | external include |
-| `batched_hfb_hamiltonian_f64` | hotSpring/physics | Nuclear physics | — | const_tracker |
+| `bcs_bisection_f64` | hotSpring/physics | Nuclear physics | Cancellation-safe BCS v² → all springs, abs_f64 inlined (iter 15) | Pred→GPR coercion |
+| `batched_hfb_hamiltonian_f64` | hotSpring/physics | Nuclear physics | — | Pred→GPR coercion |
 | `semf_batch_f64` | hotSpring/physics | Nuclear physics | — | **PASS** (iter 12) |
 | `chi2_batch_f64` | hotSpring/physics | Nuclear physics | — | **PASS** (iter 4) |
 | `anderson_lyapunov_f32` | groundSpring | Condensed matter | neuralSpring disorder sweep validation | **PASS** |
 | `anderson_lyapunov_f64` | groundSpring | Condensed matter | neuralSpring disorder sweep validation | **PASS** |
-| `gelu_f64` | neuralSpring/coralForge | ML activation | hotSpring FMA patterns → wetSpring DF64 dispatch | df64 preamble |
-| `layer_norm_f64` | neuralSpring/coralForge | ML normalization | hotSpring Kahan sum → wetSpring bio-stats | df64 preamble |
-| `softmax_f64` | neuralSpring/coralForge | ML attention | hotSpring precision → wetSpring bio-stats | df64 preamble |
-| `sdpa_scores_f64` | neuralSpring/coralForge | ML attention | 3-pass SDPA (neuralSpring Evoformer) | df64 preamble |
-| `sigmoid_f64` | neuralSpring/coralForge | ML activation | hotSpring FMA patterns | df64 preamble |
-| `kl_divergence_f64` | neuralSpring | ML statistics | wetSpring cross-entropy, groundSpring fitness | WGSL keyword conflict |
+| `gelu_f64` | neuralSpring/coralForge | ML activation | hotSpring FMA patterns → wetSpring DF64 dispatch | **PASS** (iter 13, df64 preamble) |
+| `layer_norm_f64` | neuralSpring/coralForge | ML normalization | hotSpring Kahan sum → wetSpring bio-stats | **PASS** (iter 13, df64 preamble) |
+| `softmax_f64` | neuralSpring/coralForge | ML attention | hotSpring precision → wetSpring bio-stats | **PASS** (iter 13, df64 preamble) |
+| `sdpa_scores_f64` | neuralSpring/coralForge | ML attention | 3-pass SDPA (neuralSpring Evoformer) | **PASS** (iter 13, df64 preamble) |
+| `sigmoid_f64` | neuralSpring/coralForge | ML activation | hotSpring FMA patterns | scheduler loop phi |
+| `kl_divergence_f64` | neuralSpring | ML statistics | wetSpring cross-entropy, groundSpring fitness | **PASS** (iter 13, keyword fix) |
 | `mean_reduce` | neuralSpring | ML aggregation | Population fitness (f32, single-workgroup) | **PASS** |
 | `rk4_parallel` | neuralSpring | ODE solver | Complex control flow, scheduling stress | **PASS** (iter 5) |
-| `local_elementwise_f64` | airSpring | Hydrology | SCS-CN, Stewart, Makkink, Turc, Hamon, BC | naga f64 extension |
+| `local_elementwise_f64` | airSpring | Hydrology | SCS-CN, Stewart, Makkink, Turc, Hamon, BC | Math::Acos (iter 15: switch + var fix done) |
 
 ### Compilation Benchmarks (SM70, debug build — 14 shaders)
 
@@ -138,19 +138,21 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 12)
+### Blocker Triage (current — iteration 15)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
-| df64 preamble (multi-file include) | 5 shaders | gelu, layer_norm, softmax, sdpa_scores, sigmoid |
-| External include (separate file) | 2 shaders | dielectric_mermin, bcs_bisection |
 | Register allocator SSA tracking | 1 shader | su3_gauge_force |
-| Scheduler loop-carried phi | 1 shader | wilson_plaquette |
-| Pred→GPR encoder coercion chain | — | 2 remaining gaps |
+| Scheduler loop-carried phi | 2 shaders | wilson_plaquette, sigmoid |
+| Pred→GPR encoder coercion chain | 2 shaders | bcs_bisection, batched_hfb_hamiltonian |
+| Math function (Acos) | 1 shader | local_elementwise |
+| Complex64 preamble | 1 shader | dielectric_mermin |
+| ~~df64 preamble~~ | ~~5 shaders~~ | **Fixed iter 13** — gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
+| ~~WGSL keyword conflict~~ | ~~kl_divergence~~ | **Fixed iter 13** — `shared` → `wg_scratch` |
+| ~~var_storage slot overflow~~ | ~~local_elementwise~~ | **Fixed iter 15** — inline pre_allocate_local_vars |
+| ~~Statement::Switch~~ | ~~local_elementwise~~ | **Fixed iter 14** — chain-of-comparisons lowering |
 | ~~Encoder reg file mismatch~~ | ~~semf_batch~~ | **Fixed iter 12** |
 | ~~const_tracker negated imm~~ | ~~batched_hfb_hamiltonian~~ | **Fixed iter 12** |
-| WGSL keyword conflict | 1 shader | kl_divergence (uses reserved word 'shared') |
-| naga f64 extension | 1 shader | local_elementwise |
 
 ### Resolved Blockers (iterations 4 + 5)
 
@@ -190,14 +192,15 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 Current:  WGSL → naga → NVK → NAK → (bad SASS) → GPU   [9-149× gap]
 Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
 
-Status (groundSpring V96, Iteration 10):
+Status (Iteration 15):
   ✅ WGSL → SASS compilation (SM70/SM86)
   ✅ QMD v2.1 (Volta) / v3.0 (Ampere)
   ✅ DRM VM_INIT + VM_BIND + EXEC
   ✅ NVIF class object creation
   ✅ Push buffer SET_OBJECT (field swap fixed Iteration 9)
   ✅ QMD CBUF binding (resolved Iteration 9)
-  ❌ Fence wait (P1)
+  ✅ Fence wait (gem_cpu_prep, resolved Iteration 9)
+  ❌ Hardware validation (Titan V + RTX 3090 on-site)
 ```
 
 | Metric | NVK/NAK | coralReef (target) | vs PTXAS |
@@ -211,12 +214,12 @@ Status (groundSpring V96, Iteration 10):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 991 tests (955 pass), both drivers wired, AMD E2E verified |
-| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau wired, awaiting HW validation |
-| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired (channel+GEM+pushbuf) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 10 — AMD E2E proven |
-| hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; QMD CBUF binding resolved (Iteration 9) |
-| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved — f64 emission (iter 3), AMD E2E (iter 10), var<uniform> (iter 4), BAR.SYNC (iter 3). Only P2 loop scheduling remains. |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 991 tests (960 pass), both drivers complete, AMD E2E verified |
+| airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
+| wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 15 — AMD E2E proven |
+| hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; all P0 resolved (Iteration 9) |
+| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved. Only P2 loop scheduling + Pred→GPR coercion remain. |
 
 ---
 
@@ -229,6 +232,19 @@ Status (groundSpring V96, Iteration 10):
 | SrcEncoding literal DWORD | Instruction stream debugging | codegen/ops/mod.rs |
 | 64-bit address pair for FLAT | DCE-aware address construction | naga_translate/func_mem.rs |
 | Consolidated ioctl unsafe surface | Safe wrapper pattern (amd_ioctl/amd_ioctl_read) | amd/ioctl.rs |
+
+### Phase 10 — Iteration 13-15 Absorption (df64 + Switch + Safe Driver)
+
+| Pattern | Source | Applied |
+|---------|--------|---------|
+| Fp64Strategy enum | barraCuda precision tiers | CompileOptions (Native/DoubleFloat/F32Only) |
+| df64 preamble auto-prepend | barraCuda Dekker/Knuth | prepare_wgsl() detects Df64 usage |
+| Statement::Switch lowering | naga IR coverage | ISetP + OpBra chain, CFG edges |
+| NV MappedRegion RAII | Safe Rust pattern | nv/ioctl.rs: as_slice()/as_mut_slice() + Drop |
+| AMD MappedRegion safe slices | Mirrors NV pattern | amd/gem.rs: copy_from_slice/to_vec() |
+| Typed DRM wrappers | Unsafe reduction | drm.rs: gem_close(), drm_version() |
+| Inline var pre-allocation | Compiler correctness | func_ops.rs: pre_allocate_local_vars in inline_call |
+| abs_f64 inlined | hotSpring BCS preamble | bcs_bisection_f64.wgsl |
 
 ### Phase 10 — Iteration 12 Absorption (Compiler Gaps + Math + Wiring)
 
@@ -259,7 +275,9 @@ Status (groundSpring V96, Iteration 10):
 
 ---
 
-*15/27 cross-spring shaders compile to native SASS. 991 tests (955 pass).
+*15/27 cross-spring shaders compile to native SASS. 991 tests (960 pass, 31 ignored).
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
 The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
-(Iteration 10). Next: NVIDIA hardware validation.*
+(Iteration 10). Iterations 13-15: df64 preamble (5 tests unblocked), Statement::Switch,
+AMD+NV RAII MappedRegion, typed DRM wrappers, inline var pre-allocation fix.
+Next: NVIDIA hardware validation, Pred→GPR coercion chain, trig inverse math.*

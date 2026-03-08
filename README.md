@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 13 (df64 Preamble + Fp64Strategy + Test Unblocking)
+**Status**: Phase 10 — Iteration 15 (AMD Safe Slices + Inline Var Fix + Typed DRM Wrappers)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -123,7 +123,7 @@ coralReef/
 | Crate | Purpose |
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, FMA control |
-| `coral-reef` | Shader compiler — 14/27 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
+| `coral-reef` | Shader compiler — 15/27 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (channel+GEM+pushbuf+QMD+CBUF+fence) via DRM ioctl (pure Rust, bytemuck, zero FFI) |
 | `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API, auto-detect DRM render nodes |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
@@ -145,6 +145,10 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | log2 | Log2 seed + Newton | Polynomial via `v_fma_f64` | ~46-bit+ |
 | sin | Cody-Waite + minimax | Cody-Waite via `v_fma_f64` | Full domain |
 | cos | Cody-Waite + minimax | Cody-Waite via `v_fma_f64` | Full domain |
+| exp | x * log2(e) → exp2 | Via `v_fma_f64` | Full f64 |
+| log | log2(x) * ln(2) | Via `v_fma_f64` | ~46-bit+ |
+| pow | log2 + mul + exp2 | Via `v_fma_f64` | ~46-bit+ |
+| tan | sin/cos division | Via `v_fma_f64` | Full domain |
 
 ## Checks
 
@@ -177,7 +181,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 10** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 15** |
 
 ---
 

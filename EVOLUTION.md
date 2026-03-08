@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 12)
-**Phase**: 10 — Compiler Gaps + Math Coverage + Cross-Spring Wiring
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 15)
+**Phase**: 10 — AMD Safe Slices + Inline Var Pre-allocation + Typed DRM Wrappers
 
 ---
 
@@ -9,15 +9,14 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-991 tests (955 passing, 36 ignored), 15/27 cross-spring WGSL shaders
+991 tests (960 passing, 31 ignored), 15/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
-**Iteration 12 milestone**: Compiler gaps + math coverage + cross-spring wiring
-— 2 of 4 compiler gaps fixed (GPR→Pred coercion, const_tracker negated immediate).
-6 new math ops: tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros,
-is_signed_int_expr. Cross-file copy lowering: Pred→GPR (OpSel), True/False→GPR,
-GPR.bnot→Pred. semf_batch_f64 test now passes. Cross-spring wiring guide
-published in wateringHole.
+**Iteration 15 milestone**: AMD MappedRegion safe slices (mirrors NV RAII
+pattern — `ptr::copy_nonoverlapping` → `copy_from_slice`/`to_vec()`),
+typed DRM wrappers (`gem_close()`, `drm_version()` — 3 call-site unsafe
+eliminated), inline `pre_allocate_local_vars` fix (callee locals in
+`inline_call`), `abs_f64` inlined in BCS shader, TODO/XXX cleanup.
 
 ---
 
@@ -63,6 +62,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] Loop (with continuing + break if)
 - [x] Return
 - [x] Store
+- [x] Switch (chain-of-comparisons: ISetP + OpBra per case, default fallthrough)
 - [x] WorkGroupBarrier (BAR.SYNC)
 - [x] Atomic (Add, Sub, And, Or, Xor, Min, Max, Exchange, CompareExchange) via OpAtom
 - [ ] Barrier (other barrier types)
@@ -130,7 +130,10 @@ early returns with standard control flow to ensure expr_map insertion.
 | Feature | Shaders Blocked | Complexity |
 |---------|-----------------|------------|
 | Register allocator SSA tracking | su3_gauge_force | **High** — unknown SSA in GPR file after liveness |
-| Scheduler loop-carried phi fix | wilson_plaquette | High — PerRegFile accounting |
+| Scheduler loop-carried phi fix | wilson_plaquette, sigmoid | High — PerRegFile accounting |
+| Pred→GPR encoder coercion chain | bcs_bisection, batched_hfb | Medium — select() condition in ALU source |
+| Acos/Asin/Atan2 math functions | local_elementwise | Medium — polynomial approximation needed |
+| Complex64 preamble | dielectric_mermin | Medium — needs complex arithmetic type |
 | ~~Encoder GPR→comparison reg file~~ | ~~semf_batch~~ | **Fixed Iteration 12** — semf_batch now passes |
 | ~~const_tracker negated immediate~~ | ~~batched_hfb_hamiltonian~~ | **Fixed Iteration 12** |
 
@@ -157,7 +160,7 @@ early returns with standard control flow to ensure expr_map insertion.
 | BO list (buffer tracking) | **Done** | `DRM_AMDGPU_BO_LIST` create/destroy ioctl |
 | CS submit | **Done** | `DRM_AMDGPU_CS` with IB + BO list |
 | Fence wait | **Done** | `DRM_AMDGPU_WAIT_CS` with 5s timeout |
-| **Hardware validation** | **Not started** | RX 6950 XT on-site |
+| **Hardware validation** | **✅ E2E verified** | RX 6950 XT — WGSL → compile → PM4 → execute → readback |
 
 ### NVIDIA (nouveau DRM)
 
@@ -173,9 +176,9 @@ early returns with standard control flow to ensure expr_map insertion.
 | Push buffer encoding | **Done** | Fixed Iteration 9 — `mthd_incr` count/method fields |
 | NVIF constants | **Done** | Fixed Iteration 9 — aligned to Mesa `nvif/ioctl.h` |
 | QMD CBUF binding | **Done** | Fixed Iteration 9 — `buffer_vas` → QMD constant buffer slots |
-| Fence wait | **P1** | EXEC is fire-and-forget; no sync |
-| VM_INIT params | **P1** | Needs `0x80_0000_0000` (from NVK trace) |
-| **Hardware validation** | **Not started** | Titan V + RTX 3090 on-site |
+| Fence wait | **Done** | `gem_cpu_prep` (DRM_NOUVEAU_GEM_CPU_PREP) waits for last submitted QMD buffer |
+| VM_INIT params | **Done** | `NV_KERNEL_MANAGED_ADDR = 0x80_0000_0000` from NVK trace |
+| **Hardware validation** | **Not started** | Titan V + RTX 3090 on-site — driver path complete, awaiting HW test |
 
 ### Evolution Path
 
@@ -234,14 +237,13 @@ Endgame:
 
 | Result | Count | Examples |
 |--------|-------|---------|
-| **Compiling** | 14 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, **rk4_parallel**, **yukawa_force_celllist** |
-| df64 preamble needed | 5 | gelu, layer_norm, softmax, sdpa_scores, sigmoid |
-| External include needed | 3 | dielectric_mermin, bcs_bisection, kl_divergence |
-| Register allocator bug | 1 | su3_gauge_force |
-| Scheduler bug | 1 | wilson_plaquette |
-| Encoder reg file mismatch | 1 | semf_batch |
-| naga f64 extension | 1 | local_elementwise |
-| const_tracker bug | 1 | batched_hfb_hamiltonian |
+| **Compiling** | 15 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, **semf_batch** |
+| df64 preamble (compiling) | 5 | gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
+| Register allocator SSA tracking | 1 | su3_gauge_force |
+| Scheduler loop-carried phi | 2 | wilson_plaquette, sigmoid |
+| Pred→GPR encoder coercion | 2 | bcs_bisection, batched_hfb_hamiltonian |
+| Math function (Acos) | 1 | local_elementwise |
+| Complex64 preamble needed | 1 | dielectric_mermin |
 
 ### Compilation Benchmarks (SM70, debug build)
 
@@ -281,14 +283,15 @@ Endgame:
 | `naga_translate/mod.rs` | 29 | **All in test code** — no production debt |
 | Production code total | ~210 | Concentrated in register allocator and encoder; these are internal invariant assertions |
 
-### Unsafe Code Audit
+### Unsafe Code Audit (Iteration 15)
 
 | Location | Blocks | Assessment |
 |----------|--------|------------|
-| `coral-driver/src/drm.rs` | 1 | `drm_ioctl_typed` — documented `#[repr(C)]` safety, minimal scope |
-| `coral-driver/src/amd/gem.rs` | 4 | RAII `MappedRegion` (mmap/munmap), bounds-checked copy; **well-structured** |
-| `coral-driver/src/amd/ioctl.rs` | 5 | All `drm_ioctl_typed` calls — consistent safety contract |
-| `nak-ir-proc/src/lib.rs` | 2 | Proc-macro `from_raw_parts` — lifetime-bounded |
+| `coral-driver/src/drm.rs` | 2 | `drm_ioctl_typed` + `drm_ioctl_named` — documented `#[repr(C)]` safety; typed wrappers (`gem_close`, `drm_version`) eliminate call-site unsafe |
+| `coral-driver/src/amd/gem.rs` | 1 | RAII `MappedRegion` (mmap/munmap + `as_slice()`/`as_mut_slice()`); zero raw ptr ops at call sites |
+| `coral-driver/src/amd/ioctl.rs` | 3 | `amd_ioctl`/`amd_ioctl_read` safe wrappers + `clock_monotonic_ns` consolidated helper |
+| `coral-driver/src/nv/ioctl.rs` | 1 | RAII `NvMappedRegion` (mmap/munmap + `as_slice()`/`as_mut_slice()`); `gem_mmap_region` returns safe type |
+| `nak-ir-proc/src/lib.rs` | 2 | Proc-macro `from_raw_parts` — lifetime-bounded, `repr(C)` contiguity checked |
 
 **libc** is the only FFI dependency, used for DRM ioctls (ioctl, mmap, munmap).
 No C library links. Transitive FFI from tokio (libc) and jsonrpsee (ring) in
@@ -331,11 +334,16 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 9 | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
 | 10 iter 10 | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **990** (953 pass, 37 ignore) |
 | 10 iter 11 | Safe ioctl surface, dead code removed, corpus +2, absorption synced | **991** (954 pass, 37 ignore) |
-| 10 iter 12 (current) | Compiler gaps (GPR→Pred, const_tracker), 6 math ops, cross-spring wiring | **991** (955 pass, 36 ignore) |
+| 10 iter 12 | Compiler gaps (GPR→Pred, const_tracker), 6 math ops, cross-spring wiring | **991** (955 pass, 36 ignore) |
+| 10 iter 13 | Fp64Strategy enum, df64 preamble, prepare_wgsl() auto-prepend, 5 df64 tests unblocked | **991** (960 pass, 31 ignore) |
+| 10 iter 14 | Statement::Switch lowering, NV MappedRegion RAII, clock_monotonic_ns, 14 diagnostic panics | **991** (960 pass, 31 ignore) |
+| 10 iter 15 (current) | AMD safe slices, inline var pre-alloc, typed DRM wrappers, TODO cleanup | **991** (960 pass, 31 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 12: 2 compiler gaps fixed, 6 math ops, cross-spring wiring guide.
+Iteration 15: AMD + NV driver unsafe fully consolidated into RAII MappedRegion
+pattern. Typed DRM wrappers eliminate call-site unsafe. Inline var
+pre-allocation fix unlocks callee locals in function inlining.
 AMD E2E verified — sovereign pipeline proven on hardware.*
