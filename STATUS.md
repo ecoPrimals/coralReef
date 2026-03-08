@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 16 (Coverage Expansion + Latency Unit Tests + Legacy SM Tests)
+**Phase**: 10 — Iteration 17 (Cross-Spring Absorption + Audit + Idiomatic Refactoring)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1116 passing, 31 ignored, zero failures, 63% line coverage (target 90%) |
+| Tests | A+ | 1134 passing, 33 ignored, zero failures, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 15** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 17** |
 
 ### Phase 10 Completions
 
@@ -233,6 +233,18 @@
 | TODOs → DEBT migration | ✅ | All bare `TODO:` replaced with `DEBT(category):` comments (28 total) |
 | Test expansion | ✅ | 991 → 1116 passing (+125 tests), 63% line coverage |
 
+### Phase 10 — Iteration 17 Completions (Cross-Spring Absorption + Audit + Idiomatic Refactoring)
+
+| Task | Status | Details |
+|------|--------|---------|
+| 10 hotSpring shaders absorbed | ✅ | CG linear algebra (alpha, beta, update_p, update_xr, complex_dot_re), Yukawa variants (verlet, celllist_indirect), SU(3) momentum, VACF batch, flow accumulate |
+| 10 neuralSpring shaders absorbed | ✅ | xoshiro128ss PRNG, HMM (viterbi, backward_log), distance (hamming, jaccard), RK45 adaptive, matrix_correlation, stencil_cooperation, spatial_payoff, swarm_nn_forward |
+| `local_elementwise_f64` retired | ✅ | Documented as retired in airSpring v0.7.2; upstream: batched_elementwise_f64 |
+| SM75 `gpr.rs` refactored | ✅ | `Vec` helpers → `const` slices (1025 → 935 LOC); zero heap allocation in test setup |
+| Full codebase audit | ✅ | No mocks in production, no hardcoded primal names in logic, all deps pure Rust (except libc for DRM) |
+| 2 new compiler limitations documented | ✅ | xoshiro128ss (non-local pointer args), swarm_nn_forward (RA SSA phi tracking) |
+| Test expansion | ✅ | 1116 → 1134 passing (+18 tests), 33 ignored |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -249,7 +261,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1116 passing, 31 ignored) |
+| `cargo test --workspace` | PASS (1134 passing, 33 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -275,7 +287,7 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 5 springs (27 shaders, 14 compiling SM70) | tests/fixtures/wgsl/ |
+| WGSL shader corpus (cross-spring) | 5 springs (47 shaders, 32 compiling SM70) | tests/fixtures/wgsl/ |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
 | Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
 | `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |

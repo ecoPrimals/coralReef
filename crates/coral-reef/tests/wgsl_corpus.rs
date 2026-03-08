@@ -41,11 +41,40 @@
 //!   neuralSpring for disorder sweep validation.
 //!
 //! - `local_elementwise_f64` — airSpring hydrology domain ops (SCS-CN, Stewart,
-//!   Makkink, Turc, Hamon, Blaney-Criddle). Simple elementwise f64 — good
-//!   baseline for compilation correctness.
+//!   Makkink, Turc, Hamon, Blaney-Criddle). Retired in airSpring v0.7.2;
+//!   upstream replacement is `batched_elementwise_f64` in barraCuda. Kept as
+//!   fossil record; needs Acos to compile.
 //!
 //! - `stress_virial_f64` — hotSpring MD off-diagonal stress tensor. Used by
 //!   wetSpring for mechanical property validation.
+//!
+//! ## Iteration 17 absorptions
+//!
+//! - CG linear algebra suite (`cg_compute_alpha_f64`, `cg_compute_beta_f64`,
+//!   `cg_update_p_f64`, `cg_update_xr_f64`, `complex_dot_re_f64`) — hotSpring
+//!   lattice QCD conjugate gradient kernels. Test scalar + vector CG paths.
+//!
+//! - Yukawa variants (`yukawa_force_verlet_f64`, `yukawa_force_celllist_indirect_f64`)
+//!   — hotSpring MD neighbor-list variants. Exercise `round()`, indirect u32 indexing.
+//!
+//! - `su3_momentum_update_f64`, `vacf_batch_f64`, `su3_flow_accumulate_f64` —
+//!   hotSpring additional lattice/MD kernels.
+//!
+//! - `xoshiro128ss` — neuralSpring PRNG. Exercises bitwise rotl/shift/xor path.
+//!
+//! - `hmm_viterbi`, `hmm_backward_log` — neuralSpring HMM log-domain. Exercises
+//!   argmax, logsumexp, exp/log codegen.
+//!
+//! - `pairwise_hamming`, `pairwise_jaccard` — neuralSpring distance metrics.
+//!   Integer diff counting and set-based distance.
+//!
+//! - `rk45_adaptive` — neuralSpring adaptive ODE. `pow()` + scratch buffers.
+//!
+//! - `matrix_correlation` — neuralSpring shared-memory Pearson correlation.
+//!
+//! - `stencil_cooperation`, `spatial_payoff` — neuralSpring game-theory stencils.
+//!
+//! - `swarm_nn_forward` — neuralSpring batch NN forward with integer argmax.
 
 use coral_reef::{CompileOptions, GpuArch, compile_wgsl};
 use std::time::Instant;
@@ -242,13 +271,121 @@ wgsl_compile_test!(corpus_mean_reduce, "mean_reduce.wgsl");
 wgsl_compile_test!(corpus_rk4_parallel, "rk4_parallel.wgsl");
 
 // ===========================================================================
+// hotSpring — CG linear algebra (Iteration 17 absorption)
+// ===========================================================================
+
+// CG scalar: α = rz / pAp (single-thread f64, 2 storage bindings)
+wgsl_compile_test!(corpus_cg_compute_alpha_f64, "cg_compute_alpha_f64.wgsl");
+
+// CG scalar: β = rz_new / rz_old (single-thread f64)
+wgsl_compile_test!(corpus_cg_compute_beta_f64, "cg_compute_beta_f64.wgsl");
+
+// CG vector: p = r + β·p (workgroup_size(64), f64 AXPY variant)
+wgsl_compile_test!(corpus_cg_update_p_f64, "cg_update_p_f64.wgsl");
+
+// CG vector: x += α·p, r -= α·ap (6 bindings, dual update)
+wgsl_compile_test!(corpus_cg_update_xr_f64, "cg_update_xr_f64.wgsl");
+
+// Complex dot product Re(a·conj(b)) for n_pairs (f64, integer indexing)
+wgsl_compile_test!(corpus_complex_dot_re_f64, "complex_dot_re_f64.wgsl");
+
+// ===========================================================================
+// hotSpring — Yukawa MD variants (Iteration 17 absorption)
+// ===========================================================================
+
+// Yukawa force with Verlet neighbor list (f64, round, u32 neighbor list)
+wgsl_compile_test!(
+    corpus_yukawa_force_verlet_f64,
+    "yukawa_force_verlet_f64.wgsl"
+);
+
+// Yukawa cell-list force with indirect sorted_indices (f64, u32 indexing)
+wgsl_compile_test!(
+    corpus_yukawa_force_celllist_indirect_f64,
+    "yukawa_force_celllist_indirect_f64.wgsl"
+);
+
+// ===========================================================================
+// hotSpring — Lattice QCD additional (Iteration 17 absorption)
+// ===========================================================================
+
+// SU(3) momentum update: P += dt·F (f64, 18-element loop per link)
+wgsl_compile_test!(
+    corpus_su3_momentum_update_f64,
+    "su3_momentum_update_f64.wgsl"
+);
+
+// Batched VACF: v(t0)·v(t) over multiple time origins (f64, uniform struct)
+wgsl_compile_test!(corpus_vacf_batch_f64, "vacf_batch_f64.wgsl");
+
+// Gradient flow K-buffer accumulate: K = α·K + Z (f64 AXPY-like)
+wgsl_compile_test!(
+    corpus_su3_flow_accumulate_f64,
+    "su3_flow_accumulate_f64.wgsl"
+);
+
+// ===========================================================================
+// neuralSpring — PRNG / bitwise (Iteration 17 absorption)
+// ===========================================================================
+
+// Xoshiro128** PRNG: rotl, shift, xor (pure u32/f32, PRNG codegen path)
+wgsl_compile_test!(
+    corpus_xoshiro128ss,
+    "xoshiro128ss.wgsl",
+    ignore = "non-local pointer argument in function call (needs naga_translate extension)"
+);
+
+// ===========================================================================
+// neuralSpring — HMM / log-domain (Iteration 17 absorption)
+// ===========================================================================
+
+// HMM Viterbi decoding: argmax over log-transition + emission (f32, u32)
+wgsl_compile_test!(corpus_hmm_viterbi, "hmm_viterbi.wgsl");
+
+// HMM backward: logsumexp reduction over j states (f32, exp, log)
+wgsl_compile_test!(corpus_hmm_backward_log, "hmm_backward_log.wgsl");
+
+// ===========================================================================
+// neuralSpring — Distance / set metrics (Iteration 17 absorption)
+// ===========================================================================
+
+// Pairwise Hamming distance: integer diff count between u32 sequences
+wgsl_compile_test!(corpus_pairwise_hamming, "pairwise_hamming.wgsl");
+
+// Pairwise Jaccard distance: 1 - intersection/union from PA matrix (f32)
+wgsl_compile_test!(corpus_pairwise_jaccard, "pairwise_jaccard.wgsl");
+
+// ===========================================================================
+// neuralSpring — Adaptive ODE / stencil (Iteration 17 absorption)
+// ===========================================================================
+
+// Adaptive Dormand-Prince RK45 with Hill RHS (f32, pow, scratch buffer)
+wgsl_compile_test!(corpus_rk45_adaptive, "rk45_adaptive.wgsl");
+
+// Pearson correlation via workgroup reduction (shared memory, f32)
+wgsl_compile_test!(corpus_matrix_correlation, "matrix_correlation.wgsl");
+
+// Fermi imitation dynamics on 2D grid (u32 strategies, Moore stencil)
+wgsl_compile_test!(corpus_stencil_cooperation, "stencil_cooperation.wgsl");
+
+// Spatial prisoner's dilemma payoff stencil (u32/f32, Moore neighborhood)
+wgsl_compile_test!(corpus_spatial_payoff, "spatial_payoff.wgsl");
+
+// Batch NN forward: 1→4→5 sigmoid layers + argmax (f32, u32 actions)
+wgsl_compile_test!(
+    corpus_swarm_nn_forward,
+    "swarm_nn_forward.wgsl",
+    ignore = "RA SSA tracking: loop-carried phi live_in mismatch in sigmoid layers"
+);
+
+// ===========================================================================
 // airSpring — Hydrology / environmental science
 // ===========================================================================
 
-// Local elementwise f64 — 6 domain ops (SCS-CN, Stewart, Makkink, Turc,
-// Hamon, Blaney-Criddle). Switch + inlining + var_storage work; needs acos.
+// Local elementwise f64 — retired in airSpring v0.7.2 (upstream:
+// batched_elementwise_f64 in barraCuda). Kept as fossil record.
 wgsl_compile_test!(
     corpus_local_elementwise_f64,
     "local_elementwise_f64.wgsl",
-    ignore = "math function Acos not yet supported (needs polynomial approximation)"
+    ignore = "retired in airSpring v0.7.2; needs Acos (not yet supported)"
 );

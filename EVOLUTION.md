@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 16)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 17)
 **Phase**: 10 — Coverage Expansion + Latency Unit Tests + Legacy SM Tests
 
 ---
@@ -9,8 +9,13 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1116 tests (1116 passing, 31 ignored), 63% line coverage (target 90%),
+1134 tests (1134 passing, 33 ignored), 63% line coverage (target 90%),
 15/27 cross-spring WGSL shaders compile to SM70 SASS.
+
+**Iteration 17 milestone**: Cross-spring absorption (20 new shaders from
+hotSpring + neuralSpring), full codebase audit (clean: no mocks in
+production, no hardcoded primals, pure Rust deps), idiomatic refactoring
+(const slices, 1000-line compliance).
 
 **Iteration 16 milestone**: Coverage expansion from 52.75% to 63% via
 legacy SM20/32/50 encoder tests, SM75/SM80 GPR latency combinatorial
@@ -338,12 +343,18 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 13 | Fp64Strategy enum, df64 preamble, prepare_wgsl() auto-prepend, 5 df64 tests unblocked | **991** (960 pass, 31 ignore) |
 | 10 iter 14 | Statement::Switch lowering, NV MappedRegion RAII, clock_monotonic_ns, 14 diagnostic panics | **991** (960 pass, 31 ignore) |
 | 10 iter 15 | AMD safe slices, inline var pre-alloc, typed DRM wrappers, TODO cleanup | **991** (960 pass, 31 ignore) |
-| 10 iter 16 (current) | Coverage expansion, legacy SM tests, latency unit tests, DEBT migration | **1116** (1116 pass, 31 ignore), 63% coverage |
+| 10 iter 16 | Coverage expansion, legacy SM tests, latency unit tests, DEBT migration | **1116** (1116 pass, 31 ignore), 63% coverage |
+| 10 iter 17 (current) | Cross-spring absorption (20 shaders), codebase audit, idiomatic refactoring | **1134** (1134 pass, 33 ignore), 63% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
+Iteration 17: 1134 tests passing, 63% line coverage. 20 new cross-spring
+shaders absorbed (10 hotSpring CG/Yukawa/lattice, 10 neuralSpring
+PRNG/HMM/distance/stencil). Full audit clean. sm75 gpr.rs refactored
+(1025 → 935 LOC via const slices).
+
 Iteration 16: 1116 tests passing, 63% line coverage. Legacy SM20/32/50
 encoder paths tested. SM75/SM80 latency tables covered via combinatorial
 unit tests. All TODOs replaced with 28 categorized DEBT comments.

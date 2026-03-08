@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 16 (Coverage Expansion + Latency Unit Tests + Legacy SM Tests)
+**Status**: Phase 10 — Iteration 17 (Cross-Spring Absorption + Audit + Idiomatic Refactoring)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -31,7 +31,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1116 passing, 31 ignored
+cargo test --workspace     # 1134 passing, 33 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

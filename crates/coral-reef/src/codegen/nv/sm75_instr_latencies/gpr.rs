@@ -810,107 +810,153 @@ impl RegLatencySM75 {
 
 #[cfg(test)]
 mod tests {
-    use super::RegLatencySM75;
-    use RegLatencySM75::*;
+    use super::RegLatencySM75::{self, *};
 
-    fn valid_writer_categories() -> Vec<RegLatencySM75> {
-        vec![
-            CoupledDisp64,
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideLower,
-            IMADWideUpper,
-            RedirectedFP64,
-            RedirectedFP16,
-            RedirectedHMMA_884_F16(0),
-            RedirectedHMMA_884_F16(2),
-            RedirectedHMMA_884_F32(0),
-            RedirectedHMMA_884_F32(2),
-            RedirectedHMMA_1688,
-            RedirectedHMMA_16816,
-            IMMA(0),
-            IMMA(2),
-            Decoupled,
-            BMov,
-            GuardPredicate,
-        ]
-    }
+    const WRITERS: &[RegLatencySM75] = &[
+        CoupledDisp64,
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideLower,
+        IMADWideUpper,
+        RedirectedFP64,
+        RedirectedFP16,
+        RedirectedHMMA_884_F16(0),
+        RedirectedHMMA_884_F16(2),
+        RedirectedHMMA_884_F32(0),
+        RedirectedHMMA_884_F32(2),
+        RedirectedHMMA_1688,
+        RedirectedHMMA_16816,
+        IMMA(0),
+        IMMA(2),
+        Decoupled,
+        BMov,
+        GuardPredicate,
+    ];
 
-    fn valid_reader_categories() -> Vec<RegLatencySM75> {
-        vec![
-            CoupledDisp64,
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideAB,
-            IMADWideLower,
-            IMADWideUpper,
-            RedirectedFP64,
-            RedirectedFP16,
-            RedirectedHMMA_884_F16(0),
-            RedirectedHMMA_884_F16(2),
-            RedirectedHMMA_884_F32(0),
-            RedirectedHMMA_884_F32(2),
-            RedirectedHMMA_1688,
-            RedirectedHMMA_16816,
-            IMMA(0),
-            IMMA(2),
-            Decoupled,
-            DecoupledOther,
-        ]
-    }
+    const READERS: &[RegLatencySM75] = &[
+        CoupledDisp64,
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideAB,
+        IMADWideLower,
+        IMADWideUpper,
+        RedirectedFP64,
+        RedirectedFP16,
+        RedirectedHMMA_884_F16(0),
+        RedirectedHMMA_884_F16(2),
+        RedirectedHMMA_884_F32(0),
+        RedirectedHMMA_884_F32(2),
+        RedirectedHMMA_1688,
+        RedirectedHMMA_16816,
+        IMMA(0),
+        IMMA(2),
+        Decoupled,
+        DecoupledOther,
+    ];
 
-    fn waw_valid_categories() -> Vec<RegLatencySM75> {
-        vec![
-            CoupledDisp64,
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideLower,
-            IMADWideUpper,
-            RedirectedFP64,
-            RedirectedFP16,
-            RedirectedHMMA_884_F16(0),
-            RedirectedHMMA_884_F32(0),
-            RedirectedHMMA_1688,
-            RedirectedHMMA_16816,
-            IMMA(0),
-            IMMA(2),
-            Decoupled,
-            BMov,
-        ]
-    }
+    const WAW_CATS: &[RegLatencySM75] = &[
+        CoupledDisp64,
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideLower,
+        IMADWideUpper,
+        RedirectedFP64,
+        RedirectedFP16,
+        RedirectedHMMA_884_F16(0),
+        RedirectedHMMA_884_F32(0),
+        RedirectedHMMA_1688,
+        RedirectedHMMA_16816,
+        IMMA(0),
+        IMMA(2),
+        Decoupled,
+        BMov,
+    ];
 
-    fn war_valid_writers() -> Vec<RegLatencySM75> {
-        vec![
-            CoupledDisp64,
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideLower,
-            IMADWideUpper,
-            RedirectedFP64,
-            RedirectedFP16,
-            RedirectedHMMA_884_F16(0),
-            RedirectedHMMA_884_F32(0),
-            RedirectedHMMA_1688,
-            RedirectedHMMA_16816,
-            IMMA(0),
-            Decoupled,
-            BMov,
-        ]
-    }
+    const WAR_WRITERS: &[RegLatencySM75] = &[
+        CoupledDisp64,
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideLower,
+        IMADWideUpper,
+        RedirectedFP64,
+        RedirectedFP16,
+        RedirectedHMMA_884_F16(0),
+        RedirectedHMMA_884_F32(0),
+        RedirectedHMMA_1688,
+        RedirectedHMMA_16816,
+        IMMA(0),
+        Decoupled,
+        BMov,
+    ];
+
+    const PRED_WRITERS: &[RegLatencySM75] = &[
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        Decoupled,
+        RedirectedFP64,
+        RedirectedFP16,
+    ];
+
+    const PRED_READERS: &[RegLatencySM75] = &[
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        Decoupled,
+        RedirectedFP64,
+        RedirectedFP16,
+    ];
+
+    const PRED_WAW_CATS: &[RegLatencySM75] = &[
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideLower,
+        IMADWideUpper,
+        RedirectedFP64,
+        RedirectedFP16,
+        Decoupled,
+    ];
+
+    const PRED_WAR_READERS: &[RegLatencySM75] = &[
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideUpper,
+        IMADWideLower,
+        RedirectedFP64,
+        RedirectedFP16,
+        Decoupled,
+        CoupledDisp64,
+    ];
+
+    const PRED_WAR_WRITERS: &[RegLatencySM75] = &[
+        CoupledDisp,
+        CoupledAlu,
+        CoupledFMA,
+        IMADLo,
+        IMADWideUpper,
+        IMADWideLower,
+        RedirectedFP64,
+        RedirectedFP16,
+        Decoupled,
+    ];
 
     #[test]
     fn raw_latency_all_pairs() {
-        for w in valid_writer_categories() {
-            for r in valid_reader_categories() {
-                let lat = RegLatencySM75::read_after_write(w, r);
+        for w in WRITERS {
+            for r in READERS {
+                let lat = RegLatencySM75::read_after_write(*w, *r);
                 assert!(lat >= 1, "RAW({w:?}, {r:?}) = {lat}, expected >= 1");
             }
         }
@@ -918,10 +964,10 @@ mod tests {
 
     #[test]
     fn waw_latency_all_pairs() {
-        for w1 in waw_valid_categories() {
-            for w2 in waw_valid_categories() {
+        for w1 in WAW_CATS {
+            for w2 in WAW_CATS {
                 for has_pred in [false, true] {
-                    let lat = RegLatencySM75::write_after_write(w1, w2, has_pred);
+                    let lat = RegLatencySM75::write_after_write(*w1, *w2, has_pred);
                     assert!(lat >= 1, "WAW({w1:?}, {w2:?}, pred={has_pred}) = {lat}");
                 }
             }
@@ -930,9 +976,9 @@ mod tests {
 
     #[test]
     fn war_latency_all_pairs() {
-        for r in valid_reader_categories() {
-            for w in war_valid_writers() {
-                let lat = RegLatencySM75::write_after_read(r, w);
+        for r in READERS {
+            for w in WAR_WRITERS {
+                let lat = RegLatencySM75::write_after_read(*r, *w);
                 assert!(lat >= 1, "WAR({r:?}, {w:?}) = {lat}");
             }
         }
@@ -940,25 +986,8 @@ mod tests {
 
     #[test]
     fn pred_raw_latency_pairs() {
-        let writers = vec![
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            Decoupled,
-            RedirectedFP64,
-            RedirectedFP16,
-        ];
-        let readers = vec![
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            Decoupled,
-            RedirectedFP64,
-            RedirectedFP16,
-        ];
-        for w in &writers {
-            for r in &readers {
+        for w in PRED_WRITERS {
+            for r in PRED_READERS {
                 let lat = RegLatencySM75::pred_read_after_write(*w, *r);
                 assert!(lat >= 1, "pred_RAW({w:?}, {r:?}) = {lat}");
             }
@@ -967,19 +996,8 @@ mod tests {
 
     #[test]
     fn pred_waw_latency_pairs() {
-        let categories = vec![
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideLower,
-            IMADWideUpper,
-            RedirectedFP64,
-            RedirectedFP16,
-            Decoupled,
-        ];
-        for w1 in &categories {
-            for w2 in &categories {
+        for w1 in PRED_WAW_CATS {
+            for w2 in PRED_WAW_CATS {
                 for has_pred in [false, true] {
                     let lat = RegLatencySM75::pred_write_after_write(*w1, *w2, has_pred);
                     assert!(
@@ -993,30 +1011,8 @@ mod tests {
 
     #[test]
     fn pred_war_latency_pairs() {
-        let readers = vec![
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideUpper,
-            IMADWideLower,
-            RedirectedFP64,
-            RedirectedFP16,
-            Decoupled,
-            CoupledDisp64,
-        ];
-        let writers = vec![
-            CoupledDisp,
-            CoupledAlu,
-            CoupledFMA,
-            IMADLo,
-            IMADWideUpper,
-            IMADWideLower,
-            RedirectedFP64,
-            RedirectedFP16,
-            Decoupled,
-        ];
-        for r in &readers {
-            for w in &writers {
+        for r in PRED_WAR_READERS {
+            for w in PRED_WAR_WRITERS {
                 let lat = RegLatencySM75::pred_write_after_read(*r, *w);
                 assert!(lat >= 1, "pred_WAR({r:?}, {w:?}) = {lat}");
             }
