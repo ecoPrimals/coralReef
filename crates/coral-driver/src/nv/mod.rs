@@ -23,7 +23,7 @@ use std::collections::HashMap;
 /// Default VA space base for kernel-managed allocations (from NVK ioctl trace).
 ///
 /// NVK uses `kernel_managed_addr = 0x80_0000_0000` and `size = 0x80_0000_0000`
-/// for the Volta+ VA space. This matches the groundSpring V95 NVK trace.
+/// for the Volta+ VA space.
 pub const NV_KERNEL_MANAGED_ADDR: u64 = 0x80_0000_0000;
 
 /// NVIDIA GPU compute device via nouveau.
@@ -138,9 +138,20 @@ impl ComputeDevice for NvDevice {
             .get(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
 
+        if offset + data.len() as u64 > buf.size {
+            return Err(DriverError::MmapFailed(
+                format!(
+                    "write out of bounds: offset={offset}, len={}, size={}",
+                    data.len(),
+                    buf.size
+                )
+                .into(),
+            ));
+        }
         let mut region = ioctl::gem_mmap_region(self.drm.fd(), buf.map_handle, buf.size)?;
-        let off = offset as usize;
-        region.as_mut_slice()[off..off + data.len()].copy_from_slice(data);
+        let off = usize::try_from(offset)
+            .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
+        region.slice_at_mut(off, data.len())?.copy_from_slice(data);
         Ok(())
     }
 
@@ -150,9 +161,19 @@ impl ComputeDevice for NvDevice {
             .get(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
 
+        if offset + len as u64 > buf.size {
+            return Err(DriverError::MmapFailed(
+                format!(
+                    "read out of bounds: offset={offset}, len={len}, size={}",
+                    buf.size
+                )
+                .into(),
+            ));
+        }
         let region = ioctl::gem_mmap_region(self.drm.fd(), buf.map_handle, buf.size)?;
-        let off = offset as usize;
-        Ok(region.as_slice()[off..off + len].to_vec())
+        let off = usize::try_from(offset)
+            .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
+        Ok(region.slice_at(off, len)?.to_vec())
     }
 
     fn dispatch(
@@ -174,7 +195,8 @@ impl ComputeDevice for NvDevice {
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
                 cbufs.push(qmd::CbufBinding {
-                    index: i as u32,
+                    index: u32::try_from(i)
+                        .map_err(|_| DriverError::platform_overflow("CBUF index fits in u32"))?,
                     addr: buf.gpu_va,
                     size: u32::try_from(buf.size).unwrap_or(u32::MAX),
                 });

@@ -554,6 +554,11 @@ fn get_field_attr(field: &Field, attr_name: &str) -> Option<Ident> {
 /// bitfield writes. The struct must also have `#[encoding(FORMAT)]` on the
 /// struct level to select the word count.
 ///
+/// # Panics
+///
+/// Panics if a named field in `#[derive(Encode)]` has no identifier
+/// (structurally impossible for named fields, but guarded defensively).
+///
 /// # Example (conceptual — requires `bitview::TypedBitField` in scope)
 ///
 /// ```ignore
@@ -636,7 +641,6 @@ fn get_encoding_word_count(input: &DeriveInput) -> usize {
                 let format = tokens.trim();
                 return match format {
                     "SOP1" | "SOP2" | "SOPC" | "SOPK" | "SOPP" | "VOP1" | "VOP2" | "VOPC" => 1,
-                    "VOP3" | "SMEM" | "DS" | "FLAT" | "MUBUF" | "MTBUF" | "MIMG" | "EXP" => 2,
                     _ => 2,
                 };
             }

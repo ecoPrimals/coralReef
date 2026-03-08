@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 15 (AMD Safe Slices + Inline Var Pre-allocation + Typed DRM Wrappers)
+**Phase**: 10 — Iteration 16 (Coverage Expansion + Latency Unit Tests + Legacy SM Tests)
 
 ---
 
@@ -11,7 +11,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
-| IPC | A+ | JSON-RPC 2.0 + tarpc, Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` semantic naming, differentiated error codes |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` semantic naming, differentiated error codes |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 991 tests (960 passing, 31 ignored), zero failures |
+| Tests | A+ | 1116 passing, 31 ignored, zero failures, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -218,6 +218,21 @@
 | Test ignore reasons updated | ✅ | `bcs_bisection_f64` (Pred→GPR coercion), `local_elementwise_f64` (Acos not yet supported) |
 | Test counts | ✅ | 991 tests (960 passing, 31 ignored) — zero regressions |
 
+### Phase 10 — Iteration 16 Completions (Coverage Expansion + Latency Unit Tests + Legacy SM Tests)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Legacy SM20/SM32/SM50 integration tests | ✅ | `compile_wgsl_raw_sm` test API, 15 legacy encoder tests covering ~4700 lines at 0% |
+| Multi-architecture NVIDIA tests | ✅ | SM70/SM75/SM80/SM86/SM89 cross-compilation, 15 multi-arch tests |
+| AMD RDNA2/RDNA3/RDNA4 tests | ✅ | Architecture variant coverage |
+| SM75 GPR latency table unit tests | ✅ | Combinatorial RAW/WAW/WAR tests for all `RegLatencySM75` categories (10.9% → 90.4%) |
+| SM80 GPR latency table unit tests | ✅ | Combinatorial RAW/WAW/WAR tests for all `RegLatencySM80` categories (11.7% → 76.5%) |
+| 10 new WGSL shader fixtures | ✅ | expr_binary_int_ops, func_math_transcendentals, sm70_control_branches_loops_barrier, builder_emit_complex, etc. |
+| SM30 delay clamping fix | ✅ | `deps.delay.clamp(1, 32)` prevents `debug_assert!` panic in Kepler scheduler |
+| `compile_wgsl_raw_sm` test API | ✅ | `#[doc(hidden)]` public function for legacy SM testing from integration tests |
+| TODOs → DEBT migration | ✅ | All bare `TODO:` replaced with `DEBT(category):` comments (28 total) |
+| Test expansion | ✅ | 991 → 1116 passing (+125 tests), 63% line coverage |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -234,7 +249,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (991 tests: 960 passing, 31 ignored) |
+| `cargo test --workspace` | PASS (1116 passing, 31 ignored) |
+| `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

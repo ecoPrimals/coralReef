@@ -9,15 +9,25 @@
 //!
 //! | Ioctl | Nr | Description |
 //! |-------|----|-------------|
-//! | `DRM_NOUVEAU_CHANNEL_ALLOC` | 0x00 | Allocate a GPU channel |
-//! | `DRM_NOUVEAU_CHANNEL_FREE`  | 0x01 | Free a GPU channel |
-//! | `DRM_NOUVEAU_GEM_NEW`       | 0x40 | Create a GEM buffer |
-//! | `DRM_NOUVEAU_GEM_PUSHBUF`   | 0x41 | Submit pushbuf commands |
+//! | `CHANNEL_ALLOC` | `0x00` | Allocate a GPU channel |
+//! | `CHANNEL_FREE`  | `0x01` | Free a GPU channel |
+//! | `GEM_NEW`       | `0x40` | Create a GEM buffer |
+//! | `GEM_PUSHBUF`   | `0x41` | Submit pushbuf commands |
 
 use crate::MemoryDomain;
-use crate::drm;
+use crate::drm::{self, MappedRegion};
 use crate::error::{DriverError, DriverResult};
 use std::os::unix::io::RawFd;
+
+/// Size of a `#[repr(C)]` struct as a `u32` for ioctl encoding.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "asserted in bounds; kernel ioctl structs are always < 4 GiB"
+)]
+const fn size_of_u32<T>() -> u32 {
+    assert!(std::mem::size_of::<T>() <= u32::MAX as usize);
+    std::mem::size_of::<T>() as u32
+}
 
 const DRM_COMMAND_BASE: u32 = 0x40;
 
@@ -34,20 +44,20 @@ const NOUVEAU_GEM_DOMAIN_GART: u32 = 1 << 2;
 const NOUVEAU_GEM_DOMAIN_MAPPABLE: u32 = 1 << 6;
 
 // ---------------------------------------------------------------------------
-// NVIF constants — aligned to Mesa `nvif/ioctl.h` (groundSpring V95)
+// NVIF constants — aligned to Mesa `nvif/ioctl.h`
 // ---------------------------------------------------------------------------
 
 /// NVIF route: standard NVIF-routed ioctl (Mesa `NVIF_IOCTL_V0_ROUTE_NVIF`).
 pub const NVIF_ROUTE_NVIF: u8 = 0x00;
 
 /// NVIF route: hidden/internal (Mesa `NVIF_IOCTL_V0_ROUTE_HIDDEN`).
-pub const NVIF_ROUTE_HIDDEN: u8 = 0xFF;
+pub const NVIF_ROUTE_HIDDEN: u8 = 0xff;
 
 /// NVIF owner: standard NVIF owner (Mesa `NVIF_IOCTL_V0_OWNER_NVIF`).
 pub const NVIF_OWNER_NVIF: u8 = 0x00;
 
 /// NVIF owner: wildcard (Mesa `NVIF_IOCTL_V0_OWNER_ANY`).
-pub const NVIF_OWNER_ANY: u8 = 0xFF;
+pub const NVIF_OWNER_ANY: u8 = 0xff;
 
 // ---------------------------------------------------------------------------
 // Ioctl structures (must match kernel `nouveau_drm.h` layout)
@@ -162,7 +172,7 @@ struct NouveauGemCpuPrep {
 ///
 /// # Errors
 ///
-/// Returns [`DriverError::IoctlFailed`] if the kernel rejects the request.
+/// Returns [`DriverError`] if the kernel rejects the request.
 pub fn create_channel(fd: RawFd) -> DriverResult<u32> {
     let mut alloc = NouveauChannelAlloc {
         pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
@@ -170,27 +180,36 @@ pub fn create_channel(fd: RawFd) -> DriverResult<u32> {
     };
     let ioctl_nr = drm::drm_iowr_pub(
         DRM_NOUVEAU_CHANNEL_ALLOC,
-        std::mem::size_of::<NouveauChannelAlloc>() as u32,
+        size_of_u32::<NouveauChannelAlloc>(),
     );
     // SAFETY: `NouveauChannelAlloc` is `#[repr(C)]` matching the kernel's
     // `drm_nouveau_channel_alloc` struct. Synchronous ioctl.
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc)? };
-    Ok(alloc.channel as u32)
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "kernel returns non-negative channel id on success"
+    )]
+    let channel = alloc.channel as u32;
+    Ok(channel)
 }
 
 /// Destroy a nouveau GPU channel.
 ///
 /// # Errors
 ///
-/// Returns [`DriverError::IoctlFailed`] if the kernel rejects the request.
+/// Returns [`DriverError`] if the kernel rejects the request.
 pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "channel ids fit in i32 (kernel allocates small positive values)"
+    )]
     let mut free = NouveauChannelFree {
         channel: channel as i32,
         pad: 0,
     };
     let ioctl_nr = drm::drm_iowr_pub(
         DRM_NOUVEAU_CHANNEL_FREE,
-        std::mem::size_of::<NouveauChannelFree>() as u32,
+        size_of_u32::<NouveauChannelFree>(),
     );
     // SAFETY: `NouveauChannelFree` is `#[repr(C)]` matching the kernel struct.
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut free) }
@@ -202,7 +221,7 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
 ///
 /// # Errors
 ///
-/// Returns [`DriverError::IoctlFailed`] on kernel failure.
+/// Returns [`DriverError`] on kernel failure.
 pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<u32> {
     let nv_domain = match domain {
         MemoryDomain::Vram => NOUVEAU_GEM_DOMAIN_VRAM,
@@ -222,16 +241,13 @@ pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<u32> 
         ..Default::default()
     };
 
-    let ioctl_nr = drm::drm_iowr_pub(
-        DRM_NOUVEAU_GEM_NEW,
-        std::mem::size_of::<NouveauGemNew>() as u32,
-    );
+    let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_NEW, size_of_u32::<NouveauGemNew>());
     // SAFETY: `NouveauGemNew` is `#[repr(C)]` matching the kernel struct.
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req)? };
     Ok(req.info.handle)
 }
 
-/// Query GEM buffer info (offset/map_handle).
+/// Query GEM buffer info (offset/`map_handle`).
 pub(crate) fn gem_info(fd: RawFd, handle: u32) -> DriverResult<(u64, u64)> {
     let mut req = NouveauGemNew {
         info: NouveauGemInfo {
@@ -240,10 +256,7 @@ pub(crate) fn gem_info(fd: RawFd, handle: u32) -> DriverResult<(u64, u64)> {
         },
         ..Default::default()
     };
-    let ioctl_nr = drm::drm_iowr_pub(
-        DRM_NOUVEAU_GEM_NEW,
-        std::mem::size_of::<NouveauGemNew>() as u32,
-    );
+    let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_NEW, size_of_u32::<NouveauGemNew>());
     // SAFETY: Same struct, kernel fills in offset/map_handle.
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req)? };
     Ok((req.info.offset, req.info.map_handle))
@@ -259,7 +272,7 @@ pub(crate) fn gem_info(fd: RawFd, handle: u32) -> DriverResult<(u64, u64)> {
 ///
 /// # Errors
 ///
-/// Returns [`DriverError::IoctlFailed`] on kernel failure.
+/// Returns [`DriverError`] on kernel failure.
 pub fn pushbuf_submit(
     fd: RawFd,
     channel: u32,
@@ -292,6 +305,10 @@ pub fn pushbuf_submit(
             buffers.len() - 1
         });
 
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "BO list length is capped by kernel; always < u32::MAX"
+    )]
     let push = [NouveauGemPushbufPush {
         bo_index: push_bo_idx as u32,
         pad: 0,
@@ -313,10 +330,7 @@ pub fn pushbuf_submit(
         ..Default::default()
     };
 
-    let ioctl_nr = drm::drm_iowr_pub(
-        DRM_NOUVEAU_GEM_PUSHBUF,
-        std::mem::size_of::<NouveauGemPushbuf>() as u32,
-    );
+    let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_PUSHBUF, size_of_u32::<NouveauGemPushbuf>());
     // SAFETY: All pointer fields point to valid, stack- or heap-allocated
     // `#[repr(C)]` structures. The ioctl is synchronous.
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut pb) }
@@ -325,81 +339,39 @@ pub fn pushbuf_submit(
 /// Wait for GPU operations on a GEM buffer to complete.
 ///
 /// Blocks until the GPU is no longer using the buffer, or returns
-/// `DriverError::IoctlFailed` on timeout/error.
+/// [`DriverError`] on timeout/error.
 ///
 /// # Errors
 ///
-/// Returns [`DriverError::IoctlFailed`] if the kernel rejects the wait.
+/// Returns [`DriverError`] if the kernel rejects the wait.
 pub fn gem_cpu_prep(fd: RawFd, gem_handle: u32) -> DriverResult<()> {
     let mut prep = NouveauGemCpuPrep {
         handle: gem_handle,
         flags: NOUVEAU_GEM_CPU_PREP_WRITE,
     };
-    let ioctl_nr = drm::drm_iowr_pub(
-        DRM_NOUVEAU_GEM_CPU_PREP,
-        std::mem::size_of::<NouveauGemCpuPrep>() as u32,
-    );
+    let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_CPU_PREP, size_of_u32::<NouveauGemCpuPrep>());
     // SAFETY: `NouveauGemCpuPrep` is `#[repr(C)]` matching the kernel struct.
     // Synchronous ioctl — blocks until the buffer is idle.
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut prep) }
 }
 
-/// RAII wrapper for a memory-mapped nouveau GEM buffer. Unmaps on drop.
-pub(crate) struct NvMappedRegion {
-    ptr: *mut libc::c_void,
-    len: usize,
-}
-
-impl NvMappedRegion {
-    /// View the mapped region as a byte slice.
-    pub(crate) fn as_slice(&self) -> &[u8] {
-        // SAFETY: ptr is valid for self.len bytes (from a successful mmap
-        // in gem_mmap_region). The region lives as long as self.
-        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.len) }
-    }
-
-    /// View the mapped region as a mutable byte slice.
-    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE. We have
-        // exclusive access via &mut self.
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast::<u8>(), self.len) }
-    }
-}
-
-impl Drop for NvMappedRegion {
-    fn drop(&mut self) {
-        // SAFETY: ptr was returned by a successful mmap (MAP_FAILED checked
-        // in gem_mmap_region). len is the same value passed to mmap.
-        unsafe { libc::munmap(self.ptr, self.len as libc::size_t) };
-    }
-}
-
 /// Map a nouveau GEM buffer into CPU address space with RAII lifetime.
 ///
-/// Returns an `NvMappedRegion` that provides safe slice access and
-/// automatically unmaps on drop. Replaces raw `gem_mmap` + manual munmap.
-pub(crate) fn gem_mmap_region(
-    fd: RawFd,
-    map_handle: u64,
-    size: u64,
-) -> DriverResult<NvMappedRegion> {
-    let len = size as usize;
-    // SAFETY: mmap with a valid fd and map_handle from the kernel.
-    // MAP_SHARED is required for coherent GPU/CPU access.
-    let ptr = unsafe {
-        libc::mmap(
-            std::ptr::null_mut(),
-            len as libc::size_t,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_SHARED,
-            fd,
-            map_handle as libc::off_t,
-        )
-    };
-    if ptr == libc::MAP_FAILED {
-        return Err(DriverError::MmapFailed("nouveau gem mmap failed".into()));
-    }
-    Ok(NvMappedRegion { ptr, len })
+/// Returns a [`MappedRegion`] that provides safe slice access and
+/// automatically unmaps on drop. Uses the unified mmap abstraction.
+pub(crate) fn gem_mmap_region(fd: RawFd, map_handle: u64, size: u64) -> DriverResult<MappedRegion> {
+    let len = usize::try_from(size).map_err(|_| {
+        DriverError::platform_overflow("buffer size exceeds platform pointer width")
+    })?;
+    let mmap_off = libc::off_t::try_from(map_handle)
+        .map_err(|_| DriverError::platform_overflow("map_handle exceeds platform off_t range"))?;
+    MappedRegion::new(
+        len,
+        libc::PROT_READ | libc::PROT_WRITE,
+        libc::MAP_SHARED,
+        fd,
+        mmap_off,
+    )
 }
 
 #[cfg(test)]

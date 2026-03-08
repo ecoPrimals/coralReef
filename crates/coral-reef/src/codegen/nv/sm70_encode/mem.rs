@@ -604,7 +604,7 @@ impl SM70Op for OpIpa {
         assert!(self.inv_w.is_zero());
         e.set_reg_src(32..40, &self.offset);
 
-        // TODO: What is this for?
+        // DEBT(isa): pred_dst purpose for interpolation.
         e.set_pred_dst(81..84, &Dst::None);
     }
 }

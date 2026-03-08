@@ -16,7 +16,7 @@ impl SM50Op for OpBra {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe240);
         e.set_rel_offset(20..44, &self.target);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -28,7 +28,7 @@ impl SM50Op for OpSSy {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe290);
         e.set_rel_offset(20..44, &self.target);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -39,7 +39,7 @@ impl SM50Op for OpSync {
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xf0f8);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -50,7 +50,7 @@ impl SM50Op for OpBrk {
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe340);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -62,7 +62,7 @@ impl SM50Op for OpPBk {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe2a0);
         e.set_rel_offset(20..44, &self.target);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -73,7 +73,7 @@ impl SM50Op for OpCont {
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe350);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -85,7 +85,7 @@ impl SM50Op for OpPCnt {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe2b0);
         e.set_rel_offset(20..44, &self.target);
-        e.set_field(0..5, 0xF_u8); // TODO: Pred?
+        e.set_field(0..5, 0xF_u8); // DEBT(isa): Pred
     }
 }
 
@@ -97,7 +97,7 @@ impl SM50Op for OpExit {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xe300);
 
-        // TODO: CC flags
+        // DEBT(isa): CC flags
         e.set_field(0..4, 0xf_u8); // CC.T
     }
 }
@@ -170,7 +170,7 @@ impl SM50Op for OpNop {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0x50b0);
 
-        // TODO: CC flags
+        // DEBT(isa): CC flags
         e.set_field(8..12, 0xf_u8); // CC.T
     }
 }

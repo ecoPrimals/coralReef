@@ -512,4 +512,84 @@ mod tests {
         a.insert(5_usize);
         assert!(!a.is_subset_of(&b));
     }
+
+    #[test]
+    fn test_bitor_operator() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(64);
+        a.insert(0_usize);
+        a.insert(1_usize);
+        b.insert(1_usize);
+        b.insert(2_usize);
+        let c = &a | &b;
+        assert!(c.contains(0_usize));
+        assert!(c.contains(1_usize));
+        assert!(c.contains(2_usize));
+        assert_eq!(c.len(), 3);
+    }
+
+    #[test]
+    fn test_sub_operator() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(64);
+        a.insert(0_usize);
+        a.insert(1_usize);
+        a.insert(2_usize);
+        b.insert(1_usize);
+        let c = &a - &b;
+        assert!(c.contains(0_usize));
+        assert!(!c.contains(1_usize));
+        assert!(c.contains(2_usize));
+        assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn test_bitor_assign() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(64);
+        a.insert(0_usize);
+        b.insert(1_usize);
+        a |= &b;
+        assert!(a.contains(0_usize));
+        assert!(a.contains(1_usize));
+    }
+
+    #[test]
+    fn test_union_with_alias() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(64);
+        a.insert(0_usize);
+        b.insert(1_usize);
+        a.union_with(&b);
+        assert_eq!(a.len(), 2);
+    }
+
+    #[test]
+    fn test_s_range_full() {
+        let bs = BitSet::<()>::new(64);
+        let s = bs.s(..);
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn test_remove_out_of_bounds() {
+        let mut bs = BitSet::<()>::new(64);
+        assert!(!bs.remove(100_usize));
+    }
+
+    #[test]
+    fn test_insert_grows_capacity() {
+        let mut bs = BitSet::<()>::new(8);
+        bs.insert(100_usize);
+        assert!(bs.contains(100_usize));
+    }
+
+    #[test]
+    fn test_debug_format() {
+        let mut bs = BitSet::<()>::new(64);
+        bs.insert(5_usize);
+        let dbg = format!("{bs:?}");
+        assert!(dbg.contains("BitSet"));
+        assert!(dbg.contains("capacity"));
+    }
 }

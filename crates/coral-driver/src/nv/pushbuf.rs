@@ -10,7 +10,7 @@
 //! Type 1 = incrementing method, Type 3 = non-incrementing.
 //!
 //! Reference: NVK `nv_push.h` line 80 (`NVC0_FIFO_PKHDR_SQ`), confirmed
-//! by groundSpring V95 NVK ioctl trace.
+//! via NVK ioctl trace.
 
 /// Kepler+ Type 1 (INCR) push buffer header.
 ///
@@ -77,6 +77,10 @@ impl PushBuf {
     }
 
     /// Push a method with multiple incrementing data words.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "push buffer method counts are always small (< 0x1FFF)"
+    )]
     pub fn push_n(&mut self, subchan: u32, method: u32, data: &[u32]) {
         if data.is_empty() {
             return;
@@ -87,6 +91,10 @@ impl PushBuf {
     }
 
     /// Push a method with multiple non-incrementing data words.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "push buffer method counts are always small (< 0x1FFF)"
+    )]
     pub fn push_ninc(&mut self, subchan: u32, method: u32, data: &[u32]) {
         if data.is_empty() {
             return;
@@ -108,6 +116,7 @@ impl PushBuf {
     }
 
     /// View as raw bytes for upload.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         bytemuck::cast_slice(&self.words)
     }
@@ -121,7 +130,8 @@ impl PushBuf {
     /// Build a compute dispatch push buffer for Volta+ (SM70+).
     ///
     /// Sets up the compute class, invalidates caches, and launches
-    /// via SEND_PCAS_A/B with the QMD address.
+    /// via `SEND_PCAS_A`/`B` with the QMD address.
+    #[must_use]
     pub fn compute_dispatch(compute_class: u32, qmd_addr: u64, local_mem_window: u64) -> Self {
         let mut pb = Self::new();
         let sub = 0_u32;

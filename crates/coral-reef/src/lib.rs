@@ -60,7 +60,8 @@ pub mod tol;
     non_snake_case,
     non_upper_case_globals,
     dead_code,
-    missing_docs
+    missing_docs,
+    reason = "ISA domain types mirror hardware docs; codegen uses intentionally unused variants"
 )]
 mod codegen;
 
@@ -379,6 +380,43 @@ fn emit_binary(compiled: &CompiledShader, target: GpuTarget) -> Vec<u8> {
         binary.extend_from_slice(&word.to_le_bytes());
     }
     binary
+}
+
+/// Compile WGSL using a raw NVIDIA SM version number (test infrastructure).
+///
+/// Allows integration tests to exercise legacy SM20/SM32/SM50 encoder paths
+/// that are not reachable through the public `NvArch` enum.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if compilation fails.
+#[doc(hidden)]
+pub fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) -> Result<Vec<u8>, CompileError> {
+    if wgsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty WGSL source".into()));
+    }
+    let warps: u8 = if sm >= 70 { 64 } else { 32 };
+    let sm_info: Box<dyn codegen::ir::ShaderModel> =
+        Box::new(codegen::ir::ShaderModelInfo::new(sm, warps));
+    let frontend = NagaFrontend;
+    let mut shader = frontend.compile_wgsl(wgsl, sm_info.as_ref())?;
+    let compiled = compile_ir(&mut shader)?;
+    let include_header = sm >= 70;
+    let header_size = if include_header {
+        compiled.header.len() * 4
+    } else {
+        0
+    };
+    let mut binary = Vec::with_capacity(header_size + compiled.code.len() * 4);
+    if include_header {
+        for word in &compiled.header {
+            binary.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+    for word in &compiled.code {
+        binary.extend_from_slice(&word.to_le_bytes());
+    }
+    Ok(binary)
 }
 
 #[cfg(test)]

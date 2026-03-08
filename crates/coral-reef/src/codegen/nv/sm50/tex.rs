@@ -127,7 +127,7 @@ impl SM50Op for OpTld4 {
 
         e.set_tex_dim(28..31, self.dim);
         e.set_tex_channel_mask(31..35, self.channel_mask);
-        e.set_bit(35, false); // ToDo: NDV
+        e.set_bit(35, false); // DEBT(isa): NDV (no derivative) bit
         e.set_bit(49, self.nodep);
         e.set_bit(50, self.z_cmpr);
     }

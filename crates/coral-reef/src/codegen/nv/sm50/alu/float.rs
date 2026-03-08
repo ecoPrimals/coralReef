@@ -213,7 +213,7 @@ impl SM50Op for OpFMul {
             }
 
             e.set_rnd_mode(39..41, self.rnd_mode);
-            e.set_field(41..44, 0x0_u8); // TODO: PDIV
+            e.set_field(41..44, 0x0_u8); // DEBT(isa): PDIV
             e.set_bit(44, self.ftz);
             e.set_bit(45, self.dnz);
             e.set_bit(48, fneg);

@@ -8,44 +8,138 @@
 //! DO NOT EDIT BY HAND. Regenerate with:
 //!   cargo run -p amd-isa-gen
 
-#[allow(dead_code, missing_docs)]
+#[allow(
+    dead_code,
+    missing_docs,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod isa_types;
 
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod ds;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod flat;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod flat_glbl;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod flat_scratch;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod mimg;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod mtbuf;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod mubuf;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod smem;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod sop1;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod sop2;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod sopc;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod sopk;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod sopp;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod vop1;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod vop2;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod vop3;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod vop3p;
-#[allow(dead_code, missing_docs, unused_imports)]
+#[allow(
+    dead_code,
+    missing_docs,
+    unused_imports,
+    reason = "generated ISA tables from amd-isa-gen"
+)]
 pub mod vopc;
 
 /// Total instruction count across all compute-relevant encodings: 1446

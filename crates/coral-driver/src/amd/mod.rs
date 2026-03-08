@@ -67,6 +67,7 @@ impl AmdDevice {
     }
 
     /// Return the GPU virtual address for a buffer (for diagnostics).
+    #[must_use]
     pub fn buffer_gpu_va(&self, handle: BufferHandle) -> Option<u64> {
         self.buffers.get(&handle.0).map(|g| g.gpu_va)
     }

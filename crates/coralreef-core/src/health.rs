@@ -69,18 +69,15 @@ pub struct Timestamp {
 impl Timestamp {
     /// Current wall-clock time.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the system clock is before the Unix epoch.
-    #[must_use]
-    pub fn now() -> Self {
-        let d = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("system clock before Unix epoch");
-        Self {
+    /// Returns an error if the system clock is before the Unix epoch.
+    pub fn now() -> Result<Self, std::time::SystemTimeError> {
+        let d = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+        Ok(Self {
             secs: d.as_secs(),
             nanos: d.subsec_nanos(),
-        }
+        })
     }
 }
 
@@ -101,15 +98,21 @@ pub struct HealthReport {
 
 impl HealthReport {
     /// Create a new report with `Unknown` status.
-    #[must_use]
-    pub fn new(name: impl Into<String>, version: impl Into<String>) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the system clock is before the Unix epoch.
+    pub fn new(
+        name: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Result<Self, std::time::SystemTimeError> {
+        Ok(Self {
             name: name.into(),
             version: version.into(),
             status: HealthStatus::Unknown,
-            timestamp: Timestamp::now(),
+            timestamp: Timestamp::now()?,
             details: BTreeMap::new(),
-        }
+        })
     }
 
     /// Set the overall status.
@@ -195,6 +198,7 @@ mod tests {
     #[test]
     fn report_builder() {
         let r = HealthReport::new("test", "0.1.0")
+            .unwrap()
             .with_status(HealthStatus::Healthy)
             .with_detail("gpu", "sm_89");
         assert_eq!(r.name, "test");
@@ -206,6 +210,7 @@ mod tests {
     #[test]
     fn report_multiple_details() {
         let r = HealthReport::new("test", "0.1.0")
+            .unwrap()
             .with_detail("a", "1")
             .with_detail("b", "2");
         assert_eq!(r.details.len(), 2);
@@ -213,20 +218,20 @@ mod tests {
 
     #[test]
     fn report_default_status_is_unknown() {
-        let r = HealthReport::new("test", "0.1.0");
+        let r = HealthReport::new("test", "0.1.0").unwrap();
         assert!(!r.status.is_healthy());
         assert!(!r.status.is_serving());
     }
 
     #[test]
     fn timestamp_is_recent() {
-        let ts = Timestamp::now();
+        let ts = Timestamp::now().unwrap();
         assert!(ts.secs > 1_700_000_000);
     }
 
     #[test]
     fn timestamp_debug() {
-        let ts = Timestamp::now();
+        let ts = Timestamp::now().unwrap();
         let debug = format!("{ts:?}");
         assert!(debug.contains("secs"));
     }

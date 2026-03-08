@@ -42,7 +42,7 @@ pub enum DriverError {
 }
 
 impl DriverError {
-    /// Platform overflow during numeric conversion (e.g. usize→u64, u64→off_t).
+    /// Platform overflow during numeric conversion (e.g. `usize`→`u64`, `u64`→`off_t`).
     /// Used for conversions that cannot fail on 64-bit Linux but should still
     /// propagate as errors rather than panicking.
     pub(crate) fn platform_overflow(msg: &'static str) -> Self {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! tarpc — high-performance binary protocol (TCP or Unix socket).
+//! tarpc — high-performance binary protocol (bincode over TCP or Unix socket).
 
 use futures::StreamExt;
 use tokio::sync::watch;
@@ -83,10 +83,10 @@ pub async fn start_tarpc_tcp_server(
     shutdown_rx: watch::Receiver<()>,
 ) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
     use tarpc::server::{self, Channel};
-    use tokio_serde::formats::Json;
+    use tokio_serde::formats::Bincode;
 
     let addr: std::net::SocketAddr = bind.parse()?;
-    let listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?;
+    let listener = tarpc::serde_transport::tcp::listen(&addr, Bincode::default).await?;
     let bound = BoundAddr::Tcp(listener.local_addr());
 
     let handle = tokio::spawn(async move {
@@ -130,7 +130,7 @@ pub async fn start_tarpc_unix_server(
 ) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
     use tarpc::server::{self, Channel};
     use tokio::net::UnixListener;
-    use tokio_serde::formats::Json;
+    use tokio_serde::formats::Bincode;
     use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
 
     if let Some(parent) = path.parent() {
@@ -151,7 +151,7 @@ pub async fn start_tarpc_unix_server(
                             let framed = LengthDelimitedBuilder::new().new_framed(stream);
                             let transport = tarpc::serde_transport::new(
                                 framed,
-                                Json::default(),
+                                Bincode::default(),
                             );
                             tokio::spawn(
                                 server::BaseChannel::with_defaults(transport)

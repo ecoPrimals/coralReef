@@ -591,4 +591,82 @@ mod tests {
 
         assert!(!cfg.has_loop());
     }
+
+    #[test]
+    fn test_cfg_push_and_add_edge_direct() {
+        let mut cfg: CFG<&str> = CFG::default();
+        let a = cfg.push("a");
+        let b = cfg.push("b");
+        cfg.add_edge(a, b);
+        assert_eq!(cfg.successors(a), &[b]);
+        assert_eq!(cfg.predecessors(b), &[a]);
+    }
+
+    #[test]
+    fn test_cfg_block_mut() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("original");
+        builder.add_block("b");
+        let mut cfg = builder.build();
+        *cfg.block_mut(a).unwrap() = "modified";
+        assert_eq!(cfg.block(a), Some(&"modified"));
+    }
+
+    #[test]
+    fn test_cfg_drain() {
+        let mut builder = CFGBuilder::new();
+        builder.add_block("a");
+        builder.add_block("b");
+        let mut cfg = builder.build();
+        let drained: Vec<_> = cfg.drain().collect();
+        assert_eq!(drained.len(), 2);
+        assert!(cfg.is_empty());
+    }
+
+    #[test]
+    fn test_cfg_index_trait() {
+        let mut builder = CFGBuilder::new();
+        builder.add_block("x");
+        builder.add_block("y");
+        let cfg = builder.build();
+        assert_eq!(cfg[0], "x");
+        assert_eq!(cfg[1], "y");
+    }
+
+    #[test]
+    fn test_cfg_index_mut_trait() {
+        let mut builder = CFGBuilder::new();
+        builder.add_block(1);
+        builder.add_block(2);
+        let mut cfg = builder.build();
+        cfg[0] = 10;
+        assert_eq!(cfg[0], 10);
+    }
+
+    #[test]
+    fn test_cfg_into_iter() {
+        let mut builder = CFGBuilder::new();
+        builder.add_block("a");
+        builder.add_block("b");
+        let cfg = builder.build();
+        let blocks: Vec<_> = (&cfg).into_iter().collect();
+        assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn test_cfgbuilder_edges_debug() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        builder.add_edge(a, b);
+        let edges = builder.edges_debug();
+        assert_eq!(edges, vec![(a, b)]);
+    }
+
+    #[test]
+    fn test_empty_cfg_reverse_post_order() {
+        let cfg: CFG<&str> = CFG::default();
+        let rpo = cfg.reverse_post_order();
+        assert!(rpo.is_empty());
+    }
 }

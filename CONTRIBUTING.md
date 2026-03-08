@@ -12,7 +12,7 @@ rustup update stable
 git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace            # 991 tests (955 passing, 36 ignored)
+cargo test --workspace            # 1116 passing, 31 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -25,7 +25,7 @@ coralReef follows ecoPrimals ecosystem conventions from `wateringHole/`.
 - **Linting**: `clippy::all` + `clippy::pedantic` + `missing_docs`, zero warnings
 - **Formatting**: `cargo fmt` — no exceptions
 - **Max file size**: 1000 lines
-- **Test coverage**: 90%+ target (measured with `cargo llvm-cov`)
+- **Test coverage**: 90%+ target (current: 63%, measured with `cargo llvm-cov`)
 - **Unsafe**: zero `unsafe` in new code
 - **Error handling**: `Result<_, CompileError>` propagation; optimizer passes skip instead of panicking
 - **No `panic!` in new production code**: use `?`, `.ok_or()`, `debug_assert!`, or graceful fallback
@@ -66,4 +66,4 @@ When implementing IPC endpoints, follow `wateringHole/SEMANTIC_METHOD_NAMING_STA
 
 - Method format: `{domain}.{capability}.{operation}` (e.g. `shader.compile.spirv`, `shader.compile.status`)
 - JSON-RPC 2.0 as primary protocol
-- tarpc as optional high-performance channel
+- tarpc (bincode serialization) as high-performance binary channel

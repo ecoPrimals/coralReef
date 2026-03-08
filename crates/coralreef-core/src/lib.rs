@@ -92,7 +92,7 @@ impl PrimalHealth for CoralReefPrimal {
 
     async fn health_check(&self) -> Result<HealthReport, PrimalError> {
         Ok(
-            HealthReport::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+            HealthReport::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))?
                 .with_status(self.health_status()),
         )
     }

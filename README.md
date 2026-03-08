@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 15 (AMD Safe Slices + Inline Var Fix + Typed DRM Wrappers)
+**Status**: Phase 10 — Iteration 16 (Coverage Expansion + Latency Unit Tests + Legacy SM Tests)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -31,7 +31,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 991 tests (960 passing, 31 ignored)
+cargo test --workspace     # 1116 passing, 31 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -122,7 +122,7 @@ coralReef/
 
 | Crate | Purpose |
 |-------|---------|
-| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc IPC, FMA control |
+| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control |
 | `coral-reef` | Shader compiler — 15/27 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (channel+GEM+pushbuf+QMD+CBUF+fence) via DRM ioctl (pure Rust, bytemuck, zero FFI) |
 | `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API, auto-detect DRM render nodes |
@@ -155,7 +155,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (991 tests — 960 passing, 31 ignored) |
+| `cargo test --workspace` | PASS (1116 passing, 31 ignored) |
+| `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

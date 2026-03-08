@@ -109,6 +109,10 @@ impl GpuContext {
     }
 
     /// Create a context with an explicit device (for testing or manual wiring).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the target is unsupported.
     pub fn with_device(target: GpuTarget, device: Box<dyn ComputeDevice>) -> GpuResult<Self> {
         let options = CompileOptions {
             target,

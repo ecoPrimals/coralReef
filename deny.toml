@@ -32,17 +32,18 @@ workspace-default-features = "allow"
 external-default-features = "allow"
 allow-wildcard-paths = true
 deny = [
-    # ecoBin: no C sys crates in the dependency tree
-    { crate = "openssl-sys", wrappers = [] },
-    # ring is banned from production deps. It only enters via jsonrpsee's
-    # "client" feature in dev-dependencies (test-only).
+    # ecoBin: no C crypto or sys crates in the production dependency tree.
     # External TLS is provided by Tower Atomic (Songbird + BearDog) using
     # pure RustCrypto — zero C dependencies in production.
+    { crate = "openssl-sys", wrappers = [] },
+    { crate = "openssl", wrappers = [] },
     { crate = "ring", wrappers = [] },
+    { crate = "cc", wrappers = [] },
     { crate = "libz-sys", wrappers = [] },
     { crate = "curl-sys", wrappers = [] },
     { crate = "libssh2-sys", wrappers = [] },
     { crate = "libgit2-sys", wrappers = [] },
+    { crate = "boringssl-sys", wrappers = [] },
 ]
 
 [sources]

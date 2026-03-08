@@ -64,7 +64,7 @@ impl SM32Encoder<'_> {
             },
         );
         self.set_mem_type(range.start + 1..range.end, access.mem_type);
-        // TODO: order and scope aren't present before SM70, what should we do?
+        // DEBT(isa): order and scope not present before SM70.
     }
 }
 
@@ -237,7 +237,7 @@ impl SM32Encoder<'_> {
                 AtomOp::Xor => 7_u8,
                 AtomOp::Exch => 8_u8,
                 AtomOp::CmpExch(_) => panic!("CmpExch is a separate opcode"),
-                // TODO: SafeAdd => 0xa_u8 ?
+                // DEBT(isa): SafeAdd => 0xa_u8 ?
             },
         );
     }
@@ -270,9 +270,8 @@ impl SM32Op for OpAtom {
                     e.set_opcode(0x778, 2);
                     e.set_dst(&self.dst);
 
-                    // TODO: These are all supported by the disassembler but
-                    // only the packed layout appears to be supported by real
-                    // hardware (same as SM50)
+                    // DEBT(isa): CmpExch separate layout in disassembler; only
+                    // packed layout appears supported by real hardware (same as SM50).
                     let (data_src, data_layout) = match cmp_src {
                         AtomCmpSrc::Separate => {
                             if self.data.is_zero() {
@@ -310,7 +309,7 @@ impl SM32Op for OpAtom {
 
                     e.set_atom_op(55..59, self.atom_op);
                 }
-                // TODO: mem_order
+                // DEBT(isa): mem_order encoding for atomics.
 
                 e.set_reg_src(10..18, &self.addr);
                 e.set_field(31..51, self.addr_offset);

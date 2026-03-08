@@ -161,7 +161,10 @@ pub struct AmdOpcode {
 //
 // All encoding modules are exported even if not yet consumed internally;
 // they form the public API for the AMD backend's ISA layer.
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "encoding modules re-exported for public API; some unused depending on target"
+)]
 pub use super::isa_generated::{
     ds, flat, flat_glbl, flat_scratch, mimg, mtbuf, mubuf, smem, sop1, sop2, sopc, sopk, sopp,
     vop1, vop2, vop3, vop3p, vopc,

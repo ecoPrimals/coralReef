@@ -214,4 +214,47 @@ mod tests {
         assert!(result.contains("Supported architectures"));
         assert!(result.contains("sm_70"));
     }
+
+    #[test]
+    fn test_exit_status_for_validation() {
+        let e = CompileError::Validation("type error".into());
+        assert_eq!(exit_status_for(&e), ExitStatus::GeneralError);
+    }
+
+    #[test]
+    fn test_exit_status_for_encoding() {
+        let e = CompileError::Encoding("bad opcode".into());
+        assert_eq!(exit_status_for(&e), ExitStatus::GeneralError);
+    }
+
+    #[test]
+    fn test_exit_status_for_register_allocation() {
+        let e = CompileError::RegisterAllocation("spill".into());
+        assert_eq!(exit_status_for(&e), ExitStatus::GeneralError);
+    }
+
+    #[test]
+    fn test_compile_file_invalid_utf8_wgsl() {
+        let tmp = std::env::temp_dir().join("coralreef_test_invalid_utf8.wgsl");
+        std::fs::write(&tmp, [0xff, 0xfe, 0xfd]).unwrap();
+        let result = compile_file(&tmp, GpuArch::default(), 2, true);
+        assert!(result.is_err());
+        let (status, msg) = result.unwrap_err();
+        assert_eq!(status, ExitStatus::ConfigError);
+        assert!(msg.to_lowercase().contains("utf-8"));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_compile_file_valid_spv_extension() {
+        let tmp = std::env::temp_dir().join("coralreef_test_minimal.spv");
+        // Minimal SPIR-V header (magic, version, generator, bound, schema)
+        let words: Vec<u32> = vec![0x0723_0203, 0x0001_0000, 0, 0, 0];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        std::fs::write(&tmp, &bytes).unwrap();
+        let result = compile_file(&tmp, GpuArch::default(), 2, true);
+        let _ = std::fs::remove_file(&tmp);
+        // May succeed or fail depending on SPIR-V validity; we just verify it doesn't panic
+        let _ = result;
+    }
 }

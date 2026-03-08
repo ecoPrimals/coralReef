@@ -532,7 +532,7 @@ impl SM70Encoder<'_> {
                 2_u8 // form
             }
             ALUSrc::CBuf(cb2) => {
-                // TODO set_src_cx
+                // DEBT(feature): set_src_cx for CBuf ALU encoding
                 self.encode_alu_cb(cb2, is_fp16_alu);
                 self.encode_alu_src2(&src1, RegFile::GPR, is_fp16_alu);
                 3_u8 // form

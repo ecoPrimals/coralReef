@@ -57,8 +57,7 @@ fn jump_thread(func: &mut Function) -> bool {
                     } else {
                         // OpExit has a form that takes an input predicate but it
                         // doesn't support upred so there's nothing we can do here.
-                        // TODO: however we could do something for the case OpBra has a
-                        //       non uniform input predicate.
+                        // DEBT(feature): Jump threading for OpBra with non-uniform predicate.
                         if let Op::Bra(replacement) = replacement {
                             bra.target = replacement.target;
                             progress = true;

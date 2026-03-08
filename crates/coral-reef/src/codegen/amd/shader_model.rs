@@ -12,7 +12,10 @@
 //! | Pred | Exec mask bits / SCC |
 //! | warp (32 threads) | wave (32 or 64 lanes) |
 
-#[allow(clippy::wildcard_imports)]
+#[allow(
+    clippy::wildcard_imports,
+    reason = "op module re-exports are intentional for codegen"
+)]
 use super::super::ir::*;
 use super::super::legalize::{LegalizeBuildHelpers, LegalizeBuilder};
 use crate::CompileError;

@@ -191,4 +191,61 @@ mod tests {
             _ => panic!(),
         }
     }
+
+    #[test]
+    fn test_push_three_transitions() {
+        let mut sv: SmallVec<i32> = SmallVec::None;
+        sv.push(1);
+        sv.push(2);
+        sv.push(3);
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[1, 2, 3]),
+            _ => panic!("expected Many after 3 pushes"),
+        }
+    }
+
+    #[test]
+    fn test_append_empty_to_one() {
+        let mut sv: SmallVec<i32> = SmallVec::One(42);
+        let mut other = vec![];
+        sv.append(&mut other);
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[42]),
+            _ => panic!("expected Many"),
+        }
+    }
+
+    #[test]
+    fn test_smallvec_with_custom_n() {
+        let mut sv: SmallVec<i32, 8> = SmallVec::None;
+        sv.push(1);
+        match &sv {
+            SmallVec::One(x) => assert_eq!(*x, 1),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_append_drains_other() {
+        let mut sv: SmallVec<i32> = SmallVec::One(1);
+        let mut other = vec![2, 3];
+        sv.append(&mut other);
+        assert!(other.is_empty());
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[1, 2, 3]),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_multiple_push_to_many() {
+        let mut sv: SmallVec<i32> = SmallVec::Many(vec![1]);
+        sv.push(2);
+        sv.push(3);
+        sv.push(4);
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[1, 2, 3, 4]),
+            _ => panic!(),
+        }
+    }
 }

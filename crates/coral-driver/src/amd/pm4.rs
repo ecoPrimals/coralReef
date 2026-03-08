@@ -3,9 +3,9 @@
 //!
 //! PM4 (Packet Manager 4) is the command packet format used by AMD GPUs.
 //! Compute dispatch requires:
-//! 1. `COMPUTE_PGM_LO/HI` — shader program base address
-//! 2. `COMPUTE_PGM_RSRC1/2` — resource descriptors (VGPRs, SGPRs, etc.)
-//! 3. `COMPUTE_NUM_THREAD_X/Y/Z` — workgroup size
+//! 1. `COMPUTE_PGM_LO`/`HI` — shader program base address
+//! 2. `COMPUTE_PGM_RSRC1`/`2` — resource descriptors (VGPRs, SGPRs, etc.)
+//! 3. `COMPUTE_NUM_THREAD_X`/`Y`/`Z` — workgroup size
 //! 4. `DISPATCH_DIRECT` — launch the compute shader
 
 use crate::{DispatchDims, ShaderInfo};
@@ -33,7 +33,7 @@ const SI_SH_REG_BASE: u32 = 0x2C00;
 /// Build a PM4 command stream for a compute dispatch.
 ///
 /// `buffer_vas` contains the GPU virtual addresses of each bound buffer.
-/// These are loaded into COMPUTE_USER_DATA registers so the shader can
+/// These are loaded into `COMPUTE_USER_DATA` registers so the shader can
 /// read them from user SGPRs (2 SGPRs per 64-bit VA).
 ///
 /// Uses compiler-derived `info` for workgroup size and register allocation.
@@ -155,7 +155,7 @@ const fn compute_pgm_rsrc1(vgpr_count: u32, sgpr_count: u32) -> u32 {
 
 /// Build `COMPUTE_PGM_RSRC2` register value.
 ///
-/// `user_sgpr_count` is the number of SGPRs populated from COMPUTE_USER_DATA
+/// `user_sgpr_count` is the number of SGPRs populated from `COMPUTE_USER_DATA`
 /// (0..16). The workgroup ID X is placed in the first SGPR after user data.
 const fn compute_pgm_rsrc2(user_sgpr_count: u32) -> u32 {
     let user_sgpr = if user_sgpr_count > 0 {

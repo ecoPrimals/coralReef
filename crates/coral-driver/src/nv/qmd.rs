@@ -5,8 +5,8 @@
 //! Includes constant buffer binding, GPR count from compiler, shared
 //! memory sizing, and dispatch grid/workgroup dimensions.
 //!
-//! Field layout derived from Mesa NVK `nvk_compute.c` and the NVIDIA
-//! open GPU headers. Validated against groundSpring V95 NVK ioctl trace.
+//! Field layout derived from Mesa NVK (`nvk_compute.c`) and the NVIDIA
+//! open GPU headers.
 
 use crate::DispatchDims;
 
@@ -38,7 +38,7 @@ pub struct QmdParams {
     pub grid: DispatchDims,
     /// Workgroup (CTA) thread dimensions.
     pub workgroup: [u32; 3],
-    /// General-purpose register count (from compiler `CompilationInfo`).
+    /// General-purpose register count (from compiler compilation info).
     pub gpr_count: u32,
     /// Shared memory size in bytes (from compiler analysis).
     pub shared_mem_bytes: u32,
@@ -70,16 +70,16 @@ impl QmdParams {
 ///
 /// Field layout (word offsets, from Mesa `cl_c3c0qmd.h`):
 ///
-/// Word 0: QMD_VERSION=2, API_VISIBLE_CALL_LIMIT, SAMPLER_INDEX.
-/// Words 1–3: CTA_RASTER_WIDTH/HEIGHT/DEPTH (grid dimensions).
-/// Word 6: CTA_THREAD_DIMENSION0 bits 15:0, CTA_THREAD_DIMENSION1 bits 31:16.
-/// Word 7: CTA_THREAD_DIMENSION2 bits 15:0, REGISTER_COUNT bits 23:16.
-/// Word 10: BARRIER_COUNT bits 4:0.
-/// Word 11: SHARED_MEMORY_SIZE (256-byte aligned).
-/// Words 17–18: PROGRAM_ADDRESS_LOWER/UPPER.
-/// Word 20: CONSTANT_BUFFER_VALID bitmask bits 7:0.
-/// Words 22–37: CONSTANT_BUFFER_ADDR pairs (8 slots × 2 words each).
-/// Words 38–45: CONSTANT_BUFFER_SIZE_SHIFTED4 (8 slots).
+/// - Word 0: `QMD_VERSION`=2, `API_VISIBLE_CALL_LIMIT`, `SAMPLER_INDEX`.
+/// - Words 1–3: `CTA_RASTER_WIDTH`/`HEIGHT`/`DEPTH` (grid dimensions).
+/// - Word 6: `CTA_THREAD_DIMENSION0` bits 15:0, `CTA_THREAD_DIMENSION1` bits 31:16.
+/// - Word 7: `CTA_THREAD_DIMENSION2` bits 15:0, `REGISTER_COUNT` bits 23:16.
+/// - Word 10: `BARRIER_COUNT` bits 4:0.
+/// - Word 11: `SHARED_MEMORY_SIZE` (256-byte aligned).
+/// - Words 17–18: `PROGRAM_ADDRESS_LOWER`/`UPPER`.
+/// - Word 20: `CONSTANT_BUFFER_VALID` bitmask bits 7:0.
+/// - Words 22–37: `CONSTANT_BUFFER_ADDR` pairs (8 slots x 2 words each).
+/// - Words 38–45: `CONSTANT_BUFFER_SIZE_SHIFTED4` (8 slots).
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -147,7 +147,7 @@ pub fn build_qmd_v21(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
 
 /// Build a QMD v3.0 (Ampere SM86+) for compute dispatch.
 ///
-/// Same layout as v2.1 but with QMD_VERSION=3 and minor field differences.
+/// Same layout as v2.1 but with `QMD_VERSION`=3 and minor field differences.
 #[must_use]
 pub fn build_qmd_v30(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     let mut q = build_qmd_v21(params);

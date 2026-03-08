@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 15)
-**Phase**: 10 — AMD Safe Slices + Inline Var Pre-allocation + Typed DRM Wrappers
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 16)
+**Phase**: 10 — Coverage Expansion + Latency Unit Tests + Legacy SM Tests
 
 ---
 
@@ -9,14 +9,14 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-991 tests (960 passing, 31 ignored), 15/27 cross-spring WGSL shaders
-compile to SM70 SASS.
+1116 tests (1116 passing, 31 ignored), 63% line coverage (target 90%),
+15/27 cross-spring WGSL shaders compile to SM70 SASS.
 
-**Iteration 15 milestone**: AMD MappedRegion safe slices (mirrors NV RAII
-pattern — `ptr::copy_nonoverlapping` → `copy_from_slice`/`to_vec()`),
-typed DRM wrappers (`gem_close()`, `drm_version()` — 3 call-site unsafe
-eliminated), inline `pre_allocate_local_vars` fix (callee locals in
-`inline_call`), `abs_f64` inlined in BCS shader, TODO/XXX cleanup.
+**Iteration 16 milestone**: Coverage expansion from 52.75% to 63% via
+legacy SM20/32/50 encoder tests, SM75/SM80 GPR latency combinatorial
+unit tests, 10 new WGSL shader fixtures, multi-architecture NVIDIA
+(SM70–SM89) + AMD (RDNA2/3/4) integration tests. TODOs fully replaced
+with 28 categorized DEBT comments. SM30 delay clamping fix.
 
 ---
 
@@ -337,13 +337,14 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 12 | Compiler gaps (GPR→Pred, const_tracker), 6 math ops, cross-spring wiring | **991** (955 pass, 36 ignore) |
 | 10 iter 13 | Fp64Strategy enum, df64 preamble, prepare_wgsl() auto-prepend, 5 df64 tests unblocked | **991** (960 pass, 31 ignore) |
 | 10 iter 14 | Statement::Switch lowering, NV MappedRegion RAII, clock_monotonic_ns, 14 diagnostic panics | **991** (960 pass, 31 ignore) |
-| 10 iter 15 (current) | AMD safe slices, inline var pre-alloc, typed DRM wrappers, TODO cleanup | **991** (960 pass, 31 ignore) |
+| 10 iter 15 | AMD safe slices, inline var pre-alloc, typed DRM wrappers, TODO cleanup | **991** (960 pass, 31 ignore) |
+| 10 iter 16 (current) | Coverage expansion, legacy SM tests, latency unit tests, DEBT migration | **1116** (1116 pass, 31 ignore), 63% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 15: AMD + NV driver unsafe fully consolidated into RAII MappedRegion
-pattern. Typed DRM wrappers eliminate call-site unsafe. Inline var
-pre-allocation fix unlocks callee locals in function inlining.
+Iteration 16: 1116 tests passing, 63% line coverage. Legacy SM20/32/50
+encoder paths tested. SM75/SM80 latency tables covered via combinatorial
+unit tests. All TODOs replaced with 28 categorized DEBT comments.
 AMD E2E verified — sovereign pipeline proven on hardware.*

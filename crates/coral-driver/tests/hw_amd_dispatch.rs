@@ -8,10 +8,10 @@ use coral_driver::{ComputeDevice, DispatchDims, ShaderInfo};
 use coral_reef::CompileOptions;
 use coral_reef::gpu_arch::{AmdArch, GpuTarget};
 
-const TRIVIAL_SHADER: &str = r#"
+const TRIVIAL_SHADER: &str = r"
 @compute @workgroup_size(1)
 fn main() {}
-"#;
+";
 
 fn open_amd() -> AmdDevice {
     AmdDevice::open().expect("AmdDevice::open() failed — is amdgpu loaded?")

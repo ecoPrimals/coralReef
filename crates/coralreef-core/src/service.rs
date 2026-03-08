@@ -115,6 +115,7 @@ fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
     }
     let mut words = Vec::with_capacity(bytes.len() / 4);
     for chunk in bytes.chunks_exact(4) {
+        debug_assert_eq!(chunk.len(), 4, "chunks_exact(4) yields 4 bytes");
         words.push(u32::from_le_bytes(
             chunk.try_into().expect("chunks_exact(4) yields 4 bytes"),
         ));
@@ -258,5 +259,51 @@ mod tests {
             fp64_software: true,
         };
         assert!(handle_compile_wgsl(&req).is_err());
+    }
+
+    #[test]
+    fn test_handle_compile_spirv_invalid_length() {
+        let bytes = vec![0u8; 5];
+        let result = handle_compile_spirv(&bytes, "sm_70", 2, true);
+        assert!(result.is_err());
+        let e = result.unwrap_err();
+        assert!(e.to_string().to_lowercase().contains("multiple of 4"));
+    }
+
+    #[test]
+    fn test_handle_compile_spirv_empty() {
+        let bytes: Vec<u8> = vec![];
+        let result = handle_compile_spirv(&bytes, "sm_70", 2, true);
+        assert!(result.is_err());
+        let e = result.unwrap_err();
+        assert!(e.to_string().to_lowercase().contains("empty"));
+    }
+
+    #[test]
+    fn test_handle_compile_spirv_unsupported_arch() {
+        let bytes = vec![0u8; 8];
+        let result = handle_compile_spirv(&bytes, "sm_99", 2, true);
+        assert!(result.is_err());
+        let e = result.unwrap_err();
+        assert!(e.to_string().to_lowercase().contains("unsupported"));
+    }
+
+    #[test]
+    fn test_handle_compile_wgsl_unsupported_arch() {
+        let req = CompileWgslRequest {
+            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            arch: "unknown_gpu".to_owned(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let result = handle_compile_wgsl(&req);
+        assert!(result.is_err());
+        let e = result.unwrap_err();
+        assert!(e.to_string().to_lowercase().contains("unsupported"));
+    }
+
+    #[test]
+    fn test_parse_target_intel_not_supported() {
+        assert!(parse_target("xe_hpg").is_err());
     }
 }

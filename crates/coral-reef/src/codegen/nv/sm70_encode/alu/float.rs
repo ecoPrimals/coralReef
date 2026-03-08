@@ -102,7 +102,7 @@ impl SM70Op for OpFMul {
         e.set_bit(77, self.saturate);
         e.set_rnd_mode(78..80, self.rnd_mode);
         e.set_bit(80, self.ftz);
-        e.set_field(84..87, 0x4_u8); // TODO: PDIV
+        e.set_field(84..87, 0x4_u8); // DEBT(isa): PDIV
     }
 }
 
@@ -127,7 +127,7 @@ impl SM70Op for OpFSet {
         );
         e.set_float_cmp_op(76..80, self.cmp_op);
         e.set_bit(80, self.ftz);
-        e.set_field(87..90, 0x7_u8); // TODO: src predicate
+        e.set_field(87..90, 0x7_u8); // DEBT(isa): src predicate
     }
 }
 

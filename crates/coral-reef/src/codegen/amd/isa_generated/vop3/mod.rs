@@ -9,8 +9,41 @@
 //!   cargo run -p amd-isa-gen
 
 use super::isa_types::{BitField, InstrEntry};
-mod table;
-pub use table::{TABLE, lookup};
+mod table_arith;
+mod table_cmp;
+mod table_cmp_f;
+mod table_cmp_i;
+mod table_logic;
+mod table_math;
+
+use std::sync::OnceLock;
+
+static TABLE_CACHE: OnceLock<Vec<InstrEntry>> = OnceLock::new();
+
+/// All ENC_VOP3 instructions (combined from sub-tables).
+#[must_use]
+pub fn table() -> &'static [InstrEntry] {
+    TABLE_CACHE
+        .get_or_init(|| {
+            [
+                table_cmp::table(),
+                table_math::TABLE,
+                table_arith::TABLE,
+                table_logic::TABLE,
+            ]
+            .concat()
+        })
+        .as_slice()
+}
+
+/// Look up an instruction by opcode.
+#[must_use]
+pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
+    table_cmp::lookup(opcode)
+        .or_else(|| table_math::lookup(opcode))
+        .or_else(|| table_arith::lookup(opcode))
+        .or_else(|| table_logic::lookup(opcode))
+}
 
 /// ENC_VOP3 encoding fields (64 bits).
 pub mod fields {

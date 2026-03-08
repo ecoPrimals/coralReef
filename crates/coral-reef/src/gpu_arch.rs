@@ -559,4 +559,58 @@ mod tests {
         assert_eq!(IntelArch::XeHpg.to_string(), "xe_hpg");
         assert_eq!(IntelArch::Xe2Hpg.to_string(), "xe2_hpg");
     }
+
+    #[test]
+    fn test_nv_arch_parse_both_formats() {
+        assert_eq!(NvArch::parse("sm_70"), Some(NvArch::Sm70));
+        assert_eq!(NvArch::parse("sm70"), Some(NvArch::Sm70));
+    }
+
+    #[test]
+    fn test_amd_arch_parse_case_insensitive() {
+        assert_eq!(AmdArch::parse("RDNA2"), Some(AmdArch::Rdna2));
+        assert_eq!(AmdArch::parse("gfx1031"), Some(AmdArch::Rdna2));
+    }
+
+    #[test]
+    fn test_nv_arch_has_transcendental_64h() {
+        for &arch in NvArch::ALL {
+            assert!(arch.has_transcendental_64h());
+        }
+    }
+
+    #[test]
+    fn test_nv_arch_max_warps_per_sm_variants() {
+        assert_eq!(NvArch::Sm70.max_warps_per_sm(), 64);
+        assert_eq!(NvArch::Sm75.max_warps_per_sm(), 32);
+        assert_eq!(NvArch::Sm89.max_warps_per_sm(), 48);
+    }
+
+    #[test]
+    fn test_gpu_target_vendor_display() {
+        let nv = GpuTarget::Nvidia(NvArch::Sm70);
+        assert_eq!(format!("{nv}"), "sm_70");
+        let amd = GpuTarget::Amd(AmdArch::Rdna3);
+        assert_eq!(format!("{amd}"), "rdna3");
+    }
+
+    #[test]
+    fn test_amd_arch_gfx_variants() {
+        assert_eq!(AmdArch::parse("gfx1032"), Some(AmdArch::Rdna2));
+        assert_eq!(AmdArch::parse("gfx1101"), Some(AmdArch::Rdna3));
+        assert_eq!(AmdArch::parse("gfx1102"), Some(AmdArch::Rdna3));
+        assert_eq!(AmdArch::parse("gfx1200"), Some(AmdArch::Rdna4));
+    }
+
+    #[test]
+    fn test_nv_arch_fromstr_valid() {
+        let arch: NvArch = "sm_70".parse().unwrap();
+        assert_eq!(arch, NvArch::Sm70);
+    }
+
+    #[test]
+    fn test_amd_arch_fromstr_valid() {
+        let arch: AmdArch = "rdna2".parse().unwrap();
+        assert_eq!(arch, AmdArch::Rdna2);
+    }
 }

@@ -39,7 +39,7 @@ pub const AMDGPU_VM_PAGE_EXECUTABLE: u32 = 1 << 3;
 
 /// GEM create — matches `union drm_amdgpu_gem_create` (32 bytes).
 ///
-/// Input: bo_size, alignment, domains, domain_flags.
+/// Input: `bo_size`, `alignment`, `domains`, `domain_flags`.
 /// Output: kernel overwrites first 8 bytes with `{ handle: u32, pad: u32 }`.
 #[repr(C)]
 #[derive(Debug, Default)]
@@ -146,7 +146,7 @@ fn amd_ioctl_read<T, R: Copy>(
     Ok(unsafe { read_ioctl_output(arg) })
 }
 
-/// Current CLOCK_MONOTONIC time in nanoseconds.
+/// Current `CLOCK_MONOTONIC` time in nanoseconds.
 ///
 /// Required by kernel DRM ABIs that accept absolute timestamps.
 /// `std::time::Instant` cannot provide raw nanoseconds — this is the
@@ -158,7 +158,7 @@ fn clock_monotonic_ns() -> u64 {
     };
     // SAFETY: timespec is a POD output struct. clock_gettime(CLOCK_MONOTONIC)
     // is infallible on Linux — the clock is always available.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut ts) };
     #[expect(
         clippy::cast_sign_loss,
         reason = "CLOCK_MONOTONIC never returns negative values"

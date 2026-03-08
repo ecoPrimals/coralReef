@@ -43,7 +43,7 @@ bytes = { version = "1", features = ["serde"] }
 jsonrpsee = { version = "0.24", features = ["server", "macros"] }
 tarpc = { version = "0.37", features = ["tokio1", "serde-transport", "tcp"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-tokio-serde = { version = "0.9", features = ["json"] }
+tokio-serde = { version = "0.9", features = ["bincode"] }
 futures = "0.3"
 
 # Error handling

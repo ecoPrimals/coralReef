@@ -716,4 +716,61 @@ mod tests {
         assert_eq!(result[b].0, ReachingConst(false));
         assert_eq!(result[b].1, ReachingConst(false));
     }
+
+    #[test]
+    fn test_forward_dataflow_multiple_predecessors_join() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("def");
+        let b = builder.add_block("pass");
+        let c = builder.add_block("pass");
+        let d = builder.add_block("use");
+        builder.add_edge(a, b);
+        builder.add_edge(a, c);
+        builder.add_edge(b, d);
+        builder.add_edge(c, d);
+        let cfg = builder.build();
+
+        let result = solve_forward(&ForwardReach, &cfg);
+        assert!(result[d].0.0, "def should reach merge from both paths");
+    }
+
+    #[test]
+    fn test_backward_dataflow_single_block() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("use");
+        let cfg = builder.build();
+
+        let result = solve_backward(&BackwardLive, &cfg);
+        assert_eq!(result.len(), 1);
+        // Single block "use" with no successors: output=bottom, input=transfer(true)
+        assert!(result[a].0.0, "use block produces live input");
+    }
+
+    #[test]
+    fn test_forward_dataflow_single_block_def() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("def");
+        let cfg = builder.build();
+
+        let result = solve_forward(&ForwardReach, &cfg);
+        assert_eq!(result.len(), 1);
+        assert!(!result[a].0.0);
+        assert!(result[a].1.0);
+    }
+
+    #[test]
+    fn test_lattice_join_commutative() {
+        let a = ReachingConst(true);
+        let b = ReachingConst(false);
+        assert_eq!(a.join(&b), ReachingConst(true));
+        assert_eq!(b.join(&a), ReachingConst(true));
+    }
+
+    #[test]
+    fn test_lattice_bottom_identity() {
+        let a = ReachingConst(true);
+        let bottom = ReachingConst::bottom();
+        assert_eq!(a.join(&bottom), a);
+        assert_eq!(bottom.join(&a), a);
+    }
 }

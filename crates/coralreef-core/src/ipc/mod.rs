@@ -98,6 +98,8 @@ pub fn default_tarpc_bind() -> String {
 
 #[cfg(test)]
 mod tests {
+    // All panic!("expected TCP address") below are test-only assertions:
+    // start_tarpc_tcp_server returns BoundAddr::Tcp by design.
     use super::*;
     use crate::service;
     use tokio::sync::watch;
@@ -229,7 +231,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tarpc_health_endpoint() {
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
         let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
@@ -237,7 +239,7 @@ mod tests {
             panic!("expected TCP address");
         };
 
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let client =
@@ -251,7 +253,7 @@ mod tests {
     #[tokio::test]
     async fn test_tarpc_compile_empty_spirv() {
         use bytes::Bytes;
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
         let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
@@ -259,7 +261,7 @@ mod tests {
             panic!("expected TCP address");
         };
 
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let client =
@@ -401,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn test_tarpc_compile_valid_shader() {
         use bytes::Bytes;
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
         let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
@@ -409,7 +411,7 @@ mod tests {
             panic!("expected TCP address");
         };
 
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let client =
@@ -446,7 +448,7 @@ mod tests {
     #[tokio::test]
     async fn test_tarpc_compile_error_propagation() {
         use bytes::Bytes;
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
         let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
@@ -454,7 +456,7 @@ mod tests {
             panic!("expected TCP address");
         };
 
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let client =
@@ -502,7 +504,7 @@ mod tests {
     async fn test_cross_protocol_health_consistency() {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (rpc_addr, _rpc_handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
         let (_tx, rx) = test_shutdown_channel();
@@ -519,7 +521,7 @@ mod tests {
         let BoundAddr::Tcp(tcp_addr) = tarpc_addr else {
             panic!("expected TCP address");
         };
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let tarpc_client =
@@ -606,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tarpc_capabilities() {
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
         let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
@@ -614,7 +616,7 @@ mod tests {
             panic!("expected TCP address");
         };
 
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let client =
@@ -637,7 +639,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tarpc_compile_wgsl() {
-        use tokio_serde::formats::Json;
+        use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
         let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
@@ -645,7 +647,7 @@ mod tests {
             panic!("expected TCP address");
         };
 
-        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Json::default)
+        let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
             .await
             .unwrap();
         let client =

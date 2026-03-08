@@ -419,7 +419,7 @@ impl PrmtSel {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum PrmtMode {
     Index,
@@ -462,8 +462,7 @@ pub struct OpPrmt {
 
 impl OpPrmt {
     pub fn get_sel(&self) -> Option<PrmtSel> {
-        // TODO: We could construct a PrmtSel for the other modes but we don't
-        // use them right now because they're kinda pointless.
+        // DEBT(feature): PrmtSel for non-Index modes (Index is the only one used).
         if self.mode != PrmtMode::Index {
             return None;
         }

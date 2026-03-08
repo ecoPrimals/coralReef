@@ -3,57 +3,9 @@
 
 use super::ioctl;
 use crate::MemoryDomain;
+use crate::drm::MappedRegion;
 use crate::error::{DriverError, DriverResult};
 use std::os::unix::io::RawFd;
-
-/// RAII wrapper around a memory-mapped region. Unmaps on drop.
-struct MappedRegion {
-    ptr: *mut libc::c_void,
-    len: usize,
-}
-
-impl MappedRegion {
-    /// Map a file descriptor region into memory.
-    fn new(
-        len: usize,
-        prot: libc::c_int,
-        flags: libc::c_int,
-        fd: RawFd,
-        offset: libc::off_t,
-    ) -> DriverResult<Self> {
-        // SAFETY: Standard POSIX mmap. Arguments are validated by the caller:
-        // `len` > 0, `fd` is a valid open DRM GEM handle, `offset` is from
-        // `gem_mmap_offset`. The kernel returns MAP_FAILED on error (checked below).
-        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, prot, flags, fd, offset) };
-        if ptr == libc::MAP_FAILED {
-            return Err(DriverError::MmapFailed("mmap returned MAP_FAILED".into()));
-        }
-        Ok(Self { ptr, len })
-    }
-
-    /// View the mapped region as a byte slice.
-    fn as_slice(&self) -> &[u8] {
-        // SAFETY: ptr is valid for self.len bytes from a successful mmap.
-        // The region lives as long as self (Drop handles munmap).
-        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.len) }
-    }
-
-    /// View the mapped region as a mutable byte slice.
-    fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE (for write ops).
-        // We have exclusive access via &mut self.
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast::<u8>(), self.len) }
-    }
-}
-
-impl Drop for MappedRegion {
-    fn drop(&mut self) {
-        // SAFETY: `ptr` was returned by a successful `mmap` call (MAP_FAILED
-        // was checked in `new`). `len` is the same value passed to `mmap`.
-        // This runs exactly once via the Drop impl.
-        unsafe { libc::munmap(self.ptr, self.len) };
-    }
-}
 
 /// A GEM buffer object backed by amdgpu.
 #[derive(Debug)]
@@ -127,7 +79,9 @@ impl GemBuffer {
         )?;
         let byte_offset = usize::try_from(offset)
             .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
-        region.as_mut_slice()[byte_offset..byte_offset + data.len()].copy_from_slice(data);
+        region
+            .slice_at_mut(byte_offset, data.len())?
+            .copy_from_slice(data);
         Ok(())
     }
 
@@ -156,7 +110,7 @@ impl GemBuffer {
         let region = MappedRegion::new(buf_len, libc::PROT_READ, libc::MAP_SHARED, fd, mmap_off)?;
         let byte_offset = usize::try_from(offset)
             .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
-        Ok(region.as_slice()[byte_offset..byte_offset + len].to_vec())
+        Ok(region.slice_at(byte_offset, len)?.to_vec())
     }
 
     /// Close/free the GEM buffer object via `DRM_IOCTL_GEM_CLOSE`.

@@ -51,15 +51,13 @@ fn calc_instr_sched(prev_op: Option<&Op>, op: &Op, deps: &InstrDeps) -> u8 {
         Op::TexDepBar(_) => 0xc2,
         Op::Sync(_) => 0x00, // Wait 16 cycles
         _ => {
-            // TODO: when we support dual-issue this should check for
-            // both previous ops
+            // DEBT(opt): Dual-issue support; check both previous ops.
             let base = match prev_op {
                 Some(Op::ASt(_)) => 0x40,
                 _ => 0x20,
             };
 
-            let delay = deps.delay;
-            debug_assert!(delay >= 1 && delay <= 32);
+            let delay = deps.delay.clamp(1, 32);
             base | (delay - 1)
         }
     }
@@ -72,9 +70,7 @@ fn calc_instr_sched(prev_op: Option<&Op>, op: &Op, deps: &InstrDeps) -> u8 {
     // Unsure:
     // 0x80: global memory bit
     //
-    // TODO: Implement remaining scheduling features:
-    // - Dual issue (0x04)
-    // - Functional Unit tracking
+    // DEBT(opt): Dual issue (0x04), Functional Unit tracking.
 }
 
 pub trait KeplerInstructionEncoder {

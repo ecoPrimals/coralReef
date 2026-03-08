@@ -118,7 +118,7 @@ impl Src {
                     SrcMod::FAbs => low & !(1_u32 << 15),
                     SrcMod::FNeg => low ^ (1_u32 << 15),
                     SrcMod::FNegAbs => low | (1_u32 << 15),
-                    _ => panic!("Not a float source modifier"),
+                    _ => panic!("ICE: Not a float source modifier"),
                 }
             }
             SrcType::F16v2 => {
@@ -133,7 +133,7 @@ impl Src {
                     SrcMod::FAbs => u & 0x7FFF_7FFF,
                     SrcMod::FNeg => u ^ 0x8000_8000,
                     SrcMod::FNegAbs => u | 0x8000_8000,
-                    _ => panic!("Not a float source modifier"),
+                    _ => panic!("ICE: Not a float source modifier"),
                 }
             }
             SrcType::F32 | SrcType::F64 => match self.modifier {
@@ -141,17 +141,17 @@ impl Src {
                 SrcMod::FAbs => u & !(1_u32 << 31),
                 SrcMod::FNeg => u ^ (1_u32 << 31),
                 SrcMod::FNegAbs => u | (1_u32 << 31),
-                _ => panic!("Not a float source modifier"),
+                _ => panic!("ICE: Not a float source modifier"),
             },
             SrcType::I32 => match self.modifier {
                 SrcMod::None => u,
                 SrcMod::INeg => -(u as i32) as u32,
-                _ => panic!("Not an integer source modifier"),
+                _ => panic!("ICE: Not an integer source modifier"),
             },
             SrcType::B32 => match self.modifier {
                 SrcMod::None => u,
                 SrcMod::BNot => !u,
-                _ => panic!("Not a bitwise source modifier"),
+                _ => panic!("ICE: Not a bitwise source modifier"),
             },
             _ => {
                 assert!(self.is_unmodified());
@@ -172,7 +172,7 @@ impl Src {
         if self.is_unmodified() {
             self.reference.to_ssa()
         } else {
-            panic!("Did not expect modifier");
+            panic!("ICE: Did not expect modifier");
         }
     }
 
@@ -188,7 +188,7 @@ impl Src {
                 assert!(reg.is_predicate() && reg.comps() == 1);
                 None
             }
-            _ => panic!("Not a boolean source"),
+            _ => panic!("ICE: Not a boolean source"),
         }
     }
 
@@ -281,7 +281,7 @@ impl Src {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "IR API reserved for future type-checking support")]
     pub fn supports_type(&self, src_type: &SrcType) -> bool {
         match src_type {
             SrcType::SSA => {

@@ -69,6 +69,10 @@ pub enum PrimalError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// System clock before Unix epoch.
+    #[error("system clock error: {0}")]
+    SystemTime(#[from] std::time::SystemTimeError),
+
     /// Internal error.
     #[error("internal error: {0}")]
     Internal(Cow<'static, str>),
@@ -163,5 +167,40 @@ mod tests {
     fn error_is_std_error() {
         let e: Box<dyn std::error::Error> = Box::new(PrimalError::lifecycle("test"));
         assert!(e.to_string().contains("test"));
+    }
+
+    #[test]
+    fn state_can_start_from_created() {
+        assert!(PrimalState::Created.can_start());
+        assert!(!PrimalState::Created.can_stop());
+    }
+
+    #[test]
+    fn state_can_start_from_stopped() {
+        assert!(PrimalState::Stopped.can_start());
+        assert!(!PrimalState::Stopped.can_stop());
+    }
+
+    #[test]
+    fn state_can_start_from_failed() {
+        assert!(PrimalState::Failed.can_start());
+        assert!(!PrimalState::Failed.can_stop());
+    }
+
+    #[test]
+    fn state_running_cannot_start() {
+        assert!(!PrimalState::Running.can_start());
+        assert!(PrimalState::Running.can_stop());
+    }
+
+    #[test]
+    fn error_system_time() {
+        use std::time::Duration;
+        let now = std::time::SystemTime::now();
+        let past = now - Duration::from_secs(1);
+        let err = past.duration_since(now);
+        assert!(err.is_err());
+        let e: PrimalError = err.unwrap_err().into();
+        assert!(e.to_string().to_lowercase().contains("system"));
     }
 }

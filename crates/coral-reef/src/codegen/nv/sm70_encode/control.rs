@@ -146,7 +146,7 @@ impl SM70Op for OpExit {
         // ./.KEEPREFCOUNT/.PREEMPTED/.INVALID3
         e.set_field(84..85, false);
         e.set_field(85..86, false); // .NO_ATEXIT
-        e.set_field(87..90, 0x7_u8); // TODO: Predicate
+        e.set_field(87..90, 0x7_u8); // DEBT(isa): Predicate
         e.set_field(90..91, false); // NOT
     }
 }
@@ -519,7 +519,7 @@ impl SM70Op for OpMovm {
         e.set_opcode(0x23a);
         e.set_dst(&self.dst);
         e.set_reg_src(24..32, &self.src);
-        // TODO: 1: M832, 2: M864
+        // DEBT(isa): MT88 encoding (1: M832, 2: M864).
         e.set_field(78..80, 0); // MT88
     }
 }

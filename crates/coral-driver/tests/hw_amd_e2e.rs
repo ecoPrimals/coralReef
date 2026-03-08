@@ -5,8 +5,8 @@
 //! compiler → native GFX1030 binary → coral-driver dispatch → GPU
 //! executes → readback → host verifies.
 //!
-//! The PM4 layer passes buffer VAs via COMPUTE_USER_DATA registers,
-//! and the compiler materializes CBuf references as V_MOV from the
+//! The PM4 layer passes buffer VAs via `COMPUTE_USER_DATA` registers,
+//! and the compiler materializes `CBuf` references as `V_MOV` from the
 //! corresponding user SGPRs.
 //!
 //! Run: `cargo test --test hw_amd_e2e -- --ignored`
@@ -16,7 +16,7 @@ use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, Shad
 use coral_reef::CompileOptions;
 use coral_reef::gpu_arch::{AmdArch, GpuTarget};
 
-const WRITE_42_SHADER: &str = r#"
+const WRITE_42_SHADER: &str = r"
 @group(0) @binding(0)
 var<storage, read_write> out: array<u32>;
 
@@ -24,7 +24,7 @@ var<storage, read_write> out: array<u32>;
 fn main() {
     out[0] = 42u;
 }
-"#;
+";
 
 fn open_amd() -> AmdDevice {
     AmdDevice::open().expect("AmdDevice::open() failed — is amdgpu loaded?")
@@ -44,8 +44,19 @@ fn try_compile_for_rdna2(
     coral_reef::compile_wgsl_full(wgsl, &opts)
 }
 
+fn encode_v_mov_b32(dst_vgpr: u8, imm32: u32) -> Vec<u32> {
+    let vop1_base = |dst: u8, src: u16| -> u32 {
+        (0b011_1111_u32 << 25) | (u32::from(dst) << 17) | (1 << 9) | u32::from(src)
+    };
+    match imm32 {
+        0 => vec![vop1_base(dst_vgpr, 128)],
+        v @ 1..=64 => vec![vop1_base(dst_vgpr, 128 + u16::try_from(v).unwrap())],
+        _ => vec![vop1_base(dst_vgpr, 255), imm32],
+    }
+}
+
 /// Verify the storage-write shader compiles with the unified ops encoder.
-/// This confirms Ldc (SMEM), MemBar, and all required ops are implemented.
+/// This confirms `Ldc` (`SMEM`), `MemBar`, and all required ops are implemented.
 #[test]
 #[ignore = "requires amdgpu hardware"]
 fn storage_write_shader_compiles_for_rdna2() {
@@ -62,7 +73,7 @@ fn storage_write_shader_compiles_for_rdna2() {
     );
 }
 
-/// Verify a bare S_ENDPGM dispatches and syncs without hanging.
+/// Verify a bare `S_ENDPGM` dispatches and syncs without hanging.
 /// This isolates the PM4/dispatch pipeline from any shader logic.
 #[test]
 #[ignore = "requires amdgpu hardware"]
@@ -81,7 +92,7 @@ fn nop_shader_dispatches_and_syncs() {
     dev.sync().expect("sync nop shader");
 }
 
-/// Hand-crafted shader: V_MOV + FLAT_STORE + S_WAITCNT + S_ENDPGM.
+/// Hand-crafted shader: `V_MOV` + `FLAT_STORE` + `S_WAITCNT` + `S_ENDPGM`.
 /// Verifies that buffer VA user SGPRs → VGPR → FLAT store → readback works.
 #[test]
 #[ignore = "requires amdgpu hardware"]
@@ -154,17 +165,6 @@ fn hardcoded_va_store_42_shader() {
     #[expect(clippy::cast_possible_truncation, reason = "splitting 64-bit VA")]
     let va_lo = buf_va as u32;
     let va_hi = (buf_va >> 32) as u32;
-
-    fn encode_v_mov_b32(dst_vgpr: u8, imm32: u32) -> Vec<u32> {
-        let vop1_base = |dst: u8, src: u16| -> u32 {
-            (0b011_1111_u32 << 25) | (u32::from(dst) << 17) | (1 << 9) | u32::from(src)
-        };
-        match imm32 {
-            0 => vec![vop1_base(dst_vgpr, 128)],
-            v @ 1..=64 => vec![vop1_base(dst_vgpr, 128 + v as u16)],
-            _ => vec![vop1_base(dst_vgpr, 255), imm32],
-        }
-    }
 
     let mut code: Vec<u32> = Vec::new();
     code.extend(encode_v_mov_b32(2, va_lo));

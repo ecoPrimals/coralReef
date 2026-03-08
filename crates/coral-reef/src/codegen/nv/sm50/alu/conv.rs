@@ -125,7 +125,7 @@ impl SM50Op for OpI2F {
         e.set_bit(13, self.src_type.is_signed());
 
         e.set_rnd_mode(39..41, self.rnd_mode);
-        e.set_field(41..43, 0_u8); // TODO: subop
+        e.set_field(41..43, 0_u8); // DEBT(isa): subop
         e.set_bit(49, false); // iabs
     }
 }

@@ -8,6 +8,7 @@
 use crate::error::{DriverError, DriverResult};
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::ptr::NonNull;
 
 /// DRM ioctl direction flags.
 const _IOC_NONE: u32 = 0;
@@ -90,6 +91,118 @@ pub struct DrmVersion {
     pub desc: u64,
 }
 
+// ---------------------------------------------------------------------------
+// Unified memory-mapped region (used by both AMD and NV backends)
+// ---------------------------------------------------------------------------
+
+/// RAII wrapper around a memory-mapped region. Unmaps on drop.
+///
+/// Consolidates `mmap`/`munmap`/`from_raw_parts` into a single safe abstraction
+/// used by both AMD (GEM) and NVIDIA (nouveau) backends.
+pub(crate) struct MappedRegion {
+    ptr: NonNull<u8>,
+    len: usize,
+}
+
+impl MappedRegion {
+    /// Map a file descriptor region into memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::MmapFailed`] if mmap returns `MAP_FAILED`.
+    pub(crate) fn new(
+        len: usize,
+        prot: libc::c_int,
+        flags: libc::c_int,
+        fd: RawFd,
+        offset: libc::off_t,
+    ) -> DriverResult<Self> {
+        if len == 0 {
+            return Err(DriverError::MmapFailed("mmap length must be > 0".into()));
+        }
+        // SAFETY: Standard POSIX mmap. Arguments are validated by the caller:
+        // `len` > 0, `fd` is a valid open DRM GEM handle, `offset` is from
+        // the kernel (gem_mmap_offset or map_handle). The kernel returns
+        // MAP_FAILED on error (checked below).
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, prot, flags, fd, offset) };
+        if ptr == libc::MAP_FAILED {
+            return Err(DriverError::MmapFailed("mmap returned MAP_FAILED".into()));
+        }
+        // SAFETY: We just verified ptr != MAP_FAILED, so it is non-null.
+        // The region is valid for `len` bytes as a byte slice.
+        let ptr = unsafe { NonNull::new_unchecked(ptr.cast::<u8>()) };
+        Ok(Self { ptr, len })
+    }
+
+    /// View the mapped region as a byte slice.
+    #[must_use]
+    pub(crate) fn as_slice(&self) -> &[u8] {
+        // SAFETY: ptr is valid for self.len bytes from a successful mmap.
+        // The region lives as long as self (Drop handles munmap).
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+
+    /// View the mapped region as a mutable byte slice.
+    #[must_use]
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE (for write ops).
+        // We have exclusive access via &mut self.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+
+    /// Bounds-checked subslice. Returns the region [offset..offset+len].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::MmapFailed`] if the range is out of bounds.
+    pub(crate) fn slice_at(&self, offset: usize, len: usize) -> DriverResult<&[u8]> {
+        let end = offset
+            .checked_add(len)
+            .ok_or_else(|| DriverError::MmapFailed("slice range overflow".into()))?;
+        if end > self.len {
+            return Err(DriverError::MmapFailed(
+                format!(
+                    "slice out of bounds: offset={offset}, len={len}, region_len={}",
+                    self.len
+                )
+                .into(),
+            ));
+        }
+        Ok(&self.as_slice()[offset..end])
+    }
+
+    /// Bounds-checked mutable subslice. Returns the region [offset..offset+len].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::MmapFailed`] if the range is out of bounds.
+    pub(crate) fn slice_at_mut(&mut self, offset: usize, len: usize) -> DriverResult<&mut [u8]> {
+        let end = offset
+            .checked_add(len)
+            .ok_or_else(|| DriverError::MmapFailed("slice range overflow".into()))?;
+        if end > self.len {
+            return Err(DriverError::MmapFailed(
+                format!(
+                    "slice out of bounds: offset={offset}, len={len}, region_len={}",
+                    self.len
+                )
+                .into(),
+            ));
+        }
+        Ok(&mut self.as_mut_slice()[offset..end])
+    }
+}
+
+impl Drop for MappedRegion {
+    fn drop(&mut self) {
+        // SAFETY: ptr was returned by a successful mmap call (MAP_FAILED
+        // was checked in `new`). len is the same value passed to mmap.
+        // NonNull<u8> and *mut c_void have the same representation for
+        // munmap. This runs exactly once via the Drop impl.
+        unsafe { libc::munmap(self.ptr.as_ptr().cast::<libc::c_void>(), self.len) };
+    }
+}
+
 /// A DRM render node file descriptor.
 pub struct DrmDevice {
     file: File,
@@ -163,7 +276,9 @@ pub(crate) fn drm_version(fd: RawFd) -> DriverResult<(DrmVersion, String)> {
     // SAFETY: DrmVersion is #[repr(C)] matching kernel's drm_version struct.
     // name_buf is stack-allocated and outlives the synchronous ioctl.
     unsafe { drm_ioctl_named(fd, DRM_IOCTL_VERSION, &mut ver, "drm_version")? };
-    let len = (ver.name_len as usize).min(name_buf.len());
+    let len = usize::try_from(ver.name_len)
+        .unwrap_or(name_buf.len())
+        .min(name_buf.len());
     let name = String::from_utf8_lossy(&name_buf[..len])
         .trim_end_matches('\0')
         .to_string();

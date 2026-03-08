@@ -394,9 +394,63 @@ fn generate_types_file() -> String {
 const MAX_LINES_PER_FILE: usize = 950;
 const LINES_PER_INSTR: usize = 8;
 
+/// Categorize VOP3 instruction for sub-table split (cmp, math, arith, logic).
+fn vop3_category(name: &str) -> &'static str {
+    if name.starts_with("V_CMP_") || name.starts_with("V_CMPX_") {
+        "cmp"
+    } else if name.starts_with("V_CVT_")
+        || name.starts_with("V_TRUNC_")
+        || name.starts_with("V_CEIL_")
+        || name.starts_with("V_RNDNE_")
+        || name.starts_with("V_FLOOR_")
+        || name.starts_with("V_FRACT_")
+        || name.starts_with("V_EXP_")
+        || name.starts_with("V_LOG_")
+        || name.starts_with("V_RCP_")
+        || name.starts_with("V_RSQ_")
+        || name.starts_with("V_SQRT_")
+        || name.starts_with("V_SIN_")
+        || name.starts_with("V_COS_")
+        || name.starts_with("V_FREXP_")
+        || name.starts_with("V_TRIG_PREOP_")
+        || name.starts_with("V_LDEXP_")
+    {
+        "math"
+    } else if name.starts_with("V_LSHRREV_")
+        || name.starts_with("V_ASHRREV_")
+        || name.starts_with("V_LSHLREV_")
+        || name == "V_AND_B32"
+        || name == "V_OR_B32"
+        || name == "V_XOR_B32"
+        || name == "V_XNOR_B32"
+        || name.starts_with("V_XOR3_")
+        || name.starts_with("V_OR3_")
+        || name.starts_with("V_AND_OR_")
+        || name.starts_with("V_LSHL_OR_")
+        || name.starts_with("V_BFE_")
+        || name.starts_with("V_BFI_")
+        || name.starts_with("V_ALIGNBIT_")
+        || name.starts_with("V_ALIGNBYTE_")
+        || name == "V_NOT_B32"
+        || name.starts_with("V_BFREV_")
+        || name.starts_with("V_FFBH_")
+        || name.starts_with("V_FFBL_")
+        || name.starts_with("V_BCNT_")
+        || name.starts_with("V_MBCNT_")
+        || name.starts_with("V_BFM_")
+        || name.starts_with("V_PERM_")
+        || name.starts_with("V_PERMLANE")
+    {
+        "logic"
+    } else {
+        "arith"
+    }
+}
+
 struct EncodingOutput {
     main_file: String,
     table_file: Option<String>,
+    table_sub_files: Vec<(String, String)>,
 }
 
 fn generate_encoding_file(
@@ -411,7 +465,132 @@ fn generate_encoding_file(
     let mut out = file_header();
     writeln!(out, "use super::isa_types::{{BitField, InstrEntry}};").unwrap();
 
-    if needs_split {
+    let mut table_file = None;
+    let mut table_sub_files = Vec::new();
+
+    // VOP3: split into cmp, math, arith, logic sub-tables
+    let vop3_sub_split = enc_name == "ENC_VOP3" && instrs.is_some();
+    // VOPC: split into two halves (opcodes 0-63 vs 128-255)
+    let vopc_split = enc_name == "ENC_VOPC" && instrs.is_some();
+
+    if vop3_sub_split {
+        let instrs = instrs.unwrap();
+        let mut by_cat: std::collections::BTreeMap<&str, Vec<&InstrInfo>> =
+            std::collections::BTreeMap::new();
+        for i in instrs {
+            let cat = vop3_category(&i.name);
+            by_cat.entry(cat).or_default().push(i);
+        }
+        let vop3_cats: Vec<&str> = ["cmp", "math", "arith", "logic"]
+            .into_iter()
+            .filter(|c| by_cat.contains_key(*c))
+            .collect();
+        for cat in &vop3_cats {
+            let cat_instrs = by_cat.get(*cat).unwrap();
+            let mut tbl = file_header();
+            writeln!(tbl, "use super::super::isa_types::InstrEntry;").unwrap();
+            writeln!(tbl).unwrap();
+            write_table_part(&mut tbl, cat_instrs);
+            table_sub_files.push((format!("table_{cat}.rs"), tbl));
+        }
+        for cat in &vop3_cats {
+            writeln!(out, "mod table_{cat};").unwrap();
+        }
+        writeln!(out).unwrap();
+        writeln!(out, "use std::sync::OnceLock;").unwrap();
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "static TABLE_CACHE: OnceLock<Vec<InstrEntry>> = OnceLock::new();"
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "/// All {enc_name} instructions (combined from sub-tables)."
+        )
+        .unwrap();
+        writeln!(out, "#[must_use]").unwrap();
+        writeln!(out, "pub fn table() -> &'static [InstrEntry] {{").unwrap();
+        writeln!(out, "    TABLE_CACHE.get_or_init(|| {{").unwrap();
+        write!(out, "        [").unwrap();
+        for (i, cat) in vop3_cats.iter().enumerate() {
+            if i > 0 {
+                write!(out, ", ").unwrap();
+            }
+            write!(out, "table_{cat}::TABLE").unwrap();
+        }
+        writeln!(out, "].concat()").unwrap();
+        writeln!(out, "    }}).as_slice()").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "/// Look up an instruction by opcode.").unwrap();
+        writeln!(out, "#[must_use]").unwrap();
+        writeln!(
+            out,
+            "pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {{"
+        )
+        .unwrap();
+        for (i, cat) in vop3_cats.iter().enumerate() {
+            if i == 0 {
+                write!(out, "    table_{cat}::lookup(opcode)").unwrap();
+            } else {
+                write!(out, "\n        .or_else(|| table_{cat}::lookup(opcode))").unwrap();
+            }
+        }
+        writeln!(out).unwrap();
+        writeln!(out, "}}").unwrap();
+    } else if vopc_split {
+        let instrs = instrs.unwrap();
+        let a: Vec<_> = instrs.iter().filter(|i| i.opcode < 64).cloned().collect();
+        let b: Vec<_> = instrs.iter().filter(|i| i.opcode >= 64).cloned().collect();
+        let mut tbl_a = file_header();
+        writeln!(tbl_a, "use super::super::isa_types::InstrEntry;").unwrap();
+        writeln!(tbl_a).unwrap();
+        write_table_and_lookup(&mut tbl_a, "ENC_VOPC (F32/F64)", &a);
+        let mut tbl_b = file_header();
+        writeln!(tbl_b, "use super::super::isa_types::InstrEntry;").unwrap();
+        writeln!(tbl_b).unwrap();
+        write_table_and_lookup(&mut tbl_b, "ENC_VOPC (I/U/F16)", &b);
+        table_sub_files.push(("table_a.rs".to_string(), tbl_a));
+        table_sub_files.push(("table_b.rs".to_string(), tbl_b));
+        writeln!(out, "mod table_a;").unwrap();
+        writeln!(out, "mod table_b;").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "use std::sync::OnceLock;").unwrap();
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "static TABLE_CACHE: OnceLock<Vec<InstrEntry>> = OnceLock::new();"
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "/// All {enc_name} instructions (combined from sub-tables)."
+        )
+        .unwrap();
+        writeln!(out, "#[must_use]").unwrap();
+        writeln!(out, "pub fn table() -> &'static [InstrEntry] {{").unwrap();
+        writeln!(out, "    TABLE_CACHE.get_or_init(|| {{").unwrap();
+        writeln!(out, "        [table_a::TABLE, table_b::TABLE].concat()").unwrap();
+        writeln!(out, "    }}).as_slice()").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "/// Look up an instruction by opcode.").unwrap();
+        writeln!(out, "#[must_use]").unwrap();
+        writeln!(
+            out,
+            "pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {{"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "    table_a::lookup(opcode).or_else(|| table_b::lookup(opcode))"
+        )
+        .unwrap();
+        writeln!(out, "}}").unwrap();
+    } else if needs_split {
         writeln!(out, "mod table;").unwrap();
         writeln!(out, "pub use table::{{TABLE, lookup}};").unwrap();
     }
@@ -435,8 +614,6 @@ fn generate_encoding_file(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    let mut table_file = None;
-
     if let Some(instrs) = instrs {
         // Opcode constants always go in the main file
         for instr in instrs {
@@ -447,14 +624,14 @@ fn generate_encoding_file(
             writeln!(out, "pub const {const_name}: u16 = {};", instr.opcode).unwrap();
         }
 
-        if needs_split {
+        if needs_split && !vop3_sub_split && !vopc_split {
             // TABLE + lookup go in a sub-file
             let mut tbl = file_header();
             writeln!(tbl, "use super::super::isa_types::InstrEntry;").unwrap();
             writeln!(tbl).unwrap();
             write_table_and_lookup(&mut tbl, enc_name, instrs);
             table_file = Some(tbl);
-        } else {
+        } else if !vop3_sub_split && !vopc_split {
             writeln!(out).unwrap();
             write_table_and_lookup(&mut out, enc_name, instrs);
         }
@@ -465,7 +642,30 @@ fn generate_encoding_file(
     EncodingOutput {
         main_file: out,
         table_file,
+        table_sub_files,
     }
+}
+
+fn write_table_part(out: &mut String, instrs: &[&InstrInfo]) {
+    writeln!(out, "pub const TABLE: &[InstrEntry] = &[").unwrap();
+    for instr in instrs {
+        writeln!(
+            out,
+            "    InstrEntry {{ name: \"{}\", opcode: {}, is_branch: {}, is_terminator: {} }},",
+            instr.name, instr.opcode, instr.is_branch, instr.is_terminator
+        )
+        .unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "#[must_use]").unwrap();
+    writeln!(
+        out,
+        "pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {{"
+    )
+    .unwrap();
+    writeln!(out, "    TABLE.iter().find(|e| e.opcode == opcode)").unwrap();
+    writeln!(out, "}}").unwrap();
 }
 
 fn write_table_and_lookup(out: &mut String, enc_name: &str, instrs: &[InstrInfo]) {
@@ -498,13 +698,17 @@ fn generate_mod_file(
 ) -> String {
     let mut out = file_header();
 
-    writeln!(out, "#[allow(dead_code, missing_docs)]").unwrap();
+    writeln!(
+        out,
+        "#[allow(dead_code, missing_docs, reason = \"generated ISA tables from amd-isa-gen\")]"
+    )
+    .unwrap();
     writeln!(out, "pub mod isa_types;").unwrap();
     writeln!(out).unwrap();
 
     for enc_name in encoding_fields.keys() {
         let mod_name = encoding_to_rust_mod(enc_name);
-        writeln!(out, "#[allow(dead_code, missing_docs, unused_imports)]").unwrap();
+        writeln!(out, "#[allow(dead_code, missing_docs, unused_imports, reason = \"generated ISA tables from amd-isa-gen\")]").unwrap();
         writeln!(out, "pub mod {mod_name};").unwrap();
     }
     writeln!(out).unwrap();
@@ -572,7 +776,7 @@ fn main() {
         let instrs = instructions.get(enc_name);
         let output = generate_encoding_file(enc_name, info, instrs);
 
-        if output.table_file.is_some() {
+        if output.table_file.is_some() || !output.table_sub_files.is_empty() {
             let enc_dir = output_dir.join(&mod_name);
             fs::create_dir_all(&enc_dir).unwrap_or_else(|e| {
                 eprintln!("ERROR: Cannot create {}: {e}", enc_dir.display());
@@ -590,6 +794,14 @@ fn main() {
             write_enc("mod.rs", &output.main_file);
             if let Some(tbl) = &output.table_file {
                 write_enc("table.rs", tbl);
+            }
+            for (name, content) in &output.table_sub_files {
+                write_enc(name, content);
+            }
+            // Remove old table.rs when we use sub-tables (vop3, vopc)
+            if !output.table_sub_files.is_empty() {
+                let old_table = enc_dir.join("table.rs");
+                let _ = fs::remove_file(&old_table);
             }
         } else {
             let filename = format!("{mod_name}.rs");

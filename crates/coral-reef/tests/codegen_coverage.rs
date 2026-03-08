@@ -3,10 +3,13 @@
 //!
 //! Each test targets a specific optimization or lowering pass by crafting
 //! WGSL shaders that trigger those code paths through the full pipeline.
+//!
+//! Multi-architecture tests are in `codegen_coverage_multi_arch.rs`.
+//! Gap-targeted tests are in `codegen_coverage_targeted.rs`.
 
 use std::fmt::Write;
 
-use coral_reef::{CompileOptions, GpuArch};
+use coral_reef::{AmdArch, CompileOptions, GpuArch, GpuTarget};
 
 fn opts() -> CompileOptions {
     CompileOptions {
@@ -18,14 +21,40 @@ fn opts() -> CompileOptions {
     }
 }
 
+fn amd_opts() -> CompileOptions {
+    CompileOptions {
+        target: GpuTarget::Amd(AmdArch::Rdna2),
+        opt_level: 2,
+        debug_info: false,
+        fp64_software: false,
+        ..CompileOptions::default()
+    }
+}
+
 fn compile(wgsl: &str) -> Result<Vec<u8>, coral_reef::CompileError> {
     coral_reef::compile_wgsl(wgsl, &opts())
+}
+
+fn compile_amd(wgsl: &str) -> Result<Vec<u8>, coral_reef::CompileError> {
+    coral_reef::compile_wgsl(wgsl, &amd_opts())
 }
 
 fn compile_with_opt(wgsl: &str, opt: u32) -> Result<Vec<u8>, coral_reef::CompileError> {
     let mut o = opts();
     o.opt_level = opt;
     coral_reef::compile_wgsl(wgsl, &o)
+}
+
+fn compile_fixture_both(wgsl: &str) {
+    let r_sm70 = compile(wgsl);
+    assert!(r_sm70.is_ok(), "SM70: {}", r_sm70.unwrap_err());
+    let r_amd = compile_amd(wgsl);
+    assert!(r_amd.is_ok(), "AMD: {}", r_amd.unwrap_err());
+}
+
+fn compile_fixture_sm70(wgsl: &str) {
+    let r = compile(wgsl);
+    assert!(r.is_ok(), "SM70: {}", r.unwrap_err());
 }
 
 // --- Register pressure / spiller ---
@@ -50,7 +79,6 @@ fn coverage_high_register_pressure() {
 
 #[test]
 fn coverage_phi_nodes_if_else() {
-    // Phi from if/else branches; avoid phi by writing directly (still exercises to_cssa merge blocks)
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 @compute @workgroup_size(1)
@@ -67,7 +95,6 @@ fn main() {
 
 #[test]
 fn coverage_phi_nodes_loop_carry() {
-    // Loop-carried phi (sum, i); use loop/break
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 @compute @workgroup_size(1)
@@ -89,7 +116,6 @@ fn main() {
 
 #[test]
 fn coverage_nested_loops() {
-    // Nested loop/break; exercises repair_ssa
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 @compute @workgroup_size(1)
@@ -156,7 +182,6 @@ fn main(
 #[test]
 #[ignore = "GPR→Pred coercion chain incomplete: select with logical-and condition hits encoder assertion"]
 fn coverage_logical_predicates() {
-    // Logical ops on predicates (&&, ||, !)
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 @compute @workgroup_size(64)
@@ -251,7 +276,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 #[test]
 fn coverage_f64_all_transcendentals() {
-    // f64 transcendentals (sqrt, rcp, exp2, log2, sin, cos); requires naga_ext_f64
     let wgsl = r"
 enable naga_ext_f64;
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
@@ -322,4 +346,128 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 ";
     let _ = compile(wgsl);
+}
+
+// --- Fixture-based integration tests (SM70 + AMD) ---
+
+#[test]
+fn fixture_control_flow_nested_if_switch() {
+    let wgsl = include_str!("fixtures/wgsl/control_flow_nested_if_switch.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_control_flow_for_while() {
+    let wgsl = include_str!("fixtures/wgsl/control_flow_for_while.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_control_flow_break_continue() {
+    let wgsl = include_str!("fixtures/wgsl/control_flow_break_continue.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_math_mix_clamp_step() {
+    let wgsl = include_str!("fixtures/wgsl/math_mix_clamp_step.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_math_fract_ceil_floor_round() {
+    let wgsl = include_str!("fixtures/wgsl/math_fract_ceil_floor_round.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_memory_atomics_multi() {
+    let wgsl = include_str!("fixtures/wgsl/memory_atomics_multi.wgsl");
+    compile_fixture_both(wgsl);
+}
+
+#[test]
+fn fixture_memory_shared_storage_types() {
+    let wgsl = include_str!("fixtures/wgsl/memory_shared_storage_types.wgsl");
+    compile_fixture_both(wgsl);
+}
+
+#[test]
+fn fixture_data_vec2_vec3_vec4() {
+    let wgsl = include_str!("fixtures/wgsl/data_vec2_vec3_vec4.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_data_matrices() {
+    let wgsl = include_str!("fixtures/wgsl/data_matrices.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_data_structs_arrays() {
+    let wgsl = include_str!("fixtures/wgsl/data_structs_arrays.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+// --- Coverage-focused fixtures (10 new shaders) ---
+
+#[test]
+fn fixture_expr_binary_int_ops() {
+    let wgsl = include_str!("fixtures/wgsl/expr_binary_int_ops.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_func_math_transcendentals() {
+    let wgsl = include_str!("fixtures/wgsl/func_math_transcendentals.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_func_math_bit_ops() {
+    let wgsl = include_str!("fixtures/wgsl/func_math_bit_ops.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_op_conv_conversions() {
+    let wgsl = include_str!("fixtures/wgsl/op_conv_conversions.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_sm70_control_branches_loops_barrier() {
+    let wgsl = include_str!("fixtures/wgsl/sm70_control_branches_loops_barrier.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_builder_emit_complex() {
+    let wgsl = include_str!("fixtures/wgsl/builder_emit_complex.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_spill_register_pressure() {
+    let wgsl = include_str!("fixtures/wgsl/spill_register_pressure.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_lower_copy_swap() {
+    let wgsl = include_str!("fixtures/wgsl/lower_copy_swap.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_sm70_alu_int_signed() {
+    let wgsl = include_str!("fixtures/wgsl/sm70_alu_int_signed.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
+fn fixture_sm70_alu_float_fma() {
+    let wgsl = include_str!("fixtures/wgsl/sm70_alu_float_fma.wgsl");
+    compile_fixture_sm70(wgsl);
 }

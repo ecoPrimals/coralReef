@@ -38,11 +38,11 @@ impl Dst {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "IR API reserved for future backend integration")]
     pub fn to_ssa(self) -> SSARef {
         match self {
             Self::SSA(r) => r,
-            _ => panic!("Expected ssa"),
+            _ => panic!("ICE: Expected ssa"),
         }
     }
 
@@ -218,7 +218,7 @@ impl SrcRef {
     pub fn to_ssa(self) -> SSARef {
         match self {
             Self::SSA(r) => r,
-            _ => panic!(),
+            _ => panic!("ICE: Expected SSA reference"),
         }
     }
 
@@ -227,7 +227,7 @@ impl SrcRef {
             Self::Zero => Some(0),
             Self::Imm32(u) => Some(*u),
             Self::CBuf(_) | Self::SSA(_) | Self::Reg(_) => None,
-            _ => panic!("Invalid integer source"),
+            _ => panic!("ICE: Invalid integer source"),
         }
     }
 
@@ -352,7 +352,7 @@ impl SrcMod {
         match self {
             Self::None | Self::FNeg => false,
             Self::FAbs | Self::FNegAbs => true,
-            _ => panic!("Not a float modifier"),
+            _ => panic!("ICE: Not a float modifier"),
         }
     }
 
@@ -360,7 +360,7 @@ impl SrcMod {
         match self {
             Self::None | Self::FAbs => false,
             Self::FNeg | Self::FNegAbs => true,
-            _ => panic!("Not a float modifier"),
+            _ => panic!("ICE: Not a float modifier"),
         }
     }
 
@@ -368,7 +368,7 @@ impl SrcMod {
         match self {
             Self::None => false,
             Self::INeg => true,
-            _ => panic!("Not an integer modifier"),
+            _ => panic!("ICE: Not an integer modifier"),
         }
     }
 
@@ -376,14 +376,14 @@ impl SrcMod {
         match self {
             Self::None => false,
             Self::BNot => true,
-            _ => panic!("Not a bitwise modifier"),
+            _ => panic!("ICE: Not a bitwise modifier"),
         }
     }
 
     pub fn fabs(self) -> Self {
         match self {
             Self::None | Self::FAbs | Self::FNeg | Self::FNegAbs => Self::FAbs,
-            _ => panic!("Not a float source modifier"),
+            _ => panic!("ICE: Not a float source modifier"),
         }
     }
 
@@ -393,7 +393,7 @@ impl SrcMod {
             Self::FAbs => Self::FNegAbs,
             Self::FNeg => Self::None,
             Self::FNegAbs => Self::FAbs,
-            _ => panic!("Not a float source modifier"),
+            _ => panic!("ICE: Not a float source modifier"),
         }
     }
 
@@ -401,7 +401,7 @@ impl SrcMod {
         match self {
             Self::None => Self::INeg,
             Self::INeg => Self::None,
-            _ => panic!("Not an integer source modifier"),
+            _ => panic!("ICE: Not an integer source modifier"),
         }
     }
 
@@ -409,7 +409,7 @@ impl SrcMod {
         match self {
             Self::None => Self::BNot,
             Self::BNot => Self::None,
-            _ => panic!("Not a boolean source modifier"),
+            _ => panic!("ICE: Not a boolean source modifier"),
         }
     }
 

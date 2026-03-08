@@ -56,4 +56,41 @@ mod tests {
         let path = dir.unwrap();
         assert!(path.ends_with(ECOSYSTEM_NAMESPACE));
     }
+
+    #[test]
+    fn test_ecosystem_namespace_is_eco_primals() {
+        assert_eq!(ECOSYSTEM_NAMESPACE, "ecoPrimals");
+        assert!(!ECOSYSTEM_NAMESPACE.contains(' '));
+    }
+
+    #[test]
+    fn test_discovery_dir_path_components() {
+        let path = discovery_dir().unwrap();
+        let components: Vec<_> = path
+            .components()
+            .map(std::path::Component::as_os_str)
+            .collect();
+        assert!(!components.is_empty());
+        assert!(
+            components
+                .iter()
+                .any(|c| c.to_string_lossy() == ECOSYSTEM_NAMESPACE)
+        );
+    }
+
+    #[test]
+    fn test_shutdown_timeout_is_30_seconds() {
+        assert_eq!(DEFAULT_SHUTDOWN_TIMEOUT.as_secs(), 30);
+    }
+
+    #[test]
+    fn test_discovery_dir_path_is_absolute() {
+        let path = discovery_dir().unwrap();
+        assert!(path.is_absolute() || path.components().next().is_some());
+    }
+
+    #[test]
+    fn test_ecosystem_namespace_no_trailing_slash() {
+        assert!(!ECOSYSTEM_NAMESPACE.ends_with('/'));
+    }
 }

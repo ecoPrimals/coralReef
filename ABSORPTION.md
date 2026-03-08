@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 15: AMD Safe Slices + Typed DRM Wrappers)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 16: Coverage Expansion + Legacy SM Tests)
 
 ---
 
@@ -214,7 +214,7 @@ Status (Iteration 15):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 991 tests (960 pass), both drivers complete, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1116 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
 | Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 15 — AMD E2E proven |
@@ -275,7 +275,7 @@ Status (Iteration 15):
 
 ---
 
-*15/27 cross-spring shaders compile to native SASS. 991 tests (960 pass, 31 ignored).
+*15/27 cross-spring shaders compile to native SASS. 1116 tests passing, 31 ignored, 63% coverage.
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
 The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
 (Iteration 10). Iterations 13-15: df64 preamble (5 tests unblocked), Statement::Switch,

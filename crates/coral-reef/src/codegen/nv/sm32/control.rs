@@ -138,8 +138,7 @@ impl SM32Op for OpSync {
         // sync bit (.s)
         // Kepler doesn't really have a "sync" instruction, instead
         // every instruction can become a sync if the bit 22 is enabled.
-        // TODO: instead of adding a nop.s add the .s modifier to the
-        //       next instruction (and handle addresses accordingly)
+        // DEBT(opt): Add .s modifier to next instruction instead of nop.s.
         e.set_bit(22, true); // .s
     }
 }

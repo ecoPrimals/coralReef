@@ -9,8 +9,26 @@
 //!   cargo run -p amd-isa-gen
 
 use super::isa_types::{BitField, InstrEntry};
-mod table;
-pub use table::{TABLE, lookup};
+mod table_a;
+mod table_b;
+
+use std::sync::OnceLock;
+
+static TABLE_CACHE: OnceLock<Vec<InstrEntry>> = OnceLock::new();
+
+/// All ENC_VOPC instructions (combined from sub-tables).
+#[must_use]
+pub fn table() -> &'static [InstrEntry] {
+    TABLE_CACHE
+        .get_or_init(|| [table_a::TABLE, table_b::TABLE].concat())
+        .as_slice()
+}
+
+/// Look up an instruction by opcode.
+#[must_use]
+pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
+    table_a::lookup(opcode).or_else(|| table_b::lookup(opcode))
+}
 
 /// ENC_VOPC encoding fields (32 bits).
 pub mod fields {
