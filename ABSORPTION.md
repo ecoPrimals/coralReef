@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 10: E2E GPU Dispatch Verified on AMD)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 11: Deep Debt Reduction + Safe Ioctl Surface)
 
 ---
 

@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 10)
-**Phase**: 10 — E2E GPU Dispatch Verified on AMD
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 11)
+**Phase**: 10 — Deep Debt Reduction + Safe Ioctl Surface
 
 ---
 
@@ -12,11 +12,12 @@ coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 991 tests (954 passing, 37 ignored), 14/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
-**Iteration 10 milestone**: First successful end-to-end sovereign GPU
-dispatch — WGSL compiled by `coral-reef`, dispatched by `coral-driver`
-via PM4, executed on the AMD RX 6950 XT, and verified by host readback.
-Three critical bugs fixed: wave32 dispatch mode, literal constant emission,
-and 64-bit address pair construction in FLAT memory operations.
+**Iteration 11 milestone**: Deep debt reduction — AMD ioctl unsafe surface
+consolidated from 9 raw `unsafe` blocks to 2 safe wrappers (`amd_ioctl`,
+`amd_ioctl_read`). Dead `DriverError::Unsupported` removed. 9 more
+`#[allow(dead_code)]` migrated to `#[expect]` with reason strings.
+Cross-spring absorption synced (barraCuda P0/P1 resolved, spring pins current).
+Corpus expanded (+2 hotSpring MD shaders). Primal names audit clean.
 
 ---
 
@@ -326,10 +327,12 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 6 | Deep debt internalization, IPC evolution | **856** (836 pass, 20 ignore) |
 | 10 iter 7 | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
 | 10 iter 9 | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
-| 10 iter 10 (current) | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **991** (954 pass, 37 ignore) |
+| 10 iter 10 | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **990** (953 pass, 37 ignore) |
+| 10 iter 11 (current) | Safe ioctl surface, dead code removed, corpus +2, absorption synced | **991** (954 pass, 37 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 10: AMD E2E verified — sovereign pipeline proven on hardware.*
+Iteration 11: unsafe surface consolidated, dead code removed, absorption synced.
+AMD E2E verified — sovereign pipeline proven on hardware.*

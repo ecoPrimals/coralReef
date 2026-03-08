@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 7, 2026  
-**Phase**: 10 — Iteration 10 (E2E GPU Dispatch Verified on AMD)
+**Phase**: 10 — Iteration 11 (Deep Debt Reduction + Safe Ioctl Surface)
 
 ---
 
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 10** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 11** |
 
 ### Phase 10 Completions
 
@@ -79,7 +79,7 @@
 | `DrmDevice` Drop removed | ✅ | `std::fs::File` already handles close |
 | `HashMap` → `FxHashMap` | ✅ | Performance-critical compiler paths (`naga_translate`) |
 | `#[allow]` → `#[expect]` | ✅ | All non-wildcard `#[allow]` converted with reason strings |
-| Nouveau scaffolds → explicit errors | ✅ | `DriverError::Unsupported` with clear messages |
+| Nouveau scaffolds → explicit errors | ✅ | Explicit error paths (Iteration 6); `DriverError::Unsupported` removed as dead code (Iteration 11) |
 | Unsafe helpers (`kernel_ptr`, `read_ioctl_output`) | ✅ | Encapsulated raw pointer ops with safety documentation |
 | Zero production `unwrap()` / `todo!()` | ✅ | Swept — zero instances in non-test code |
 | Test coverage expansion | ✅ | +24 new tests (lifecycle, health, gpu_arch, IPC, nv/ioctl) |
@@ -154,6 +154,19 @@
 | Diagnostic hw tests cleaned | ✅ | `hardcoded_va_store_42_shader` simplified to regression test |
 | Test expansion | ✅ | 991 total (954 passing, 37 ignored) |
 
+### Phase 10 — Iteration 11 Completions (Deep Debt Reduction + Safe Ioctl Surface)
+
+| Task | Status | Details |
+|------|--------|---------|
+| AMD ioctl unsafe consolidation | ✅ | 9 raw unsafe blocks → 2 safe wrappers (`amd_ioctl`, `amd_ioctl_read`) with typed request builders (`amd_iowr<T>`, `amd_iow<T>`) |
+| Dead code removal | ✅ | `DriverError::Unsupported` removed (unused in production, only in its own display test) |
+| `#[allow(dead_code)]` → `#[expect]` | ✅ | 9 instances migrated with reason strings; 23 on derive-generated items kept as `#[allow]` |
+| WGSL corpus expansion | ✅ | +2 hotSpring MD shaders (vacf_dot_f64, verlet_copy_ref) |
+| Cross-spring absorption sync | ✅ | ABSORPTION.md updated: barraCuda P0/P1 resolved, spring pin versions current |
+| Primal names audit | ✅ | All 11 refs are doc-comment provenance only — zero production code violations |
+| hw_amd_e2e vec! idiom | ✅ | `Vec::new()` + `push()` chain → `vec![]` macro (clippy::vec_init_then_push) |
+| cargo fmt pass | ✅ | Import reordering, line wrapping applied workspace-wide |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -223,6 +236,10 @@
 | `compile_wgsl_full` API | Returns CompiledBinary with GPR/shared/barrier metadata | coral-reef/src/lib.rs |
 | `bytemuck` safe transmutation | Replaces unsafe u32→u8 casts | coral-driver/{amd,nv} |
 | FxHashMap in CFG | Hot-path optimization | coral-reef-stubs/cfg |
+| Consolidated ioctl unsafe surface | Safe wrapper pattern: `amd_ioctl` + `amd_ioctl_read` | amd/ioctl.rs |
+| Dead variant removal | `DriverError::Unsupported` unused in production | error.rs |
+| `#[expect]` with reasons (round 2) | Rust 2024 idiom: 9 more `#[allow]` migrated | workspace-wide |
+| Cross-spring corpus expansion | +2 hotSpring MD shaders (VACF dot, Verlet copy) | tests/fixtures/wgsl/ |
 
 ---
 

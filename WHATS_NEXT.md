@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 10)
+**Last updated**: March 7, 2026 (Phase 10 — Iteration 11)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 10)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 11)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -197,7 +197,8 @@ the full Spring absorption map.
 - [x] Test coverage: +24 new tests (856 total, 836 passing, 20 ignored)
 - [x] Iteration 7: +48 tests → 904 total (883 passing, 21 ignored), `#[deny(unsafe_code)]` on 6 crates, ioctl layout tests, cfg.rs domain-split
 - [x] Iteration 9: +21 tests → 974 total (952 passing, 22 ignored), E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants, binding layout mapping
-- [x] Iteration 10: +16 tests → 991 total (954 passing, 37 ignored), AMD E2E verified (wave32, SrcEncoding, 64-bit addr, unwrap_or audit)
+- [x] Iteration 10: +16 tests → 990 total (953 passing, 37 ignored), AMD E2E verified (wave32, SrcEncoding, 64-bit addr, unwrap_or audit)
+- [x] Iteration 11: AMD ioctl unsafe consolidated (9 blocks → 2 safe wrappers), `DriverError::Unsupported` removed, 9 `#[allow]` → `#[expect]`, +2 corpus shaders, cross-spring absorption sync, primal names audit clean — 991 tests (954 passing, 37 ignored)
 
 ### P3 — Remaining debt
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
@@ -209,5 +210,5 @@ the full Spring absorption map.
 *The compiler evolves. 14/27 cross-spring shaders compile to native SASS.
 991 tests, zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
-Nouveau driver fully wired. Both backends encode full IR.
-All pure Rust.*
+Iteration 11: unsafe surface consolidated, dead code removed, cross-spring absorption synced.
+Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*
