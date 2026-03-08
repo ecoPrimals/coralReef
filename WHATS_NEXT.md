@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 11)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 12)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 11)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 12)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -149,8 +149,9 @@ the full Spring absorption map.
 ### P1 — Compiler gaps (remaining)
 - [ ] **Register allocator SSA tracking** — blocks su3_gauge_force (unknown SSA in GPR file)
 - [ ] **Scheduler loop-carried phi** — blocks wilson_plaquette (PerRegFile accounting)
-- [ ] **Encoder GPR→comparison** — blocks semf_batch (arrayLength result in comparison)
-- [ ] **const_tracker negated immediate** — blocks batched_hfb_hamiltonian
+- [ ] **Pred→GPR encoder coercion chain** — 2 remaining gaps
+- [x] **Encoder GPR→comparison** — semf_batch now passes (Iteration 12)
+- [x] **const_tracker negated immediate** — fixed (Iteration 12)
 
 ### P0 — coralDriver: sovereign E2E blockers (from groundSpring V95)
 - [x] Full `DRM_AMDGPU_CS` submission (IB + BO list + fence return)
@@ -199,6 +200,7 @@ the full Spring absorption map.
 - [x] Iteration 9: +21 tests → 974 total (952 passing, 22 ignored), E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants, binding layout mapping
 - [x] Iteration 10: +16 tests → 990 total (953 passing, 37 ignored), AMD E2E verified (wave32, SrcEncoding, 64-bit addr, unwrap_or audit)
 - [x] Iteration 11: AMD ioctl unsafe consolidated (9 blocks → 2 safe wrappers), `DriverError::Unsupported` removed, 9 `#[allow]` → `#[expect]`, +2 corpus shaders, cross-spring absorption sync, primal names audit clean — 991 tests (954 passing, 37 ignored)
+- [x] Iteration 12: GPR→Pred coercion fix, const_tracker negated immediate fix, Pred→GPR copy lowering (OpSel, True/False→GPR, GPR.bnot→Pred), 6 math ops (tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros, is_signed_int_expr), cross-spring wiring guide in wateringHole, semf_batch_f64 now passes — 991 tests (955 passing, 36 ignored)
 
 ### P3 — Remaining debt
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
@@ -207,8 +209,8 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. 14/27 cross-spring shaders compile to native SASS.
-991 tests, zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+*The compiler evolves. 15/27 cross-spring shaders compile to native SASS.
+991 tests (955 passing, 36 ignored), zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
-Iteration 11: unsafe surface consolidated, dead code removed, cross-spring absorption synced.
+Iteration 12: 2 compiler gaps fixed, 6 math ops, cross-spring wiring guide.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*

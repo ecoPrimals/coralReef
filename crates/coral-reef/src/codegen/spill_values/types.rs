@@ -322,7 +322,7 @@ impl<'a, S: Spill> SpillCache<'a, S> {
 
     pub fn spill(&mut self, ssa: SSAValue) -> Instr {
         if let Some(c) = self.const_tracker.get(&ssa) {
-            self.spill_src(ssa, c.clone().into())
+            self.spill_src(ssa, c.clone())
         } else {
             self.spill_src(ssa, ssa.into())
         }
@@ -337,7 +337,7 @@ impl<'a, S: Spill> SpillCache<'a, S> {
         if let Some(c) = self.const_tracker.get(&ssa) {
             Instr::new(OpCopy {
                 dst: ssa.into(),
-                src: c.clone().into(),
+                src: c.clone(),
             })
         } else {
             self.fill_dst(ssa.into(), ssa)

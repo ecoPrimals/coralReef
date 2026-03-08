@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 11: Deep Debt Reduction + Safe Ioctl Surface)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 12: Compiler Gaps + Math Coverage + Wiring)
 
 ---
 
@@ -105,7 +105,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `dielectric_mermin_f64` | hotSpring/physics | Plasma physics | wetSpring precision gap analysis refs | external include |
 | `bcs_bisection_f64` | hotSpring/physics | Nuclear physics | Cancellation-safe BCS v² → all springs | external include |
 | `batched_hfb_hamiltonian_f64` | hotSpring/physics | Nuclear physics | — | const_tracker |
-| `semf_batch_f64` | hotSpring/physics | Nuclear physics | — | encoder reg file |
+| `semf_batch_f64` | hotSpring/physics | Nuclear physics | — | **PASS** (iter 12) |
 | `chi2_batch_f64` | hotSpring/physics | Nuclear physics | — | **PASS** (iter 4) |
 | `anderson_lyapunov_f32` | groundSpring | Condensed matter | neuralSpring disorder sweep validation | **PASS** |
 | `anderson_lyapunov_f64` | groundSpring | Condensed matter | neuralSpring disorder sweep validation | **PASS** |
@@ -138,7 +138,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 10)
+### Blocker Triage (current — iteration 12)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
@@ -146,8 +146,9 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | External include (separate file) | 2 shaders | dielectric_mermin, bcs_bisection |
 | Register allocator SSA tracking | 1 shader | su3_gauge_force |
 | Scheduler loop-carried phi | 1 shader | wilson_plaquette |
-| Encoder reg file mismatch | 1 shader | semf_batch |
-| const_tracker negated imm | 1 shader | batched_hfb_hamiltonian |
+| Pred→GPR encoder coercion chain | — | 2 remaining gaps |
+| ~~Encoder reg file mismatch~~ | ~~semf_batch~~ | **Fixed iter 12** |
+| ~~const_tracker negated imm~~ | ~~batched_hfb_hamiltonian~~ | **Fixed iter 12** |
 | WGSL keyword conflict | 1 shader | kl_divergence (uses reserved word 'shared') |
 | naga f64 extension | 1 shader | local_elementwise |
 
@@ -210,7 +211,7 @@ Status (groundSpring V96, Iteration 10):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 991 tests (954 pass), both drivers wired, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 991 tests (955 pass), both drivers wired, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau wired, awaiting HW validation |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired (channel+GEM+pushbuf) |
 | Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 10 — AMD E2E proven |
@@ -229,6 +230,18 @@ Status (groundSpring V96, Iteration 10):
 | 64-bit address pair for FLAT | DCE-aware address construction | naga_translate/func_mem.rs |
 | Consolidated ioctl unsafe surface | Safe wrapper pattern (amd_ioctl/amd_ioctl_read) | amd/ioctl.rs |
 
+### Phase 10 — Iteration 12 Absorption (Compiler Gaps + Math + Wiring)
+
+| Pattern | Source | Applied |
+|---------|--------|---------|
+| GPR→Pred coercion fix | Compiler gap | legalize / coercion chain |
+| const_tracker negated immediate | Compiler gap | const_tracker.rs |
+| Pred→GPR copy lowering | Cross-file copy | lower_copy_swap: OpSel, True/False→GPR, GPR.bnot→Pred |
+| 6 new math ops | Math coverage | tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros |
+| is_signed_int_expr helper | Codegen utility | naga_translate |
+| Cross-spring wiring guide | wateringHole | Published |
+| semf_batch_f64 | Test unblocked | Now passes (was ignored) |
+
 ---
 
 ## Phase 10 Fixes (compiler hardening from absorption)
@@ -246,7 +259,7 @@ Status (groundSpring V96, Iteration 10):
 
 ---
 
-*14/27 cross-spring shaders compile to native SASS. 991 tests (954 pass).
+*15/27 cross-spring shaders compile to native SASS. 991 tests (955 pass).
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
 The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
 (Iteration 10). Next: NVIDIA hardware validation.*

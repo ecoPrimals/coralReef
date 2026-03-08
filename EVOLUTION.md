@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 7, 2026 (Phase 10 — Iteration 11)
-**Phase**: 10 — Deep Debt Reduction + Safe Ioctl Surface
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 12)
+**Phase**: 10 — Compiler Gaps + Math Coverage + Cross-Spring Wiring
 
 ---
 
@@ -9,15 +9,15 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-991 tests (954 passing, 37 ignored), 14/27 cross-spring WGSL shaders
+991 tests (955 passing, 36 ignored), 15/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
-**Iteration 11 milestone**: Deep debt reduction — AMD ioctl unsafe surface
-consolidated from 9 raw `unsafe` blocks to 2 safe wrappers (`amd_ioctl`,
-`amd_ioctl_read`). Dead `DriverError::Unsupported` removed. 9 more
-`#[allow(dead_code)]` migrated to `#[expect]` with reason strings.
-Cross-spring absorption synced (barraCuda P0/P1 resolved, spring pins current).
-Corpus expanded (+2 hotSpring MD shaders). Primal names audit clean.
+**Iteration 12 milestone**: Compiler gaps + math coverage + cross-spring wiring
+— 2 of 4 compiler gaps fixed (GPR→Pred coercion, const_tracker negated immediate).
+6 new math ops: tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros,
+is_signed_int_expr. Cross-file copy lowering: Pred→GPR (OpSel), True/False→GPR,
+GPR.bnot→Pred. semf_batch_f64 test now passes. Cross-spring wiring guide
+published in wateringHole.
 
 ---
 
@@ -94,12 +94,14 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] Pow (f32: MUFU.LOG2 + FMUL + MUFU.EXP2; f64: OpF64Log2 + DMUL + OpF64Exp2)
 - [x] Exp (x * log2(e) → exp2)
 - [x] Log (log2(x) * ln(2))
-- [ ] Tan, Asin, Acos, Atan, Atan2
+- [x] Tan (f32 via MUFU, f64 via sin/cos)
+- [ ] Asin, Acos, Atan, Atan2
 - [ ] Sinh, Cosh, Tanh, Asinh, Acosh, Atanh
 - [ ] Ldexp, Frexp, Modf
 - [ ] Transpose, Determinant, Inverse (matrix)
 - [ ] Pack/Unpack (2x16float, 4x8snorm, etc.)
-- [ ] CountOneBits, ReverseBits, FirstLeadingBit, FirstTrailingBit
+- [x] CountOneBits, ReverseBits, FirstLeadingBit, CountLeadingZeros
+- [ ] FirstTrailingBit
 - [ ] ExtractBits, InsertBits
 
 ---
@@ -129,8 +131,8 @@ early returns with standard control flow to ensure expr_map insertion.
 |---------|-----------------|------------|
 | Register allocator SSA tracking | su3_gauge_force | **High** — unknown SSA in GPR file after liveness |
 | Scheduler loop-carried phi fix | wilson_plaquette | High — PerRegFile accounting |
-| Encoder GPR→comparison reg file | semf_batch | Medium — arrayLength comparison path |
-| const_tracker negated immediate | batched_hfb_hamiltonian | Medium |
+| ~~Encoder GPR→comparison reg file~~ | ~~semf_batch~~ | **Fixed Iteration 12** — semf_batch now passes |
+| ~~const_tracker negated immediate~~ | ~~batched_hfb_hamiltonian~~ | **Fixed Iteration 12** |
 
 ### Tier 3 — Full WGSL coverage
 
@@ -328,11 +330,12 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 7 | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
 | 10 iter 9 | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
 | 10 iter 10 | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **990** (953 pass, 37 ignore) |
-| 10 iter 11 (current) | Safe ioctl surface, dead code removed, corpus +2, absorption synced | **991** (954 pass, 37 ignore) |
+| 10 iter 11 | Safe ioctl surface, dead code removed, corpus +2, absorption synced | **991** (954 pass, 37 ignore) |
+| 10 iter 12 (current) | Compiler gaps (GPR→Pred, const_tracker), 6 math ops, cross-spring wiring | **991** (955 pass, 36 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 11: unsafe surface consolidated, dead code removed, absorption synced.
+Iteration 12: 2 compiler gaps fixed, 6 math ops, cross-spring wiring guide.
 AMD E2E verified — sovereign pipeline proven on hardware.*

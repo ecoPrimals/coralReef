@@ -395,6 +395,120 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     Ok(dst.into())
                 }
             }
+            naga::MathFunction::Tan => {
+                if is_f64 {
+                    let sin_val = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpF64Sin {
+                        dst: sin_val.clone().into(),
+                        src: Src::from(a.clone()),
+                    }));
+                    let cos_val = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpF64Cos {
+                        dst: cos_val.clone().into(),
+                        src: Src::from(a),
+                    }));
+                    let rcp_cos = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpF64Rcp {
+                        dst: rcp_cos.clone().into(),
+                        src: Src::from(cos_val),
+                    }));
+                    let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpDMul {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(sin_val), Src::from(rcp_cos)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    Ok(dst)
+                } else {
+                    let frac_1_2pi = 1.0 / (2.0 * std::f32::consts::PI);
+                    let scaled = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFMul {
+                        dst: scaled.into(),
+                        srcs: [a[0].into(), Src::new_imm_u32(frac_1_2pi.to_bits())],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    let sin_val = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpTranscendental {
+                        dst: sin_val.into(),
+                        op: TranscendentalOp::Sin,
+                        src: scaled.into(),
+                    }));
+                    let cos_val = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpTranscendental {
+                        dst: cos_val.into(),
+                        op: TranscendentalOp::Cos,
+                        src: scaled.into(),
+                    }));
+                    let rcp_cos = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpTranscendental {
+                        dst: rcp_cos.into(),
+                        op: TranscendentalOp::Rcp,
+                        src: cos_val.into(),
+                    }));
+                    let dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFMul {
+                        dst: dst.into(),
+                        srcs: [sin_val.into(), rcp_cos.into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    Ok(dst.into())
+                }
+            }
+            naga::MathFunction::CountOneBits => {
+                let comps = a.comps();
+                let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
+                for c in 0..comps as usize {
+                    self.push_instr(Instr::new(OpPopC {
+                        dst: dst[c].into(),
+                        src: a[c].into(),
+                    }));
+                }
+                Ok(dst)
+            }
+            naga::MathFunction::ReverseBits => {
+                let comps = a.comps();
+                let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
+                for c in 0..comps as usize {
+                    self.push_instr(Instr::new(OpBRev {
+                        dst: dst[c].into(),
+                        src: a[c].into(),
+                    }));
+                }
+                Ok(dst)
+            }
+            naga::MathFunction::FirstLeadingBit => {
+                let signed = self.is_signed_int_expr(arg_handle);
+                let comps = a.comps();
+                let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
+                for c in 0..comps as usize {
+                    self.push_instr(Instr::new(OpFlo {
+                        dst: dst[c].into(),
+                        src: a[c].into(),
+                        signed,
+                        return_shift_amount: false,
+                    }));
+                }
+                Ok(dst)
+            }
+            naga::MathFunction::CountLeadingZeros => {
+                let comps = a.comps();
+                let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
+                for c in 0..comps as usize {
+                    self.push_instr(Instr::new(OpFlo {
+                        dst: dst[c].into(),
+                        src: a[c].into(),
+                        signed: false,
+                        return_shift_amount: true,
+                    }));
+                }
+                Ok(dst)
+            }
             _ => Err(CompileError::NotImplemented(
                 format!("math function {fun:?} not yet supported").into(),
             )),

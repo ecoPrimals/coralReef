@@ -372,7 +372,7 @@ impl<'a> Builder for LegalizeBuilder<'a> {
         if let Some(ssa_ref) = src.as_ssa() {
             if let &[ssa_value] = &ssa_ref[..] {
                 if let Some(new_src) = self.const_tracker.get(&ssa_value) {
-                    src = new_src.clone().into();
+                    src = new_src.clone();
                 }
             }
         }

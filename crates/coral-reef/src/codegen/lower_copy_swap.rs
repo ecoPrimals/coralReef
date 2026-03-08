@@ -33,11 +33,49 @@ impl LowerCopySwap {
         assert!(copy.src.is_uniform() || !dst_reg.is_uniform());
 
         if !copy.src.is_unmodified() {
-            b.push_op(OpMov {
-                dst: copy.dst,
-                src: copy.src,
-                quad_lanes: 0xf,
-            });
+            if dst_reg.is_predicate() {
+                match (&copy.src.reference, copy.src.modifier.is_bnot()) {
+                    (SrcRef::True, false) | (SrcRef::False | SrcRef::Zero, true) => {
+                        b.lop2_to(
+                            copy.dst,
+                            LogicOp2::PassB,
+                            Src::new_imm_bool(true),
+                            Src::new_imm_bool(true),
+                        );
+                    }
+                    (SrcRef::False | SrcRef::Zero, false) | (SrcRef::True, true) => {
+                        b.lop2_to(
+                            copy.dst,
+                            LogicOp2::PassB,
+                            Src::new_imm_bool(true),
+                            Src::new_imm_bool(false),
+                        );
+                    }
+                    (SrcRef::Reg(reg), _) if reg.is_predicate() => {
+                        b.lop2_to(copy.dst, LogicOp2::PassB, Src::new_imm_bool(true), copy.src);
+                    }
+                    (SrcRef::Reg(reg), is_bnot) if !reg.is_predicate() => {
+                        let cmp_op = if is_bnot { IntCmpOp::Eq } else { IntCmpOp::Ne };
+                        b.push_op(OpISetP {
+                            dst: copy.dst,
+                            set_op: PredSetOp::And,
+                            cmp_op,
+                            cmp_type: IntCmpType::U32,
+                            ex: false,
+                            srcs: [SrcRef::Reg(*reg).into(), Src::ZERO],
+                            accum: SrcRef::True.into(),
+                            low_cmp: SrcRef::False.into(),
+                        });
+                    }
+                    _ => panic!("Cannot copy modified source to Pred"),
+                }
+            } else {
+                b.push_op(OpMov {
+                    dst: copy.dst,
+                    src: copy.src,
+                    quad_lanes: 0xf,
+                });
+            }
             return;
         }
 
@@ -79,8 +117,19 @@ impl LowerCopySwap {
                     }
                     _ => panic!("Invalid cbuf destination"),
                 },
-                SrcRef::True | SrcRef::False => {
-                    panic!("Cannot copy to GPR");
+                SrcRef::True => {
+                    b.push_op(OpMov {
+                        dst: copy.dst,
+                        src: Src::new_imm_u32(1),
+                        quad_lanes: 0xf,
+                    });
+                }
+                SrcRef::False => {
+                    b.push_op(OpMov {
+                        dst: copy.dst,
+                        src: Src::ZERO,
+                        quad_lanes: 0xf,
+                    });
                 }
                 SrcRef::Reg(src_reg) => match src_reg.file() {
                     RegFile::GPR | RegFile::UGPR => {
@@ -88,6 +137,13 @@ impl LowerCopySwap {
                             dst: copy.dst,
                             src: copy.src,
                             quad_lanes: 0xf,
+                        });
+                    }
+                    RegFile::Pred | RegFile::UPred => {
+                        b.push_op(OpSel {
+                            dst: copy.dst,
+                            cond: copy.src,
+                            srcs: [Src::new_imm_u32(1), Src::ZERO],
                         });
                     }
                     RegFile::Bar => {
@@ -116,7 +172,7 @@ impl LowerCopySwap {
                             access,
                         });
                     }
-                    _ => panic!("Cannot copy to GPR"),
+                    RegFile::Carry => panic!("Cannot copy to GPR"),
                 },
                 SrcRef::SSA(_) => panic!("Should be run after RA"),
             },

@@ -588,6 +588,26 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         }
     }
 
+    pub(super) fn is_signed_int_expr(&self, handle: Handle<naga::Expression>) -> bool {
+        let Ok(ty_handle) = self.resolve_expr_type_handle(handle) else {
+            return false;
+        };
+        let inner = &self.module.types[ty_handle].inner;
+        matches!(
+            inner,
+            naga::TypeInner::Scalar(naga::Scalar {
+                kind: naga::ScalarKind::Sint,
+                ..
+            }) | naga::TypeInner::Vector {
+                scalar: naga::Scalar {
+                    kind: naga::ScalarKind::Sint,
+                    ..
+                },
+                ..
+            }
+        )
+    }
+
     pub(super) fn is_f64_expr(&self, handle: Handle<naga::Expression>) -> bool {
         let expr = &self.func.expressions[handle];
         match *expr {

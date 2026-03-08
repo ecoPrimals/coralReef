@@ -182,15 +182,11 @@ wgsl_compile_test!(
 wgsl_compile_test!(
     corpus_batched_hfb_hamiltonian_f64,
     "batched_hfb_hamiltonian_f64.wgsl",
-    ignore = "const_tracker assertion: negated immediate not copied to register"
+    ignore = "Pred→GPR coercion incomplete: ISetP encoder receives predicate in ALU source"
 );
 
 // Physics: SEMF batch (f64, f64 -> f32 cast)
-wgsl_compile_test!(
-    corpus_semf_batch_f64,
-    "semf_batch_f64.wgsl",
-    ignore = "encoder assertion: arrayLength result GPR→comparison register file mismatch"
-);
+wgsl_compile_test!(corpus_semf_batch_f64, "semf_batch_f64.wgsl");
 
 // Physics: chi-squared batch (f64, pow/log transcendentals)
 wgsl_compile_test!(corpus_chi2_batch_f64, "chi2_batch_f64.wgsl");

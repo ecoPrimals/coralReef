@@ -15,7 +15,22 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     ) -> Result<(), CompileError> {
         let cond = self.ensure_expr(condition)?;
         let merge_label = self.label_alloc.alloc();
-        let cond_src: Src = cond[0].into();
+        let cond_src: Src = if cond[0].file() == RegFile::Pred {
+            cond[0].into()
+        } else {
+            let pred = self.alloc_ssa(RegFile::Pred);
+            self.push_instr(Instr::new(OpISetP {
+                dst: pred.into(),
+                set_op: PredSetOp::And,
+                cmp_op: IntCmpOp::Ne,
+                cmp_type: IntCmpType::U32,
+                ex: false,
+                srcs: [cond[0].into(), Src::ZERO],
+                accum: SrcRef::True.into(),
+                low_cmp: SrcRef::False.into(),
+            }));
+            pred.into()
+        };
 
         let pre_if_storage = self.var_storage.clone();
         let need_phis = !self.var_storage.is_empty();
@@ -413,9 +428,25 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }
 
             if let Some(cond_ssa) = break_cond_ssa {
+                let break_src: Src = if cond_ssa[0].file() == RegFile::Pred {
+                    cond_ssa[0].into()
+                } else {
+                    let pred = self.alloc_ssa(RegFile::Pred);
+                    self.push_instr(Instr::new(OpISetP {
+                        dst: pred.into(),
+                        set_op: PredSetOp::And,
+                        cmp_op: IntCmpOp::Ne,
+                        cmp_type: IntCmpType::U32,
+                        ex: false,
+                        srcs: [cond_ssa[0].into(), Src::ZERO],
+                        accum: SrcRef::True.into(),
+                        low_cmp: SrcRef::False.into(),
+                    }));
+                    pred.into()
+                };
                 self.push_instr(Instr::new(OpBra {
                     target: exit_label,
-                    cond: cond_ssa[0].into(),
+                    cond: break_src,
                 }));
             }
 

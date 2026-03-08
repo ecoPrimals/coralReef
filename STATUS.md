@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 7, 2026  
-**Phase**: 10 — Iteration 11 (Deep Debt Reduction + Safe Ioctl Surface)
+**Last updated**: March 8, 2026  
+**Phase**: 10 — Iteration 12 (Compiler Gaps + Math Coverage + Cross-Spring Wiring)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 991 tests (954 passing, 37 ignored), zero failures |
+| Tests | A+ | 991 tests (955 passing, 36 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 11** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 12** |
 
 ### Phase 10 Completions
 
@@ -152,7 +152,7 @@
 | 64-bit address pair for FLAT stores | ✅ | `func_mem.rs` passed `addr[0]` (32-bit lo) instead of full 2-component SSARef — addr_hi eliminated by DCE |
 | `unwrap_or(0)` audit → proper errors | ✅ | Register index, branch offset, FLAT offset: all return `CompileError` instead of silent truncation |
 | Diagnostic hw tests cleaned | ✅ | `hardcoded_va_store_42_shader` simplified to regression test |
-| Test expansion | ✅ | 991 total (954 passing, 37 ignored) |
+| Test expansion | ✅ | 991 total (955 passing, 36 ignored) |
 
 ### Phase 10 — Iteration 11 Completions (Deep Debt Reduction + Safe Ioctl Surface)
 
@@ -167,13 +167,26 @@
 | hw_amd_e2e vec! idiom | ✅ | `Vec::new()` + `push()` chain → `vec![]` macro (clippy::vec_init_then_push) |
 | cargo fmt pass | ✅ | Import reordering, line wrapping applied workspace-wide |
 
+### Phase 10 — Iteration 12 Completions (Compiler Gaps + Math Coverage + Cross-Spring Wiring)
+
+| Task | Status | Details |
+|------|--------|---------|
+| GPR→Pred coercion fix | ✅ | 2 of 4 compiler gaps fixed — GPR→Pred coercion chain resolved |
+| const_tracker negated immediate fix | ✅ | 2 of 4 compiler gaps fixed — const_tracker negated immediate resolved |
+| Pred→GPR copy lowering | ✅ | Cross-file copy lowering: Pred→GPR (OpSel), True/False→GPR, GPR.bnot→Pred |
+| 6 new math ops | ✅ | tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros |
+| is_signed_int_expr helper | ✅ | Helper for signed integer expression detection |
+| Cross-spring wiring guide | ✅ | Published in wateringHole |
+| semf_batch_f64 test | ✅ | Now passes (was ignored) |
+| Test counts | ✅ | 991 tests (955 passing, 36 ignored) |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
 |------|----------|--------|
-| GPR→Pred coercion chain | P2 | Blocks logical_predicates |
+| RA SSA tracking | P2 | Blocks su3_gauge_force |
+| Pred→GPR encoder coercion chain | P2 | Encoder coercion chain |
 | Wilson plaquette (scheduler) | P2 | PerRegFile live_in mismatch |
-| const_tracker negated immediate | P2 | HFB hamiltonian |
 | Hardware validation (AMD) | ✅ | **E2E verified** — RX 6950 XT, WGSL compile + dispatch + readback |
 | Hardware validation (NVIDIA) | P2 | Titan V on-site — channel + pushbuf path ready |
 | Intel backend | P3 | Placeholder |
@@ -183,7 +196,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (991 tests: 954 passing, 37 ignored) |
+| `cargo test --workspace` | PASS (991 tests: 955 passing, 36 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

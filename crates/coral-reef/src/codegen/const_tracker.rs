@@ -9,7 +9,7 @@ use super::ir::*;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 pub struct ConstTracker {
-    map: FxHashMap<SSAValue, SrcRef>,
+    map: FxHashMap<SSAValue, Src>,
 }
 
 /// A tracker struct for finding re-materializable constants
@@ -18,6 +18,9 @@ pub struct ConstTracker {
 /// re-materialized anywhere in the shader and it's probably cheaper to do so
 /// than to try and keep them around in GPRs forever.  This is just a helper
 /// struct for implementing this logic in compiler passes.
+///
+/// We store the full `Src` (including modifier) so that negated immediates
+/// (e.g. `fneg(1.0)`) are tracked and can be rematerialized by the spiller.
 impl ConstTracker {
     pub fn new() -> Self {
         Self {
@@ -27,8 +30,8 @@ impl ConstTracker {
 
     /// Registers a copy instruction
     ///
-    /// If the source of the copy is a constant, the destination SSA value and
-    /// the constant value get stored as a key/value pair.
+    /// If the source of the copy is a constant (possibly with a modifier like
+    /// fneg/fabs), the destination SSA value and the full source get stored.
     pub fn add_copy(&mut self, op: &OpCopy) {
         let Some(dst) = op.dst.as_ssa() else {
             return;
@@ -36,17 +39,22 @@ impl ConstTracker {
         debug_assert!(dst.comps() == 1);
         let dst = dst[0];
 
-        if !op.src.is_unmodified() {
-            return;
-        }
         let is_const = match &op.src.reference {
             SrcRef::Zero | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) => true,
             SrcRef::CBuf(cb) => matches!(cb.buf, CBuf::Binding(_)),
             _ => false,
         };
 
+        if !is_const {
+            return;
+        }
+
+        if !op.src.is_unmodified() && dst.is_predicate() {
+            return;
+        }
+
         if is_const {
-            self.map.insert(dst, op.src.reference.clone());
+            self.map.insert(dst, op.src.clone());
         }
     }
 
@@ -55,8 +63,8 @@ impl ConstTracker {
         self.map.contains_key(ssa)
     }
 
-    /// Returns the SrcRef associated with this SSAValue, if any
-    pub fn get(&self, ssa: &SSAValue) -> Option<&SrcRef> {
+    /// Returns the Src associated with this SSAValue, if any
+    pub fn get(&self, ssa: &SSAValue) -> Option<&Src> {
         self.map.get(ssa)
     }
 }
