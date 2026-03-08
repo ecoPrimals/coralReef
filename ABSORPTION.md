@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 18: Deep Debt Solutions)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 20: SSA Dominance Repair)
 
 ---
 
@@ -18,7 +18,7 @@
 | Bug | Source | File | Status |
 |-----|--------|------|--------|
 | ~~`var<uniform>` not supported in compute prologue~~ | barraCuda `sum_reduce_f64.wgsl` | `codegen/naga_translate/func.rs`, `expr.rs` | **Fixed** — uniform CBuf refs tracked through AccessIndex → Load |
-| ~~Loop back-edge assertion in `opt_instr_sched_prepass`~~ | groundSpring loop-based reduction | `codegen/opt_instr_sched_prepass/schedule.rs`, `assign_regs/mod.rs` | **Guarded** — assertion downgraded to diagnostic; RA skips back-edge preds. Full loop scheduling deferred (3 tests `#[ignore]`). |
+| ~~Loop back-edge assertion in `opt_instr_sched_prepass`~~ | groundSpring loop-based reduction | `codegen/opt_instr_sched_prepass/schedule.rs`, `assign_regs/mod.rs` | **Fixed** — Iteration 19: back-edge live-in pre-allocation in RA; Iteration 20: SSA dominance repair via `fix_entry_live_in`. All loop/branch shaders now compile. |
 
 ---
 
@@ -86,7 +86,7 @@
 
 ## Cross-Spring Shader Evolution Provenance
 
-47 WGSL shaders imported from 5 springs. 36 compile to SM70, 11 tracked with
+47 WGSL shaders imported from 5 springs. 40 compile to SM70, 7 tracked with
 specific blockers. The table below tracks provenance and cross-spring adoption.
 
 | Shader | Origin | Domain | Cross-Spring Evolution | Status |
@@ -94,8 +94,8 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `axpy_f64` | hotSpring/lattice | Lattice QCD | — | **PASS** |
 | `cg_kernels_f64` | hotSpring/lattice | Lattice QCD | — | **PASS** |
 | `sum_reduce_f64` | hotSpring/lattice | Lattice QCD | — | **PASS** |
-| `su3_gauge_force_f64` | hotSpring/lattice | Lattice QCD | — | reg alloc SSA tracking |
-| `wilson_plaquette_f64` | hotSpring/lattice | Lattice QCD | — | scheduler loop phi |
+| `su3_gauge_force_f64` | hotSpring/lattice | Lattice QCD | — | **PASS** (iter 19) |
+| `wilson_plaquette_f64` | hotSpring/lattice | Lattice QCD | — | **PASS** (iter 19) |
 | `vv_half_kick_f64` | hotSpring/md | Molecular dynamics | — | **PASS** |
 | `kinetic_energy_f64` | hotSpring/md | Molecular dynamics | — | **PASS** |
 | `berendsen_f64` | hotSpring/md | Molecular dynamics | — | **PASS** |
@@ -113,7 +113,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `layer_norm_f64` | neuralSpring/coralForge | ML normalization | hotSpring Kahan sum → wetSpring bio-stats | **PASS** (iter 13, df64 preamble) |
 | `softmax_f64` | neuralSpring/coralForge | ML attention | hotSpring precision → wetSpring bio-stats | **PASS** (iter 13, df64 preamble) |
 | `sdpa_scores_f64` | neuralSpring/coralForge | ML attention | 3-pass SDPA (neuralSpring Evoformer) | **PASS** (iter 13, df64 preamble) |
-| `sigmoid_f64` | neuralSpring/coralForge | ML activation | hotSpring FMA patterns | scheduler loop phi |
+| `sigmoid_f64` | neuralSpring/coralForge | ML activation | hotSpring FMA patterns | **PASS** (iter 20, SSA dominance repair) |
 | `kl_divergence_f64` | neuralSpring | ML statistics | wetSpring cross-entropy, groundSpring fitness | **PASS** (iter 13, keyword fix) |
 | `mean_reduce` | neuralSpring | ML aggregation | Population fitness (f32, single-workgroup) | **PASS** |
 | `rk4_parallel` | neuralSpring | ODE solver | Complex control flow, scheduling stress | **PASS** (iter 5) |
@@ -139,12 +139,12 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 18)
+### Blocker Triage (current — iteration 20)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
-| Register allocator SSA tracking | 1 shader | su3_gauge_force |
-| Scheduler loop-carried phi (RA back-edge) | 4 shaders | wilson_plaquette, sigmoid, swarm_nn_forward, su3_gauge_force — deferred (deep RA rework) |
+| ~~Register allocator SSA tracking~~ | ~~1 shader~~ | **Fixed iter 19** — back-edge live-in pre-allocation |
+| ~~Scheduler loop-carried phi (RA back-edge)~~ | ~~4 shaders~~ | **Fixed iter 19-20** — live_in_values seeding + SSA dominance repair |
 | ~~Pred→GPR encoder coercion chain~~ | ~~2 shaders~~ | **Fixed iter 18** — bcs_bisection, batched_hfb_hamiltonian now pass |
 | Math function (Acos) | 1 shader | local_elementwise |
 | Complex64 preamble | 1 shader | dielectric_mermin |
@@ -215,12 +215,12 @@ Status (Iteration 15):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1138 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1142 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 18 — AMD E2E proven |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 20 — AMD E2E proven |
 | hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; all P0 resolved (Iteration 9) |
-| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved. Pred→GPR fixed (iter 18). Only P2 loop scheduling + RA back-edge remain. |
+| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved. Pred→GPR fixed (iter 18). Back-edge RA + SSA dominance fixed (iter 19-20). Only P2 Acos/Complex64 remain. |
 
 ---
 
@@ -287,10 +287,11 @@ Status (Iteration 15):
 
 ---
 
-*36/47 cross-spring shaders compile to native SASS. 1138 tests passing, 29 ignored, 63% coverage.
+*40/47 cross-spring shaders compile to native SASS. 1142 tests passing, 25 ignored, 63% coverage.
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
 The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
 (Iteration 10). Iterations 13-15: df64 preamble (5 tests unblocked), Statement::Switch,
 AMD+NV RAII MappedRegion, typed DRM wrappers, inline var pre-allocation fix.
-Iteration 18: Pred→GPR legalization fix, small array promotion (xoshiro128ss), 4 tests un-ignored; 4 RA back-edge issues deferred.
-Next: NVIDIA hardware validation, deep RA rework for back-edge liveness, trig inverse math.*
+Iteration 19: Back-edge live-in RA, 3 tests unblocked.
+Iteration 20: SSA dominance repair, sigmoid_f64 unblocked, gpr_tests.rs extracted.
+Next: NVIDIA hardware validation, trig inverse math, Complex64 preamble.*

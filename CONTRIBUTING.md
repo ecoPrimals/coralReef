@@ -12,7 +12,7 @@ rustup update stable
 git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace            # 1138 passing, 29 ignored
+cargo test --workspace            # 1142 passing, 25 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

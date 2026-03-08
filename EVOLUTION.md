@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 19)
-**Phase**: 10 — Back-Edge Liveness & RA Evolution
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 20)
+**Phase**: 10 — SSA Dominance Repair & File Extraction
 
 ---
 
@@ -9,17 +9,17 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1141 tests (1141 passing, 26 ignored), 63% line coverage (target 90%),
-39/47 cross-spring WGSL shaders compile to SM70 SASS. WGSL corpus 46/49
-passing, 3 ignored.
+1142 tests (1142 passing, 25 ignored), 63% line coverage (target 90%),
+40/47 cross-spring WGSL shaders compile to SM70 SASS. WGSL corpus 47/49
+passing, 2 ignored.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
 back-edge-aware `calc_max_live_back_edge_aware()`, scheduler seeds
 `live_set` from `live_in_values()` for loop headers, `calc_max_live`
 multi-predecessor fix. 3 tests unblocked: su3_gauge_force_f64,
-wilson_plaquette_f64, swarm_nn_forward. sigmoid_f64 remains ignored
-(pre-existing RA gap in straight-line block chain).
+wilson_plaquette_f64, swarm_nn_forward. sigmoid_f64 fixed (Iteration 20 — SSA dominance repair via
+fix_entry_live_in).
 
 **Iteration 18 milestone**: Pred→GPR legalization bug fix (`src_is_reg()`
 incorrectly treated `SrcRef::True`/`SrcRef::False` as valid GPR sources),
@@ -147,7 +147,7 @@ early returns with standard control flow to ensure expr_map insertion.
 
 | Feature | Shaders Blocked | Complexity |
 |---------|-----------------|------------|
-| RA straight-line block chain | sigmoid_f64 | **High** — pre-existing RA gap (back-edge fixes in Iteration 19 unblocked su3, wilson, swarm) |
+| ~~RA straight-line block chain~~ | ~~sigmoid_f64~~ | **Fixed Iteration 20** — SSA dominance violation from builder; fix_entry_live_in inserts OpUndef + repair_ssa |
 | ~~Register allocator SSA tracking~~ | ~~su3_gauge_force~~ | **Fixed Iteration 19** — back-edge live-in pre-allocation |
 | ~~Scheduler loop-carried phi~~ | ~~wilson_plaquette, swarm_nn_forward~~ | **Fixed Iteration 19** — live_in_values seeding |
 | ~~Pred→GPR encoder coercion chain~~ | ~~bcs_bisection, batched_hfb~~ | **Fixed Iteration 18** |
@@ -256,9 +256,9 @@ Endgame:
 
 | Result | Count | Examples |
 |--------|-------|---------|
-| **Compiling** | 39 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, xoshiro128ss, **su3_gauge_force_f64**, **wilson_plaquette_f64**, **swarm_nn_forward**, … |
+| **Compiling** | 40 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, xoshiro128ss, **su3_gauge_force_f64**, **wilson_plaquette_f64**, **swarm_nn_forward**, … |
 | df64 preamble (compiling) | 5 | gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
-| RA straight-line block chain | 1 | sigmoid_f64 (pre-existing gap) |
+| ~~RA straight-line block chain~~ | ~~1~~ | **Fixed Iteration 20** — sigmoid_f64 now compiles |
 | ~~Register allocator SSA tracking~~ | ~~1~~ | **Fixed Iteration 19** — su3_gauge_force_f64 now compiles |
 | ~~Scheduler loop-carried phi~~ | ~~2~~ | **Fixed Iteration 19** — wilson_plaquette_f64, swarm_nn_forward now compile |
 | ~~Pred→GPR encoder coercion~~ | ~~2~~ | **Fixed Iteration 18** — bcs_bisection, batched_hfb_hamiltonian now pass |
@@ -361,17 +361,17 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 16 | Coverage expansion, legacy SM tests, latency unit tests, DEBT migration | **1116** (1116 pass, 31 ignore), 63% coverage |
 | 10 iter 17 | Cross-spring absorption (20 shaders), codebase audit, idiomatic refactoring | **1134** (1134 pass, 33 ignore), 63% coverage |
 | 10 iter 18 | Pred→GPR legalization fix, small array promotion, 4 tests un-ignored | **1138** (1138 pass, 29 ignore), 36/47 shaders SM70 |
-| 10 iter 19 (current) | Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding | **1141** (1141 pass, 26 ignore), 39/47 shaders SM70, WGSL 46/49 |
+| 10 iter 19 | Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding | **1141** (1141 pass, 26 ignore), 39/47 shaders SM70, WGSL 46/49 |
+| 10 iter 20 (current) | SSA dominance repair (fix_entry_live_in), sigmoid_f64 unblocked, gpr_tests.rs extraction | **1142** (1142 pass, 25 ignore), 40/47 shaders SM70, WGSL 47/49 |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 19: 1141 tests passing, 26 ignored. Back-edge live-in
-pre-allocation in RA, calc_max_live_back_edge_aware, scheduler seeds
+Iteration 20: 1142 tests passing, 25 ignored. SSA dominance repair, calc_max_live_back_edge_aware, scheduler seeds
 live_set from live_in_values for loop headers, calc_max_live iterates
 all forward predecessors. 3 tests unblocked: su3_gauge_force_f64,
-wilson_plaquette_f64, swarm_nn_forward. sigmoid_f64 remains ignored.
+wilson_plaquette_f64, swarm_nn_forward. sigmoid_f64 fixed (SSA dominance repair via fix_entry_live_in).
 
 Iteration 18: Pred→GPR legalization fix, small array promotion, 4 tests
 un-ignored. Iteration 17: Cross-spring absorption (20 shaders), audit, sm75 gpr.rs

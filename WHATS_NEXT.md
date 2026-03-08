@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 19)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 20)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 19)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 20)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -91,7 +91,7 @@ the full Spring absorption map.
 
 ### P1 — Blocks production shader compilation
 - [x] **`var<uniform>` support**: CBuf reads via uniform_refs tracking — barraCuda `sum_reduce_f64.wgsl`
-- [x] **Loop back-edge scheduling**: Back-edge live-in pre-allocation in RA, scheduler seeds live_set from live_in_values — 3 tests unblocked (Iteration 19); sigmoid_f64 remains ignored (straight-line RA gap)
+- [x] **Loop back-edge scheduling**: Back-edge live-in pre-allocation in RA, scheduler seeds live_set from live_in_values — 3 tests unblocked (Iteration 19); sigmoid_f64 fixed (Iteration 20 — SSA dominance repair)
 
 ### P1 — Compiler hardening (from absorption testing)
 - [x] **f64 storage buffer loads**: `emit_load_f64` for 64-bit global memory
@@ -147,7 +147,7 @@ the full Spring absorption map.
 - [x] **NvDevice ComputeDevice**: Full alloc/free/upload/readback/dispatch/sync implementation
 
 ### P1 — Compiler gaps (remaining)
-- [ ] **RA straight-line block chain** — sigmoid_f64 remains ignored (pre-existing RA gap; back-edge fixes in Iteration 19 unblocked su3_gauge_force_f64, wilson_plaquette_f64, swarm_nn_forward)
+- [x] **RA straight-line block chain** — sigmoid_f64 fixed (Iteration 20: SSA dominance violation from builder; `fix_entry_live_in` inserts OpUndef + `repair_ssa`)
 - [x] **Pred→GPR encoder coercion chain** — fixed (Iteration 18); bcs_bisection, batched_hfb_hamiltonian now pass
 - [x] **Encoder GPR→comparison** — semf_batch now passes (Iteration 12)
 - [x] **const_tracker negated immediate** — fixed (Iteration 12)
@@ -207,12 +207,13 @@ the full Spring absorption map.
 - [x] Iteration 17: Cross-spring absorption (10 hotSpring CG/Yukawa/lattice + 10 neuralSpring PRNG/HMM/distance/stencil), full codebase audit (no mocks in prod, no hardcoded primals, pure Rust deps), SM75 gpr.rs refactored (1025→935 LOC via const slices), `local_elementwise_f64` retired — 1134 tests (1134 passing, 33 ignored)
 - [x] Iteration 18: Pred→GPR legalization fix (src_is_reg True/False), copy_alu_src_if_pred in SetP legalize, small array promotion (type_reg_comps up to 32 regs) unblocking xoshiro128ss, SM75 gpr.rs 929 LOC, 4 tests un-ignored (bcs_bisection_f64, batched_hfb_hamiltonian_f64, coverage_logical_predicates, xoshiro128ss), 4 RA back-edge issues deferred — 1138 tests (1138 passing, 29 ignored)
 - [x] Iteration 19: Back-edge live-in pre-allocation in RA (live_in_values), calc_max_live_back_edge_aware, scheduler live_in seeding, calc_max_live multi-predecessor fix — 3 tests unblocked (su3_gauge_force_f64, wilson_plaquette_f64, swarm_nn_forward), sigmoid_f64 remains ignored — 1141 tests (1141 passing, 26 ignored), 39/47 shaders SM70, WGSL 46/49
+- [x] Iteration 20: SSA dominance repair (`fix_entry_live_in` detects values live-in to entry block, inserts OpUndef + repair_ssa for phi insertion), sigmoid_f64 unblocked, scheduler debug_assert_eq! promoted, SM75 gpr_tests.rs extracted — 1142 tests (1142 passing, 25 ignored), 40/47 shaders SM70, WGSL 47/49
 
 ### P3 — Remaining debt
 - [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
 - [x] ~~Pred→GPR encoder coercion chain~~ — fixed Iteration 18
 - [x] ~~RA back-edge SSA tracking~~ — fixed Iteration 19 (su3_gauge_force_f64, wilson_plaquette_f64, swarm_nn_forward unblocked)
-- [ ] RA straight-line block chain: sigmoid_f64 (pre-existing gap)
+- [x] ~~RA straight-line block chain~~ — fixed Iteration 20 (SSA dominance repair)
 - [ ] Complex64 preamble: blocks dielectric_mermin (needs complex arithmetic)
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
 - [ ] exp2 edge cases: subnormal handling in ldexp
@@ -220,12 +221,12 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. 39/47 cross-spring shaders compile to native SASS.
-1141 tests passing, 26 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+*The compiler evolves. 40/47 cross-spring shaders compile to native SASS.
+1142 tests passing, 25 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
 All unsafe in driver consolidated: AMD + NV use RAII MappedRegion with safe slice access.
 tarpc uses bincode for high-performance binary IPC. 28 DEBT comments tracked (ISA gaps, dual-issue, features).
-Iteration 19: Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding — 3 tests unblocked; sigmoid_f64 remains.
-Iteration 18: Pred→GPR legalization fix, small array promotion, 4 tests un-ignored.
+Iteration 20: SSA dominance repair — sigmoid_f64 unblocked via fix_entry_live_in.
+Iteration 19: Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding — 3 tests unblocked.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*
