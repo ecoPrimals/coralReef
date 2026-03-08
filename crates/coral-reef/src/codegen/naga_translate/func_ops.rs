@@ -181,6 +181,18 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 n * per_comp
             }
             naga::TypeInner::Pointer { base, .. } => self.type_reg_comps(*base),
+            naga::TypeInner::Array {
+                base,
+                size: naga::ArraySize::Constant(count),
+                ..
+            } => {
+                let elem = self.type_reg_comps(*base);
+                if elem == 0 {
+                    return 0;
+                }
+                let total = count.get().saturating_mul(elem as u32);
+                if total > 32 { 0 } else { total as u8 }
+            }
             _ => 0,
         }
     }

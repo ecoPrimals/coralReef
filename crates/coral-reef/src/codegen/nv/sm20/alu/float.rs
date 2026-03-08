@@ -256,6 +256,7 @@ impl SM20Op for OpFSetP {
             self.cmp_op = self.cmp_op.flip();
         }
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::F32);
+        b.copy_alu_src_if_pred(src1, GPR, SrcType::F32);
         b.copy_alu_src_if_f20_overflow(src1, GPR, SrcType::F32);
     }
 

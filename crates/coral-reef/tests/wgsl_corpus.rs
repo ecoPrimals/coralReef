@@ -202,17 +202,12 @@ wgsl_compile_test!(
 
 // Physics: BCS bisection root-finding — cancellation-safe v² formula.
 // abs_f64 inlined (was preamble-injected by hotSpring ShaderTemplate).
-wgsl_compile_test!(
-    corpus_bcs_bisection_f64,
-    "bcs_bisection_f64.wgsl",
-    ignore = "Pred→GPR encoder coercion chain: select() condition hits ALU source assertion"
-);
+wgsl_compile_test!(corpus_bcs_bisection_f64, "bcs_bisection_f64.wgsl");
 
 // Physics: HFB Hamiltonian (f64, complex math, many registers)
 wgsl_compile_test!(
     corpus_batched_hfb_hamiltonian_f64,
-    "batched_hfb_hamiltonian_f64.wgsl",
-    ignore = "Pred→GPR coercion incomplete: ISetP encoder receives predicate in ALU source"
+    "batched_hfb_hamiltonian_f64.wgsl"
 );
 
 // Physics: SEMF batch (f64, f64 -> f32 cast)
@@ -329,11 +324,7 @@ wgsl_compile_test!(
 // ===========================================================================
 
 // Xoshiro128** PRNG: rotl, shift, xor (pure u32/f32, PRNG codegen path)
-wgsl_compile_test!(
-    corpus_xoshiro128ss,
-    "xoshiro128ss.wgsl",
-    ignore = "non-local pointer argument in function call (needs naga_translate extension)"
-);
+wgsl_compile_test!(corpus_xoshiro128ss, "xoshiro128ss.wgsl");
 
 // ===========================================================================
 // neuralSpring — HMM / log-domain (Iteration 17 absorption)

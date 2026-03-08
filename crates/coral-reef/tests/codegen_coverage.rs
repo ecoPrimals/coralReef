@@ -180,7 +180,6 @@ fn main(
 // --- Logical operations ---
 
 #[test]
-#[ignore = "GPR→Pred coercion chain incomplete: select with logical-and condition hits encoder assertion"]
 fn coverage_logical_predicates() {
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;

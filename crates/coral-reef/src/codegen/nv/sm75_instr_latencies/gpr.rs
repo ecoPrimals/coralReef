@@ -834,7 +834,6 @@ mod tests {
         BMov,
         GuardPredicate,
     ];
-
     const READERS: &[RegLatencySM75] = &[
         CoupledDisp64,
         CoupledDisp,
@@ -857,7 +856,6 @@ mod tests {
         Decoupled,
         DecoupledOther,
     ];
-
     const WAW_CATS: &[RegLatencySM75] = &[
         CoupledDisp64,
         CoupledDisp,
@@ -877,7 +875,6 @@ mod tests {
         Decoupled,
         BMov,
     ];
-
     const WAR_WRITERS: &[RegLatencySM75] = &[
         CoupledDisp64,
         CoupledDisp,
@@ -896,7 +893,6 @@ mod tests {
         Decoupled,
         BMov,
     ];
-
     const PRED_WRITERS: &[RegLatencySM75] = &[
         CoupledAlu,
         CoupledFMA,
@@ -905,7 +901,6 @@ mod tests {
         RedirectedFP64,
         RedirectedFP16,
     ];
-
     const PRED_READERS: &[RegLatencySM75] = &[
         CoupledDisp,
         CoupledAlu,
@@ -915,7 +910,6 @@ mod tests {
         RedirectedFP64,
         RedirectedFP16,
     ];
-
     const PRED_WAW_CATS: &[RegLatencySM75] = &[
         CoupledDisp,
         CoupledAlu,
@@ -927,7 +921,6 @@ mod tests {
         RedirectedFP16,
         Decoupled,
     ];
-
     const PRED_WAR_READERS: &[RegLatencySM75] = &[
         CoupledAlu,
         CoupledFMA,
@@ -939,7 +932,6 @@ mod tests {
         Decoupled,
         CoupledDisp64,
     ];
-
     const PRED_WAR_WRITERS: &[RegLatencySM75] = &[
         CoupledDisp,
         CoupledAlu,

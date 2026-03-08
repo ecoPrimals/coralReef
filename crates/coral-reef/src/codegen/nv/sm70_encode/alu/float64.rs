@@ -75,6 +75,7 @@ impl SM70Op for OpDSetP {
             self.cmp_op = self.cmp_op.flip();
         }
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::F64);
+        b.copy_alu_src_if_pred(src1, gpr, SrcType::F64);
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {

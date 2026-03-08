@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 17)
-**Phase**: 10 — Coverage Expansion + Latency Unit Tests + Legacy SM Tests
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 18)
+**Phase**: 10 — Deep Debt Solutions
 
 ---
 
@@ -9,13 +9,17 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1134 tests (1134 passing, 33 ignored), 63% line coverage (target 90%),
-15/27 cross-spring WGSL shaders compile to SM70 SASS.
+1138 tests (1138 passing, 29 ignored), 63% line coverage (target 90%),
+36/47 cross-spring WGSL shaders compile to SM70 SASS.
+
+**Iteration 18 milestone**: Pred→GPR legalization bug fix (`src_is_reg()`
+incorrectly treated `SrcRef::True`/`SrcRef::False` as valid GPR sources),
+`copy_alu_src_if_pred()` helper in all 12 SetP legalize methods, small
+array promotion in `type_reg_comps()` (up to 32 registers) unblocking
+xoshiro128ss, SM75 gpr.rs refactored to 929 LOC, 4 tests un-ignored.
 
 **Iteration 17 milestone**: Cross-spring absorption (20 new shaders from
-hotSpring + neuralSpring), full codebase audit (clean: no mocks in
-production, no hardcoded primals, pure Rust deps), idiomatic refactoring
-(const slices, 1000-line compliance).
+hotSpring + neuralSpring), full codebase audit, idiomatic refactoring.
 
 **Iteration 16 milestone**: Coverage expansion from 52.75% to 63% via
 legacy SM20/32/50 encoder tests, SM75/SM80 GPR latency combinatorial
@@ -238,15 +242,15 @@ Endgame:
 
 ---
 
-## Cross-Spring Shader Corpus (27 shaders)
+## Cross-Spring Shader Corpus (47 shaders)
 
 | Result | Count | Examples |
 |--------|-------|---------|
-| **Compiling** | 15 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, **semf_batch** |
+| **Compiling** | 36 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, **xoshiro128ss**, … |
 | df64 preamble (compiling) | 5 | gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
 | Register allocator SSA tracking | 1 | su3_gauge_force |
 | Scheduler loop-carried phi | 2 | wilson_plaquette, sigmoid |
-| Pred→GPR encoder coercion | 2 | bcs_bisection, batched_hfb_hamiltonian |
+| ~~Pred→GPR encoder coercion~~ | ~~2~~ | **Fixed Iteration 18** — bcs_bisection, batched_hfb_hamiltonian now pass |
 | Math function (Acos) | 1 | local_elementwise |
 | Complex64 preamble needed | 1 | dielectric_mermin |
 
@@ -344,18 +348,19 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 14 | Statement::Switch lowering, NV MappedRegion RAII, clock_monotonic_ns, 14 diagnostic panics | **991** (960 pass, 31 ignore) |
 | 10 iter 15 | AMD safe slices, inline var pre-alloc, typed DRM wrappers, TODO cleanup | **991** (960 pass, 31 ignore) |
 | 10 iter 16 | Coverage expansion, legacy SM tests, latency unit tests, DEBT migration | **1116** (1116 pass, 31 ignore), 63% coverage |
-| 10 iter 17 (current) | Cross-spring absorption (20 shaders), codebase audit, idiomatic refactoring | **1134** (1134 pass, 33 ignore), 63% coverage |
+| 10 iter 17 | Cross-spring absorption (20 shaders), codebase audit, idiomatic refactoring | **1134** (1134 pass, 33 ignore), 63% coverage |
+| 10 iter 18 (current) | Pred→GPR legalization fix, small array promotion, 4 tests un-ignored | **1138** (1138 pass, 29 ignore), 36/47 shaders SM70 |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 17: 1134 tests passing, 63% line coverage. 20 new cross-spring
-shaders absorbed (10 hotSpring CG/Yukawa/lattice, 10 neuralSpring
-PRNG/HMM/distance/stencil). Full audit clean. sm75 gpr.rs refactored
-(1025 → 935 LOC via const slices).
+Iteration 18: 1138 tests passing, 29 ignored. Pred→GPR legalization fix
+(src_is_reg/True/False), copy_alu_src_if_pred in SetP legalize, small
+array promotion unblocking xoshiro128ss. 4 RA back-edge issues deferred.
 
-Iteration 16: 1116 tests passing, 63% line coverage. Legacy SM20/32/50
+Iteration 17: Cross-spring absorption (20 shaders), audit, sm75 gpr.rs
+refactored. Iteration 16: 1116 tests passing. Legacy SM20/32/50
 encoder paths tested. SM75/SM80 latency tables covered via combinatorial
 unit tests. All TODOs replaced with 28 categorized DEBT comments.
 AMD E2E verified — sovereign pipeline proven on hardware.*

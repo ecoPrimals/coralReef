@@ -152,8 +152,8 @@ impl LowerCopySwap {
                     RegFile::Pred | RegFile::UPred => {
                         b.push_op(OpSel {
                             dst: copy.dst,
-                            cond: copy.src,
-                            srcs: [Src::new_imm_u32(1), Src::ZERO],
+                            cond: copy.src.bnot(),
+                            srcs: [Src::ZERO, Src::new_imm_u32(1)],
                         });
                     }
                     RegFile::Bar => {

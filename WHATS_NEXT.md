@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 17)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 18)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 17)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 18)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -147,9 +147,9 @@ the full Spring absorption map.
 - [x] **NvDevice ComputeDevice**: Full alloc/free/upload/readback/dispatch/sync implementation
 
 ### P1 — Compiler gaps (remaining)
-- [ ] **Register allocator SSA tracking** — blocks su3_gauge_force (unknown SSA in GPR file)
+- [ ] **Register allocator SSA tracking** — blocks su3_gauge_force (unknown SSA in GPR file); 4 RA back-edge issues deferred (deep RA rework needed): sigmoid_f64, swarm_nn_forward, wilson_plaquette_f64, su3_gauge_force_f64
 - [ ] **Scheduler loop-carried phi** — blocks wilson_plaquette (PerRegFile accounting)
-- [ ] **Pred→GPR encoder coercion chain** — 2 remaining gaps
+- [x] **Pred→GPR encoder coercion chain** — fixed (Iteration 18); bcs_bisection, batched_hfb_hamiltonian now pass
 - [x] **Encoder GPR→comparison** — semf_batch now passes (Iteration 12)
 - [x] **const_tracker negated immediate** — fixed (Iteration 12)
 
@@ -206,10 +206,11 @@ the full Spring absorption map.
 - [x] Iteration 15: AMD `MappedRegion` safe slices (`ptr::copy_nonoverlapping` → `copy_from_slice`/`to_vec()`), inline `pre_allocate_local_vars` fix (callee locals in `inline_call`), typed DRM wrappers (`gem_close()`, `drm_version()` — 3 call-site unsafe eliminated), `abs_f64` inlined in BCS shader, TODO/XXX cleanup — 991 tests (960 passing, 31 ignored)
 - [x] Iteration 16: Coverage expansion (52.75% → 63%), legacy SM20/SM32/SM50 integration tests via `compile_wgsl_raw_sm` API, SM75/SM80 GPR latency combinatorial unit tests (10% → 90%), 10 new WGSL shader fixtures, 15 multi-arch NVIDIA + AMD tests, SM30 delay clamping fix, TODOs → 28 DEBT comments — 1116 tests (1116 passing, 31 ignored)
 - [x] Iteration 17: Cross-spring absorption (10 hotSpring CG/Yukawa/lattice + 10 neuralSpring PRNG/HMM/distance/stencil), full codebase audit (no mocks in prod, no hardcoded primals, pure Rust deps), SM75 gpr.rs refactored (1025→935 LOC via const slices), `local_elementwise_f64` retired — 1134 tests (1134 passing, 33 ignored)
+- [x] Iteration 18: Pred→GPR legalization fix (src_is_reg True/False), copy_alu_src_if_pred in SetP legalize, small array promotion (type_reg_comps up to 32 regs) unblocking xoshiro128ss, SM75 gpr.rs 929 LOC, 4 tests un-ignored (bcs_bisection_f64, batched_hfb_hamiltonian_f64, coverage_logical_predicates, xoshiro128ss), 4 RA back-edge issues deferred — 1138 tests (1138 passing, 29 ignored)
 
 ### P3 — Remaining debt
 - [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
-- [ ] Pred→GPR encoder coercion chain: blocks bcs_bisection, batched_hfb
+- [x] ~~Pred→GPR encoder coercion chain~~ — fixed Iteration 18
 - [ ] RA SSA tracking: blocks su3_gauge_force (var array liveness)
 - [ ] Scheduler phi mismatch: blocks wilson_plaquette, sigmoid (loop-carried)
 - [ ] Complex64 preamble: blocks dielectric_mermin (needs complex arithmetic)
@@ -219,12 +220,12 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. 15/27 cross-spring shaders compile to native SASS.
-1134 tests passing, 63% line coverage. 47 cross-spring shaders (32 compiling SM70). Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+*The compiler evolves. 36/47 cross-spring shaders compile to native SASS.
+1138 tests passing, 29 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
 All unsafe in driver consolidated: AMD + NV use RAII MappedRegion with safe slice access.
 tarpc uses bincode for high-performance binary IPC. 28 DEBT comments tracked (ISA gaps, dual-issue, features).
+Iteration 18: Pred→GPR legalization fix, small array promotion, 4 tests un-ignored; 4 RA back-edge issues deferred.
 Iteration 17: cross-spring absorption (20 shaders), audit, idiomatic refactoring.
-Iteration 16: legacy SM tests, latency unit tests, coverage expansion.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*

@@ -345,6 +345,7 @@ impl SM50Op for OpISetP {
             self.cmp_op = self.cmp_op.flip();
         }
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::ALU);
+        b.copy_alu_src_if_pred(src1, GPR, SrcType::ALU);
         b.copy_alu_src_if_i20_overflow(src1, GPR, SrcType::ALU);
     }
 

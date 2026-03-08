@@ -29,7 +29,10 @@ pub fn src_is_upred_reg(src: &Src) -> bool {
 
 pub fn src_is_reg(src: &Src, reg_file: RegFile) -> bool {
     match &src.reference {
-        SrcRef::Zero | SrcRef::True | SrcRef::False => true,
+        SrcRef::Zero => true,
+        SrcRef::True | SrcRef::False => {
+            matches!(reg_file, RegFile::Pred | RegFile::UPred)
+        }
         SrcRef::SSA(ssa) => ssa.file() == reg_file,
         SrcRef::Imm32(_) | SrcRef::CBuf(_) => false,
         SrcRef::Reg(_) => panic!("ICE: Not in SSA form"),
@@ -208,6 +211,17 @@ pub trait LegalizeBuildHelpers: SSABuilder {
         src_type: SrcType,
     ) {
         if !src_is_reg(src, reg_file) && !matches!(&src.reference, SrcRef::Imm32(_)) {
+            self.copy_alu_src(src, reg_file, src_type);
+        }
+    }
+
+    fn copy_alu_src_if_pred(&mut self, src: &mut Src, reg_file: RegFile, src_type: SrcType) {
+        let is_pred = match &src.reference {
+            SrcRef::True | SrcRef::False => true,
+            SrcRef::SSA(ssa) => matches!(ssa.file(), RegFile::Pred | RegFile::UPred),
+            _ => false,
+        };
+        if is_pred {
             self.copy_alu_src(src, reg_file, src_type);
         }
     }
@@ -630,6 +644,8 @@ mod tests {
         assert!(src_is_reg(&Src::ZERO, RegFile::GPR));
         assert!(src_is_reg(&true.into(), RegFile::Pred));
         assert!(src_is_reg(&false.into(), RegFile::Pred));
+        assert!(!src_is_reg(&true.into(), RegFile::GPR));
+        assert!(!src_is_reg(&false.into(), RegFile::GPR));
     }
 
     #[test]

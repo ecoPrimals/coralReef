@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 17 (Cross-Spring Absorption + Audit + Idiomatic Refactoring)
+**Phase**: 10 — Iteration 18 (Deep Debt Solutions)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1134 passing, 33 ignored, zero failures, 63% line coverage (target 90%) |
+| Tests | A+ | 1138 passing, 29 ignored, zero failures, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 17** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 18** |
 
 ### Phase 10 Completions
 
@@ -245,6 +245,19 @@
 | 2 new compiler limitations documented | ✅ | xoshiro128ss (non-local pointer args), swarm_nn_forward (RA SSA phi tracking) |
 | Test expansion | ✅ | 1116 → 1134 passing (+18 tests), 33 ignored |
 
+### Phase 10 — Iteration 18 Completions (Deep Debt Solutions)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Pred→GPR legalization bug fix | ✅ | `src_is_reg()` incorrectly treated `SrcRef::True`/`SrcRef::False` as valid GPR sources — fixed in `legalize.rs` and `lower_copy_swap.rs` |
+| `copy_alu_src_if_pred()` helper | ✅ | Added to all 12 SetP legalize methods across SM20/SM32/SM50/SM70 |
+| Small array promotion | ✅ | Extended `type_reg_comps()` in `naga_translate/func_ops.rs` to promote small fixed-size arrays (up to 32 registers) — unblocks xoshiro128ss PRNG shader |
+| SM75 `gpr.rs` refactored | ✅ | Test data to 929 LOC (from 1021, back under 1000-line limit) |
+| 4 tests un-ignored | ✅ | `bcs_bisection_f64`, `batched_hfb_hamiltonian_f64`, `coverage_logical_predicates`, `xoshiro128ss` |
+| 4 RA back-edge issues deferred | ✅ | Deep RA rework needed: `sigmoid_f64`, `swarm_nn_forward`, `wilson_plaquette_f64`, `su3_gauge_force_f64` |
+| Test expansion | ✅ | 1134 → 1138 passing (+4 tests), 33 → 29 ignored |
+| Cross-spring corpus | ✅ | 47 shaders, 36 compiling SM70 (was 32) |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -261,7 +274,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1134 passing, 33 ignored) |
+| `cargo test --workspace` | PASS (1138 passing, 29 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -287,7 +300,7 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 5 springs (47 shaders, 32 compiling SM70) | tests/fixtures/wgsl/ |
+| WGSL shader corpus (cross-spring) | 5 springs (47 shaders, 36 compiling SM70) | tests/fixtures/wgsl/ |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
 | Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
 | `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |

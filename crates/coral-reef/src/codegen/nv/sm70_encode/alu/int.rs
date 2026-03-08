@@ -357,6 +357,7 @@ impl SM70Op for OpISetP {
             self.cmp_op = self.cmp_op.flip();
         }
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
+        b.copy_alu_src_if_pred(src1, gpr, SrcType::ALU);
         if !self.is_uniform() {
             b.copy_src_if_upred(&mut self.low_cmp);
             b.copy_src_if_upred(&mut self.accum);
