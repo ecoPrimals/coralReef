@@ -39,7 +39,7 @@
 | Gradient flow as Titan V validation target | Yes | P2 | Embarrassingly parallel, f64-heavy, ideal coralDriver test |
 | FMA control / `NoContraction` | Yes | P1 | Bit-exact CPU parity for precision stability |
 
-### groundSpring (V95)
+### groundSpring (V96)
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
@@ -55,7 +55,7 @@
 | ~~Anderson Lyapunov WGSL (f64)~~ | ~~Yes~~ | ~~P1~~ | **Imported** — xoshiro128**, transfer matrix, uniform bindings |
 | Level 4 assignment (coralDriver, coralMem, coralQueue) | Yes | P1 | groundSpring is the validation partner |
 
-### neuralSpring (S129)
+### neuralSpring (V89/S131)
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
@@ -66,7 +66,7 @@
 | Bio-evolution shaders | Yes | P2 | wright_fisher_step, swarm_nn, batch_fitness_eval, locus_variance |
 | 4-tier matmul router | Study | P3 | Precision routing pattern |
 
-### wetSpring (V97d)
+### wetSpring (V97e)
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
@@ -74,7 +74,7 @@
 | DF64 fused ops gap analysis | Study | P2 | VarianceF64, CorrelationF64 return zeros — compiler or shader? |
 | Zero local WGSL | — | — | Fully lean on upstream; no direct absorption |
 
-### airSpring (V071)
+### airSpring (V0.7.3)
 
 | What | Absorb? | Priority | Notes |
 |------|---------|----------|-------|
@@ -138,7 +138,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 9)
+### Blocker Triage (current — iteration 10)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
@@ -189,7 +189,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 Current:  WGSL → naga → NVK → NAK → (bad SASS) → GPU   [9-149× gap]
 Target:   WGSL → naga → coralReef → (good SASS) → coralDriver → GPU
 
-Status (groundSpring V95, Iteration 9):
+Status (groundSpring V96, Iteration 10):
   ✅ WGSL → SASS compilation (SM70/SM86)
   ✅ QMD v2.1 (Volta) / v3.0 (Ampere)
   ✅ DRM VM_INIT + VM_BIND + EXEC
@@ -210,11 +210,24 @@ Status (groundSpring V95, Iteration 9):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 990 tests (953 pass), both drivers wired, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 991 tests (954 pass), both drivers wired, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau wired, awaiting HW validation |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired (channel+GEM+pushbuf) |
 | Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 10 — AMD E2E proven |
 | hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; QMD CBUF binding resolved (Iteration 9) |
+| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved — f64 emission (iter 3), AMD E2E (iter 10), var<uniform> (iter 4), BAR.SYNC (iter 3). Only P2 loop scheduling remains. |
+
+---
+
+### Phase 10 — Iteration 10 Absorption (E2E Verification)
+
+| Pattern | Source | Applied |
+|---------|--------|---------|
+| AMD E2E dispatch verification | groundSpring V95 push buffer diagnosis | coral-driver/amd/ |
+| CS_W32_EN wave32 mode | RDNA2 ISA analysis (on-site RX 6950 XT) | pm4.rs DISPATCH_INITIATOR |
+| SrcEncoding literal DWORD | Instruction stream debugging | codegen/ops/mod.rs |
+| 64-bit address pair for FLAT | DCE-aware address construction | naga_translate/func_mem.rs |
+| Consolidated ioctl unsafe surface | Safe wrapper pattern (amd_ioctl/amd_ioctl_read) | amd/ioctl.rs |
 
 ---
 
@@ -233,7 +246,7 @@ Status (groundSpring V95, Iteration 9):
 
 ---
 
-*14/27 cross-spring shaders compile to native SASS. 990 tests (953 pass).
+*14/27 cross-spring shaders compile to native SASS. 991 tests (954 pass).
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
 The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
 (Iteration 10). Next: NVIDIA hardware validation.*

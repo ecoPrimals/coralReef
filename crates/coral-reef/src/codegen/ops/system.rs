@@ -2,13 +2,13 @@
 // Copyright © 2026 ecoPrimals
 //! System register and move operation encoding — Mov, S2R, CS2R.
 
-use super::{dst_to_vgpr_index, src_to_encoding, AmdOpEncoder, EncodeOp};
+use super::{AmdOpEncoder, EncodeOp, dst_to_vgpr_index, src_to_encoding};
+use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
 #[allow(clippy::wildcard_imports)]
 use crate::codegen::ir::*;
-use crate::CompileError;
 
 // ---- Mov (VOP1: V_MOV_B32) ----
 
@@ -16,11 +16,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpMov {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&self.src)?;
-        let mut words = Rdna2Encoder::encode_vop1(
-            isa::vop1::V_MOV_B32,
-            AmdRegRef::vgpr(dst_reg),
-            src_enc.src0,
-        );
+        let mut words =
+            Rdna2Encoder::encode_vop1(isa::vop1::V_MOV_B32, AmdRegRef::vgpr(dst_reg), src_enc.src0);
         src_enc.extend_with_literal(&mut words);
         Ok(words)
     }

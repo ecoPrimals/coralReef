@@ -6,7 +6,7 @@
 use super::super::sm75_instr_latencies::pred;
 use crate::codegen::ir::*;
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "latency model for future SM target support")]
 #[derive(Debug)]
 pub(super) enum URegLatencySM80 {
     Coupled,

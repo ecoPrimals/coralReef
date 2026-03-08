@@ -168,11 +168,7 @@ impl DrmDevice {
 /// # Errors
 ///
 /// Returns [`DriverError::IoctlFailed`] if the kernel returns an error.
-pub(crate) unsafe fn drm_ioctl_typed<T>(
-    fd: RawFd,
-    request: u64,
-    arg: &mut T,
-) -> DriverResult<()> {
+pub(crate) unsafe fn drm_ioctl_typed<T>(fd: RawFd, request: u64, arg: &mut T) -> DriverResult<()> {
     // SAFETY: caller guarantees T matches the ioctl request.
     unsafe { drm_ioctl_named(fd, request, arg, "drm_ioctl") }
 }
@@ -194,9 +190,7 @@ pub(crate) unsafe fn drm_ioctl_named<T>(
     // the pointer does not escape the call.
     let ret = unsafe { libc::ioctl(fd, request as libc::c_ulong, std::ptr::from_mut::<T>(arg)) };
     if ret < 0 {
-        let errno = std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or(-1);
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
         return Err(DriverError::IoctlFailed { name, errno });
     }
     Ok(())

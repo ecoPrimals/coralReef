@@ -13,8 +13,8 @@
 
 use coral_driver::amd::AmdDevice;
 use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
-use coral_reef::gpu_arch::{AmdArch, GpuTarget};
 use coral_reef::CompileOptions;
+use coral_reef::gpu_arch::{AmdArch, GpuTarget};
 
 const WRITE_42_SHADER: &str = r#"
 @group(0) @binding(0)
@@ -96,31 +96,19 @@ fn handcrafted_store_42_shader() {
     //   flat_store_dword v[2:3], v4
     //   s_waitcnt vmcnt(0) lgkmcnt(0)
     //   s_endpgm
-    let mut code: Vec<u32> = Vec::new();
-
-    // VOP1: v_mov_b32 v2, s0 (opcode=1, dst=2, src0=0)
-    // [31:25]=0111111, [24:17]=VDST=2, [16:9]=OP=1, [8:0]=SRC0=0
-    code.push(0x7E04_0200);
-    // VOP1: v_mov_b32 v3, s1
-    code.push(0x7E06_0201);
-    // VOP1: v_mov_b32 v4, literal(42)
-    // src0=255 (literal follows)
-    code.push(0x7E08_02FF);
-    code.push(42); // literal constant
-
-    // FLAT_STORE_DWORD v[2:3], v4 (opcode=28)
-    // Word 0: [31:26]=110111, [25:18]=OP=28, [17:0]=0
     let flat_w0: u32 = (0b11_0111 << 26) | (28 << 18);
-    // Word 1: [7:0]=ADDR=2, [15:8]=DATA=4, [22:16]=SADDR=0x7F
     let flat_w1: u32 = 2 | (4 << 8) | (0x7F << 16);
-    code.push(flat_w0);
-    code.push(flat_w1);
 
-    // S_WAITCNT vmcnt(0) lgkmcnt(0) = 0xBF8C0000
-    code.push(0xBF8C_0000);
-
-    // S_ENDPGM
-    code.push(0xBF81_0000);
+    let code: Vec<u32> = vec![
+        0x7E04_0200, // v_mov_b32 v2, s0 (addr_lo from SGPR0)
+        0x7E06_0201, // v_mov_b32 v3, s1 (addr_hi from SGPR1)
+        0x7E08_02FF, // v_mov_b32 v4, literal(42) — src0=255
+        42,          // literal constant DWORD
+        flat_w0,     // flat_store_dword v[2:3], v4 — word 0
+        flat_w1,     // flat_store_dword v[2:3], v4 — word 1 (ADDR=2, DATA=4, SADDR=0x7F)
+        0xBF8C_0000, // s_waitcnt vmcnt(0) lgkmcnt(0)
+        0xBF81_0000, // s_endpgm
+    ];
 
     let mut binary = Vec::with_capacity(code.len() * 4);
     for word in &code {
@@ -223,15 +211,18 @@ fn hardcoded_va_store_42_shader() {
 #[test]
 #[ignore = "requires amdgpu hardware"]
 fn dispatch_writes_42_and_readback_verifies() {
-    let compiled = try_compile_for_rdna2(WRITE_42_SHADER)
-        .expect("storage-write shader should compile");
+    let compiled =
+        try_compile_for_rdna2(WRITE_42_SHADER).expect("storage-write shader should compile");
 
     let mut dev = open_amd();
 
-    let out_buf: BufferHandle = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc output buffer");
+    let out_buf: BufferHandle = dev
+        .alloc(4096, MemoryDomain::Gtt)
+        .expect("alloc output buffer");
 
     let zero_data = vec![0u8; 4096];
-    dev.upload(out_buf, 0, &zero_data).expect("zero output buffer");
+    dev.upload(out_buf, 0, &zero_data)
+        .expect("zero output buffer");
 
     let info = ShaderInfo {
         gpr_count: compiled.info.gpr_count,
@@ -240,13 +231,8 @@ fn dispatch_writes_42_and_readback_verifies() {
         workgroup: compiled.info.local_size,
     };
 
-    dev.dispatch(
-        &compiled.binary,
-        &[out_buf],
-        DispatchDims::linear(1),
-        &info,
-    )
-    .expect("dispatch");
+    dev.dispatch(&compiled.binary, &[out_buf], DispatchDims::linear(1), &info)
+        .expect("dispatch");
 
     dev.sync().expect("sync");
 

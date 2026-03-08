@@ -153,6 +153,12 @@ wgsl_compile_test!(
 // MD: radial distribution function (f64, atomicAdd)
 wgsl_compile_test!(corpus_rdf_histogram_f64, "rdf_histogram_f64.wgsl");
 
+// MD: VACF dot product v(t0)·v(t) (f64, per-particle dot, uniform struct)
+wgsl_compile_test!(corpus_vacf_dot_f64, "vacf_dot_f64.wgsl");
+
+// MD: Verlet reference copy — positions → ref_positions (f64, simple memory ops)
+wgsl_compile_test!(corpus_verlet_copy_ref, "verlet_copy_ref.wgsl");
+
 // ===========================================================================
 // hotSpring — Nuclear physics (cancellation-safe precision)
 // ===========================================================================

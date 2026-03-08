@@ -13,16 +13,13 @@
 //! | Ldc | V_MOV_B32 (user SGPR) | VOP1 |
 //! | MemBar | S_WAITCNT | SOPP |
 
-use super::{
-    dst_to_vgpr_index, src_to_vgpr_index,
-    AmdOpEncoder, EncodeOp,
-};
+use super::{AmdOpEncoder, EncodeOp, dst_to_vgpr_index, src_to_vgpr_index};
+use crate::CompileError;
 use crate::codegen::amd::encoding::{self, Rdna2Encoder};
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
 #[allow(clippy::wildcard_imports)]
 use crate::codegen::ir::*;
-use crate::CompileError;
 
 // ---- Ld (FLAT load) ----
 
@@ -95,11 +92,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpCopy {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = super::src_to_encoding(&self.src)?;
-        let mut words = Rdna2Encoder::encode_vop1(
-            isa::vop1::V_MOV_B32,
-            AmdRegRef::vgpr(dst_reg),
-            src_enc.src0,
-        );
+        let mut words =
+            Rdna2Encoder::encode_vop1(isa::vop1::V_MOV_B32, AmdRegRef::vgpr(dst_reg), src_enc.src0);
         src_enc.extend_with_literal(&mut words);
         Ok(words)
     }
@@ -146,9 +140,9 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpLdc {
 impl EncodeOp<AmdOpEncoder<'_>> for OpMemBar {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let (vm_cnt, exp_cnt, lgkm_cnt) = match self.scope {
-            MemScope::CTA => (0x0F, 0x07, 0),    // wait only on LGKM
-            MemScope::GPU => (0, 0x07, 0),        // wait on VM + LGKM
-            MemScope::System => (0, 0, 0),        // wait on everything
+            MemScope::CTA => (0x0F, 0x07, 0), // wait only on LGKM
+            MemScope::GPU => (0, 0x07, 0),    // wait on VM + LGKM
+            MemScope::System => (0, 0, 0),    // wait on everything
         };
         Ok(encoding::encode_s_waitcnt(vm_cnt, exp_cnt, lgkm_cnt))
     }

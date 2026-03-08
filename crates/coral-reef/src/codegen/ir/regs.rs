@@ -260,7 +260,7 @@ impl RegFileSet {
         self.bits == 0
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "API reserved for future backend integration")]
     pub fn iter(&self) -> Self {
         self.clone()
     }

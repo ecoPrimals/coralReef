@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-990 tests (953 passing, 37 ignored), 14/27 cross-spring WGSL shaders
+991 tests (954 passing, 37 ignored), 14/27 cross-spring WGSL shaders
 compile to SM70 SASS.
 
 **Iteration 10 milestone**: First successful end-to-end sovereign GPU
@@ -326,7 +326,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 6 | Deep debt internalization, IPC evolution | **856** (836 pass, 20 ignore) |
 | 10 iter 7 | Safety boundary, ioctl layout tests, cfg split | **904** (883 pass, 21 ignore) |
 | 10 iter 9 | E2E wiring, push buffer fix, QMD CBUF binding, GPR count, NVIF constants | **974** (952 pass, 22 ignore) |
-| 10 iter 10 (current) | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **990** (953 pass, 37 ignore) |
+| 10 iter 10 (current) | AMD E2E verified — wave32, SrcEncoding, 64-bit addr, unwrap_or audit | **991** (954 pass, 37 ignore) |
 
 ---
 

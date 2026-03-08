@@ -6,15 +6,15 @@
 //! Implements `EncodeOp<AmdOpEncoder>` for all integer ALU operations.
 
 use super::{
-    dst_to_vgpr_index, encode_vop2_from_srcs, encode_vop3_from_srcs, src_to_encoding,
-    src_to_vgpr_index, AmdOpEncoder, EncodeOp,
+    AmdOpEncoder, EncodeOp, dst_to_vgpr_index, encode_vop2_from_srcs, encode_vop3_from_srcs,
+    src_to_encoding, src_to_vgpr_index,
 };
+use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
 #[allow(clippy::wildcard_imports)]
 use crate::codegen::ir::*;
-use crate::CompileError;
 
 // ---- IAdd3 (VOP2: V_ADD_NC_U32) ----
 

@@ -424,7 +424,7 @@ impl FutureReadyInstr {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "debug/diagnostic dump for graphviz output")]
 pub fn save_graphviz(instrs: &[Box<Instr>], g: &DepGraph) -> std::io::Result<()> {
     use std::fs::File;
     use std::io::{BufWriter, Write};

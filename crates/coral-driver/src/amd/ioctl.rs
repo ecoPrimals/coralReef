@@ -118,6 +118,44 @@ const unsafe fn read_ioctl_output<T, R: Copy>(arg: &T) -> R {
     unsafe { std::ptr::read(std::ptr::from_ref(arg).cast::<R>()) }
 }
 
+/// Perform a named DRM ioctl on a `#[repr(C)]` struct.
+///
+/// Encapsulates the single unsafe ioctl syscall. All AMD ioctl functions
+/// route through here, keeping `unsafe` confined to one call site.
+fn amd_ioctl<T>(fd: RawFd, request: u64, arg: &mut T, name: &'static str) -> DriverResult<()> {
+    // SAFETY: All callers pass `#[repr(C)]` kernel ABI structs (verified by
+    // layout tests in this module). The struct is stack-allocated and valid
+    // for the synchronous ioctl lifetime.
+    unsafe { crate::drm::drm_ioctl_named(fd, request, arg, name) }
+}
+
+/// Perform a DRM ioctl and read a scalar output from the union overlay.
+///
+/// DRM ioctls write output into the first bytes of the same struct (C union).
+/// This combines the ioctl call and the output read into one safe function.
+fn amd_ioctl_read<T, R: Copy>(
+    fd: RawFd,
+    request: u64,
+    arg: &mut T,
+    name: &'static str,
+) -> DriverResult<R> {
+    amd_ioctl(fd, request, arg, name)?;
+    // SAFETY: All `#[repr(C)]` ioctl structs are at least as large as their
+    // output union overlay. The kernel wrote valid data at offset 0 during
+    // the successful ioctl above.
+    Ok(unsafe { read_ioctl_output(arg) })
+}
+
+/// Build an IOWR request number for an AMD DRM command.
+const fn amd_iowr<T>(cmd: u32) -> u64 {
+    crate::drm::drm_iowr_pub(cmd, size_of_u32::<T>())
+}
+
+/// Build an IOW request number for an AMD DRM command.
+const fn amd_iow<T>(cmd: u32) -> u64 {
+    crate::drm::drm_iow_pub(cmd, size_of_u32::<T>())
+}
+
 /// Create an amdgpu GPU context.
 ///
 /// # Errors
@@ -128,20 +166,12 @@ pub fn create_context(fd: RawFd) -> DriverResult<u32> {
         op: AMDGPU_CTX_OP_ALLOC_CTX,
         ..Default::default()
     };
-    // SAFETY: `AmdgpuCtx` is `#[repr(C)]` matching the kernel's `drm_amdgpu_ctx`.
-    // Stack-allocated, valid for the synchronous ioctl lifetime.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_CTX, size_of_u32::<AmdgpuCtx>()),
-            &mut ctx,
-            "AMDGPU_CTX_ALLOC",
-        )?;
-    }
-    // Kernel writes { ctx_id: u32, _pad: u32 } at offset 0 (output union overlay).
-    // SAFETY: kernel wrote ctx_id at offset 0 after successful alloc.
-    let ctx_id = unsafe { read_ioctl_output::<_, u32>(&ctx) };
-    Ok(ctx_id)
+    amd_ioctl_read(
+        fd,
+        amd_iowr::<AmdgpuCtx>(DRM_AMDGPU_CTX),
+        &mut ctx,
+        "AMDGPU_CTX_ALLOC",
+    )
 }
 
 /// Destroy an amdgpu GPU context.
@@ -155,15 +185,12 @@ pub fn destroy_context(fd: RawFd, ctx_id: u32) -> DriverResult<()> {
         ctx_id,
         ..Default::default()
     };
-    // SAFETY: `AmdgpuCtx` is `#[repr(C)]` matching the kernel struct. Synchronous ioctl.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_CTX, size_of_u32::<AmdgpuCtx>()),
-            &mut ctx,
-            "AMDGPU_CTX_FREE",
-        )
-    }
+    amd_ioctl(
+        fd,
+        amd_iowr::<AmdgpuCtx>(DRM_AMDGPU_CTX),
+        &mut ctx,
+        "AMDGPU_CTX_FREE",
+    )
 }
 
 /// Create a GEM buffer object.
@@ -180,18 +207,12 @@ pub fn gem_create(fd: RawFd, size: u64, domains: u32) -> DriverResult<(u32, u64)
         domains: domains.into(),
         ..Default::default()
     };
-    // SAFETY: AmdgpuGemCreate is #[repr(C)] and matches the kernel union (32 bytes).
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_GEM_CREATE, size_of_u32::<AmdgpuGemCreate>()),
-            &mut req,
-            "AMDGPU_GEM_CREATE",
-        )?;
-    }
-    // Kernel writes { handle: u32, pad: u32 } at offset 0 (union overlay).
-    // SAFETY: kernel wrote output at offset 0 after successful ioctl.
-    let handle = unsafe { read_ioctl_output::<_, u32>(&req) };
+    let handle: u32 = amd_ioctl_read(
+        fd,
+        amd_iowr::<AmdgpuGemCreate>(DRM_AMDGPU_GEM_CREATE),
+        &mut req,
+        "AMDGPU_GEM_CREATE",
+    )?;
     Ok((handle, aligned_size))
 }
 
@@ -204,16 +225,12 @@ pub fn gem_mmap_offset(fd: RawFd, handle: u32) -> DriverResult<u64> {
     let mut req = AmdgpuGemMmap {
         handle_or_addr: u64::from(handle),
     };
-    // SAFETY: AmdgpuGemMmap is #[repr(C)] and matches the kernel union (8 bytes).
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_GEM_MMAP, size_of_u32::<AmdgpuGemMmap>()),
-            &mut req,
-            "AMDGPU_GEM_MMAP",
-        )?;
-    }
-    // Kernel writes addr_ptr (u64) at offset 0.
+    amd_ioctl(
+        fd,
+        amd_iowr::<AmdgpuGemMmap>(DRM_AMDGPU_GEM_MMAP),
+        &mut req,
+        "AMDGPU_GEM_MMAP",
+    )?;
     Ok(req.handle_or_addr)
 }
 
@@ -232,15 +249,12 @@ pub fn gem_va_map(fd: RawFd, handle: u32, va: u64, size: u64) -> DriverResult<()
         map_size: size,
         ..Default::default()
     };
-    // SAFETY: AmdgpuGemVa is #[repr(C)] and matches the kernel struct.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iow_pub(DRM_AMDGPU_GEM_VA, size_of_u32::<AmdgpuGemVa>()),
-            &mut req,
-            "AMDGPU_GEM_VA_MAP",
-        )
-    }
+    amd_ioctl(
+        fd,
+        amd_iow::<AmdgpuGemVa>(DRM_AMDGPU_GEM_VA),
+        &mut req,
+        "AMDGPU_GEM_VA_MAP",
+    )
 }
 
 // --- BO list structs (drm_amdgpu_bo_list) ---
@@ -343,20 +357,12 @@ pub fn create_bo_list(fd: RawFd, handles: &[u32]) -> DriverResult<u32> {
         ..Default::default()
     };
 
-    // SAFETY: AmdgpuBoListIn is #[repr(C)] and matches the kernel union size.
-    // entries slice lives until after the ioctl returns.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_BO_LIST, size_of_u32::<AmdgpuBoListIn>()),
-            &mut req,
-            "AMDGPU_BO_LIST_CREATE",
-        )?;
-    }
-
-    // Kernel writes list_handle to first u32 (union overlay with drm_amdgpu_bo_list_out).
-    // SAFETY: kernel writes list_handle (u32) at offset 0 of the output union.
-    Ok(unsafe { read_ioctl_output::<_, u32>(&req) })
+    amd_ioctl_read(
+        fd,
+        amd_iowr::<AmdgpuBoListIn>(DRM_AMDGPU_BO_LIST),
+        &mut req,
+        "AMDGPU_BO_LIST_CREATE",
+    )
 }
 
 /// Destroy a BO list.
@@ -371,15 +377,12 @@ pub fn destroy_bo_list(fd: RawFd, list_handle: u32) -> DriverResult<()> {
         ..Default::default()
     };
 
-    // SAFETY: AmdgpuBoListIn is #[repr(C)] and matches the kernel union.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_BO_LIST, size_of_u32::<AmdgpuBoListIn>()),
-            &mut req,
-            "AMDGPU_BO_LIST_DESTROY",
-        )
-    }
+    amd_ioctl(
+        fd,
+        amd_iowr::<AmdgpuBoListIn>(DRM_AMDGPU_BO_LIST),
+        &mut req,
+        "AMDGPU_BO_LIST_DESTROY",
+    )
 }
 
 /// Submit an indirect buffer (IB) to the compute ring.
@@ -422,21 +425,12 @@ pub fn submit_command(
 
     tracing::debug!(ctx = ctx_id, ib_va, ib_bytes, "AMD CS submit");
 
-    // SAFETY: All structs are #[repr(C)] and stack-allocated;
-    // pointers remain valid for the duration of the synchronous ioctl.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_CS, size_of_u32::<AmdgpuCsIn>()),
-            &mut cs,
-            "AMDGPU_CS_SUBMIT",
-        )?;
-    }
-
-    // Kernel writes fence handle to first 8 bytes (union drm_amdgpu_cs.out.handle).
-    // SAFETY: kernel writes fence handle (u64) at offset 0 of the output union.
-    let fence = unsafe { read_ioctl_output::<_, u64>(&cs) };
-    Ok(fence)
+    amd_ioctl_read(
+        fd,
+        amd_iowr::<AmdgpuCsIn>(DRM_AMDGPU_CS),
+        &mut cs,
+        "AMDGPU_CS_SUBMIT",
+    )
 }
 
 /// Wait for a GPU fence to signal.
@@ -469,19 +463,12 @@ pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) ->
 
     tracing::debug!(ctx = ctx_id, fence = fence_handle, "AMD fence sync");
 
-    // SAFETY: AmdgpuWaitCsIn is #[repr(C)] and matches the kernel union.
-    unsafe {
-        crate::drm::drm_ioctl_named(
-            fd,
-            crate::drm::drm_iowr_pub(DRM_AMDGPU_WAIT_CS, size_of_u32::<AmdgpuWaitCsIn>()),
-            &mut wait,
-            "AMDGPU_WAIT_CS",
-        )?;
-    }
-
-    // Kernel writes status to first 8 bytes (union drm_amdgpu_wait_cs.out.status).
-    // 0 = completed, 1 = timed out.
-    let status = unsafe { read_ioctl_output::<_, u64>(&wait) };
+    let status: u64 = amd_ioctl_read(
+        fd,
+        amd_iowr::<AmdgpuWaitCsIn>(DRM_AMDGPU_WAIT_CS),
+        &mut wait,
+        "AMDGPU_WAIT_CS",
+    )?;
     if status != 0 {
         return Err(crate::error::DriverError::FenceTimeout {
             ms: timeout_ns / 1_000_000,

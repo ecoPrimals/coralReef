@@ -22,11 +22,11 @@ pub mod convert;
 pub mod memory;
 pub mod system;
 
-use crate::CompileError;
 use super::amd::encoding::Rdna2Encoder;
 use super::amd::reg::AmdRegRef;
 #[allow(clippy::wildcard_imports)]
 use super::ir::*;
+use crate::CompileError;
 
 use coral_reef_stubs::fxhash::FxHashMap;
 
@@ -202,10 +202,16 @@ pub(crate) struct SrcEncoding {
 
 impl SrcEncoding {
     pub const fn inline(src0: u16) -> Self {
-        Self { src0, literal: None }
+        Self {
+            src0,
+            literal: None,
+        }
     }
     pub const fn literal(val: u32) -> Self {
-        Self { src0: 255, literal: Some(val) }
+        Self {
+            src0: 255,
+            literal: Some(val),
+        }
     }
     /// Append any literal DWORD to the encoded instruction words.
     pub fn extend_with_literal(&self, words: &mut Vec<u32>) {
@@ -234,9 +240,7 @@ pub(crate) fn src_to_encoding(src: &Src) -> Result<SrcEncoding, CompileError> {
         SrcRef::SSA(_) => Err(CompileError::InvalidInput(
             "SSA source in encoder (not yet register-allocated)".into(),
         )),
-        SrcRef::CBuf(cb) => {
-            cbuf_to_user_sgpr_encoding(&cb.buf, cb.offset).map(SrcEncoding::inline)
-        }
+        SrcRef::CBuf(cb) => cbuf_to_user_sgpr_encoding(&cb.buf, cb.offset).map(SrcEncoding::inline),
         _ => Ok(SrcEncoding::inline(128)),
     }
 }
@@ -268,7 +272,10 @@ fn imm32_to_src_encoding(val: u32) -> SrcEncoding {
 /// buffer addresses as: `CBuf::Binding(group)[binding * 8 + component]`.
 ///
 /// Returns the SGPR register index (0..105) suitable for VOP1/VOP2 src fields.
-pub(crate) fn cbuf_to_user_sgpr_encoding(buf: &CBuf, byte_offset: u16) -> Result<u16, CompileError> {
+pub(crate) fn cbuf_to_user_sgpr_encoding(
+    buf: &CBuf,
+    byte_offset: u16,
+) -> Result<u16, CompileError> {
     let CBuf::Binding(_buf_idx) = buf else {
         return Err(CompileError::NotImplemented(
             "bindless constant buffer access on AMD".into(),

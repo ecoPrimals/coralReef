@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 990 tests (953 passing, 37 ignored), zero failures |
+| Tests | A+ | 991 tests (954 passing, 37 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -152,7 +152,7 @@
 | 64-bit address pair for FLAT stores | ✅ | `func_mem.rs` passed `addr[0]` (32-bit lo) instead of full 2-component SSARef — addr_hi eliminated by DCE |
 | `unwrap_or(0)` audit → proper errors | ✅ | Register index, branch offset, FLAT offset: all return `CompileError` instead of silent truncation |
 | Diagnostic hw tests cleaned | ✅ | `hardcoded_va_store_42_shader` simplified to regression test |
-| Test expansion | ✅ | 990 total (953 passing, 37 ignored) |
+| Test expansion | ✅ | 991 total (954 passing, 37 ignored) |
 
 ### Phase 10 Remaining / Phase 11 Roadmap
 
@@ -170,7 +170,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (990 tests: 953 passing, 37 ignored) |
+| `cargo test --workspace` | PASS (991 tests: 954 passing, 37 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

@@ -6,7 +6,7 @@
 use super::pred;
 use crate::codegen::ir::*;
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "latency model for future SM target support")]
 #[derive(Debug)]
 pub(super) enum RegLatencySM75 {
     CoupledDisp64,

@@ -6,21 +6,26 @@
 //! they share the same VOP2/VOP3/VOPC encoding infrastructure.
 
 use super::{
-    dst_to_vgpr_index, encode_vop2_from_srcs, encode_vop3_from_srcs, src_to_encoding,
-    AmdOpEncoder, EncodeOp,
+    AmdOpEncoder, EncodeOp, dst_to_vgpr_index, encode_vop2_from_srcs, encode_vop3_from_srcs,
+    src_to_encoding,
 };
+use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
 #[allow(clippy::wildcard_imports)]
 use crate::codegen::ir::*;
-use crate::CompileError;
 
 // ---- FAdd (VOP2: V_ADD_F32) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpFAdd {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        encode_vop2_from_srcs(isa::vop2::V_ADD_F32, &self.dst, &self.srcs[0], &self.srcs[1])
+        encode_vop2_from_srcs(
+            isa::vop2::V_ADD_F32,
+            &self.dst,
+            &self.srcs[0],
+            &self.srcs[1],
+        )
     }
 }
 
@@ -28,7 +33,12 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpFAdd {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpFMul {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        encode_vop2_from_srcs(isa::vop2::V_MUL_F32, &self.dst, &self.srcs[0], &self.srcs[1])
+        encode_vop2_from_srcs(
+            isa::vop2::V_MUL_F32,
+            &self.dst,
+            &self.srcs[0],
+            &self.srcs[1],
+        )
     }
 }
 

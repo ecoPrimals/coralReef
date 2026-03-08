@@ -85,7 +85,7 @@ pub trait DstsAsSlice: AsSlice<Dst, Attr = DstType> {
     }
 
     // Currently only used by test code
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "used in test code")]
     fn dst_types(&self) -> DstTypeList {
         self.attrs()
     }

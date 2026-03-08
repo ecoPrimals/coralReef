@@ -37,9 +37,6 @@ pub enum DriverError {
     #[error("fence timeout after {ms}ms")]
     FenceTimeout { ms: u64 },
 
-    #[error("unsupported operation: {0}")]
-    Unsupported(Cow<'static, str>),
-
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -105,12 +102,6 @@ mod tests {
     fn error_display_fence_timeout() {
         let e = DriverError::FenceTimeout { ms: 5000 };
         assert!(e.to_string().contains("5000"));
-    }
-
-    #[test]
-    fn error_display_unsupported() {
-        let e = DriverError::Unsupported("nouveau upload".into());
-        assert!(e.to_string().contains("nouveau upload"));
     }
 
     #[test]

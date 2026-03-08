@@ -36,7 +36,10 @@ fn upload_readback_roundtrip() {
     dev.upload(buf, 0, &payload).expect("upload");
 
     let readback = dev.readback(buf, 0, 256).expect("readback");
-    assert_eq!(readback, payload, "readback data does not match uploaded data");
+    assert_eq!(
+        readback, payload,
+        "readback data does not match uploaded data"
+    );
 
     dev.free(buf).expect("free");
 }
@@ -50,7 +53,9 @@ fn upload_readback_with_offset() {
     let payload = b"coralReef sovereign GPU";
     dev.upload(buf, 128, payload).expect("upload at offset");
 
-    let readback = dev.readback(buf, 128, payload.len()).expect("readback at offset");
+    let readback = dev
+        .readback(buf, 128, payload.len())
+        .expect("readback at offset");
     assert_eq!(&readback, payload);
 
     dev.free(buf).expect("free");
