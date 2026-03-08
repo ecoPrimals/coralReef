@@ -201,6 +201,7 @@ the full Spring absorption map.
 - [x] Iteration 10: +16 tests → 990 total (953 passing, 37 ignored), AMD E2E verified (wave32, SrcEncoding, 64-bit addr, unwrap_or audit)
 - [x] Iteration 11: AMD ioctl unsafe consolidated (9 blocks → 2 safe wrappers), `DriverError::Unsupported` removed, 9 `#[allow]` → `#[expect]`, +2 corpus shaders, cross-spring absorption sync, primal names audit clean — 991 tests (954 passing, 37 ignored)
 - [x] Iteration 12: GPR→Pred coercion fix, const_tracker negated immediate fix, Pred→GPR copy lowering (OpSel, True/False→GPR, GPR.bnot→Pred), 6 math ops (tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros, is_signed_int_expr), cross-spring wiring guide in wateringHole, semf_batch_f64 now passes — 991 tests (955 passing, 36 ignored)
+- [x] Iteration 13: `Fp64Strategy` enum (Native/DoubleFloat/F32Only), built-in df64 preamble (Dekker/Knuth pair arithmetic), `prepare_wgsl()` auto-prepend + `enable f64;` stripping, 5 df64 tests unblocked (gelu, layer_norm, softmax, sdpa_scores, kl_divergence), reserved keyword fix — 991 tests (960 passing, 31 ignored)
 
 ### P3 — Remaining debt
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
@@ -210,7 +211,8 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 15/27 cross-spring shaders compile to native SASS.
-991 tests (955 passing, 36 ignored), zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+991 tests (960 passing, 31 ignored), zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
+df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
 Iteration 12: 2 compiler gaps fixed, 6 math ops, cross-spring wiring guide.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*

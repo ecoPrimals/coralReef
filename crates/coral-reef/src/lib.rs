@@ -71,6 +71,11 @@ pub use error::CompileError;
 pub use frontend::{Frontend, NagaFrontend};
 pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
 
+/// df64 (double-float) WGSL preamble — Dekker/Knuth pair arithmetic.
+/// Prepended automatically when source uses df64 functions or when
+/// `Fp64Strategy::DoubleFloat` is selected.
+const DF64_PREAMBLE: &str = include_str!("df64_preamble.wgsl");
+
 /// FMA (fused multiply-add) control policy.
 ///
 /// SPIR-V `NoContraction` and WGSL `@fma_control` decorations map to this.
@@ -87,6 +92,30 @@ pub enum FmaPolicy {
     NoContraction,
 }
 
+/// Three-tier f64 precision strategy.
+///
+/// barraCuda decides WHICH tier based on accuracy requirements and hardware.
+/// coralReef decides HOW to implement the tier on the target GPU.
+///
+/// | Strategy     | Mantissa | Throughput vs f32 | Use case |
+/// |--------------|----------|-------------------|----------|
+/// | Native       | 52 bits  | 1/2 (HPC) to 1/32 (consumer) | Gold standard |
+/// | DoubleFloat  | ~48 bits | ~1/4 of f32 | Science on consumer GPUs |
+/// | F32Only      | 24 bits  | 1:1 | Visualization, inference |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Fp64Strategy {
+    /// Use native f64 hardware with software transcendental lowering.
+    /// Best on HPC GPUs (Titan V, A100, MI250) with fast f64 (1:2 rate).
+    #[default]
+    Native,
+    /// Lower f64 ops to double-float (df64) pair arithmetic using f32 cores.
+    /// ~48-bit mantissa, 12-18x faster than native f64 on consumer GPUs.
+    /// Requires df64 preamble (Dekker multiplication, Knuth two-sum).
+    DoubleFloat,
+    /// Truncate f64 to f32. Lossy — only for visualization or tolerance-insensitive work.
+    F32Only,
+}
+
 /// Compile options for the shader compiler.
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
@@ -96,7 +125,10 @@ pub struct CompileOptions {
     pub opt_level: u32,
     /// Include debug info in output.
     pub debug_info: bool,
-    /// Enable software lowering for f64 transcendentals.
+    /// f64 precision strategy — controls how f64 operations are compiled.
+    pub fp64_strategy: Fp64Strategy,
+    /// Legacy: enable software lowering for f64 transcendentals.
+    /// Equivalent to `fp64_strategy != F32Only`.
     pub fp64_software: bool,
     /// FMA fusion policy — controls whether `a*b + c` may be fused.
     pub fma_policy: FmaPolicy,
@@ -136,6 +168,7 @@ impl Default for CompileOptions {
             target: GpuTarget::default(),
             opt_level: 2,
             debug_info: false,
+            fp64_strategy: Fp64Strategy::default(),
             fp64_software: true,
             fma_policy: FmaPolicy::default(),
         }
@@ -216,9 +249,44 @@ pub fn compile_ir(shader: &mut Shader<'_>) -> Result<CompiledShader, CompileErro
     codegen::pipeline::compile_shader(shader, false)
 }
 
+/// Prepare WGSL source: auto-prepend df64 preamble when needed,
+/// strip `enable f64;` (naga handles f64 natively without extension directives).
+///
+/// Returns a `Cow::Borrowed` if no transformations are needed, avoiding allocation.
+fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow<'a, str> {
+    let needs_df64 = options.fp64_strategy == Fp64Strategy::DoubleFloat
+        || wgsl.contains("Df64")
+        || wgsl.contains("df64_");
+    let has_enable_f64 = wgsl.contains("enable f64");
+
+    if !needs_df64 && !has_enable_f64 {
+        return std::borrow::Cow::Borrowed(wgsl);
+    }
+
+    let source = if has_enable_f64 {
+        tracing::debug!("stripping 'enable f64;' directive (naga handles f64 natively)");
+        wgsl.replace("enable f64;", "// [coralReef] f64 enabled natively")
+    } else {
+        wgsl.to_owned()
+    };
+
+    if needs_df64 && !source.contains("struct Df64") {
+        tracing::debug!("auto-prepending df64 preamble");
+        let mut combined = String::with_capacity(DF64_PREAMBLE.len() + 1 + source.len());
+        combined.push_str(DF64_PREAMBLE);
+        combined.push('\n');
+        combined.push_str(&source);
+        std::borrow::Cow::Owned(combined)
+    } else {
+        std::borrow::Cow::Owned(source)
+    }
+}
+
 /// Compile WGSL source to native GPU binary.
 ///
 /// Convenience wrapper using the default [`NagaFrontend`].
+/// Auto-prepends the df64 preamble when the source uses `Df64` types
+/// or `Fp64Strategy::DoubleFloat` is selected.
 ///
 /// # Errors
 ///
@@ -255,6 +323,7 @@ pub fn compile_wgsl_full_with(
     if wgsl.is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));
     }
+    let prepared = prepare_wgsl(wgsl, options);
     tracing::info!(
         target = %options.target,
         opt = options.opt_level,
@@ -262,7 +331,7 @@ pub fn compile_wgsl_full_with(
     );
 
     let sm = shader_model_for(options.target)?;
-    let mut shader = frontend.compile_wgsl(wgsl, sm.as_ref())?;
+    let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }
@@ -280,6 +349,7 @@ pub fn compile_wgsl_with(
     if wgsl.is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));
     }
+    let prepared = prepare_wgsl(wgsl, options);
     tracing::info!(
         target = %options.target,
         opt = options.opt_level,
@@ -287,7 +357,7 @@ pub fn compile_wgsl_with(
     );
 
     let sm = shader_model_for(options.target)?;
-    let mut shader = frontend.compile_wgsl(wgsl, sm.as_ref())?;
+    let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }

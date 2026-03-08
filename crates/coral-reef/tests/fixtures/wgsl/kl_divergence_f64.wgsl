@@ -20,7 +20,7 @@ struct Params {
 @group(0) @binding(2) var<storage, read> q: array<f64>;
 @group(0) @binding(3) var<storage, read_write> partials: array<f64>;
 
-var<workgroup> shared: array<f64, 256>;
+var<workgroup> wg_scratch: array<f64, 256>;
 
 @compute @workgroup_size(256)
 fn main(
@@ -38,17 +38,17 @@ fn main(
         val = pi * log(pi / qi);
     }
 
-    shared[lid.x] = val;
+    wg_scratch[lid.x] = val;
     workgroupBarrier();
 
     for (var stride = 128u; stride > 0u; stride >>= 1u) {
         if (lid.x < stride) {
-            shared[lid.x] += shared[lid.x + stride];
+            wg_scratch[lid.x] += wg_scratch[lid.x + stride];
         }
         workgroupBarrier();
     }
 
     if (lid.x == 0u) {
-        partials[wgid.x] = shared[0];
+        partials[wgid.x] = wg_scratch[0];
     }
 }

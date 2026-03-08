@@ -208,50 +208,30 @@ wgsl_compile_test!(corpus_anderson_lyapunov_f64, "anderson_lyapunov_f64.wgsl");
 //   absorbed by wetSpring for bio-statistical DF64 dispatch pipelines
 // ===========================================================================
 
-// GELU activation (df64 core streaming)
-// Requires df64_core.wgsl prepended (barraCuda compile_shader_f64 pattern)
-wgsl_compile_test!(
-    corpus_gelu_f64,
-    "gelu_f64.wgsl",
-    ignore = "requires df64 preamble (df64_core.wgsl + df64_transcendentals.wgsl)"
-);
+// GELU activation (df64 core streaming — preamble auto-prepended)
+wgsl_compile_test!(corpus_gelu_f64, "gelu_f64.wgsl");
 
-// Layer normalization (df64 core streaming)
-wgsl_compile_test!(
-    corpus_layer_norm_f64,
-    "layer_norm_f64.wgsl",
-    ignore = "requires df64 preamble (df64_core.wgsl + df64_transcendentals.wgsl)"
-);
+// Layer normalization (df64 core streaming — preamble auto-prepended)
+wgsl_compile_test!(corpus_layer_norm_f64, "layer_norm_f64.wgsl");
 
 // Row-wise softmax (df64 core streaming, pass 2 of 3-pass SDPA)
-wgsl_compile_test!(
-    corpus_softmax_f64,
-    "softmax_f64.wgsl",
-    ignore = "requires df64 preamble (df64_core.wgsl + df64_transcendentals.wgsl)"
-);
+wgsl_compile_test!(corpus_softmax_f64, "softmax_f64.wgsl");
 
 // Scaled dot-product attention QK^T/sqrt(d_k) (df64, pass 1 of 3-pass SDPA)
-wgsl_compile_test!(
-    corpus_sdpa_scores_f64,
-    "sdpa_scores_f64.wgsl",
-    ignore = "requires df64 preamble (df64_core.wgsl + df64_transcendentals.wgsl)"
-);
+wgsl_compile_test!(corpus_sdpa_scores_f64, "sdpa_scores_f64.wgsl");
 
-// Sigmoid activation (df64 core streaming)
+// Sigmoid activation (df64 core streaming — preamble auto-prepended)
+// Compiles through naga + IR lowering but hits RA SSA tracking on loop-carried phi
 wgsl_compile_test!(
     corpus_sigmoid_f64,
     "sigmoid_f64.wgsl",
-    ignore = "requires df64 preamble (df64_core.wgsl + df64_transcendentals.wgsl)"
+    ignore = "RA SSA tracking: loop-carried phi live_in mismatch in exp_df64 branches"
 );
 
 // KL divergence (f64, fused log-ratio + sum)
 // Cross-spring: absorbed by wetSpring for cross-entropy validation,
 //   groundSpring for Anderson model fitness
-wgsl_compile_test!(
-    corpus_kl_divergence_f64,
-    "kl_divergence_f64.wgsl",
-    ignore = "WGSL reserved keyword 'shared' used as variable name"
-);
+wgsl_compile_test!(corpus_kl_divergence_f64, "kl_divergence_f64.wgsl");
 
 // Mean reduction (f32, single-workgroup, population fitness aggregation)
 wgsl_compile_test!(corpus_mean_reduce, "mean_reduce.wgsl");
@@ -265,9 +245,9 @@ wgsl_compile_test!(corpus_rk4_parallel, "rk4_parallel.wgsl");
 // ===========================================================================
 
 // Local elementwise f64 — 6 domain ops (SCS-CN, Stewart, Makkink, Turc,
-// Hamon, Blaney-Criddle). Good f64 correctness baseline.
+// Hamon, Blaney-Criddle). `enable f64;` stripped by prepare_wgsl.
 wgsl_compile_test!(
     corpus_local_elementwise_f64,
     "local_elementwise_f64.wgsl",
-    ignore = "WGSL enable-extension f64 not supported by naga parser"
+    ignore = "naga Statement::Switch not yet implemented in IR translator"
 );

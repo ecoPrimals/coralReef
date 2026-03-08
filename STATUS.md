@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 12 (Compiler Gaps + Math Coverage + Cross-Spring Wiring)
+**Phase**: 10 — Iteration 13 (df64 Preamble + Fp64Strategy + Test Unblocking)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 991 tests (955 passing, 36 ignored), zero failures |
+| Tests | A+ | 991 tests (960 passing, 31 ignored), zero failures |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 12** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 13** |
 
 ### Phase 10 Completions
 
@@ -180,6 +180,19 @@
 | semf_batch_f64 test | ✅ | Now passes (was ignored) |
 | Test counts | ✅ | 991 tests (955 passing, 36 ignored) |
 
+### Phase 10 — Iteration 13 Completions (df64 Preamble + Fp64Strategy + Test Unblocking)
+
+| Task | Status | Details |
+|------|--------|---------|
+| `Fp64Strategy` enum | ✅ | `Native` / `DoubleFloat` / `F32Only` — replaces boolean `fp64_software` |
+| Built-in df64 preamble | ✅ | `df64_preamble.wgsl`: Dekker multiplication, Knuth two-sum, exp/sqrt/tanh |
+| Auto-prepend df64 preamble | ✅ | `prepare_wgsl()` detects `Df64`/`df64_*` usage, prepends before naga parse |
+| `enable f64;` stripping | ✅ | Automatically removed — naga handles f64 natively |
+| 5 df64 tests unblocked | ✅ | gelu_f64, layer_norm_f64, softmax_f64, sdpa_scores_f64, kl_divergence_f64 |
+| kl_divergence reserved keyword fix | ✅ | `shared` → `wg_scratch` (WGSL reserved word) |
+| wateringHole handoff | ✅ | DF64_PREAMBLE_FP64STRATEGY handoff + architecture doc updated |
+| Test counts | ✅ | 991 tests (960 passing, 31 ignored) — net +5 passing |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -196,7 +209,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (991 tests: 955 passing, 36 ignored) |
+| `cargo test --workspace` | PASS (991 tests: 960 passing, 31 ignored) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |
@@ -253,6 +266,10 @@
 | Dead variant removal | `DriverError::Unsupported` unused in production | error.rs |
 | `#[expect]` with reasons (round 2) | Rust 2024 idiom: 9 more `#[allow]` migrated | workspace-wide |
 | Cross-spring corpus expansion | +2 hotSpring MD shaders (VACF dot, Verlet copy) | tests/fixtures/wgsl/ |
+| `Fp64Strategy` enum | Three-tier precision strategy in CompileOptions | lib.rs |
+| Built-in df64 preamble | Dekker/Knuth pair arithmetic auto-prepended | df64_preamble.wgsl |
+| `prepare_wgsl()` preprocessing | Auto df64 preamble + `enable f64;` stripping | lib.rs |
+| kl_divergence reserved keyword fix | `shared` → `wg_scratch` | kl_divergence_f64.wgsl |
 
 ---
 

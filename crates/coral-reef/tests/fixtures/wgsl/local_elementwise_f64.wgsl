@@ -38,9 +38,8 @@ struct Params {
 @group(0) @binding(3) var<storage, read> in_c: array<f64>;
 @group(0) @binding(4) var<storage, read_write> out: array<f64>;
 
-// Full-precision constants (zero + literal pattern for f64 constant fidelity).
-const PI: f64 = f64(0) + 3.14159265358979323846;
-const TWO_PI: f64 = f64(0) + 6.28318530717958647692;
+const PI: f64 = 3.14159265358979323846;
+const TWO_PI: f64 = 6.28318530717958647692;
 
 fn sat_vp(t: f64) -> f64 {
     // Tetens (1930): es = 0.6108 × exp(17.27 × T / (T + 237.3))

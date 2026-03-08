@@ -39,6 +39,7 @@ fn try_compile_for_rdna2(
         debug_info: false,
         fp64_software: false,
         fma_policy: coral_reef::FmaPolicy::AllowFusion,
+        ..Default::default()
     };
     coral_reef::compile_wgsl_full(wgsl, &opts)
 }
