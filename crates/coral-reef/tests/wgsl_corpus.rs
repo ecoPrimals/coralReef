@@ -171,11 +171,12 @@ wgsl_compile_test!(
     ignore = "uses Complex64 struct type defined in separate include"
 );
 
-// Physics: BCS bisection root-finding — cancellation-safe v² formula
+// Physics: BCS bisection root-finding — cancellation-safe v² formula.
+// abs_f64 inlined (was preamble-injected by hotSpring ShaderTemplate).
 wgsl_compile_test!(
     corpus_bcs_bisection_f64,
     "bcs_bisection_f64.wgsl",
-    ignore = "uses abs_f64 helper defined in separate include"
+    ignore = "Pred→GPR encoder coercion chain: select() condition hits ALU source assertion"
 );
 
 // Physics: HFB Hamiltonian (f64, complex math, many registers)
@@ -245,10 +246,9 @@ wgsl_compile_test!(corpus_rk4_parallel, "rk4_parallel.wgsl");
 // ===========================================================================
 
 // Local elementwise f64 — 6 domain ops (SCS-CN, Stewart, Makkink, Turc,
-// Hamon, Blaney-Criddle). Switch lowered, but var_storage slot indexing
-// incomplete for function-call inlining within switch cases.
+// Hamon, Blaney-Criddle). Switch + inlining + var_storage work; needs acos.
 wgsl_compile_test!(
     corpus_local_elementwise_f64,
     "local_elementwise_f64.wgsl",
-    ignore = "var_storage slot overflow: switch case body stores to inlined function locals"
+    ignore = "math function Acos not yet supported (needs polynomial approximation)"
 );

@@ -631,7 +631,7 @@ impl IsbeSpaceSharingStateTracker {
     }
 
     pub fn visit_instr(&mut self, instr: &Instr) {
-        // Track attribute store. (XXX: ISBEWR)
+        // Track attribute store (used for instruction scheduling overlap restrictions).
         self.has_attribute_store |= matches!(instr.op, Op::ASt(_));
 
         // Track attribute load.

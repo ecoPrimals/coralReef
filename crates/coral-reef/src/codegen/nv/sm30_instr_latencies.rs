@@ -72,7 +72,7 @@ fn calc_instr_sched(prev_op: Option<&Op>, op: &Op, deps: &InstrDeps) -> u8 {
     // Unsure:
     // 0x80: global memory bit
     //
-    // TODO:
+    // TODO: Implement remaining scheduling features:
     // - Dual issue (0x04)
     // - Functional Unit tracking
 }

@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 14 (Statement::Switch + Unsafe Reduction + Diagnostic Panics)
+**Phase**: 10 — Iteration 15 (AMD Safe Slices + Inline Var Pre-allocation + Typed DRM Wrappers)
 
 ---
 
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 14** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 15** |
 
 ### Phase 10 Completions
 
@@ -206,6 +206,18 @@
 | clippy `mut_from_ref` fix | ✅ | `NvMappedRegion::as_mut_slice(&self)` → `(&mut self)` |
 | Test counts | ✅ | 991 tests (960 passing, 31 ignored) — zero regressions |
 
+### Phase 10 — Iteration 15 Completions (AMD Safe Slices + Inline Var Pre-allocation + Typed DRM Wrappers)
+
+| Task | Status | Details |
+|------|--------|---------|
+| AMD `MappedRegion` safe slices | ✅ | `ptr::copy_nonoverlapping` → `copy_from_slice`/`to_vec()` via `as_slice()`/`as_mut_slice()` — mirrors NV pattern |
+| Inline `pre_allocate_local_vars` | ✅ | Callee local variables now pre-allocated during `inline_call`, fixing var_storage slot overflow |
+| `abs_f64` inlined in BCS shader | ✅ | Removed external preamble dependency — `select(x, -x, x < 0.0)` |
+| Typed DRM wrappers | ✅ | `gem_close()`, `drm_version()` — removes `unsafe` from 3 call sites (AMD gem.close, NV free, DrmDevice.driver_name) |
+| TODO/XXX cleanup | ✅ | Bare `TODO:` documented, `XXX:` markers → proper comments, doc-comment `TODO` → `Note` |
+| Test ignore reasons updated | ✅ | `bcs_bisection_f64` (Pred→GPR coercion), `local_elementwise_f64` (Acos not yet supported) |
+| Test counts | ✅ | 991 tests (960 passing, 31 ignored) — zero regressions |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -287,6 +299,9 @@
 | NV MappedRegion RAII | Unsafe reduction: safe slice access + Drop | nv/ioctl.rs, nv/mod.rs |
 | clock_monotonic_ns consolidation | Single-site unsafe for absolute timestamps | amd/ioctl.rs |
 | Diagnostic panic messages | 14 lower_copy_swap panics with src/dst context | lower_copy_swap.rs |
+| AMD safe slices | `ptr::copy_nonoverlapping` → `copy_from_slice` via MappedRegion | amd/gem.rs |
+| Typed DRM wrappers | `gem_close()`, `drm_version()` eliminate call-site unsafe | drm.rs |
+| Inline var pre-allocation | Callee locals pre-allocated in `inline_call` | func_ops.rs |
 
 ---
 

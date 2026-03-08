@@ -29,7 +29,7 @@ use coral_reef_stubs::dataflow::{BackwardDataflow, ForwardDataflow};
 /// for joins instead we want to keep both the minimum position of each
 /// entry and the maximum length og the queue to avoid overflows.
 ///
-/// TODO: IF this pass is too slow, there are still optimizations left:
+/// Note: If this pass is too slow, there are still optimizations left:
 /// - Our data-flow computes barrier levels and discards them,
 ///   but since most CFG blocks do not need recomputation, we could save
 ///   the barrier levels in a vec and save a pass later.

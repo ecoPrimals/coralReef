@@ -242,6 +242,8 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.inline_return = None;
         self.dead_code = false;
 
+        self.pre_allocate_local_vars();
+
         let body = &module.functions[function].body;
         self.translate_block(body)?;
 

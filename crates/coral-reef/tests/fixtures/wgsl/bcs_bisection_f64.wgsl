@@ -28,7 +28,9 @@ struct BisectionParams {
 @group(0) @binding(4) var<storage, read_write> iterations: array<u32>;
 @group(0) @binding(5) var<uniform> config: BisectionParams;
 
-// abs_f64 injected via ShaderTemplate::with_math_f64_auto() preamble
+fn abs_f64(x: f64) -> f64 {
+    return select(x, -x, x < 0.0);
+}
 
 // BCS particle number: Σ_k deg_k · v²_k(μ) - N
 fn bcs_particle_number(mu: f64, problem_idx: u32) -> f64 {

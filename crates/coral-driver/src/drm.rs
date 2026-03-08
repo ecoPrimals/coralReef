@@ -139,24 +139,35 @@ impl DrmDevice {
     ///
     /// Returns [`DriverError`] if the version ioctl fails.
     pub fn driver_name(&self) -> DriverResult<String> {
-        let mut name_buf = [0u8; 64];
-        let mut ver = DrmVersion {
-            name_len: u64::try_from(name_buf.len())
-                .map_err(|_| DriverError::platform_overflow("buffer len fits in u64"))?,
-            name: name_buf.as_mut_ptr() as u64,
-            ..Default::default()
-        };
-        // SAFETY: `DrmVersion` is `#[repr(C)]` with layout matching the kernel's
-        // `drm_version` struct. `ver` is stack-allocated and valid for the ioctl's
-        // synchronous lifetime. The kernel writes into `name_buf` via the `name`
-        // pointer, bounded by `name_len`.
-        unsafe { drm_ioctl_typed(self.fd(), DRM_IOCTL_VERSION, &mut ver)? };
-        let len = usize::try_from(ver.name_len).unwrap_or(0);
-        let len = len.min(name_buf.len());
-        Ok(String::from_utf8_lossy(&name_buf[..len])
-            .trim_end_matches('\0')
-            .to_string())
+        let (_ver, name) = drm_version(self.fd())?;
+        Ok(name)
     }
+}
+
+/// Close a GEM buffer object. Safe wrapper around `DRM_IOCTL_GEM_CLOSE`.
+pub(crate) fn gem_close(fd: RawFd, handle: u32) -> DriverResult<()> {
+    let mut args = DrmGemClose { handle, pad: 0 };
+    // SAFETY: DrmGemClose is #[repr(C)] matching kernel's drm_gem_close (8 bytes).
+    // Stack-allocated, synchronous ioctl.
+    unsafe { drm_ioctl_named(fd, DRM_IOCTL_GEM_CLOSE, &mut args, "gem_close") }
+}
+
+/// Query the DRM driver version. Safe wrapper around `DRM_IOCTL_VERSION`.
+pub(crate) fn drm_version(fd: RawFd) -> DriverResult<(DrmVersion, String)> {
+    let mut name_buf = [0u8; 64];
+    let mut ver = DrmVersion {
+        name_len: name_buf.len() as u64,
+        name: name_buf.as_mut_ptr() as u64,
+        ..Default::default()
+    };
+    // SAFETY: DrmVersion is #[repr(C)] matching kernel's drm_version struct.
+    // name_buf is stack-allocated and outlives the synchronous ioctl.
+    unsafe { drm_ioctl_named(fd, DRM_IOCTL_VERSION, &mut ver, "drm_version")? };
+    let len = (ver.name_len as usize).min(name_buf.len());
+    let name = String::from_utf8_lossy(&name_buf[..len])
+        .trim_end_matches('\0')
+        .to_string();
+    Ok((ver, name))
 }
 
 /// Perform a DRM ioctl on a `#[repr(C)]` structure.

@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 14)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 15)
 
 ---
 
@@ -202,11 +202,18 @@ the full Spring absorption map.
 - [x] Iteration 11: AMD ioctl unsafe consolidated (9 blocks → 2 safe wrappers), `DriverError::Unsupported` removed, 9 `#[allow]` → `#[expect]`, +2 corpus shaders, cross-spring absorption sync, primal names audit clean — 991 tests (954 passing, 37 ignored)
 - [x] Iteration 12: GPR→Pred coercion fix, const_tracker negated immediate fix, Pred→GPR copy lowering (OpSel, True/False→GPR, GPR.bnot→Pred), 6 math ops (tan, countOneBits, reverseBits, firstLeadingBit, countLeadingZeros, is_signed_int_expr), cross-spring wiring guide in wateringHole, semf_batch_f64 now passes — 991 tests (955 passing, 36 ignored)
 - [x] Iteration 13: `Fp64Strategy` enum (Native/DoubleFloat/F32Only), built-in df64 preamble (Dekker/Knuth pair arithmetic), `prepare_wgsl()` auto-prepend + `enable f64;` stripping, 5 df64 tests unblocked (gelu, layer_norm, softmax, sdpa_scores, kl_divergence), reserved keyword fix — 991 tests (960 passing, 31 ignored)
+- [x] Iteration 14: `Statement::Switch` lowering (ISetP+OpBra chain), NV `NvMappedRegion` RAII (`as_slice()`/`as_mut_slice()` + Drop), `clock_monotonic_ns` consolidation, 14 diagnostic panics in lower_copy_swap, `start_block_at(label)` helper, clippy `mut_from_ref` fix — 991 tests (960 passing, 31 ignored)
+- [x] Iteration 15: AMD `MappedRegion` safe slices (`ptr::copy_nonoverlapping` → `copy_from_slice`/`to_vec()`), inline `pre_allocate_local_vars` fix (callee locals in `inline_call`), typed DRM wrappers (`gem_close()`, `drm_version()` — 3 call-site unsafe eliminated), `abs_f64` inlined in BCS shader, TODO/XXX cleanup — 991 tests (960 passing, 31 ignored)
 
 ### P3 — Remaining debt
+- [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
+- [ ] Pred→GPR encoder coercion chain: blocks bcs_bisection, batched_hfb
+- [ ] RA SSA tracking: blocks su3_gauge_force (var array liveness)
+- [ ] Scheduler phi mismatch: blocks wilson_plaquette, sigmoid (loop-carried)
+- [ ] Complex64 preamble: blocks dielectric_mermin (needs complex arithmetic)
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
 - [ ] exp2 edge cases: subnormal handling in ldexp
-- [ ] ~37 TODOs in codegen (ISA encoding gaps, dual-issue, SM-specific)
+- [ ] ~34 TODOs in codegen (ISA encoding gaps, dual-issue, SM-specific)
 
 ---
 
@@ -214,5 +221,7 @@ the full Spring absorption map.
 991 tests (960 passing, 31 ignored), zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
-Iteration 12: 2 compiler gaps fixed, 6 math ops, cross-spring wiring guide.
+All unsafe in driver consolidated: AMD + NV use RAII MappedRegion with safe slice access.
+DRM ioctl: typed wrappers (`gem_close`, `drm_version`) eliminate call-site unsafe.
+Iteration 15: inline var pre-allocation fix, AMD safe slices, typed DRM wrappers.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*

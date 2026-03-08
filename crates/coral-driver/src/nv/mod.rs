@@ -129,18 +129,7 @@ impl ComputeDevice for NvDevice {
             .buffers
             .remove(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
-        let mut close_arg = crate::drm::DrmGemClose {
-            handle: buf.gem_handle,
-            pad: 0,
-        };
-        // SAFETY: `DrmGemClose` is `#[repr(C)]` matching the kernel struct.
-        unsafe {
-            crate::drm::drm_ioctl_typed(
-                self.drm.fd(),
-                crate::drm::DRM_IOCTL_GEM_CLOSE,
-                &mut close_arg,
-            )
-        }
+        crate::drm::gem_close(self.drm.fd(), buf.gem_handle)
     }
 
     fn upload(&mut self, handle: BufferHandle, offset: u64, data: &[u8]) -> DriverResult<()> {

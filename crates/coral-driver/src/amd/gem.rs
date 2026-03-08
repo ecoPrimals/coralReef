@@ -5,7 +5,6 @@ use super::ioctl;
 use crate::MemoryDomain;
 use crate::error::{DriverError, DriverResult};
 use std::os::unix::io::RawFd;
-use std::ptr;
 
 /// RAII wrapper around a memory-mapped region. Unmaps on drop.
 struct MappedRegion {
@@ -25,15 +24,25 @@ impl MappedRegion {
         // SAFETY: Standard POSIX mmap. Arguments are validated by the caller:
         // `len` > 0, `fd` is a valid open DRM GEM handle, `offset` is from
         // `gem_mmap_offset`. The kernel returns MAP_FAILED on error (checked below).
-        let ptr = unsafe { libc::mmap(ptr::null_mut(), len, prot, flags, fd, offset) };
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, prot, flags, fd, offset) };
         if ptr == libc::MAP_FAILED {
             return Err(DriverError::MmapFailed("mmap returned MAP_FAILED".into()));
         }
         Ok(Self { ptr, len })
     }
 
-    const fn as_ptr(&self) -> *mut u8 {
-        self.ptr.cast()
+    /// View the mapped region as a byte slice.
+    fn as_slice(&self) -> &[u8] {
+        // SAFETY: ptr is valid for self.len bytes from a successful mmap.
+        // The region lives as long as self (Drop handles munmap).
+        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.len) }
+    }
+
+    /// View the mapped region as a mutable byte slice.
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE (for write ops).
+        // We have exclusive access via &mut self.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast::<u8>(), self.len) }
     }
 }
 
@@ -109,7 +118,7 @@ impl GemBuffer {
         let mmap_off = libc::off_t::try_from(mmap_offset).map_err(|_| {
             DriverError::platform_overflow("mmap offset exceeds platform off_t range")
         })?;
-        let region = MappedRegion::new(
+        let mut region = MappedRegion::new(
             buf_len,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_SHARED,
@@ -118,12 +127,7 @@ impl GemBuffer {
         )?;
         let byte_offset = usize::try_from(offset)
             .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
-        // SAFETY: `region` is valid for `self.size` bytes (mapped with PROT_WRITE).
-        // Bounds check above guarantees `byte_offset + data.len() <= self.size`.
-        // Source (`data`) is a valid slice. Regions cannot overlap (kernel ↔ user).
-        unsafe {
-            ptr::copy_nonoverlapping(data.as_ptr(), region.as_ptr().add(byte_offset), data.len());
-        }
+        region.as_mut_slice()[byte_offset..byte_offset + data.len()].copy_from_slice(data);
         Ok(())
     }
 
@@ -152,14 +156,7 @@ impl GemBuffer {
         let region = MappedRegion::new(buf_len, libc::PROT_READ, libc::MAP_SHARED, fd, mmap_off)?;
         let byte_offset = usize::try_from(offset)
             .map_err(|_| DriverError::platform_overflow("offset exceeds platform pointer width"))?;
-        let mut result = vec![0u8; len];
-        // SAFETY: `region` is valid for `self.size` bytes (mapped with PROT_READ).
-        // Bounds check above guarantees `byte_offset + len <= self.size`.
-        // `result` is freshly allocated with exactly `len` bytes. No overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(region.as_ptr().add(byte_offset), result.as_mut_ptr(), len);
-        }
-        Ok(result)
+        Ok(region.as_slice()[byte_offset..byte_offset + len].to_vec())
     }
 
     /// Close/free the GEM buffer object via `DRM_IOCTL_GEM_CLOSE`.
@@ -168,13 +165,7 @@ impl GemBuffer {
     ///
     /// Returns [`DriverError`] if the GEM close ioctl fails.
     pub fn close(self, fd: RawFd) -> DriverResult<()> {
-        let mut args = crate::drm::DrmGemClose {
-            handle: self.gem_handle,
-            pad: 0,
-        };
-        // SAFETY: `DrmGemClose` is `#[repr(C)]` matching the kernel's `drm_gem_close`.
-        // `args` is stack-allocated with the correct handle. Synchronous ioctl.
-        unsafe { crate::drm::drm_ioctl_typed(fd, crate::drm::DRM_IOCTL_GEM_CLOSE, &mut args)? };
+        crate::drm::gem_close(fd, self.gem_handle)?;
         tracing::debug!(handle = self.gem_handle, "GEM buffer closed");
         Ok(())
     }
