@@ -146,6 +146,29 @@ fn amd_ioctl_read<T, R: Copy>(
     Ok(unsafe { read_ioctl_output(arg) })
 }
 
+/// Current CLOCK_MONOTONIC time in nanoseconds.
+///
+/// Required by kernel DRM ABIs that accept absolute timestamps.
+/// `std::time::Instant` cannot provide raw nanoseconds — this is the
+/// minimum-surface unsafe for absolute monotonic timestamps.
+fn clock_monotonic_ns() -> u64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: timespec is a POD output struct. clock_gettime(CLOCK_MONOTONIC)
+    // is infallible on Linux — the clock is always available.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "CLOCK_MONOTONIC never returns negative values"
+    )]
+    let ns = (ts.tv_sec as u64)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(ts.tv_nsec as u64);
+    ns
+}
+
 /// Build an IOWR request number for an AMD DRM command.
 const fn amd_iowr<T>(cmd: u32) -> u64 {
     crate::drm::drm_iowr_pub(cmd, size_of_u32::<T>())
@@ -443,15 +466,10 @@ pub fn submit_command(
 /// Returns [`DriverError::FenceTimeout`] if the fence does not complete
 /// within `timeout_ns`, or [`DriverError`] if the ioctl fails.
 pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) -> DriverResult<()> {
-    // amdgpu WAIT_CS expects an absolute timeout (CLOCK_MONOTONIC nanoseconds)
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: timespec is a valid output struct for clock_gettime.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-    let now_ns = ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64;
-    let abs_timeout = now_ns.saturating_add(timeout_ns);
+    // Kernel ABI: DRM_AMDGPU_WAIT_CS expects an absolute CLOCK_MONOTONIC
+    // timestamp in nanoseconds. std::time::Instant is opaque and cannot
+    // provide raw nanoseconds, so clock_gettime is unavoidable here.
+    let abs_timeout = clock_monotonic_ns().saturating_add(timeout_ns);
 
     let mut wait = AmdgpuWaitCsIn {
         handle: fence_handle,

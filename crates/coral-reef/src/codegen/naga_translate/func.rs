@@ -103,6 +103,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.current_instrs.clear();
     }
 
+    /// Start a new block at a pre-allocated label (used by switch lowering).
+    pub(super) fn start_block_at(&mut self, label: Label) {
+        self.current_label = label;
+        self.current_instrs.clear();
+    }
+
     pub(super) fn finish_block(&mut self) -> Result<usize, CompileError> {
         let bb = BasicBlock {
             label: self.current_label,
@@ -265,6 +271,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 ref continuing,
                 break_if,
             } => self.translate_loop(body, continuing, break_if),
+            naga::Statement::Switch {
+                selector,
+                ref cases,
+            } => self.translate_switch(selector, cases),
             naga::Statement::Return { value } => {
                 if let Some(val) = value {
                     let ssa = self.ensure_expr(val)?;

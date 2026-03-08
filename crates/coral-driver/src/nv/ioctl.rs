@@ -344,20 +344,52 @@ pub fn gem_cpu_prep(fd: RawFd, gem_handle: u32) -> DriverResult<()> {
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut prep) }
 }
 
-/// Map a GEM buffer for CPU access via mmap.
+/// RAII wrapper for a memory-mapped nouveau GEM buffer. Unmaps on drop.
+pub(crate) struct NvMappedRegion {
+    ptr: *mut libc::c_void,
+    len: usize,
+}
+
+impl NvMappedRegion {
+    /// View the mapped region as a byte slice.
+    pub(crate) fn as_slice(&self) -> &[u8] {
+        // SAFETY: ptr is valid for self.len bytes (from a successful mmap
+        // in gem_mmap_region). The region lives as long as self.
+        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.len) }
+    }
+
+    /// View the mapped region as a mutable byte slice.
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE. We have
+        // exclusive access via &mut self.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast::<u8>(), self.len) }
+    }
+}
+
+impl Drop for NvMappedRegion {
+    fn drop(&mut self) {
+        // SAFETY: ptr was returned by a successful mmap (MAP_FAILED checked
+        // in gem_mmap_region). len is the same value passed to mmap.
+        unsafe { libc::munmap(self.ptr, self.len as libc::size_t) };
+    }
+}
+
+/// Map a nouveau GEM buffer into CPU address space with RAII lifetime.
 ///
-/// Returns a raw pointer and the mapping size.
-///
-/// # Safety
-///
-/// The returned pointer is valid until `munmap` is called.
-pub(crate) fn gem_mmap(fd: RawFd, map_handle: u64, size: u64) -> DriverResult<*mut u8> {
+/// Returns an `NvMappedRegion` that provides safe slice access and
+/// automatically unmaps on drop. Replaces raw `gem_mmap` + manual munmap.
+pub(crate) fn gem_mmap_region(
+    fd: RawFd,
+    map_handle: u64,
+    size: u64,
+) -> DriverResult<NvMappedRegion> {
+    let len = size as usize;
     // SAFETY: mmap with a valid fd and map_handle from the kernel.
     // MAP_SHARED is required for coherent GPU/CPU access.
     let ptr = unsafe {
         libc::mmap(
             std::ptr::null_mut(),
-            size as libc::size_t,
+            len as libc::size_t,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_SHARED,
             fd,
@@ -367,7 +399,7 @@ pub(crate) fn gem_mmap(fd: RawFd, map_handle: u64, size: u64) -> DriverResult<*m
     if ptr == libc::MAP_FAILED {
         return Err(DriverError::MmapFailed("nouveau gem mmap failed".into()));
     }
-    Ok(ptr.cast::<u8>())
+    Ok(NvMappedRegion { ptr, len })
 }
 
 #[cfg(test)]

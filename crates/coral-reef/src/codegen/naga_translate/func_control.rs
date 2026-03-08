@@ -502,6 +502,110 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         Ok(())
     }
 
+    /// Lower `Statement::Switch` to a chain of if-else comparisons.
+    ///
+    /// Each valued case: `ISetP (selector == value)`, branch-away when NOT
+    /// matching, fall through to case body on match, unconditional branch to
+    /// merge after body. Default case is the final else fallthrough.
+    pub(super) fn translate_switch(
+        &mut self,
+        selector: Handle<naga::Expression>,
+        cases: &[naga::SwitchCase],
+    ) -> Result<(), CompileError> {
+        let sel = self.ensure_expr(selector)?;
+
+        let mut default_body: Option<&naga::Block> = None;
+        let mut valued: Vec<(u32, &naga::Block)> = Vec::new();
+        for case in cases {
+            match case.value {
+                naga::SwitchValue::Default => default_body = Some(&case.body),
+                naga::SwitchValue::I32(v) => valued.push((v as u32, &case.body)),
+                naga::SwitchValue::U32(v) => valued.push((v, &case.body)),
+            }
+        }
+
+        let merge_label = self.label_alloc.alloc();
+        let mut body_end_blocks: Vec<usize> = Vec::new();
+
+        for (val, body) in &valued {
+            let next_label = self.label_alloc.alloc();
+
+            let pred = self.alloc_ssa(RegFile::Pred);
+            self.push_instr(Instr::new(OpISetP {
+                dst: pred.into(),
+                set_op: PredSetOp::And,
+                cmp_op: IntCmpOp::Eq,
+                cmp_type: IntCmpType::U32,
+                ex: false,
+                srcs: [sel[0].into(), Src::new_imm_u32(*val)],
+                accum: SrcRef::True.into(),
+                low_cmp: SrcRef::False.into(),
+            }));
+
+            // Branch AWAY to next case check when NOT matching.
+            self.push_instr(Instr::new(OpBra {
+                target: next_label,
+                cond: Src::from(pred).bnot(),
+            }));
+            let check_block = self.finish_block_no_fallthrough()?;
+
+            // Case body (reached by fallthrough on match).
+            self.start_block();
+            let body_start = self.next_block_id;
+            self.dead_code = false;
+            self.translate_block(body)?;
+            let body_dead = self.dead_code;
+
+            if !body_dead {
+                self.push_instr(Instr::new(OpBra {
+                    target: merge_label,
+                    cond: SrcRef::True.into(),
+                }));
+            }
+            let body_end = self.finish_block_no_fallthrough()?;
+
+            // CFG: check → body (fallthrough on match)
+            self.add_cfg_edge(check_block, body_start);
+            // CFG: check → next_check (branch on mismatch) — deferred to next start_block_at
+            if !body_dead {
+                body_end_blocks.push(body_end);
+            }
+
+            // Next case check block.
+            self.start_block_at(next_label);
+            let next_start = self.next_block_id;
+            // CFG: check → next_check
+            self.add_cfg_edge(check_block, next_start);
+            self.dead_code = false;
+        }
+
+        // Default or final fallthrough block.
+        if let Some(def) = default_body {
+            self.translate_block(def)?;
+        }
+
+        if !self.dead_code {
+            self.push_instr(Instr::new(OpBra {
+                target: merge_label,
+                cond: SrcRef::True.into(),
+            }));
+        }
+        let last_block = self.finish_block_no_fallthrough()?;
+        body_end_blocks.push(last_block);
+
+        // Merge block — all case bodies converge here.
+        self.start_block_at(merge_label);
+        let merge_start = self.next_block_id;
+        self.dead_code = false;
+
+        // CFG: all body ends → merge
+        for bb in &body_end_blocks {
+            self.add_cfg_edge(*bb, merge_start);
+        }
+
+        Ok(())
+    }
+
     pub(super) fn emit_loop_phi_srcs(&mut self) -> Result<(), CompileError> {
         if let Some(loop_ctx) = self.loop_stack.last() {
             let mut phi_srcs = OpPhiSrcs::new();

@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 13 (df64 Preamble + Fp64Strategy + Test Unblocking)
+**Phase**: 10 — Iteration 14 (Statement::Switch + Unsafe Reduction + Diagnostic Panics)
 
 ---
 
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 13** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 14** |
 
 ### Phase 10 Completions
 
@@ -193,6 +193,19 @@
 | wateringHole handoff | ✅ | DF64_PREAMBLE_FP64STRATEGY handoff + architecture doc updated |
 | Test counts | ✅ | 991 tests (960 passing, 31 ignored) — net +5 passing |
 
+### Phase 10 — Iteration 14 Completions (Statement::Switch + Unsafe Reduction + Diagnostic Panics)
+
+| Task | Status | Details |
+|------|--------|---------|
+| `Statement::Switch` lowering | ✅ | Chain-of-comparisons: ISetP + conditional branch per case, default fallthrough, proper CFG edges |
+| Switch test unblocked | ✅ | `test_sm70_control_flow` + `test_multi_arch_stress_all_shaders` pass |
+| NV `NvMappedRegion` RAII | ✅ | `ptr::copy_nonoverlapping` + manual `munmap` → safe `as_slice()`/`as_mut_slice()` + RAII Drop |
+| `clock_monotonic_ns` consolidation | ✅ | Extracted from inline `sync_fence` → single-site unsafe helper |
+| `lower_copy_swap` diagnostic panics | ✅ | All 14 panic messages now include src/dst context for debugging |
+| `start_block_at(label)` helper | ✅ | Pre-allocated label block start for switch lowering |
+| clippy `mut_from_ref` fix | ✅ | `NvMappedRegion::as_mut_slice(&self)` → `(&mut self)` |
+| Test counts | ✅ | 991 tests (960 passing, 31 ignored) — zero regressions |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -270,6 +283,10 @@
 | Built-in df64 preamble | Dekker/Knuth pair arithmetic auto-prepended | df64_preamble.wgsl |
 | `prepare_wgsl()` preprocessing | Auto df64 preamble + `enable f64;` stripping | lib.rs |
 | kl_divergence reserved keyword fix | `shared` → `wg_scratch` | kl_divergence_f64.wgsl |
+| Statement::Switch lowering | Chain-of-comparisons IR lowering | naga_translate/func_control.rs |
+| NV MappedRegion RAII | Unsafe reduction: safe slice access + Drop | nv/ioctl.rs, nv/mod.rs |
+| clock_monotonic_ns consolidation | Single-site unsafe for absolute timestamps | amd/ioctl.rs |
+| Diagnostic panic messages | 14 lower_copy_swap panics with src/dst context | lower_copy_swap.rs |
 
 ---
 

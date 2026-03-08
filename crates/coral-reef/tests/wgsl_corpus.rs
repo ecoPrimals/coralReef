@@ -245,9 +245,10 @@ wgsl_compile_test!(corpus_rk4_parallel, "rk4_parallel.wgsl");
 // ===========================================================================
 
 // Local elementwise f64 — 6 domain ops (SCS-CN, Stewart, Makkink, Turc,
-// Hamon, Blaney-Criddle). `enable f64;` stripped by prepare_wgsl.
+// Hamon, Blaney-Criddle). Switch lowered, but var_storage slot indexing
+// incomplete for function-call inlining within switch cases.
 wgsl_compile_test!(
     corpus_local_elementwise_f64,
     "local_elementwise_f64.wgsl",
-    ignore = "naga Statement::Switch not yet implemented in IR translator"
+    ignore = "var_storage slot overflow: switch case body stores to inlined function locals"
 );

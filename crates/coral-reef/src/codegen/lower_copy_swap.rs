@@ -25,12 +25,18 @@ impl LowerCopySwap {
     }
 
     fn lower_copy(&mut self, b: &mut impl Builder, copy: OpCopy) {
-        let dst_reg = copy
-            .dst
-            .as_reg()
-            .expect("OpCopy dst is always Reg after register allocation");
-        assert!(dst_reg.comps() == 1);
-        assert!(copy.src.is_uniform() || !dst_reg.is_uniform());
+        let dst_reg = copy.dst.as_reg().unwrap_or_else(|| {
+            panic!(
+                "lower_copy_swap: OpCopy dst {dst} is not a Reg (must run after RA). src={src}",
+                dst = copy.dst,
+                src = copy.src,
+            )
+        });
+        assert!(dst_reg.comps() == 1, "lower_copy_swap: multi-component dst");
+        assert!(
+            copy.src.is_uniform() || !dst_reg.is_uniform(),
+            "lower_copy_swap: non-uniform src to uniform dst"
+        );
 
         if !copy.src.is_unmodified() {
             if dst_reg.is_predicate() {
@@ -67,7 +73,9 @@ impl LowerCopySwap {
                             low_cmp: SrcRef::False.into(),
                         });
                     }
-                    _ => panic!("Cannot copy modified source to Pred"),
+                    (src_ref, bnot) => panic!(
+                        "lower_copy_swap: cannot copy modified source to Pred: src_ref={src_ref}, bnot={bnot}"
+                    ),
                 }
             } else {
                 b.push_op(OpMov {
@@ -115,7 +123,9 @@ impl LowerCopySwap {
                             mem_type: MemType::B32,
                         });
                     }
-                    _ => panic!("Invalid cbuf destination"),
+                    other => {
+                        panic!("lower_copy_swap: CBuf→{other} not supported (only GPR/UGPR)")
+                    }
                 },
                 SrcRef::True => {
                     b.push_op(OpMov {
@@ -172,13 +182,16 @@ impl LowerCopySwap {
                             access,
                         });
                     }
-                    RegFile::Carry => panic!("Cannot copy to GPR"),
+                    RegFile::Carry => panic!("lower_copy_swap: Carry→GPR copy not supported"),
                 },
-                SrcRef::SSA(_) => panic!("Should be run after RA"),
+                SrcRef::SSA(ssa) => panic!("lower_copy_swap: SSA {ssa}→GPR (must run after RA)"),
             },
             RegFile::Pred | RegFile::UPred => match copy.src.reference {
                 SrcRef::Zero | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                    panic!("Cannot copy to Pred");
+                    panic!(
+                        "lower_copy_swap: {src}→Pred not supported (need ISetP coercion)",
+                        src = copy.src.reference,
+                    );
                 }
                 SrcRef::True => {
                     b.lop2_to(
@@ -208,9 +221,11 @@ impl LowerCopySwap {
                             ops: [LogicOp3::new_lut(&|_, _, z| z), LogicOp3::new_const(false)],
                         });
                     }
-                    _ => panic!("Cannot copy to Pred"),
+                    other => {
+                        panic!("lower_copy_swap: {other}→Pred not supported (need coercion pass)")
+                    }
                 },
-                SrcRef::SSA(_) => panic!("Should be run after RA"),
+                SrcRef::SSA(ssa) => panic!("lower_copy_swap: SSA {ssa}→Pred (must run after RA)"),
             },
             RegFile::Bar => match copy.src.reference {
                 SrcRef::Reg(src_reg) => match src_reg.file() {
@@ -221,9 +236,9 @@ impl LowerCopySwap {
                             clear: false,
                         });
                     }
-                    _ => panic!("Cannot copy to Bar"),
+                    other => panic!("lower_copy_swap: {other}→Bar not supported"),
                 },
-                _ => panic!("Cannot copy to Bar"),
+                other => panic!("lower_copy_swap: {other}→Bar not supported"),
             },
             RegFile::Mem => match copy.src.reference {
                 SrcRef::Reg(src_reg) => match src_reg.file() {
@@ -246,11 +261,11 @@ impl LowerCopySwap {
                             access,
                         });
                     }
-                    _ => panic!("Cannot copy to Mem"),
+                    other => panic!("lower_copy_swap: {other}→Mem not supported"),
                 },
-                _ => panic!("Cannot copy to Mem"),
+                other => panic!("lower_copy_swap: {other}→Mem not supported"),
             },
-            RegFile::Carry => panic!("Unhandled register file"),
+            RegFile::Carry => panic!("lower_copy_swap: Carry dst not supported"),
         }
     }
 
@@ -285,7 +300,9 @@ impl LowerCopySwap {
                         pred: r2ur.src,
                     });
                 }
-                _ => panic!("No matching uniform register file"),
+                other => {
+                    panic!("lower_copy_swap: R2UR from {other:?} has no matching uniform file")
+                }
             }
         }
     }

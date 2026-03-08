@@ -28,7 +28,7 @@ impl IMadSpSrcType {
         }
     }
 
-    #[allow(dead_code)] // Used in hw_tests
+    #[allow(dead_code)]
     pub const fn with_sign(self, sign: bool) -> Self {
         use IMadSpSrcType::*;
         if !sign {

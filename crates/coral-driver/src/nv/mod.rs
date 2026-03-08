@@ -149,16 +149,9 @@ impl ComputeDevice for NvDevice {
             .get(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
 
-        let map_ptr = ioctl::gem_mmap(self.drm.fd(), buf.map_handle, buf.size)?;
-
-        // SAFETY: `map_ptr` is valid for `buf.size` bytes from mmap.
-        // `offset + data.len()` is bounded by the caller's buffer.
-        // The copy is within the mapped region.
-        unsafe {
-            let dst = map_ptr.add(offset as usize);
-            std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
-            libc::munmap(map_ptr.cast(), buf.size as libc::size_t);
-        }
+        let mut region = ioctl::gem_mmap_region(self.drm.fd(), buf.map_handle, buf.size)?;
+        let off = offset as usize;
+        region.as_mut_slice()[off..off + data.len()].copy_from_slice(data);
         Ok(())
     }
 
@@ -168,17 +161,9 @@ impl ComputeDevice for NvDevice {
             .get(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
 
-        let map_ptr = ioctl::gem_mmap(self.drm.fd(), buf.map_handle, buf.size)?;
-
-        let mut result = vec![0u8; len];
-        // SAFETY: map_ptr is valid for buf.size bytes. We read `len` bytes
-        // starting at `offset`, which must be within bounds.
-        unsafe {
-            let src = map_ptr.add(offset as usize);
-            std::ptr::copy_nonoverlapping(src, result.as_mut_ptr(), len);
-            libc::munmap(map_ptr.cast(), buf.size as libc::size_t);
-        }
-        Ok(result)
+        let region = ioctl::gem_mmap_region(self.drm.fd(), buf.map_handle, buf.size)?;
+        let off = offset as usize;
+        Ok(region.as_slice()[off..off + len].to_vec())
     }
 
     fn dispatch(
