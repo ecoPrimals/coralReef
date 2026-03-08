@@ -238,11 +238,7 @@ wgsl_compile_test!(corpus_softmax_f64, "softmax_f64.wgsl");
 wgsl_compile_test!(corpus_sdpa_scores_f64, "sdpa_scores_f64.wgsl");
 
 // Sigmoid activation (df64 core streaming — preamble auto-prepended)
-wgsl_compile_test!(
-    corpus_sigmoid_f64,
-    "sigmoid_f64.wgsl",
-    ignore = "RA SSA tracking: %r1688 missing in straight-line block chain (pre-existing spill/phi-web gap)"
-);
+wgsl_compile_test!(corpus_sigmoid_f64, "sigmoid_f64.wgsl");
 
 // KL divergence (f64, fused log-ratio + sum)
 // Cross-spring: absorbed by wetSpring for cross-entropy validation,

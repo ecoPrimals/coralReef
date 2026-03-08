@@ -359,6 +359,39 @@ impl Function {
     }
 }
 
+impl Function {
+    /// Fixes SSA dominance violations where values are live-in to the entry
+    /// block but defined only in some branch. Inserts `OpUndef` at entry for
+    /// each such value, then calls `repair_ssa()` to create phi nodes at
+    /// merge points. This handles IR patterns where the builder places a
+    /// definition inside a conditional arm but the value is used on both
+    /// paths to a merge block.
+    pub fn fix_entry_live_in(&mut self) {
+        use super::liveness::SimpleLiveness;
+
+        let live = SimpleLiveness::for_function(self);
+        let entry_li = live.live_in_values(0);
+        if entry_li.is_empty() {
+            return;
+        }
+
+        let mut undefs = Vec::new();
+        for ssa in &entry_li {
+            undefs.push(Instr::new(OpUndef { dst: (*ssa).into() }));
+        }
+
+        let entry = &mut self.blocks[0];
+        // Prepend undefs before existing instructions
+        undefs.append(&mut entry.instrs);
+        entry.instrs = undefs;
+
+        // Now there are multiple definitions for each value — repair_ssa
+        // inserts proper phi nodes at merge points.
+        self.repair_ssa();
+        self.opt_dce();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::codegen::ir::{

@@ -32,6 +32,13 @@ pub fn compile_shader(
     shader.opt_bar_prop();
     shader.opt_uniform_instrs();
 
+    // Fix SSA dominance violations from the builder: values defined inside
+    // one branch arm but used on both paths to a merge block. Must run
+    // before any pass that computes liveness (scheduler, RA).
+    for f in &mut shader.functions {
+        f.fix_entry_live_in();
+    }
+
     // Pre-RA scheduling
     shader.opt_instr_sched_prepass();
 

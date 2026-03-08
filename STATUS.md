@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 19 (Back-Edge Liveness & RA Evolution)
+**Phase**: 10 — Iteration 20 (SSA Dominance Repair & File Extraction)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1141 passing, 0 failed, 26 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1142 passing, 0 failed, 25 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 19** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 20** |
 
 ### Phase 10 Completions
 
@@ -272,11 +272,23 @@
 | Cross-spring corpus | ✅ | 47 shaders, 39 compiling SM70 (was 36) |
 | WGSL corpus | ✅ | 46/49 passing, 3 ignored (was 43/49) |
 
+### Phase 10 — Iteration 20 Completions (SSA Dominance Repair & File Extraction)
+
+| Task | Status | Details |
+|------|--------|---------|
+| SSA dominance violation fix | ✅ | `fix_entry_live_in()`: detects values live-in to entry block (defined in one branch, used in both), inserts OpUndef + repair_ssa to create proper phi nodes — fixes sigmoid_f64 |
+| Pipeline placement | ✅ | `fix_entry_live_in` runs before scheduler and RA — both see correct SSA |
+| Scheduler assertion promoted | ✅ | `debug_assert_eq!` on live-in count matching — now passes for all shaders |
+| SM75 `gpr.rs` test extraction | ✅ | Test module extracted to `gpr_tests.rs` (813 → 813 LOC production, tests in separate file) |
+| sigmoid_f64 unblocked | ✅ | Was ignored with "pre-existing RA gap"; root cause: builder SSA dominance violation |
+| Test expansion | ✅ | 1141 → 1142 passing (+1 test), 26 → 25 ignored |
+| Cross-spring corpus | ✅ | 47 shaders, 40 compiling SM70 (was 39) |
+| WGSL corpus | ✅ | 47/49 passing, 2 ignored (was 46/49) |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
 |------|----------|--------|
-| RA SSA tracking (straight-line) | P2 | sigmoid_f64 — pre-existing RA gap in straight-line block chain |
 | Pred→GPR encoder coercion chain | P2 | Encoder coercion chain |
 | Hardware validation (AMD) | ✅ | **E2E verified** — RX 6950 XT, WGSL compile + dispatch + readback |
 | Hardware validation (NVIDIA) | P2 | Titan V on-site — channel + pushbuf path ready |
@@ -287,7 +299,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1141 passing, 0 failed, 26 ignored) |
+| `cargo test --workspace` | PASS (1142 passing, 0 failed, 25 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -313,7 +325,7 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 5 springs (47 shaders, 39 compiling SM70) | tests/fixtures/wgsl/ |
+| WGSL shader corpus (cross-spring) | 5 springs (47 shaders, 40 compiling SM70) | tests/fixtures/wgsl/ |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
 | Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
 | `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |
@@ -356,6 +368,7 @@
 | AMD safe slices | `ptr::copy_nonoverlapping` → `copy_from_slice` via MappedRegion | amd/gem.rs |
 | Typed DRM wrappers | `gem_close()`, `drm_version()` eliminate call-site unsafe | drm.rs |
 | Inline var pre-allocation | Callee locals pre-allocated in `inline_call` | func_ops.rs |
+| SSA dominance repair | `fix_entry_live_in` + `repair_ssa` for builder violations | repair_ssa.rs, pipeline.rs |
 
 ---
 
