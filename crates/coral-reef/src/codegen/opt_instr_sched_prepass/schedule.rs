@@ -31,11 +31,6 @@ fn sched_buffer(
     let (mut new_order, live_in_count2) = GenerateOrder::new(max_reg_count, instrs, live_out)
         .generate_order(&graph.g, &graph.init_ready_list, thresholds)?;
 
-    // Sanity check: backward live-in should match forward accounting.
-    // Loop-carried phis can cause a mismatch when back-edge live values
-    // aren't fully tracked in the forward pass. This is harmless — the
-    // scheduling result is still valid, just potentially suboptimal
-    // register pressure estimation for that block.
     #[cfg(debug_assertions)]
     {
         let expected = PerRegFile::new_with(|f| {
@@ -43,12 +38,10 @@ fn sched_buffer(
                 .try_into()
                 .expect("live_in count must fit in i32")
         });
-        if live_in_count2 != expected {
-            eprintln!(
-                "opt_instr_sched_prepass: live_in mismatch (loop-carried phi): {:?} vs {:?}",
-                live_in_count2, expected
-            );
-        }
+        debug_assert_eq!(
+            live_in_count2, expected,
+            "opt_instr_sched_prepass: backward live-in count must match forward accounting"
+        );
     }
 
     new_order.reverse();
@@ -84,8 +77,6 @@ pub(super) struct ScheduleUnit {
     new_order: Option<InstructionOrder>,
     pub(super) last_tried_schedule_type: Option<ScheduleType>,
     pub(super) peak_gpr_count: i32,
-    /// Skip scheduling for loop headers — back-edge live-in accounting
-    /// is not precise enough for the assertion in sched_buffer.
     pub(super) skip_schedule: bool,
 
     // Phis and branches aren't scheduled. Phis and par copies are the only

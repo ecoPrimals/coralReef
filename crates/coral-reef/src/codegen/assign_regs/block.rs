@@ -84,6 +84,24 @@ impl AssignRegsBlock {
         true
     }
 
+    pub(super) fn pre_alloc_back_edge_live_in(&mut self, live_in_values: &[SSAValue]) {
+        for &ssa in live_in_values {
+            let raf = &mut self.ra[ssa.file()];
+            if raf.try_get_reg(ssa).is_some() {
+                continue;
+            }
+            let reg = raf
+                .try_find_unused_reg_range(0, 1, 1, 0)
+                .expect("no free register for back-edge live-in");
+            raf.assign_reg(ssa, reg);
+            self.live_in.push(LiveValue {
+                live_ref: LiveRef::SSA(ssa),
+                reg_ref: RegRef::new(ssa.file(), reg, 1),
+            });
+        }
+        self.live_in.sort();
+    }
+
     fn pcopy_tmp(&self) -> Option<RegRef> {
         if self.pcopy_tmp_gprs > 0 {
             Some(RegRef::new(
@@ -362,9 +380,9 @@ impl AssignRegsBlock {
         pred_ras: &[&PerRegFile<RegAllocator>],
         phi_webs: &mut PhiWebs,
     ) {
-        // Populate live-in from ALL predecessors' register files. For
-        // multi-predecessor blocks (e.g. if/else merge after barrier), SSA
-        // values may only exist in one predecessor — we must check them all.
+        // Populate live-in from ALL (forward) predecessors' register files.
+        // Multi-predecessor blocks (e.g. if/else merge) may have SSA values
+        // in only one predecessor — we must check them all.
         for pred_ra in pred_ras {
             for (raf, pred_raf) in self.ra.values_mut().zip(pred_ra.values()) {
                 for (ssa, reg) in &pred_raf.ssa_reg {
@@ -468,7 +486,16 @@ impl AssignRegsBlock {
 
         for lv in &target.live_in {
             let src = match lv.live_ref {
-                LiveRef::SSA(ssa) => SrcRef::from(self.get_scalar(ssa)),
+                LiveRef::SSA(ssa) => {
+                    let raf = &self.ra[ssa.file()];
+                    if let Some(reg) = raf.try_get_reg(ssa) {
+                        SrcRef::from(RegRef::new(ssa.file(), reg, 1))
+                    } else {
+                        // Value only reachable via back-edge predecessor;
+                        // that predecessor's second_pass provides the copy.
+                        continue;
+                    }
+                }
                 LiveRef::Phi(phi) => self
                     .phi_out
                     .get(&phi)

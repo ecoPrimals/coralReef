@@ -29,7 +29,7 @@ impl Shader<'_> {
         f.to_cssa();
 
         let mut live = SimpleLiveness::for_function(f);
-        let mut max_live = live.calc_max_live(f);
+        let mut max_live = live.calc_max_live_back_edge_aware(f);
 
         // We want at least one temporary GPR reserved for parallel copies.
         let mut tmp_gprs = 1_u8;
@@ -42,7 +42,7 @@ impl Shader<'_> {
 
                 // Re-calculate liveness after we spill
                 live = SimpleLiveness::for_function(f);
-                max_live = live.calc_max_live(f);
+                max_live = live.calc_max_live_back_edge_aware(f);
 
                 if file == RegFile::Bar {
                     tmp_gprs = max(tmp_gprs, 2);
@@ -132,6 +132,7 @@ impl Shader<'_> {
         for b_idx in 0..f.blocks.len() {
             let pred = f.blocks.pred_indices(b_idx);
             let fwd_preds: Vec<usize> = pred.iter().filter(|&&p| p < b_idx).copied().collect();
+            let has_back_edge = pred.iter().any(|&p| p >= b_idx);
 
             let is_unreachable = b_idx != 0 && pred.is_empty();
             unreachable.push(is_unreachable);
@@ -143,6 +144,15 @@ impl Shader<'_> {
 
                 let bl = live.block_live(b_idx);
                 arb.first_pass(&mut f.blocks[b_idx], bl, &pred_ras, &mut phi_webs);
+
+                // For loop headers: pre-allocate registers for live-in values
+                // that come only from back-edge predecessors (not yet processed).
+                // These fresh registers propagate through the loop body and exit
+                // path. The latch's second_pass inserts copies to fill them.
+                if has_back_edge {
+                    let all_live_in = live.live_in_values(b_idx);
+                    arb.pre_alloc_back_edge_live_in(&all_live_in);
+                }
             }
 
             assert!(blocks.len() == b_idx);

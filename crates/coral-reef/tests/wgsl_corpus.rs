@@ -143,18 +143,10 @@ wgsl_compile_test!(corpus_cg_kernels_f64, "cg_kernels_f64.wgsl");
 wgsl_compile_test!(corpus_sum_reduce_f64, "sum_reduce_f64.wgsl");
 
 // Lattice: SU(3) gauge force — heavy f64 staple sum + TA projection
-wgsl_compile_test!(
-    corpus_su3_gauge_force_f64,
-    "su3_gauge_force_f64.wgsl",
-    ignore = "register allocator: unknown SSA value in GPR file (var array liveness)"
-);
+wgsl_compile_test!(corpus_su3_gauge_force_f64, "su3_gauge_force_f64.wgsl");
 
 // Lattice: Wilson plaquette (f64, complex SU(3) math, multiple loops)
-wgsl_compile_test!(
-    corpus_wilson_plaquette_f64,
-    "wilson_plaquette_f64.wgsl",
-    ignore = "scheduler PerRegFile live_in mismatch in loop-carried phi"
-);
+wgsl_compile_test!(corpus_wilson_plaquette_f64, "wilson_plaquette_f64.wgsl");
 
 // ===========================================================================
 // hotSpring — Molecular dynamics
@@ -246,11 +238,10 @@ wgsl_compile_test!(corpus_softmax_f64, "softmax_f64.wgsl");
 wgsl_compile_test!(corpus_sdpa_scores_f64, "sdpa_scores_f64.wgsl");
 
 // Sigmoid activation (df64 core streaming — preamble auto-prepended)
-// Compiles through naga + IR lowering but hits RA SSA tracking on loop-carried phi
 wgsl_compile_test!(
     corpus_sigmoid_f64,
     "sigmoid_f64.wgsl",
-    ignore = "RA SSA tracking: loop-carried phi live_in mismatch in exp_df64 branches"
+    ignore = "RA SSA tracking: %r1688 missing in straight-line block chain (pre-existing spill/phi-web gap)"
 );
 
 // KL divergence (f64, fused log-ratio + sum)
@@ -363,11 +354,7 @@ wgsl_compile_test!(corpus_stencil_cooperation, "stencil_cooperation.wgsl");
 wgsl_compile_test!(corpus_spatial_payoff, "spatial_payoff.wgsl");
 
 // Batch NN forward: 1→4→5 sigmoid layers + argmax (f32, u32 actions)
-wgsl_compile_test!(
-    corpus_swarm_nn_forward,
-    "swarm_nn_forward.wgsl",
-    ignore = "RA SSA tracking: loop-carried phi live_in mismatch in sigmoid layers"
-);
+wgsl_compile_test!(corpus_swarm_nn_forward, "swarm_nn_forward.wgsl");
 
 // ===========================================================================
 // airSpring — Hydrology / environmental science

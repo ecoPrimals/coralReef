@@ -92,13 +92,25 @@ impl Function {
 
         for block_idx in 0..self.blocks.len() {
             let block_live = liveness.block_live(block_idx);
+            let has_back_edge_pred = self
+                .blocks
+                .pred_indices(block_idx)
+                .iter()
+                .any(|&p| p >= block_idx);
+
             let mut live_set = {
                 let mut set = LiveSet::new();
-                for &pred in self.blocks.pred_indices(block_idx) {
-                    if pred < live_out_sets.len() {
-                        for ssa in live_out_sets[pred].iter() {
-                            if block_live.is_live_in(ssa) {
-                                set.insert(*ssa);
+                if has_back_edge_pred {
+                    for &ssa in &liveness.live_in_values(block_idx) {
+                        set.insert(ssa);
+                    }
+                } else {
+                    for &pred in self.blocks.pred_indices(block_idx) {
+                        if pred < live_out_sets.len() {
+                            for ssa in live_out_sets[pred].iter() {
+                                if block_live.is_live_in(ssa) {
+                                    set.insert(*ssa);
+                                }
                             }
                         }
                     }
@@ -106,14 +118,8 @@ impl Function {
                 set
             };
 
-            let has_back_edge_pred = self
-                .blocks
-                .pred_indices(block_idx)
-                .iter()
-                .any(|&p| p >= block_idx);
             let block = &mut self.blocks[block_idx];
             let mut unit: ScheduleUnit = ScheduleUnit::default();
-            unit.skip_schedule = has_back_edge_pred;
 
             for (ip, instr) in std::mem::take(&mut block.instrs).into_iter().enumerate() {
                 let starts_block = match instr.op {

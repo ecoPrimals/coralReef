@@ -198,13 +198,16 @@ pub trait Liveness {
 
             let mut live = LiveSet::new();
 
-            // Predecessors are added block order so we can just grab the first
-            // one (if any) and it will be a block we've processed.
-            if let Some(pred_idx) = f.blocks.pred_indices(bb_idx).first() {
-                let pred_out = &block_live_out[*pred_idx];
-                for ssa in pred_out.iter() {
-                    if bl.is_live_in(ssa) {
-                        live.insert(*ssa);
+            // Merge live-out from ALL forward predecessors (index < bb_idx).
+            // Back-edge predecessors haven't been processed yet; their
+            // contribution is handled via live_in_values in the RA.
+            for &pred_idx in f.blocks.pred_indices(bb_idx) {
+                if pred_idx < bb_idx {
+                    let pred_out = &block_live_out[pred_idx];
+                    for ssa in pred_out.iter() {
+                        if bl.is_live_in(ssa) {
+                            live.insert(*ssa);
+                        }
                     }
                 }
             }
@@ -368,6 +371,70 @@ impl SimpleLiveness {
             Ordering::Less => self.block_live(bb).is_live_after_ip(a, bi),
             Ordering::Greater => self.block_live(ab).is_live_after_ip(b, ai),
         }
+    }
+
+    /// Returns all SSA values that are live-in to the given block.
+    pub fn live_in_values(&self, block_idx: usize) -> Vec<SSAValue> {
+        let bl = &self.blocks[block_idx];
+        self.ssa_block_ip
+            .keys()
+            .filter(|ssa| bl.is_live_in(ssa))
+            .copied()
+            .collect()
+    }
+}
+
+impl SimpleLiveness {
+    /// Computes max register pressure accounting for back-edge live-in values
+    /// that `Liveness::calc_max_live` misses (it only seeds from forward
+    /// predecessors).
+    pub fn calc_max_live_back_edge_aware(&self, f: &Function) -> PerRegFile<u32> {
+        let mut max_live: PerRegFile<u32> = PerRegFile::default();
+        let mut block_live_out: Vec<LiveSet> = Vec::new();
+
+        for (bb_idx, bb) in f.blocks.iter().enumerate() {
+            let bl = self.block_live(bb_idx);
+            let mut live = LiveSet::new();
+
+            let has_back_edge = f.blocks.pred_indices(bb_idx).iter().any(|&p| p >= bb_idx);
+
+            if has_back_edge {
+                for &ssa in &self.live_in_values(bb_idx) {
+                    live.insert(ssa);
+                }
+            } else {
+                for &pred_idx in f.blocks.pred_indices(bb_idx) {
+                    if pred_idx < bb_idx {
+                        let pred_out = &block_live_out[pred_idx];
+                        for ssa in pred_out.iter() {
+                            if bl.is_live_in(ssa) {
+                                live.insert(*ssa);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (ip, instr) in bb.instrs.iter().enumerate() {
+                let live_at_instr = live.insert_instr_top_down(ip, instr, bl);
+                max_live = PerRegFile::new_with(|file| max(max_live[file], live_at_instr[file]));
+
+                if let Op::RegOut(reg_out) = &instr.op {
+                    debug_assert!(live.count(RegFile::GPR) == 0);
+                    let gpr_output_count = reg_out
+                        .srcs
+                        .len()
+                        .try_into()
+                        .expect("register output count must fit in u32");
+                    max_live[RegFile::GPR] = max(max_live[RegFile::GPR], gpr_output_count);
+                }
+            }
+
+            assert!(block_live_out.len() == bb_idx);
+            block_live_out.push(live);
+        }
+
+        max_live
     }
 }
 
