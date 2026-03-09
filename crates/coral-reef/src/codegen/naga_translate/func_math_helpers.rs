@@ -114,6 +114,37 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         Ok(dst)
     }
 
+    /// f64 min/max via DSetP + per-component OpSel.
+    ///
+    /// `cmp_op` selects which operand wins: `OrdLt` → min(a, b), `OrdGt` → max(a, b).
+    pub(super) fn emit_f64_min_max(
+        &mut self,
+        a: SSARef,
+        b: SSARef,
+        cmp_op: FloatCmpOp,
+    ) -> Result<SSARef, CompileError> {
+        let pred = self.alloc_ssa(RegFile::Pred);
+        self.push_instr(Instr::new(OpDSetP {
+            dst: pred.into(),
+            set_op: PredSetOp::And,
+            cmp_op,
+            srcs: [Src::from(a.clone()), Src::from(b.clone())],
+            accum: SrcRef::True.into(),
+        }));
+        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+        self.push_instr(Instr::new(OpSel {
+            dst: dst[0].into(),
+            cond: pred.into(),
+            srcs: [a[0].into(), b[0].into()],
+        }));
+        self.push_instr(Instr::new(OpSel {
+            dst: dst[1].into(),
+            cond: pred.into(),
+            srcs: [a[1].into(), b[1].into()],
+        }));
+        Ok(dst)
+    }
+
     /// Emit SM-appropriate bitwise AND (LOP3 on SM70+, LOP2 on older).
     pub(super) fn emit_logic_and(&mut self, dst: SSAValue, a: Src, b: Src) {
         if self.sm.sm() >= 70 {

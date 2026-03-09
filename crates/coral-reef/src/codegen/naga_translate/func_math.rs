@@ -17,19 +17,32 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let is_f64 = self.is_f64_expr(arg_handle);
         match fun {
             naga::MathFunction::Abs => {
-                let dst = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpFAdd {
-                    dst: dst.into(),
-                    srcs: [Src::ZERO, Src::from(a[0]).fabs()],
-                    saturate: false,
-                    rnd_mode: FRndMode::NearestEven,
-                    ftz: false,
-                }));
-                Ok(dst.into())
+                if is_f64 {
+                    let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: dst[0].into(),
+                        src: a[0].into(),
+                    }));
+                    self.emit_logic_and(dst[1], a[1].into(), Src::new_imm_u32(0x7FFF_FFFF));
+                    Ok(dst)
+                } else {
+                    let dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst: dst.into(),
+                        srcs: [Src::ZERO, Src::from(a[0]).fabs()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                    Ok(dst.into())
+                }
             }
             naga::MathFunction::Min => {
                 let b =
                     b.ok_or_else(|| CompileError::InvalidInput("min requires 2 args".into()))?;
+                if is_f64 {
+                    return self.emit_f64_min_max(a, b, FloatCmpOp::OrdLt);
+                }
                 let dst = self.alloc_ssa(RegFile::GPR);
                 self.push_instr(Instr::new(OpFMnMx {
                     dst: dst.into(),
@@ -42,6 +55,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::MathFunction::Max => {
                 let b =
                     b.ok_or_else(|| CompileError::InvalidInput("max requires 2 args".into()))?;
+                if is_f64 {
+                    return self.emit_f64_min_max(a, b, FloatCmpOp::OrdGt);
+                }
                 let dst = self.alloc_ssa(RegFile::GPR);
                 self.push_instr(Instr::new(OpFMnMx {
                     dst: dst.into(),
@@ -56,6 +72,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     b.ok_or_else(|| CompileError::InvalidInput("clamp requires 3 args".into()))?;
                 let c =
                     c.ok_or_else(|| CompileError::InvalidInput("clamp requires 3 args".into()))?;
+                if is_f64 {
+                    let tmp = self.emit_f64_min_max(a, c, FloatCmpOp::OrdLt)?;
+                    return self.emit_f64_min_max(tmp, b, FloatCmpOp::OrdGt);
+                }
                 let tmp = self.alloc_ssa(RegFile::GPR);
                 self.push_instr(Instr::new(OpFMnMx {
                     dst: tmp.into(),

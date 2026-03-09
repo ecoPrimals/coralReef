@@ -224,11 +224,19 @@ the full Spring absorption map.
 - [x] **37 DEBT markers resolved**: ISA encoding values documented with named constants, `DEBT(opt)` → `EVOLUTION(opt)`, `DEBT(feature)` → `EVOLUTION(feature)`, **libc eliminated** (ioctl via inline asm syscall, zero libc dependency)
 
 - [x] Iteration 25: Math + debt evolution — 9 trig/inverse math functions (Acos, Asin, Atan, Atan2, Sinh, Cosh, Asinh, Acosh, Atanh via polynomial atan + identity chains), log2 2nd NR iteration (~52-bit f64), exp2 subnormal ldexp, Complex64 preamble (auto-prepend for dielectric_mermin), RDNA2 parity (global_invocation_id + VOP2/VOPC operand legalization), Unix socket JSON-RPC, discovery manifest, enriched CompileResponse, nouveau validation tests, **37 DEBT markers resolved** (ISA → documented constants, opt/feature → EVOLUTION markers), **libc eliminated** (ioctl via inline asm syscall), NVIDIA UVM module (ioctl definitions + device infrastructure) — 1285 tests (1285 passing, 60 ignored)
+- [x] Iteration 26: hotSpring sovereign pipeline unblock — f64 min/max/abs/clamp via DSetP+Sel (batched_hfb_energy_f64 unblocked), `ComputeDevice: Send + Sync` for thread-safe GpuBackend, nouveau compute subchannel binding (SM-aware class selection), docs updated — 1286 tests (1286 passing, 59 ignored)
+
+### P3 — Remaining gaps (sovereign pipeline)
+- [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
+- [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
+- [ ] nouveau DRM dispatch E2E validation on Titan V hardware
+- [ ] nvidia-drm UVM compute dispatch integration
+- [ ] Coverage 63% → 90%
 
 ---
 
 *The compiler evolves. 79/86 cross-spring WGSL shaders compile to native SASS.
-1285 tests passing, 60 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+1286 tests passing, 59 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
@@ -238,8 +246,9 @@ tarpc uses bincode for high-performance binary IPC. Zero DEBT comments — all r
 Zero libc dependency — ioctl via inline asm syscall, mmap via rustix, zero extern "C".
 NVIDIA UVM module ready for proprietary driver compute dispatch integration.
 Complex64 preamble unblocks plasma physics / dielectric function shaders.
+ComputeDevice: Send + Sync — thread-safe dispatch for barraCuda's GpuBackend trait.
+Nouveau compute subchannel bound — SM-aware compute class selection.
+Iteration 26: hotSpring sovereign pipeline unblock — f64 min/max fix, Send+Sync, nouveau subchannel.
 Iteration 25: Math + debt evolution — trig inverse, f64 refinement, Complex64, DEBT → 0, libc → 0, UVM infra.
 Iteration 24: Multi-GPU sovereignty — driver preference, nvidia-drm, toadStool discovery, parity tests, showcase.
-Iteration 23: Deep debt elimination — 11 math functions, lib.rs refactored, GLSL expanded, audits complete.
-Iteration 22: Multi-language frontends — GLSL + SPIR-V roundtrip tests + fixture reorg.
 All pure Rust. Sovereignty is a runtime choice.*

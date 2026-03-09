@@ -41,10 +41,24 @@ pub const NV_KERNEL_MANAGED_ADDR: u64 = 0x80_0000_0000;
 pub struct NvDevice {
     drm: DrmDevice,
     channel: u32,
+    compute_class: u32,
     buffers: HashMap<u32, NvBuffer>,
     next_handle: u32,
     /// GEM handle of the last submitted pushbuf (for fence sync).
     last_submit_gem: Option<u32>,
+}
+
+/// Select the compute engine class for a GPU architecture.
+///
+/// Returns the DRM class ID that the kernel needs to instantiate a compute
+/// engine on this GPU generation.
+fn compute_class_for_sm(sm: u32) -> u32 {
+    match sm {
+        70..=72 => pushbuf::class::VOLTA_COMPUTE_A,
+        75 => pushbuf::class::TURING_COMPUTE_A,
+        80..=89 => pushbuf::class::AMPERE_COMPUTE_A,
+        _ => pushbuf::class::VOLTA_COMPUTE_A,
+    }
 }
 
 /// A nouveau GEM buffer with optional mmap info.
@@ -69,14 +83,33 @@ impl NvDevice {
     /// channel creation fails.
     #[cfg(feature = "nouveau")]
     pub fn open() -> DriverResult<Self> {
-        let drm = DrmDevice::open_by_driver("nouveau")?;
+        Self::open_with_sm(70)
+    }
 
-        let channel = ioctl::create_channel(drm.fd())?;
-        tracing::info!(path = %drm.path, channel, "NVIDIA nouveau channel created");
+    /// Open the NVIDIA GPU device via nouveau, specifying the SM architecture.
+    ///
+    /// The SM version determines which compute engine class to request from
+    /// the kernel (e.g. SM70 → Volta Compute A, SM75 → Turing, SM80+ → Ampere).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if no nouveau render node is found or
+    /// channel creation fails.
+    #[cfg(feature = "nouveau")]
+    pub fn open_with_sm(sm: u32) -> DriverResult<Self> {
+        let drm = DrmDevice::open_by_driver("nouveau")?;
+        let compute_class = compute_class_for_sm(sm);
+
+        let channel = ioctl::create_channel(drm.fd(), compute_class)?;
+        tracing::info!(
+            path = %drm.path, channel, compute_class = format_args!("0x{compute_class:04X}"),
+            "NVIDIA nouveau channel created with compute subchannel"
+        );
 
         Ok(Self {
             drm,
             channel,
+            compute_class,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
@@ -97,6 +130,7 @@ impl NvDevice {
         Ok(Self {
             drm,
             channel: 0,
+            compute_class: pushbuf::class::VOLTA_COMPUTE_A,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
@@ -230,7 +264,7 @@ impl ComputeDevice for NvDevice {
 
         // Build push buffer: SET_OBJECT + caches + SEND_PCAS with QMD address
         let pb = pushbuf::PushBuf::compute_dispatch(
-            pushbuf::class::VOLTA_COMPUTE_A,
+            self.compute_class,
             qmd_va,
             0xFF00_0000,
         );

@@ -168,15 +168,25 @@ struct NouveauGemCpuPrep {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Create a nouveau GPU channel for command submission.
+/// Create a nouveau GPU channel with a compute subchannel.
+///
+/// `compute_class` is the GPU compute engine class (e.g. `0xC3C0` for Volta).
+/// The kernel instantiates the engine object and binds it to subchannel 0.
 ///
 /// # Errors
 ///
-/// Returns [`DriverError`] if the kernel rejects the request.
-pub fn create_channel(fd: RawFd) -> DriverResult<u32> {
+/// Returns [`DriverError`] if the kernel rejects the request (e.g. the
+/// compute class is unsupported for this GPU or the kernel nouveau driver
+/// lacks compute support).
+pub fn create_channel(fd: RawFd, compute_class: u32) -> DriverResult<u32> {
     let mut alloc = NouveauChannelAlloc {
         pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
+        nr_subchan: 1,
         ..Default::default()
+    };
+    alloc.subchan[0] = NouveauSubchan {
+        handle: 1,
+        grclass: compute_class,
     };
     let ioctl_nr = drm::drm_iowr_pub(
         DRM_NOUVEAU_CHANNEL_ALLOC,

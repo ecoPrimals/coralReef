@@ -390,7 +390,12 @@ impl GpuContext {
                     Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
                     _ => GpuTarget::Nvidia(NvArch::Sm70),
                 };
-                let dev = coral_driver::nv::NvDevice::open().map_err(GpuError::Driver)?;
+                let sm = match target {
+                    GpuTarget::Nvidia(nv) => nv.sm(),
+                    _ => 70,
+                };
+                let dev =
+                    coral_driver::nv::NvDevice::open_with_sm(sm).map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             _ => Err(GpuError::NoDevice(

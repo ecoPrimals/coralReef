@@ -446,11 +446,7 @@ wgsl_compile_test!(
 );
 
 // Nuclear: HFB total energy (f64, SEMF + pairing + deformation)
-wgsl_compile_test!(
-    corpus_batched_hfb_energy_f64,
-    "batched_hfb_energy_f64.wgsl",
-    ignore = "f64 pow: log2 lowering expects 2 components (scalar f64 pow gap)"
-);
+wgsl_compile_test!(corpus_batched_hfb_energy_f64, "batched_hfb_energy_f64.wgsl");
 
 // ===========================================================================
 // hotSpring — New absorption: MD / ESN (Iteration 21)

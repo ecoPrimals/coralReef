@@ -110,7 +110,7 @@ impl DispatchDims {
 /// Implementations provide the full lifecycle: open device, allocate
 /// buffers, upload shader binary, dispatch workgroups, synchronize,
 /// and read back results.
-pub trait ComputeDevice {
+pub trait ComputeDevice: Send + Sync {
     /// Allocate a GPU buffer.
     ///
     /// # Errors
