@@ -418,6 +418,12 @@ fn fixture_expr_binary_int_ops() {
 }
 
 #[test]
+fn fixture_expr_binary_logical_ops() {
+    let wgsl = include_str!("fixtures/wgsl/expr_binary_logical_ops.wgsl");
+    compile_fixture_sm70(wgsl);
+}
+
+#[test]
 fn fixture_func_math_transcendentals() {
     let wgsl = include_str!("fixtures/wgsl/func_math_transcendentals.wgsl");
     compile_fixture_sm70(wgsl);

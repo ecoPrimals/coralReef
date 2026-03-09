@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 22)
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 23)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 22)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 23)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -210,6 +210,7 @@ the full Spring absorption map.
 - [x] Iteration 20: SSA dominance repair (`fix_entry_live_in` detects values live-in to entry block, inserts OpUndef + repair_ssa for phi insertion), sigmoid_f64 unblocked, scheduler debug_assert_eq! promoted, SM75 gpr_tests.rs extracted — 1142 tests (1142 passing, 25 ignored), 40/47 shaders SM70, WGSL 47/49
 - [x] Iteration 21: Cross-spring absorption wave 2 — 38 new test entries (9 hotSpring + 17 neuralSpring + 12 existing wired), df64 comparison operators (df64_gt/lt/ge), chi_squared keyword fix, local_elementwise_f64 retired — 1174 tests (1174 passing, 30 ignored), 79/86 shaders SM70
 - [x] Iteration 22: Multi-language frontends — GLSL 450 compute frontend (naga glsl-in), SPIR-V roundtrip tests (WGSL→naga→SPIR-V→compile), fixture reorganization (86 corpus→corpus/, 21 compiler-owned stay), 5 GLSL fixtures (all pass SM70), 10 SPIR-V roundtrip tests (4 pass, 6 ignored: Discriminant expr, non-literal const init) — 1190 tests (1190 passing, 35 ignored)
+- [x] Iteration 23: Deep debt elimination — 11 math functions (Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize, Cross, Trunc), GLSL fixtures expanded (fract/sign/mix/step/smoothstep/tanh/dot), corpus_esn_reservoir_update unblocked, lib.rs refactored (791→483 LOC via lib_tests.rs extraction), SM80 gpr.rs tests extracted (867→766 LOC), nak-ir-proc unsafe audited (compile-time contiguity proofs), libc→rustix migration path documented (DEBT marker), DEBT count 37, orphaned fixture wired — 1191 tests (1191 passing, 35 ignored)
 
 ### P3 — Remaining debt
 - [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
@@ -219,17 +220,18 @@ the full Spring absorption map.
 - [ ] Complex64 preamble: blocks dielectric_mermin (needs complex arithmetic)
 - [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
 - [ ] exp2 edge cases: subnormal handling in ldexp
-- [ ] 28 DEBT comments remain (ISA encoding gaps, dual-issue, SM-specific features)
+- [ ] 37 DEBT comments remain (ISA encoding gaps, dual-issue, SM-specific features, libc→rustix evolution)
 
 ---
 
 *The compiler evolves. 79/86 cross-spring WGSL shaders compile to native SASS.
-1190 tests passing, 35 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+1191 tests passing, 35 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
 All unsafe in driver consolidated: AMD + NV use RAII MappedRegion with safe slice access.
-tarpc uses bincode for high-performance binary IPC. 28 DEBT comments tracked (ISA gaps, dual-issue, features).
+tarpc uses bincode for high-performance binary IPC. 37 DEBT comments tracked (ISA gaps, dual-issue, features, libc→rustix).
+Iteration 23: Deep debt elimination — 11 math functions, lib.rs refactored, GLSL expanded, audits complete.
 Iteration 22: Multi-language frontends — GLSL + SPIR-V roundtrip tests + fixture reorg.
 Iteration 21: Cross-spring absorption wave 2 — +38 shaders from hotSpring + neuralSpring.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*

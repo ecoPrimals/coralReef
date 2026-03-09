@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 22 (Multi-Language Frontends & Fixture Reorganization)
+**Last updated**: March 9, 2026  
+**Phase**: 10 — Iteration 23 (Deep Debt Elimination & Math Function Coverage)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1190 passing, 0 failed, 35 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1191 passing, 0 failed, 35 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 22** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 23** |
 
 ### Phase 10 Completions
 
@@ -312,6 +312,23 @@
 | Test expansion | ✅ | 1174 → 1190 passing (+16), 30 → 35 ignored (+5 SPIR-V path gaps) |
 | SPIR-V path gaps documented | ✅ | `Discriminant` expression and non-literal constant initializers — future SPIR-V translator work |
 
+### Phase 10 — Iteration 23 Completions (Deep Debt Elimination & Math Function Coverage)
+
+| Task | Status | Details |
+|------|--------|---------|
+| 11 math functions implemented | ✅ | Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize, Cross, Trunc — unblocks GLSL frontend shaders and extends WGSL coverage |
+| GLSL fixture coverage expanded | ✅ | `transcendentals.comp` restored with fract/sign/mix/step/smoothstep/tanh; `buffer_rw.comp` restored with dot() |
+| corpus_esn_reservoir_update unblocked | ✅ | Tanh now supported — neuralSpring ESN shader compiles |
+| lib.rs smart refactoring | ✅ | Test module extracted to `lib_tests.rs` (791→483 LOC), `emit_binary` deduplicated |
+| SM80 gpr.rs test extraction | ✅ | Test module extracted to `gpr_tests.rs` (867→766 LOC), matching SM75 pattern |
+| nak-ir-proc unsafe audited | ✅ | 2 `from_raw_parts` in generated code — compile-time contiguity proofs, zerocopy-grade pattern, no safe alternative |
+| builder/emit.rs audited | ✅ | Single `SSABuilder` trait, logically grouped — splitting anti-idiomatic |
+| libc→rustix migration documented | ✅ | DEBT(evolution) marker in `drm.rs` — 22 unsafe blocks across driver for mmap/munmap/ioctl/clock_gettime |
+| #[allow] vs #[expect] audit | ✅ | Module-level allow covers codegen; 5 files outside scope properly use #[expect]; zero warnings |
+| DEBT count updated | ✅ | 37 DEBT markers (was 28 in docs) |
+| Clippy lint fixes | ✅ | Raw string hashes, doc_markdown backticks — zero warnings |
+| Test expansion | ✅ | 1191 passing (+1 new, +1 un-ignored), 35 ignored (-1) |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -326,7 +343,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1190 passing, 0 failed, 35 ignored) |
+| `cargo test --workspace` | PASS (1191 passing, 0 failed, 35 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
