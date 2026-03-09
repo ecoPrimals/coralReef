@@ -1272,6 +1272,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "petgraph",
+ "pp-rs",
  "rustc-hash 1.1.0",
  "spirv",
  "thiserror 2.0.18",
@@ -1438,6 +1439,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b73949432f5e2a09657003c25bca5e19a0e9c84f8058ca374f49e0ebe605af77"
 dependencies = [
  "zerovec",
+]
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
+dependencies = [
+ "unicode-xid",
 ]
 
 [[package]]
@@ -2324,6 +2334,12 @@ name = "unicode-width"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+
+[[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "untrusted"

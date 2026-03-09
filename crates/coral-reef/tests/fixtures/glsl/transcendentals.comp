@@ -1,0 +1,30 @@
+// GLSL 450 compute: math transcendentals and built-in functions.
+// Exercises: exp, log, sin, cos, sqrt, pow, abs, min, max, clamp.
+#version 450
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer InBuf  { float in_data[]; };
+layout(std430, binding = 1) buffer OutBuf { float out_data[]; };
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+
+    float x = in_data[gid];
+    float ax = abs(x);
+
+    float e = exp(clamp(x, -20.0, 20.0));
+    float lg = log(max(ax, 1e-30));
+    float s = sin(x);
+    float c = cos(x);
+    float sq = sqrt(ax);
+    float pw = pow(ax + 1.0, 2.5);
+    float mn = min(s, c);
+    float mx = max(s, c);
+    float cl = clamp(x, -1.0, 1.0);
+    float fl = floor(x);
+    float ce = ceil(x);
+    float lerp = s * 0.7 + c * 0.3;
+
+    out_data[gid] = e + lg + s + c + sq + pw + mn + mx + cl + fl + ce + lerp;
+}

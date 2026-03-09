@@ -117,7 +117,7 @@ macro_rules! wgsl_compile_test {
     ($name:ident, $file:expr) => {
         #[test]
         fn $name() {
-            let src = include_str!(concat!("fixtures/wgsl/", $file));
+            let src = include_str!(concat!("fixtures/wgsl/corpus/", $file));
             let start = Instant::now();
             let r = compile_wgsl(src, &sm70_f64_opts());
             let elapsed = start.elapsed();
@@ -136,7 +136,7 @@ macro_rules! wgsl_compile_test {
         #[test]
         #[ignore = $reason]
         fn $name() {
-            let src = include_str!(concat!("fixtures/wgsl/", $file));
+            let src = include_str!(concat!("fixtures/wgsl/corpus/", $file));
             let start = Instant::now();
             let r = compile_wgsl(src, &sm70_f64_opts());
             let elapsed = start.elapsed();

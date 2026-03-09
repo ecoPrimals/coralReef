@@ -190,6 +190,15 @@ pub fn parse_wgsl(source: &str) -> Result<naga::Module, CompileError> {
         .map_err(|e| CompileError::InvalidInput(format!("WGSL parse error: {e}").into()))
 }
 
+/// Parse GLSL compute shader source into a naga Module.
+pub fn parse_glsl(source: &str) -> Result<naga::Module, CompileError> {
+    let opts = naga::front::glsl::Options::from(naga::ShaderStage::Compute);
+    let mut frontend = naga::front::glsl::Frontend::default();
+    frontend
+        .parse(&opts, source)
+        .map_err(|e| CompileError::InvalidInput(format!("GLSL parse error: {e:?}").into()))
+}
+
 /// Translate a naga Module into a Shader for a compute entry point.
 pub fn translate<'sm>(
     module: &naga::Module,
@@ -213,7 +222,7 @@ pub fn translate<'sm>(
 #[cfg(test)]
 mod tests {
     use super::super::ir::{ComputeShaderInfo, Op, ShaderModelInfo, ShaderStageInfo};
-    use super::{parse_spirv, parse_wgsl, translate};
+    use super::{parse_glsl, parse_spirv, parse_wgsl, translate};
     use crate::error::CompileError;
 
     fn sm70() -> ShaderModelInfo {
@@ -263,6 +272,57 @@ mod tests {
         let result = parse_spirv(&wrong_magic);
         let err = result.expect_err("invalid SPIR-V magic should return error");
         assert!(matches!(err, CompileError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn test_parse_glsl_valid_minimal_compute() {
+        let glsl = r#"#version 450
+            layout(local_size_x = 64) in;
+            void main() {}
+        "#;
+        let result = parse_glsl(glsl);
+        assert!(
+            result.is_ok(),
+            "valid GLSL compute shader should parse: {result:?}"
+        );
+        let module = result.unwrap();
+        assert_eq!(module.entry_points.len(), 1);
+        assert_eq!(module.entry_points[0].name, "main");
+        assert_eq!(module.entry_points[0].workgroup_size, [64, 1, 1]);
+    }
+
+    #[test]
+    fn test_parse_glsl_invalid_returns_error() {
+        let invalid_glsl = "#version 450\nvoid main() { int x = ; }";
+        let result = parse_glsl(invalid_glsl);
+        let err = result.expect_err("invalid GLSL should return error");
+        assert!(matches!(err, CompileError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn test_translate_glsl_compute_with_buffer() {
+        let glsl = r#"#version 450
+            layout(local_size_x = 64) in;
+            layout(std430, binding = 0) buffer Data { float data[]; };
+            void main() {
+                uint gid = gl_GlobalInvocationID.x;
+                data[gid] = data[gid] + 1.0;
+            }
+        "#;
+        let module = parse_glsl(glsl).unwrap();
+        let sm = sm70();
+        let result = translate(&module, &sm, "main");
+        assert!(
+            result.is_ok(),
+            "GLSL compute with buffer should translate: {:?}",
+            result.err()
+        );
+        let shader = result.unwrap();
+        if let ShaderStageInfo::Compute(ComputeShaderInfo { local_size, .. }) = shader.info.stage {
+            assert_eq!(local_size, [64, 1, 1]);
+        } else {
+            panic!("expected Compute stage info");
+        }
     }
 
     // ---------------------------------------------------------------------------

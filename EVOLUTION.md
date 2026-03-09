@@ -1,16 +1,17 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 21)
-**Phase**: 10 — Cross-Spring Absorption Wave 2
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 22)
+**Phase**: 10 — Multi-Language Frontends & Fixture Reorganization
 
 ---
 
 ## Current Position
 
-coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
+coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1174 tests (1174 passing, 30 ignored), 63% line coverage (target 90%),
-79/86 cross-spring WGSL shaders compile to SM70 SASS.
+1189 tests (1189 passing, 36 ignored), 63% line coverage (target 90%),
+79/86 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
+compute shaders and 4/10 SPIR-V roundtrip tests passing.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -202,7 +203,7 @@ early returns with standard control flow to ensure expr_map insertion.
 
 ```
 Current state:
-  WGSL → naga → coralReef → native binary (SASS/GFX)
+  WGSL/SPIR-V/GLSL → naga → coralReef → native binary (SASS/GFX)
   ↓
   coralDriver: AMD amdgpu fully wired (GEM+PM4+CS+fence)
   coralDriver: NVIDIA nouveau fully wired (channel+GEM+pushbuf+QMD)
@@ -219,8 +220,13 @@ Next milestone (NVIDIA):
   Fence wait → E2E test (pushbuf + CBUF binding fixed Iteration 9)
   Hardware: Titan V (SM70) + RTX 3090 (SM86, on-site)
 
+Iteration 22 — Multi-Language Frontends:
+  GLSL 450 compute → naga glsl-in → coralReef pipeline (5/5 fixtures passing)
+  SPIR-V roundtrip: WGSL → naga spv-out → compile() (4/10 passing, 6 blocked on Discriminant/const init)
+  Fixtures reorganized: corpus/ (86 spring snapshots) vs compiler-owned (21 shaders)
+
 Endgame:
-  WGSL → coralReef → coralDriver → GPU execution → result
+  WGSL/SPIR-V/GLSL → coralReef → coralDriver → GPU execution → result
   No vendor SDK. No CUDA. No ROCm. Pure Rust sovereign compute.
 ```
 

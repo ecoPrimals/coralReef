@@ -1,7 +1,7 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 21 (Cross-Spring Absorption Wave 2)
-**Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
+**Status**: Phase 10 — Iteration 22 (Multi-Language Frontends & Fixture Reorganization)
+**Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
 
@@ -31,7 +31,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1174 passing, 0 failed, 30 ignored
+cargo test --workspace     # 1189 passing, 0 failed, 36 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -155,7 +155,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1174 passing, 0 failed, 30 ignored) |
+| `cargo test --workspace` | PASS (1189 passing, 0 failed, 36 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -182,7 +182,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 21** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 22** |
 
 ---
 

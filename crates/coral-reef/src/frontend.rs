@@ -3,8 +3,8 @@
 //!
 //! The [`Frontend`] trait decouples the compiler core from any specific
 //! shader language parser.  The default implementation, [`NagaFrontend`],
-//! uses the `naga` crate for WGSL and SPIR-V, but alternative frontends
-//! can be plugged in without changing the compilation pipeline.
+//! uses the `naga` crate for WGSL, SPIR-V, and GLSL, but alternative
+//! frontends can be plugged in without changing the compilation pipeline.
 
 use crate::codegen::ir::{Shader, ShaderModel};
 use crate::error::CompileError;
@@ -37,9 +37,21 @@ pub trait Frontend {
         spirv: &[u32],
         sm: &'a dyn ShaderModel,
     ) -> Result<Shader<'a>, CompileError>;
+
+    /// Parse GLSL compute shader source and lower to the compiler IR.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompileError::InvalidInput`] if the source is malformed or
+    /// contains unsupported constructs.
+    fn compile_glsl<'a>(
+        &self,
+        source: &str,
+        sm: &'a dyn ShaderModel,
+    ) -> Result<Shader<'a>, CompileError>;
 }
 
-/// Default frontend backed by the `naga` crate (WGSL + SPIR-V).
+/// Default frontend backed by the `naga` crate (WGSL + SPIR-V + GLSL).
 pub struct NagaFrontend;
 
 impl Frontend for NagaFrontend {
@@ -58,6 +70,15 @@ impl Frontend for NagaFrontend {
         sm: &'a dyn ShaderModel,
     ) -> Result<Shader<'a>, CompileError> {
         let module = crate::codegen::naga_translate::parse_spirv(spirv)?;
+        translate_first_entry(&module, sm)
+    }
+
+    fn compile_glsl<'a>(
+        &self,
+        source: &str,
+        sm: &'a dyn ShaderModel,
+    ) -> Result<Shader<'a>, CompileError> {
+        let module = crate::codegen::naga_translate::parse_glsl(source)?;
         translate_first_entry(&module, sm)
     }
 }

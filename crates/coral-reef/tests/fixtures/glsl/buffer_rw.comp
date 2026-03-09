@@ -1,0 +1,42 @@
+// GLSL 450 compute: SSBO read/write with multiple bindings and struct layout.
+// Exercises: multiple buffer bindings, struct access, vec3/vec4, offset indexing.
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct Particle {
+    vec4 pos;
+    vec4 vel;
+    float mass;
+    float charge;
+    float _pad0;
+    float _pad1;
+};
+
+layout(std430, binding = 0) buffer Particles { Particle particles[]; };
+layout(std430, binding = 1) buffer Forces    { vec4 forces[];        };
+layout(std430, binding = 2) buffer Energies  { float energies[];     };
+
+layout(std430, binding = 3) buffer Params {
+    float dt;
+    float damping;
+    uint  n_particles;
+    uint  _pad;
+};
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= n_particles) return;
+
+    Particle p = particles[gid];
+    vec4 f = forces[gid];
+
+    vec4 acc = f / max(p.mass, 1e-10);
+    p.vel = (p.vel + acc * dt) * damping;
+    p.pos = p.pos + p.vel * dt;
+
+    float ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y + p.vel.z * p.vel.z);
+
+    particles[gid] = p;
+    energies[gid]  = ke;
+}

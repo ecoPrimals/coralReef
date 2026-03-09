@@ -19,7 +19,8 @@ bitview = { workspace = true }
 nak_ir_proc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-naga = { version = "28", features = ["wgsl-in", "spv-in", "spv-out"] }
+naga = { version = "28", features = ["wgsl-in", "spv-in", "spv-out", "glsl-in"] }
 
 [dev-dependencies]
 proptest = { workspace = true }
+naga = { version = "28", features = ["wgsl-in", "spv-out"] }

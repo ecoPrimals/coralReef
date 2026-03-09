@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 21 (Cross-Spring Absorption Wave 2)
+**Phase**: 10 — Iteration 22 (Multi-Language Frontends & Fixture Reorganization)
 
 ---
 
@@ -12,7 +12,7 @@
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
 | IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` semantic naming, differentiated error codes |
-| NVIDIA pipeline | A+ | WGSL/SPIR-V → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
+| NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1174 passing, 0 failed, 30 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1189 passing, 0 failed, 36 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 21** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 22** |
 
 ### Phase 10 Completions
 
@@ -300,6 +300,18 @@
 | Test expansion | ✅ | 1142 → 1174 passing (+32), 25 → 30 ignored (+5 new blockers) |
 | Cross-spring corpus | ✅ | 86 shaders, 79 compiling SM70 (was 47/40) |
 
+### Phase 10 — Iteration 22 Completions (Multi-Language Frontends & Fixture Reorganization)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Fixture reorganization | ✅ | 86 spring corpus shaders moved to `fixtures/wgsl/corpus/`; 21 compiler-owned fixtures stay in `fixtures/wgsl/`; `wgsl_corpus.rs` paths updated |
+| GLSL compute frontend | ✅ | `glsl-in` naga feature enabled; `parse_glsl()`, `compile_glsl()`, `compile_glsl_full()` public API; `Frontend` trait extended |
+| GLSL test corpus | ✅ | 5 GLSL 450 compute fixtures: basic_alu, control_flow, shared_reduction, transcendentals, buffer_rw — all compile SM70 |
+| SPIR-V roundtrip tests | ✅ | 10 roundtrip tests (WGSL → naga → SPIR-V → compile()): 4 passing, 6 ignored (Discriminant expr, non-literal const init) |
+| Frontend trait: compile_glsl | ✅ | `Frontend` trait now has 3 methods: `compile_wgsl`, `compile_spirv`, `compile_glsl` |
+| Test expansion | ✅ | 1174 → 1189 passing (+15), 30 → 36 ignored (+6 SPIR-V path gaps) |
+| SPIR-V path gaps documented | ✅ | `Discriminant` expression and non-literal constant initializers — future SPIR-V translator work |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -314,7 +326,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1142 passing, 0 failed, 25 ignored) |
+| `cargo test --workspace` | PASS (1189 passing, 0 failed, 36 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -340,7 +352,9 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 5 springs (47 shaders, 40 compiling SM70) | tests/fixtures/wgsl/ |
+| WGSL shader corpus (cross-spring) | 5 springs (86 shaders, 79 compiling SM70) | tests/fixtures/wgsl/corpus/ |
+| GLSL compute frontend | naga `glsl-in` feature | `compile_glsl()` public API, 5 GLSL fixtures |
+| SPIR-V roundtrip testing | naga `spv-out` → `compile()` | 10 roundtrip tests (4 passing, 6 ignored) |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
 | Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
 | `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |

@@ -1,0 +1,46 @@
+// GLSL 450 compute: control flow — loops, branches, barriers.
+// Exercises: if/else, for-loop, while-loop, break, barrier().
+#version 450
+
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) buffer Data { float data[]; };
+
+shared float scratch[128];
+
+void main() {
+    uint lid = gl_LocalInvocationID.x;
+    uint gid = gl_GlobalInvocationID.x;
+
+    float val = data[gid];
+
+    if (val > 0.0) {
+        val = val * 2.0;
+    } else {
+        val = -val + 1.0;
+    }
+
+    for (int i = 0; i < 4; i++) {
+        val = val * 0.9 + float(i) * 0.01;
+    }
+
+    int count = 0;
+    while (val > 1.0 && count < 10) {
+        val = val * 0.5;
+        count++;
+    }
+
+    scratch[lid] = val;
+    barrier();
+
+    if (lid == 0u) {
+        float total = 0.0;
+        for (uint i = 0u; i < 128u; i++) {
+            total += scratch[i];
+            if (total > 1e6) break;
+        }
+        data[gid] = total;
+    } else {
+        data[gid] = scratch[lid];
+    }
+}

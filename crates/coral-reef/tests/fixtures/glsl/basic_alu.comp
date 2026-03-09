@@ -1,0 +1,32 @@
+// GLSL 450 compute: integer + float ALU, FMA pattern.
+// Exercises: iadd, imul, fadd, fmul, fma, i2f, f2i, bitwise ops.
+#version 450
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer InBuf  { float  in_f[]; };
+layout(std430, binding = 1) buffer OutBuf { float out_f[]; };
+layout(std430, binding = 2) buffer IntBuf { int  out_i[]; };
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+
+    float a = in_f[gid * 2u];
+    float b = in_f[gid * 2u + 1u];
+
+    float sum   = a + b;
+    float prod  = a * b;
+    float fused = fma(a, b, sum);
+    float mixed = fused * 0.5 + prod * 0.25;
+
+    out_f[gid] = mixed;
+
+    int ia = int(a * 1000.0);
+    int ib = int(b * 1000.0);
+    int isum = ia + ib;
+    int iprod = ia * ib;
+    int ixor = ia ^ ib;
+    int iand = ia & 0xFF;
+
+    out_i[gid] = isum + iprod + ixor + iand;
+}

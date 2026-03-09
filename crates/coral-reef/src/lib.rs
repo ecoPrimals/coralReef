@@ -2,7 +2,7 @@
 #![deny(unsafe_code)]
 //! # coral-reef — Sovereign Rust GPU Compiler
 //!
-//! Multi-vendor GPU compiler: WGSL/SPIR-V → vendor-specific binary.
+//! Multi-vendor GPU compiler: WGSL/SPIR-V/GLSL → vendor-specific binary.
 //! Targets NVIDIA (SM70+) and AMD (RDNA2+), with Intel planned.
 //!
 //! ## Architecture
@@ -363,6 +363,80 @@ pub fn compile_wgsl_with(
     Ok(emit_binary(&compiled, options.target))
 }
 
+/// Compile GLSL compute shader source to native GPU binary.
+///
+/// The source must be a `#version 450` (or 460) compute shader.
+/// GLSL is parsed via naga's GLSL frontend — no df64 preamble injection.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_glsl(glsl: &str, options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
+    compile_glsl_with(&NagaFrontend, glsl, options)
+}
+
+/// Compile GLSL compute shader source to native GPU binary using a custom [`Frontend`].
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_glsl_with(
+    frontend: &dyn Frontend,
+    glsl: &str,
+    options: &CompileOptions,
+) -> Result<Vec<u8>, CompileError> {
+    if glsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty GLSL source".into()));
+    }
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_glsl"
+    );
+
+    let sm = shader_model_for(options.target)?;
+    let mut shader = frontend.compile_glsl(glsl, sm.as_ref())?;
+    let compiled = compile_ir(&mut shader)?;
+    Ok(emit_binary(&compiled, options.target))
+}
+
+/// Compile GLSL compute shader source to [`CompiledBinary`] with full metadata.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_glsl_full(
+    glsl: &str,
+    options: &CompileOptions,
+) -> Result<CompiledBinary, CompileError> {
+    compile_glsl_full_with(&NagaFrontend, glsl, options)
+}
+
+/// Compile GLSL compute shader to [`CompiledBinary`] using a custom [`Frontend`].
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or compilation fails.
+pub fn compile_glsl_full_with(
+    frontend: &dyn Frontend,
+    glsl: &str,
+    options: &CompileOptions,
+) -> Result<CompiledBinary, CompileError> {
+    if glsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty GLSL source".into()));
+    }
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_glsl_full"
+    );
+
+    let sm = shader_model_for(options.target)?;
+    let mut shader = frontend.compile_glsl(glsl, sm.as_ref())?;
+    let backend = backend::backend_for(options.target)?;
+    backend.compile(&mut shader)
+}
+
 fn emit_binary(compiled: &CompiledShader, target: GpuTarget) -> Vec<u8> {
     let include_header = target.as_nvidia().is_some();
     let header_size = if include_header {
@@ -450,6 +524,34 @@ mod tests {
         assert!(
             result.is_ok() || result.is_err(),
             "should parse and attempt compilation"
+        );
+    }
+
+    #[test]
+    fn test_compile_glsl_empty_rejected() {
+        let result = compile_glsl("", &CompileOptions::default());
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_compile_glsl_minimal_compute() {
+        let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
+        let result = compile_glsl(glsl, &CompileOptions::default());
+        assert!(
+            result.is_ok(),
+            "minimal GLSL compute should compile: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_glsl_malformed_returns_error() {
+        let result = compile_glsl(
+            "#version 450\nvoid main() { int x = ; }",
+            &CompileOptions::default(),
+        );
+        assert!(
+            result.is_err(),
+            "malformed GLSL should return error: {result:?}"
         );
     }
 
