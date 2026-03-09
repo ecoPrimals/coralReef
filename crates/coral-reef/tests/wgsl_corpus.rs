@@ -40,11 +40,6 @@
 //!   transfer matrix multiplication, uniform buffer bindings. Referenced by
 //!   neuralSpring for disorder sweep validation.
 //!
-//! - `local_elementwise_f64` — airSpring hydrology domain ops (SCS-CN, Stewart,
-//!   Makkink, Turc, Hamon, Blaney-Criddle). Retired in airSpring v0.7.2;
-//!   upstream replacement is `batched_elementwise_f64` in barraCuda. Kept as
-//!   fossil record; needs Acos to compile.
-//!
 //! - `stress_virial_f64` — hotSpring MD off-diagonal stress tensor. Used by
 //!   wetSpring for mechanical property validation.
 //!
@@ -75,6 +70,35 @@
 //! - `stencil_cooperation`, `spatial_payoff` — neuralSpring game-theory stencils.
 //!
 //! - `swarm_nn_forward` — neuralSpring batch NN forward with integer argmax.
+//!
+//! ## Iteration 21 absorptions
+//!
+//! ### hotSpring (9 new + 6 wired)
+//!
+//! - `spin_orbit_pack_f64`, `batched_hfb_density_f64`, `batched_hfb_energy_f64`
+//!   — nuclear physics (HFB, spin-orbit). Self-contained f64.
+//! - `esn_readout`, `esn_reservoir_update` — MD Echo State Network (f32, tanh).
+//! - `su3_kinetic_energy_f64`, `su3_link_update_f64`, `staggered_fermion_force_f64`,
+//!   `dirac_staggered_f64` — lattice QCD (SU(3) dynamics, fermion force, Dirac).
+//! - Wired existing fixtures: `xpay_f64`, `yukawa_force_f64`, `wilson_action_f64`,
+//!   `polyakov_loop_f64`, `vv_kick_drift_f64`, `lattice_init_f64`.
+//!
+//! ### neuralSpring (17 new + 6 wired)
+//!
+//! - coralForge Evoformer (df64 auto-prepended): `torsion_angles_f64`,
+//!   `triangle_mul_outgoing_f64`, `triangle_mul_incoming_f64`,
+//!   `triangle_attention_f64`, `outer_product_mean_f64`,
+//!   `msa_row_attention_scores_f64`, `msa_col_attention_scores_f64`,
+//!   `attention_apply_f64`, `ipa_scores_f64`, `backbone_update_f64`.
+//! - Bio/evolution (f32): `hill_gate`, `batch_fitness_eval`, `multi_obj_fitness`,
+//!   `swarm_nn_scores`, `locus_variance`, `head_split`, `head_concat`.
+//! - Wired existing fixtures: `batch_ipr`, `wright_fisher_step`,
+//!   `logsumexp_reduce`, `chi_squared_f64`, `pairwise_l2`, `linear_regression`.
+//!
+//! ### Retired
+//!
+//! - `local_elementwise_f64` — removed (airSpring v0.7.2 retired this shader;
+//!   upstream replacement is `batched_elementwise_f64` in barraCuda).
 
 use coral_reef::{CompileOptions, GpuArch, compile_wgsl};
 use std::time::Instant;
@@ -353,13 +377,186 @@ wgsl_compile_test!(corpus_spatial_payoff, "spatial_payoff.wgsl");
 wgsl_compile_test!(corpus_swarm_nn_forward, "swarm_nn_forward.wgsl");
 
 // ===========================================================================
-// airSpring — Hydrology / environmental science
+// hotSpring — Existing fixtures wired for corpus (Iteration 21)
 // ===========================================================================
 
-// Local elementwise f64 — retired in airSpring v0.7.2 (upstream:
-// batched_elementwise_f64 in barraCuda). Kept as fossil record.
+// Lattice: BLAS xpay x = a*x + y (f64, simple loop)
+wgsl_compile_test!(corpus_xpay_f64, "xpay_f64.wgsl");
+
+// Lattice: Yukawa all-pairs force (f64, N² loop)
+wgsl_compile_test!(corpus_yukawa_force_f64, "yukawa_force_f64.wgsl");
+
+// Lattice: Wilson action (f64, plaquette sum → S = β·Σ(1-Re Tr U))
 wgsl_compile_test!(
-    corpus_local_elementwise_f64,
-    "local_elementwise_f64.wgsl",
-    ignore = "retired in airSpring v0.7.2; needs Acos (not yet supported)"
+    corpus_wilson_action_f64,
+    "wilson_action_f64.wgsl",
+    ignore = "needs external c64_new from complex_f64.wgsl"
 );
+
+// Lattice: Polyakov loop (f64, temporal link product)
+wgsl_compile_test!(
+    corpus_polyakov_loop_f64,
+    "polyakov_loop_f64.wgsl",
+    ignore = "needs external Complex64 type from complex_f64.wgsl"
+);
+
+// MD: velocity-Verlet kick+drift fused (f64, leapfrog)
+wgsl_compile_test!(corpus_vv_kick_drift_f64, "vv_kick_drift_f64.wgsl");
+
+// Lattice: lattice initialization (f64, SU(3) identity/near-identity)
+wgsl_compile_test!(
+    corpus_lattice_init_f64,
+    "lattice_init_f64.wgsl",
+    ignore = "needs external su3 include (su3_identity, su3_random_near_identity)"
+);
+
+// ===========================================================================
+// neuralSpring — Existing fixtures wired for corpus (Iteration 21)
+// ===========================================================================
+
+// Anderson IPR: inverse participation ratio (f32, spectral analysis)
+wgsl_compile_test!(corpus_batch_ipr, "batch_ipr.wgsl");
+
+// Wright-Fisher step: population genetics drift (f32, stochastic)
+wgsl_compile_test!(corpus_wright_fisher_step, "wright_fisher_step.wgsl");
+
+// Log-sum-exp reduction: HMM log-domain (f32, stable logsumexp)
+wgsl_compile_test!(corpus_logsumexp_reduce, "logsumexp_reduce.wgsl");
+
+// Chi-squared test: goodness-of-fit (f64, statistical test)
+wgsl_compile_test!(corpus_chi_squared_f64, "chi_squared_f64.wgsl");
+
+// Pairwise L2 distance: MODES novelty search (f32, distance matrix)
+wgsl_compile_test!(corpus_pairwise_l2, "pairwise_l2.wgsl");
+
+// Linear regression: OLS normal equations (f32, stats)
+wgsl_compile_test!(corpus_linear_regression, "linear_regression.wgsl");
+
+// ===========================================================================
+// hotSpring — New absorption: nuclear/physics (Iteration 21)
+// ===========================================================================
+
+// Nuclear: spin-orbit interaction packing (f64, simple struct ops)
+wgsl_compile_test!(corpus_spin_orbit_pack_f64, "spin_orbit_pack_f64.wgsl");
+
+// Nuclear: HFB density matrix (f64, BCS occupation, sqrt)
+wgsl_compile_test!(
+    corpus_batched_hfb_density_f64,
+    "batched_hfb_density_f64.wgsl"
+);
+
+// Nuclear: HFB total energy (f64, SEMF + pairing + deformation)
+wgsl_compile_test!(
+    corpus_batched_hfb_energy_f64,
+    "batched_hfb_energy_f64.wgsl",
+    ignore = "f64 pow: log2 lowering expects 2 components (scalar f64 pow gap)"
+);
+
+// ===========================================================================
+// hotSpring — New absorption: MD / ESN (Iteration 21)
+// ===========================================================================
+
+// MD: Echo State Network readout (f32, linear output layer)
+wgsl_compile_test!(corpus_esn_readout, "esn_readout.wgsl");
+
+// MD: ESN reservoir update (f32, tanh activation, sparse recurrence)
+wgsl_compile_test!(
+    corpus_esn_reservoir_update,
+    "esn_reservoir_update.wgsl",
+    ignore = "Math::Tanh not yet supported"
+);
+
+// ===========================================================================
+// hotSpring — New absorption: Lattice QCD (Iteration 21)
+// ===========================================================================
+
+// Lattice: SU(3) kinetic energy Tr(P†P) (f64, 18-element inner product)
+wgsl_compile_test!(corpus_su3_kinetic_energy_f64, "su3_kinetic_energy_f64.wgsl");
+
+// Lattice: SU(3) link update via Cayley (f64, 3×3 matrix inverse, exp)
+wgsl_compile_test!(corpus_su3_link_update_f64, "su3_link_update_f64.wgsl");
+
+// Lattice: staggered fermion force dS_F/dU (f64, outer product, TA projection)
+wgsl_compile_test!(
+    corpus_staggered_fermion_force_f64,
+    "staggered_fermion_force_f64.wgsl"
+);
+
+// Lattice: staggered Dirac operator D_stag·ψ (f64, SU(3)×color-vector)
+wgsl_compile_test!(corpus_dirac_staggered_f64, "dirac_staggered_f64.wgsl");
+
+// ===========================================================================
+// neuralSpring — New absorption: bio/evolution (Iteration 21)
+// ===========================================================================
+
+// Hill gate: signal integration (f32, Hill function, pow)
+wgsl_compile_test!(corpus_hill_gate, "hill_gate.wgsl");
+
+// EA batch fitness: NK landscape evaluation (f32, fma, bitwise)
+wgsl_compile_test!(corpus_batch_fitness_eval, "batch_fitness_eval.wgsl");
+
+// Multi-objective Pareto fitness (f32, sqrt, fma)
+wgsl_compile_test!(corpus_multi_obj_fitness, "multi_obj_fitness.wgsl");
+
+// Swarm NN scores: score path for swarm robotics (f32, sigmoid, exp)
+wgsl_compile_test!(corpus_swarm_nn_scores, "swarm_nn_scores.wgsl");
+
+// Meta-population locus variance / FST (f32, allele frequency stats)
+wgsl_compile_test!(corpus_locus_variance, "locus_variance.wgsl");
+
+// MHA head split: reshape (B,S,D) → (B,S,H,Dh) (f32, pure indexing)
+wgsl_compile_test!(corpus_head_split, "head_split.wgsl");
+
+// MHA head concat: reshape (B,S,H,Dh) → (B,S,D) (f32, pure indexing)
+wgsl_compile_test!(corpus_head_concat, "head_concat.wgsl");
+
+// ===========================================================================
+// neuralSpring — New absorption: coralForge Evoformer (df64, Iteration 21)
+// Df64/df64_* usage auto-prepended by coralReef prepare_wgsl()
+// ===========================================================================
+
+// Evoformer: torsion angle dihedrals (df64, atan2, vector ops)
+wgsl_compile_test!(
+    corpus_torsion_angles_f64,
+    "torsion_angles_f64.wgsl",
+    ignore = "repair_ssa: Undefined value in branched df64_gt comparison path"
+);
+
+// Evoformer: triangle multiplication outgoing (df64, Algorithm 11)
+wgsl_compile_test!(
+    corpus_triangle_mul_outgoing_f64,
+    "triangle_mul_outgoing_f64.wgsl"
+);
+
+// Evoformer: triangle multiplication incoming (df64, Algorithm 12)
+wgsl_compile_test!(
+    corpus_triangle_mul_incoming_f64,
+    "triangle_mul_incoming_f64.wgsl"
+);
+
+// Evoformer: triangle attention (df64, softmax+gate, Algorithm 13)
+wgsl_compile_test!(corpus_triangle_attention_f64, "triangle_attention_f64.wgsl");
+
+// MSA: outer product mean accumulation (df64)
+wgsl_compile_test!(corpus_outer_product_mean_f64, "outer_product_mean_f64.wgsl");
+
+// MSA: row attention scores (df64, Q·K^T / sqrt(d))
+wgsl_compile_test!(
+    corpus_msa_row_attention_scores_f64,
+    "msa_row_attention_scores_f64.wgsl"
+);
+
+// MSA: column attention scores (df64, transposed attention)
+wgsl_compile_test!(
+    corpus_msa_col_attention_scores_f64,
+    "msa_col_attention_scores_f64.wgsl"
+);
+
+// Attention: output application V·attn_weights (df64)
+wgsl_compile_test!(corpus_attention_apply_f64, "attention_apply_f64.wgsl");
+
+// IPA: invariant point attention scores (df64, frame transforms)
+wgsl_compile_test!(corpus_ipa_scores_f64, "ipa_scores_f64.wgsl");
+
+// IPA: backbone frame update (df64, quaternion-like rotation)
+wgsl_compile_test!(corpus_backbone_update_f64, "backbone_update_f64.wgsl");

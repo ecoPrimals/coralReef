@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 20)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 21)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 20)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 21)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -208,6 +208,7 @@ the full Spring absorption map.
 - [x] Iteration 18: Pred→GPR legalization fix (src_is_reg True/False), copy_alu_src_if_pred in SetP legalize, small array promotion (type_reg_comps up to 32 regs) unblocking xoshiro128ss, SM75 gpr.rs 929 LOC, 4 tests un-ignored (bcs_bisection_f64, batched_hfb_hamiltonian_f64, coverage_logical_predicates, xoshiro128ss), 4 RA back-edge issues deferred — 1138 tests (1138 passing, 29 ignored)
 - [x] Iteration 19: Back-edge live-in pre-allocation in RA (live_in_values), calc_max_live_back_edge_aware, scheduler live_in seeding, calc_max_live multi-predecessor fix — 3 tests unblocked (su3_gauge_force_f64, wilson_plaquette_f64, swarm_nn_forward), sigmoid_f64 remains ignored — 1141 tests (1141 passing, 26 ignored), 39/47 shaders SM70, WGSL 46/49
 - [x] Iteration 20: SSA dominance repair (`fix_entry_live_in` detects values live-in to entry block, inserts OpUndef + repair_ssa for phi insertion), sigmoid_f64 unblocked, scheduler debug_assert_eq! promoted, SM75 gpr_tests.rs extracted — 1142 tests (1142 passing, 25 ignored), 40/47 shaders SM70, WGSL 47/49
+- [x] Iteration 21: Cross-spring absorption wave 2 — 38 new test entries (9 hotSpring + 17 neuralSpring + 12 existing wired), df64 comparison operators (df64_gt/lt/ge), chi_squared keyword fix, local_elementwise_f64 retired — 1174 tests (1174 passing, 30 ignored), 79/86 shaders SM70
 
 ### P3 — Remaining debt
 - [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
@@ -221,12 +222,12 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. 40/47 cross-spring shaders compile to native SASS.
-1142 tests passing, 25 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+*The compiler evolves. 79/86 cross-spring shaders compile to native SASS.
+1174 tests passing, 30 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
 All unsafe in driver consolidated: AMD + NV use RAII MappedRegion with safe slice access.
 tarpc uses bincode for high-performance binary IPC. 28 DEBT comments tracked (ISA gaps, dual-issue, features).
-Iteration 20: SSA dominance repair — sigmoid_f64 unblocked via fix_entry_live_in.
-Iteration 19: Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding — 3 tests unblocked.
+Iteration 21: Cross-spring absorption wave 2 — +38 shaders from hotSpring + neuralSpring.
+Iteration 20: SSA dominance repair — sigmoid_f64 unblocked.
 Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*

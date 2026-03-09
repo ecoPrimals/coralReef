@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 20: SSA Dominance Repair)
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 21: Cross-Spring Absorption Wave 2)
 
 ---
 
@@ -86,7 +86,7 @@
 
 ## Cross-Spring Shader Evolution Provenance
 
-47 WGSL shaders imported from 5 springs. 40 compile to SM70, 7 tracked with
+86 WGSL shaders imported from 5 springs. 79 compile to SM70, 7 tracked with
 specific blockers. The table below tracks provenance and cross-spring adoption.
 
 | Shader | Origin | Domain | Cross-Spring Evolution | Status |
@@ -287,11 +287,12 @@ Status (Iteration 15):
 
 ---
 
-*40/47 cross-spring shaders compile to native SASS. 1142 tests passing, 25 ignored, 63% coverage.
+*79/86 cross-spring shaders compile to native SASS. 1174 tests passing, 30 ignored, 63% coverage.
 91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
 The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
 (Iteration 10). Iterations 13-15: df64 preamble (5 tests unblocked), Statement::Switch,
 AMD+NV RAII MappedRegion, typed DRM wrappers, inline var pre-allocation fix.
 Iteration 19: Back-edge live-in RA, 3 tests unblocked.
-Iteration 20: SSA dominance repair, sigmoid_f64 unblocked, gpr_tests.rs extracted.
-Next: NVIDIA hardware validation, trig inverse math, Complex64 preamble.*
+Iteration 21: Cross-spring absorption wave 2 — +38 shaders from hotSpring + neuralSpring.
+Iteration 20: SSA dominance repair, sigmoid_f64 unblocked.
+Next: NVIDIA hardware validation, trig inverse math, Complex64 preamble, Tanh.*

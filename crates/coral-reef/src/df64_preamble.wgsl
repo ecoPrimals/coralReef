@@ -130,6 +130,18 @@ fn exp_df64(a: Df64) -> Df64 {
     return df64_mul(p, df64_from_f32(scale));
 }
 
+fn df64_gt(a: Df64, b: Df64) -> bool {
+    return a.hi > b.hi || (a.hi == b.hi && a.lo > b.lo);
+}
+
+fn df64_lt(a: Df64, b: Df64) -> bool {
+    return a.hi < b.hi || (a.hi == b.hi && a.lo < b.lo);
+}
+
+fn df64_ge(a: Df64, b: Df64) -> bool {
+    return a.hi > b.hi || (a.hi == b.hi && a.lo >= b.lo);
+}
+
 fn tanh_df64(a: Df64) -> Df64 {
     // tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)
     // For large |x|, clamp to ±1 for stability

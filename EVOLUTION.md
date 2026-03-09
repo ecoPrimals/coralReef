@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 8, 2026 (Phase 10 — Iteration 20)
-**Phase**: 10 — SSA Dominance Repair & File Extraction
+**Last updated**: March 8, 2026 (Phase 10 — Iteration 21)
+**Phase**: 10 — Cross-Spring Absorption Wave 2
 
 ---
 
@@ -9,9 +9,8 @@
 
 coralReef compiles WGSL and SPIR-V to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1142 tests (1142 passing, 25 ignored), 63% line coverage (target 90%),
-40/47 cross-spring WGSL shaders compile to SM70 SASS. WGSL corpus 47/49
-passing, 2 ignored.
+1174 tests (1174 passing, 30 ignored), 63% line coverage (target 90%),
+79/86 cross-spring WGSL shaders compile to SM70 SASS.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -256,7 +255,7 @@ Endgame:
 
 | Result | Count | Examples |
 |--------|-------|---------|
-| **Compiling** | 40 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, xoshiro128ss, **su3_gauge_force_f64**, **wilson_plaquette_f64**, **swarm_nn_forward**, … |
+| **Compiling** | 79 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, xoshiro128ss, **su3_gauge_force_f64**, **wilson_plaquette_f64**, **swarm_nn_forward**, … |
 | df64 preamble (compiling) | 5 | gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
 | ~~RA straight-line block chain~~ | ~~1~~ | **Fixed Iteration 20** — sigmoid_f64 now compiles |
 | ~~Register allocator SSA tracking~~ | ~~1~~ | **Fixed Iteration 19** — su3_gauge_force_f64 now compiles |
@@ -362,16 +361,17 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 17 | Cross-spring absorption (20 shaders), codebase audit, idiomatic refactoring | **1134** (1134 pass, 33 ignore), 63% coverage |
 | 10 iter 18 | Pred→GPR legalization fix, small array promotion, 4 tests un-ignored | **1138** (1138 pass, 29 ignore), 36/47 shaders SM70 |
 | 10 iter 19 | Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding | **1141** (1141 pass, 26 ignore), 39/47 shaders SM70, WGSL 46/49 |
-| 10 iter 20 (current) | SSA dominance repair (fix_entry_live_in), sigmoid_f64 unblocked, gpr_tests.rs extraction | **1142** (1142 pass, 25 ignore), 40/47 shaders SM70, WGSL 47/49 |
+| 10 iter 20 | SSA dominance repair (fix_entry_live_in), sigmoid_f64 unblocked, gpr_tests.rs extraction | **1142** (1142 pass, 25 ignore), 40/47 shaders SM70, WGSL 47/49 |
+| 10 iter 21 (current) | Cross-spring absorption wave 2: +38 shaders (hotSpring+neuralSpring), df64_gt/lt/ge preamble, local_elementwise retired | **1174** (1174 pass, 30 ignore), 79/86 shaders SM70 |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 20: 1142 tests passing, 25 ignored. SSA dominance repair, calc_max_live_back_edge_aware, scheduler seeds
+Iteration 21: 1174 tests passing, 30 ignored. Cross-spring absorption wave 2, calc_max_live_back_edge_aware, scheduler seeds
 live_set from live_in_values for loop headers, calc_max_live iterates
 all forward predecessors. 3 tests unblocked: su3_gauge_force_f64,
-wilson_plaquette_f64, swarm_nn_forward. sigmoid_f64 fixed (SSA dominance repair via fix_entry_live_in).
+wilson_plaquette_f64, swarm_nn_forward. 79/86 cross-spring shaders compile — +38 new from hotSpring + neuralSpring.
 
 Iteration 18: Pred→GPR legalization fix, small array promotion, 4 tests
 un-ignored. Iteration 17: Cross-spring absorption (20 shaders), audit, sm75 gpr.rs

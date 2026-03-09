@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 8, 2026  
-**Phase**: 10 — Iteration 20 (SSA Dominance Repair & File Extraction)
+**Phase**: 10 — Iteration 21 (Cross-Spring Absorption Wave 2)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1142 passing, 0 failed, 25 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1174 passing, 0 failed, 30 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 20** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 21** |
 
 ### Phase 10 Completions
 
@@ -284,6 +284,21 @@
 | Test expansion | ✅ | 1141 → 1142 passing (+1 test), 26 → 25 ignored |
 | Cross-spring corpus | ✅ | 47 shaders, 40 compiling SM70 (was 39) |
 | WGSL corpus | ✅ | 47/49 passing, 2 ignored (was 46/49) |
+
+### Phase 10 — Iteration 21 Completions (Cross-Spring Absorption Wave 2)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Cross-spring absorption wave 2 | ✅ | 38 new test entries: 9 hotSpring + 17 neuralSpring + 12 existing fixtures wired |
+| hotSpring absorption (self-contained) | ✅ | spin_orbit_pack_f64, batched_hfb_density_f64, esn_readout, su3_kinetic_energy_f64, su3_link_update_f64, staggered_fermion_force_f64, dirac_staggered_f64 |
+| neuralSpring coralForge absorption (df64) | ✅ | 10 Evoformer/IPA/MSA shaders: triangle_mul, triangle_attention, outer_product_mean, msa_row/col_attention_scores, attention_apply, ipa_scores, backbone_update — df64 preamble auto-prepended |
+| neuralSpring bio absorption (f32) | ✅ | hill_gate, batch_fitness_eval, multi_obj_fitness, swarm_nn_scores, locus_variance, head_split, head_concat |
+| Existing fixtures wired | ✅ | 12 previously-imported shaders added to corpus tracking: xpay_f64, yukawa_force_f64, vv_kick_drift_f64, batch_ipr, wright_fisher_step, logsumexp_reduce, chi_squared_f64, pairwise_l2, linear_regression, + 3 ignored (need external includes) |
+| df64 preamble: comparison operators | ✅ | Added `df64_gt`, `df64_lt`, `df64_ge` to built-in preamble |
+| chi_squared_f64 keyword fix | ✅ | `shared` → `wg_scratch` (WGSL reserved keyword) |
+| local_elementwise_f64 retired | ✅ | Removed test + fixture (airSpring v0.7.2 retired upstream) |
+| Test expansion | ✅ | 1142 → 1174 passing (+32), 25 → 30 ignored (+5 new blockers) |
+| Cross-spring corpus | ✅ | 86 shaders, 79 compiling SM70 (was 47/40) |
 
 ### Phase 10 Remaining / Phase 11 Roadmap
 

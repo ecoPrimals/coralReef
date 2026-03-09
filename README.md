@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 20 (SSA Dominance Repair)
+**Status**: Phase 10 — Iteration 21 (Cross-Spring Absorption Wave 2)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V → native GPU binary
 
 ---
@@ -31,7 +31,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1142 passing, 0 failed, 25 ignored
+cargo test --workspace     # 1174 passing, 0 failed, 30 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -123,7 +123,7 @@ coralReef/
 | Crate | Purpose |
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control |
-| `coral-reef` | Shader compiler — 40/47 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
+| `coral-reef` | Shader compiler — 79/86 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (channel+GEM+pushbuf+QMD+CBUF+fence) via DRM ioctl (pure Rust, bytemuck, zero FFI) |
 | `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API, auto-detect DRM render nodes |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
@@ -155,7 +155,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1142 passing, 0 failed, 25 ignored) |
+| `cargo test --workspace` | PASS (1174 passing, 0 failed, 30 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -182,7 +182,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 20** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 21** |
 
 ---
 
