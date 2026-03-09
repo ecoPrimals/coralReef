@@ -48,6 +48,10 @@ pub struct CompileWgslRequest {
     pub opt_level: u32,
     /// Enable f64 software transcendentals.
     pub fp64_software: bool,
+    /// f64 strategy hint from the caller (e.g. `"software"`, `"native"`).
+    /// Optional — defaults to using `fp64_software` if absent.
+    #[serde(default)]
+    pub fp64_strategy: Option<String>,
 }
 
 /// Response from shader compilation.
@@ -60,6 +64,12 @@ pub struct CompileResponse {
     pub binary: Bytes,
     /// Size in bytes.
     pub size: usize,
+    /// Target architecture the binary was compiled for.
+    #[serde(default)]
+    pub arch: Option<String>,
+    /// Compilation status (e.g. `"success"`, `"partial"`).
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// Health check response.
@@ -148,6 +158,8 @@ pub fn handle_compile_spirv(
     Ok(CompileResponse {
         binary: Bytes::from(binary),
         size,
+        arch: Some(arch.to_owned()),
+        status: Some("success".to_owned()),
     })
 }
 
@@ -173,12 +185,18 @@ pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileEr
 ///
 /// Returns [`CompileError`] on invalid input or compilation failure.
 pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, CompileError> {
-    let options = build_options(&req.arch, req.opt_level, req.fp64_software)?;
+    let fp64_sw = req
+        .fp64_strategy
+        .as_deref()
+        .map_or(req.fp64_software, |s| s == "software");
+    let options = build_options(&req.arch, req.opt_level, fp64_sw)?;
     let binary = coral_reef::compile_wgsl(&req.wgsl_source, &options)?;
     let size = binary.len();
     Ok(CompileResponse {
         binary: Bytes::from(binary),
         size,
+        arch: Some(req.arch.clone()),
+        status: Some("success".to_owned()),
     })
 }
 
@@ -258,6 +276,7 @@ mod tests {
             arch: "sm_70".to_owned(),
             opt_level: 2,
             fp64_software: true,
+            fp64_strategy: None,
         };
         assert!(handle_compile_wgsl(&req).is_err());
     }
@@ -296,6 +315,7 @@ mod tests {
             arch: "unknown_gpu".to_owned(),
             opt_level: 2,
             fp64_software: true,
+            fp64_strategy: None,
         };
         let result = handle_compile_wgsl(&req);
         assert!(result.is_err());

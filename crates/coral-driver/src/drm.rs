@@ -1,31 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Pure Rust DRM ioctl interface — uses `rustix` for mmap/munmap, `libc` for ioctl.
+//! Pure Rust DRM ioctl interface — uses `rustix` for mmap/munmap, inline asm for ioctl.
 //!
 //! All ioctl numbers and structures are defined here from the Linux
 //! kernel headers (GPL-2.0-only) via clean-room constant extraction.
 //!
 //! Memory mapping uses `rustix::mm` (safe wrappers, no raw unsafe).
-//! ioctl remains on `libc` until rustix stabilises a generic typed
-//! ioctl helper. See also `amd/ioctl.rs`, `nv/ioctl.rs`.
+//! ioctl uses a raw syscall via inline asm — zero libc dependency.
+//! See also `amd/ioctl.rs`, `nv/ioctl.rs`.
 
 use crate::error::{DriverError, DriverResult};
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::ptr::NonNull;
 
-/// DRM ioctl direction flags.
-const _IOC_NONE: u32 = 0;
-const IOC_WRITE: u32 = 1;
-const IOC_READ: u32 = 2;
+/// Linux ioctl direction flags (shared with UVM ioctls).
+pub(crate) const _IOC_NONE: u32 = 0;
+pub(crate) const IOC_WRITE: u32 = 1;
+pub(crate) const IOC_READ: u32 = 2;
 
-const IOC_NRBITS: u32 = 8;
-const IOC_TYPEBITS: u32 = 8;
-const IOC_SIZEBITS: u32 = 14;
+pub(crate) const IOC_NRBITS: u32 = 8;
+pub(crate) const IOC_TYPEBITS: u32 = 8;
+pub(crate) const IOC_SIZEBITS: u32 = 14;
 
-const IOC_NRSHIFT: u32 = 0;
-const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
-const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
-const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
+pub(crate) const IOC_NRSHIFT: u32 = 0;
+pub(crate) const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
+pub(crate) const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
+pub(crate) const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
 
 const DRM_IOCTL_BASE: u32 = b'd' as u32;
 
@@ -386,14 +386,58 @@ pub(crate) unsafe fn drm_ioctl_named<T>(
 ) -> DriverResult<()> {
     // SAFETY: The caller guarantees `T` is the correct `#[repr(C)]` kernel
     // struct for `request`. `arg` is a valid mutable reference (non-null,
-    // aligned, initialized). `libc::ioctl` performs a synchronous syscall —
+    // aligned, initialized). The inline asm performs a synchronous syscall —
     // the pointer does not escape the call.
-    let ret = unsafe { libc::ioctl(fd, request as libc::c_ulong, std::ptr::from_mut::<T>(arg)) };
+    let ret = unsafe { raw_ioctl_syscall(fd, request, std::ptr::from_mut::<T>(arg).cast()) };
     if ret < 0 {
-        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
-        return Err(DriverError::IoctlFailed { name, errno });
+        return Err(DriverError::IoctlFailed {
+            name,
+            errno: (-ret) as i32,
+        });
     }
     Ok(())
+}
+
+/// Raw ioctl syscall via inline asm. Returns negative errno on failure.
+///
+/// # Safety
+///
+/// `arg` must point to a valid, properly aligned `#[repr(C)]` struct
+/// matching the ioctl `request`.
+#[cfg(target_arch = "x86_64")]
+unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void) -> i64 {
+    let ret: i64;
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            in("rax") 16_u64, // __NR_ioctl
+            in("rdi") fd as u64,
+            in("rsi") request,
+            in("rdx") arg as u64,
+            lateout("rax") ret,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack, preserves_flags),
+        );
+    }
+    ret
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void) -> i64 {
+    let ret: i64;
+    unsafe {
+        core::arch::asm!(
+            "svc #0",
+            in("x8") 29_u64, // __NR_ioctl on aarch64
+            in("x0") fd as u64,
+            in("x1") request,
+            in("x2") arg as u64,
+            lateout("x0") ret,
+            options(nostack, preserves_flags),
+        );
+    }
+    ret
 }
 
 #[cfg(test)]

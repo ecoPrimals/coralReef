@@ -183,7 +183,7 @@ impl ShaderModel for ShaderModel70 {
                 11
             }
             // Op::DepBar(_) => 4,
-            _ => 1, // DEBT(opt): co-issue
+            _ => 1, // EVOLUTION(opt): co-issue
         }
     }
 

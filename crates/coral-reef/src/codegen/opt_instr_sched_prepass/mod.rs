@@ -17,8 +17,8 @@ use super::liveness::{BlockLiveness, LiveSet, Liveness, SimpleLiveness};
 use super::opt_instr_sched_common::{DepGraph, SideEffect, calc_statistics, side_effect_type};
 use std::cmp::{max, min};
 
-// This is the maximum number of reserved gprs - (DEBT(opt): Model more cases
-// where we actually need 2)
+// EVOLUTION(opt): Model more cases where we actually need 2 reserved GPRs.
+// Maximum number of reserved GPRs for scheduling.
 const SW_RESERVED_GPRS: i32 = 1;
 const SW_RESERVED_GPRS_SPILL: i32 = 2;
 

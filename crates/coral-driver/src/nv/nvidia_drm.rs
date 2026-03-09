@@ -10,7 +10,7 @@
 //! - Render node enumeration alongside other DRM devices
 //! - SM86-specific compilation target in `GpuContext::auto()`
 //!
-//! ## Compute dispatch path (future)
+//! ## Compute dispatch path
 //!
 //! The nvidia-drm render node does not support DRM GEM allocation
 //! or dumb buffers. Compute dispatch on the proprietary nvidia driver
@@ -20,9 +20,11 @@
 //! - `/dev/nvidia-uvm` — GPU virtual memory, buffer allocation
 //! - NVIDIA RM (Resource Manager) ioctls — channel submission
 //!
-//! Compiled SM86 SASS binaries are target-identical regardless of
-//! the host driver (nouveau vs nvidia). The compilation pipeline is
-//! ready; only the dispatch path needs UVM evolution.
+//! See [`super::uvm`] for the UVM ioctl definitions and device
+//! infrastructure. Compiled SM86 SASS binaries are target-identical
+//! regardless of the host driver (nouveau vs nvidia). The compilation
+//! pipeline is ready; the dispatch path needs UVM integration testing
+//! on a system with the proprietary driver loaded.
 //!
 //! Feature-gated behind `--features nvidia-drm`.
 

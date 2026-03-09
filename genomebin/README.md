@@ -19,7 +19,6 @@ Planned:
 
 Pending — genomeBin deployment will be configured once both AMD and
 NVIDIA hardware paths are validated end-to-end. AMD E2E dispatch is
-verified (RX 6950 XT, Iteration 10). Iteration 11 consolidated the
-ioctl unsafe surface and removed dead code. NVIDIA nouveau path is wired
-but awaits hardware validation. The compiler pipeline is fully
-functional via `cargo run -- compile`.
+verified (RX 6950 XT). NVIDIA nouveau path is wired but awaits hardware
+validation; nvidia-drm UVM infrastructure is in place (Iteration 25).
+The compiler pipeline is fully functional via `cargo run -- compile`.

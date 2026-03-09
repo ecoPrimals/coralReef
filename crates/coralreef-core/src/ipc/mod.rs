@@ -3,14 +3,15 @@
 //!
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
 //! - JSON-RPC 2.0 as primary protocol (TCP/HTTP — external, debuggable)
+//! - JSON-RPC 2.0 over Unix socket (newline-delimited — toadStool compatible)
 //! - tarpc as optional high-performance channel (TCP or Unix socket — internal)
 //! - Semantic method names: `shader.compile.{spirv,wgsl,status,capabilities}`
 //!
 //! ## Platform-agnostic transport (ecoBin compliance)
 //!
-//! On Unix platforms, tarpc defaults to Unix domain sockets for lower overhead
-//! on local primal-to-primal communication. JSON-RPC stays TCP-based (HTTP).
-//! On non-Unix platforms, both protocols use TCP loopback.
+//! On Unix platforms, tarpc and JSON-RPC both support Unix domain sockets
+//! for local primal-to-primal communication. JSON-RPC also serves over TCP
+//! (HTTP) for external access. On non-Unix platforms, all protocols use TCP.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -24,6 +25,11 @@ pub use tarpc_transport::start_tarpc_server;
 pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(test)]
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
+
+#[cfg(unix)]
+mod unix_jsonrpc;
+#[cfg(unix)]
+pub use unix_jsonrpc::{default_unix_socket_path, start_unix_jsonrpc_server};
 
 /// Errors from IPC server operations.
 #[derive(Debug, thiserror::Error)]
@@ -374,6 +380,7 @@ mod tests {
             arch: "sm_70".to_owned(),
             opt_level: 2,
             fp64_software: true,
+            fp64_strategy: None,
         };
 
         let response: Result<service::CompileResponse, _> =
@@ -640,6 +647,90 @@ mod tests {
         let _ = std::fs::remove_file(&sock_path);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_unix_jsonrpc_health() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let dir = std::env::temp_dir().join("coralreef-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let sock_path = dir.join(format!("jsonrpc-{}.sock", std::process::id()));
+
+        let (shutdown_tx, shutdown_rx) = test_shutdown_channel();
+        let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+            .await
+            .unwrap();
+
+        let stream = UnixStream::connect(&sock_path).await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+
+        let req = r#"{"jsonrpc":"2.0","method":"shader.compile.status","params":{},"id":1}"#;
+        writer
+            .write_all(format!("{req}\n").as_bytes())
+            .await
+            .unwrap();
+
+        let mut lines = BufReader::new(reader).lines();
+        let response_line = lines.next_line().await.unwrap().unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&response_line).unwrap();
+
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert_eq!(resp["id"], 1);
+        assert!(resp["result"]["name"].is_string());
+        assert!(resp["result"]["supported_archs"].is_array());
+
+        let _ = shutdown_tx.send(());
+        let _ = std::fs::remove_file(&sock_path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_unix_jsonrpc_compile_wgsl() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let dir = std::env::temp_dir().join("coralreef-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let sock_path = dir.join(format!("jsonrpc-wgsl-{}.sock", std::process::id()));
+
+        let (shutdown_tx, shutdown_rx) = test_shutdown_channel();
+        let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+            .await
+            .unwrap();
+
+        let stream = UnixStream::connect(&sock_path).await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "shader.compile.wgsl",
+            "params": {
+                "wgsl_source": "@compute @workgroup_size(1) fn main() {}",
+                "arch": "sm_70",
+                "opt_level": 2,
+                "fp64_software": true
+            },
+            "id": 2
+        });
+        writer
+            .write_all(format!("{req}\n").as_bytes())
+            .await
+            .unwrap();
+
+        let mut lines = BufReader::new(reader).lines();
+        let response_line = lines.next_line().await.unwrap().unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&response_line).unwrap();
+
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert_eq!(resp["id"], 2);
+        assert!(resp["result"].is_object(), "compile should succeed");
+        assert!(resp["result"]["size"].as_u64().unwrap() > 0);
+
+        let _ = shutdown_tx.send(());
+        let _ = std::fs::remove_file(&sock_path);
+    }
+
     #[tokio::test]
     async fn test_bound_addr_display() {
         let tcp = BoundAddr::Tcp("127.0.0.1:8080".parse().unwrap());
@@ -722,6 +813,7 @@ mod tests {
             arch: coral_reef::GpuArch::default().to_string(),
             opt_level: 2,
             fp64_software: true,
+            fp64_strategy: None,
         };
         let result = client.wgsl(tarpc::context::current(), req).await.unwrap();
         assert!(result.is_ok(), "WGSL compile should succeed");

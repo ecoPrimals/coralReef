@@ -1,0 +1,206 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//! Unix socket JSON-RPC 2.0 server — newline-delimited protocol.
+//!
+//! toadStool and other ecosystem primals discover coralReef via a Unix
+//! socket at `$XDG_RUNTIME_DIR/biomeos/coralreef.sock`. This module
+//! serves the same `shader.compile.*` methods as the TCP/HTTP server
+//! but over newline-delimited JSON on a Unix domain socket.
+//!
+//! Protocol: each request is a single JSON-RPC 2.0 object terminated
+//! by `\n`. Responses are also newline-terminated.
+
+#[cfg(unix)]
+mod inner {
+    use std::path::{Path, PathBuf};
+
+    use serde::{Deserialize, Serialize};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::UnixListener;
+    use tokio::sync::watch;
+    use tokio::task::JoinHandle;
+
+    use crate::service;
+
+    #[derive(Deserialize)]
+    struct JsonRpcRequest {
+        #[allow(dead_code)]
+        jsonrpc: String,
+        method: String,
+        #[serde(default)]
+        params: serde_json::Value,
+        id: serde_json::Value,
+    }
+
+    #[derive(Serialize)]
+    struct JsonRpcResponse {
+        jsonrpc: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<JsonRpcError>,
+        id: serde_json::Value,
+    }
+
+    #[derive(Serialize)]
+    struct JsonRpcError {
+        code: i32,
+        message: String,
+    }
+
+    fn dispatch(method: &str, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+        match method {
+            "shader.compile.status" => {
+                let health = service::handle_health();
+                serde_json::to_value(health).map_err(|e| e.to_string())
+            }
+            "shader.compile.capabilities" => {
+                let health = service::handle_health();
+                serde_json::to_value(health.supported_archs).map_err(|e| e.to_string())
+            }
+            "shader.compile.wgsl" => {
+                let req: service::CompileWgslRequest = if params.is_array() {
+                    let arr = params.as_array().unwrap();
+                    if arr.is_empty() {
+                        return Err("missing request parameter".to_owned());
+                    }
+                    serde_json::from_value(arr[0].clone()).map_err(|e| e.to_string())?
+                } else if params.is_object() {
+                    serde_json::from_value(params.clone()).map_err(|e| e.to_string())?
+                } else {
+                    return Err("invalid params".to_owned());
+                };
+                match service::handle_compile_wgsl(&req) {
+                    Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            "shader.compile.spirv" => {
+                let req: service::CompileRequest = if params.is_array() {
+                    let arr = params.as_array().unwrap();
+                    if arr.is_empty() {
+                        return Err("missing request parameter".to_owned());
+                    }
+                    serde_json::from_value(arr[0].clone()).map_err(|e| e.to_string())?
+                } else if params.is_object() {
+                    serde_json::from_value(params.clone()).map_err(|e| e.to_string())?
+                } else {
+                    return Err("invalid params".to_owned());
+                };
+                match service::handle_compile(&req) {
+                    Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            other => Err(format!("method not found: {other}")),
+        }
+    }
+
+    fn make_response(id: serde_json::Value, result: Result<serde_json::Value, String>) -> String {
+        let resp = match result {
+            Ok(val) => JsonRpcResponse {
+                jsonrpc: "2.0",
+                result: Some(val),
+                error: None,
+                id,
+            },
+            Err(msg) => JsonRpcResponse {
+                jsonrpc: "2.0",
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32000,
+                    message: msg,
+                }),
+                id,
+            },
+        };
+        serde_json::to_string(&resp).unwrap_or_else(|_| {
+            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
+                .to_owned()
+        })
+    }
+
+    /// Default socket path: `$XDG_RUNTIME_DIR/biomeos/coralreef.sock`.
+    ///
+    /// Falls back to `$TMPDIR/biomeos/coralreef.sock` if XDG is unset.
+    pub fn default_unix_socket_path() -> PathBuf {
+        let base =
+            std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
+        base.join("biomeos").join("coralreef.sock")
+    }
+
+    /// Start a Unix socket JSON-RPC server.
+    ///
+    /// Returns the socket path and a join handle. The server runs until
+    /// `shutdown_rx` receives a signal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the socket cannot be bound.
+    pub async fn start_unix_jsonrpc_server(
+        path: &Path,
+        mut shutdown_rx: watch::Receiver<()>,
+    ) -> Result<(PathBuf, JoinHandle<()>), std::io::Error> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        let listener = UnixListener::bind(path)?;
+        let bound_path = path.to_path_buf();
+        let cleanup_path = bound_path.clone();
+
+        tracing::info!(path = %bound_path.display(), "Unix JSON-RPC server listening");
+
+        let handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    accept = listener.accept() => {
+                        match accept {
+                            Ok((stream, _addr)) => {
+                                tokio::spawn(async move {
+                                    let (reader, mut writer) = stream.into_split();
+                                    let mut lines = BufReader::new(reader).lines();
+                                    while let Ok(Some(line)) = lines.next_line().await {
+                                        let line = line.trim().to_owned();
+                                        if line.is_empty() {
+                                            continue;
+                                        }
+                                        let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
+                                            Ok(req) => {
+                                                let result = dispatch(&req.method, &req.params);
+                                                make_response(req.id, result)
+                                            }
+                                            Err(e) => {
+                                                make_response(
+                                                    serde_json::Value::Null,
+                                                    Err(format!("parse error: {e}")),
+                                                )
+                                            }
+                                        };
+                                        let msg = format!("{resp}\n");
+                                        if writer.write_all(msg.as_bytes()).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                tracing::warn!("Unix accept error: {e}");
+                            }
+                        }
+                    }
+                    _ = shutdown_rx.changed() => {
+                        break;
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(&cleanup_path);
+        });
+
+        Ok((bound_path, handle))
+    }
+}
+
+#[cfg(unix)]
+pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};

@@ -52,7 +52,7 @@ impl SM70Op for OpF2FP {
         // Use src1 and src2, src0 is unused
         // src1 get converted and packed in the lower 16 bits of dest.
         // src2 lower or high 16 bits (decided by .H1 flag) get packed in the upper of dest.
-        e.set_bit(78, false); // DEBT(isa): .MERGE_C
+        e.set_bit(78, false); // .MERGE_C: disabled (not using merge conversion)
         e.set_bit(72, false); // .H1 (MERGE_C only)
         e.set_rnd_mode(79..81, self.rnd_mode);
     }
@@ -91,7 +91,7 @@ impl SM70Op for OpI2F {
             e.encode_alu(0x112, Some(&self.dst), None, Some(&self.src), None);
         }
 
-        e.set_field(60..62, 0_u8); // DEBT(isa): subop
+        e.set_field(60..62, 0_u8); // subop: default (no special sub-operation)
         e.set_bit(74, self.src_type.is_signed());
         e.set_field(75..77, (self.dst_type.bits() / 8).ilog2());
         e.set_rnd_mode(78..80, self.rnd_mode);

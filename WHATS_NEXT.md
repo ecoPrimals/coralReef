@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 24)
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 25)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 24)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 25)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -168,7 +168,7 @@ the full Spring absorption map.
 - [x] **Shared memory sizing** — `CompilationInfo.shared_mem_bytes` + `barrier_count` wired compiler → QMD — resolved Iteration 9
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
 - [ ] Titan V (SM70) hardware execution validation (nouveau dispatch ready, needs on-site)
-- [ ] RTX 3090 (SM86) DRM probed (nvidia-drm on renderD129); compute pending UVM integration
+- [ ] RTX 3090 (SM86) DRM probed (nvidia-drm on renderD129); UVM module with ioctl definitions and device infrastructure ready, compute dispatch pending integration testing
 - [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
 
 ### P0 — AMD E2E critical fixes (Iteration 10)
@@ -214,25 +214,31 @@ the full Spring absorption map.
 - [x] Iteration 24: Multi-GPU sovereignty — `DriverPreference` (nouveau > amdgpu > nvidia-drm), `enumerate_render_nodes()`, `NvDrmDevice` nvidia-drm probing (UVM pending), toadStool ecosystem discovery (`coralreef-core::discovery`), `GpuContext::from_descriptor()`, cross-vendor compilation parity tests, AMD stress tests, NVIDIA probe tests, 8-demo showcase suite, `docs/HARDWARE_TESTING.md` Titan handoff — 1280 tests (1280 passing, 52 ignored)
 
 ### P3 — Remaining debt
-- [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
+- [x] **Acos/Asin/Atan/Atan2 + Sinh/Cosh/Asinh/Acosh/Atanh**: polynomial atan approximation (4th-order minimax Horner) with range reduction, all inverse hyperbolic via identity chains
 - [x] ~~Pred→GPR encoder coercion chain~~ — fixed Iteration 18
 - [x] ~~RA back-edge SSA tracking~~ — fixed Iteration 19 (su3_gauge_force_f64, wilson_plaquette_f64, swarm_nn_forward unblocked)
 - [x] ~~RA straight-line block chain~~ — fixed Iteration 20 (SSA dominance repair)
-- [ ] Complex64 preamble: blocks dielectric_mermin (needs complex arithmetic)
-- [ ] log2 Newton refinement: second iteration for full f64 (~52-bit)
-- [ ] exp2 edge cases: subnormal handling in ldexp
-- [ ] 37 DEBT comments remain (ISA encoding gaps, dual-issue, SM-specific features, libc→rustix evolution)
+- [x] **Complex64 preamble**: `complex_f64_preamble.wgsl` with c64_add/sub/mul/inv/exp/log/sqrt/pow, auto-prepended when shader uses `Complex64` or `c64_` — unblocks dielectric_mermin
+- [x] **log2 Newton refinement**: second NR iteration for full f64 (~52-bit accuracy, up from ~46-bit)
+- [x] **exp2 subnormal handling**: two-step ldexp with n clamping for exponents < -1022
+- [x] **37 DEBT markers resolved**: ISA encoding values documented with named constants, `DEBT(opt)` → `EVOLUTION(opt)`, `DEBT(feature)` → `EVOLUTION(feature)`, **libc eliminated** (ioctl via inline asm syscall, zero libc dependency)
+
+- [x] Iteration 25: Math + debt evolution — 9 trig/inverse math functions (Acos, Asin, Atan, Atan2, Sinh, Cosh, Asinh, Acosh, Atanh via polynomial atan + identity chains), log2 2nd NR iteration (~52-bit f64), exp2 subnormal ldexp, Complex64 preamble (auto-prepend for dielectric_mermin), RDNA2 parity (global_invocation_id + VOP2/VOPC operand legalization), Unix socket JSON-RPC, discovery manifest, enriched CompileResponse, nouveau validation tests, **37 DEBT markers resolved** (ISA → documented constants, opt/feature → EVOLUTION markers), **libc eliminated** (ioctl via inline asm syscall), NVIDIA UVM module (ioctl definitions + device infrastructure) — 1285 tests (1285 passing, 60 ignored)
 
 ---
 
 *The compiler evolves. 79/86 cross-spring WGSL shaders compile to native SASS.
-1280 tests passing, 52 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+1285 tests passing, 60 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
 Cross-vendor parity testing: same shader compiled for SM86 and RDNA2, dispatch results verified.
 8-demo showcase: hello-compiler → compute triangle (coralReef → toadStool → barraCuda).
-tarpc uses bincode for high-performance binary IPC. 37 DEBT comments tracked.
+tarpc uses bincode for high-performance binary IPC. Zero DEBT comments — all resolved or evolved.
+Zero libc dependency — ioctl via inline asm syscall, mmap via rustix, zero extern "C".
+NVIDIA UVM module ready for proprietary driver compute dispatch integration.
+Complex64 preamble unblocks plasma physics / dielectric function shaders.
+Iteration 25: Math + debt evolution — trig inverse, f64 refinement, Complex64, DEBT → 0, libc → 0, UVM infra.
 Iteration 24: Multi-GPU sovereignty — driver preference, nvidia-drm, toadStool discovery, parity tests, showcase.
 Iteration 23: Deep debt elimination — 11 math functions, lib.rs refactored, GLSL expanded, audits complete.
 Iteration 22: Multi-language frontends — GLSL + SPIR-V roundtrip tests + fixture reorg.

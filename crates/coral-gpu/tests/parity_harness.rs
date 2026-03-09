@@ -14,10 +14,10 @@
 //! | reduce  | sum reduction              | workgroup barrier parity  |
 //! | matmul  | tiled matrix multiply      | shared memory parity      |
 //!
-//! NOTE: AMD RDNA2 backend does not yet support `@builtin(global_invocation_id)`
-//! or buffer reads. These tests are compilation-level parity only until the
-//! compiler backend evolves. Hardware dispatch is AMD-only for write-constant
-//! shaders and NVIDIA dispatch is pending UVM integration.
+//! `@builtin(global_invocation_id)` is resolved using compile-time workgroup
+//! size constants, which works across all targets (NVIDIA and AMD). Buffer
+//! reads are supported on both targets. Hardware dispatch is AMD-only for now;
+//! NVIDIA dispatch is pending UVM integration.
 //!
 //! Run: `cargo test --test parity_harness -p coral-gpu -- --ignored`
 
@@ -138,25 +138,22 @@ fn main() {
 // ============================================================
 
 #[test]
-fn parity_vecadd_sm86_compiles() {
-    let bin = compile(VECADD, GpuTarget::Nvidia(NvArch::Sm86));
-    assert!(!bin.binary.is_empty());
-    assert_eq!(bin.info.local_size, [64, 1, 1]);
+fn parity_vecadd_both_targets() {
+    let sm86 = compile(VECADD, GpuTarget::Nvidia(NvArch::Sm86));
+    let rdna2 = compile(VECADD, GpuTarget::Amd(AmdArch::Rdna2));
+    assert!(!sm86.binary.is_empty());
+    assert_eq!(sm86.info.local_size, [64, 1, 1]);
+    assert!(!rdna2.binary.is_empty());
+    assert_eq!(rdna2.info.local_size, [64, 1, 1]);
+    assert_ne!(sm86.binary, rdna2.binary);
 }
 
 #[test]
-fn parity_vecadd_rdna2_known_limitation() {
-    let result = try_compile(VECADD, GpuTarget::Amd(AmdArch::Rdna2));
-    assert!(
-        result.is_err(),
-        "RDNA2 does not yet support global_invocation_id"
-    );
-}
-
-#[test]
-fn parity_saxpy_sm86_compiles() {
-    let bin = compile(SAXPY, GpuTarget::Nvidia(NvArch::Sm86));
-    assert!(!bin.binary.is_empty());
+fn parity_saxpy_both_targets() {
+    let sm86 = compile(SAXPY, GpuTarget::Nvidia(NvArch::Sm86));
+    let rdna2 = compile(SAXPY, GpuTarget::Amd(AmdArch::Rdna2));
+    assert!(!sm86.binary.is_empty());
+    assert!(!rdna2.binary.is_empty());
 }
 
 #[test]
@@ -167,10 +164,13 @@ fn parity_reduce_sm86_compiles() {
 }
 
 #[test]
-fn parity_matmul_sm86_compiles() {
-    let bin = compile(MATMUL, GpuTarget::Nvidia(NvArch::Sm86));
-    assert!(!bin.binary.is_empty());
-    assert_eq!(bin.info.local_size, [8, 8, 1]);
+fn parity_matmul_both_targets() {
+    let sm86 = compile(MATMUL, GpuTarget::Nvidia(NvArch::Sm86));
+    let rdna2 = compile(MATMUL, GpuTarget::Amd(AmdArch::Rdna2));
+    assert!(!sm86.binary.is_empty());
+    assert_eq!(sm86.info.local_size, [8, 8, 1]);
+    assert!(!rdna2.binary.is_empty());
+    assert_eq!(rdna2.info.local_size, [8, 8, 1]);
 }
 
 #[test]
@@ -190,20 +190,30 @@ fn parity_store42_both_targets() {
 // ============================================================
 
 #[test]
-fn parity_vecadd_sm86_metadata_reasonable() {
-    let bin = compile(VECADD, GpuTarget::Nvidia(NvArch::Sm86));
-    assert!(
-        bin.info.gpr_count >= 3,
-        "vecadd needs at least 3 GPRs for a[], b[], out[]"
-    );
-    assert!(bin.info.instr_count > 0);
+fn parity_vecadd_metadata_reasonable() {
+    for target in [
+        GpuTarget::Nvidia(NvArch::Sm86),
+        GpuTarget::Amd(AmdArch::Rdna2),
+    ] {
+        let bin = compile(VECADD, target);
+        assert!(
+            bin.info.gpr_count >= 3,
+            "{target:?}: vecadd needs at least 3 GPRs"
+        );
+        assert!(bin.info.instr_count > 0, "{target:?}: should have instrs");
+    }
 }
 
 #[test]
-fn parity_saxpy_sm86_metadata_reasonable() {
-    let bin = compile(SAXPY, GpuTarget::Nvidia(NvArch::Sm86));
-    assert!(bin.info.gpr_count >= 3);
-    assert!(bin.info.instr_count > 0);
+fn parity_saxpy_metadata_reasonable() {
+    for target in [
+        GpuTarget::Nvidia(NvArch::Sm86),
+        GpuTarget::Amd(AmdArch::Rdna2),
+    ] {
+        let bin = compile(SAXPY, target);
+        assert!(bin.info.gpr_count >= 3, "{target:?}");
+        assert!(bin.info.instr_count > 0, "{target:?}");
+    }
 }
 
 #[test]
@@ -217,16 +227,21 @@ fn parity_reduce_sm86_metadata_reasonable() {
 }
 
 #[test]
-fn parity_matmul_sm86_metadata_reasonable() {
-    let bin = compile(MATMUL, GpuTarget::Nvidia(NvArch::Sm86));
-    assert!(
-        bin.info.gpr_count >= 4,
-        "matmul needs regs for accumulator + indices"
-    );
-    assert!(
-        bin.info.instr_count > 5,
-        "matmul should have loop body instructions"
-    );
+fn parity_matmul_metadata_reasonable() {
+    for target in [
+        GpuTarget::Nvidia(NvArch::Sm86),
+        GpuTarget::Amd(AmdArch::Rdna2),
+    ] {
+        let bin = compile(MATMUL, target);
+        assert!(
+            bin.info.gpr_count >= 4,
+            "{target:?}: matmul needs regs for accumulator + indices"
+        );
+        assert!(
+            bin.info.instr_count > 5,
+            "{target:?}: matmul should have loop body instructions"
+        );
+    }
 }
 
 // ============================================================
@@ -267,32 +282,51 @@ fn parity_hw_amd_store42_dispatch() {
     dev.free(buf).expect("free");
 }
 
-/// Cross-architecture compilation parity: all 4 test matrix shaders
-/// produce non-empty SM86 binaries with reasonable metadata.
+/// Cross-architecture compilation parity: shaders without shared memory
+/// compile on both targets; reduce uses LDS (pending RDNA2 support).
 #[test]
-fn parity_all_shaders_sm86_complete() {
+fn parity_all_shaders_both_targets() {
     let shaders = [
         ("vecadd", VECADD),
         ("saxpy", SAXPY),
-        ("reduce", REDUCE),
         ("matmul", MATMUL),
     ];
 
+    let targets = [
+        ("SM86", GpuTarget::Nvidia(NvArch::Sm86)),
+        ("RDNA2", GpuTarget::Amd(AmdArch::Rdna2)),
+    ];
+
     for (name, src) in shaders {
-        let bin = compile(src, GpuTarget::Nvidia(NvArch::Sm86));
-        assert!(
-            !bin.binary.is_empty(),
-            "{name}: SM86 binary should be non-empty"
-        );
-        assert!(bin.info.gpr_count > 0, "{name}: should use at least 1 GPR");
-        eprintln!(
-            "{name}: {} bytes, {} GPRs, {} instrs, {} shared bytes",
-            bin.binary.len(),
-            bin.info.gpr_count,
-            bin.info.instr_count,
-            bin.info.shared_mem_bytes
-        );
+        for &(tname, target) in &targets {
+            let bin = compile(src, target);
+            assert!(
+                !bin.binary.is_empty(),
+                "{name}/{tname}: binary should be non-empty"
+            );
+            assert!(
+                bin.info.gpr_count > 0,
+                "{name}/{tname}: should use at least 1 GPR"
+            );
+            eprintln!(
+                "{name}/{tname}: {} bytes, {} GPRs, {} instrs, {} shared bytes",
+                bin.binary.len(),
+                bin.info.gpr_count,
+                bin.info.instr_count,
+                bin.info.shared_mem_bytes
+            );
+        }
     }
+
+    let sm86_reduce = compile(REDUCE, GpuTarget::Nvidia(NvArch::Sm86));
+    assert!(!sm86_reduce.binary.is_empty());
+    eprintln!(
+        "reduce/SM86: {} bytes, {} GPRs, {} instrs, {} shared bytes",
+        sm86_reduce.binary.len(),
+        sm86_reduce.info.gpr_count,
+        sm86_reduce.info.instr_count,
+        sm86_reduce.info.shared_mem_bytes
+    );
 }
 
 /// Multi-SM compilation parity: vecadd compiles identically across

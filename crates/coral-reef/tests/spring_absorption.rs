@@ -383,7 +383,7 @@ fn spring_sum_reduce_f64_sm70() {
 // ===========================================================================
 
 #[test]
-#[ignore = "AMD RDNA2 encoder incomplete — op discriminant not implemented"]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_anderson_lyapunov_amd() {
     let r = compile_wgsl(ANDERSON_LYAPUNOV_WGSL, &amd_opts());
     assert!(
@@ -394,7 +394,7 @@ fn spring_anderson_lyapunov_amd() {
 }
 
 #[test]
-#[ignore = "AMD RDNA2 encoder incomplete — op discriminant not implemented"]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_yukawa_force_f64_amd() {
     let r = compile_wgsl(YUKAWA_FORCE_F64_WGSL, &amd_opts());
     assert!(
@@ -405,7 +405,7 @@ fn spring_yukawa_force_f64_amd() {
 }
 
 #[test]
-#[ignore = "AMD RDNA2 encoder incomplete — op discriminant not implemented"]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_dirac_staggered_f64_amd() {
     let r = compile_wgsl(DIRAC_STAGGERED_F64_WGSL, &amd_opts());
     assert!(
@@ -416,7 +416,7 @@ fn spring_dirac_staggered_f64_amd() {
 }
 
 #[test]
-#[ignore = "AMD RDNA2 encoder incomplete — op discriminant not implemented"]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_sum_reduce_f64_amd() {
     let r = compile_wgsl(SUM_REDUCE_F64_WGSL, &amd_opts());
     assert!(r.is_ok(), "sum_reduce_f64 should compile for RDNA2: {r:?}");

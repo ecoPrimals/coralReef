@@ -134,12 +134,49 @@ pub fn lower_f64_exp2(
         Src::from(c0),
     );
 
-    // ldexp(p, n): add n << 20 to the high word of p
-    let n_shifted = alloc.alloc(RegFile::GPR);
+    // ldexp(p, n) with subnormal handling.
+    //
+    // Direct high-word addition works for -1022 <= n <= 1023 (normal range).
+    // For n < -1022 (subnormal results), split into two steps:
+    //   ldexp(p, n) = ldexp(ldexp(p, n1), n2) where n1 = max(n, -1022), n2 = n - n1
+    // This prevents the intermediate result from underflowing to zero.
+
+    let dst_ssa = op.dst.as_ssa().expect("exp2 destination must be SSA value");
+
+    // Check if n is in the subnormal danger zone (n < -1022)
+    let is_subnormal = alloc.alloc(RegFile::Pred);
+    out.push(with_pred(
+        Instr::new(OpISetP {
+            dst: is_subnormal.into(),
+            set_op: PredSetOp::And,
+            cmp_op: IntCmpOp::Lt,
+            cmp_type: IntCmpType::I32,
+            ex: false,
+            srcs: [n_i32.into(), Src::new_imm_u32((-1022_i32) as u32)],
+            accum: SrcRef::True.into(),
+            low_cmp: Src::new_imm_bool(false),
+        }),
+        pred,
+    ));
+
+    // Normal path: n1 = n
+    // Subnormal path: n1 = -1022, n2 = n - (-1022) = n + 1022
+    let n1 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpSel {
+            dst: n1.into(),
+            cond: is_subnormal.into(),
+            srcs: [Src::new_imm_u32((-1022_i32) as u32), n_i32.into()],
+        }),
+        pred,
+    ));
+
+    // First ldexp: add n1 << 20 to p's high word
+    let n1_shifted = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpShf {
-            dst: n_shifted.into(),
-            low: n_i32.into(),
+            dst: n1_shifted.into(),
+            low: n1.into(),
             high: Src::ZERO,
             shift: Src::new_imm_u32(20),
             right: false,
@@ -150,28 +187,110 @@ pub fn lower_f64_exp2(
         pred,
     ));
 
-    let p_high_plus_n = alloc.alloc(RegFile::GPR);
+    let p_high_step1 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpIAdd3 {
-            dst: p_high_plus_n.into(),
-            srcs: [p[1].into(), n_shifted.into(), Src::ZERO],
+            dst: p_high_step1.into(),
+            srcs: [p[1].into(), n1_shifted.into(), Src::ZERO],
             overflow: [Dst::None, Dst::None],
         }),
         pred,
     ));
 
-    let dst_ssa = op.dst.as_ssa().expect("exp2 destination must be SSA value");
+    // For normal path, this is the final result.
+    // For subnormal path, multiply by 2^n2 where n2 = n + 1022.
+    let n2 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpIAdd3 {
+            dst: n2.into(),
+            srcs: [n_i32.into(), Src::new_imm_u32(1022), Src::ZERO],
+            overflow: [Dst::None, Dst::None],
+        }),
+        pred,
+    ));
+
+    // Build 2^n2 as f64: high word = (n2 + 1023) << 20, low word = 0
+    let n2_biased = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpIAdd3 {
+            dst: n2_biased.into(),
+            srcs: [n2.into(), Src::new_imm_u32(1023), Src::ZERO],
+            overflow: [Dst::None, Dst::None],
+        }),
+        pred,
+    ));
+    let scale_hi = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpShf {
+            dst: scale_hi.into(),
+            low: n2_biased.into(),
+            high: Src::ZERO,
+            shift: Src::new_imm_u32(20),
+            right: false,
+            wrap: true,
+            data_type: IntType::I32,
+            dst_high: false,
+        }),
+        pred,
+    ));
+
+    // step1 * 2^n2
+    let step1 = alloc.alloc_vec(RegFile::GPR, 2);
     out.push(with_pred(
         Instr::new(OpCopy {
-            dst: dst_ssa[0].into(),
+            dst: step1[0].into(),
             src: p[0].into(),
         }),
         pred,
     ));
     out.push(with_pred(
         Instr::new(OpCopy {
+            dst: step1[1].into(),
+            src: p_high_step1.into(),
+        }),
+        pred,
+    ));
+
+    let scale = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpCopy {
+            dst: scale[0].into(),
+            src: Src::ZERO,
+        }),
+        pred,
+    ));
+    out.push(with_pred(
+        Instr::new(OpCopy {
+            dst: scale[1].into(),
+            src: scale_hi.into(),
+        }),
+        pred,
+    ));
+
+    let sub_result = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDMul {
+            dst: sub_result.clone().into(),
+            srcs: [Src::from(step1.clone()), Src::from(scale)],
+            rnd_mode: FRndMode::NearestEven,
+        }),
+        pred,
+    ));
+
+    // Select between normal result (step1) and subnormal result (sub_result)
+    out.push(with_pred(
+        Instr::new(OpSel {
+            dst: dst_ssa[0].into(),
+            cond: is_subnormal.into(),
+            srcs: [sub_result[0].into(), step1[0].into()],
+        }),
+        pred,
+    ));
+    out.push(with_pred(
+        Instr::new(OpSel {
             dst: dst_ssa[1].into(),
-            src: p_high_plus_n.into(),
+            cond: is_subnormal.into(),
+            srcs: [sub_result[1].into(), step1[1].into()],
         }),
         pred,
     ));

@@ -411,8 +411,7 @@ impl SM70Op for OpLea {
         let c = if self.dst_high {
             Some(&self.a_high)
         } else {
-            // DEBT(isa): On Ada and earlier src2 is ignored if !dst_high; on
-            // Blackwell+ it does something.
+            // On Ada and earlier src2 is ignored if !dst_high; on Blackwell+ it does something.
             Some(&zero)
         };
 
@@ -446,8 +445,7 @@ impl SM70Op for OpLeaX {
         let c = if self.dst_high {
             Some(&self.a_high)
         } else {
-            // DEBT(isa): On Ada and earlier src2 is ignored if !dst_high; on
-            // Blackwell+ it does something.
+            // On Ada and earlier src2 is ignored if !dst_high; on Blackwell+ it does something.
             Some(&Src::ZERO)
         };
 

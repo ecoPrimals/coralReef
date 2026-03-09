@@ -186,12 +186,28 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         }
     };
 
-    let (tarpc_bound, tarpc_handle) = match ipc::start_tarpc_server(tarpc_bind, shutdown_rx).await {
-        Ok(x) => x,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to start tarpc server");
-            let _ = rpc_handle.stop();
-            return UniBinExit::GeneralError;
+    let (tarpc_bound, tarpc_handle) =
+        match ipc::start_tarpc_server(tarpc_bind, shutdown_rx.clone()).await {
+            Ok(x) => x,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to start tarpc server");
+                let _ = rpc_handle.stop();
+                return UniBinExit::GeneralError;
+            }
+        };
+
+    #[cfg(unix)]
+    let unix_jsonrpc_handle = {
+        let sock_path = ipc::default_unix_socket_path();
+        match ipc::start_unix_jsonrpc_server(&sock_path, shutdown_rx).await {
+            Ok((_path, handle)) => {
+                tracing::info!(path = %sock_path.display(), "Unix JSON-RPC server started");
+                Some(handle)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (toadStool integration degraded)");
+                None
+            }
         }
     };
 
@@ -236,6 +252,10 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         async move {
             rpc_stopped.await;
             tarpc_handle.await.ok();
+            #[cfg(unix)]
+            if let Some(h) = unix_jsonrpc_handle {
+                h.await.ok();
+            }
         },
     )
     .await;
@@ -272,11 +292,22 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
         .find(|t| t.protocol.starts_with("tarpc"))
         .map_or("", |t| t.address.as_ref());
 
+    let mut jsonrpc_transport = serde_json::json!({
+        "tcp": jsonrpc_addr,
+    });
+    #[cfg(unix)]
+    {
+        let unix_sock_path = ipc::default_unix_socket_path();
+        jsonrpc_transport["path"] = serde_json::Value::String(
+            unix_sock_path.to_string_lossy().into_owned(),
+        );
+    }
+
     let discovery = serde_json::json!({
         "primal": env!("CARGO_PKG_NAME"),
         "pid": std::process::id(),
         "transports": {
-            "jsonrpc": jsonrpc_addr,
+            "jsonrpc": jsonrpc_transport,
             "tarpc": tarpc_addr,
         },
         "provides": desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),

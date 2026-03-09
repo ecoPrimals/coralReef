@@ -77,6 +77,10 @@ pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
 /// `Fp64Strategy::DoubleFloat` is selected.
 const DF64_PREAMBLE: &str = include_str!("df64_preamble.wgsl");
 
+/// Complex64 WGSL preamble — complex arithmetic on native f64 pairs.
+/// Prepended automatically when source uses Complex64 or c64_ functions.
+const COMPLEX64_PREAMBLE: &str = include_str!("complex_f64_preamble.wgsl");
+
 /// FMA (fused multiply-add) control policy.
 ///
 /// SPIR-V `NoContraction` and WGSL `@fma_control` decorations map to this.
@@ -258,9 +262,10 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
     let needs_df64 = options.fp64_strategy == Fp64Strategy::DoubleFloat
         || wgsl.contains("Df64")
         || wgsl.contains("df64_");
+    let needs_complex64 = wgsl.contains("Complex64") || wgsl.contains("c64_");
     let has_enable_f64 = wgsl.contains("enable f64");
 
-    if !needs_df64 && !has_enable_f64 {
+    if !needs_df64 && !needs_complex64 && !has_enable_f64 {
         return std::borrow::Cow::Borrowed(wgsl);
     }
 
@@ -271,11 +276,28 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
         wgsl.to_owned()
     };
 
+    let mut combined = String::new();
+    let mut modified = false;
+
+    if needs_complex64 && !source.contains("struct Complex64") {
+        tracing::debug!("auto-prepending complex64 preamble");
+        combined.reserve(COMPLEX64_PREAMBLE.len() + DF64_PREAMBLE.len() + 2 + source.len());
+        combined.push_str(COMPLEX64_PREAMBLE);
+        combined.push('\n');
+        modified = true;
+    }
+
     if needs_df64 && !source.contains("struct Df64") {
         tracing::debug!("auto-prepending df64 preamble");
-        let mut combined = String::with_capacity(DF64_PREAMBLE.len() + 1 + source.len());
+        if !modified {
+            combined.reserve(DF64_PREAMBLE.len() + 1 + source.len());
+        }
         combined.push_str(DF64_PREAMBLE);
         combined.push('\n');
+        modified = true;
+    }
+
+    if modified {
         combined.push_str(&source);
         std::borrow::Cow::Owned(combined)
     } else {

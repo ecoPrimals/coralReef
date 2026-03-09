@@ -6,8 +6,8 @@
 //! they share the same VOP2/VOP3/VOPC encoding infrastructure.
 
 use super::{
-    AmdOpEncoder, EncodeOp, dst_to_vgpr_index, encode_vop2_from_srcs, encode_vop3_from_srcs,
-    src_to_encoding,
+    AmdOpEncoder, EncodeOp, dst_to_vgpr_index, encode_vopc_legalized, encode_vop2_from_srcs,
+    encode_vop3_from_srcs, src_to_encoding,
 };
 use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
@@ -179,12 +179,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpF64Rcp {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpFSetP {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        let src0_enc = src_to_encoding(&self.srcs[0])?;
-        let src1_vgpr = super::src_to_vgpr_index(&self.srcs[1])?;
         let vopc_opcode = float_cmp_to_vopc_f32(self.cmp_op);
-        let mut words = Rdna2Encoder::encode_vopc(vopc_opcode, src0_enc.src0, src1_vgpr);
-        src0_enc.extend_with_literal(&mut words);
-        Ok(words)
+        encode_vopc_legalized(vopc_opcode, &self.srcs[0], &self.srcs[1])
     }
 }
 
@@ -215,12 +211,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpDSetP {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpISetP {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        let src0_enc = src_to_encoding(&self.srcs[0])?;
-        let src1_vgpr = super::src_to_vgpr_index(&self.srcs[1])?;
         let vopc_opcode = int_cmp_to_vopc(self.cmp_op, self.cmp_type);
-        let mut words = Rdna2Encoder::encode_vopc(vopc_opcode, src0_enc.src0, src1_vgpr);
-        src0_enc.extend_with_literal(&mut words);
-        Ok(words)
+        encode_vopc_legalized(vopc_opcode, &self.srcs[0], &self.srcs[1])
     }
 }
 

@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 24)
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 25)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,11 +9,12 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1280 tests (1280 passing, 52 ignored), 63% line coverage (target 90%),
+1285 tests (1285 passing, 60 ignored), 63% line coverage (target 90%),
 79/86 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
-toadStool ecosystem discovery, cross-vendor parity testing.
+toadStool ecosystem discovery, cross-vendor parity testing, zero DEBT
+markers, zero libc dependency.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -22,6 +23,8 @@ back-edge-aware `calc_max_live_back_edge_aware()`, scheduler seeds
 multi-predecessor fix. 3 tests unblocked: su3_gauge_force_f64,
 wilson_plaquette_f64, swarm_nn_forward. sigmoid_f64 fixed (Iteration 20 — SSA dominance repair via
 fix_entry_live_in).
+
+**Iteration 25 milestone**: Math function evolution — 9 new trig/inverse functions (Acos, Asin, Atan, Atan2, Sinh, Cosh, Asinh, Acosh, Atanh) via polynomial atan + identity chains. f64 precision: log2 2nd NR iteration (~52-bit), exp2 subnormal ldexp. Complex64 preamble auto-prepend for scientific shaders. All 37 DEBT markers resolved (ISA → documented constants, opt/feature → EVOLUTION markers). libc completely eliminated — ioctl via inline asm syscall. NVIDIA UVM module with ioctl definitions and device infrastructure. 1285 tests (1285 passing, 60 ignored).
 
 **Iteration 18 milestone**: Pred→GPR legalization bug fix (`src_is_reg()`
 incorrectly treated `SrcRef::True`/`SrcRef::False` as valid GPR sources),
@@ -372,7 +375,9 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 20 | SSA dominance repair (fix_entry_live_in), sigmoid_f64 unblocked, gpr_tests.rs extraction | **1142** (1142 pass, 25 ignore), 40/47 shaders SM70, WGSL 47/49 |
 | 10 iter 21 | Cross-spring absorption wave 2: +38 shaders (hotSpring+neuralSpring), df64_gt/lt/ge preamble, local_elementwise retired | **1174** (1174 pass, 30 ignore), 79/86 shaders SM70 |
 | 10 iter 22 | Multi-language frontends: GLSL 450 compute, SPIR-V roundtrip, fixture reorg (corpus/), 5 GLSL + 10 SPIR-V RT tests | **1190** (1190 pass, 35 ignore), 79/86 WGSL + 5/5 GLSL + 4/10 SPIR-V RT |
-| 10 iter 23 (current) | Deep debt: 11 math functions (Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize, Cross, Trunc), lib.rs 791→483, SM80 gpr 867→766, libc→rustix path documented, DEBT 37, audits | **1191** (1191 pass, 35 ignore), ESN reservoir unblocked, logical ops wired, GLSL fixtures expanded |
+| 10 iter 23 | Deep debt: 11 math functions (Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize, Cross, Trunc), lib.rs 791→483, SM80 gpr 867→766, libc→rustix path documented, DEBT 37, audits | **1191** (1191 pass, 35 ignore), ESN reservoir unblocked, logical ops wired, GLSL fixtures expanded |
+| 10 iter 24 | Multi-GPU sovereignty: DriverPreference, enumerate_render_nodes, nvidia-drm probing (UVM pending), toadStool discovery, cross-vendor parity, showcase suite | **1280** (1280 pass, 52 ignore), multi-GPU, showcase complete |
+| 10 iter 25 (current) | Math evolution: 9 trig/inverse, log2 2nd NR (~52-bit), exp2 subnormal, Complex64 preamble, 37 DEBT→0, libc eliminated, NVIDIA UVM infra | **1285** (1285 pass, 60 ignore), zero DEBT, zero libc |
 
 ---
 

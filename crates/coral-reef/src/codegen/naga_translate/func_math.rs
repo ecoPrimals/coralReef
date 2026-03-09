@@ -947,6 +947,255 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     Ok(dst.into())
                 }
             }
+            naga::MathFunction::Atan => {
+                // atan(x) via polynomial approximation with range reduction
+                self.emit_f32_atan(a[0])
+            }
+            naga::MathFunction::Atan2 => {
+                let b = b.ok_or_else(|| {
+                    CompileError::InvalidInput("atan2 requires 2 args".into())
+                })?;
+                // atan2(y, x)
+                self.emit_f32_atan2(a[0], b[0])
+            }
+            naga::MathFunction::Asin => {
+                // asin(x) = atan2(x, sqrt(1 - x*x))
+                let x2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: x2.into(),
+                    srcs: [a[0].into(), a[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                let one_minus_x2 = self.alloc_ssa(RegFile::GPR);
+                let one: f32 = 1.0;
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: one_minus_x2.into(),
+                    srcs: [Src::new_imm_u32(one.to_bits()), Src::from(x2).fneg()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                let rsq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: rsq.into(),
+                    op: TranscendentalOp::Rsq,
+                    src: one_minus_x2.into(),
+                }));
+                let sqrt_val = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: sqrt_val.into(),
+                    op: TranscendentalOp::Rcp,
+                    src: rsq.into(),
+                }));
+                self.emit_f32_atan2(a[0], sqrt_val)
+            }
+            naga::MathFunction::Acos => {
+                // acos(x) = atan2(sqrt(1 - x*x), x)
+                let x2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: x2.into(),
+                    srcs: [a[0].into(), a[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                let one_minus_x2 = self.alloc_ssa(RegFile::GPR);
+                let one: f32 = 1.0;
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: one_minus_x2.into(),
+                    srcs: [Src::new_imm_u32(one.to_bits()), Src::from(x2).fneg()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                let rsq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: rsq.into(),
+                    op: TranscendentalOp::Rsq,
+                    src: one_minus_x2.into(),
+                }));
+                let sqrt_val = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: sqrt_val.into(),
+                    op: TranscendentalOp::Rcp,
+                    src: rsq.into(),
+                }));
+                self.emit_f32_atan2(sqrt_val, a[0])
+            }
+            naga::MathFunction::Asinh => {
+                // asinh(x) = ln(x + sqrt(x*x + 1))
+                // = log2(x + sqrt(x*x + 1)) * ln(2)
+                let x2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: x2.into(),
+                    srcs: [a[0].into(), a[0].into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let one: f32 = 1.0;
+                let x2p1 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: x2p1.into(),
+                    srcs: [x2.into(), Src::new_imm_u32(one.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let rsq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: rsq.into(), op: TranscendentalOp::Rsq, src: x2p1.into() }));
+                let sq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: sq.into(), op: TranscendentalOp::Rcp, src: rsq.into() }));
+                let sum = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: sum.into(), srcs: [a[0].into(), sq.into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let log2_val = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: log2_val.into(), op: TranscendentalOp::Log2, src: sum.into() }));
+                let ln2: f32 = std::f32::consts::LN_2;
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dst.into(),
+                    srcs: [log2_val.into(), Src::new_imm_u32(ln2.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Acosh => {
+                // acosh(x) = ln(x + sqrt(x*x - 1))
+                let x2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: x2.into(), srcs: [a[0].into(), a[0].into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let one: f32 = 1.0;
+                let x2m1 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: x2m1.into(),
+                    srcs: [x2.into(), Src::new_imm_u32((-one).to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let rsq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: rsq.into(), op: TranscendentalOp::Rsq, src: x2m1.into() }));
+                let sq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: sq.into(), op: TranscendentalOp::Rcp, src: rsq.into() }));
+                let sum = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: sum.into(), srcs: [a[0].into(), sq.into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let log2_val = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: log2_val.into(), op: TranscendentalOp::Log2, src: sum.into() }));
+                let ln2: f32 = std::f32::consts::LN_2;
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dst.into(),
+                    srcs: [log2_val.into(), Src::new_imm_u32(ln2.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Atanh => {
+                // atanh(x) = 0.5 * ln((1+x)/(1-x))
+                let one: f32 = 1.0;
+                let half: f32 = 0.5;
+                let one_plus_x = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: one_plus_x.into(),
+                    srcs: [Src::new_imm_u32(one.to_bits()), a[0].into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let one_minus_x = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: one_minus_x.into(),
+                    srcs: [Src::new_imm_u32(one.to_bits()), Src::from(a[0]).fneg()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let rcp_denom = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: rcp_denom.into(), op: TranscendentalOp::Rcp, src: one_minus_x.into() }));
+                let ratio = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: ratio.into(), srcs: [one_plus_x.into(), rcp_denom.into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let log2_val = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: log2_val.into(), op: TranscendentalOp::Log2, src: ratio.into() }));
+                let ln2: f32 = std::f32::consts::LN_2;
+                let ln_val = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: ln_val.into(),
+                    srcs: [log2_val.into(), Src::new_imm_u32(ln2.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dst.into(),
+                    srcs: [ln_val.into(), Src::new_imm_u32(half.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Sinh => {
+                // sinh(x) = (exp(x) - exp(-x)) / 2
+                let log2_e: f32 = std::f32::consts::LOG2_E;
+                let half: f32 = 0.5;
+                let s1 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: s1.into(), srcs: [a[0].into(), Src::new_imm_u32(log2_e.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let exp_pos = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: exp_pos.into(), op: TranscendentalOp::Exp2, src: s1.into() }));
+                let s2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: s2.into(), srcs: [Src::from(a[0]).fneg(), Src::new_imm_u32(log2_e.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let exp_neg = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: exp_neg.into(), op: TranscendentalOp::Exp2, src: s2.into() }));
+                let diff = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: diff.into(), srcs: [exp_pos.into(), Src::from(exp_neg).fneg()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dst.into(), srcs: [diff.into(), Src::new_imm_u32(half.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Cosh => {
+                // cosh(x) = (exp(x) + exp(-x)) / 2
+                let log2_e: f32 = std::f32::consts::LOG2_E;
+                let half: f32 = 0.5;
+                let s1 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: s1.into(), srcs: [a[0].into(), Src::new_imm_u32(log2_e.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let exp_pos = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: exp_pos.into(), op: TranscendentalOp::Exp2, src: s1.into() }));
+                let s2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: s2.into(), srcs: [Src::from(a[0]).fneg(), Src::new_imm_u32(log2_e.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                let exp_neg = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental { dst: exp_neg.into(), op: TranscendentalOp::Exp2, src: s2.into() }));
+                let sum = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: sum.into(), srcs: [exp_pos.into(), exp_neg.into()],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+                }));
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dst.into(), srcs: [sum.into(), Src::new_imm_u32(half.to_bits())],
+                    saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+                }));
+                Ok(dst.into())
+            }
             _ => Err(CompileError::NotImplemented(
                 format!("math function {fun:?} not yet supported").into(),
             )),

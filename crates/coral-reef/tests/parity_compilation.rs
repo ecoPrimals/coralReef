@@ -5,9 +5,8 @@
 //! reasonable metadata for both NVIDIA SM86 and AMD RDNA2 from identical
 //! WGSL sources. Does NOT require hardware — purely compiler-level.
 //!
-//! NOTE: The AMD backend does not yet support `@builtin(global_invocation_id)`
-//! (SR index 0x29). Shaders using it are tested on SM86 only, with explicit
-//! "known limitation" assertions for RDNA2 until the mapping is implemented.
+//! `@builtin(global_invocation_id)` is resolved using compile-time workgroup
+//! size constants, which works across all targets (NVIDIA and AMD).
 
 use coral_reef::{AmdArch, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
@@ -42,13 +41,7 @@ fn compile_rdna2(wgsl: &str) -> coral_reef::backend::CompiledBinary {
         .expect("RDNA2 compilation should succeed")
 }
 
-fn try_compile_rdna2(
-    wgsl: &str,
-) -> Result<coral_reef::backend::CompiledBinary, coral_reef::CompileError> {
-    coral_reef::compile_wgsl_full(wgsl, &opts_for_rdna2())
-}
-
-// --- Shaders that work on both targets (no global_invocation_id) ---
+// --- Shaders that work on both targets ---
 
 const STORE_42: &str = r"
 @group(0) @binding(0)
@@ -70,7 +63,7 @@ fn main() {
 }
 ";
 
-// --- Shaders that use global_invocation_id (AMD limitation) ---
+// --- Shaders that use global_invocation_id (works on all targets) ---
 
 const VECADD: &str = r"
 @group(0) @binding(0) var<storage> a: array<f32>;
@@ -170,42 +163,45 @@ fn parity_workgroup_size_1_matches() {
 }
 
 // ============================================================
-// SM86-only tests for shaders using global_invocation_id
-// (RDNA2 does not yet support SR index 0x29 mapping)
+// Cross-target tests for shaders using global_invocation_id
 // ============================================================
 
 #[test]
-fn sm86_vecadd_compiles() {
+fn parity_vecadd_both_compile() {
     let sm86 = compile_sm86(VECADD);
+    let rdna2 = compile_rdna2(VECADD);
     assert!(!sm86.binary.is_empty());
     assert!(sm86.info.gpr_count >= 3);
     assert_eq!(sm86.info.local_size, [64, 1, 1]);
+    assert!(!rdna2.binary.is_empty());
+    assert_eq!(rdna2.info.local_size, [64, 1, 1]);
 }
 
 #[test]
-fn sm86_saxpy_compiles() {
+fn parity_vecadd_binaries_differ() {
+    let sm86 = compile_sm86(VECADD);
+    let rdna2 = compile_rdna2(VECADD);
+    assert_ne!(
+        sm86.binary, rdna2.binary,
+        "different ISAs should produce different binaries"
+    );
+}
+
+#[test]
+fn parity_saxpy_both_compile() {
     let sm86 = compile_sm86(SAXPY);
+    let rdna2 = compile_rdna2(SAXPY);
     assert!(!sm86.binary.is_empty());
+    assert!(!rdna2.binary.is_empty());
 }
 
 #[test]
-fn sm86_matmul_compiles() {
+fn parity_matmul_both_compile() {
     let sm86 = compile_sm86(MATMUL_TILE);
+    let rdna2 = compile_rdna2(MATMUL_TILE);
     assert!(!sm86.binary.is_empty());
     assert!(sm86.info.gpr_count >= 4);
     assert_eq!(sm86.info.local_size, [8, 8, 1]);
-}
-
-#[test]
-fn rdna2_global_invocation_id_known_limitation() {
-    let result = try_compile_rdna2(VECADD);
-    assert!(
-        result.is_err(),
-        "RDNA2 should fail on global_invocation_id (known limitation)"
-    );
-    let err = result.unwrap_err().to_string();
-    assert!(
-        err.contains("SR index"),
-        "error should reference unmapped SR index: {err}"
-    );
+    assert!(!rdna2.binary.is_empty());
+    assert_eq!(rdna2.info.local_size, [8, 8, 1]);
 }

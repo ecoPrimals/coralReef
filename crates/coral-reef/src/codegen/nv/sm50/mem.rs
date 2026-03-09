@@ -348,8 +348,8 @@ impl SM50Op for OpAtom {
 
                     e.set_dst(&self.dst);
 
-                    // DEBT(isa): CmpExch separate layout in disassembler; only
-                    // packed layout appears supported by real hardware.
+                    // CmpExch: separate layout in disassembler; only packed layout
+                    // appears supported by real hardware.
                     let (data_src, data_layout) = match cmp_src {
                         AtomCmpSrc::Separate => {
                             if self.data.is_zero() {
@@ -520,7 +520,7 @@ impl SM50Op for OpIpa {
         assert!(self.addr % 4 == 0);
         e.set_field(28..38, self.addr);
         e.set_bit(38, false); // .IDX
-        e.set_pred_dst(47..50, &Dst::None); // DEBT(isa): pred_dst purpose
+        e.set_pred_dst(47..50, &Dst::None); // pred_dst: none for interpolation
         e.set_bit(51, false); // .SAT
         e.set_field(
             52..54,

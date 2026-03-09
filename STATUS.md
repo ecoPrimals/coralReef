@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 9, 2026  
-**Phase**: 10 — Iteration 24 (Multi-GPU Sovereignty & Cross-Vendor Parity)
+**Phase**: 10 — Iteration 25 (Math Evolution, Debt Zero, Full Sovereignty)
 
 ---
 
@@ -20,12 +20,12 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1280 passing, 0 failed, 52 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1285 passing, 0 failed, 60 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
-| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, libc for syscalls, FxHashMap internalized |
+| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, zero libc (inline asm syscalls), FxHashMap internalized |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 24** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 25** |
 
 ### Phase 10 Completions
 
@@ -344,7 +344,7 @@
 | NVIDIA probe tests | ✅ | Driver discovery, device open, multi-GPU enumeration |
 | Showcase suite (8 demos) | ✅ | Progressive: hello-compiler → compute triangle (coralReef → toadStool → barraCuda) |
 | Hardware testing documentation | ✅ | `docs/HARDWARE_TESTING.md` — Titan team handoff, parity matrix, CI config |
-| Test expansion | ✅ | 1191 → 1280 passing (+89 tests), 35 → 52 ignored (+17 hardware-gated) |
+| Test expansion | ✅ | 1191 → 1285 passing (+94 tests), 35 → 60 ignored (+25 hardware-gated) |
 
 ### Phase 10 Remaining / Phase 11 Roadmap
 
@@ -360,7 +360,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1280 passing, 0 failed, 52 ignored) |
+| `cargo test --workspace` | PASS (1285 passing, 0 failed, 60 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

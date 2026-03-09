@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
-//! f64 log2(x) via MUFU.LOG2/EX2/RCP seed + Newton refinement (~46-bit accuracy).
+//! f64 log2(x) via MUFU.LOG2/EX2/RCP seed + 2 Newton refinement iterations (~52-bit accuracy).
 
 #![allow(clippy::wildcard_imports, clippy::redundant_clone)]
 
 use super::super::*;
 
-/// log2(x) via MUFU.LOG2/EX2/RCP seed + Newton refinement (~46-bit accuracy).
+/// log2(x) via MUFU.LOG2/EX2/RCP seed + 2 Newton refinement iterations (~52-bit accuracy).
 pub fn lower_f64_log2(
     op: &OpF64Log2,
     pred: Pred,
@@ -127,7 +127,104 @@ pub fn lower_f64_log2(
     out.push(with_pred(
         Instr::new(OpDMul {
             dst: correction.clone().into(),
-            srcs: [Src::from(diff_f64), Src::from(inv_ln2)],
+            srcs: [Src::from(diff_f64), Src::from(inv_ln2.clone())],
+            rnd_mode: rnd,
+        }),
+        pred,
+    ));
+
+    let y1 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDAdd {
+            dst: y1.clone().into(),
+            srcs: [Src::from(y0_f64), Src::from(correction)],
+            rnd_mode: rnd,
+        }),
+        pred,
+    ));
+
+    // Second NR iteration: refine y1 (~46-bit) to y2 (~52-bit).
+    // Convert y1 back to f32, recompute residual, add correction.
+    let y1_f32 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpF2F {
+            dst: y1_f32.into(),
+            src: Src::from(y1.clone()),
+            src_type: FloatType::F64,
+            dst_type: FloatType::F32,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dst_high: false,
+            integer_rnd: false,
+        }),
+        pred,
+    ));
+
+    let exp_y1 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpTranscendental {
+            dst: exp_y1.into(),
+            op: TranscendentalOp::Exp2,
+            src: y1_f32.into(),
+        }),
+        pred,
+    ));
+
+    let rcp_exp1 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpTranscendental {
+            dst: rcp_exp1.into(),
+            op: TranscendentalOp::Rcp,
+            src: exp_y1.into(),
+        }),
+        pred,
+    ));
+
+    let ratio1 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpFMul {
+            dst: ratio1.into(),
+            srcs: [x_f32.into(), rcp_exp1.into()],
+            saturate: false,
+            rnd_mode: rnd,
+            ftz: false,
+            dnz: false,
+        }),
+        pred,
+    ));
+
+    let diff1_f32 = alloc.alloc(RegFile::GPR);
+    out.push(with_pred(
+        Instr::new(OpFAdd {
+            dst: diff1_f32.into(),
+            srcs: [ratio1.into(), Src::new_imm_u32(minus_one_f32)],
+            saturate: false,
+            rnd_mode: rnd,
+            ftz: false,
+        }),
+        pred,
+    ));
+
+    let diff1_f64 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpF2F {
+            dst: diff1_f64.clone().into(),
+            src: diff1_f32.into(),
+            src_type: FloatType::F32,
+            dst_type: FloatType::F64,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dst_high: false,
+            integer_rnd: false,
+        }),
+        pred,
+    ));
+
+    let correction1 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDMul {
+            dst: correction1.clone().into(),
+            srcs: [Src::from(diff1_f64), Src::from(inv_ln2)],
             rnd_mode: rnd,
         }),
         pred,
@@ -136,7 +233,7 @@ pub fn lower_f64_log2(
     out.push(with_pred(
         Instr::new(OpDAdd {
             dst: op.dst.clone(),
-            srcs: [Src::from(y0_f64), Src::from(correction)],
+            srcs: [Src::from(y1), Src::from(correction1)],
             rnd_mode: rnd,
         }),
         pred,
@@ -187,14 +284,16 @@ mod tests {
         let has_log2 = seq
             .iter()
             .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Log2));
-        let has_exp2 = seq
+        let exp2_count = seq
             .iter()
-            .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Exp2));
-        let has_rcp = seq
+            .filter(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Exp2))
+            .count();
+        let rcp_count = seq
             .iter()
-            .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Rcp));
+            .filter(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Rcp))
+            .count();
         assert!(has_log2, "log2 lowering should use MUFU.LOG2");
-        assert!(has_exp2, "log2 Newton refinement should use MUFU.EX2");
-        assert!(has_rcp, "log2 Newton refinement should use MUFU.RCP");
+        assert_eq!(exp2_count, 2, "log2 needs 2 NR iterations (2 MUFU.EX2)");
+        assert_eq!(rcp_count, 2, "log2 needs 2 NR iterations (2 MUFU.RCP)");
     }
 }

@@ -28,23 +28,25 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let ctaid_x = self.read_sys_reg(sys_regs::SR_CTAID_X);
                 let ctaid_y = self.read_sys_reg(sys_regs::SR_CTAID_Y);
                 let ctaid_z = self.read_sys_reg(sys_regs::SR_CTAID_Z);
-                let ntid_x = self.read_sys_reg(sys_regs::SR_NTID_X);
-                let ntid_y = self.read_sys_reg(sys_regs::SR_NTID_Y);
-                let ntid_z = self.read_sys_reg(sys_regs::SR_NTID_Z);
+
+                let wg = self.workgroup_size;
 
                 let gid = self.alloc_ssa_vec(RegFile::GPR, 3);
 
-                let tmp_x = self.emit_imad(ctaid_x.into(), ntid_x.into(), tid_x.into());
+                let tmp_x =
+                    self.emit_imad(ctaid_x.into(), Src::new_imm_u32(wg[0]), tid_x.into());
                 self.push_instr(Instr::new(OpCopy {
                     dst: gid[0].into(),
                     src: tmp_x.into(),
                 }));
-                let tmp_y = self.emit_imad(ctaid_y.into(), ntid_y.into(), tid_y.into());
+                let tmp_y =
+                    self.emit_imad(ctaid_y.into(), Src::new_imm_u32(wg[1]), tid_y.into());
                 self.push_instr(Instr::new(OpCopy {
                     dst: gid[1].into(),
                     src: tmp_y.into(),
                 }));
-                let tmp_z = self.emit_imad(ctaid_z.into(), ntid_z.into(), tid_z.into());
+                let tmp_z =
+                    self.emit_imad(ctaid_z.into(), Src::new_imm_u32(wg[2]), tid_z.into());
                 self.push_instr(Instr::new(OpCopy {
                     dst: gid[2].into(),
                     src: tmp_z.into(),
@@ -112,11 +114,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let tid_x = self.read_sys_reg(sys_regs::SR_TID_X);
                 let tid_y = self.read_sys_reg(sys_regs::SR_TID_Y);
                 let tid_z = self.read_sys_reg(sys_regs::SR_TID_Z);
-                let ntid_x = self.read_sys_reg(sys_regs::SR_NTID_X);
-                let ntid_y = self.read_sys_reg(sys_regs::SR_NTID_Y);
 
-                let yz = self.emit_imad(tid_z.into(), ntid_y.into(), tid_y.into());
-                let idx = self.emit_imad(yz.into(), ntid_x.into(), tid_x.into());
+                let wg = self.workgroup_size;
+
+                let yz = self.emit_imad(tid_z.into(), Src::new_imm_u32(wg[1]), tid_y.into());
+                let idx = self.emit_imad(yz.into(), Src::new_imm_u32(wg[0]), tid_x.into());
                 let v = self.alloc_ssa_vec(RegFile::GPR, 1);
                 self.push_instr(Instr::new(OpCopy {
                     dst: v[0].into(),

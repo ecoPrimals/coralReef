@@ -22,6 +22,9 @@ pub mod nvidia_drm;
 #[cfg(feature = "nvidia-drm")]
 pub use nvidia_drm::NvDrmDevice;
 
+#[cfg(feature = "nvidia-drm")]
+pub mod uvm;
+
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};

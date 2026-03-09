@@ -7,7 +7,7 @@ cargo llvm-cov --all --summary-only
 
 echo ""
 echo "=== Per-crate coverage ==="
-for crate in coralreef-core coral-reef coral-reef-stubs coral-reef-bitview coral-reef-isa coral-driver coral-gpu; do
+for crate in coralreef-core coral-reef coral-reef-stubs coral-reef-bitview coral-reef-isa coral-driver coral-gpu nak-ir-proc; do
     echo "--- $crate ---"
     cargo llvm-cov --package "$crate" --summary-only 2>/dev/null || echo "  (no tests)"
 done

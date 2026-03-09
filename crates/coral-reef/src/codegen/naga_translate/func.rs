@@ -63,6 +63,10 @@ pub(super) struct FuncTranslator<'a, 'b> {
     pub(super) next_block_id: usize,
     /// True when accumulated instructions are in unreachable code (after Break/Continue).
     pub(super) dead_code: bool,
+    /// Compile-time workgroup size from `@workgroup_size()`. Used to resolve
+    /// `global_invocation_id` and `local_invocation_index` without system
+    /// register reads (RDNA2 lacks hardware registers for workgroup size).
+    pub(super) workgroup_size: [u32; 3],
 }
 
 impl<'a, 'b> FuncTranslator<'a, 'b> {
@@ -95,6 +99,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             current_block_id: None,
             next_block_id: 0,
             dead_code: false,
+            workgroup_size: [1, 1, 1],
         }
     }
 
@@ -203,7 +208,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         }
     }
 
-    pub(super) fn emit_compute_prologue(&self, _ep: &naga::EntryPoint) -> Result<(), CompileError> {
+    pub(super) fn emit_compute_prologue(
+        &mut self,
+        ep: &naga::EntryPoint,
+    ) -> Result<(), CompileError> {
+        self.workgroup_size = ep.workgroup_size;
         for (_handle, gv) in self.module.global_variables.iter() {
             let Some(binding) = &gv.binding else {
                 continue;

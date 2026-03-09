@@ -12,10 +12,7 @@ rustix = { version = "1.1.4", features = ["mm", "time", "process"] }
 thiserror.workspace = true
 tracing.workspace = true
 
-# Retained temporarily for ioctl() — rustix does not yet expose a stable
-# generic ioctl wrapper that accepts arbitrary #[repr(C)] structs.
-# Once rustix stabilises its ioctl API or we write a thin wrapper, remove.
-libc = "0.2"
+# libc eliminated — ioctl now uses raw syscall via inline asm (see drm.rs)
 
 [features]
 default = ["nouveau", "nvidia-drm"]

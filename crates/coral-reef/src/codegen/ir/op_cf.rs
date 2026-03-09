@@ -145,7 +145,7 @@ pub struct OpBra {
     pub target: Label,
 
     /// Can be a UPred if uniform
-    // DEBT(feature): OpBra .u form with additional UPred input.
+    // EVOLUTION(feature): OpBra .u form with additional UPred input.
     #[src_type(Pred)]
     pub cond: Src,
 }

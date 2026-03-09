@@ -51,7 +51,7 @@ fn calc_instr_sched(prev_op: Option<&Op>, op: &Op, deps: &InstrDeps) -> u8 {
         Op::TexDepBar(_) => 0xc2,
         Op::Sync(_) => 0x00, // Wait 16 cycles
         _ => {
-            // DEBT(opt): Dual-issue support; check both previous ops.
+            // EVOLUTION(opt): Dual-issue support; check both previous ops.
             let base = match prev_op {
                 Some(Op::ASt(_)) => 0x40,
                 _ => 0x20,
@@ -70,7 +70,7 @@ fn calc_instr_sched(prev_op: Option<&Op>, op: &Op, deps: &InstrDeps) -> u8 {
     // Unsure:
     // 0x80: global memory bit
     //
-    // DEBT(opt): Dual issue (0x04), Functional Unit tracking.
+    // EVOLUTION(opt): Dual issue (0x04), Functional Unit tracking.
 }
 
 pub trait KeplerInstructionEncoder {

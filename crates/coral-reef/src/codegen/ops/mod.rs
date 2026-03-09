@@ -290,6 +290,12 @@ pub(crate) fn cbuf_to_user_sgpr_encoding(
     Ok(sgpr_idx)
 }
 
+/// Encode a VOP2 instruction with automatic operand legalization.
+///
+/// RDNA2 VOP2 requires VSRC1 to be a VGPR. If `src1` is not a VGPR:
+/// 1. Swap operands (valid for commutative ops like add/mul/min/max).
+/// 2. Fall back to VOP3 encoding (opcode + 256) which allows any
+///    9-bit source in all three operand slots.
 pub(crate) fn encode_vop2_from_srcs(
     opcode: u16,
     dst: &Dst,
@@ -297,16 +303,93 @@ pub(crate) fn encode_vop2_from_srcs(
     src1: &Src,
 ) -> Result<Vec<u32>, CompileError> {
     let dst_reg = dst_to_vgpr_index(dst)?;
-    let src0_enc = src_to_encoding(src0)?;
-    let src1_idx = src_to_vgpr_index(src1)?;
-    let mut words = Rdna2Encoder::encode_vop2(
-        opcode,
-        AmdRegRef::vgpr(dst_reg),
-        src0_enc.src0,
-        AmdRegRef::vgpr(src1_idx),
-    );
-    src0_enc.extend_with_literal(&mut words);
-    Ok(words)
+
+    let src1_is_vgpr = src_to_vgpr_index(src1).is_ok();
+    let src0_is_vgpr = src_to_vgpr_index(src0).is_ok();
+
+    if src1_is_vgpr {
+        let src0_enc = src_to_encoding(src0)?;
+        let src1_idx = src_to_vgpr_index(src1)?;
+        let mut words = Rdna2Encoder::encode_vop2(
+            opcode,
+            AmdRegRef::vgpr(dst_reg),
+            src0_enc.src0,
+            AmdRegRef::vgpr(src1_idx),
+        );
+        src0_enc.extend_with_literal(&mut words);
+        Ok(words)
+    } else if src0_is_vgpr {
+        let src1_enc = src_to_encoding(src1)?;
+        let src0_idx = src_to_vgpr_index(src0)?;
+        let mut words = Rdna2Encoder::encode_vop2(
+            opcode,
+            AmdRegRef::vgpr(dst_reg),
+            src1_enc.src0,
+            AmdRegRef::vgpr(src0_idx),
+        );
+        src1_enc.extend_with_literal(&mut words);
+        Ok(words)
+    } else {
+        let vop3_opcode = opcode + 256;
+        let src0_enc = src_to_encoding(src0)?;
+        let src1_enc = src_to_encoding(src1)?;
+        if src0_enc.literal.is_some() || src1_enc.literal.is_some() {
+            return Err(CompileError::NotImplemented(
+                "VOP3 fallback does not support literal constants in both sources".into(),
+            ));
+        }
+        Ok(Rdna2Encoder::encode_vop3(
+            vop3_opcode,
+            AmdRegRef::vgpr(dst_reg),
+            src0_enc.src0,
+            src1_enc.src0,
+            0,
+        ))
+    }
+}
+
+/// Encode a VOPC comparison with automatic operand legalization.
+///
+/// RDNA2 VOPC requires VSRC1 to be a VGPR. If `src1` is not a VGPR but
+/// `src0` is, swap operands (comparison direction is preserved by the caller
+/// selecting the appropriate opcode).
+pub(crate) fn encode_vopc_legalized(
+    opcode: u16,
+    src0: &Src,
+    src1: &Src,
+) -> Result<Vec<u32>, CompileError> {
+    let src1_is_vgpr = src_to_vgpr_index(src1).is_ok();
+    let src0_is_vgpr = src_to_vgpr_index(src0).is_ok();
+
+    if src1_is_vgpr {
+        let src0_enc = src_to_encoding(src0)?;
+        let src1_idx = src_to_vgpr_index(src1)?;
+        let mut words = Rdna2Encoder::encode_vopc(opcode, src0_enc.src0, src1_idx);
+        src0_enc.extend_with_literal(&mut words);
+        Ok(words)
+    } else if src0_is_vgpr {
+        let src1_enc = src_to_encoding(src1)?;
+        let src0_idx = src_to_vgpr_index(src0)?;
+        let mut words = Rdna2Encoder::encode_vopc(opcode, src1_enc.src0, src0_idx);
+        src1_enc.extend_with_literal(&mut words);
+        Ok(words)
+    } else {
+        let src0_enc = src_to_encoding(src0)?;
+        let src1_enc = src_to_encoding(src1)?;
+        if src0_enc.literal.is_some() || src1_enc.literal.is_some() {
+            return Err(CompileError::NotImplemented(
+                "VOPC fallback does not support literal constants in both sources".into(),
+            ));
+        }
+        let vop3_opcode = opcode + 256;
+        Ok(Rdna2Encoder::encode_vop3(
+            vop3_opcode,
+            AmdRegRef::vgpr(0),
+            src0_enc.src0,
+            src1_enc.src0,
+            0,
+        ))
+    }
 }
 
 pub(crate) fn encode_vop3_from_srcs(

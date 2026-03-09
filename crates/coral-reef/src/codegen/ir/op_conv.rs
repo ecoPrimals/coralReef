@@ -462,7 +462,7 @@ pub struct OpPrmt {
 
 impl OpPrmt {
     pub fn get_sel(&self) -> Option<PrmtSel> {
-        // DEBT(feature): PrmtSel for non-Index modes (Index is the only one used).
+        // EVOLUTION(feature): PrmtSel for non-Index modes (Index is the only one used).
         if self.mode != PrmtMode::Index {
             return None;
         }
