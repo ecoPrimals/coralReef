@@ -145,8 +145,10 @@ pub trait DisplayOp: DstsAsSlice {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-// Hack struct so we can re-use Formatters.  Shamelessly stolen from
-// https://users.rust-lang.org/t/reusing-an-fmt-formatter/8531/4
+/// Closure-to-Display adapter for reusing `fmt::Formatter` across calls.
+///
+/// Wraps an `Fn(&mut Formatter) -> fmt::Result` so it can participate
+/// in `write!` / `format!` chains without intermediate `String` allocations.
 pub struct Fmt<F>(pub F)
 where
     F: Fn(&mut fmt::Formatter) -> fmt::Result;

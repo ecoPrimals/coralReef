@@ -91,7 +91,7 @@ impl DisplayOp for OpNop {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "nop")?;
         if let Some(label) = &self.label {
-            write!(f, " {}", label)?;
+            write!(f, " {label}")?;
         }
         Ok(())
     }

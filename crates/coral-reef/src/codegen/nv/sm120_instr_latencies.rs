@@ -176,7 +176,7 @@ fn op_pred_latency(op: &Op) -> PredLatencySM100 {
         Op::Vote(_) => DispDualAlu,
         Op::Match(_) => Decoupled,
         _ => {
-            panic!("Illegal op in sm120 pred latency {}", op);
+            panic!("Illegal op in sm120 pred latency {op}");
         }
     }
 }
@@ -288,7 +288,7 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
         | Op::HSetP2(_) => coupled,
         Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => decoupled,
         _ => {
-            panic!("Illegal instuction in ureg category {}", op);
+            panic!("Illegal instuction in ureg category {op}");
         }
     }
 }
@@ -339,7 +339,7 @@ fn op_upred_latency(op: &Op) -> UpredLatencySM100 {
             }
         }
         _ => {
-            panic!("Illegal instuction in upred category {}", op);
+            panic!("Illegal instuction in upred category {op}");
         }
     }
 }

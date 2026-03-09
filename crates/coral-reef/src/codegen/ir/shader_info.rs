@@ -161,7 +161,7 @@ impl VtgIoInfo {
                 ));
             } else if addr < 0x300 {
                 sysvals.c |= 1 << ((addr - 0x2c0) / 4);
-            } else if addr >= 0x3a0 && addr < 0x3c0 {
+            } else if (0x3a0..0x3c0).contains(&addr) {
                 *sysvals_d |= 1 << ((addr - 0x3a0) / 4);
             }
         }
@@ -188,7 +188,7 @@ impl VtgIoInfo {
             ));
         } else if addr < 0x300 {
             self.sysvals_out.c & (1 << ((addr - 0x2c0) / 4)) != 0
-        } else if addr >= 0x3a0 && addr < 0x3c0 {
+        } else if (0x3a0..0x3c0).contains(&addr) {
             self.sysvals_out_d & (1 << ((addr - 0x3a0) / 4)) != 0
         } else {
             return Err(CompileError::InvalidInput(
@@ -236,7 +236,7 @@ impl FragmentIoInfo {
             ));
         } else if addr < 0x300 {
             self.sysvals_in.c |= 1 << ((addr - 0x2c0) / 4);
-        } else if addr >= 0x3a0 && addr < 0x3c0 {
+        } else if (0x3a0..0x3c0).contains(&addr) {
             let attr_idx = (addr - 0x3a0) as usize / 4;
             self.sysvals_in_d[attr_idx] = interp;
         }
@@ -244,7 +244,7 @@ impl FragmentIoInfo {
     }
 
     pub fn mark_barycentric_attr_in(&mut self, addr: u16) -> Result<(), CompileError> {
-        if !(addr >= 0x80 && addr < 0x280) {
+        if !(0x80..0x280).contains(&addr) {
             return Err(CompileError::InvalidInput(
                 format!("barycentric attr addr 0x{addr:03x} out of range 0x080..0x280").into(),
             ));
@@ -806,7 +806,7 @@ impl Shader<'_> {
 impl fmt::Display for Shader<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for func in &self.functions {
-            write!(f, "{}", func)?;
+            write!(f, "{func}")?;
         }
         Ok(())
     }

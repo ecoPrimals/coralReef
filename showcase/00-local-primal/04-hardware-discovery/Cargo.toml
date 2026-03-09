@@ -1,0 +1,11 @@
+[package]
+name = "showcase-hardware-discovery"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+coral-driver = { path = "../../../crates/coral-driver" }
+coral-gpu = { path = "../../../crates/coral-gpu" }
+coralreef-core = { path = "../../../crates/coralreef-core" }

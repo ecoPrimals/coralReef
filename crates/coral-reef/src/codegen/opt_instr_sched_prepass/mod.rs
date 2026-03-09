@@ -122,10 +122,7 @@ impl Function {
             let mut unit: ScheduleUnit = ScheduleUnit::default();
 
             for (ip, instr) in std::mem::take(&mut block.instrs).into_iter().enumerate() {
-                let starts_block = match instr.op {
-                    Op::PhiDsts(_) => true,
-                    _ => false,
-                };
+                let starts_block = matches!(instr.op, Op::PhiDsts(_));
                 let ends_block = match instr.op {
                     Op::PhiSrcs(_) => true,
                     _ => instr.op.is_branch(),

@@ -1,7 +1,7 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 23)
-**Phase**: 10 — Deep Debt Elimination & Math Function Coverage
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 24)
+**Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
 
@@ -9,9 +9,11 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1191 tests (1191 passing, 35 ignored), 63% line coverage (target 90%),
+1280 tests (1280 passing, 52 ignored), 63% line coverage (target 90%),
 79/86 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
-compute shaders and 4/10 SPIR-V roundtrip tests passing.
+compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
+sovereignty: driver preference (nouveau-first), nvidia-drm probing,
+toadStool ecosystem discovery, cross-vendor parity testing.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),

@@ -6,6 +6,7 @@
 use bytes::Bytes;
 use coral_reef::{AmdArch, CompileError, CompileOptions, GpuTarget, NvArch};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// tarpc-only SPIR-V compile request (zero-copy via `Bytes`).
 ///
@@ -65,11 +66,11 @@ pub struct CompileResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     /// Primal name.
-    pub name: String,
+    pub name: Cow<'static, str>,
     /// Version.
-    pub version: String,
+    pub version: Cow<'static, str>,
     /// Current status.
-    pub status: String,
+    pub status: Cow<'static, str>,
     /// Supported architectures.
     pub supported_archs: Vec<String>,
 }
@@ -187,9 +188,9 @@ pub fn handle_health() -> HealthResponse {
     let mut archs: Vec<String> = NvArch::ALL.iter().map(ToString::to_string).collect();
     archs.extend(AmdArch::ALL.iter().map(ToString::to_string));
     HealthResponse {
-        name: env!("CARGO_PKG_NAME").to_owned(),
-        version: env!("CARGO_PKG_VERSION").to_owned(),
-        status: "operational".to_owned(),
+        name: env!("CARGO_PKG_NAME").into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        status: "operational".into(),
         supported_archs: archs,
     }
 }

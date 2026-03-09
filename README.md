@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 23 (Deep Debt Elimination & Math Function Coverage)
+**Status**: Phase 10 — Iteration 24 (Multi-GPU Sovereignty & Cross-Vendor Parity)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -19,10 +19,11 @@ No manual vtables, no C-era dispatch macros.
 
 coralDriver provides userspace GPU dispatch via DRM ioctl — AMD amdgpu
 (fully wired: GEM, PM4, CS submit, fence sync) and NVIDIA nouveau
-(channel alloc, GEM, pushbuf submit, QMD dispatch). coralGpu unifies
-compilation and dispatch into a single API with automatic hardware
-detection. Every layer pure Rust — zero FFI, zero `*-sys`, zero
-`extern "C"`.
+(channel alloc, GEM, pushbuf submit, QMD dispatch) plus nvidia-drm
+(proprietary driver probing). coralGpu unifies compilation and dispatch
+into a single API with automatic multi-GPU detection and sovereign
+driver preference (prefer open-source, fall back to what exists).
+Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 
 Part of the ecoPrimals Sovereign Compute Evolution.
 
@@ -31,7 +32,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1191 passing, 0 failed, 35 ignored
+cargo test --workspace     # 1280 passing, 0 failed, 52 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -66,7 +67,8 @@ WGSL / SPIR-V / GLSL input
 ┌───────────────────────────────┐
 │ coral-driver                  │
 │ ├ amd/  DRM amdgpu ioctl    │
-│ └ nv/   DRM nouveau ioctl   │
+│ ├ nv/   DRM nouveau ioctl   │
+│ └ nv/   nvidia-drm (compat) │
 └───────────────────────────────┘
          │
          ▼
@@ -103,10 +105,10 @@ coralReef/
 │   │   └── tests/                # Integration tests + WGSL corpus
 │   ├── coral-driver/              # Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
-│   │       ├── drm.rs            # Pure Rust DRM interface (via libc)
+│   │       ├── drm.rs            # Pure Rust DRM interface (multi-GPU scan)
 │   │       ├── amd/              # amdgpu: GEM, PM4, command submission, fence
-│   │       └── nv/               # nouveau: channel, GEM, QMD, pushbuf submit
-│   ├── coral-gpu/                 # Unified GPU compute abstraction
+│   │       └── nv/               # nouveau (sovereign) + nvidia-drm (compatible)
+│   ├── coral-gpu/                 # Unified GPU compute + driver preference
 │   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/            # ISA tables, latency model
 │   ├── coral-reef-stubs/          # Pure-Rust dependency replacements
@@ -114,6 +116,7 @@ coralReef/
 ├── tools/
 │   └── amd-isa-gen/              # Pure Rust ISA table generator (replaces Python)
 ├── specs/                        # Architecture specification + evolution plan
+├── showcase/                     # Progressive demos (hello-compiler → compute triangle)
 ├── whitePaper/                   # Theory docs (f64 lowering, transcendental analysis)
 └── genomebin/                    # Deployment scaffolding
 ```
@@ -124,8 +127,8 @@ coralReef/
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control |
 | `coral-reef` | Shader compiler — 79/86 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
-| `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (channel+GEM+pushbuf+QMD+CBUF+fence) via DRM ioctl (pure Rust, bytemuck, zero FFI) |
-| `coral-gpu` | Unified GPU compute — compile WGSL + dispatch on hardware in one API, auto-detect DRM render nodes |
+| `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust |
+| `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: nouveau > amdgpu > nvidia-drm) |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
 | `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
@@ -155,18 +158,52 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1191 passing, 0 failed, 35 ignored) |
+| `cargo test --workspace` | PASS (1280 passing, 0 failed, 52 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |
 
+## Driver Sovereignty
+
+coralReef compiles for everything, prefers open-source drivers at runtime:
+
+```
+Default:   nouveau → amdgpu → nvidia-drm
+Override:  CORALREEF_DRIVER_PREFERENCE=nvidia-drm,amdgpu
+```
+
+The compiled shader binary is identical regardless of which driver dispatches it.
+Sovereignty is a runtime choice, not a compile-time lock.
+
+## Showcase
+
+8 progressive demos in `showcase/` — from hello-compiler to the full
+compute triangle (coralReef → toadStool → barraCuda). Level 00 works
+anywhere (compile-only). Level 01 requires GPU hardware. Level 02
+demonstrates inter-primal ecosystem integration.
+
+```bash
+cd showcase/00-local-primal/01-hello-compiler && ./demo.sh
+```
+
 ## Hardware — On-Site
 
-| GPU | Architecture | Kernel Driver | f64 | Role |
-|-----|-------------|---------------|-----|------|
-| AMD RX 6950 XT | RDNA2 GFX1030 | amdgpu (open) | 1/16 | AMD evolution primary |
-| NVIDIA RTX 3090 | Ampere SM86 | nvidia 580.119.02 | 1/32 | NVIDIA compilation target |
+| GPU | Architecture | Kernel Driver | DRM Node | f64 | Role |
+|-----|-------------|---------------|----------|-----|------|
+| AMD RX 6950 XT | RDNA2 GFX1030 | amdgpu (open) | renderD128 | 1/16 | AMD primary (E2E verified) |
+| NVIDIA RTX 3090 | Ampere SM86 | nvidia-drm (proprietary) | renderD129 | 1/32 | NVIDIA target (probe verified) |
+
+## vs CUDA / Kokkos
+
+| | CUDA | Kokkos | coralReef |
+|---|---|---|---|
+| Vendor lock-in | NVIDIA only | Abstracts (needs SDK underneath) | None — generates native ISA directly |
+| C/C++ dependency | CUDA toolkit | Host compiler + vendor SDK | Zero — pure Rust |
+| GPU ISAs | PTX → SASS (NVIDIA only) | Delegates to vendor | SASS (SM70–89) + GCN/RDNA (AMD) |
+| Runtime library | libcuda.so | kokkos runtime | None — DRM ioctl dispatch |
+| Cross-vendor | No | Yes (via SDKs) | Yes (native, no SDK) |
+| Open source | No (ptxas proprietary) | Yes | Yes (AGPL-3.0-only) |
 
 ## Sovereign Evolution
 
@@ -182,7 +219,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 23** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 24** |
 
 ---
 

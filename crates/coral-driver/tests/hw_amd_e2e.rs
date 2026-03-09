@@ -243,3 +243,122 @@ fn dispatch_writes_42_and_readback_verifies() {
 
     dev.free(out_buf).expect("free output buffer");
 }
+
+const DOUBLE_FIRST_SHADER: &str = r"
+@group(0) @binding(0)
+var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    data[0] = data[0] * 2u;
+}
+";
+
+/// E2E compute validation: upload known data, dispatch `data[0] *= 2`, readback and verify.
+///
+/// Validates the full read-modify-write pipeline through the GPU:
+/// host upload → shader load → ALU multiply → shader store → host readback.
+///
+/// Currently blocked: the AMD backend's compiled buffer-read path does
+/// not yet produce correct SMEM loads for storage buffer reads. The GPU
+/// reads 0 instead of the uploaded value. Gated behind `rdna2_buffer_read`
+/// cfg flag so it doesn't run in normal `--ignored` sweeps.
+#[test]
+#[cfg(feature = "rdna2-buffer-read")]
+#[ignore = "requires amdgpu hardware"]
+fn compute_double_readback_verifies() {
+    let compiled =
+        try_compile_for_rdna2(DOUBLE_FIRST_SHADER).expect("double shader should compile");
+
+    let mut dev = open_amd();
+    let data_buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
+
+    let input_val: u32 = 21;
+    dev.upload(data_buf, 0, &input_val.to_le_bytes())
+        .expect("upload");
+
+    let info = ShaderInfo {
+        gpr_count: compiled.info.gpr_count,
+        shared_mem_bytes: compiled.info.shared_mem_bytes,
+        barrier_count: compiled.info.barrier_count,
+        workgroup: compiled.info.local_size,
+    };
+
+    dev.dispatch(
+        &compiled.binary,
+        &[data_buf],
+        DispatchDims::linear(1),
+        &info,
+    )
+    .expect("dispatch");
+    dev.sync().expect("sync");
+
+    let readback = dev.readback(data_buf, 0, 4).expect("readback");
+    let value = u32::from_le_bytes(readback[..4].try_into().unwrap());
+    assert_eq!(value, 42, "data[0] should be 21*2=42, got {value}");
+
+    dev.free(data_buf).expect("free");
+}
+
+const ADD_ONE_SHADER: &str = r"
+@group(0) @binding(0) var<storage> a: array<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    out[0] = a[0] + 1.0;
+}
+";
+
+/// E2E: dual-buffer test — read from one buffer, write to another.
+///
+/// Validates multi-binding dispatch where the shader reads `a[0]` and
+/// writes `a[0] + 1.0` to a separate output buffer.
+///
+/// Currently blocked: same RDNA2 buffer-read limitation as
+/// `compute_double_readback_verifies`. Also hits VOP2 VSRC1 limitation
+/// for the `a[0] + 1.0` pattern. Gated behind `rdna2-buffer-read`.
+#[test]
+#[cfg(feature = "rdna2-buffer-read")]
+#[ignore = "requires amdgpu hardware"]
+fn compute_add_dual_buffer_verifies() {
+    let compiled = try_compile_for_rdna2(ADD_ONE_SHADER).expect("add shader should compile");
+
+    let mut dev = open_amd();
+
+    let a_buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc a");
+    let out_buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc out");
+
+    let input_val: f32 = 3.14;
+    dev.upload(a_buf, 0, &input_val.to_le_bytes())
+        .expect("upload a");
+    dev.upload(out_buf, 0, &[0u8; 4]).expect("zero out");
+
+    let info = ShaderInfo {
+        gpr_count: compiled.info.gpr_count,
+        shared_mem_bytes: compiled.info.shared_mem_bytes,
+        barrier_count: compiled.info.barrier_count,
+        workgroup: compiled.info.local_size,
+    };
+
+    dev.dispatch(
+        &compiled.binary,
+        &[a_buf, out_buf],
+        DispatchDims::linear(1),
+        &info,
+    )
+    .expect("dispatch");
+    dev.sync().expect("sync");
+
+    let readback = dev.readback(out_buf, 0, 4).expect("readback");
+    let result = f32::from_le_bytes(readback[..4].try_into().unwrap());
+    let expected = input_val + 1.0;
+    let diff = (result - expected).abs();
+    assert!(
+        diff < 1e-6,
+        "out[0]: expected {expected}, got {result} (diff={diff})"
+    );
+
+    dev.free(out_buf).expect("free out");
+    dev.free(a_buf).expect("free a");
+}

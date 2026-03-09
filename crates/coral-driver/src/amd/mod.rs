@@ -17,6 +17,13 @@ use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo}
 
 use std::collections::HashMap;
 
+/// Default GPU fence timeout in nanoseconds (5 seconds).
+///
+/// Controls how long `sync()` waits for in-flight compute dispatches
+/// to complete. Tuned for typical shader workloads; long-running kernels
+/// may need a higher value via the future `FenceConfig` evolution.
+const FENCE_TIMEOUT_NS: u64 = 5_000_000_000;
+
 /// AMD GPU compute device.
 pub struct AmdDevice {
     drm: DrmDevice,
@@ -39,16 +46,10 @@ impl AmdDevice {
     /// Returns [`DriverError`] if no amdgpu render node is found or
     /// context creation fails.
     pub fn open() -> DriverResult<Self> {
-        let drm = DrmDevice::open_default()?;
-        let driver = drm.driver_name()?;
-        if driver != "amdgpu" {
-            return Err(DriverError::DeviceNotFound(
-                format!("expected amdgpu driver, found '{driver}'").into(),
-            ));
-        }
+        let drm = DrmDevice::open_by_driver("amdgpu")?;
 
         let ctx_handle = ioctl::create_context(drm.fd())?;
-        tracing::info!(driver = %driver, ctx = ctx_handle, "AMD GPU context created");
+        tracing::info!(path = %drm.path, ctx = ctx_handle, "AMD GPU context created");
 
         Ok(Self {
             drm,
@@ -173,7 +174,7 @@ impl ComputeDevice for AmdDevice {
             self.drm.fd(),
             self.ctx_handle,
             self.last_fence,
-            5_000_000_000,
+            FENCE_TIMEOUT_NS,
         )?;
         let inflight = std::mem::take(&mut self.inflight);
         for handle in inflight {

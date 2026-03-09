@@ -158,7 +158,7 @@ impl BarPropPass {
             return;
         }
 
-        let mut seen = BitSet::<Phi>::new(4096);
+        let mut seen = BitSet::<Phi>::new(super::PHI_BITSET_CAPACITY);
         if self.phi_can_be_bar_recur(phi_map, &mut seen, phi) {
             self.add_phi_recur(ssa_alloc, phi_map, &mut seen, phi, ssa);
             assert!(seen.is_empty());

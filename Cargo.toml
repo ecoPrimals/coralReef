@@ -11,6 +11,9 @@ members = [
     "crates/coral-driver",
     "crates/coral-gpu",
 ]
+exclude = [
+    "showcase",
+]
 
 [workspace.package]
 version = "0.1.0"

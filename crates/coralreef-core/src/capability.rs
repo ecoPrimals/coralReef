@@ -11,6 +11,7 @@
 
 use coral_reef::GpuArch;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// A capability this primal can provide or consume.
 ///
@@ -20,9 +21,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Capability {
     /// Namespaced capability identifier (e.g. `"shader.compile"`).
-    pub id: String,
+    pub id: Cow<'static, str>,
     /// Semantic version of this capability's contract.
-    pub version: String,
+    pub version: Cow<'static, str>,
     /// Capability-specific metadata (arch support, limits, etc.).
     pub metadata: serde_json::Value,
 }
@@ -42,9 +43,9 @@ pub struct SelfDescription {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transport {
     /// Protocol identifier (`"jsonrpc"`, `"tarpc"`, etc.).
-    pub protocol: String,
+    pub protocol: Cow<'static, str>,
     /// Bound address (populated at runtime after OS-assigned port).
-    pub address: String,
+    pub address: Cow<'static, str>,
 }
 
 /// Build this primal's self-description from compiled-in knowledge only.
@@ -58,22 +59,22 @@ pub fn self_description() -> SelfDescription {
     SelfDescription {
         provides: vec![
             Capability {
-                id: "shader.compile".to_owned(),
-                version: env!("CARGO_PKG_VERSION").to_owned(),
+                id: "shader.compile".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
                 metadata: serde_json::json!({
                     "input_formats": ["spirv", "wgsl"],
                     "architectures": supported,
                 }),
             },
             Capability {
-                id: "shader.health".to_owned(),
-                version: env!("CARGO_PKG_VERSION").to_owned(),
+                id: "shader.health".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
                 metadata: serde_json::Value::Null,
             },
         ],
         requires: vec![Capability {
-            id: "gpu.dispatch".to_owned(),
-            version: format!(">={}", env!("CARGO_PKG_VERSION")),
+            id: "gpu.dispatch".into(),
+            version: format!(">={}", env!("CARGO_PKG_VERSION")).into(),
             metadata: serde_json::json!({
                 "reason": "QMD submission for compiled shaders",
             }),
@@ -146,8 +147,8 @@ mod tests {
         let desc = with_transports(
             desc,
             vec![Transport {
-                protocol: "jsonrpc".to_owned(),
-                address: "127.0.0.1:12345".to_owned(),
+                protocol: "jsonrpc".into(),
+                address: "127.0.0.1:12345".into(),
             }],
         );
         assert_eq!(desc.transports.len(), 1);

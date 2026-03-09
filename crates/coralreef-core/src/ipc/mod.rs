@@ -72,8 +72,16 @@ impl fmt::Display for BoundAddr {
     }
 }
 
-/// TCP loopback with OS-assigned port.
-pub const DEFAULT_TCP_BIND: &str = "127.0.0.1:0";
+/// TCP loopback with OS-assigned port (fallback when `CORALREEF_TCP_BIND` is unset).
+const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
+
+/// Resolve the TCP bind address for JSON-RPC.
+///
+/// Checks `$CORALREEF_TCP_BIND` first for deployment configuration,
+/// then falls back to loopback with OS-assigned port.
+pub fn default_tcp_bind() -> String {
+    std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
+}
 
 /// Platform-aware default bind address for tarpc.
 ///
@@ -92,7 +100,7 @@ pub fn default_tarpc_bind() -> String {
     }
     #[cfg(not(unix))]
     {
-        DEFAULT_TCP_BIND.to_owned()
+        default_tcp_bind()
     }
 }
 
@@ -124,22 +132,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_jsonrpc_server_starts() {
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         assert_ne!(addr.port(), 0);
     }
 
     #[tokio::test]
     async fn test_tarpc_tcp_server_starts() {
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         assert!(matches!(addr, BoundAddr::Tcp(_)));
     }
 
     #[tokio::test]
     async fn test_tarpc_server_auto_tcp() {
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         assert!(matches!(addr, BoundAddr::Tcp(_)));
+    }
+
+    #[tokio::test]
+    async fn test_tarpc_tcp_invalid_bind_address() {
+        let (_tx, rx) = test_shutdown_channel();
+        let result = start_tarpc_tcp_server("not-a-valid-address", rx).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("invalid")
+                || err.to_string().to_lowercase().contains("address"),
+            "invalid bind should produce address parse error: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tarpc_server_invalid_bind_returns_error() {
+        let (_tx, rx) = test_shutdown_channel();
+        let result = start_tarpc_server("garbage:not-valid", rx).await;
+        assert!(result.is_err());
     }
 
     #[cfg(unix)]
@@ -154,6 +183,16 @@ mod tests {
         assert!(matches!(addr, BoundAddr::Unix(_)));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_tarpc_unix_server_invalid_path() {
+        let (_tx, rx) = test_shutdown_channel();
+        // Binding to a directory path fails (UnixListener expects a file path)
+        let path = std::env::temp_dir();
+        let result = start_tarpc_unix_server(&path, rx).await;
+        assert!(result.is_err());
     }
 
     #[cfg(unix)]
@@ -176,7 +215,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -194,7 +233,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -212,7 +251,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -234,7 +273,7 @@ mod tests {
         use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         let BoundAddr::Tcp(tcp_addr) = addr else {
             panic!("expected TCP address");
         };
@@ -256,7 +295,7 @@ mod tests {
         use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         let BoundAddr::Tcp(tcp_addr) = addr else {
             panic!("expected TCP address");
         };
@@ -288,7 +327,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -326,7 +365,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -363,7 +402,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -406,7 +445,7 @@ mod tests {
         use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         let BoundAddr::Tcp(tcp_addr) = addr else {
             panic!("expected TCP address");
         };
@@ -451,7 +490,7 @@ mod tests {
         use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         let BoundAddr::Tcp(tcp_addr) = addr else {
             panic!("expected TCP address");
         };
@@ -506,10 +545,10 @@ mod tests {
         use jsonrpsee::http_client::HttpClientBuilder;
         use tokio_serde::formats::Bincode;
 
-        let (rpc_addr, _rpc_handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (rpc_addr, _rpc_handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let (_tx, rx) = test_shutdown_channel();
         let (tarpc_addr, _tarpc_handle) =
-            start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+            start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
 
         let url = format!("http://{rpc_addr}");
         let rpc_client = HttpClientBuilder::default().build(&url).unwrap();
@@ -547,8 +586,8 @@ mod tests {
         use jsonrpsee::http_client::HttpClientBuilder;
 
         let (shutdown_tx, shutdown_rx) = test_shutdown_channel();
-        let (rpc_addr, rpc_handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
-        let (_tarpc_addr, tarpc_handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, shutdown_rx)
+        let (rpc_addr, rpc_handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+        let (_tarpc_addr, tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, shutdown_rx)
             .await
             .unwrap();
 
@@ -576,6 +615,31 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_graceful_shutdown_unix() {
+        let dir = std::env::temp_dir().join("coralreef-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let sock_path = dir.join(format!("shutdown-{}.sock", std::process::id()));
+
+        let (shutdown_tx, shutdown_rx) = test_shutdown_channel();
+        let (_addr, handle) = start_tarpc_unix_server(&sock_path, shutdown_rx)
+            .await
+            .unwrap();
+
+        let _ = shutdown_tx.send(());
+
+        let shutdown_timeout = std::time::Duration::from_secs(3);
+        let shutdown_result = tokio::time::timeout(shutdown_timeout, handle).await;
+
+        assert!(
+            shutdown_result.is_ok(),
+            "unix tarpc server should shut down cleanly on signal"
+        );
+
+        let _ = std::fs::remove_file(&sock_path);
+    }
+
     #[tokio::test]
     async fn test_bound_addr_display() {
         let tcp = BoundAddr::Tcp("127.0.0.1:8080".parse().unwrap());
@@ -599,7 +663,7 @@ mod tests {
             "Unix should default to unix socket"
         );
         #[cfg(not(unix))]
-        assert_eq!(bind, DEFAULT_TCP_BIND);
+        assert_eq!(bind, FALLBACK_TCP_BIND);
     }
 
     // ---------------------------------------------------------------------------
@@ -611,7 +675,7 @@ mod tests {
         use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         let BoundAddr::Tcp(tcp_addr) = addr else {
             panic!("expected TCP address");
         };
@@ -642,7 +706,7 @@ mod tests {
         use tokio_serde::formats::Bincode;
 
         let (_tx, rx) = test_shutdown_channel();
-        let (addr, _handle) = start_tarpc_tcp_server(DEFAULT_TCP_BIND, rx).await.unwrap();
+        let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
         let BoundAddr::Tcp(tcp_addr) = addr else {
             panic!("expected TCP address");
         };
@@ -674,7 +738,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 
@@ -702,7 +766,7 @@ mod tests {
         use jsonrpsee::core::client::ClientT;
         use jsonrpsee::http_client::HttpClientBuilder;
 
-        let (addr, _handle) = start_jsonrpc_server(DEFAULT_TCP_BIND).await.unwrap();
+        let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
         let url = format!("http://{addr}");
         let client = HttpClientBuilder::default().build(&url).unwrap();
 

@@ -120,7 +120,7 @@ impl fmt::Display for CBuf {
         match self {
             Self::Binding(idx) => write!(f, "c[{idx:#x}]"),
             Self::BindlessSSA(v) => write!(f, "cx[{{{}, {}}}]", v[0], v[1]),
-            Self::BindlessUGPR(r) => write!(f, "cx[{}]", r),
+            Self::BindlessUGPR(r) => write!(f, "cx[{r}]"),
         }
     }
 }

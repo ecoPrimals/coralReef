@@ -129,7 +129,7 @@ impl fmt::Display for SuClampMode {
             Self::PitchLinear => ".pl",
             Self::BlockLinear => ".bl",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

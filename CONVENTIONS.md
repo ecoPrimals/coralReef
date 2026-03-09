@@ -72,6 +72,21 @@ The `Backend` trait in `backend.rs` and `GpuTarget` enum in
 - Newton-Raphson iterations use `FRndMode::NearestEven` throughout
 - AMD backend uses native `v_fma_f64` where available — no MUFU workaround needed
 
+## Zero-Copy Conventions
+
+- **IPC payloads**: Use `bytes::Bytes` for binary data (SPIR-V, compiled shaders) in tarpc and JSON-RPC transports.
+- **API boundaries**: `CompiledKernel.binary` is `Bytes` for zero-copy sharing across IPC and threads.
+- **Compiler internals**: Return `Vec<u8>` from `compile()`; conversion to `Bytes` happens at the boundary (`coral-gpu`, IPC service).
+- **Inputs**: Prefer `impl AsRef<[u8]>` for byte inputs so callers can pass `Bytes`, `Vec<u8>`, or `&[u8]`.
+- **String literals**: Prefer `&'static str` or `Cow<str>` over `String::from` / `.to_owned()` where struct types allow.
+- **Avoid**: `.to_vec()` on byte slices when a reference is sufficient; `.to_owned()` on static strings when borrowing is possible.
+
+## Configuration Conventions
+
+- **No hardcoded bind addresses**: Bind addresses are resolved from environment variables (`$CORALREEF_TCP_BIND`) with sensible fallbacks (`127.0.0.1:0`).
+- **No hardcoded primal names**: Primal code only knows itself. Other primals are discovered at runtime via capability-based IPC.
+- **Named constants**: Magic numbers (BitSet capacity, timeouts, ISA limits) must be named constants with documentation.
+
 ## Toolchain Sovereignty Policy
 
 The Rust compiler is the DNA synthase of this project. Every tool in

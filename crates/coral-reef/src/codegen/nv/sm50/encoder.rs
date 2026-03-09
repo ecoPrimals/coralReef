@@ -57,7 +57,7 @@ pub struct ShaderModel50 {
 
 impl ShaderModel50 {
     pub fn new(sm: u8) -> Self {
-        assert!(sm >= 50 && sm < 70);
+        assert!((50..70).contains(&sm));
         Self { sm }
     }
 }

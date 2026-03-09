@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 use super::RegLatencySM80;
 use RegLatencySM80::*;
 

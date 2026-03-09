@@ -206,26 +206,21 @@ impl fmt::Display for Function {
                 if pi > 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}", p)?;
+                write!(f, "{p}")?;
             }
             write!(f, "] -> {{\n")?;
 
             for (pred, dsts, op, deps, is_annotation) in b.into_iter() {
                 let eq_sym = if dsts.is_empty() { " " } else { "=" };
                 if is_annotation {
-                    write!(f, "\n{}\n", op)?;
+                    write!(f, "\n{op}\n")?;
                 } else if deps.is_empty() {
-                    write!(
-                        f,
-                        "{:<pred_width$} {:<dsts_width$} {} {}\n",
-                        pred, dsts, eq_sym, op,
-                    )?;
+                    write!(f, "{pred:<pred_width$} {dsts:<dsts_width$} {eq_sym} {op}\n",)?;
                 } else {
                     write!(
                         f,
-                        "{:<pred_width$} {:<dsts_width$} {} \
-                         {:<op_width$} //{}\n",
-                        pred, dsts, eq_sym, op, deps,
+                        "{pred:<pred_width$} {dsts:<dsts_width$} {eq_sym} \
+                         {op:<op_width$} //{deps}\n",
                     )?;
                 }
             }
@@ -235,7 +230,7 @@ impl fmt::Display for Function {
                 if si > 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}", s)?;
+                write!(f, "{s}")?;
             }
             write!(f, "]\n")?;
         }

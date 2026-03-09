@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 coral-reef = { workspace = true }
+coral-driver = { path = "../coral-driver" }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
@@ -40,3 +41,4 @@ tokio = { workspace = true }
 # pulls in rustls/ring for TLS. Not present in the production binary.
 # In deployment, external TLS is provided by Tower Atomic (Songbird + BearDog).
 jsonrpsee = { version = "0.24", features = ["client"] }
+tempfile = "3"

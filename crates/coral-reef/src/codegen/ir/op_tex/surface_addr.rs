@@ -77,7 +77,7 @@ impl fmt::Display for IMadSpSrcType {
             Self::U16Hi => "16h1",
             _ => unreachable!(),
         };
-        write!(f, "{}{}", sign, width)
+        write!(f, "{sign}{width}")
     }
 }
 

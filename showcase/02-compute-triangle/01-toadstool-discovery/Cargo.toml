@@ -1,0 +1,11 @@
+[package]
+name = "showcase-toadstool-discovery"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+coralreef-core = { path = "../../../crates/coralreef-core" }
+coral-gpu = { path = "../../../crates/coral-gpu" }
+serde_json = "1"

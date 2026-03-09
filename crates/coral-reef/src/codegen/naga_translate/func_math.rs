@@ -162,44 +162,8 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     Ok(dst.into())
                 }
             }
-            naga::MathFunction::Sin => {
-                let scaled = self.alloc_ssa(RegFile::GPR);
-                let frac_1_2pi = 1.0 / (2.0 * std::f32::consts::PI);
-                self.push_instr(Instr::new(OpFMul {
-                    dst: scaled.into(),
-                    srcs: [a[0].into(), Src::new_imm_u32(frac_1_2pi.to_bits())],
-                    saturate: false,
-                    rnd_mode: FRndMode::NearestEven,
-                    ftz: false,
-                    dnz: false,
-                }));
-                let dst = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpTranscendental {
-                    dst: dst.into(),
-                    op: TranscendentalOp::Sin,
-                    src: scaled.into(),
-                }));
-                Ok(dst.into())
-            }
-            naga::MathFunction::Cos => {
-                let scaled = self.alloc_ssa(RegFile::GPR);
-                let frac_1_2pi = 1.0 / (2.0 * std::f32::consts::PI);
-                self.push_instr(Instr::new(OpFMul {
-                    dst: scaled.into(),
-                    srcs: [a[0].into(), Src::new_imm_u32(frac_1_2pi.to_bits())],
-                    saturate: false,
-                    rnd_mode: FRndMode::NearestEven,
-                    ftz: false,
-                    dnz: false,
-                }));
-                let dst = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpTranscendental {
-                    dst: dst.into(),
-                    op: TranscendentalOp::Cos,
-                    src: scaled.into(),
-                }));
-                Ok(dst.into())
-            }
+            naga::MathFunction::Sin => self.emit_f32_trig_scaled(a[0], TranscendentalOp::Sin),
+            naga::MathFunction::Cos => self.emit_f32_trig_scaled(a[0], TranscendentalOp::Cos),
             naga::MathFunction::Exp2 => {
                 if is_f64 {
                     let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
@@ -848,34 +812,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     }));
                     return Ok(dst.into());
                 }
-                // dot(a, a)
-                let mut acc = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpFMul {
-                    dst: acc.into(),
-                    srcs: [a[0].into(), a[0].into()],
-                    saturate: false,
-                    rnd_mode: FRndMode::NearestEven,
-                    ftz: false,
-                    dnz: false,
-                }));
-                for c in 1..comps as usize {
-                    let next = self.alloc_ssa(RegFile::GPR);
-                    self.push_instr(Instr::new(OpFFma {
-                        dst: next.into(),
-                        srcs: [a[c].into(), a[c].into(), acc.into()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                        dnz: false,
-                    }));
-                    acc = next;
-                }
-                // sqrt via rsq + rcp
+                let dot = self.emit_f32_dot_self(&a);
                 let rsq = self.alloc_ssa(RegFile::GPR);
                 self.push_instr(Instr::new(OpTranscendental {
                     dst: rsq.into(),
                     op: TranscendentalOp::Rsq,
-                    src: acc.into(),
+                    src: dot.into(),
                 }));
                 let dst = self.alloc_ssa(RegFile::GPR);
                 self.push_instr(Instr::new(OpTranscendental {
@@ -887,33 +829,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }
             naga::MathFunction::Normalize => {
                 let comps = a.comps();
-                // len = length(a); result[i] = a[i] / len = a[i] * rsq(dot(a,a))
-                let mut dot_acc = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpFMul {
-                    dst: dot_acc.into(),
-                    srcs: [a[0].into(), a[0].into()],
-                    saturate: false,
-                    rnd_mode: FRndMode::NearestEven,
-                    ftz: false,
-                    dnz: false,
-                }));
-                for c in 1..comps as usize {
-                    let next = self.alloc_ssa(RegFile::GPR);
-                    self.push_instr(Instr::new(OpFFma {
-                        dst: next.into(),
-                        srcs: [a[c].into(), a[c].into(), dot_acc.into()],
-                        saturate: false,
-                        rnd_mode: FRndMode::NearestEven,
-                        ftz: false,
-                        dnz: false,
-                    }));
-                    dot_acc = next;
-                }
+                let dot = self.emit_f32_dot_self(&a);
                 let inv_len = self.alloc_ssa(RegFile::GPR);
                 self.push_instr(Instr::new(OpTranscendental {
                     dst: inv_len.into(),
                     op: TranscendentalOp::Rsq,
-                    src: dot_acc.into(),
+                    src: dot.into(),
                 }));
                 let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
                 for c in 0..comps as usize {
@@ -999,53 +920,19 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         rnd_mode: FRndMode::NearestEven,
                     }));
                     let floored = self.emit_f64_floor(abs_x)?;
-                    // Restore original sign
+
                     let sign_bit = self.alloc_ssa(RegFile::GPR);
-                    if self.sm.sm() >= 70 {
-                        self.push_instr(Instr::new(OpLop3 {
-                            dst: sign_bit.into(),
-                            srcs: [a[1].into(), Src::new_imm_u32(0x8000_0000), Src::ZERO],
-                            op: LogicOp3::new_lut(&|a, b, _| a & b),
-                        }));
-                    } else {
-                        self.push_instr(Instr::new(OpLop2 {
-                            dst: sign_bit.into(),
-                            srcs: [a[1].into(), Src::new_imm_u32(0x8000_0000)],
-                            op: LogicOp2::And,
-                        }));
-                    }
+                    self.emit_logic_and(sign_bit, a[1].into(), Src::new_imm_u32(0x8000_0000));
+
                     let cleared = self.alloc_ssa(RegFile::GPR);
-                    if self.sm.sm() >= 70 {
-                        self.push_instr(Instr::new(OpLop3 {
-                            dst: cleared.into(),
-                            srcs: [floored[1].into(), Src::new_imm_u32(0x7FFF_FFFF), Src::ZERO],
-                            op: LogicOp3::new_lut(&|a, b, _| a & b),
-                        }));
-                    } else {
-                        self.push_instr(Instr::new(OpLop2 {
-                            dst: cleared.into(),
-                            srcs: [floored[1].into(), Src::new_imm_u32(0x7FFF_FFFF)],
-                            op: LogicOp2::And,
-                        }));
-                    }
+                    self.emit_logic_and(cleared, floored[1].into(), Src::new_imm_u32(0x7FFF_FFFF));
+
                     let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
                     self.push_instr(Instr::new(OpCopy {
                         dst: dst[0].into(),
                         src: floored[0].into(),
                     }));
-                    if self.sm.sm() >= 70 {
-                        self.push_instr(Instr::new(OpLop3 {
-                            dst: dst[1].into(),
-                            srcs: [cleared.into(), sign_bit.into(), Src::ZERO],
-                            op: LogicOp3::new_lut(&|a, b, _| a | b),
-                        }));
-                    } else {
-                        self.push_instr(Instr::new(OpLop2 {
-                            dst: dst[1].into(),
-                            srcs: [cleared.into(), sign_bit.into()],
-                            op: LogicOp2::Or,
-                        }));
-                    }
+                    self.emit_logic_or(dst[1], cleared.into(), sign_bit.into());
                     Ok(dst)
                 } else {
                     let dst = self.alloc_ssa(RegFile::GPR);
@@ -1064,123 +951,5 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 format!("math function {fun:?} not yet supported").into(),
             )),
         }
-    }
-
-    /// f64 round-to-nearest-even using the 2^52 magic number technique.
-    /// result = (x + copysign(MAGIC, x)) - copysign(MAGIC, x)
-    fn emit_f64_round(&mut self, x: SSARef) -> Result<SSARef, CompileError> {
-        const MAGIC_HI: u32 = 0x4330_0000; // 2^52 high word
-
-        let sign_bit = self.alloc_ssa(RegFile::GPR);
-        if self.sm.sm() >= 70 {
-            self.push_instr(Instr::new(OpLop3 {
-                dst: sign_bit.into(),
-                srcs: [x[1].into(), Src::new_imm_u32(0x8000_0000), Src::ZERO],
-                op: LogicOp3::new_lut(&|a, b, _| a & b),
-            }));
-        } else {
-            self.push_instr(Instr::new(OpLop2 {
-                dst: sign_bit.into(),
-                srcs: [x[1].into(), Src::new_imm_u32(0x8000_0000)],
-                op: LogicOp2::And,
-            }));
-        }
-        let signed_hi = self.alloc_ssa(RegFile::GPR);
-        if self.sm.sm() >= 70 {
-            self.push_instr(Instr::new(OpLop3 {
-                dst: signed_hi.into(),
-                srcs: [Src::new_imm_u32(MAGIC_HI), sign_bit.into(), Src::ZERO],
-                op: LogicOp3::new_lut(&|a, b, _| a | b),
-            }));
-        } else {
-            self.push_instr(Instr::new(OpLop2 {
-                dst: signed_hi.into(),
-                srcs: [Src::new_imm_u32(MAGIC_HI), sign_bit.into()],
-                op: LogicOp2::Or,
-            }));
-        }
-        let signed_magic = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpCopy {
-            dst: signed_magic[0].into(),
-            src: Src::ZERO,
-        }));
-        self.push_instr(Instr::new(OpCopy {
-            dst: signed_magic[1].into(),
-            src: signed_hi.into(),
-        }));
-
-        let tmp = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpDAdd {
-            dst: tmp.clone().into(),
-            srcs: [Src::from(x), Src::from(signed_magic.clone())],
-            rnd_mode: FRndMode::NearestEven,
-        }));
-        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpDAdd {
-            dst: dst.clone().into(),
-            srcs: [Src::from(tmp), Src::from(signed_magic).fneg()],
-            rnd_mode: FRndMode::NearestEven,
-        }));
-        Ok(dst)
-    }
-
-    /// f64 floor using the 2^52 magic number technique.
-    /// floor(x) = round(x) adjusted for negative non-integers.
-    pub(super) fn emit_f64_floor(&mut self, x: SSARef) -> Result<SSARef, CompileError> {
-        let rounded = self.emit_f64_round(x.clone())?;
-        // If rounded > x, subtract 1.0 (floor adjusts downward for negatives)
-        let one_bits: u64 = 1.0f64.to_bits();
-        let one = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpCopy {
-            dst: one[0].into(),
-            src: Src::new_imm_u32((one_bits & 0xFFFF_FFFF) as u32),
-        }));
-        self.push_instr(Instr::new(OpCopy {
-            dst: one[1].into(),
-            src: Src::new_imm_u32(((one_bits >> 32) & 0xFFFF_FFFF) as u32),
-        }));
-        // cmp: rounded > x
-        let pred = self.alloc_ssa(RegFile::Pred);
-        self.push_instr(Instr::new(OpDSetP {
-            dst: pred.into(),
-            set_op: PredSetOp::And,
-            cmp_op: FloatCmpOp::OrdGt,
-            srcs: [Src::from(rounded.clone()), Src::from(x)],
-            accum: SrcRef::True.into(),
-        }));
-        let adjusted = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpDAdd {
-            dst: adjusted.clone().into(),
-            srcs: [Src::from(rounded.clone()), Src::from(one).fneg()],
-            rnd_mode: FRndMode::NearestEven,
-        }));
-        // Select: if rounded > x, use adjusted; else use rounded
-        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-        for c in 0..2usize {
-            self.push_instr(Instr::new(OpSel {
-                dst: dst[c].into(),
-                cond: pred.into(),
-                srcs: [adjusted[c].into(), rounded[c].into()],
-            }));
-        }
-        Ok(dst)
-    }
-
-    /// f64 ceil using floor: ceil(x) = -floor(-x)
-    fn emit_f64_ceil(&mut self, x: SSARef) -> Result<SSARef, CompileError> {
-        let neg_x = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpDAdd {
-            dst: neg_x.clone().into(),
-            srcs: [Src::ZERO, Src::from(x).fneg()],
-            rnd_mode: FRndMode::NearestEven,
-        }));
-        let floor_neg = self.emit_f64_floor(neg_x)?;
-        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpDAdd {
-            dst: dst.clone().into(),
-            srcs: [Src::ZERO, Src::from(floor_neg).fneg()],
-            rnd_mode: FRndMode::NearestEven,
-        }));
-        Ok(dst)
     }
 }

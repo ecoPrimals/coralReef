@@ -22,7 +22,7 @@ pub struct ShaderModel32 {
 
 impl ShaderModel32 {
     pub fn new(sm: u8) -> Self {
-        assert!(sm >= 32 && sm < 50);
+        assert!((32..50).contains(&sm));
         Self { sm }
     }
 }

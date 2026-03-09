@@ -132,7 +132,7 @@ impl URegLatencySM80 {
             | Op::HSetP2(_) => vcoupled,
             Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => vdecoupled,
             _ => {
-                panic!("Illegal instuction in ureg category {}", op);
+                panic!("Illegal instuction in ureg category {op}");
             }
         }
     }
@@ -147,7 +147,7 @@ impl URegLatencySM80 {
                 Umov => 2,
                 VoteU => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Decoupled => match writer {
@@ -157,7 +157,7 @@ impl URegLatencySM80 {
                 Umov => 2,
                 VoteU => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Cbu => match writer {
@@ -167,7 +167,7 @@ impl URegLatencySM80 {
                 Umov => 3,
                 VoteU => 3,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             CoupledBindless | DecoupledBindless | Uldc => match writer {
@@ -177,7 +177,7 @@ impl URegLatencySM80 {
                 Umov => 5,
                 VoteU => 5,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Udp => match writer {
@@ -187,7 +187,7 @@ impl URegLatencySM80 {
                 Umov => 2,
                 VoteU => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Umov | VoteU => match writer {
@@ -197,7 +197,7 @@ impl URegLatencySM80 {
                 Umov => 2,
                 VoteU => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             _ => {
@@ -309,7 +309,7 @@ impl UPredLatencySM80 {
                 }
             }
             _ => {
-                panic!("Illegal instuction in upred category {}", op);
+                panic!("Illegal instuction in upred category {op}");
             }
         }
     }

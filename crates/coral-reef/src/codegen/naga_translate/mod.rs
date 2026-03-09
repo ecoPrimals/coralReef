@@ -15,6 +15,7 @@ pub(super) mod func;
 mod func_builtins;
 mod func_control;
 mod func_math;
+mod func_math_helpers;
 mod func_mem;
 mod func_ops;
 
@@ -211,7 +212,7 @@ pub fn translate<'sm>(
         .find(|ep| ep.name == entry_point_name)
         .ok_or_else(|| {
             CompileError::InvalidInput(
-                format!("entry point '{}' not found", entry_point_name,).into(),
+                format!("entry point '{entry_point_name}' not found",).into(),
             )
         })?;
 

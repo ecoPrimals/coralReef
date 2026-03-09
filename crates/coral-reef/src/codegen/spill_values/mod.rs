@@ -87,14 +87,14 @@ impl Function {
                 let spill = SpillBar::new(info);
                 spill_values(self, file, limit, spill);
             }
-            _ => panic!("Don't know how to spill {} registers", file),
+            _ => panic!("Don't know how to spill {file} registers"),
         }
 
         self.repair_ssa();
         self.opt_dce();
 
         if DEBUG.print() {
-            eprintln!("IR after spilling {}:\n{}", file, self);
+            eprintln!("IR after spilling {file}:\n{self}");
         }
     }
 }

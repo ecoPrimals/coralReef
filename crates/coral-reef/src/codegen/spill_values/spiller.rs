@@ -68,7 +68,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
     }
 
     let mut spill = SpillCache::new(&mut func.ssa_alloc, spill);
-    let mut spilled_phis: BitSet<Phi> = BitSet::new(4096);
+    let mut spilled_phis: BitSet<Phi> = BitSet::new(super::super::PHI_BITSET_CAPACITY);
 
     let mut ssa_state_in: Vec<SSAState> = Vec::new();
     let mut ssa_state_out: Vec<SSAState> = Vec::new();

@@ -817,3 +817,83 @@ fn main() {
         println!("    {enc_name}: {}", instrs.len());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encoding_to_rust_mod_strips_prefix() {
+        assert_eq!(encoding_to_rust_mod("ENC_SOP1"), "sop1");
+        assert_eq!(encoding_to_rust_mod("ENC_VOP3P"), "vop3p");
+        assert_eq!(encoding_to_rust_mod("ENC_FLAT_GLBL"), "flat_glbl");
+    }
+
+    #[test]
+    fn file_header_contains_spdx() {
+        let header = file_header();
+        assert!(header.contains("SPDX-License-Identifier: AGPL-3.0-only"));
+        assert!(header.contains("AUTO-GENERATED"));
+        assert!(header.contains("DO NOT EDIT BY HAND"));
+    }
+
+    #[test]
+    fn generate_types_has_bitfield_and_instrentry() {
+        let types = generate_types_file();
+        assert!(types.contains("pub struct BitField"));
+        assert!(types.contains("pub struct InstrEntry"));
+        assert!(types.contains("pub offset: u32"));
+        assert!(types.contains("pub opcode: u16"));
+    }
+
+    #[test]
+    fn vop3_category_classifies_correctly() {
+        assert_eq!(vop3_category("V_CMP_F32_E64"), "cmp");
+        assert_eq!(vop3_category("V_CMPX_LT_U32"), "cmp");
+        assert_eq!(vop3_category("V_ADD_F32_E64"), "arith");
+        assert_eq!(vop3_category("V_SIN_F32"), "math");
+        assert_eq!(vop3_category("V_AND_B32"), "logic");
+        assert_eq!(vop3_category("V_MUL_F32_E64"), "arith");
+        assert_eq!(vop3_category("V_UNKNOWN_OP"), "arith");
+    }
+
+    #[test]
+    fn compute_encodings_contains_expected() {
+        assert!(COMPUTE_ENCODINGS.contains(&"ENC_SOP1"));
+        assert!(COMPUTE_ENCODINGS.contains(&"ENC_VOP3"));
+        assert!(COMPUTE_ENCODINGS.contains(&"ENC_DS"));
+        assert!(!COMPUTE_ENCODINGS.contains(&"ENC_GRAPHICS"));
+    }
+
+    #[test]
+    fn max_lines_per_file_is_under_1000() {
+        assert!(MAX_LINES_PER_FILE < 1000);
+    }
+
+    #[test]
+    fn repo_root_returns_valid_path() {
+        let root = repo_root();
+        assert!(root.components().count() >= 1);
+    }
+
+    #[test]
+    fn encoding_to_rust_mod_no_prefix() {
+        assert_eq!(encoding_to_rust_mod("NOPREFIX"), "noprefix");
+    }
+
+    #[test]
+    fn write_table_part_generates_entries() {
+        let instrs = vec![InstrInfo {
+            name: "V_ADD_F32".to_string(),
+            opcode: 3,
+            desc: "Add float".to_string(),
+            is_branch: false,
+            is_terminator: false,
+        }];
+        let refs: Vec<&InstrInfo> = instrs.iter().collect();
+        let mut out = String::new();
+        write_table_part(&mut out, &refs);
+        assert!(out.contains("V_ADD_F32"));
+        assert!(out.contains("opcode: 3"));
+    }
+}

@@ -22,7 +22,7 @@ use tracing_subscriber::EnvFilter;
 mod ipc;
 mod service;
 
-use ipc::DEFAULT_TCP_BIND;
+use ipc::default_tcp_bind;
 
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"), version, about, long_about = None)]
@@ -40,7 +40,8 @@ enum Commands {
     /// Start the IPC server (JSON-RPC 2.0 + tarpc).
     Server {
         /// Bind address for JSON-RPC server (TCP only — HTTP transport).
-        #[arg(long, default_value = DEFAULT_TCP_BIND)]
+        /// Respects `$CORALREEF_TCP_BIND` for deployment configuration.
+        #[arg(long, default_value_t = default_tcp_bind())]
         rpc_bind: String,
 
         /// Bind address for tarpc server.
@@ -199,12 +200,12 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         desc,
         vec![
             coralreef_core::capability::Transport {
-                protocol: "jsonrpc".to_owned(),
-                address: rpc_addr.to_string(),
+                protocol: "jsonrpc".into(),
+                address: rpc_addr.to_string().into(),
             },
             coralreef_core::capability::Transport {
-                protocol: format!("tarpc+{}", tarpc_bound.protocol()),
-                address: tarpc_bound.to_string(),
+                protocol: format!("tarpc+{}", tarpc_bound.protocol()).into(),
+                address: tarpc_bound.to_string().into(),
             },
         ],
     );
@@ -264,12 +265,12 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
         .transports
         .iter()
         .find(|t| t.protocol == "jsonrpc")
-        .map_or("", |t| t.address.as_str());
+        .map_or("", |t| t.address.as_ref());
     let tarpc_addr = desc
         .transports
         .iter()
         .find(|t| t.protocol.starts_with("tarpc"))
-        .map_or("", |t| t.address.as_str());
+        .map_or("", |t| t.address.as_ref());
 
     let discovery = serde_json::json!({
         "primal": env!("CARGO_PKG_NAME"),
@@ -504,22 +505,152 @@ mod tests {
     }
 
     #[test]
+    fn parse_cli_server_custom_bind_addresses() {
+        let cli = parse_cli_from([
+            "coralreef",
+            "server",
+            "--rpc-bind",
+            "127.0.0.1:9999",
+            "--tarpc-bind",
+            "unix:///tmp/coralreef-test.sock",
+        ])
+        .unwrap();
+        match &cli.command {
+            Commands::Server {
+                rpc_bind,
+                tarpc_bind,
+            } => {
+                assert_eq!(rpc_bind, "127.0.0.1:9999");
+                assert_eq!(
+                    tarpc_bind.as_deref(),
+                    Some("unix:///tmp/coralreef-test.sock")
+                );
+            }
+            _ => panic!("expected Server command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_compile_with_target_and_opt_level() {
+        let cli = parse_cli_from([
+            "coralreef",
+            "compile",
+            "shader.wgsl",
+            "--arch",
+            "sm80",
+            "--opt-level",
+            "3",
+        ])
+        .unwrap();
+        match &cli.command {
+            Commands::Compile {
+                input,
+                arch,
+                opt_level,
+                ..
+            } => {
+                assert_eq!(input.to_string_lossy(), "shader.wgsl");
+                assert_eq!(*arch, GpuArch::Sm80);
+                assert_eq!(*opt_level, 3);
+            }
+            _ => panic!("expected Compile command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_log_level_global() {
+        let cli = parse_cli_from(["coralreef", "--log-level", "debug", "doctor"]).unwrap();
+        assert_eq!(cli.log_level, "debug");
+
+        let cli =
+            parse_cli_from(["coralreef", "--log-level", "trace", "compile", "x.wgsl"]).unwrap();
+        assert_eq!(cli.log_level, "trace");
+    }
+
+    #[test]
+    fn parse_cli_version_flag() {
+        let result = parse_cli_from(["coralreef", "--version"]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains(env!("CARGO_PKG_VERSION")),
+            "version error should contain package version: {err_str}"
+        );
+    }
+
+    #[test]
+    fn parse_cli_rejects_invalid_arch() {
+        let result = parse_cli_from([
+            "coralreef",
+            "compile",
+            "input.wgsl",
+            "--arch",
+            "invalid_arch",
+        ]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("arch")
+                || err.to_string().to_lowercase().contains("invalid"),
+            "invalid arch should produce parse error"
+        );
+    }
+
+    #[tokio::test]
+    async fn cmd_doctor_output_formatting() {
+        let result = cmd_doctor().await;
+        assert!(matches!(result, UniBinExit::Success));
+        // Output is printed to stdout; run_doctor returns the report.
+        // We verify cmd_doctor succeeds (exit Success) and run_doctor produces expected format.
+        let report = commands::run_doctor().await.unwrap();
+        assert!(report.contains("doctor"));
+        assert!(report.contains("[OK]"));
+        assert!(report.contains("Capabilities"));
+        assert!(report.contains("Supported architectures"));
+        assert!(report.contains("Diagnostic complete"));
+    }
+
+    #[test]
+    fn cmd_compile_success_with_temp_file() {
+        let tmp = std::env::temp_dir().join("coralreef_test_compile.wgsl");
+        std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+        let out_path = tmp.with_extension("bin");
+        let result = cmd_compile(&tmp, Some(out_path.as_path()), GpuArch::Sm70, 2, true);
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&out_path);
+        assert!(matches!(result, UniBinExit::Success));
+    }
+
+    #[test]
+    fn cmd_compile_config_error_nonexistent_file() {
+        let result = cmd_compile(
+            std::path::Path::new("/nonexistent/path/shader.wgsl"),
+            None,
+            GpuArch::Sm70,
+            2,
+            true,
+        );
+        assert!(matches!(result, UniBinExit::ConfigError));
+    }
+
+    #[test]
     fn write_and_remove_discovery_file() {
         let desc = SelfDescription {
             provides: vec![Capability {
-                id: "test.provide".to_owned(),
-                version: "1.0".to_owned(),
+                id: "test.provide".into(),
+                version: "1.0".into(),
                 metadata: serde_json::Value::Null,
             }],
             requires: vec![],
             transports: vec![
                 Transport {
-                    protocol: "jsonrpc".to_owned(),
-                    address: "127.0.0.1:12345".to_owned(),
+                    protocol: "jsonrpc".into(),
+                    address: "127.0.0.1:12345".into(),
                 },
                 Transport {
-                    protocol: "tarpc+tcp".to_owned(),
-                    address: "127.0.0.1:12346".to_owned(),
+                    protocol: "tarpc+tcp".into(),
+                    address: "127.0.0.1:12346".into(),
                 },
             ],
         };

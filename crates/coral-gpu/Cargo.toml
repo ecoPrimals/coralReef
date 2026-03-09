@@ -7,13 +7,16 @@ publish.workspace = true
 description = "Unified GPU compute abstraction — compile + dispatch in one API"
 
 [dependencies]
+bytes.workspace = true
 coral-reef = { path = "../coral-reef" }
 coral-driver = { path = "../coral-driver" }
 thiserror.workspace = true
 tracing.workspace = true
 
 [features]
-default = []
+default = ["nouveau", "nvidia-drm"]
 nouveau = ["coral-driver/nouveau"]
+nvidia-drm = ["coral-driver/nvidia-drm"]
 
 [dev-dependencies]
+coral-driver = { path = "../coral-driver", features = ["test-utils"] }

@@ -127,7 +127,7 @@ fn get_or_insert_phi_dsts(bb: &mut BasicBlock) -> &mut OpPhiDsts {
     };
     match &mut bb.instrs[ip].op {
         Op::PhiDsts(op) => op,
-        _ => panic!("Expected to find the phi we just inserted"),
+        _ => super::ice!("Expected to find the phi we just inserted"),
     }
 }
 
@@ -143,7 +143,7 @@ fn get_or_insert_phi_srcs(bb: &mut BasicBlock) -> &mut OpPhiSrcs {
     };
     match &mut bb.instrs[ip].op {
         Op::PhiSrcs(op) => op,
-        _ => panic!("Expected to find the phi we just inserted"),
+        _ => super::ice!("Expected to find the phi we just inserted"),
     }
 }
 
@@ -193,7 +193,7 @@ impl Function {
         let phi_alloc = &mut self.phi_alloc;
 
         let mut blocks = Vec::new();
-        let mut needs_src = BitSet::<Phi>::new(4096);
+        let mut needs_src = BitSet::<Phi>::new(super::PHI_BITSET_CAPACITY);
         let mut ssa_or_phi_worklist = BinaryHeap::new();
         for b_idx in 0..cfg.len() {
             assert!(blocks.len() == b_idx);

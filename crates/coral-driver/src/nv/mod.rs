@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! NVIDIA GPU driver — nouveau DRM backend.
+//! NVIDIA GPU driver — nouveau (sovereign) and nvidia-drm (compatible) backends.
 //!
-//! Provides compute shader dispatch via the nouveau kernel driver:
-//! - GEM buffer object management
-//! - Pushbuf command submission
-//! - QMD (Queue Management Descriptor) construction
-//! - Fence synchronization (via pushbuf completion)
+//! coralReef prefers nouveau because it forces deep sovereignty: we own
+//! every ioctl, every channel allocation, every QMD word. But we also
+//! support nvidia-drm for pragmatic compatibility with existing deployments.
 //!
-//! `NvDevice::open()` is feature-gated behind `--features nouveau` to
-//! prevent accidental use in environments without a nouveau GPU.
+//! Both backends compile by default. Runtime selection happens via
+//! [`DriverPreference`](crate::DriverPreference) in coral-gpu.
+//!
+//! - **nouveau** (open-source): GEM buffers, pushbuf command submission,
+//!   QMD dispatch, fence sync. The sovereign path.
+//! - **nvidia-drm** (proprietary): DRM render node access, device probing.
+//!   Compute dispatch pending UVM integration. The compatibility path.
 
 pub mod ioctl;
 pub mod pushbuf;
 pub mod qmd;
+
+#[cfg(feature = "nvidia-drm")]
+pub mod nvidia_drm;
+#[cfg(feature = "nvidia-drm")]
+pub use nvidia_drm::NvDrmDevice;
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
@@ -58,16 +66,10 @@ impl NvDevice {
     /// channel creation fails.
     #[cfg(feature = "nouveau")]
     pub fn open() -> DriverResult<Self> {
-        let drm = DrmDevice::open_default()?;
-        let driver = drm.driver_name()?;
-        if driver != "nouveau" {
-            return Err(DriverError::DeviceNotFound(
-                format!("expected nouveau driver, found '{driver}'").into(),
-            ));
-        }
+        let drm = DrmDevice::open_by_driver("nouveau")?;
 
         let channel = ioctl::create_channel(drm.fd())?;
-        tracing::info!(driver = %driver, channel, "NVIDIA nouveau channel created");
+        tracing::info!(path = %drm.path, channel, "NVIDIA nouveau channel created");
 
         Ok(Self {
             drm,

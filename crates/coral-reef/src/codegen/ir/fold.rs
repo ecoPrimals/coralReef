@@ -21,14 +21,14 @@ impl OpFoldData<'_> {
     pub fn get_pred_src(&self, op: &impl SrcsAsSlice, src: &Src) -> bool {
         let i = op.src_idx(src);
         let b = match src.reference {
-            SrcRef::Zero | SrcRef::Imm32(_) => panic!("Expected a predicate"),
+            SrcRef::Zero | SrcRef::Imm32(_) => super::super::ice!("Expected a predicate"),
             SrcRef::True => true,
             SrcRef::False => false,
             _ => {
                 if let FoldData::Pred(b) = self.srcs[i] {
                     b
                 } else {
-                    panic!("FoldData is not a predicate");
+                    super::super::ice!("FoldData is not a predicate");
                 }
             }
         };
@@ -40,12 +40,12 @@ impl OpFoldData<'_> {
         match src.reference {
             SrcRef::Zero => 0,
             SrcRef::Imm32(imm) => imm,
-            SrcRef::True | SrcRef::False => panic!("Unexpected predicate"),
+            SrcRef::True | SrcRef::False => super::super::ice!("Unexpected predicate"),
             _ => {
                 if let FoldData::U32(u) = self.srcs[i] {
                     u
                 } else {
-                    panic!("FoldData is not a U32");
+                    super::super::ice!("FoldData is not a U32");
                 }
             }
         }
@@ -62,7 +62,7 @@ impl OpFoldData<'_> {
         if let FoldData::Carry(b) = self.srcs[i] {
             b
         } else {
-            panic!("FoldData is not a predicate");
+            super::super::ice!("FoldData is not a predicate");
         }
     }
 
@@ -75,13 +75,13 @@ impl OpFoldData<'_> {
         match src.reference {
             SrcRef::Zero => 0.0,
             SrcRef::Imm32(imm) => f64::from_bits(u64::from(imm) << 32),
-            SrcRef::True | SrcRef::False => panic!("Unexpected predicate"),
+            SrcRef::True | SrcRef::False => super::super::ice!("Unexpected predicate"),
             _ => {
                 if let FoldData::Vec2(v) = self.srcs[i] {
                     let u = u64::from(v[0]) | (u64::from(v[1]) << 32);
                     f64::from_bits(u)
                 } else {
-                    panic!("FoldData is not a U32");
+                    super::super::ice!("FoldData is not a U32");
                 }
             }
         }

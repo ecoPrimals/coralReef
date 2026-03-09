@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 9, 2026  
-**Phase**: 10 — Iteration 23 (Deep Debt Elimination & Math Function Coverage)
+**Phase**: 10 — Iteration 24 (Multi-GPU Sovereignty & Cross-Vendor Parity)
 
 ---
 
@@ -17,10 +17,10 @@
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
-| coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
+| coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
+| coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1191 passing, 0 failed, 35 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1280 passing, 0 failed, 52 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 23** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 24** |
 
 ### Phase 10 Completions
 
@@ -329,6 +329,23 @@
 | Clippy lint fixes | ✅ | Raw string hashes, doc_markdown backticks — zero warnings |
 | Test expansion | ✅ | 1191 passing (+1 new, +1 un-ignored), 35 ignored (-1) |
 
+### Phase 10 — Iteration 24 Completions (Multi-GPU Sovereignty & Cross-Vendor Parity)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Multi-GPU DRM scan | ✅ | `enumerate_render_nodes()` returns `DrmDeviceInfo` per device; `open_by_driver()` for targeted open |
+| Driver sovereignty | ✅ | `DriverPreference` type: sovereign (`nouveau` > `amdgpu` > `nvidia-drm`), pragmatic, env var override |
+| All backends compile by default | ✅ | `default = ["nouveau", "nvidia-drm"]` — no feature gate for driver selection |
+| NVIDIA proprietary probing | ✅ | `NvDrmDevice` probes `nvidia-drm` on renderD129; explicit UVM-pending errors for dispatch |
+| toadStool ecosystem discovery | ✅ | `coralreef-core::discovery` reads capability files, falls back to DRM scan |
+| `GpuContext::from_descriptor()` | ✅ | Context creation from ecosystem discovery metadata |
+| Cross-vendor compilation parity | ✅ | SM86 vs RDNA2 parity tests with known limitation documentation |
+| AMD hardware stress tests | ✅ | Large buffers (4MB, 64MB), sequential dispatches, rapid alloc/free, concurrent buffers |
+| NVIDIA probe tests | ✅ | Driver discovery, device open, multi-GPU enumeration |
+| Showcase suite (8 demos) | ✅ | Progressive: hello-compiler → compute triangle (coralReef → toadStool → barraCuda) |
+| Hardware testing documentation | ✅ | `docs/HARDWARE_TESTING.md` — Titan team handoff, parity matrix, CI config |
+| Test expansion | ✅ | 1191 → 1280 passing (+89 tests), 35 → 52 ignored (+17 hardware-gated) |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -343,7 +360,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1191 passing, 0 failed, 35 ignored) |
+| `cargo test --workspace` | PASS (1280 passing, 0 failed, 52 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

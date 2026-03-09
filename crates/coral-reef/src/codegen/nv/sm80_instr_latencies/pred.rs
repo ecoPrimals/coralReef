@@ -59,7 +59,7 @@ impl PredLatencySM80 {
             Op::Vote(_) => Self::Disp_Alu,
             Op::Match(_) => Self::Decoupled,
             _ => {
-                panic!("Illegal op in sm80 pred latency {}", op);
+                panic!("Illegal op in sm80 pred latency {op}");
             }
         }
     }

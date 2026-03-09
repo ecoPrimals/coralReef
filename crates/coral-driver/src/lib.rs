@@ -7,8 +7,11 @@
 //!
 //! ## Supported backends
 //!
+//! All backends compile by default. Runtime selection via `DriverPreference`.
+//!
 //! - **AMD**: `amdgpu` DRM driver — GEM buffers, PM4 command streams, CS submit, fence sync
-//! - **NVIDIA**: `nouveau` DRM driver — channel, GEM, push buffer, QMD dispatch
+//! - **NVIDIA (nouveau)**: `nouveau` DRM driver — sovereign path (our channel, QMD, pushbuf)
+//! - **NVIDIA (proprietary)**: `nvidia-drm` — compatibility path (probe + pending UVM dispatch)
 //!
 //! ## Architecture
 //!
@@ -45,6 +48,15 @@ pub use error::{DriverError, DriverResult};
 /// handles, ensuring the driver owns the validity invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferHandle(pub(crate) u32);
+
+impl BufferHandle {
+    /// Create a handle from a raw ID. For mock devices; enable `test-utils` feature.
+    #[cfg(feature = "test-utils")]
+    #[must_use]
+    pub fn from_id(id: u32) -> Self {
+        Self(id)
+    }
+}
 
 /// GPU memory domain for buffer placement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

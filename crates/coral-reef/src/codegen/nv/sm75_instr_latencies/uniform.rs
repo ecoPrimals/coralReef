@@ -122,7 +122,7 @@ impl URegLatencySM75 {
             | Op::HSetP2(_) => vcoupled,
             Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => vdecoupled,
             _ => {
-                panic!("Illegal instuction in ureg category {}", op);
+                panic!("Illegal instuction in ureg category {op}");
             }
         }
     }
@@ -135,7 +135,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             VectorCoupled => match writer {
@@ -143,7 +143,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             VectorDecoupled => match writer {
@@ -151,7 +151,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Uldc | VectorCoupledBindless | VectorDecoupledBindless => match writer {
@@ -159,7 +159,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 5,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {:?}", writer)
+                    panic!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Umov => match writer {

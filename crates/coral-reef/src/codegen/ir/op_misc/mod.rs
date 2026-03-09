@@ -391,7 +391,7 @@ impl DisplayOp for OpParCopy {
             if i > 0 {
                 write!(f, ",")?;
             }
-            write!(f, " {} = {}", dst, src)?;
+            write!(f, " {dst} = {src}")?;
         }
         Ok(())
     }
@@ -427,7 +427,7 @@ impl DisplayOp for OpRegOut {
             if i > 0 {
                 write!(f, ",")?;
             }
-            write!(f, " {}", src)?;
+            write!(f, " {src}")?;
         }
         write!(f, " }}")
     }

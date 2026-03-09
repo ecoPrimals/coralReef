@@ -149,16 +149,9 @@ fn amd_ioctl_read<T, R: Copy>(
 /// Current `CLOCK_MONOTONIC` time in nanoseconds.
 ///
 /// Required by kernel DRM ABIs that accept absolute timestamps.
-/// `std::time::Instant` cannot provide raw nanoseconds — this is the
-/// minimum-surface unsafe for absolute monotonic timestamps.
+/// Uses `rustix::time::clock_gettime` — zero unsafe, pure Rust.
 fn clock_monotonic_ns() -> u64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: timespec is a POD output struct. clock_gettime(CLOCK_MONOTONIC)
-    // is infallible on Linux — the clock is always available.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut ts) };
+    let ts = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     #[expect(
         clippy::cast_sign_loss,
         reason = "CLOCK_MONOTONIC never returns negative values"

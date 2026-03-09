@@ -43,8 +43,6 @@
     clippy::absurd_extreme_comparisons,         // use_count comparison
     clippy::unnecessary_wraps,                  // pipeline returns Result for API
     // Style: fixable but need manual review (100 instances across 129 files)
-    clippy::uninlined_format_args,
-    clippy::manual_range_contains,
     clippy::redundant_closure_for_method_calls,
     clippy::elidable_lifetime_names,
     clippy::explicit_into_iter_loop,
@@ -59,7 +57,6 @@
     clippy::map_unwrap_or,
     clippy::redundant_closure,
     clippy::useless_conversion,
-    clippy::match_like_matches_macro,
     clippy::partialeq_to_none,
     clippy::question_mark,
     clippy::manual_assert,
@@ -70,6 +67,28 @@
     clippy::derive_partial_eq_without_eq,
     clippy::fallible_impl_from,
 )]
+
+/// Internal Compiler Error — use instead of bare `panic!()` in codegen.
+///
+/// Provides source location and a consistent "this is a bug" message,
+/// making ICE reports actionable. Accepts `format_args!` syntax.
+macro_rules! ice {
+    ($($arg:tt)*) => {
+        panic!(
+            "internal compiler error at {}:{}: {}\n\
+             This is a bug in coralReef. Please report it.",
+            file!(), line!(), format_args!($($arg)*)
+        )
+    };
+}
+pub(crate) use ice;
+
+/// Default capacity for SSA-pass `BitSet<Phi>` allocations.
+///
+/// Sized for typical shader programs. Individual passes may exceed this
+/// (the `BitSet` grows dynamically), but this avoids frequent reallocations
+/// for the common case.
+const PHI_BITSET_CAPACITY: usize = 4096;
 
 pub mod amd;
 mod api;

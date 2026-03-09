@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 use super::RegLatencySM75::{self, *};
 
 const WRITERS: &[RegLatencySM75] = &[

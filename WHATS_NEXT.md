@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 23)
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 24)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 23)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 24)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -167,8 +167,8 @@ the full Spring absorption map.
 - [x] **NvDevice VM_INIT params** — `NV_KERNEL_MANAGED_ADDR = 0x80_0000_0000` constant — resolved Iteration 9
 - [x] **Shared memory sizing** — `CompilationInfo.shared_mem_bytes` + `barrier_count` wired compiler → QMD — resolved Iteration 9
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
-- [ ] Titan V (SM70) hardware execution validation
-- [ ] RTX 3090 (SM86) hardware execution validation
+- [ ] Titan V (SM70) hardware execution validation (nouveau dispatch ready, needs on-site)
+- [ ] RTX 3090 (SM86) DRM probed (nvidia-drm on renderD129); compute pending UVM integration
 - [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
 
 ### P0 — AMD E2E critical fixes (Iteration 10)
@@ -211,6 +211,7 @@ the full Spring absorption map.
 - [x] Iteration 21: Cross-spring absorption wave 2 — 38 new test entries (9 hotSpring + 17 neuralSpring + 12 existing wired), df64 comparison operators (df64_gt/lt/ge), chi_squared keyword fix, local_elementwise_f64 retired — 1174 tests (1174 passing, 30 ignored), 79/86 shaders SM70
 - [x] Iteration 22: Multi-language frontends — GLSL 450 compute frontend (naga glsl-in), SPIR-V roundtrip tests (WGSL→naga→SPIR-V→compile), fixture reorganization (86 corpus→corpus/, 21 compiler-owned stay), 5 GLSL fixtures (all pass SM70), 10 SPIR-V roundtrip tests (4 pass, 6 ignored: Discriminant expr, non-literal const init) — 1190 tests (1190 passing, 35 ignored)
 - [x] Iteration 23: Deep debt elimination — 11 math functions (Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize, Cross, Trunc), GLSL fixtures expanded (fract/sign/mix/step/smoothstep/tanh/dot), corpus_esn_reservoir_update unblocked, lib.rs refactored (791→483 LOC via lib_tests.rs extraction), SM80 gpr.rs tests extracted (867→766 LOC), nak-ir-proc unsafe audited (compile-time contiguity proofs), libc→rustix migration path documented (DEBT marker), DEBT count 37, orphaned fixture wired — 1191 tests (1191 passing, 35 ignored)
+- [x] Iteration 24: Multi-GPU sovereignty — `DriverPreference` (nouveau > amdgpu > nvidia-drm), `enumerate_render_nodes()`, `NvDrmDevice` nvidia-drm probing (UVM pending), toadStool ecosystem discovery (`coralreef-core::discovery`), `GpuContext::from_descriptor()`, cross-vendor compilation parity tests, AMD stress tests, NVIDIA probe tests, 8-demo showcase suite, `docs/HARDWARE_TESTING.md` Titan handoff — 1280 tests (1280 passing, 52 ignored)
 
 ### P3 — Remaining debt
 - [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
@@ -225,13 +226,14 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 79/86 cross-spring WGSL shaders compile to native SASS.
-1191 tests passing, 35 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+1280 tests passing, 52 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
-df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.
-All unsafe in driver consolidated: AMD + NV use RAII MappedRegion with safe slice access.
-tarpc uses bincode for high-performance binary IPC. 37 DEBT comments tracked (ISA gaps, dual-issue, features, libc→rustix).
+Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
+Cross-vendor parity testing: same shader compiled for SM86 and RDNA2, dispatch results verified.
+8-demo showcase: hello-compiler → compute triangle (coralReef → toadStool → barraCuda).
+tarpc uses bincode for high-performance binary IPC. 37 DEBT comments tracked.
+Iteration 24: Multi-GPU sovereignty — driver preference, nvidia-drm, toadStool discovery, parity tests, showcase.
 Iteration 23: Deep debt elimination — 11 math functions, lib.rs refactored, GLSL expanded, audits complete.
 Iteration 22: Multi-language frontends — GLSL + SPIR-V roundtrip tests + fixture reorg.
-Iteration 21: Cross-spring absorption wave 2 — +38 shaders from hotSpring + neuralSpring.
-Nouveau driver fully wired. Both backends encode full IR. All pure Rust.*
+All pure Rust. Sovereignty is a runtime choice.*

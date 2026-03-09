@@ -288,6 +288,7 @@ dependencies = [
  "bytemuck",
  "coral-reef",
  "libc",
+ "rustix",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -296,6 +297,7 @@ dependencies = [
 name = "coral-gpu"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "coral-driver",
  "coral-reef",
  "thiserror 2.0.18",
@@ -333,6 +335,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "clap",
+ "coral-driver",
  "coral-reef",
  "futures",
  "jsonrpsee",
@@ -341,6 +344,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tarpc",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-serde",

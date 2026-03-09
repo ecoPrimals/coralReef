@@ -52,7 +52,7 @@ impl DeadCodePass {
                 false
             }
             Dst::None => false,
-            Dst::Reg(_) => panic!("Invalid SSA destination"),
+            Dst::Reg(_) => super::ice!("Invalid SSA destination"),
         }
     }
 

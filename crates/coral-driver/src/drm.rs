@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Pure Rust DRM ioctl interface — uses `libc` for syscalls, no `drm-sys` or `nix`.
+//! Pure Rust DRM ioctl interface — uses `rustix` for mmap/munmap, `libc` for ioctl.
 //!
 //! All ioctl numbers and structures are defined here from the Linux
 //! kernel headers (GPL-2.0-only) via clean-room constant extraction.
-//! Syscalls go through `libc` for cross-architecture portability.
 //!
-//! DEBT(evolution): Migrate libc → rustix for pure Rust syscalls.
-//! Rustix provides safe wrappers for mmap/munmap/ioctl/clock_gettime,
-//! eliminating all unsafe blocks in this module. Requires rustix
-//! features: "mm", "io", "time". See also amd/ioctl.rs, nv/ioctl.rs.
+//! Memory mapping uses `rustix::mm` (safe wrappers, no raw unsafe).
+//! ioctl remains on `libc` until rustix stabilises a generic typed
+//! ioctl helper. See also `amd/ioctl.rs`, `nv/ioctl.rs`.
 
 use crate::error::{DriverError, DriverResult};
 use std::fs::{File, OpenOptions};
@@ -110,32 +108,39 @@ pub(crate) struct MappedRegion {
 }
 
 impl MappedRegion {
-    /// Map a file descriptor region into memory.
+    /// Map a file descriptor region into memory using `rustix::mm::mmap`.
     ///
     /// # Errors
     ///
-    /// Returns [`DriverError::MmapFailed`] if mmap returns `MAP_FAILED`.
+    /// Returns [`DriverError::MmapFailed`] if mmap fails.
     pub(crate) fn new(
         len: usize,
-        prot: libc::c_int,
-        flags: libc::c_int,
+        prot: rustix::mm::ProtFlags,
+        flags: rustix::mm::MapFlags,
         fd: RawFd,
-        offset: libc::off_t,
+        offset: u64,
     ) -> DriverResult<Self> {
         if len == 0 {
             return Err(DriverError::MmapFailed("mmap length must be > 0".into()));
         }
-        // SAFETY: Standard POSIX mmap. Arguments are validated by the caller:
-        // `len` > 0, `fd` is a valid open DRM GEM handle, `offset` is from
-        // the kernel (gem_mmap_offset or map_handle). The kernel returns
-        // MAP_FAILED on error (checked below).
-        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, prot, flags, fd, offset) };
-        if ptr == libc::MAP_FAILED {
-            return Err(DriverError::MmapFailed("mmap returned MAP_FAILED".into()));
+        use std::os::unix::io::BorrowedFd;
+        // SAFETY: `fd` is a valid open DRM GEM handle, `offset` is from the
+        // kernel (gem_mmap_offset or map_handle), and `len` > 0. The mapped
+        // region is owned by this struct and unmapped in `Drop`.
+        let ptr = unsafe {
+            rustix::mm::mmap(
+                std::ptr::null_mut(),
+                len,
+                prot,
+                flags,
+                BorrowedFd::borrow_raw(fd),
+                offset,
+            )
         }
-        // SAFETY: We just verified ptr != MAP_FAILED, so it is non-null.
-        // The region is valid for `len` bytes as a byte slice.
-        let ptr = unsafe { NonNull::new_unchecked(ptr.cast::<u8>()) };
+        .map_err(|e| DriverError::MmapFailed(format!("mmap failed: {e}").into()))?;
+        // mmap succeeded — rustix returns Err on MAP_FAILED, so ptr is non-null.
+        let ptr = NonNull::new(ptr.cast::<u8>())
+            .ok_or_else(|| DriverError::MmapFailed("mmap returned null".into()))?;
         Ok(Self { ptr, len })
     }
 
@@ -200,12 +205,25 @@ impl MappedRegion {
 
 impl Drop for MappedRegion {
     fn drop(&mut self) {
-        // SAFETY: ptr was returned by a successful mmap call (MAP_FAILED
-        // was checked in `new`). len is the same value passed to mmap.
-        // NonNull<u8> and *mut c_void have the same representation for
-        // munmap. This runs exactly once via the Drop impl.
-        unsafe { libc::munmap(self.ptr.as_ptr().cast::<libc::c_void>(), self.len) };
+        // SAFETY: ptr was returned by a successful rustix::mm::mmap call.
+        // len is the same value passed to mmap. This runs exactly once.
+        unsafe {
+            let _ = rustix::mm::munmap(self.ptr.as_ptr().cast::<std::ffi::c_void>(), self.len);
+        }
     }
+}
+
+/// Metadata about a discovered DRM render node.
+#[derive(Debug, Clone)]
+pub struct DrmDeviceInfo {
+    /// Render node path (e.g. `/dev/dri/renderD128`).
+    pub path: String,
+    /// Kernel driver name (e.g. `"amdgpu"`, `"nouveau"`, `"nvidia"`).
+    pub driver: String,
+    /// DRM driver major version.
+    pub version_major: i32,
+    /// DRM driver minor version.
+    pub version_minor: i32,
 }
 
 /// A DRM render node file descriptor.
@@ -245,6 +263,23 @@ impl DrmDevice {
         ))
     }
 
+    /// Open the first render node matching a specific driver name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::DeviceNotFound`] if no render node with the
+    /// specified driver is found.
+    pub fn open_by_driver(driver_name: &str) -> DriverResult<Self> {
+        for info in enumerate_render_nodes() {
+            if info.driver == driver_name {
+                return Self::open(&info.path);
+            }
+        }
+        Err(DriverError::DeviceNotFound(
+            format!("no DRM render node with driver '{driver_name}'").into(),
+        ))
+    }
+
     /// Raw file descriptor for ioctl calls.
     #[must_use]
     pub fn fd(&self) -> RawFd {
@@ -260,6 +295,40 @@ impl DrmDevice {
         let (_ver, name) = drm_version(self.fd())?;
         Ok(name)
     }
+
+    /// Query full device info (driver name + version).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the version ioctl fails.
+    pub fn device_info(&self) -> DriverResult<DrmDeviceInfo> {
+        let (ver, name) = drm_version(self.fd())?;
+        Ok(DrmDeviceInfo {
+            path: self.path.clone(),
+            driver: name,
+            version_major: ver.version_major,
+            version_minor: ver.version_minor,
+        })
+    }
+}
+
+/// Enumerate all available DRM render nodes with their driver info.
+///
+/// Scans `/dev/dri/renderD128` through `renderD191` and returns metadata
+/// for every node that can be opened and queried. Nodes that fail to open
+/// (permissions, no device) are silently skipped.
+#[must_use]
+pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
+    let mut devices = Vec::new();
+    for idx in 128..=191 {
+        let path = format!("/dev/dri/renderD{idx}");
+        if let Ok(dev) = DrmDevice::open(&path)
+            && let Ok(info) = dev.device_info()
+        {
+            devices.push(info);
+        }
+    }
+    devices
 }
 
 /// Close a GEM buffer object. Safe wrapper around `DRM_IOCTL_GEM_CLOSE`.
@@ -333,14 +402,41 @@ mod tests {
 
     #[test]
     fn ioctl_numbers_are_consistent() {
-        // DRM_IOCTL_VERSION should be _IOWR('d', 0x00, struct drm_version)
-        // On x86_64: direction=3 (R|W), type='d'=100, nr=0, size=32
         assert_eq!(DRM_IOCTL_VERSION & 0xFF, 0);
     }
 
     #[test]
     fn drm_device_not_found_on_invalid_path() {
         let result = DrmDevice::open("/dev/dri/renderD999");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn enumerate_render_nodes_returns_vec() {
+        let nodes = enumerate_render_nodes();
+        // May be empty in CI without GPUs, but should not panic.
+        for info in &nodes {
+            assert!(!info.path.is_empty());
+            assert!(!info.driver.is_empty());
+        }
+    }
+
+    #[test]
+    fn drm_device_info_has_driver_and_path() {
+        let info = DrmDeviceInfo {
+            path: "/dev/dri/renderD128".to_string(),
+            driver: "amdgpu".to_string(),
+            version_major: 3,
+            version_minor: 57,
+        };
+        let debug = format!("{info:?}");
+        assert!(debug.contains("amdgpu"));
+        assert!(debug.contains("renderD128"));
+    }
+
+    #[test]
+    fn open_by_driver_nonexistent_fails() {
+        let result = DrmDevice::open_by_driver("nonexistent_drm_driver_xyz");
         assert!(result.is_err());
     }
 }

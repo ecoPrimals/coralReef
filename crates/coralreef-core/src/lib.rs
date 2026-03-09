@@ -32,6 +32,7 @@
 pub mod capability;
 pub mod commands;
 pub mod config;
+pub mod discovery;
 pub mod health;
 pub mod lifecycle;
 
