@@ -368,20 +368,16 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 18 | Pred→GPR legalization fix, small array promotion, 4 tests un-ignored | **1138** (1138 pass, 29 ignore), 36/47 shaders SM70 |
 | 10 iter 19 | Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding | **1141** (1141 pass, 26 ignore), 39/47 shaders SM70, WGSL 46/49 |
 | 10 iter 20 | SSA dominance repair (fix_entry_live_in), sigmoid_f64 unblocked, gpr_tests.rs extraction | **1142** (1142 pass, 25 ignore), 40/47 shaders SM70, WGSL 47/49 |
-| 10 iter 21 (current) | Cross-spring absorption wave 2: +38 shaders (hotSpring+neuralSpring), df64_gt/lt/ge preamble, local_elementwise retired | **1174** (1174 pass, 30 ignore), 79/86 shaders SM70 |
+| 10 iter 21 | Cross-spring absorption wave 2: +38 shaders (hotSpring+neuralSpring), df64_gt/lt/ge preamble, local_elementwise retired | **1174** (1174 pass, 30 ignore), 79/86 shaders SM70 |
+| 10 iter 22 (current) | Multi-language frontends: GLSL 450 compute, SPIR-V roundtrip, fixture reorg (corpus/), 5 GLSL + 10 SPIR-V RT tests | **1189** (1189 pass, 36 ignore), 79/86 WGSL + 5/5 GLSL + 4/10 SPIR-V RT |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 21: 1174 tests passing, 30 ignored. Cross-spring absorption wave 2, calc_max_live_back_edge_aware, scheduler seeds
-live_set from live_in_values for loop headers, calc_max_live iterates
-all forward predecessors. 3 tests unblocked: su3_gauge_force_f64,
-wilson_plaquette_f64, swarm_nn_forward. 79/86 cross-spring shaders compile — +38 new from hotSpring + neuralSpring.
-
-Iteration 18: Pred→GPR legalization fix, small array promotion, 4 tests
-un-ignored. Iteration 17: Cross-spring absorption (20 shaders), audit, sm75 gpr.rs
-refactored. Iteration 16: 1116 tests passing. Legacy SM20/32/50
-encoder paths tested. SM75/SM80 latency tables covered via combinatorial
-unit tests. All TODOs replaced with 28 categorized DEBT comments.
+Iteration 22: 1189 tests passing, 36 ignored. Three input languages
+(WGSL, SPIR-V, GLSL 450 compute) feed the same pipeline. 79/86
+cross-spring WGSL shaders compile, 5/5 GLSL fixtures pass, 4/10
+SPIR-V roundtrip tests pass. Fixture reorganization: corpus/ holds
+86 spring snapshots, 21 compiler-owned fixtures remain in place.
 AMD E2E verified — sovereign pipeline proven on hardware.*

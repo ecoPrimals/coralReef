@@ -6,13 +6,17 @@ Welcome to coralReef, the sovereign Rust GPU compiler.
 
 ## What is this?
 
-coralReef compiles WGSL and SPIR-V compute shaders to native GPU
-binaries. It includes full f64 transcendental support — NVIDIA via
+coralReef compiles WGSL, SPIR-V, and GLSL 450 compute shaders to native
+GPU binaries. It includes full f64 transcendental support — NVIDIA via
 DFMA software lowering, AMD via native hardware instructions.
 
 Vendor-agnostic architecture with pluggable frontends and backends.
 NVIDIA SM70+ and AMD RDNA2 (GFX1030) backends are operational. Both
 share the same `ShaderModel` trait via Rust trait dispatch.
+
+Three input languages feed the same pipeline via the naga frontend:
+WGSL (primary), SPIR-V (binary intermediate), and GLSL 450 compute
+(for absorbing existing GPU compute libraries).
 
 coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
 NVIDIA nouveau). coralGpu wraps both into a unified compile + dispatch
@@ -28,7 +32,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 1174 passing, 0 failed, 30 ignored
+cargo test --workspace     # 1189 passing, 0 failed, 36 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -39,10 +43,10 @@ cargo fmt --check
 coralReef/
 ├── crates/
 │   ├── coralreef-core/         Primal lifecycle + IPC (JSON-RPC, tarpc)
-│   ├── coral-reef/             Shader compiler
+│   ├── coral-reef/             Shader compiler (WGSL + SPIR-V + GLSL)
 │   │   └── src/
 │   │       ├── backend.rs      Backend trait (vendor-agnostic)
-│   │       ├── frontend.rs     Frontend trait (pluggable parsers)
+│   │       ├── frontend.rs     Frontend trait (WGSL, SPIR-V, GLSL)
 │   │       ├── gpu_arch.rs     GpuTarget: Nvidia/Amd/Intel
 │   │       └── codegen/        Compiler core
 │   │           ├── ir/            SSA IR types
@@ -91,7 +95,7 @@ coralReef/
 ## How the Compiler Works
 
 ```
-WGSL / SPIR-V  →  Frontend (naga)  →  naga_translate (codegen IR)
+WGSL / SPIR-V / GLSL  →  Frontend (naga)  →  naga_translate (codegen IR)
     →  lower_f64  →  optimize (copy prop, DCE, bar prop, scheduling)
     →  legalize  →  assign_regs  →  Backend (encode)  →  native binary
 ```

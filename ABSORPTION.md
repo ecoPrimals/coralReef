@@ -139,7 +139,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 20)
+### Blocker Triage (current — iteration 22)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
@@ -215,12 +215,12 @@ Status (Iteration 15):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1142 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1189 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 20 — AMD E2E proven |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 22 — AMD E2E proven, multi-language frontends |
 | hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; all P0 resolved (Iteration 9) |
-| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved. Pred→GPR fixed (iter 18). Back-edge RA + SSA dominance fixed (iter 19-20). Only P2 Acos/Complex64 remain. |
+| barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1 resolved. Pred→GPR fixed (iter 18). Back-edge RA + SSA dominance fixed (iter 19-20). Multi-language frontends (iter 22). Only P2 Acos/Complex64 remain. |
 
 ---
 
@@ -287,12 +287,11 @@ Status (Iteration 15):
 
 ---
 
-*79/86 cross-spring shaders compile to native SASS. 1174 tests passing, 30 ignored, 63% coverage.
-91 additional shaders available from hotSpring (56) and neuralSpring (35) for corpus expansion.
-The compiler evolves — each iteration unlocks more shaders. AMD E2E verified on hardware
-(Iteration 10). Iterations 13-15: df64 preamble (5 tests unblocked), Statement::Switch,
-AMD+NV RAII MappedRegion, typed DRM wrappers, inline var pre-allocation fix.
-Iteration 19: Back-edge live-in RA, 3 tests unblocked.
+*79/86 cross-spring WGSL shaders compile to native SASS. 1189 tests passing, 36 ignored, 63% coverage.
+Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
+5/5 GLSL compute fixtures pass SM70. 4/10 SPIR-V roundtrip tests pass (6 blocked on
+Discriminant expr + non-literal const init). Fixture reorganization: corpus/ (86 spring
+snapshots) vs compiler-owned (21 shaders).
+Iteration 22: Multi-language frontends — GLSL + SPIR-V roundtrip + fixture reorg.
 Iteration 21: Cross-spring absorption wave 2 — +38 shaders from hotSpring + neuralSpring.
-Iteration 20: SSA dominance repair, sigmoid_f64 unblocked.
 Next: NVIDIA hardware validation, trig inverse math, Complex64 preamble, Tanh.*

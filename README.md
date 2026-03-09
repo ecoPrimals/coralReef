@@ -7,9 +7,9 @@
 
 ## Overview
 
-coralReef is a pure-Rust GPU shader compiler. It compiles WGSL and
-SPIR-V compute shaders to native GPU binaries, with full f64
-transcendental support. Zero C dependencies, zero vendor lock-in.
+coralReef is a pure-Rust GPU shader compiler. It compiles WGSL,
+SPIR-V, and GLSL 450 compute shaders to native GPU binaries, with
+full f64 transcendental support. Zero C dependencies, zero vendor lock-in.
 
 NVIDIA backend complete (SM70–SM89). AMD backend operational
 (RDNA2/GFX1030 — RX 6950 XT on-site). Both share the same IR,
@@ -39,11 +39,11 @@ cargo fmt --check
 ## Compilation Pipeline
 
 ```
-WGSL / SPIR-V input
+WGSL / SPIR-V / GLSL input
        │
        ▼
 ┌──────────────────┐
-│  Frontend (naga)  │  Parse WGSL/SPIR-V → naga IR (pluggable)
+│  Frontend (naga)  │  Parse WGSL/SPIR-V/GLSL → naga IR (pluggable)
 └────────┬─────────┘
          ▼
 ┌──────────────────────────────────────────┐
@@ -83,10 +83,10 @@ coralReef/
 ├── Cargo.toml                    # Workspace root
 ├── crates/
 │   ├── coralreef-core/            # Primal lifecycle + IPC (JSON-RPC, tarpc)
-│   ├── coral-reef/                # Shader compiler
+│   ├── coral-reef/                # Shader compiler (WGSL + SPIR-V + GLSL)
 │   │   ├── src/
 │   │   │   ├── backend.rs        # Backend trait (vendor-agnostic)
-│   │   │   ├── frontend.rs       # Frontend trait (pluggable parsers)
+│   │   │   ├── frontend.rs       # Frontend trait (WGSL, SPIR-V, GLSL)
 │   │   │   ├── gpu_arch.rs       # GpuTarget: Nvidia/Amd/Intel
 │   │   │   └── codegen/          # Compiler core
 │   │   │       ├── ir/           # SSA IR types

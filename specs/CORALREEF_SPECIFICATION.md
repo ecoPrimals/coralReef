@@ -86,7 +86,7 @@ WGSL / SPIR-V input
 | `coral-reef-isa` | ISA tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `coral-reef-bitview` | Bit-level field manipulation for instruction encoding |
-| `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants` |
+| `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs |
 
 ## f64 Transcendental Lowering
