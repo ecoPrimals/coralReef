@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! SPIR-V roundtrip tests — WGSL → naga → SPIR-V → compile().
+//! SPIR-V roundtrip tests — WGSL → naga → SPIR-V → `compile()`.
 //!
 //! Verifies the SPIR-V frontend path by converting existing WGSL fixtures
 //! to SPIR-V via naga, then feeding the result through coralReef's

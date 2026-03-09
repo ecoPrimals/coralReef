@@ -31,7 +31,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1189 passing, 0 failed, 36 ignored
+cargo test --workspace     # 1190 passing, 0 failed, 35 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -155,7 +155,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1189 passing, 0 failed, 36 ignored) |
+| `cargo test --workspace` | PASS (1190 passing, 0 failed, 35 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

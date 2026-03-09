@@ -1,5 +1,6 @@
 // GLSL 450 compute: math transcendentals and built-in functions.
-// Exercises: exp, log, sin, cos, sqrt, pow, abs, min, max, clamp.
+// Exercises: exp, log, sin, cos, sqrt, pow, abs, min, max, clamp,
+//            fract, sign, mix, step, smoothstep, tanh.
 #version 450
 
 layout(local_size_x = 64) in;
@@ -24,7 +25,13 @@ void main() {
     float cl = clamp(x, -1.0, 1.0);
     float fl = floor(x);
     float ce = ceil(x);
-    float lerp = s * 0.7 + c * 0.3;
+    float fr = fract(x);
+    float sg = sign(x);
+    float lerp = mix(s, c, 0.3);
+    float st = step(0.5, ax);
+    float ss = smoothstep(0.0, 1.0, ax);
+    float th = tanh(cl);
 
-    out_data[gid] = e + lg + s + c + sq + pw + mn + mx + cl + fl + ce + lerp;
+    out_data[gid] = e + lg + s + c + sq + pw + mn + mx + cl + fl + ce
+                   + fr + sg + lerp + st + ss + th;
 }

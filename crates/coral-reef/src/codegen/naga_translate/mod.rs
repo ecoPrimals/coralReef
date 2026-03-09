@@ -276,10 +276,10 @@ mod tests {
 
     #[test]
     fn test_parse_glsl_valid_minimal_compute() {
-        let glsl = r#"#version 450
+        let glsl = r"#version 450
             layout(local_size_x = 64) in;
             void main() {}
-        "#;
+        ";
         let result = parse_glsl(glsl);
         assert!(
             result.is_ok(),
@@ -301,14 +301,14 @@ mod tests {
 
     #[test]
     fn test_translate_glsl_compute_with_buffer() {
-        let glsl = r#"#version 450
+        let glsl = r"#version 450
             layout(local_size_x = 64) in;
             layout(std430, binding = 0) buffer Data { float data[]; };
             void main() {
                 uint gid = gl_GlobalInvocationID.x;
                 data[gid] = data[gid] + 1.0;
             }
-        "#;
+        ";
         let module = parse_glsl(glsl).unwrap();
         let sm = sm70();
         let result = translate(&module, &sm, "main");

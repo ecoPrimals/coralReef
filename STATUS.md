@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD DRM ioctl (GEM, PM4, CS, BO list, fence sync), NVIDIA nouveau (channel, GEM, pushbuf, QMD dispatch), pure Rust syscalls via libc |
 | coralGpu | A+ | Unified compile+dispatch API, auto-detect DRM render nodes, vendor-agnostic `GpuContext` with alloc/dispatch/sync/readback |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1189 passing, 0 failed, 36 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1190 passing, 0 failed, 35 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -230,7 +230,7 @@
 | 10 new WGSL shader fixtures | ✅ | expr_binary_int_ops, func_math_transcendentals, sm70_control_branches_loops_barrier, builder_emit_complex, etc. |
 | SM30 delay clamping fix | ✅ | `deps.delay.clamp(1, 32)` prevents `debug_assert!` panic in Kepler scheduler |
 | `compile_wgsl_raw_sm` test API | ✅ | `#[doc(hidden)]` public function for legacy SM testing from integration tests |
-| TODOs → DEBT migration | ✅ | All bare `TODO:` replaced with `DEBT(category):` comments (28 total) |
+| TODOs → DEBT migration | ✅ | All bare `TODO:` replaced with `DEBT(category):` comments (37 total) |
 | Test expansion | ✅ | 991 → 1116 passing (+125 tests), 63% line coverage |
 
 ### Phase 10 — Iteration 17 Completions (Cross-Spring Absorption + Audit + Idiomatic Refactoring)
@@ -309,7 +309,7 @@
 | GLSL test corpus | ✅ | 5 GLSL 450 compute fixtures: basic_alu, control_flow, shared_reduction, transcendentals, buffer_rw — all compile SM70 |
 | SPIR-V roundtrip tests | ✅ | 10 roundtrip tests (WGSL → naga → SPIR-V → compile()): 4 passing, 6 ignored (Discriminant expr, non-literal const init) |
 | Frontend trait: compile_glsl | ✅ | `Frontend` trait now has 3 methods: `compile_wgsl`, `compile_spirv`, `compile_glsl` |
-| Test expansion | ✅ | 1174 → 1189 passing (+15), 30 → 36 ignored (+6 SPIR-V path gaps) |
+| Test expansion | ✅ | 1174 → 1190 passing (+16), 30 → 35 ignored (+5 SPIR-V path gaps) |
 | SPIR-V path gaps documented | ✅ | `Discriminant` expression and non-literal constant initializers — future SPIR-V translator work |
 
 ### Phase 10 Remaining / Phase 11 Roadmap
@@ -326,7 +326,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1189 passing, 0 failed, 36 ignored) |
+| `cargo test --workspace` | PASS (1190 passing, 0 failed, 35 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

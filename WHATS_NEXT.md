@@ -209,7 +209,7 @@ the full Spring absorption map.
 - [x] Iteration 19: Back-edge live-in pre-allocation in RA (live_in_values), calc_max_live_back_edge_aware, scheduler live_in seeding, calc_max_live multi-predecessor fix — 3 tests unblocked (su3_gauge_force_f64, wilson_plaquette_f64, swarm_nn_forward), sigmoid_f64 remains ignored — 1141 tests (1141 passing, 26 ignored), 39/47 shaders SM70, WGSL 46/49
 - [x] Iteration 20: SSA dominance repair (`fix_entry_live_in` detects values live-in to entry block, inserts OpUndef + repair_ssa for phi insertion), sigmoid_f64 unblocked, scheduler debug_assert_eq! promoted, SM75 gpr_tests.rs extracted — 1142 tests (1142 passing, 25 ignored), 40/47 shaders SM70, WGSL 47/49
 - [x] Iteration 21: Cross-spring absorption wave 2 — 38 new test entries (9 hotSpring + 17 neuralSpring + 12 existing wired), df64 comparison operators (df64_gt/lt/ge), chi_squared keyword fix, local_elementwise_f64 retired — 1174 tests (1174 passing, 30 ignored), 79/86 shaders SM70
-- [x] Iteration 22: Multi-language frontends — GLSL 450 compute frontend (naga glsl-in), SPIR-V roundtrip tests (WGSL→naga→SPIR-V→compile), fixture reorganization (86 corpus→corpus/, 21 compiler-owned stay), 5 GLSL fixtures (all pass SM70), 10 SPIR-V roundtrip tests (4 pass, 6 ignored: Discriminant expr, non-literal const init) — 1189 tests (1189 passing, 36 ignored)
+- [x] Iteration 22: Multi-language frontends — GLSL 450 compute frontend (naga glsl-in), SPIR-V roundtrip tests (WGSL→naga→SPIR-V→compile), fixture reorganization (86 corpus→corpus/, 21 compiler-owned stay), 5 GLSL fixtures (all pass SM70), 10 SPIR-V roundtrip tests (4 pass, 6 ignored: Discriminant expr, non-literal const init) — 1190 tests (1190 passing, 35 ignored)
 
 ### P3 — Remaining debt
 - [ ] Acos/Asin/Atan2 math functions: polynomial approximation for trig inverse
@@ -224,7 +224,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 79/86 cross-spring WGSL shaders compile to native SASS.
-1189 tests passing, 36 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
+1190 tests passing, 35 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic. Safety boundary enforced.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 df64 preamble built-in — Dekker/Knuth pair arithmetic auto-prepended for ~48-bit precision on f32 cores.

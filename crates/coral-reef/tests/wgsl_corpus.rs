@@ -460,11 +460,7 @@ wgsl_compile_test!(
 wgsl_compile_test!(corpus_esn_readout, "esn_readout.wgsl");
 
 // MD: ESN reservoir update (f32, tanh activation, sparse recurrence)
-wgsl_compile_test!(
-    corpus_esn_reservoir_update,
-    "esn_reservoir_update.wgsl",
-    ignore = "Math::Tanh not yet supported"
-);
+wgsl_compile_test!(corpus_esn_reservoir_update, "esn_reservoir_update.wgsl");
 
 // ===========================================================================
 // hotSpring — New absorption: Lattice QCD (Iteration 21)

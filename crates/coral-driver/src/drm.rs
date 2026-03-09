@@ -4,6 +4,11 @@
 //! All ioctl numbers and structures are defined here from the Linux
 //! kernel headers (GPL-2.0-only) via clean-room constant extraction.
 //! Syscalls go through `libc` for cross-architecture portability.
+//!
+//! DEBT(evolution): Migrate libc → rustix for pure Rust syscalls.
+//! Rustix provides safe wrappers for mmap/munmap/ioctl/clock_gettime,
+//! eliminating all unsafe blocks in this module. Requires rustix
+//! features: "mm", "io", "time". See also amd/ioctl.rs, nv/ioctl.rs.
 
 use crate::error::{DriverError, DriverResult};
 use std::fs::{File, OpenOptions};

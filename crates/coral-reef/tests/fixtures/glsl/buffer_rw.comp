@@ -35,7 +35,7 @@ void main() {
     p.vel = (p.vel + acc * dt) * damping;
     p.pos = p.pos + p.vel * dt;
 
-    float ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y + p.vel.z * p.vel.z);
+    float ke = 0.5 * p.mass * dot(p.vel.xyz, p.vel.xyz);
 
     particles[gid] = p;
     energies[gid]  = ke;

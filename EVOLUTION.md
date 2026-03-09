@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1189 tests (1189 passing, 36 ignored), 63% line coverage (target 90%),
+1190 tests (1190 passing, 35 ignored), 63% line coverage (target 90%),
 79/86 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing.
 
@@ -369,13 +369,13 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 19 | Back-edge live-in RA, calc_max_live multi-pred, scheduler live_in seeding | **1141** (1141 pass, 26 ignore), 39/47 shaders SM70, WGSL 46/49 |
 | 10 iter 20 | SSA dominance repair (fix_entry_live_in), sigmoid_f64 unblocked, gpr_tests.rs extraction | **1142** (1142 pass, 25 ignore), 40/47 shaders SM70, WGSL 47/49 |
 | 10 iter 21 | Cross-spring absorption wave 2: +38 shaders (hotSpring+neuralSpring), df64_gt/lt/ge preamble, local_elementwise retired | **1174** (1174 pass, 30 ignore), 79/86 shaders SM70 |
-| 10 iter 22 (current) | Multi-language frontends: GLSL 450 compute, SPIR-V roundtrip, fixture reorg (corpus/), 5 GLSL + 10 SPIR-V RT tests | **1189** (1189 pass, 36 ignore), 79/86 WGSL + 5/5 GLSL + 4/10 SPIR-V RT |
+| 10 iter 22 (current) | Multi-language frontends: GLSL 450 compute, SPIR-V roundtrip, fixture reorg (corpus/), 5 GLSL + 10 SPIR-V RT tests | **1190** (1190 pass, 35 ignore), 79/86 WGSL + 5/5 GLSL + 4/10 SPIR-V RT |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 22: 1189 tests passing, 36 ignored. Three input languages
+Iteration 22: 1190 tests passing, 35 ignored. Three input languages
 (WGSL, SPIR-V, GLSL 450 compute) feed the same pipeline. 79/86
 cross-spring WGSL shaders compile, 5/5 GLSL fixtures pass, 4/10
 SPIR-V roundtrip tests pass. Fixture reorganization: corpus/ holds

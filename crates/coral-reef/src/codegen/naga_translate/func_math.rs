@@ -509,6 +509,557 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 Ok(dst)
             }
+            naga::MathFunction::Tanh => {
+                if is_f64 {
+                    let sin_val = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpF64Sin {
+                        dst: sin_val.clone().into(),
+                        src: Src::from(a.clone()),
+                    }));
+                    let cos_val = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpF64Cos {
+                        dst: cos_val.clone().into(),
+                        src: Src::from(a),
+                    }));
+                    let rcp_cos = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpF64Rcp {
+                        dst: rcp_cos.clone().into(),
+                        src: Src::from(cos_val),
+                    }));
+                    let tan_val = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpDMul {
+                        dst: tan_val.clone().into(),
+                        srcs: [Src::from(sin_val), Src::from(rcp_cos)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    Ok(tan_val)
+                } else {
+                    // tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)
+                    let two_x = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst: two_x.into(),
+                        srcs: [a[0].into(), a[0].into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                    let log2_e: f32 = std::f32::consts::LOG2_E;
+                    let scaled = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFMul {
+                        dst: scaled.into(),
+                        srcs: [two_x.into(), Src::new_imm_u32(log2_e.to_bits())],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    let exp2x = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpTranscendental {
+                        dst: exp2x.into(),
+                        op: TranscendentalOp::Exp2,
+                        src: scaled.into(),
+                    }));
+                    // exp2x - 1
+                    let num = self.alloc_ssa(RegFile::GPR);
+                    let neg_one: f32 = -1.0;
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst: num.into(),
+                        srcs: [exp2x.into(), Src::new_imm_u32(neg_one.to_bits())],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                    // exp2x + 1
+                    let den = self.alloc_ssa(RegFile::GPR);
+                    let one: f32 = 1.0;
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst: den.into(),
+                        srcs: [exp2x.into(), Src::new_imm_u32(one.to_bits())],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                    let rcp_den = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpTranscendental {
+                        dst: rcp_den.into(),
+                        op: TranscendentalOp::Rcp,
+                        src: den.into(),
+                    }));
+                    let dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFMul {
+                        dst: dst.into(),
+                        srcs: [num.into(), rcp_den.into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    Ok(dst.into())
+                }
+            }
+            naga::MathFunction::Fract => {
+                if is_f64 {
+                    let floored = self.emit_f64_floor(a.clone())?;
+                    let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpDAdd {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(a), Src::from(floored).fneg()],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    Ok(dst)
+                } else {
+                    let floored = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFRnd {
+                        dst: floored.into(),
+                        src: a[0].into(),
+                        dst_type: FloatType::F32,
+                        src_type: FloatType::F32,
+                        rnd_mode: FRndMode::NegInf,
+                        ftz: false,
+                    }));
+                    let dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst: dst.into(),
+                        srcs: [a[0].into(), Src::from(floored).fneg()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                    Ok(dst.into())
+                }
+            }
+            naga::MathFunction::Sign => {
+                let dst = self.alloc_ssa(RegFile::GPR);
+                // x > 0 → 1.0
+                let pos = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpFSetP {
+                    dst: pos.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: FloatCmpOp::OrdGt,
+                    srcs: [a[0].into(), Src::ZERO],
+                    accum: SrcRef::True.into(),
+                    ftz: false,
+                }));
+                let neg = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpFSetP {
+                    dst: neg.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: FloatCmpOp::OrdLt,
+                    srcs: [a[0].into(), Src::ZERO],
+                    accum: SrcRef::True.into(),
+                    ftz: false,
+                }));
+                // start with 0.0, select -1.0 if negative, 1.0 if positive
+                self.push_instr(Instr::new(OpCopy {
+                    dst: dst.into(),
+                    src: Src::ZERO,
+                }));
+                let neg_one: f32 = -1.0;
+                let tmp = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpSel {
+                    dst: tmp.into(),
+                    cond: neg.into(),
+                    srcs: [Src::new_imm_u32(neg_one.to_bits()), dst.into()],
+                }));
+                let result = self.alloc_ssa(RegFile::GPR);
+                let one: f32 = 1.0;
+                self.push_instr(Instr::new(OpSel {
+                    dst: result.into(),
+                    cond: pos.into(),
+                    srcs: [Src::new_imm_u32(one.to_bits()), tmp.into()],
+                }));
+                Ok(result.into())
+            }
+            naga::MathFunction::Dot => {
+                let b =
+                    b.ok_or_else(|| CompileError::InvalidInput("dot requires 2 args".into()))?;
+                let comps = a.comps().min(b.comps());
+                // a[0]*b[0]
+                let mut acc = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: acc.into(),
+                    srcs: [a[0].into(), b[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                for c in 1..comps as usize {
+                    let next = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFFma {
+                        dst: next.into(),
+                        srcs: [a[c].into(), b[c].into(), acc.into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    acc = next;
+                }
+                Ok(acc.into())
+            }
+            naga::MathFunction::Mix => {
+                let b =
+                    b.ok_or_else(|| CompileError::InvalidInput("mix requires 3 args".into()))?;
+                let t =
+                    c.ok_or_else(|| CompileError::InvalidInput("mix requires 3 args".into()))?;
+                // mix(a, b, t) = a + t*(b - a) = a*(1-t) + b*t
+                // Using FMA: result = b*t + a*(1-t) = (b-a)*t + a
+                let diff = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: diff.into(),
+                    srcs: [b[0].into(), Src::from(a[0]).fneg()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFFma {
+                    dst: dst.into(),
+                    srcs: [diff.into(), t[0].into(), a[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Step => {
+                let b =
+                    b.ok_or_else(|| CompileError::InvalidInput("step requires 2 args".into()))?;
+                // step(edge, x) = x >= edge ? 1.0 : 0.0
+                let pred = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpFSetP {
+                    dst: pred.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: FloatCmpOp::OrdGe,
+                    srcs: [b[0].into(), a[0].into()],
+                    accum: SrcRef::True.into(),
+                    ftz: false,
+                }));
+                let one: f32 = 1.0;
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpSel {
+                    dst: dst.into(),
+                    cond: pred.into(),
+                    srcs: [Src::new_imm_u32(one.to_bits()), Src::ZERO],
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::SmoothStep => {
+                let b = b.ok_or_else(|| {
+                    CompileError::InvalidInput("smoothstep requires 3 args".into())
+                })?;
+                let x = c.ok_or_else(|| {
+                    CompileError::InvalidInput("smoothstep requires 3 args".into())
+                })?;
+                // smoothstep(lo, hi, x): t = clamp((x-lo)/(hi-lo), 0, 1); return t*t*(3-2*t)
+                let diff_x = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: diff_x.into(),
+                    srcs: [x[0].into(), Src::from(a[0]).fneg()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                let range = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: range.into(),
+                    srcs: [b[0].into(), Src::from(a[0]).fneg()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                let rcp_range = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: rcp_range.into(),
+                    op: TranscendentalOp::Rcp,
+                    src: range.into(),
+                }));
+                let t_raw = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: t_raw.into(),
+                    srcs: [diff_x.into(), rcp_range.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                // clamp to [0, 1] via saturate
+                let t = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: t.into(),
+                    srcs: [t_raw.into(), Src::ZERO],
+                    saturate: true,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                // t * t
+                let t2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: t2.into(),
+                    srcs: [t.into(), t.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                // 3 - 2*t
+                let two: f32 = 2.0;
+                let three: f32 = 3.0;
+                let two_t = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: two_t.into(),
+                    srcs: [Src::new_imm_u32(two.to_bits()), t.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                let three_minus_2t = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFAdd {
+                    dst: three_minus_2t.into(),
+                    srcs: [Src::new_imm_u32(three.to_bits()), Src::from(two_t).fneg()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                }));
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dst.into(),
+                    srcs: [t2.into(), three_minus_2t.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Length => {
+                let comps = a.comps();
+                if comps == 1 {
+                    let dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst: dst.into(),
+                        srcs: [Src::ZERO, Src::from(a[0]).fabs()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                    return Ok(dst.into());
+                }
+                // dot(a, a)
+                let mut acc = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: acc.into(),
+                    srcs: [a[0].into(), a[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                for c in 1..comps as usize {
+                    let next = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFFma {
+                        dst: next.into(),
+                        srcs: [a[c].into(), a[c].into(), acc.into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    acc = next;
+                }
+                // sqrt via rsq + rcp
+                let rsq = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: rsq.into(),
+                    op: TranscendentalOp::Rsq,
+                    src: acc.into(),
+                }));
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: dst.into(),
+                    op: TranscendentalOp::Rcp,
+                    src: rsq.into(),
+                }));
+                Ok(dst.into())
+            }
+            naga::MathFunction::Normalize => {
+                let comps = a.comps();
+                // len = length(a); result[i] = a[i] / len = a[i] * rsq(dot(a,a))
+                let mut dot_acc = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: dot_acc.into(),
+                    srcs: [a[0].into(), a[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                for c in 1..comps as usize {
+                    let next = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFFma {
+                        dst: next.into(),
+                        srcs: [a[c].into(), a[c].into(), dot_acc.into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                    dot_acc = next;
+                }
+                let inv_len = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpTranscendental {
+                    dst: inv_len.into(),
+                    op: TranscendentalOp::Rsq,
+                    src: dot_acc.into(),
+                }));
+                let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
+                for c in 0..comps as usize {
+                    self.push_instr(Instr::new(OpFMul {
+                        dst: dst[c].into(),
+                        srcs: [a[c].into(), inv_len.into()],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                        dnz: false,
+                    }));
+                }
+                Ok(dst)
+            }
+            naga::MathFunction::Cross => {
+                let b =
+                    b.ok_or_else(|| CompileError::InvalidInput("cross requires 2 args".into()))?;
+                // cross(a, b) = (a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x)
+                let dst = self.alloc_ssa_vec(RegFile::GPR, 3);
+                // x = a.y*b.z - a.z*b.y
+                let tmp0 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: tmp0.into(),
+                    srcs: [a[1].into(), b[2].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                self.push_instr(Instr::new(OpFFma {
+                    dst: dst[0].into(),
+                    srcs: [Src::from(a[2]).fneg(), b[1].into(), tmp0.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                // y = a.z*b.x - a.x*b.z
+                let tmp1 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: tmp1.into(),
+                    srcs: [a[2].into(), b[0].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                self.push_instr(Instr::new(OpFFma {
+                    dst: dst[1].into(),
+                    srcs: [Src::from(a[0]).fneg(), b[2].into(), tmp1.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                // z = a.x*b.y - a.y*b.x
+                let tmp2 = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpFMul {
+                    dst: tmp2.into(),
+                    srcs: [a[0].into(), b[1].into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                self.push_instr(Instr::new(OpFFma {
+                    dst: dst[2].into(),
+                    srcs: [Src::from(a[1]).fneg(), b[0].into(), tmp2.into()],
+                    saturate: false,
+                    rnd_mode: FRndMode::NearestEven,
+                    ftz: false,
+                    dnz: false,
+                }));
+                Ok(dst)
+            }
+            naga::MathFunction::Trunc => {
+                if is_f64 {
+                    // trunc = copysign(floor(abs(x)), x)
+                    let abs_x = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpDAdd {
+                        dst: abs_x.clone().into(),
+                        srcs: [Src::ZERO, Src::from(a.clone()).fabs()],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    let floored = self.emit_f64_floor(abs_x)?;
+                    // Restore original sign
+                    let sign_bit = self.alloc_ssa(RegFile::GPR);
+                    if self.sm.sm() >= 70 {
+                        self.push_instr(Instr::new(OpLop3 {
+                            dst: sign_bit.into(),
+                            srcs: [a[1].into(), Src::new_imm_u32(0x8000_0000), Src::ZERO],
+                            op: LogicOp3::new_lut(&|a, b, _| a & b),
+                        }));
+                    } else {
+                        self.push_instr(Instr::new(OpLop2 {
+                            dst: sign_bit.into(),
+                            srcs: [a[1].into(), Src::new_imm_u32(0x8000_0000)],
+                            op: LogicOp2::And,
+                        }));
+                    }
+                    let cleared = self.alloc_ssa(RegFile::GPR);
+                    if self.sm.sm() >= 70 {
+                        self.push_instr(Instr::new(OpLop3 {
+                            dst: cleared.into(),
+                            srcs: [floored[1].into(), Src::new_imm_u32(0x7FFF_FFFF), Src::ZERO],
+                            op: LogicOp3::new_lut(&|a, b, _| a & b),
+                        }));
+                    } else {
+                        self.push_instr(Instr::new(OpLop2 {
+                            dst: cleared.into(),
+                            srcs: [floored[1].into(), Src::new_imm_u32(0x7FFF_FFFF)],
+                            op: LogicOp2::And,
+                        }));
+                    }
+                    let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: dst[0].into(),
+                        src: floored[0].into(),
+                    }));
+                    if self.sm.sm() >= 70 {
+                        self.push_instr(Instr::new(OpLop3 {
+                            dst: dst[1].into(),
+                            srcs: [cleared.into(), sign_bit.into(), Src::ZERO],
+                            op: LogicOp3::new_lut(&|a, b, _| a | b),
+                        }));
+                    } else {
+                        self.push_instr(Instr::new(OpLop2 {
+                            dst: dst[1].into(),
+                            srcs: [cleared.into(), sign_bit.into()],
+                            op: LogicOp2::Or,
+                        }));
+                    }
+                    Ok(dst)
+                } else {
+                    let dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpFRnd {
+                        dst: dst.into(),
+                        src: a[0].into(),
+                        dst_type: FloatType::F32,
+                        src_type: FloatType::F32,
+                        rnd_mode: FRndMode::Zero,
+                        ftz: false,
+                    }));
+                    Ok(dst.into())
+                }
+            }
             _ => Err(CompileError::NotImplemented(
                 format!("math function {fun:?} not yet supported").into(),
             )),
