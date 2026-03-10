@@ -86,10 +86,7 @@ enum UniBinExit {
     GeneralError = 1,
     ConfigError = 2,
     /// Used by the panic hook via `abort()` — the OS maps this to exit code 3.
-    #[allow(
-        dead_code,
-        reason = "used by panic hook via abort(); OS maps to exit code 3"
-    )]
+    #[allow(dead_code)]
     InternalError = 3,
     Signal = 130,
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
+#![warn(missing_docs)]
 //! Pure Rust AMD ISA table generator — replaces `gen_rdna2_opcodes.py`.
 //!
 //! Parses AMD's machine-readable ISA XML specification and generates
@@ -700,7 +701,7 @@ fn generate_mod_file(
 
     writeln!(
         out,
-        "#[allow(dead_code, missing_docs, reason = \"generated ISA tables from amd-isa-gen\")]"
+        "#[expect(dead_code, missing_docs, reason = \"generated ISA tables from amd-isa-gen\")]"
     )
     .unwrap();
     writeln!(out, "pub mod isa_types;").unwrap();
@@ -708,7 +709,7 @@ fn generate_mod_file(
 
     for enc_name in encoding_fields.keys() {
         let mod_name = encoding_to_rust_mod(enc_name);
-        writeln!(out, "#[allow(dead_code, missing_docs, unused_imports, reason = \"generated ISA tables from amd-isa-gen\")]").unwrap();
+        writeln!(out, "#[expect(dead_code, missing_docs, unused_imports, reason = \"generated ISA tables from amd-isa-gen\")]").unwrap();
         writeln!(out, "pub mod {mod_name};").unwrap();
     }
     writeln!(out).unwrap();

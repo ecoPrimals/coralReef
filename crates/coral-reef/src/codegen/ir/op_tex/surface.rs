@@ -141,7 +141,6 @@ impl SuClampRound {
         }
     }
 
-    #[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
     pub fn to_mask(&self) -> u32 {
         !(self.to_int() as u32 - 1)
     }

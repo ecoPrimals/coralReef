@@ -61,6 +61,13 @@ trait CoralReefRpc {
     /// `shader.compile.capabilities` — list supported GPU architectures.
     #[method(name = "shader.compile.capabilities")]
     async fn shader_compile_capabilities(&self) -> Result<Vec<String>, ErrorObjectOwned>;
+
+    /// `shader.compile.wgsl.multi` — compile WGSL to multiple GPU targets at once.
+    #[method(name = "shader.compile.wgsl.multi")]
+    async fn shader_compile_wgsl_multi(
+        &self,
+        request: service::MultiDeviceCompileRequest,
+    ) -> Result<service::MultiDeviceCompileResponse, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
@@ -89,6 +96,13 @@ impl CoralReefRpcServer for RpcImpl {
     async fn shader_compile_capabilities(&self) -> Result<Vec<String>, ErrorObjectOwned> {
         let health = service::handle_health();
         Ok(health.supported_archs)
+    }
+
+    async fn shader_compile_wgsl_multi(
+        &self,
+        request: service::MultiDeviceCompileRequest,
+    ) -> Result<service::MultiDeviceCompileResponse, ErrorObjectOwned> {
+        service::handle_compile_wgsl_multi(&request).map_err(|e| compile_error_to_rpc(&e))
     }
 }
 

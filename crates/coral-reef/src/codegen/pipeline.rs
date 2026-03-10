@@ -39,6 +39,12 @@ pub fn compile_shader(
         f.fix_entry_live_in();
     }
 
+    // FMA contraction lowering — split FFma/DFma when FmaPolicy::Separate.
+    // Must run BEFORE f64 transcendental lowering: Newton-Raphson sequences
+    // internally require FMA for convergence, so we only split user-originating
+    // FMA instructions, not the ones we emit for f64 lowering.
+    shader.lower_fma_contractions();
+
     // Pre-RA scheduling
     shader.opt_instr_sched_prepass();
 

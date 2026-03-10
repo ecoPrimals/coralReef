@@ -338,7 +338,6 @@ impl SSAValueAllocator {
         Self { count: 0 }
     }
 
-    #[allow(dead_code, reason = "SSA allocator API for diagnostics/debugging")]
     pub fn max_idx(&self) -> u32 {
         self.count
     }

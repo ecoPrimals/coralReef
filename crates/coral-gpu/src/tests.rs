@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
-use crate::{error::GpuError, preference::DriverPreference};
+use crate::{FmaCapability, error::GpuError, preference::DriverPreference};
 use coral_driver::MemoryDomain;
 use coral_driver::{DispatchDims, DriverError, DriverResult, ShaderInfo};
-use coral_reef::{AmdArch, GpuTarget, NvArch};
+use coral_reef::{AmdArch, FmaPolicy, GpuTarget, NvArch};
 use std::collections::HashMap;
 
 use crate::GpuContext;
@@ -648,4 +648,61 @@ fn compiled_kernel_debug_format() {
     let debug = format!("{kernel:?}");
     assert!(debug.contains("CompiledKernel"));
     assert!(debug.contains("binary"));
+}
+
+// -------------------------------------------------------------------
+// FMA capability tests
+// -------------------------------------------------------------------
+
+#[test]
+fn fma_capability_nvidia_sm70_has_dfma() {
+    let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm70));
+    assert!(cap.f32_fma);
+    assert!(cap.f64_fma, "SM70 (Volta) has DFMA");
+    assert_eq!(cap.recommended_policy, FmaPolicy::Auto);
+    assert!(cap.f32_fma_throughput_ratio > 1.0);
+}
+
+#[test]
+fn fma_capability_nvidia_sm75_has_dfma() {
+    let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm75));
+    assert!(cap.f32_fma);
+    assert!(cap.f64_fma, "SM75 (Turing) has DFMA at 1/32 rate");
+}
+
+#[test]
+fn fma_capability_nvidia_sm80_has_dfma() {
+    let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm80));
+    assert!(cap.f64_fma, "SM80 (Ampere) has DFMA");
+}
+
+#[test]
+fn fma_capability_amd_rdna2() {
+    let cap = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Rdna2));
+    assert!(cap.f32_fma);
+    assert!(cap.f64_fma, "RDNA2 has native f64");
+}
+
+#[test]
+fn fma_capability_amd_rdna3() {
+    let cap = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Rdna3));
+    assert!(cap.f32_fma);
+    assert!(cap.f64_fma, "RDNA3 has native f64");
+    assert!(cap.f32_fma_throughput_ratio > 1.0);
+}
+
+#[test]
+fn fma_capability_via_context() {
+    let ctx = ctx_with_mock();
+    let cap = ctx.fma_capability();
+    assert!(cap.f32_fma);
+    assert_eq!(cap.recommended_policy, FmaPolicy::Auto);
+}
+
+#[test]
+fn fma_capability_debug_format() {
+    let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm70));
+    let debug = format!("{cap:?}");
+    assert!(debug.contains("FmaCapability"));
+    assert!(debug.contains("f32_fma"));
 }

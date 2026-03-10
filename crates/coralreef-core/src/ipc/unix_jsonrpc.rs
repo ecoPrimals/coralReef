@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Unix socket JSON-RPC 2.0 server — newline-delimited protocol.
 //!
-//! toadStool and other ecosystem primals discover coralReef via a Unix
-//! socket at `$XDG_RUNTIME_DIR/biomeos/coralreef.sock`. This module
+//! Ecosystem primals discover coralReef via a Unix socket at
+//! `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/coralreef.sock`. This module
 //! serves the same `shader.compile.*` methods as the TCP/HTTP server
 //! but over newline-delimited JSON on a Unix domain socket.
 //!
@@ -90,6 +90,23 @@ mod inner {
                     Err(e) => Err(e.to_string()),
                 }
             }
+            "shader.compile.wgsl.multi" => {
+                let req: service::MultiDeviceCompileRequest = if params.is_array() {
+                    let arr = params.as_array().unwrap();
+                    if arr.is_empty() {
+                        return Err("missing request parameter".to_owned());
+                    }
+                    serde_json::from_value(arr[0].clone()).map_err(|e| e.to_string())?
+                } else if params.is_object() {
+                    serde_json::from_value(params.clone()).map_err(|e| e.to_string())?
+                } else {
+                    return Err("invalid params".to_owned());
+                };
+                match service::handle_compile_wgsl_multi(&req) {
+                    Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
             other => Err(format!("method not found: {other}")),
         }
     }
@@ -125,12 +142,13 @@ mod inner {
     #[must_use]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
         let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
-        base.join("biomeos").join("coralreef.sock")
+        base.join(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+            .join("coralreef.sock")
     }
 
-    /// Default socket path: `$XDG_RUNTIME_DIR/biomeos/coralreef.sock`.
+    /// Default socket path: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/coralreef.sock`.
     ///
-    /// Falls back to `$TMPDIR/biomeos/coralreef.sock` if XDG is unset.
+    /// Falls back to `$TMPDIR/{ECOSYSTEM_NAMESPACE}/coralreef.sock` if XDG is unset.
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
         unix_socket_path_for_base(std::env::var("XDG_RUNTIME_DIR").ok().map(PathBuf::from))

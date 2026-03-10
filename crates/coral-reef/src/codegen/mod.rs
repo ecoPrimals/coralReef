@@ -86,7 +86,7 @@ pub(crate) use ice;
 /// Wrap an encoder call in `catch_unwind`, converting ICE panics to
 /// `CompileError::Internal`. Encoder panics are internal invariant
 /// violations — this prevents process death and returns a structured error.
-pub(crate) fn catch_ice<F>(f: F) -> Result<Vec<u32>, crate::CompileError>
+pub fn catch_ice<F>(f: F) -> Result<Vec<u32>, crate::CompileError>
 where
     F: FnOnce() -> Vec<u32>,
 {
@@ -119,6 +119,7 @@ mod legalize;
 mod liveness;
 mod lower_copy_swap;
 mod lower_f64;
+mod lower_fma;
 mod lower_par_copies;
 pub mod nv;
 pub mod ops;

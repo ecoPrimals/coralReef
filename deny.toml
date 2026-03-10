@@ -5,6 +5,16 @@
 # Dev-dependencies are excluded — ecoBin/sovereignty apply to the production
 # binary, not test tooling. Tests may use ring/rustls for HTTP client testing;
 # production TLS is provided by Tower Atomic (Songbird + BearDog).
+#
+# Transitive duplicate crates (no direct workspace deps; cannot fix via Cargo.toml):
+#   foldhash (0.1.5, 0.2.0)   — hashbrown→petgraph→naga vs hashbrown→indexmap/jsonrpsee-proc-macros
+#   getrandom (0.2.17, 0.3.4) — rand 0.8 (soketto, tarpc) vs rand 0.9 (jsonrpsee-core, opentelemetry_sdk)
+#   hashbrown (0.15.5, 0.16.1)— petgraph→naga vs indexmap/jsonrpsee-proc-macros
+#   rand (0.8.5, 0.9.2)       — soketto + tarpc vs jsonrpsee-core + opentelemetry_sdk
+#   rand_chacha (0.3.1, 0.9.0)— same split as rand
+#   rand_core (0.6.4, 0.9.5)  — same split as rand
+#   rustc-hash (1.1.0, 2.1.1)  — naga vs jsonrpsee-core
+#   windows-sys (0.60.2, 0.61.2) — socket2→tokio vs clap/rustix/mio/tracing-subscriber
 
 [graph]
 exclude-dev = true

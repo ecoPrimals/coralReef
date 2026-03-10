@@ -419,7 +419,6 @@ impl PrmtSel {
     }
 }
 
-#[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum PrmtMode {
     Index,

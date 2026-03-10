@@ -27,7 +27,10 @@ async fn unix_jsonrpc_send_request(sock_path: &std::path::Path, request: &str) -
 fn test_unix_socket_path_with_xdg() {
     let path = unix_socket_path_for_base(Some("/run/user/1234".into()));
     assert!(path.to_string_lossy().contains("/run/user/1234"));
-    assert!(path.to_string_lossy().contains("biomeos"));
+    assert!(
+        path.to_string_lossy()
+            .contains(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+    );
     assert!(path.to_string_lossy().contains("coralreef.sock"));
 }
 
@@ -35,7 +38,10 @@ fn test_unix_socket_path_with_xdg() {
 #[test]
 fn test_unix_socket_path_fallback() {
     let path = unix_socket_path_for_base(None);
-    assert!(path.to_string_lossy().contains("biomeos"));
+    assert!(
+        path.to_string_lossy()
+            .contains(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+    );
     assert!(path.to_string_lossy().contains("coralreef.sock"));
 }
 
@@ -391,6 +397,48 @@ async fn test_unix_jsonrpc_wgsl_empty_array_params() {
             .to_lowercase()
             .contains("missing")
     );
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_wgsl_multi() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("wgsl-multi-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "shader.compile.wgsl.multi",
+        "params": {
+            "wgsl_source": "@compute @workgroup_size(1) fn main() {}",
+            "targets": [
+                { "card_index": 0, "arch": "sm_70" },
+                { "card_index": 1, "arch": "sm_89" }
+            ],
+            "opt_level": 2
+        },
+        "id": 10
+    });
+    let resp_line = unix_jsonrpc_send_request(&sock_path, &req.to_string()).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 10);
+    assert!(resp["result"].is_object(), "multi compile should succeed");
+    assert_eq!(resp["result"]["success_count"], 2);
+    assert_eq!(resp["result"]["total_count"], 2);
+    let results = resp["result"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0]["arch"], "sm_70");
+    assert_eq!(results[1]["arch"], "sm_89");
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);

@@ -87,7 +87,6 @@ impl BasicBlock {
         })
     }
 
-    #[allow(dead_code, reason = "IR API reserved for future SSA manipulation")]
     pub fn phi_dsts_mut(&mut self) -> Option<&mut super::op_misc::OpPhiDsts> {
         self.phi_dsts_ip()
             .and_then(|ip| match &mut self.instrs[ip].op {
@@ -138,7 +137,6 @@ impl BasicBlock {
         }
     }
 
-    #[allow(dead_code, reason = "IR API reserved for future branch rewriting")]
     pub fn branch_mut(&mut self) -> Option<&mut Instr> {
         self.instrs.last_mut().filter(|i| i.is_branch())
     }

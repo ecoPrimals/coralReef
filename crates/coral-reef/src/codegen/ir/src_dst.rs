@@ -38,7 +38,6 @@ impl Dst {
         }
     }
 
-    #[allow(dead_code, reason = "IR API reserved for future backend integration")]
     pub fn to_ssa(self) -> SSARef {
         match self {
             Self::SSA(r) => r,

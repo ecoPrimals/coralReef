@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 10, 2026  
-**Phase**: 10 — Iteration 29 (NVIDIA Last Mile Pipeline)
+**Phase**: 10 — Iteration 30 (Spring Absorption + FMA Evolution)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1447 passing, 0 failed, 76 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1487 passing, 0 failed, 76 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 29** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 30** |
 
 ### Phase 10 Completions
 
@@ -426,6 +426,22 @@
 | `gem_close` promoted to pub | ✅ | Was `pub(crate)`, now `pub` for integration test access |
 | Test expansion | ✅ | 1437 → 1447 passing (+10 tests), 68 → 76 ignored (+8 hardware diagnostic tests) |
 
+### Phase 10 — Iteration 30 Completions (Spring Absorption + FMA Evolution)
+
+| Task | Status | Details |
+|------|--------|---------|
+| `shader.compile.wgsl.multi` API | ✅ | `DeviceTarget`, `MultiDeviceCompileRequest/Response`, `DeviceCompileResult` — compile one WGSL shader for multiple GPU targets in a single request; wired through JSON-RPC, Unix socket, and tarpc |
+| FMA policy wire-through | ✅ | `fma_policy` field added to `CompileWgslRequest` and `MultiDeviceCompileRequest`; `parse_fma_policy()` helper; `build_options()` now takes `FmaPolicy` parameter |
+| FMA contraction enforcement | ✅ | New `lower_fma.rs` pass: `FmaPolicy::Separate` splits `OpFFma`→`OpFMul`+`OpFAdd` and `OpDFma`→`OpDMul`+`OpDAdd`; inserted in pipeline after optimization, before f64 transcendental lowering |
+| FMA hardware capability reporting | ✅ | `FmaCapability` struct with f32/f64 FMA support, recommended policy, throughput ratio; `FmaCapability::for_target()` per architecture; `GpuContext::fma_capability()` |
+| `PCIe` topology awareness | ✅ | `PcieDeviceInfo` struct, `probe_pcie_topology()`, `assign_switch_groups()` — discover and group GPUs by `PCIe` switch for optimal multi-device scheduling |
+| Capability self-description evolution | ✅ | `shader.compile.multi` capability advertised with `max_targets: 64`, `cross_vendor: true`; existing `shader.compile` now includes GLSL input, all NVIDIA+AMD architectures, FMA policies |
+| NVVM bypass test hardening | ✅ | `nvvm_bypass_fma_policies_all_compile` verifies compilation across all FMA policies; `nvvm_bypass_fma_separate_rdna2` for cross-vendor FMA verification |
+| `primal-rpc-client` evolution | ✅ | Removed redundant `Serialize` bounds, `const fn` for `tcp()`/`no_params()`, `#[expect(dead_code)]` with reasons |
+| `coral-driver` doc evolution | ✅ | `#[must_use]`, `# Errors` doc sections, `const unsafe fn`, `std::fmt::Write` refactoring, GPU identity extraction to `nv/identity.rs` |
+| `#![warn(missing_docs)]` expansion | ✅ | Added to `coral-reef-bitview`, `coral-reef-isa`, `coral-reef-stubs`, `nak-ir-proc`, `amd-isa-gen`, `coral-driver`, `coral-gpu`, `coralreef-core` |
+| Test expansion | ✅ | 1447 → 1487 passing (+40 tests), 76 ignored (stable) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -450,7 +466,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1447 passing, 0 failed, 76 ignored) |
+| `cargo test --workspace` | PASS (1487 passing, 0 failed, 76 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

@@ -30,7 +30,6 @@ impl DisplayOp for OpLd {
 }
 impl_display_for_op!(OpLd);
 
-#[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum LdcMode {
     Indexed,
@@ -413,10 +412,6 @@ impl DisplayOp for OpLdTram {
 }
 impl_display_for_op!(OpLdTram);
 
-#[allow(
-    dead_code,
-    reason = "ISA variant reserved for future cache control encoding"
-)]
 #[derive(Copy, Clone, Debug)]
 pub enum CCtlOp {
     Qry1, // Only available pre-Volta

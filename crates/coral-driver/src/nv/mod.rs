@@ -13,6 +13,7 @@
 //! - **nvidia-drm** (proprietary): DRM render node access, device probing.
 //!   Compute dispatch pending UVM integration. The compatibility path.
 
+pub mod identity;
 pub mod ioctl;
 pub mod pushbuf;
 pub mod qmd;
@@ -65,10 +66,15 @@ const fn compute_class_for_sm(sm: u32) -> u32 {
 /// A nouveau GEM buffer with optional mmap info.
 #[derive(Debug)]
 pub struct NvBuffer {
+    /// Kernel GEM handle for this buffer.
     pub gem_handle: u32,
+    /// Buffer size in bytes.
     pub size: u64,
+    /// GPU virtual address (for shader dispatch).
     pub gpu_va: u64,
+    /// Mmap handle for CPU access (offset for mmap).
     pub map_handle: u64,
+    /// Memory domain (VRAM, GTT, or either).
     pub domain: MemoryDomain,
 }
 
@@ -163,7 +169,7 @@ impl NvDevice {
 
     /// The SM architecture version this device targets.
     #[must_use]
-    pub fn sm_version(&self) -> u32 {
+    pub const fn sm_version(&self) -> u32 {
         match self.compute_class {
             pushbuf::class::TURING_COMPUTE_A => 75,
             pushbuf::class::AMPERE_COMPUTE_A => 86,
@@ -213,7 +219,6 @@ fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
         }
     }
     let chip = match sm {
-        70..=72 => "gv100",
         75 => "tu102",
         80..=89 => "ga102",
         _ => "gv100",

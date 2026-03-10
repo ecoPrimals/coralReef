@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 29: NVIDIA Last Mile Pipeline)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 30: Spring Absorption + FMA Evolution)
 
 ---
 
@@ -37,7 +37,7 @@
 | MD shaders (10 new) | Yes | P2 | VACF, ESN, additional Yukawa variants, Verlet |
 | NVK f64 workarounds (reciprocal multiply, floor-modulo) | Study | P2 | Legalization pass should handle these patterns |
 | Gradient flow as Titan V validation target | Yes | P2 | Embarrassingly parallel, f64-heavy, ideal coralDriver test |
-| ~~FMA control / `NoContraction`~~ | ~~Yes~~ | ~~P1~~ | **Resolved** — `FmaPolicy` enum (AllowFusion / NoContraction) in CompileOptions |
+| ~~FMA control / `NoContraction`~~ | ~~Yes~~ | ~~P1~~ | **Resolved** — `FmaPolicy` enum in CompileOptions + `lower_fma` codegen pass enforces `Separate` by splitting FFma→FMul+FAdd (Iteration 30, ISSUE-011) |
 
 ### groundSpring (V96)
 
@@ -86,7 +86,7 @@
 
 ## Cross-Spring Shader Evolution Provenance
 
-86 WGSL shaders imported from 5 springs. 79 compile to SM70, 7 tracked with
+93 WGSL shaders imported from 6 springs. 84 compile to SM70, 9 tracked with
 specific blockers. The table below tracks provenance and cross-spring adoption.
 
 | Shader | Origin | Domain | Cross-Spring Evolution | Status |
@@ -215,10 +215,10 @@ Status (Iteration 15):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1447 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1487 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 29 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero libc |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 30 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero libc, FMA contraction enforcement, multi-device compile |
 | hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; all P0 resolved (Iteration 9) |
 | barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1/P2 resolved. Pred→GPR fixed (iter 18). Back-edge RA + SSA dominance fixed (iter 19-20). Acos/Asin/Atan2 + Complex64 preamble complete (iter 25). |
 
@@ -287,14 +287,12 @@ Status (Iteration 15):
 
 ---
 
-*84/93 cross-spring WGSL shaders compile to native SASS. 1447 tests passing, 76 ignored, 63% coverage.
+*84/93 cross-spring WGSL shaders compile to native SASS. 1487 tests passing, 76 ignored, 63% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70 (now with fract/sign/mix/step/smoothstep/tanh/dot).
 4/10 SPIR-V roundtrip tests pass (6 blocked on Discriminant expr + non-literal const init).
-Iteration 25: Math evolution — 9 trig/inverse functions, log2 2nd NR (~52-bit), exp2 subnormal,
-Complex64 preamble, 37 DEBT markers → 0, libc eliminated (inline asm syscall), NVIDIA UVM infra.
-Iteration 24: Multi-GPU sovereignty — driver preference, nvidia-drm, toadStool discovery, showcase.
-Iteration 23: Deep debt elimination — 11 math functions, lib.rs refactored, GLSL expanded.
-Iteration 28: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring absorption tests.
+Iteration 30: Spring absorption + FMA evolution — multi-device compile API, FMA contraction enforcement,
+PCIe topology awareness, FMA hardware capability reporting, capability self-description evolution.
 Iteration 29: NVIDIA last mile — multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC.
+Iteration 28: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring absorption tests.
 Next: NVIDIA UVM compute dispatch, coverage 63%→90%, RDNA3/RDNA4 backend.*

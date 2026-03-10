@@ -8,7 +8,6 @@
 pub mod sm100 {
     /// Register (GPR) latency categories for SM100.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    #[allow(non_camel_case_types, reason = "matches NVIDIA ISA naming convention")]
     pub enum RegLatencySM100 {
         /// Simple ALU (coupled, fixed latency).
         Alu,
@@ -89,7 +88,6 @@ pub mod sm100 {
 
     /// Predicate register latency categories for SM100.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    #[allow(non_camel_case_types, reason = "matches NVIDIA ISA naming convention")]
     pub enum PredLatencySM100 {
         /// Fused multiply-add predicate output.
         Fma,
@@ -138,7 +136,6 @@ pub mod sm100 {
 
     /// Uniform register (UGPR) latency categories for SM100.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    #[allow(non_camel_case_types, reason = "matches NVIDIA ISA naming convention")]
     pub enum UregLatencySM100 {
         /// Fused multiply-add (uniform path).
         Fma,
@@ -195,7 +192,6 @@ pub mod sm100 {
 
     /// Uniform predicate register latency categories for SM100.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    #[allow(non_camel_case_types, reason = "matches NVIDIA ISA naming convention")]
     pub enum UpredLatencySM100 {
         /// Fused multiply-add (uniform predicate).
         Fma,

@@ -271,6 +271,7 @@ async fn test_tarpc_compile_wgsl() {
         opt_level: 2,
         fp64_software: true,
         fp64_strategy: None,
+        fma_policy: None,
     };
     let result = client.wgsl(tarpc::context::current(), req).await.unwrap();
     assert!(result.is_ok(), "WGSL compile should succeed");

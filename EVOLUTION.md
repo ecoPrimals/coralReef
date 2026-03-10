@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 29)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 30)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,12 +9,15 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1447 tests (1447 passing, 76 ignored), 63% line coverage (target 90%),
+1487 tests (1487 passing, 76 ignored), 63% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
 toadStool ecosystem discovery, cross-vendor parity testing, zero DEBT
-markers, zero libc dependency.
+markers, zero libc dependency. Multi-device compile API
+(`shader.compile.wgsl.multi`), FMA contraction enforcement
+(`FmaPolicy::Separate` splits FFma→FMul+FAdd), `PCIe` topology awareness,
+FMA hardware capability reporting per architecture.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -244,9 +247,10 @@ Endgame:
 | Method | JSON-RPC | tarpc | Status |
 |--------|----------|-------|--------|
 | `shader.compile.spirv` | ✅ | ✅ | SPIR-V → native binary |
-| `shader.compile.wgsl` | ✅ | ✅ | WGSL → native binary |
+| `shader.compile.wgsl` | ✅ | ✅ | WGSL → native binary (with `fma_policy` option) |
+| `shader.compile.wgsl.multi` | ✅ | ✅ | WGSL → multiple native binaries (multi-device, cross-vendor) |
 | `shader.compile.status` | ✅ | ✅ | name, version, supported_archs |
-| `shader.compile.capabilities` | ✅ | ✅ | dynamic arch enumeration |
+| `shader.compile.capabilities` | ✅ | ✅ | dynamic arch enumeration, FMA policies, vendor architectures |
 
 ### Spring Integration Status
 
@@ -262,11 +266,11 @@ Endgame:
 
 ---
 
-## Cross-Spring Shader Corpus (47 shaders)
+## Cross-Spring Shader Corpus (93 shaders)
 
 | Result | Count | Examples |
 |--------|-------|---------|
-| **Compiling** | 79 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, xoshiro128ss, **su3_gauge_force_f64**, **wilson_plaquette_f64**, **swarm_nn_forward**, … |
+| **Compiling** | 84 | axpy, cg_kernels, sum_reduce, berendsen, vv_half_kick, kinetic_energy, mean_reduce, anderson_lyapunov (f32+f64), stress_virial, chi2_batch, rdf_histogram, rk4_parallel, yukawa_force_celllist, semf_batch, bcs_bisection, batched_hfb_hamiltonian, xoshiro128ss, **su3_gauge_force_f64**, **wilson_plaquette_f64**, **swarm_nn_forward**, … |
 | df64 preamble (compiling) | 5 | gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
 | ~~RA straight-line block chain~~ | ~~1~~ | **Fixed Iteration 20** — sigmoid_f64 now compiles |
 | ~~Register allocator SSA tracking~~ | ~~1~~ | **Fixed Iteration 19** — su3_gauge_force_f64 now compiles |
@@ -381,13 +385,16 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 26 | hotSpring sovereign pipeline unblock: f64 min/max, Send+Sync, nouveau subchannel | **1286** (1286 pass, 59 ignore) |
 | 10 iter 27 | Deep debt: RDNA2 literal materialization, f64 transcendental AMD encodings, f32 transcendental VOP1, OpShl/Shr/Sel non-VGPR fix, AMD SR mapping, FMA policy, PRNG preamble, 24/24 spring absorption | **1401** (1401 pass, 62 ignore) |
 | 10 iter 28 | Unsafe elimination: nak-ir-proc from_raw_parts→compile_error!, 50 Op struct array migration, catch_ice, primal-rpc-client, NVVM poisoning bypass (12 tests), spring absorption wave 3 (7 shaders) | **1437** (1437 pass, 68 ignore) |
-| 10 iter 29 (current) | NVIDIA last mile: multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC, buffer lifecycle safety | **1447** (1447 pass, 76 ignore) |
+| 10 iter 29 | NVIDIA last mile: multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC, buffer lifecycle safety | **1447** (1447 pass, 76 ignore) |
+| 10 iter 30 (current) | Spring absorption + FMA evolution: `shader.compile.wgsl.multi` API, FMA contraction enforcement (`lower_fma` pass), FMA hardware capability reporting, `PCIe` topology awareness, capability self-description evolution, NVVM bypass test hardening | **1487** (1487 pass, 76 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 29: 1447 tests passing, 76 ignored. Multi-GPU path-based open,
-SM auto-detect from sysfs, Nouveau EINVAL diagnostic suite, UVM RM
-client proof-of-concept. Buffer lifecycle safety in NvDevice.
+Iteration 30: 1487 tests passing, 76 ignored. Multi-device compile API
+(`shader.compile.wgsl.multi`), FMA contraction enforcement
+(SPIR-V `NoContraction` → `FmaPolicy::Separate` splits FFma→FMul+FAdd),
+FMA hardware capability reporting per architecture, `PCIe` topology
+awareness for multi-GPU grouping, capability self-description evolution.
 AMD E2E verified — sovereign pipeline proven on hardware.*

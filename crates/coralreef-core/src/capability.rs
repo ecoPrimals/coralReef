@@ -9,7 +9,7 @@
 //!
 //! No primal names, no hardcoded addresses, no 2^n connection matrix.
 
-use coral_reef::GpuArch;
+use coral_reef::{AmdArch, GpuArch};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
@@ -54,7 +54,8 @@ pub struct Transport {
 /// knows about itself from its own code and configuration.
 #[must_use]
 pub fn self_description() -> SelfDescription {
-    let supported: Vec<String> = GpuArch::ALL.iter().map(ToString::to_string).collect();
+    let mut all_archs: Vec<String> = GpuArch::ALL.iter().map(ToString::to_string).collect();
+    all_archs.extend(AmdArch::ALL.iter().map(ToString::to_string));
 
     SelfDescription {
         provides: vec![
@@ -62,8 +63,17 @@ pub fn self_description() -> SelfDescription {
                 id: "shader.compile".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 metadata: serde_json::json!({
-                    "input_formats": ["spirv", "wgsl"],
-                    "architectures": supported,
+                    "input_formats": ["spirv", "wgsl", "glsl"],
+                    "architectures": all_archs,
+                    "fma_policies": ["auto", "fused", "separate"],
+                }),
+            },
+            Capability {
+                id: "shader.compile.multi".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                metadata: serde_json::json!({
+                    "max_targets": 64,
+                    "cross_vendor": true,
                 }),
             },
             Capability {
@@ -156,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn self_description_archs_match_gpu_arch_all() {
+    fn self_description_archs_match_all_vendors() {
         let desc = self_description();
         let compile_cap = desc
             .provides
@@ -164,6 +174,74 @@ mod tests {
             .find(|c| c.id == "shader.compile")
             .unwrap();
         let archs = compile_cap.metadata["architectures"].as_array().unwrap();
-        assert_eq!(archs.len(), GpuArch::ALL.len());
+        assert_eq!(archs.len(), GpuArch::ALL.len() + AmdArch::ALL.len());
+    }
+
+    #[test]
+    fn self_description_advertises_multi_compile() {
+        let desc = self_description();
+        assert!(
+            desc.provides.iter().any(|c| c.id == "shader.compile.multi"),
+            "must advertise shader.compile.multi capability"
+        );
+        let multi_cap = desc
+            .provides
+            .iter()
+            .find(|c| c.id == "shader.compile.multi")
+            .unwrap();
+        assert!(multi_cap.metadata["cross_vendor"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn self_description_advertises_fma_policies() {
+        let desc = self_description();
+        let compile_cap = desc
+            .provides
+            .iter()
+            .find(|c| c.id == "shader.compile")
+            .unwrap();
+        let policies = compile_cap.metadata["fma_policies"].as_array().unwrap();
+        assert_eq!(policies.len(), 3);
+        assert!(policies.iter().any(|p| p == "separate"));
+    }
+
+    #[test]
+    fn with_transports_produces_correct_self_description() {
+        let desc = self_description();
+        let transports = vec![
+            Transport {
+                protocol: "jsonrpc".into(),
+                address: "127.0.0.1:12345".into(),
+            },
+            Transport {
+                protocol: "tarpc".into(),
+                address: "unix:///run/coralreef.sock".into(),
+            },
+        ];
+        let desc = with_transports(desc, transports);
+        assert_eq!(desc.transports.len(), 2);
+        assert_eq!(desc.transports[0].protocol, "jsonrpc");
+        assert_eq!(desc.transports[0].address, "127.0.0.1:12345");
+        assert_eq!(desc.transports[1].protocol, "tarpc");
+        assert_eq!(desc.transports[1].address, "unix:///run/coralreef.sock");
+        assert!(desc.provides.iter().any(|c| c.id == "shader.compile"));
+        assert!(desc.requires.iter().any(|c| c.id == "gpu.dispatch"));
+    }
+
+    #[test]
+    fn capabilities_roundtrip_serde_json() {
+        let desc = self_description();
+        let json = serde_json::to_string(&desc).unwrap();
+        let roundtrip: SelfDescription = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.provides.len(), desc.provides.len());
+        assert_eq!(roundtrip.requires.len(), desc.requires.len());
+        for (a, b) in roundtrip.provides.iter().zip(desc.provides.iter()) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.version, b.version);
+        }
+        for (a, b) in roundtrip.requires.iter().zip(desc.requires.iter()) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.version, b.version);
+        }
     }
 }

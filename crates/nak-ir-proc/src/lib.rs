@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #![deny(unsafe_code)]
+#![warn(missing_docs)]
 //! Proc-macro derives for codegen IR types.
 //!
 //! Provides derive macros used by the codegen IR definition in
@@ -27,11 +28,19 @@ struct MatchedField {
     names: Option<Vec<Ident>>,
 }
 
+/// Derive `AsSlice<Src>` for instruction op structs.
+///
+/// Reads `#[src_type(Variant)]` attributes on `Src` fields to generate
+/// a contiguous slice view over the struct's source operands.
 #[proc_macro_derive(SrcsAsSlice, attributes(src_type, src_types, src_names))]
 pub fn derive_srcs_as_slice(input: TokenStream) -> TokenStream {
     derive_as_slice(input, "Src", "src_type", "SrcType")
 }
 
+/// Derive `AsSlice<Dst>` for instruction op structs.
+///
+/// Reads `#[dst_type(Variant)]` attributes on `Dst` fields to generate
+/// a contiguous slice view over the struct's destination operands.
 #[proc_macro_derive(DstsAsSlice, attributes(dst_type, dst_types, dst_names))]
 pub fn derive_dsts_as_slice(input: TokenStream) -> TokenStream {
     derive_as_slice(input, "Dst", "dst_type", "DstType")

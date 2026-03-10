@@ -206,7 +206,6 @@ impl DisplayOp for OpTxq {
 }
 impl_display_for_op!(OpTxq);
 
-#[allow(dead_code, reason = "ISA variant reserved for future texture encoding")]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ImageAccess {
     Binary(MemType),

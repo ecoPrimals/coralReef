@@ -28,7 +28,6 @@ impl IMadSpSrcType {
         }
     }
 
-    #[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
     pub const fn with_sign(self, sign: bool) -> Self {
         use IMadSpSrcType::*;
         if !sign {
@@ -51,7 +50,6 @@ impl IMadSpSrcType {
         }
     }
 
-    #[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
     fn cast(&self, v: u32) -> i64 {
         use IMadSpSrcType::*;
         match self {

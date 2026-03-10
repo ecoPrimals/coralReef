@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #![deny(unsafe_code)]
+#![warn(missing_docs)]
 //! # coral-reef — Sovereign Rust GPU Compiler
 //!
 //! Multi-vendor GPU compiler: WGSL/SPIR-V/GLSL → vendor-specific binary.

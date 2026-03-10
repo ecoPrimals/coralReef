@@ -54,7 +54,7 @@ fn src_is_imm(src: &Src) -> bool {
 
 pub enum PadValue {
     Zero,
-    #[allow(dead_code, reason = "variant reserved for completeness / future use")]
+    #[expect(dead_code, reason = "variant reserved for completeness / future use")]
     Undefined,
 }
 
@@ -365,7 +365,6 @@ impl<'a> LegalizeBuilder<'a> {
         self.b.into_vec()
     }
 
-    #[allow(dead_code, reason = "legalize API reserved for future use")]
     pub fn into_mapped_instrs(self) -> MappedInstrs {
         self.b.into_mapped_instrs()
     }

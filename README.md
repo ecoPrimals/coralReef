@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 29 (NVIDIA Last Mile Pipeline)
+**Status**: Phase 10 — Iteration 30 (Spring Absorption + FMA Evolution)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -32,7 +32,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1447 passing, 0 failed, 76 ignored
+cargo test --workspace     # 1487 passing, 0 failed, 76 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -51,6 +51,7 @@ WGSL / SPIR-V / GLSL input
 │  codegen (shared)                         │
 │  ├ naga_translate  naga IR → SSA IR      │
 │  ├ lower_f64       f64 transcendentals   │
+│  ├ lower_fma       FMA contraction ctrl  │
 │  ├ optimize        copy prop, DCE, ...   │
 │  └ pipeline.rs     orchestration         │
 └────────┬─────────────────────────────────┘
@@ -126,10 +127,10 @@ coralReef/
 
 | Crate | Purpose |
 |-------|---------|
-| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control |
+| `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control, multi-device compile API |
 | `coral-reef` | Shader compiler — 24 spring absorption tests passing (14 original + 4 FMA + 6 neuralSpring), f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
-| `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: nouveau > amdgpu > nvidia-drm) |
+| `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: nouveau > amdgpu > nvidia-drm), FMA capability reporting, `PCIe` topology discovery |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
 | `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
@@ -164,7 +165,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1447 passing, 0 failed, 76 ignored) |
+| `cargo test --workspace` | PASS (1487 passing, 0 failed, 76 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -225,9 +226,10 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 29 — multi-GPU foundation, SM auto-detect, NVIDIA diagnostic instrumentation, UVM RM client** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 30 — multi-device compile API, FMA contraction enforcement, `PCIe` topology awareness, spring absorption evolution** |
 
 ---
 
 **License**: AGPL-3.0-only (upstream-derived files retain original attribution)
-**Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals
+**Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
+**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities` — JSON-RPC 2.0 + tarpc

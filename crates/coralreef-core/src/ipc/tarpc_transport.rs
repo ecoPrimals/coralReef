@@ -33,6 +33,11 @@ pub trait ShaderCompileTarpc {
 
     /// List supported GPU architectures (`shader.compile.capabilities`).
     async fn capabilities() -> Vec<String>;
+
+    /// Compile WGSL to multiple GPU targets (`shader.compile.wgsl.multi`).
+    async fn wgsl_multi(
+        request: service::MultiDeviceCompileRequest,
+    ) -> Result<service::MultiDeviceCompileResponse, String>;
 }
 
 /// tarpc server implementation.
@@ -68,6 +73,14 @@ impl ShaderCompileTarpc for TarpcServer {
 
     async fn capabilities(self, _ctx: tarpc::context::Context) -> Vec<String> {
         service::handle_health().supported_archs
+    }
+
+    async fn wgsl_multi(
+        self,
+        _ctx: tarpc::context::Context,
+        request: service::MultiDeviceCompileRequest,
+    ) -> Result<service::MultiDeviceCompileResponse, String> {
+        service::handle_compile_wgsl_multi(&request).map_err(|e| e.to_string())
     }
 }
 

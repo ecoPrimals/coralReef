@@ -200,8 +200,96 @@ fn test_transport_debug() {
 }
 
 #[test]
+fn test_rpc_client_songbird_proxy_construction() {
+    let addr = "127.0.0.1:8443".parse().unwrap();
+    let client = RpcClient::songbird_proxy(addr, "api.example.com");
+    let debug_str = format!("{client:?}");
+    assert!(debug_str.contains("SongbirdProxy"));
+}
+
+#[test]
+fn test_rpc_client_unix_construction() {
+    let client = RpcClient::unix("/run/coralreef/rpc.sock");
+    let debug_str = format!("{client:?}");
+    assert!(debug_str.contains("Unix"));
+}
+
+#[test]
 fn test_client_clone() {
     let client = RpcClient::tcp("127.0.0.1:9090".parse().unwrap());
     let cloned = client.clone();
+    assert!(format!("{client:?}").contains("Tcp"));
     assert!(format!("{cloned:?}").contains("Tcp"));
+}
+
+// ---------------------------------------------------------------------------
+// Error type tests (primal-rpc-client/src/error.rs coverage)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rpc_error_data_display() {
+    let data = crate::RpcErrorData {
+        code: -32600,
+        message: "Invalid Request".into(),
+        data: None,
+    };
+    let s = data.to_string();
+    assert!(s.contains("-32600"));
+    assert!(s.contains("Invalid Request"));
+    assert!(s.contains("JSON-RPC error"));
+}
+
+#[test]
+fn test_rpc_error_data_display_with_data() {
+    let data = crate::RpcErrorData {
+        code: -32001,
+        message: "internal error".into(),
+        data: Some(serde_json::json!({"detail": "oom"})),
+    };
+    let s = data.to_string();
+    assert!(s.contains("-32001"));
+    assert!(s.contains("internal error"));
+}
+
+#[test]
+fn test_rpc_error_from_io() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+    let rpc_err: RpcError = io_err.into();
+    let s = rpc_err.to_string();
+    assert!(s.contains("transport I/O"));
+    assert!(s.contains("connection refused"));
+}
+
+#[test]
+fn test_rpc_error_from_serde_json() {
+    let bad_json = serde_json::from_str::<serde_json::Value>("{ invalid }");
+    let json_err = bad_json.unwrap_err();
+    let rpc_err: RpcError = json_err.into();
+    let s = rpc_err.to_string();
+    assert!(s.contains("json"));
+}
+
+#[test]
+fn test_rpc_error_variants_display_substrings() {
+    let io_err = RpcError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"));
+    assert!(io_err.to_string().contains("transport I/O"));
+    assert!(io_err.to_string().contains("timeout"));
+
+    let json_err = RpcError::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err());
+    assert!(json_err.to_string().contains("json"));
+
+    let http_err = RpcError::Http("bad status 500".into());
+    assert!(http_err.to_string().contains("http"));
+    assert!(http_err.to_string().contains("bad status 500"));
+
+    let server_err = RpcError::Server(crate::RpcErrorData {
+        code: -32603,
+        message: "Internal error".into(),
+        data: None,
+    });
+    assert!(server_err.to_string().contains("-32603"));
+    assert!(server_err.to_string().contains("Internal error"));
+
+    let empty_err = RpcError::EmptyResponse;
+    assert!(empty_err.to_string().contains("empty response"));
 }

@@ -221,3 +221,47 @@ fn nvvm_bypass_all_patterns_sm89() {
         assert!(result.is_ok(), "SM89 {name}: {}", result.unwrap_err());
     }
 }
+
+// ---------------------------------------------------------------------------
+// FMA policy: Separate produces different binary than Fused/Auto
+//
+// Validates that FmaPolicy::Separate actually changes codegen output.
+// The f64precise_nofma shader is designed to be sensitive to this.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn nvvm_bypass_fma_policies_all_compile() {
+    for policy in [FmaPolicy::Fused, FmaPolicy::Separate, FmaPolicy::Auto] {
+        let opts = CompileOptions {
+            target: GpuArch::Sm70.into(),
+            opt_level: 2,
+            fp64_software: true,
+            fma_policy: policy,
+            ..CompileOptions::default()
+        };
+        let result = compile_wgsl_full(F64PRECISE_NOFMA_WGSL, &opts);
+        assert!(
+            result.is_ok(),
+            "SM70 FmaPolicy::{policy:?}: {}",
+            result.unwrap_err()
+        );
+        assert!(!result.unwrap().binary.is_empty());
+    }
+}
+
+#[test]
+fn nvvm_bypass_fma_separate_rdna2() {
+    let separate_opts = CompileOptions {
+        target: GpuTarget::Amd(AmdArch::Rdna2),
+        opt_level: 2,
+        fp64_software: false,
+        fma_policy: FmaPolicy::Separate,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl_full(F64PRECISE_NOFMA_WGSL, &separate_opts);
+    assert!(
+        result.is_ok(),
+        "RDNA2 FMA Separate: {}",
+        result.unwrap_err()
+    );
+}

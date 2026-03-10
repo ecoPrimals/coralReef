@@ -20,7 +20,9 @@ const DRM_AMDGPU_CS: u32 = DRM_COMMAND_BASE + 0x04;
 const DRM_AMDGPU_WAIT_CS: u32 = DRM_COMMAND_BASE + 0x09;
 
 // Domain flags
+/// GEM domain: device-local VRAM.
 pub const AMDGPU_GEM_DOMAIN_VRAM: u32 = 0x4;
+/// GEM domain: host-visible GTT (system memory).
 pub const AMDGPU_GEM_DOMAIN_GTT: u32 = 0x2;
 
 // Context operations
@@ -28,13 +30,19 @@ const AMDGPU_CTX_OP_ALLOC_CTX: u32 = 1;
 const AMDGPU_CTX_OP_FREE_CTX: u32 = 2;
 
 // VA operations
+/// VA operation: map a buffer into GPU VA space.
 pub const AMDGPU_VA_OP_MAP: u32 = 1;
+/// VA operation: unmap a buffer from GPU VA space.
 pub const AMDGPU_VA_OP_UNMAP: u32 = 2;
+/// VA flags: no special flags.
 pub const AMDGPU_VA_FLAGS_NONE: u64 = 0;
 
 // VM page protection flags (from amdgpu_drm.h)
+/// VM page flag: readable by GPU.
 pub const AMDGPU_VM_PAGE_READABLE: u32 = 1 << 1;
+/// VM page flag: writable by GPU.
 pub const AMDGPU_VM_PAGE_WRITEABLE: u32 = 1 << 2;
+/// VM page flag: executable by GPU (for shader code).
 pub const AMDGPU_VM_PAGE_EXECUTABLE: u32 = 1 << 3;
 
 /// GEM create — matches `union drm_amdgpu_gem_create` (32 bytes).
@@ -44,9 +52,13 @@ pub const AMDGPU_VM_PAGE_EXECUTABLE: u32 = 1 << 3;
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuGemCreate {
+    /// Buffer size in bytes (input); kernel returns handle in first 8 bytes.
     pub bo_size: u64,
+    /// Alignment requirement in bytes.
     pub alignment: u64,
+    /// Memory domains (VRAM, GTT) as bitmask.
     pub domains: u64,
+    /// Domain-specific flags.
     pub domain_flags: u64,
 }
 
@@ -57,6 +69,7 @@ pub struct AmdgpuGemCreate {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuGemMmap {
+    /// Input: GEM handle (low 32 bits). Output: mmap offset address.
     pub handle_or_addr: u64,
 }
 
@@ -64,9 +77,13 @@ pub struct AmdgpuGemMmap {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuCtx {
+    /// Operation (alloc/free).
     pub op: u32,
+    /// Context flags.
     pub flags: u32,
+    /// Context ID (input for free; output for alloc).
     pub ctx_id: u32,
+    /// Padding for alignment.
     pub pad: u32,
 }
 
@@ -74,12 +91,19 @@ pub struct AmdgpuCtx {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuGemVa {
+    /// GEM buffer handle.
     pub handle: u32,
+    /// Padding for alignment.
     pub pad: u32,
+    /// VA operation (map/unmap).
     pub operation: u32,
+    /// Page protection flags.
     pub flags: u32,
+    /// GPU virtual address to map at.
     pub va_address: u64,
+    /// Offset within the buffer object.
     pub offset_in_bo: u64,
+    /// Size of the mapping in bytes.
     pub map_size: u64,
 }
 

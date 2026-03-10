@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 #![deny(unsafe_code)]
+#![warn(missing_docs)]
 //! # coral-gpu — Unified GPU Compute
 //!
 //! Sovereign GPU compute abstraction: compile WGSL → native binary →
@@ -43,7 +44,7 @@ pub use preference::DriverPreference;
 
 use bytes::Bytes;
 pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
-pub use coral_reef::{AmdArch, CompileOptions, GpuTarget, NvArch};
+pub use coral_reef::{AmdArch, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
 /// A compiled compute shader ready for dispatch.
 ///
@@ -304,12 +305,12 @@ impl GpuContext {
                     Some("rdna4") => GpuTarget::Amd(AmdArch::Rdna4),
                     _ => GpuTarget::Amd(AmdArch::Rdna2),
                 };
-                let dev = if let Some(path) = render_node {
-                    coral_driver::amd::AmdDevice::open_path(path)
-                } else {
-                    coral_driver::amd::AmdDevice::open()
-                }
-                .map_err(GpuError::Driver)?;
+                let dev = render_node
+                    .map_or_else(
+                        coral_driver::amd::AmdDevice::open,
+                        coral_driver::amd::AmdDevice::open_path,
+                    )
+                    .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
@@ -321,12 +322,12 @@ impl GpuContext {
                     Some("sm70") => GpuTarget::Nvidia(NvArch::Sm70),
                     _ => GpuTarget::Nvidia(NvArch::Sm86),
                 };
-                let dev = if let Some(path) = render_node {
-                    coral_driver::nv::NvDrmDevice::open_path(path)
-                } else {
-                    coral_driver::nv::NvDrmDevice::open()
-                }
-                .map_err(GpuError::Driver)?;
+                let dev = render_node
+                    .map_or_else(
+                        coral_driver::nv::NvDrmDevice::open,
+                        coral_driver::nv::NvDrmDevice::open_path,
+                    )
+                    .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nouveau")]
@@ -341,12 +342,12 @@ impl GpuContext {
                     GpuTarget::Nvidia(nv) => nv.sm(),
                     _ => 70,
                 };
-                let dev = if let Some(path) = render_node {
-                    coral_driver::nv::NvDevice::open_path(path, sm)
-                } else {
-                    coral_driver::nv::NvDevice::open_with_sm(sm)
-                }
-                .map_err(GpuError::Driver)?;
+                let dev = render_node
+                    .map_or_else(
+                        || coral_driver::nv::NvDevice::open_with_sm(sm),
+                        |path| coral_driver::nv::NvDevice::open_path(path, sm),
+                    )
+                    .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             _ => Err(GpuError::NoDevice(
@@ -406,6 +407,12 @@ impl GpuContext {
     #[must_use]
     pub fn has_device(&self) -> bool {
         self.device.is_some()
+    }
+
+    /// Query FMA hardware capabilities for this context's target.
+    #[must_use]
+    pub fn fma_capability(&self) -> FmaCapability {
+        FmaCapability::for_target(self.target)
     }
 
     fn device_mut(&mut self) -> GpuResult<&mut dyn ComputeDevice> {
@@ -501,9 +508,156 @@ impl GpuContext {
     }
 }
 
+/// FMA (fused multiply-add) hardware capability for a GPU target.
+///
+/// Reports whether the hardware supports FMA, and what precision behavior
+/// to expect. Springs use this to decide between `FmaPolicy::Fused` (fast)
+/// and `FmaPolicy::Separate` (bit-exact CPU parity).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FmaCapability {
+    /// Hardware supports f32 FMA.
+    pub f32_fma: bool,
+    /// Hardware supports f64 FMA (DFMA).
+    pub f64_fma: bool,
+    /// Recommended FMA policy for numerical precision.
+    pub recommended_policy: FmaPolicy,
+    /// FMA throughput relative to separate mul+add (1.0 = same speed).
+    /// Values > 1.0 mean FMA is faster than separate operations.
+    pub f32_fma_throughput_ratio: f32,
+}
+
+impl FmaCapability {
+    /// Query FMA capabilities for a given GPU target.
+    ///
+    /// Derives from architecture specifications — does not require
+    /// a live device connection.
+    #[must_use]
+    pub fn for_target(target: GpuTarget) -> Self {
+        match target {
+            GpuTarget::Nvidia(nv) => Self::nvidia(nv),
+            GpuTarget::Amd(amd) => Self::amd(amd),
+            _ => Self {
+                f32_fma: true,
+                f64_fma: false,
+                recommended_policy: FmaPolicy::Auto,
+                f32_fma_throughput_ratio: 1.0,
+            },
+        }
+    }
+
+    fn nvidia(nv: NvArch) -> Self {
+        Self {
+            f32_fma: true,
+            f64_fma: nv.has_dfma(),
+            recommended_policy: FmaPolicy::Auto,
+            // NVIDIA FMA is on the same pipeline as separate mul+add
+            f32_fma_throughput_ratio: 2.0,
+        }
+    }
+
+    fn amd(amd: AmdArch) -> Self {
+        Self {
+            f32_fma: true,
+            f64_fma: amd.has_native_f64(),
+            recommended_policy: FmaPolicy::Auto,
+            // AMD RDNA: v_fma_f32 is VOP3 (1 cycle), same as v_mul + v_add
+            f32_fma_throughput_ratio: 2.0,
+        }
+    }
+}
+
+/// PCIe topology information for multi-GPU device grouping.
+///
+/// Used by `shader.compile.wgsl.multi` to communicate device affinity.
+/// Devices on the same PCIe switch have lower inter-device latency.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PcieDeviceInfo {
+    /// Render node path (e.g. `/dev/dri/renderD128`).
+    pub render_node: String,
+    /// PCIe bus address (e.g. `0000:01:00.0`).
+    pub pcie_address: Option<String>,
+    /// PCIe switch group (devices sharing a switch get the same ID).
+    pub switch_group: Option<u32>,
+    /// GPU target architecture.
+    pub target: GpuTarget,
+}
+
+/// Probe PCIe topology for all available GPU render nodes.
+///
+/// Reads sysfs to discover render nodes, their PCIe addresses, and
+/// groups them by shared PCIe switch (based on common bus prefix).
+#[cfg(target_os = "linux")]
+#[must_use]
+pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
+    let dri_path = std::path::Path::new("/dev/dri");
+    let mut devices = Vec::new();
+
+    let entries = match std::fs::read_dir(dri_path) {
+        Ok(e) => e,
+        Err(_) => return devices,
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.starts_with("renderD") {
+            continue;
+        }
+
+        let render_path = format!("/dev/dri/{name_str}");
+        let sysfs_device = format!("/sys/class/drm/{name_str}/device");
+
+        let pcie_address = std::fs::read_link(&sysfs_device)
+            .ok()
+            .and_then(|link| link.file_name().map(|n| n.to_string_lossy().into_owned()));
+
+        let vendor = std::fs::read_to_string(format!("{sysfs_device}/vendor"))
+            .ok()
+            .and_then(|v| u16::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok());
+
+        let target = match vendor {
+            Some(0x10de) => {
+                let sm = sm_from_sysfs(&render_path);
+                GpuTarget::Nvidia(sm_to_nvarch(sm))
+            }
+            Some(0x1002) => GpuTarget::Amd(AmdArch::Rdna2),
+            _ => continue,
+        };
+
+        devices.push(PcieDeviceInfo {
+            render_node: render_path,
+            pcie_address,
+            switch_group: None,
+            target,
+        });
+    }
+
+    assign_switch_groups(&mut devices);
+    devices
+}
+
+/// Group devices by shared PCIe switch based on bus address prefix.
+#[cfg(target_os = "linux")]
+fn assign_switch_groups(devices: &mut [PcieDeviceInfo]) {
+    let mut group_map: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut next_group = 0u32;
+
+    for device in devices.iter_mut() {
+        if let Some(ref addr) = device.pcie_address {
+            let prefix = addr.split(':').take(2).collect::<Vec<_>>().join(":");
+            let group = *group_map.entry(prefix).or_insert_with(|| {
+                let g = next_group;
+                next_group += 1;
+                g
+            });
+            device.switch_group = Some(group);
+        }
+    }
+}
+
 /// Map an SM version number to the corresponding `NvArch`.
 #[cfg(target_os = "linux")]
-fn sm_to_nvarch(sm: u32) -> NvArch {
+const fn sm_to_nvarch(sm: u32) -> NvArch {
     match sm {
         75 => NvArch::Sm75,
         80 => NvArch::Sm80,

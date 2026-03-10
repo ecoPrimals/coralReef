@@ -104,6 +104,7 @@ async fn test_jsonrpc_compile_wgsl_shader() {
         opt_level: 2,
         fp64_software: true,
         fp64_strategy: None,
+        fma_policy: None,
     };
 
     let response: Result<service::CompileResponse, _> =

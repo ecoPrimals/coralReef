@@ -39,18 +39,27 @@ pub const fn mthd_immd(subchan: u32, method: u32, value: u32) -> u32 {
 
 /// NVIDIA GPU compute class identifiers.
 pub mod class {
+    /// Volta (GV100) compute engine class.
     pub const VOLTA_COMPUTE_A: u32 = 0xC3C0;
+    /// Turing compute engine class.
     pub const TURING_COMPUTE_A: u32 = 0xC5C0;
+    /// Ampere compute engine class.
     pub const AMPERE_COMPUTE_A: u32 = 0xC6C0;
 }
 
 /// NVIDIA compute class method registers (offsets in bytes).
 pub mod method {
+    /// Set the target object (compute class).
     pub const SET_OBJECT: u32 = 0x0000;
+    /// Invalidate instruction and data caches.
     pub const INVALIDATE_SHADER_CACHES: u32 = 0x0088;
+    /// Set shared memory window (upper 32 bits).
     pub const SET_SHADER_LOCAL_MEMORY_WINDOW_A: u32 = 0x077C;
+    /// Set shared memory window (lower 32 bits).
     pub const SET_SHADER_LOCAL_MEMORY_WINDOW_B: u32 = 0x0780;
+    /// Launch compute: QMD address (upper 32 bits).
     pub const SEND_PCAS_A: u32 = 0x0D00;
+    /// Launch compute: QMD address (lower 32 bits).
     pub const SEND_SIGNALING_PCAS_B: u32 = 0x0D04;
 }
 
@@ -63,6 +72,7 @@ pub struct PushBuf {
 }
 
 impl PushBuf {
+    /// Create an empty push buffer.
     #[must_use]
     pub fn new() -> Self {
         Self {

@@ -281,7 +281,6 @@ impl Src {
         }
     }
 
-    #[allow(dead_code, reason = "IR API reserved for future type-checking support")]
     pub fn supports_type(&self, src_type: &SrcType) -> bool {
         match src_type {
             SrcType::SSA => {

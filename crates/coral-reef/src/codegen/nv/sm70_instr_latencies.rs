@@ -27,7 +27,6 @@ use crate::codegen::ir::*;
 // GPR latency categories for SM70
 // ──────────────────────────────────────────────────────────────────────────────
 
-#[allow(dead_code, reason = "latency variant for future scheduling")]
 #[derive(Debug, Clone, Copy)]
 enum RegLatencySM70 {
     // Fixed-latency (coupled) instructions — need delays, not scoreboards

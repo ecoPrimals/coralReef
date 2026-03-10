@@ -92,10 +92,6 @@ impl fmt::Display for TexLodMode {
 /// The descriptions here may not be wholly accurate as they come from cobbling
 /// together a bunch of pieces.  This is my (Faith's) best understanding of how
 /// these things work.
-#[allow(
-    dead_code,
-    reason = "ISA variant reserved for future derivative encoding"
-)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum TexDerivMode {
     /// Automatic

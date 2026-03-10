@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #![deny(unsafe_code)]
+#![warn(missing_docs)]
 //! Bit-level field access for GPU instruction encoding.
 //!
 //! Replaces upstream `bitview` crate. Provides zero-copy bit-level read/write

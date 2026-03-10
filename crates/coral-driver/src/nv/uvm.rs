@@ -51,7 +51,6 @@ use std::path::Path;
 // ── NVIDIA control device ioctls (/dev/nvidiactl) ───────────────────
 
 /// Base ioctl type for NVIDIA control device.
-#[allow(dead_code, reason = "infrastructure for RM ioctl construction")]
 const NV_IOCTL_MAGIC: u8 = b'F';
 
 /// Register a file descriptor with the RM client.
@@ -127,8 +126,11 @@ pub const AMPERE_COMPUTE_A: u32 = 0x0000_C6C0;
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct UvmInitializeParams {
+    /// Initialization flags.
     pub flags: u64,
+    /// RM status code returned by kernel.
     pub rm_status: u32,
+    /// Padding for alignment.
     pub padding: u32,
 }
 
@@ -136,10 +138,15 @@ pub struct UvmInitializeParams {
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct UvmRegisterGpuParams {
+    /// GPU UUID (16 bytes).
     pub gpu_uuid: [u8; 16],
+    /// File descriptor for RM control device.
     pub rm_ctrl_fd: i32,
+    /// RM client handle.
     pub h_client: u32,
+    /// SMC partition reference handle.
     pub h_smc_part_ref: u32,
+    /// RM status code returned by kernel.
     pub rm_status: u32,
 }
 
@@ -147,12 +154,19 @@ pub struct UvmRegisterGpuParams {
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct NvRmAllocParams {
+    /// Root object handle.
     pub h_root: u32,
+    /// Parent object handle.
     pub h_object_parent: u32,
+    /// New object handle (requested or kernel-assigned).
     pub h_object_new: u32,
+    /// Object class (e.g. `NV01_ROOT`, `NV01_DEVICE_0`).
     pub h_class: u32,
+    /// Pointer to allocation parameters.
     pub p_alloc_parms: u64,
+    /// Size of allocation parameters.
     pub params_size: u32,
+    /// Status code returned by kernel.
     pub status: u32,
 }
 
@@ -160,9 +174,13 @@ pub struct NvRmAllocParams {
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct NvRmFreeParams {
+    /// Root object handle.
     pub h_root: u32,
+    /// Parent of the object to free.
     pub h_object_parent: u32,
+    /// Handle of the object to free.
     pub h_object_old: u32,
+    /// Status code returned by kernel.
     pub status: u32,
 }
 
@@ -323,7 +341,7 @@ impl RmClient {
     /// # Errors
     ///
     /// Returns [`DriverError`] if `/dev/nvidiactl` cannot be opened or
-    /// the RM_ALLOC ioctl fails.
+    /// the `RM_ALLOC` ioctl fails.
     pub fn new() -> DriverResult<Self> {
         let ctl = NvCtlDevice::open()?;
         let h_client = Self::alloc_root_client(&ctl)?;
@@ -383,7 +401,7 @@ impl RmClient {
     ///
     /// # Errors
     ///
-    /// Returns [`DriverError`] if the RM_ALLOC ioctl fails.
+    /// Returns [`DriverError`] if the `RM_ALLOC` ioctl fails.
     pub fn alloc_device(&self, gpu_index: u32) -> DriverResult<u32> {
         let h_device = self.h_client + 1 + gpu_index;
         let mut params = NvRmAllocParams {
@@ -429,7 +447,7 @@ impl RmClient {
     ///
     /// # Errors
     ///
-    /// Returns [`DriverError`] if the RM_ALLOC ioctl fails.
+    /// Returns [`DriverError`] if the `RM_ALLOC` ioctl fails.
     pub fn alloc_subdevice(&self, h_device: u32) -> DriverResult<u32> {
         let h_subdevice = h_device + 0x1000;
         let mut params = NvRmAllocParams {

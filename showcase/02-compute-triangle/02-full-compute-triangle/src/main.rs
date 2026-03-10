@@ -25,11 +25,12 @@ fn main() {
 }
 "#;
 
-fn biomeos_socket(capability: &str) -> PathBuf {
+fn ecosystem_socket(capability: &str) -> PathBuf {
     let base = std::env::var("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir());
-    base.join("biomeos").join(format!("{capability}.sock"))
+    base.join(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+        .join(format!("{capability}.sock"))
 }
 
 fn jsonrpc_call(socket: &PathBuf, method: &str, params: serde_json::Value) -> Option<serde_json::Value> {
@@ -111,7 +112,7 @@ fn main() {
     println!("Layer 2: Orchestration (toadStool)");
     println!();
 
-    let toadstool_sock = biomeos_socket("toadstool.jsonrpc");
+    let toadstool_sock = ecosystem_socket("toadstool.jsonrpc");
     let toadstool_available = toadstool_sock.exists();
 
     if toadstool_available {
@@ -146,7 +147,7 @@ fn main() {
     println!("Layer 3: Execution");
     println!();
 
-    let compute_sock = biomeos_socket("compute");
+    let compute_sock = ecosystem_socket("compute");
     let barracuda_available = compute_sock.exists();
 
     if barracuda_available {

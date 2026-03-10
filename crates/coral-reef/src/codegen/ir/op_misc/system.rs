@@ -98,10 +98,6 @@ impl DisplayOp for OpNop {
 }
 impl_display_for_op!(OpNop);
 
-#[allow(
-    dead_code,
-    reason = "ISA variant reserved for future fragment shader support"
-)]
 pub enum PixVal {
     MsCount,
     CovMask,
@@ -204,10 +200,6 @@ impl DisplayOp for OpVote {
 }
 impl_display_for_op!(OpVote);
 
-#[allow(
-    dead_code,
-    reason = "ISA variant reserved for future warp match support"
-)]
 #[derive(Copy, Clone)]
 pub enum MatchOp {
     All,

@@ -63,7 +63,9 @@ pub const DRM_IOCTL_GEM_CLOSE: u64 = drm_iow(0x09, 8);
 #[repr(C)]
 #[derive(Default)]
 pub struct DrmGemClose {
+    /// GEM buffer handle to close.
     pub handle: u32,
+    /// Padding for alignment (must be zero).
     pub pad: u32,
 }
 
@@ -83,14 +85,23 @@ pub const fn drm_iow_pub(nr: u32, size: u32) -> u64 {
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct DrmVersion {
+    /// Major version number.
     pub version_major: i32,
+    /// Minor version number.
     pub version_minor: i32,
+    /// Patch level.
     pub version_patchlevel: i32,
+    /// Length of the driver name string.
     pub name_len: u64,
+    /// Pointer to driver name buffer (userspace-provided).
     pub name: u64,
+    /// Length of the date string.
     pub date_len: u64,
+    /// Pointer to date buffer.
     pub date: u64,
+    /// Length of the description string.
     pub desc_len: u64,
+    /// Pointer to description buffer.
     pub desc: u64,
 }
 
@@ -243,6 +254,7 @@ pub struct DrmDeviceInfo {
 /// A DRM render node file descriptor.
 pub struct DrmDevice {
     file: File,
+    /// Render node path (e.g. `/dev/dri/renderD128`).
     pub path: String,
 }
 
@@ -346,6 +358,10 @@ pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
 }
 
 /// Close a GEM buffer object. Safe wrapper around `DRM_IOCTL_GEM_CLOSE`.
+///
+/// # Errors
+///
+/// Returns [`DriverError::IoctlFailed`] if the kernel rejects the close.
 pub fn gem_close(fd: RawFd, handle: u32) -> DriverResult<()> {
     let mut args = DrmGemClose { handle, pad: 0 };
     // SAFETY:
@@ -446,7 +462,7 @@ impl<'a, T> DrmIoctlCmd<'a, T> {
     ///
     /// `opcode` must be a valid DRM ioctl request code, and `arg` must be the
     /// correct `#[repr(C)]` struct for that ioctl.
-    unsafe fn new(opcode: rustix::ioctl::Opcode, arg: &'a mut T) -> Self {
+    const unsafe fn new(opcode: rustix::ioctl::Opcode, arg: &'a mut T) -> Self {
         Self { opcode, arg }
     }
 }

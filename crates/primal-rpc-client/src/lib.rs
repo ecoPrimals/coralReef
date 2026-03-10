@@ -50,7 +50,7 @@ pub struct RpcClient {
 }
 
 #[derive(Serialize)]
-struct JsonRpcRequest<'a, P: Serialize> {
+struct JsonRpcRequest<'a, P> {
     jsonrpc: &'static str,
     method: &'a str,
     params: P,
@@ -59,18 +59,18 @@ struct JsonRpcRequest<'a, P: Serialize> {
 
 #[derive(Deserialize)]
 struct JsonRpcResponse<R> {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "JSON-RPC 2.0 wire field; parsed but not read")]
     jsonrpc: String,
     result: Option<R>,
     error: Option<RpcErrorData>,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "JSON-RPC 2.0 wire field; parsed but not read")]
     id: u64,
 }
 
 impl RpcClient {
     /// Create a client that connects via TCP to the given address.
     #[must_use]
-    pub fn tcp(addr: std::net::SocketAddr) -> Self {
+    pub const fn tcp(addr: std::net::SocketAddr) -> Self {
         Self {
             transport: Transport::Tcp(addr),
         }
@@ -139,7 +139,7 @@ impl RpcClient {
     /// Returns [`RpcError`] on I/O or serialization failures.
     pub async fn notify<P: Serialize>(&self, method: &str, params: P) -> Result<(), RpcError> {
         #[derive(Serialize)]
-        struct Notification<'a, P: Serialize> {
+        struct Notification<'a, P> {
             jsonrpc: &'static str,
             method: &'a str,
             params: P,
@@ -159,7 +159,7 @@ impl RpcClient {
 
 /// Convenience: empty params for methods that take none.
 #[must_use]
-pub fn no_params() -> [(); 0] {
+pub const fn no_params() -> [(); 0] {
     []
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
+#![warn(missing_docs)]
 //! # coral-driver — Sovereign GPU Dispatch
 //!
 //! Pure Rust userspace GPU driver for compute shader dispatch via Linux DRM.
@@ -72,8 +73,11 @@ pub enum MemoryDomain {
 /// Compute dispatch dimensions.
 #[derive(Debug, Clone, Copy)]
 pub struct DispatchDims {
+    /// Number of workgroups in the X dimension.
     pub x: u32,
+    /// Number of workgroups in the Y dimension.
     pub y: u32,
+    /// Number of workgroups in the Z dimension.
     pub z: u32,
 }
 
@@ -94,11 +98,13 @@ pub struct ShaderInfo {
 }
 
 impl DispatchDims {
+    /// Create dispatch dimensions for a 3D grid.
     #[must_use]
     pub const fn new(x: u32, y: u32, z: u32) -> Self {
         Self { x, y, z }
     }
 
+    /// Create dispatch dimensions for a 1D linear grid (n workgroups in X, 1 in Y and Z).
     #[must_use]
     pub const fn linear(n: u32) -> Self {
         Self { x: n, y: 1, z: 1 }

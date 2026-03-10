@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 29)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 30)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 29)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 30)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -227,6 +227,7 @@ the full Spring absorption map.
 - [x] Iteration 26: hotSpring sovereign pipeline unblock — f64 min/max/abs/clamp via DSetP+Sel (batched_hfb_energy_f64 unblocked), `ComputeDevice: Send + Sync` for thread-safe GpuBackend, nouveau compute subchannel binding (SM-aware class selection), docs updated — 1286 tests (1286 passing, 59 ignored)
 - [x] Iteration 27: Deep debt + cross-spring absorption — RDNA2 literal materialization pass (V_MOV_B32 prefix for VOP3/VOP2 literals), f64 transcendental AMD encodings (F64Exp2/Log2/Sin/Cos via V_CVT_F32_F64+VOP1+V_CVT_F64_F32), f32 transcendental encoding (OpTranscendental→VOP1), OpShl/OpShr/OpSel non-VGPR fix, AMD SR 0x28–0x2D mapping, strip_f64_enable absorption, hotSpring FMA shaders (su3_link_update, wilson_plaquette), FMA policy plumbing, f64 discovery manifest, PRNG preamble, neuralSpring shaders (logsumexp, rk45_step, wright_fisher), f64 runtime diagnostic, 24/24 spring absorption tests on SM70+RDNA2 — 1401 tests (1401 passing, 62 ignored)
 - [x] Iteration 29: NVIDIA last mile — multi-GPU path-based open (AmdDevice/NvDevice/NvDrmDevice::open_path), enumerate_all fix (4× RTX 3050 → 4 contexts), from_descriptor_with_path, Nouveau EINVAL diagnostics (diagnose_channel_alloc, dump_channel_alloc_hex, check_nouveau_firmware), GPU identity via sysfs (probe_gpu_identity, GpuIdentity::nvidia_sm), buffer lifecycle safety (NvDevice.inflight), SM auto-detect, coral-gpu SM wiring, UVM RM client PoC, 5 hw_nv_nouveau diagnostic tests, gem_close promoted to pub — 1447 tests (1447 passing, 76 ignored)
+- [x] Iteration 30: Spring absorption + FMA evolution — `shader.compile.wgsl.multi` API (multi-device cross-vendor compilation in single request), FMA contraction enforcement (`lower_fma.rs` pass: `FmaPolicy::Separate` splits FFma→FMul+FAdd), FMA hardware capability reporting (`FmaCapability::for_target()`), `PCIe` topology awareness (`probe_pcie_topology()`, switch grouping), capability self-description evolution (`shader.compile.multi` + FMA policies + expanded arch list), NVVM bypass test hardening, `primal-rpc-client` evolution, `#![warn(missing_docs)]` expansion to all crates, `coral-driver` doc + identity extraction — 1487 tests (1487 passing, 76 ignored)
 
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
@@ -238,15 +239,14 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1447 tests passing, 76 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1487 tests passing, 76 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 8-demo showcase: hello-compiler → compute triangle (coralReef → toadStool → barraCuda).
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
+Iteration 30: Multi-device compile API, FMA contraction enforcement, PCIe topology awareness.
 Iteration 29: Multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC.
 Iteration 28: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings.
-Iteration 26: hotSpring sovereign pipeline unblock — f64 min/max fix, Send+Sync, nouveau subchannel.
-Iteration 25: Math + debt evolution — trig inverse, f64 refinement, Complex64, DEBT → 0, libc → 0, UVM infra.
 All pure Rust. Sovereignty is a runtime choice.*

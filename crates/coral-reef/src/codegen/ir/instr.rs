@@ -76,7 +76,6 @@ impl InstrDeps {
         self.wt_bar_mask |= bar_mask;
     }
 
-    #[allow(dead_code, reason = "scheduling API reserved for future use")]
     pub fn add_reuse(&mut self, idx: u8) {
         assert!(idx < 6);
         self.reuse_mask |= 1_u8 << idx;

@@ -16,7 +16,6 @@ pub enum PredRef {
 
 impl PredRef {
     /// Extract register reference when variant is `Reg`. Part of the IR API.
-    #[allow(dead_code, reason = "IR API reserved for future backend integration")]
     pub fn as_reg(&self) -> Option<&RegRef> {
         match self {
             Self::Reg(r) => Some(r),
@@ -25,7 +24,6 @@ impl PredRef {
     }
 
     /// Extract SSA value when variant is `SSA`. Part of the IR API.
-    #[allow(dead_code, reason = "IR API reserved for future backend integration")]
     pub fn as_ssa(&self) -> Option<&SSAValue> {
         match self {
             Self::SSA(r) => Some(r),

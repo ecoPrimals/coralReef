@@ -15,7 +15,6 @@ pub enum PredSetOp {
 }
 
 impl PredSetOp {
-    #[allow(dead_code, reason = "IR API for future constant folding")]
     pub const fn eval(&self, a: bool, b: bool) -> bool {
         match self {
             Self::And => a & b,
@@ -42,7 +41,6 @@ impl fmt::Display for PredSetOp {
     }
 }
 
-#[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FloatCmpOp {
     OrdEq,
@@ -99,7 +97,6 @@ impl fmt::Display for FloatCmpOp {
     }
 }
 
-#[allow(dead_code, reason = "ISA variant reserved for future encoding support")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IntCmpOp {
     False,

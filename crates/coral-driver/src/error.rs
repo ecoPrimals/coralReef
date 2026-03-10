@@ -4,6 +4,8 @@
 use std::borrow::Cow;
 
 /// Result alias for driver operations.
+///
+/// All GPU device operations return this type; errors are [`DriverError`] variants.
 pub type DriverResult<T> = Result<T, DriverError>;
 
 /// Errors from GPU device operations.
@@ -13,30 +15,48 @@ pub type DriverResult<T> = Result<T, DriverError>;
 /// `format!("...").into()`.
 #[derive(Debug, thiserror::Error)]
 pub enum DriverError {
+    /// No matching GPU device was found (e.g. no amdgpu/nouveau render node).
     #[error("device not found: {0}")]
     DeviceNotFound(Cow<'static, str>),
 
+    /// A DRM ioctl syscall failed; the kernel returned an error.
     #[error("DRM ioctl failed: {name} returned {errno}")]
-    IoctlFailed { name: &'static str, errno: i32 },
+    IoctlFailed {
+        /// Name of the ioctl for error reporting.
+        name: &'static str,
+        /// Kernel errno (negative on Linux).
+        errno: i32,
+    },
 
+    /// Buffer allocation failed (OOM or invalid domain).
     #[error("buffer allocation failed: size={size}, domain={domain:?}")]
     AllocFailed {
+        /// Requested buffer size in bytes.
         size: u64,
+        /// Memory domain that was requested.
         domain: crate::MemoryDomain,
     },
 
+    /// The buffer handle is invalid or was already freed.
     #[error("buffer not found: handle={0:?}")]
     BufferNotFound(crate::BufferHandle),
 
+    /// Memory mapping of a GEM buffer failed.
     #[error("mmap failed: {0}")]
     MmapFailed(Cow<'static, str>),
 
+    /// Command submission to the GPU failed.
     #[error("command submission failed: {0}")]
     SubmitFailed(Cow<'static, str>),
 
+    /// The fence did not signal within the timeout period.
     #[error("fence timeout after {ms}ms")]
-    FenceTimeout { ms: u64 },
+    FenceTimeout {
+        /// Timeout duration in milliseconds.
+        ms: u64,
+    },
 
+    /// Wrapped I/O error from file operations.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
