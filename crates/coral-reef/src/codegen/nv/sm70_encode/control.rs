@@ -90,9 +90,9 @@ impl SM70Op for OpBreak {
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         e.set_opcode(0x942);
-        assert!(self.bar_in.reference.as_reg() == self.bar_out.as_reg());
+        assert!(self.bar_in().reference.as_reg() == self.bar_out.as_reg());
         e.set_bar_dst(16..20, &self.bar_out);
-        e.set_pred_src(87..90, 90, &self.cond);
+        e.set_pred_src(87..90, 90, self.cond());
     }
 }
 
@@ -103,10 +103,10 @@ impl SM70Op for OpBSSy {
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         e.set_opcode(0x945);
-        assert!(self.bar_in.reference.as_reg() == self.bar_out.as_reg());
+        assert!(self.bar_in().reference.as_reg() == self.bar_out.as_reg());
         e.set_bar_dst(16..20, &self.bar_out);
         e.set_rel_offset(34..64, &self.target);
-        e.set_pred_src(87..90, 90, &self.cond);
+        e.set_pred_src(87..90, 90, self.cond());
     }
 }
 
@@ -117,8 +117,8 @@ impl SM70Op for OpBSync {
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         e.set_opcode(0x941);
-        e.set_bar_src(16..20, &self.bar);
-        e.set_pred_src(87..90, 90, &self.cond);
+        e.set_bar_src(16..20, self.bar());
+        e.set_pred_src(87..90, 90, self.cond());
     }
 }
 
@@ -288,16 +288,16 @@ impl SM70Op for OpS2R {
 impl SM70Op for OpOut {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.handle, gpr, SrcType::GPR);
-        b.copy_alu_src_if_not_reg_or_imm(&mut self.stream, gpr, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.handle_mut(), gpr, SrcType::GPR);
+        b.copy_alu_src_if_not_reg_or_imm(self.stream_mut(), gpr, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         e.encode_alu(
             0x124,
             Some(&self.dst),
-            Some(&self.handle),
-            Some(&self.stream),
+            Some(self.handle()),
+            Some(self.stream()),
             None,
         );
 
@@ -337,10 +337,10 @@ impl SM70Op for OpVote {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         if self.is_uniform() {
             e.set_opcode(0x886);
-            e.set_udst(&self.ballot);
+            e.set_udst(self.ballot());
         } else {
             e.set_opcode(0x806);
-            e.set_dst(&self.ballot);
+            e.set_dst(self.ballot());
         }
 
         e.set_field(
@@ -352,7 +352,7 @@ impl SM70Op for OpVote {
             },
         );
 
-        e.set_pred_dst(81..84, &self.vote);
+        e.set_pred_dst(81..84, self.vote());
         e.set_pred_src(87..90, 90, &self.pred);
     }
 }
@@ -365,7 +365,7 @@ impl SM70Op for OpMatch {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         e.set_opcode(0x3a1);
 
-        e.set_dst(&self.mask);
+        e.set_dst(self.mask());
         e.set_reg_src(24..32, &self.src);
         e.set_bit(73, self.u64);
 
@@ -373,14 +373,14 @@ impl SM70Op for OpMatch {
             79,
             match self.op {
                 MatchOp::Any => {
-                    assert!(matches!(self.pred, Dst::None));
+                    assert!(matches!(self.pred(), Dst::None));
                     true
                 }
                 MatchOp::All => false,
             },
         );
 
-        e.set_pred_dst(81..84, &self.pred);
+        e.set_pred_dst(81..84, self.pred());
     }
 }
 

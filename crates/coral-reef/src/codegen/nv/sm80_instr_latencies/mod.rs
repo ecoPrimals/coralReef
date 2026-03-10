@@ -188,16 +188,18 @@ mod tests {
             cmp_op: IntCmpOp::Eq,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [Src::ZERO, Src::ZERO],
-            accum: Src::new_imm_bool(false),
-            low_cmp: Src::new_imm_bool(false),
+            srcs: [
+                Src::ZERO,
+                Src::ZERO,
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
         }));
         let read = Op::DSetP(Box::new(OpDSetP {
             dst: Dst::Reg(RegRef::new(RegFile::Pred, 1, 1)),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdEq,
-            srcs: [Src::ZERO, Src::ZERO],
-            accum: Src::new_imm_bool(false),
+            srcs: [Src::ZERO, Src::ZERO, Src::new_imm_bool(false)],
         }));
         let lat = SM80Latency::raw(&write, 0, Some(&read), 0);
         assert!(lat > 0);
@@ -211,13 +213,19 @@ mod tests {
             cmp_op: IntCmpOp::Eq,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [Src::ZERO, Src::ZERO],
-            accum: Src::new_imm_bool(false),
-            low_cmp: Src::new_imm_bool(false),
+            srcs: [
+                Src::ZERO,
+                Src::ZERO,
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
         }));
         let b = Op::IAdd3(Box::new(OpIAdd3 {
-            dst: Dst::Reg(RegRef::new(RegFile::GPR, 0, 1)),
-            overflow: [Dst::Reg(RegRef::new(RegFile::Pred, 1, 1)), Dst::None],
+            dsts: [
+                Dst::Reg(RegRef::new(RegFile::GPR, 0, 1)),
+                Dst::Reg(RegRef::new(RegFile::Pred, 1, 1)),
+                Dst::None,
+            ],
             srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
         }));
         let lat = SM80Latency::waw(&a, 0, &b, 1, false);
@@ -243,8 +251,7 @@ mod tests {
     #[test]
     fn test_uniform_war_latency() {
         let read = Op::IAdd3(Box::new(OpIAdd3 {
-            dst: ugpr_dst(0),
-            overflow: [Dst::None, Dst::None],
+            dsts: [ugpr_dst(0), Dst::None, Dst::None],
             srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
         }));
         let write = Op::S2R(Box::new(OpS2R {

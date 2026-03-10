@@ -161,7 +161,7 @@ impl PrmtPass {
 
         let new_sel = PrmtSel::new(new_sel);
 
-        op.sel = new_sel.into();
+        *op.sel_mut() = new_sel.into();
         if src_prmt_src == usize::MAX {
             // This source is unused
             op.srcs[src_idx] = 0.into();
@@ -234,7 +234,7 @@ impl PrmtPass {
             return false;
         }
 
-        op.sel = new_sel.into();
+        *op.sel_mut() = new_sel.into();
         let [srcs0, srcs1] = srcs.srcs;
         op.srcs[0] = srcs0.into();
         op.srcs[1] = srcs1.into();
@@ -346,8 +346,7 @@ mod tests {
                 }),
                 Instr::new(OpPrmt {
                     dst: dst_b.into(),
-                    srcs: [dst_a.into(), Src::ZERO],
-                    sel: Src::new_imm_u32(0x3210),
+                    srcs: [dst_a.into(), Src::ZERO, Src::new_imm_u32(0x3210)],
                     mode: PrmtMode::Index,
                 }),
                 Instr::new(OpRegOut {
@@ -380,14 +379,12 @@ mod tests {
                 }),
                 Instr::new(OpPrmt {
                     dst: dst_b.into(),
-                    srcs: [dst_a.into(), Src::ZERO],
-                    sel: Src::new_imm_u32(0x3210),
+                    srcs: [dst_a.into(), Src::ZERO, Src::new_imm_u32(0x3210)],
                     mode: PrmtMode::Index,
                 }),
                 Instr::new(OpPrmt {
                     dst: dst_c.into(),
-                    srcs: [dst_b.into(), Src::ZERO],
-                    sel: Src::new_imm_u32(0x3210),
+                    srcs: [dst_b.into(), Src::ZERO, Src::new_imm_u32(0x3210)],
                     mode: PrmtMode::Index,
                 }),
                 Instr::new(OpRegOut {
@@ -421,8 +418,7 @@ mod tests {
                 }),
                 Instr::new(OpPrmt {
                     dst: Dst::None,
-                    srcs: [dst_a.into(), Src::ZERO],
-                    sel: Src::new_imm_u32(0x3210),
+                    srcs: [dst_a.into(), Src::ZERO, Src::new_imm_u32(0x3210)],
                     mode: PrmtMode::Index,
                 }),
                 Instr::new(OpExit {}),

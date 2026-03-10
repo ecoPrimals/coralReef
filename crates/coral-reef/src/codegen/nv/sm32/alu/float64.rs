@@ -77,7 +77,7 @@ impl SM32Op for OpDFma {
 impl SM32Op for OpDMnMx {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::F64);
         b.copy_alu_src_if_f20_overflow(src1, GPR, SrcType::F64);
@@ -94,7 +94,7 @@ impl SM32Op for OpDMnMx {
             true,
         );
 
-        e.set_pred_src(42..46, &self.min);
+        e.set_pred_src(42..46, self.min());
         e.set_bit(48, self.srcs[1].modifier.has_fneg());
         e.set_bit(49, self.srcs[0].modifier.has_fabs());
         // 50: .cc?
@@ -140,7 +140,7 @@ impl SM32Op for OpDMul {
 impl SM32Op for OpDSetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _] = &mut self.srcs;
         if swap_srcs_if_not_reg(src0, src1, GPR) {
             self.cmp_op = self.cmp_op.flip();
         }
@@ -153,7 +153,7 @@ impl SM32Op for OpDSetP {
         e.encode_form_immreg(0xb40, 0x1c0, None, &self.srcs[0], &self.srcs[1], None, true);
         e.set_pred_dst(2..5, &Dst::None); // dst1
         e.set_pred_dst(5..8, &self.dst); // dst0
-        e.set_pred_src(42..46, &self.accum);
+        e.set_pred_src(42..46, self.accum());
 
         e.set_bit(8, self.srcs[1].modifier.has_fneg());
         e.set_bit(9, self.srcs[0].modifier.has_fabs());

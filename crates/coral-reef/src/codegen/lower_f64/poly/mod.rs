@@ -113,16 +113,14 @@ fn emit_f64_sel(
     out.push(with_pred(
         Instr::new(OpSel {
             dst: dst[0].into(),
-            cond: cond.into(),
-            srcs: [a[0].into(), b[0].into()],
+            srcs: [cond.into(), a[0].into(), b[0].into()],
         }),
         pred,
     ));
     out.push(with_pred(
         Instr::new(OpSel {
             dst: dst[1].into(),
-            cond: cond.into(),
-            srcs: [a[1].into(), b[1].into()],
+            srcs: [cond.into(), a[1].into(), b[1].into()],
         }),
         pred,
     ));

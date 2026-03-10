@@ -46,15 +46,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let dst = s.alloc_ssa(RegFile::GPR);
                 if s.sm.sm() >= 70 {
                     s.push_instr(Instr::new(OpIAdd3 {
-                        dst: dst.into(),
+                        dsts: [dst.into(), Dst::None, Dst::None],
                         srcs: [a.into(), b.into(), Src::ZERO],
-                        overflow: [Dst::None, Dst::None],
                     }));
                 } else {
                     s.push_instr(Instr::new(OpIAdd2 {
-                        dst: dst.into(),
+                        dsts: [dst.into(), Dst::None],
                         srcs: [a.into(), b.into()],
-                        carry_out: Dst::None,
                     }));
                 }
                 dst
@@ -86,15 +84,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     let dst = s.alloc_ssa(RegFile::GPR);
                     if s.sm.sm() >= 70 {
                         s.push_instr(Instr::new(OpIAdd3 {
-                            dst: dst.into(),
+                            dsts: [dst.into(), Dst::None, Dst::None],
                             srcs: [a.into(), Src::from(b).ineg(), Src::ZERO],
-                            overflow: [Dst::None, Dst::None],
                         }));
                     } else {
                         s.push_instr(Instr::new(OpIAdd2 {
-                            dst: dst.into(),
+                            dsts: [dst.into(), Dst::None],
                             srcs: [a.into(), Src::from(b).ineg()],
-                            carry_out: Dst::None,
                         }));
                     }
                     dst
@@ -432,9 +428,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     if s.sm.sm() >= 70 {
                         s.push_instr(Instr::new(OpShf {
                             dst: dst.into(),
-                            low: a.into(),
-                            high: Src::ZERO,
-                            shift: b.into(),
+                            srcs: [a.into(), Src::ZERO, b.into()],
                             right: false,
                             wrap: true,
                             data_type: IntType::I32,
@@ -443,8 +437,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     } else {
                         s.push_instr(Instr::new(OpShl {
                             dst: dst.into(),
-                            src: a.into(),
-                            shift: b.into(),
+                            srcs: [a.into(), b.into()],
                             wrap: true,
                         }));
                     }
@@ -457,9 +450,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     if s.sm.sm() >= 70 {
                         s.push_instr(Instr::new(OpShf {
                             dst: dst.into(),
-                            low: Src::ZERO,
-                            high: a.into(),
-                            shift: b.into(),
+                            srcs: [Src::ZERO, a.into(), b.into()],
                             right: true,
                             wrap: true,
                             data_type: IntType::U32,
@@ -468,8 +459,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     } else {
                         s.push_instr(Instr::new(OpShr {
                             dst: dst.into(),
-                            src: a.into(),
-                            shift: b.into(),
+                            srcs: [a.into(), b.into()],
                             wrap: true,
                             signed: false,
                         }));
@@ -483,8 +473,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst: dst.into(),
                     set_op: PredSetOp::And,
                     cmp_op: FloatCmpOp::OrdEq,
-                    srcs: [Src::from(l), Src::from(r)],
-                    accum: SrcRef::True.into(),
+                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
                 }));
                 Ok(dst.into())
             }
@@ -495,8 +484,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         dst: dst.into(),
                         set_op: PredSetOp::And,
                         cmp_op: FloatCmpOp::OrdEq,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
+                        srcs: [a.into(), b.into(), SrcRef::True.into()],
                         ftz: false,
                     }));
                     dst
@@ -510,9 +498,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     cmp_op: IntCmpOp::Eq,
                     cmp_type: IntCmpType::U32,
                     ex: false,
-                    srcs: [a.into(), b.into()],
-                    accum: true.into(),
-                    low_cmp: true.into(),
+                    srcs: [a.into(), b.into(), true.into(), true.into()],
                 }));
                 dst
             }),
@@ -522,8 +508,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst: dst.into(),
                     set_op: PredSetOp::And,
                     cmp_op: FloatCmpOp::OrdNe,
-                    srcs: [Src::from(l), Src::from(r)],
-                    accum: SrcRef::True.into(),
+                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()], // accum
                 }));
                 Ok(dst.into())
             }
@@ -534,8 +519,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         dst: dst.into(),
                         set_op: PredSetOp::And,
                         cmp_op: FloatCmpOp::OrdNe,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
+                        srcs: [a.into(), b.into(), SrcRef::True.into()],
                         ftz: false,
                     }));
                     dst
@@ -550,9 +534,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         cmp_op: IntCmpOp::Ne,
                         cmp_type: IntCmpType::U32,
                         ex: false,
-                        srcs: [a.into(), b.into()],
-                        accum: true.into(),
-                        low_cmp: true.into(),
+                        srcs: [a.into(), b.into(), true.into(), true.into()],
                     }));
                     dst
                 })
@@ -563,8 +545,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst: dst.into(),
                     set_op: PredSetOp::And,
                     cmp_op: FloatCmpOp::OrdLt,
-                    srcs: [Src::from(l), Src::from(r)],
-                    accum: SrcRef::True.into(),
+                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
                 }));
                 Ok(dst.into())
             }
@@ -575,8 +556,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         dst: dst.into(),
                         set_op: PredSetOp::And,
                         cmp_op: FloatCmpOp::OrdLt,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
+                        srcs: [a.into(), b.into(), SrcRef::True.into()],
                         ftz: false,
                     }));
                     dst
@@ -590,9 +570,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     cmp_op: IntCmpOp::Lt,
                     cmp_type: IntCmpType::U32,
                     ex: false,
-                    srcs: [a.into(), b.into()],
-                    accum: true.into(),
-                    low_cmp: true.into(),
+                    srcs: [a.into(), b.into(), true.into(), true.into()],
                 }));
                 dst
             }),
@@ -602,8 +580,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst: dst.into(),
                     set_op: PredSetOp::And,
                     cmp_op: FloatCmpOp::OrdLe,
-                    srcs: [Src::from(l), Src::from(r)],
-                    accum: SrcRef::True.into(),
+                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
                 }));
                 Ok(dst.into())
             }
@@ -614,8 +591,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         dst: dst.into(),
                         set_op: PredSetOp::And,
                         cmp_op: FloatCmpOp::OrdLe,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
+                        srcs: [a.into(), b.into(), SrcRef::True.into()],
                         ftz: false,
                     }));
                     dst
@@ -630,9 +606,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         cmp_op: IntCmpOp::Le,
                         cmp_type: IntCmpType::U32,
                         ex: false,
-                        srcs: [a.into(), b.into()],
-                        accum: true.into(),
-                        low_cmp: true.into(),
+                        srcs: [a.into(), b.into(), true.into(), true.into()],
                     }));
                     dst
                 })
@@ -643,8 +617,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst: dst.into(),
                     set_op: PredSetOp::And,
                     cmp_op: FloatCmpOp::OrdGt,
-                    srcs: [Src::from(l), Src::from(r)],
-                    accum: SrcRef::True.into(),
+                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
                 }));
                 Ok(dst.into())
             }
@@ -655,8 +628,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         dst: dst.into(),
                         set_op: PredSetOp::And,
                         cmp_op: FloatCmpOp::OrdGt,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
+                        srcs: [a.into(), b.into(), SrcRef::True.into()],
                         ftz: false,
                     }));
                     dst
@@ -670,9 +642,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     cmp_op: IntCmpOp::Gt,
                     cmp_type: IntCmpType::U32,
                     ex: false,
-                    srcs: [a.into(), b.into()],
-                    accum: true.into(),
-                    low_cmp: true.into(),
+                    srcs: [a.into(), b.into(), true.into(), true.into()],
                 }));
                 dst
             }),
@@ -682,8 +652,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst: dst.into(),
                     set_op: PredSetOp::And,
                     cmp_op: FloatCmpOp::OrdGe,
-                    srcs: [Src::from(l), Src::from(r)],
-                    accum: SrcRef::True.into(),
+                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
                 }));
                 Ok(dst.into())
             }
@@ -694,8 +663,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         dst: dst.into(),
                         set_op: PredSetOp::And,
                         cmp_op: FloatCmpOp::OrdGe,
-                        srcs: [a.into(), b.into()],
-                        accum: SrcRef::True.into(),
+                        srcs: [a.into(), b.into(), SrcRef::True.into()],
                         ftz: false,
                     }));
                     dst
@@ -710,9 +678,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         cmp_op: IntCmpOp::Ge,
                         cmp_type: IntCmpType::U32,
                         ex: false,
-                        srcs: [a.into(), b.into()],
-                        accum: true.into(),
-                        low_cmp: true.into(),
+                        srcs: [a.into(), b.into(), true.into(), true.into()],
                     }));
                     dst
                 })

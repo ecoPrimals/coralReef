@@ -185,10 +185,11 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
         Op::Ld(_) | Op::St(_) | Op::Atom(_) => {}
         Op::Bra(_) | Op::Exit(_) | Op::Nop(_) => {}
         Op::Sel(op) => {
-            b.copy_alu_src_if_not_reg(&mut op.srcs[0], gpr, SrcType::ALU);
+            b.copy_alu_src_if_not_reg(&mut op.srcs[1], gpr, SrcType::ALU);
+            b.copy_alu_src_if_not_reg(&mut op.srcs[2], gpr, SrcType::ALU);
         }
         Op::FSetP(op) => {
-            let [src0, src1] = &mut op.srcs;
+            let [src0, src1, _] = &mut op.srcs;
             super::super::legalize::swap_srcs_if_not_reg(src0, src1, gpr);
             b.copy_alu_src_if_not_reg(src0, gpr, SrcType::F32);
         }
@@ -196,7 +197,7 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
             b.copy_alu_src_if_not_reg(&mut op.srcs[0], gpr, SrcType::F64);
         }
         Op::ISetP(op) => {
-            let [src0, src1] = &mut op.srcs;
+            let [src0, src1, _, _] = &mut op.srcs;
             super::super::legalize::swap_srcs_if_not_reg(src0, src1, gpr);
             b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
         }
@@ -219,10 +220,10 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
             b.copy_alu_src_if_not_reg(&mut op.srcs[0], gpr, SrcType::ALU);
         }
         Op::Shl(op) => {
-            b.copy_alu_src_if_not_reg(&mut op.src, gpr, SrcType::ALU);
+            b.copy_alu_src_if_not_reg(op.src_mut(), gpr, SrcType::ALU);
         }
         Op::Shr(op) => {
-            b.copy_alu_src_if_not_reg(&mut op.src, gpr, SrcType::ALU);
+            b.copy_alu_src_if_not_reg(op.src_mut(), gpr, SrcType::ALU);
         }
         Op::Bar(_) | Op::S2R(_) | Op::CS2R(_) => {}
         Op::Undef(_)
@@ -437,7 +438,7 @@ fn estimate_instr_size(op: &Op) -> usize {
             1 + overhead
         }
         Op::Shl(op) => {
-            let overhead = if src_needs_materialization(&op.shift) {
+            let overhead = if src_needs_materialization(op.shift()) {
                 2
             } else {
                 0
@@ -445,7 +446,7 @@ fn estimate_instr_size(op: &Op) -> usize {
             1 + overhead
         }
         Op::Shr(op) => {
-            let overhead = if src_needs_materialization(&op.shift) {
+            let overhead = if src_needs_materialization(op.shift()) {
                 2
             } else {
                 0
@@ -454,9 +455,9 @@ fn estimate_instr_size(op: &Op) -> usize {
         }
         Op::Shf(op) => {
             2 + literal_materialization_overhead(&[
-                op.high.clone(),
-                op.low.clone(),
-                op.shift.clone(),
+                op.high().clone(),
+                op.low().clone(),
+                op.shift().clone(),
             ])
         }
         Op::Sel(op) => {
@@ -475,8 +476,12 @@ fn estimate_instr_size(op: &Op) -> usize {
             };
             1 + overhead
         }
-        Op::Bfe(op) => 2 + literal_materialization_overhead(&[op.base.clone(), op.range.clone()]),
-        Op::BMsk(op) => 2 + literal_materialization_overhead(&[op.pos.clone(), op.width.clone()]),
+        Op::Bfe(op) => {
+            2 + literal_materialization_overhead(&[op.base().clone(), op.range().clone()])
+        }
+        Op::BMsk(op) => {
+            2 + literal_materialization_overhead(&[op.pos().clone(), op.width().clone()])
+        }
         Op::F2F(op) => {
             let overhead = if src_needs_materialization(&op.src) {
                 2

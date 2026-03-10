@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Pure Rust DRM ioctl interface — uses `rustix` for mmap/munmap, inline asm for ioctl.
+//! Pure Rust DRM ioctl interface — uses `rustix` for mmap/munmap and ioctl.
 //!
 //! All ioctl numbers and structures are defined here from the Linux
 //! kernel headers (GPL-2.0-only) via clean-room constant extraction.
 //!
-//! Memory mapping uses `rustix::mm` (safe wrappers, no raw unsafe).
-//! ioctl uses a raw syscall via inline asm — zero libc dependency.
+//! Memory mapping uses `rustix::mm` (safe wrappers).
+//! ioctl uses `rustix::ioctl` — zero libc, zero inline asm.
 //! See also `amd/ioctl.rs`, `nv/ioctl.rs`.
 
 use crate::error::{DriverError, DriverResult};
@@ -126,9 +126,12 @@ impl MappedRegion {
         if len == 0 {
             return Err(DriverError::MmapFailed("mmap length must be > 0".into()));
         }
-        // SAFETY: `fd` is a valid open DRM GEM handle, `offset` is from the
-        // kernel (gem_mmap_offset or map_handle), and `len` > 0. The mapped
-        // region is owned by this struct and unmapped in `Drop`.
+        // SAFETY:
+        // 1. Validity:   fd is a valid open DRM device, offset is kernel-provided
+        //                (gem_mmap_offset / map_handle), len > 0 (checked above)
+        // 2. Alignment:  mmap returns page-aligned memory
+        // 3. Lifetime:   the mapping is owned by this struct, unmapped in Drop
+        // 4. Exclusivity: single owner; &mut access gated by &mut self
         let ptr = unsafe {
             rustix::mm::mmap(
                 std::ptr::null_mut(),
@@ -149,16 +152,22 @@ impl MappedRegion {
     /// View the mapped region as a byte slice.
     #[must_use]
     pub(crate) const fn as_slice(&self) -> &[u8] {
-        // SAFETY: ptr is valid for self.len bytes from a successful mmap.
-        // The region lives as long as self (Drop handles munmap).
+        // SAFETY:
+        // 1. Validity:   ptr is non-null from successful mmap (checked in new())
+        // 2. Alignment:  u8 has alignment 1; mmap returns page-aligned memory
+        // 3. Lifetime:   slice borrows &self; Drop unmaps after all borrows end
+        // 4. Exclusivity: shared ref — no &mut self exists while &self is live
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 
     /// View the mapped region as a mutable byte slice.
     #[must_use]
     pub(crate) const fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE (for write ops).
-        // We have exclusive access via &mut self.
+        // SAFETY:
+        // 1. Validity:   ptr is non-null from successful mmap (checked in new())
+        // 2. Alignment:  u8 has alignment 1; mmap returns page-aligned memory
+        // 3. Lifetime:   slice borrows &mut self; Drop unmaps after borrow ends
+        // 4. Exclusivity: &mut self guarantees no other references exist
         unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 
@@ -207,8 +216,11 @@ impl MappedRegion {
 
 impl Drop for MappedRegion {
     fn drop(&mut self) {
-        // SAFETY: ptr was returned by a successful rustix::mm::mmap call.
-        // len is the same value passed to mmap. This runs exactly once.
+        // SAFETY:
+        // 1. Validity:   ptr was returned by a successful rustix::mm::mmap in new()
+        // 2. Alignment:  mmap-returned pointers are page-aligned
+        // 3. Lifetime:   Drop runs exactly once; no references to the region remain
+        // 4. Exclusivity: &mut self in Drop guarantees sole access
         unsafe {
             let _ = rustix::mm::munmap(self.ptr.as_ptr().cast::<std::ffi::c_void>(), self.len);
         }
@@ -336,8 +348,11 @@ pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
 /// Close a GEM buffer object. Safe wrapper around `DRM_IOCTL_GEM_CLOSE`.
 pub(crate) fn gem_close(fd: RawFd, handle: u32) -> DriverResult<()> {
     let mut args = DrmGemClose { handle, pad: 0 };
-    // SAFETY: DrmGemClose is #[repr(C)] matching kernel's drm_gem_close (8 bytes).
-    // Stack-allocated, synchronous ioctl.
+    // SAFETY:
+    // 1. Validity:   DrmGemClose is #[repr(C)] matching kernel drm_gem_close (8 bytes)
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; struct outlives the call
+    // 4. Exclusivity: &mut args — sole reference
     unsafe { drm_ioctl_named(fd, DRM_IOCTL_GEM_CLOSE, &mut args, "gem_close") }
 }
 
@@ -349,8 +364,11 @@ pub(crate) fn drm_version(fd: RawFd) -> DriverResult<(DrmVersion, String)> {
         name: name_buf.as_mut_ptr() as u64,
         ..Default::default()
     };
-    // SAFETY: DrmVersion is #[repr(C)] matching kernel's drm_version struct.
-    // name_buf is stack-allocated and outlives the synchronous ioctl.
+    // SAFETY:
+    // 1. Validity:   DrmVersion is #[repr(C)] matching kernel drm_version (64 bytes)
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; ver and name_buf outlive the call
+    // 4. Exclusivity: &mut ver — sole reference
     unsafe { drm_ioctl_named(fd, DRM_IOCTL_VERSION, &mut ver, "drm_version")? };
     let len = usize::try_from(ver.name_len)
         .unwrap_or(name_buf.len())
@@ -377,6 +395,8 @@ pub(crate) unsafe fn drm_ioctl_typed<T>(fd: RawFd, request: u64, arg: &mut T) ->
 
 /// Like `drm_ioctl_typed` but with a custom name for error messages.
 ///
+/// Uses `rustix::ioctl` for the syscall — no inline asm, cross-platform.
+///
 /// # Safety
 ///
 /// The caller must ensure `T` is the correct `#[repr(C)]` struct for `request`.
@@ -386,76 +406,72 @@ pub(crate) unsafe fn drm_ioctl_named<T>(
     arg: &mut T,
     name: &'static str,
 ) -> DriverResult<()> {
-    // SAFETY: The caller guarantees `T` is the correct `#[repr(C)]` kernel
-    // struct for `request`. `arg` is a valid mutable reference (non-null,
-    // aligned, initialized). The inline asm performs a synchronous syscall —
-    // the pointer does not escape the call.
-    let ret = unsafe { raw_ioctl_syscall(fd, request, std::ptr::from_mut::<T>(arg).cast()) };
-    if ret < 0 {
-        return Err(DriverError::IoctlFailed {
+    use std::os::unix::io::BorrowedFd;
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Linux ioctl request codes are u32; our u64 constants fit"
+    )]
+    let opcode = request as rustix::ioctl::Opcode;
+    // SAFETY:
+    // 1. Validity:   opcode is a valid DRM ioctl request code (from drm_iowr/drm_iow)
+    // 2. Alignment:  arg is a valid mutable reference (non-null, aligned, initialized)
+    // 3. Lifetime:   synchronous ioctl; arg outlives the call
+    // 4. Exclusivity: &mut arg — caller guarantees sole access
+    let ioctl_cmd = unsafe { DrmIoctlCmd::new(opcode, arg) };
+    // SAFETY:
+    // 1. Validity:   fd is a valid open DRM device file descriptor
+    // 2. Alignment:  ioctl_cmd wraps a properly aligned &mut T
+    // 3. Lifetime:   synchronous ioctl; all data outlives the call
+    // 4. Exclusivity: ioctl_cmd holds sole &mut to the argument struct
+    unsafe { rustix::ioctl::ioctl(BorrowedFd::borrow_raw(fd), ioctl_cmd) }.map_err(|e| {
+        DriverError::IoctlFailed {
             name,
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "Linux errno values fit in i32"
-            )]
-            errno: (-ret) as i32,
-        });
-    }
-    Ok(())
+            errno: e.raw_os_error(),
+        }
+    })
 }
 
-/// Raw ioctl syscall via inline asm. Returns negative errno on failure.
+/// A runtime-opcode DRM ioctl command for use with `rustix::ioctl::ioctl`.
 ///
-/// # Safety
-///
-/// `arg` must point to a valid, properly aligned `#[repr(C)]` struct
-/// matching the ioctl `request`.
-#[cfg(target_arch = "x86_64")]
-unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void) -> i64 {
-    let ret: i64;
-    #[expect(
-        clippy::cast_sign_loss,
-        reason = "fd is always non-negative for valid file descriptors"
-    )]
-    // SAFETY: Caller guarantees `arg` points to a valid struct for `request`.
-    // Syscall is synchronous; no pointers escape. See fn doc.
-    unsafe {
-        core::arch::asm!(
-            "syscall",
-            in("rax") 16_u64, // __NR_ioctl
-            in("rdi") fd as u64,
-            in("rsi") request,
-            in("rdx") arg as u64,
-            lateout("rax") ret,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack, preserves_flags),
-        );
-    }
-    ret
+/// Accepts the opcode at runtime — matching our dynamic dispatch pattern
+/// where each DRM ioctl call passes its own request code.
+struct DrmIoctlCmd<'a, T> {
+    opcode: rustix::ioctl::Opcode,
+    arg: &'a mut T,
 }
 
-#[cfg(target_arch = "aarch64")]
-unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void) -> i64 {
-    let ret: i64;
-    #[expect(
-        clippy::cast_sign_loss,
-        reason = "fd is always non-negative for valid file descriptors"
-    )]
-    // SAFETY: Caller guarantees `arg` points to a valid struct for `request`.
-    // Syscall is synchronous; no pointers escape. See fn doc.
-    unsafe {
-        core::arch::asm!(
-            "svc #0",
-            in("x8") 29_u64, // __NR_ioctl on aarch64
-            in("x0") fd as u64,
-            in("x1") request,
-            in("x2") arg as u64,
-            lateout("x0") ret,
-            options(nostack, preserves_flags),
-        );
+impl<'a, T> DrmIoctlCmd<'a, T> {
+    /// # Safety
+    ///
+    /// `opcode` must be a valid DRM ioctl request code, and `arg` must be the
+    /// correct `#[repr(C)]` struct for that ioctl.
+    unsafe fn new(opcode: rustix::ioctl::Opcode, arg: &'a mut T) -> Self {
+        Self { opcode, arg }
     }
-    ret
+}
+
+// SAFETY: This trait implementation delegates the ioctl contract to our
+// callers via `drm_ioctl_named`'s safety requirements: T is the correct
+// #[repr(C)] struct for the opcode, the fd is a valid DRM device.
+unsafe impl<T> rustix::ioctl::Ioctl for DrmIoctlCmd<'_, T> {
+    type Output = ();
+    const IS_MUTATING: bool = true;
+
+    fn opcode(&self) -> rustix::ioctl::Opcode {
+        self.opcode
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        std::ptr::from_mut(self.arg).cast()
+    }
+
+    unsafe fn output_from_ptr(
+        _output: rustix::ioctl::IoctlOutput,
+        _ptr: *mut std::ffi::c_void,
+    ) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

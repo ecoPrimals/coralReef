@@ -156,9 +156,12 @@ pub fn lower_f64_exp2(
             cmp_op: IntCmpOp::Lt,
             cmp_type: IntCmpType::I32,
             ex: false,
-            srcs: [n_i32.into(), Src::new_imm_u32((-1022_i32) as u32)],
-            accum: SrcRef::True.into(),
-            low_cmp: Src::new_imm_bool(false),
+            srcs: [
+                n_i32.into(),
+                Src::new_imm_u32((-1022_i32) as u32),
+                SrcRef::True.into(),
+                Src::new_imm_bool(false),
+            ],
         }),
         pred,
     ));
@@ -169,8 +172,11 @@ pub fn lower_f64_exp2(
     out.push(with_pred(
         Instr::new(OpSel {
             dst: n1.into(),
-            cond: is_subnormal.into(),
-            srcs: [Src::new_imm_u32((-1022_i32) as u32), n_i32.into()],
+            srcs: [
+                is_subnormal.into(),
+                Src::new_imm_u32((-1022_i32) as u32),
+                n_i32.into(),
+            ],
         }),
         pred,
     ));
@@ -180,9 +186,7 @@ pub fn lower_f64_exp2(
     out.push(with_pred(
         Instr::new(OpShf {
             dst: n1_shifted.into(),
-            low: n1.into(),
-            high: Src::ZERO,
-            shift: Src::new_imm_u32(20),
+            srcs: [n1.into(), Src::ZERO, Src::new_imm_u32(20)],
             right: false,
             wrap: true,
             data_type: IntType::I32,
@@ -194,9 +198,8 @@ pub fn lower_f64_exp2(
     let p_high_step1 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpIAdd3 {
-            dst: p_high_step1.into(),
+            dsts: [p_high_step1.into(), Dst::None, Dst::None],
             srcs: [p[1].into(), n1_shifted.into(), Src::ZERO],
-            overflow: [Dst::None, Dst::None],
         }),
         pred,
     ));
@@ -206,9 +209,8 @@ pub fn lower_f64_exp2(
     let n2 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpIAdd3 {
-            dst: n2.into(),
+            dsts: [n2.into(), Dst::None, Dst::None],
             srcs: [n_i32.into(), Src::new_imm_u32(1022), Src::ZERO],
-            overflow: [Dst::None, Dst::None],
         }),
         pred,
     ));
@@ -217,9 +219,8 @@ pub fn lower_f64_exp2(
     let n2_biased = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpIAdd3 {
-            dst: n2_biased.into(),
+            dsts: [n2_biased.into(), Dst::None, Dst::None],
             srcs: [n2.into(), Src::new_imm_u32(1023), Src::ZERO],
-            overflow: [Dst::None, Dst::None],
         }),
         pred,
     ));
@@ -227,9 +228,7 @@ pub fn lower_f64_exp2(
     out.push(with_pred(
         Instr::new(OpShf {
             dst: scale_hi.into(),
-            low: n2_biased.into(),
-            high: Src::ZERO,
-            shift: Src::new_imm_u32(20),
+            srcs: [n2_biased.into(), Src::ZERO, Src::new_imm_u32(20)],
             right: false,
             wrap: true,
             data_type: IntType::I32,
@@ -285,16 +284,14 @@ pub fn lower_f64_exp2(
     out.push(with_pred(
         Instr::new(OpSel {
             dst: dst_ssa[0].into(),
-            cond: is_subnormal.into(),
-            srcs: [sub_result[0].into(), step1[0].into()],
+            srcs: [is_subnormal.into(), sub_result[0].into(), step1[0].into()],
         }),
         pred,
     ));
     out.push(with_pred(
         Instr::new(OpSel {
             dst: dst_ssa[1].into(),
-            cond: is_subnormal.into(),
-            srcs: [sub_result[1].into(), step1[1].into()],
+            srcs: [is_subnormal.into(), sub_result[1].into(), step1[1].into()],
         }),
         pred,
     ));

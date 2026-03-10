@@ -73,15 +73,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 naga::UnaryOperator::Negate => {
                     if self.sm.sm() >= 70 {
                         self.push_instr(Instr::new(OpIAdd3 {
-                            dst: dst[c].into(),
+                            dsts: [dst[c].into(), Dst::None, Dst::None],
                             srcs: [Src::ZERO, Src::from(val[c]).ineg(), Src::ZERO],
-                            overflow: [Dst::None, Dst::None],
                         }));
                     } else {
                         self.push_instr(Instr::new(OpIAdd2 {
-                            dst: dst[c].into(),
+                            dsts: [dst[c].into(), Dst::None],
                             srcs: [Src::ZERO, Src::from(val[c]).ineg()],
-                            carry_out: Dst::None,
                         }));
                     }
                 }
@@ -132,9 +130,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 cmp_op: IntCmpOp::Ne,
                 cmp_type: IntCmpType::U32,
                 ex: false,
-                srcs: [cond[0].into(), Src::ZERO],
-                accum: SrcRef::True.into(),
-                low_cmp: SrcRef::False.into(),
+                srcs: [
+                    cond[0].into(),
+                    Src::ZERO,
+                    SrcRef::True.into(),
+                    SrcRef::False.into(),
+                ],
             }));
             pred.into()
         };
@@ -153,8 +154,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             };
             self.push_instr(Instr::new(OpSel {
                 dst: dst[c].into(),
-                cond: pred_src.clone(),
-                srcs: [acc.into(), rej.into()],
+                srcs: [pred_src.clone(), acc.into(), rej.into()],
             }));
         }
         Ok(dst)
@@ -473,9 +473,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 if kind == naga::ScalarKind::Sint {
                     self.push_instr(Instr::new(OpShf {
                         dst: dst[1].into(),
-                        high: val[0].into(),
-                        low: Src::ZERO,
-                        shift: Src::new_imm_u32(31),
+                        srcs: [Src::ZERO, val[0].into(), Src::new_imm_u32(31)],
                         right: true,
                         wrap: false,
                         data_type: IntType::I32,

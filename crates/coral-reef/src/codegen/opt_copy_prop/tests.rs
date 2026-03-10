@@ -138,8 +138,7 @@ fn test_copy_prop_iadd2_zero() {
                 src: Src::ZERO,
             }),
             Instr::new(OpIAdd2 {
-                dst: dst_b.into(),
-                carry_out: Dst::None,
+                dsts: [dst_b.into(), Dst::None],
                 srcs: [dst_a.into(), dst_a.into()],
             }),
             Instr::new(OpRegOut {
@@ -172,8 +171,7 @@ fn test_copy_prop_iadd3_two_zeros() {
                 src: Src::ZERO,
             }),
             Instr::new(OpIAdd3 {
-                dst: dst_b.into(),
-                overflow: [Dst::None, Dst::None],
+                dsts: [dst_b.into(), Dst::None, Dst::None],
                 srcs: [dst_a.into(), dst_a.into(), dst_c.into()],
             }),
             Instr::new(OpRegOut {
@@ -247,8 +245,7 @@ fn test_copy_prop_chain_to_imm32_in_iadd2() {
                 src: dst_a.into(),
             }),
             Instr::new(OpIAdd2 {
-                dst: dst_c.into(),
-                carry_out: Dst::None,
+                dsts: [dst_c.into(), Dst::None],
                 srcs: [dst_b.into(), dst_b.into()],
             }),
             Instr::new(OpRegOut {
@@ -453,8 +450,7 @@ fn test_copy_prop_chain_ssa_to_imm() {
                 src: dst_b.into(),
             }),
             Instr::new(OpIAdd2 {
-                dst: dst_d.into(),
-                carry_out: Dst::None,
+                dsts: [dst_d.into(), Dst::None],
                 srcs: [dst_c.into(), dst_c.into()],
             }),
             Instr::new(OpRegOut {
@@ -498,13 +494,11 @@ fn test_copy_prop_prmt_sel_3210() {
             }),
             Instr::new(OpPrmt {
                 dst: dst_b.into(),
-                srcs: [dst_a.into(), Src::ZERO],
-                sel: Src::new_imm_u32(0x3210),
+                srcs: [dst_a.into(), Src::ZERO, Src::new_imm_u32(0x3210)],
                 mode: PrmtMode::Index,
             }),
             Instr::new(OpIAdd2 {
-                dst: dst_c.into(),
-                carry_out: Dst::None,
+                dsts: [dst_c.into(), Dst::None],
                 srcs: [dst_b.into(), Src::ZERO],
             }),
             Instr::new(OpRegOut {
@@ -544,13 +538,11 @@ fn test_copy_prop_prmt_sel_7654() {
             }),
             Instr::new(OpPrmt {
                 dst: dst_b.into(),
-                srcs: [Src::ZERO, dst_a.into()],
-                sel: Src::new_imm_u32(0x7654),
+                srcs: [Src::ZERO, dst_a.into(), Src::new_imm_u32(0x7654)],
                 mode: PrmtMode::Index,
             }),
             Instr::new(OpIAdd2 {
-                dst: dst_c.into(),
-                carry_out: Dst::None,
+                dsts: [dst_c.into(), Dst::None],
                 srcs: [dst_b.into(), Src::ZERO],
             }),
             Instr::new(OpRegOut {
@@ -587,8 +579,7 @@ fn test_copy_prop_iadd3_zeros_first_and_third() {
                 src: Src::ZERO,
             }),
             Instr::new(OpIAdd3 {
-                dst: dst_b.into(),
-                overflow: [Dst::None, Dst::None],
+                dsts: [dst_b.into(), Dst::None, Dst::None],
                 srcs: [dst_a.into(), dst_c.into(), dst_a.into()],
             }),
             Instr::new(OpRegOut {
@@ -622,8 +613,7 @@ fn test_copy_prop_iadd3_all_zeros_except_first() {
                 src: Src::ZERO,
             }),
             Instr::new(OpIAdd3 {
-                dst: dst_b.into(),
-                overflow: [Dst::None, Dst::None],
+                dsts: [dst_b.into(), Dst::None, Dst::None],
                 srcs: [dst_c.into(), dst_a.into(), dst_a.into()],
             }),
             Instr::new(OpRegOut {
@@ -697,8 +687,7 @@ fn test_copy_prop_lop3_all_ones() {
                 op: op_all_ones,
             }),
             Instr::new(OpIAdd2 {
-                dst: dst_d.into(),
-                carry_out: Dst::None,
+                dsts: [dst_d.into(), Dst::None],
                 srcs: [dst_a.into(), Src::ZERO],
             }),
             Instr::new(OpRegOut {

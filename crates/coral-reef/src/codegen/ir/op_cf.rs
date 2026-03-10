@@ -85,16 +85,14 @@ pub struct OpBreak {
     #[dst_type(Bar)]
     pub bar_out: Dst,
 
-    #[src_type(Bar)]
-    pub bar_in: Src,
-
-    #[src_type(Pred)]
-    pub cond: Src,
+    #[src_types(Bar, Pred)]
+    #[src_names(bar_in, cond)]
+    pub srcs: [Src; 2],
 }
 
 impl DisplayOp for OpBreak {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "break {} {}", self.bar_in, self.cond)
+        write!(f, "break {} {}", self.bar_in(), self.cond())
     }
 }
 impl_display_for_op!(OpBreak);
@@ -105,18 +103,16 @@ pub struct OpBSSy {
     #[dst_type(Bar)]
     pub bar_out: Dst,
 
-    #[src_type(Pred)]
-    pub bar_in: Src,
-
-    #[src_type(Pred)]
-    pub cond: Src,
+    #[src_types(Pred, Pred)]
+    #[src_names(bar_in, cond)]
+    pub srcs: [Src; 2],
 
     pub target: Label,
 }
 
 impl DisplayOp for OpBSSy {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bssy {} {} {}", self.bar_in, self.cond, self.target)
+        write!(f, "bssy {} {} {}", self.bar_in(), self.cond(), self.target)
     }
 }
 impl_display_for_op!(OpBSSy);
@@ -124,16 +120,14 @@ impl_display_for_op!(OpBSSy);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpBSync {
-    #[src_type(Bar)]
-    pub bar: Src,
-
-    #[src_type(Pred)]
-    pub cond: Src,
+    #[src_types(Bar, Pred)]
+    #[src_names(bar, cond)]
+    pub srcs: [Src; 2],
 }
 
 impl DisplayOp for OpBSync {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bsync {} {}", self.bar, self.cond)
+        write!(f, "bsync {} {}", self.bar(), self.cond())
     }
 }
 impl_display_for_op!(OpBSync);
@@ -351,8 +345,7 @@ mod tests {
     fn test_op_break_display() {
         let op = OpBreak {
             bar_out: Dst::None,
-            bar_in: zero_src(),
-            cond: Src::new_imm_bool(true),
+            srcs: [zero_src(), Src::new_imm_bool(true)],
         };
         let s = format!("{op}");
         assert!(s.contains("break"));
@@ -364,8 +357,7 @@ mod tests {
         let label = alloc.alloc();
         let op = OpBSSy {
             bar_out: Dst::None,
-            bar_in: Src::new_imm_bool(false),
-            cond: Src::new_imm_bool(true),
+            srcs: [Src::new_imm_bool(false), Src::new_imm_bool(true)],
             target: label,
         };
         let s = format!("{op}");
@@ -375,8 +367,7 @@ mod tests {
     #[test]
     fn test_op_bsync_display() {
         let op = OpBSync {
-            bar: zero_src(),
-            cond: Src::new_imm_bool(true),
+            srcs: [zero_src(), Src::new_imm_bool(true)],
         };
         let s = format!("{op}");
         assert!(s.contains("bsync"));

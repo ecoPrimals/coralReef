@@ -84,8 +84,7 @@ fn translate_min(
         let dst = ft.alloc_ssa(RegFile::GPR);
         ft.push_instr(Instr::new(OpFMnMx {
             dst: dst.into(),
-            srcs: [a[0].into(), b[0].into()],
-            min: SrcRef::True.into(),
+            srcs: [a[0].into(), b[0].into(), SrcRef::True.into()],
             ftz: false,
         }));
         Ok(dst.into())
@@ -105,8 +104,7 @@ fn translate_max(
         let dst = ft.alloc_ssa(RegFile::GPR);
         ft.push_instr(Instr::new(OpFMnMx {
             dst: dst.into(),
-            srcs: [a[0].into(), b[0].into()],
-            min: SrcRef::False.into(),
+            srcs: [a[0].into(), b[0].into(), SrcRef::False.into()],
             ftz: false,
         }));
         Ok(dst.into())
@@ -128,15 +126,13 @@ fn translate_clamp(
         let tmp = ft.alloc_ssa(RegFile::GPR);
         ft.push_instr(Instr::new(OpFMnMx {
             dst: tmp.into(),
-            srcs: [a[0].into(), c[0].into()],
-            min: SrcRef::True.into(),
+            srcs: [a[0].into(), c[0].into(), SrcRef::True.into()],
             ftz: false,
         }));
         let dst = ft.alloc_ssa(RegFile::GPR);
         ft.push_instr(Instr::new(OpFMnMx {
             dst: dst.into(),
-            srcs: [tmp.into(), b[0].into()],
-            min: SrcRef::False.into(),
+            srcs: [tmp.into(), b[0].into(), SrcRef::False.into()],
             ftz: false,
         }));
         Ok(dst.into())

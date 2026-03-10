@@ -7,6 +7,7 @@ members = [
     "crates/coral-reef-stubs",
     "crates/coral-reef-bitview",
     "crates/nak-ir-proc",
+    "crates/primal-rpc-client",
     "tools/amd-isa-gen",
     "crates/coral-driver",
     "crates/coral-gpu",
@@ -26,6 +27,10 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 # Async runtime
+# EVOLUTION(pure-rust-tokio): tokio → mio → libc (epoll), socket2 → libc,
+# signal-hook-registry → libc. Tracked upstream: mio#1735 (rustix migration).
+# When mio switches to rustix on Linux, tokio's libc chain drops to zero.
+# rustix already uses the linux_raw backend (not libc) on our targets.
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
 
 # CLI (uniBin)

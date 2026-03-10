@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 9, 2026  
-**Phase**: 10 — Iteration 27 (Deep Debt + Cross-Spring Absorption)
+**Last updated**: March 10, 2026  
+**Phase**: 10 — Iteration 28 (Unsafe Elimination + Pure Safe Rust)
 
 ---
 
@@ -20,12 +20,12 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1401 passing, 0 failed, 62 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1437 passing, 0 failed, 68 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
-| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, zero libc (inline asm syscalls), FxHashMap internalized |
+| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 27** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 28** |
 
 ### Phase 10 Completions
 
@@ -88,7 +88,7 @@
 
 | Task | Status | Details |
 |------|--------|---------|
-| `#[deny(unsafe_code)]` on non-driver crates | ✅ | 6/8 crates enforce safety at compile time (coral-reef, coralreef-core, coral-gpu, coral-reef-stubs, coral-reef-bitview, coral-reef-isa) |
+| `#[deny(unsafe_code)]` on non-driver crates | ✅ | 8/9 crates enforce safety at compile time (coral-reef, coralreef-core, coral-gpu, coral-reef-stubs, coral-reef-bitview, coral-reef-isa, nak-ir-proc, primal-rpc-client) |
 | Ioctl struct layout tests | ✅ | 14 tests verify `#[repr(C)]` struct size and field offsets against kernel ABI |
 | `sm_match!` panic eliminated | ✅ | Constructor `ShaderModelInfo::new` asserts `sm >= 20`, macro branches are exhaustive |
 | Debug path configurable | ✅ | `save_graphviz` uses `CORAL_DEP_GRAPH_PATH` env var (falls back to `temp_dir()`) |
@@ -387,6 +387,36 @@
 | 24/24 spring absorption tests | ✅ | All compile for both SM70 and RDNA2 |
 | Test expansion | ✅ | 1286 → 1401 passing (+115 tests), 59 → 62 ignored |
 
+### Phase 10 — Iteration 28 Completions (Unsafe Elimination + Pure Safe Rust)
+
+| Task | Status | Details |
+|------|--------|---------|
+| nak-ir-proc `from_raw_parts` eliminated | ✅ | Proc macro enhanced with `#[src_types]`/`#[src_names]`/`#[dst_types]`/`#[dst_names]` attributes; generates safe named accessors for array fields; old unsafe `from_raw_parts` path replaced with `compile_error!` enforcement |
+| 50 Op struct array-field migration | ✅ | All Op structs migrated from separate named Src/Dst fields to single `srcs: [Src; N]` / `dsts: [Dst; N]` arrays; 480+ call-site updates across codegen/ |
+| `CompileError::Internal` + `catch_ice` | ✅ | NVIDIA encoders wrapped with `std::panic::catch_unwind` via `catch_ice` — converts panics to graceful errors |
+| tests_unix.rs env var unsafe eliminated | ✅ | `default_unix_socket_path` refactored: pure `unix_socket_path_for_base(Option<PathBuf>)` tested without `unsafe { set_var/remove_var }` |
+| `primal-rpc-client` crate | ✅ | Pure Rust JSON-RPC 2.0 client with TCP/Unix/Songbird transports; `#[deny(unsafe_code)]`, `ring` eliminated |
+| Hardcoding evolved → agnostic | ✅ | `discovery.rs` generalized: no hardcoded primal names in production code |
+| Large file refactoring | ✅ | Tests extracted: `liveness_tests.rs`, `naga_translate_tests.rs`, `main_tests.rs` |
+| `coral-driver` ioctl → `rustix::ioctl` | ✅ | Inline asm syscalls replaced with `rustix::ioctl::ioctl` (DrmIoctlCmd Ioctl impl); `bytemuck` replaces 3 `ptr::read` blocks |
+| AMD `read_ioctl_output` safe | ✅ | `bytemuck::pod_read_unaligned` + `bytemuck::bytes_of` — zero unsafe for data extraction |
+| Workspace unsafe audit | ✅ | 17 `unsafe` blocks remain, all in `coral-driver` (mmap/munmap/ioctl kernel ABI); zero unsafe in 8/9 crates |
+| `deny.toml` `libc` canary | ✅ | Prepared for future upstream `mio`→`rustix` migration |
+| NVVM poisoning bypass tests | ✅ | 12 tests: 3 NVVM-poisoning patterns × 6 architectures (SM70/75/80/86/89/RDNA2); validates sovereign WGSL→native path bypasses NVVM device death |
+| Hardcoding evolved → agnostic | ✅ | Last production `toadStool` reference generalized to `ecosystem primal`; doc comments use generic terminology |
+| Spring absorption wave 3 | ✅ | 7 new shaders from hotSpring v0.6.25 + healthSpring v14; new domains: fluid dynamics (Euler HLL), pharmacology (Hill, population PK), ecology (diversity); 9 pass, 5 ignored (AMD Discriminant, vec3<f64> encoding, f64 log2 edge case) |
+| WGSL corpus expanded | ✅ | 93 cross-spring shaders (was 86); 6 springs represented |
+
+### Pure Rust Sovereign Stack — Dependency Tracking
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| `rustix` backend | `linux_raw` | Confirmed: depends on `linux-raw-sys`, zero `libc` |
+| `ring` | **Eliminated** | `jsonrpsee[client]` removed; `primal-rpc-client` crate for tests + production |
+| `libc` (transitive) | Tracked | `tokio`→`mio`→`libc` (mio#1735), `socket2`→`libc`, `signal-hook-registry`→`libc`, `getrandom`→`libc`, `parking_lot_core`→`libc` |
+| `libc` canary | Prepared | `deny.toml` has commented-out `libc` ban — uncomment when upstream migrates |
+| Our code → `libc` | **Zero** | No workspace crate has direct `libc` dependency |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -401,7 +431,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1401 passing, 0 failed, 62 ignored) |
+| `cargo test --workspace` | PASS (1437 passing, 0 failed, 68 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -427,7 +457,7 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 5 springs (86 shaders, 79 compiling SM70) | tests/fixtures/wgsl/corpus/ |
+| WGSL shader corpus (cross-spring) | 6 springs (93 shaders, 84 compiling SM70) | tests/fixtures/wgsl/corpus/ |
 | GLSL compute frontend | naga `glsl-in` feature | `compile_glsl()` public API, 5 GLSL fixtures |
 | SPIR-V roundtrip testing | naga `spv-out` → `compile()` | 10 roundtrip tests (4 passing, 6 ignored) |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
@@ -438,7 +468,7 @@
 | Sealed FFI boundary | wateringHole sovereignty | `drm_ioctl_typed` pub(crate), `BufferHandle` pub(crate) |
 | `shader.compile.*` semantic naming | wateringHole PRIMAL_IPC_PROTOCOL | JSON-RPC + tarpc |
 | Differentiated IPC error codes | wateringHole PRIMAL_IPC_PROTOCOL | jsonrpc.rs |
-| `#[deny(unsafe_code)]` safety boundary | Rust best practice | 6 non-driver crates |
+| `#[deny(unsafe_code)]` safety boundary | Rust best practice | 8/9 crates (all except coral-driver) |
 | Ioctl struct layout tests | Kernel ABI correctness | 14 tests in amd/ioctl.rs |
 | Constructor-validated invariants | Rust defensive programming | ShaderModelInfo::new asserts sm >= 20 |
 | Configurable debug paths | wateringHole agnostic config | CORAL_DEP_GRAPH_PATH env var |

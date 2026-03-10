@@ -10,11 +10,9 @@ pub struct OpBMsk {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(ALU)]
-    pub pos: Src,
-
-    #[src_type(ALU)]
-    pub width: Src,
+    #[src_types(ALU, ALU)]
+    #[src_names(pos, width)]
+    pub srcs: [Src; 2],
 
     pub wrap: bool,
 }
@@ -22,7 +20,7 @@ pub struct OpBMsk {
 impl DisplayOp for OpBMsk {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let wrap = if self.wrap { ".wrap" } else { ".clamp" };
-        write!(f, "bmsk{} {} {}", wrap, self.pos, self.width)
+        write!(f, "bmsk{} {} {}", wrap, self.pos(), self.width())
     }
 }
 impl_display_for_op!(OpBMsk);
@@ -53,11 +51,8 @@ pub struct OpBfe {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    /// The source of bits to extract.
-    #[src_type(ALU)]
-    pub base: Src,
-
-    /// The range of bits to extract. This source is interpreted as four
+    /// [base, range]: The source of bits to extract, and the range.
+    /// The range source is interpreted as four
     /// separate bytes, [b0, b1, b2, b3].
     ///
     /// b0 and b1: unused
@@ -65,8 +60,9 @@ pub struct OpBfe {
     /// b3: the offset of the first bit to extract.
     ///
     /// This matches the way the hardware works.
-    #[src_type(ALU)]
-    pub range: Src,
+    #[src_types(ALU, ALU)]
+    #[src_names(base, range)]
+    pub srcs: [Src; 2],
 
     /// Whether the output is signed
     pub signed: bool,
@@ -84,7 +80,7 @@ impl DisplayOp for OpBfe {
         if self.reverse {
             write!(f, ".rev")?;
         }
-        write!(f, " {} {}", self.base, self.range,)
+        write!(f, " {} {}", self.base(), self.range())
     }
 }
 impl_display_for_op!(OpBfe);
@@ -234,8 +230,7 @@ mod tests {
     fn test_op_bmsk_display() {
         let op = OpBMsk {
             dst: Dst::None,
-            pos: imm_src(0),
-            width: imm_src(8),
+            srcs: [imm_src(0), imm_src(8)],
             wrap: true,
         };
         let s = format!("{op}");
@@ -247,8 +242,7 @@ mod tests {
     fn test_op_bmsk_clamp() {
         let op = OpBMsk {
             dst: Dst::None,
-            pos: zero_src(),
-            width: imm_src(16),
+            srcs: [zero_src(), imm_src(16)],
             wrap: false,
         };
         let s = format!("{op}");
@@ -270,8 +264,7 @@ mod tests {
     fn test_op_bfe_display() {
         let op = OpBfe {
             dst: Dst::None,
-            base: imm_src(0xff),
-            range: imm_src(0),
+            srcs: [imm_src(0xff), imm_src(0)],
             signed: true,
             reverse: true,
         };

@@ -456,18 +456,22 @@ impl fmt::Display for OutType {
 pub struct OpOut {
     pub dst: Dst,
 
-    #[src_type(SSA)]
-    pub handle: Src,
-
-    #[src_type(ALU)]
-    pub stream: Src,
+    #[src_types(SSA, ALU)]
+    #[src_names(handle, stream)]
+    pub srcs: [Src; 2],
 
     pub out_type: OutType,
 }
 
 impl DisplayOp for OpOut {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "out.{} {} {}", self.out_type, self.handle, self.stream)
+        write!(
+            f,
+            "out.{} {} {}",
+            self.out_type,
+            self.handle(),
+            self.stream()
+        )
     }
 }
 impl_display_for_op!(OpOut);
@@ -609,8 +613,7 @@ mod tests {
     fn test_op_vote_display() {
         let op = OpVote {
             op: VoteOp::Any,
-            ballot: Dst::None,
-            vote: Dst::None,
+            dsts: [Dst::None, Dst::None],
             pred: Src::new_imm_bool(true),
         };
         let s = format!("{op}");
@@ -627,8 +630,7 @@ mod tests {
     #[test]
     fn test_op_match_display() {
         let op = OpMatch {
-            pred: Dst::None,
-            mask: Dst::None,
+            dsts: [Dst::None, Dst::None],
             src: zero_src(),
             op: MatchOp::All,
             u64: false,
@@ -720,8 +722,7 @@ mod tests {
     fn test_op_out_display() {
         let op = OpOut {
             dst: Dst::None,
-            handle: zero_src(),
-            stream: zero_src(),
+            srcs: [zero_src(), zero_src()],
             out_type: OutType::Emit,
         };
         let s = format!("{op}");

@@ -244,6 +244,7 @@ fn dispatch_writes_42_and_readback_verifies() {
     dev.free(out_buf).expect("free output buffer");
 }
 
+#[cfg(feature = "rdna2-buffer-read")]
 const DOUBLE_FIRST_SHADER: &str = r"
 @group(0) @binding(0)
 var<storage, read_write> data: array<u32>;
@@ -300,6 +301,7 @@ fn compute_double_readback_verifies() {
     dev.free(data_buf).expect("free");
 }
 
+#[cfg(feature = "rdna2-buffer-read")]
 const ADD_ONE_SHADER: &str = r"
 @group(0) @binding(0) var<storage> a: array<f32>;
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;

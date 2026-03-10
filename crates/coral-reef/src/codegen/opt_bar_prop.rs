@@ -346,8 +346,7 @@ mod tests {
                     clear: false,
                 }),
                 Instr::new(OpBSync {
-                    bar: gpr_ssa.into(),
-                    cond: true.into(),
+                    srcs: [gpr_ssa.into(), true.into()],
                 }),
                 Instr::new(OpExit {}),
             ],
@@ -360,7 +359,7 @@ mod tests {
         let Op::BSync(op) = &bsync.op else {
             panic!("expected BSync");
         };
-        let SrcRef::SSA(ssa) = &op.bar.reference else {
+        let SrcRef::SSA(ssa) = &op.bar().reference else {
             panic!("expected SSA bar source");
         };
         assert_eq!(ssa[0], bar_ssa, "bar should be propagated to original bar");
@@ -379,12 +378,10 @@ mod tests {
                     clear: false,
                 }),
                 Instr::new(OpBSync {
-                    bar: gpr_ssa.into(),
-                    cond: true.into(),
+                    srcs: [gpr_ssa.into(), true.into()],
                 }),
                 Instr::new(OpBSync {
-                    bar: gpr_ssa.into(),
-                    cond: true.into(),
+                    srcs: [gpr_ssa.into(), true.into()],
                 }),
                 Instr::new(OpExit {}),
             ],
@@ -398,7 +395,7 @@ mod tests {
             let Op::BSync(op) = &bsync.op else {
                 panic!("expected BSync");
             };
-            let SrcRef::SSA(ssa) = &op.bar.reference else {
+            let SrcRef::SSA(ssa) = &op.bar().reference else {
                 panic!("expected SSA bar source");
             };
             assert_eq!(ssa[0], bar_ssa);

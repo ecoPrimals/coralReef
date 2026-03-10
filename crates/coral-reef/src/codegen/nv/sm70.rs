@@ -145,7 +145,7 @@ impl ShaderModel for ShaderModel70 {
             | Op::Copy(_)
             | Op::Pin(_)
             | Op::Unpin(_) => true,
-            Op::Ldc(op) => op.offset.is_zero(),
+            Op::Ldc(op) => op.offset().is_zero(),
             // UCLEA  USHL  USHR
             _ => false,
         }
@@ -294,7 +294,7 @@ impl ShaderModel for ShaderModel70 {
     }
 
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
-        Ok(encode_sm70_shader(self, s))
+        crate::codegen::catch_ice(|| encode_sm70_shader(self, s))
     }
 
     fn max_warps(&self) -> u32 {

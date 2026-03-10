@@ -532,21 +532,21 @@ impl<'a> CopyPropPass<'a> {
                 let dst = dst[0];
 
                 let src = match &sel.srcs {
-                    [z, u] if z.is_zero() && u.is_nonzero() => sel.cond.clone().bnot(),
-                    [u, z] if z.is_zero() && u.is_nonzero() => sel.cond.clone(),
+                    [_cond, z, u] if z.is_zero() && u.is_nonzero() => sel.cond().clone().bnot(),
+                    [_cond, u, z] if z.is_zero() && u.is_nonzero() => sel.cond().clone(),
                     _ => return,
                 };
 
                 self.add_b2i(bi, dst, src);
             }
-            Op::ISetP(isetp) if isetp.set_op.is_trivial(&isetp.accum) => {
+            Op::ISetP(isetp) if isetp.set_op.is_trivial(isetp.accum()) => {
                 let Some(dst) = isetp.dst.as_ssa() else {
                     return;
                 };
                 assert!(dst.comps() == 1);
                 let dst = dst[0];
 
-                let src = match (&isetp.srcs[0], &isetp.srcs[1]) {
+                let src = match (isetp.src_a(), isetp.src_b()) {
                     (z, x) | (x, z) if z.is_zero() => x,
                     _ => return,
                 };
@@ -566,7 +566,9 @@ impl<'a> CopyPropPass<'a> {
                 self.add_i2b(bi, dst, src.clone(), inverted);
             }
             Op::IAdd2(add) => {
-                let Some(dst) = add.dst.as_ssa() else { return };
+                let Some(dst) = add.dst().as_ssa() else {
+                    return;
+                };
                 assert!(dst.comps() == 1);
                 let dst = dst[0];
 
@@ -577,7 +579,9 @@ impl<'a> CopyPropPass<'a> {
                 }
             }
             Op::IAdd3(add) => {
-                let Some(dst) = add.dst.as_ssa() else { return };
+                let Some(dst) = add.dst().as_ssa() else {
+                    return;
+                };
                 assert!(dst.comps() == 1);
                 let dst = dst[0];
 
@@ -598,11 +602,16 @@ impl<'a> CopyPropPass<'a> {
                     if let Some(imm) = prmt.as_u32() {
                         self.add_copy(bi, dst[0], SrcType::GPR, imm.into());
                     } else if sel == PrmtSel(0x3210) {
-                        self.add_copy(bi, dst[0], SrcType::GPR, prmt.srcs[0].clone());
+                        self.add_copy(bi, dst[0], SrcType::GPR, prmt.src_a().clone());
                     } else if sel == PrmtSel(0x7654) {
-                        self.add_copy(bi, dst[0], SrcType::GPR, prmt.srcs[1].clone());
+                        self.add_copy(bi, dst[0], SrcType::GPR, prmt.src_b().clone());
                     } else {
-                        self.add_prmt(bi, dst[0], sel, prmt.srcs.clone());
+                        self.add_prmt(
+                            bi,
+                            dst[0],
+                            sel,
+                            [prmt.src_a().clone(), prmt.src_b().clone()],
+                        );
                     }
                 }
             }
@@ -654,12 +663,12 @@ impl<'a> CopyPropPass<'a> {
                 // can only propagate with modifiers if no carry/overflow is
                 // written.
                 let force_alu_src_type = match &instr.op {
-                    Op::IAdd2(add) => !add.carry_out.is_none(),
-                    Op::IAdd2X(add) => !add.carry_out.is_none(),
-                    Op::IAdd3(add) => !add.overflow[0].is_none() || !add.overflow[1].is_none(),
-                    Op::IAdd3X(add) => !add.overflow[0].is_none() || !add.overflow[1].is_none(),
-                    Op::Lea(lea) => !lea.overflow.is_none(),
-                    Op::LeaX(lea) => !lea.overflow.is_none(),
+                    Op::IAdd2(add) => !add.carry_out().is_none(),
+                    Op::IAdd2X(add) => !add.carry_out().is_none(),
+                    Op::IAdd3(add) => !add.overflow_0().is_none() || !add.overflow_1().is_none(),
+                    Op::IAdd3X(add) => !add.overflow_0().is_none() || !add.overflow_1().is_none(),
+                    Op::Lea(lea) => !lea.overflow().is_none(),
+                    Op::LeaX(lea) => !lea.overflow().is_none(),
                     _ => false,
                 };
 

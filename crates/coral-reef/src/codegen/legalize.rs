@@ -294,14 +294,12 @@ pub trait LegalizeBuildHelpers: SSABuilder {
         let old_src = std::mem::replace(src, val.into());
         if self.sm() >= 70 {
             self.push_op(OpIAdd3 {
+                dsts: [val.into(), Dst::None, Dst::None],
                 srcs: [Src::ZERO, old_src, Src::ZERO],
-                overflow: [Dst::None, Dst::None],
-                dst: val.into(),
             });
         } else {
             self.push_op(OpIAdd2 {
-                dst: val.into(),
-                carry_out: Dst::None,
+                dsts: [val.into(), Dst::None],
                 srcs: [Src::ZERO, old_src],
             });
         }
@@ -482,21 +480,32 @@ fn legalize_instr(
         }
     }
 
-    // OpBreak and OpBSsy impose additional RA constraints
-    let mut legalize_break_bssy = |bar_in: &mut Src, bar_out: &mut Dst| {
-        let bar_in_ssa = bar_in
-            .reference
-            .as_ssa()
-            .expect("bar_in source must be SSA value");
-        if !bar_out.is_none() && bl.is_live_after_ip(&bar_in_ssa[0], ip) {
-            let gpr = b.bmov_to_gpr(bar_in.clone());
-            let tmp = b.bmov_to_bar(gpr.into());
-            *bar_in = tmp.into();
-        }
-    };
+    // OpBreak and OpBSSy impose additional RA constraints
     match &mut instr.op {
-        Op::Break(op) => legalize_break_bssy(&mut op.bar_in, &mut op.bar_out),
-        Op::BSSy(op) => legalize_break_bssy(&mut op.bar_in, &mut op.bar_out),
+        Op::Break(op) => {
+            let bar_in_ssa = op
+                .bar_in()
+                .reference
+                .as_ssa()
+                .expect("bar_in source must be SSA value");
+            if !op.bar_out.is_none() && bl.is_live_after_ip(&bar_in_ssa[0], ip) {
+                let gpr = b.bmov_to_gpr(op.bar_in().clone());
+                let tmp = b.bmov_to_bar(gpr.into());
+                op.srcs[0] = tmp.into();
+            }
+        }
+        Op::BSSy(op) => {
+            let bar_in_ssa = op
+                .bar_in()
+                .reference
+                .as_ssa()
+                .expect("bar_in source must be SSA value");
+            if !op.bar_out.is_none() && bl.is_live_after_ip(&bar_in_ssa[0], ip) {
+                let gpr = b.bmov_to_gpr(op.bar_in().clone());
+                let tmp = b.bmov_to_bar(gpr.into());
+                op.srcs[0] = tmp.into();
+            }
+        }
         _ => (),
     }
 

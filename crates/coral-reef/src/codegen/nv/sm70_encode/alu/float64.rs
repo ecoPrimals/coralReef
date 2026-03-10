@@ -69,7 +69,7 @@ impl SM70Op for OpDMul {
 impl SM70Op for OpDSetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum] = &mut self.srcs;
         if !src_is_reg(src0, gpr) && src_is_reg(src1, gpr) {
             std::mem::swap(src0, src1);
             self.cmp_op = self.cmp_op.flip();
@@ -91,6 +91,6 @@ impl SM70Op for OpDSetP {
         e.set_pred_dst(81..84, &self.dst);
         e.set_pred_dst(84..87, &Dst::None); /* dst1 */
 
-        e.set_pred_src(87..90, 90, &self.accum);
+        e.set_pred_src(87..90, 90, self.accum());
     }
 }

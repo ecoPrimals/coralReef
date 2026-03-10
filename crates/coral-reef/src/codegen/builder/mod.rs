@@ -107,8 +107,7 @@ pub trait Builder {
 
             self.push_op(OpPrmt {
                 dst,
-                srcs: [x, y],
-                sel: sel_u32.into(),
+                srcs: [x, y, sel_u32.into()],
                 mode: PrmtMode::Index,
             });
         }

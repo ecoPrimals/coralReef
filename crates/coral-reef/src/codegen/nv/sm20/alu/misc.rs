@@ -17,7 +17,7 @@ impl SM20Op for OpMov {
 impl SM20Op for OpPrmt {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _] = &mut self.srcs;
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::ALU);
         b.copy_alu_src_if_not_reg(src1, GPR, SrcType::ALU);
         self.reduce_sel_imm();
@@ -29,7 +29,7 @@ impl SM20Op for OpPrmt {
             0x9,
             &self.dst,
             &self.srcs[0],
-            &self.sel,
+            self.sel(),
             Some(&self.srcs[1]),
         );
         e.set_field(
@@ -50,12 +50,16 @@ impl SM20Op for OpPrmt {
 impl SM20Op for OpSel {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
-        if swap_srcs_if_not_reg(src0, src1, GPR) {
-            self.cond = self.cond.clone().bnot();
+        let cond_val = self.cond().clone().bnot();
+        let swapped = {
+            let [_, src0, src1] = &mut self.srcs;
+            swap_srcs_if_not_reg(src0, src1, GPR)
+        };
+        if swapped {
+            *self.cond_mut() = cond_val;
         }
-        b.copy_alu_src_if_not_reg(src0, GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(src1, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(&mut self.srcs[1], GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(&mut self.srcs[2], GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
@@ -63,45 +67,45 @@ impl SM20Op for OpSel {
             SM20Unit::Move,
             0x8,
             &self.dst,
-            &self.srcs[0],
             &self.srcs[1],
+            &self.srcs[2],
             None,
         );
-        e.set_pred_src(49..53, &self.cond);
+        e.set_pred_src(49..53, self.cond());
     }
 }
 
 impl SM20Op for OpShfl {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        if matches!(self.lane.reference, SrcRef::CBuf(_)) {
-            b.copy_alu_src(&mut self.lane, GPR, SrcType::ALU);
+        if matches!(self.lane().reference, SrcRef::CBuf(_)) {
+            b.copy_alu_src(self.lane_mut(), GPR, SrcType::ALU);
         }
-        if matches!(self.c.reference, SrcRef::CBuf(_)) {
-            b.copy_alu_src(&mut self.c, GPR, SrcType::ALU);
+        if matches!(self.c().reference, SrcRef::CBuf(_)) {
+            b.copy_alu_src(self.c_mut(), GPR, SrcType::ALU);
         }
         self.reduce_lane_c_imm();
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         e.set_opcode(SM20Unit::Mem, 0x22);
-        e.set_pred_dst2(8..10, 58..59, &self.in_bounds);
-        e.set_dst(14..20, &self.dst);
-        e.set_reg_src(20..26, &self.src);
-        assert!(self.lane.modifier.is_none());
-        if let Some(u) = self.lane.reference.as_u32() {
+        e.set_pred_dst2(8..10, 58..59, self.in_bounds());
+        e.set_dst(14..20, self.dst());
+        e.set_reg_src(20..26, self.src());
+        assert!(self.lane().modifier.is_none());
+        if let Some(u) = self.lane().reference.as_u32() {
             e.set_field(26..32, u);
             e.set_bit(5, true);
         } else {
-            e.set_reg_src(26..32, &self.lane);
+            e.set_reg_src(26..32, self.lane());
             e.set_bit(5, false);
         }
-        assert!(self.c.modifier.is_none());
-        if let Some(u) = self.c.reference.as_u32() {
+        assert!(self.c().modifier.is_none());
+        if let Some(u) = self.c().reference.as_u32() {
             e.set_field(42..55, u);
             e.set_bit(6, true);
         } else {
-            e.set_reg_src(49..55, &self.c);
+            e.set_reg_src(49..55, self.c());
             e.set_bit(6, false);
         }
         e.set_field(

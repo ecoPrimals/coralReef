@@ -85,7 +85,7 @@ impl SM32Op for OpTex {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
@@ -125,7 +125,7 @@ impl SM32Op for OpTld {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
@@ -167,7 +167,7 @@ impl SM32Op for OpTld4 {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
@@ -249,7 +249,7 @@ impl SM32Op for OpTxd {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
@@ -311,23 +311,23 @@ impl SM32Op for OpSuClamp {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
 
-        b.copy_alu_src_if_not_reg(&mut self.coords, GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(&mut self.params, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.coords_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(self.params_mut(), GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         e.encode_form_immreg(
             0xb00,
             0x180,
-            Some(&self.dst),
-            &self.coords,
-            &self.params,
+            Some(self.dst()),
+            self.coords(),
+            self.params(),
             None,
             false,
         );
 
         e.set_field(42..48, self.imm);
-        e.set_pred_dst(48..51, &self.out_of_bounds);
+        e.set_pred_dst(48..51, self.out_of_bounds());
 
         e.set_bit(51, self.is_s32);
         let round = match self.round {
@@ -360,7 +360,7 @@ impl SM32Op for OpSuBfm {
         e.encode_form_immreg(
             0xb68,
             0x1e8,
-            Some(&self.dst),
+            Some(self.dst()),
             &self.srcs[0],
             &self.srcs[1],
             Some(&self.srcs[2]),
@@ -368,7 +368,7 @@ impl SM32Op for OpSuBfm {
         );
 
         e.set_bit(50, self.is_3d);
-        e.set_pred_dst(51..54, &self.pdst);
+        e.set_pred_dst(51..54, self.pdst());
     }
 }
 
@@ -376,9 +376,9 @@ impl SM32Op for OpSuEau {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
 
-        b.copy_alu_src_if_not_reg(&mut self.off, GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(&mut self.bit_field, GPR, SrcType::ALU);
-        b.copy_alu_src_if_not_reg(&mut self.addr, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.off_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(self.bit_field_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.addr_mut(), GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
@@ -386,9 +386,9 @@ impl SM32Op for OpSuEau {
             0xb6c,
             0x1ec,
             Some(&self.dst),
-            &self.off,
-            &self.bit_field,
-            Some(&self.addr),
+            self.off(),
+            self.bit_field(),
+            Some(self.addr()),
             false,
         );
     }
@@ -507,7 +507,7 @@ impl SM32Op for OpSuLdGa {
     fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
-        match &self.format.reference {
+        match &self.format().reference {
             SrcRef::CBuf(cb) => {
                 e.set_opcode(0x300, 2);
                 e.set_mem_type(56..59, self.mem_type);
@@ -520,13 +520,13 @@ impl SM32Op for OpSuLdGa {
                 e.set_mem_type(33..36, self.mem_type);
 
                 e.set_ld_cache_op(31..33, self.cache_op);
-                e.set_reg_src(23..31, &self.format);
+                e.set_reg_src(23..31, self.format());
             }
             _ => panic!("Unhandled format src type"),
         }
 
         // surface pred: 42..46
-        e.set_pred_src(42..46, &self.out_of_bounds);
+        e.set_pred_src(42..46, self.out_of_bounds());
 
         // Surface clamp:
         // 0: zero
@@ -539,7 +539,7 @@ impl SM32Op for OpSuLdGa {
         e.set_dst(&self.dst);
 
         // address
-        e.set_reg_src(10..18, &self.addr);
+        e.set_reg_src(10..18, self.addr());
     }
 }
 
@@ -547,7 +547,7 @@ impl SM32Op for OpSuStGa {
     fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
-        match &self.format.reference {
+        match &self.format().reference {
             SrcRef::CBuf(cb) => {
                 e.set_opcode(0x380, 2);
 
@@ -572,7 +572,7 @@ impl SM32Op for OpSuStGa {
             SrcRef::Zero | SrcRef::Reg(_) => {
                 e.set_opcode(0x79c, 2);
 
-                e.set_reg_src(2..10, &self.format);
+                e.set_reg_src(2..10, self.format());
 
                 // Surface clamp: [ignore, trap, invalid, sdcl]
                 e.set_field(23..25, 0_u8);
@@ -595,10 +595,10 @@ impl SM32Op for OpSuStGa {
         }
 
         // out_of_bounds pred
-        e.set_pred_src(50..54, &self.out_of_bounds);
+        e.set_pred_src(50..54, self.out_of_bounds());
 
         // address
-        e.set_reg_src(10..18, &self.addr);
-        e.set_reg_src(42..50, &self.data);
+        e.set_reg_src(10..18, self.addr());
+        e.set_reg_src(42..50, self.data());
     }
 }

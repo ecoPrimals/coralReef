@@ -7,8 +7,8 @@ use super::*;
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpTex {
-    pub dsts: [Dst; 2],
-    pub fault: Dst,
+    #[dst_names(dst0, dst1, fault)]
+    pub dsts: [Dst; 3],
 
     pub tex: TexRef,
 
@@ -48,8 +48,8 @@ impl_display_for_op!(OpTex);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpTld {
-    pub dsts: [Dst; 2],
-    pub fault: Dst,
+    #[dst_names(dst0, dst1, fault)]
+    pub dsts: [Dst; 3],
 
     pub tex: TexRef,
 
@@ -84,8 +84,8 @@ impl_display_for_op!(OpTld);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpTld4 {
-    pub dsts: [Dst; 2],
-    pub fault: Dst,
+    #[dst_names(dst0, dst1, fault)]
+    pub dsts: [Dst; 3],
 
     pub tex: TexRef,
 
@@ -148,8 +148,8 @@ impl_display_for_op!(OpTmml);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpTxd {
-    pub dsts: [Dst; 2],
-    pub fault: Dst,
+    #[dst_names(dst0, dst1, fault)]
+    pub dsts: [Dst; 3],
 
     pub tex: TexRef,
 
@@ -232,8 +232,7 @@ mod tests {
 
     fn make_op_tex(z_cmpr: bool, nodep: bool, mem_eviction_priority: MemEvictionPriority) -> OpTex {
         OpTex {
-            dsts: [Dst::None, Dst::None],
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None, Dst::None],
             tex: TexRef::Bound(0),
             srcs: [zero_src(), Src::new_imm_u32(1)],
             dim: TexDim::_2D,
@@ -277,8 +276,7 @@ mod tests {
     #[test]
     fn test_op_tld_display() {
         let op = OpTld {
-            dsts: [Dst::None, Dst::None],
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None, Dst::None],
             tex: TexRef::Bindless,
             srcs: [zero_src(), zero_src()],
             dim: TexDim::_3D,
@@ -303,8 +301,7 @@ mod tests {
     #[test]
     fn test_op_tld4_display() {
         let op = OpTld4 {
-            dsts: [Dst::None, Dst::None],
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None, Dst::None],
             tex: TexRef::CBuf(TexCBufRef {
                 idx: 1,
                 offset: 0x20,
@@ -351,8 +348,7 @@ mod tests {
     #[test]
     fn test_op_txd_display() {
         let op = OpTxd {
-            dsts: [Dst::None, Dst::None],
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None, Dst::None],
             tex: TexRef::Bound(0),
             srcs: [zero_src(), zero_src()],
             dim: TexDim::Array2D,

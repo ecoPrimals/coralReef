@@ -4,8 +4,8 @@ use super::*;
 impl SM32Op for OpBfe {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.base, GPR, SrcType::ALU);
-        if let SrcRef::Imm32(imm) = &mut self.range.reference {
+        b.copy_alu_src_if_not_reg(self.base_mut(), GPR, SrcType::ALU);
+        if let SrcRef::Imm32(imm) = &mut self.range_mut().reference {
             *imm &= 0xffff; // Only the lower 2 bytes matter
         }
     }
@@ -15,8 +15,8 @@ impl SM32Op for OpBfe {
             0xc00,
             0x200,
             Some(&self.dst),
-            &self.base,
-            &self.range,
+            self.base(),
+            self.range(),
             None,
             false,
         );
@@ -56,10 +56,11 @@ impl SM32Op for OpFlo {
 impl SM32Op for OpIAdd2 {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
+        let carry_out_none = self.carry_out().is_none();
         let [src0, src1] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         if src0.modifier.is_ineg() && src1.modifier.is_ineg() {
-            assert!(self.carry_out.is_none());
+            assert!(carry_out_none);
             b.copy_alu_src_and_lower_ineg(src0, GPR, SrcType::I32);
         }
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::I32);
@@ -70,7 +71,7 @@ impl SM32Op for OpIAdd2 {
         // encodes as iadd.po which isn't what we want.
         assert!(self.srcs[0].modifier.is_none() || self.srcs[1].modifier.is_none());
 
-        let carry_out = match &self.carry_out {
+        let carry_out = match self.carry_out() {
             Dst::Reg(reg) if reg.file() == RegFile::Carry => true,
             Dst::None => false,
             dst => panic!("Invalid iadd carry_out: {dst}"),
@@ -78,7 +79,7 @@ impl SM32Op for OpIAdd2 {
 
         if let Some(limm) = self.srcs[1].as_imm_not_i20() {
             e.set_opcode(0x400, 1);
-            e.set_dst(&self.dst);
+            e.set_dst(self.dst());
 
             e.set_reg_src(10..18, &self.srcs[0]);
             e.set_field(23..55, limm);
@@ -90,7 +91,7 @@ impl SM32Op for OpIAdd2 {
             e.encode_form_immreg(
                 0xc08,
                 0x208,
-                Some(&self.dst),
+                Some(self.dst()),
                 &self.srcs[0],
                 &self.srcs[1],
                 None,
@@ -108,18 +109,18 @@ impl SM32Op for OpIAdd2 {
 impl SM32Op for OpIAdd2X {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _carry_in] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::I32);
     }
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
-        match &self.carry_in.reference {
+        match &self.carry_in().reference {
             SrcRef::Reg(reg) if reg.file() == RegFile::Carry => (),
             src => panic!("Invalid iadd.x carry_in: {src}"),
         }
 
-        let carry_out = match &self.carry_out {
+        let carry_out = match self.carry_out() {
             Dst::Reg(reg) if reg.file() == RegFile::Carry => true,
             Dst::None => false,
             dst => panic!("Invalid iadd.x carry_out: {dst}"),
@@ -127,7 +128,7 @@ impl SM32Op for OpIAdd2X {
 
         if let Some(limm) = self.srcs[1].as_imm_not_i20() {
             e.set_opcode(0x400, 1);
-            e.set_dst(&self.dst);
+            e.set_dst(self.dst());
 
             e.set_reg_src(10..18, &self.srcs[0]);
             e.set_field(23..55, limm);
@@ -139,7 +140,7 @@ impl SM32Op for OpIAdd2X {
             e.encode_form_immreg(
                 0xc08,
                 0x208,
-                Some(&self.dst),
+                Some(self.dst()),
                 &self.srcs[0],
                 &self.srcs[1],
                 None,
@@ -237,7 +238,7 @@ impl SM32Op for OpIMul {
 impl SM32Op for OpIMnMx {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _min] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::ALU);
         b.copy_alu_src_if_i20_overflow(src1, GPR, SrcType::ALU);
@@ -254,7 +255,7 @@ impl SM32Op for OpIMnMx {
             false,
         );
 
-        e.set_pred_src(42..46, &self.min);
+        e.set_pred_src(42..46, self.min());
         // 46..48: ?|xlo|xmed|xhi
         e.set_bit(
             51,
@@ -269,7 +270,7 @@ impl SM32Op for OpIMnMx {
 impl SM32Op for OpISetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum, _low_cmp] = &mut self.srcs;
         if swap_srcs_if_not_reg(src0, src1, GPR) {
             self.cmp_op = self.cmp_op.flip();
         }
@@ -290,7 +291,7 @@ impl SM32Op for OpISetP {
         );
         e.set_pred_dst(2..5, &Dst::None); // dst1
         e.set_pred_dst(5..8, &self.dst); // dst0
-        e.set_pred_src(42..46, &self.accum);
+        e.set_pred_src(42..46, self.accum());
 
         e.set_bit(46, self.ex);
         e.set_pred_set_op(48..50, self.set_op);
@@ -386,9 +387,9 @@ impl SM32Op for OpPopC {
 impl SM32Op for OpShf {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.high, GPR, SrcType::ALU);
-        b.copy_alu_src_if_not_reg(&mut self.low, GPR, SrcType::GPR);
-        b.copy_alu_src_if_not_reg_or_imm(&mut self.shift, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.high_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.low_mut(), GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg_or_imm(self.shift_mut(), GPR, SrcType::GPR);
         self.reduce_shift_imm();
     }
 
@@ -398,9 +399,9 @@ impl SM32Op for OpShf {
                 0xc7c,
                 0x27c,
                 Some(&self.dst),
-                &self.low,
-                &self.shift,
-                Some(&self.high),
+                self.low(),
+                self.shift(),
+                Some(self.high()),
                 false,
             );
         } else {
@@ -408,9 +409,9 @@ impl SM32Op for OpShf {
                 0xb7c,
                 0x1fc,
                 Some(&self.dst),
-                &self.low,
-                &self.shift,
-                Some(&self.high),
+                self.low(),
+                self.shift(),
+                Some(self.high()),
                 false,
             );
         }
@@ -442,7 +443,7 @@ impl SM32Op for OpShf {
 impl SM32Op for OpShl {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.src, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.src_mut(), GPR, SrcType::GPR);
         self.reduce_shift_imm();
     }
 
@@ -451,8 +452,8 @@ impl SM32Op for OpShl {
             0xc24,
             0x224,
             Some(&self.dst),
-            &self.src,
-            &self.shift,
+            self.src(),
+            self.shift(),
             None,
             false,
         );
@@ -465,7 +466,7 @@ impl SM32Op for OpShl {
 impl SM32Op for OpShr {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.src, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.src_mut(), GPR, SrcType::GPR);
         self.reduce_shift_imm();
     }
 
@@ -474,8 +475,8 @@ impl SM32Op for OpShr {
             0xc14,
             0x214,
             Some(&self.dst),
-            &self.src,
-            &self.shift,
+            self.src(),
+            self.shift(),
             None,
             false,
         );

@@ -39,7 +39,7 @@ impl SM20Op for OpTex {
         e.set_bit(9, self.nodep);
         e.set_dst(14..20, &self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(20..26, &self.srcs[0]);
         e.set_reg_src(26..32, &self.srcs[1]);
         e.set_tex_ndv(45, self.deriv_mode);
@@ -74,7 +74,7 @@ impl SM20Op for OpTld {
         e.set_bit(9, self.nodep);
         e.set_dst(14..20, &self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(20..26, &self.srcs[0]);
         e.set_reg_src(26..32, &self.srcs[1]);
         e.set_tex_channel_mask(46..50, self.channel_mask);
@@ -117,7 +117,7 @@ impl SM20Op for OpTld4 {
         e.set_bit(9, self.nodep);
         e.set_dst(14..20, &self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(20..26, &self.srcs[0]);
         e.set_reg_src(26..32, &self.srcs[1]);
         e.set_bit(45, false);
@@ -305,17 +305,17 @@ impl SM20Op for OpVote {
                 VoteOp::Eq => 2_u8,
             },
         );
-        e.set_dst(14..20, &self.ballot);
+        e.set_dst(14..20, self.ballot());
         e.set_pred_src(20..24, &self.pred);
-        e.set_pred_dst(54..57, &self.vote);
+        e.set_pred_dst(54..57, self.vote());
     }
 }
 
 impl SM20Op for OpOut {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use crate::codegen::ir::RegFile;
-        b.copy_alu_src_if_not_reg(&mut self.handle, RegFile::GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(&mut self.stream, RegFile::GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.handle_mut(), RegFile::GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(self.stream_mut(), RegFile::GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
@@ -323,8 +323,8 @@ impl SM20Op for OpOut {
             SM20Unit::Tex,
             0x7,
             &self.dst,
-            &self.handle,
-            &self.stream,
+            self.handle(),
+            self.stream(),
             None,
         );
         e.set_field(

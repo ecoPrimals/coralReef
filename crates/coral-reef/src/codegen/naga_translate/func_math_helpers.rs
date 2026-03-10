@@ -76,8 +76,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             dst: pred.into(),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdGt,
-            srcs: [Src::from(rounded.clone()), Src::from(x)],
-            accum: SrcRef::True.into(),
+            srcs: [
+                Src::from(rounded.clone()),
+                Src::from(x),
+                SrcRef::True.into(),
+            ],
         }));
         let adjusted = self.alloc_ssa_vec(RegFile::GPR, 2);
         self.push_instr(Instr::new(OpDAdd {
@@ -89,8 +92,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         for c in 0..2usize {
             self.push_instr(Instr::new(OpSel {
                 dst: dst[c].into(),
-                cond: pred.into(),
-                srcs: [adjusted[c].into(), rounded[c].into()],
+                srcs: [pred.into(), adjusted[c].into(), rounded[c].into()],
             }));
         }
         Ok(dst)
@@ -142,18 +144,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 dst: pred.into(),
                 set_op: PredSetOp::And,
                 cmp_op,
-                srcs: [Src::from(a_pair), Src::from(b_pair)],
-                accum: SrcRef::True.into(),
+                srcs: [Src::from(a_pair), Src::from(b_pair), SrcRef::True.into()],
             }));
             self.push_instr(Instr::new(OpSel {
                 dst: dst[idx * 2].into(),
-                cond: pred.into(),
-                srcs: [a_lo.into(), b_lo.into()],
+                srcs: [pred.into(), a_lo.into(), b_lo.into()],
             }));
             self.push_instr(Instr::new(OpSel {
                 dst: dst[idx * 2 + 1].into(),
-                cond: pred.into(),
-                srcs: [a_hi.into(), b_hi.into()],
+                srcs: [pred.into(), a_hi.into(), b_hi.into()],
             }));
         }
         Ok(dst)
@@ -319,8 +318,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             dst: is_gt_one.into(),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdGt,
-            srcs: [abs_x.into(), Src::new_imm_u32(one.to_bits())],
-            accum: SrcRef::True.into(),
+            srcs: [
+                abs_x.into(),
+                Src::new_imm_u32(one.to_bits()),
+                SrcRef::True.into(),
+            ],
             ftz: false,
         }));
 
@@ -334,8 +336,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let t = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
             dst: t.into(),
-            cond: is_gt_one.into(),
-            srcs: [rcp_abs_x.into(), abs_x.into()],
+            srcs: [is_gt_one.into(), rcp_abs_x.into(), abs_x.into()],
         }));
 
         let poly_result = self.emit_f32_atan_poly(t);
@@ -355,8 +356,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let abs_result = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
             dst: abs_result.into(),
-            cond: is_gt_one.into(),
-            srcs: [adjusted.into(), poly_result.into()],
+            srcs: [is_gt_one.into(), adjusted.into(), poly_result.into()],
         }));
 
         let is_neg = self.alloc_ssa(RegFile::Pred);
@@ -364,8 +364,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             dst: is_neg.into(),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdLt,
-            srcs: [x_val.into(), Src::ZERO],
-            accum: SrcRef::True.into(),
+            srcs: [x_val.into(), Src::ZERO, SrcRef::True.into()],
             ftz: false,
         }));
 
@@ -381,8 +380,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let dst = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
             dst: dst.into(),
-            cond: is_neg.into(),
-            srcs: [neg_result.into(), abs_result.into()],
+            srcs: [is_neg.into(), neg_result.into(), abs_result.into()],
         }));
 
         Ok(dst.into())
@@ -419,23 +417,20 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             dst: is_y_gt_x.into(),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdGt,
-            srcs: [abs_y.into(), abs_x.into()],
-            accum: SrcRef::True.into(),
+            srcs: [abs_y.into(), abs_x.into(), SrcRef::True.into()],
             ftz: false,
         }));
 
         let min_val = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFMnMx {
             dst: min_val.into(),
-            srcs: [abs_x.into(), abs_y.into()],
-            min: SrcRef::True.into(),
+            srcs: [abs_x.into(), abs_y.into(), SrcRef::True.into()],
             ftz: false,
         }));
         let max_val = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFMnMx {
             dst: max_val.into(),
-            srcs: [abs_x.into(), abs_y.into()],
-            min: SrcRef::False.into(),
+            srcs: [abs_x.into(), abs_y.into(), SrcRef::False.into()],
             ftz: false,
         }));
 
@@ -471,8 +466,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let r1 = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
             dst: r1.into(),
-            cond: is_y_gt_x.into(),
-            srcs: [swap_adj.into(), poly_result.into()],
+            srcs: [is_y_gt_x.into(), swap_adj.into(), poly_result.into()],
         }));
 
         let is_x_neg = self.alloc_ssa(RegFile::Pred);
@@ -480,8 +474,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             dst: is_x_neg.into(),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdLt,
-            srcs: [x_val.into(), Src::ZERO],
-            accum: SrcRef::True.into(),
+            srcs: [x_val.into(), Src::ZERO, SrcRef::True.into()],
             ftz: false,
         }));
         let pi_minus_r = self.alloc_ssa(RegFile::GPR);
@@ -495,8 +488,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let r2 = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
             dst: r2.into(),
-            cond: is_x_neg.into(),
-            srcs: [pi_minus_r.into(), r1.into()],
+            srcs: [is_x_neg.into(), pi_minus_r.into(), r1.into()],
         }));
 
         let is_y_neg = self.alloc_ssa(RegFile::Pred);
@@ -504,8 +496,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             dst: is_y_neg.into(),
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdLt,
-            srcs: [y_val.into(), Src::ZERO],
-            accum: SrcRef::True.into(),
+            srcs: [y_val.into(), Src::ZERO, SrcRef::True.into()],
             ftz: false,
         }));
         let neg_r = self.alloc_ssa(RegFile::GPR);
@@ -519,8 +510,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let dst = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
             dst: dst.into(),
-            cond: is_y_neg.into(),
-            srcs: [neg_r.into(), r2.into()],
+            srcs: [is_y_neg.into(), neg_r.into(), r2.into()],
         }));
 
         Ok(dst.into())

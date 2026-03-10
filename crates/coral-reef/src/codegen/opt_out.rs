@@ -26,11 +26,11 @@ fn try_combine_outs(emit: &mut Instr, cut: &Instr) -> bool {
         return false;
     };
 
-    if cut.handle.as_ssa() != Some(handle) {
+    if cut.handle().as_ssa() != Some(handle) {
         return false;
     }
 
-    if emit.stream != cut.stream {
+    if emit.stream() != cut.stream() {
         return false;
     }
 
@@ -138,14 +138,12 @@ mod tests {
             vec![
                 Instr::new(OpOut {
                     dst: handle.into(),
-                    handle: handle.into(),
-                    stream: stream.clone(),
+                    srcs: [handle.into(), stream.clone()],
                     out_type: OutType::Emit,
                 }),
                 Instr::new(OpOut {
                     dst: Dst::None,
-                    handle: handle.into(),
-                    stream,
+                    srcs: [handle.into(), stream],
                     out_type: OutType::Cut,
                 }),
                 Instr::new(OpExit {}),

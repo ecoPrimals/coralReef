@@ -98,10 +98,10 @@ impl SM50Op for OpPrmt {
     }
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
-        match &self.sel.reference {
+        match &self.sel().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
                 e.set_opcode(0x5bc0);
-                e.set_reg_src(20..28, &self.sel);
+                e.set_reg_src(20..28, self.sel());
             }
             SrcRef::Imm32(imm32) => {
                 e.set_opcode(0x36c0);
@@ -136,19 +136,23 @@ impl SM50Op for OpPrmt {
 impl SM50Op for OpSel {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
-        if swap_srcs_if_not_reg(src0, src1, GPR) {
-            self.cond = self.cond.clone().bnot();
+        let cond_val = self.cond().clone().bnot();
+        let swapped = {
+            let [_, src0, src1] = &mut self.srcs;
+            swap_srcs_if_not_reg(src0, src1, GPR)
+        };
+        if swapped {
+            *self.cond_mut() = cond_val;
         }
-        b.copy_alu_src_if_not_reg(src0, GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(src1, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(&mut self.srcs[1], GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(&mut self.srcs[2], GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
-        match &self.srcs[1].reference {
+        match &self.srcs[2].reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
                 e.set_opcode(0x5ca0);
-                e.set_reg_src_ref(20..28, &self.srcs[1].reference);
+                e.set_reg_src_ref(20..28, &self.srcs[2].reference);
             }
             SrcRef::Imm32(imm32) => {
                 e.set_opcode(0x38a0);
@@ -162,31 +166,31 @@ impl SM50Op for OpSel {
         }
 
         e.set_dst(&self.dst);
-        e.set_reg_src(8..16, &self.srcs[0]);
-        e.set_pred_src(39..42, 42, &self.cond);
+        e.set_reg_src(8..16, &self.srcs[1]);
+        e.set_pred_src(39..42, 42, self.cond());
     }
 }
 
 impl SM50Op for OpShfl {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.src, GPR, SrcType::GPR);
-        b.copy_alu_src_if_not_reg_or_imm(&mut self.lane, GPR, SrcType::ALU);
-        b.copy_alu_src_if_not_reg_or_imm(&mut self.c, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.src_mut(), GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg_or_imm(self.lane_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg_or_imm(self.c_mut(), GPR, SrcType::ALU);
         self.reduce_lane_c_imm();
     }
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xef10);
 
-        e.set_dst(&self.dst);
-        e.set_pred_dst(48..51, &self.in_bounds);
-        e.set_reg_src(8..16, &self.src);
+        e.set_dst(self.dst());
+        e.set_pred_dst(48..51, self.in_bounds());
+        e.set_reg_src(8..16, self.src());
 
-        match &self.lane.reference {
+        match &self.lane().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
                 e.set_bit(28, false);
-                e.set_reg_src(20..28, &self.lane);
+                e.set_reg_src(20..28, self.lane());
             }
             SrcRef::Imm32(imm32) => {
                 e.set_bit(28, true);
@@ -194,10 +198,10 @@ impl SM50Op for OpShfl {
             }
             src => panic!("Invalid shfl lane: {src}"),
         }
-        match &self.c.reference {
+        match &self.c().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
                 e.set_bit(29, false);
-                e.set_reg_src(39..47, &self.c);
+                e.set_reg_src(39..47, self.c());
             }
             SrcRef::Imm32(imm32) => {
                 e.set_bit(29, true);

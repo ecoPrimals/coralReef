@@ -25,7 +25,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpIAdd3 {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         encode_vop2_from_srcs(
             isa::vop2::V_ADD_NC_U32,
-            &self.dst,
+            self.dst(),
             &self.srcs[0],
             &self.srcs[1],
             e,
@@ -52,7 +52,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpIMad {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpIMnMx {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        let is_min = matches!(self.min.reference, SrcRef::True);
+        let is_min = matches!(self.min().reference, SrcRef::True);
         let opcode = if self.cmp_type.is_signed() {
             if is_min {
                 isa::vop2::V_MIN_I32
@@ -66,7 +66,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpIMnMx {
                 isa::vop2::V_MAX_U32
             }
         };
-        encode_vop2_from_srcs(opcode, &self.dst, &self.srcs[0], &self.srcs[1], e)
+        encode_vop2_from_srcs(opcode, &self.dst, self.src_a(), self.src_b(), e)
     }
 }
 
@@ -170,9 +170,9 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpLop3 {
 impl EncodeOp<AmdOpEncoder<'_>> for OpShl {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
-        let shift_enc = src_to_encoding(&self.shift)?;
+        let shift_enc = src_to_encoding(self.shift())?;
 
-        if let Ok(src_vgpr) = src_to_vgpr_index(&self.src) {
+        if let Ok(src_vgpr) = src_to_vgpr_index(self.src()) {
             let mut words = Rdna2Encoder::encode_vop2(
                 isa::vop2::V_LSHLREV_B32,
                 AmdRegRef::vgpr(dst_reg),
@@ -182,7 +182,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShl {
             shift_enc.extend_with_literal(&mut words);
             Ok(words)
         } else {
-            let src_enc = src_to_encoding(&self.src)?;
+            let src_enc = src_to_encoding(self.src())?;
             let (mut prefix, mat_src) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
             let (prefix2, mat_shift) = materialize_if_literal(e.scratch_vgpr_1, &shift_enc);
             prefix.extend(prefix2);
@@ -211,14 +211,14 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShl {
 impl EncodeOp<AmdOpEncoder<'_>> for OpShr {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
-        let shift_enc = src_to_encoding(&self.shift)?;
+        let shift_enc = src_to_encoding(self.shift())?;
         let opcode = if self.signed {
             isa::vop2::V_ASHRREV_I32
         } else {
             isa::vop2::V_LSHRREV_B32
         };
 
-        if let Ok(src_vgpr) = src_to_vgpr_index(&self.src) {
+        if let Ok(src_vgpr) = src_to_vgpr_index(self.src()) {
             let mut words = Rdna2Encoder::encode_vop2(
                 opcode,
                 AmdRegRef::vgpr(dst_reg),
@@ -228,7 +228,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShr {
             shift_enc.extend_with_literal(&mut words);
             Ok(words)
         } else {
-            let src_enc = src_to_encoding(&self.src)?;
+            let src_enc = src_to_encoding(self.src())?;
             let (mut prefix, mat_src) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
             let (prefix2, mat_shift) = materialize_if_literal(e.scratch_vgpr_1, &shift_enc);
             prefix.extend(prefix2);
@@ -260,9 +260,9 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShf {
         encode_vop3_from_srcs(
             isa::vop3::V_ALIGNBIT_B32,
             &self.dst,
-            &self.high,
-            &self.low,
-            &self.shift,
+            self.high(),
+            self.low(),
+            self.shift(),
             e,
         )
     }
@@ -273,9 +273,9 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShf {
 impl EncodeOp<AmdOpEncoder<'_>> for OpSel {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
-        let src0_enc = src_to_encoding(&self.srcs[0])?;
+        let src0_enc = src_to_encoding(&self.srcs[1])?;
 
-        if let Ok(src1_vgpr) = src_to_vgpr_index(&self.srcs[1]) {
+        if let Ok(src1_vgpr) = src_to_vgpr_index(&self.srcs[2]) {
             let mut words = Rdna2Encoder::encode_vop2(
                 isa::vop2::V_CNDMASK_B32,
                 AmdRegRef::vgpr(dst_reg),
@@ -285,7 +285,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpSel {
             src0_enc.extend_with_literal(&mut words);
             Ok(words)
         } else {
-            let src1_enc = src_to_encoding(&self.srcs[1])?;
+            let src1_enc = src_to_encoding(&self.srcs[2])?;
             let (mut prefix, mat_src1) = materialize_if_literal(e.scratch_vgpr_0, &src1_enc);
             let (prefix2, mat_src0) = materialize_if_literal(e.scratch_vgpr_1, &src0_enc);
             prefix.extend(prefix2);
@@ -341,7 +341,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpBfe {
         } else {
             isa::vop3::V_BFE_U32
         };
-        encode_vop3_from_srcs(opcode, &self.dst, &self.base, &self.range, &Src::ZERO, e)
+        encode_vop3_from_srcs(opcode, &self.dst, self.base(), self.range(), &Src::ZERO, e)
     }
 }
 
@@ -357,8 +357,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpBMsk {
         encode_vop3_from_srcs(
             isa::vop3::V_BFE_U32,
             &self.dst,
-            &self.pos,
-            &self.width,
+            self.pos(),
+            self.width(),
             &Src::ZERO,
             e,
         )
@@ -394,8 +394,7 @@ mod tests {
     #[test]
     fn test_encode_iadd3_success() {
         let op = OpIAdd3 {
-            dst: dst_reg(0),
-            overflow: [Dst::None, Dst::None],
+            dsts: [dst_reg(0), Dst::None, Dst::None],
             srcs: [vgpr(1), vgpr(2), vgpr(3)],
         };
         let labels = FxHashMap::default();
@@ -409,9 +408,8 @@ mod tests {
     fn test_encode_imnmx_signed_min() {
         let op = OpIMnMx {
             dst: dst_reg(0),
-            min: Src::new_imm_bool(true),
-            srcs: [vgpr(1), vgpr(2)],
             cmp_type: IntCmpType::I32,
+            srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(true)],
         };
         let labels = FxHashMap::default();
         let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
@@ -422,9 +420,8 @@ mod tests {
     fn test_encode_imnmx_unsigned_max() {
         let op = OpIMnMx {
             dst: dst_reg(0),
-            min: Src::new_imm_bool(false),
-            srcs: [vgpr(1), vgpr(2)],
             cmp_type: IntCmpType::U32,
+            srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(false)],
         };
         let labels = FxHashMap::default();
         let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
@@ -461,8 +458,7 @@ mod tests {
     fn test_encode_shr_signed() {
         let op = OpShr {
             dst: dst_reg(0),
-            src: vgpr(1),
-            shift: vgpr(2),
+            srcs: [vgpr(1), vgpr(2)],
             wrap: false,
             signed: true,
         };
@@ -475,8 +471,7 @@ mod tests {
     fn test_encode_shr_unsigned() {
         let op = OpShr {
             dst: dst_reg(0),
-            src: vgpr(1),
-            shift: vgpr(2),
+            srcs: [vgpr(1), vgpr(2)],
             wrap: false,
             signed: false,
         };
@@ -490,8 +485,7 @@ mod tests {
         let mut ssa_alloc = SSAValueAllocator::new();
         let dst_ssa = ssa_alloc.alloc(RegFile::GPR);
         let op = OpIAdd3 {
-            dst: Dst::SSA([dst_ssa].into()),
-            overflow: [Dst::None, Dst::None],
+            dsts: [Dst::SSA([dst_ssa].into()), Dst::None, Dst::None],
             srcs: [vgpr(1), vgpr(2), vgpr(3)],
         };
         let labels = FxHashMap::default();

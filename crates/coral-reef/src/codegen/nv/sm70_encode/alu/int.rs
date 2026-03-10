@@ -36,7 +36,7 @@ pub(super) fn fold_lop_src(src: &Src, x: &mut u8) {
 impl SM70Op for OpBMsk {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.pos, gpr, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.pos_mut(), gpr, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
@@ -44,16 +44,16 @@ impl SM70Op for OpBMsk {
             e.encode_ualu(
                 0x09b,
                 Some(&self.dst),
-                Some(&self.pos),
-                Some(&self.width),
+                Some(self.pos()),
+                Some(self.width()),
                 None,
             );
         } else {
             e.encode_alu(
                 0x01b,
                 Some(&self.dst),
-                Some(&self.pos),
-                Some(&self.width),
+                Some(self.pos()),
+                Some(self.width()),
                 None,
             );
         }
@@ -108,12 +108,12 @@ impl SM70Op for OpIAbs {
 impl SM70Op for OpIAdd3 {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
+        let overflow_none = self.overflow_0().is_none() && self.overflow_1().is_none();
         let [src0, src1, src2] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, gpr);
         swap_srcs_if_not_reg(src2, src1, gpr);
         if !src0.is_unmodified() && !src1.is_unmodified() {
-            assert!(self.overflow[0].is_none());
-            assert!(self.overflow[1].is_none());
+            assert!(overflow_none);
             b.copy_alu_src_and_lower_ineg(src0, gpr, SrcType::I32);
         }
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::I32);
@@ -128,7 +128,7 @@ impl SM70Op for OpIAdd3 {
         if self.is_uniform() {
             e.encode_ualu(
                 0x090,
-                Some(&self.dst),
+                Some(self.dst()),
                 Some(&self.srcs[0]),
                 Some(&self.srcs[1]),
                 Some(&self.srcs[2]),
@@ -136,7 +136,7 @@ impl SM70Op for OpIAdd3 {
         } else {
             e.encode_alu(
                 0x010,
-                Some(&self.dst),
+                Some(self.dst()),
                 Some(&self.srcs[0]),
                 Some(&self.srcs[1]),
                 Some(&self.srcs[2]),
@@ -146,32 +146,30 @@ impl SM70Op for OpIAdd3 {
         e.set_pred_src(87..90, 90, &false.into());
         e.set_pred_src(77..80, 80, &false.into());
 
-        e.set_pred_dst(81..84, &self.overflow[0]);
-        e.set_pred_dst(84..87, &self.overflow[1]);
+        e.set_pred_dst(81..84, self.overflow_0());
+        e.set_pred_dst(84..87, self.overflow_1());
     }
 }
 
 impl SM70Op for OpIAdd3X {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1, src2] = &mut self.srcs;
+        let [src0, src1, src2, ..] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, gpr);
         swap_srcs_if_not_reg(src2, src1, gpr);
         if !src0.is_unmodified() && !src1.is_unmodified() {
             let val = b.alloc_ssa(gpr);
             let old_src0 = std::mem::replace(src0, val.into());
             b.push_op(Self {
-                srcs: [Src::ZERO, old_src0, Src::ZERO],
-                overflow: [Dst::None, Dst::None],
-                dst: val.into(),
-                carry: [false.into(), false.into()],
+                dsts: [val.into(), Dst::None, Dst::None],
+                srcs: [Src::ZERO, old_src0, Src::ZERO, false.into(), false.into()],
             });
         }
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::B32);
         b.copy_alu_src_if_both_not_reg(src1, src2, gpr, SrcType::B32);
         if !self.is_uniform() {
-            b.copy_src_if_upred(&mut self.carry[0]);
-            b.copy_src_if_upred(&mut self.carry[1]);
+            b.copy_src_if_upred(self.carry_0_mut());
+            b.copy_src_if_upred(self.carry_1_mut());
         }
     }
 
@@ -182,31 +180,31 @@ impl SM70Op for OpIAdd3X {
         if self.is_uniform() {
             e.encode_ualu(
                 0x090,
-                Some(&self.dst),
+                Some(self.dst()),
                 Some(&self.srcs[0]),
                 Some(&self.srcs[1]),
                 Some(&self.srcs[2]),
             );
 
-            e.set_upred_src(87..90, 90, &self.carry[0]);
-            e.set_upred_src(77..80, 80, &self.carry[1]);
+            e.set_upred_src(87..90, 90, self.carry_0());
+            e.set_upred_src(77..80, 80, self.carry_1());
         } else {
             e.encode_alu(
                 0x010,
-                Some(&self.dst),
+                Some(self.dst()),
                 Some(&self.srcs[0]),
                 Some(&self.srcs[1]),
                 Some(&self.srcs[2]),
             );
 
-            e.set_pred_src(87..90, 90, &self.carry[0]);
-            e.set_pred_src(77..80, 80, &self.carry[1]);
+            e.set_pred_src(87..90, 90, self.carry_0());
+            e.set_pred_src(77..80, 80, self.carry_1());
         }
 
         e.set_bit(74, true); // .X
 
-        e.set_pred_dst(81..84, &self.overflow[0]);
-        e.set_pred_dst(84..87, &self.overflow[1]);
+        e.set_pred_dst(81..84, self.overflow_0());
+        e.set_pred_dst(84..87, self.overflow_1());
     }
 }
 
@@ -318,7 +316,7 @@ impl SM70Op for OpIMad64 {
 impl SM70Op for OpIMnMx {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _min] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, gpr);
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
     }
@@ -331,7 +329,7 @@ impl SM70Op for OpIMnMx {
             Some(&self.srcs[1]),
             None,
         );
-        e.set_pred_src(87..90, 90, &self.min);
+        e.set_pred_src(87..90, 90, self.min());
         e.set_bit(
             73,
             match self.cmp_type {
@@ -351,7 +349,7 @@ impl SM70Op for OpIMnMx {
 impl SM70Op for OpISetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum, _low_cmp] = &mut self.srcs;
         if !src_is_reg(src0, gpr) && src_is_reg(src1, gpr) {
             std::mem::swap(src0, src1);
             self.cmp_op = self.cmp_op.flip();
@@ -359,8 +357,8 @@ impl SM70Op for OpISetP {
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
         b.copy_alu_src_if_pred(src1, gpr, SrcType::ALU);
         if !self.is_uniform() {
-            b.copy_src_if_upred(&mut self.low_cmp);
-            b.copy_src_if_upred(&mut self.accum);
+            b.copy_src_if_upred(self.low_cmp_mut());
+            b.copy_src_if_upred(self.accum_mut());
         }
     }
 
@@ -368,13 +366,13 @@ impl SM70Op for OpISetP {
         if self.is_uniform() {
             e.encode_ualu(0x08c, None, Some(&self.srcs[0]), Some(&self.srcs[1]), None);
 
-            e.set_upred_src(68..71, 71, &self.low_cmp);
-            e.set_upred_src(87..90, 90, &self.accum);
+            e.set_upred_src(68..71, 71, self.low_cmp());
+            e.set_upred_src(87..90, 90, self.accum());
         } else {
             e.encode_alu(0x00c, None, Some(&self.srcs[0]), Some(&self.srcs[1]), None);
 
-            e.set_pred_src(68..71, 71, &self.low_cmp);
-            e.set_pred_src(87..90, 90, &self.accum);
+            e.set_pred_src(68..71, 71, self.low_cmp());
+            e.set_pred_src(87..90, 90, self.accum());
         }
 
         e.set_bit(72, self.ex);
@@ -397,34 +395,35 @@ impl SM70Op for OpISetP {
 impl SM70Op for OpLea {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.a, gpr, SrcType::ALU);
+        let [a, b_src, a_high] = &mut self.srcs;
+        b.copy_alu_src_if_not_reg(a, gpr, SrcType::ALU);
         if self.dst_high {
-            b.copy_alu_src_if_both_not_reg(&self.b, &mut self.a_high, gpr, SrcType::ALU);
+            b.copy_alu_src_if_both_not_reg(&*b_src, a_high, gpr, SrcType::ALU);
         }
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
-        assert!(self.a.modifier == SrcMod::None);
-        assert!(self.intermediate_mod == SrcMod::None || self.b.modifier == SrcMod::None);
+        assert!(self.a().modifier == SrcMod::None);
+        assert!(self.intermediate_mod == SrcMod::None || self.b().modifier == SrcMod::None);
 
         let zero = 0.into();
         let c = if self.dst_high {
-            Some(&self.a_high)
+            Some(self.a_high())
         } else {
             // On Ada and earlier src2 is ignored if !dst_high; on Blackwell+ it does something.
             Some(&zero)
         };
 
         if self.is_uniform() {
-            e.encode_ualu(0x091, Some(&self.dst), Some(&self.a), Some(&self.b), c);
+            e.encode_ualu(0x091, Some(self.dst()), Some(self.a()), Some(self.b()), c);
         } else {
-            e.encode_alu(0x011, Some(&self.dst), Some(&self.a), Some(&self.b), c);
+            e.encode_alu(0x011, Some(self.dst()), Some(self.a()), Some(self.b()), c);
         }
 
         e.set_bit(72, self.intermediate_mod.is_ineg());
         e.set_field(75..80, self.shift);
         e.set_bit(80, self.dst_high);
-        e.set_pred_dst(81..84, &self.overflow);
+        e.set_pred_dst(81..84, self.overflow());
         e.set_bit(74, false); // .X
     }
 }
@@ -432,35 +431,36 @@ impl SM70Op for OpLea {
 impl SM70Op for OpLeaX {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.a, gpr, SrcType::ALU);
+        let [a, b_src, a_high, _carry] = &mut self.srcs;
+        b.copy_alu_src_if_not_reg(a, gpr, SrcType::ALU);
         if self.dst_high {
-            b.copy_alu_src_if_both_not_reg(&self.b, &mut self.a_high, gpr, SrcType::ALU);
+            b.copy_alu_src_if_both_not_reg(&*b_src, a_high, gpr, SrcType::ALU);
         }
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
-        assert!(self.a.modifier == SrcMod::None);
-        assert!(self.intermediate_mod == SrcMod::None || self.b.modifier == SrcMod::None);
+        assert!(self.a().modifier == SrcMod::None);
+        assert!(self.intermediate_mod == SrcMod::None || self.b().modifier == SrcMod::None);
 
         let c = if self.dst_high {
-            Some(&self.a_high)
+            Some(self.a_high())
         } else {
             // On Ada and earlier src2 is ignored if !dst_high; on Blackwell+ it does something.
             Some(&Src::ZERO)
         };
 
         if self.is_uniform() {
-            e.encode_ualu(0x091, Some(&self.dst), Some(&self.a), Some(&self.b), c);
-            e.set_upred_src(87..90, 90, &self.carry);
+            e.encode_ualu(0x091, Some(self.dst()), Some(self.a()), Some(self.b()), c);
+            e.set_upred_src(87..90, 90, self.carry());
         } else {
-            e.encode_alu(0x011, Some(&self.dst), Some(&self.a), Some(&self.b), c);
-            e.set_pred_src(87..90, 90, &self.carry);
+            e.encode_alu(0x011, Some(self.dst()), Some(self.a()), Some(self.b()), c);
+            e.set_pred_src(87..90, 90, self.carry());
         }
 
         e.set_bit(72, self.intermediate_mod.is_bnot());
         e.set_field(75..80, self.shift);
         e.set_bit(80, self.dst_high);
-        e.set_pred_dst(81..84, &self.overflow);
+        e.set_pred_dst(81..84, self.overflow());
         e.set_bit(74, true); // .X
     }
 }
@@ -545,8 +545,9 @@ impl SM70Op for OpPopC {
 impl SM70Op for OpShf {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.low, gpr, SrcType::ALU);
-        b.copy_alu_src_if_both_not_reg(&self.shift, &mut self.high, gpr, SrcType::ALU);
+        let [low, high, shift] = &mut self.srcs;
+        b.copy_alu_src_if_not_reg(low, gpr, SrcType::ALU);
+        b.copy_alu_src_if_both_not_reg(&*shift, high, gpr, SrcType::ALU);
         self.reduce_shift_imm();
     }
 
@@ -555,17 +556,17 @@ impl SM70Op for OpShf {
             e.encode_ualu(
                 0x099,
                 Some(&self.dst),
-                Some(&self.low),
-                Some(&self.shift),
-                Some(&self.high),
+                Some(self.low()),
+                Some(self.shift()),
+                Some(self.high()),
             );
         } else {
             e.encode_alu(
                 0x019,
                 Some(&self.dst),
-                Some(&self.low),
-                Some(&self.shift),
-                Some(&self.high),
+                Some(self.low()),
+                Some(self.shift()),
+                Some(self.high()),
             );
         }
 

@@ -527,8 +527,7 @@ mod tests {
 
         // Coupled ALU (IAdd3) does not need scoreboards for GPR
         let iadd3 = Op::IAdd3(Box::new(OpIAdd3 {
-            dst: gpr_dst(0),
-            overflow: [Dst::None, Dst::None],
+            dsts: [gpr_dst(0), Dst::None, Dst::None],
             srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
         }));
         assert!(!SM120Latency::needs_scoreboards(&iadd3));
@@ -556,8 +555,7 @@ mod tests {
     #[test]
     fn test_war_latency() {
         let read = Op::IAdd3(Box::new(OpIAdd3 {
-            dst: gpr_dst(0),
-            overflow: [Dst::None, Dst::None],
+            dsts: [gpr_dst(0), Dst::None, Dst::None],
             srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
         }));
         let write = Op::DAdd(Box::new(OpDAdd {
@@ -580,8 +578,7 @@ mod tests {
             dnz: false,
         }));
         let b = Op::IAdd3(Box::new(OpIAdd3 {
-            dst: gpr_dst(1),
-            overflow: [Dst::None, Dst::None],
+            dsts: [gpr_dst(1), Dst::None, Dst::None],
             srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
         }));
         let lat = SM120Latency::waw(&a, 0, &b, 0, false);

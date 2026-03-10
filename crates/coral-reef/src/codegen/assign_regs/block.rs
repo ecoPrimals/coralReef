@@ -179,7 +179,7 @@ impl AssignRegsBlock {
 
                 if let Dst::SSA(ssa) = &op.bar_out {
                     let reg = *op
-                        .bar_in
+                        .bar_in()
                         .reference
                         .as_reg()
                         .expect("bar_in must be register after RA");
@@ -204,7 +204,7 @@ impl AssignRegsBlock {
 
                 if let Dst::SSA(ssa) = &op.bar_out {
                     let reg = *op
-                        .bar_in
+                        .bar_in()
                         .reference
                         .as_reg()
                         .expect("bar_in must be register after RA");

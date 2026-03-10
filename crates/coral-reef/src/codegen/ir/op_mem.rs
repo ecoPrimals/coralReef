@@ -55,11 +55,9 @@ impl fmt::Display for LdcMode {
 pub struct OpLdc {
     pub dst: Dst,
 
-    #[src_type(ALU)]
-    pub cb: Src,
-
-    #[src_type(GPR)]
-    pub offset: Src,
+    #[src_types(ALU, GPR)]
+    #[src_names(cb, offset)]
+    pub srcs: [Src; 2],
 
     pub mode: LdcMode,
     pub mem_type: MemType,
@@ -67,16 +65,16 @@ pub struct OpLdc {
 
 impl DisplayOp for OpLdc {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let SrcRef::CBuf(cb) = &self.cb.reference else {
+        let SrcRef::CBuf(cb) = &self.cb().reference else {
             panic!("ICE: Not a cbuf");
         };
         write!(f, "ldc{}{} {}[", self.mode, self.mem_type, cb.buf)?;
-        if self.offset.is_zero() {
+        if self.offset().is_zero() {
             write!(f, "+{:#x}", cb.offset)?;
         } else if cb.offset == 0 {
-            write!(f, "{}", self.offset)?;
+            write!(f, "{}", self.offset())?;
         } else {
-            write!(f, "{}+{:#x}", self.offset, cb.offset)?;
+            write!(f, "{}+{:#x}", self.offset(), cb.offset)?;
         }
         write!(f, "]")
     }
@@ -135,9 +133,9 @@ impl_display_for_op!(OpLdsm);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpLdSharedLock {
-    pub dst: Dst,
-    #[dst_type(Pred)]
-    pub locked: Dst,
+    #[dst_types(Vec, Pred)]
+    #[dst_names(dst, locked)]
+    pub dsts: [Dst; 2],
 
     #[src_type(GPR)]
     pub addr: Src,
@@ -160,11 +158,9 @@ impl_display_for_op!(OpLdSharedLock);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpSt {
-    #[src_type(GPR)]
-    pub addr: Src,
-
-    #[src_type(SSA)]
-    pub data: Src,
+    #[src_types(GPR, SSA)]
+    #[src_names(addr, data)]
+    pub srcs: [Src; 2],
 
     pub offset: i32,
     pub stride: OffsetStride,
@@ -173,11 +169,11 @@ pub struct OpSt {
 
 impl DisplayOp for OpSt {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "st{} [{}{}", self.access, self.addr, self.stride)?;
+        write!(f, "st{} [{}{}", self.access, self.addr(), self.stride)?;
         if self.offset > 0 {
             write!(f, "+{:#x}", self.offset)?;
         }
-        write!(f, "] {}", self.data)
+        write!(f, "] {}", self.data())
     }
 }
 impl_display_for_op!(OpSt);
@@ -191,10 +187,9 @@ pub struct OpStSCheckUnlock {
     #[dst_type(Pred)]
     pub locked: Dst,
 
-    #[src_type(GPR)]
-    pub addr: Src,
-    #[src_type(SSA)]
-    pub data: Src,
+    #[src_types(GPR, SSA)]
+    #[src_names(addr, data)]
+    pub srcs: [Src; 2],
 
     pub offset: i32,
     pub mem_type: MemType,
@@ -202,11 +197,11 @@ pub struct OpStSCheckUnlock {
 
 impl DisplayOp for OpStSCheckUnlock {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "stscul{} [{}", self.mem_type, self.addr)?;
+        write!(f, "stscul{} [{}", self.mem_type, self.addr())?;
         if self.offset > 0 {
             write!(f, "+{:#x}", self.offset)?;
         }
-        write!(f, "] {}", self.data)
+        write!(f, "] {}", self.data())
     }
 }
 impl_display_for_op!(OpStSCheckUnlock);
@@ -216,14 +211,9 @@ impl_display_for_op!(OpStSCheckUnlock);
 pub struct OpAtom {
     pub dst: Dst,
 
-    #[src_type(GPR)]
-    pub addr: Src,
-
-    #[src_type(GPR)]
-    pub cmpr: Src,
-
-    #[src_type(SSA)]
-    pub data: Src,
+    #[src_types(GPR, GPR, SSA)]
+    #[src_names(addr, cmpr, data)]
+    pub srcs: [Src; 3],
 
     pub atom_op: AtomOp,
     pub atom_type: AtomType,
@@ -248,20 +238,20 @@ impl DisplayOp for OpAtom {
             self.mem_eviction_priority,
         )?;
         write!(f, " [")?;
-        if !self.addr.is_zero() {
-            write!(f, "{}{}", self.addr, self.addr_stride)?;
+        if !self.addr().is_zero() {
+            write!(f, "{}{}", self.addr(), self.addr_stride)?;
         }
         if self.addr_offset > 0 {
-            if !self.addr.is_zero() {
+            if !self.addr().is_zero() {
                 write!(f, "+")?;
             }
             write!(f, "{:#x}", self.addr_offset)?;
         }
         write!(f, "]")?;
         if self.atom_op == AtomOp::CmpExch(AtomCmpSrc::Separate) {
-            write!(f, " {}", self.cmpr)?;
+            write!(f, " {}", self.cmpr())?;
         }
-        write!(f, " {}", self.data)
+        write!(f, " {}", self.data())
     }
 }
 impl_display_for_op!(OpAtom);
@@ -299,11 +289,9 @@ impl_display_for_op!(OpAL2P);
 pub struct OpALd {
     pub dst: Dst,
 
-    #[src_type(GPR)]
-    pub vtx: Src,
-
-    #[src_type(GPR)]
-    pub offset: Src,
+    #[src_types(GPR, GPR)]
+    #[src_names(vtx, offset)]
+    pub srcs: [Src; 2],
 
     pub addr: u16,
     pub comps: u8,
@@ -325,12 +313,12 @@ impl DisplayOp for OpALd {
             write!(f, ".phys")?;
         }
         write!(f, " a")?;
-        if !self.vtx.is_zero() {
-            write!(f, "[{}]", self.vtx)?;
+        if !self.vtx().is_zero() {
+            write!(f, "[{}]", self.vtx())?;
         }
         write!(f, "[{:#x}", self.addr)?;
-        if !self.offset.is_zero() {
-            write!(f, "+{}", self.offset)?;
+        if !self.offset().is_zero() {
+            write!(f, "+{}", self.offset())?;
         }
         write!(f, "]")
     }
@@ -340,14 +328,9 @@ impl_display_for_op!(OpALd);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpASt {
-    #[src_type(GPR)]
-    pub vtx: Src,
-
-    #[src_type(GPR)]
-    pub offset: Src,
-
-    #[src_type(SSA)]
-    pub data: Src,
+    #[src_types(GPR, GPR, SSA)]
+    #[src_names(vtx, offset, data)]
+    pub srcs: [Src; 3],
 
     pub addr: u16,
     pub comps: u8,
@@ -365,14 +348,14 @@ impl DisplayOp for OpASt {
             write!(f, ".phys")?;
         }
         write!(f, " a")?;
-        if !self.vtx.is_zero() {
-            write!(f, "[{}]", self.vtx)?;
+        if !self.vtx().is_zero() {
+            write!(f, "[{}]", self.vtx())?;
         }
         write!(f, "[{:#x}", self.addr)?;
-        if !self.offset.is_zero() {
-            write!(f, "+{}", self.offset)?;
+        if !self.offset().is_zero() {
+            write!(f, "+{}", self.offset())?;
         }
-        write!(f, "] {}", self.data)
+        write!(f, "] {}", self.data())
     }
 }
 impl_display_for_op!(OpASt);
@@ -384,8 +367,10 @@ pub struct OpIpa {
     pub addr: u16,
     pub freq: InterpFreq,
     pub loc: InterpLoc,
-    pub inv_w: Src,
-    pub offset: Src,
+
+    #[src_types(GPR, GPR)]
+    #[src_names(inv_w, offset)]
+    pub srcs: [Src; 2],
 }
 
 impl DisplayOp for OpIpa {
@@ -393,10 +378,13 @@ impl DisplayOp for OpIpa {
         write!(
             f,
             "ipa{}{} a[{:#x}] {}",
-            self.freq, self.loc, self.addr, self.inv_w
+            self.freq,
+            self.loc,
+            self.addr,
+            self.inv_w()
         )?;
         if self.loc == InterpLoc::Offset {
-            write!(f, " {}", self.offset)?;
+            write!(f, " {}", self.offset())?;
         }
         Ok(())
     }
@@ -545,8 +533,7 @@ mod tests {
     #[test]
     fn test_op_ldslk_display() {
         let op = OpLdSharedLock {
-            dst: Dst::None,
-            locked: Dst::None,
+            dsts: [Dst::None, Dst::None],
             addr: zero_src(),
             offset: 0,
             mem_type: MemType::B32,
@@ -559,8 +546,7 @@ mod tests {
     #[test]
     fn test_op_st_display() {
         let op = OpSt {
-            addr: zero_src(),
-            data: imm_src(0x42),
+            srcs: [zero_src(), imm_src(0x42)],
             offset: 0,
             stride: OffsetStride::X1,
             access: default_mem_access(),
@@ -574,8 +560,7 @@ mod tests {
     fn test_op_stscheckunlock_display() {
         let op = OpStSCheckUnlock {
             locked: Dst::None,
-            addr: zero_src(),
-            data: imm_src(1),
+            srcs: [zero_src(), imm_src(1)],
             offset: 0,
             mem_type: MemType::B32,
         };
@@ -587,9 +572,7 @@ mod tests {
     fn test_op_atom_display() {
         let op = OpAtom {
             dst: Dst::None,
-            addr: zero_src(),
-            cmpr: zero_src(),
-            data: imm_src(1),
+            srcs: [zero_src(), zero_src(), imm_src(1)],
             atom_op: AtomOp::Add,
             atom_type: AtomType::U32,
             addr_offset: 0,
@@ -623,8 +606,7 @@ mod tests {
     fn test_op_ald_display() {
         let op = OpALd {
             dst: Dst::None,
-            vtx: zero_src(),
-            offset: zero_src(),
+            srcs: [zero_src(), zero_src()],
             addr: 0x20,
             comps: 4,
             patch: false,
@@ -639,9 +621,7 @@ mod tests {
     #[test]
     fn test_op_ast_display() {
         let op = OpASt {
-            vtx: zero_src(),
-            offset: zero_src(),
-            data: imm_src(0),
+            srcs: [zero_src(), zero_src(), imm_src(0)],
             addr: 0x30,
             comps: 2,
             patch: true,
@@ -673,8 +653,7 @@ mod tests {
             addr: 0x50,
             freq: InterpFreq::Pass,
             loc: InterpLoc::Default,
-            inv_w: zero_src(),
-            offset: zero_src(),
+            srcs: [zero_src(), zero_src()],
         };
         let s = format!("{op}");
         assert!(s.contains("ipa"));

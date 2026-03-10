@@ -40,11 +40,9 @@ pub struct OpHSet2 {
     pub set_op: PredSetOp,
     pub cmp_op: FloatCmpOp,
 
-    #[src_type(F16v2)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub accum: Src,
+    #[src_types(F16v2, F16v2, Pred)]
+    #[src_names(src_a, src_b, accum)]
+    pub srcs: [Src; 3],
 
     pub ftz: bool,
 }
@@ -53,12 +51,12 @@ impl DisplayOp for OpHSet2 {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ftz = if self.ftz { ".ftz" } else { "" };
         write!(f, "hset2{}{ftz}", self.cmp_op)?;
-        if !self.set_op.is_trivial(&self.accum) {
+        if !self.set_op.is_trivial(self.accum()) {
             write!(f, "{}", self.set_op)?;
         }
         write!(f, " {} {}", self.srcs[0], self.srcs[1])?;
-        if !self.set_op.is_trivial(&self.accum) {
-            write!(f, " {}", self.accum)?;
+        if !self.set_op.is_trivial(self.accum()) {
+            write!(f, " {}", self.accum())?;
         }
         Ok(())
     }
@@ -74,11 +72,9 @@ pub struct OpHSetP2 {
     pub set_op: PredSetOp,
     pub cmp_op: FloatCmpOp,
 
-    #[src_type(F16v2)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub accum: Src,
+    #[src_types(F16v2, F16v2, Pred)]
+    #[src_names(src_a, src_b, accum)]
+    pub srcs: [Src; 3],
 
     pub ftz: bool,
 
@@ -93,12 +89,12 @@ impl DisplayOp for OpHSetP2 {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ftz = if self.ftz { ".ftz" } else { "" };
         write!(f, "hsetp2{}{ftz}", self.cmp_op)?;
-        if !self.set_op.is_trivial(&self.accum) {
+        if !self.set_op.is_trivial(self.accum()) {
             write!(f, "{}", self.set_op)?;
         }
         write!(f, " {} {}", self.srcs[0], self.srcs[1])?;
-        if !self.set_op.is_trivial(&self.accum) {
-            write!(f, " {}", self.accum)?;
+        if !self.set_op.is_trivial(self.accum()) {
+            write!(f, " {}", self.accum())?;
         }
         Ok(())
     }
@@ -265,11 +261,9 @@ pub struct OpHMnMx2 {
     #[dst_type(F16v2)]
     pub dst: Dst,
 
-    #[src_type(F16v2)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub min: Src,
+    #[src_types(F16v2, F16v2, Pred)]
+    #[src_names(src_a, src_b, min)]
+    pub srcs: [Src; 3],
 
     pub ftz: bool,
 }
@@ -280,7 +274,9 @@ impl DisplayOp for OpHMnMx2 {
         write!(
             f,
             "hmnmx2{ftz} {} {} {}",
-            self.srcs[0], self.srcs[1], self.min
+            self.srcs[0],
+            self.srcs[1],
+            self.min()
         )
     }
 }

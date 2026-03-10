@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 27)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 28)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 27)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 28)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -237,14 +237,14 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1401 tests passing, 62 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1437 tests passing, 68 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 8-demo showcase: hello-compiler → compute triangle (coralReef → toadStool → barraCuda).
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-Iteration 27: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring tests.
+Iteration 28: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring tests.
 Iteration 26: hotSpring sovereign pipeline unblock — f64 min/max fix, Send+Sync, nouveau subchannel.
 Iteration 25: Math + debt evolution — trig inverse, f64 refinement, Complex64, DEBT → 0, libc → 0, UVM infra.
 All pure Rust. Sovereignty is a runtime choice.*

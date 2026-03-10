@@ -118,13 +118,22 @@ mod inner {
         })
     }
 
+    /// Build the socket path from an explicit base directory.
+    ///
+    /// When `runtime_dir` is `None`, falls back to `$TMPDIR`.
+    /// Extracted for deterministic, safe testing without env-var mutation.
+    #[must_use]
+    pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
+        let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
+        base.join("biomeos").join("coralreef.sock")
+    }
+
     /// Default socket path: `$XDG_RUNTIME_DIR/biomeos/coralreef.sock`.
     ///
     /// Falls back to `$TMPDIR/biomeos/coralreef.sock` if XDG is unset.
+    #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        let base =
-            std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-        base.join("biomeos").join("coralreef.sock")
+        unix_socket_path_for_base(std::env::var("XDG_RUNTIME_DIR").ok().map(PathBuf::from))
     }
 
     /// Start a Unix socket JSON-RPC server.
@@ -212,5 +221,7 @@ mod inner {
     }
 }
 
+#[cfg(test)]
+pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};

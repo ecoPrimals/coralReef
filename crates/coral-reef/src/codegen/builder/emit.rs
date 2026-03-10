@@ -15,9 +15,7 @@ pub trait SSABuilder: Builder {
         if self.sm() >= 70 {
             self.push_op(OpShf {
                 dst: dst.into(),
-                low: x,
-                high: 0.into(),
-                shift,
+                srcs: [x, 0.into(), shift],
                 right: false,
                 wrap: true,
                 data_type: IntType::I32,
@@ -26,8 +24,7 @@ pub trait SSABuilder: Builder {
         } else {
             self.push_op(OpShl {
                 dst: dst.into(),
-                src: x,
-                shift,
+                srcs: [x, shift],
                 wrap: true,
             });
         }
@@ -44,9 +41,7 @@ pub trait SSABuilder: Builder {
         if self.sm() >= 70 {
             self.push_op(OpShf {
                 dst: dst[0].into(),
-                low: x[0].into(),
-                high: 0.into(),
-                shift: shift.clone(),
+                srcs: [x[0].into(), 0.into(), shift.clone()],
                 right: false,
                 wrap: true,
                 data_type: IntType::U64,
@@ -58,9 +53,7 @@ pub trait SSABuilder: Builder {
             // to rZ
             self.push_op(OpShf {
                 dst: dst[0].into(),
-                low: 0.into(),
-                high: x[0].into(),
-                shift: shift.clone(),
+                srcs: [0.into(), x[0].into(), shift.clone()],
                 right: false,
                 wrap: true,
                 data_type: IntType::U64,
@@ -69,9 +62,7 @@ pub trait SSABuilder: Builder {
         }
         self.push_op(OpShf {
             dst: dst[1].into(),
-            low: x[0].into(),
-            high: x[1].into(),
-            shift,
+            srcs: [x[0].into(), x[1].into(), shift],
             right: false,
             wrap: true,
             data_type: IntType::U64,
@@ -85,9 +76,7 @@ pub trait SSABuilder: Builder {
         if self.sm() >= 70 {
             self.push_op(OpShf {
                 dst: dst.into(),
-                low: 0.into(),
-                high: x,
-                shift,
+                srcs: [0.into(), x, shift],
                 right: true,
                 wrap: true,
                 data_type: if signed { IntType::I32 } else { IntType::U32 },
@@ -96,8 +85,7 @@ pub trait SSABuilder: Builder {
         } else {
             self.push_op(OpShr {
                 dst: dst.into(),
-                src: x,
-                shift,
+                srcs: [x, shift],
                 wrap: true,
                 signed,
             });
@@ -114,9 +102,7 @@ pub trait SSABuilder: Builder {
         let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
         self.push_op(OpShf {
             dst: dst[0].into(),
-            low: x[0].into(),
-            high: x[1].into(),
-            shift: shift.clone(),
+            srcs: [x[0].into(), x[1].into(), shift.clone()],
             right: true,
             wrap: true,
             data_type: if signed { IntType::I64 } else { IntType::U64 },
@@ -124,9 +110,7 @@ pub trait SSABuilder: Builder {
         });
         self.push_op(OpShf {
             dst: dst[1].into(),
-            low: 0.into(),
-            high: x[1].into(),
-            shift,
+            srcs: [0.into(), x[1].into(), shift],
             right: true,
             wrap: true,
             data_type: if signed { IntType::I64 } else { IntType::U64 },
@@ -141,9 +125,7 @@ pub trait SSABuilder: Builder {
 
         self.push_op(OpShf {
             dst: dst.into(),
-            low: x.clone(),
-            high: x,
-            shift,
+            srcs: [x.clone(), x, shift],
             right: false,
             wrap: true,
             data_type: IntType::U32,
@@ -159,9 +141,7 @@ pub trait SSABuilder: Builder {
 
         self.push_op(OpShf {
             dst: dst.into(),
-            low: x.clone(),
-            high: x,
-            shift,
+            srcs: [x.clone(), x, shift],
             right: true,
             wrap: true,
             data_type: IntType::U32,
@@ -213,8 +193,7 @@ pub trait SSABuilder: Builder {
             dst: dst.into(),
             set_op: PredSetOp::And,
             cmp_op,
-            srcs: [x, y],
-            accum: SrcRef::True.into(),
+            srcs: [x, y, SrcRef::True.into()], // accum
             ftz: false,
         });
         dst
@@ -238,9 +217,8 @@ pub trait SSABuilder: Builder {
             dst: dst.into(),
             set_op: PredSetOp::And,
             cmp_op,
-            srcs: [x, y],
+            srcs: [x, y, SrcRef::True.into()], // accum
             ftz: false,
-            accum: SrcRef::True.into(),
         });
         dst.into()
     }
@@ -251,8 +229,7 @@ pub trait SSABuilder: Builder {
             dst: dst.into(),
             set_op: PredSetOp::And,
             cmp_op,
-            srcs: [x, y],
-            accum: SrcRef::True.into(),
+            srcs: [x, y, SrcRef::True.into()], // accum
         });
         dst
     }
@@ -282,16 +259,14 @@ pub trait SSABuilder: Builder {
         let dst = self.alloc_ssa(RegFile::GPR);
         if self.sm() >= 70 {
             self.push_op(OpIAdd3 {
-                dst: dst.into(),
+                dsts: [dst.into(), Dst::None, Dst::None],
                 srcs: [x, y, z],
-                overflow: [Dst::None, Dst::None],
             });
         } else {
             assert!(z.is_zero());
             self.push_op(OpIAdd2 {
-                dst: dst.into(),
+                dsts: [dst.into(), Dst::None],
                 srcs: [x, y],
-                carry_out: Dst::None,
             });
         }
         dst
@@ -330,29 +305,23 @@ pub trait SSABuilder: Builder {
 
             let [z0, z1] = split_iadd64_src(z);
             self.push_op(OpIAdd3 {
-                dst: dst[0].into(),
-                overflow: [carry1.into(), carry2_dst],
+                dsts: [dst[0].into(), carry1.into(), carry2_dst],
                 srcs: [x0, y0, z0],
             });
             self.push_op(OpIAdd3X {
-                dst: dst[1].into(),
-                overflow: [Dst::None, Dst::None],
-                srcs: [x1, y1, z1],
-                carry: [carry1.into(), carry2_src],
+                dsts: [dst[1].into(), Dst::None, Dst::None],
+                srcs: [x1, y1, z1, carry1.into(), carry2_src],
             });
         } else {
             assert!(z.is_zero());
             let carry = self.alloc_ssa(RegFile::Carry);
             self.push_op(OpIAdd2 {
-                dst: dst[0].into(),
+                dsts: [dst[0].into(), carry.into()],
                 srcs: [x0, y0],
-                carry_out: carry.into(),
             });
             self.push_op(OpIAdd2X {
-                dst: dst[1].into(),
-                srcs: [x1, y1],
-                carry_out: Dst::None,
-                carry_in: carry.into(),
+                dsts: [dst[1].into(), Dst::None],
+                srcs: [x1, y1, carry.into()],
             });
         }
         dst
@@ -363,8 +332,7 @@ pub trait SSABuilder: Builder {
         self.push_op(OpIMnMx {
             dst: dst.into(),
             cmp_type: tp,
-            srcs: [x, y],
-            min,
+            srcs: [x, y, min],
         });
         dst
     }
@@ -417,15 +385,13 @@ pub trait SSABuilder: Builder {
         let dst = self.alloc_ssa(RegFile::GPR);
         if self.sm() >= 70 {
             self.push_op(OpIAdd3 {
-                dst: dst.into(),
-                overflow: [Dst::None, Dst::None],
+                dsts: [dst.into(), Dst::None, Dst::None],
                 srcs: [0.into(), i.ineg(), 0.into()],
             });
         } else {
             self.push_op(OpIAdd2 {
-                dst: dst.into(),
+                dsts: [dst.into(), Dst::None],
                 srcs: [0.into(), i.ineg()],
-                carry_out: Dst::None,
             });
         }
         dst
@@ -443,9 +409,7 @@ pub trait SSABuilder: Builder {
             cmp_op,
             cmp_type,
             ex: false,
-            srcs: [x, y],
-            accum: true.into(),
-            low_cmp: true.into(),
+            srcs: [x, y, true.into(), true.into()],
         });
         dst
     }
@@ -477,9 +441,7 @@ pub trait SSABuilder: Builder {
                     cmp_op,
                     cmp_type: IntCmpType::U32,
                     ex: false,
-                    srcs: [x[1].into(), y[1].into()],
-                    accum: low.into(),
-                    low_cmp: true.into(),
+                    srcs: [x[1].into(), y[1].into(), low.into(), true.into()],
                 });
             }
             IntCmpOp::Ge | IntCmpOp::Gt | IntCmpOp::Le | IntCmpOp::Lt => {
@@ -490,9 +452,7 @@ pub trait SSABuilder: Builder {
                         cmp_op,
                         cmp_type,
                         ex: true,
-                        srcs: [x[1].into(), y[1].into()],
-                        accum: true.into(),
-                        low_cmp: low.into(),
+                        srcs: [x[1].into(), y[1].into(), true.into(), low.into()],
                     });
                 } else {
                     // On Maxwell, iset.ex doesn't do what we want so we need to
@@ -506,9 +466,7 @@ pub trait SSABuilder: Builder {
                         cmp_op: IntCmpOp::Eq,
                         cmp_type: IntCmpType::U32,
                         ex: false,
-                        srcs: [x[1].into(), y[1].into()],
-                        accum: low.into(),
-                        low_cmp: true.into(),
+                        srcs: [x[1].into(), y[1].into(), low.into(), true.into()],
                     });
                     self.push_op(OpISetP {
                         dst: dst.into(),
@@ -523,9 +481,12 @@ pub trait SSABuilder: Builder {
                         },
                         cmp_type,
                         ex: false,
-                        srcs: [x[1].into(), y[1].into()],
-                        accum: low_and_high_eq.into(),
-                        low_cmp: true.into(),
+                        srcs: [
+                            x[1].into(),
+                            y[1].into(),
+                            low_and_high_eq.into(),
+                            true.into(),
+                        ],
                     });
                 }
             }
@@ -538,11 +499,8 @@ pub trait SSABuilder: Builder {
         assert!(self.sm() >= 70);
 
         self.push_op(OpLea {
-            dst: dst.into(),
-            overflow: Dst::None,
-            a,
-            b,
-            a_high: 0.into(),
+            dsts: [dst.into(), Dst::None],
+            srcs: [a, b, 0.into()],
             dst_high: false,
             shift: shift % 32,
             intermediate_mod: SrcMod::None,
@@ -567,11 +525,8 @@ pub trait SSABuilder: Builder {
         if shift >= 32 {
             self.copy_to(dst[0].into(), b[0].into());
             self.push_op(OpLea {
-                dst: dst[1].into(),
-                overflow: Dst::None,
-                a: a[0].into(),
-                b: b[1].into(),
-                a_high: 0.into(),
+                dsts: [dst[1].into(), Dst::None],
+                srcs: [a[0].into(), b[1].into(), 0.into()],
                 dst_high: false,
                 shift: shift - 32,
                 intermediate_mod: SrcMod::None,
@@ -579,22 +534,15 @@ pub trait SSABuilder: Builder {
         } else {
             let carry = self.alloc_ssa(RegFile::Pred);
             self.push_op(OpLea {
-                dst: dst[0].into(),
-                overflow: carry.into(),
-                a: a[0].into(),
-                b: b[0].into(),
-                a_high: 0.into(),
+                dsts: [dst[0].into(), carry.into()],
+                srcs: [a[0].into(), b[0].into(), 0.into()],
                 dst_high: false,
                 shift,
                 intermediate_mod: SrcMod::None,
             });
             self.push_op(OpLeaX {
-                dst: dst[1].into(),
-                overflow: Dst::None,
-                a: a[0].into(),
-                b: b[1].into(),
-                a_high: a[1].into(),
-                carry: carry.into(),
+                dsts: [dst[1].into(), Dst::None],
+                srcs: [a[0].into(), b[1].into(), a[1].into(), carry.into()],
                 dst_high: true,
                 shift,
                 intermediate_mod: SrcMod::None,
@@ -624,9 +572,8 @@ pub trait SSABuilder: Builder {
             // No BREV in Maxwell
             self.push_op(OpBfe {
                 dst: dst.into(),
-                base: x,
+                srcs: [x, Src::new_imm_u32(0x2000)],
                 signed: false,
-                range: Src::new_imm_u32(0x2000),
                 reverse: true,
             });
         }
@@ -771,8 +718,7 @@ pub trait SSABuilder: Builder {
             let dst = self.alloc_ssa(RegFile::GPR);
             self.push_op(OpSel {
                 dst: dst.into(),
-                cond,
-                srcs: [x, y],
+                srcs: [cond, x, y],
             });
             dst
         }

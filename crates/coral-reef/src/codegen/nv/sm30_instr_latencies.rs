@@ -19,7 +19,7 @@ pub fn instr_latency(_sm: u8, op: &Op, _dst_idx: usize) -> u32 {
         Op::IMul(_) => 15, // This does not apply to imad, right? right???
         Op::ISetP(_) => 13,
         Op::PSetP(_) => 13,
-        Op::IAdd2(o) if !o.carry_out.is_none() => 13,
+        Op::IAdd2(o) if !o.carry_out().is_none() => 13,
         Op::Tex(_) | Op::Tld(_) | Op::Tld4(_) | Op::Tmml(_) | Op::Txd(_) | Op::Txq(_) => 17,
         _ => 9,
     }

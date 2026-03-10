@@ -119,7 +119,7 @@ impl SM70Op for OpMov {
 impl SM70Op for OpPrmt {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _] = &mut self.srcs;
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
         b.copy_alu_src_if_not_reg(src1, gpr, SrcType::ALU);
         self.reduce_sel_imm();
@@ -131,7 +131,7 @@ impl SM70Op for OpPrmt {
                 0x96,
                 Some(&self.dst),
                 Some(&self.srcs[0]),
-                Some(&self.sel),
+                Some(self.sel()),
                 Some(&self.srcs[1]),
             );
         } else {
@@ -139,7 +139,7 @@ impl SM70Op for OpPrmt {
                 0x16,
                 Some(&self.dst),
                 Some(&self.srcs[0]),
-                Some(&self.sel),
+                Some(self.sel()),
                 Some(&self.srcs[1]),
             );
         }
@@ -163,13 +163,17 @@ impl SM70Op for OpSel {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
         if !self.is_uniform() {
-            b.copy_src_if_upred(&mut self.cond);
+            b.copy_src_if_upred(self.cond_mut());
         }
-        let [src0, src1] = &mut self.srcs;
-        if swap_srcs_if_not_reg(src0, src1, gpr) {
-            self.cond = self.cond.clone().bnot();
+        let cond_val = self.cond().clone().bnot();
+        let swapped = {
+            let [_, src0, src1] = &mut self.srcs;
+            swap_srcs_if_not_reg(src0, src1, gpr)
+        };
+        if swapped {
+            *self.cond_mut() = cond_val;
         }
-        b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(&mut self.srcs[1], gpr, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
@@ -177,22 +181,22 @@ impl SM70Op for OpSel {
             e.encode_ualu(
                 0x087,
                 Some(&self.dst),
-                Some(&self.srcs[0]),
                 Some(&self.srcs[1]),
+                Some(&self.srcs[2]),
                 None,
             );
 
-            e.set_upred_src(87..90, 90, &self.cond);
+            e.set_upred_src(87..90, 90, self.cond());
         } else {
             e.encode_alu(
                 0x007,
                 Some(&self.dst),
-                Some(&self.srcs[0]),
                 Some(&self.srcs[1]),
+                Some(&self.srcs[2]),
                 None,
             );
 
-            e.set_pred_src(87..90, 90, &self.cond);
+            e.set_pred_src(87..90, 90, self.cond());
         }
     }
 }
@@ -200,7 +204,7 @@ impl SM70Op for OpSel {
 impl SM70Op for OpSgxt {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.a, gpr, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.a_mut(), gpr, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
@@ -208,16 +212,16 @@ impl SM70Op for OpSgxt {
             e.encode_ualu(
                 0x09a,
                 Some(&self.dst),
-                Some(&self.a),
-                Some(&self.bits),
+                Some(self.a()),
+                Some(self.bits()),
                 None,
             );
         } else {
             e.encode_alu(
                 0x01a,
                 Some(&self.dst),
-                Some(&self.a),
-                Some(&self.bits),
+                Some(self.a()),
+                Some(self.bits()),
                 None,
             );
         }
@@ -229,35 +233,35 @@ impl SM70Op for OpSgxt {
 impl SM70Op for OpShfl {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.src, gpr, SrcType::GPR);
-        b.copy_alu_src_if_not_reg_or_imm(&mut self.lane, gpr, SrcType::ALU);
-        b.copy_alu_src_if_not_reg_or_imm(&mut self.c, gpr, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.src_mut(), gpr, SrcType::GPR);
+        b.copy_alu_src_if_not_reg_or_imm(self.lane_mut(), gpr, SrcType::ALU);
+        b.copy_alu_src_if_not_reg_or_imm(self.c_mut(), gpr, SrcType::ALU);
         self.reduce_lane_c_imm();
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
-        assert!(self.lane.is_unmodified());
-        assert!(self.c.is_unmodified());
+        assert!(self.lane().is_unmodified());
+        assert!(self.c().is_unmodified());
 
-        match &self.lane.reference {
-            SrcRef::Zero | SrcRef::Reg(_) => match &self.c.reference {
+        match &self.lane().reference {
+            SrcRef::Zero | SrcRef::Reg(_) => match &self.c().reference {
                 SrcRef::Zero | SrcRef::Reg(_) => {
                     e.set_opcode(0x389);
-                    e.set_reg_src(32..40, &self.lane);
-                    e.set_reg_src(64..72, &self.c);
+                    e.set_reg_src(32..40, self.lane());
+                    e.set_reg_src(64..72, self.c());
                 }
                 SrcRef::Imm32(imm_c) => {
                     e.set_opcode(0x589);
-                    e.set_reg_src(32..40, &self.lane);
+                    e.set_reg_src(32..40, self.lane());
                     e.set_field(40..53, *imm_c);
                 }
                 _ => panic!("Invalid instruction form"),
             },
-            SrcRef::Imm32(imm_lane) => match &self.c.reference {
+            SrcRef::Imm32(imm_lane) => match &self.c().reference {
                 SrcRef::Zero | SrcRef::Reg(_) => {
                     e.set_opcode(0x989);
                     e.set_field(53..58, *imm_lane);
-                    e.set_reg_src(64..72, &self.c);
+                    e.set_reg_src(64..72, self.c());
                 }
                 SrcRef::Imm32(imm_c) => {
                     e.set_opcode(0xf89);
@@ -269,9 +273,9 @@ impl SM70Op for OpShfl {
             _ => panic!("Invalid instruction form"),
         }
 
-        e.set_dst(&self.dst);
-        e.set_pred_dst(81..84, &self.in_bounds);
-        e.set_reg_src(24..32, &self.src);
+        e.set_dst(self.dst());
+        e.set_pred_dst(81..84, self.in_bounds());
+        e.set_reg_src(24..32, self.src());
         e.set_field(
             58..60,
             match self.op {

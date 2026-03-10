@@ -71,8 +71,7 @@ mod tests {
     fn test_op_fmnmx_display() {
         let op = OpFMnMx {
             dst: Dst::None,
-            srcs: [zero_src(), imm_src(2)],
-            min: Src::new_imm_bool(true),
+            srcs: [zero_src(), imm_src(2), Src::new_imm_bool(true)],
             ftz: true,
         };
         let s = format!("{op}");
@@ -114,8 +113,7 @@ mod tests {
             dst: Dst::None,
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdLt,
-            srcs: [zero_src(), imm_src(1)],
-            accum: Src::new_imm_bool(true),
+            srcs: [zero_src(), imm_src(1), Src::new_imm_bool(true)],
             ftz: false,
         };
         let s = format!("{op}");
@@ -291,8 +289,7 @@ mod tests {
     fn test_op_dmnmx_display() {
         let op = OpDMnMx {
             dst: Dst::None,
-            srcs: [zero_src(), zero_src()],
-            min: Src::new_imm_bool(false),
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(false)],
         };
         let s = format!("{op}");
         assert!(s.contains("dmnmx"));
@@ -386,8 +383,7 @@ mod tests {
     fn test_op_hmnmx2_display() {
         let op = OpHMnMx2 {
             dst: Dst::None,
-            srcs: [zero_src(), zero_src()],
-            min: Src::new_imm_bool(true),
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(true)],
             ftz: false,
         };
         let s = format!("{op}");

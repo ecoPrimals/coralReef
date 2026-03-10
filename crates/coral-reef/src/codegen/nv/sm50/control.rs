@@ -224,8 +224,8 @@ impl SM50Op for OpVote {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0x50d8);
 
-        e.set_dst(&self.ballot);
-        e.set_pred_dst(45..48, &self.vote);
+        e.set_dst(self.ballot());
+        e.set_pred_dst(45..48, self.vote());
         e.set_pred_src(39..42, 42, &self.pred);
 
         e.set_field(
@@ -242,15 +242,15 @@ impl SM50Op for OpVote {
 impl SM50Op for OpOut {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.handle, GPR, SrcType::GPR);
-        b.copy_alu_src_if_i20_overflow(&mut self.stream, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.handle_mut(), GPR, SrcType::GPR);
+        b.copy_alu_src_if_i20_overflow(self.stream_mut(), GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
-        match &self.stream.reference {
+        match &self.stream().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
                 e.set_opcode(0xfbe0);
-                e.set_reg_src(20..28, &self.stream);
+                e.set_reg_src(20..28, self.stream());
             }
             SrcRef::Imm32(imm32) => {
                 e.set_opcode(0xf6e0);
@@ -272,7 +272,7 @@ impl SM50Op for OpOut {
             },
         );
 
-        e.set_reg_src(8..16, &self.handle);
+        e.set_reg_src(8..16, self.handle());
         e.set_dst(&self.dst);
     }
 }

@@ -68,9 +68,12 @@ impl LowerCopySwap {
                             cmp_op,
                             cmp_type: IntCmpType::U32,
                             ex: false,
-                            srcs: [SrcRef::Reg(*reg).into(), Src::ZERO],
-                            accum: SrcRef::True.into(),
-                            low_cmp: SrcRef::False.into(),
+                            srcs: [
+                                SrcRef::Reg(*reg).into(),
+                                Src::ZERO,
+                                SrcRef::True.into(),
+                                SrcRef::False.into(),
+                            ],
                         });
                     }
                     (src_ref, bnot) => super::ice!(
@@ -101,8 +104,7 @@ impl LowerCopySwap {
                         if b.is_amd() || b.sm() >= 100 {
                             b.push_op(OpLdc {
                                 dst: copy.dst,
-                                cb: copy.src,
-                                offset: 0.into(),
+                                srcs: [copy.src, 0.into()],
                                 mode: LdcMode::Indexed,
                                 mem_type: MemType::B32,
                             });
@@ -117,8 +119,7 @@ impl LowerCopySwap {
                     RegFile::UGPR => {
                         b.push_op(OpLdc {
                             dst: copy.dst,
-                            cb: copy.src,
-                            offset: 0.into(),
+                            srcs: [copy.src, 0.into()],
                             mode: LdcMode::Indexed,
                             mem_type: MemType::B32,
                         });
@@ -152,8 +153,7 @@ impl LowerCopySwap {
                     RegFile::Pred | RegFile::UPred => {
                         b.push_op(OpSel {
                             dst: copy.dst,
-                            cond: copy.src.bnot(),
-                            srcs: [Src::ZERO, Src::new_imm_u32(1)],
+                            srcs: [copy.src.bnot(), Src::ZERO, Src::new_imm_u32(1)],
                         });
                     }
                     RegFile::Bar => {
@@ -258,8 +258,7 @@ impl LowerCopySwap {
                         let addr = self.shared_local_mem_start + dst_reg.base_idx() * 4;
                         self.shared_local_mem_size = max(self.shared_local_mem_size, addr + 4);
                         b.push_op(OpSt {
-                            addr: Src::ZERO,
-                            data: copy.src,
+                            srcs: [Src::ZERO, copy.src],
                             offset: addr
                                 .try_into()
                                 .expect("SLM offset fits in i32; addr from base_idx*4"),
@@ -301,8 +300,7 @@ impl LowerCopySwap {
                     // It doesn't matter what channel we take
                     b.push_op(OpVote {
                         op: VoteOp::Any,
-                        ballot: Dst::None,
-                        vote: r2ur.dst,
+                        dsts: [Dst::None, r2ur.dst],
                         pred: r2ur.src,
                     });
                 }

@@ -3,8 +3,7 @@
 
 use super::*;
 use crate::service;
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
+use primal_rpc_client::{RpcClient, no_params};
 use tokio_serde::formats::Bincode;
 
 #[test]
@@ -28,10 +27,9 @@ async fn test_cross_protocol_health_consistency() {
     let (_tx, rx) = test_helpers::test_shutdown_channel();
     let (tarpc_addr, _tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
 
-    let url = format!("http://{rpc_addr}");
-    let rpc_client = HttpClientBuilder::default().build(&url).unwrap();
+    let rpc_client = RpcClient::tcp(rpc_addr);
     let jsonrpc_health: service::HealthResponse = rpc_client
-        .request("shader.compile.status", jsonrpsee::rpc_params![])
+        .request("shader.compile.status", no_params())
         .await
         .unwrap();
 
@@ -62,10 +60,9 @@ async fn test_graceful_shutdown() {
         .await
         .unwrap();
 
-    let url = format!("http://{rpc_addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(rpc_addr);
     let _health: service::HealthResponse = client
-        .request("shader.compile.status", jsonrpsee::rpc_params![])
+        .request("shader.compile.status", no_params())
         .await
         .unwrap();
 

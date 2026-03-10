@@ -2,18 +2,18 @@
 //! Capability-based device discovery via the ecoPrimals ecosystem.
 //!
 //! Follows the biomeOS **Node Atomic** pattern: coralReef discovers GPU
-//! hardware through toadStool's capability-based IPC rather than scanning
-//! `/dev/dri/` directly. When toadStool is unavailable (standalone mode),
+//! hardware through capability-based IPC rather than scanning `/dev/dri/`
+//! directly. When no ecosystem provider is available (standalone mode),
 //! falls back to direct DRM render node enumeration.
 //!
 //! ## Discovery flow
 //!
 //! ```text
 //! coralReef → discovery_dir/*.json → find "gpu.dispatch" capability
-//!         → toadStool endpoint → gpu.info / gpu.enumerate
+//!         → provider endpoint → gpu.info / gpu.enumerate
 //!         → GpuDeviceDescriptor { vendor, arch, render_node_path }
 //!
-//!         (fallback if no toadStool)
+//!         (fallback if no ecosystem provider)
 //!         → DRM render node scan → DrmDeviceInfo { driver, path }
 //! ```
 //!
@@ -25,7 +25,7 @@ use std::path::Path;
 
 /// Vendor-agnostic GPU device descriptor.
 ///
-/// Can be populated from either toadStool discovery or direct DRM scan.
+/// Can be populated from either ecosystem discovery or direct DRM scan.
 /// Contains enough metadata for coralReef to select the correct
 /// compilation target and open the correct render node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,9 +38,9 @@ pub struct GpuDeviceDescriptor {
     pub render_node: Option<String>,
     /// DRM driver name (e.g. `"amdgpu"`, `"nvidia-drm"`).
     pub driver: Option<String>,
-    /// Device memory in bytes (from toadStool, if available).
+    /// Device memory in bytes (from ecosystem discovery, if available).
     pub memory_bytes: Option<u64>,
-    /// Discovery source: `"toadstool"` or `"drm-scan"`.
+    /// Discovery source: `"ecosystem"` or `"drm-scan"`.
     pub source: String,
 }
 
@@ -80,7 +80,7 @@ struct DiscoveryDevice {
 /// 1. Checks the shared discovery directory for capability files
 ///    containing `"gpu.dispatch"` or `"gpu-*"` capabilities.
 /// 2. Falls back to direct DRM render node enumeration if no
-///    toadStool provider is found.
+///    ecosystem provider is found.
 ///
 /// This function never panics — discovery failures are logged and
 /// result in an empty or DRM-only device list.
@@ -89,8 +89,8 @@ pub fn discover_gpu_devices() -> Vec<GpuDeviceDescriptor> {
     let mut devices = Vec::new();
 
     if let Ok(dir) = crate::config::discovery_dir() {
-        if let Some(toadstool_devices) = discover_from_ecosystem(&dir) {
-            devices.extend(toadstool_devices);
+        if let Some(ecosystem_devices) = discover_from_ecosystem(&dir) {
+            devices.extend(ecosystem_devices);
         }
     }
 
@@ -101,7 +101,7 @@ pub fn discover_gpu_devices() -> Vec<GpuDeviceDescriptor> {
     devices
 }
 
-/// Try to discover GPU devices from the ecoPrimals discovery directory.
+/// Discover GPU devices from the ecoPrimals capability directory.
 ///
 /// Scans `$DISCOVERY_DIR/*.json` for entries advertising GPU capabilities.
 fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescriptor>> {
@@ -130,14 +130,14 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
                                 render_node: dev.render_node.clone(),
                                 driver: dev.driver.clone(),
                                 memory_bytes: dev.memory_bytes,
-                                source: "toadstool".to_string(),
+                                source: "ecosystem".to_string(),
                             });
                         }
 
                         if discovery.devices.is_empty() {
                             tracing::debug!(
                                 path = %path.display(),
-                                "toadStool provider found with GPU capability but no device list"
+                                "ecosystem provider found with GPU capability but no device list"
                             );
                         }
                     }
@@ -155,7 +155,7 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 
 /// Discover GPU devices by scanning DRM render nodes directly.
 ///
-/// Fallback path when toadStool is unavailable (standalone mode).
+/// Fallback path when no ecosystem provider is available (standalone mode).
 #[cfg(target_os = "linux")]
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
     use coral_driver::drm::enumerate_render_nodes;
@@ -222,15 +222,15 @@ mod tests {
             render_node: Some("/dev/dri/renderD129".to_string()),
             driver: Some("nvidia-drm".to_string()),
             memory_bytes: Some(24 * 1024 * 1024 * 1024),
-            source: "toadstool".to_string(),
+            source: "ecosystem".to_string(),
         };
         let json = serde_json::to_string(&desc).unwrap();
         assert!(json.contains("nvidia"));
-        assert!(json.contains("toadstool"));
+        assert!(json.contains("ecosystem"));
 
         let roundtrip: GpuDeviceDescriptor = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip.vendor, "nvidia");
-        assert_eq!(roundtrip.source, "toadstool");
+        assert_eq!(roundtrip.source, "ecosystem");
     }
 
     #[test]
@@ -245,7 +245,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let entry = serde_json::json!({
             "capabilities": ["gpu.dispatch", "science.gpu.dispatch"],
-            "endpoint": "unix:///run/user/1000/ecoPrimals/toadstool.sock",
+            "endpoint": "unix:///run/user/1000/ecoPrimals/gpu-provider.sock",
             "devices": [
                 {
                     "vendor": "amd",
@@ -263,7 +263,7 @@ mod tests {
                 }
             ]
         });
-        let path = dir.path().join("toadstool.json");
+        let path = dir.path().join("gpu-provider.json");
         let mut f = std::fs::File::create(&path).unwrap();
         write!(f, "{entry}").unwrap();
 
@@ -272,7 +272,7 @@ mod tests {
         let devices = result.unwrap();
         assert_eq!(devices.len(), 2);
         assert_eq!(devices[0].vendor, "amd");
-        assert_eq!(devices[0].source, "toadstool");
+        assert_eq!(devices[0].source, "ecosystem");
         assert_eq!(devices[1].vendor, "nvidia");
         assert_eq!(devices[1].arch.as_deref(), Some("sm86"));
     }
@@ -281,13 +281,12 @@ mod tests {
     fn discover_from_ecosystem_phase10_provides() {
         let dir = tempfile::tempdir().unwrap();
         let entry = serde_json::json!({
-            "primal": "toadstool",
             "version": "1.0.0",
             "pid": 12345,
             "provides": ["gpu.dispatch"],
             "transports": {
-                "jsonrpc": { "bind": "unix:///run/user/1000/biomeos/toadstool.sock" },
-                "tarpc": { "bind": "unix:///run/user/1000/biomeos/toadstool-tarpc.sock" }
+                "jsonrpc": { "bind": "unix:///run/user/1000/biomeos/gpu-provider.sock" },
+                "tarpc": { "bind": "unix:///run/user/1000/biomeos/gpu-provider-tarpc.sock" }
             },
             "devices": [
                 {
@@ -298,7 +297,7 @@ mod tests {
                 }
             ]
         });
-        let path = dir.path().join("toadstool.json");
+        let path = dir.path().join("gpu-provider.json");
         let mut f = std::fs::File::create(&path).unwrap();
         write!(f, "{entry}").unwrap();
 
@@ -315,10 +314,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let entry = serde_json::json!({
             "capabilities": ["storage.read", "storage.write"],
-            "endpoint": "unix:///run/user/1000/ecoPrimals/nestgate.sock",
+            "endpoint": "unix:///run/user/1000/ecoPrimals/storage-provider.sock",
             "devices": []
         });
-        let path = dir.path().join("nestgate.json");
+        let path = dir.path().join("storage-provider.json");
         let mut f = std::fs::File::create(&path).unwrap();
         write!(f, "{entry}").unwrap();
 

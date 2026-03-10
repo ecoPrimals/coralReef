@@ -236,8 +236,11 @@ impl NvUvmDevice {
     /// returns a non-OK status.
     pub fn initialize(&self) -> DriverResult<()> {
         let mut params = UvmInitializeParams::default();
-        // SAFETY: UvmInitializeParams is #[repr(C)] matching kernel's UVM_INITIALIZE
-        // ioctl struct. Stack-allocated, synchronous ioctl.
+        // SAFETY:
+        // 1. Validity:   UvmInitializeParams is #[repr(C)] matching kernel UVM_INITIALIZE
+        // 2. Alignment:  stack-allocated, naturally aligned
+        // 3. Lifetime:   synchronous ioctl; params outlives the call
+        // 4. Exclusivity: &mut params — sole reference
         unsafe {
             crate::drm::drm_ioctl_named(
                 self.fd(),

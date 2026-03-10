@@ -187,16 +187,14 @@ pub struct OpDMnMx {
     #[dst_type(F64)]
     pub dst: Dst,
 
-    #[src_type(F64)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub min: Src,
+    #[src_types(F64, F64, Pred)]
+    #[src_names(src_a, src_b, min)]
+    pub srcs: [Src; 3],
 }
 
 impl DisplayOp for OpDMnMx {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "dmnmx {} {} {}", self.srcs[0], self.srcs[1], self.min)
+        write!(f, "dmnmx {} {} {}", self.srcs[0], self.srcs[1], self.min())
     }
 }
 impl_display_for_op!(OpDMnMx);
@@ -210,18 +208,16 @@ pub struct OpDSetP {
     pub set_op: PredSetOp,
     pub cmp_op: FloatCmpOp,
 
-    #[src_type(F64)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub accum: Src,
+    #[src_types(F64, F64, Pred)]
+    #[src_names(src_a, src_b, accum)]
+    pub srcs: [Src; 3],
 }
 
 impl Foldable for OpDSetP {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
         let a = f.get_f64_src(self, &self.srcs[0]);
         let b = f.get_f64_src(self, &self.srcs[1]);
-        let accum = f.get_pred_src(self, &self.accum);
+        let accum = f.get_pred_src(self, self.accum());
 
         let ordered = !a.is_nan() && !b.is_nan();
         let cmp_res = match self.cmp_op {
@@ -249,12 +245,12 @@ impl Foldable for OpDSetP {
 impl DisplayOp for OpDSetP {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "dsetp{}", self.cmp_op)?;
-        if !self.set_op.is_trivial(&self.accum) {
+        if !self.set_op.is_trivial(self.accum()) {
             write!(f, "{}", self.set_op)?;
         }
         write!(f, " {} {}", self.srcs[0], self.srcs[1])?;
-        if !self.set_op.is_trivial(&self.accum) {
-            write!(f, " {}", self.accum)?;
+        if !self.set_op.is_trivial(self.accum()) {
+            write!(f, " {}", self.accum())?;
         }
         Ok(())
     }

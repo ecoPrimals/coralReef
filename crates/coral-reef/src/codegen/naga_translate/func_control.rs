@@ -25,9 +25,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 cmp_op: IntCmpOp::Ne,
                 cmp_type: IntCmpType::U32,
                 ex: false,
-                srcs: [cond[0].into(), Src::ZERO],
-                accum: SrcRef::True.into(),
-                low_cmp: SrcRef::False.into(),
+                srcs: [
+                    cond[0].into(),
+                    Src::ZERO,
+                    SrcRef::True.into(),
+                    SrcRef::False.into(),
+                ],
             }));
             pred.into()
         };
@@ -438,9 +441,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         cmp_op: IntCmpOp::Ne,
                         cmp_type: IntCmpType::U32,
                         ex: false,
-                        srcs: [cond_ssa[0].into(), Src::ZERO],
-                        accum: SrcRef::True.into(),
-                        low_cmp: SrcRef::False.into(),
+                        srcs: [
+                            cond_ssa[0].into(),
+                            Src::ZERO,
+                            SrcRef::True.into(),
+                            SrcRef::False.into(),
+                        ],
                     }));
                     pred.into()
                 };
@@ -537,9 +543,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 cmp_op: IntCmpOp::Eq,
                 cmp_type: IntCmpType::U32,
                 ex: false,
-                srcs: [sel[0].into(), Src::new_imm_u32(*val)],
-                accum: SrcRef::True.into(),
-                low_cmp: SrcRef::False.into(),
+                srcs: [
+                    sel[0].into(),
+                    Src::new_imm_u32(*val),
+                    SrcRef::True.into(),
+                    SrcRef::False.into(),
+                ],
             }));
 
             // Branch AWAY to next case check when NOT matching.

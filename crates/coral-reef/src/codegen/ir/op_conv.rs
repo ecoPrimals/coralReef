@@ -451,11 +451,9 @@ pub struct OpPrmt {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(ALU)]
-    pub srcs: [Src; 2],
-
-    #[src_type(ALU)]
-    pub sel: Src,
+    #[src_types(ALU, ALU, ALU)]
+    #[src_names(src_a, src_b, sel)]
+    pub srcs: [Src; 3],
 
     pub mode: PrmtMode,
 }
@@ -467,7 +465,7 @@ impl OpPrmt {
             return None;
         }
 
-        self.sel.as_u32(SrcType::ALU).map(|sel| {
+        self.sel().as_u32(SrcType::ALU).map(|sel| {
             // The top 16 bits are ignored
             PrmtSel(sel as u16)
         })
@@ -475,8 +473,8 @@ impl OpPrmt {
 
     /// Reduces the sel immediate, if any.
     pub fn reduce_sel_imm(&mut self) {
-        assert!(self.sel.modifier.is_none());
-        if let SrcRef::Imm32(sel) = &mut self.sel.reference {
+        assert!(self.sel().modifier.is_none());
+        if let SrcRef::Imm32(sel) = &mut self.sel_mut().reference {
             // Only the bottom 16 bits matter anyway
             *sel &= 0xffff;
         }
@@ -503,7 +501,7 @@ impl Foldable for OpPrmt {
             f.get_u32_src(self, &self.srcs[0]),
             f.get_u32_src(self, &self.srcs[1]),
         ];
-        let sel = f.get_u32_src(self, &self.sel);
+        let sel = f.get_u32_src(self, self.sel());
 
         assert!(self.mode == PrmtMode::Index);
         let sel = PrmtSel(sel as u16);
@@ -525,7 +523,10 @@ impl DisplayOp for OpPrmt {
         write!(
             f,
             "prmt{} {} [{}] {}",
-            self.mode, self.srcs[0], self.sel, self.srcs[1],
+            self.mode,
+            self.srcs[0],
+            self.sel(),
+            self.srcs[1],
         )
     }
 }
@@ -537,16 +538,14 @@ pub struct OpSel {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(Pred)]
-    pub cond: Src,
-
-    #[src_type(ALU)]
-    pub srcs: [Src; 2],
+    #[src_types(Pred, ALU, ALU)]
+    #[src_names(cond, src_a, src_b)]
+    pub srcs: [Src; 3],
 }
 
 impl DisplayOp for OpSel {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "sel {} {} {}", self.cond, self.srcs[0], self.srcs[1],)
+        write!(f, "sel {} {} {}", self.cond(), self.srcs[1], self.srcs[2],)
     }
 }
 impl_display_for_op!(OpSel);
@@ -557,11 +556,9 @@ pub struct OpSgxt {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(ALU)]
-    pub a: Src,
-
-    #[src_type(ALU)]
-    pub bits: Src,
+    #[src_types(ALU, ALU)]
+    #[src_names(a, bits)]
+    pub srcs: [Src; 2],
 
     pub signed: bool,
 }
@@ -569,15 +566,15 @@ pub struct OpSgxt {
 impl DisplayOp for OpSgxt {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let modifier = if self.signed { "" } else { ".u32" };
-        write!(f, "sgxt{} {} {}", modifier, self.a, self.bits)
+        write!(f, "sgxt{} {} {}", modifier, self.a(), self.bits())
     }
 }
 impl_display_for_op!(OpSgxt);
 
 impl Foldable for OpSgxt {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let a = f.get_u32_src(self, &self.a);
-        let bits = f.get_u32_src(self, &self.bits);
+        let a = f.get_u32_src(self, self.a());
+        let bits = f.get_u32_src(self, self.bits());
 
         let dst = if bits >= 32 {
             a
@@ -600,20 +597,13 @@ impl Foldable for OpSgxt {
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpShfl {
-    #[dst_type(GPR)]
-    pub dst: Dst,
+    #[dst_types(GPR, Pred)]
+    #[dst_names(dst, in_bounds)]
+    pub dsts: [Dst; 2],
 
-    #[dst_type(Pred)]
-    pub in_bounds: Dst,
-
-    #[src_type(SSA)]
-    pub src: Src,
-
-    #[src_type(ALU)]
-    pub lane: Src,
-
-    #[src_type(ALU)]
-    pub c: Src,
+    #[src_types(SSA, ALU, ALU)]
+    #[src_names(src, lane, c)]
+    pub srcs: [Src; 3],
 
     pub op: ShflOp,
 }
@@ -624,13 +614,13 @@ impl OpShfl {
     /// masks off the unused bits and ensures that any immediate values fit
     /// in the limited encoding space in the instruction.
     pub fn reduce_lane_c_imm(&mut self) {
-        debug_assert!(self.lane.modifier.is_none());
-        if let SrcRef::Imm32(lane) = &mut self.lane.reference {
+        debug_assert!(self.lane().modifier.is_none());
+        if let SrcRef::Imm32(lane) = &mut self.lane_mut().reference {
             *lane &= 0x1f;
         }
 
-        debug_assert!(self.c.modifier.is_none());
-        if let SrcRef::Imm32(c) = &mut self.c.reference {
+        debug_assert!(self.c().modifier.is_none());
+        if let SrcRef::Imm32(c) = &mut self.c_mut().reference {
             *c &= 0x1f1f;
         }
     }
@@ -638,7 +628,14 @@ impl OpShfl {
 
 impl DisplayOp for OpShfl {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "shfl.{} {} {} {}", self.op, self.src, self.lane, self.c)
+        write!(
+            f,
+            "shfl.{} {} {} {}",
+            self.op,
+            self.src(),
+            self.lane(),
+            self.c()
+        )
     }
 }
 impl_display_for_op!(OpShfl);

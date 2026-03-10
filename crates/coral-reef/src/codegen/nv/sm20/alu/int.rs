@@ -4,8 +4,8 @@ use super::*;
 impl SM20Op for OpBfe {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.base, GPR, SrcType::ALU);
-        if let SrcRef::Imm32(imm32) = &mut self.range.reference {
+        b.copy_alu_src_if_not_reg(self.base_mut(), GPR, SrcType::ALU);
+        if let SrcRef::Imm32(ref mut imm32) = self.range_mut().reference {
             *imm32 &= 0xffff;
         }
     }
@@ -15,8 +15,8 @@ impl SM20Op for OpBfe {
             SM20Unit::Int,
             0x1c,
             &self.dst,
-            &self.base,
-            &self.range,
+            self.base(),
+            self.range(),
             None,
         );
         e.set_bit(5, self.signed);
@@ -41,14 +41,15 @@ impl SM20Op for OpFlo {
 impl SM20Op for OpIAdd2 {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
+        let carry_out_none = self.carry_out().is_none();
         let [src0, src1] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         if src0.modifier.is_ineg() && src1.modifier.is_ineg() {
-            assert!(self.carry_out.is_none());
+            assert!(carry_out_none);
             b.copy_alu_src_and_lower_ineg(src0, GPR, SrcType::I32);
         }
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::I32);
-        if !self.carry_out.is_none() {
+        if !carry_out_none {
             b.copy_alu_src_if_ineg_imm(src1, GPR, SrcType::I32);
         }
     }
@@ -56,18 +57,18 @@ impl SM20Op for OpIAdd2 {
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         assert!(self.srcs[0].is_unmodified() || self.srcs[1].is_unmodified());
         if let Some(imm32) = self.srcs[1].as_imm_not_i20() {
-            e.encode_form_a_imm32(0x2, &self.dst, &self.srcs[0], imm32);
-            e.set_carry_out(58, &self.carry_out);
+            e.encode_form_a_imm32(0x2, self.dst(), &self.srcs[0], imm32);
+            e.set_carry_out(58, self.carry_out());
         } else {
             e.encode_form_a(
                 SM20Unit::Int,
                 0x12,
-                &self.dst,
+                self.dst(),
                 &self.srcs[0],
                 &self.srcs[1],
                 None,
             );
-            e.set_carry_out(48, &self.carry_out);
+            e.set_carry_out(48, self.carry_out());
         }
         e.set_bit(5, false);
         e.set_bit(8, self.srcs[1].modifier.is_ineg());
@@ -78,7 +79,7 @@ impl SM20Op for OpIAdd2 {
 impl SM20Op for OpIAdd2X {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _carry_in] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::B32);
     }
@@ -86,21 +87,21 @@ impl SM20Op for OpIAdd2X {
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         assert!(self.srcs[0].is_unmodified() || self.srcs[1].is_unmodified());
         if let Some(imm32) = self.srcs[1].as_imm_not_i20() {
-            e.encode_form_a_imm32(0x2, &self.dst, &self.srcs[0], imm32);
-            e.set_carry_out(58, &self.carry_out);
+            e.encode_form_a_imm32(0x2, self.dst(), &self.srcs[0], imm32);
+            e.set_carry_out(58, self.carry_out());
         } else {
             e.encode_form_a(
                 SM20Unit::Int,
                 0x12,
-                &self.dst,
+                self.dst(),
                 &self.srcs[0],
                 &self.srcs[1],
                 None,
             );
-            e.set_carry_out(48, &self.carry_out);
+            e.set_carry_out(48, self.carry_out());
         }
         e.set_bit(5, false);
-        e.set_carry_in(6, &self.carry_in);
+        e.set_carry_in(6, self.carry_in());
         e.set_bit(8, self.srcs[1].modifier.is_bnot());
         e.set_bit(9, self.srcs[0].modifier.is_bnot());
     }
@@ -179,7 +180,7 @@ impl SM20Op for OpIMul {
 impl SM20Op for OpIMnMx {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _min] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::ALU);
         b.copy_alu_src_if_i20_overflow(src1, GPR, SrcType::ALU);
@@ -203,14 +204,14 @@ impl SM20Op for OpIMnMx {
                 IntCmpType::I32 => 1_u8,
             },
         );
-        e.set_pred_src(49..53, &self.min);
+        e.set_pred_src(49..53, self.min());
     }
 }
 
 impl SM20Op for OpISetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum, _low_cmp] = &mut self.srcs;
         if swap_srcs_if_not_reg(src0, src1, GPR) {
             self.cmp_op = self.cmp_op.flip();
         }
@@ -227,7 +228,7 @@ impl SM20Op for OpISetP {
         e.set_bit(6, self.ex);
         e.set_pred_dst(14..17, &Dst::None);
         e.set_pred_dst(17..20, &self.dst);
-        e.set_pred_src(49..53, &self.accum);
+        e.set_pred_src(49..53, self.accum());
         e.set_pred_set_op(53..55, self.set_op);
         e.set_int_cmp_op(55..58, self.cmp_op);
     }
@@ -292,12 +293,19 @@ impl SM20Op for OpPopC {
 impl SM20Op for OpShl {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.src, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.src_mut(), GPR, SrcType::GPR);
         self.reduce_shift_imm();
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
-        e.encode_form_a(SM20Unit::Int, 0x18, &self.dst, &self.src, &self.shift, None);
+        e.encode_form_a(
+            SM20Unit::Int,
+            0x18,
+            &self.dst,
+            self.src(),
+            self.shift(),
+            None,
+        );
         e.set_bit(9, self.wrap);
     }
 }
@@ -305,12 +313,19 @@ impl SM20Op for OpShl {
 impl SM20Op for OpShr {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.src, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.src_mut(), GPR, SrcType::GPR);
         self.reduce_shift_imm();
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
-        e.encode_form_a(SM20Unit::Int, 0x16, &self.dst, &self.src, &self.shift, None);
+        e.encode_form_a(
+            SM20Unit::Int,
+            0x16,
+            &self.dst,
+            self.src(),
+            self.shift(),
+            None,
+        );
         e.set_bit(5, self.signed);
         e.set_bit(9, self.wrap);
     }
@@ -319,8 +334,8 @@ impl SM20Op for OpShr {
 impl SM20Op for OpSuClamp {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.coords, GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(&mut self.params, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.coords_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(self.params_mut(), GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
@@ -328,9 +343,9 @@ impl SM20Op for OpSuClamp {
         e.encode_form_a(
             SM20Unit::Move,
             0x16,
-            &self.dst,
-            &self.coords,
-            &self.params,
+            self.dst(),
+            self.coords(),
+            self.params(),
             None,
         );
         e.set_field(
@@ -356,7 +371,7 @@ impl SM20Op for OpSuClamp {
         e.set_bit(9, self.is_s32);
         e.set_bit(48, self.is_2d);
         e.set_field(49..55, self.imm);
-        e.set_pred_dst(55..58, &self.out_of_bounds);
+        e.set_pred_dst(55..58, self.out_of_bounds());
     }
 }
 
@@ -377,25 +392,25 @@ impl SM20Op for OpSuBfm {
         e.encode_form_a(
             SM20Unit::Move,
             0x17,
-            &self.dst,
+            self.dst(),
             &self.srcs[0],
             &self.srcs[1],
             Some(&self.srcs[2]),
         );
         e.set_bit(48, self.is_3d);
-        e.set_pred_dst(55..58, &self.pdst);
+        e.set_pred_dst(55..58, self.pdst());
     }
 }
 
 impl SM20Op for OpSuEau {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.off, GPR, SrcType::ALU);
-        b.copy_alu_src_if_i20_overflow(&mut self.bit_field, GPR, SrcType::ALU);
-        if src_is_reg(&self.bit_field, GPR) {
-            b.copy_alu_src_if_imm(&mut self.addr, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.off_mut(), GPR, SrcType::ALU);
+        b.copy_alu_src_if_i20_overflow(self.bit_field_mut(), GPR, SrcType::ALU);
+        if src_is_reg(self.bit_field(), GPR) {
+            b.copy_alu_src_if_imm(self.addr_mut(), GPR, SrcType::ALU);
         } else {
-            b.copy_alu_src_if_not_reg(&mut self.addr, GPR, SrcType::ALU);
+            b.copy_alu_src_if_not_reg(self.addr_mut(), GPR, SrcType::ALU);
         }
     }
 
@@ -404,9 +419,9 @@ impl SM20Op for OpSuEau {
             SM20Unit::Move,
             0x18,
             &self.dst,
-            &self.off,
-            &self.bit_field,
-            Some(&self.addr),
+            self.off(),
+            self.bit_field(),
+            Some(self.addr()),
         );
     }
 }

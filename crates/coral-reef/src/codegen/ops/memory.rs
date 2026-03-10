@@ -45,8 +45,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpLd {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpSt {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        let addr_reg = src_to_vgpr_index(&self.addr)?;
-        let data_reg = src_to_vgpr_index(&self.data)?;
+        let addr_reg = src_to_vgpr_index(self.addr())?;
+        let data_reg = src_to_vgpr_index(self.data())?;
         let flat_opcode = mem_type_to_flat_store(self.access.mem_type)?;
         let offset = checked_flat_offset(self.offset)?;
         Ok(Rdna2Encoder::encode_flat_store(
@@ -63,8 +63,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpSt {
 impl EncodeOp<AmdOpEncoder<'_>> for OpAtom {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
-        let addr_reg = src_to_vgpr_index(&self.addr)?;
-        let data_reg = src_to_vgpr_index(&self.data)?;
+        let addr_reg = src_to_vgpr_index(self.addr())?;
+        let data_reg = src_to_vgpr_index(self.data())?;
         let flat_opcode = atom_op_to_flat(self.atom_op)?;
         let offset = checked_flat_offset(self.addr_offset)?;
         Ok(Rdna2Encoder::encode_flat_atomic(
@@ -115,7 +115,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpLdc {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
 
-        let SrcRef::CBuf(cb) = &self.cb.reference else {
+        let SrcRef::CBuf(cb) = &self.cb().reference else {
             return Err(CompileError::InvalidInput(
                 "Ldc source is not a constant buffer reference".into(),
             ));

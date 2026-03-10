@@ -7,20 +7,13 @@ use super::*;
 #[repr(C)]
 #[derive(Clone, SrcsAsSlice, DstsAsSlice)]
 pub struct OpLea {
-    #[dst_type(GPR)]
-    pub dst: Dst,
+    #[dst_types(GPR, Pred)]
+    #[dst_names(dst, overflow)]
+    pub dsts: [Dst; 2],
 
-    #[dst_type(Pred)]
-    pub overflow: Dst,
-
-    #[src_type(ALU)]
-    pub a: Src,
-
-    #[src_type(I32)]
-    pub b: Src,
-
-    #[src_type(ALU)]
-    pub a_high: Src, // High 32-bits of a if .dst_high is set
+    #[src_types(ALU, I32, ALU)]
+    #[src_names(a, b, a_high)]
+    pub srcs: [Src; 3],
 
     pub shift: u8,
     pub dst_high: bool,
@@ -29,9 +22,9 @@ pub struct OpLea {
 
 impl Foldable for OpLea {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let a = f.get_u32_src(self, &self.a);
-        let mut b = f.get_u32_src(self, &self.b);
-        let a_high = f.get_u32_src(self, &self.a_high);
+        let a = f.get_u32_src(self, self.a());
+        let mut b = f.get_u32_src(self, self.b());
+        let a_high = f.get_u32_src(self, self.a_high());
 
         let mut overflow = false;
 
@@ -51,7 +44,7 @@ impl Foldable for OpLea {
             overflow |= o;
         }
 
-        if self.b.modifier.is_ineg() {
+        if self.b().modifier.is_ineg() {
             let o;
             (b, o) = u32::overflowing_add(!b, 1);
             overflow |= o;
@@ -60,8 +53,8 @@ impl Foldable for OpLea {
         let (dst, o) = u32::overflowing_add(shift_result, b);
         overflow |= o;
 
-        f.set_u32_dst(self, &self.dst, dst);
-        f.set_pred_dst(self, &self.overflow, overflow);
+        f.set_u32_dst(self, self.dst(), dst);
+        f.set_pred_dst(self, self.overflow(), overflow);
     }
 }
 
@@ -71,9 +64,9 @@ impl DisplayOp for OpLea {
         if self.dst_high {
             write!(f, ".hi")?;
         }
-        write!(f, " {} {} {}", self.a, self.shift, self.b)?;
+        write!(f, " {} {} {}", self.a(), self.shift, self.b())?;
         if self.dst_high {
-            write!(f, " {}", self.a_high)?;
+            write!(f, " {}", self.a_high())?;
         }
         Ok(())
     }
@@ -83,23 +76,13 @@ impl_display_for_op!(OpLea);
 #[repr(C)]
 #[derive(Clone, SrcsAsSlice, DstsAsSlice)]
 pub struct OpLeaX {
-    #[dst_type(GPR)]
-    pub dst: Dst,
+    #[dst_types(GPR, Pred)]
+    #[dst_names(dst, overflow)]
+    pub dsts: [Dst; 2],
 
-    #[dst_type(Pred)]
-    pub overflow: Dst,
-
-    #[src_type(ALU)]
-    pub a: Src,
-
-    #[src_type(B32)]
-    pub b: Src,
-
-    #[src_type(ALU)]
-    pub a_high: Src, // High 32-bits of a if .dst_high is set
-
-    #[src_type(Pred)]
-    pub carry: Src,
+    #[src_types(ALU, B32, ALU, Pred)]
+    #[src_names(a, b, a_high, carry)]
+    pub srcs: [Src; 4],
 
     pub shift: u8,
     pub dst_high: bool,
@@ -108,10 +91,10 @@ pub struct OpLeaX {
 
 impl Foldable for OpLeaX {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let a = f.get_u32_src(self, &self.a);
-        let mut b = f.get_u32_src(self, &self.b);
-        let a_high = f.get_u32_src(self, &self.a_high);
-        let carry = f.get_pred_src(self, &self.carry);
+        let a = f.get_u32_src(self, self.a());
+        let mut b = f.get_u32_src(self, self.b());
+        let a_high = f.get_u32_src(self, self.a_high());
+        let carry = f.get_pred_src(self, self.carry());
 
         let mut overflow = false;
 
@@ -129,7 +112,7 @@ impl Foldable for OpLeaX {
             shift_result = !shift_result;
         }
 
-        if self.b.modifier.is_bnot() {
+        if self.b().modifier.is_bnot() {
             b = !b;
         }
 
@@ -139,8 +122,8 @@ impl Foldable for OpLeaX {
         let (dst, o) = u32::overflowing_add(dst, if carry { 1 } else { 0 });
         overflow |= o;
 
-        f.set_u32_dst(self, &self.dst, dst);
-        f.set_pred_dst(self, &self.overflow, overflow);
+        f.set_u32_dst(self, self.dst(), dst);
+        f.set_pred_dst(self, self.overflow(), overflow);
     }
 }
 
@@ -150,11 +133,11 @@ impl DisplayOp for OpLeaX {
         if self.dst_high {
             write!(f, ".hi")?;
         }
-        write!(f, " {} {} {}", self.a, self.shift, self.b)?;
+        write!(f, " {} {} {}", self.a(), self.shift, self.b())?;
         if self.dst_high {
-            write!(f, " {}", self.a_high)?;
+            write!(f, " {}", self.a_high())?;
         }
-        write!(f, " {}", self.carry)?;
+        write!(f, " {}", self.carry())?;
         Ok(())
     }
 }
@@ -177,14 +160,9 @@ pub struct OpShf {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(GPR)]
-    pub low: Src,
-
-    #[src_type(ALU)]
-    pub high: Src,
-
-    #[src_type(ALU)]
-    pub shift: Src,
+    #[src_types(GPR, ALU, ALU)]
+    #[src_names(low, high, shift)]
+    pub srcs: [Src; 3],
 
     pub right: bool,
     pub wrap: bool,
@@ -201,15 +179,16 @@ impl OpShf {
             .bits()
             .try_into()
             .expect("IntType bits must fit in u32");
-        reduce_shift_imm(&mut self.shift, self.wrap, bits);
+        let wrap = self.wrap;
+        reduce_shift_imm(self.shift_mut(), wrap, bits);
     }
 }
 
 impl Foldable for OpShf {
     fn fold(&self, sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let low = f.get_u32_src(self, &self.low);
-        let high = f.get_u32_src(self, &self.high);
-        let shift = f.get_u32_src(self, &self.shift);
+        let low = f.get_u32_src(self, self.low());
+        let high = f.get_u32_src(self, self.high());
+        let shift = f.get_u32_src(self, self.shift());
 
         let bits: u32 = self
             .data_type
@@ -269,7 +248,7 @@ impl DisplayOp for OpShf {
         if self.dst_high {
             write!(f, ".hi")?;
         }
-        write!(f, " {} {} {}", self.low, self.high, self.shift)
+        write!(f, " {} {} {}", self.low(), self.high(), self.shift())
     }
 }
 impl_display_for_op!(OpShf);
@@ -281,11 +260,9 @@ pub struct OpShl {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(GPR)]
-    pub src: Src,
-
-    #[src_type(ALU)]
-    pub shift: Src,
+    #[src_types(GPR, ALU)]
+    #[src_names(src, shift)]
+    pub srcs: [Src; 2],
 
     pub wrap: bool,
 }
@@ -294,7 +271,8 @@ impl OpShl {
     /// Reduces the shift immediate, if any.  Out-of-range shifts are either
     /// clamped to the maximum or wrapped as needed.
     pub fn reduce_shift_imm(&mut self) {
-        reduce_shift_imm(&mut self.shift, self.wrap, 32);
+        let wrap = self.wrap;
+        reduce_shift_imm(self.shift_mut(), wrap, 32);
     }
 }
 
@@ -304,14 +282,14 @@ impl DisplayOp for OpShl {
         if self.wrap {
             write!(f, ".w")?;
         }
-        write!(f, " {} {}", self.src, self.shift)
+        write!(f, " {} {}", self.src(), self.shift())
     }
 }
 
 impl Foldable for OpShl {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let x = f.get_u32_src(self, &self.src);
-        let shift = f.get_u32_src(self, &self.shift);
+        let x = f.get_u32_src(self, self.src());
+        let shift = f.get_u32_src(self, self.shift());
 
         let shift = if self.wrap {
             shift & 31
@@ -330,11 +308,9 @@ pub struct OpShr {
     #[dst_type(GPR)]
     pub dst: Dst,
 
-    #[src_type(GPR)]
-    pub src: Src,
-
-    #[src_type(ALU)]
-    pub shift: Src,
+    #[src_types(GPR, ALU)]
+    #[src_names(src, shift)]
+    pub srcs: [Src; 2],
 
     pub wrap: bool,
     pub signed: bool,
@@ -349,7 +325,7 @@ impl DisplayOp for OpShr {
         if !self.signed {
             write!(f, ".u32")?;
         }
-        write!(f, " {} {}", self.src, self.shift)
+        write!(f, " {} {}", self.src(), self.shift())
     }
 }
 
@@ -357,14 +333,15 @@ impl OpShr {
     /// Reduces the shift immediate, if any.  Out-of-range shifts are either
     /// clamped to the maximum or wrapped as needed.
     pub fn reduce_shift_imm(&mut self) {
-        reduce_shift_imm(&mut self.shift, self.wrap, 32);
+        let wrap = self.wrap;
+        reduce_shift_imm(self.shift_mut(), wrap, 32);
     }
 }
 
 impl Foldable for OpShr {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let x = f.get_u32_src(self, &self.src);
-        let shift = f.get_u32_src(self, &self.shift);
+        let x = f.get_u32_src(self, self.src());
+        let shift = f.get_u32_src(self, self.shift());
 
         let shift = if self.wrap {
             shift & 31
@@ -392,11 +369,8 @@ mod tests {
     #[test]
     fn test_op_lea_display() {
         let op = OpLea {
-            dst: Dst::None,
-            overflow: Dst::None,
-            a: imm_src(1),
-            b: imm_src(2),
-            a_high: imm_src(0),
+            dsts: [Dst::None, Dst::None],
+            srcs: [imm_src(1), imm_src(2), imm_src(0)],
             shift: 4,
             dst_high: false,
             intermediate_mod: SrcMod::None,
@@ -409,11 +383,8 @@ mod tests {
     #[test]
     fn test_op_lea_hi_display() {
         let op = OpLea {
-            dst: Dst::None,
-            overflow: Dst::None,
-            a: imm_src(1),
-            b: imm_src(2),
-            a_high: imm_src(0),
+            dsts: [Dst::None, Dst::None],
+            srcs: [imm_src(1), imm_src(2), imm_src(0)],
             shift: 8,
             dst_high: true,
             intermediate_mod: SrcMod::None,
@@ -426,12 +397,8 @@ mod tests {
     #[test]
     fn test_op_leax_display() {
         let op = OpLeaX {
-            dst: Dst::None,
-            overflow: Dst::None,
-            a: imm_src(1),
-            b: imm_src(2),
-            a_high: imm_src(0),
-            carry: Src::new_imm_bool(false),
+            dsts: [Dst::None, Dst::None],
+            srcs: [imm_src(1), imm_src(2), imm_src(0), Src::new_imm_bool(false)],
             shift: 4,
             dst_high: false,
             intermediate_mod: SrcMod::None,
@@ -444,9 +411,7 @@ mod tests {
     fn test_op_shf_display_left() {
         let op = OpShf {
             dst: Dst::None,
-            low: imm_src(0),
-            high: imm_src(0),
-            shift: imm_src(4),
+            srcs: [imm_src(0), imm_src(0), imm_src(4)],
             right: false,
             wrap: false,
             data_type: IntType::U32,
@@ -461,9 +426,7 @@ mod tests {
     fn test_op_shf_display_right_wrap() {
         let op = OpShf {
             dst: Dst::None,
-            low: imm_src(0),
-            high: imm_src(0),
-            shift: imm_src(4),
+            srcs: [imm_src(0), imm_src(0), imm_src(4)],
             right: true,
             wrap: true,
             data_type: IntType::I64,
@@ -480,16 +443,14 @@ mod tests {
     fn test_op_shf_reduce_shift_imm_clamp() {
         let mut op = OpShf {
             dst: Dst::None,
-            low: imm_src(0),
-            high: imm_src(0),
-            shift: Src::new_imm_u32(100),
+            srcs: [imm_src(0), imm_src(0), Src::new_imm_u32(100)],
             right: false,
             wrap: false,
             data_type: IntType::U32,
             dst_high: false,
         };
         op.reduce_shift_imm();
-        if let SrcRef::Imm32(v) = op.shift.reference {
+        if let SrcRef::Imm32(v) = op.shift().reference {
             assert_eq!(v, 32, "clamp should cap at 32 for u32");
         } else {
             panic!("shift should remain Imm32 after reduce");
@@ -500,16 +461,14 @@ mod tests {
     fn test_op_shf_reduce_shift_imm_wrap() {
         let mut op = OpShf {
             dst: Dst::None,
-            low: imm_src(0),
-            high: imm_src(0),
-            shift: Src::new_imm_u32(37),
+            srcs: [imm_src(0), imm_src(0), Src::new_imm_u32(37)],
             right: false,
             wrap: true,
             data_type: IntType::U32,
             dst_high: false,
         };
         op.reduce_shift_imm();
-        if let SrcRef::Imm32(v) = op.shift.reference {
+        if let SrcRef::Imm32(v) = op.shift().reference {
             assert_eq!(v, 5, "wrap 37 & 31 = 5");
         } else {
             panic!("shift should remain Imm32 after reduce");
@@ -520,24 +479,22 @@ mod tests {
     fn test_op_shl_struct() {
         let op = OpShl {
             dst: Dst::None,
-            src: imm_src(1),
-            shift: imm_src(4),
+            srcs: [imm_src(1), imm_src(4)],
             wrap: false,
         };
         assert!(!op.wrap);
-        assert!(matches!(op.shift.reference, SrcRef::Imm32(4)));
+        assert!(matches!(op.shift().reference, SrcRef::Imm32(4)));
     }
 
     #[test]
     fn test_op_shl_reduce_shift_imm() {
         let mut op = OpShl {
             dst: Dst::None,
-            src: imm_src(1),
-            shift: Src::new_imm_u32(50),
+            srcs: [imm_src(1), Src::new_imm_u32(50)],
             wrap: false,
         };
         op.reduce_shift_imm();
-        if let SrcRef::Imm32(v) = op.shift.reference {
+        if let SrcRef::Imm32(v) = op.shift().reference {
             assert_eq!(v, 32);
         }
     }
@@ -546,8 +503,7 @@ mod tests {
     fn test_op_shr_signed() {
         let op = OpShr {
             dst: Dst::None,
-            src: imm_src(0x8000_0000),
-            shift: imm_src(1),
+            srcs: [imm_src(0x8000_0000), imm_src(1)],
             wrap: false,
             signed: true,
         };
@@ -558,8 +514,7 @@ mod tests {
     fn test_op_shr_unsigned() {
         let op = OpShr {
             dst: Dst::None,
-            src: imm_src(0x8000_0000),
-            shift: imm_src(1),
+            srcs: [imm_src(0x8000_0000), imm_src(1)],
             wrap: false,
             signed: false,
         };
@@ -570,13 +525,12 @@ mod tests {
     fn test_op_shr_reduce_shift_imm_wrap() {
         let mut op = OpShr {
             dst: Dst::None,
-            src: imm_src(1),
-            shift: Src::new_imm_u32(35),
+            srcs: [imm_src(1), Src::new_imm_u32(35)],
             wrap: true,
             signed: false,
         };
         op.reduce_shift_imm();
-        if let SrcRef::Imm32(v) = op.shift.reference {
+        if let SrcRef::Imm32(v) = op.shift().reference {
             assert_eq!(v, 3, "35 & 31 = 3");
         }
     }

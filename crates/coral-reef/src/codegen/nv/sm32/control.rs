@@ -330,8 +330,8 @@ impl SM32Op for OpVote {
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         e.set_opcode(0x86c, 2);
 
-        e.set_dst(&self.ballot);
-        e.set_pred_dst(48..51, &self.vote);
+        e.set_dst(self.ballot());
+        e.set_pred_dst(48..51, self.vote());
 
         e.set_pred_src(42..46, &self.pred);
 
@@ -349,8 +349,8 @@ impl SM32Op for OpVote {
 impl SM32Op for OpOut {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.handle, GPR, SrcType::GPR);
-        b.copy_alu_src_if_i20_overflow(&mut self.stream, GPR, SrcType::ALU);
+        b.copy_alu_src_if_not_reg(self.handle_mut(), GPR, SrcType::GPR);
+        b.copy_alu_src_if_i20_overflow(self.stream_mut(), GPR, SrcType::ALU);
     }
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
@@ -358,8 +358,8 @@ impl SM32Op for OpOut {
             0xb70,
             0x1f0,
             Some(&self.dst),
-            &self.handle,
-            &self.stream,
+            self.handle(),
+            self.stream(),
             None,
             false,
         );

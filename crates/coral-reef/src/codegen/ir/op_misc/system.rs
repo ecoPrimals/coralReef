@@ -175,11 +175,9 @@ impl fmt::Display for VoteOp {
 pub struct OpVote {
     pub op: VoteOp,
 
-    #[dst_type(GPR)]
-    pub ballot: Dst,
-
-    #[dst_type(Pred)]
-    pub vote: Dst,
+    #[dst_types(GPR, Pred)]
+    #[dst_names(ballot, vote)]
+    pub dsts: [Dst; 2],
 
     #[src_type(Pred)]
     pub pred: Src,
@@ -187,14 +185,14 @@ pub struct OpVote {
 
 impl DisplayOp for OpVote {
     fn fmt_dsts(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.ballot.is_none() && self.vote.is_none() {
+        if self.ballot().is_none() && self.vote().is_none() {
             write!(f, "none")
         } else {
-            if !self.ballot.is_none() {
-                write!(f, "{}", self.ballot)?;
+            if !self.ballot().is_none() {
+                write!(f, "{}", self.ballot())?;
             }
-            if !self.vote.is_none() {
-                write!(f, "{}", self.vote)?;
+            if !self.vote().is_none() {
+                write!(f, "{}", self.vote())?;
             }
             Ok(())
         }
@@ -228,11 +226,9 @@ impl fmt::Display for MatchOp {
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpMatch {
-    #[dst_type(Pred)]
-    pub pred: Dst,
-
-    #[dst_type(GPR)]
-    pub mask: Dst,
+    #[dst_types(Pred, GPR)]
+    #[dst_names(pred, mask)]
+    pub dsts: [Dst; 2],
 
     #[src_type(GPR)]
     pub src: Src,

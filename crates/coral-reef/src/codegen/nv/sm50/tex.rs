@@ -43,7 +43,7 @@ impl SM50Op for OpTex {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(8..16, &self.srcs[0]);
         e.set_reg_src(20..28, &self.srcs[1]);
 
@@ -76,7 +76,7 @@ impl SM50Op for OpTld {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(8..16, &self.srcs[0]);
         e.set_reg_src(20..28, &self.srcs[1]);
 
@@ -121,7 +121,7 @@ impl SM50Op for OpTld4 {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(8..16, &self.srcs[0]);
         e.set_reg_src(20..28, &self.srcs[1]);
 
@@ -185,7 +185,7 @@ impl SM50Op for OpTxd {
 
         e.set_dst(&self.dsts[0]);
         assert!(self.dsts[1].is_none());
-        assert!(self.fault.is_none());
+        assert!(self.fault().is_none());
         e.set_reg_src(8..16, &self.srcs[0]);
         e.set_reg_src(20..28, &self.srcs[1]);
 

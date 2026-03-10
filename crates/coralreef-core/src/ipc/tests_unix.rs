@@ -23,26 +23,18 @@ async fn unix_jsonrpc_send_request(sock_path: &std::path::Path, request: &str) -
 }
 
 #[cfg(unix)]
-#[tokio::test]
-async fn test_default_unix_socket_path_xdg() {
-    unsafe {
-        std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1234");
-    }
-    let path = default_unix_socket_path();
+#[test]
+fn test_unix_socket_path_with_xdg() {
+    let path = unix_socket_path_for_base(Some("/run/user/1234".into()));
+    assert!(path.to_string_lossy().contains("/run/user/1234"));
     assert!(path.to_string_lossy().contains("biomeos"));
     assert!(path.to_string_lossy().contains("coralreef.sock"));
-    unsafe {
-        std::env::remove_var("XDG_RUNTIME_DIR");
-    }
 }
 
 #[cfg(unix)]
-#[tokio::test]
-async fn test_default_unix_socket_path_fallback() {
-    unsafe {
-        std::env::remove_var("XDG_RUNTIME_DIR");
-    }
-    let path = default_unix_socket_path();
+#[test]
+fn test_unix_socket_path_fallback() {
+    let path = unix_socket_path_for_base(None);
     assert!(path.to_string_lossy().contains("biomeos"));
     assert!(path.to_string_lossy().contains("coralreef.sock"));
 }

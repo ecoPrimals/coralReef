@@ -109,10 +109,12 @@ impl ShaderModel for ShaderModel20 {
     }
 
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
-        Ok(if self.sm >= 30 {
-            super::encode_sm30_shader(self, s)
-        } else {
-            encode_sm20_shader(self, s)
+        crate::codegen::catch_ice(|| {
+            if self.sm >= 30 {
+                super::encode_sm30_shader(self, s)
+            } else {
+                encode_sm20_shader(self, s)
+            }
         })
     }
 

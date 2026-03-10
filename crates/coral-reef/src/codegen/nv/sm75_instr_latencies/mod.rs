@@ -192,8 +192,7 @@ mod tests {
             idx: 0,
         }));
         let read = Op::IAdd3(Box::new(OpIAdd3 {
-            dst: ugpr_dst(1),
-            overflow: [Dst::None, Dst::None],
+            dsts: [ugpr_dst(1), Dst::None, Dst::None],
             srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
         }));
         let lat = SM75Latency::raw(&write, 0, Some(&read), 0);
@@ -224,9 +223,12 @@ mod tests {
             cmp_op: IntCmpOp::Eq,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [Src::ZERO, Src::ZERO],
-            accum: Src::new_imm_bool(false),
-            low_cmp: Src::new_imm_bool(false),
+            srcs: [
+                Src::ZERO,
+                Src::ZERO,
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
         }));
         let read = Op::ISetP(Box::new(OpISetP {
             dst: Dst::Reg(RegRef::new(RegFile::Pred, 1, 1)),
@@ -234,9 +236,12 @@ mod tests {
             cmp_op: IntCmpOp::Eq,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [Src::ZERO, Src::ZERO],
-            accum: Src::new_imm_bool(false),
-            low_cmp: Src::new_imm_bool(false),
+            srcs: [
+                Src::ZERO,
+                Src::ZERO,
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
         }));
         let lat = SM75Latency::raw(&write, 0, Some(&read), 0);
         assert!(lat > 0);

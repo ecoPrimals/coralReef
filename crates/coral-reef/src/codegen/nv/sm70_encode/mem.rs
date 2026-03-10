@@ -114,10 +114,10 @@ impl SM70Op for OpSuLd {
             }
         }
 
-        e.set_dst(&self.dst);
-        e.set_reg_src(24..32, &self.coord);
-        e.set_reg_src(64..72, &self.handle);
-        e.set_pred_dst(81..84, &self.fault);
+        e.set_dst(self.dst());
+        e.set_reg_src(24..32, self.coord());
+        e.set_reg_src(64..72, self.handle());
+        e.set_pred_dst(81..84, self.fault());
         if e.sm >= 120 {
             e.set_ureg_src(48..56, &Src::ZERO); // handle
         }
@@ -145,9 +145,9 @@ impl SM70Op for OpSuSt {
             }
         }
 
-        e.set_reg_src(24..32, &self.coord);
-        e.set_reg_src(32..40, &self.data);
-        e.set_reg_src(64..72, &self.handle);
+        e.set_reg_src(24..32, self.coord());
+        e.set_reg_src(32..40, self.data());
+        e.set_reg_src(64..72, self.handle());
         if e.sm >= 120 {
             e.set_ureg_src(48..56, &Src::ZERO); // handle
         }
@@ -164,7 +164,7 @@ impl SM70Op for OpSuAtom {
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
-        if self.dst.is_none() {
+        if self.dst().is_none() {
             e.set_opcode(0x3a0);
             e.set_atom_op(87..90, self.atom_op);
         } else if let AtomOp::CmpExch(cmp_src) = self.atom_op {
@@ -175,11 +175,11 @@ impl SM70Op for OpSuAtom {
             e.set_atom_op(87..91, self.atom_op);
         }
 
-        e.set_dst(&self.dst);
-        e.set_reg_src(24..32, &self.coord);
-        e.set_reg_src(32..40, &self.data);
-        e.set_reg_src(64..72, &self.handle);
-        e.set_pred_dst(81..84, &self.fault);
+        e.set_dst(self.dst());
+        e.set_reg_src(24..32, self.coord());
+        e.set_reg_src(32..40, self.data());
+        e.set_reg_src(64..72, self.handle());
+        e.set_pred_dst(81..84, self.fault());
         if e.sm >= 120 {
             e.set_ureg_src(48..56, &Src::ZERO); // handle
         }
@@ -237,11 +237,11 @@ impl SM70Op for OpLd {
 impl SM70Op for OpLdc {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        b.copy_alu_src_if_not_reg(&mut self.offset, gpr, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.offset_mut(), gpr, SrcType::GPR);
     }
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
-        let SrcRef::CBuf(cb) = &self.cb.reference else {
+        let SrcRef::CBuf(cb) = &self.cb().reference else {
             panic!("LDC must take a cbuf source");
         };
 
@@ -251,11 +251,11 @@ impl SM70Op for OpLdc {
                     if e.sm >= 100 {
                         e.set_opcode(0x7ac);
                         e.set_bit(91, true);
-                        e.set_ureg_src(24..32, &self.offset);
+                        e.set_ureg_src(24..32, self.offset());
                     } else {
                         e.set_opcode(0xab9);
                         e.set_bit(91, false);
-                        assert!(self.offset.is_zero());
+                        assert!(self.offset().is_zero());
                     }
                     e.set_udst(&self.dst);
                     assert!(self.mode == LdcMode::Indexed);
@@ -263,7 +263,7 @@ impl SM70Op for OpLdc {
                     e.set_opcode(0xb82);
                     e.set_dst(&self.dst);
 
-                    e.set_reg_src(24..32, &self.offset);
+                    e.set_reg_src(24..32, self.offset());
                     e.set_field(
                         78..80,
                         match self.mode {
@@ -287,19 +287,19 @@ impl SM70Op for OpLdc {
                     e.set_udst(&self.dst);
 
                     if e.sm >= 120 {
-                        e.set_ureg_src(64..72, &self.offset);
+                        e.set_ureg_src(64..72, self.offset());
                     } else if e.sm >= 100 {
                         // Blackwell A adds the source but it has to be zero
-                        assert!(self.offset.is_zero());
-                        e.set_ureg_src(64..72, &self.offset);
+                        assert!(self.offset().is_zero());
+                        e.set_ureg_src(64..72, self.offset());
                     } else {
-                        assert!(self.offset.is_zero());
+                        assert!(self.offset().is_zero());
                     }
                 } else {
                     e.set_opcode(0x582);
                     e.set_dst(&self.dst);
 
-                    e.set_reg_src(64..72, &self.offset);
+                    e.set_reg_src(64..72, self.offset());
                 }
 
                 e.set_ureg(24..32, handle);
@@ -357,8 +357,8 @@ impl SM70Op for OpSt {
             }
         }
 
-        e.set_reg_src(24..32, &self.addr);
-        e.set_reg_src(32..40, &self.data);
+        e.set_reg_src(24..32, self.addr());
+        e.set_reg_src(32..40, self.data());
         e.set_field(40..64, self.offset);
     }
 }
@@ -441,14 +441,14 @@ impl SM70Op for OpAtom {
                         e.set_opcode(0x98e);
                     }
 
-                    e.set_reg_src(32..40, &self.data);
+                    e.set_reg_src(32..40, self.data());
                     e.set_atom_op(87..90, self.atom_op);
                 } else if let AtomOp::CmpExch(cmp_src) = self.atom_op {
                     e.set_opcode(0x3a9);
 
                     assert!(cmp_src == AtomCmpSrc::Separate);
-                    e.set_reg_src(32..40, &self.cmpr);
-                    e.set_reg_src(64..72, &self.data);
+                    e.set_reg_src(32..40, self.cmpr());
+                    e.set_reg_src(64..72, self.data());
                     e.set_pred_dst(81..84, &Dst::None);
                 } else {
                     if e.sm >= 90 && self.atom_type.is_float() {
@@ -457,7 +457,7 @@ impl SM70Op for OpAtom {
                         e.set_opcode(0x3a8);
                     }
 
-                    e.set_reg_src(32..40, &self.data);
+                    e.set_reg_src(32..40, self.data());
                     e.set_pred_dst(81..84, &Dst::None);
                     e.set_atom_op(87..91, self.atom_op);
                 }
@@ -480,12 +480,12 @@ impl SM70Op for OpAtom {
                     e.set_opcode(0x38d);
 
                     assert!(cmp_src == AtomCmpSrc::Separate);
-                    e.set_reg_src(32..40, &self.cmpr);
-                    e.set_reg_src(64..72, &self.data);
+                    e.set_reg_src(32..40, self.cmpr());
+                    e.set_reg_src(64..72, self.data());
                 } else {
                     e.set_opcode(0x38c);
 
-                    e.set_reg_src(32..40, &self.data);
+                    e.set_reg_src(32..40, self.data());
                     assert!(
                         self.atom_type != AtomType::U64 || self.atom_op == AtomOp::Exch,
                         "64-bit Shared atomics only support CmpExch or Exch"
@@ -506,7 +506,7 @@ impl SM70Op for OpAtom {
         }
 
         e.set_dst(&self.dst);
-        e.set_reg_src(24..32, &self.addr);
+        e.set_reg_src(24..32, self.addr());
         e.set_field(40..64, self.addr_offset);
         e.set_atom_type(self.atom_type, false);
     }
@@ -538,8 +538,8 @@ impl SM70Op for OpALd {
         e.set_opcode(0x321);
 
         e.set_dst(&self.dst);
-        e.set_reg_src(32..40, &self.vtx);
-        e.set_reg_src(24..32, &self.offset);
+        e.set_reg_src(32..40, self.vtx());
+        e.set_reg_src(24..32, self.offset());
 
         e.set_field(40..50, self.addr);
         e.set_field(74..76, self.comps - 1);
@@ -557,9 +557,9 @@ impl SM70Op for OpASt {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         e.set_opcode(0x322);
 
-        e.set_reg_src(32..40, &self.data);
-        e.set_reg_src(64..72, &self.vtx);
-        e.set_reg_src(24..32, &self.offset);
+        e.set_reg_src(32..40, self.data());
+        e.set_reg_src(64..72, self.vtx());
+        e.set_reg_src(24..32, self.offset());
 
         e.set_field(40..50, self.addr);
         e.set_field(74..76, self.comps - 1);
@@ -601,8 +601,8 @@ impl SM70Op for OpIpa {
             },
         );
 
-        assert!(self.inv_w.is_zero());
-        e.set_reg_src(32..40, &self.offset);
+        assert!(self.inv_w().is_zero());
+        e.set_reg_src(32..40, self.offset());
 
         // pred_dst: none for interpolation (no predicate destination).
         e.set_pred_dst(81..84, &Dst::None);

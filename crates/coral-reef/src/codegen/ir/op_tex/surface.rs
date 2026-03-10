@@ -7,19 +7,17 @@ use super::*;
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpSuLd {
-    pub dst: Dst,
-    pub fault: Dst,
+    #[dst_names(dst, fault)]
+    pub dsts: [Dst; 2],
 
     pub image_access: ImageAccess,
     pub image_dim: ImageDim,
     pub mem_order: MemOrder,
     pub mem_eviction_priority: MemEvictionPriority,
 
-    #[src_type(SSA)]
-    pub handle: Src,
-
-    #[src_type(SSA)]
-    pub coord: Src,
+    #[src_types(SSA, SSA)]
+    #[src_names(handle, coord)]
+    pub srcs: [Src; 2],
 }
 
 impl DisplayOp for OpSuLd {
@@ -31,8 +29,8 @@ impl DisplayOp for OpSuLd {
             self.image_dim,
             self.mem_order,
             self.mem_eviction_priority,
-            self.coord,
-            self.handle,
+            self.coord(),
+            self.handle(),
         )
     }
 }
@@ -46,14 +44,9 @@ pub struct OpSuSt {
     pub mem_order: MemOrder,
     pub mem_eviction_priority: MemEvictionPriority,
 
-    #[src_type(SSA)]
-    pub handle: Src,
-
-    #[src_type(SSA)]
-    pub coord: Src,
-
-    #[src_type(SSA)]
-    pub data: Src,
+    #[src_types(SSA, SSA, SSA)]
+    #[src_names(handle, coord, data)]
+    pub srcs: [Src; 3],
 }
 
 impl DisplayOp for OpSuSt {
@@ -65,9 +58,9 @@ impl DisplayOp for OpSuSt {
             self.image_dim,
             self.mem_order,
             self.mem_eviction_priority,
-            self.coord,
-            self.data,
-            self.handle,
+            self.coord(),
+            self.data(),
+            self.handle(),
         )
     }
 }
@@ -76,8 +69,8 @@ impl_display_for_op!(OpSuSt);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpSuAtom {
-    pub dst: Dst,
-    pub fault: Dst,
+    #[dst_names(dst, fault)]
+    pub dsts: [Dst; 2],
 
     pub image_dim: ImageDim,
 
@@ -87,14 +80,9 @@ pub struct OpSuAtom {
     pub mem_order: MemOrder,
     pub mem_eviction_priority: MemEvictionPriority,
 
-    #[src_type(SSA)]
-    pub handle: Src,
-
-    #[src_type(SSA)]
-    pub coord: Src,
-
-    #[src_type(SSA)]
-    pub data: Src,
+    #[src_types(SSA, SSA, SSA)]
+    #[src_names(handle, coord, data)]
+    pub srcs: [Src; 3],
 }
 
 impl DisplayOp for OpSuAtom {
@@ -107,9 +95,9 @@ impl DisplayOp for OpSuAtom {
             self.atom_type,
             self.mem_order,
             self.mem_eviction_priority,
-            self.coord,
-            self.data,
-            self.handle,
+            self.coord(),
+            self.data(),
+            self.handle(),
         )
     }
 }
@@ -184,10 +172,9 @@ impl fmt::Display for SuClampRound {
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice, Clone)]
 pub struct OpSuClamp {
-    #[dst_type(GPR)]
-    pub dst: Dst,
-    #[dst_type(Pred)]
-    pub out_of_bounds: Dst,
+    #[dst_types(GPR, Pred)]
+    #[dst_names(dst, out_of_bounds)]
+    pub dsts: [Dst; 2],
 
     /// This modifier specifies if we use pitch-linear or block-linear
     /// calculations, another option is to support both and read the actual
@@ -210,8 +197,9 @@ pub struct OpSuClamp {
     pub is_s32: bool,
     pub is_2d: bool,
 
-    #[src_type(GPR)]
-    pub coords: Src,
+    #[src_types(GPR, ALU)]
+    #[src_names(coords, params)]
+    pub srcs: [Src; 2],
 
     /// Packed parameter containing both bounds (inclusive)
     /// and other information (explained in more details in Foldable):
@@ -220,16 +208,14 @@ pub struct OpSuClamp {
     /// 22..26: coord shl
     /// 26..29: coord shr
     /// 29..32: n. of tiles
-    #[src_type(ALU)]
-    pub params: Src,
     /// Added to the coords, it's only an i6
     pub imm: i8,
 }
 
 impl Foldable for OpSuClamp {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let src = f.get_u32_src(self, &self.coords);
-        let params = f.get_u32_src(self, &self.params);
+        let src = f.get_u32_src(self, self.coords());
+        let params = f.get_u32_src(self, self.params());
         let imm = self.imm; // i6
 
         let src = if self.is_s32 {
@@ -297,8 +283,8 @@ impl Foldable for OpSuClamp {
             bv.set_bit(30, false); // pitch_linear=false
             bv.set_bit(31, is_oob);
         }
-        f.set_u32_dst(self, &self.dst, out);
-        f.set_pred_dst(self, &self.out_of_bounds, is_oob);
+        f.set_u32_dst(self, self.dst(), out);
+        f.set_pred_dst(self, self.out_of_bounds(), is_oob);
     }
 }
 
@@ -315,7 +301,7 @@ impl DisplayOp for OpSuClamp {
             write!(f, ".1d")?;
         }
 
-        write!(f, " {} {} {:x}", self.coords, self.params, self.imm)
+        write!(f, " {} {} {:x}", self.coords(), self.params(), self.imm)
     }
 }
 impl_display_for_op!(OpSuClamp);
@@ -329,10 +315,9 @@ impl_display_for_op!(OpSuClamp);
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice, Clone)]
 pub struct OpSuBfm {
-    #[dst_type(GPR)]
-    pub dst: Dst,
-    #[dst_type(Pred)]
-    pub pdst: Dst,
+    #[dst_types(GPR, Pred)]
+    #[dst_names(dst, pdst)]
+    pub dsts: [Dst; 2],
 
     /// x, y, z
     #[src_type(ALU)]
@@ -428,8 +413,8 @@ impl Foldable for OpSuBfm {
         o.set_bit(11, is_pitch_linear_2d);
 
         let is_oob = x.get_bit(31) || y.get_bit(31) || (z.get_bit(31) && self.is_3d);
-        f.set_u32_dst(self, &self.dst, o_raw);
-        f.set_pred_dst(self, &self.pdst, is_oob);
+        f.set_u32_dst(self, self.dst(), o_raw);
+        f.set_pred_dst(self, self.pdst(), is_oob);
     }
 }
 
@@ -459,28 +444,16 @@ pub struct OpSuEau {
     /// offset is computed from the block coordinates.
     /// it's ok to add it directly to the address since they are both
     /// "aligned" to 64 (the first 8 bits are removed from both)
-    #[src_type(GPR)]
-    pub off: Src,
-
-    ///  8.. 9: offset, last bit
-    /// 11..12: pitch_linear: when enabled the bf-offset is ignored and
-    ///         the off_shl is subtracted by 8
-    /// 12..16: off_shl, shifts left the offset by off_shl + 1
-    /// 16..27: 11-bit offset, when joined with the 1-bit offset completes the
-    ///         12-bit offset ORed to the src offset after shifting
-    ///         (unless pitch_linear)
-    #[src_type(ALU)]
-    pub bit_field: Src,
-
-    #[src_type(GPR)]
-    pub addr: Src,
+    #[src_types(GPR, ALU, GPR)]
+    #[src_names(off, bit_field, addr)]
+    pub srcs: [Src; 3],
 }
 
 impl Foldable for OpSuEau {
     fn fold(&self, _sm: &dyn ShaderModel, f: &mut OpFoldData<'_>) {
-        let off_raw = f.get_u32_src(self, &self.off);
-        let bf_raw = f.get_u32_src(self, &self.bit_field);
-        let addr = f.get_u32_src(self, &self.addr);
+        let off_raw = f.get_u32_src(self, self.off());
+        let bf_raw = f.get_u32_src(self, self.bit_field());
+        let addr = f.get_u32_src(self, self.addr());
 
         let bf = &bf_raw;
 
@@ -517,7 +490,13 @@ impl Foldable for OpSuEau {
 
 impl DisplayOp for OpSuEau {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "sueau {} {} {}", self.off, self.bit_field, self.addr)
+        write!(
+            f,
+            "sueau {} {} {}",
+            self.off(),
+            self.bit_field(),
+            self.addr()
+        )
     }
 }
 impl_display_for_op!(OpSuEau);
@@ -533,14 +512,12 @@ mod tests {
     #[test]
     fn test_op_suld_display() {
         let op = OpSuLd {
-            dst: Dst::None,
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None],
             image_access: ImageAccess::Binary(MemType::B32),
             image_dim: ImageDim::_2D,
             mem_order: MemOrder::Constant,
             mem_eviction_priority: MemEvictionPriority::Normal,
-            handle: zero_src(),
-            coord: Src::new_imm_u32(0),
+            srcs: [zero_src(), Src::new_imm_u32(0)],
         };
         let s = format!("{op}");
         assert!(s.contains("suld"));
@@ -552,14 +529,12 @@ mod tests {
     #[test]
     fn test_op_suld_field_access() {
         let op = OpSuLd {
-            dst: Dst::None,
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None],
             image_access: ImageAccess::Formatted(ChannelMask::for_comps(4)),
             image_dim: ImageDim::_3D,
             mem_order: MemOrder::Weak,
             mem_eviction_priority: MemEvictionPriority::First,
-            handle: zero_src(),
-            coord: zero_src(),
+            srcs: [zero_src(), zero_src()],
         };
         assert!(matches!(op.image_dim, ImageDim::_3D));
         assert_eq!(op.image_dim.coord_comps(), 3);
@@ -577,9 +552,7 @@ mod tests {
             image_dim: ImageDim::_1DBuffer,
             mem_order: MemOrder::Strong(MemScope::CTA),
             mem_eviction_priority: MemEvictionPriority::Last,
-            handle: zero_src(),
-            coord: zero_src(),
-            data: Src::new_imm_u32(42),
+            srcs: [zero_src(), zero_src(), Src::new_imm_u32(42)],
         };
         let s = format!("{op}");
         assert!(s.contains("sust"));
@@ -592,16 +565,13 @@ mod tests {
     #[test]
     fn test_op_suatom_display() {
         let op = OpSuAtom {
-            dst: Dst::None,
-            fault: Dst::None,
+            dsts: [Dst::None, Dst::None],
             image_dim: ImageDim::_2DArray,
             atom_op: AtomOp::Add,
             atom_type: AtomType::U32,
             mem_order: MemOrder::Weak,
             mem_eviction_priority: MemEvictionPriority::Normal,
-            handle: zero_src(),
-            coord: zero_src(),
-            data: Src::new_imm_u32(1),
+            srcs: [zero_src(), zero_src(), Src::new_imm_u32(1)],
         };
         let s = format!("{op}");
         assert!(s.contains("suatom"));
@@ -630,14 +600,12 @@ mod tests {
     #[test]
     fn test_op_suclamp_display() {
         let op = OpSuClamp {
-            dst: Dst::None,
-            out_of_bounds: Dst::None,
+            dsts: [Dst::None, Dst::None],
             mode: SuClampMode::PitchLinear,
             round: SuClampRound::R4,
             is_s32: true,
             is_2d: true,
-            coords: zero_src(),
-            params: Src::new_imm_u32(0),
+            srcs: [zero_src(), Src::new_imm_u32(0)],
             imm: 0,
         };
         let s = format!("{op}");
@@ -649,14 +617,12 @@ mod tests {
     #[test]
     fn test_op_suclamp_display_1d_u32() {
         let op = OpSuClamp {
-            dst: Dst::None,
-            out_of_bounds: Dst::None,
+            dsts: [Dst::None, Dst::None],
             mode: SuClampMode::BlockLinear,
             round: SuClampRound::R1,
             is_s32: false,
             is_2d: false,
-            coords: zero_src(),
-            params: zero_src(),
+            srcs: [zero_src(), zero_src()],
             imm: 4,
         };
         let s = format!("{op}");
@@ -668,8 +634,7 @@ mod tests {
     #[test]
     fn test_op_subfm_display() {
         let op = OpSuBfm {
-            dst: Dst::None,
-            pdst: Dst::None,
+            dsts: [Dst::None, Dst::None],
             srcs: [zero_src(), zero_src(), zero_src()],
             is_3d: true,
         };
@@ -682,9 +647,7 @@ mod tests {
     fn test_op_sueau_display() {
         let op = OpSuEau {
             dst: Dst::None,
-            off: zero_src(),
-            bit_field: Src::new_imm_u32(0),
-            addr: zero_src(),
+            srcs: [zero_src(), Src::new_imm_u32(0), zero_src()],
         };
         let s = format!("{op}");
         assert!(s.contains("sueau"));

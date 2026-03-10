@@ -71,11 +71,9 @@ pub struct OpFMnMx {
     #[dst_type(F32)]
     pub dst: Dst,
 
-    #[src_type(F32)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub min: Src,
+    #[src_types(F32, F32, Pred)]
+    #[src_names(src_a, src_b, min)]
+    pub srcs: [Src; 3],
 
     pub ftz: bool,
 }
@@ -86,7 +84,9 @@ impl DisplayOp for OpFMnMx {
         write!(
             f,
             "fmnmx{ftz} {} {} {}",
-            self.srcs[0], self.srcs[1], self.min
+            self.srcs[0],
+            self.srcs[1],
+            self.min()
         )
     }
 }
@@ -159,11 +159,9 @@ pub struct OpFSetP {
     pub set_op: PredSetOp,
     pub cmp_op: FloatCmpOp,
 
-    #[src_type(F32)]
-    pub srcs: [Src; 2],
-
-    #[src_type(Pred)]
-    pub accum: Src,
+    #[src_types(F32, F32, Pred)]
+    #[src_names(src_a, src_b, accum)]
+    pub srcs: [Src; 3],
 
     pub ftz: bool,
 }
@@ -172,12 +170,12 @@ impl DisplayOp for OpFSetP {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ftz = if self.ftz { ".ftz" } else { "" };
         write!(f, "fsetp{}{ftz}", self.cmp_op)?;
-        if !self.set_op.is_trivial(&self.accum) {
+        if !self.set_op.is_trivial(self.accum()) {
             write!(f, "{}", self.set_op)?;
         }
         write!(f, " {} {}", self.srcs[0], self.srcs[1])?;
-        if !self.set_op.is_trivial(&self.accum) {
-            write!(f, " {}", self.accum)?;
+        if !self.set_op.is_trivial(self.accum()) {
+            write!(f, " {}", self.accum())?;
         }
         Ok(())
     }

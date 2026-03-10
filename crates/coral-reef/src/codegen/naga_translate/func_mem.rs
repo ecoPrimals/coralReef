@@ -58,8 +58,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         for c in 0..val.comps() as usize {
             self.push_instr(Instr::new(OpSt {
-                addr: addr.clone().into(),
-                data: val[c].into(),
+                srcs: [addr.clone().into(), val[c].into()],
                 offset: (c as i32) * 4,
                 stride: OffsetStride::X1,
                 access: super::mem_access_global_b32(),
@@ -215,15 +214,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
             if self.sm.sm() >= 70 {
                 self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst[0].into(),
+                    dsts: [dst[0].into(), Dst::None, Dst::None],
                     srcs: [base[0].into(), scaled_idx.into(), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
                 }));
             } else {
                 self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst[0].into(),
+                    dsts: [dst[0].into(), Dst::None],
                     srcs: [base[0].into(), scaled_idx.into()],
-                    carry_out: Dst::None,
                 }));
             }
             self.push_instr(Instr::new(OpCopy {
@@ -235,15 +232,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             let dst = self.alloc_ssa(RegFile::GPR);
             if self.sm.sm() >= 70 {
                 self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst.into(),
+                    dsts: [dst.into(), Dst::None, Dst::None],
                     srcs: [base[0].into(), scaled_idx.into(), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
                 }));
             } else {
                 self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst.into(),
+                    dsts: [dst.into(), Dst::None],
                     srcs: [base[0].into(), scaled_idx.into()],
-                    carry_out: Dst::None,
                 }));
             }
             Ok(dst.into())
@@ -276,15 +271,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
             if self.sm.sm() >= 70 {
                 self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst[0].into(),
+                    dsts: [dst[0].into(), Dst::None, Dst::None],
                     srcs: [base[0].into(), Src::new_imm_u32(byte_offset), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
                 }));
             } else {
                 self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst[0].into(),
+                    dsts: [dst[0].into(), Dst::None],
                     srcs: [base[0].into(), Src::new_imm_u32(byte_offset)],
-                    carry_out: Dst::None,
                 }));
             }
             self.push_instr(Instr::new(OpCopy {
@@ -296,15 +289,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             let dst = self.alloc_ssa(RegFile::GPR);
             if self.sm.sm() >= 70 {
                 self.push_instr(Instr::new(OpIAdd3 {
-                    dst: dst.into(),
+                    dsts: [dst.into(), Dst::None, Dst::None],
                     srcs: [base[0].into(), Src::new_imm_u32(byte_offset), Src::ZERO],
-                    overflow: [Dst::None, Dst::None],
                 }));
             } else {
                 self.push_instr(Instr::new(OpIAdd2 {
-                    dst: dst.into(),
+                    dsts: [dst.into(), Dst::None],
                     srcs: [base[0].into(), Src::new_imm_u32(byte_offset)],
-                    carry_out: Dst::None,
                 }));
             }
             Ok(dst.into())
@@ -349,9 +340,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         self.push_instr(Instr::new(OpAtom {
             dst: result_ssa.map_or(Dst::None, Dst::from),
-            addr: addr.into(),
-            cmpr: Src::ZERO,
-            data: data_src,
+            srcs: [addr.into(), Src::ZERO, data_src], // addr, cmpr, data
             atom_op,
             atom_type: AtomType::U32,
             addr_offset: 0,

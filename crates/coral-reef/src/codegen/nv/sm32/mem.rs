@@ -106,12 +106,12 @@ impl SM32Op for OpLd {
 impl SM32Op for OpLdc {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.offset, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.offset_mut(), GPR, SrcType::GPR);
     }
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
-        assert!(self.cb.modifier.is_none());
-        let SrcRef::CBuf(cb) = &self.cb.reference else {
+        assert!(self.cb().modifier.is_none());
+        let SrcRef::CBuf(cb) = &self.cb().reference else {
             panic!("Not a CBuf source");
         };
         let CBuf::Binding(cb_idx) = cb.buf else {
@@ -121,7 +121,7 @@ impl SM32Op for OpLdc {
         e.set_opcode(0x7c8, 2);
 
         e.set_dst(&self.dst);
-        e.set_reg_src(10..18, &self.offset);
+        e.set_reg_src(10..18, self.offset());
         e.set_field(23..39, cb.offset);
         e.set_field(39..44, cb_idx);
         e.set_field(
@@ -144,11 +144,11 @@ impl SM32Op for OpLdSharedLock {
 
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         e.set_opcode(0x774, 2);
-        e.set_dst(&self.dst);
+        e.set_dst(self.dst());
         e.set_reg_src(10..18, &self.addr);
         e.set_field(23..47, self.offset);
 
-        e.set_pred_dst(48..51, &self.locked);
+        e.set_pred_dst(48..51, self.locked());
         e.set_mem_type(51..54, self.mem_type);
     }
 }
@@ -181,8 +181,8 @@ impl SM32Op for OpSt {
                 e.set_mem_access(50..54, &self.access);
             }
         }
-        e.set_reg_src(2..10, &self.data);
-        e.set_reg_src(10..18, &self.addr);
+        e.set_reg_src(2..10, self.data());
+        e.set_reg_src(10..18, self.addr());
     }
 }
 
@@ -194,8 +194,8 @@ impl SM32Op for OpStSCheckUnlock {
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         e.set_opcode(0x784, 2);
 
-        e.set_reg_src(2..10, &self.data);
-        e.set_reg_src(10..18, &self.addr);
+        e.set_reg_src(2..10, self.data());
+        e.set_reg_src(10..18, self.addr());
 
         e.set_field(23..47, self.offset);
         e.set_st_cache_op(47..49, StCacheOp::WriteBack);
@@ -246,16 +246,16 @@ impl SM32Encoder<'_> {
 impl SM32Op for OpAtom {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         if self.atom_op == AtomOp::CmpExch(AtomCmpSrc::Separate) {
-            let cmpr = atom_src_as_ssa(b, &self.cmpr, self.atom_type);
-            let data = atom_src_as_ssa(b, &self.data, self.atom_type);
+            let cmpr = atom_src_as_ssa(b, self.cmpr(), self.atom_type);
+            let data = atom_src_as_ssa(b, self.data(), self.atom_type);
 
             let mut cmpr_data = Vec::new();
             cmpr_data.extend_from_slice(&cmpr);
             cmpr_data.extend_from_slice(&data);
             let cmpr_data = SSARef::try_from(cmpr_data).expect("cmpr+data must form valid SSARef");
 
-            self.cmpr = 0.into();
-            self.data = cmpr_data.into();
+            *self.cmpr_mut() = 0.into();
+            *self.data_mut() = cmpr_data.into();
             self.atom_op = AtomOp::CmpExch(AtomCmpSrc::Packed);
         }
         legalize_ext_instr(self, b);
@@ -274,14 +274,14 @@ impl SM32Op for OpAtom {
                     // appears supported by real hardware (same as SM50).
                     let (data_src, data_layout) = match cmp_src {
                         AtomCmpSrc::Separate => {
-                            if self.data.is_zero() {
-                                (&self.cmpr, 1_u8)
+                            if self.data().is_zero() {
+                                (self.cmpr(), 1_u8)
                             } else {
-                                assert!(self.cmpr.is_zero());
-                                (&self.data, 2_u8)
+                                assert!(self.cmpr().is_zero());
+                                (self.data(), 2_u8)
                             }
                         }
-                        AtomCmpSrc::Packed => (&self.data, 0_u8),
+                        AtomCmpSrc::Packed => (self.data(), 0_u8),
                     };
                     e.set_reg_src(23..31, data_src);
                     let data_type = match self.atom_type {
@@ -294,7 +294,7 @@ impl SM32Op for OpAtom {
                 } else {
                     e.set_opcode(0x680, 2);
                     e.set_dst(&self.dst);
-                    e.set_reg_src(23..31, &self.data);
+                    e.set_reg_src(23..31, self.data());
 
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
@@ -311,7 +311,7 @@ impl SM32Op for OpAtom {
                 }
                 // mem_order: encoding not present before SM70 (omitted).
 
-                e.set_reg_src(10..18, &self.addr);
+                e.set_reg_src(10..18, self.addr());
                 e.set_field(31..51, self.addr_offset);
 
                 e.set_field(
@@ -357,18 +357,18 @@ impl SM32Op for OpALd {
         e.set_opcode(0x7ec, 2);
 
         e.set_dst(&self.dst);
-        e.set_reg_src(10..18, &self.offset);
+        e.set_reg_src(10..18, self.offset());
         e.set_field(23..34, self.addr);
 
         if self.phys {
             assert!(!self.patch);
-            assert!(self.offset.reference.as_reg().is_some());
+            assert!(self.offset().reference.as_reg().is_some());
         } else if !self.patch {
-            assert!(self.offset.is_zero());
+            assert!(self.offset().is_zero());
         }
         e.set_bit(34, self.patch);
         e.set_bit(35, self.output);
-        e.set_reg_src(42..50, &self.vtx);
+        e.set_reg_src(42..50, self.vtx());
 
         e.set_field(50..52, self.comps - 1);
     }
@@ -382,18 +382,18 @@ impl SM32Op for OpASt {
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         e.set_opcode(0x7f0, 2);
 
-        e.set_reg_src(2..10, &self.data);
-        e.set_reg_src(10..18, &self.offset);
+        e.set_reg_src(2..10, self.data());
+        e.set_reg_src(10..18, self.offset());
         e.set_field(23..34, self.addr);
 
         if self.phys {
             assert!(!self.patch);
-            assert!(self.offset.reference.as_reg().is_some());
+            assert!(self.offset().reference.as_reg().is_some());
         } else if !self.patch {
-            assert!(self.offset.is_zero());
+            assert!(self.offset().is_zero());
         }
         e.set_bit(34, self.patch);
-        e.set_reg_src(42..50, &self.vtx);
+        e.set_reg_src(42..50, self.vtx());
 
         e.set_field(50..52, self.comps - 1);
     }
@@ -408,8 +408,8 @@ impl SM32Op for OpIpa {
         e.set_opcode(0x748, 2);
 
         e.set_dst(&self.dst);
-        e.set_reg_src(42..50, &self.offset);
-        e.set_reg_src(23..31, &self.inv_w);
+        e.set_reg_src(42..50, self.offset());
+        e.set_reg_src(23..31, self.inv_w());
 
         assert!(self.addr % 4 == 0);
         e.set_field(31..42, self.addr);

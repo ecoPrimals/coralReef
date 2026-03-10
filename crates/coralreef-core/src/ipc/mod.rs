@@ -28,6 +28,8 @@ pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 #[cfg(unix)]
 mod unix_jsonrpc;
+#[cfg(all(test, unix))]
+pub use unix_jsonrpc::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use unix_jsonrpc::{default_unix_socket_path, start_unix_jsonrpc_server};
 

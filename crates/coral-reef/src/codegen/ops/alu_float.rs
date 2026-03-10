@@ -123,7 +123,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpTranscendental {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpFMnMx {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        let is_min = matches!(self.min.reference, SrcRef::True);
+        let is_min = matches!(self.min().reference, SrcRef::True);
         let opcode = if is_min {
             isa::vop2::V_MIN_F32
         } else {
@@ -182,7 +182,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpDFma {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpDMnMx {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        let is_min = matches!(self.min.reference, SrcRef::True);
+        let is_min = matches!(self.min().reference, SrcRef::True);
         let opcode = if is_min {
             isa::vop3::V_MIN_F64
         } else {
@@ -521,8 +521,11 @@ mod tests {
             dst: Dst::None,
             set_op: PredSetOp::And,
             cmp_op: FloatCmpOp::OrdEq,
-            srcs: [Src::new_imm_u32(0x1234_5678), Src::new_imm_u32(0x1234_5678)],
-            accum: Src::new_imm_bool(true),
+            srcs: [
+                Src::new_imm_u32(0x1234_5678),
+                Src::new_imm_u32(0x1234_5678),
+                Src::new_imm_bool(true),
+            ],
         };
         let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255);
         let result = op.encode(&mut enc);
@@ -549,8 +552,7 @@ mod tests {
     fn test_encode_fmnmx_min() {
         let op = OpFMnMx {
             dst: dst_reg(0),
-            min: Src::new_imm_bool(true),
-            srcs: [vgpr(1), vgpr(2)],
+            srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(true)],
             ftz: false,
         };
         let labels = FxHashMap::default();
@@ -562,8 +564,7 @@ mod tests {
     fn test_encode_fmnmx_max() {
         let op = OpFMnMx {
             dst: dst_reg(0),
-            min: Src::new_imm_bool(false),
-            srcs: [vgpr(1), vgpr(2)],
+            srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(false)],
             ftz: false,
         };
         let labels = FxHashMap::default();

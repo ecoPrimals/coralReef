@@ -18,6 +18,7 @@ allow = [
     "MIT",
     "Apache-2.0",
     "BSD-2-Clause",
+    "BSD-3-Clause",
     "Unicode-3.0",
     "AGPL-3.0-only",
     "Zlib",
@@ -45,6 +46,12 @@ deny = [
     { crate = "libgit2-sys", wrappers = [] },
     { crate = "boringssl-sys", wrappers = [] },
 ]
+
+# EVOLUTION(libc-zero): Uncomment to ban libc once all upstream deps migrate.
+# Currently blocked by: tokio (mio#1735 → rustix migration), getrandom,
+# signal-hook-registry, parking_lot_core. rustix itself already uses linux_raw.
+# Canary: `cargo tree --workspace --depth 1 -i libc`
+#   { crate = "libc", wrappers = [] },
 
 [sources]
 unknown-registry = "deny"

@@ -261,8 +261,11 @@ pub fn create_channel_with_subchannels(fd: RawFd, subchans: &[SubchanSpec]) -> D
         DRM_NOUVEAU_CHANNEL_ALLOC,
         size_of_u32::<NouveauChannelAlloc>(),
     );
-    // SAFETY: `NouveauChannelAlloc` is `#[repr(C)]` matching the kernel's
-    // `drm_nouveau_channel_alloc` struct. Synchronous ioctl.
+    // SAFETY:
+    // 1. Validity:   NouveauChannelAlloc is #[repr(C)] matching kernel drm_nouveau_channel_alloc
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; alloc outlives the call
+    // 4. Exclusivity: &mut alloc — sole reference
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc)? };
     #[expect(
         clippy::cast_sign_loss,
@@ -321,7 +324,11 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
         DRM_NOUVEAU_CHANNEL_FREE,
         size_of_u32::<NouveauChannelFree>(),
     );
-    // SAFETY: `NouveauChannelFree` is `#[repr(C)]` matching the kernel struct.
+    // SAFETY:
+    // 1. Validity:   NouveauChannelFree is #[repr(C)] matching kernel struct (8 bytes)
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; free outlives the call
+    // 4. Exclusivity: &mut free — sole reference
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut free) }
 }
 
@@ -352,7 +359,11 @@ pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<u32> 
     };
 
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_NEW, size_of_u32::<NouveauGemNew>());
-    // SAFETY: `NouveauGemNew` is `#[repr(C)]` matching the kernel struct.
+    // SAFETY:
+    // 1. Validity:   NouveauGemNew is #[repr(C)] matching kernel drm_nouveau_gem_new
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; req outlives the call
+    // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req)? };
     Ok(req.info.handle)
 }
@@ -367,7 +378,11 @@ pub(crate) fn gem_info(fd: RawFd, handle: u32) -> DriverResult<(u64, u64)> {
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_NEW, size_of_u32::<NouveauGemNew>());
-    // SAFETY: Same struct, kernel fills in offset/map_handle.
+    // SAFETY:
+    // 1. Validity:   NouveauGemNew is #[repr(C)] matching kernel struct; kernel fills output
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; req outlives the call
+    // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req)? };
     Ok((req.info.offset, req.info.map_handle))
 }
@@ -441,8 +456,12 @@ pub fn pushbuf_submit(
     };
 
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_PUSHBUF, size_of_u32::<NouveauGemPushbuf>());
-    // SAFETY: All pointer fields point to valid, stack- or heap-allocated
-    // `#[repr(C)]` structures. The ioctl is synchronous.
+    // SAFETY:
+    // 1. Validity:   NouveauGemPushbuf is #[repr(C)] matching kernel struct; all pointer
+    //                fields (buffers, push) point to valid stack/heap #[repr(C)] structures
+    // 2. Alignment:  all structures are naturally aligned
+    // 3. Lifetime:   synchronous ioctl; pb, buffers, push all outlive the call
+    // 4. Exclusivity: &mut pb — sole reference to the ioctl struct
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut pb) }
 }
 
@@ -460,8 +479,11 @@ pub fn gem_cpu_prep(fd: RawFd, gem_handle: u32) -> DriverResult<()> {
         flags: NOUVEAU_GEM_CPU_PREP_WRITE,
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_CPU_PREP, size_of_u32::<NouveauGemCpuPrep>());
-    // SAFETY: `NouveauGemCpuPrep` is `#[repr(C)]` matching the kernel struct.
-    // Synchronous ioctl — blocks until the buffer is idle.
+    // SAFETY:
+    // 1. Validity:   NouveauGemCpuPrep is #[repr(C)] matching kernel struct (8 bytes)
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl (blocks until buffer idle); prep outlives the call
+    // 4. Exclusivity: &mut prep — sole reference
     unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut prep) }
 }
 

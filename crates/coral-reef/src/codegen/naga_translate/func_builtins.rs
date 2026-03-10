@@ -155,9 +155,8 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 high: false,
             }));
             self.push_instr(Instr::new(OpIAdd2 {
-                dst: dst.into(),
+                dsts: [dst.into(), Dst::None],
                 srcs: [tmp.into(), c],
-                carry_out: Dst::None,
             }));
         }
         dst

@@ -18,11 +18,11 @@ impl SM20Op for OpSuLdGa {
         e.set_mem_type(5..8, self.mem_type);
         e.set_ld_cache_op(8..10, self.cache_op);
         e.set_dst(14..20, &self.dst);
-        e.set_reg_src(20..26, &self.addr);
-        assert!(self.format.modifier.is_none());
-        match &self.format.reference {
+        e.set_reg_src(20..26, self.addr());
+        assert!(self.format().modifier.is_none());
+        match &self.format().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
-                e.set_reg_src(26..32, &self.format);
+                e.set_reg_src(26..32, self.format());
                 e.set_bit(53, false);
             }
             SrcRef::CBuf(cb) => {
@@ -38,7 +38,7 @@ impl SM20Op for OpSuLdGa {
         }
         e.set_su_ga_offset_mode(45..47, self.offset_mode);
         e.set_field(47..49, 0_u8);
-        e.set_pred_src(49..53, &self.out_of_bounds);
+        e.set_pred_src(49..53, self.out_of_bounds());
     }
 }
 
@@ -60,12 +60,12 @@ impl SM20Op for OpSuStGa {
             }
         }
         e.set_st_cache_op(8..10, self.cache_op);
-        e.set_reg_src(14..20, &self.data);
-        e.set_reg_src(20..26, &self.addr);
-        assert!(self.format.modifier.is_none());
-        match &self.format.reference {
+        e.set_reg_src(14..20, self.data());
+        e.set_reg_src(20..26, self.addr());
+        assert!(self.format().modifier.is_none());
+        match &self.format().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
-                e.set_reg_src(26..32, &self.format);
+                e.set_reg_src(26..32, self.format());
                 e.set_bit(53, false);
             }
             SrcRef::CBuf(cb) => {
@@ -81,7 +81,7 @@ impl SM20Op for OpSuStGa {
         }
         e.set_su_ga_offset_mode(45..47, self.offset_mode);
         e.set_field(47..49, 0_u8);
-        e.set_pred_src(49..53, &self.out_of_bounds);
+        e.set_pred_src(49..53, self.out_of_bounds());
     }
 }
 
@@ -119,12 +119,12 @@ impl SM20Op for OpLd {
 impl SM20Op for OpLdc {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use crate::codegen::ir::RegFile;
-        b.copy_alu_src_if_not_reg(&mut self.offset, RegFile::GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.offset_mut(), RegFile::GPR, SrcType::GPR);
     }
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
-        assert!(self.cb.is_unmodified());
-        let SrcRef::CBuf(cb) = &self.cb.reference else {
+        assert!(self.cb().modifier.is_none());
+        let SrcRef::CBuf(cb) = &self.cb().reference else {
             panic!("Not a CBuf source");
         };
         let CBuf::Binding(cb_idx) = cb.buf else {
@@ -142,7 +142,7 @@ impl SM20Op for OpLdc {
             },
         );
         e.set_dst(14..20, &self.dst);
-        e.set_reg_src(20..26, &self.offset);
+        e.set_reg_src(20..26, self.offset());
         e.set_field(26..42, cb.offset);
         e.set_field(42..47, cb_idx);
     }
@@ -156,10 +156,10 @@ impl SM20Op for OpLdSharedLock {
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         e.set_opcode(SM20Unit::Mem, 0x2a);
         e.set_mem_type(5..8, self.mem_type);
-        e.set_dst(14..20, &self.dst);
+        e.set_dst(14..20, self.dst());
         e.set_reg_src(20..26, &self.addr);
         e.set_field(26..50, self.offset);
-        e.set_pred_dst2(8..10, 58..59, &self.locked);
+        e.set_pred_dst2(8..10, 58..59, self.locked());
     }
 }
 
@@ -189,8 +189,8 @@ impl SM20Op for OpSt {
         }
         e.set_mem_type(5..8, self.access.mem_type);
         e.set_st_cache_op(8..10, self.access.st_cache_op(e.sm));
-        e.set_reg_src(14..20, &self.data);
-        e.set_reg_src(20..26, &self.addr);
+        e.set_reg_src(14..20, self.data());
+        e.set_reg_src(20..26, self.addr());
     }
 }
 
@@ -202,8 +202,8 @@ impl SM20Op for OpStSCheckUnlock {
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         e.set_opcode(SM20Unit::Mem, 0x2e);
         e.set_mem_type(5..8, self.mem_type);
-        e.set_reg_src(14..20, &self.data);
-        e.set_reg_src(20..26, &self.addr);
+        e.set_reg_src(14..20, self.data());
+        e.set_reg_src(20..26, self.addr());
         e.set_field(26..50, self.offset);
         e.set_pred_dst2(8..10, 58..59, &self.locked);
     }
@@ -229,14 +229,14 @@ fn atom_src_as_ssa(b: &mut LegalizeBuilder, src: &Src, atom_type: AtomType) -> S
 impl SM20Op for OpAtom {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         if self.atom_op == AtomOp::CmpExch(AtomCmpSrc::Separate) {
-            let cmpr = atom_src_as_ssa(b, &self.cmpr, self.atom_type);
-            let data = atom_src_as_ssa(b, &self.data, self.atom_type);
+            let cmpr = atom_src_as_ssa(b, self.cmpr(), self.atom_type);
+            let data = atom_src_as_ssa(b, self.data(), self.atom_type);
             let mut cmpr_data = Vec::new();
             cmpr_data.extend_from_slice(&cmpr);
             cmpr_data.extend_from_slice(&data);
             let cmpr_data = SSARef::try_from(cmpr_data).expect("cmpr+data must form valid SSARef");
-            self.cmpr = 0.into();
-            self.data = cmpr_data.into();
+            *self.cmpr_mut() = 0.into();
+            *self.data_mut() = cmpr_data.into();
             self.atom_op = AtomOp::CmpExch(AtomCmpSrc::Packed);
         }
         legalize_ext_instr(self, b);
@@ -281,8 +281,8 @@ impl SM20Op for OpAtom {
         e.set_field(9..10, typ & 0x1);
         e.set_field(59..62, typ >> 1);
 
-        e.set_reg_src(20..26, &self.addr);
-        e.set_reg_src(14..20, &self.data);
+        e.set_reg_src(20..26, self.addr());
+        e.set_reg_src(14..20, self.data());
 
         if self.dst.is_none() {
             e.set_field(26..58, self.addr_offset);
@@ -295,7 +295,7 @@ impl SM20Op for OpAtom {
         if let AtomOp::CmpExch(cmp_src) = self.atom_op {
             assert!(cmp_src == AtomCmpSrc::Packed);
             let cmpr_data = self
-                .data
+                .data()
                 .reference
                 .as_reg()
                 .expect("CmpExch packed must have register");
@@ -335,15 +335,15 @@ impl SM20Op for OpALd {
         e.set_field(5..7, self.comps - 1);
         if self.phys {
             assert!(!self.patch);
-            assert!(self.offset.reference.as_reg().is_some());
+            assert!(self.offset().reference.as_reg().is_some());
         } else if !self.patch {
-            assert!(self.offset.is_zero());
+            assert!(self.offset().is_zero());
         }
         e.set_bit(8, self.patch);
         e.set_bit(9, self.output);
         e.set_dst(14..20, &self.dst);
-        e.set_reg_src(20..26, &self.offset);
-        e.set_reg_src(26..32, &self.vtx);
+        e.set_reg_src(20..26, self.offset());
+        e.set_reg_src(26..32, self.vtx());
         e.set_field(32..42, self.addr);
     }
 }
@@ -358,10 +358,10 @@ impl SM20Op for OpASt {
         e.set_field(5..7, self.comps - 1);
         e.set_bit(8, self.patch);
         assert!(!self.phys);
-        e.set_reg_src(20..26, &self.offset);
-        e.set_reg_src(26..32, &self.data);
+        e.set_reg_src(20..26, self.offset());
+        e.set_reg_src(26..32, self.data());
         e.set_field(32..42, self.addr);
-        e.set_reg_src(49..55, &self.vtx);
+        e.set_reg_src(49..55, self.vtx());
     }
 }
 
@@ -392,8 +392,8 @@ impl SM20Op for OpIpa {
         );
         e.set_dst(14..20, &self.dst);
         e.set_reg_src(20..26, &0.into());
-        e.set_reg_src(26..32, &self.inv_w);
-        e.set_reg_src(49..55, &self.offset);
+        e.set_reg_src(26..32, self.inv_w());
+        e.set_reg_src(49..55, self.offset());
         e.set_field(32..42, self.addr);
     }
 }

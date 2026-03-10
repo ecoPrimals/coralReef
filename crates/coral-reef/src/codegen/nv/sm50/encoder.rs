@@ -161,7 +161,7 @@ impl ShaderModel for ShaderModel50 {
     }
 
     fn encode_shader(&self, s: &Shader<'_>) -> Result<Vec<u32>, crate::CompileError> {
-        Ok(encode_sm50_shader(self, s))
+        crate::codegen::catch_ice(|| encode_sm50_shader(self, s))
     }
 
     fn max_warps(&self) -> u32 {

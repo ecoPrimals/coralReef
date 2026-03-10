@@ -67,7 +67,7 @@ impl SM20Op for OpDFma {
 impl SM20Op for OpDMnMx {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::F64);
         b.copy_alu_src_if_f20_overflow(src1, GPR, SrcType::F64);
@@ -86,7 +86,7 @@ impl SM20Op for OpDMnMx {
         e.set_bit(7, self.srcs[0].modifier.has_fabs());
         e.set_bit(8, self.srcs[1].modifier.has_fneg());
         e.set_bit(9, self.srcs[0].modifier.has_fneg());
-        e.set_pred_src(49..53, &self.min);
+        e.set_pred_src(49..53, self.min());
     }
 }
 
@@ -120,7 +120,7 @@ impl SM20Op for OpDMul {
 impl SM20Op for OpDSetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::F64);
         b.copy_alu_src_if_pred(src1, GPR, SrcType::F64);
@@ -135,7 +135,7 @@ impl SM20Op for OpDSetP {
         e.set_bit(9, self.srcs[0].modifier.has_fneg());
         e.set_pred_dst(14..17, &Dst::None);
         e.set_pred_dst(17..20, &self.dst);
-        e.set_pred_src(49..53, &self.accum);
+        e.set_pred_src(49..53, self.accum());
         e.set_pred_set_op(53..55, self.set_op);
         e.set_float_cmp_op(55..59, self.cmp_op);
     }

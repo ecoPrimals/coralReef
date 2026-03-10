@@ -68,8 +68,7 @@ fn translate_sign(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, 
         dst: pos.into(),
         set_op: PredSetOp::And,
         cmp_op: FloatCmpOp::OrdGt,
-        srcs: [a[0].into(), Src::ZERO],
-        accum: SrcRef::True.into(),
+        srcs: [a[0].into(), Src::ZERO, SrcRef::True.into()],
         ftz: false,
     }));
     let neg = ft.alloc_ssa(RegFile::Pred);
@@ -77,8 +76,7 @@ fn translate_sign(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, 
         dst: neg.into(),
         set_op: PredSetOp::And,
         cmp_op: FloatCmpOp::OrdLt,
-        srcs: [a[0].into(), Src::ZERO],
-        accum: SrcRef::True.into(),
+        srcs: [a[0].into(), Src::ZERO, SrcRef::True.into()],
         ftz: false,
     }));
     ft.push_instr(Instr::new(OpCopy {
@@ -89,15 +87,13 @@ fn translate_sign(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, 
     let tmp = ft.alloc_ssa(RegFile::GPR);
     ft.push_instr(Instr::new(OpSel {
         dst: tmp.into(),
-        cond: neg.into(),
-        srcs: [Src::new_imm_u32(neg_one.to_bits()), dst.into()],
+        srcs: [neg.into(), Src::new_imm_u32(neg_one.to_bits()), dst.into()],
     }));
     let result = ft.alloc_ssa(RegFile::GPR);
     let one: f32 = 1.0;
     ft.push_instr(Instr::new(OpSel {
         dst: result.into(),
-        cond: pos.into(),
-        srcs: [Src::new_imm_u32(one.to_bits()), tmp.into()],
+        srcs: [pos.into(), Src::new_imm_u32(one.to_bits()), tmp.into()],
     }));
     Ok(result.into())
 }
@@ -140,16 +136,14 @@ fn translate_step(
         dst: pred.into(),
         set_op: PredSetOp::And,
         cmp_op: FloatCmpOp::OrdGe,
-        srcs: [b[0].into(), a[0].into()],
-        accum: SrcRef::True.into(),
+        srcs: [b[0].into(), a[0].into(), SrcRef::True.into()],
         ftz: false,
     }));
     let one: f32 = 1.0;
     let dst = ft.alloc_ssa(RegFile::GPR);
     ft.push_instr(Instr::new(OpSel {
         dst: dst.into(),
-        cond: pred.into(),
-        srcs: [Src::new_imm_u32(one.to_bits()), Src::ZERO],
+        srcs: [pred.into(), Src::new_imm_u32(one.to_bits()), Src::ZERO],
     }));
     Ok(dst.into())
 }

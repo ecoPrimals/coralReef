@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![deny(unsafe_code)]
 //! Proc-macro derives for codegen IR types.
 //!
 //! Provides derive macros used by the codegen IR definition in
@@ -22,14 +23,16 @@ struct MatchedField {
     ident: Ident,
     count: usize,
     attr_variant: Option<Ident>,
+    per_element_attrs: Option<Vec<Ident>>,
+    names: Option<Vec<Ident>>,
 }
 
-#[proc_macro_derive(SrcsAsSlice, attributes(src_type))]
+#[proc_macro_derive(SrcsAsSlice, attributes(src_type, src_types, src_names))]
 pub fn derive_srcs_as_slice(input: TokenStream) -> TokenStream {
     derive_as_slice(input, "Src", "src_type", "SrcType")
 }
 
-#[proc_macro_derive(DstsAsSlice, attributes(dst_type))]
+#[proc_macro_derive(DstsAsSlice, attributes(dst_type, dst_types, dst_names))]
 pub fn derive_dsts_as_slice(input: TokenStream) -> TokenStream {
     derive_as_slice(input, "Dst", "dst_type", "DstType")
 }
@@ -102,6 +105,8 @@ fn derive_as_slice(
         generate_as_mut_slice_body(&elem_type, &matched, first_field, total_count);
     let attrs_body = generate_attrs_body(&type_enum, &matched);
 
+    let accessors = generate_named_accessors(struct_name, &elem_type, &matched);
+
     let expanded = quote! {
         impl #impl_generics coral_reef_stubs::as_slice::AsSlice<#elem_type>
             for #struct_name #ty_generics #where_clause
@@ -120,9 +125,51 @@ fn derive_as_slice(
                 #attrs_body
             }
         }
+
+        #accessors
     };
 
     TokenStream::from(expanded)
+}
+
+/// Generate named accessor methods for array fields with `#[src_names(...)]` or `#[dst_names(...)]`.
+///
+/// For `#[src_names(a, b, c)]` on `srcs: [Src; 3]`, generates:
+/// ```ignore
+/// impl OpFoo {
+///     pub fn a(&self) -> &Src { &self.srcs[0] }
+///     pub fn a_mut(&mut self) -> &mut Src { &mut self.srcs[0] }
+///     // ...etc for b, c
+/// }
+/// ```
+fn generate_named_accessors(
+    struct_name: &Ident,
+    elem_type: &Ident,
+    matched: &[MatchedField],
+) -> TokenStream2 {
+    let mut methods = Vec::new();
+    for m in matched {
+        let Some(names) = &m.names else { continue };
+        let field = &m.ident;
+        for (i, name) in names.iter().enumerate() {
+            let getter_mut = Ident::new(&format!("{name}_mut"), name.span());
+            methods.push(quote! {
+                #[inline]
+                pub fn #name(&self) -> &#elem_type { &self.#field[#i] }
+                #[inline]
+                pub fn #getter_mut(&mut self) -> &mut #elem_type { &mut self.#field[#i] }
+            });
+        }
+    }
+    if methods.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            impl #struct_name {
+                #(#methods)*
+            }
+        }
+    }
 }
 
 fn collect_matched_fields(
@@ -130,6 +177,11 @@ fn collect_matched_fields(
     elem_type_name: &str,
     attr_name: &str,
 ) -> Vec<MatchedField> {
+    let plural_attr = format!("{attr_name}s");
+    let names_attr = format!(
+        "{}names",
+        attr_name.strip_suffix("type").unwrap_or(attr_name)
+    );
     let mut matched = Vec::new();
     for field in fields {
         let Some(field_ident) = field.ident.clone() else {
@@ -143,13 +195,19 @@ fn collect_matched_fields(
                 ident: field_ident,
                 count: 1,
                 attr_variant: variant,
+                per_element_attrs: None,
+                names: None,
             });
         } else if let Some(n) = array_of_type(ty, elem_type_name) {
             let variant = get_field_attr(field, attr_name);
+            let per_elem = get_field_attr_list(field, &plural_attr);
+            let names = get_field_attr_list(field, &names_attr);
             matched.push(MatchedField {
                 ident: field_ident,
                 count: n,
                 attr_variant: variant,
+                per_element_attrs: per_elem,
+                names,
             });
         }
     }
@@ -180,84 +238,48 @@ fn generate_empty_as_slice(
 
 fn generate_as_slice_body(
     struct_name: &Ident,
-    elem_type: &Ident,
+    _elem_type: &Ident,
     matched: &[MatchedField],
     first_field: &Ident,
-    total_count: usize,
+    _total_count: usize,
 ) -> TokenStream2 {
     if matched.len() == 1 && matched[0].count == 1 {
         quote! { std::slice::from_ref(&self.#first_field) }
     } else if matched.len() == 1 {
         quote! { &self.#first_field }
     } else {
-        let contiguity_checks = contiguity_assertions(struct_name, elem_type, matched);
-        let total = total_count;
-        // Safe alternative: build a slice from individual field references
-        // by proving contiguity at compile time via const assertions, then
-        // using the first field's address as the slice base.
-        quote! {
-            const { #(#contiguity_checks)* }
-            // SAFETY: from_raw_parts — (1) ptr: from_ref gives valid pointer to first
-            // element; contiguity checks prove all matched fields are contiguous.
-            // (2) ptr is properly aligned (field of #[repr(C)] struct).
-            // (3) Memory is initialized (part of self). (4) Lifetime bounded by &self.
-            let ptr = std::ptr::from_ref(&self.#first_field).cast::<#elem_type>();
-            unsafe { std::slice::from_raw_parts(ptr, #total) }
-        }
+        let field_names: Vec<String> = matched.iter().map(|m| m.ident.to_string()).collect();
+        let msg = format!(
+            "AsSlice: `{}` has {} separate fields of the same type ({}). \
+             Merge them into a single array field to avoid unsafe from_raw_parts.",
+            struct_name,
+            matched.len(),
+            field_names.join(", "),
+        );
+        let lit = LitStr::new(&msg, Span::call_site());
+        quote! { compile_error!(#lit); }
     }
 }
 
 fn generate_as_mut_slice_body(
-    elem_type: &Ident,
+    _elem_type: &Ident,
     matched: &[MatchedField],
     first_field: &Ident,
-    total_count: usize,
+    _total_count: usize,
 ) -> TokenStream2 {
     if matched.len() == 1 && matched[0].count == 1 {
         quote! { std::slice::from_mut(&mut self.#first_field) }
     } else if matched.len() == 1 {
         quote! { &mut self.#first_field }
     } else {
-        let total = total_count;
-        quote! {
-            // SAFETY: from_raw_parts_mut — same contiguity as as_slice(); ptr from
-            // from_mut is valid and aligned; memory initialized; exclusive via &mut self.
-            let ptr = std::ptr::from_mut(&mut self.#first_field).cast::<#elem_type>();
-            unsafe { std::slice::from_raw_parts_mut(ptr, #total) }
-        }
+        quote! { compile_error!("AsSlice: multi-field as_mut_slice requires array field migration"); }
     }
-}
-
-fn contiguity_assertions(
-    struct_name: &Ident,
-    elem_type: &Ident,
-    matched: &[MatchedField],
-) -> Vec<TokenStream2> {
-    (1..matched.len())
-        .map(|i| {
-            let prev = &matched[i - 1].ident;
-            let curr = &matched[i].ident;
-            let prev_count = matched[i - 1].count;
-            quote! {
-                assert!(
-                    std::mem::offset_of!(#struct_name, #curr)
-                        == std::mem::offset_of!(#struct_name, #prev)
-                            + std::mem::size_of::<#elem_type>() * #prev_count,
-                    concat!(
-                        "AsSlice: `", stringify!(#prev),
-                        "` and `", stringify!(#curr),
-                        "` must be contiguous in #[repr(C)] layout"
-                    )
-                );
-            }
-        })
-        .collect()
 }
 
 fn generate_attrs_body(type_enum: &Ident, matched: &[MatchedField]) -> TokenStream2 {
     let default_variant = Ident::new("DEFAULT", Span::call_site());
 
-    if matched.len() == 1 {
+    if matched.len() == 1 && matched[0].per_element_attrs.is_none() {
         let variant = matched[0].attr_variant.as_ref().map_or_else(
             || quote! { #type_enum::#default_variant },
             |v| quote! { #type_enum::#v },
@@ -268,12 +290,18 @@ fn generate_attrs_body(type_enum: &Ident, matched: &[MatchedField]) -> TokenStre
     } else {
         let mut attr_entries = Vec::new();
         for m in matched {
-            let variant = m.attr_variant.as_ref().map_or_else(
-                || quote! { #type_enum::#default_variant },
-                |v| quote! { #type_enum::#v },
-            );
-            for _ in 0..m.count {
-                attr_entries.push(variant.clone());
+            if let Some(per_elem) = &m.per_element_attrs {
+                for v in per_elem {
+                    attr_entries.push(quote! { #type_enum::#v });
+                }
+            } else {
+                let variant = m.attr_variant.as_ref().map_or_else(
+                    || quote! { #type_enum::#default_variant },
+                    |v| quote! { #type_enum::#v },
+                );
+                for _ in 0..m.count {
+                    attr_entries.push(variant.clone());
+                }
             }
         }
         quote! {
@@ -535,6 +563,25 @@ fn get_field_attr(field: &Field, attr_name: &str) -> Option<Ident> {
                 let tokens = list.tokens.clone();
                 let ident: Ident = syn::parse2(tokens).ok()?;
                 return Some(ident);
+            }
+        }
+    }
+    None
+}
+
+/// Extract a comma-separated list of identifiers from `#[attr_name(A, B, C)]`.
+fn get_field_attr_list(field: &Field, attr_name: &str) -> Option<Vec<Ident>> {
+    for attr in &field.attrs {
+        if attr.path().is_ident(attr_name) {
+            if let Meta::List(list) = &attr.meta {
+                let tokens = list.tokens.to_string();
+                let idents: Vec<Ident> = tokens
+                    .split(',')
+                    .map(|s| Ident::new(s.trim(), Span::call_site()))
+                    .collect();
+                if !idents.is_empty() {
+                    return Some(idents);
+                }
             }
         }
     }

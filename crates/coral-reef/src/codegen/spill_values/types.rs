@@ -151,8 +151,7 @@ impl Spill for SpillPred<'_> {
         } else {
             Instr::new(OpSel {
                 dst: dst.into(),
-                cond: src.bnot(),
-                srcs: [0.into(), (!0).into()],
+                srcs: [src.bnot(), 0.into(), (!0).into()],
             })
         }
     }
@@ -166,9 +165,7 @@ impl Spill for SpillPred<'_> {
             cmp_op: IntCmpOp::Ne,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [0.into(), src.into()],
-            accum: true.into(),
-            low_cmp: true.into(),
+            srcs: [0.into(), src.into(), true.into(), true.into()],
         })
     }
 }

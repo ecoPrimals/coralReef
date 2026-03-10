@@ -196,21 +196,9 @@ pub struct OpSuLdGa {
     pub offset_mode: SuGaOffsetMode,
     pub cache_op: LdCacheOp,
 
-    /// Format for the loaded data, passed directly from the descriptor.
-    #[src_type(GPR)]
-    pub format: Src,
-
-    /// This is not an address, but it's two registers that contain
-    /// [addr >> 8, addr & 0xff].
-    /// This works because addr >> 8 is 32-bits (GOB-aligned) and the
-    /// rest 8-bits are extracted by the bit-field
-    /// It's useful since in block-linear mode the lower bits and the higher
-    /// bits are computed in different ways.
-    #[src_type(SSA)]
-    pub addr: Src,
-
-    #[src_type(Pred)]
-    pub out_of_bounds: Src,
+    #[src_types(GPR, SSA, Pred)]
+    #[src_names(format, addr, out_of_bounds)]
+    pub srcs: [Src; 3],
 }
 
 impl DisplayOp for OpSuLdGa {
@@ -218,7 +206,11 @@ impl DisplayOp for OpSuLdGa {
         write!(
             f,
             "suldga{}{} [{}] {} {}",
-            self.mem_type, self.cache_op, self.addr, self.format, self.out_of_bounds
+            self.mem_type,
+            self.cache_op,
+            self.addr(),
+            self.format(),
+            self.out_of_bounds()
         )
     }
 }
@@ -235,17 +227,9 @@ pub struct OpSuStGa {
     pub offset_mode: SuGaOffsetMode,
     pub cache_op: StCacheOp,
 
-    #[src_type(GPR)]
-    pub format: Src,
-
-    #[src_type(SSA)]
-    pub addr: Src,
-
-    #[src_type(SSA)]
-    pub data: Src,
-
-    #[src_type(Pred)]
-    pub out_of_bounds: Src,
+    #[src_types(GPR, SSA, SSA, Pred)]
+    #[src_names(format, addr, data, out_of_bounds)]
+    pub srcs: [Src; 4],
 }
 
 impl DisplayOp for OpSuStGa {
@@ -253,7 +237,12 @@ impl DisplayOp for OpSuStGa {
         write!(
             f,
             "sustga{}{} [{}] {} {} {}",
-            self.image_access, self.cache_op, self.addr, self.format, self.data, self.out_of_bounds,
+            self.image_access,
+            self.cache_op,
+            self.addr(),
+            self.format(),
+            self.data(),
+            self.out_of_bounds(),
         )
     }
 }
@@ -350,9 +339,7 @@ mod tests {
             mem_type: MemType::B32,
             offset_mode: SuGaOffsetMode::U32,
             cache_op: LdCacheOp::CacheGlobal,
-            format: zero_src(),
-            addr: zero_src(),
-            out_of_bounds: Src::new_imm_bool(false),
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(false)],
         };
         let s = format!("{op}");
         assert!(s.contains("suldga"));
@@ -366,10 +353,12 @@ mod tests {
             image_access: ImageAccess::Formatted(ChannelMask::for_comps(4)),
             offset_mode: SuGaOffsetMode::U8,
             cache_op: StCacheOp::WriteBack,
-            format: zero_src(),
-            addr: zero_src(),
-            data: Src::new_imm_u32(0),
-            out_of_bounds: Src::new_imm_bool(true),
+            srcs: [
+                zero_src(),
+                zero_src(),
+                Src::new_imm_u32(0),
+                Src::new_imm_bool(true),
+            ],
         };
         let s = format!("{op}");
         assert!(s.contains("sustga"));

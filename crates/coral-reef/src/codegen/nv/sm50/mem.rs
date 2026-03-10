@@ -36,10 +36,10 @@ impl SM50Op for OpSuLd {
         );
         e.set_ld_cache_op(24..26, cache_op);
 
-        e.set_dst(&self.dst);
+        e.set_dst(self.dst());
 
-        e.set_reg_src(8..16, &self.coord);
-        e.set_reg_src(39..47, &self.handle);
+        e.set_reg_src(8..16, self.coord());
+        e.set_reg_src(39..47, self.handle());
     }
 }
 
@@ -136,9 +136,9 @@ impl SM50Op for OpSuSt {
             }
         }
 
-        e.set_reg_src(8..16, &self.coord);
-        e.set_reg_src(0..8, &self.data);
-        e.set_reg_src(39..47, &self.handle);
+        e.set_reg_src(8..16, self.coord());
+        e.set_reg_src(0..8, self.data());
+        e.set_reg_src(39..47, self.handle());
 
         let cache_op = StCacheOp::select(
             e.sm,
@@ -205,11 +205,11 @@ impl SM50Op for OpSuAtom {
         // image.
         e.set_bit(52, true); // .D
 
-        e.set_dst(&self.dst);
+        e.set_dst(self.dst());
 
-        e.set_reg_src(20..28, &self.data);
-        e.set_reg_src(8..16, &self.coord);
-        e.set_reg_src(39..47, &self.handle);
+        e.set_reg_src(20..28, self.data());
+        e.set_reg_src(8..16, self.coord());
+        e.set_reg_src(39..47, self.handle());
     }
 }
 
@@ -237,12 +237,12 @@ impl SM50Op for OpLd {
 impl SM50Op for OpLdc {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        b.copy_alu_src_if_not_reg(&mut self.offset, GPR, SrcType::GPR);
+        b.copy_alu_src_if_not_reg(self.offset_mut(), GPR, SrcType::GPR);
     }
 
     fn encode(&self, e: &mut SM50Encoder<'_>) {
-        assert!(self.cb.is_unmodified());
-        let SrcRef::CBuf(cb) = &self.cb.reference else {
+        assert!(self.cb().modifier.is_none());
+        let SrcRef::CBuf(cb) = &self.cb().reference else {
             panic!("Not a CBuf source");
         };
         let CBuf::Binding(cb_idx) = cb.buf else {
@@ -252,7 +252,7 @@ impl SM50Op for OpLdc {
         e.set_opcode(0xef90);
 
         e.set_dst(&self.dst);
-        e.set_reg_src(8..16, &self.offset);
+        e.set_reg_src(8..16, self.offset());
         e.set_field(20..36, cb.offset);
         e.set_field(36..41, cb_idx);
         e.set_field(
@@ -280,8 +280,8 @@ impl SM50Op for OpSt {
             MemSpace::Shared => 0xef58,
         });
 
-        e.set_reg_src(0..8, &self.data);
-        e.set_reg_src(8..16, &self.addr);
+        e.set_reg_src(0..8, self.data());
+        e.set_reg_src(8..16, self.addr());
         e.set_field(20..44, self.offset);
         e.set_mem_access(&self.access);
         e.set_st_cache_op(46..48, self.access.st_cache_op(e.sm));
@@ -309,16 +309,16 @@ fn atom_src_as_ssa(b: &mut LegalizeBuilder, src: &Src, atom_type: AtomType) -> S
 impl SM50Op for OpAtom {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         if self.atom_op == AtomOp::CmpExch(AtomCmpSrc::Separate) {
-            let cmpr = atom_src_as_ssa(b, &self.cmpr, self.atom_type);
-            let data = atom_src_as_ssa(b, &self.data, self.atom_type);
+            let cmpr = atom_src_as_ssa(b, self.cmpr(), self.atom_type);
+            let data = atom_src_as_ssa(b, self.data(), self.atom_type);
 
             let mut cmpr_data = Vec::new();
             cmpr_data.extend_from_slice(&cmpr);
             cmpr_data.extend_from_slice(&data);
             let cmpr_data = SSARef::try_from(cmpr_data).expect("cmpr+data must form valid SSARef");
 
-            self.cmpr = 0.into();
-            self.data = cmpr_data.into();
+            *self.cmpr_mut() = 0.into();
+            *self.data_mut() = cmpr_data.into();
             self.atom_op = AtomOp::CmpExch(AtomCmpSrc::Packed);
         }
         legalize_ext_instr(self, b);
@@ -330,7 +330,7 @@ impl SM50Op for OpAtom {
                 if self.dst.is_none() {
                     e.set_opcode(0xebf8);
 
-                    e.set_reg_src(0..8, &self.data);
+                    e.set_reg_src(0..8, self.data());
 
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
@@ -352,14 +352,14 @@ impl SM50Op for OpAtom {
                     // appears supported by real hardware.
                     let (data_src, data_layout) = match cmp_src {
                         AtomCmpSrc::Separate => {
-                            if self.data.is_zero() {
-                                (&self.cmpr, 1_u8)
+                            if self.data().is_zero() {
+                                (self.cmpr(), 1_u8)
                             } else {
-                                assert!(self.cmpr.is_zero());
-                                (&self.data, 2_u8)
+                                assert!(self.cmpr().is_zero());
+                                (self.data(), 2_u8)
                             }
                         }
-                        AtomCmpSrc::Packed => (&self.data, 0_u8),
+                        AtomCmpSrc::Packed => (self.data(), 0_u8),
                     };
                     e.set_reg_src(20..28, data_src);
 
@@ -375,7 +375,7 @@ impl SM50Op for OpAtom {
                     e.set_opcode(0xed00);
 
                     e.set_dst(&self.dst);
-                    e.set_reg_src(20..28, &self.data);
+                    e.set_reg_src(20..28, self.data());
 
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
@@ -390,7 +390,7 @@ impl SM50Op for OpAtom {
                     e.set_atom_op(52..56, self.atom_op);
                 }
 
-                e.set_reg_src(8..16, &self.addr);
+                e.set_reg_src(8..16, self.addr());
                 e.set_field(28..48, self.addr_offset);
                 e.set_field(
                     48..49,
@@ -406,8 +406,8 @@ impl SM50Op for OpAtom {
                     e.set_opcode(0xee00);
 
                     assert!(cmp_src == AtomCmpSrc::Packed);
-                    assert!(self.cmpr.is_zero());
-                    e.set_reg_src(20..28, &self.data);
+                    assert!(self.cmpr().is_zero());
+                    e.set_reg_src(20..28, self.data());
 
                     let subop = match self.atom_type {
                         AtomType::U32 => 4_u8,
@@ -418,7 +418,7 @@ impl SM50Op for OpAtom {
                 } else {
                     e.set_opcode(0xec00);
 
-                    e.set_reg_src(20..28, &self.data);
+                    e.set_reg_src(20..28, self.data());
 
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
@@ -436,7 +436,7 @@ impl SM50Op for OpAtom {
                 }
 
                 e.set_dst(&self.dst);
-                e.set_reg_src(8..16, &self.addr);
+                e.set_reg_src(8..16, self.addr());
                 assert_eq!(self.addr_offset % 4, 0);
                 e.set_field(30..52, self.addr_offset / 4);
             }
@@ -472,12 +472,12 @@ impl SM50Op for OpALd {
         e.set_dst(&self.dst);
         if self.phys {
             assert!(!self.patch);
-            assert!(self.offset.reference.as_reg().is_some());
+            assert!(self.offset().reference.as_reg().is_some());
         } else if !self.patch {
-            assert!(self.offset.is_zero());
+            assert!(self.offset().is_zero());
         }
-        e.set_reg_src(8..16, &self.offset);
-        e.set_reg_src(39..47, &self.vtx);
+        e.set_reg_src(8..16, self.offset());
+        e.set_reg_src(39..47, self.vtx());
 
         e.set_field(20..30, self.addr);
         e.set_bit(31, self.patch);
@@ -493,9 +493,9 @@ impl SM50Op for OpASt {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         e.set_opcode(0xeff0);
 
-        e.set_reg_src(0..8, &self.data);
-        e.set_reg_src(8..16, &self.offset);
-        e.set_reg_src(39..47, &self.vtx);
+        e.set_reg_src(0..8, self.data());
+        e.set_reg_src(8..16, self.offset());
+        e.set_reg_src(39..47, self.vtx());
 
         assert!(!self.phys);
         e.set_field(20..30, self.addr);
@@ -514,8 +514,8 @@ impl SM50Op for OpIpa {
 
         e.set_dst(&self.dst);
         e.set_reg_src(8..16, &0.into()); // addr
-        e.set_reg_src(20..28, &self.inv_w);
-        e.set_reg_src(39..47, &self.offset);
+        e.set_reg_src(20..28, self.inv_w());
+        e.set_reg_src(39..47, self.offset());
 
         assert!(self.addr % 4 == 0);
         e.set_field(28..38, self.addr);

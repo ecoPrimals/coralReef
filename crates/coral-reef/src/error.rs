@@ -34,6 +34,11 @@ pub enum CompileError {
     /// Unsupported GPU architecture.
     #[error("unsupported architecture: {0}")]
     UnsupportedArch(Cow<'static, str>),
+
+    /// Internal compiler error (ICE). These represent bugs in coralReef, not user errors.
+    /// Caught from `panic!` / `ice!` in encoder backends via `catch_unwind`.
+    #[error("internal compiler error: {0}")]
+    Internal(Cow<'static, str>),
 }
 
 #[cfg(test)]
@@ -103,6 +108,7 @@ mod tests {
             CompileError::RegisterAllocation("r".into()),
             CompileError::Encoding("e".into()),
             CompileError::UnsupportedArch("u".into()),
+            CompileError::Internal("ice".into()),
         ];
         for e in variants {
             let s = e.to_string();
@@ -117,5 +123,37 @@ mod tests {
         let b = CompileError::NotImplemented("test".into());
         assert!(a.to_string().contains("invalid"));
         assert!(b.to_string().contains("not implemented"));
+    }
+
+    #[test]
+    fn test_internal_error_display() {
+        let e = CompileError::Internal("unhandled instruction".into());
+        let s = e.to_string();
+        assert!(s.contains("internal compiler error"));
+        assert!(s.contains("unhandled instruction"));
+    }
+
+    #[test]
+    fn test_catch_ice_success() {
+        let result = crate::codegen::catch_ice(|| vec![1, 2, 3]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_catch_ice_catches_panic() {
+        let result = crate::codegen::catch_ice(|| panic!("test ICE: unhandled op"));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, CompileError::Internal(_)));
+        assert!(err.to_string().contains("unhandled op"));
+    }
+
+    #[test]
+    fn test_catch_ice_catches_string_panic() {
+        let result = crate::codegen::catch_ice(|| panic!("{}", format!("dynamic ICE: op {}", 42)));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("dynamic ICE"));
     }
 }

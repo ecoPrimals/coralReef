@@ -242,18 +242,20 @@ pub fn lower_f64_cos(
             cmp_op: IntCmpOp::Ne,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [n_and_1.into(), Src::ZERO],
-            accum: Src::new_imm_bool(true),
-            low_cmp: Src::new_imm_bool(true),
+            srcs: [
+                n_and_1.into(),
+                Src::ZERO,
+                Src::new_imm_bool(true),
+                Src::new_imm_bool(true),
+            ],
         }),
         pred,
     ));
     let n_plus_1 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpIAdd3 {
-            dst: n_plus_1.into(),
+            dsts: [n_plus_1.into(), Dst::None, Dst::None],
             srcs: [n_i32.into(), Src::new_imm_u32(1), Src::ZERO],
-            overflow: [Dst::None, Dst::None],
         }),
         pred,
     ));
@@ -274,9 +276,12 @@ pub fn lower_f64_cos(
             cmp_op: IntCmpOp::Ne,
             cmp_type: IntCmpType::U32,
             ex: false,
-            srcs: [n_plus_1_and_2.into(), Src::ZERO],
-            accum: Src::new_imm_bool(true),
-            low_cmp: Src::new_imm_bool(true),
+            srcs: [
+                n_plus_1_and_2.into(),
+                Src::ZERO,
+                Src::new_imm_bool(true),
+                Src::new_imm_bool(true),
+            ],
         }),
         pred,
     ));

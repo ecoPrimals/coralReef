@@ -95,7 +95,7 @@ impl SM70Op for OpHMul2 {
 impl SM70Op for OpHSet2 {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum] = &mut self.srcs;
         if !src_is_reg(src0, gpr) && src_is_reg(src1, gpr) {
             std::mem::swap(src0, src1);
             self.cmp_op = self.cmp_op.flip();
@@ -130,14 +130,14 @@ impl SM70Op for OpHSet2 {
         e.set_float_cmp_op(76..80, self.cmp_op);
         e.set_bit(80, self.ftz);
 
-        e.set_pred_src(87..90, 90, &self.accum);
+        e.set_pred_src(87..90, 90, self.accum());
     }
 }
 
 impl SM70Op for OpHSetP2 {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum] = &mut self.srcs;
         if !src_is_reg(src0, gpr) && src_is_reg(src1, gpr) {
             std::mem::swap(src0, src1);
             self.cmp_op = self.cmp_op.flip();
@@ -161,14 +161,14 @@ impl SM70Op for OpHSetP2 {
         e.set_pred_dst(81..84, &self.dsts[0]);
         e.set_pred_dst(84..87, &self.dsts[1]);
 
-        e.set_pred_src(87..90, 90, &self.accum);
+        e.set_pred_src(87..90, 90, self.accum());
     }
 }
 
 impl SM70Op for OpHMnMx2 {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         let gpr = op_gpr(self);
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _min] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, gpr);
         b.copy_alu_src_if_not_reg(src0, gpr, SrcType::F16v2);
     }
@@ -191,6 +191,6 @@ impl SM70Op for OpHMnMx2 {
         e.set_bit(82, false); // .XORSIGN
         e.set_bit(85, false); // .BF16_V2
 
-        e.set_pred_src(87..90, 90, &self.min);
+        e.set_pred_src(87..90, 90, self.min());
     }
 }

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! JSON-RPC (HTTP over TCP) endpoint tests.
+//!
+//! Uses `primal-rpc-client` — the ecosystem's pure Rust JSON-RPC client.
 
 use super::*;
 use crate::service;
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
+use primal_rpc_client::{RpcClient, no_params};
 
 #[tokio::test]
 async fn test_jsonrpc_server_starts() {
@@ -15,11 +16,10 @@ async fn test_jsonrpc_server_starts() {
 #[tokio::test]
 async fn test_jsonrpc_health_endpoint() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let response: service::HealthResponse = client
-        .request("shader.compile.status", jsonrpsee::rpc_params![])
+        .request("shader.compile.status", no_params())
         .await
         .unwrap();
 
@@ -30,11 +30,10 @@ async fn test_jsonrpc_health_endpoint() {
 #[tokio::test]
 async fn test_jsonrpc_supported_archs_endpoint() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let archs: Vec<String> = client
-        .request("shader.compile.capabilities", jsonrpsee::rpc_params![])
+        .request("shader.compile.capabilities", no_params())
         .await
         .unwrap();
 
@@ -45,8 +44,7 @@ async fn test_jsonrpc_supported_archs_endpoint() {
 #[tokio::test]
 async fn test_jsonrpc_compile_empty_spirv() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let req = service::CompileRequest {
         spirv_words: vec![],
@@ -64,8 +62,7 @@ async fn test_jsonrpc_compile_empty_spirv() {
 #[tokio::test]
 async fn test_jsonrpc_compile_valid_shader() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let spirv = test_helpers::valid_spirv_minimal_compute();
     let req = service::CompileRequest {
@@ -99,8 +96,7 @@ async fn test_jsonrpc_compile_valid_shader() {
 #[tokio::test]
 async fn test_jsonrpc_compile_wgsl_shader() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let req = service::CompileWgslRequest {
         wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
@@ -134,8 +130,7 @@ async fn test_jsonrpc_compile_wgsl_shader() {
 #[tokio::test]
 async fn test_jsonrpc_compile_error_propagation() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let req_bad_arch = service::CompileRequest {
         spirv_words: test_helpers::valid_spirv_minimal_compute(),
@@ -169,8 +164,7 @@ async fn test_jsonrpc_compile_error_propagation() {
 #[tokio::test]
 async fn test_jsonrpc_error_code_invalid_input() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let req = service::CompileRequest {
         spirv_words: vec![0xDEAD_BEEF],
@@ -194,8 +188,7 @@ async fn test_jsonrpc_error_code_invalid_input() {
 #[tokio::test]
 async fn test_jsonrpc_error_code_unsupported_arch() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let spirv = test_helpers::valid_spirv_minimal_compute();
     let req = service::CompileRequest {
@@ -222,11 +215,10 @@ async fn test_jsonrpc_error_code_unsupported_arch() {
 #[tokio::test]
 async fn test_jsonrpc_status_returns_health() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let response: service::HealthResponse = client
-        .request("shader.compile.status", jsonrpsee::rpc_params![])
+        .request("shader.compile.status", no_params())
         .await
         .unwrap();
 
@@ -238,11 +230,10 @@ async fn test_jsonrpc_status_returns_health() {
 #[tokio::test]
 async fn test_jsonrpc_capabilities_endpoint() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let url = format!("http://{addr}");
-    let client = HttpClientBuilder::default().build(&url).unwrap();
+    let client = RpcClient::tcp(addr);
 
     let archs: Vec<String> = client
-        .request("shader.compile.capabilities", jsonrpsee::rpc_params![])
+        .request("shader.compile.capabilities", no_params())
         .await
         .unwrap();
     assert!(!archs.is_empty());

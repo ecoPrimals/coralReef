@@ -83,6 +83,23 @@ macro_rules! ice {
 }
 pub(crate) use ice;
 
+/// Wrap an encoder call in `catch_unwind`, converting ICE panics to
+/// `CompileError::Internal`. Encoder panics are internal invariant
+/// violations — this prevents process death and returns a structured error.
+pub(crate) fn catch_ice<F>(f: F) -> Result<Vec<u32>, crate::CompileError>
+where
+    F: FnOnce() -> Vec<u32>,
+{
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|payload| {
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown ICE".to_string());
+        crate::CompileError::Internal(msg.into())
+    })
+}
+
 /// Default capacity for SSA-pass `BitSet<Phi>` allocations.
 ///
 /// Sized for typical shader programs. Individual passes may exceed this

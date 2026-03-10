@@ -128,7 +128,7 @@ impl SM50Op for OpFFma {
 impl SM50Op for OpFMnMx {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _min] = &mut self.srcs;
         swap_srcs_if_not_reg(src0, src1, GPR);
         b.copy_alu_src_if_not_reg(src0, GPR, SrcType::F32);
         b.copy_alu_src_if_f20_overflow(src1, GPR, SrcType::F32);
@@ -154,7 +154,7 @@ impl SM50Op for OpFMnMx {
 
         e.set_reg_fmod_src(8..16, 46, 48, &self.srcs[0]);
         e.set_dst(&self.dst);
-        e.set_pred_src(39..42, 42, &self.min);
+        e.set_pred_src(39..42, 42, self.min());
         e.set_bit(44, self.ftz);
     }
 }
@@ -332,7 +332,7 @@ impl SM50Op for OpFSet {
 impl SM50Op for OpFSetP {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;
-        let [src0, src1] = &mut self.srcs;
+        let [src0, src1, _accum] = &mut self.srcs;
         if swap_srcs_if_not_reg(src0, src1, GPR) {
             self.cmp_op = self.cmp_op.flip();
         }
@@ -362,7 +362,7 @@ impl SM50Op for OpFSetP {
         e.set_pred_dst(3..6, &self.dst);
         e.set_pred_dst(0..3, &Dst::None); // dst1
         e.set_reg_fmod_src(8..16, 7, 43, &self.srcs[0]);
-        e.set_pred_src(39..42, 42, &self.accum);
+        e.set_pred_src(39..42, 42, self.accum());
         e.set_pred_set_op(45..47, self.set_op);
         e.set_bit(47, self.ftz);
         e.set_float_cmp_op(48..52, self.cmp_op);

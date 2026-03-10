@@ -180,7 +180,7 @@ impl SM70Op for OpTex {
         } else {
             e.set_field(64..72, 255_u8);
         }
-        e.set_pred_dst(81..84, &self.fault);
+        e.set_pred_dst(81..84, self.fault());
 
         e.set_reg_src(24..32, &self.srcs[0]);
         e.set_reg_src(32..40, &self.srcs[1]);
@@ -248,7 +248,7 @@ impl SM70Op for OpTld {
         } else {
             e.set_field(64..72, 255_u8);
         }
-        e.set_pred_dst(81..84, &self.fault);
+        e.set_pred_dst(81..84, self.fault());
 
         e.set_reg_src(24..32, &self.srcs[0]);
         e.set_reg_src(32..40, &self.srcs[1]);
@@ -323,7 +323,7 @@ impl SM70Op for OpTld4 {
         } else {
             e.set_field(64..72, 255_u8);
         }
-        e.set_pred_dst(81..84, &self.fault);
+        e.set_pred_dst(81..84, self.fault());
 
         e.set_reg_src(24..32, &self.srcs[0]);
         e.set_reg_src(32..40, &self.srcs[1]);
@@ -427,7 +427,7 @@ impl SM70Op for OpTxd {
         } else {
             e.set_field(64..72, 255_u8);
         }
-        e.set_pred_dst(81..84, &self.fault);
+        e.set_pred_dst(81..84, self.fault());
 
         e.set_reg_src(24..32, &self.srcs[0]);
         e.set_reg_src(32..40, &self.srcs[1]);

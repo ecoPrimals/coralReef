@@ -42,7 +42,7 @@ pub const AMDGPU_VM_PAGE_EXECUTABLE: u32 = 1 << 3;
 /// Input: `bo_size`, `alignment`, `domains`, `domain_flags`.
 /// Output: kernel overwrites first 8 bytes with `{ handle: u32, pad: u32 }`.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuGemCreate {
     pub bo_size: u64,
     pub alignment: u64,
@@ -55,14 +55,14 @@ pub struct AmdgpuGemCreate {
 /// Input: `handle` (u32) at offset 0.
 /// Output: kernel overwrites with `addr_ptr` (u64) at offset 0.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuGemMmap {
     pub handle_or_addr: u64,
 }
 
 /// Context operation input/output.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuCtx {
     pub op: u32,
     pub flags: u32,
@@ -72,7 +72,7 @@ pub struct AmdgpuCtx {
 
 /// GEM VA mapping.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AmdgpuGemVa {
     pub handle: u32,
     pub pad: u32,
@@ -102,20 +102,13 @@ fn kernel_ptr<T>(r: &T) -> u64 {
     std::ptr::from_ref(r) as u64
 }
 
-/// Read the kernel's output from a `#[repr(C)]` ioctl struct.
+/// Read the kernel's output from a `#[repr(C)]` ioctl struct — zero unsafe.
 ///
 /// DRM ioctls use C unions: the kernel writes output fields at the start of
-/// the same struct used for input. This reads the first `size_of::<R>()` bytes.
-///
-/// # Safety
-///
-/// `T` must be `#[repr(C)]` and at least `size_of::<R>()` bytes.
-/// The kernel must have successfully written output via the ioctl.
-const unsafe fn read_ioctl_output<T, R: Copy>(arg: &T) -> R {
-    // SAFETY: Caller guarantees `T` is `#[repr(C)]` with at least
-    // `size_of::<R>()` bytes at offset 0. The kernel wrote valid data
-    // there during the preceding successful ioctl call.
-    unsafe { std::ptr::read(std::ptr::from_ref(arg).cast::<R>()) }
+/// the same struct used for input. This reads the first `size_of::<R>()` bytes
+/// using `bytemuck` safe casts instead of `ptr::read`.
+fn read_ioctl_output<T: bytemuck::Pod, R: bytemuck::Pod>(arg: &T) -> R {
+    bytemuck::pod_read_unaligned(&bytemuck::bytes_of(arg)[..std::mem::size_of::<R>()])
 }
 
 /// Perform a named DRM ioctl on a `#[repr(C)]` struct.
@@ -123,9 +116,12 @@ const unsafe fn read_ioctl_output<T, R: Copy>(arg: &T) -> R {
 /// Encapsulates the single unsafe ioctl syscall. All AMD ioctl functions
 /// route through here, keeping `unsafe` confined to one call site.
 fn amd_ioctl<T>(fd: RawFd, request: u64, arg: &mut T, name: &'static str) -> DriverResult<()> {
-    // SAFETY: All callers pass `#[repr(C)]` kernel ABI structs (verified by
-    // layout tests in this module). The struct is stack-allocated and valid
-    // for the synchronous ioctl lifetime.
+    // SAFETY:
+    // 1. Validity:   all callers pass #[repr(C)] kernel ABI structs (verified
+    //                by layout tests in this module)
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; arg outlives the call
+    // 4. Exclusivity: &mut arg — sole reference
     unsafe { crate::drm::drm_ioctl_named(fd, request, arg, name) }
 }
 
@@ -133,17 +129,15 @@ fn amd_ioctl<T>(fd: RawFd, request: u64, arg: &mut T, name: &'static str) -> Dri
 ///
 /// DRM ioctls write output into the first bytes of the same struct (C union).
 /// This combines the ioctl call and the output read into one safe function.
-fn amd_ioctl_read<T, R: Copy>(
+/// The output read uses `bytemuck` — zero unsafe for the data extraction.
+fn amd_ioctl_read<T: bytemuck::Pod, R: bytemuck::Pod>(
     fd: RawFd,
     request: u64,
     arg: &mut T,
     name: &'static str,
 ) -> DriverResult<R> {
     amd_ioctl(fd, request, arg, name)?;
-    // SAFETY: All `#[repr(C)]` ioctl structs are at least as large as their
-    // output union overlay. The kernel wrote valid data at offset 0 during
-    // the successful ioctl above.
-    Ok(unsafe { read_ioctl_output(arg) })
+    Ok(read_ioctl_output(arg))
 }
 
 /// Current `CLOCK_MONOTONIC` time in nanoseconds.
@@ -279,7 +273,7 @@ const AMDGPU_BO_LIST_OP_CREATE: u32 = 0;
 const AMDGPU_BO_LIST_OP_DESTROY: u32 = 1;
 
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct AmdgpuBoListEntry {
     bo_handle: u32,
     bo_priority: u32,
@@ -288,7 +282,7 @@ struct AmdgpuBoListEntry {
 /// Input for `DRM_IOCTL_AMDGPU_BO_LIST` — matches `drm_amdgpu_bo_list_in`.
 /// Union output (`list_handle`) overlaps the first 4 bytes.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct AmdgpuBoListIn {
     operation: u32,
     list_handle: u32,
@@ -303,7 +297,7 @@ const AMDGPU_CHUNK_ID_IB: u32 = 0x01;
 const AMDGPU_HW_IP_COMPUTE: u32 = 1;
 
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct AmdgpuCsChunk {
     chunk_id: u32,
     length_dw: u32,
@@ -312,7 +306,7 @@ struct AmdgpuCsChunk {
 
 /// IB chunk data — matches `drm_amdgpu_cs_chunk_ib`.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct AmdgpuCsChunkIb {
     pad: u32,
     flags: u32,
@@ -326,7 +320,7 @@ struct AmdgpuCsChunkIb {
 /// CS input — matches `drm_amdgpu_cs_in` (24 bytes, same as union).
 /// After ioctl, first 8 bytes contain the fence handle (`drm_amdgpu_cs_out`).
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct AmdgpuCsIn {
     ctx_id: u32,
     bo_list_handle: u32,
@@ -340,7 +334,7 @@ struct AmdgpuCsIn {
 /// Wait CS input — matches `drm_amdgpu_wait_cs_in` (32 bytes, same as union).
 /// After ioctl, first 8 bytes contain status (`drm_amdgpu_wait_cs_out`).
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct AmdgpuWaitCsIn {
     handle: u64,
     timeout: u64,
@@ -603,8 +597,7 @@ mod tests {
             bo_list_handle: 0xCAFE,
             ..Default::default()
         };
-        // SAFETY: AmdgpuCsIn is #[repr(C)] and >= 4 bytes; ctx_id is at offset 0.
-        let out: u32 = unsafe { read_ioctl_output(&cs) };
+        let out: u32 = read_ioctl_output(&cs);
         assert_eq!(out, 0xDEAD_BEEF);
     }
 
