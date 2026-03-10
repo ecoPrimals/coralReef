@@ -1,11 +1,20 @@
 # Hardware Testing Guide — coralReef GPU Parity
 
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 30)
+
 ## Hardware Inventory
 
 | Node | GPU | Architecture | Driver | Status |
 |------|-----|-------------|--------|--------|
 | `renderD128` | AMD RX 6950 XT | RDNA2 (GFX1030) | `amdgpu` | Full pipeline: compile + dispatch + readback |
 | `renderD129` | NVIDIA RTX 3090 | SM86 (Ampere) | `nvidia-drm` | Probe + compile-only (dispatch pending UVM) |
+
+### hotSpring Test Rig (remote)
+
+| GPU | Architecture | Driver Available | Needed Tests |
+|-----|-------------|-----------------|-------------|
+| NVIDIA Titan V | GV100 SM70 (Volta) | nouveau (open) | Channel alloc EINVAL debug, firmware probe, E2E dispatch |
+| NVIDIA RTX 3090 | GA102 SM86 (Ampere) | nvidia-drm (proprietary) | UVM RM client, buffer mapping, compute dispatch |
 
 ## Feature Flags
 
@@ -108,25 +117,104 @@ targets:
   - RDNA4 (RX 9000)
 ```
 
-## Titan Team Instructions
+## Titan V + RTX 3090 Test Instructions (hotSpring Test Rig)
 
-1. **GPU setup**: The Titan should use the `nouveau` driver (open-source).
-   Enable with `--features nouveau`.
+### Prerequisites
 
-2. **Run all parity tests**:
-   ```bash
-   cargo test --test parity_harness -p coral-gpu --features nouveau -- --ignored
-   ```
+```bash
+git clone git@github.com:ecoPrimals/coralReef.git
+cd coralReef
+cargo check --workspace
+cargo test --workspace  # 1487 passing, should complete in ~40s
+```
 
-3. **Run NV hardware tests** (create `hw_nv_dispatch.rs` mirroring AMD):
-   ```bash
-   cargo test --test 'hw_nv*' -p coral-driver --features nouveau -- --ignored
-   ```
+### Step 1: Nouveau EINVAL Diagnostics (Titan V)
 
-4. **Verify multi-GPU**:
-   ```bash
-   cargo test --test hw_nv_probe -p coral-driver -- --ignored multi_gpu
-   ```
+The Titan V channel creation returns EINVAL. The diagnostic suite tries
+multiple channel configurations and reports which succeed. This is the
+**highest priority** data we need.
+
+```bash
+# Full diagnostic suite — captures all 5 diagnostic tests
+cargo test --test hw_nv_nouveau -p coral-driver --features nouveau -- --ignored --nocapture 2>&1 | tee nouveau_diag.log
+```
+
+**What to capture**: The entire `nouveau_diag.log` output. Key data points:
+
+| Test | What it tells us |
+|------|-----------------|
+| `nouveau_diagnose_channel_alloc` | Which channel configurations work (bare, compute, NVK-style, alt-class) |
+| `nouveau_channel_alloc_hex_dump` | Raw 92-byte struct for kernel ABI verification |
+| `nouveau_firmware_probe` | Which firmware files are present in `/lib/firmware/nvidia/gv100/` |
+| `nouveau_gpu_identity_probe` | PCI device ID → SM version mapping verification |
+| `nouveau_gem_alloc_without_channel` | Whether GEM buffer alloc works independent of channel creation |
+
+### Step 2: Environment Data
+
+```bash
+# Kernel and driver info
+uname -r
+cat /proc/version
+modinfo nouveau | head -20
+ls -la /dev/dri/renderD*
+ls -la /dev/nvidia*
+
+# GPU identity from sysfs
+for d in /sys/class/drm/renderD*/device; do
+  echo "=== $d ==="
+  cat "$d/vendor" "$d/device" 2>/dev/null
+  cat "$d/driver_override" 2>/dev/null
+done
+
+# Firmware status
+ls -la /lib/firmware/nvidia/gv100/ 2>/dev/null || echo "No gv100 firmware dir"
+ls -la /lib/firmware/nvidia/ga102/ 2>/dev/null || echo "No ga102 firmware dir"
+
+# Recent DRM messages
+dmesg | grep -i 'nouveau\|nvidia\|drm' | tail -50
+```
+
+### Step 3: nvidia-drm UVM Probing (RTX 3090)
+
+If the proprietary NVIDIA driver is loaded alongside nouveau:
+
+```bash
+# UVM device probing
+cargo test --test hw_nv_probe -p coral-driver -- --ignored --nocapture 2>&1 | tee nv_probe.log
+
+# UVM RM client tests (requires /dev/nvidiactl)
+cargo test uvm -p coral-driver -- --ignored --nocapture 2>&1 | tee uvm_diag.log
+
+# nvidia-drm buffer tests
+cargo test --test hw_nv_buffers -p coral-driver --features nvidia-drm -- --ignored --nocapture 2>&1 | tee nv_buffers.log
+```
+
+### Step 4: Multi-GPU Enumeration
+
+```bash
+cargo test --test hw_nv_probe -p coral-driver -- --ignored multi_gpu --nocapture 2>&1 | tee multi_gpu.log
+```
+
+### Step 5: Full Parity Suite
+
+```bash
+# Compile-only parity (no hardware needed)
+cargo test --test parity_compilation -p coral-reef 2>&1 | tee parity_compile.log
+
+# Hardware dispatch parity (nouveau)
+cargo test --test parity_harness -p coral-gpu --features nouveau -- --ignored --nocapture 2>&1 | tee parity_nouveau.log
+```
+
+### What to Send Back
+
+Please capture and share these files:
+1. `nouveau_diag.log` — **critical** for EINVAL debugging
+2. Environment data output (kernel, driver, sysfs, firmware, dmesg)
+3. `nv_probe.log` — device detection
+4. `uvm_diag.log` — if proprietary driver present
+5. `nv_buffers.log` — if proprietary driver present
+6. `multi_gpu.log` — multi-GPU enumeration
+7. `parity_nouveau.log` — E2E dispatch attempt
 
 ## Device Discovery
 
