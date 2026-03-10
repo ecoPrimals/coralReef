@@ -222,4 +222,61 @@ mod tests {
         assert_eq!(d.y, 1);
         assert_eq!(d.z, 1);
     }
+
+    #[test]
+    fn pm4_compute_dispatch_empty_buffer_vas() {
+        let info = ShaderInfo {
+            gpr_count: 4,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [1, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0, DispatchDims::new(1, 1, 1), &info, &[]);
+        assert!(!pm4.is_empty());
+        assert!(pm4.len() >= 8);
+    }
+
+    #[test]
+    fn pm4_compute_dispatch_minimal_gpr() {
+        let info = ShaderInfo {
+            gpr_count: 0,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [32, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(32), &info, &[]);
+        assert!(!pm4.is_empty());
+        assert!(
+            pm4.len() >= 8,
+            "PM4 with gpr_count=0 should still produce valid stream"
+        );
+    }
+
+    #[test]
+    fn pm4_compute_dispatch_multiple_buffer_vas() {
+        let info = ShaderInfo {
+            gpr_count: 32,
+            shared_mem_bytes: 256,
+            barrier_count: 1,
+            workgroup: [64, 2, 1],
+        };
+        let buf_vas = [0x1_0000_0000_u64, 0x2_0000_0000_u64, 0x3_0000_0000_u64];
+        let pm4 =
+            build_compute_dispatch(0x4_0000_0000, DispatchDims::new(128, 4, 2), &info, &buf_vas);
+        assert!(pm4.len() > 20);
+    }
+
+    #[test]
+    fn pm4_compute_dispatch_ends_with_nop() {
+        let info = ShaderInfo {
+            gpr_count: 8,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [16, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(16), &info, &[]);
+        assert!(pm4.len() >= 2);
+        let last_header = pm4[pm4.len() - 2];
+        assert_eq!(last_header >> 30, 3, "trailing packet should be Type 3");
+    }
 }

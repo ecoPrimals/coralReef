@@ -32,6 +32,32 @@ fn test_compile_wgsl_minimal_compute() {
 }
 
 #[test]
+fn test_compile_wgsl_f64_min_max_abs_clamp() {
+    // Exercises f64 min/max/abs/clamp lowering (SSARef must have 2 components).
+    // Pattern from deformed_potentials_f64: max(rho, 0.0), clamp(v, lo, hi).
+    let wgsl = r"
+@compute @workgroup_size(1)
+fn main() {
+    let rho = f64(1.5);
+    let rho_pos = max(rho, f64(0.0));
+    let v = f64(-100.0);
+    let clamped = clamp(v, f64(-5000.0), f64(5000.0));
+    let a = abs(v);
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "f64 min/max/abs/clamp should compile: {result:?}"
+    );
+}
+
+#[test]
 fn test_compile_glsl_empty_rejected() {
     let result = compile_glsl("", &CompileOptions::default());
     assert!(matches!(result, Err(CompileError::InvalidInput(_))));
@@ -62,7 +88,7 @@ fn test_compile_glsl_malformed_returns_error() {
 #[test]
 fn test_default_options() {
     let opts = CompileOptions::default();
-    assert_eq!(opts.arch(), GpuArch::Sm70);
+    assert_eq!(opts.arch().unwrap(), GpuArch::Sm70);
     assert_eq!(opts.opt_level, 2);
     assert!(opts.fp64_software);
     assert!(!opts.debug_info);
@@ -78,7 +104,7 @@ fn test_options_clone() {
         ..CompileOptions::default()
     };
     let cloned = opts;
-    assert_eq!(cloned.arch(), GpuArch::Sm89);
+    assert_eq!(cloned.arch().unwrap(), GpuArch::Sm89);
     assert_eq!(cloned.opt_level, 3);
     assert!(cloned.debug_info);
     assert!(!cloned.fp64_software);
@@ -193,22 +219,22 @@ fn test_shader_model_info_new_panics_for_sm_below_20() {
 
 #[test]
 fn test_fma_policy_default() {
-    assert_eq!(FmaPolicy::default(), FmaPolicy::AllowFusion);
+    assert_eq!(FmaPolicy::default(), FmaPolicy::Auto);
 }
 
 #[test]
 fn test_fma_policy_debug() {
-    let dbg = format!("{:?}", FmaPolicy::AllowFusion);
-    assert!(dbg.contains("AllowFusion"));
-    let dbg = format!("{:?}", FmaPolicy::NoContraction);
-    assert!(dbg.contains("NoContraction"));
+    let dbg = format!("{:?}", FmaPolicy::Fused);
+    assert!(dbg.contains("Fused"));
+    let dbg = format!("{:?}", FmaPolicy::Separate);
+    assert!(dbg.contains("Separate"));
 }
 
 #[test]
 fn test_fma_policy_equality() {
-    assert_eq!(FmaPolicy::AllowFusion, FmaPolicy::AllowFusion);
-    assert_eq!(FmaPolicy::NoContraction, FmaPolicy::NoContraction);
-    assert_ne!(FmaPolicy::AllowFusion, FmaPolicy::NoContraction);
+    assert_eq!(FmaPolicy::Fused, FmaPolicy::Fused);
+    assert_eq!(FmaPolicy::Separate, FmaPolicy::Separate);
+    assert_ne!(FmaPolicy::Fused, FmaPolicy::Separate);
 }
 
 #[test]
@@ -240,13 +266,12 @@ fn test_compile_options_amd_arch() {
 }
 
 #[test]
-#[should_panic(expected = "CompileOptions::arch() called on non-NVIDIA target")]
-fn test_compile_options_arch_panics_for_amd() {
+fn test_compile_options_arch_returns_err_for_amd() {
     let opts = CompileOptions {
         target: GpuTarget::Amd(AmdArch::Rdna2),
         ..CompileOptions::default()
     };
-    let _ = opts.arch();
+    assert!(opts.arch().is_err());
 }
 
 #[test]

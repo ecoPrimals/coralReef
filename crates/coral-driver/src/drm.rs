@@ -102,6 +102,7 @@ pub struct DrmVersion {
 ///
 /// Consolidates `mmap`/`munmap`/`from_raw_parts` into a single safe abstraction
 /// used by both AMD (GEM) and NVIDIA (nouveau) backends.
+#[derive(Debug)]
 pub(crate) struct MappedRegion {
     ptr: NonNull<u8>,
     len: usize,
@@ -120,10 +121,11 @@ impl MappedRegion {
         fd: RawFd,
         offset: u64,
     ) -> DriverResult<Self> {
+        use std::os::unix::io::BorrowedFd;
+
         if len == 0 {
             return Err(DriverError::MmapFailed("mmap length must be > 0".into()));
         }
-        use std::os::unix::io::BorrowedFd;
         // SAFETY: `fd` is a valid open DRM GEM handle, `offset` is from the
         // kernel (gem_mmap_offset or map_handle), and `len` > 0. The mapped
         // region is owned by this struct and unmapped in `Drop`.
@@ -146,7 +148,7 @@ impl MappedRegion {
 
     /// View the mapped region as a byte slice.
     #[must_use]
-    pub(crate) fn as_slice(&self) -> &[u8] {
+    pub(crate) const fn as_slice(&self) -> &[u8] {
         // SAFETY: ptr is valid for self.len bytes from a successful mmap.
         // The region lives as long as self (Drop handles munmap).
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
@@ -154,7 +156,7 @@ impl MappedRegion {
 
     /// View the mapped region as a mutable byte slice.
     #[must_use]
-    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub(crate) const fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: ptr was mmap'd with PROT_READ | PROT_WRITE (for write ops).
         // We have exclusive access via &mut self.
         unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
@@ -392,6 +394,10 @@ pub(crate) unsafe fn drm_ioctl_named<T>(
     if ret < 0 {
         return Err(DriverError::IoctlFailed {
             name,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Linux errno values fit in i32"
+            )]
             errno: (-ret) as i32,
         });
     }
@@ -407,6 +413,12 @@ pub(crate) unsafe fn drm_ioctl_named<T>(
 #[cfg(target_arch = "x86_64")]
 unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void) -> i64 {
     let ret: i64;
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "fd is always non-negative for valid file descriptors"
+    )]
+    // SAFETY: Caller guarantees `arg` points to a valid struct for `request`.
+    // Syscall is synchronous; no pointers escape. See fn doc.
     unsafe {
         core::arch::asm!(
             "syscall",
@@ -426,6 +438,12 @@ unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void)
 #[cfg(target_arch = "aarch64")]
 unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void) -> i64 {
     let ret: i64;
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "fd is always non-negative for valid file descriptors"
+    )]
+    // SAFETY: Caller guarantees `arg` points to a valid struct for `request`.
+    // Syscall is synchronous; no pointers escape. See fn doc.
     unsafe {
         core::arch::asm!(
             "svc #0",
@@ -443,10 +461,144 @@ unsafe fn raw_ioctl_syscall(fd: RawFd, request: u64, arg: *mut std::ffi::c_void)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::os::unix::io::AsRawFd;
+
+    /// Create a temp file with given size for mmap tests.
+    fn temp_mmap_file(size: usize) -> (File, std::path::PathBuf) {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("coral_drm_mmap_test_{unique}"));
+        let mut f = File::create(&path).expect("create temp file");
+        f.write_all(&vec![0u8; size]).expect("write temp file");
+        f.sync_all().expect("sync temp file");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("reopen temp file");
+        (file, path)
+    }
 
     #[test]
     fn ioctl_numbers_are_consistent() {
         assert_eq!(DRM_IOCTL_VERSION & 0xFF, 0);
+    }
+
+    #[test]
+    fn drm_iowr_pub_constructs_valid_ioctl() {
+        let nr = drm_iowr_pub(0x00, 32);
+        assert_eq!(nr, DRM_IOCTL_VERSION);
+    }
+
+    #[test]
+    fn drm_iow_pub_constructs_valid_ioctl() {
+        let nr = drm_iow_pub(0x09, 8);
+        assert_eq!(nr, DRM_IOCTL_GEM_CLOSE);
+    }
+
+    #[test]
+    fn drm_gem_close_struct_size() {
+        assert_eq!(std::mem::size_of::<DrmGemClose>(), 8);
+    }
+
+    #[test]
+    fn mapped_region_zero_length_fails() {
+        let file = File::open("/dev/zero").unwrap();
+        let fd = file.as_raw_fd();
+        let result = MappedRegion::new(
+            0,
+            rustix::mm::ProtFlags::READ,
+            rustix::mm::MapFlags::SHARED,
+            fd,
+            0,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("mmap length must be > 0")
+        );
+    }
+
+    #[test]
+    fn mapped_region_slice_at_out_of_bounds() {
+        let (file, path) = temp_mmap_file(4096);
+        let fd = file.as_raw_fd();
+        let region = MappedRegion::new(
+            4096,
+            rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
+            rustix::mm::MapFlags::SHARED,
+            fd,
+            0,
+        )
+        .unwrap();
+        let result = region.slice_at(0, 4097);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn mapped_region_slice_at_overflow() {
+        let (file, path) = temp_mmap_file(4096);
+        let fd = file.as_raw_fd();
+        let region = MappedRegion::new(
+            4096,
+            rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
+            rustix::mm::MapFlags::SHARED,
+            fd,
+            0,
+        )
+        .unwrap();
+        let result = region.slice_at(usize::MAX, 1);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("overflow"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn mapped_region_slice_at_mut_out_of_bounds() {
+        let (file, path) = temp_mmap_file(4096);
+        let fd = file.as_raw_fd();
+        let mut region = MappedRegion::new(
+            4096,
+            rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
+            rustix::mm::MapFlags::SHARED,
+            fd,
+            0,
+        )
+        .unwrap();
+        let result = region.slice_at_mut(4090, 100);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn drm_version_struct_layout() {
+        assert_eq!(std::mem::size_of::<DrmVersion>(), 64);
+    }
+
+    #[test]
+    fn drm_version_parsing_trim_nul() {
+        let mut name_buf = [0u8; 64];
+        name_buf[..6].copy_from_slice(b"amdgpu");
+        let ver = DrmVersion {
+            name_len: 6,
+            ..Default::default()
+        };
+        let len = usize::try_from(ver.name_len)
+            .unwrap_or(name_buf.len())
+            .min(name_buf.len());
+        let name = String::from_utf8_lossy(&name_buf[..len])
+            .trim_end_matches('\0')
+            .to_string();
+        assert_eq!(name, "amdgpu");
     }
 
     #[test]
@@ -462,6 +614,15 @@ mod tests {
         for info in &nodes {
             assert!(!info.path.is_empty());
             assert!(!info.driver.is_empty());
+        }
+    }
+
+    #[test]
+    fn enumerate_render_nodes_path_format() {
+        let nodes = enumerate_render_nodes();
+        for info in &nodes {
+            assert!(info.path.starts_with("/dev/dri/renderD"));
+            assert!(info.path.len() > 16);
         }
     }
 

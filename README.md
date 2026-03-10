@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 26 (Sovereign Pipeline Unblock)
+**Status**: Phase 10 — Iteration 27 (Deep Debt + Cross-Spring Absorption)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -32,7 +32,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1286 passing, 0 failed, 59 ignored
+cargo test --workspace     # 1401 passing, 0 failed, 62 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -127,7 +127,7 @@ coralReef/
 | Crate | Purpose |
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control |
-| `coral-reef` | Shader compiler — 79/86 cross-spring shaders compiling, f64 lowering, optimizers, RA, vendor encoding |
+| `coral-reef` | Shader compiler — 24 spring absorption tests passing (14 original + 4 FMA + 6 neuralSpring), f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
 | `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: nouveau > amdgpu > nvidia-drm) |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
@@ -145,10 +145,10 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 |----------|--------|-----|-----------|
 | sqrt | Rsq64H + 2 Newton-Raphson | `v_sqrt_f64` (native) | Full f64 |
 | rcp | Rcp64H + 2 Newton-Raphson | `v_rcp_f64` (native) | Full f64 |
-| exp2 | Range reduction + Horner | Polynomial via `v_fma_f64` | Full f64 |
-| log2 | Log2 seed + Newton | Polynomial via `v_fma_f64` | ~52-bit (2 NR iterations) |
-| sin | Cody-Waite + minimax | Cody-Waite via `v_fma_f64` | Full domain |
-| cos | Cody-Waite + minimax | Cody-Waite via `v_fma_f64` | Full domain |
+| exp2 | Range reduction + Horner | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | Full f64 |
+| log2 | Log2 seed + Newton | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | ~52-bit (2 NR iterations) |
+| sin | Cody-Waite + minimax | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | Full domain |
+| cos | Cody-Waite + minimax | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | Full domain |
 | exp | x * log2(e) → exp2 | Via `v_fma_f64` | Full f64 |
 | log | log2(x) * ln(2) | Via `v_fma_f64` | ~52-bit (2 NR iterations) |
 | pow | log2 + mul + exp2 | Via `v_fma_f64` | ~46-bit+ |
@@ -164,7 +164,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1286 passing, 0 failed, 59 ignored) |
+| `cargo test --workspace` | PASS (1401 passing, 0 failed, 62 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -225,7 +225,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 25** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 27 — 24/24 spring shaders compiling, all AMD f64 ops encoded** |
 
 ---
 

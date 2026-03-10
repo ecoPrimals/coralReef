@@ -6,7 +6,7 @@
 #![allow(clippy::wildcard_imports)]
 
 use super::*;
-use crate::CompileError;
+use crate::{CompileError, FmaPolicy};
 
 /// Transform feedback info for vertex/geometry shader output.
 #[derive(Debug, Default)]
@@ -606,6 +606,7 @@ pub struct Shader<'a> {
     pub sm: &'a dyn ShaderModel,
     pub info: ShaderInfo,
     pub functions: Vec<Function>,
+    pub fma_policy: FmaPolicy,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

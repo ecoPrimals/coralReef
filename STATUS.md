@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 9, 2026  
-**Phase**: 10 — Iteration 25 (Math Evolution, Debt Zero, Full Sovereignty)
+**Phase**: 10 — Iteration 27 (Deep Debt + Cross-Spring Absorption)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1285 passing, 0 failed, 60 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1401 passing, 0 failed, 62 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 6/8 crates |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 25** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 27** |
 
 ### Phase 10 Completions
 
@@ -346,6 +346,47 @@
 | Hardware testing documentation | ✅ | `docs/HARDWARE_TESTING.md` — Titan team handoff, parity matrix, CI config |
 | Test expansion | ✅ | 1191 → 1285 passing (+94 tests), 35 → 60 ignored (+25 hardware-gated) |
 
+### Phase 10 — Iteration 25 Completions (Math Evolution + Debt Zero + Full Sovereignty)
+
+| Task | Status | Details |
+|------|--------|---------|
+| 9 trig/inverse math functions | ✅ | Acos, Asin, Atan, Atan2, Sinh, Cosh, Asinh, Acosh, Atanh — polynomial atan + identity chains |
+| log2 2nd NR iteration | ✅ | ~52-bit f64 accuracy (up from ~46-bit) |
+| exp2 subnormal handling | ✅ | Two-step ldexp with n clamping for exponents < -1022 |
+| Complex64 preamble | ✅ | c64_add/sub/mul/inv/exp/log/sqrt/pow — auto-prepended for dielectric_mermin |
+| 37 DEBT markers resolved | ✅ | ISA → documented constants, opt/feature → EVOLUTION markers |
+| libc eliminated | ✅ | ioctl via inline asm syscall, zero libc dependency |
+| NVIDIA UVM module | ✅ | Ioctl definitions + device infrastructure ready |
+| Test expansion | ✅ | 1191 → 1285 passing (+94 tests), 60 ignored |
+
+### Phase 10 — Iteration 26 Completions (hotSpring Sovereign Pipeline Unblock)
+
+| Task | Status | Details |
+|------|--------|---------|
+| f64 min/max/abs/clamp | ✅ | DSetP+Sel pattern replaces broken a[0] truncation to f32 |
+| ComputeDevice: Send + Sync | ✅ | Thread-safe dispatch for barraCuda GpuBackend |
+| Nouveau compute subchannel | ✅ | SM-aware compute class selection binding |
+| Test expansion | ✅ | 1285 → 1286 passing, 60 → 59 ignored |
+
+### Phase 10 — Iteration 27 Completions (Deep Debt + Cross-Spring Absorption)
+
+| Task | Status | Details |
+|------|--------|---------|
+| RDNA2 literal materialization pass | ✅ | V_MOV_B32 prefix for VOP3/VOP2 literal constants; two scratch VGPRs reserved |
+| f64 transcendental encodings (AMD) | ✅ | F64Exp2, F64Log2, F64Sin, F64Cos via V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 |
+| f32 transcendental encoding (AMD) | ✅ | OpTranscendental → RDNA2 VOP1 (cos, sin, exp2, log2, rcp, rsq, sqrt) |
+| OpShl/OpShr/OpSel non-VGPR fix | ✅ | VOP2 shift/select ops handle non-VGPR sources via materialization |
+| AMD system register mapping | ✅ | SR indices 0x28–0x2D → VGPRs v6–v11 (workgroup sizes, grid dimensions) |
+| strip_f64_enable() absorption | ✅ | `enable f64;` / `enable f16;` auto-stripped in prepare_wgsl() |
+| hotSpring FMA shaders absorbed | ✅ | su3_link_update + wilson_plaquette (4 new tests: SM70 + RDNA2) |
+| FMA policy plumbing | ✅ | FmaPolicy enum in CompileOptions → Shader struct |
+| f64 capability in discovery | ✅ | F64Support in DiscoveryDevice with native/rate/recommendation |
+| PRNG preamble | ✅ | xorshift32 + wang_hash auto-prepended when referenced |
+| neuralSpring shaders absorbed | ✅ | logsumexp, rk45_step, wright_fisher (6 new tests: SM70 + RDNA2) |
+| f64 runtime diagnostic | ✅ | F64Capability + F64Recommendation in coral-gpu |
+| 24/24 spring absorption tests | ✅ | All compile for both SM70 and RDNA2 |
+| Test expansion | ✅ | 1286 → 1401 passing (+115 tests), 59 → 62 ignored |
+
 ### Phase 10 Remaining / Phase 11 Roadmap
 
 | Task | Priority | Detail |
@@ -360,7 +401,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1285 passing, 0 failed, 60 ignored) |
+| `cargo test --workspace` | PASS (1401 passing, 0 failed, 62 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

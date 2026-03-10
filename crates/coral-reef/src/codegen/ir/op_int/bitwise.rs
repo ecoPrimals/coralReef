@@ -238,7 +238,7 @@ mod tests {
             width: imm_src(8),
             wrap: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bmsk"));
         assert!(s.contains(".wrap"));
     }
@@ -251,7 +251,7 @@ mod tests {
             width: imm_src(16),
             wrap: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".clamp"));
     }
 
@@ -261,7 +261,7 @@ mod tests {
             dst: Dst::None,
             src: imm_src(0x1234_5678),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("brev"));
         assert!(s.contains("0x12345678"));
     }
@@ -275,7 +275,7 @@ mod tests {
             signed: true,
             reverse: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bfe"));
         assert!(s.contains(".s"));
         assert!(s.contains(".rev"));
@@ -289,7 +289,7 @@ mod tests {
             signed: false,
             return_shift_amount: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("flo"));
     }
 
@@ -301,7 +301,7 @@ mod tests {
             signed: true,
             return_shift_amount: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("flo"));
         assert!(s.contains(".samt"));
     }
@@ -313,7 +313,7 @@ mod tests {
             srcs: [zero_src(), imm_src(1), imm_src(2)],
             op: LogicOp2::And.to_lut(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("lop3"));
         assert!(s.contains("LUT"));
     }

@@ -23,7 +23,7 @@ fn compile_for_rdna2(wgsl: &str) -> coral_reef::backend::CompiledBinary {
         opt_level: 2,
         debug_info: false,
         fp64_software: false,
-        fma_policy: coral_reef::FmaPolicy::AllowFusion,
+        fma_policy: coral_reef::FmaPolicy::Fused,
         ..Default::default()
     };
     coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile_wgsl_full")

@@ -18,7 +18,11 @@ pub fn lower_f64_log2(
     let rnd = FRndMode::NearestEven;
 
     let x = op.src.reference.clone().to_ssa();
-    debug_assert!(x.comps() == 2, "f64 log2 src must have 2 components (got {})", x.comps());
+    debug_assert!(
+        x.comps() == 2,
+        "f64 log2 src must have 2 components (got {})",
+        x.comps()
+    );
 
     let x_f32 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(

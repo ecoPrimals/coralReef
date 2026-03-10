@@ -34,7 +34,7 @@ fn nvidia_drm_device_opens_and_queries_driver() {
     let name = dev.driver_name().expect("driver_name");
     assert_eq!(name, "nvidia-drm");
     let info = dev.device_info().expect("device_info");
-    eprintln!("nvidia-drm device: {:?}", info);
+    eprintln!("nvidia-drm device: {info:?}");
     assert_eq!(info.driver, "nvidia-drm");
 }
 

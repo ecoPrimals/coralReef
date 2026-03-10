@@ -290,12 +290,16 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     naga::VectorSize::Tri => 3,
                     naga::VectorSize::Quad => 4,
                 };
-                let dst = self.alloc_ssa_vec(RegFile::GPR, n);
+                let per_elem = val.comps();
+                let total_comps = n * per_elem;
+                let dst = self.alloc_ssa_vec(RegFile::GPR, total_comps);
                 for c in 0..n as usize {
-                    self.push_instr(Instr::new(OpCopy {
-                        dst: Dst::from(dst[c]),
-                        src: Src::from(val[0]),
-                    }));
+                    for p in 0..per_elem as usize {
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: Dst::from(dst[c * per_elem as usize + p]),
+                            src: Src::from(val[p]),
+                        }));
+                    }
                 }
                 Ok(dst)
             }
@@ -443,15 +447,20 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     }
 
     fn translate_zero_value(&mut self, ty: Handle<naga::Type>) -> Result<SSARef, CompileError> {
-        let inner = &self.module.types[ty].inner;
-        let comps = match *inner {
-            naga::TypeInner::Scalar(_) => 1u8,
-            naga::TypeInner::Vector { size, .. } => match size {
-                naga::VectorSize::Bi => 2,
-                naga::VectorSize::Tri => 3,
-                naga::VectorSize::Quad => 4,
-            },
-            _ => 1,
+        let comps = self.type_reg_comps(ty);
+        let comps = if comps == 0 {
+            let inner = &self.module.types[ty].inner;
+            match *inner {
+                naga::TypeInner::Scalar(_) => 1u8,
+                naga::TypeInner::Vector { size, .. } => match size {
+                    naga::VectorSize::Bi => 2,
+                    naga::VectorSize::Tri => 3,
+                    naga::VectorSize::Quad => 4,
+                },
+                _ => 1,
+            }
+        } else {
+            comps
         };
         let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
         for c in 0..comps as usize {

@@ -23,6 +23,7 @@ pub mod memory;
 pub mod system;
 
 use super::amd::encoding::Rdna2Encoder;
+use super::amd::isa;
 use super::amd::reg::AmdRegRef;
 #[allow(
     clippy::wildcard_imports,
@@ -50,11 +51,23 @@ pub trait EncodeOp<E> {
 pub struct AmdOpEncoder<'a> {
     pub labels: &'a FxHashMap<Label, usize>,
     pub ip: usize,
+    pub scratch_vgpr_0: u16,
+    pub scratch_vgpr_1: u16,
 }
 
 impl<'a> AmdOpEncoder<'a> {
-    pub fn new(labels: &'a FxHashMap<Label, usize>, ip: usize) -> Self {
-        Self { labels, ip }
+    pub fn new(
+        labels: &'a FxHashMap<Label, usize>,
+        ip: usize,
+        scratch_vgpr_0: u16,
+        scratch_vgpr_1: u16,
+    ) -> Self {
+        Self {
+            labels,
+            ip,
+            scratch_vgpr_0,
+            scratch_vgpr_1,
+        }
     }
 }
 
@@ -83,6 +96,11 @@ macro_rules! op_encode_amd {
             Op::DMnMx(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::F64Sqrt(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::F64Rcp(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::F64Exp2(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::F64Log2(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::F64Sin(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::F64Cos(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::Transcendental(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::FSetP(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::DSetP(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::ISetP(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
@@ -156,14 +174,27 @@ pub fn encode_amd_op(
     _pred: &Pred,
     labels: &FxHashMap<Label, usize>,
     ip: usize,
+    scratch_vgpr_0: u16,
+    scratch_vgpr_1: u16,
 ) -> Result<Vec<u32>, CompileError> {
-    let mut enc = AmdOpEncoder::new(labels, ip);
+    let mut enc = AmdOpEncoder::new(labels, ip, scratch_vgpr_0, scratch_vgpr_1);
     op_encode_amd!(op, &mut enc)
 }
 
 // ---- Shared encoding helpers used across category modules ----
 
-pub(crate) fn dst_to_vgpr_index(dst: &Dst) -> Result<u16, CompileError> {
+pub fn materialize_if_literal(scratch_vgpr: u16, enc: &SrcEncoding) -> (Vec<u32>, SrcEncoding) {
+    if let Some(literal_val) = enc.literal {
+        let mut mov =
+            Rdna2Encoder::encode_vop1(isa::vop1::V_MOV_B32, AmdRegRef::vgpr(scratch_vgpr), 255);
+        mov.push(literal_val);
+        (mov, SrcEncoding::inline(256 + scratch_vgpr))
+    } else {
+        (Vec::new(), SrcEncoding::inline(enc.src0))
+    }
+}
+
+pub fn dst_to_vgpr_index(dst: &Dst) -> Result<u16, CompileError> {
     match dst {
         Dst::None => Err(CompileError::InvalidInput("destination is None".into())),
         Dst::Reg(reg) => u16::try_from(reg.base_idx()).map_err(|_| {
@@ -177,7 +208,7 @@ pub(crate) fn dst_to_vgpr_index(dst: &Dst) -> Result<u16, CompileError> {
     }
 }
 
-pub(crate) fn src_to_vgpr_index(src: &Src) -> Result<u16, CompileError> {
+pub fn src_to_vgpr_index(src: &Src) -> Result<u16, CompileError> {
     match &src.reference {
         SrcRef::Reg(reg) => u16::try_from(reg.base_idx()).map_err(|_| {
             CompileError::InvalidInput(
@@ -196,7 +227,7 @@ pub(crate) fn src_to_vgpr_index(src: &Src) -> Result<u16, CompileError> {
 /// On RDNA2, the SRC0 field uses inline constants for common values (0..64,
 /// -1..-16, common floats). Values outside that range require SRC0=255
 /// followed by a literal DWORD in the instruction stream.
-pub(crate) struct SrcEncoding {
+pub struct SrcEncoding {
     /// The 9-bit SRC0 field value (SGPR, VGPR, inline constant, or 255 for literal).
     pub src0: u16,
     /// Literal DWORD to append after the instruction word, if SRC0=255.
@@ -224,7 +255,7 @@ impl SrcEncoding {
     }
 }
 
-pub(crate) fn src_to_encoding(src: &Src) -> Result<SrcEncoding, CompileError> {
+pub fn src_to_encoding(src: &Src) -> Result<SrcEncoding, CompileError> {
     match &src.reference {
         SrcRef::Reg(reg) => {
             let idx = u16::try_from(reg.base_idx()).map_err(|_| {
@@ -275,10 +306,7 @@ fn imm32_to_src_encoding(val: u32) -> SrcEncoding {
 /// buffer addresses as: `CBuf::Binding(group)[binding * 8 + component]`.
 ///
 /// Returns the SGPR register index (0..105) suitable for VOP1/VOP2 src fields.
-pub(crate) fn cbuf_to_user_sgpr_encoding(
-    buf: &CBuf,
-    byte_offset: u16,
-) -> Result<u16, CompileError> {
+pub fn cbuf_to_user_sgpr_encoding(buf: &CBuf, byte_offset: u16) -> Result<u16, CompileError> {
     let CBuf::Binding(_buf_idx) = buf else {
         return Err(CompileError::NotImplemented(
             "bindless constant buffer access on AMD".into(),
@@ -296,11 +324,12 @@ pub(crate) fn cbuf_to_user_sgpr_encoding(
 /// 1. Swap operands (valid for commutative ops like add/mul/min/max).
 /// 2. Fall back to VOP3 encoding (opcode + 256) which allows any
 ///    9-bit source in all three operand slots.
-pub(crate) fn encode_vop2_from_srcs(
+pub fn encode_vop2_from_srcs(
     opcode: u16,
     dst: &Dst,
     src0: &Src,
     src1: &Src,
+    enc: &AmdOpEncoder<'_>,
 ) -> Result<Vec<u32>, CompileError> {
     let dst_reg = dst_to_vgpr_index(dst)?;
 
@@ -333,18 +362,18 @@ pub(crate) fn encode_vop2_from_srcs(
         let vop3_opcode = opcode + 256;
         let src0_enc = src_to_encoding(src0)?;
         let src1_enc = src_to_encoding(src1)?;
-        if src0_enc.literal.is_some() || src1_enc.literal.is_some() {
-            return Err(CompileError::NotImplemented(
-                "VOP3 fallback does not support literal constants in both sources".into(),
-            ));
-        }
-        Ok(Rdna2Encoder::encode_vop3(
+        let (mut prefix0, mat0) = materialize_if_literal(enc.scratch_vgpr_0, &src0_enc);
+        let (prefix1, mat1) = materialize_if_literal(enc.scratch_vgpr_1, &src1_enc);
+        prefix0.extend(prefix1);
+        let words = Rdna2Encoder::encode_vop3(
             vop3_opcode,
             AmdRegRef::vgpr(dst_reg),
-            src0_enc.src0,
-            src1_enc.src0,
+            mat0.src0,
+            mat1.src0,
             0,
-        ))
+        );
+        prefix0.extend(words);
+        Ok(prefix0)
     }
 }
 
@@ -353,10 +382,11 @@ pub(crate) fn encode_vop2_from_srcs(
 /// RDNA2 VOPC requires VSRC1 to be a VGPR. If `src1` is not a VGPR but
 /// `src0` is, swap operands (comparison direction is preserved by the caller
 /// selecting the appropriate opcode).
-pub(crate) fn encode_vopc_legalized(
+pub fn encode_vopc_legalized(
     opcode: u16,
     src0: &Src,
     src1: &Src,
+    enc: &AmdOpEncoder<'_>,
 ) -> Result<Vec<u32>, CompileError> {
     let src1_is_vgpr = src_to_vgpr_index(src1).is_ok();
     let src0_is_vgpr = src_to_vgpr_index(src0).is_ok();
@@ -376,43 +406,67 @@ pub(crate) fn encode_vopc_legalized(
     } else {
         let src0_enc = src_to_encoding(src0)?;
         let src1_enc = src_to_encoding(src1)?;
-        if src0_enc.literal.is_some() || src1_enc.literal.is_some() {
-            return Err(CompileError::NotImplemented(
-                "VOPC fallback does not support literal constants in both sources".into(),
-            ));
-        }
+        let (mut prefix0, mat0) = materialize_if_literal(enc.scratch_vgpr_0, &src0_enc);
+        let (prefix1, mat1) = materialize_if_literal(enc.scratch_vgpr_1, &src1_enc);
+        prefix0.extend(prefix1);
         let vop3_opcode = opcode + 256;
-        Ok(Rdna2Encoder::encode_vop3(
-            vop3_opcode,
-            AmdRegRef::vgpr(0),
-            src0_enc.src0,
-            src1_enc.src0,
-            0,
-        ))
+        let words =
+            Rdna2Encoder::encode_vop3(vop3_opcode, AmdRegRef::vgpr(0), mat0.src0, mat1.src0, 0);
+        prefix0.extend(words);
+        Ok(prefix0)
     }
 }
 
-pub(crate) fn encode_vop3_from_srcs(
+pub fn encode_vop3_from_srcs(
     opcode: u16,
     dst: &Dst,
     src0: &Src,
     src1: &Src,
     src2: &Src,
+    enc: &AmdOpEncoder<'_>,
 ) -> Result<Vec<u32>, CompileError> {
     let dst_reg = dst_to_vgpr_index(dst)?;
     let src0_enc = src_to_encoding(src0)?;
     let src1_enc = src_to_encoding(src1)?;
     let src2_enc = src_to_encoding(src2)?;
-    if src0_enc.literal.is_some() || src1_enc.literal.is_some() || src2_enc.literal.is_some() {
+    let literal_count = [&src0_enc, &src1_enc, &src2_enc]
+        .iter()
+        .filter(|e| e.literal.is_some())
+        .count();
+    if literal_count > 2 {
         return Err(CompileError::NotImplemented(
-            "VOP3 does not support literal constants; value must be materialized first".into(),
+            "VOP3: third literal would require additional scratch VGPR".into(),
         ));
     }
-    Ok(Rdna2Encoder::encode_vop3(
+    let mut next_scratch = enc.scratch_vgpr_0;
+    let (mut prefix0, mat0) = if src0_enc.literal.is_some() {
+        let (p, m) = materialize_if_literal(next_scratch, &src0_enc);
+        next_scratch = enc.scratch_vgpr_1;
+        (p, m)
+    } else {
+        (Vec::new(), SrcEncoding::inline(src0_enc.src0))
+    };
+    let (prefix1, mat1) = if src1_enc.literal.is_some() {
+        let (p, m) = materialize_if_literal(next_scratch, &src1_enc);
+        next_scratch = enc.scratch_vgpr_1;
+        (p, m)
+    } else {
+        (Vec::new(), SrcEncoding::inline(src1_enc.src0))
+    };
+    let (prefix2, mat2) = if src2_enc.literal.is_some() {
+        materialize_if_literal(next_scratch, &src2_enc)
+    } else {
+        (Vec::new(), SrcEncoding::inline(src2_enc.src0))
+    };
+    prefix0.extend(prefix1);
+    prefix0.extend(prefix2);
+    let words = Rdna2Encoder::encode_vop3(
         opcode,
         AmdRegRef::vgpr(dst_reg),
-        src0_enc.src0,
-        src1_enc.src0,
-        src2_enc.src0,
-    ))
+        mat0.src0,
+        mat1.src0,
+        mat2.src0,
+    );
+    prefix0.extend(words);
+    Ok(prefix0)
 }

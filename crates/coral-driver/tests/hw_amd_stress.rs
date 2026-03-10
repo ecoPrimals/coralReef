@@ -18,7 +18,7 @@ fn compile_for_rdna2(wgsl: &str) -> coral_reef::backend::CompiledBinary {
         opt_level: 2,
         debug_info: false,
         fp64_software: false,
-        fma_policy: coral_reef::FmaPolicy::AllowFusion,
+        fma_policy: coral_reef::FmaPolicy::Fused,
         ..Default::default()
     };
     coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile")
@@ -47,6 +47,10 @@ fn large_buffer_4mb_roundtrip() {
     let size: u64 = 4 * 1024 * 1024;
     let buf = dev.alloc(size, MemoryDomain::Gtt).expect("alloc 4MB");
 
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "test payload with modular byte pattern"
+    )]
     let payload: Vec<u8> = (0..size as usize).map(|i| (i % 251) as u8).collect();
     dev.upload(buf, 0, &payload).expect("upload 4MB");
 

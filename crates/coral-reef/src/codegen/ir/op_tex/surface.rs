@@ -542,7 +542,7 @@ mod tests {
             handle: zero_src(),
             coord: Src::new_imm_u32(0),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("suld"));
         assert!(s.contains(".b32"));
         assert!(s.contains(".2d"));
@@ -563,7 +563,7 @@ mod tests {
         };
         assert!(matches!(op.image_dim, ImageDim::_3D));
         assert_eq!(op.image_dim.coord_comps(), 3);
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".p.rgba"));
         assert!(s.contains(".3d"));
         assert!(s.contains(".weak"));
@@ -581,7 +581,7 @@ mod tests {
             coord: zero_src(),
             data: Src::new_imm_u32(42),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("sust"));
         assert!(s.contains(".u16"));
         assert!(s.contains(".buf"));
@@ -603,7 +603,7 @@ mod tests {
             coord: zero_src(),
             data: Src::new_imm_u32(1),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("suatom"));
         assert!(s.contains(".a2d"));
         assert!(s.contains(".add"));
@@ -640,7 +640,7 @@ mod tests {
             params: Src::new_imm_u32(0),
             imm: 0,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("suclamp"));
         assert!(s.contains(".pl"));
         assert!(s.contains(".r4"));
@@ -659,7 +659,7 @@ mod tests {
             params: zero_src(),
             imm: 4,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".bl"));
         assert!(s.contains(".u32"));
         assert!(s.contains(".1d"));
@@ -673,7 +673,7 @@ mod tests {
             srcs: [zero_src(), zero_src(), zero_src()],
             is_3d: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("subfm"));
         assert!(s.contains(".3d"));
     }
@@ -686,7 +686,7 @@ mod tests {
             bit_field: Src::new_imm_u32(0),
             addr: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("sueau"));
     }
 }

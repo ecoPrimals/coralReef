@@ -867,7 +867,7 @@ mod tests {
 
     #[test]
     fn max_lines_per_file_is_under_1000() {
-        assert!(MAX_LINES_PER_FILE < 1000);
+        const { assert!(MAX_LINES_PER_FILE < 1000) };
     }
 
     #[test]
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     fn write_table_part_generates_entries() {
-        let instrs = vec![InstrInfo {
+        let instrs = [InstrInfo {
             name: "V_ADD_F32".to_string(),
             opcode: 3,
             desc: "Add float".to_string(),

@@ -33,20 +33,17 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
                 let gid = self.alloc_ssa_vec(RegFile::GPR, 3);
 
-                let tmp_x =
-                    self.emit_imad(ctaid_x.into(), Src::new_imm_u32(wg[0]), tid_x.into());
+                let tmp_x = self.emit_imad(ctaid_x.into(), Src::new_imm_u32(wg[0]), tid_x.into());
                 self.push_instr(Instr::new(OpCopy {
                     dst: gid[0].into(),
                     src: tmp_x.into(),
                 }));
-                let tmp_y =
-                    self.emit_imad(ctaid_y.into(), Src::new_imm_u32(wg[1]), tid_y.into());
+                let tmp_y = self.emit_imad(ctaid_y.into(), Src::new_imm_u32(wg[1]), tid_y.into());
                 self.push_instr(Instr::new(OpCopy {
                     dst: gid[1].into(),
                     src: tmp_y.into(),
                 }));
-                let tmp_z =
-                    self.emit_imad(ctaid_z.into(), Src::new_imm_u32(wg[2]), tid_z.into());
+                let tmp_z = self.emit_imad(ctaid_z.into(), Src::new_imm_u32(wg[2]), tid_z.into());
                 self.push_instr(Instr::new(OpCopy {
                     dst: gid[2].into(),
                     src: tmp_z.into(),

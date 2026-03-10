@@ -124,6 +124,7 @@ mod tests {
                 io: ShaderIoInfo::None,
             },
             functions: vec![function],
+            fma_policy: crate::FmaPolicy::default(),
         }
     }
 

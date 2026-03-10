@@ -60,6 +60,44 @@ pub const NVIF_OWNER_NVIF: u8 = 0x00;
 pub const NVIF_OWNER_ANY: u8 = 0xff;
 
 // ---------------------------------------------------------------------------
+// NVIF object class definitions — from NVK / nouveau kernel headers
+// ---------------------------------------------------------------------------
+//
+// The kernel instantiates engine objects for each (handle, grclass) in the
+// subchan array. Compute dispatch uses the compute class; 2D and copy
+// engines are used by NVK for buffer copies. Reference: Mesa NVK channel setup.
+
+/// Fermi 2D engine — used by NVK for 2D blits.
+/// Kernel class: `FERMI_TWOD_A`.
+pub const NVIF_CLASS_FERMI_TWOD_A: u32 = 0x902D;
+
+/// Kepler inline-to-memory copy engine — used by NVK for buffer copies.
+/// Kernel class: `KEPLER_INLINE_TO_MEMORY_B`.
+pub const NVIF_CLASS_KEPLER_INLINE_TO_MEMORY_B: u32 = 0xA0B5;
+
+/// Volta compute engine (GV100). Kernel class: `VOLTA_COMPUTE_A`.
+pub const NVIF_CLASS_VOLTA_COMPUTE_A: u32 = 0xC3C0;
+
+/// Turing compute engine. Kernel class: `TURING_COMPUTE_A`.
+pub const NVIF_CLASS_TURING_COMPUTE_A: u32 = 0xC5C0;
+
+/// Ampere compute engine. Kernel class: `AMPERE_COMPUTE_A`.
+pub const NVIF_CLASS_AMPERE_COMPUTE_A: u32 = 0xC6C0;
+
+/// Subchannel specification for channel creation.
+///
+/// Each subchannel binds an NVIF engine object (grclass) to a handle.
+/// Subchannel index in the array corresponds to the subchan field in
+/// push buffer headers (bits `[15:13]`).
+#[derive(Clone, Copy, Debug)]
+pub struct SubchanSpec {
+    /// NVIF object handle (typically 1, 2, 3, ... for each subchannel).
+    pub handle: u32,
+    /// GPU engine class (e.g. [`NVIF_CLASS_VOLTA_COMPUTE_A`]).
+    pub grclass: u32,
+}
+
+// ---------------------------------------------------------------------------
 // Ioctl structures (must match kernel `nouveau_drm.h` layout)
 // ---------------------------------------------------------------------------
 
@@ -171,7 +209,7 @@ struct NouveauGemCpuPrep {
 /// Create a nouveau GPU channel with a compute subchannel.
 ///
 /// `compute_class` is the GPU compute engine class (e.g. `0xC3C0` for Volta).
-/// The kernel instantiates the engine object and binds it to subchannel 0.
+/// The kernel instantiates the NVIF compute object and binds it to subchannel 0.
 ///
 /// # Errors
 ///
@@ -179,15 +217,46 @@ struct NouveauGemCpuPrep {
 /// compute class is unsupported for this GPU or the kernel nouveau driver
 /// lacks compute support).
 pub fn create_channel(fd: RawFd, compute_class: u32) -> DriverResult<u32> {
+    create_channel_with_subchannels(
+        fd,
+        &[SubchanSpec {
+            handle: 1,
+            grclass: compute_class,
+        }],
+    )
+}
+
+/// Create a nouveau GPU channel with multiple NVIF subchannel objects.
+///
+/// NVK-style setup uses [`NVIF_CLASS_FERMI_TWOD_A`], [`NVIF_CLASS_KEPLER_INLINE_TO_MEMORY_B`],
+/// and a compute class. For compute-only dispatch, a single compute subchannel
+/// is sufficient. The first subchannel (index 0) receives handle 1, the next
+/// handle 2, etc. Push buffer method calls use the subchan index to target
+/// the correct engine.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if the kernel rejects the request.
+pub fn create_channel_with_subchannels(fd: RawFd, subchans: &[SubchanSpec]) -> DriverResult<u32> {
+    let nr = subchans
+        .len()
+        .min(8)
+        .try_into()
+        .map_err(|_| DriverError::platform_overflow("nr_subchan fits in u32"))?;
+
     let mut alloc = NouveauChannelAlloc {
         pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
-        nr_subchan: 1,
+        nr_subchan: nr,
         ..Default::default()
     };
-    alloc.subchan[0] = NouveauSubchan {
-        handle: 1,
-        grclass: compute_class,
-    };
+
+    for (i, spec) in subchans.iter().take(8).enumerate() {
+        alloc.subchan[i] = NouveauSubchan {
+            handle: spec.handle,
+            grclass: spec.grclass,
+        };
+    }
+
     let ioctl_nr = drm::drm_iowr_pub(
         DRM_NOUVEAU_CHANNEL_ALLOC,
         size_of_u32::<NouveauChannelAlloc>(),
@@ -201,6 +270,37 @@ pub fn create_channel(fd: RawFd, compute_class: u32) -> DriverResult<u32> {
     )]
     let channel = alloc.channel as u32;
     Ok(channel)
+}
+
+/// Create a GV100 (Volta) compute channel with NVK-style subchannel binding.
+///
+/// Binds `FERMI_TWOD_A` (subchan 0), `KEPLER_INLINE_TO_MEMORY_B` (subchan 1),
+/// and `VOLTA_COMPUTE_A` (subchan 2). For compute-only workloads, prefer
+/// [`create_channel`] with [`NVIF_CLASS_VOLTA_COMPUTE_A`] — that binds
+/// compute to subchan 0, matching the push buffer's default subchan.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if the kernel rejects the request (e.g. GPU
+/// is not Volta or kernel lacks support).
+pub fn create_gv100_compute_channel(fd: RawFd) -> DriverResult<(u32, u8)> {
+    let subchans = [
+        SubchanSpec {
+            handle: 1,
+            grclass: NVIF_CLASS_FERMI_TWOD_A,
+        },
+        SubchanSpec {
+            handle: 2,
+            grclass: NVIF_CLASS_KEPLER_INLINE_TO_MEMORY_B,
+        },
+        SubchanSpec {
+            handle: 3,
+            grclass: NVIF_CLASS_VOLTA_COMPUTE_A,
+        },
+    ];
+    let channel = create_channel_with_subchannels(fd, &subchans)?;
+    // Compute is on subchan 2 when using NVK-style multi-engine setup.
+    Ok((channel, 2))
 }
 
 /// Destroy a nouveau GPU channel.
@@ -417,6 +517,25 @@ mod tests {
     }
 
     #[test]
+    fn nvif_compute_class_definitions() {
+        assert_eq!(NVIF_CLASS_FERMI_TWOD_A, 0x902D);
+        assert_eq!(NVIF_CLASS_KEPLER_INLINE_TO_MEMORY_B, 0xA0B5);
+        assert_eq!(NVIF_CLASS_VOLTA_COMPUTE_A, 0xC3C0);
+        assert_eq!(NVIF_CLASS_TURING_COMPUTE_A, 0xC5C0);
+        assert_eq!(NVIF_CLASS_AMPERE_COMPUTE_A, 0xC6C0);
+    }
+
+    #[test]
+    fn subchan_spec_layout() {
+        let s = SubchanSpec {
+            handle: 1,
+            grclass: NVIF_CLASS_VOLTA_COMPUTE_A,
+        };
+        assert_eq!(s.handle, 1);
+        assert_eq!(s.grclass, 0xC3C0);
+    }
+
+    #[test]
     fn pushbuf_bo_struct_layout() {
         assert_eq!(
             std::mem::size_of::<NouveauGemPushbufBo>(),
@@ -438,5 +557,38 @@ mod tests {
     fn channel_alloc_struct_has_subchan_array() {
         let alloc = NouveauChannelAlloc::default();
         assert_eq!(alloc.subchan.len(), 8);
+    }
+
+    #[test]
+    fn ioctl_uses_drm_iowr_pub() {
+        use crate::drm;
+        let nr = drm::drm_iowr_pub(
+            DRM_NOUVEAU_CHANNEL_ALLOC,
+            size_of_u32::<NouveauChannelAlloc>(),
+        );
+        assert!(nr > 0);
+        assert_eq!(nr & 0xFF, u64::from(DRM_NOUVEAU_CHANNEL_ALLOC));
+    }
+
+    #[test]
+    fn nouveau_gem_cpu_prep_layout() {
+        assert_eq!(std::mem::size_of::<NouveauGemCpuPrep>(), 8);
+    }
+
+    #[test]
+    #[expect(clippy::cast_possible_truncation, reason = "test structs are small")]
+    fn size_of_u32_matches_struct_sizes() {
+        assert_eq!(
+            size_of_u32::<NouveauChannelAlloc>(),
+            std::mem::size_of::<NouveauChannelAlloc>() as u32
+        );
+        assert_eq!(
+            size_of_u32::<NouveauGemNew>(),
+            std::mem::size_of::<NouveauGemNew>() as u32
+        );
+        assert_eq!(
+            size_of_u32::<NouveauGemPushbuf>(),
+            std::mem::size_of::<NouveauGemPushbuf>() as u32
+        );
     }
 }

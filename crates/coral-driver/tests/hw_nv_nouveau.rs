@@ -26,7 +26,7 @@ mod tests {
             opt_level: 2,
             debug_info: false,
             fp64_software: false,
-            fma_policy: FmaPolicy::AllowFusion,
+            fma_policy: FmaPolicy::Fused,
             ..CompileOptions::default()
         };
         coral_reef::compile_wgsl_full(wgsl, &opts).expect("SM70 compilation")
@@ -62,7 +62,9 @@ fn main() {
         let mut dev = open_nv();
         let buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
 
-        let payload: Vec<u8> = (0..256).map(|i| (i & 0xFF) as u8).collect();
+        let payload: Vec<u8> = (0..256)
+            .map(|i: i32| u8::try_from(i & 0xFF).unwrap())
+            .collect();
         dev.upload(buf, 0, &payload).expect("upload");
 
         let readback = dev.readback(buf, 0, 256).expect("readback");

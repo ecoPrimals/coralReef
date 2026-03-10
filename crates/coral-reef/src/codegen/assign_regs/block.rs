@@ -355,10 +355,10 @@ impl AssignRegsBlock {
                 // be the last free GPRs.
                 debug_assert!(self.ra[RegFile::GPR].used_reg_count() == 0);
 
-                for (i, src) in out.srcs.iter().enumerate() {
+                for (i, src) in out.srcs.drain(..).enumerate() {
                     let reg = u32::try_from(i).expect("RegOut index must fit in u32");
                     let dst = RegRef::new(RegFile::GPR, reg, 1);
-                    pcopy.push(dst.into(), src.clone());
+                    pcopy.push(dst.into(), src);
                 }
 
                 None

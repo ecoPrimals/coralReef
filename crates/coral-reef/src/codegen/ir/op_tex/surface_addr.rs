@@ -320,7 +320,7 @@ mod tests {
     fn test_imad_sp_mode_display() {
         let mode =
             IMadSpMode::Explicit([IMadSpSrcType::U32, IMadSpSrcType::U24, IMadSpSrcType::U16Lo]);
-        let s = format!("{}", mode);
+        let s = format!("{mode}");
         assert!(s.contains(".u32"));
         assert!(s.contains(".u24"));
         assert!(s.contains(".u16h0"));
@@ -339,7 +339,7 @@ mod tests {
                 IMadSpSrcType::U32,
             ]),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("imadsp"));
     }
 
@@ -354,7 +354,7 @@ mod tests {
             addr: zero_src(),
             out_of_bounds: Src::new_imm_bool(false),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("suldga"));
         assert!(s.contains(".b32"));
         assert!(s.contains(".cg"));
@@ -371,7 +371,7 @@ mod tests {
             data: Src::new_imm_u32(0),
             out_of_bounds: Src::new_imm_bool(true),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("sustga"));
         assert!(s.contains(".p.rgba"));
         assert!(s.contains(".wb"));

@@ -2,7 +2,7 @@
 //! Fault injection tests — verify the compiler handles edge cases gracefully.
 //!
 //! Each test asserts that compilation either succeeds or returns a proper
-//! CompileError — never panics, OOMs, or stack overflows.
+//! `CompileError` — never panics, OOMs, or stack overflows.
 
 use coral_reef::{
     AmdArch, CompileError, CompileOptions, GpuTarget, IntelArch, compile, compile_wgsl,
@@ -86,9 +86,12 @@ fn fault_enormous_workgroup_size() {
 fn fault_maximum_bindings() {
     let mut wgsl = String::from("@group(0) @binding(0) var<storage, read_write> b0: array<f32>;\n");
     for i in 1..16 {
-        wgsl.push_str(&format!(
-            "@group(0) @binding({i}) var<storage, read_write> b{i}: array<f32>;\n"
-        ));
+        use std::fmt::Write;
+        writeln!(
+            wgsl,
+            "@group(0) @binding({i}) var<storage, read_write> b{i}: array<f32>;"
+        )
+        .unwrap();
     }
     wgsl.push_str("@compute @workgroup_size(1) fn main() { b0[0] = b1[0] + b2[0]; }\n");
     let result = assert_no_panic(|| compile_wgsl(&wgsl, &default_opts()));
@@ -152,14 +155,14 @@ fn fault_concurrent_compilations() {
 
 #[test]
 fn fault_spirv_truncated() {
-    let spirv: Vec<u32> = vec![0x07230203, 0x00010000, 0x00000001];
+    let spirv: Vec<u32> = vec![0x0723_0203, 0x0001_0000, 0x0000_0001];
     let result = assert_no_panic(|| compile(&spirv, &default_opts()));
     assert!(matches!(result, Err(CompileError::InvalidInput(_))));
 }
 
 #[test]
 fn fault_spirv_corrupted() {
-    let spirv: Vec<u32> = vec![0xDEADBEEF, 0xCAFEBABE, 0x12345678];
+    let spirv: Vec<u32> = vec![0xDEAD_BEEF, 0xCAFE_BABE, 0x1234_5678];
     let result = assert_no_panic(|| compile(&spirv, &default_opts()));
     assert!(result.is_err());
 }
@@ -168,7 +171,7 @@ fn fault_spirv_corrupted() {
 
 #[test]
 fn fault_all_math_functions_stress() {
-    let wgsl = r#"
+    let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 @compute @workgroup_size(1) fn main() {
   var x: f32 = 1.5;
@@ -181,7 +184,7 @@ fn fault_all_math_functions_stress() {
   out[5] = mix(x, y, 0.5) + step(x, y) + smoothstep(0.0, 1.0, x);
   out[6] = length(vec2(x, y)) + dot(vec2(x, y), vec2(y, x));
 }
-"#;
+";
     let result = assert_no_panic(|| compile_wgsl(wgsl, &default_opts()));
     assert!(result.is_ok() || result.is_err());
 }

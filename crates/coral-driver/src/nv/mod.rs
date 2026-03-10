@@ -6,7 +6,7 @@
 //! support nvidia-drm for pragmatic compatibility with existing deployments.
 //!
 //! Both backends compile by default. Runtime selection happens via
-//! [`DriverPreference`](crate::DriverPreference) in coral-gpu.
+//! `DriverPreference` in coral-gpu.
 //!
 //! - **nouveau** (open-source): GEM buffers, pushbuf command submission,
 //!   QMD dispatch, fence sync. The sovereign path.
@@ -52,9 +52,8 @@ pub struct NvDevice {
 ///
 /// Returns the DRM class ID that the kernel needs to instantiate a compute
 /// engine on this GPU generation.
-fn compute_class_for_sm(sm: u32) -> u32 {
+const fn compute_class_for_sm(sm: u32) -> u32 {
     match sm {
-        70..=72 => pushbuf::class::VOLTA_COMPUTE_A,
         75 => pushbuf::class::TURING_COMPUTE_A,
         80..=89 => pushbuf::class::AMPERE_COMPUTE_A,
         _ => pushbuf::class::VOLTA_COMPUTE_A,
@@ -116,7 +115,7 @@ impl NvDevice {
         })
     }
 
-    fn alloc_handle(&mut self) -> u32 {
+    const fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h
@@ -263,11 +262,7 @@ impl ComputeDevice for NvDevice {
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
         // Build push buffer: SET_OBJECT + caches + SEND_PCAS with QMD address
-        let pb = pushbuf::PushBuf::compute_dispatch(
-            self.compute_class,
-            qmd_va,
-            0xFF00_0000,
-        );
+        let pb = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va, 0xFF00_0000);
         let pb_bytes = pb.as_bytes();
 
         // Upload push buffer to GPU memory

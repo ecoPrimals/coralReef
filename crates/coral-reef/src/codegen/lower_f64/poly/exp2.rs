@@ -141,7 +141,11 @@ pub fn lower_f64_exp2(
     //   ldexp(p, n) = ldexp(ldexp(p, n1), n2) where n1 = max(n, -1022), n2 = n - n1
     // This prevents the intermediate result from underflowing to zero.
 
-    let dst_ssa = op.dst.as_ssa().expect("exp2 destination must be SSA value");
+    debug_assert!(
+        op.dst.as_ssa().is_some(),
+        "exp2 destination must be SSA value"
+    );
+    let dst_ssa = op.dst.as_ssa().unwrap();
 
     // Check if n is in the subnormal danger zone (n < -1022)
     let is_subnormal = alloc.alloc(RegFile::Pred);
@@ -352,8 +356,7 @@ mod tests {
         let p0 = horner_exp2_poly(0.0);
         assert!(
             (p0 - 1.0).abs() < 1e-14,
-            "exp2 poly at 0 should be 1, got {}",
-            p0
+            "exp2 poly at 0 should be 1, got {p0}"
         );
 
         // exp2(0.5) ≈ 1.414..., exp2(-0.5) ≈ 0.707...
@@ -362,18 +365,14 @@ mod tests {
         let expected = 2_f64.sqrt();
         assert!(
             (p_half - expected).abs() < 1e-6,
-            "exp2 poly at 0.5 should be sqrt(2)≈{}, got {}",
-            expected,
-            p_half
+            "exp2 poly at 0.5 should be sqrt(2)≈{expected}, got {p_half}"
         );
 
         let p_neg_half = horner_exp2_poly(-0.5);
         let expected_neg = 1.0 / 2_f64.sqrt();
         assert!(
             (p_neg_half - expected_neg).abs() < 1e-6,
-            "exp2 poly at -0.5 should be 1/sqrt(2)≈{}, got {}",
-            expected_neg,
-            p_neg_half
+            "exp2 poly at -0.5 should be 1/sqrt(2)≈{expected_neg}, got {p_neg_half}"
         );
     }
 

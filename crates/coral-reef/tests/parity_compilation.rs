@@ -16,7 +16,7 @@ fn opts_for_sm86() -> CompileOptions {
         opt_level: 2,
         debug_info: false,
         fp64_software: false,
-        fma_policy: FmaPolicy::AllowFusion,
+        fma_policy: FmaPolicy::Fused,
         ..CompileOptions::default()
     }
 }
@@ -27,7 +27,7 @@ fn opts_for_rdna2() -> CompileOptions {
         opt_level: 2,
         debug_info: false,
         fp64_software: false,
-        fma_policy: FmaPolicy::AllowFusion,
+        fma_policy: FmaPolicy::Fused,
         ..CompileOptions::default()
     }
 }

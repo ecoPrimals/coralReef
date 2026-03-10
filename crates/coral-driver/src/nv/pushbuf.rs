@@ -111,7 +111,7 @@ impl PushBuf {
 
     /// Total size in bytes.
     #[must_use]
-    pub fn size_bytes(&self) -> usize {
+    pub const fn size_bytes(&self) -> usize {
         self.words.len() * 4
     }
 
@@ -250,5 +250,64 @@ mod tests {
         assert_eq!(words.len(), 4); // 1 header + 3 data
         let count_field = (words[0] >> 16) & 0x1FFF;
         assert_eq!(count_field, 3);
+    }
+
+    #[test]
+    fn pushbuf_push_n_empty_noop() {
+        let mut pb = PushBuf::new();
+        pb.push_n(0, 0x100, &[]);
+        assert!(pb.as_words().is_empty());
+    }
+
+    #[test]
+    fn pushbuf_push_ninc_empty_noop() {
+        let mut pb = PushBuf::new();
+        pb.push_ninc(0, 0x100, &[]);
+        assert!(pb.as_words().is_empty());
+    }
+
+    #[test]
+    fn pushbuf_nop_increments_size() {
+        let mut pb = PushBuf::new();
+        assert_eq!(pb.size_bytes(), 0);
+        pb.nop();
+        assert_eq!(pb.size_bytes(), 4);
+        pb.nop();
+        assert_eq!(pb.size_bytes(), 8);
+    }
+
+    #[test]
+    fn pushbuf_push_ninc_emits_type3() {
+        let mut pb = PushBuf::new();
+        pb.push_ninc(1, 0x200, &[0xDEAD_BEEF]);
+        let words = pb.as_words();
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0] >> 29, 3);
+        assert_eq!(words[1], 0xDEAD_BEEF);
+    }
+
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "deliberate truncation test for 32-bit halves"
+    )]
+    #[expect(
+        clippy::similar_names,
+        reason = "pcas_a and pcas_b are the actual GPU register names"
+    )]
+    fn pushbuf_compute_dispatch_qmd_addr_split() {
+        let qmd_addr = 0x80_1234_5678_9ABC_u64;
+        let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, qmd_addr, 0xFF00_0000);
+        let words = pb.as_words();
+        let send_pcas_a_idx = words
+            .iter()
+            .position(|&w| w == mthd_incr(0, method::SEND_PCAS_A, 1))
+            .unwrap();
+        assert_eq!(words[send_pcas_a_idx + 1], (qmd_addr >> 32) as u32);
+        let send_pcas_b_idx = words
+            .iter()
+            .position(|&w| w == mthd_incr(0, method::SEND_SIGNALING_PCAS_B, 1))
+            .unwrap();
+        assert_eq!(words[send_pcas_b_idx + 1], qmd_addr as u32);
     }
 }

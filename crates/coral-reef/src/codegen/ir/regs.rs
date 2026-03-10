@@ -536,6 +536,6 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let l0 = alloc.alloc();
         let l1 = alloc.alloc();
-        assert_ne!(format!("{}", l0), format!("{}", l1));
+        assert_ne!(format!("{l0}"), format!("{}", l1));
     }
 }

@@ -15,16 +15,18 @@ use super::debug::{DEBUG, GetDebugFlags};
 use super::ir::*;
 use super::liveness::{BlockLiveness, LiveSet, Liveness, SimpleLiveness};
 use super::opt_instr_sched_common::{DepGraph, SideEffect, calc_statistics, side_effect_type};
+use crate::tolerances::{
+    SCHED_SW_RESERVED_GPRS, SCHED_SW_RESERVED_GPRS_SPILL, SCHED_TARGET_FREE_GPRS,
+};
 use std::cmp::{max, min};
 
 // EVOLUTION(opt): Model more cases where we actually need 2 reserved GPRs.
-// Maximum number of reserved GPRs for scheduling.
-const SW_RESERVED_GPRS: i32 = 1;
-const SW_RESERVED_GPRS_SPILL: i32 = 2;
+// Maximum number of reserved GPRs for scheduling (from tolerances module).
+const SW_RESERVED_GPRS: i32 = SCHED_SW_RESERVED_GPRS;
+const SW_RESERVED_GPRS_SPILL: i32 = SCHED_SW_RESERVED_GPRS_SPILL;
 
-/// Target number of free GPRs. This is used for the threshold to switch to
-/// scheduling for register pressure
-const TARGET_FREE: i32 = 4;
+/// Target number of free GPRs before switching to pressure-aware scheduling.
+const TARGET_FREE: i32 = SCHED_TARGET_FREE_GPRS;
 
 /// Typically using an extra register is free... until you hit a threshold where
 /// one more register causes occupancy to plummet. This function figures out how
@@ -57,14 +59,15 @@ fn test_next_occupancy_cliff() {
 }
 
 fn next_occupancy_cliff_with_reserved(sm: &dyn ShaderModel, gprs: i32, reserved: i32) -> i32 {
-    i32::try_from(next_occupancy_cliff(
-        sm,
-        (gprs + reserved)
-            .try_into()
-            .expect("gprs+reserved must be non-negative for u32"),
-    ))
-    .expect("occupancy cliff must fit in i32")
-        - reserved
+    let sum = gprs + reserved;
+    debug_assert!(sum >= 0, "gprs+reserved must be non-negative for u32");
+    let sum_u32: u32 = sum.try_into().unwrap();
+    let cliff = next_occupancy_cliff(sm, sum_u32);
+    debug_assert!(
+        i32::try_from(cliff).is_ok(),
+        "occupancy cliff must fit in i32"
+    );
+    i32::try_from(cliff).unwrap() - reserved
 }
 
 impl Function {
@@ -142,9 +145,11 @@ impl Function {
                 // Now use the live set after the instruction
                 {
                     let live_count = PerRegFile::new_with(|f| {
-                        live_count[f]
-                            .try_into()
-                            .expect("live count must fit in i32")
+                        debug_assert!(
+                            i32::try_from(live_count[f]).is_ok(),
+                            "live count must fit in i32"
+                        );
+                        live_count[f].try_into().unwrap()
                     });
                     let mut used_gprs = calc_used_gprs(live_count, max_reg_count);
 
@@ -152,11 +157,11 @@ impl Function {
                         // This should be the last instruction.  Everything should
                         // be dead once we've processed it.
                         assert_eq!(live_set.count(RegFile::GPR), 0);
-                        let gpr_output_count = reg_out
-                            .srcs
-                            .len()
-                            .try_into()
-                            .expect("RegOut count must fit in i32");
+                        debug_assert!(
+                            i32::try_from(reg_out.srcs.len()).is_ok(),
+                            "RegOut count must fit in i32"
+                        );
+                        let gpr_output_count: i32 = reg_out.srcs.len().try_into().unwrap();
                         used_gprs = max(used_gprs, gpr_output_count);
                     }
 
@@ -212,9 +217,11 @@ impl Function {
                 continue;
             }
             loop {
-                let schedule_type = *schedule_types
-                    .last()
-                    .expect("schedule_types must not be empty");
+                debug_assert!(
+                    !schedule_types.is_empty(),
+                    "schedule_types must not be empty"
+                );
+                let schedule_type = *schedule_types.last().unwrap();
                 let thresholds = schedule_type.thresholds(max_reg_count, u);
 
                 u.schedule(sm, max_reg_count, schedule_type, thresholds);
@@ -232,10 +239,11 @@ impl Function {
         }
 
         // Third pass: Apply the generated schedules
-        let schedule_type = schedule_types
-            .into_iter()
-            .last()
-            .expect("schedule_types must not be empty");
+        debug_assert!(
+            !schedule_types.is_empty(),
+            "schedule_types must not be empty"
+        );
+        let schedule_type = schedule_types.into_iter().last().unwrap();
 
         for (mut u, block) in schedule_units.into_iter().zip(self.blocks.iter_mut()) {
             if !u.instrs.is_empty() && u.last_tried_schedule_type != Some(schedule_type) {
@@ -294,18 +302,19 @@ impl Shader<'_> {
         }
 
         let mut max_reg_count = PerRegFile::<i32>::new_with(|f| {
-            self.sm
-                .reg_count(f)
-                .try_into()
-                .expect("reg_count must fit in i32")
+            let c = self.sm.reg_count(f);
+            debug_assert!(i32::try_from(c).is_ok(), "reg_count must fit in i32");
+            c.try_into().unwrap()
         });
         if let ShaderStageInfo::Compute(cs_info) = &self.info.stage {
-            max_reg_count[RegFile::GPR] = min(
-                max_reg_count[RegFile::GPR],
-                (gpr_limit_from_local_size(&cs_info.local_size) - self.sm.hw_reserved_gpr_count())
-                    .try_into()
-                    .expect("GPR limit must fit in i32"),
+            let gpr_limit =
+                gpr_limit_from_local_size(&cs_info.local_size) - self.sm.hw_reserved_gpr_count();
+            debug_assert!(
+                i32::try_from(gpr_limit).is_ok(),
+                "GPR limit must fit in i32"
             );
+            max_reg_count[RegFile::GPR] =
+                min(max_reg_count[RegFile::GPR], gpr_limit.try_into().unwrap());
         }
         max_reg_count[RegFile::GPR] -= SW_RESERVED_GPRS;
 

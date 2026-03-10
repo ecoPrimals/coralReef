@@ -53,7 +53,7 @@ impl BufferHandle {
     /// Create a handle from a raw ID. For mock devices; enable `test-utils` feature.
     #[cfg(feature = "test-utils")]
     #[must_use]
-    pub fn from_id(id: u32) -> Self {
+    pub const fn from_id(id: u32) -> Self {
         Self(id)
     }
 }

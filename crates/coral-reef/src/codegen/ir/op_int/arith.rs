@@ -468,7 +468,7 @@ mod tests {
             dst: Dst::None,
             src: imm_src(0x42),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("iabs"));
         assert!(s.contains("0x42"));
     }
@@ -480,7 +480,7 @@ mod tests {
             carry_out: Dst::None,
             srcs: [imm_src(1), imm_src(2)],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("iadd2"));
     }
 
@@ -492,7 +492,7 @@ mod tests {
             srcs: [zero_src(), zero_src()],
             carry_in: Src::ZERO,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("iadd2.x"));
     }
 
@@ -503,7 +503,7 @@ mod tests {
             overflow: [Dst::None, Dst::None],
             srcs: [imm_src(1), imm_src(2), imm_src(3)],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("iadd3"));
     }
 
@@ -515,7 +515,7 @@ mod tests {
             srcs: [zero_src(), zero_src(), zero_src()],
             carry: [Src::new_imm_bool(false), Src::new_imm_bool(false)],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("iadd3.x"));
     }
 
@@ -526,7 +526,7 @@ mod tests {
             src_types: [IntType::U32, IntType::I32],
             srcs: [zero_src(), zero_src(), zero_src()],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("idp4"));
         assert!(s.contains(".u32"));
         assert!(s.contains(".i32"));
@@ -539,7 +539,7 @@ mod tests {
             srcs: [imm_src(1), imm_src(2), imm_src(3)],
             signed: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("imad"));
     }
 
@@ -551,7 +551,7 @@ mod tests {
             signed: [true, false],
             high: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("imul"));
         assert!(s.contains(".hi"));
     }
@@ -563,7 +563,7 @@ mod tests {
             srcs: [zero_src(), zero_src(), zero_src()],
             signed: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("imad64"));
     }
 
@@ -575,7 +575,7 @@ mod tests {
             srcs: [zero_src(), imm_src(5)],
             min: Src::new_imm_bool(true),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("imnmx"));
         assert!(s.contains(".u32"));
     }
@@ -592,7 +592,7 @@ mod tests {
             accum: Src::new_imm_bool(false),
             low_cmp: Src::new_imm_bool(false),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("isetp"));
         assert!(s.contains(".eq"));
         assert!(s.contains(".i32"));
@@ -610,7 +610,7 @@ mod tests {
             accum: Src::new_imm_bool(true),
             low_cmp: Src::new_imm_bool(false),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".ex"));
     }
 }

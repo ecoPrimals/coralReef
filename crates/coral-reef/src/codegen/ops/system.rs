@@ -72,6 +72,12 @@ fn amd_sys_reg_vgpr(nv_idx: u8) -> Result<u16, CompileError> {
         0x26 => 4, // SR_CTAID_Y → v4
         0x27 => 5, // SR_CTAID_Z → v5
         0x00 => 0, // SR_LANEID → v0 (lane within wave)
+        0x28 => 6,
+        0x29 => 7,
+        0x2A => 8,
+        0x2B => 9,
+        0x2C => 10,
+        0x2D => 11,
         other => {
             return Err(CompileError::NotImplemented(
                 format!("AMD sys reg mapping for NVIDIA SR index 0x{other:02x}").into(),

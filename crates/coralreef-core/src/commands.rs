@@ -3,7 +3,7 @@
 //!
 //! Extracted from the binary crate for testability.
 
-use coral_reef::{CompileError, CompileOptions, GpuArch};
+use coral_reef::{AmdArch, CompileError, CompileOptions, GpuArch, GpuTarget, NvArch};
 use std::io;
 use std::path::Path;
 
@@ -126,17 +126,37 @@ pub async fn run_doctor() -> Result<String, String> {
         .map_err(|e| format!("health check failed: {e}"))?;
     let _ = writeln!(report, "[OK] Health: {:?}", health.status);
 
-    let test_opts = CompileOptions::default();
     let test_wgsl = "@compute @workgroup_size(1)\nfn main() {}";
-    match coral_reef::compile_wgsl(test_wgsl, &test_opts) {
-        Ok(_) => report.push_str("[OK] Compile pipeline operational\n"),
-        Err(CompileError::NotImplemented(_)) => {
-            report.push_str("[WARN] Compile pipeline: not yet implemented\n");
+    let smoke_targets = [
+        GpuTarget::Nvidia(NvArch::Sm70),
+        GpuTarget::Amd(AmdArch::Rdna2),
+    ];
+    let mut pipeline_ok = false;
+    for target in smoke_targets {
+        let opts = CompileOptions {
+            target,
+            opt_level: 2,
+            debug_info: false,
+            fp64_software: true,
+            ..CompileOptions::default()
+        };
+        match coral_reef::compile_wgsl(test_wgsl, &opts) {
+            Ok(_) => {
+                report.push_str("[OK] Compile pipeline operational\n");
+                pipeline_ok = true;
+                break;
+            }
+            Err(CompileError::NotImplemented(_)) => {}
+            Err(e) => {
+                let _ = primal.stop().await;
+                return Err(format!("compile pipeline failed for {target}: {e}"));
+            }
         }
-        Err(e) => {
-            let _ = primal.stop().await;
-            return Err(format!("compile pipeline failed: {e}"));
-        }
+    }
+    if !pipeline_ok {
+        report.push_str(
+            "[WARN] Compile pipeline: smoke test hit unimplemented feature on all targets\n",
+        );
     }
 
     primal

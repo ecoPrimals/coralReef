@@ -29,11 +29,14 @@ pub struct CompileSpirvRequestTarpc {
 pub struct CompileRequest {
     /// SPIR-V words (JSON array of u32; base64 in tarpc uses [`CompileSpirvRequestTarpc`]).
     pub spirv_words: Vec<u32>,
-    /// Target GPU architecture name (e.g. `sm_70`, `rdna2`).
+    /// Target GPU architecture name (e.g. `sm70`, `sm86`, `rdna2`). Optional; defaults to sm70.
+    #[serde(default = "default_arch")]
     pub arch: String,
     /// Optimization level (0-3).
+    #[serde(default = "default_opt_level")]
     pub opt_level: u32,
     /// Enable f64 software transcendentals.
+    #[serde(default)]
     pub fp64_software: bool,
 }
 
@@ -42,11 +45,14 @@ pub struct CompileRequest {
 pub struct CompileWgslRequest {
     /// WGSL source code.
     pub wgsl_source: String,
-    /// Target GPU architecture name (e.g. `sm_70`, `rdna2`).
+    /// Target GPU architecture name (e.g. `sm70`, `sm86`, `rdna2`). Optional; defaults to sm70.
+    #[serde(default = "default_arch")]
     pub arch: String,
     /// Optimization level (0-3).
+    #[serde(default = "default_opt_level")]
     pub opt_level: u32,
     /// Enable f64 software transcendentals.
+    #[serde(default)]
     pub fp64_software: bool,
     /// f64 strategy hint from the caller (e.g. `"software"`, `"native"`).
     /// Optional — defaults to using `fp64_software` if absent.
@@ -83,6 +89,14 @@ pub struct HealthResponse {
     pub status: Cow<'static, str>,
     /// Supported architectures.
     pub supported_archs: Vec<String>,
+}
+
+fn default_arch() -> String {
+    coral_reef::GpuArch::default().to_string()
+}
+
+const fn default_opt_level() -> u32 {
+    2
 }
 
 /// Parse an architecture string into a [`GpuTarget`].
@@ -127,9 +141,10 @@ fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
     let mut words = Vec::with_capacity(bytes.len() / 4);
     for chunk in bytes.chunks_exact(4) {
         debug_assert_eq!(chunk.len(), 4, "chunks_exact(4) yields 4 bytes");
-        words.push(u32::from_le_bytes(
-            chunk.try_into().expect("chunks_exact(4) yields 4 bytes"),
-        ));
+        let arr: [u8; 4] = chunk
+            .try_into()
+            .map_err(|_| CompileError::InvalidInput("SPIR-V chunk must be 4 bytes".into()))?;
+        words.push(u32::from_le_bytes(arr));
     }
     Ok(words)
 }

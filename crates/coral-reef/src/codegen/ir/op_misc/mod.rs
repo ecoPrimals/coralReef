@@ -520,7 +520,7 @@ mod tests {
             dst: Dst::None,
             idx: 0x10,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("cs2r"));
         assert!(s.contains("0x10"));
     }
@@ -531,7 +531,7 @@ mod tests {
             dst: Dst::None,
             idx: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("isberd"));
     }
 
@@ -542,21 +542,21 @@ mod tests {
             idx: zero_src(),
             off: 0,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("vild"));
     }
 
     #[test]
     fn test_op_kill_display() {
         let op = OpKill {};
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("kill"));
     }
 
     #[test]
     fn test_op_nop_display() {
         let op = OpNop { label: None };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("nop"));
     }
 
@@ -565,7 +565,7 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpNop { label: Some(label) };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("nop"));
     }
 
@@ -582,7 +582,7 @@ mod tests {
             dst: Dst::None,
             val: PixVal::MsCount,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("pixld"));
         assert!(s.contains("mscount"));
     }
@@ -593,7 +593,7 @@ mod tests {
             dst: Dst::None,
             idx: 0x20,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("s2r"));
         assert!(s.contains("0x20"));
     }
@@ -613,7 +613,7 @@ mod tests {
             vote: Dst::None,
             pred: Src::new_imm_bool(true),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("vote"));
         assert!(s.contains("any"));
     }
@@ -633,7 +633,7 @@ mod tests {
             op: MatchOp::All,
             u64: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("match"));
         assert!(s.contains(".all"));
     }
@@ -641,14 +641,14 @@ mod tests {
     #[test]
     fn test_op_undef_display() {
         let op = OpUndef { dst: Dst::None };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("undef"));
     }
 
     #[test]
     fn test_op_srcbar_display() {
         let op = OpSrcBar { src: zero_src() };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("src_bar"));
     }
 
@@ -658,7 +658,7 @@ mod tests {
             dst: Dst::None,
             src: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("copy"));
     }
 
@@ -668,7 +668,7 @@ mod tests {
             dst: Dst::None,
             src: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("pin"));
     }
 
@@ -678,7 +678,7 @@ mod tests {
             dst: Dst::None,
             src: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("unpin"));
     }
 
@@ -688,7 +688,7 @@ mod tests {
             dsts: [Dst::None, Dst::None],
             srcs: [zero_src(), Src::new_imm_u32(1)],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("swap"));
     }
 
@@ -696,7 +696,7 @@ mod tests {
     fn test_op_parcopy_display() {
         let mut op = OpParCopy::new();
         op.push(Dst::None, zero_src());
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("par_copy"));
     }
 
@@ -705,7 +705,7 @@ mod tests {
         let op = OpRegOut {
             srcs: vec![zero_src()],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("reg_out"));
     }
 
@@ -724,7 +724,7 @@ mod tests {
             stream: zero_src(),
             out_type: OutType::Emit,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("out"));
         assert!(s.contains("emit"));
     }
@@ -732,7 +732,7 @@ mod tests {
     #[test]
     fn test_op_outfinal_display() {
         let op = OpOutFinal { handle: zero_src() };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("out.final"));
     }
 
@@ -741,7 +741,7 @@ mod tests {
         let op = OpAnnotate {
             annotation: "test comment".into(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("//"));
         assert!(s.contains("test comment"));
     }

@@ -41,12 +41,8 @@ where
             for &node in &order {
                 let block = self.cfg.block(node).expect("node in CFG");
                 let preds = self.cfg.predecessors(node);
-                let mut input = if let Some(&first) = preds.first() {
-                    self.block_out[first].clone()
-                } else {
-                    S::default()
-                };
-                for &pred in preds.iter().skip(1) {
+                let mut input = S::default();
+                for &pred in preds {
                     (self.join)(&mut input, &self.block_out[pred]);
                 }
                 self.block_in[node] = input;
@@ -93,12 +89,8 @@ where
             for &node in &order {
                 let block = self.cfg.block(node).expect("node in CFG");
                 let succs = self.cfg.successors(node);
-                let mut output = if let Some(&first) = succs.first() {
-                    self.block_in[first].clone()
-                } else {
-                    S::default()
-                };
-                for &succ in succs.iter().skip(1) {
+                let mut output = S::default();
+                for &succ in succs {
                     (self.join)(&mut output, &self.block_in[succ]);
                 }
                 self.block_out[node] = output;

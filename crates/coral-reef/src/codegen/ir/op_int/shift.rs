@@ -380,3 +380,204 @@ impl Foldable for OpShr {
         f.set_u32_dst(self, &self.dst, dst);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn imm_src(u: u32) -> Src {
+        Src::new_imm_u32(u)
+    }
+
+    #[test]
+    fn test_op_lea_display() {
+        let op = OpLea {
+            dst: Dst::None,
+            overflow: Dst::None,
+            a: imm_src(1),
+            b: imm_src(2),
+            a_high: imm_src(0),
+            shift: 4,
+            dst_high: false,
+            intermediate_mod: SrcMod::None,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("lea"));
+        assert!(s.contains('4'));
+    }
+
+    #[test]
+    fn test_op_lea_hi_display() {
+        let op = OpLea {
+            dst: Dst::None,
+            overflow: Dst::None,
+            a: imm_src(1),
+            b: imm_src(2),
+            a_high: imm_src(0),
+            shift: 8,
+            dst_high: true,
+            intermediate_mod: SrcMod::None,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("lea.hi"));
+        assert!(s.contains('8'));
+    }
+
+    #[test]
+    fn test_op_leax_display() {
+        let op = OpLeaX {
+            dst: Dst::None,
+            overflow: Dst::None,
+            a: imm_src(1),
+            b: imm_src(2),
+            a_high: imm_src(0),
+            carry: Src::new_imm_bool(false),
+            shift: 4,
+            dst_high: false,
+            intermediate_mod: SrcMod::None,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("lea.x"));
+    }
+
+    #[test]
+    fn test_op_shf_display_left() {
+        let op = OpShf {
+            dst: Dst::None,
+            low: imm_src(0),
+            high: imm_src(0),
+            shift: imm_src(4),
+            right: false,
+            wrap: false,
+            data_type: IntType::U32,
+            dst_high: false,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("shf.l"));
+        assert!(s.contains(".u32"));
+    }
+
+    #[test]
+    fn test_op_shf_display_right_wrap() {
+        let op = OpShf {
+            dst: Dst::None,
+            low: imm_src(0),
+            high: imm_src(0),
+            shift: imm_src(4),
+            right: true,
+            wrap: true,
+            data_type: IntType::I64,
+            dst_high: true,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("shf.r"));
+        assert!(s.contains(".w"));
+        assert!(s.contains(".i64"));
+        assert!(s.contains(".hi"));
+    }
+
+    #[test]
+    fn test_op_shf_reduce_shift_imm_clamp() {
+        let mut op = OpShf {
+            dst: Dst::None,
+            low: imm_src(0),
+            high: imm_src(0),
+            shift: Src::new_imm_u32(100),
+            right: false,
+            wrap: false,
+            data_type: IntType::U32,
+            dst_high: false,
+        };
+        op.reduce_shift_imm();
+        if let SrcRef::Imm32(v) = op.shift.reference {
+            assert_eq!(v, 32, "clamp should cap at 32 for u32");
+        } else {
+            panic!("shift should remain Imm32 after reduce");
+        }
+    }
+
+    #[test]
+    fn test_op_shf_reduce_shift_imm_wrap() {
+        let mut op = OpShf {
+            dst: Dst::None,
+            low: imm_src(0),
+            high: imm_src(0),
+            shift: Src::new_imm_u32(37),
+            right: false,
+            wrap: true,
+            data_type: IntType::U32,
+            dst_high: false,
+        };
+        op.reduce_shift_imm();
+        if let SrcRef::Imm32(v) = op.shift.reference {
+            assert_eq!(v, 5, "wrap 37 & 31 = 5");
+        } else {
+            panic!("shift should remain Imm32 after reduce");
+        }
+    }
+
+    #[test]
+    fn test_op_shl_struct() {
+        let op = OpShl {
+            dst: Dst::None,
+            src: imm_src(1),
+            shift: imm_src(4),
+            wrap: false,
+        };
+        assert!(!op.wrap);
+        assert!(matches!(op.shift.reference, SrcRef::Imm32(4)));
+    }
+
+    #[test]
+    fn test_op_shl_reduce_shift_imm() {
+        let mut op = OpShl {
+            dst: Dst::None,
+            src: imm_src(1),
+            shift: Src::new_imm_u32(50),
+            wrap: false,
+        };
+        op.reduce_shift_imm();
+        if let SrcRef::Imm32(v) = op.shift.reference {
+            assert_eq!(v, 32);
+        }
+    }
+
+    #[test]
+    fn test_op_shr_signed() {
+        let op = OpShr {
+            dst: Dst::None,
+            src: imm_src(0x8000_0000),
+            shift: imm_src(1),
+            wrap: false,
+            signed: true,
+        };
+        assert!(op.signed);
+    }
+
+    #[test]
+    fn test_op_shr_unsigned() {
+        let op = OpShr {
+            dst: Dst::None,
+            src: imm_src(0x8000_0000),
+            shift: imm_src(1),
+            wrap: false,
+            signed: false,
+        };
+        assert!(!op.signed);
+    }
+
+    #[test]
+    fn test_op_shr_reduce_shift_imm_wrap() {
+        let mut op = OpShr {
+            dst: Dst::None,
+            src: imm_src(1),
+            shift: Src::new_imm_u32(35),
+            wrap: true,
+            signed: false,
+        };
+        op.reduce_shift_imm();
+        if let SrcRef::Imm32(v) = op.shift.reference {
+            assert_eq!(v, 3, "35 & 31 = 3");
+        }
+    }
+}

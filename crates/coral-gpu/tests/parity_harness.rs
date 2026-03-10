@@ -29,7 +29,7 @@ fn opts_for(target: GpuTarget) -> CompileOptions {
         opt_level: 2,
         debug_info: false,
         fp64_software: false,
-        fma_policy: FmaPolicy::AllowFusion,
+        fma_policy: FmaPolicy::Fused,
         ..CompileOptions::default()
     }
 }
@@ -286,11 +286,7 @@ fn parity_hw_amd_store42_dispatch() {
 /// compile on both targets; reduce uses LDS (pending RDNA2 support).
 #[test]
 fn parity_all_shaders_both_targets() {
-    let shaders = [
-        ("vecadd", VECADD),
-        ("saxpy", SAXPY),
-        ("matmul", MATMUL),
-    ];
+    let shaders = [("vecadd", VECADD), ("saxpy", SAXPY), ("matmul", MATMUL)];
 
     let targets = [
         ("SM86", GpuTarget::Nvidia(NvArch::Sm86)),

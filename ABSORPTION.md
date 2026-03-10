@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 25: Math Evolution, Debt Zero, Full Sovereignty)
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 27: Deep Debt + Cross-Spring Absorption)
 
 ---
 
@@ -118,7 +118,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `mean_reduce` | neuralSpring | ML aggregation | Population fitness (f32, single-workgroup) | **PASS** |
 | `rk4_parallel` | neuralSpring | ODE solver | Complex control flow, scheduling stress | **PASS** (iter 5) |
 | `xoshiro128ss` | neuralSpring | PRNG | Small array promotion (iter 18) | **PASS** (iter 18) |
-| `local_elementwise_f64` | airSpring | Hydrology | SCS-CN, Stewart, Makkink, Turc, Hamon, BC | Math::Acos (iter 15: switch + var fix done) |
+| ~~`local_elementwise_f64`~~ | airSpring | Hydrology | SCS-CN, Stewart, Makkink, Turc, Hamon, BC | **Retired** — airSpring v0.7.2 upstream to batched_elementwise_f64 |
 
 ### Compilation Benchmarks (SM70, debug build — 14 shaders)
 
@@ -146,8 +146,8 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | ~~Register allocator SSA tracking~~ | ~~1 shader~~ | **Fixed iter 19** — back-edge live-in pre-allocation |
 | ~~Scheduler loop-carried phi (RA back-edge)~~ | ~~4 shaders~~ | **Fixed iter 19-20** — live_in_values seeding + SSA dominance repair |
 | ~~Pred→GPR encoder coercion chain~~ | ~~2 shaders~~ | **Fixed iter 18** — bcs_bisection, batched_hfb_hamiltonian now pass |
-| Math function (Acos) | 1 shader | local_elementwise |
-| Complex64 preamble | 1 shader | dielectric_mermin |
+| ~~Math function (Acos)~~ | ~~1 shader~~ | **Fixed iter 25** — polynomial atan + identity chains |
+| ~~Complex64 preamble~~ | ~~1 shader~~ | **Fixed iter 25** — auto-prepended preamble |
 | ~~df64 preamble~~ | ~~5 shaders~~ | **Fixed iter 13** — gelu, layer_norm, softmax, sdpa_scores, kl_divergence |
 | ~~WGSL keyword conflict~~ | ~~kl_divergence~~ | **Fixed iter 13** — `shared` → `wg_scratch` |
 | ~~var_storage slot overflow~~ | ~~local_elementwise~~ | **Fixed iter 15** — inline pre_allocate_local_vars |
@@ -215,7 +215,7 @@ Status (Iteration 15):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1285 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1401 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
 | Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 25 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero libc |
@@ -287,7 +287,7 @@ Status (Iteration 15):
 
 ---
 
-*79/86 cross-spring WGSL shaders compile to native SASS. 1285 tests passing, 60 ignored, 63% coverage.
+*79/86 cross-spring WGSL shaders compile to native SASS. 1401 tests passing, 62 ignored, 63% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70 (now with fract/sign/mix/step/smoothstep/tanh/dot).
 4/10 SPIR-V roundtrip tests pass (6 blocked on Discriminant expr + non-literal const init).
@@ -295,4 +295,5 @@ Iteration 25: Math evolution — 9 trig/inverse functions, log2 2nd NR (~52-bit)
 Complex64 preamble, 37 DEBT markers → 0, libc eliminated (inline asm syscall), NVIDIA UVM infra.
 Iteration 24: Multi-GPU sovereignty — driver preference, nvidia-drm, toadStool discovery, showcase.
 Iteration 23: Deep debt elimination — 11 math functions, lib.rs refactored, GLSL expanded.
+Iteration 27: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring absorption tests.
 Next: NVIDIA UVM compute dispatch, coverage 63%→90%, RDNA3/RDNA4 backend.*

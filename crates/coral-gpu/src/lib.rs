@@ -35,132 +35,15 @@
 //! let data = ctx.readback(buf, 1024)?;
 //! ```
 
+mod error;
+mod preference;
+
+pub use error::{GpuError, GpuResult};
+pub use preference::DriverPreference;
+
 use bytes::Bytes;
 pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 pub use coral_reef::{AmdArch, CompileOptions, GpuTarget, NvArch};
-
-/// Errors from the unified GPU abstraction.
-#[derive(Debug, thiserror::Error)]
-pub enum GpuError {
-    #[error("compilation error: {0}")]
-    Compile(#[from] coral_reef::CompileError),
-
-    #[error("driver error: {0}")]
-    Driver(#[from] coral_driver::DriverError),
-
-    #[error("no GPU device available for target {0}")]
-    NoDevice(std::borrow::Cow<'static, str>),
-
-    #[error("no device attached — call `auto()` or `with_device()` to bind hardware")]
-    NoDeviceAttached,
-}
-
-// ---------------------------------------------------------------------------
-// Driver preference — sovereignty-first with pragmatic fallback
-// ---------------------------------------------------------------------------
-
-/// DRM driver identifiers in preference order.
-///
-/// coralReef prefers sovereign (open-source) drivers because they force deep
-/// understanding and give us full control. But we also want to work on
-/// whatever already exists on a deployment target.
-///
-/// Default preference: `nouveau` > `amdgpu` > `nvidia-drm`
-///
-/// - **nouveau**: Open-source NVIDIA DRM driver. Forces us to solve deep
-///   (our own channel management, QMD, pushbuf). Full sovereignty.
-/// - **amdgpu**: Open-source AMD DRM driver. Native Linux citizen. Full
-///   dispatch pipeline already working.
-/// - **nvidia-drm**: NVIDIA proprietary DRM module. Compatible with existing
-///   deployments. Dispatch pending UVM integration.
-///
-/// Operators can override via `CORALREEF_DRIVER_PREFERENCE` environment
-/// variable (comma-separated driver names):
-///
-/// ```text
-/// CORALREEF_DRIVER_PREFERENCE=nouveau,amdgpu,nvidia-drm  # sovereign default
-/// CORALREEF_DRIVER_PREFERENCE=nvidia-drm,amdgpu           # pragmatic (use what's installed)
-/// CORALREEF_DRIVER_PREFERENCE=amdgpu                       # AMD-only deployment
-/// ```
-#[derive(Debug, Clone)]
-pub struct DriverPreference {
-    order: Vec<String>,
-}
-
-impl DriverPreference {
-    /// Sovereign default: prefer open-source drivers, fall back to proprietary.
-    #[must_use]
-    pub fn sovereign() -> Self {
-        Self {
-            order: vec![
-                "nouveau".to_string(),
-                "amdgpu".to_string(),
-                "nvidia-drm".to_string(),
-            ],
-        }
-    }
-
-    /// Pragmatic default: prefer whatever's most likely to work on a typical system.
-    #[must_use]
-    pub fn pragmatic() -> Self {
-        Self {
-            order: vec![
-                "amdgpu".to_string(),
-                "nvidia-drm".to_string(),
-                "nouveau".to_string(),
-            ],
-        }
-    }
-
-    /// Parse from a comma-separated string (e.g. `"nouveau,amdgpu,nvidia-drm"`).
-    #[must_use]
-    pub fn from_str_list(s: &str) -> Self {
-        Self {
-            order: s
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
-        }
-    }
-
-    /// Read from `CORALREEF_DRIVER_PREFERENCE` env var, falling back to sovereign default.
-    #[must_use]
-    pub fn from_env() -> Self {
-        match std::env::var("CORALREEF_DRIVER_PREFERENCE") {
-            Ok(val) if !val.is_empty() => Self::from_str_list(&val),
-            _ => Self::sovereign(),
-        }
-    }
-
-    /// The ordered list of preferred driver names.
-    #[must_use]
-    pub fn order(&self) -> &[String] {
-        &self.order
-    }
-
-    /// Find the best matching driver from a list of available drivers.
-    ///
-    /// Returns the first driver in our preference order that appears in
-    /// the available list. Returns `None` if no match.
-    #[must_use]
-    pub fn select<'a>(&self, available: &[&'a str]) -> Option<&'a str> {
-        for preferred in &self.order {
-            if let Some(&matched) = available.iter().find(|&&d| d == preferred) {
-                return Some(matched);
-            }
-        }
-        None
-    }
-}
-
-impl Default for DriverPreference {
-    fn default() -> Self {
-        Self::sovereign()
-    }
-}
-
-pub type GpuResult<T> = Result<T, GpuError>;
 
 /// A compiled compute shader ready for dispatch.
 ///
@@ -319,6 +202,7 @@ impl GpuContext {
     /// Returns one [`GpuContext`] per supported GPU found on the system.
     /// Unsupported drivers are skipped without error.
     #[cfg(target_os = "linux")]
+    #[must_use]
     pub fn enumerate_all() -> Vec<GpuResult<Self>> {
         use coral_driver::drm::enumerate_render_nodes;
 
@@ -394,8 +278,7 @@ impl GpuContext {
                     GpuTarget::Nvidia(nv) => nv.sm(),
                     _ => 70,
                 };
-                let dev =
-                    coral_driver::nv::NvDevice::open_with_sm(sm).map_err(GpuError::Driver)?;
+                let dev = coral_driver::nv::NvDevice::open_with_sm(sm).map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             _ => Err(GpuError::NoDevice(
@@ -458,17 +341,15 @@ impl GpuContext {
     }
 
     fn device_mut(&mut self) -> GpuResult<&mut dyn ComputeDevice> {
-        match self.device.as_mut() {
-            Some(d) => Ok(d.as_mut()),
-            None => Err(GpuError::NoDeviceAttached),
-        }
+        self.device
+            .as_mut()
+            .map_or(Err(GpuError::NoDeviceAttached), |d| Ok(d.as_mut()))
     }
 
     fn device_ref(&self) -> GpuResult<&dyn ComputeDevice> {
-        match self.device.as_ref() {
-            Some(d) => Ok(d.as_ref()),
-            None => Err(GpuError::NoDeviceAttached),
-        }
+        self.device
+            .as_ref()
+            .map_or(Err(GpuError::NoDeviceAttached), |d| Ok(d.as_ref()))
     }
 
     /// Allocate a GPU buffer.
@@ -552,7 +433,7 @@ impl GpuContext {
     }
 }
 
-fn hash_wgsl(wgsl: &str) -> u64 {
+pub(crate) fn hash_wgsl(wgsl: &str) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in wgsl.bytes() {
         hash ^= u64::from(byte);
@@ -562,353 +443,4 @@ fn hash_wgsl(wgsl: &str) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use coral_driver::{DispatchDims, DriverError, DriverResult, ShaderInfo};
-    use std::collections::HashMap;
-
-    /// Mock ComputeDevice for testing success paths.
-    struct MockDevice {
-        buffers: HashMap<coral_driver::BufferHandle, Vec<u8>>,
-        next_handle: u32,
-    }
-
-    impl MockDevice {
-        fn new() -> Self {
-            Self {
-                buffers: HashMap::new(),
-                next_handle: 1,
-            }
-        }
-    }
-
-    impl coral_driver::ComputeDevice for MockDevice {
-        fn alloc(
-            &mut self,
-            size: u64,
-            _domain: coral_driver::MemoryDomain,
-        ) -> DriverResult<coral_driver::BufferHandle> {
-            let h = coral_driver::BufferHandle::from_id(self.next_handle);
-            self.next_handle += 1;
-            self.buffers.insert(h, vec![0; size as usize]);
-            Ok(h)
-        }
-        fn free(&mut self, handle: coral_driver::BufferHandle) -> DriverResult<()> {
-            self.buffers
-                .remove(&handle)
-                .map(|_| ())
-                .ok_or(DriverError::BufferNotFound(handle))
-        }
-        fn upload(
-            &mut self,
-            handle: coral_driver::BufferHandle,
-            offset: u64,
-            data: &[u8],
-        ) -> DriverResult<()> {
-            let buf = self
-                .buffers
-                .get_mut(&handle)
-                .ok_or(DriverError::BufferNotFound(handle))?;
-            let end = (offset as usize).saturating_add(data.len());
-            if end > buf.len() {
-                return Err(DriverError::BufferNotFound(handle));
-            }
-            buf[offset as usize..end].copy_from_slice(data);
-            Ok(())
-        }
-        fn readback(
-            &self,
-            handle: coral_driver::BufferHandle,
-            offset: u64,
-            len: usize,
-        ) -> DriverResult<Vec<u8>> {
-            let buf = self
-                .buffers
-                .get(&handle)
-                .ok_or(DriverError::BufferNotFound(handle))?;
-            let end = (offset as usize).saturating_add(len);
-            if end > buf.len() {
-                return Err(DriverError::BufferNotFound(handle));
-            }
-            Ok(buf[offset as usize..end].to_vec())
-        }
-        fn dispatch(
-            &mut self,
-            _shader: &[u8],
-            _buffers: &[coral_driver::BufferHandle],
-            _dims: DispatchDims,
-            _info: &ShaderInfo,
-        ) -> DriverResult<()> {
-            Ok(())
-        }
-        fn sync(&mut self) -> DriverResult<()> {
-            Ok(())
-        }
-    }
-
-    fn ctx_with_mock() -> GpuContext {
-        GpuContext::with_device(GpuTarget::default(), Box::new(MockDevice::new())).unwrap()
-    }
-
-    #[test]
-    fn alloc_upload_readback_roundtrip() {
-        let mut ctx = ctx_with_mock();
-        let buf = ctx.alloc(16).unwrap();
-        let data = b"hello world!!!!";
-        ctx.upload(buf, data).unwrap();
-        let out = ctx.readback(buf, data.len()).unwrap();
-        assert_eq!(out, data);
-    }
-
-    #[test]
-    fn alloc_in_different_domains() {
-        let mut ctx = ctx_with_mock();
-        let vram = ctx.alloc_in(64, MemoryDomain::Vram).unwrap();
-        let gtt = ctx.alloc_in(64, MemoryDomain::Gtt).unwrap();
-        let either = ctx.alloc_in(64, MemoryDomain::VramOrGtt).unwrap();
-        assert_ne!(vram, gtt);
-        assert_ne!(gtt, either);
-        ctx.upload(vram, b"vram").unwrap();
-        ctx.upload(gtt, b"gtt").unwrap();
-        assert_eq!(ctx.readback(vram, 4).unwrap(), b"vram");
-        assert_eq!(ctx.readback(gtt, 3).unwrap(), b"gtt");
-    }
-
-    #[test]
-    fn dispatch_with_compiled_kernel() {
-        let mut ctx = ctx_with_mock();
-        let kernel = ctx
-            .compile_wgsl("@compute @workgroup_size(1) fn main() {}")
-            .unwrap();
-        let buf = ctx.alloc(64).unwrap();
-        ctx.dispatch(&kernel, &[buf], [1, 1, 1]).unwrap();
-    }
-
-    #[test]
-    fn free_then_use_freed_buffer_fails() {
-        let mut ctx = ctx_with_mock();
-        let buf = ctx.alloc(64).unwrap();
-        ctx.free(buf).unwrap();
-        let err = ctx.upload(buf, b"x").unwrap_err();
-        assert!(matches!(
-            err,
-            GpuError::Driver(DriverError::BufferNotFound(_))
-        ));
-        let err = ctx.readback(buf, 1).unwrap_err();
-        assert!(matches!(
-            err,
-            GpuError::Driver(DriverError::BufferNotFound(_))
-        ));
-    }
-
-    #[test]
-    fn compile_wgsl_dispatch_sync_pipeline() {
-        let mut ctx = ctx_with_mock();
-        let kernel = ctx
-            .compile_wgsl("@compute @workgroup_size(64) fn main() {}")
-            .unwrap();
-        let buf = ctx.alloc(256).unwrap();
-        ctx.dispatch(&kernel, &[buf], [4, 1, 1]).unwrap();
-        ctx.sync().unwrap();
-    }
-
-    #[test]
-    fn compile_spirv_method() {
-        let ctx = GpuContext::new(GpuTarget::Nvidia(NvArch::Sm70)).unwrap();
-        let invalid = [0x0723_0203_u32, 0x0001_0000, 0, 0, 0];
-        let r = ctx.compile_spirv(&invalid);
-        assert!(r.is_err());
-    }
-
-    #[test]
-    fn readback_returns_correct_data() {
-        let mut ctx = ctx_with_mock();
-        let buf = ctx.alloc(8).unwrap();
-        ctx.upload(buf, &[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
-        let out = ctx.readback(buf, 8).unwrap();
-        assert_eq!(out, [1, 2, 3, 4, 5, 6, 7, 8]);
-    }
-
-    #[test]
-    fn has_device_returns_true_when_attached() {
-        let ctx = ctx_with_mock();
-        assert!(ctx.has_device());
-    }
-
-    #[test]
-    fn gpu_context_compile_only() {
-        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        assert!(!ctx.has_device());
-    }
-
-    #[test]
-    fn gpu_context_compile_wgsl() {
-        let ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        let kernel = ctx.compile_wgsl("@compute @workgroup_size(1) fn main() {}");
-        assert!(kernel.is_ok());
-        let k = kernel.unwrap();
-        assert!(!k.binary.is_empty());
-    }
-
-    #[test]
-    fn gpu_context_amd_compile() {
-        let ctx = GpuContext::new(GpuTarget::Amd(AmdArch::Rdna2)).unwrap();
-        let kernel = ctx.compile_wgsl("@compute @workgroup_size(1) fn main() {}");
-        assert!(kernel.is_ok());
-    }
-
-    #[test]
-    fn compiled_kernel_has_target() {
-        let ctx = GpuContext::new(GpuTarget::Nvidia(NvArch::Sm86)).unwrap();
-        let kernel = ctx
-            .compile_wgsl("@compute @workgroup_size(1) fn main() {}")
-            .unwrap();
-        assert!(matches!(kernel.target, GpuTarget::Nvidia(NvArch::Sm86)));
-    }
-
-    #[test]
-    fn hash_deterministic() {
-        let a = hash_wgsl("hello");
-        let b = hash_wgsl("hello");
-        let c = hash_wgsl("world");
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-    }
-
-    #[test]
-    fn alloc_fails_without_device() {
-        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        let err = ctx.alloc(1024).unwrap_err();
-        assert!(matches!(err, GpuError::NoDeviceAttached));
-    }
-
-    #[test]
-    fn dispatch_fails_without_device() {
-        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        let kernel = ctx
-            .compile_wgsl("@compute @workgroup_size(1) fn main() {}")
-            .unwrap();
-        let err = ctx.dispatch(&kernel, &[], [1, 1, 1]).unwrap_err();
-        assert!(matches!(err, GpuError::NoDeviceAttached));
-    }
-
-    #[test]
-    fn sync_fails_without_device() {
-        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        let err = ctx.sync().unwrap_err();
-        assert!(matches!(err, GpuError::NoDeviceAttached));
-    }
-
-    #[test]
-    fn readback_fails_without_device() {
-        let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
-        let err = ctx.sync().unwrap_err();
-        assert!(matches!(err, GpuError::NoDeviceAttached));
-    }
-
-    // -------------------------------------------------------------------
-    // DriverPreference tests
-    // -------------------------------------------------------------------
-
-    #[test]
-    fn sovereign_preference_prefers_nouveau() {
-        let pref = DriverPreference::sovereign();
-        assert_eq!(pref.order()[0], "nouveau");
-        assert_eq!(pref.order()[1], "amdgpu");
-        assert_eq!(pref.order()[2], "nvidia-drm");
-    }
-
-    #[test]
-    fn pragmatic_preference_prefers_amdgpu() {
-        let pref = DriverPreference::pragmatic();
-        assert_eq!(pref.order()[0], "amdgpu");
-    }
-
-    #[test]
-    fn default_preference_is_sovereign() {
-        let pref = DriverPreference::default();
-        assert_eq!(pref.order(), DriverPreference::sovereign().order());
-    }
-
-    #[test]
-    fn select_returns_best_match() {
-        let pref = DriverPreference::sovereign();
-        assert_eq!(
-            pref.select(&["amdgpu", "nvidia-drm"]),
-            Some("amdgpu"),
-            "with no nouveau, sovereign picks amdgpu next"
-        );
-    }
-
-    #[test]
-    fn select_returns_nouveau_when_available() {
-        let pref = DriverPreference::sovereign();
-        assert_eq!(
-            pref.select(&["nvidia-drm", "nouveau", "amdgpu"]),
-            Some("nouveau"),
-            "sovereign always picks nouveau first"
-        );
-    }
-
-    #[test]
-    fn select_returns_none_when_no_match() {
-        let pref = DriverPreference::sovereign();
-        assert_eq!(pref.select(&["i915", "xe"]), None);
-    }
-
-    #[test]
-    fn pragmatic_selects_nvidia_drm_over_nouveau() {
-        let pref = DriverPreference::pragmatic();
-        assert_eq!(
-            pref.select(&["nouveau", "nvidia-drm"]),
-            Some("nvidia-drm"),
-            "pragmatic picks nvidia-drm before nouveau"
-        );
-    }
-
-    #[test]
-    fn from_str_list_parses_comma_separated() {
-        let pref = DriverPreference::from_str_list("nvidia-drm, amdgpu");
-        assert_eq!(pref.order(), &["nvidia-drm", "amdgpu"]);
-    }
-
-    #[test]
-    fn from_str_list_handles_empty_segments() {
-        let pref = DriverPreference::from_str_list("nouveau,,amdgpu,");
-        assert_eq!(pref.order(), &["nouveau", "amdgpu"]);
-    }
-
-    #[test]
-    fn from_str_list_single_driver() {
-        let pref = DriverPreference::from_str_list("amdgpu");
-        assert_eq!(pref.order(), &["amdgpu"]);
-        assert_eq!(pref.select(&["amdgpu", "nvidia-drm"]), Some("amdgpu"));
-        assert_eq!(pref.select(&["nvidia-drm"]), None);
-    }
-
-    #[test]
-    fn from_env_falls_back_to_sovereign() {
-        // Don't modify env vars (unsafe in 2024+ edition).
-        // Instead, verify that from_env returns sovereign-compatible
-        // ordering when the env var is not set to something specific.
-        let pref = DriverPreference::from_env();
-        assert!(
-            !pref.order().is_empty(),
-            "preference should have at least one driver"
-        );
-    }
-
-    #[test]
-    fn driver_preference_debug_format() {
-        let pref = DriverPreference::sovereign();
-        let debug = format!("{pref:?}");
-        assert!(debug.contains("nouveau"));
-    }
-
-    #[test]
-    fn driver_preference_clone() {
-        let pref = DriverPreference::sovereign();
-        let cloned = pref.clone();
-        assert_eq!(pref.order(), cloned.order());
-    }
-}
+mod tests;

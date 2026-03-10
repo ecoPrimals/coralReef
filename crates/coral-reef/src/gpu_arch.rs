@@ -67,6 +67,35 @@ impl GpuTarget {
             _ => None,
         }
     }
+
+    /// Whether this target has native f64 instructions.
+    #[must_use]
+    pub const fn has_native_f64(&self) -> bool {
+        match self {
+            Self::Nvidia(_nv) => true,
+            Self::Amd(amd) => amd.has_native_f64(),
+            Self::Intel(_) => false,
+        }
+    }
+
+    /// Whether this target has fast f64 throughput (1:2 vs f32).
+    #[must_use]
+    pub const fn has_fast_fp64(&self) -> bool {
+        match self {
+            Self::Nvidia(nv) => nv.has_fast_fp64(),
+            Self::Amd(_) | Self::Intel(_) => false,
+        }
+    }
+
+    /// Native f64 rate relative to f32 (denominator: 1/N of f32 rate).
+    #[must_use]
+    pub const fn f64_rate_divisor(&self) -> u32 {
+        match self {
+            Self::Nvidia(nv) => nv.f64_rate_divisor(),
+            Self::Amd(amd) => amd.f64_rate_divisor(),
+            Self::Intel(_) => 0,
+        }
+    }
 }
 
 impl std::fmt::Display for GpuTarget {
@@ -170,6 +199,12 @@ impl NvArch {
     #[must_use]
     pub const fn has_fast_fp64(self) -> bool {
         matches!(self, Self::Sm70 | Self::Sm80)
+    }
+
+    /// Native f64 rate relative to f32 (denominator: 1/N of f32 rate).
+    #[must_use]
+    pub const fn f64_rate_divisor(self) -> u32 {
+        if self.has_fast_fp64() { 2 } else { 32 }
     }
 
     /// Hardware f64 transcendental seed availability (rcp64h / rsq64h).

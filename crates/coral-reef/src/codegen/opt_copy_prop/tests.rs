@@ -50,6 +50,7 @@ fn make_shader_with_function(instrs: Vec<Instr>, ssa_alloc: SSAValueAllocator) -
             io: ShaderIoInfo::None,
         },
         functions: vec![function],
+        fma_policy: crate::FmaPolicy::default(),
     }
 }
 

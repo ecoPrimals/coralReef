@@ -78,8 +78,8 @@ const fn nv_ioctl_rw(nr: u32, size: usize) -> u64 {
 
 // ── UVM ioctls (/dev/nvidia-uvm) ────────────────────────────────────
 
-/// UVM ioctl base (from uvm_linux_ioctl.h).
-const UVM_IOCTL_BASE: u32 = 0x30000000;
+/// UVM ioctl base (from `uvm_linux_ioctl.h`).
+const UVM_IOCTL_BASE: u32 = 0x3000_0000;
 
 /// Initialize the UVM context for a file descriptor.
 pub const UVM_INITIALIZE: u32 = UVM_IOCTL_BASE | 0x0001;
@@ -102,24 +102,24 @@ pub const UVM_MAP_EXTERNAL_ALLOCATION: u32 = UVM_IOCTL_BASE | 0x0013;
 /// Free a UVM allocation.
 pub const UVM_FREE: u32 = UVM_IOCTL_BASE | 0x0003;
 
-/// UVM status codes (NV_STATUS).
+/// UVM status codes (`NV_STATUS`).
 pub const NV_OK: u32 = 0x0000_0000;
 
 // ── RM allocation classes ───────────────────────────────────────────
 
-/// NV01_ROOT — RM root client object.
+/// `NV01_ROOT` — RM root client object.
 pub const NV01_ROOT: u32 = 0x0000_0000;
 
-/// NV01_DEVICE_0 — GPU device object.
+/// `NV01_DEVICE_0` — GPU device object.
 pub const NV01_DEVICE_0: u32 = 0x0000_0080;
 
-/// NV20_SUBDEVICE_0 — subdevice for GPU control.
+/// `NV20_SUBDEVICE_0` — subdevice for GPU control.
 pub const NV20_SUBDEVICE_0: u32 = 0x0000_2080;
 
-/// VOLTA_COMPUTE_A — Volta+ compute channel class.
+/// `VOLTA_COMPUTE_A` — Volta+ compute channel class.
 pub const VOLTA_COMPUTE_A: u32 = 0x0000_C3C0;
 
-/// AMPERE_COMPUTE_A — Ampere+ compute channel class.
+/// `AMPERE_COMPUTE_A` — Ampere+ compute channel class.
 pub const AMPERE_COMPUTE_A: u32 = 0x0000_C6C0;
 
 // ── Ioctl argument structures ───────────────────────────────────────
@@ -176,6 +176,10 @@ pub struct NvCtlDevice {
 
 impl NvCtlDevice {
     /// Open the NVIDIA control device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::DeviceNotFound`] if `/dev/nvidiactl` cannot be opened.
     pub fn open() -> DriverResult<Self> {
         let path = Path::new("/dev/nvidiactl");
         let file = OpenOptions::new()
@@ -189,6 +193,7 @@ impl NvCtlDevice {
     }
 
     /// Raw file descriptor for ioctl.
+    #[must_use]
     pub fn fd(&self) -> RawFd {
         self.file.as_raw_fd()
     }
@@ -201,6 +206,10 @@ pub struct NvUvmDevice {
 
 impl NvUvmDevice {
     /// Open the NVIDIA UVM device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::DeviceNotFound`] if `/dev/nvidia-uvm` cannot be opened.
     pub fn open() -> DriverResult<Self> {
         let path = Path::new("/dev/nvidia-uvm");
         let file = OpenOptions::new()
@@ -214,17 +223,25 @@ impl NvUvmDevice {
     }
 
     /// Raw file descriptor for ioctl.
+    #[must_use]
     pub fn fd(&self) -> RawFd {
         self.file.as_raw_fd()
     }
 
     /// Initialize the UVM context on this file descriptor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the `UVM_INITIALIZE` ioctl fails or
+    /// returns a non-OK status.
     pub fn initialize(&self) -> DriverResult<()> {
         let mut params = UvmInitializeParams::default();
+        // SAFETY: UvmInitializeParams is #[repr(C)] matching kernel's UVM_INITIALIZE
+        // ioctl struct. Stack-allocated, synchronous ioctl.
         unsafe {
             crate::drm::drm_ioctl_named(
                 self.fd(),
-                UVM_INITIALIZE as u64,
+                u64::from(UVM_INITIALIZE),
                 &mut params,
                 "UVM_INITIALIZE",
             )?;
@@ -246,6 +263,10 @@ pub struct NvGpuDevice {
 
 impl NvGpuDevice {
     /// Open a specific NVIDIA GPU device node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError::DeviceNotFound`] if the device node cannot be opened.
     pub fn open(index: u32) -> DriverResult<Self> {
         let path = format!("/dev/nvidia{index}");
         let file = OpenOptions::new()
@@ -253,26 +274,27 @@ impl NvGpuDevice {
             .write(true)
             .open(&path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(
-                    format!("cannot open /dev/nvidia{index}: {e}").into(),
-                )
+                DriverError::DeviceNotFound(format!("cannot open /dev/nvidia{index}: {e}").into())
             })?;
         Ok(Self { file, index })
     }
 
     /// Raw file descriptor for ioctl.
+    #[must_use]
     pub fn fd(&self) -> RawFd {
         self.file.as_raw_fd()
     }
 
     /// GPU device index.
-    pub fn index(&self) -> u32 {
+    #[must_use]
+    pub const fn index(&self) -> u32 {
         self.index
     }
 }
 
 /// Probe whether the proprietary NVIDIA driver is loaded by checking
 /// for the existence of UVM and control device nodes.
+#[must_use]
 pub fn nvidia_uvm_available() -> bool {
     Path::new("/dev/nvidia-uvm").exists() && Path::new("/dev/nvidiactl").exists()
 }

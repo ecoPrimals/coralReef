@@ -23,7 +23,6 @@ mod inner {
 
     #[derive(Deserialize)]
     struct JsonRpcRequest {
-        #[allow(dead_code)]
         jsonrpc: String,
         method: String,
         #[serde(default)]
@@ -168,8 +167,19 @@ mod inner {
                                         }
                                         let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
                                             Ok(req) => {
-                                                let result = dispatch(&req.method, &req.params);
-                                                make_response(req.id, result)
+                                                if req.jsonrpc == "2.0" {
+                                                    let result =
+                                                        dispatch(&req.method, &req.params);
+                                                    make_response(req.id, result)
+                                                } else {
+                                                    make_response(
+                                                        req.id,
+                                                        Err(format!(
+                                                            "invalid jsonrpc version: {}",
+                                                            req.jsonrpc
+                                                        )),
+                                                    )
+                                                }
                                             }
                                             Err(e) => {
                                                 make_response(

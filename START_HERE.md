@@ -32,7 +32,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 1285 passing, 0 failed, 60 ignored
+cargo test --workspace     # 1401 passing, 0 failed, 62 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -65,7 +65,7 @@ coralReef/
 │   │           └── pipeline.rs    Full compilation pipeline
 │   ├── coral-driver/            Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
-│   │       ├── drm.rs           Pure Rust DRM interface (via libc)
+│   │       ├── drm.rs           Pure Rust DRM interface (inline asm syscalls)
 │   │       ├── amd/             amdgpu: GEM, PM4, command submission, fence
 │   │       └── nv/              nouveau: channel, GEM, QMD, pushbuf submit
 │   ├── coral-gpu/               Unified GPU compute abstraction

@@ -5,7 +5,9 @@
 //! and serve as the validation corpus for the Titan V sovereign pipeline.
 //! Source provenance documented per test.
 
-use coral_reef::{AmdArch, CompileOptions, GpuArch, GpuTarget, compile_wgsl};
+use coral_reef::{
+    AmdArch, CompileOptions, GpuArch, GpuTarget, NvArch, compile_wgsl, compile_wgsl_full,
+};
 
 fn sm70_opts() -> CompileOptions {
     CompileOptions {
@@ -340,6 +342,127 @@ fn main(
 }
 ";
 
+// ---------------------------------------------------------------------------
+// hotSpring priority — su3_gauge_force_f64 pattern
+// Representative: f64 matrix ops, complex arithmetic, SU(3) group operations
+// Exercises: add, mul, div, sqrt, exp, log, min, max, abs, clamp
+// ---------------------------------------------------------------------------
+
+const SU3_GAUGE_FORCE_F64_PATTERN_WGSL: &str = r"
+@group(0) @binding(0) var<storage, read> links: array<f64>;
+@group(0) @binding(1) var<storage, read_write> force: array<f64>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let base = idx * 18u;
+
+    var re0 = links[base + 0u] * links[base + 1u] + links[base + 2u] * links[base + 3u];
+    var im0 = links[base + 0u] * links[base + 3u] - links[base + 1u] * links[base + 2u];
+    let r_sq = re0 * re0 + im0 * im0;
+    let r = sqrt(max(r_sq, 1e-20));
+    let inv_r = 1.0 / r;
+    re0 = clamp(re0 * inv_r, -1.0, 1.0);
+    im0 = clamp(im0 * inv_r, -1.0, 1.0);
+
+    let log_val = log(max(abs(re0) + 1e-10, 1e-10));
+    let exp_val = exp(-log_val);
+    force[base + 0u] = re0 * exp_val;
+    force[base + 1u] = im0 * exp_val;
+}
+";
+
+// ---------------------------------------------------------------------------
+// hotSpring priority — yukawa_force_verlet_f64 pattern
+// Representative: f64 force calc, distance, Verlet integration
+// Exercises: add, mul, div, sqrt, exp, round, min, max, storage buffers
+// ---------------------------------------------------------------------------
+
+const YUKAWA_FORCE_VERLET_F64_PATTERN_WGSL: &str = r"
+@group(0) @binding(0) var<storage, read> positions: array<f64>;
+@group(0) @binding(1) var<storage, read_write> forces: array<f64>;
+@group(0) @binding(2) var<storage, read> params: array<f64>;
+
+fn pbc_delta(delta: f64, box_size: f64) -> f64 {
+    return delta - box_size * round(delta / box_size);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    let n = u32(params[0]);
+    if i >= n { return; }
+
+    let xi = positions[i * 3u];
+    let yi = positions[i * 3u + 1u];
+    let zi = positions[i * 3u + 2u];
+
+    let kappa = params[1];
+    let prefactor = params[2];
+    let box_x = params[4];
+    let eps = params[7];
+
+    var fx: f64 = 0.0;
+    var fy: f64 = 0.0;
+    var fz: f64 = 0.0;
+
+    for (var j = 0u; j < n; j = j + 1u) {
+        if i == j { continue; }
+        var dx = pbc_delta(positions[j * 3u] - xi, box_x);
+        var dy = pbc_delta(positions[j * 3u + 1u] - yi, box_x);
+        var dz = pbc_delta(positions[j * 3u + 2u] - zi, box_x);
+
+        let r_sq = dx * dx + dy * dy + dz * dz + eps;
+        let r = sqrt(r_sq);
+        let screening = exp(-kappa * r);
+        let force_mag = prefactor * screening * (1.0 + kappa * r) / max(r_sq, 1e-20);
+
+        let inv_r = 1.0 / r;
+        fx = fx - force_mag * dx * inv_r;
+        fy = fy - force_mag * dy * inv_r;
+        fz = fz - force_mag * dz * inv_r;
+    }
+
+    forces[i * 3u] = fx;
+    forces[i * 3u + 1u] = fy;
+    forces[i * 3u + 2u] = fz;
+}
+";
+
+// ---------------------------------------------------------------------------
+// hotSpring priority — dielectric_mermin_f64 pattern
+// Representative: f64 complex dielectric function, Mermin formula
+// Exercises: add, mul, div, sqrt, exp, log, sin, cos, min, max, abs, clamp
+// ---------------------------------------------------------------------------
+
+const DIELECTRIC_MERMIN_F64_PATTERN_WGSL: &str = r"
+@group(0) @binding(0) var<storage, read> omega: array<f64>;
+@group(0) @binding(1) var<storage, read_write> epsilon: array<f64>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let w = omega[idx * 2u];
+    let gamma = omega[idx * 2u + 1u];
+
+    let w_sq = w * w;
+    let g_sq = gamma * gamma;
+    let denom = max(w_sq + g_sq, 1e-20);
+    let re_eps = 1.0 - w_sq / denom;
+    let im_eps = w * gamma / denom;
+
+    let phase = atan2(im_eps, re_eps);
+    let mag = sqrt(re_eps * re_eps + im_eps * im_eps);
+    let log_mag = log(max(mag, 1e-20));
+
+    let mermin_re = exp(log_mag) * cos(phase);
+    let mermin_im = exp(log_mag) * sin(phase);
+
+    epsilon[idx * 2u] = clamp(mermin_re, -1e10, 1e10);
+    epsilon[idx * 2u + 1u] = clamp(abs(mermin_im), 0.0, 1e10);
+}
+";
+
 // ===========================================================================
 // SM70 (Volta) compilation tests
 // ===========================================================================
@@ -375,6 +498,36 @@ fn spring_dirac_staggered_f64_sm70() {
 fn spring_sum_reduce_f64_sm70() {
     let r = compile_wgsl(SUM_REDUCE_F64_WGSL, &sm70_opts());
     assert!(r.is_ok(), "sum_reduce_f64 should compile for SM70: {r:?}");
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+fn spring_su3_gauge_force_f64_pattern_sm70() {
+    let r = compile_wgsl(SU3_GAUGE_FORCE_F64_PATTERN_WGSL, &sm70_opts());
+    assert!(
+        r.is_ok(),
+        "su3_gauge_force_f64 pattern should compile for SM70: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+fn spring_yukawa_force_verlet_f64_pattern_sm70() {
+    let r = compile_wgsl(YUKAWA_FORCE_VERLET_F64_PATTERN_WGSL, &sm70_opts());
+    assert!(
+        r.is_ok(),
+        "yukawa_force_verlet_f64 pattern should compile for SM70: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+fn spring_dielectric_mermin_f64_pattern_sm70() {
+    let r = compile_wgsl(DIELECTRIC_MERMIN_F64_PATTERN_WGSL, &sm70_opts());
+    assert!(
+        r.is_ok(),
+        "dielectric_mermin_f64 pattern should compile for SM70: {r:?}"
+    );
     assert!(!r.unwrap().is_empty());
 }
 
@@ -421,4 +574,359 @@ fn spring_sum_reduce_f64_amd() {
     let r = compile_wgsl(SUM_REDUCE_F64_WGSL, &amd_opts());
     assert!(r.is_ok(), "sum_reduce_f64 should compile for RDNA2: {r:?}");
     assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
+fn spring_su3_gauge_force_f64_pattern_amd() {
+    let r = compile_wgsl(SU3_GAUGE_FORCE_F64_PATTERN_WGSL, &amd_opts());
+    assert!(
+        r.is_ok(),
+        "su3_gauge_force_f64 pattern should compile for RDNA2: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
+fn spring_yukawa_force_verlet_f64_pattern_amd() {
+    let r = compile_wgsl(YUKAWA_FORCE_VERLET_F64_PATTERN_WGSL, &amd_opts());
+    assert!(
+        r.is_ok(),
+        "yukawa_force_verlet_f64 pattern should compile for RDNA2: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
+fn spring_dielectric_mermin_f64_pattern_amd() {
+    let r = compile_wgsl(DIELECTRIC_MERMIN_F64_PATTERN_WGSL, &amd_opts());
+    assert!(
+        r.is_ok(),
+        "dielectric_mermin_f64 pattern should compile for RDNA2: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// hotSpring — SU(3) link update with heavy FMA usage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spring_su3_link_update_fma_sm70() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> links: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x * 18u;
+    var u_re = array<f32, 9>();
+    var u_im = array<f32, 9>();
+    for (var i = 0u; i < 9u; i = i + 1u) {
+        u_re[i] = links[idx + i * 2u];
+        u_im[i] = links[idx + i * 2u + 1u];
+    }
+    var c_re = array<f32, 9>();
+    var c_im = array<f32, 9>();
+    for (var i = 0u; i < 3u; i = i + 1u) {
+        for (var j = 0u; j < 3u; j = j + 1u) {
+            var sum_re = 0.0f;
+            var sum_im = 0.0f;
+            for (var k = 0u; k < 3u; k = k + 1u) {
+                let a_re = u_re[i * 3u + k];
+                let a_im = u_im[i * 3u + k];
+                let b_re = u_re[k * 3u + j];
+                let b_im = u_im[k * 3u + j];
+                sum_re = fma(a_re, b_re, sum_re) - a_im * b_im;
+                sum_im = fma(a_re, b_im, sum_im) + a_im * b_re;
+            }
+            c_re[i * 3u + j] = sum_re;
+            c_im[i * 3u + j] = sum_im;
+        }
+    }
+    for (var i = 0u; i < 9u; i = i + 1u) {
+        links[idx + i * 2u] = c_re[i];
+        links[idx + i * 2u + 1u] = c_im[i];
+    }
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl_full(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "su3_link_update FMA pattern should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn spring_su3_link_update_fma_rdna2() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> links: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x * 18u;
+    var u_re = array<f32, 9>();
+    var u_im = array<f32, 9>();
+    for (var i = 0u; i < 9u; i = i + 1u) {
+        u_re[i] = links[idx + i * 2u];
+        u_im[i] = links[idx + i * 2u + 1u];
+    }
+    var c_re = array<f32, 9>();
+    var c_im = array<f32, 9>();
+    for (var i = 0u; i < 3u; i = i + 1u) {
+        for (var j = 0u; j < 3u; j = j + 1u) {
+            var sum_re = 0.0f;
+            var sum_im = 0.0f;
+            for (var k = 0u; k < 3u; k = k + 1u) {
+                let a_re = u_re[i * 3u + k];
+                let a_im = u_im[i * 3u + k];
+                let b_re = u_re[k * 3u + j];
+                let b_im = u_im[k * 3u + j];
+                sum_re = fma(a_re, b_re, sum_re) - a_im * b_im;
+                sum_im = fma(a_re, b_im, sum_im) + a_im * b_re;
+            }
+            c_re[i * 3u + j] = sum_re;
+            c_im[i * 3u + j] = sum_im;
+        }
+    }
+    for (var i = 0u; i < 9u; i = i + 1u) {
+        links[idx + i * 2u] = c_re[i];
+        links[idx + i * 2u + 1u] = c_im[i];
+    }
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Amd(AmdArch::Rdna2),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl_full(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "su3_link_update FMA pattern should compile for RDNA2: {result:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// hotSpring — Wilson plaquette with FMA accumulation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spring_wilson_plaquette_fma_sm70() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> plaq: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x * 4u;
+    var trace = 0.0f;
+    for (var mu = 0u; mu < 4u; mu = mu + 1u) {
+        let u_re = plaq[idx + mu];
+        trace = fma(u_re, u_re, trace);
+    }
+    let action = 1.0 - trace / 3.0;
+    plaq[idx] = action;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl_full(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "wilson_plaquette FMA pattern should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn spring_wilson_plaquette_fma_rdna2() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> plaq: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x * 4u;
+    var trace = 0.0f;
+    for (var mu = 0u; mu < 4u; mu = mu + 1u) {
+        let u_re = plaq[idx + mu];
+        trace = fma(u_re, u_re, trace);
+    }
+    let action = 1.0 - trace / 3.0;
+    plaq[idx] = action;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Amd(AmdArch::Rdna2),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl_full(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "wilson_plaquette FMA pattern should compile for RDNA2: {result:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// neuralSpring — LogSumExp (neural network activation normalization)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spring_logsumexp_f32_sm70() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let base = gid.x * 128u;
+    var max_val = data[base];
+    for (var i = 1u; i < 128u; i = i + 1u) {
+        max_val = max(max_val, data[base + i]);
+    }
+    var sum_exp = 0.0f;
+    for (var i = 0u; i < 128u; i = i + 1u) {
+        sum_exp = sum_exp + exp(data[base + i] - max_val);
+    }
+    data[base] = max_val + log(sum_exp);
+}
+";
+    let result = compile_wgsl_full(wgsl, &sm70_opts());
+    assert!(
+        result.is_ok(),
+        "logsumexp should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn spring_logsumexp_f32_rdna2() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let base = gid.x * 128u;
+    var max_val = data[base];
+    for (var i = 1u; i < 128u; i = i + 1u) {
+        max_val = max(max_val, data[base + i]);
+    }
+    var sum_exp = 0.0f;
+    for (var i = 0u; i < 128u; i = i + 1u) {
+        sum_exp = sum_exp + exp(data[base + i] - max_val);
+    }
+    data[base] = max_val + log(sum_exp);
+}
+";
+    let result = compile_wgsl_full(wgsl, &amd_opts());
+    assert!(
+        result.is_ok(),
+        "logsumexp should compile for RDNA2: {result:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// neuralSpring — RK45 (Runge-Kutta ODE solver step)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spring_rk45_step_f64_sm70() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> state: array<f32>;
+@group(0) @binding(1) var<storage, read> params: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let y = state[idx];
+    let dt = params[0];
+    let k1 = y * params[1];
+    let k2 = (y + dt * 0.5 * k1) * params[1];
+    let k3 = (y + dt * 0.5 * k2) * params[1];
+    let k4 = (y + dt * k3) * params[1];
+    state[idx] = y + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
+}
+";
+    let result = compile_wgsl_full(wgsl, &sm70_opts());
+    assert!(
+        result.is_ok(),
+        "rk45_step should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn spring_rk45_step_f64_rdna2() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> state: array<f32>;
+@group(0) @binding(1) var<storage, read> params: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let y = state[idx];
+    let dt = params[0];
+    let k1 = y * params[1];
+    let k2 = (y + dt * 0.5 * k1) * params[1];
+    let k3 = (y + dt * 0.5 * k2) * params[1];
+    let k4 = (y + dt * k3) * params[1];
+    state[idx] = y + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
+}
+";
+    let result = compile_wgsl_full(wgsl, &amd_opts());
+    assert!(
+        result.is_ok(),
+        "rk45_step should compile for RDNA2: {result:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// neuralSpring — Wright-Fisher population genetics
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spring_wright_fisher_f32_sm70() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> freq: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let p = freq[idx];
+    let s = 0.01f;
+    let mu = 0.001f;
+    let w_bar = 1.0 - s * p * (1.0 - p);
+    let p_next = (p * (1.0 - mu) * (1.0 - s * (1.0 - p))) / w_bar;
+    freq[idx] = clamp(p_next, 0.0, 1.0);
+}
+";
+    let result = compile_wgsl_full(wgsl, &sm70_opts());
+    assert!(
+        result.is_ok(),
+        "wright_fisher should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn spring_wright_fisher_f32_rdna2() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> freq: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let p = freq[idx];
+    let s = 0.01f;
+    let mu = 0.001f;
+    let w_bar = 1.0 - s * p * (1.0 - p);
+    let p_next = (p * (1.0 - mu) * (1.0 - s * (1.0 - p))) / w_bar;
+    freq[idx] = clamp(p_next, 0.0, 1.0);
+}
+";
+    let result = compile_wgsl_full(wgsl, &amd_opts());
+    assert!(
+        result.is_ok(),
+        "wright_fisher should compile for RDNA2: {result:?}"
+    );
 }

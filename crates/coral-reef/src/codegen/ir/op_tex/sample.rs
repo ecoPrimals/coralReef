@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_op_tex_display() {
         let op = make_op_tex(false, false, MemEvictionPriority::Normal);
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("tex"));
         assert!(s.contains(".2d"));
         assert!(s.contains("tex[0]"));
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_op_tex_display_z_cmpr_nodep() {
         let op = make_op_tex(true, true, MemEvictionPriority::First);
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".dc"));
         assert!(s.contains(".nodep"));
         assert!(s.contains(".ef"));
@@ -289,7 +289,7 @@ mod tests {
             nodep: true,
             channel_mask: ChannelMask::for_comps(2),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("tld"));
         assert!(s.contains(".3d"));
         assert!(s.contains(".ms"));
@@ -318,7 +318,7 @@ mod tests {
             nodep: false,
             channel_mask: ChannelMask::for_comps(1),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("tld4"));
         assert!(s.contains(".g"));
         assert!(s.contains(".2d"));
@@ -339,7 +339,7 @@ mod tests {
             nodep: false,
             channel_mask: ChannelMask::for_comps(3),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("tmml"));
         assert!(s.contains(".lod"));
         assert!(s.contains(".cube"));
@@ -361,7 +361,7 @@ mod tests {
             nodep: true,
             channel_mask: ChannelMask::for_comps(4),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("txd"));
         assert!(s.contains(".a2d"));
         assert!(s.contains(".na"));
@@ -378,7 +378,7 @@ mod tests {
             nodep: false,
             channel_mask: ChannelMask::for_comps(4),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("txq"));
         assert!(s.contains("dimension"));
     }
@@ -393,7 +393,7 @@ mod tests {
             nodep: true,
             channel_mask: ChannelMask::for_comps(1),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".nodep"));
         assert!(s.contains("texture_type"));
     }

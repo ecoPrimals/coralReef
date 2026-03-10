@@ -603,6 +603,7 @@ mod tests {
             bo_list_handle: 0xCAFE,
             ..Default::default()
         };
+        // SAFETY: AmdgpuCsIn is #[repr(C)] and >= 4 bytes; ctx_id is at offset 0.
         let out: u32 = unsafe { read_ioctl_output(&cs) };
         assert_eq!(out, 0xDEAD_BEEF);
     }

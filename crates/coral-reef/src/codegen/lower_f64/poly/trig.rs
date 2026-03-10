@@ -386,10 +386,7 @@ mod tests {
         let expected = x.sin();
         assert!(
             (result - expected).abs() < 1e-10,
-            "sin poly at {}: got {}, expected {}",
-            x,
-            result,
-            expected
+            "sin poly at {x}: got {result}, expected {expected}"
         );
     }
 

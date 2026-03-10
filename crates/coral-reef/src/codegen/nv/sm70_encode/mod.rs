@@ -174,6 +174,7 @@ mod tests {
                 io: ShaderIoInfo::None,
             },
             functions: vec![function],
+            fma_policy: crate::FmaPolicy::default(),
         };
         let encoded = encode_sm70_shader(&sm, &shader);
         assert!(!encoded.is_empty(), "minimal shader should produce binary");

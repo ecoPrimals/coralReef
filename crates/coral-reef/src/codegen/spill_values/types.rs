@@ -618,7 +618,6 @@ mod tests {
         let mut chooser = SpillChooser::new(bl, &pinned, 0, 1);
         chooser.add_candidate(a);
         chooser.add_candidate(b);
-        let spills: Vec<_> = chooser.into_iter().collect();
-        assert!(!spills.is_empty());
+        assert!(chooser.into_iter().next().is_some());
     }
 }

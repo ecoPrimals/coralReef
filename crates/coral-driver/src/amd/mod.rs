@@ -61,7 +61,7 @@ impl AmdDevice {
         })
     }
 
-    fn alloc_handle(&mut self) -> u32 {
+    const fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h

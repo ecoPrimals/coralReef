@@ -304,4 +304,52 @@ mod tests {
         let reg_count = (q[7] >> 16) & 0xFF;
         assert_eq!(reg_count, 255);
     }
+
+    #[test]
+    fn qmd_cbuf_index_above_max_ignored() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.cbufs.push(CbufBinding {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test value deliberately exceeds max"
+            )]
+            index: MAX_CBUFS as u32,
+            addr: 0xDEAD_BEEF,
+            size: 4096,
+        });
+        let q = build_qmd_v21(&params);
+        assert_eq!(q[20] & 0xFF, 0, "index 8 should not set valid bit");
+    }
+
+    #[test]
+    fn qmd_cbuf_index_7_valid() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.cbufs.push(CbufBinding {
+            index: 7,
+            addr: 0x7_0000_0000,
+            size: 1024,
+        });
+        let q = build_qmd_v21(&params);
+        assert_eq!(q[20] & 0xFF, 1 << 7);
+        assert_eq!(q[38 + 7], 1024 >> 4);
+    }
+
+    #[test]
+    fn qmd_simple_workgroup_default() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 16);
+        assert_eq!(params.workgroup, [64, 1, 1]);
+    }
+
+    #[test]
+    fn qmd_v30_preserves_other_fields() {
+        let params = QmdParams::simple(0x1_0000_0000, DispatchDims::new(8, 4, 2), 64);
+        let q21 = build_qmd_v21(&params);
+        let q30 = build_qmd_v30(&params);
+        assert_eq!(q21[1], q30[1]);
+        assert_eq!(q21[2], q30[2]);
+        assert_eq!(q21[3], q30[3]);
+        assert_eq!(q21[17], q30[17]);
+        assert_eq!(q21[18], q30[18]);
+        assert_ne!(q21[0] & 0xFF, q30[0] & 0xFF);
+    }
 }

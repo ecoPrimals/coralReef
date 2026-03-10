@@ -38,7 +38,7 @@ fn try_compile_for_rdna2(
         opt_level: 2,
         debug_info: false,
         fp64_software: false,
-        fma_policy: coral_reef::FmaPolicy::AllowFusion,
+        fma_policy: coral_reef::FmaPolicy::Fused,
         ..Default::default()
     };
     coral_reef::compile_wgsl_full(wgsl, &opts)
@@ -329,7 +329,7 @@ fn compute_add_dual_buffer_verifies() {
     let a_buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc a");
     let out_buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc out");
 
-    let input_val: f32 = 3.14;
+    let input_val: f32 = std::f32::consts::PI;
     dev.upload(a_buf, 0, &input_val.to_le_bytes())
         .expect("upload a");
     dev.upload(out_buf, 0, &[0u8; 4]).expect("zero out");

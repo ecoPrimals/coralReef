@@ -93,7 +93,8 @@ impl SM70Encoder<'_> {
             SrcRef::Zero => self.set_reg(range, self.zero_reg(RegFile::GPR)),
             SrcRef::Reg(reg) => self.set_reg(range, reg),
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                panic!("Not a register")
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
             }
         }
     }
@@ -104,7 +105,8 @@ impl SM70Encoder<'_> {
             SrcRef::Zero => self.set_ureg(range, self.zero_reg(RegFile::UGPR)),
             SrcRef::Reg(reg) => self.set_ureg(range, reg),
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                panic!("Not a register")
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
             }
         }
     }
@@ -113,7 +115,10 @@ impl SM70Encoder<'_> {
         match dst {
             Dst::None => self.set_pred_reg(range, self.true_reg(RegFile::Pred)),
             Dst::Reg(reg) => self.set_pred_reg(range, *reg),
-            Dst::SSA(_) => panic!("Not a register"),
+            Dst::SSA(_) => {
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
+            }
         }
     }
 
@@ -131,7 +136,10 @@ impl SM70Encoder<'_> {
                 assert!(reg.file() == file);
                 (false, reg)
             }
-            _ => panic!("Not a register"),
+            _ => {
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
+            }
         };
         self.set_pred_reg(range, reg);
         self.set_bit(not_bit, not ^ src_mod_is_bnot(src.modifier));
@@ -154,7 +162,10 @@ impl SM70Encoder<'_> {
                 assert!(reg.file() == file);
                 (false, reg)
             }
-            _ => panic!("Not a register"),
+            _ => {
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
+            }
         };
 
         assert!(range.len() == 3);
@@ -181,7 +192,10 @@ impl SM70Encoder<'_> {
                 v.set_field(0..6, reg.base_idx());
                 self.set_bit(cx_bit, true);
             }
-            CBuf::BindlessSSA(_) => panic!("SSA values must be lowered"),
+            CBuf::BindlessSSA(_) => {
+                debug_assert!(false, "SSA values must be lowered before encode");
+                unreachable!("SSA values must be lowered")
+            }
         }
     }
 
@@ -192,7 +206,10 @@ impl SM70Encoder<'_> {
             match pred.predicate {
                 PredRef::None => self.true_reg(RegFile::Pred),
                 PredRef::Reg(reg) => reg,
-                PredRef::SSA(_) => panic!("SSA values must be lowered"),
+                PredRef::SSA(_) => {
+                    debug_assert!(false, "SSA values must be lowered before encode");
+                    unreachable!("SSA values must be lowered")
+                }
             },
         );
         self.set_bit(15, pred.inverted);
@@ -202,7 +219,10 @@ impl SM70Encoder<'_> {
         match dst {
             Dst::None => self.set_reg(16..24, self.zero_reg(RegFile::GPR)),
             Dst::Reg(reg) => self.set_reg(16..24, *reg),
-            Dst::SSA(_) => panic!("Not a register"),
+            Dst::SSA(_) => {
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
+            }
         }
     }
 
@@ -210,7 +230,10 @@ impl SM70Encoder<'_> {
         match dst {
             Dst::None => self.set_ureg(16..24, self.zero_reg(RegFile::UGPR)),
             Dst::Reg(reg) => self.set_ureg(16..24, *reg),
-            Dst::SSA(_) => panic!("Not a register"),
+            Dst::SSA(_) => {
+                debug_assert!(false, "Not a register - SSA must be lowered before encode");
+                unreachable!("Not a register")
+            }
         }
     }
 
@@ -222,17 +245,17 @@ impl SM70Encoder<'_> {
     }
 
     pub(super) fn set_bar_dst(&mut self, range: Range<usize>, dst: &Dst) {
-        self.set_bar_reg(range, *dst.as_reg().expect("barrier dst must be register"));
+        debug_assert!(dst.as_reg().is_some(), "barrier dst must be register");
+        self.set_bar_reg(range, *dst.as_reg().unwrap());
     }
 
     pub(super) fn set_bar_src(&mut self, range: Range<usize>, src: &Src) {
         assert!(src.is_unmodified());
-        self.set_bar_reg(
-            range,
-            *src.reference
-                .as_reg()
-                .expect("barrier src must be register"),
+        debug_assert!(
+            src.reference.as_reg().is_some(),
+            "barrier src must be register"
         );
+        self.set_bar_reg(range, *src.reference.as_reg().unwrap());
     }
 
     pub(super) fn set_instr_deps(&mut self, deps: &InstrDeps) {

@@ -12,7 +12,7 @@ rustup update stable
 git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace            # 1285 passing, 60 ignored
+cargo test --workspace            # 1401 passing, 62 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -64,6 +64,6 @@ docs(spec): update f64 lowering strategy
 
 When implementing IPC endpoints, follow `wateringHole/SEMANTIC_METHOD_NAMING_STANDARD.md`:
 
-- Method format: `{domain}.{capability}.{operation}` (e.g. `shader.compile.spirv`, `shader.compile.status`)
+- Method format: `{domain}.{operation}` (e.g. `shader.compile`, `shader.status`)
 - JSON-RPC 2.0 as primary protocol
 - tarpc (bincode serialization) as high-performance binary channel

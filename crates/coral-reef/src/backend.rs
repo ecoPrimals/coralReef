@@ -121,10 +121,11 @@ impl Backend for AmdBackend {
         }
 
         let (shared_mem_bytes, barrier_count, local_size) = compute_info(shader);
+        let effective_gpr_count = u32::from(shader.info.gpr_count) + 2;
         Ok(CompiledBinary {
             binary,
             info: CompilationInfo {
-                gpr_count: u32::from(shader.info.gpr_count),
+                gpr_count: effective_gpr_count,
                 instr_count: shader.info.instr_count,
                 shared_mem_bytes,
                 barrier_count,

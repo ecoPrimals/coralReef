@@ -117,32 +117,64 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     /// f64 min/max via DSetP + per-component OpSel.
     ///
     /// `cmp_op` selects which operand wins: `OrdLt` → min(a, b), `OrdGt` → max(a, b).
+    /// Handles scalar f64 (2 components) and vector f64 (4, 6, or 8 components).
+    /// If an operand has 1 component (truncated), expands to (lo, 0) for defensive handling.
     pub(super) fn emit_f64_min_max(
         &mut self,
         a: SSARef,
         b: SSARef,
         cmp_op: FloatCmpOp,
     ) -> Result<SSARef, CompileError> {
-        let pred = self.alloc_ssa(RegFile::Pred);
-        self.push_instr(Instr::new(OpDSetP {
-            dst: pred.into(),
-            set_op: PredSetOp::And,
-            cmp_op,
-            srcs: [Src::from(a.clone()), Src::from(b.clone())],
-            accum: SrcRef::True.into(),
-        }));
-        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-        self.push_instr(Instr::new(OpSel {
-            dst: dst[0].into(),
-            cond: pred.into(),
-            srcs: [a[0].into(), b[0].into()],
-        }));
-        self.push_instr(Instr::new(OpSel {
-            dst: dst[1].into(),
-            cond: pred.into(),
-            srcs: [a[1].into(), b[1].into()],
-        }));
+        let a = self.ensure_f64_ssa_ref(a);
+        let b = self.ensure_f64_ssa_ref(b);
+        let n_pairs = a.comps().min(b.comps()) / 2;
+        let dst = self.alloc_ssa_vec(RegFile::GPR, n_pairs * 2);
+        for i in 0..(n_pairs as usize) {
+            let idx = i;
+            let a_lo = a[idx * 2];
+            let a_hi = a[idx * 2 + 1];
+            let b_lo = b[idx * 2];
+            let b_hi = b[idx * 2 + 1];
+            let a_pair = SSARef::new(&[a_lo, a_hi]);
+            let b_pair = SSARef::new(&[b_lo, b_hi]);
+            let pred = self.alloc_ssa(RegFile::Pred);
+            self.push_instr(Instr::new(OpDSetP {
+                dst: pred.into(),
+                set_op: PredSetOp::And,
+                cmp_op,
+                srcs: [Src::from(a_pair), Src::from(b_pair)],
+                accum: SrcRef::True.into(),
+            }));
+            self.push_instr(Instr::new(OpSel {
+                dst: dst[idx * 2].into(),
+                cond: pred.into(),
+                srcs: [a_lo.into(), b_lo.into()],
+            }));
+            self.push_instr(Instr::new(OpSel {
+                dst: dst[idx * 2 + 1].into(),
+                cond: pred.into(),
+                srcs: [a_hi.into(), b_hi.into()],
+            }));
+        }
         Ok(dst)
+    }
+
+    /// Ensure an SSARef has at least 2 components for f64 use.
+    /// If truncated to 1 component, materialize (lo, 0) as a defensive fallback.
+    pub(super) fn ensure_f64_ssa_ref(&mut self, x: SSARef) -> SSARef {
+        if x.comps() >= 2 {
+            return x;
+        }
+        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+        self.push_instr(Instr::new(OpCopy {
+            dst: dst[0].into(),
+            src: x[0].into(),
+        }));
+        self.push_instr(Instr::new(OpCopy {
+            dst: dst[1].into(),
+            src: Src::ZERO,
+        }));
+        dst
     }
 
     /// Emit SM-appropriate bitwise AND (LOP3 on SM70+, LOP2 on older).
@@ -217,7 +249,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFMul {
             dst: t2.into(),
             srcs: [t.into(), t.into()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
         }));
 
         let p0 = self.alloc_ssa(RegFile::GPR);
@@ -229,35 +264,44 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFFma {
             dst: p1.into(),
             srcs: [p0.into(), t2.into(), Src::new_imm_u32(A2.to_bits())],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
         }));
         let p2 = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFFma {
             dst: p2.into(),
             srcs: [p1.into(), t2.into(), Src::new_imm_u32(A1.to_bits())],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
         }));
         let p3 = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFFma {
             dst: p3.into(),
             srcs: [p2.into(), t2.into(), Src::new_imm_u32(A0.to_bits())],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
         }));
 
         let result = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFMul {
             dst: result.into(),
             srcs: [t.into(), p3.into()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
         }));
         result
     }
 
     /// f32 atan(x) with range reduction: |x|>1 uses atan(1/x) = π/2 - atan(x).
-    pub(super) fn emit_f32_atan(
-        &mut self,
-        x_val: SSAValue,
-    ) -> Result<SSARef, CompileError> {
+    pub(super) fn emit_f32_atan(&mut self, x_val: SSAValue) -> Result<SSARef, CompileError> {
         let pi_half: f32 = std::f32::consts::FRAC_PI_2;
         let one: f32 = 1.0;
 
@@ -265,7 +309,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFAdd {
             dst: abs_x.into(),
             srcs: [Src::ZERO, Src::from(x_val).fabs()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
 
         let is_gt_one = self.alloc_ssa(RegFile::Pred);
@@ -297,8 +343,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let adjusted = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFAdd {
             dst: adjusted.into(),
-            srcs: [Src::new_imm_u32(pi_half.to_bits()), Src::from(poly_result).fneg()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            srcs: [
+                Src::new_imm_u32(pi_half.to_bits()),
+                Src::from(poly_result).fneg(),
+            ],
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
 
         let abs_result = self.alloc_ssa(RegFile::GPR);
@@ -322,7 +373,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFAdd {
             dst: neg_result.into(),
             srcs: [Src::ZERO, Src::from(abs_result).fneg()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
 
         let dst = self.alloc_ssa(RegFile::GPR);
@@ -348,13 +401,17 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFAdd {
             dst: abs_y.into(),
             srcs: [Src::ZERO, Src::from(y_val).fabs()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
         let abs_x = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFAdd {
             dst: abs_x.into(),
             srcs: [Src::ZERO, Src::from(x_val).fabs()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
 
         let is_y_gt_x = self.alloc_ssa(RegFile::Pred);
@@ -392,7 +449,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFMul {
             dst: t.into(),
             srcs: [min_val.into(), rcp_max.into()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false, dnz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
         }));
 
         let poly_result = self.emit_f32_atan_poly(t);
@@ -400,8 +460,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let swap_adj = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpFAdd {
             dst: swap_adj.into(),
-            srcs: [Src::new_imm_u32(pi_half.to_bits()), Src::from(poly_result).fneg()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            srcs: [
+                Src::new_imm_u32(pi_half.to_bits()),
+                Src::from(poly_result).fneg(),
+            ],
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
         let r1 = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
@@ -423,7 +488,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFAdd {
             dst: pi_minus_r.into(),
             srcs: [Src::new_imm_u32(pi.to_bits()), Src::from(r1).fneg()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
         let r2 = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {
@@ -445,7 +512,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.push_instr(Instr::new(OpFAdd {
             dst: neg_r.into(),
             srcs: [Src::ZERO, Src::from(r2).fneg()],
-            saturate: false, rnd_mode: FRndMode::NearestEven, ftz: false,
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
         }));
         let dst = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpSel {

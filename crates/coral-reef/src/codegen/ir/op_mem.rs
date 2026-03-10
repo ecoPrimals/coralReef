@@ -524,7 +524,7 @@ mod tests {
             stride: OffsetStride::X1,
             access: default_mem_access(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ld"));
         assert!(s.contains("rZ"));
     }
@@ -538,7 +538,7 @@ mod tests {
             stride: OffsetStride::X4,
             access: default_mem_access(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("+0x10"));
     }
 
@@ -551,7 +551,7 @@ mod tests {
             offset: 0,
             mem_type: MemType::B32,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ldslk"));
         assert!(s.contains(".b32"));
     }
@@ -565,7 +565,7 @@ mod tests {
             stride: OffsetStride::X1,
             access: default_mem_access(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("st"));
         assert!(s.contains("0x42"));
     }
@@ -579,7 +579,7 @@ mod tests {
             offset: 0,
             mem_type: MemType::B32,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("stscul"));
     }
 
@@ -598,7 +598,7 @@ mod tests {
             mem_order: MemOrder::Constant,
             mem_eviction_priority: MemEvictionPriority::Normal,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("atom"));
         assert!(s.contains(".add"));
         assert!(s.contains(".u32"));
@@ -614,7 +614,7 @@ mod tests {
             comps: 4,
             output: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("al2p"));
         assert!(s.contains("0x10"));
     }
@@ -631,7 +631,7 @@ mod tests {
             output: true,
             phys: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ald"));
         assert!(s.contains(".o"));
     }
@@ -647,7 +647,7 @@ mod tests {
             patch: true,
             phys: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ast"));
         assert!(s.contains(".p"));
     }
@@ -661,7 +661,7 @@ mod tests {
             addr: zero_src(),
             offset: 0,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ldsm"));
         assert!(s.contains("m8n8"));
     }
@@ -676,7 +676,7 @@ mod tests {
             inv_w: zero_src(),
             offset: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ipa"));
         assert!(s.contains(".pass"));
         assert!(s.contains("0x50"));
@@ -689,7 +689,7 @@ mod tests {
             addr: 0x40,
             use_c: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ldtram"));
         assert!(s.contains(".c"));
     }

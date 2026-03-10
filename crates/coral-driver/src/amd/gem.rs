@@ -183,4 +183,41 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("out of bounds"));
     }
+
+    #[test]
+    fn write_offset_overflow_returns_error() {
+        let buf = GemBuffer {
+            gem_handle: 0,
+            size: 100,
+            gpu_va: 0,
+            domain: MemoryDomain::Vram,
+        };
+        let result = buf.write(-1, 90, &[0u8; 20]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn read_offset_overflow_returns_error() {
+        let buf = GemBuffer {
+            gem_handle: 0,
+            size: 100,
+            gpu_va: 0,
+            domain: MemoryDomain::Vram,
+        };
+        let result = buf.read(-1, 95, 10);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn gem_buffer_domain_vram_or_gtt() {
+        let buf = GemBuffer {
+            gem_handle: 1,
+            size: 4096,
+            gpu_va: 0x1000,
+            domain: MemoryDomain::VramOrGtt,
+        };
+        assert!(matches!(buf.domain, MemoryDomain::VramOrGtt));
+    }
 }

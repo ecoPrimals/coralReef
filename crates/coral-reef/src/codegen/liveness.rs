@@ -321,19 +321,18 @@ impl SimpleLiveness {
             let order: Vec<usize> = cfg.reverse_post_order().into_iter().rev().collect();
             for &node in &order {
                 let succs = cfg.successors(node);
-                let mut output = if let Some(&first) = succs.first() {
-                    live_in[first].clone()
-                } else {
-                    BitSet::default()
-                };
-                for &succ in succs.iter().skip(1) {
+                let mut output = BitSet::default();
+                for &succ in succs {
                     output |= live_in[succ].s(..);
                 }
                 live_out[node] = output;
                 let bl = &l.blocks[node];
-                let old = live_in[node].clone();
-                live_in[node].union_with(&((live_out[node].s(..) | bl.uses.s(..)) - bl.defs.s(..)));
-                changed |= live_in[node] != old;
+                let new_live_in = (live_out[node].s(..) | bl.uses.s(..)) - bl.defs.s(..);
+                let is_changed = live_in[node] != new_live_in;
+                if is_changed {
+                    live_in[node] = new_live_in;
+                }
+                changed |= is_changed;
             }
             if !changed {
                 break;

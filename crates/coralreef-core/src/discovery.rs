@@ -44,11 +44,17 @@ pub struct GpuDeviceDescriptor {
     pub source: String,
 }
 
-/// A discovered toadStool provider with GPU capabilities.
+/// A discovered provider with GPU capabilities.
+///
+/// Supports both legacy format (`capabilities`) and Phase 10 (`provides`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DiscoveryEntry {
+    /// Legacy: capability list.
     #[serde(default)]
     capabilities: Vec<String>,
+    /// Phase 10: what this primal provides (preferred over capabilities).
+    #[serde(default)]
+    provides: Vec<String>,
     #[serde(default)]
     endpoint: Option<String>,
     #[serde(default)]
@@ -107,7 +113,12 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
         if path.extension().is_some_and(|ext| ext == "json") {
             if let Ok(contents) = std::fs::read_to_string(&path) {
                 if let Ok(discovery) = serde_json::from_str::<DiscoveryEntry>(&contents) {
-                    let has_gpu_cap = discovery.capabilities.iter().any(|c| {
+                    let caps = if discovery.provides.is_empty() {
+                        &discovery.capabilities
+                    } else {
+                        &discovery.provides
+                    };
+                    let has_gpu_cap = caps.iter().any(|c| {
                         c == "gpu.dispatch" || c.starts_with("gpu-") || c == "science.gpu.dispatch"
                     });
 
@@ -241,20 +252,20 @@ mod tests {
                     "arch": "rdna2",
                     "render_node": "/dev/dri/renderD128",
                     "driver": "amdgpu",
-                    "memory_bytes": 17179869184u64
+                    "memory_bytes": 17_179_869_184_u64
                 },
                 {
                     "vendor": "nvidia",
                     "arch": "sm86",
                     "render_node": "/dev/dri/renderD129",
                     "driver": "nvidia-drm",
-                    "memory_bytes": 25769803776u64
+                    "memory_bytes": 25_769_803_776_u64
                 }
             ]
         });
         let path = dir.path().join("toadstool.json");
         let mut f = std::fs::File::create(&path).unwrap();
-        write!(f, "{}", entry).unwrap();
+        write!(f, "{entry}").unwrap();
 
         let result = discover_from_ecosystem(dir.path());
         assert!(result.is_some());
@@ -267,6 +278,39 @@ mod tests {
     }
 
     #[test]
+    fn discover_from_ecosystem_phase10_provides() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = serde_json::json!({
+            "primal": "toadstool",
+            "version": "1.0.0",
+            "pid": 12345,
+            "provides": ["gpu.dispatch"],
+            "transports": {
+                "jsonrpc": { "bind": "unix:///run/user/1000/biomeos/toadstool.sock" },
+                "tarpc": { "bind": "unix:///run/user/1000/biomeos/toadstool-tarpc.sock" }
+            },
+            "devices": [
+                {
+                    "vendor": "amd",
+                    "arch": "rdna2",
+                    "render_node": "/dev/dri/renderD128",
+                    "driver": "amdgpu"
+                }
+            ]
+        });
+        let path = dir.path().join("toadstool.json");
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{entry}").unwrap();
+
+        let result = discover_from_ecosystem(dir.path());
+        assert!(result.is_some());
+        let devices = result.unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].vendor, "amd");
+        assert_eq!(devices[0].arch.as_deref(), Some("rdna2"));
+    }
+
+    #[test]
     fn discover_from_ecosystem_ignores_non_gpu_files() {
         let dir = tempfile::tempdir().unwrap();
         let entry = serde_json::json!({
@@ -276,7 +320,7 @@ mod tests {
         });
         let path = dir.path().join("nestgate.json");
         let mut f = std::fs::File::create(&path).unwrap();
-        write!(f, "{}", entry).unwrap();
+        write!(f, "{entry}").unwrap();
 
         let result = discover_from_ecosystem(dir.path());
         assert!(result.is_none());

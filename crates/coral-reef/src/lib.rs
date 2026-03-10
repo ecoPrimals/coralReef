@@ -49,19 +49,18 @@ pub mod frontend;
 pub mod gpu_arch;
 pub mod ir;
 pub mod tol;
+pub mod tolerances;
 
 // Codegen module — evolved from upstream NAK into idiomatic Rust.
 // ISA domain types intentionally use naming conventions that mirror
-// hardware documentation (e.g. OpFAdd, SrcType, UGPR). Only the
-// naming and documentation suppressions remain; all other allows
-// have been resolved at the individual item level.
+// hardware documentation (e.g. OpFAdd, SrcType, UGPR). dead_code covers
+// AMD stub, builder traits, and ISA variants reserved for future use.
 #[allow(
     non_camel_case_types,
     non_snake_case,
-    non_upper_case_globals,
     dead_code,
     missing_docs,
-    reason = "ISA domain types mirror hardware docs; codegen uses intentionally unused variants"
+    reason = "ISA domain types mirror hardware docs; codegen has intentionally unused items"
 )]
 mod codegen;
 
@@ -81,6 +80,10 @@ const DF64_PREAMBLE: &str = include_str!("df64_preamble.wgsl");
 /// Prepended automatically when source uses Complex64 or c64_ functions.
 const COMPLEX64_PREAMBLE: &str = include_str!("complex_f64_preamble.wgsl");
 
+/// f32 transcendental workaround preamble — healthSpring-inspired polyfills.
+/// Prepended automatically when source uses `power_f32`, `log_f32_safe`, or `exp_f32_safe`.
+const F32_TRANSCENDENTAL_PREAMBLE: &str = include_str!("f32_transcendental_preamble.wgsl");
+
 /// FMA (fused multiply-add) control policy.
 ///
 /// SPIR-V `NoContraction` and WGSL `@fma_control` decorations map to this.
@@ -88,13 +91,13 @@ const COMPLEX64_PREAMBLE: &str = include_str!("complex_f64_preamble.wgsl");
 /// instruction, which changes rounding behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FmaPolicy {
-    /// Compiler is free to fuse multiply-add into FMA (default, fastest).
+    /// Allow FMA contractions (fastest).
+    Fused,
+    /// Prevent FMA — separate multiply + add for IEEE compliance.
+    Separate,
+    /// Let the compiler decide based on architecture.
     #[default]
-    AllowFusion,
-    /// Preserve individual operations — no FMA fusion.
-    /// Equivalent to SPIR-V `NoContraction`.
-    /// Required for bit-exact CPU parity in precision-critical workloads.
-    NoContraction,
+    Auto,
 }
 
 /// Three-tier f64 precision strategy.
@@ -152,18 +155,19 @@ impl CompileOptions {
         self.target.as_amd()
     }
 
-    /// Backward-compatible accessor — returns the `NvArch` or panics.
+    /// Backward-compatible accessor — returns the `NvArch` or an error.
     ///
     /// Prefer [`Self::nv_arch`] in new code.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the target is not an NVIDIA GPU.
-    #[must_use]
-    pub const fn arch(&self) -> GpuArch {
-        self.target
-            .as_nvidia()
-            .expect("CompileOptions::arch() called on non-NVIDIA target")
+    /// Returns [`CompileError::UnsupportedArch`] if the target is not an NVIDIA GPU.
+    pub fn arch(&self) -> Result<GpuArch, CompileError> {
+        self.target.as_nvidia().ok_or_else(|| {
+            CompileError::UnsupportedArch(
+                format!("expected NVIDIA target, got {}", self.target).into(),
+            )
+        })
     }
 }
 
@@ -241,6 +245,7 @@ pub fn compile_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_spirv(spirv, sm.as_ref())?;
+    shader.fma_policy = options.fma_policy;
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }
@@ -254,8 +259,19 @@ pub fn compile_ir(shader: &mut Shader<'_>) -> Result<CompiledShader, CompileErro
     codegen::pipeline::compile_shader(shader, false)
 }
 
-/// Prepare WGSL source: auto-prepend df64 preamble when needed,
-/// strip `enable f64;` (naga handles f64 natively without extension directives).
+fn strip_enable_directives(source: &str) -> String {
+    source
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.starts_with("enable f64") && !trimmed.starts_with("enable f16")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Prepare WGSL source: auto-prepend df64/complex64/f32 transcendental
+/// preambles when needed, strip `enable f64;` (naga handles f64 natively).
 ///
 /// Returns a `Cow::Borrowed` if no transformations are needed, avoiding allocation.
 fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow<'a, str> {
@@ -263,46 +279,80 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
         || wgsl.contains("Df64")
         || wgsl.contains("df64_");
     let needs_complex64 = wgsl.contains("Complex64") || wgsl.contains("c64_");
+    let needs_f32_transcendental = wgsl.contains("power_f32")
+        || wgsl.contains("log_f32_safe")
+        || wgsl.contains("exp_f32_safe");
     let has_enable_f64 = wgsl.contains("enable f64");
+    let has_enable_f16 = wgsl.contains("enable f16");
 
-    if !needs_df64 && !needs_complex64 && !has_enable_f64 {
+    if !needs_df64
+        && !needs_complex64
+        && !needs_f32_transcendental
+        && !has_enable_f64
+        && !has_enable_f16
+    {
         return std::borrow::Cow::Borrowed(wgsl);
     }
 
-    let source = if has_enable_f64 {
-        tracing::debug!("stripping 'enable f64;' directive (naga handles f64 natively)");
-        wgsl.replace("enable f64;", "// [coralReef] f64 enabled natively")
-    } else {
-        wgsl.to_owned()
-    };
-
+    let source = wgsl;
     let mut combined = String::new();
-    let mut modified = false;
 
-    if needs_complex64 && !source.contains("struct Complex64") {
+    let modified = if needs_complex64 && !source.contains("struct Complex64") {
         tracing::debug!("auto-prepending complex64 preamble");
-        combined.reserve(COMPLEX64_PREAMBLE.len() + DF64_PREAMBLE.len() + 2 + source.len());
+        combined.reserve(
+            COMPLEX64_PREAMBLE.len()
+                + DF64_PREAMBLE.len()
+                + F32_TRANSCENDENTAL_PREAMBLE.len()
+                + 4
+                + source.len(),
+        );
         combined.push_str(COMPLEX64_PREAMBLE);
         combined.push('\n');
-        modified = true;
-    }
+        true
+    } else {
+        false
+    };
 
-    if needs_df64 && !source.contains("struct Df64") {
+    let modified = if needs_df64 && !source.contains("struct Df64") {
         tracing::debug!("auto-prepending df64 preamble");
         if !modified {
-            combined.reserve(DF64_PREAMBLE.len() + 1 + source.len());
+            combined.reserve(
+                DF64_PREAMBLE.len() + F32_TRANSCENDENTAL_PREAMBLE.len() + 2 + source.len(),
+            );
         }
         combined.push_str(DF64_PREAMBLE);
         combined.push('\n');
-        modified = true;
-    }
-
-    if modified {
-        combined.push_str(&source);
-        std::borrow::Cow::Owned(combined)
+        true
     } else {
-        std::borrow::Cow::Owned(source)
-    }
+        modified
+    };
+
+    let modified = if needs_f32_transcendental && !source.contains("fn power_f32") {
+        tracing::debug!("auto-prepending f32 transcendental preamble");
+        if !modified {
+            combined.reserve(F32_TRANSCENDENTAL_PREAMBLE.len() + 1 + source.len());
+        }
+        combined.push_str(F32_TRANSCENDENTAL_PREAMBLE);
+        combined.push('\n');
+        true
+    } else {
+        modified
+    };
+
+    let result = if modified {
+        combined.push_str(source);
+        combined
+    } else {
+        source.to_owned()
+    };
+
+    let result = if has_enable_f64 || has_enable_f16 {
+        strip_enable_directives(&result)
+    } else {
+        result
+    };
+
+    std::borrow::Cow::Owned(result)
 }
 
 /// Compile WGSL source to native GPU binary.
@@ -355,6 +405,7 @@ pub fn compile_wgsl_full_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
+    shader.fma_policy = options.fma_policy;
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }
@@ -381,6 +432,7 @@ pub fn compile_wgsl_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
+    shader.fma_policy = options.fma_policy;
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }
@@ -418,6 +470,7 @@ pub fn compile_glsl_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_glsl(glsl, sm.as_ref())?;
+    shader.fma_policy = options.fma_policy;
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }
@@ -455,6 +508,7 @@ pub fn compile_glsl_full_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_glsl(glsl, sm.as_ref())?;
+    shader.fma_policy = options.fma_policy;
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }

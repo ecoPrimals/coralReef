@@ -277,3 +277,158 @@ impl Shader<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::ir::{
+        BasicBlock, ComputeShaderInfo, Dst, Function, Instr, LabelAllocator, Op, OpCopy, OpExit,
+        OpPrmt, OpRegOut, PhiAllocator, PrmtMode, RegFile, SSAValueAllocator, Shader, ShaderInfo,
+        ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, Src,
+    };
+    use coral_reef_stubs::cfg::CFGBuilder;
+
+    fn make_shader_with_function(
+        instrs: Vec<Instr>,
+        ssa_alloc: SSAValueAllocator,
+    ) -> Shader<'static> {
+        let sm = Box::leak(Box::new(ShaderModelInfo::new(70, 64)));
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        let block = BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        };
+        cfg_builder.add_block(block);
+        let function = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        Shader {
+            sm,
+            info: ShaderInfo {
+                max_warps_per_sm: 0,
+                gpr_count: 0,
+                control_barrier_count: 0,
+                instr_count: 0,
+                static_cycle_count: 0,
+                spills_to_mem: 0,
+                fills_from_mem: 0,
+                spills_to_reg: 0,
+                fills_from_reg: 0,
+                shared_local_mem_size: 0,
+                max_crs_depth: 0,
+                uses_global_mem: false,
+                writes_global_mem: false,
+                uses_fp64: false,
+                stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                    local_size: [1, 1, 1],
+                    shared_mem_size: 0,
+                }),
+                io: ShaderIoInfo::None,
+            },
+            functions: vec![function],
+            fma_policy: crate::FmaPolicy::default(),
+        }
+    }
+
+    #[test]
+    fn test_opt_prmt_single_prmt_runs_without_panic() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpCopy {
+                    dst: dst_a.into(),
+                    src: Src::new_imm_u32(0x1234_5678),
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_b.into(),
+                    srcs: [dst_a.into(), Src::ZERO],
+                    sel: Src::new_imm_u32(0x3210),
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpRegOut {
+                    srcs: vec![dst_b.into()],
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.opt_prmt();
+        let prmt = &shader.functions[0].blocks[0].instrs[1];
+        assert!(matches!(prmt.op, Op::Prmt(_)));
+    }
+
+    #[test]
+    fn test_opt_prmt_nested_prmt_optimizes_src() {
+        // prmt(prmt(a,b,0x3210), c, 0x3210) - outer takes byte 0 from inner's src0
+        // Inner prmt sel=0x3210 is identity from src0, so inner dst = a.
+        // Outer prmt sel=0x3210 takes byte 0 from outer src0 (inner result) = byte 0 of a.
+        // try_opt_prmt_src can inline: outer src0 comes from inner, inner is identity.
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        let dst_c = ssa_alloc.alloc(RegFile::GPR);
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpCopy {
+                    dst: dst_a.into(),
+                    src: Src::new_imm_u32(0xDEAD_BEEF),
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_b.into(),
+                    srcs: [dst_a.into(), Src::ZERO],
+                    sel: Src::new_imm_u32(0x3210),
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_c.into(),
+                    srcs: [dst_b.into(), Src::ZERO],
+                    sel: Src::new_imm_u32(0x3210),
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpRegOut {
+                    srcs: vec![dst_c.into()],
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.opt_prmt();
+        let outer_prmt = &shader.functions[0].blocks[0].instrs[2];
+        let Op::Prmt(op) = &outer_prmt.op else {
+            panic!("expected Prmt");
+        };
+        assert!(
+            matches!(op.srcs[0].reference, super::super::ir::SrcRef::SSA(_)),
+            "opt_prmt_src may inline inner prmt; src0 could become SSA or stay"
+        );
+    }
+
+    #[test]
+    fn test_opt_prmt_prmt_with_non_ssa_dst_skipped() {
+        // add_prmt returns early when dst is not SSA - use Dst::None for prmt (invalid but tests path)
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpCopy {
+                    dst: dst_a.into(),
+                    src: Src::ZERO,
+                }),
+                Instr::new(OpPrmt {
+                    dst: Dst::None,
+                    srcs: [dst_a.into(), Src::ZERO],
+                    sel: Src::new_imm_u32(0x3210),
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.opt_prmt();
+    }
+}

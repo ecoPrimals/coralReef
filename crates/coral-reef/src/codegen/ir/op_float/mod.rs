@@ -33,9 +33,9 @@ mod tests {
             rnd_mode: FRndMode::NearestEven,
             ftz: false,
         };
-        assert!(format!("{}", op).contains("fadd"));
-        assert!(format!("{}", op).contains("rZ"));
-        assert!(format!("{}", op).contains("0x42"));
+        assert!(format!("{op}").contains("fadd"));
+        assert!(format!("{op}").contains("rZ"));
+        assert!(format!("{op}").contains("0x42"));
     }
 
     #[test]
@@ -47,7 +47,7 @@ mod tests {
             rnd_mode: FRndMode::NearestEven,
             ftz: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains(".sat"));
         assert!(s.contains(".ftz"));
     }
@@ -62,7 +62,7 @@ mod tests {
             ftz: false,
             dnz: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ffma"));
         assert!(s.contains(".rm"));
     }
@@ -75,7 +75,7 @@ mod tests {
             min: Src::new_imm_bool(true),
             ftz: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("fmnmx"));
         assert!(s.contains(".ftz"));
     }
@@ -90,7 +90,7 @@ mod tests {
             ftz: false,
             dnz: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("fmul"));
         assert!(s.contains(".dnz"));
     }
@@ -103,7 +103,7 @@ mod tests {
             srcs: [zero_src(), zero_src()],
             ftz: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("fset"));
         assert!(s.contains(".eq"));
     }
@@ -118,7 +118,7 @@ mod tests {
             accum: Src::new_imm_bool(true),
             ftz: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("fsetp"));
         assert!(s.contains(".lt"));
     }
@@ -146,7 +146,7 @@ mod tests {
                 FSwzAddOp::MoveLeft,
             ],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("fswzadd"));
         assert!(s.contains("add"));
         assert!(s.contains("subr"));
@@ -170,7 +170,7 @@ mod tests {
             shuffle: FSwzShuffle::Quad1,
             ops: [FSwzAddOp::Add; 4],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("fswz"));
         assert!(s.contains(".1111"));
     }
@@ -188,7 +188,7 @@ mod tests {
             op: RroOp::SinCos,
             src: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("rro"));
         assert!(s.contains(".sincos"));
     }
@@ -208,7 +208,7 @@ mod tests {
             op: TranscendentalOp::Sqrt,
             src: zero_src(),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("transcendental"));
         assert!(s.contains("sqrt"));
     }
@@ -220,7 +220,7 @@ mod tests {
             srcs: [zero_src(), zero_src()],
             rnd_mode: FRndMode::Zero,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("dadd"));
         assert!(s.contains(".rz"));
     }
@@ -232,7 +232,7 @@ mod tests {
             srcs: [zero_src(), imm_src(0xdead)],
             rnd_mode: FRndMode::NearestEven,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("dmul"));
     }
 
@@ -243,7 +243,7 @@ mod tests {
             srcs: [zero_src(), zero_src(), zero_src()],
             rnd_mode: FRndMode::PosInf,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("dfma"));
         assert!(s.contains(".rp"));
     }
@@ -254,37 +254,37 @@ mod tests {
             dst: Dst::None,
             src: zero_src(),
         };
-        assert!(format!("{}", sqrt).contains("f64sqrt"));
+        assert!(format!("{sqrt}").contains("f64sqrt"));
 
         let rcp = OpF64Rcp {
             dst: Dst::None,
             src: zero_src(),
         };
-        assert!(format!("{}", rcp).contains("f64rcp"));
+        assert!(format!("{rcp}").contains("f64rcp"));
 
         let exp2 = OpF64Exp2 {
             dst: Dst::None,
             src: zero_src(),
         };
-        assert!(format!("{}", exp2).contains("f64exp2"));
+        assert!(format!("{exp2}").contains("f64exp2"));
 
         let log2 = OpF64Log2 {
             dst: Dst::None,
             src: zero_src(),
         };
-        assert!(format!("{}", log2).contains("f64log2"));
+        assert!(format!("{log2}").contains("f64log2"));
 
         let sin = OpF64Sin {
             dst: Dst::None,
             src: zero_src(),
         };
-        assert!(format!("{}", sin).contains("f64sin"));
+        assert!(format!("{sin}").contains("f64sin"));
 
         let cos = OpF64Cos {
             dst: Dst::None,
             src: zero_src(),
         };
-        assert!(format!("{}", cos).contains("f64cos"));
+        assert!(format!("{cos}").contains("f64cos"));
     }
 
     #[test]
@@ -294,7 +294,7 @@ mod tests {
             srcs: [zero_src(), zero_src()],
             min: Src::new_imm_bool(false),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("dmnmx"));
     }
 
@@ -307,7 +307,7 @@ mod tests {
             ftz: false,
             f32: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("hadd2"));
         assert!(s.contains(".sat"));
         assert!(s.contains(".f32"));
@@ -322,7 +322,7 @@ mod tests {
             ftz: true,
             dnz: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("hmul2"));
         assert!(s.contains(".ftz"));
     }
@@ -342,7 +342,7 @@ mod tests {
             saturate: false,
             srcs: [zero_src(), zero_src(), zero_src()],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("imma"));
         assert!(s.contains(".m8n8k32"));
     }
@@ -362,7 +362,7 @@ mod tests {
             dst_type: FloatType::F32,
             srcs: [zero_src(), zero_src(), zero_src()],
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("hmma"));
         assert!(s.contains(".m16n8k8"));
     }
@@ -377,7 +377,7 @@ mod tests {
             dnz: true,
             f32: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("hfma2"));
         assert!(s.contains(".dnz"));
     }
@@ -390,7 +390,7 @@ mod tests {
             min: Src::new_imm_bool(true),
             ftz: false,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("hmnmx2"));
     }
 }

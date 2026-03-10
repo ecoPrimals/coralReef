@@ -313,7 +313,7 @@ mod tests {
             addr: zero_src(),
             addr_offset: 0,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("cctl"));
         assert!(s.contains(".shared"));
     }
@@ -323,7 +323,7 @@ mod tests {
         let op = OpMemBar {
             scope: MemScope::CTA,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("membar"));
         assert!(s.contains("cta"));
     }
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn test_op_bclear_display() {
         let op = OpBClear { dst: Dst::None };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bclear"));
     }
 
@@ -342,7 +342,7 @@ mod tests {
             src: zero_src(),
             clear: true,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bmov"));
         assert!(s.contains(".clear"));
     }
@@ -354,7 +354,7 @@ mod tests {
             bar_in: zero_src(),
             cond: Src::new_imm_bool(true),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("break"));
     }
 
@@ -368,7 +368,7 @@ mod tests {
             cond: Src::new_imm_bool(true),
             target: label,
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bssy"));
     }
 
@@ -378,7 +378,7 @@ mod tests {
             bar: zero_src(),
             cond: Src::new_imm_bool(true),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bsync"));
     }
 
@@ -390,7 +390,7 @@ mod tests {
             target: label,
             cond: Src::new_imm_bool(true),
         };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bra"));
     }
 
@@ -399,7 +399,7 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpSSy { target: label };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("ssy"));
     }
 
@@ -408,7 +408,7 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpSync { target: label };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("sync"));
     }
 
@@ -417,7 +417,7 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpBrk { target: label };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("brk"));
     }
 
@@ -426,7 +426,7 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpPBk { target: label };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("pbk"));
     }
 
@@ -435,7 +435,7 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpCont { target: label };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("cont"));
     }
 
@@ -444,21 +444,21 @@ mod tests {
         let mut alloc = LabelAllocator::new();
         let label = alloc.alloc();
         let op = OpPCnt { target: label };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("pcnt"));
     }
 
     #[test]
     fn test_op_exit_display() {
         let op = OpExit {};
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("exit"));
     }
 
     #[test]
     fn test_op_warpsync_display() {
         let op = OpWarpSync { mask: 0xffff_ffff };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("warpsync"));
         assert!(s.contains("ffffffff"));
     }
@@ -466,14 +466,14 @@ mod tests {
     #[test]
     fn test_op_bar_display() {
         let op = OpBar {};
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("bar.sync"));
     }
 
     #[test]
     fn test_op_texdepbar_display() {
         let op = OpTexDepBar { textures_left: 10 };
-        let s = format!("{}", op);
+        let s = format!("{op}");
         assert!(s.contains("texdepbar"));
         assert!(s.contains("10"));
     }

@@ -276,6 +276,10 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
 ///
 /// File path: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/{CARGO_PKG_NAME}.json`
 /// Contains transport addresses and capability summary.
+///
+/// Format follows wateringHole Phase 10: `provides`, `transports` as
+/// `{ "jsonrpc": { "bind": "..." }, "tarpc": { "bind": "..." } }`,
+/// `primal`, `version`, `pid`.
 fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> io::Result<()> {
     let dir = discovery_dir()?;
     std::fs::create_dir_all(&dir)?;
@@ -292,26 +296,19 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
         .find(|t| t.protocol.starts_with("tarpc"))
         .map_or("", |t| t.address.as_ref());
 
-    let mut jsonrpc_transport = serde_json::json!({
-        "tcp": jsonrpc_addr,
-    });
-    #[cfg(unix)]
-    {
-        let unix_sock_path = ipc::default_unix_socket_path();
-        jsonrpc_transport["path"] = serde_json::Value::String(
-            unix_sock_path.to_string_lossy().into_owned(),
-        );
-    }
+    // Phase 10: each transport has { "bind": "..." }
+    let jsonrpc_bind = jsonrpc_addr.to_string();
 
     let discovery = serde_json::json!({
         "primal": env!("CARGO_PKG_NAME"),
+        "version": env!("CARGO_PKG_VERSION"),
         "pid": std::process::id(),
-        "transports": {
-            "jsonrpc": jsonrpc_transport,
-            "tarpc": tarpc_addr,
-        },
         "provides": desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
         "requires": desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
+        "transports": {
+            "jsonrpc": { "bind": jsonrpc_bind },
+            "tarpc": { "bind": tarpc_addr },
+        },
     });
 
     std::fs::write(
@@ -666,6 +663,57 @@ mod tests {
     }
 
     #[test]
+    fn parse_cli_compile_help() {
+        let result = parse_cli_from(["coralreef", "compile", "--help"]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("input") || err_str.contains("Input") || err_str.contains("help"),
+            "compile --help should produce help or parse error: {err_str}"
+        );
+    }
+
+    #[test]
+    fn parse_cli_doctor_help() {
+        let result = parse_cli_from(["coralreef", "doctor", "--help"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cmd_compile_write_failure_output_is_directory() {
+        let tmp = std::env::temp_dir().join("coralreef_test_compile_input.wgsl");
+        std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+        let out_dir = std::env::temp_dir().join("coralreef_test_output_dir");
+        let _ = std::fs::create_dir_all(&out_dir);
+
+        let result = cmd_compile(&tmp, Some(out_dir.as_path()), GpuArch::Sm70, 2, true);
+
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_dir(&out_dir);
+        assert!(
+            matches!(result, UniBinExit::GeneralError),
+            "writing to directory path should fail with GeneralError"
+        );
+    }
+
+    #[test]
+    fn cmd_compile_general_error_corrupt_spirv() {
+        let tmp = std::env::temp_dir().join("coralreef_test_corrupt.spv");
+        let corrupt_words: Vec<u32> = vec![0xDEAD_BEEF, 0x0001_0000, 0, 0, 0];
+        let bytes: Vec<u8> = corrupt_words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        std::fs::write(&tmp, &bytes).unwrap();
+
+        let result = cmd_compile(&tmp, None, GpuArch::Sm70, 2, true);
+
+        let _ = std::fs::remove_file(&tmp);
+        assert!(
+            matches!(result, UniBinExit::GeneralError | UniBinExit::ConfigError),
+            "corrupt SPIR-V should produce error"
+        );
+    }
+
+    #[test]
     fn write_and_remove_discovery_file() {
         let desc = SelfDescription {
             provides: vec![Capability {
@@ -690,6 +738,16 @@ mod tests {
         let dir = discovery_dir().unwrap();
         let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
         assert!(path.exists(), "discovery file should exist after write");
+
+        // Phase 10 format: primal, version, pid, provides, transports.{jsonrpc,tarpc}.bind
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert_eq!(json["primal"], env!("CARGO_PKG_NAME"));
+        assert!(json.get("version").is_some(), "Phase 10 requires version");
+        assert!(json.get("pid").is_some(), "Phase 10 requires pid");
+        assert!(json.get("provides").is_some(), "Phase 10 requires provides");
+        assert_eq!(json["transports"]["jsonrpc"]["bind"], "127.0.0.1:12345");
+        assert_eq!(json["transports"]["tarpc"]["bind"], "127.0.0.1:12346");
 
         remove_discovery_file();
         assert!(!path.exists(), "discovery file should be removed");

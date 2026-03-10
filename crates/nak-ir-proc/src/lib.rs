@@ -197,11 +197,10 @@ fn generate_as_slice_body(
         // using the first field's address as the slice base.
         quote! {
             const { #(#contiguity_checks)* }
-            // SAFETY: The inline const block above uses offset_of! to prove every
-            // matched field immediately follows its predecessor with zero padding.
-            // #[repr(C)] guarantees deterministic field ordering.
-            // The .cast() is sound: &T and &[T; N] both point to the first T.
-            // The slice lifetime is bounded by &self.
+            // SAFETY: from_raw_parts — (1) ptr: from_ref gives valid pointer to first
+            // element; contiguity checks prove all matched fields are contiguous.
+            // (2) ptr is properly aligned (field of #[repr(C)] struct).
+            // (3) Memory is initialized (part of self). (4) Lifetime bounded by &self.
             let ptr = std::ptr::from_ref(&self.#first_field).cast::<#elem_type>();
             unsafe { std::slice::from_raw_parts(ptr, #total) }
         }
@@ -221,10 +220,8 @@ fn generate_as_mut_slice_body(
     } else {
         let total = total_count;
         quote! {
-            // SAFETY: Contiguity proven by the const block in as_slice().
-            // #[repr(C)] guarantees deterministic field ordering.
-            // The .cast() is sound: &mut T and &mut [T; N] both point to the first T.
-            // The slice lifetime is bounded by &mut self.
+            // SAFETY: from_raw_parts_mut — same contiguity as as_slice(); ptr from
+            // from_mut is valid and aligned; memory initialized; exclusive via &mut self.
             let ptr = std::ptr::from_mut(&mut self.#first_field).cast::<#elem_type>();
             unsafe { std::slice::from_raw_parts_mut(ptr, #total) }
         }

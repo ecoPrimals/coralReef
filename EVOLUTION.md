@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 9, 2026 (Phase 10 — Iteration 25)
+**Last updated**: March 9, 2026 (Phase 10 — Iteration 27)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1285 tests (1285 passing, 60 ignored), 63% line coverage (target 90%),
+1401 tests (1401 passing, 62 ignored), 63% line coverage (target 90%),
 79/86 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
@@ -118,8 +118,8 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] Exp (x * log2(e) → exp2)
 - [x] Log (log2(x) * ln(2))
 - [x] Tan (f32 via MUFU, f64 via sin/cos)
-- [ ] Asin, Acos, Atan, Atan2
-- [ ] Sinh, Cosh, Tanh, Asinh, Acosh, Atanh
+- [x] Asin, Acos, Atan, Atan2
+- [x] Sinh, Cosh, Tanh, Asinh, Acosh, Atanh
 - [ ] Ldexp, Frexp, Modf
 - [ ] Transpose, Determinant, Inverse (matrix)
 - [ ] Pack/Unpack (2x16float, 4x8snorm, etc.)
@@ -156,8 +156,8 @@ early returns with standard control flow to ensure expr_map insertion.
 | ~~Register allocator SSA tracking~~ | ~~su3_gauge_force~~ | **Fixed Iteration 19** — back-edge live-in pre-allocation |
 | ~~Scheduler loop-carried phi~~ | ~~wilson_plaquette, swarm_nn_forward~~ | **Fixed Iteration 19** — live_in_values seeding |
 | ~~Pred→GPR encoder coercion chain~~ | ~~bcs_bisection, batched_hfb~~ | **Fixed Iteration 18** |
-| Acos/Asin/Atan2 math functions | local_elementwise | Medium — polynomial approximation needed |
-| Complex64 preamble | dielectric_mermin | Medium — needs complex arithmetic type |
+| ~~Acos/Asin/Atan2 math functions~~ | ~~local_elementwise~~ | **Fixed Iteration 25** — polynomial atan + identity chains |
+| ~~Complex64 preamble~~ | ~~dielectric_mermin~~ | **Fixed Iteration 25** — auto-prepended preamble |
 | ~~Encoder GPR→comparison reg file~~ | ~~semf_batch~~ | **Fixed Iteration 12** — semf_batch now passes |
 | ~~const_tracker negated immediate~~ | ~~batched_hfb_hamiltonian~~ | **Fixed Iteration 12** |
 
@@ -323,7 +323,7 @@ Endgame:
 | `coral-driver/src/nv/ioctl.rs` | 1 | RAII `NvMappedRegion` (mmap/munmap + `as_slice()`/`as_mut_slice()`); `gem_mmap_region` returns safe type |
 | `nak-ir-proc/src/lib.rs` | 2 | Proc-macro `from_raw_parts` — lifetime-bounded, `repr(C)` contiguity checked |
 
-**libc** is the only FFI dependency, used for DRM ioctls (ioctl, mmap, munmap).
+**libc eliminated** — DRM ioctls now use inline asm syscalls, mmap via rustix.
 No C library links. Transitive FFI from tokio (libc) and jsonrpsee (ring) in
 coralreef-core for async I/O and TLS. Evolution path: biomeOS BearDog/Songbird
 provides pure Rust TLS — eliminates ring/openssl transitive C.
@@ -377,16 +377,15 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 22 | Multi-language frontends: GLSL 450 compute, SPIR-V roundtrip, fixture reorg (corpus/), 5 GLSL + 10 SPIR-V RT tests | **1190** (1190 pass, 35 ignore), 79/86 WGSL + 5/5 GLSL + 4/10 SPIR-V RT |
 | 10 iter 23 | Deep debt: 11 math functions (Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize, Cross, Trunc), lib.rs 791→483, SM80 gpr 867→766, libc→rustix path documented, DEBT 37, audits | **1191** (1191 pass, 35 ignore), ESN reservoir unblocked, logical ops wired, GLSL fixtures expanded |
 | 10 iter 24 | Multi-GPU sovereignty: DriverPreference, enumerate_render_nodes, nvidia-drm probing (UVM pending), toadStool discovery, cross-vendor parity, showcase suite | **1280** (1280 pass, 52 ignore), multi-GPU, showcase complete |
-| 10 iter 25 (current) | Math evolution: 9 trig/inverse, log2 2nd NR (~52-bit), exp2 subnormal, Complex64 preamble, 37 DEBT→0, libc eliminated, NVIDIA UVM infra | **1285** (1285 pass, 60 ignore), zero DEBT, zero libc |
+| 10 iter 25 | Math evolution: 9 trig/inverse, log2 2nd NR (~52-bit), exp2 subnormal, Complex64 preamble, 37 DEBT→0, libc eliminated, NVIDIA UVM infra | **1285** (1285 pass, 60 ignore), zero DEBT, zero libc |
+| 10 iter 26 | hotSpring sovereign pipeline unblock: f64 min/max, Send+Sync, nouveau subchannel | **1286** (1286 pass, 59 ignore) |
+| 10 iter 27 (current) | Deep debt + cross-spring absorption: RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring absorption tests | **1401** (1401 pass, 62 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 23: 1191 tests passing, 35 ignored. 11 new math functions
-(Tanh, Fract, Sign, Dot, Mix, Step, SmoothStep, Length, Normalize,
-Cross, Trunc) unblock GLSL shaders naga doesn't pre-lower. Smart
-refactoring: lib.rs 791→483 LOC, SM80 gpr 867→766 LOC. libc→rustix
-migration path documented. 37 DEBT markers tracked. GLSL fixtures
-now exercise all implemented math. Three input languages feed the
-same pipeline. AMD E2E verified — sovereign pipeline proven on hardware.*
+Iteration 27: 1401 tests passing, 62 ignored. RDNA2 literal
+materialization, f64 transcendental AMD encodings, 24/24 spring
+absorption tests on SM70+RDNA2. All AMD f64 ops encoded.
+AMD E2E verified — sovereign pipeline proven on hardware.*

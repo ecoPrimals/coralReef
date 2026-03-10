@@ -618,8 +618,7 @@ mod tests {
         builder.add_block("a");
         builder.add_block("b");
         let mut cfg = builder.build();
-        let drained: Vec<_> = cfg.drain().collect();
-        assert_eq!(drained.len(), 2);
+        assert_eq!(cfg.drain().count(), 2);
         assert!(cfg.is_empty());
     }
 
@@ -649,8 +648,7 @@ mod tests {
         builder.add_block("a");
         builder.add_block("b");
         let cfg = builder.build();
-        let blocks: Vec<_> = (&cfg).into_iter().collect();
-        assert_eq!(blocks.len(), 2);
+        assert_eq!((&cfg).into_iter().count(), 2);
     }
 
     #[test]

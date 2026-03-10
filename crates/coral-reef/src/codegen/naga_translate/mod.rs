@@ -7,6 +7,7 @@
 
 #![allow(clippy::wildcard_imports)]
 use super::ir::*;
+use crate::FmaPolicy;
 use crate::error::CompileError;
 
 pub(super) mod expr;
@@ -15,7 +16,15 @@ pub(super) mod func;
 mod func_builtins;
 mod func_control;
 mod func_math;
+mod func_math_bitops;
+mod func_math_exp_log;
+mod func_math_extrema;
 mod func_math_helpers;
+mod func_math_interp;
+mod func_math_rounding;
+mod func_math_sqrt;
+mod func_math_trig;
+mod func_math_vector;
 mod func_mem;
 mod func_ops;
 
@@ -138,6 +147,7 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
             sm: self.sm,
             info,
             functions: vec![function],
+            fma_policy: FmaPolicy::default(),
         })
     }
 
@@ -598,6 +608,79 @@ mod tests {
             }
         });
         assert!(has_fadd, "abs(-x) uses FAdd with fneg/fabs modifiers");
+    }
+
+    #[test]
+    fn test_translate_trig_sin_cos() {
+        let wgsl = r"
+            @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+            @compute @workgroup_size(64)
+            fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+                let x = data[gid.x];
+                data[gid.x] = sin(x) + cos(x);
+            }
+        ";
+        let module = parse_wgsl(wgsl).expect("valid WGSL");
+        let sm = sm70();
+        let result = translate(&module, &sm, "main");
+        assert!(result.is_ok(), "sin/cos should translate");
+        let shader = result.unwrap();
+        let mut has_trig = false;
+        shader.for_each_instr(&mut |instr| {
+            if matches!(instr.op, Op::Transcendental(_)) {
+                has_trig = true;
+            }
+        });
+        assert!(has_trig, "sin/cos should emit OpTranscendental");
+    }
+
+    #[test]
+    fn test_translate_trig_tan() {
+        let wgsl = r"
+            @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+            @compute @workgroup_size(64)
+            fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+                let x = data[gid.x];
+                data[gid.x] = tan(x);
+            }
+        ";
+        let module = parse_wgsl(wgsl).expect("valid WGSL");
+        let sm = sm70();
+        let result = translate(&module, &sm, "main");
+        assert!(result.is_ok(), "tan should translate");
+    }
+
+    #[test]
+    fn test_translate_trig_atan_atan2() {
+        let wgsl = r"
+            @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+            @compute @workgroup_size(64)
+            fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+                let x = data[gid.x];
+                let y = data[gid.x + 1u];
+                data[gid.x] = atan(x) + atan2(y, x);
+            }
+        ";
+        let module = parse_wgsl(wgsl).expect("valid WGSL");
+        let sm = sm70();
+        let result = translate(&module, &sm, "main");
+        assert!(result.is_ok(), "atan/atan2 should translate");
+    }
+
+    #[test]
+    fn test_translate_trig_asin_acos() {
+        let wgsl = r"
+            @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+            @compute @workgroup_size(64)
+            fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+                let x = data[gid.x];
+                data[gid.x] = asin(x) + acos(x);
+            }
+        ";
+        let module = parse_wgsl(wgsl).expect("valid WGSL");
+        let sm = sm70();
+        let result = translate(&module, &sm, "main");
+        assert!(result.is_ok(), "asin/acos should translate");
     }
 
     #[test]
