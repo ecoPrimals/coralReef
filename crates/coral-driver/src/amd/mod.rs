@@ -47,7 +47,24 @@ impl AmdDevice {
     /// context creation fails.
     pub fn open() -> DriverResult<Self> {
         let drm = DrmDevice::open_by_driver("amdgpu")?;
+        Self::open_from_drm(drm)
+    }
 
+    /// Open a specific AMD GPU device by render node path.
+    ///
+    /// Use this to target a specific GPU when multiple AMD cards are present
+    /// (e.g. `/dev/dri/renderD128`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the path cannot be opened or context
+    /// creation fails.
+    pub fn open_path(path: &str) -> DriverResult<Self> {
+        let drm = DrmDevice::open(path)?;
+        Self::open_from_drm(drm)
+    }
+
+    fn open_from_drm(drm: DrmDevice) -> DriverResult<Self> {
         let ctx_handle = ioctl::create_context(drm.fd())?;
         tracing::info!(path = %drm.path, ctx = ctx_handle, "AMD GPU context created");
 

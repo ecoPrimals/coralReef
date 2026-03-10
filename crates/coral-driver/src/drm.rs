@@ -346,7 +346,7 @@ pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
 }
 
 /// Close a GEM buffer object. Safe wrapper around `DRM_IOCTL_GEM_CLOSE`.
-pub(crate) fn gem_close(fd: RawFd, handle: u32) -> DriverResult<()> {
+pub fn gem_close(fd: RawFd, handle: u32) -> DriverResult<()> {
     let mut args = DrmGemClose { handle, pad: 0 };
     // SAFETY:
     // 1. Validity:   DrmGemClose is #[repr(C)] matching kernel drm_gem_close (8 bytes)

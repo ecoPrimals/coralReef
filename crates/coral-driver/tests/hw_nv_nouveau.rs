@@ -135,4 +135,103 @@ fn main() {
         let mut dev = open_nv();
         dev.sync().expect("sync without dispatch should succeed");
     }
+
+    // ── Diagnostic tests for EINVAL investigation ──────────────────────
+
+    #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: isolate EINVAL source"]
+    fn nouveau_diagnose_channel_alloc() {
+        use coral_driver::nv::ioctl::{NVIF_CLASS_VOLTA_COMPUTE_A, diagnose_channel_alloc};
+
+        let drm = coral_driver::drm::DrmDevice::open_by_driver("nouveau")
+            .expect("open nouveau render node");
+
+        let diags = diagnose_channel_alloc(drm.fd(), NVIF_CLASS_VOLTA_COMPUTE_A);
+        for diag in &diags {
+            match &diag.result {
+                Ok(ch) => eprintln!("[PASS] {} → channel {ch}", diag.description),
+                Err(e) => eprintln!("[FAIL] {} → {e}", diag.description),
+            }
+        }
+        assert!(
+            !diags.is_empty(),
+            "diagnostic should produce at least one result"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: hex dump channel alloc struct"]
+    fn nouveau_channel_alloc_hex_dump() {
+        use coral_driver::nv::ioctl::{NVIF_CLASS_VOLTA_COMPUTE_A, dump_channel_alloc_hex};
+
+        let hex = dump_channel_alloc_hex(NVIF_CLASS_VOLTA_COMPUTE_A);
+        eprintln!("{hex}");
+        assert!(hex.contains("NouveauChannelAlloc"));
+    }
+
+    #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: check firmware files"]
+    fn nouveau_firmware_probe() {
+        use coral_driver::nv::ioctl::check_nouveau_firmware;
+
+        for chip in &["gv100", "tu102", "ga102"] {
+            let entries = check_nouveau_firmware(chip);
+            eprintln!("Firmware for {chip}:");
+            let mut missing = 0;
+            for (path, exists) in &entries {
+                let status = if *exists { "OK" } else { "MISSING" };
+                eprintln!("  [{status}] {path}");
+                if !*exists {
+                    missing += 1;
+                }
+            }
+            eprintln!(
+                "  → {}/{} present\n",
+                entries.len() - missing,
+                entries.len()
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: probe GPU identity via sysfs"]
+    fn nouveau_gpu_identity_probe() {
+        use coral_driver::drm::enumerate_render_nodes;
+        use coral_driver::nv::ioctl::probe_gpu_identity;
+
+        let nodes = enumerate_render_nodes();
+        for info in &nodes {
+            if info.driver == "nouveau" {
+                if let Some(id) = probe_gpu_identity(&info.path) {
+                    eprintln!(
+                        "{}: vendor=0x{:04X} device=0x{:04X} sm={:?}",
+                        info.path,
+                        id.vendor_id,
+                        id.device_id,
+                        id.nvidia_sm()
+                    );
+                } else {
+                    eprintln!("{}: could not probe sysfs identity", info.path);
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: try GEM alloc without channel"]
+    fn nouveau_gem_alloc_without_channel() {
+        let drm = coral_driver::drm::DrmDevice::open_by_driver("nouveau")
+            .expect("open nouveau render node");
+        let result =
+            coral_driver::nv::ioctl::gem_new(drm.fd(), 4096, coral_driver::MemoryDomain::Gtt);
+        match result {
+            Ok(handle) => {
+                eprintln!("GEM alloc succeeded: handle={handle}");
+                let _ = coral_driver::drm::gem_close(drm.fd(), handle);
+            }
+            Err(e) => {
+                eprintln!("GEM alloc failed: {e}");
+            }
+        }
+    }
 }

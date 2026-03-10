@@ -46,6 +46,8 @@ pub struct NvDevice {
     next_handle: u32,
     /// GEM handle of the last submitted pushbuf (for fence sync).
     last_submit_gem: Option<u32>,
+    /// Temp buffers allocated during dispatch that must survive until sync.
+    inflight: Vec<BufferHandle>,
 }
 
 /// Select the compute engine class for a GPU architecture.
@@ -71,10 +73,10 @@ pub struct NvBuffer {
 }
 
 impl NvDevice {
-    /// Open the NVIDIA GPU device via nouveau.
+    /// Open the NVIDIA GPU device via nouveau with SM auto-detection.
     ///
-    /// Requires the `nouveau` feature. Without it, this method is not compiled,
-    /// preventing accidental use of the incomplete backend in production.
+    /// Probes the GPU identity via sysfs and selects the correct compute
+    /// engine class automatically. Falls back to SM70 if detection fails.
     ///
     /// # Errors
     ///
@@ -82,7 +84,12 @@ impl NvDevice {
     /// channel creation fails.
     #[cfg(feature = "nouveau")]
     pub fn open() -> DriverResult<Self> {
-        Self::open_with_sm(70)
+        let drm = DrmDevice::open_by_driver("nouveau")?;
+        let sm = ioctl::probe_gpu_identity(&drm.path)
+            .and_then(|id| id.nvidia_sm())
+            .unwrap_or(70);
+        tracing::info!(path = %drm.path, detected_sm = sm, "nouveau SM auto-detected");
+        Self::open_from_drm(drm, sm)
     }
 
     /// Open the NVIDIA GPU device via nouveau, specifying the SM architecture.
@@ -97,9 +104,41 @@ impl NvDevice {
     #[cfg(feature = "nouveau")]
     pub fn open_with_sm(sm: u32) -> DriverResult<Self> {
         let drm = DrmDevice::open_by_driver("nouveau")?;
+        Self::open_from_drm(drm, sm)
+    }
+
+    /// Open a specific NVIDIA GPU device by render node path and SM version.
+    ///
+    /// Use this to target a specific GPU when multiple NVIDIA cards are
+    /// present (e.g. `/dev/dri/renderD129`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the path cannot be opened or channel
+    /// creation fails.
+    #[cfg(feature = "nouveau")]
+    pub fn open_path(path: &str, sm: u32) -> DriverResult<Self> {
+        let drm = DrmDevice::open(path)?;
+        Self::open_from_drm(drm, sm)
+    }
+
+    #[cfg(feature = "nouveau")]
+    fn open_from_drm(drm: DrmDevice, sm: u32) -> DriverResult<Self> {
         let compute_class = compute_class_for_sm(sm);
 
-        let channel = ioctl::create_channel(drm.fd(), compute_class)?;
+        let channel = match ioctl::create_channel(drm.fd(), compute_class) {
+            Ok(ch) => ch,
+            Err(e) => {
+                tracing::error!(
+                    path = %drm.path,
+                    compute_class = format_args!("0x{compute_class:04X}"),
+                    error = %e,
+                    "Channel creation failed — running diagnostics"
+                );
+                run_open_diagnostics(&drm, sm, compute_class);
+                return Err(e);
+            }
+        };
         tracing::info!(
             path = %drm.path, channel, compute_class = format_args!("0x{compute_class:04X}"),
             "NVIDIA nouveau channel created with compute subchannel"
@@ -112,7 +151,24 @@ impl NvDevice {
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
+            inflight: Vec::new(),
         })
+    }
+
+    /// The compute class this device was opened with.
+    #[must_use]
+    pub const fn compute_class(&self) -> u32 {
+        self.compute_class
+    }
+
+    /// The SM architecture version this device targets.
+    #[must_use]
+    pub fn sm_version(&self) -> u32 {
+        match self.compute_class {
+            pushbuf::class::TURING_COMPUTE_A => 75,
+            pushbuf::class::AMPERE_COMPUTE_A => 86,
+            _ => 70,
+        }
     }
 
     const fn alloc_handle(&mut self) -> u32 {
@@ -133,7 +189,51 @@ impl NvDevice {
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
+            inflight: Vec::new(),
         })
+    }
+}
+
+/// Run diagnostic probes when channel creation fails.
+#[cfg(feature = "nouveau")]
+fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
+    let diags = ioctl::diagnose_channel_alloc(drm.fd(), compute_class);
+    for diag in &diags {
+        match &diag.result {
+            Ok(ch) => tracing::info!(
+                description = %diag.description,
+                channel = ch,
+                "diagnostic: PASS"
+            ),
+            Err(err) => tracing::warn!(
+                description = %diag.description,
+                error = %err,
+                "diagnostic: FAIL"
+            ),
+        }
+    }
+    let chip = match sm {
+        70..=72 => "gv100",
+        75 => "tu102",
+        80..=89 => "ga102",
+        _ => "gv100",
+    };
+    let fw = ioctl::check_nouveau_firmware(chip);
+    let missing: Vec<_> = fw.iter().filter(|(_, exists)| !*exists).collect();
+    if !missing.is_empty() {
+        tracing::warn!(
+            chip,
+            missing_count = missing.len(),
+            "nouveau firmware files missing — compute may not be available"
+        );
+    }
+    if let Some(id) = ioctl::probe_gpu_identity(&drm.path) {
+        tracing::info!(
+            vendor = format_args!("0x{:04X}", id.vendor_id),
+            device = format_args!("0x{:04X}", id.device_id),
+            detected_sm = ?id.nvidia_sm(),
+            "GPU identity from sysfs"
+        );
     }
 }
 
@@ -294,18 +394,20 @@ impl ComputeDevice for NvDevice {
         // Track the QMD GEM handle for fence sync (the GPU reads QMD last)
         self.last_submit_gem = self.buffers.get(&qmd_handle.0).map(|b| b.gem_handle);
 
-        self.free(pb_handle)?;
-        self.free(qmd_handle)?;
-        self.free(shader_handle)?;
+        // Defer temp buffer cleanup until sync() — the GPU may still be reading
+        self.inflight.push(pb_handle);
+        self.inflight.push(qmd_handle);
+        self.inflight.push(shader_handle);
         Ok(())
     }
 
     fn sync(&mut self) -> DriverResult<()> {
-        // Wait for the last submitted GEM buffer to become idle via
-        // DRM_NOUVEAU_GEM_CPU_PREP. If no dispatch has been issued,
-        // sync is a no-op.
         if let Some(gem_handle) = self.last_submit_gem {
             ioctl::gem_cpu_prep(self.drm.fd(), gem_handle)?;
+        }
+        let inflight = std::mem::take(&mut self.inflight);
+        for handle in inflight {
+            let _ = self.free(handle);
         }
         Ok(())
     }
@@ -313,6 +415,11 @@ impl ComputeDevice for NvDevice {
 
 impl Drop for NvDevice {
     fn drop(&mut self) {
+        // Drain inflight temp buffers first
+        let inflight = std::mem::take(&mut self.inflight);
+        for h in inflight {
+            let _ = self.free(h);
+        }
         let handles: Vec<BufferHandle> = self.buffers.keys().map(|k| BufferHandle(*k)).collect();
         for h in handles {
             let _ = self.free(h);

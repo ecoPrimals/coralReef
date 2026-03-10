@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 28)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 29)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,8 +9,8 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1437 tests (1437 passing, 68 ignored), 63% line coverage (target 90%),
-79/86 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
+1447 tests (1447 passing, 76 ignored), 63% line coverage (target 90%),
+84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
 toadStool ecosystem discovery, cross-vendor parity testing, zero DEBT
@@ -379,13 +379,15 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 24 | Multi-GPU sovereignty: DriverPreference, enumerate_render_nodes, nvidia-drm probing (UVM pending), toadStool discovery, cross-vendor parity, showcase suite | **1280** (1280 pass, 52 ignore), multi-GPU, showcase complete |
 | 10 iter 25 | Math evolution: 9 trig/inverse, log2 2nd NR (~52-bit), exp2 subnormal, Complex64 preamble, 37 DEBT→0, libc eliminated, NVIDIA UVM infra | **1285** (1285 pass, 60 ignore), zero DEBT, zero libc |
 | 10 iter 26 | hotSpring sovereign pipeline unblock: f64 min/max, Send+Sync, nouveau subchannel | **1286** (1286 pass, 59 ignore) |
-| 10 iter 28 (current) | Deep debt + cross-spring absorption: RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring absorption tests | **1437** (1437 pass, 68 ignore) |
+| 10 iter 27 | Deep debt: RDNA2 literal materialization, f64 transcendental AMD encodings, f32 transcendental VOP1, OpShl/Shr/Sel non-VGPR fix, AMD SR mapping, FMA policy, PRNG preamble, 24/24 spring absorption | **1401** (1401 pass, 62 ignore) |
+| 10 iter 28 | Unsafe elimination: nak-ir-proc from_raw_parts→compile_error!, 50 Op struct array migration, catch_ice, primal-rpc-client, NVVM poisoning bypass (12 tests), spring absorption wave 3 (7 shaders) | **1437** (1437 pass, 68 ignore) |
+| 10 iter 29 (current) | NVIDIA last mile: multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC, buffer lifecycle safety | **1447** (1447 pass, 76 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 28: 1437 tests passing, 68 ignored. RDNA2 literal
-materialization, f64 transcendental AMD encodings, 24/24 spring
-absorption tests on SM70+RDNA2. All AMD f64 ops encoded.
+Iteration 29: 1447 tests passing, 76 ignored. Multi-GPU path-based open,
+SM auto-detect from sysfs, Nouveau EINVAL diagnostic suite, UVM RM
+client proof-of-concept. Buffer lifecycle safety in NvDevice.
 AMD E2E verified — sovereign pipeline proven on hardware.*

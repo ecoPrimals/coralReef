@@ -504,6 +504,260 @@ pub(crate) fn gem_mmap_region(fd: RawFd, map_handle: u64, size: u64) -> DriverRe
     )
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic helpers — instrument EINVAL investigation without guessing
+// ---------------------------------------------------------------------------
+
+/// Diagnostic result from a channel allocation attempt.
+#[derive(Debug)]
+pub struct ChannelAllocDiag {
+    /// Human-readable description of the attempt.
+    pub description: String,
+    /// Result of the attempt.
+    pub result: std::result::Result<u32, String>,
+}
+
+/// Run a series of diagnostic channel allocation attempts to isolate EINVAL.
+///
+/// Tries multiple configurations and reports which succeed and which fail.
+/// This does NOT leave channels open — successful channels are immediately
+/// destroyed.
+pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAllocDiag> {
+    let mut results = Vec::new();
+
+    // Attempt 1: bare channel, no subchannels
+    {
+        let desc = "bare channel (nr_subchan=0, no compute class)".to_string();
+        let mut alloc = NouveauChannelAlloc {
+            pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
+            nr_subchan: 0,
+            ..Default::default()
+        };
+        let ioctl_nr = drm::drm_iowr_pub(
+            DRM_NOUVEAU_CHANNEL_ALLOC,
+            size_of_u32::<NouveauChannelAlloc>(),
+        );
+        #[expect(clippy::cast_sign_loss, reason = "diagnostic only")]
+        let result = match unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc) } {
+            Ok(()) => {
+                let ch = alloc.channel as u32;
+                let _ = destroy_channel(fd, ch);
+                Ok(ch)
+            }
+            Err(e) => Err(format!("{e}")),
+        };
+        results.push(ChannelAllocDiag {
+            description: desc,
+            result,
+        });
+    }
+
+    // Attempt 2: single compute subchannel (the normal path)
+    {
+        let desc = format!("compute-only (nr_subchan=1, grclass=0x{compute_class:04X})");
+        let result = match create_channel(fd, compute_class) {
+            Ok(ch) => {
+                let _ = destroy_channel(fd, ch);
+                Ok(ch)
+            }
+            Err(e) => Err(format!("{e}")),
+        };
+        results.push(ChannelAllocDiag {
+            description: desc,
+            result,
+        });
+    }
+
+    // Attempt 3: NVK-style multi-engine (2D + copy + compute)
+    {
+        let desc = format!("NVK-style multi-engine (2D + copy + compute 0x{compute_class:04X})");
+        let result = match create_gv100_compute_channel(fd) {
+            Ok((ch, _sub)) => {
+                let _ = destroy_channel(fd, ch);
+                Ok(ch)
+            }
+            Err(e) => Err(format!("{e}")),
+        };
+        results.push(ChannelAllocDiag {
+            description: desc,
+            result,
+        });
+    }
+
+    // Attempt 4: Volta compute with different classes
+    for (name, class) in [
+        ("VOLTA_COMPUTE_A", NVIF_CLASS_VOLTA_COMPUTE_A),
+        ("TURING_COMPUTE_A", NVIF_CLASS_TURING_COMPUTE_A),
+        ("AMPERE_COMPUTE_A", NVIF_CLASS_AMPERE_COMPUTE_A),
+    ] {
+        if class == compute_class {
+            continue; // already tested in attempt 2
+        }
+        let desc = format!("compute-only ({name}=0x{class:04X})");
+        let result = match create_channel(fd, class) {
+            Ok(ch) => {
+                let _ = destroy_channel(fd, ch);
+                Ok(ch)
+            }
+            Err(e) => Err(format!("{e}")),
+        };
+        results.push(ChannelAllocDiag {
+            description: desc,
+            result,
+        });
+    }
+
+    results
+}
+
+/// Log the raw bytes of a `NouveauChannelAlloc` struct for debugging.
+#[must_use]
+pub fn dump_channel_alloc_hex(compute_class: u32) -> String {
+    let mut alloc = NouveauChannelAlloc {
+        pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
+        nr_subchan: 1,
+        ..Default::default()
+    };
+    alloc.subchan[0] = NouveauSubchan {
+        handle: 1,
+        grclass: compute_class,
+    };
+
+    let size = std::mem::size_of::<NouveauChannelAlloc>();
+    let ptr: *const u8 = std::ptr::from_ref(&alloc).cast();
+    // SAFETY: reading repr(C) struct as bytes for diagnostic hex dump
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
+
+    let mut hex = format!("NouveauChannelAlloc ({size} bytes):\n");
+    for (i, chunk) in bytes.chunks(16).enumerate() {
+        hex.push_str(&format!("  {:04x}: ", i * 16));
+        for b in chunk {
+            hex.push_str(&format!("{b:02x} "));
+        }
+        hex.push('\n');
+    }
+    hex
+}
+
+/// Check for NVIDIA firmware files required by nouveau for compute on Volta+.
+///
+/// Returns a list of (path, exists) for the firmware files that nouveau
+/// typically needs.
+#[must_use]
+pub fn check_nouveau_firmware(chip: &str) -> Vec<(String, bool)> {
+    let base = format!("/lib/firmware/nvidia/{chip}");
+    let firmware_files = [
+        "acr/bl.bin",
+        "acr/ucode_unload.bin",
+        "gr/fecs_bl.bin",
+        "gr/fecs_inst.bin",
+        "gr/fecs_data.bin",
+        "gr/gpccs_bl.bin",
+        "gr/gpccs_inst.bin",
+        "gr/gpccs_data.bin",
+        "gr/sw_ctx.bin",
+        "gr/sw_nonctx.bin",
+        "gr/sw_bundle_init.bin",
+        "gr/sw_method_init.bin",
+        "nvdec/scrubber.bin",
+        "sec2/desc.bin",
+        "sec2/image.bin",
+        "sec2/sig.bin",
+    ];
+
+    firmware_files
+        .iter()
+        .map(|f| {
+            let path = format!("{base}/{f}");
+            let exists = std::path::Path::new(&path).exists();
+            (path, exists)
+        })
+        .collect()
+}
+
+/// Probe sysfs for the GPU chipset on a nouveau render node.
+///
+/// Looks for `/sys/class/drm/renderDN/device/` to identify the PCI device.
+/// Returns the PCI vendor:device ID pair if readable.
+#[must_use]
+pub fn probe_gpu_identity(render_node_path: &str) -> Option<GpuIdentity> {
+    // /dev/dri/renderD128 → renderD128
+    let node_name = render_node_path.rsplit('/').next()?;
+    let sysfs_device = format!("/sys/class/drm/{node_name}/device");
+
+    let vendor = std::fs::read_to_string(format!("{sysfs_device}/vendor")).ok()?;
+    let device = std::fs::read_to_string(format!("{sysfs_device}/device")).ok()?;
+
+    let vendor_id = u16::from_str_radix(vendor.trim().trim_start_matches("0x"), 16).ok()?;
+    let device_id = u16::from_str_radix(device.trim().trim_start_matches("0x"), 16).ok()?;
+
+    Some(GpuIdentity {
+        vendor_id,
+        device_id,
+        sysfs_path: sysfs_device,
+    })
+}
+
+/// PCI identity of a GPU device.
+#[derive(Debug, Clone)]
+pub struct GpuIdentity {
+    /// PCI vendor ID (0x10DE for NVIDIA).
+    pub vendor_id: u16,
+    /// PCI device ID (maps to specific GPU model).
+    pub device_id: u16,
+    /// Sysfs device path.
+    pub sysfs_path: String,
+}
+
+impl GpuIdentity {
+    /// Map a known NVIDIA PCI device ID to an SM architecture version.
+    ///
+    /// Returns `None` for unrecognized device IDs. This table covers
+    /// common consumer and professional GPUs.
+    #[must_use]
+    pub fn nvidia_sm(&self) -> Option<u32> {
+        if self.vendor_id != 0x10DE {
+            return None;
+        }
+        // GV100 (Titan V) — SM70
+        // TU102/TU104/TU106/TU116/TU117 — SM75
+        // GA102/GA104/GA106/GA107 — SM86
+        // GA100 — SM80
+        // AD102/AD103/AD104/AD106/AD107 — SM89
+        match self.device_id {
+            // Volta
+            0x1D81 | 0x1DB1 | 0x1DB4 | 0x1DB5 | 0x1DB6 | 0x1DB7 => Some(70),
+            // Turing
+            0x1E02..=0x1E07
+            | 0x1E30..=0x1E3D
+            | 0x1E82..=0x1E87
+            | 0x1F02..=0x1F15
+            | 0x1F82..=0x1F95
+            | 0x2182..=0x2191
+            | 0x1E89..=0x1E93 => Some(75),
+            // Ampere GA100
+            0x2080 | 0x20B0..=0x20BF | 0x20F1..=0x20F5 => Some(80),
+            // Ampere GA102/GA104/GA106/GA107
+            0x2200..=0x2210
+            | 0x2216
+            | 0x2230..=0x2237
+            | 0x2414
+            | 0x2460..=0x2489
+            | 0x2501..=0x2531
+            | 0x2560..=0x2572
+            | 0x2580..=0x25AC
+            | 0x2684..=0x26B1
+            | 0x2700..=0x2730
+            | 0x2780..=0x2799
+            | 0x2820..=0x2860
+            | 0x2880..=0x2899 => Some(86),
+            // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+            0x2600..=0x2683 => Some(89),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -579,6 +833,94 @@ mod tests {
     fn channel_alloc_struct_has_subchan_array() {
         let alloc = NouveauChannelAlloc::default();
         assert_eq!(alloc.subchan.len(), 8);
+    }
+
+    #[test]
+    fn channel_alloc_struct_size_matches_kernel_abi() {
+        // NouveauChannelAlloc:
+        //   fb_ctxdma_handle: u32 (4)
+        //   tt_ctxdma_handle: u32 (4)
+        //   channel: i32 (4)
+        //   pushbuf_domains: u32 (4)
+        //   notifier_handle: u32 (4)
+        //   subchan: [NouveauSubchan; 8] = 8 * 8 = 64
+        //   nr_subchan: u32 (4)
+        //   pad: u32 (4)
+        //   Total: 92 bytes (20 header + 64 subchan + 8 trailer)
+        assert_eq!(
+            std::mem::size_of::<NouveauChannelAlloc>(),
+            92,
+            "NouveauChannelAlloc must match kernel drm_nouveau_channel_alloc"
+        );
+    }
+
+    #[test]
+    fn channel_free_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauChannelFree>(),
+            8,
+            "NouveauChannelFree must be 8 bytes (kernel ABI)"
+        );
+    }
+
+    #[test]
+    fn gem_new_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauGemNew>(),
+            48,
+            "NouveauGemNew must match kernel drm_nouveau_gem_new"
+        );
+    }
+
+    #[test]
+    fn gem_pushbuf_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauGemPushbuf>(),
+            64,
+            "NouveauGemPushbuf must match kernel drm_nouveau_gem_pushbuf"
+        );
+    }
+
+    #[test]
+    fn nouveau_subchan_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauSubchan>(),
+            8,
+            "NouveauSubchan must be 8 bytes (handle + grclass)"
+        );
+    }
+
+    #[test]
+    fn gpu_identity_nvidia_sm_mapping() {
+        let titan_v = GpuIdentity {
+            vendor_id: 0x10DE,
+            device_id: 0x1D81,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(titan_v.nvidia_sm(), Some(70));
+
+        let non_nvidia = GpuIdentity {
+            vendor_id: 0x1002,
+            device_id: 0x73BF,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(non_nvidia.nvidia_sm(), None);
+    }
+
+    #[test]
+    fn dump_channel_alloc_hex_is_nonempty() {
+        let hex = dump_channel_alloc_hex(NVIF_CLASS_VOLTA_COMPUTE_A);
+        assert!(hex.contains("NouveauChannelAlloc"));
+        assert!(hex.contains("bytes"));
+    }
+
+    #[test]
+    fn firmware_check_returns_entries() {
+        let entries = check_nouveau_firmware("gv100");
+        assert!(!entries.is_empty());
+        for (path, _exists) in &entries {
+            assert!(path.contains("gv100"));
+        }
     }
 
     #[test]

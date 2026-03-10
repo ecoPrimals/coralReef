@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 10, 2026  
-**Phase**: 10 — Iteration 28 (Unsafe Elimination + Pure Safe Rust)
+**Phase**: 10 — Iteration 29 (NVIDIA Last Mile Pipeline)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1437 passing, 0 failed, 68 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1447 passing, 0 failed, 76 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 28** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 29** |
 
 ### Phase 10 Completions
 
@@ -407,6 +407,25 @@
 | Spring absorption wave 3 | ✅ | 7 new shaders from hotSpring v0.6.25 + healthSpring v14; new domains: fluid dynamics (Euler HLL), pharmacology (Hill, population PK), ecology (diversity); 9 pass, 5 ignored (AMD Discriminant, vec3<f64> encoding, f64 log2 edge case) |
 | WGSL corpus expanded | ✅ | 93 cross-spring shaders (was 86); 6 springs represented |
 
+### Phase 10 — Iteration 29 Completions (NVIDIA Last Mile Pipeline)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Multi-GPU path-based open | ✅ | `AmdDevice::open_path()`, `NvDevice::open_path()`, `NvDrmDevice::open_path()` — each render node targets its own physical device |
+| `enumerate_all()` multi-GPU fix | ✅ | Uses `open_driver_at_path()` — 4× RTX 3050 on PCIe now produce 4 distinct contexts |
+| `from_descriptor_with_path()` | ✅ | Render-node-specific context creation for ecosystem discovery |
+| Nouveau EINVAL diagnostic suite | ✅ | `diagnose_channel_alloc()`: bare/compute/NVK-style/alt-class attempts; `dump_channel_alloc_hex()`; auto-runs on failure with firmware + identity probes |
+| Struct ABI verification | ✅ | `NouveauChannelAlloc` = 92 bytes, `NouveauChannelFree` = 8, `NouveauGemNew` = 48, `NouveauGemPushbuf` = 64, `NouveauSubchan` = 8 |
+| Nouveau firmware probe | ✅ | `check_nouveau_firmware()` checks 16 firmware files per chip (acr, gr, nvdec, sec2) |
+| GPU identity via sysfs | ✅ | `probe_gpu_identity()` + `GpuIdentity::nvidia_sm()` — PCI device ID → SM version (Volta through Ada Lovelace) |
+| Buffer lifecycle safety | ✅ | `NvDevice.inflight: Vec<BufferHandle>` — dispatch defers temp buffer free to `sync()`, matching AMD pattern; `Drop` drains inflight |
+| SM auto-detection | ✅ | `NvDevice::open()` probes sysfs for GPU chipset, maps to SM, selects correct compute class; falls back to SM70 |
+| coral-gpu SM wiring | ✅ | `sm_to_nvarch()` + `sm_from_sysfs()` — both `open_driver` and `enumerate_all` use hardware-detected SM |
+| UVM RM client proof-of-concept | ✅ | `RmClient::new()` via `NV_ESC_RM_ALLOC(NV01_ROOT)`, `alloc_device(NV01_DEVICE_0)`, `alloc_subdevice(NV20_SUBDEVICE_0)`, `free_object(NV_ESC_RM_FREE)` with RAII Drop |
+| Diagnostic test suite | ✅ | 5 new hw_nv_nouveau diagnostic tests (channel diag, hex dump, firmware probe, GPU identity, GEM without channel) |
+| `gem_close` promoted to pub | ✅ | Was `pub(crate)`, now `pub` for integration test access |
+| Test expansion | ✅ | 1437 → 1447 passing (+10 tests), 68 → 76 ignored (+8 hardware diagnostic tests) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -431,7 +450,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1437 passing, 0 failed, 68 ignored) |
+| `cargo test --workspace` | PASS (1447 passing, 0 failed, 76 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

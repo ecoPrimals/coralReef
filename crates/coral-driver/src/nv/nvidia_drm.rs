@@ -57,6 +57,21 @@ impl NvDrmDevice {
         Ok(Self { drm })
     }
 
+    /// Open a specific nvidia-drm device by render node path.
+    ///
+    /// Use this to target a specific GPU when multiple NVIDIA cards are
+    /// present (e.g. `/dev/dri/renderD129`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the path cannot be opened.
+    #[cfg(feature = "nvidia-drm")]
+    pub fn open_path(path: &str) -> DriverResult<Self> {
+        let drm = DrmDevice::open(path)?;
+        tracing::info!(path = %drm.path, "NVIDIA proprietary DRM device opened (by path)");
+        Ok(Self { drm })
+    }
+
     /// Returns the DRM render node path (e.g. `/dev/dri/renderD129`).
     #[must_use]
     pub fn path(&self) -> &str {

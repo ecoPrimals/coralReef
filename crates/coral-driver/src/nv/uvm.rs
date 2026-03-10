@@ -67,7 +67,6 @@ pub const NV_ESC_RM_CONTROL: u32 = 0x2A;
 pub const NV_ESC_RM_FREE: u32 = 0x29;
 
 /// Construct an NV ioctl number (read-write direction).
-#[allow(dead_code, reason = "infrastructure for RM ioctl construction")]
 const fn nv_ioctl_rw(nr: u32, size: usize) -> u64 {
     let dir = (crate::drm::IOC_READ | crate::drm::IOC_WRITE) as u64;
     (dir << crate::drm::IOC_DIRSHIFT as u64)
@@ -302,6 +301,199 @@ pub fn nvidia_uvm_available() -> bool {
     Path::new("/dev/nvidia-uvm").exists() && Path::new("/dev/nvidiactl").exists()
 }
 
+// ── RM client allocation ────────────────────────────────────────────
+
+/// An RM client handle allocated via `/dev/nvidiactl`.
+///
+/// The RM client is the root object in the NVIDIA resource manager hierarchy.
+/// All subsequent GPU resource allocations (devices, channels, memory) are
+/// children of this client.
+pub struct RmClient {
+    ctl: NvCtlDevice,
+    h_client: u32,
+}
+
+impl RmClient {
+    /// Allocate a new RM root client via `NV_ESC_RM_ALLOC`.
+    ///
+    /// This is the first step in the NVIDIA proprietary dispatch pipeline.
+    /// The returned client handle is used as the root for all subsequent
+    /// RM resource allocations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if `/dev/nvidiactl` cannot be opened or
+    /// the RM_ALLOC ioctl fails.
+    pub fn new() -> DriverResult<Self> {
+        let ctl = NvCtlDevice::open()?;
+        let h_client = Self::alloc_root_client(&ctl)?;
+        tracing::info!(
+            h_client = format_args!("0x{h_client:08X}"),
+            "RM root client allocated"
+        );
+        Ok(Self { ctl, h_client })
+    }
+
+    fn alloc_root_client(ctl: &NvCtlDevice) -> DriverResult<u32> {
+        // NV01_ROOT allocation: h_root=0, parent=0, new=requested handle, class=NV01_ROOT
+        // When h_object_new is 0, the kernel assigns a handle.
+        let mut params = NvRmAllocParams {
+            h_root: 0,
+            h_object_parent: 0,
+            h_object_new: 0,
+            h_class: NV01_ROOT,
+            p_alloc_parms: 0,
+            params_size: 0,
+            status: 0,
+        };
+
+        let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
+        // SAFETY:
+        // 1. Validity:   NvRmAllocParams is #[repr(C)] matching kernel NVOS21_PARAMETERS
+        // 2. Alignment:  stack-allocated, naturally aligned
+        // 3. Lifetime:   synchronous ioctl; params outlives the call
+        // 4. Exclusivity: &mut params — sole reference
+        unsafe {
+            crate::drm::drm_ioctl_named(
+                ctl.fd(),
+                ioctl_nr,
+                &mut params,
+                "NV_ESC_RM_ALLOC(NV01_ROOT)",
+            )?;
+        }
+
+        if params.status != NV_OK {
+            return Err(DriverError::SubmitFailed(
+                format!("RM_ALLOC(NV01_ROOT) failed: status=0x{:08X}", params.status).into(),
+            ));
+        }
+
+        Ok(params.h_object_new)
+    }
+
+    /// The RM client handle.
+    #[must_use]
+    pub const fn handle(&self) -> u32 {
+        self.h_client
+    }
+
+    /// Allocate a device object under this client.
+    ///
+    /// `gpu_index` is the GPU device index (e.g. 0 for `/dev/nvidia0`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the RM_ALLOC ioctl fails.
+    pub fn alloc_device(&self, gpu_index: u32) -> DriverResult<u32> {
+        let h_device = self.h_client + 1 + gpu_index;
+        let mut params = NvRmAllocParams {
+            h_root: self.h_client,
+            h_object_parent: self.h_client,
+            h_object_new: h_device,
+            h_class: NV01_DEVICE_0,
+            p_alloc_parms: 0,
+            params_size: 0,
+            status: 0,
+        };
+
+        let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
+        // SAFETY: same contract as alloc_root_client
+        unsafe {
+            crate::drm::drm_ioctl_named(
+                self.ctl.fd(),
+                ioctl_nr,
+                &mut params,
+                "NV_ESC_RM_ALLOC(NV01_DEVICE_0)",
+            )?;
+        }
+
+        if params.status != NV_OK {
+            return Err(DriverError::SubmitFailed(
+                format!(
+                    "RM_ALLOC(NV01_DEVICE_0) failed: status=0x{:08X}",
+                    params.status
+                )
+                .into(),
+            ));
+        }
+
+        tracing::info!(
+            h_device = format_args!("0x{h_device:08X}"),
+            gpu_index,
+            "RM device object allocated"
+        );
+        Ok(h_device)
+    }
+
+    /// Allocate a subdevice object under a device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the RM_ALLOC ioctl fails.
+    pub fn alloc_subdevice(&self, h_device: u32) -> DriverResult<u32> {
+        let h_subdevice = h_device + 0x1000;
+        let mut params = NvRmAllocParams {
+            h_root: self.h_client,
+            h_object_parent: h_device,
+            h_object_new: h_subdevice,
+            h_class: NV20_SUBDEVICE_0,
+            p_alloc_parms: 0,
+            params_size: 0,
+            status: 0,
+        };
+
+        let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
+        // SAFETY: same contract as alloc_root_client
+        unsafe {
+            crate::drm::drm_ioctl_named(
+                self.ctl.fd(),
+                ioctl_nr,
+                &mut params,
+                "NV_ESC_RM_ALLOC(NV20_SUBDEVICE_0)",
+            )?;
+        }
+
+        if params.status != NV_OK {
+            return Err(DriverError::SubmitFailed(
+                format!(
+                    "RM_ALLOC(NV20_SUBDEVICE_0) failed: status=0x{:08X}",
+                    params.status
+                )
+                .into(),
+            ));
+        }
+
+        tracing::info!(
+            h_subdevice = format_args!("0x{h_subdevice:08X}"),
+            "RM subdevice object allocated"
+        );
+        Ok(h_subdevice)
+    }
+
+    /// Free an RM object.
+    fn free_object(&self, h_parent: u32, h_object: u32) -> DriverResult<()> {
+        let mut params = NvRmFreeParams {
+            h_root: self.h_client,
+            h_object_parent: h_parent,
+            h_object_old: h_object,
+            status: 0,
+        };
+
+        let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_FREE, std::mem::size_of::<NvRmFreeParams>());
+        // SAFETY: same contract as alloc_root_client
+        unsafe {
+            crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, "NV_ESC_RM_FREE")?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RmClient {
+    fn drop(&mut self) {
+        let _ = self.free_object(0, self.h_client);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +552,57 @@ mod tests {
     fn uvm_initialize() {
         let uvm = NvUvmDevice::open().expect("open uvm");
         uvm.initialize().expect("UVM_INITIALIZE should succeed");
+    }
+
+    #[test]
+    #[ignore = "requires proprietary nvidia driver loaded"]
+    fn rm_client_alloc() {
+        let client = RmClient::new().expect("RM root client allocation");
+        assert!(client.handle() != 0, "client handle should be non-zero");
+        eprintln!("RM client handle: 0x{:08X}", client.handle());
+    }
+
+    #[test]
+    #[ignore = "requires proprietary nvidia driver loaded"]
+    fn rm_client_alloc_device() {
+        let client = RmClient::new().expect("RM root client");
+        let h_device = client.alloc_device(0).expect("RM device allocation");
+        eprintln!(
+            "RM client=0x{:08X}, device=0x{:08X}",
+            client.handle(),
+            h_device
+        );
+    }
+
+    #[test]
+    #[ignore = "requires proprietary nvidia driver loaded"]
+    fn rm_client_alloc_subdevice() {
+        let client = RmClient::new().expect("RM root client");
+        let h_device = client.alloc_device(0).expect("RM device");
+        let h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
+        eprintln!(
+            "RM client=0x{:08X}, device=0x{:08X}, subdevice=0x{:08X}",
+            client.handle(),
+            h_device,
+            h_subdevice
+        );
+    }
+
+    #[test]
+    fn rm_alloc_params_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NvRmAllocParams>(),
+            32,
+            "NvRmAllocParams must be 32 bytes"
+        );
+    }
+
+    #[test]
+    fn rm_free_params_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NvRmFreeParams>(),
+            16,
+            "NvRmFreeParams must be 16 bytes"
+        );
     }
 }

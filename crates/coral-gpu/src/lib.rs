@@ -170,7 +170,7 @@ impl GpuContext {
         ))
     }
 
-    /// Open a specific driver backend by name.
+    /// Open a specific driver backend by name (first matching render node).
     #[cfg(target_os = "linux")]
     fn open_driver(driver: &str) -> GpuResult<Self> {
         match driver {
@@ -188,7 +188,38 @@ impl GpuContext {
             #[cfg(feature = "nouveau")]
             "nouveau" => {
                 let dev = coral_driver::nv::NvDevice::open().map_err(GpuError::Driver)?;
-                let target = GpuTarget::Nvidia(NvArch::Sm70);
+                let target = GpuTarget::Nvidia(sm_to_nvarch(dev.sm_version()));
+                Self::with_device(target, Box::new(dev))
+            }
+            other => Err(GpuError::NoDevice(
+                format!("unsupported driver '{other}'").into(),
+            )),
+        }
+    }
+
+    /// Open a driver backend by name, targeting a specific render node path.
+    #[cfg(target_os = "linux")]
+    fn open_driver_at_path(driver: &str, path: &str) -> GpuResult<Self> {
+        match driver {
+            "amdgpu" => {
+                let dev =
+                    coral_driver::amd::AmdDevice::open_path(path).map_err(GpuError::Driver)?;
+                let target = GpuTarget::Amd(AmdArch::Rdna2);
+                Self::with_device(target, Box::new(dev))
+            }
+            #[cfg(feature = "nvidia-drm")]
+            "nvidia-drm" => {
+                let dev =
+                    coral_driver::nv::NvDrmDevice::open_path(path).map_err(GpuError::Driver)?;
+                let target = sm_target_from_sysfs(path);
+                Self::with_device(target, Box::new(dev))
+            }
+            #[cfg(feature = "nouveau")]
+            "nouveau" => {
+                let sm = sm_from_sysfs(path);
+                let dev =
+                    coral_driver::nv::NvDevice::open_path(path, sm).map_err(GpuError::Driver)?;
+                let target = GpuTarget::Nvidia(sm_to_nvarch(sm));
                 Self::with_device(target, Box::new(dev))
             }
             other => Err(GpuError::NoDevice(
@@ -199,8 +230,10 @@ impl GpuContext {
 
     /// Auto-detect all available GPUs and return contexts for each.
     ///
-    /// Returns one [`GpuContext`] per supported GPU found on the system.
-    /// Unsupported drivers are skipped without error.
+    /// Returns one [`GpuContext`] per supported render node found on the system.
+    /// Each render node is opened by its specific path, so multiple GPUs with
+    /// the same driver (e.g. 4x RTX 3050) produce distinct contexts targeting
+    /// distinct physical devices.
     #[cfg(target_os = "linux")]
     #[must_use]
     pub fn enumerate_all() -> Vec<GpuResult<Self>> {
@@ -209,7 +242,7 @@ impl GpuContext {
         enumerate_render_nodes()
             .iter()
             .filter_map(|info| {
-                let result = Self::open_driver(&info.driver);
+                let result = Self::open_driver_at_path(&info.driver, &info.path);
                 match &result {
                     Err(GpuError::NoDevice(_)) => None,
                     _ => Some(result),
@@ -244,6 +277,26 @@ impl GpuContext {
         arch: Option<&str>,
         driver: Option<&str>,
     ) -> GpuResult<Self> {
+        Self::from_descriptor_with_path(vendor, arch, driver, None)
+    }
+
+    /// Create a GPU context from a descriptor, optionally targeting a specific
+    /// render node path.
+    ///
+    /// When `render_node` is `Some`, opens that specific device. When `None`,
+    /// falls back to the first matching driver.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if the vendor/driver is unsupported or the device
+    /// cannot be opened.
+    #[cfg(target_os = "linux")]
+    pub fn from_descriptor_with_path(
+        vendor: &str,
+        arch: Option<&str>,
+        driver: Option<&str>,
+        render_node: Option<&str>,
+    ) -> GpuResult<Self> {
         match (vendor, driver) {
             ("amd", Some("amdgpu") | None) => {
                 let target = match arch {
@@ -251,7 +304,12 @@ impl GpuContext {
                     Some("rdna4") => GpuTarget::Amd(AmdArch::Rdna4),
                     _ => GpuTarget::Amd(AmdArch::Rdna2),
                 };
-                let dev = coral_driver::amd::AmdDevice::open().map_err(GpuError::Driver)?;
+                let dev = if let Some(path) = render_node {
+                    coral_driver::amd::AmdDevice::open_path(path)
+                } else {
+                    coral_driver::amd::AmdDevice::open()
+                }
+                .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
@@ -263,7 +321,12 @@ impl GpuContext {
                     Some("sm70") => GpuTarget::Nvidia(NvArch::Sm70),
                     _ => GpuTarget::Nvidia(NvArch::Sm86),
                 };
-                let dev = coral_driver::nv::NvDrmDevice::open().map_err(GpuError::Driver)?;
+                let dev = if let Some(path) = render_node {
+                    coral_driver::nv::NvDrmDevice::open_path(path)
+                } else {
+                    coral_driver::nv::NvDrmDevice::open()
+                }
+                .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nouveau")]
@@ -278,7 +341,12 @@ impl GpuContext {
                     GpuTarget::Nvidia(nv) => nv.sm(),
                     _ => 70,
                 };
-                let dev = coral_driver::nv::NvDevice::open_with_sm(sm).map_err(GpuError::Driver)?;
+                let dev = if let Some(path) = render_node {
+                    coral_driver::nv::NvDevice::open_path(path, sm)
+                } else {
+                    coral_driver::nv::NvDevice::open_with_sm(sm)
+                }
+                .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
             _ => Err(GpuError::NoDevice(
@@ -431,6 +499,37 @@ impl GpuContext {
     pub fn sync(&mut self) -> GpuResult<()> {
         Ok(self.device_mut()?.sync()?)
     }
+}
+
+/// Map an SM version number to the corresponding `NvArch`.
+#[cfg(target_os = "linux")]
+fn sm_to_nvarch(sm: u32) -> NvArch {
+    match sm {
+        75 => NvArch::Sm75,
+        80 => NvArch::Sm80,
+        86 => NvArch::Sm86,
+        89 => NvArch::Sm89,
+        _ => NvArch::Sm70,
+    }
+}
+
+/// Detect the NVIDIA SM version from sysfs for a render node path.
+/// Falls back to SM70 if detection fails.
+#[cfg(target_os = "linux")]
+fn sm_from_sysfs(path: &str) -> u32 {
+    coral_driver::nv::ioctl::probe_gpu_identity(path)
+        .and_then(|id| id.nvidia_sm())
+        .unwrap_or(70)
+}
+
+/// Detect the GPU target from sysfs for an nvidia-drm render node.
+/// Falls back to SM86 if detection fails.
+#[cfg(all(target_os = "linux", feature = "nvidia-drm"))]
+fn sm_target_from_sysfs(path: &str) -> GpuTarget {
+    let sm = coral_driver::nv::ioctl::probe_gpu_identity(path)
+        .and_then(|id| id.nvidia_sm())
+        .unwrap_or(86);
+    GpuTarget::Nvidia(sm_to_nvarch(sm))
 }
 
 pub(crate) fn hash_wgsl(wgsl: &str) -> u64 {
