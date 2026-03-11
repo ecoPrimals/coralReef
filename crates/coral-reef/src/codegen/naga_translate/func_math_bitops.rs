@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Integer bit operations: countOneBits, reverseBits, firstLeadingBit, countLeadingZeros.
+//! Integer bit operations: countOneBits, reverseBits, firstLeadingBit, firstTrailingBit,
+//! countLeadingZeros.
 
 #![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
@@ -22,6 +23,7 @@ pub(super) fn translate(
             Some(translate_first_leading_bit(ft, a, arg_handle)?)
         }
         naga::MathFunction::CountLeadingZeros => Some(translate_count_leading_zeros(ft, a)?),
+        naga::MathFunction::FirstTrailingBit => Some(translate_first_trailing_bit(ft, a)?),
         _ => None,
     };
     Ok(result)
@@ -86,6 +88,36 @@ fn translate_count_leading_zeros(
         ft.push_instr(Instr::new(OpFlo {
             dst: dst[c].into(),
             src: a[c].into(),
+            signed: false,
+            return_shift_amount: true,
+        }));
+    }
+    Ok(dst)
+}
+
+/// `firstTrailingBit(x)` = position of lowest set bit, or ~0 if zero.
+///
+/// Lowered as `clz(reverseBits(x))`: reversing puts the trailing 1 into
+/// the leading position, then counting leading zeros yields `ctz(x)`.
+/// When `x == 0`, `BREV(0) == 0` and `OpFlo` with `return_shift_amount`
+/// returns `0xFFFF_FFFF` (hardware ~0), matching WGSL semantics.
+fn translate_first_trailing_bit(
+    ft: &mut FuncTranslator<'_, '_>,
+    a: SSARef,
+) -> Result<SSARef, CompileError> {
+    let comps = a.comps();
+    let rev = ft.alloc_ssa_vec(RegFile::GPR, comps);
+    for c in 0..comps as usize {
+        ft.push_instr(Instr::new(OpBRev {
+            dst: rev[c].into(),
+            src: a[c].into(),
+        }));
+    }
+    let dst = ft.alloc_ssa_vec(RegFile::GPR, comps);
+    for c in 0..comps as usize {
+        ft.push_instr(Instr::new(OpFlo {
+            dst: dst[c].into(),
+            src: rev[c].into(),
             signed: false,
             return_shift_amount: true,
         }));

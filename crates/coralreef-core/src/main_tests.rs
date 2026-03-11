@@ -340,4 +340,71 @@ fn write_and_remove_discovery_file() {
 
     remove_discovery_file();
     assert!(!path.exists(), "discovery file should be removed");
+
+    let desc_empty = SelfDescription {
+        provides: vec![],
+        requires: vec![],
+        transports: vec![],
+    };
+    write_discovery_file(&desc_empty).unwrap();
+    let contents_empty = std::fs::read_to_string(&path).unwrap();
+    let json_empty: serde_json::Value = serde_json::from_str(&contents_empty).unwrap();
+    assert_eq!(json_empty["transports"]["jsonrpc"]["bind"], "");
+    assert_eq!(json_empty["transports"]["tarpc"]["bind"], "");
+    remove_discovery_file();
+}
+
+#[test]
+fn remove_discovery_file_idempotent() {
+    remove_discovery_file();
+    remove_discovery_file();
+}
+
+#[test]
+fn cmd_compile_all_archs() {
+    let tmp = std::env::temp_dir().join("coralreef_test_all_archs.wgsl");
+    std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+    for arch in [
+        GpuArch::Sm70,
+        GpuArch::Sm75,
+        GpuArch::Sm80,
+        GpuArch::Sm86,
+        GpuArch::Sm89,
+    ] {
+        let out_path = tmp.with_extension(format!("{arch}.bin"));
+        let result = cmd_compile(&tmp, Some(out_path.as_path()), arch, 2, true);
+        let _ = std::fs::remove_file(&out_path);
+        assert!(
+            matches!(result, UniBinExit::Success),
+            "compile should succeed for {arch:?}"
+        );
+    }
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn cmd_compile_default_output_path() {
+    let tmp = std::env::temp_dir().join("coralreef_test_default_output.wgsl");
+    std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+    let result = cmd_compile(&tmp, None, GpuArch::Sm70, 2, true);
+    let expected_out = tmp.with_extension("bin");
+    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_file(&expected_out);
+    assert!(matches!(result, UniBinExit::Success));
+}
+
+#[test]
+fn cmd_compile_opt_levels() {
+    let tmp = std::env::temp_dir().join("coralreef_test_opt_levels.wgsl");
+    std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+    for opt in [0, 1, 2, 3] {
+        let out_path = tmp.with_extension(format!("opt{opt}.bin"));
+        let result = cmd_compile(&tmp, Some(out_path.as_path()), GpuArch::Sm70, opt, true);
+        let _ = std::fs::remove_file(&out_path);
+        assert!(
+            matches!(result, UniBinExit::Success),
+            "compile should succeed at opt level {opt}"
+        );
+    }
+    let _ = std::fs::remove_file(&tmp);
 }

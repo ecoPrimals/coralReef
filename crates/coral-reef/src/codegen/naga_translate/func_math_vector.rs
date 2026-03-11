@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Vector math operations: dot, cross, length, normalize.
+//! Vector math operations: dot, cross, length, distance, normalize.
 
 #![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
@@ -25,6 +25,11 @@ pub(super) fn translate(
             Some(translate_cross(ft, a, b)?)
         }
         naga::MathFunction::Length => Some(translate_length(ft, a)?),
+        naga::MathFunction::Distance => {
+            let b =
+                b.ok_or_else(|| CompileError::InvalidInput("distance requires 2 args".into()))?;
+            Some(translate_distance(ft, a, b)?)
+        }
         naga::MathFunction::Normalize => Some(translate_normalize(ft, a)?),
         _ => None,
     };
@@ -149,6 +154,26 @@ fn translate_length(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef
         src: rsq.into(),
     }));
     Ok(dst.into())
+}
+
+/// `distance(a, b) = length(a - b)`.
+fn translate_distance(
+    ft: &mut FuncTranslator<'_, '_>,
+    a: SSARef,
+    b: SSARef,
+) -> Result<SSARef, CompileError> {
+    let comps = a.comps().min(b.comps());
+    let diff = ft.alloc_ssa_vec(RegFile::GPR, comps);
+    for c in 0..comps as usize {
+        ft.push_instr(Instr::new(OpFAdd {
+            dst: diff[c].into(),
+            srcs: [a[c].into(), Src::from(b[c]).fneg()],
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+        }));
+    }
+    translate_length(ft, diff)
 }
 
 fn translate_normalize(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, CompileError> {

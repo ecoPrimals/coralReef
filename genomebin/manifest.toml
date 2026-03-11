@@ -17,6 +17,7 @@ description = "Sovereign Rust GPU shader compiler. Compiles WGSL and SPIR-V comp
 list = [
     "shader.compile.spirv",
     "shader.compile.wgsl",
+    "shader.compile.wgsl.multi",
     "shader.compile.status",
     "shader.compile.capabilities",
 ]

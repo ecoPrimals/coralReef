@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//! Request and response types for the compiler service.
+//!
+//! Separated from handler logic for clarity. All types are `Serialize` +
+//! `Deserialize` so they work over both JSON-RPC and tarpc transports.
+
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+
+/// tarpc-only SPIR-V compile request (zero-copy via `Bytes`).
+///
+/// Uses `bytes::Bytes` so SPIR-V can be shared without copying over the wire.
+/// Serializes as base64 when using JSON transport.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileSpirvRequestTarpc {
+    /// Raw SPIR-V bytes (zero-copy).
+    pub spirv: Bytes,
+    /// Target GPU architecture name (e.g. `sm_70`, `rdna2`).
+    pub arch: String,
+    /// Optimization level (0-3).
+    pub opt_level: u32,
+    /// Enable f64 software transcendentals.
+    pub fp64_software: bool,
+}
+
+/// Request to compile a shader (JSON-RPC wire format).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileRequest {
+    /// SPIR-V words (JSON array of u32; base64 in tarpc uses [`CompileSpirvRequestTarpc`]).
+    pub spirv_words: Vec<u32>,
+    /// Target GPU architecture name (e.g. `sm70`, `sm86`, `rdna2`). Optional; defaults to sm70.
+    #[serde(default = "default_arch")]
+    pub arch: String,
+    /// Optimization level (0-3).
+    #[serde(default = "default_opt_level")]
+    pub opt_level: u32,
+    /// Enable f64 software transcendentals.
+    #[serde(default)]
+    pub fp64_software: bool,
+}
+
+/// Request to compile WGSL source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWgslRequest {
+    /// WGSL source code.
+    pub wgsl_source: String,
+    /// Target GPU architecture name (e.g. `sm70`, `sm86`, `rdna2`). Optional; defaults to sm70.
+    #[serde(default = "default_arch")]
+    pub arch: String,
+    /// Optimization level (0-3).
+    #[serde(default = "default_opt_level")]
+    pub opt_level: u32,
+    /// Enable f64 software transcendentals.
+    #[serde(default)]
+    pub fp64_software: bool,
+    /// f64 strategy hint from the caller (e.g. `"software"`, `"native"`).
+    /// Optional — defaults to using `fp64_software` if absent.
+    #[serde(default)]
+    pub fp64_strategy: Option<String>,
+    /// FMA fusion policy hint (e.g. `"fused"`, `"separate"`, `"auto"`).
+    /// Optional — defaults to `"auto"` (compiler decides).
+    #[serde(default)]
+    pub fma_policy: Option<String>,
+}
+
+/// Response from shader compilation.
+///
+/// Uses `bytes::Bytes` for zero-copy IPC payloads — `Bytes::from(Vec<u8>)`
+/// takes ownership of the allocation without copying.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileResponse {
+    /// Compiled GPU binary (zero-copy via `bytes::Bytes`).
+    pub binary: Bytes,
+    /// Size in bytes.
+    pub size: usize,
+    /// Target architecture the binary was compiled for.
+    #[serde(default)]
+    pub arch: Option<String>,
+    /// Compilation status (e.g. `"success"`, `"partial"`).
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+/// Health check response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthResponse {
+    /// Primal name.
+    pub name: Cow<'static, str>,
+    /// Version.
+    pub version: Cow<'static, str>,
+    /// Current status.
+    pub status: Cow<'static, str>,
+    /// Supported architectures.
+    pub supported_archs: Vec<String>,
+}
+
+/// A single device target for multi-device compilation.
+///
+/// Carries an architecture hint and optional `PCIe` group ID so the caller
+/// can request compilation for specific GPU slots in a multi-GPU system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceTarget {
+    /// Card index (0-based, maps to `/dev/dri/renderD128+N`).
+    #[serde(default)]
+    pub card_index: u32,
+    /// GPU architecture hint (e.g. `"sm_89"`, `"rdna2"`).
+    pub arch: String,
+    /// Optional `PCIe` group / switch affinity hint.
+    #[serde(default)]
+    pub pcie_group: Option<u32>,
+}
+
+/// Request to compile a single WGSL shader for multiple GPU targets at once.
+///
+/// Implements the `shader.compile.wgsl.multi` endpoint from the toadStool S144
+/// handoff. Compiles the same shader source to native binaries for each
+/// target device in a single request, enabling multi-GPU dispatch preparation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiDeviceCompileRequest {
+    /// WGSL source code (shared across all targets).
+    pub wgsl_source: String,
+    /// Target devices to compile for.
+    pub targets: Vec<DeviceTarget>,
+    /// Optimization level (0-3).
+    #[serde(default = "default_opt_level")]
+    pub opt_level: u32,
+    /// Enable f64 software transcendentals.
+    #[serde(default)]
+    pub fp64_software: bool,
+    /// f64 strategy hint (e.g. `"software"`, `"native"`).
+    #[serde(default)]
+    pub fp64_strategy: Option<String>,
+    /// FMA fusion policy hint (e.g. `"fused"`, `"separate"`, `"auto"`).
+    #[serde(default)]
+    pub fma_policy: Option<String>,
+}
+
+/// Result of compiling for a single device in a multi-device request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceCompileResult {
+    /// Card index this result corresponds to.
+    pub card_index: u32,
+    /// Architecture compiled for.
+    pub arch: String,
+    /// Compiled binary (zero-copy via `bytes::Bytes`), or `None` on failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary: Option<Bytes>,
+    /// Binary size in bytes (0 on failure).
+    pub size: usize,
+    /// Error message if compilation failed for this target.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Response from multi-device compilation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiDeviceCompileResponse {
+    /// Per-device compilation results (same order as request `targets`).
+    pub results: Vec<DeviceCompileResult>,
+    /// Number of targets that compiled successfully.
+    pub success_count: usize,
+    /// Total number of targets requested.
+    pub total_count: usize,
+}
+
+pub(crate) fn default_arch() -> String {
+    coral_reef::GpuArch::default().to_string()
+}
+
+pub(crate) const fn default_opt_level() -> u32 {
+    2
+}

@@ -8,14 +8,10 @@ use bitview::*;
 pub use super::builder::{Builder, InstrBuilder, SSABuilder, SSAInstrBuilder};
 use super::legalize::LegalizeBuilder;
 use super::nv::shader_header::{OutputTopology, PixelImap};
-use super::nv::sm20::ShaderModel20;
-use super::nv::sm32::ShaderModel32;
-use super::nv::sm50::ShaderModel50;
-use super::nv::sm70::ShaderModel70;
 pub use super::ssa_value::*;
 use coral_reef_stubs::as_slice::*;
 use nak_ir_proc::*;
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::fmt;
 
 mod types;
@@ -38,7 +34,6 @@ pub use fold::*;
 
 use std::fmt::Write;
 use std::iter::Zip;
-use std::ops::Range;
 use std::slice;
 
 fn all_dsts_uniform(dsts: &[Dst]) -> bool {
@@ -206,6 +201,12 @@ pub use instr::*;
 
 mod program;
 pub use program::*;
+
+mod shader_io;
+pub use shader_io::*;
+
+mod shader_model;
+pub use shader_model::*;
 
 mod shader_info;
 pub use shader_info::*;

@@ -231,6 +231,8 @@ the full Spring absorption map.
 
 - [x] Iteration 31: Deep debt + NVIDIA pipeline fixes — repair_ssa unreachable block elimination + critical edge phi handling, f64 log2 pow-lowering fix, AMD FRnd encoding (VOP1 F32 + VOP3 F64), vec3<f64> SM70 scalarization, SU3 lattice preamble (10 functions + auto-prepend), SPIR-V Relational expressions (IsNan/IsInf/All/Any), non-literal const init (Compose/Splat/recursive), emit_f64_cmp widening, multi_gpu test generalized, **Nouveau new UAPI** (`VM_INIT/VM_BIND/EXEC` struct defs + ioctl wrappers), **UVM device alloc fix** (`Nv0080AllocParams` with `device_id` — root-causes 0x1F from hotSpring Exp 051), RM status constants, production unwrap→expect — 1509 tests (1509 passing, 54 ignored)
 
+- [x] Iteration 32: Deep debt evolution — `firstTrailingBit` implementation (clz(reverseBits(x)) via OpBRev+OpFlo, NV+AMD), `distance` implementation (length(a-b), NV+AMD), AMD `OpBRev`/`OpFlo` encoding (V_BFREV_B32, V_FFBH_U32/I32 — closes discriminant 31 gap), `CallResult` OpUndef→CompileError, `BindingArray` stride fix (hardcoded 1→recursive element stride), `shader_info.rs` smart refactor (814→3 files: shader_io/shader_model/shader_info), production mock audit (all test-only), dependency analysis (26/28 pure Rust), 19 new integration tests (mix/step/smoothstep/sign, tan/atan/atan2/asin/acos, exp/log/tanh/sinh/cosh, atomics, builtins, float modulo, uniform matrix), doc updates — 1556 tests (1556 passing, 54 ignored), 64% coverage
+
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
@@ -238,21 +240,21 @@ the full Spring absorption map.
 - [ ] **Re-test UVM device alloc on RTX 3090** — `Nv0080AllocParams` fix ready, needs hotSpring validation
 - [ ] nouveau DRM dispatch E2E validation on Titan V hardware (new UAPI path)
 - [ ] nvidia-drm UVM compute dispatch integration (device alloc fix pending)
-- [ ] Coverage 63% → 90%
+- [ ] Coverage 64% → 90%
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1509 tests passing, 54 ignored, 63% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1556 tests passing, 54 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 8-demo showcase: hello-compiler → compute triangle (coralReef → toadStool → barraCuda).
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-Iteration 31: Deep debt + NVIDIA pipeline — nouveau new UAPI (VM\_INIT/VM\_BIND/EXEC ioctls ready),
-UVM device alloc fix (Nv0080AllocParams with device\_id — root-causes 0x1F from hotSpring Exp 051),
-repair\_ssa unreachable blocks + critical edges, f64 log2 pow-lowering, AMD FRnd encoding,
+Iteration 32: Deep debt evolution — firstTrailingBit + distance implemented (NV+AMD),
+AMD OpBRev/OpFlo encoding (closes discriminant 31), production placeholders eliminated,
+shader\_info.rs smart-refactored into three modules, 19 new integration tests,
 vec3\<f64\> scalarization, SU3 lattice preamble, SPIR-V Relational + non-literal const init,
 production unwrap→expect, 22 tests un-ignored. Sovereign dispatch within reach.
 Iteration 30: Multi-device compile API, FMA contraction enforcement, PCIe topology awareness.

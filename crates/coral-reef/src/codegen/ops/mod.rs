@@ -116,6 +116,8 @@ macro_rules! op_encode_amd {
             Op::Shf(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::Sel(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::PopC(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::BRev(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+            Op::Flo(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::Bfe(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::BMsk(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
 

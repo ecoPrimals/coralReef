@@ -342,11 +342,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let arg = self.ensure_expr(argument)?;
                 self.translate_relational(fun, arg, argument)
             }
-            naga::Expression::CallResult(_) => {
-                let dst = self.alloc_ssa(RegFile::GPR);
-                self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
-                Ok(dst.into())
-            }
+            naga::Expression::CallResult(_) => Err(CompileError::InvalidInput(
+                "CallResult accessed before call emission; this indicates a \
+                 naga IR ordering issue"
+                    .into(),
+            )),
             _ => Err(CompileError::NotImplemented(
                 format!(
                     "expression {:?} not yet supported",

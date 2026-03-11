@@ -215,7 +215,7 @@ Status (Iteration 15):
 
 | Handoff | Stale Claim | Correction |
 |---------|-------------|------------|
-| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1487 tests passing, 63% coverage, both drivers complete, AMD E2E verified |
+| groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1556 tests passing, 64% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
 | Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 30 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero libc, FMA contraction enforcement, multi-device compile |
@@ -287,7 +287,7 @@ Status (Iteration 15):
 
 ---
 
-*84/93 cross-spring WGSL shaders compile to native SASS. 1487 tests passing, 76 ignored, 63% coverage.
+*84/93 cross-spring WGSL shaders compile to native SASS. 1556 tests passing, 54 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70 (now with fract/sign/mix/step/smoothstep/tanh/dot).
 4/10 SPIR-V roundtrip tests pass (6 blocked on Discriminant expr + non-literal const init).

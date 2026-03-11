@@ -44,6 +44,8 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
             size_of_u32::<NouveauChannelAlloc>(),
         );
         #[expect(clippy::cast_sign_loss, reason = "diagnostic only")]
+        // SAFETY: NouveauChannelAlloc is #[repr(C)] matching kernel struct;
+        // stack-allocated, synchronous ioctl, &mut alloc is sole reference
         let result = match unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc) } {
             Ok(()) => {
                 let ch = alloc.channel as u32;
@@ -133,7 +135,10 @@ pub fn dump_channel_alloc_hex(compute_class: u32) -> String {
 
     let size = std::mem::size_of::<NouveauChannelAlloc>();
     let ptr: *const u8 = std::ptr::from_ref(&alloc).cast();
-    // SAFETY: reading repr(C) struct as bytes for diagnostic hex dump
+    // SAFETY: NouveauChannelAlloc is #[repr(C)] with no padding requirements
+    // beyond u8 alignment. `ptr` is derived from a valid reference via
+    // `from_ref`, `size` matches `size_of::<NouveauChannelAlloc>()`, and the
+    // source reference outlives this slice.
     let bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
 
     let mut hex = format!("NouveauChannelAlloc ({size} bytes):\n");

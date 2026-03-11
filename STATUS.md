@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1509 passing, 0 failed, 54 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1556 passing, 0 failed, 54 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
@@ -471,6 +471,22 @@
 | `#[allow(dead_code)]` cleanup | ✅ | New UAPI structs: removed (now used); `NOUVEAU_VM_BIND_RUN_ASYNC`, `EXEC_PUSH_NO_WAIT`: `#[expect]` with reasons |
 | Test expansion | ✅ | 1487 → 1509 passing (+22), 76 → 54 ignored (-22) |
 
+### Iteration 32: Deep Debt Evolution — Math Functions, AMD Encoding, Refactoring (Mar 11 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `firstTrailingBit` implementation | ✅ | `clz(reverseBits(x))` via OpBRev + OpFlo, NV + AMD |
+| `distance` implementation | ✅ | `length(a - b)` via component-wise FAdd + translate_length, NV + AMD |
+| AMD `OpBRev` encoding | ✅ | VOP1 `V_BFREV_B32` — closes discriminant 31 gap |
+| AMD `OpFlo` encoding | ✅ | VOP1 `V_FFBH_U32`/`V_FFBH_I32`, with SUB+VOPC+CNDMASK for bit-position mode |
+| `CallResult` → `OpUndef` placeholder | ✅ | Replaced with proper `CompileError::InvalidInput` |
+| `BindingArray` stride fix | ✅ | Hardcoded `1` → recursive `array_element_stride(*base)` |
+| `shader_info.rs` smart refactor | ✅ | 814 LOC → `shader_io.rs` (168) + `shader_model.rs` (337) + `shader_info.rs` (306) |
+| Production mock audit | ✅ | All mocks test-only; `coral-reef-stubs` is real impl despite name |
+| Dependency analysis | ✅ | 26/28 deps pure Rust; only C is tokio→mio→libc (tracked) |
+| Test expansion | ✅ | 1509 → 1556 passing (+47), 54 ignored (stable) |
+| Coverage | ✅ | 63% → 64% (19 new integration tests: interp, trig, exp/log, atomics, builtins) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -498,8 +514,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1509 passing, 0 failed, 54 ignored) |
-| `cargo llvm-cov` | 63% line coverage (target 90%) |
+| `cargo test --workspace` | PASS (1556 passing, 0 failed, 54 ignored) |
+| `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

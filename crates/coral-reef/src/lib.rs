@@ -56,8 +56,7 @@ pub mod tolerances;
 // ISA domain types intentionally use naming conventions that mirror
 // hardware documentation (e.g. OpFAdd, SrcType, UGPR). dead_code covers
 // AMD stub, builder traits, and ISA variants reserved for future use.
-#[allow(
-    non_camel_case_types,
+#[expect(
     non_snake_case,
     dead_code,
     missing_docs,

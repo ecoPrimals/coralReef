@@ -620,7 +620,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     fn array_element_stride(&self, ty: Handle<naga::Type>) -> Result<u32, CompileError> {
         match &self.module.types[ty].inner {
             naga::TypeInner::Array { stride, .. } => Ok(*stride),
-            naga::TypeInner::BindingArray { .. } => Ok(1),
+            naga::TypeInner::BindingArray { base, .. } => self.array_element_stride(*base),
             naga::TypeInner::Struct { members, .. } => {
                 if let Some(last) = members.last() {
                     self.array_element_stride(last.ty)

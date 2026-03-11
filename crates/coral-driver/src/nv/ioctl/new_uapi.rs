@@ -105,8 +105,8 @@ const NOUVEAU_EXEC_PUSH_NO_WAIT: u32 = 1;
 ///
 /// # Errors
 ///
-/// Returns [`DriverError`] if the kernel rejects the request (e.g. old kernel
-/// without new UAPI, or VA space already initialized).
+/// Returns [`crate::error::DriverError`] if the kernel rejects the request
+/// (e.g. old kernel without new UAPI, or VA space already initialized).
 pub fn vm_init(fd: RawFd) -> DriverResult<()> {
     let mut req = NouveauVmInit {
         kernel_managed_addr: NV_KERNEL_MANAGED_ADDR,
@@ -128,7 +128,7 @@ pub fn vm_init(fd: RawFd) -> DriverResult<()> {
 ///
 /// # Errors
 ///
-/// Returns [`DriverError`] on kernel failure.
+/// Returns [`crate::error::DriverError`] on kernel failure.
 pub fn vm_bind_map(
     fd: RawFd,
     gem_handle: u32,
@@ -162,7 +162,7 @@ pub fn vm_bind_map(
 ///
 /// # Errors
 ///
-/// Returns [`DriverError`] on kernel failure.
+/// Returns [`crate::error::DriverError`] on kernel failure.
 pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
     let mut entry = NouveauVmBindEntry {
         op: NouveauVmBindOp::Unmap as u32,
@@ -187,7 +187,7 @@ pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
 ///
 /// # Errors
 ///
-/// Returns [`DriverError`] on kernel failure.
+/// Returns [`crate::error::DriverError`] on kernel failure.
 pub fn exec_submit(fd: RawFd, channel: u32, push_va: u64, push_len: u32) -> DriverResult<()> {
     let mut push = [NouveauExecPush {
         va: push_va,

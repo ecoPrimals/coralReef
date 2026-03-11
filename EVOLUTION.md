@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 31)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 32)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1487 tests (1487 passing, 76 ignored), 63% line coverage (target 90%),
+1556 tests (1556 passing, 54 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
@@ -114,6 +114,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] Dot (f32)
 - [x] Cross
 - [x] Length
+- [x] Distance
 - [x] Normalize
 - [x] Sign
 - [x] Smoothstep
@@ -127,7 +128,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [ ] Transpose, Determinant, Inverse (matrix)
 - [ ] Pack/Unpack (2x16float, 4x8snorm, etc.)
 - [x] CountOneBits, ReverseBits, FirstLeadingBit, CountLeadingZeros
-- [ ] FirstTrailingBit
+- [x] FirstTrailingBit
 - [ ] ExtractBits, InsertBits
 
 ---
@@ -386,15 +387,16 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 27 | Deep debt: RDNA2 literal materialization, f64 transcendental AMD encodings, f32 transcendental VOP1, OpShl/Shr/Sel non-VGPR fix, AMD SR mapping, FMA policy, PRNG preamble, 24/24 spring absorption | **1401** (1401 pass, 62 ignore) |
 | 10 iter 28 | Unsafe elimination: nak-ir-proc from_raw_parts→compile_error!, 50 Op struct array migration, catch_ice, primal-rpc-client, NVVM poisoning bypass (12 tests), spring absorption wave 3 (7 shaders) | **1437** (1437 pass, 68 ignore) |
 | 10 iter 29 | NVIDIA last mile: multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC, buffer lifecycle safety | **1447** (1447 pass, 76 ignore) |
-| 10 iter 30 (current) | Spring absorption + FMA evolution: `shader.compile.wgsl.multi` API, FMA contraction enforcement (`lower_fma` pass), FMA hardware capability reporting, `PCIe` topology awareness, capability self-description evolution, NVVM bypass test hardening | **1487** (1487 pass, 76 ignore) |
+| 10 iter 30 | Spring absorption + FMA evolution: `shader.compile.wgsl.multi` API, FMA contraction enforcement (`lower_fma` pass), FMA hardware capability reporting, `PCIe` topology awareness, capability self-description evolution, NVVM bypass test hardening | **1487** (1487 pass, 76 ignore) |
+| 10 iter 31 | Deep debt: doc link fixes, `#[allow]`/`#[expect]` tightening, SAFETY comments on unsafe blocks, service.rs refactor (→ service/), expanded codegen coverage, file size compliance | **1509** (1509 pass, 54 ignore) |
+| 10 iter 32 (current) | Deep debt evolution: `firstTrailingBit` + `distance` implemented, AMD `OpBRev`/`OpFlo` encoding (fixes discriminant 31), `CallResult` OpUndef→error, `BindingArray` stride fix, `shader_info.rs` split (→ shader_io/shader_model/shader_info), 19 new integration tests (interp, trig, exp/log, atomics, builtins, float modulo, uniform matrix), production mock audit, dependency analysis | **1556** (1556 pass, 54 ignore), 64% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 30: 1487 tests passing, 76 ignored. Multi-device compile API
-(`shader.compile.wgsl.multi`), FMA contraction enforcement
-(SPIR-V `NoContraction` → `FmaPolicy::Separate` splits FFma→FMul+FAdd),
-FMA hardware capability reporting per architecture, `PCIe` topology
-awareness for multi-GPU grouping, capability self-description evolution.
-AMD E2E verified — sovereign pipeline proven on hardware.*
+Iteration 32: 1556 tests passing, 54 ignored. `firstTrailingBit` and
+`distance` math functions implemented (NV + AMD). AMD `OpBRev`/`OpFlo`
+encoding closes discriminant 31 gap. Production placeholders eliminated.
+`shader_info.rs` smart-refactored into three focused modules.
+64% line coverage. AMD E2E verified.*

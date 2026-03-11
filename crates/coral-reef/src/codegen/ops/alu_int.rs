@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 //! Integer ALU operation encoding — IAdd3, IMad, IMnMx, Lop2, Lop3, Shl, Shr,
-//! Shf, Sel, PopC, Bfe, BMsk.
+//! Shf, Sel, PopC, BRev, Flo, Bfe, BMsk.
 //!
 //! Implements `EncodeOp<AmdOpEncoder>` for all integer ALU operations.
 
@@ -325,6 +325,91 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpPopC {
             0,
         );
         prefix.extend(words);
+        Ok(prefix)
+    }
+}
+
+// ---- BRev (VOP1: V_BFREV_B32) ----
+//
+// Bit-reverse a 32-bit value.
+
+impl EncodeOp<AmdOpEncoder<'_>> for OpBRev {
+    fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
+        let dst_reg = dst_to_vgpr_index(&self.dst)?;
+        let src_enc = src_to_encoding(&self.src)?;
+        let (mut prefix, materialized) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
+        let mut words = Rdna2Encoder::encode_vop1(
+            isa::vop1::V_BFREV_B32,
+            AmdRegRef::vgpr(dst_reg),
+            materialized.src0,
+        );
+        materialized.extend_with_literal(&mut words);
+        prefix.extend(words);
+        Ok(prefix)
+    }
+}
+
+// ---- Flo (VOP1: V_FFBH_U32 / V_FFBH_I32) ----
+//
+// Find-first-bit-high: V_FFBH_U32 returns the number of leading zeros (or ~0
+// for input 0).  The IR flag `return_shift_amount` selects between raw CLZ
+// semantics (true) and bit-position-from-LSB (false, i.e. 31 − CLZ).
+//
+// AMD's V_FFBH_U32 natively returns CLZ, so `return_shift_amount == true` maps
+// directly.  For `false` we emit `V_SUB_NC_U32(31, ffbh)` + VOPC/CNDMASK to
+// preserve ~0 on zero inputs (where ffbh == ~0).
+
+impl EncodeOp<AmdOpEncoder<'_>> for OpFlo {
+    fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
+        let dst_reg = dst_to_vgpr_index(&self.dst)?;
+        let src_enc = src_to_encoding(&self.src)?;
+        let (mut prefix, materialized) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
+
+        let opcode = if self.signed {
+            isa::vop1::V_FFBH_I32
+        } else {
+            isa::vop1::V_FFBH_U32
+        };
+
+        if self.return_shift_amount {
+            let mut words =
+                Rdna2Encoder::encode_vop1(opcode, AmdRegRef::vgpr(dst_reg), materialized.src0);
+            materialized.extend_with_literal(&mut words);
+            prefix.extend(words);
+        } else {
+            let scratch = e.scratch_vgpr_1;
+
+            // scratch = clz(src) or ~0 when src == 0
+            let mut words =
+                Rdna2Encoder::encode_vop1(opcode, AmdRegRef::vgpr(scratch), materialized.src0);
+            materialized.extend_with_literal(&mut words);
+            prefix.extend(words);
+
+            // dst = 31 - scratch (bit position from LSB)
+            // V_SUB_NC_U32: dst = src0 - vsrc1
+            prefix.extend(Rdna2Encoder::encode_vop2(
+                isa::vop2::V_SUB_NC_U32,
+                AmdRegRef::vgpr(dst_reg),
+                128 + 31, // inline constant 31
+                AmdRegRef::vgpr(scratch),
+            ));
+
+            // When src == 0, scratch was ~0 and dst is garbage (32).
+            // Fix: VCC = (scratch != ~0), then CNDMASK dst = VCC ? dst : ~0.
+            prefix.extend(Rdna2Encoder::encode_vopc(
+                isa::vopc::V_CMP_NE_U32,
+                193, // inline constant -1 (0xFFFFFFFF)
+                scratch,
+            ));
+            // VCC=0 (scratch was ~0, input zero) → src0 = -1; VCC=1 → vsrc1 = dst
+            prefix.extend(Rdna2Encoder::encode_vop2(
+                isa::vop2::V_CNDMASK_B32,
+                AmdRegRef::vgpr(dst_reg),
+                193, // inline constant -1 (0xFFFFFFFF)
+                AmdRegRef::vgpr(dst_reg),
+            ));
+        }
+
         Ok(prefix)
     }
 }
