@@ -124,7 +124,6 @@ struct NouveauChannelAlloc {
     notifier_handle: u32,
     subchan: [NouveauSubchan; 8],
     nr_subchan: u32,
-    pad: u32,
 }
 
 #[repr(C)]
@@ -138,7 +137,6 @@ struct NouveauSubchan {
 #[derive(Default)]
 struct NouveauChannelFree {
     channel: i32,
-    pad: u32,
 }
 
 #[repr(C)]
@@ -331,7 +329,6 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
     )]
     let mut free = NouveauChannelFree {
         channel: channel as i32,
-        pad: 0,
     };
     let ioctl_nr = drm::drm_iowr_pub(
         DRM_NOUVEAU_CHANNEL_FREE,

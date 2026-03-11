@@ -21,13 +21,15 @@ const NV_KERNEL_MANAGED_SIZE: u64 = 0x80_0000_0000;
 
 /// Initialize kernel-managed VA space. Must be called before VM_BIND.
 /// NVK uses `kernel_managed_addr = 0x80_0000_0000`, `kernel_managed_size = 0x80_0000_0000`.
+///
+/// Must match `struct drm_nouveau_vm_init` from kernel UAPI (16 bytes, 2 fields).
+/// Previous 4-field (32 byte) version caused EINVAL: ioctl number encodes struct
+/// size, so the kernel rejected the mismatched ioctl.
 #[repr(C)]
 #[derive(Default)]
 struct NouveauVmInit {
     kernel_managed_addr: u64,
     kernel_managed_size: u64,
-    unmanaged_addr: u64,
-    unmanaged_size: u64,
 }
 
 /// Bind operation type for VM_BIND.
@@ -52,16 +54,19 @@ struct NouveauVmBindEntry {
 }
 
 /// VM_BIND request — maps/unmaps GEM objects to GPU virtual addresses.
+///
+/// Field order must match kernel `drm_nouveau_vm_bind`:
+/// op_count, flags, wait_count, sig_count, wait_ptr, sig_ptr, op_ptr.
 #[repr(C)]
 #[derive(Default)]
 struct NouveauVmBind {
     op_count: u32,
     flags: u32,
-    op_ptr: u64,
     wait_count: u32,
     sig_count: u32,
     wait_ptr: u64,
     sig_ptr: u64,
+    op_ptr: u64,
 }
 
 /// Async VM_BIND flag.
@@ -78,6 +83,8 @@ struct NouveauExecPush {
 }
 
 /// EXEC request — submits push buffer for GPU execution.
+///
+/// Field order must match kernel `drm_nouveau_exec`: wait_ptr, sig_ptr, push_ptr.
 #[repr(C)]
 #[derive(Default)]
 struct NouveauExec {
@@ -85,9 +92,9 @@ struct NouveauExec {
     push_count: u32,
     wait_count: u32,
     sig_count: u32,
-    push_ptr: u64,
     wait_ptr: u64,
     sig_ptr: u64,
+    push_ptr: u64,
 }
 
 /// EXEC push buffer flag: no wait (fire-and-forget).
