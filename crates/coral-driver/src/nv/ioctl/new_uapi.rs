@@ -118,7 +118,6 @@ pub fn vm_init(fd: RawFd) -> DriverResult<()> {
     let mut req = NouveauVmInit {
         kernel_managed_addr: NV_KERNEL_MANAGED_ADDR,
         kernel_managed_size: NV_KERNEL_MANAGED_SIZE,
-        ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_VM_INIT, size_of_u32::<NouveauVmInit>());
     // SAFETY:
@@ -218,4 +217,54 @@ pub fn exec_submit(fd: RawFd, channel: u32, push_va: u64, push_len: u32) -> Driv
     // 3. Lifetime:   synchronous ioctl; req + push outlive the call
     // 4. Exclusivity: &mut req — sole reference; push pointer valid for ioctl duration
     unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec") }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_init_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauVmInit>(),
+            16,
+            "NouveauVmInit must match kernel drm_nouveau_vm_init (2× u64 = 16 bytes)"
+        );
+    }
+
+    #[test]
+    fn vm_bind_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauVmBind>(),
+            40,
+            "NouveauVmBind must match kernel drm_nouveau_vm_bind (4× u32 + 3× u64 = 40 bytes)"
+        );
+    }
+
+    #[test]
+    fn vm_bind_entry_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauVmBindEntry>(),
+            40,
+            "NouveauVmBindEntry must match kernel drm_nouveau_vm_bind_op (4× u32 + 3× u64 = 40 bytes)"
+        );
+    }
+
+    #[test]
+    fn exec_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauExec>(),
+            40,
+            "NouveauExec must match kernel drm_nouveau_exec (4× u32 + 3× u64 = 40 bytes)"
+        );
+    }
+
+    #[test]
+    fn exec_push_struct_size() {
+        assert_eq!(
+            std::mem::size_of::<NouveauExecPush>(),
+            16,
+            "NouveauExecPush must match kernel drm_nouveau_exec_push (1× u64 + 2× u32 = 16 bytes)"
+        );
+    }
 }

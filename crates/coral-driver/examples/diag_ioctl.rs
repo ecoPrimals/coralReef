@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Quick diagnostic: step through nouveau ioctl chain to isolate EINVAL.
 
+use coral_driver::ComputeDevice;
 use coral_driver::drm::{self, DrmDevice};
 use coral_driver::nv::ioctl::diag;
-use coral_driver::ComputeDevice;
 
 fn main() {
     println!("╔═══════════════════════════════════════════════╗");
@@ -12,8 +12,10 @@ fn main() {
 
     let nodes = drm::enumerate_render_nodes();
     for info in &nodes {
-        println!("  {} — driver: {}, version: {}.{}",
-            info.path, info.driver, info.version_major, info.version_minor);
+        println!(
+            "  {} — driver: {}, version: {}.{}",
+            info.path, info.driver, info.version_major, info.version_minor
+        );
     }
     println!();
 

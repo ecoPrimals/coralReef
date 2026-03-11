@@ -240,9 +240,10 @@ the full Spring absorption map.
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
+- [x] **DRM ioctl struct ABI fixes** — 4 mismatches resolved (Exp 057): VM_INIT size, EXEC field order, VM_BIND field order, ChannelAlloc/Free padding. VM_INIT now succeeds on Titan V.
 - [ ] **Wire new UAPI into NvDevice::open_from_drm** — replace legacy `create_channel` with `vm_init→gem_new→vm_bind→exec` (ioctls ready)
+- [ ] **Titan V nouveau dispatch blocked: PMU firmware** — CHANNEL_ALLOC fails after VM_INIT succeeds. NVIDIA does not ship signed PMU firmware for desktop Volta (GV100). Paths: (a) GSP firmware on Ampere+, (b) nvidia-drm UVM bypasses nouveau, (c) hw-learn cross-GPU recipe transfer from 4070 eastgate.
 - [ ] **Re-test UVM device alloc on RTX 3090** — `Nv0080AllocParams` fix ready, needs hotSpring validation
-- [ ] nouveau DRM dispatch E2E validation on Titan V hardware (new UAPI path)
 - [ ] nvidia-drm UVM compute dispatch integration (device alloc fix pending)
 - [ ] Coverage 64% → 90%
 

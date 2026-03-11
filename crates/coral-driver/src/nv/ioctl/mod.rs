@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn channel_alloc_struct_size_matches_kernel_abi() {
-        // NouveauChannelAlloc:
+        // NouveauChannelAlloc (kernel drm_nouveau_channel_alloc):
         //   fb_ctxdma_handle: u32 (4)
         //   tt_ctxdma_handle: u32 (4)
         //   channel: i32 (4)
@@ -601,12 +601,11 @@ mod tests {
         //   notifier_handle: u32 (4)
         //   subchan: [NouveauSubchan; 8] = 8 * 8 = 64
         //   nr_subchan: u32 (4)
-        //   pad: u32 (4)
-        //   Total: 92 bytes (20 header + 64 subchan + 8 trailer)
+        //   Total: 88 bytes (20 header + 64 subchan + 4 trailer)
         assert_eq!(
             std::mem::size_of::<NouveauChannelAlloc>(),
-            92,
-            "NouveauChannelAlloc must match kernel drm_nouveau_channel_alloc"
+            88,
+            "NouveauChannelAlloc must match kernel drm_nouveau_channel_alloc (88 bytes)"
         );
     }
 
@@ -614,8 +613,8 @@ mod tests {
     fn channel_free_struct_size() {
         assert_eq!(
             std::mem::size_of::<NouveauChannelFree>(),
-            8,
-            "NouveauChannelFree must be 8 bytes (kernel ABI)"
+            4,
+            "NouveauChannelFree must match kernel drm_nouveau_channel_free (4 bytes)"
         );
     }
 
