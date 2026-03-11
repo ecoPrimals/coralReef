@@ -28,6 +28,97 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         Ok(dst)
     }
 
+    /// Componentwise emission for f64 vector types. Each "element" is a
+    /// pair of GPRs (lo/hi). The callback receives 2-component SSARefs for
+    /// each f64 element pair and must return a 2-component SSARef.
+    /// Handles scalar-vector broadcast when one operand has fewer elements.
+    pub(super) fn emit_f64_componentwise(
+        &mut self,
+        l: SSARef,
+        r: SSARef,
+        mut f: impl FnMut(&mut Self, SSARef, SSARef) -> SSARef,
+    ) -> Result<SSARef, CompileError> {
+        let l_total = l.comps() as usize;
+        let r_total = r.comps() as usize;
+        let total = l_total.max(r_total);
+        // When is_f64_expr matches but the SSA values have odd component
+        // counts (e.g., a 1-component result from a non-f64 subexpression),
+        // round up to even to avoid breaking the pair iteration. The extra
+        // component will be unused dead code.
+        let total = if total % 2 != 0 { total + 1 } else { total };
+        let n_elements = total / 2;
+        let l_elements = l_total / 2;
+        let r_elements = r_total / 2;
+        if n_elements == 1 && l_elements >= 1 && r_elements >= 1 {
+            return Ok(f(self, l, r));
+        }
+        let dst = self.alloc_ssa_vec(RegFile::GPR, total as u8);
+        for e in 0..n_elements {
+            let li = if l_elements > 0 {
+                (e.min(l_elements - 1)) * 2
+            } else {
+                0
+            };
+            let ri = if r_elements > 0 {
+                (e.min(r_elements - 1)) * 2
+            } else {
+                0
+            };
+            let l_pair = if li + 1 < l_total {
+                SSARef::from([l[li], l[li + 1]])
+            } else {
+                SSARef::from([l[0], l[0]])
+            };
+            let r_pair = if ri + 1 < r_total {
+                SSARef::from([r[ri], r[ri + 1]])
+            } else {
+                SSARef::from([r[0], r[0]])
+            };
+            let result = f(self, l_pair, r_pair);
+            self.push_instr(Instr::new(OpCopy {
+                dst: dst[e * 2].into(),
+                src: result[0].into(),
+            }));
+            self.push_instr(Instr::new(OpCopy {
+                dst: dst[e * 2 + 1].into(),
+                src: result[1].into(),
+            }));
+        }
+        Ok(dst)
+    }
+
+    /// Emit an f64 scalar comparison. For f64 vectors, compares only the
+    /// first element (WGSL vec comparisons are element-wise but f64 vec
+    /// comparisons are rarely used; this matches the scalar behavior
+    /// that existed before vec3<f64> support).
+    pub(super) fn emit_f64_cmp(
+        &mut self,
+        l: SSARef,
+        r: SSARef,
+        cmp_op: FloatCmpOp,
+    ) -> Result<SSARef, CompileError> {
+        let l_pair = if l.comps() >= 2 {
+            SSARef::from([l[0], l[1]])
+        } else {
+            // 1-component source (e.g., f32 routed through f64 path) —
+            // widen by duplicating the single component as hi word.
+            SSARef::from([l[0], l[0]])
+        };
+        let r_pair = if r.comps() >= 2 {
+            SSARef::from([r[0], r[1]])
+        } else {
+            SSARef::from([r[0], r[0]])
+        };
+        let dst = self.alloc_ssa(RegFile::Pred);
+        self.push_instr(Instr::new(OpDSetP {
+            dst: dst.into(),
+            set_op: PredSetOp::And,
+            cmp_op,
+            srcs: [Src::from(l_pair), Src::from(r_pair), SrcRef::True.into()],
+        }));
+        Ok(dst.into())
+    }
+
     pub(super) fn emit_int_componentwise(
         &mut self,
         comps: u8,
@@ -158,6 +249,149 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }));
         }
         Ok(dst)
+    }
+
+    pub(super) fn translate_relational(
+        &mut self,
+        fun: naga::RelationalFunction,
+        arg: SSARef,
+        _arg_handle: Handle<naga::Expression>,
+    ) -> Result<SSARef, CompileError> {
+        match fun {
+            naga::RelationalFunction::IsNan => {
+                let dst = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpFSetP {
+                    dst: dst.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: FloatCmpOp::IsNan,
+                    srcs: [arg[0].into(), arg[0].into(), SrcRef::True.into()],
+                    ftz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::RelationalFunction::IsInf => {
+                // |x| == +inf  ⟹  isInf(x)
+                // Use FSetP with .fabs() source modifier and f32 infinity immediate.
+                let inf_bits = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpCopy {
+                    dst: inf_bits.into(),
+                    src: Src::new_imm_u32(0x7f80_0000), // f32 +inf
+                }));
+                let dst = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpFSetP {
+                    dst: dst.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: FloatCmpOp::OrdEq,
+                    srcs: [
+                        Src::from(arg[0]).fabs(),
+                        inf_bits.into(),
+                        SrcRef::True.into(),
+                    ],
+                    ftz: false,
+                }));
+                Ok(dst.into())
+            }
+            naga::RelationalFunction::All => {
+                let comps = arg.comps();
+                if comps == 1 {
+                    if arg[0].file() == RegFile::Pred {
+                        return Ok(arg);
+                    }
+                    let dst = self.alloc_ssa(RegFile::Pred);
+                    self.push_instr(Instr::new(OpISetP {
+                        dst: dst.into(),
+                        set_op: PredSetOp::And,
+                        cmp_op: IntCmpOp::Ne,
+                        cmp_type: IntCmpType::U32,
+                        ex: false,
+                        srcs: [
+                            arg[0].into(),
+                            Src::ZERO,
+                            SrcRef::True.into(),
+                            SrcRef::False.into(),
+                        ],
+                    }));
+                    return Ok(dst.into());
+                }
+                let mut accum = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpISetP {
+                    dst: accum.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: IntCmpOp::Ne,
+                    cmp_type: IntCmpType::U32,
+                    ex: false,
+                    srcs: [
+                        arg[0].into(),
+                        Src::ZERO,
+                        SrcRef::True.into(),
+                        SrcRef::False.into(),
+                    ],
+                }));
+                for c in 1..comps as usize {
+                    let next = self.alloc_ssa(RegFile::Pred);
+                    self.push_instr(Instr::new(OpISetP {
+                        dst: next.into(),
+                        set_op: PredSetOp::And,
+                        cmp_op: IntCmpOp::Ne,
+                        cmp_type: IntCmpType::U32,
+                        ex: false,
+                        srcs: [arg[c].into(), Src::ZERO, accum.into(), SrcRef::False.into()],
+                    }));
+                    accum = next;
+                }
+                Ok(accum.into())
+            }
+            naga::RelationalFunction::Any => {
+                let comps = arg.comps();
+                if comps == 1 {
+                    if arg[0].file() == RegFile::Pred {
+                        return Ok(arg);
+                    }
+                    let dst = self.alloc_ssa(RegFile::Pred);
+                    self.push_instr(Instr::new(OpISetP {
+                        dst: dst.into(),
+                        set_op: PredSetOp::And,
+                        cmp_op: IntCmpOp::Ne,
+                        cmp_type: IntCmpType::U32,
+                        ex: false,
+                        srcs: [
+                            arg[0].into(),
+                            Src::ZERO,
+                            SrcRef::True.into(),
+                            SrcRef::False.into(),
+                        ],
+                    }));
+                    return Ok(dst.into());
+                }
+                let mut accum = self.alloc_ssa(RegFile::Pred);
+                self.push_instr(Instr::new(OpISetP {
+                    dst: accum.into(),
+                    set_op: PredSetOp::And,
+                    cmp_op: IntCmpOp::Ne,
+                    cmp_type: IntCmpType::U32,
+                    ex: false,
+                    srcs: [
+                        arg[0].into(),
+                        Src::ZERO,
+                        SrcRef::True.into(),
+                        SrcRef::False.into(),
+                    ],
+                }));
+                for c in 1..comps as usize {
+                    let next = self.alloc_ssa(RegFile::Pred);
+                    self.push_instr(Instr::new(OpISetP {
+                        dst: next.into(),
+                        set_op: PredSetOp::Or,
+                        cmp_op: IntCmpOp::Ne,
+                        cmp_type: IntCmpType::U32,
+                        ex: false,
+                        srcs: [arg[c].into(), Src::ZERO, accum.into(), SrcRef::False.into()],
+                    }));
+                    accum = next;
+                }
+                Ok(accum.into())
+            }
+        }
     }
 
     /// Number of 32-bit GPR components needed to represent a type in registers.

@@ -245,17 +245,17 @@ impl SM70Encoder<'_> {
     }
 
     pub(super) fn set_bar_dst(&mut self, range: Range<usize>, dst: &Dst) {
-        debug_assert!(dst.as_reg().is_some(), "barrier dst must be register");
-        self.set_bar_reg(range, *dst.as_reg().unwrap());
+        self.set_bar_reg(range, *dst.as_reg().expect("barrier dst must be register"));
     }
 
     pub(super) fn set_bar_src(&mut self, range: Range<usize>, src: &Src) {
         assert!(src.is_unmodified());
-        debug_assert!(
-            src.reference.as_reg().is_some(),
-            "barrier src must be register"
+        self.set_bar_reg(
+            range,
+            *src.reference
+                .as_reg()
+                .expect("barrier src must be register"),
         );
-        self.set_bar_reg(range, *src.reference.as_reg().unwrap());
     }
 
     pub(super) fn set_instr_deps(&mut self, deps: &InstrDeps) {

@@ -201,6 +201,9 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
             super::super::legalize::swap_srcs_if_not_reg(src0, src1, gpr);
             b.copy_alu_src_if_not_reg(src0, gpr, SrcType::ALU);
         }
+        Op::FRnd(op) => {
+            b.copy_alu_src_if_not_reg(&mut op.src, gpr, SrcType::F32);
+        }
         Op::F2F(op) => {
             b.copy_alu_src_if_not_reg(&mut op.src, gpr, SrcType::F32);
         }
@@ -481,6 +484,14 @@ fn estimate_instr_size(op: &Op) -> usize {
         }
         Op::BMsk(op) => {
             2 + literal_materialization_overhead(&[op.pos().clone(), op.width().clone()])
+        }
+        Op::FRnd(op) => {
+            let overhead = if src_needs_materialization(&op.src) {
+                2
+            } else {
+                0
+            };
+            1 + overhead
         }
         Op::F2F(op) => {
             let overhead = if src_needs_materialization(&op.src) {

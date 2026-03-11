@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 30: Spring Absorption + FMA Evolution)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 31: Deep Debt + Nouveau UAPI + UVM Fix)
 
 ---
 

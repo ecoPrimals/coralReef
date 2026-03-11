@@ -58,7 +58,7 @@ mod inner {
             }
             "shader.compile.wgsl" => {
                 let req: service::CompileWgslRequest = if params.is_array() {
-                    let arr = params.as_array().unwrap();
+                    let arr = params.as_array().expect("params confirmed array");
                     if arr.is_empty() {
                         return Err("missing request parameter".to_owned());
                     }
@@ -75,7 +75,7 @@ mod inner {
             }
             "shader.compile.spirv" => {
                 let req: service::CompileRequest = if params.is_array() {
-                    let arr = params.as_array().unwrap();
+                    let arr = params.as_array().expect("params confirmed array");
                     if arr.is_empty() {
                         return Err("missing request parameter".to_owned());
                     }
@@ -92,7 +92,7 @@ mod inner {
             }
             "shader.compile.wgsl.multi" => {
                 let req: service::MultiDeviceCompileRequest = if params.is_array() {
-                    let arr = params.as_array().unwrap();
+                    let arr = params.as_array().expect("params confirmed array");
                     if arr.is_empty() {
                         return Err("missing request parameter".to_owned());
                     }

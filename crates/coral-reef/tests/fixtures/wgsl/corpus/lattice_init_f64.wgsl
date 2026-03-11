@@ -1,6 +1,6 @@
 // lattice_init_f64.wgsl — Cold/hot start for SU(3) lattice gauge links
 //
-// Prepend: complex_f64.wgsl + su3.wgsl + lcg_f64.wgsl + su3_extended_f64.wgsl
+// Preamble: complex_f64 + prng + su3_f64 (auto-prepended by coralReef)
 //
 // Two entry points:
 //   cold_start: set all links to identity
@@ -28,8 +28,8 @@ fn cold_start(@builtin(global_invocation_id) gid: vec3<u32>) {
     let base = link_id * 18u;
     var idv = id_mat;
     for (var i = 0u; i < 9u; i = i + 1u) {
-        links[base + i * 2u]      = idv[i].x;
-        links[base + i * 2u + 1u] = idv[i].y;
+        links[base + i * 2u]      = idv[i].re;
+        links[base + i * 2u + 1u] = idv[i].im;
     }
 }
 
@@ -45,7 +45,7 @@ fn hot_start(@builtin(global_invocation_id) gid: vec3<u32>) {
     let base = link_id * 18u;
     var mv = m;
     for (var i = 0u; i < 9u; i = i + 1u) {
-        links[base + i * 2u]      = mv[i].x;
-        links[base + i * 2u + 1u] = mv[i].y;
+        links[base + i * 2u]      = mv[i].re;
+        links[base + i * 2u + 1u] = mv[i].im;
     }
 }

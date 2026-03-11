@@ -17,12 +17,34 @@ pub fn lower_f64_log2(
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
 
-    let x = op.src.reference.clone().to_ssa();
-    debug_assert!(
-        x.comps() == 2,
-        "f64 log2 src must have 2 components (got {})",
-        x.comps()
-    );
+    let raw_x = op.src.reference.clone().to_ssa();
+    // If the source is 1-component (f32 that got routed through the
+    // f64 path via is_f64_expr), widen to f64 first so the
+    // Newton–Raphson refinement operates at full precision.
+    let x = if raw_x.comps() == 1 {
+        let widened = alloc.alloc_vec(RegFile::GPR, 2);
+        out.push(with_pred(
+            Instr::new(OpF2F {
+                dst: widened.clone().into(),
+                src: Src::from(raw_x),
+                src_type: FloatType::F32,
+                dst_type: FloatType::F64,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+                dst_high: false,
+                integer_rnd: false,
+            }),
+            pred,
+        ));
+        widened
+    } else {
+        debug_assert!(
+            raw_x.comps() == 2,
+            "f64 log2 src must have 1 or 2 components (got {})",
+            raw_x.comps()
+        );
+        raw_x
+    };
 
     let x_f32 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(

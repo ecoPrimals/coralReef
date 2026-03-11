@@ -85,6 +85,15 @@ const COMPLEX64_PREAMBLE: &str = include_str!("complex_f64_preamble.wgsl");
 /// Prepended automatically when source uses `power_f32`, `log_f32_safe`, or `exp_f32_safe`.
 const F32_TRANSCENDENTAL_PREAMBLE: &str = include_str!("f32_transcendental_preamble.wgsl");
 
+/// PRNG preamble — `xorshift32` and `wang_hash`.
+/// Prepended automatically when source uses `xorshift32` or `wang_hash`.
+const PRNG_PREAMBLE: &str = include_str!("prng_preamble.wgsl");
+
+/// SU(3) lattice preamble — 3×3 unitary matrix operations for lattice QCD.
+/// Prepended automatically when source uses `su3_` functions.
+/// Depends on Complex64 preamble (auto-chained).
+const SU3_PREAMBLE: &str = include_str!("su3_f64_preamble.wgsl");
+
 /// FMA (fused multiply-add) control policy.
 ///
 /// SPIR-V `NoContraction` and WGSL `@fma_control` decorations map to this.
@@ -271,8 +280,15 @@ fn strip_enable_directives(source: &str) -> String {
         .join("\n")
 }
 
-/// Prepare WGSL source: auto-prepend df64/complex64/f32 transcendental
-/// preambles when needed, strip `enable f64;` (naga handles f64 natively).
+/// Prepare WGSL source: auto-prepend preambles when needed,
+/// strip `enable f64;` (naga handles f64 natively).
+///
+/// Preamble injection order (dependencies chain forward):
+///   1. Complex64 (no deps)
+///   2. PRNG (no deps)
+///   3. SU3 (depends on Complex64 + PRNG — auto-chained)
+///   4. df64 (no deps)
+///   5. f32 transcendental (no deps)
 ///
 /// Returns a `Cow::Borrowed` if no transformations are needed, avoiding allocation.
 fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow<'a, str> {
@@ -283,12 +299,20 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
     let needs_f32_transcendental = wgsl.contains("power_f32")
         || wgsl.contains("log_f32_safe")
         || wgsl.contains("exp_f32_safe");
+    let needs_prng = wgsl.contains("xorshift32") || wgsl.contains("wang_hash");
+    let needs_su3 = wgsl.contains("su3_");
     let has_enable_f64 = wgsl.contains("enable f64");
     let has_enable_f16 = wgsl.contains("enable f16");
+
+    // SU3 preamble depends on Complex64 and PRNG — auto-chain them
+    let needs_complex64 = needs_complex64 || needs_su3;
+    let needs_prng = needs_prng || needs_su3;
 
     if !needs_df64
         && !needs_complex64
         && !needs_f32_transcendental
+        && !needs_prng
+        && !needs_su3
         && !has_enable_f64
         && !has_enable_f16
     {
@@ -298,13 +322,16 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
     let source = wgsl;
     let mut combined = String::new();
 
+    // 1. Complex64 (must come before SU3 which uses it)
     let modified = if needs_complex64 && !source.contains("struct Complex64") {
         tracing::debug!("auto-prepending complex64 preamble");
         combined.reserve(
             COMPLEX64_PREAMBLE.len()
+                + PRNG_PREAMBLE.len()
+                + SU3_PREAMBLE.len()
                 + DF64_PREAMBLE.len()
                 + F32_TRANSCENDENTAL_PREAMBLE.len()
-                + 4
+                + 8
                 + source.len(),
         );
         combined.push_str(COMPLEX64_PREAMBLE);
@@ -314,6 +341,33 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
         false
     };
 
+    // 2. PRNG (must come before SU3 which uses xorshift32)
+    let modified = if needs_prng && !source.contains("fn xorshift32") {
+        tracing::debug!("auto-prepending PRNG preamble");
+        if !modified {
+            combined.reserve(PRNG_PREAMBLE.len() + 1 + source.len());
+        }
+        combined.push_str(PRNG_PREAMBLE);
+        combined.push('\n');
+        true
+    } else {
+        modified
+    };
+
+    // 3. SU3 lattice (depends on Complex64 + PRNG above)
+    let modified = if needs_su3 && !source.contains("fn su3_identity") {
+        tracing::debug!("auto-prepending SU3 lattice preamble");
+        if !modified {
+            combined.reserve(SU3_PREAMBLE.len() + 1 + source.len());
+        }
+        combined.push_str(SU3_PREAMBLE);
+        combined.push('\n');
+        true
+    } else {
+        modified
+    };
+
+    // 4. df64
     let modified = if needs_df64 && !source.contains("struct Df64") {
         tracing::debug!("auto-prepending df64 preamble");
         if !modified {
@@ -328,6 +382,7 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
         modified
     };
 
+    // 5. f32 transcendental
     let modified = if needs_f32_transcendental && !source.contains("fn power_f32") {
         tracing::debug!("auto-prepending f32 transcendental preamble");
         if !modified {
@@ -359,8 +414,8 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
 /// Compile WGSL source to native GPU binary.
 ///
 /// Convenience wrapper using the default [`NagaFrontend`].
-/// Auto-prepends the df64 preamble when the source uses `Df64` types
-/// or `Fp64Strategy::DoubleFloat` is selected.
+/// Auto-prepends preambles (Complex64, PRNG, SU3, df64, f32 transcendental)
+/// when the source uses their respective types or functions.
 ///
 /// # Errors
 ///

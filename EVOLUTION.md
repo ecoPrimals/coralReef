@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 30)
+**Last updated**: March 10, 2026 (Phase 10 — Iteration 31)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -329,14 +329,14 @@ Endgame:
 
 **libc eliminated** — DRM ioctls now use inline asm syscalls, mmap via rustix.
 No C library links. Transitive FFI from tokio (libc) and jsonrpsee (ring) in
-coralreef-core for async I/O and TLS. Evolution path: biomeOS BearDog/Songbird
+coralreef-core for async I/O and TLS. Evolution path: ecoPrimals BearDog/Songbird
 provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 ### Dependency Landscape
 
 | Crate | Direct FFI | Pure Rust | Notes |
 |-------|-----------|-----------|-------|
-| coral-driver | libc | — | Required for Linux DRM syscalls |
+| coral-driver | — | rustix | Pure Rust syscalls via rustix; libc eliminated (Iter 30) |
 | coral-reef | — | naga, thiserror, tracing | Zero FFI |
 | coral-reef-stubs | — | (none) | Zero dependencies |
 | coral-reef-bitview | — | (none) | Zero dependencies |

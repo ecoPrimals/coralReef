@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Capability-based device discovery via the ecoPrimals ecosystem.
 //!
-//! Follows the biomeOS **Node Atomic** pattern: coralReef discovers GPU
+//! Follows the ecoPrimals **Node Atomic** pattern: coralReef discovers GPU
 //! hardware through capability-based IPC rather than scanning `/dev/dri/`
 //! directly. When no ecosystem provider is available (standalone mode),
 //! falls back to direct DRM render node enumeration.
@@ -156,9 +156,12 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 /// Discover GPU devices by scanning DRM render nodes directly.
 ///
 /// Fallback path when no ecosystem provider is available (standalone mode).
+/// For NVIDIA devices, probes sysfs to determine the actual SM architecture
+/// instead of guessing from driver name.
 #[cfg(target_os = "linux")]
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
     use coral_driver::drm::enumerate_render_nodes;
+    use coral_driver::nv::identity::probe_gpu_identity;
 
     enumerate_render_nodes()
         .into_iter()
@@ -172,8 +175,9 @@ fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
 
             let arch = match info.driver.as_str() {
                 "amdgpu" => Some("rdna2".to_string()),
-                "nvidia-drm" => Some("sm86".to_string()),
-                "nouveau" => Some("sm70".to_string()),
+                "nvidia-drm" | "nouveau" => probe_gpu_identity(&info.path)
+                    .and_then(|id| id.nvidia_sm())
+                    .map(|sm| format!("sm{sm}")),
                 _ => None,
             };
 
@@ -285,8 +289,8 @@ mod tests {
             "pid": 12345,
             "provides": ["gpu.dispatch"],
             "transports": {
-                "jsonrpc": { "bind": "unix:///run/user/1000/biomeos/gpu-provider.sock" },
-                "tarpc": { "bind": "unix:///run/user/1000/biomeos/gpu-provider-tarpc.sock" }
+                "jsonrpc": { "bind": "unix:///run/user/1000/ecoPrimals/gpu-provider.sock" },
+                "tarpc": { "bind": "unix:///run/user/1000/ecoPrimals/gpu-provider-tarpc.sock" }
             },
             "devices": [
                 {

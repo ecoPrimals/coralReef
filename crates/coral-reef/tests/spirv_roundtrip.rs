@@ -100,8 +100,7 @@ spirv_roundtrip_test!(
 // Control flow: branches, loops, barrier
 spirv_roundtrip_test!(
     spirv_rt_control_branches,
-    "fixtures/wgsl/sm70_control_branches_loops_barrier.wgsl",
-    ignore = "SPIR-V path: expression Discriminant not yet supported"
+    "fixtures/wgsl/sm70_control_branches_loops_barrier.wgsl"
 );
 
 // Data types: vec2/vec3/vec4 operations
@@ -113,8 +112,7 @@ spirv_roundtrip_test!(
 // Shared memory + storage types
 spirv_roundtrip_test!(
     spirv_rt_memory_shared,
-    "fixtures/wgsl/memory_shared_storage_types.wgsl",
-    ignore = "SPIR-V path: expression Discriminant not yet supported"
+    "fixtures/wgsl/memory_shared_storage_types.wgsl"
 );
 
 // ===========================================================================
@@ -124,8 +122,7 @@ spirv_roundtrip_test!(
 // f64 lattice QCD: SU(3) gauge force — heavy f64 staple arithmetic
 spirv_roundtrip_test!(
     spirv_rt_su3_gauge_force,
-    "fixtures/wgsl/corpus/su3_gauge_force_f64.wgsl",
-    ignore = "SPIR-V path: non-literal constant initializer not yet supported"
+    "fixtures/wgsl/corpus/su3_gauge_force_f64.wgsl"
 );
 
 // f64 molecular dynamics: velocity-Verlet half kick
@@ -137,20 +134,17 @@ spirv_roundtrip_test!(
 // f32 ODE solver: RK4 parallel with complex control flow
 spirv_roundtrip_test!(
     spirv_rt_rk4_parallel,
-    "fixtures/wgsl/corpus/rk4_parallel.wgsl",
-    ignore = "SPIR-V path: non-literal constant initializer not yet supported"
+    "fixtures/wgsl/corpus/rk4_parallel.wgsl"
 );
 
 // f32 HMM Viterbi: argmax, logsumexp, exp/log codegen
 spirv_roundtrip_test!(
     spirv_rt_hmm_viterbi,
-    "fixtures/wgsl/corpus/hmm_viterbi.wgsl",
-    ignore = "SPIR-V path: non-literal constant initializer not yet supported"
+    "fixtures/wgsl/corpus/hmm_viterbi.wgsl"
 );
 
 // f64 Anderson localization: xoshiro PRNG + transfer matrix
 spirv_roundtrip_test!(
     spirv_rt_anderson_lyapunov,
-    "fixtures/wgsl/corpus/anderson_lyapunov_f64.wgsl",
-    ignore = "SPIR-V path: non-literal constant initializer not yet supported"
+    "fixtures/wgsl/corpus/anderson_lyapunov_f64.wgsl"
 );

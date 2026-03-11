@@ -125,6 +125,9 @@ macro_rules! op_encode_amd {
             Op::Bar(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::Bra(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
 
+            // ---- Rounding ops (ops/alu_float.rs) ----
+            Op::FRnd(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+
             // ---- Conversion ops (ops/convert.rs) ----
             Op::F2F(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::F2I(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),

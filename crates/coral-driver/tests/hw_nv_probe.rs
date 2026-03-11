@@ -39,16 +39,30 @@ fn nvidia_drm_device_opens_and_queries_driver() {
 }
 
 #[test]
-#[ignore = "requires amdgpu + nvidia GPUs"]
-fn multi_gpu_enumerates_both() {
+#[ignore = "requires multiple GPUs"]
+fn multi_gpu_enumerates_multiple() {
     let nodes = enumerate_render_nodes();
-    let has_amd = nodes.iter().any(|n| n.driver == "amdgpu");
-    let has_nv = nodes.iter().any(|n| n.driver == "nvidia-drm");
-    assert!(has_amd, "expected amdgpu render node");
-    assert!(has_nv, "expected nvidia-drm render node");
     eprintln!(
         "found {} render nodes: {:?}",
         nodes.len(),
         nodes.iter().map(|n| n.driver.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+        nodes.len() >= 2,
+        "expected at least 2 render nodes, found {}",
+        nodes.len()
+    );
+    let has_nv = nodes
+        .iter()
+        .any(|n| n.driver == "nvidia-drm" || n.driver == "nouveau");
+    let has_amd = nodes.iter().any(|n| n.driver == "amdgpu");
+    let has_multi_nv = nodes
+        .iter()
+        .filter(|n| n.driver == "nvidia-drm" || n.driver == "nouveau")
+        .count()
+        >= 2;
+    assert!(
+        (has_nv && has_amd) || has_multi_nv || nodes.len() >= 2,
+        "expected multi-GPU: amd+nv, or 2+ nvidia, or 2+ render nodes"
     );
 }

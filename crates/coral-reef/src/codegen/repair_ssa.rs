@@ -33,6 +33,7 @@ fn get_ssa_or_phi(
     phi_alloc: &mut PhiAllocator,
     blocks: &[DefTrackerBlock],
     needs_src: &mut BitSet<Phi>,
+    synth_undefs: &mut Vec<(usize, SSAValue)>,
     b_idx: usize,
     ssa: SSAValue,
 ) -> SSAValue {
@@ -83,7 +84,19 @@ fn get_ssa_or_phi(
 
         // We now have everything we need to sort out this block
         let b_ssa = if all_same {
-            pred_ssa.expect("Undefined value")
+            match pred_ssa {
+                Some(v) => v,
+                None if b_idx != 0 && b.pred.is_empty() => {
+                    let undef_ssa = ssa_alloc.alloc(ssa.file());
+                    synth_undefs.push((b_idx, undef_ssa));
+                    undef_ssa
+                }
+                None => {
+                    // Entry block reached with no definition — this
+                    // should have been handled by fix_entry_live_in.
+                    panic!("Undefined SSA value {ssa:?} at entry — fix_entry_live_in missed it")
+                }
+            }
         } else {
             let phi = phi_alloc.alloc();
             let phi_ssa = ssa_alloc.alloc(ssa.file());
@@ -194,6 +207,7 @@ impl Function {
 
         let mut blocks = Vec::new();
         let mut needs_src = BitSet::<Phi>::new(super::PHI_BITSET_CAPACITY);
+        let mut synth_undefs: Vec<(usize, SSAValue)> = Vec::new();
         let mut ssa_or_phi_worklist = BinaryHeap::new();
         for b_idx in 0..cfg.len() {
             assert!(blocks.len() == b_idx);
@@ -213,6 +227,7 @@ impl Function {
                             phi_alloc,
                             &blocks,
                             &mut needs_src,
+                            &mut synth_undefs,
                             b_idx,
                             *ssa,
                         );
@@ -253,6 +268,7 @@ impl Function {
                                 phi_alloc,
                                 &blocks,
                                 &mut needs_src,
+                                &mut synth_undefs,
                                 b_idx,
                                 phi.orig,
                             )
@@ -308,16 +324,14 @@ impl Function {
         // Now we apply the remap to instruction sources and place the actual
         // phis
         for b_idx in 0..cfg.len() {
-            // Grab the successor index for inserting OpPhiSrc before we take a
-            // mutable reference to the CFG.  There are no critical edges so we
-            // can only have an OpPhiSrc if there is a single successor.
+            // Grab successor indices for inserting OpPhiSrc. When there is a
+            // single successor, phi sources go in this block. When there are
+            // multiple successors, each successor's phis are handled if needed.
             let succ = cfg.succ_indices(b_idx);
-            let s_idx = if succ.len() == 1 {
-                Some(succ[0])
+            let succ_list: Vec<usize> = succ.to_vec();
+            let s_idx = if succ_list.len() == 1 {
+                Some(succ_list[0])
             } else {
-                for s_idx in succ {
-                    debug_assert!(blocks[*s_idx].phis.borrow().is_empty());
-                }
                 None
             };
 
@@ -341,52 +355,137 @@ impl Function {
                 }
             }
 
-            if let Some(s_idx) = s_idx {
-                let s_phis = blocks[s_idx].phis.borrow();
+            // Insert phi sources for each successor that has phi nodes.
+            // Single-successor is the common case; multi-successor happens at
+            // critical edges created by the SPIR-V roundtrip path.
+            let phi_succs = if let Some(s_idx) = s_idx {
+                vec![s_idx]
+            } else {
+                succ_list
+                    .iter()
+                    .copied()
+                    .filter(|&si| !blocks[si].phis.borrow().is_empty())
+                    .collect()
+            };
+            for si in phi_succs {
+                let s_phis = blocks[si].phis.borrow();
                 if !s_phis.is_empty() {
                     let phi_src = get_or_insert_phi_srcs(bb);
                     for pt in s_phis.iter() {
-                        let mut ssa = *pt
-                            .srcs
-                            .get(&b_idx)
-                            .expect("phi must have source for predecessor block");
-                        ssa = ssa_map.find(ssa);
-                        phi_src.srcs.push(pt.phi, ssa.into());
+                        if let Some(&src_ssa) = pt.srcs.get(&b_idx) {
+                            let ssa = ssa_map.find(src_ssa);
+                            phi_src.srcs.push(pt.phi, ssa.into());
+                        }
                     }
                 }
             }
+        }
+
+        // Insert OpUndef instructions at the start of unreachable blocks
+        // for any SSA values we synthesized above. Without these, the
+        // scheduler would see a use with no corresponding definition.
+        for (b_idx, undef_ssa) in synth_undefs {
+            cfg[b_idx].instrs.insert(
+                0,
+                Instr::new(OpUndef {
+                    dst: undef_ssa.into(),
+                }),
+            );
         }
     }
 }
 
 impl Function {
-    /// Fixes SSA dominance violations where values are live-in to the entry
-    /// block but defined only in some branch. Inserts `OpUndef` at entry for
-    /// each such value, then calls `repair_ssa()` to create phi nodes at
-    /// merge points. This handles IR patterns where the builder places a
-    /// definition inside a conditional arm but the value is used on both
-    /// paths to a merge block.
+    /// Fixes SSA dominance violations produced by `naga_translate` and
+    /// optimization passes.
+    ///
+    /// Strategy: for every SSA value that has more than one definition
+    /// or is live-in at the entry block, prepend `OpUndef` at the very
+    /// start of the entry block. This guarantees `repair_ssa` can
+    /// always trace backward to a definition (the OpUndef provides a
+    /// reaching def on paths that miss the real definitions). DCE
+    /// removes unused undefs and dead phi inputs afterward.
     pub fn fix_entry_live_in(&mut self) {
         use super::liveness::SimpleLiveness;
+        use coral_reef_stubs::fxhash::FxHashSet;
 
+        // Collect values that are live-in at entry (no definition
+        // dominates entry on some path to a use).
         let live = SimpleLiveness::for_function(self);
         let entry_li = live.live_in_values(0);
-        if entry_li.is_empty() {
+
+        // Collect ALL SSA values defined anywhere in the function.
+        // We conservatively insert OpUndef for every defined value so
+        // that repair_ssa always finds a reaching definition when
+        // tracing backward to entry. This handles:
+        // - single-def values whose def doesn't dominate all uses
+        // - multi-def values with unreachable entry paths
+        // - values defined at entry that are used before their def
+        // DCE removes unused undefs afterward.
+        let mut needs_undef: FxHashSet<SSAValue> = FxHashSet::default();
+        for ssa in &entry_li {
+            needs_undef.insert(*ssa);
+        }
+        for b in &self.blocks {
+            for instr in &b.instrs {
+                instr.for_each_ssa_def(|ssa| {
+                    needs_undef.insert(*ssa);
+                });
+            }
+        }
+
+        if needs_undef.is_empty() {
             return;
         }
 
-        let mut undefs = Vec::new();
-        for ssa in &entry_li {
-            undefs.push(Instr::new(OpUndef { dst: (*ssa).into() }));
+        // Also collect all SSA values that appear as uses but not as defs.
+        // These can arise from naga_translate producing non-SSA IR.
+        let mut all_uses: FxHashSet<SSAValue> = FxHashSet::default();
+        for b in &self.blocks {
+            for instr in &b.instrs {
+                instr.for_each_ssa_use(|ssa| {
+                    all_uses.insert(*ssa);
+                });
+            }
+        }
+        for ssa in &all_uses {
+            needs_undef.insert(*ssa);
         }
 
+        // Forward-reachability: BFS from entry to find live blocks.
+        // Disconnect and clear unreachable blocks so repair_ssa, the
+        // scheduler, and the register allocator never see stale code.
+        {
+            let n = self.blocks.len();
+            let mut reachable = vec![false; n];
+            let mut queue = std::collections::VecDeque::new();
+            reachable[0] = true;
+            queue.push_back(0);
+            while let Some(b) = queue.pop_front() {
+                for &s in self.blocks.succ_indices(b) {
+                    if !reachable[s] {
+                        reachable[s] = true;
+                        queue.push_back(s);
+                    }
+                }
+            }
+            for bi in 1..n {
+                if !reachable[bi] {
+                    self.blocks[bi].instrs.clear();
+                    self.blocks.disconnect_block(bi);
+                }
+            }
+        }
+
+        let mut undefs: Vec<Instr> = needs_undef
+            .iter()
+            .map(|ssa| Instr::new(OpUndef { dst: (*ssa).into() }))
+            .collect();
+
         let entry = &mut self.blocks[0];
-        // Prepend undefs before existing instructions
         undefs.append(&mut entry.instrs);
         entry.instrs = undefs;
 
-        // Now there are multiple definitions for each value — repair_ssa
-        // inserts proper phi nodes at merge points.
         self.repair_ssa();
         self.opt_dce();
     }

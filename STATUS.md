@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 10, 2026  
-**Phase**: 10 — Iteration 30 (Spring Absorption + FMA Evolution)
+**Phase**: 10 — Iteration 31 (Deep Debt + Nouveau UAPI Migration + UVM Fix)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1487 passing, 0 failed, 76 ignored, 63% line coverage (target 90%) |
+| Tests | A+ | 1509 passing, 0 failed, 54 ignored, 63% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
@@ -442,6 +442,35 @@
 | `#![warn(missing_docs)]` expansion | ✅ | Added to `coral-reef-bitview`, `coral-reef-isa`, `coral-reef-stubs`, `nak-ir-proc`, `amd-isa-gen`, `coral-driver`, `coral-gpu`, `coralreef-core` |
 | Test expansion | ✅ | 1447 → 1487 passing (+40 tests), 76 ignored (stable) |
 
+### Phase 10 — Iteration 31 Completions (Deep Debt + Nouveau UAPI + UVM Fix)
+
+| Task | Status | Details |
+|------|--------|---------|
+| RDNA2 spring absorption (7 tests) | ✅ | Un-ignored 7 tests (literal materialization already fixed in Iter 27) |
+| `biomeos→ecoPrimals` discovery tests | ✅ | Fixed ecosystem name, DRM fallback to sysfs probe |
+| `repair_ssa` unreachable blocks | ✅ | Forward reachability analysis eliminates dead phi sources; `torsion_angles_f64` compiles |
+| f64 `log2` edge case from `pow` lowering | ✅ | `OpF64Log2` widening fix for `hill_dose_response_f64` |
+| AMD `FRnd` encoding (RDNA2) | ✅ | `V_TRUNC/FLOOR/CEIL/RNDNE` for F32 (VOP1) and F64 (VOP3); 4 `FRndMode` variants |
+| `vec3<f64>` SM70 encoder | ✅ | Componentwise scalarization for 3-element f64 vectors |
+| SU3 lattice preamble system | ✅ | `su3_f64_preamble.wgsl` (10 functions), auto-prepend with dependency chaining |
+| SPIR-V Relational expressions | ✅ | `IsNan`, `IsInf`, `All`, `Any` → `OpFSetP`/`OpISetP` |
+| SPIR-V non-literal const init | ✅ | `translate_global_expr`: `Compose`, `Splat`, recursive `Constant` |
+| `repair_ssa` critical edges | ✅ | Multi-successor phi source insertion for SPIR-V-generated CFGs |
+| Production `unwrap()→expect()` | ✅ | All production `unwrap()` → `expect()` with descriptive messages |
+| `emit_f64_cmp` widening | ✅ | Defensive 1→2 component widening for f32-routed-as-f64 operands |
+| `multi_gpu_enumerates_both` → `multi_gpu_enumerates_multiple` | ✅ | Now handles 2×NVIDIA, not just AMD+NVIDIA |
+| Nouveau UAPI structs + ioctls | ✅ | `VM_INIT`, `VM_BIND`, `EXEC` struct definitions + `vm_init()`, `vm_bind_map()`, `vm_bind_unmap()`, `exec_submit()` wrappers |
+| Nouveau UAPI wired into NvDevice | ✅ | `open_from_drm`: VM_INIT auto-detect → fallback; `alloc`: vm_bind_map VA allocation; `dispatch`: exec_submit path; `free`: vm_bind_unmap; bump allocator from `NV_KERNEL_MANAGED_ADDR` |
+| UVM `NV01_DEVICE_0` fix | ✅ | Pass `Nv0080AllocParams` with `device_id` — fixes `NV_ERR_OPERATING_SYSTEM` (0x1F) |
+| UVM `NV20_SUBDEVICE_0` fix | ✅ | Pass `Nv2080AllocParams` with `sub_device_id` |
+| RM status constants | ✅ | `NV_ERR_INVALID_ARGUMENT`, `NV_ERR_OPERATING_SYSTEM`, `NV_ERR_INVALID_OBJECT_HANDLE` |
+| SM70 encoder `unwrap()→expect()` | ✅ | 8 production `unwrap()` in `sm70_encode/{control,encoder}.rs` → `expect()` with descriptive messages |
+| `gem_info` error propagation | ✅ | `NvDevice::alloc` no longer swallows `gem_info` errors with `unwrap_or((0,0))` |
+| `ioctl.rs` smart refactoring | ✅ | `ioctl.rs` (1039 LOC) → `ioctl/{mod.rs, new_uapi.rs, diag.rs}` (692 + 210 + 159 LOC) |
+| Device path constants | ✅ | `NV_CTL_PATH`, `NV_UVM_PATH`, `NV_GPU_PATH_PREFIX`, `DRI_RENDER_PREFIX` — no scattered string literals |
+| `#[allow(dead_code)]` cleanup | ✅ | New UAPI structs: removed (now used); `NOUVEAU_VM_BIND_RUN_ASYNC`, `EXEC_PUSH_NO_WAIT`: `#[expect]` with reasons |
+| Test expansion | ✅ | 1487 → 1509 passing (+22), 76 → 54 ignored (-22) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -456,9 +485,12 @@
 
 | Task | Priority | Detail |
 |------|----------|--------|
+| Nouveau UAPI E2E validation | **P0** | Pipeline fully wired: `VM_INIT → CHANNEL_ALLOC → VM_BIND → EXEC` auto-detected in `NvDevice::open_from_drm`. Needs hotSpring hardware validation on Titan V (GV100 kernel 6.17) |
+| UVM device alloc validation | **P0** | `Nv0080AllocParams` fix deployed — needs hotSpring re-test on RTX 3090 to confirm `0x1F` resolved |
 | Pred→GPR encoder coercion chain | P2 | Encoder coercion chain |
 | Hardware validation (AMD) | ✅ | **E2E verified** — RX 6950 XT, WGSL compile + dispatch + readback |
-| Hardware validation (NVIDIA) | P2 | Titan V on-site — channel + pushbuf path ready |
+| Hardware validation (NVIDIA nouveau) | P1 | Titan V: UAPI migration unblocks dispatch. hotSpring Exp 051: 16/16 firmware present, NVK Vulkan works, legacy UAPI EINVAL on all channel classes |
+| Hardware validation (NVIDIA nvidia-drm) | P1 | RTX 3090: UVM device alloc fix (`Nv0080AllocParams`) needs re-test. hotSpring Exp 051: RM client OK, device alloc `0x1F` |
 | Intel backend | P3 | Placeholder |
 
 ## Checks
@@ -466,7 +498,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1487 passing, 0 failed, 76 ignored) |
+| `cargo test --workspace` | PASS (1509 passing, 0 failed, 54 ignored) |
 | `cargo llvm-cov` | 63% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -494,7 +526,7 @@
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
 | WGSL shader corpus (cross-spring) | 6 springs (93 shaders, 84 compiling SM70) | tests/fixtures/wgsl/corpus/ |
 | GLSL compute frontend | naga `glsl-in` feature | `compile_glsl()` public API, 5 GLSL fixtures |
-| SPIR-V roundtrip testing | naga `spv-out` → `compile()` | 10 roundtrip tests (4 passing, 6 ignored) |
+| SPIR-V roundtrip testing | naga `spv-out` → `compile()` | 10 roundtrip tests (10 passing, 0 ignored) |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |
 | Safe syscalls via libc | groundSpring CONTRIBUTING | drm.rs, gem.rs |
 | `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |

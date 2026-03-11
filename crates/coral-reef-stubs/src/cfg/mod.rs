@@ -160,6 +160,29 @@ impl<T> CFG<T> {
         &mut self.blocks
     }
 
+    /// Remove all edges incident to a given block and invalidate
+    /// dominator analysis. Callers must also clear the block's content.
+    pub fn disconnect_block(&mut self, id: NodeId) {
+        // Remove id from all successors' predecessor lists
+        if let Some(succs) = self.successors.remove(&id) {
+            for s in succs {
+                if let Some(preds) = self.predecessors.get_mut(&s) {
+                    preds.retain(|&p| p != id);
+                }
+            }
+        }
+        // Remove id from all predecessors' successor lists
+        if let Some(preds) = self.predecessors.remove(&id) {
+            for p in preds {
+                if let Some(succs) = self.successors.get_mut(&p) {
+                    succs.retain(|&s| s != id);
+                }
+            }
+        }
+        // Cached dominator analysis is now stale
+        *self.dom_analysis.borrow_mut() = None;
+    }
+
     /// Drain blocks from the CFG.
     pub fn drain(&mut self) -> std::vec::Drain<'_, T> {
         self.blocks.drain(..)

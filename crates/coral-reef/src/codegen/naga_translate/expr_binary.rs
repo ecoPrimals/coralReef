@@ -21,13 +21,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         match op {
             naga::BinaryOperator::Add if is_f64 => {
-                let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDAdd {
-                    dst: dst.clone().into(),
-                    srcs: [Src::from(l), Src::from(r)],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                Ok(dst)
+                self.emit_f64_componentwise(l, r, |s, lp, rp| {
+                    let dst = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDAdd {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(lp), Src::from(rp)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    dst
+                })
             }
             naga::BinaryOperator::Add if is_float => {
                 self.emit_componentwise(comps, l, r, |s, a, b| {
@@ -58,13 +60,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 dst
             }),
             naga::BinaryOperator::Subtract if is_f64 => {
-                let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDAdd {
-                    dst: dst.clone().into(),
-                    srcs: [Src::from(l), Src::from(r).fneg()],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                Ok(dst)
+                self.emit_f64_componentwise(l, r, |s, lp, rp| {
+                    let dst = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDAdd {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(lp), Src::from(rp).fneg()],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    dst
+                })
             }
             naga::BinaryOperator::Subtract if is_float => {
                 self.emit_componentwise(comps, l, r, |s, a, b| {
@@ -97,13 +101,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 })
             }
             naga::BinaryOperator::Multiply if is_f64 => {
-                let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDMul {
-                    dst: dst.clone().into(),
-                    srcs: [Src::from(l), Src::from(r)],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                Ok(dst)
+                self.emit_f64_componentwise(l, r, |s, lp, rp| {
+                    let dst = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDMul {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(lp), Src::from(rp)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    dst
+                })
             }
             naga::BinaryOperator::Multiply if is_float => {
                 self.emit_componentwise(comps, l, r, |s, a, b| {
@@ -140,18 +146,20 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 })
             }
             naga::BinaryOperator::Divide if is_f64 => {
-                let rcp = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpF64Rcp {
-                    dst: rcp.clone().into(),
-                    src: Src::from(r),
-                }));
-                let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDMul {
-                    dst: dst.clone().into(),
-                    srcs: [Src::from(l), Src::from(rcp)],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                Ok(dst)
+                self.emit_f64_componentwise(l, r, |s, lp, rp| {
+                    let rcp = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpF64Rcp {
+                        dst: rcp.clone().into(),
+                        src: Src::from(rp),
+                    }));
+                    let dst = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDMul {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(lp), Src::from(rcp)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    dst
+                })
             }
             naga::BinaryOperator::Divide if is_float => {
                 self.emit_componentwise(comps, l, r, |s, a, b| {
@@ -226,31 +234,33 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 dst
             }),
             naga::BinaryOperator::Modulo if is_f64 => {
-                let rcp = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpF64Rcp {
-                    dst: rcp.clone().into(),
-                    src: Src::from(r.clone()),
-                }));
-                let quot = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDMul {
-                    dst: quot.clone().into(),
-                    srcs: [Src::from(l.clone()), Src::from(rcp)],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                let floored = self.emit_f64_floor(quot)?;
-                let prod = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDMul {
-                    dst: prod.clone().into(),
-                    srcs: [Src::from(floored), Src::from(r)],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.push_instr(Instr::new(OpDAdd {
-                    dst: dst.clone().into(),
-                    srcs: [Src::from(l), Src::from(prod).fneg()],
-                    rnd_mode: FRndMode::NearestEven,
-                }));
-                Ok(dst)
+                self.emit_f64_componentwise(l, r, |s, lp, rp| {
+                    let rcp = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpF64Rcp {
+                        dst: rcp.clone().into(),
+                        src: Src::from(rp.clone()),
+                    }));
+                    let quot = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDMul {
+                        dst: quot.clone().into(),
+                        srcs: [Src::from(lp.clone()), Src::from(rcp)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    let floored = s.emit_f64_floor(quot).expect("f64 floor failed");
+                    let prod = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDMul {
+                        dst: prod.clone().into(),
+                        srcs: [Src::from(floored), Src::from(rp)],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    let dst = s.alloc_ssa_vec(RegFile::GPR, 2);
+                    s.push_instr(Instr::new(OpDAdd {
+                        dst: dst.clone().into(),
+                        srcs: [Src::from(lp), Src::from(prod).fneg()],
+                        rnd_mode: FRndMode::NearestEven,
+                    }));
+                    dst
+                })
             }
             naga::BinaryOperator::Modulo if is_float => {
                 self.emit_componentwise(comps, l, r, |s, a, b| {
@@ -467,16 +477,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst
                 })
             }
-            naga::BinaryOperator::Equal if is_f64 => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                self.push_instr(Instr::new(OpDSetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: FloatCmpOp::OrdEq,
-                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
-                }));
-                Ok(dst.into())
-            }
+            naga::BinaryOperator::Equal if is_f64 => self.emit_f64_cmp(l, r, FloatCmpOp::OrdEq),
             naga::BinaryOperator::Equal if is_float => {
                 self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
                     let dst = s.alloc_ssa(RegFile::Pred);
@@ -502,16 +503,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }));
                 dst
             }),
-            naga::BinaryOperator::NotEqual if is_f64 => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                self.push_instr(Instr::new(OpDSetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: FloatCmpOp::OrdNe,
-                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()], // accum
-                }));
-                Ok(dst.into())
-            }
+            naga::BinaryOperator::NotEqual if is_f64 => self.emit_f64_cmp(l, r, FloatCmpOp::OrdNe),
             naga::BinaryOperator::NotEqual if is_float => {
                 self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
                     let dst = s.alloc_ssa(RegFile::Pred);
@@ -539,16 +531,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst
                 })
             }
-            naga::BinaryOperator::Less if is_f64 => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                self.push_instr(Instr::new(OpDSetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: FloatCmpOp::OrdLt,
-                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
-                }));
-                Ok(dst.into())
-            }
+            naga::BinaryOperator::Less if is_f64 => self.emit_f64_cmp(l, r, FloatCmpOp::OrdLt),
             naga::BinaryOperator::Less if is_float => {
                 self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
                     let dst = s.alloc_ssa(RegFile::Pred);
@@ -574,16 +557,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }));
                 dst
             }),
-            naga::BinaryOperator::LessEqual if is_f64 => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                self.push_instr(Instr::new(OpDSetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: FloatCmpOp::OrdLe,
-                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
-                }));
-                Ok(dst.into())
-            }
+            naga::BinaryOperator::LessEqual if is_f64 => self.emit_f64_cmp(l, r, FloatCmpOp::OrdLe),
             naga::BinaryOperator::LessEqual if is_float => {
                 self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
                     let dst = s.alloc_ssa(RegFile::Pred);
@@ -611,16 +585,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     dst
                 })
             }
-            naga::BinaryOperator::Greater if is_f64 => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                self.push_instr(Instr::new(OpDSetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: FloatCmpOp::OrdGt,
-                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
-                }));
-                Ok(dst.into())
-            }
+            naga::BinaryOperator::Greater if is_f64 => self.emit_f64_cmp(l, r, FloatCmpOp::OrdGt),
             naga::BinaryOperator::Greater if is_float => {
                 self.emit_cmp_componentwise(comps, l, r, |s, a, b| {
                     let dst = s.alloc_ssa(RegFile::Pred);
@@ -647,14 +612,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 dst
             }),
             naga::BinaryOperator::GreaterEqual if is_f64 => {
-                let dst = self.alloc_ssa(RegFile::Pred);
-                self.push_instr(Instr::new(OpDSetP {
-                    dst: dst.into(),
-                    set_op: PredSetOp::And,
-                    cmp_op: FloatCmpOp::OrdGe,
-                    srcs: [Src::from(l), Src::from(r), SrcRef::True.into()],
-                }));
-                Ok(dst.into())
+                self.emit_f64_cmp(l, r, FloatCmpOp::OrdGe)
             }
             naga::BinaryOperator::GreaterEqual if is_float => {
                 self.emit_cmp_componentwise(comps, l, r, |s, a, b| {

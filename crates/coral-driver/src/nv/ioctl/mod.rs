@@ -5,14 +5,18 @@
 //! nouveau driver headers (`nouveau_drm.h`). Ioctl syscalls use
 //! inline assembly (see `drm.rs`) — zero libc dependency.
 //!
-//! ## Nouveau DRM ioctls used
+//! ## Module structure
 //!
-//! | Ioctl | Nr | Description |
-//! |-------|----|-------------|
-//! | `CHANNEL_ALLOC` | `0x00` | Allocate a GPU channel |
-//! | `CHANNEL_FREE`  | `0x01` | Free a GPU channel |
-//! | `GEM_NEW`       | `0x40` | Create a GEM buffer |
-//! | `GEM_PUSHBUF`   | `0x41` | Submit pushbuf commands |
+//! - `mod.rs` — Legacy UAPI: channel alloc, GEM, pushbuf (pre-kernel 6.6)
+//! - `new_uapi.rs` — New UAPI: VM_INIT, VM_BIND, EXEC (kernel 6.6+)
+//! - `diag.rs` — Channel allocation diagnostics
+
+pub mod diag;
+pub mod new_uapi;
+
+pub use diag::{ChannelAllocDiag, diagnose_channel_alloc, dump_channel_alloc_hex};
+pub use diag::{GpuIdentity, check_nouveau_firmware, probe_gpu_identity};
+pub use new_uapi::{exec_submit, vm_bind_map, vm_bind_unmap, vm_init};
 
 use crate::MemoryDomain;
 use crate::drm::{self, MappedRegion};
@@ -31,12 +35,21 @@ const fn size_of_u32<T>() -> u32 {
 
 const DRM_COMMAND_BASE: u32 = 0x40;
 
+// Legacy UAPI (pre-kernel 6.6) — returns EINVAL on Volta+ with kernel 6.17+
 const DRM_NOUVEAU_CHANNEL_ALLOC: u32 = DRM_COMMAND_BASE;
 const DRM_NOUVEAU_CHANNEL_FREE: u32 = DRM_COMMAND_BASE + 0x01;
 const DRM_NOUVEAU_GEM_NEW: u32 = DRM_COMMAND_BASE + 0x40;
 const DRM_NOUVEAU_GEM_PUSHBUF: u32 = DRM_COMMAND_BASE + 0x41;
 const DRM_NOUVEAU_GEM_CPU_PREP: u32 = DRM_COMMAND_BASE + 0x42;
 const _DRM_NOUVEAU_GEM_CPU_FINI: u32 = DRM_COMMAND_BASE + 0x43;
+
+// New UAPI (kernel 6.6+) — required for Volta+ dispatch on modern kernels.
+// NVK (Mesa 25.1+) uses this path: VM_INIT → GEM_NEW → VM_BIND → EXEC.
+// hotSpring Exp 051 confirmed: legacy CHANNEL_ALLOC → EINVAL on GV100 kernel 6.17.
+// See: /usr/include/drm/nouveau_drm.h (drm_nouveau_vm_init, vm_bind, exec)
+const DRM_NOUVEAU_VM_INIT: u32 = DRM_COMMAND_BASE + 0x10;
+const DRM_NOUVEAU_VM_BIND: u32 = DRM_COMMAND_BASE + 0x11;
+const DRM_NOUVEAU_EXEC: u32 = DRM_COMMAND_BASE + 0x12;
 
 const _NOUVEAU_GEM_DOMAIN_CPU: u32 = 1 << 0;
 const NOUVEAU_GEM_DOMAIN_VRAM: u32 = 1 << 1;
@@ -503,146 +516,6 @@ pub(crate) fn gem_mmap_region(fd: RawFd, map_handle: u64, size: u64) -> DriverRe
         map_handle,
     )
 }
-
-// ---------------------------------------------------------------------------
-// Diagnostic helpers — instrument EINVAL investigation without guessing
-// ---------------------------------------------------------------------------
-
-/// Diagnostic result from a channel allocation attempt.
-#[derive(Debug)]
-pub struct ChannelAllocDiag {
-    /// Human-readable description of the attempt.
-    pub description: String,
-    /// Result of the attempt.
-    pub result: std::result::Result<u32, String>,
-}
-
-/// Run a series of diagnostic channel allocation attempts to isolate EINVAL.
-///
-/// Tries multiple configurations and reports which succeed and which fail.
-/// This does NOT leave channels open — successful channels are immediately
-/// destroyed.
-#[must_use]
-pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAllocDiag> {
-    let mut results = Vec::new();
-
-    // Attempt 1: bare channel, no subchannels
-    {
-        let desc = "bare channel (nr_subchan=0, no compute class)".to_string();
-        let mut alloc = NouveauChannelAlloc {
-            pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
-            nr_subchan: 0,
-            ..Default::default()
-        };
-        let ioctl_nr = drm::drm_iowr_pub(
-            DRM_NOUVEAU_CHANNEL_ALLOC,
-            size_of_u32::<NouveauChannelAlloc>(),
-        );
-        #[expect(clippy::cast_sign_loss, reason = "diagnostic only")]
-        let result = match unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc) } {
-            Ok(()) => {
-                let ch = alloc.channel as u32;
-                let _ = destroy_channel(fd, ch);
-                Ok(ch)
-            }
-            Err(e) => Err(format!("{e}")),
-        };
-        results.push(ChannelAllocDiag {
-            description: desc,
-            result,
-        });
-    }
-
-    // Attempt 2: single compute subchannel (the normal path)
-    {
-        let desc = format!("compute-only (nr_subchan=1, grclass=0x{compute_class:04X})");
-        let result = match create_channel(fd, compute_class) {
-            Ok(ch) => {
-                let _ = destroy_channel(fd, ch);
-                Ok(ch)
-            }
-            Err(e) => Err(format!("{e}")),
-        };
-        results.push(ChannelAllocDiag {
-            description: desc,
-            result,
-        });
-    }
-
-    // Attempt 3: NVK-style multi-engine (2D + copy + compute)
-    {
-        let desc = format!("NVK-style multi-engine (2D + copy + compute 0x{compute_class:04X})");
-        let result = match create_gv100_compute_channel(fd) {
-            Ok((ch, _sub)) => {
-                let _ = destroy_channel(fd, ch);
-                Ok(ch)
-            }
-            Err(e) => Err(format!("{e}")),
-        };
-        results.push(ChannelAllocDiag {
-            description: desc,
-            result,
-        });
-    }
-
-    // Attempt 4: Volta compute with different classes
-    for (name, class) in [
-        ("VOLTA_COMPUTE_A", NVIF_CLASS_VOLTA_COMPUTE_A),
-        ("TURING_COMPUTE_A", NVIF_CLASS_TURING_COMPUTE_A),
-        ("AMPERE_COMPUTE_A", NVIF_CLASS_AMPERE_COMPUTE_A),
-    ] {
-        if class == compute_class {
-            continue; // already tested in attempt 2
-        }
-        let desc = format!("compute-only ({name}=0x{class:04X})");
-        let result = match create_channel(fd, class) {
-            Ok(ch) => {
-                let _ = destroy_channel(fd, ch);
-                Ok(ch)
-            }
-            Err(e) => Err(format!("{e}")),
-        };
-        results.push(ChannelAllocDiag {
-            description: desc,
-            result,
-        });
-    }
-
-    results
-}
-
-/// Log the raw bytes of a `NouveauChannelAlloc` struct for debugging.
-#[must_use]
-pub fn dump_channel_alloc_hex(compute_class: u32) -> String {
-    use std::fmt::Write;
-
-    let mut alloc = NouveauChannelAlloc {
-        pushbuf_domains: NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_GART,
-        nr_subchan: 1,
-        ..Default::default()
-    };
-    alloc.subchan[0] = NouveauSubchan {
-        handle: 1,
-        grclass: compute_class,
-    };
-
-    let size = std::mem::size_of::<NouveauChannelAlloc>();
-    let ptr: *const u8 = std::ptr::from_ref(&alloc).cast();
-    // SAFETY: reading repr(C) struct as bytes for diagnostic hex dump
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
-
-    let mut hex = format!("NouveauChannelAlloc ({size} bytes):\n");
-    for (i, chunk) in bytes.chunks(16).enumerate() {
-        let _ = write!(hex, "  {:04x}: ", i * 16);
-        for b in chunk {
-            let _ = write!(hex, "{b:02x} ");
-        }
-        hex.push('\n');
-    }
-    hex
-}
-
-pub use super::identity::{GpuIdentity, check_nouveau_firmware, probe_gpu_identity};
 
 #[cfg(test)]
 mod tests {

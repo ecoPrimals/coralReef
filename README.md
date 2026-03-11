@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 30 (Spring Absorption + FMA Evolution)
+**Status**: Phase 10 — Iteration 31 (Deep Debt + Nouveau UAPI + UVM Fix)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -19,11 +19,12 @@ No manual vtables, no C-era dispatch macros.
 
 coralDriver provides userspace GPU dispatch via DRM ioctl — AMD amdgpu
 (fully wired: GEM, PM4, CS submit, fence sync) and NVIDIA nouveau
-(channel alloc, GEM, pushbuf submit, QMD dispatch) plus nvidia-drm
-(proprietary driver probing). coralGpu unifies compilation and dispatch
-into a single API with automatic multi-GPU detection and sovereign
-driver preference (prefer open-source, fall back to what exists).
-Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
+(legacy + new UAPI: VM_INIT/VM_BIND/EXEC for kernel 6.6+, auto-detected)
+plus nvidia-drm/UVM (proprietary driver with RM alloc). coralGpu unifies
+compilation and dispatch into a single API with automatic multi-GPU
+detection and sovereign driver preference (prefer open-source, fall back
+to what exists). Every layer pure Rust — zero FFI, zero `*-sys`, zero
+`extern "C"`, syscalls via rustix.
 
 Part of the ecoPrimals Sovereign Compute Evolution.
 

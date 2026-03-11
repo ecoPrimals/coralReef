@@ -1,6 +1,6 @@
 // wilson_action_f64.wgsl — Per-site Wilson action contribution
 //
-// Prepend: complex_f64.wgsl + su3.wgsl
+// Preamble: complex_f64 + su3_f64 (auto-prepended by coralReef)
 //
 // Computes S_site = Σ_{μ<ν} (1 - Re Tr P_{μν}(x) / 3) for each site.
 // Full Wilson action = β × Σ_x S_site(x)  (reduction on host).
@@ -54,8 +54,8 @@ fn shift_fwd(c: vec4<u32>, mu: u32) -> vec4<u32> {
     return r;
 }
 
-fn load_link(site: u32, mu: u32) -> array<vec2<f64>, 9> {
-    var m: array<vec2<f64>, 9>;
+fn load_link(site: u32, mu: u32) -> array<Complex64, 9> {
+    var m: array<Complex64, 9>;
     let base = (site * 4u + mu) * 18u;
     for (var i = 0u; i < 9u; i = i + 1u) {
         let off = base + i * 2u;

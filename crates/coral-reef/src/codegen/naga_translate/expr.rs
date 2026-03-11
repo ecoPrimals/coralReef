@@ -40,14 +40,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Constant(c) => {
                 let constant = &self.module.constants[c];
                 let expr_handle = constant.init;
-                let init_expr = &self.module.global_expressions[expr_handle];
-                match *init_expr {
-                    naga::Expression::Literal(ref lit) => self.translate_literal(lit),
-                    naga::Expression::ZeroValue(ty) => self.translate_zero_value(ty),
-                    _ => Err(CompileError::NotImplemented(
-                        "non-literal constant initializer".into(),
-                    )),
-                }
+                self.translate_global_expr(expr_handle)
             }
             naga::Expression::ZeroValue(ty) => self.translate_zero_value(ty),
             naga::Expression::Binary { op, left, right } => {
@@ -345,6 +338,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 self.translate_cast(val, kind, convert, inner)
             }
             naga::Expression::ArrayLength(ptr_expr) => self.translate_array_length(ptr_expr),
+            naga::Expression::Relational { fun, argument } => {
+                let arg = self.ensure_expr(argument)?;
+                self.translate_relational(fun, arg, argument)
+            }
+            naga::Expression::CallResult(_) => {
+                let dst = self.alloc_ssa(RegFile::GPR);
+                self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
+                Ok(dst.into())
+            }
             _ => Err(CompileError::NotImplemented(
                 format!(
                     "expression {:?} not yet supported",
@@ -356,6 +358,72 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         self.expr_map.insert(handle, result.clone());
         Ok(result)
+    }
+
+    /// Evaluate a global (module-scope) expression to SSA.
+    /// Handles Literal, ZeroValue, Compose, Constant (recursive), and Splat.
+    pub(super) fn translate_global_expr(
+        &mut self,
+        handle: Handle<naga::Expression>,
+    ) -> Result<SSARef, CompileError> {
+        let init_expr = &self.module.global_expressions[handle];
+        match *init_expr {
+            naga::Expression::Literal(ref lit) => self.translate_literal(lit),
+            naga::Expression::ZeroValue(ty) => self.translate_zero_value(ty),
+            naga::Expression::Constant(c) => {
+                let inner_handle = self.module.constants[c].init;
+                self.translate_global_expr(inner_handle)
+            }
+            naga::Expression::Compose {
+                ty: _,
+                ref components,
+            } => {
+                let comps: Vec<SSARef> = components
+                    .iter()
+                    .map(|&h| self.translate_global_expr(h))
+                    .collect::<Result<_, _>>()?;
+                let total_comps: u8 = comps.iter().map(|r| r.comps()).sum();
+                let dst = self.alloc_ssa_vec(RegFile::GPR, total_comps);
+                let mut idx = 0usize;
+                for comp in &comps {
+                    for c in 0..comp.comps() as usize {
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: Dst::from(dst[idx]),
+                            src: Src::from(comp[c]),
+                        }));
+                        idx += 1;
+                    }
+                }
+                Ok(dst)
+            }
+            naga::Expression::Splat { size, value } => {
+                let val = self.translate_global_expr(value)?;
+                let n = match size {
+                    naga::VectorSize::Bi => 2u8,
+                    naga::VectorSize::Tri => 3,
+                    naga::VectorSize::Quad => 4,
+                };
+                let per_elem = val.comps();
+                let total_comps = n * per_elem;
+                let dst = self.alloc_ssa_vec(RegFile::GPR, total_comps);
+                for c in 0..n as usize {
+                    for p in 0..per_elem as usize {
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: Dst::from(dst[c * per_elem as usize + p]),
+                            src: Src::from(val[p]),
+                        }));
+                    }
+                }
+                Ok(dst)
+            }
+            _ => Err(CompileError::NotImplemented(
+                format!(
+                    "global expression {:?} not yet supported as constant initializer",
+                    std::mem::discriminant(init_expr),
+                )
+                .into(),
+            )),
+        }
     }
 
     fn translate_literal(&mut self, lit: &naga::Literal) -> Result<SSARef, CompileError> {

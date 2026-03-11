@@ -18,8 +18,31 @@ pub fn lower_f64_exp2(
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
 
-    let x = op.src.reference.clone().to_ssa();
-    assert!(x.comps() == 2, "f64 exp2 src must have 2 components");
+    let raw_x = op.src.reference.clone().to_ssa();
+    let x = if raw_x.comps() == 1 {
+        let widened = alloc.alloc_vec(RegFile::GPR, 2);
+        out.push(with_pred(
+            Instr::new(OpF2F {
+                dst: widened.clone().into(),
+                src: Src::from(raw_x),
+                src_type: FloatType::F32,
+                dst_type: FloatType::F64,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+                dst_high: false,
+                integer_rnd: false,
+            }),
+            pred,
+        ));
+        widened
+    } else {
+        debug_assert!(
+            raw_x.comps() == 2,
+            "f64 exp2 src must have 1 or 2 components (got {})",
+            raw_x.comps()
+        );
+        raw_x
+    };
     let x_src = Src::from(x);
 
     let n_i32 = alloc.alloc(RegFile::GPR);
@@ -141,11 +164,7 @@ pub fn lower_f64_exp2(
     //   ldexp(p, n) = ldexp(ldexp(p, n1), n2) where n1 = max(n, -1022), n2 = n - n1
     // This prevents the intermediate result from underflowing to zero.
 
-    debug_assert!(
-        op.dst.as_ssa().is_some(),
-        "exp2 destination must be SSA value"
-    );
-    let dst_ssa = op.dst.as_ssa().unwrap();
+    let dst_ssa = op.dst.as_ssa().expect("exp2 destination must be SSA value");
 
     // Check if n is in the subnormal danger zone (n < -1022)
     let is_subnormal = alloc.alloc(RegFile::Pred);

@@ -9,29 +9,15 @@ use super::encoder::*;
 
 impl SM70Encoder<'_> {
     fn get_rel_offset(&self, label: &Label) -> i64 {
-        debug_assert!(
-            u64::try_from(self.ip).is_ok(),
-            "instruction pointer overflow"
-        );
-        let ip = u64::try_from(self.ip).unwrap();
-        debug_assert!(i64::try_from(ip).is_ok(), "instruction pointer overflow");
-        let ip = i64::try_from(ip).unwrap();
+        let ip = u64::try_from(self.ip).expect("instruction pointer fits in u64");
+        let ip = i64::try_from(ip).expect("instruction pointer fits in i64");
 
-        debug_assert!(
-            self.labels.contains_key(label),
-            "label must exist in well-formed IR"
-        );
-        let target_ip = *self.labels.get(label).unwrap();
-        debug_assert!(
-            u64::try_from(target_ip).is_ok(),
-            "target instruction pointer overflow"
-        );
-        let target_ip = u64::try_from(target_ip).unwrap();
-        debug_assert!(
-            i64::try_from(target_ip).is_ok(),
-            "target instruction pointer overflow"
-        );
-        let target_ip = i64::try_from(target_ip).unwrap();
+        let target_ip = *self
+            .labels
+            .get(label)
+            .expect("label must exist in well-formed IR");
+        let target_ip = u64::try_from(target_ip).expect("target IP fits in u64");
+        let target_ip = i64::try_from(target_ip).expect("target IP fits in i64");
 
         target_ip - ip - 4
     }
@@ -207,8 +193,14 @@ impl SM70Op for OpCS2R {
         e.set_opcode(0x805);
         e.set_dst(&self.dst);
         e.set_field(72..80, self.idx);
-        debug_assert!(self.dst.as_reg().is_some(), "CS2R dst must be register");
-        e.set_bit(80, self.dst.as_reg().unwrap().comps() == 2); // .64
+        e.set_bit(
+            80,
+            self.dst
+                .as_reg()
+                .expect("CS2R dst must be register")
+                .comps()
+                == 2,
+        ); // .64
     }
 }
 

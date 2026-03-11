@@ -536,7 +536,6 @@ fn spring_dielectric_mermin_f64_pattern_sm70() {
 // ===========================================================================
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_anderson_lyapunov_amd() {
     let r = compile_wgsl(ANDERSON_LYAPUNOV_WGSL, &amd_opts());
     assert!(
@@ -547,7 +546,6 @@ fn spring_anderson_lyapunov_amd() {
 }
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_yukawa_force_f64_amd() {
     let r = compile_wgsl(YUKAWA_FORCE_F64_WGSL, &amd_opts());
     assert!(
@@ -558,7 +556,6 @@ fn spring_yukawa_force_f64_amd() {
 }
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_dirac_staggered_f64_amd() {
     let r = compile_wgsl(DIRAC_STAGGERED_F64_WGSL, &amd_opts());
     assert!(
@@ -569,7 +566,6 @@ fn spring_dirac_staggered_f64_amd() {
 }
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_sum_reduce_f64_amd() {
     let r = compile_wgsl(SUM_REDUCE_F64_WGSL, &amd_opts());
     assert!(r.is_ok(), "sum_reduce_f64 should compile for RDNA2: {r:?}");
@@ -577,7 +573,6 @@ fn spring_sum_reduce_f64_amd() {
 }
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_su3_gauge_force_f64_pattern_amd() {
     let r = compile_wgsl(SU3_GAUGE_FORCE_F64_PATTERN_WGSL, &amd_opts());
     assert!(
@@ -588,7 +583,6 @@ fn spring_su3_gauge_force_f64_pattern_amd() {
 }
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_yukawa_force_verlet_f64_pattern_amd() {
     let r = compile_wgsl(YUKAWA_FORCE_VERLET_F64_PATTERN_WGSL, &amd_opts());
     assert!(
@@ -599,7 +593,6 @@ fn spring_yukawa_force_verlet_f64_pattern_amd() {
 }
 
 #[test]
-#[ignore = "RDNA2 f64 ops need literal constant materialization (VOP3 limitation)"]
 fn spring_dielectric_mermin_f64_pattern_amd() {
     let r = compile_wgsl(DIELECTRIC_MERMIN_F64_PATTERN_WGSL, &amd_opts());
     assert!(

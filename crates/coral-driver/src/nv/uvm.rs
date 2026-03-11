@@ -48,6 +48,15 @@ use std::fs::{File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
+// ── Linux kernel ABI device paths ───────────────────────────────────
+
+/// NVIDIA control device — RM client allocation and GPU management.
+const NV_CTL_PATH: &str = "/dev/nvidiactl";
+/// NVIDIA UVM device — unified virtual memory allocation and dispatch.
+const NV_UVM_PATH: &str = "/dev/nvidia-uvm";
+/// Format prefix for GPU device nodes (`/dev/nvidia0`, `/dev/nvidia1`, ...).
+const NV_GPU_PATH_PREFIX: &str = "/dev/nvidia";
+
 // ── NVIDIA control device ioctls (/dev/nvidiactl) ───────────────────
 
 /// Base ioctl type for NVIDIA control device.
@@ -101,7 +110,17 @@ pub const UVM_MAP_EXTERNAL_ALLOCATION: u32 = UVM_IOCTL_BASE | 0x0013;
 pub const UVM_FREE: u32 = UVM_IOCTL_BASE | 0x0003;
 
 /// UVM status codes (`NV_STATUS`).
+/// See: nvidia-open-gpu-kernel-modules/src/common/sdk/nvidia/inc/nvstatuscodes.h
 pub const NV_OK: u32 = 0x0000_0000;
+/// `NV_ERR_INVALID_ARGUMENT` — parameter rejected by RM.
+pub const NV_ERR_INVALID_ARGUMENT: u32 = 0x0000_000E;
+/// `NV_ERR_OPERATING_SYSTEM` — kernel/driver OS-level failure.
+/// hotSpring Exp 051: RM_ALLOC(NV01_DEVICE_0) returns 0x1F on RTX 3090
+/// with nvidia-drm 580.119.02. Root cause: likely missing GPU index
+/// in device params, or RM access control (needs `NV_ESC_CARD_INFO` first).
+pub const NV_ERR_OPERATING_SYSTEM: u32 = 0x0000_001F;
+/// `NV_ERR_INVALID_OBJECT_HANDLE` — handle not found in RM.
+pub const NV_ERR_INVALID_OBJECT_HANDLE: u32 = 0x0000_0036;
 
 // ── RM allocation classes ───────────────────────────────────────────
 
@@ -170,6 +189,46 @@ pub struct NvRmAllocParams {
     pub status: u32,
 }
 
+/// Allocation parameters for `NV01_DEVICE_0` (`NV0080_ALLOC_PARAMETERS`).
+///
+/// The RM requires these to identify which GPU the device object targets.
+/// Passing `p_alloc_parms = 0` causes `NV_ERR_OPERATING_SYSTEM` (0x1F).
+/// See: nvidia-open-gpu-kernel-modules `NV0080_ALLOC_PARAMETERS`.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct Nv0080AllocParams {
+    /// GPU device index (0 = /dev/nvidia0, 1 = /dev/nvidia1, ...).
+    pub device_id: u32,
+    /// Client handle for shared VA space (0 = create new).
+    pub h_client_share: u32,
+    /// Target client handle (0 = self).
+    pub h_target_client: u32,
+    /// Target device handle (0 = self).
+    pub h_target_device: u32,
+    /// Device allocation flags (0 = default).
+    pub flags: u32,
+    /// Padding.
+    pub pad: [u32; 3],
+    /// VA space size (0 = driver default).
+    pub va_space_size: u64,
+    /// VA start offset (0 = driver default).
+    pub va_start_internal: u64,
+    /// VA limit (0 = driver default).
+    pub va_limit_internal: u64,
+    /// VA mode (0 = default).
+    pub va_mode: u32,
+    /// Padding.
+    pub pad2: u32,
+}
+
+/// Allocation parameters for `NV20_SUBDEVICE_0` (`NV2080_ALLOC_PARAMETERS`).
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct Nv2080AllocParams {
+    /// Subdevice ordinal (0 for single-GPU).
+    pub sub_device_id: u32,
+}
+
 /// Arguments for `NV_ESC_RM_FREE`.
 #[repr(C)]
 #[derive(Debug, Default)]
@@ -198,13 +257,13 @@ impl NvCtlDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if `/dev/nvidiactl` cannot be opened.
     pub fn open() -> DriverResult<Self> {
-        let path = Path::new("/dev/nvidiactl");
+        let path = Path::new(NV_CTL_PATH);
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("cannot open /dev/nvidiactl: {e}").into())
+                DriverError::DeviceNotFound(format!("cannot open {NV_CTL_PATH}: {e}").into())
             })?;
         Ok(Self { file })
     }
@@ -228,13 +287,13 @@ impl NvUvmDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if `/dev/nvidia-uvm` cannot be opened.
     pub fn open() -> DriverResult<Self> {
-        let path = Path::new("/dev/nvidia-uvm");
+        let path = Path::new(NV_UVM_PATH);
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("cannot open /dev/nvidia-uvm: {e}").into())
+                DriverError::DeviceNotFound(format!("cannot open {NV_UVM_PATH}: {e}").into())
             })?;
         Ok(Self { file })
     }
@@ -288,13 +347,15 @@ impl NvGpuDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if the device node cannot be opened.
     pub fn open(index: u32) -> DriverResult<Self> {
-        let path = format!("/dev/nvidia{index}");
+        let path = format!("{NV_GPU_PATH_PREFIX}{index}");
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("cannot open /dev/nvidia{index}: {e}").into())
+                DriverError::DeviceNotFound(
+                    format!("cannot open {NV_GPU_PATH_PREFIX}{index}: {e}").into(),
+                )
             })?;
         Ok(Self { file, index })
     }
@@ -316,7 +377,7 @@ impl NvGpuDevice {
 /// for the existence of UVM and control device nodes.
 #[must_use]
 pub fn nvidia_uvm_available() -> bool {
-    Path::new("/dev/nvidia-uvm").exists() && Path::new("/dev/nvidiactl").exists()
+    Path::new(NV_UVM_PATH).exists() && Path::new(NV_CTL_PATH).exists()
 }
 
 // ── RM client allocation ────────────────────────────────────────────
@@ -398,24 +459,40 @@ impl RmClient {
     /// Allocate a device object under this client.
     ///
     /// `gpu_index` is the GPU device index (e.g. 0 for `/dev/nvidia0`).
+    /// Passes `NV0080_ALLOC_PARAMETERS` with `device_id = gpu_index` so the
+    /// RM can identify the target GPU. Without these params, RM returns
+    /// `NV_ERR_OPERATING_SYSTEM` (0x1F).
     ///
     /// # Errors
     ///
     /// Returns [`DriverError`] if the `RM_ALLOC` ioctl fails.
     pub fn alloc_device(&self, gpu_index: u32) -> DriverResult<u32> {
         let h_device = self.h_client + 1 + gpu_index;
+
+        let mut device_params = Nv0080AllocParams {
+            device_id: gpu_index,
+            ..Default::default()
+        };
+
+        let params_size = u32::try_from(std::mem::size_of::<Nv0080AllocParams>())
+            .map_err(|_| DriverError::platform_overflow("Nv0080AllocParams size fits u32"))?;
+
         let mut params = NvRmAllocParams {
             h_root: self.h_client,
             h_object_parent: self.h_client,
             h_object_new: h_device,
             h_class: NV01_DEVICE_0,
-            p_alloc_parms: 0,
-            params_size: 0,
+            p_alloc_parms: std::ptr::from_mut(&mut device_params) as u64,
+            params_size,
             status: 0,
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
-        // SAFETY: same contract as alloc_root_client
+        // SAFETY:
+        // 1. Validity:   NvRmAllocParams + Nv0080AllocParams are #[repr(C)]
+        // 2. Alignment:  stack-allocated, naturally aligned
+        // 3. Lifetime:   synchronous ioctl; params + device_params outlive the call
+        // 4. Exclusivity: sole references to both
         unsafe {
             crate::drm::drm_ioctl_named(
                 self.ctl.fd(),
@@ -426,9 +503,15 @@ impl RmClient {
         }
 
         if params.status != NV_OK {
+            let status_name = match params.status {
+                NV_ERR_INVALID_ARGUMENT => " (INVALID_ARGUMENT)",
+                NV_ERR_OPERATING_SYSTEM => " (OPERATING_SYSTEM)",
+                NV_ERR_INVALID_OBJECT_HANDLE => " (INVALID_OBJECT_HANDLE)",
+                _ => "",
+            };
             return Err(DriverError::SubmitFailed(
                 format!(
-                    "RM_ALLOC(NV01_DEVICE_0) failed: status=0x{:08X}",
+                    "RM_ALLOC(NV01_DEVICE_0) failed: status=0x{:08X}{status_name}",
                     params.status
                 )
                 .into(),
@@ -445,23 +528,35 @@ impl RmClient {
 
     /// Allocate a subdevice object under a device.
     ///
+    /// Passes `NV2080_ALLOC_PARAMETERS` with `sub_device_id = 0` (default).
+    ///
     /// # Errors
     ///
     /// Returns [`DriverError`] if the `RM_ALLOC` ioctl fails.
     pub fn alloc_subdevice(&self, h_device: u32) -> DriverResult<u32> {
         let h_subdevice = h_device + 0x1000;
+
+        let mut subdev_params = Nv2080AllocParams { sub_device_id: 0 };
+
+        let params_size = u32::try_from(std::mem::size_of::<Nv2080AllocParams>())
+            .map_err(|_| DriverError::platform_overflow("Nv2080AllocParams size fits u32"))?;
+
         let mut params = NvRmAllocParams {
             h_root: self.h_client,
             h_object_parent: h_device,
             h_object_new: h_subdevice,
             h_class: NV20_SUBDEVICE_0,
-            p_alloc_parms: 0,
-            params_size: 0,
+            p_alloc_parms: std::ptr::from_mut(&mut subdev_params) as u64,
+            params_size,
             status: 0,
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
-        // SAFETY: same contract as alloc_root_client
+        // SAFETY:
+        // 1. Validity:   NvRmAllocParams + Nv2080AllocParams are #[repr(C)]
+        // 2. Alignment:  stack-allocated, naturally aligned
+        // 3. Lifetime:   synchronous ioctl; all params outlive the call
+        // 4. Exclusivity: sole references
         unsafe {
             crate::drm::drm_ioctl_named(
                 self.ctl.fd(),
@@ -472,9 +567,15 @@ impl RmClient {
         }
 
         if params.status != NV_OK {
+            let status_name = match params.status {
+                NV_ERR_INVALID_ARGUMENT => " (INVALID_ARGUMENT)",
+                NV_ERR_OPERATING_SYSTEM => " (OPERATING_SYSTEM)",
+                NV_ERR_INVALID_OBJECT_HANDLE => " (INVALID_OBJECT_HANDLE)",
+                _ => "",
+            };
             return Err(DriverError::SubmitFailed(
                 format!(
-                    "RM_ALLOC(NV20_SUBDEVICE_0) failed: status=0x{:08X}",
+                    "RM_ALLOC(NV20_SUBDEVICE_0) failed: status=0x{:08X}{status_name}",
                     params.status
                 )
                 .into(),

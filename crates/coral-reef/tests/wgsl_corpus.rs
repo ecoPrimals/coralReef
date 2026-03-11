@@ -387,28 +387,16 @@ wgsl_compile_test!(corpus_xpay_f64, "xpay_f64.wgsl");
 wgsl_compile_test!(corpus_yukawa_force_f64, "yukawa_force_f64.wgsl");
 
 // Lattice: Wilson action (f64, plaquette sum → S = β·Σ(1-Re Tr U))
-wgsl_compile_test!(
-    corpus_wilson_action_f64,
-    "wilson_action_f64.wgsl",
-    ignore = "needs external c64_new from complex_f64.wgsl"
-);
+wgsl_compile_test!(corpus_wilson_action_f64, "wilson_action_f64.wgsl");
 
 // Lattice: Polyakov loop (f64, temporal link product)
-wgsl_compile_test!(
-    corpus_polyakov_loop_f64,
-    "polyakov_loop_f64.wgsl",
-    ignore = "needs external Complex64 type from complex_f64.wgsl"
-);
+wgsl_compile_test!(corpus_polyakov_loop_f64, "polyakov_loop_f64.wgsl");
 
 // MD: velocity-Verlet kick+drift fused (f64, leapfrog)
 wgsl_compile_test!(corpus_vv_kick_drift_f64, "vv_kick_drift_f64.wgsl");
 
 // Lattice: lattice initialization (f64, SU(3) identity/near-identity)
-wgsl_compile_test!(
-    corpus_lattice_init_f64,
-    "lattice_init_f64.wgsl",
-    ignore = "needs external su3 include (su3_identity, su3_random_near_identity)"
-);
+wgsl_compile_test!(corpus_lattice_init_f64, "lattice_init_f64.wgsl");
 
 // ===========================================================================
 // neuralSpring — Existing fixtures wired for corpus (Iteration 21)
@@ -508,11 +496,7 @@ wgsl_compile_test!(corpus_head_concat, "head_concat.wgsl");
 // ===========================================================================
 
 // Evoformer: torsion angle dihedrals (df64, atan2, vector ops)
-wgsl_compile_test!(
-    corpus_torsion_angles_f64,
-    "torsion_angles_f64.wgsl",
-    ignore = "repair_ssa: Undefined value in branched df64_gt comparison path"
-);
+wgsl_compile_test!(corpus_torsion_angles_f64, "torsion_angles_f64.wgsl");
 
 // Evoformer: triangle multiplication outgoing (df64, Algorithm 11)
 wgsl_compile_test!(

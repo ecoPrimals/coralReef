@@ -34,11 +34,9 @@ fn sched_buffer(
     #[cfg(debug_assertions)]
     {
         let expected = PerRegFile::new_with(|f| {
-            debug_assert!(
-                i32::try_from(live_in_count[f]).is_ok(),
-                "live_in count must fit in i32"
-            );
-            live_in_count[f].try_into().unwrap()
+            live_in_count[f]
+                .try_into()
+                .expect("live_in count must fit in i32")
         });
         debug_assert_eq!(
             live_in_count2, expected,
@@ -183,8 +181,9 @@ pub(super) fn get_schedule_types(
 
     let mut gpr_target = next_occupancy_cliff_with_reserved(sm, min_gpr_target, reserved_gprs);
     while gpr_target < max_reg_count[RegFile::GPR] {
-        debug_assert!(gpr_target <= u8::MAX as i32, "gpr_target must fit in u8");
-        out.push(ScheduleType::RegLimit(gpr_target.try_into().unwrap()));
+        out.push(ScheduleType::RegLimit(
+            gpr_target.try_into().expect("gpr_target must fit in u8"),
+        ));
 
         // We want only 1 entry that's greater than or equal to the original
         // schedule (it can be greater in cases where increasing the number of
@@ -198,11 +197,11 @@ pub(super) fn get_schedule_types(
 
     assert!(gpr_target >= max_reg_count[RegFile::GPR]);
     let limit = max_reg_count[RegFile::GPR] - SW_RESERVED_GPRS;
-    debug_assert!(
-        u8::try_from(limit).is_ok(),
-        "max_reg_count - reserved must fit in u8"
-    );
-    out.push(ScheduleType::RegLimit(limit.try_into().unwrap()));
+    out.push(ScheduleType::RegLimit(
+        limit
+            .try_into()
+            .expect("max_reg_count - reserved must fit in u8"),
+    ));
 
     // Only allow spilling if the original schedule spilled
     if max_gpr_target > max_reg_count[RegFile::GPR] {

@@ -39,10 +39,23 @@ use std::collections::HashMap;
 pub const NV_KERNEL_MANAGED_ADDR: u64 = 0x80_0000_0000;
 
 /// NVIDIA GPU compute device via nouveau.
+///
+/// Supports two dispatch paths:
+/// - **New UAPI** (kernel 6.6+): `VM_INIT` → `CHANNEL_ALLOC` → `VM_BIND` → `EXEC`.
+///   Required for Volta+ on kernel 6.17+. Uses explicit VA management.
+/// - **Legacy UAPI**: `CHANNEL_ALLOC` → `GEM_PUSHBUF`. Works on older kernels
+///   where `VM_INIT` is not available.
+///
+/// The device auto-detects which path to use at open time.
 pub struct NvDevice {
     drm: DrmDevice,
     channel: u32,
     compute_class: u32,
+    /// Whether the new UAPI (VM_INIT/VM_BIND/EXEC) is active.
+    new_uapi: bool,
+    /// Next GPU virtual address to allocate (new UAPI only).
+    /// Starts at `NV_KERNEL_MANAGED_ADDR` and grows upward.
+    next_va: u64,
     buffers: HashMap<u32, NvBuffer>,
     next_handle: u32,
     /// GEM handle of the last submitted pushbuf (for fence sync).
@@ -132,12 +145,34 @@ impl NvDevice {
     fn open_from_drm(drm: DrmDevice, sm: u32) -> DriverResult<Self> {
         let compute_class = compute_class_for_sm(sm);
 
+        // Try new UAPI first (kernel 6.6+). On kernel 6.17+ Volta, this is
+        // required — CHANNEL_ALLOC fails without VM_INIT.
+        let new_uapi = match ioctl::vm_init(drm.fd()) {
+            Ok(()) => {
+                tracing::info!(
+                    path = %drm.path,
+                    va_base = format_args!("0x{NV_KERNEL_MANAGED_ADDR:X}"),
+                    "nouveau VM_INIT succeeded — using new UAPI"
+                );
+                true
+            }
+            Err(e) => {
+                tracing::debug!(
+                    path = %drm.path,
+                    error = %e,
+                    "VM_INIT not available — falling back to legacy UAPI"
+                );
+                false
+            }
+        };
+
         let channel = match ioctl::create_channel(drm.fd(), compute_class) {
             Ok(ch) => ch,
             Err(e) => {
                 tracing::error!(
                     path = %drm.path,
                     compute_class = format_args!("0x{compute_class:04X}"),
+                    new_uapi,
                     error = %e,
                     "Channel creation failed — running diagnostics"
                 );
@@ -146,7 +181,9 @@ impl NvDevice {
             }
         };
         tracing::info!(
-            path = %drm.path, channel, compute_class = format_args!("0x{compute_class:04X}"),
+            path = %drm.path, channel,
+            compute_class = format_args!("0x{compute_class:04X}"),
+            new_uapi,
             "NVIDIA nouveau channel created with compute subchannel"
         );
 
@@ -154,6 +191,8 @@ impl NvDevice {
             drm,
             channel,
             compute_class,
+            new_uapi,
+            next_va: NV_KERNEL_MANAGED_ADDR,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
@@ -183,6 +222,12 @@ impl NvDevice {
         h
     }
 
+    /// Whether this device uses the new UAPI (VM_INIT/VM_BIND/EXEC).
+    #[must_use]
+    pub const fn uses_new_uapi(&self) -> bool {
+        self.new_uapi
+    }
+
     /// Create a minimal `NvDevice` for testing (no channel alloc).
     #[cfg(test)]
     #[expect(dead_code, reason = "available for future hardware integration tests")]
@@ -192,6 +237,8 @@ impl NvDevice {
             drm,
             channel: 0,
             compute_class: pushbuf::class::VOLTA_COMPUTE_A,
+            new_uapi: false,
+            next_va: NV_KERNEL_MANAGED_ADDR,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
@@ -247,18 +294,45 @@ fn u32_slice_as_bytes(words: &[u32]) -> &[u8] {
     bytemuck::cast_slice(words)
 }
 
+/// Page-align a size upward (4 KiB pages).
+const fn page_align(size: u64) -> u64 {
+    (size + 0xFFF) & !0xFFF
+}
+
 impl ComputeDevice for NvDevice {
     fn alloc(&mut self, size: u64, domain: MemoryDomain) -> DriverResult<BufferHandle> {
-        let gem_handle = ioctl::gem_new(self.drm.fd(), size, domain)?;
-        let (offset, map_handle) = ioctl::gem_info(self.drm.fd(), gem_handle).unwrap_or((0, 0));
-        let gpu_va = offset;
+        let aligned_size = page_align(size);
+        let gem_handle = ioctl::gem_new(self.drm.fd(), aligned_size, domain)?;
+
+        let (gpu_va, map_handle) = if self.new_uapi {
+            // New UAPI: allocate a VA slot and bind the GEM object there.
+            let va = self.next_va;
+            self.next_va = self
+                .next_va
+                .checked_add(aligned_size)
+                .ok_or_else(|| DriverError::platform_overflow("VA space exhausted"))?;
+            ioctl::vm_bind_map(self.drm.fd(), gem_handle, va, 0, aligned_size)?;
+            // For CPU mmap, still need map_handle from gem_info.
+            let (_, mh) = ioctl::gem_info(self.drm.fd(), gem_handle).map_err(|e| {
+                tracing::warn!(gem_handle, error = %e, "gem_info failed after vm_bind");
+                e
+            })?;
+            (va, mh)
+        } else {
+            // Legacy UAPI: kernel assigns GPU VA via gem_info offset.
+            let (offset, mh) = ioctl::gem_info(self.drm.fd(), gem_handle).map_err(|e| {
+                tracing::warn!(gem_handle, error = %e, "gem_info failed");
+                e
+            })?;
+            (offset, mh)
+        };
 
         let handle_id = self.alloc_handle();
         self.buffers.insert(
             handle_id,
             NvBuffer {
                 gem_handle,
-                size,
+                size: aligned_size,
                 gpu_va,
                 map_handle,
                 domain,
@@ -272,6 +346,9 @@ impl ComputeDevice for NvDevice {
             .buffers
             .remove(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
+        if self.new_uapi {
+            let _ = ioctl::vm_bind_unmap(self.drm.fd(), buf.gpu_va, buf.size);
+        }
         crate::drm::gem_close(self.drm.fd(), buf.gem_handle)
     }
 
@@ -377,24 +454,31 @@ impl ComputeDevice for NvDevice {
         self.upload(pb_handle, 0, pb_bytes)?;
         let pb_gem = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gem_handle);
 
-        // Collect all GEM handles for the BO list
-        let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 3);
-        if let Some(b) = self.buffers.get(&shader_handle.0) {
-            bo_handles.push(b.gem_handle);
-        }
-        if let Some(b) = self.buffers.get(&qmd_handle.0) {
-            bo_handles.push(b.gem_handle);
-        }
-        if let Some(b) = self.buffers.get(&pb_handle.0) {
-            bo_handles.push(b.gem_handle);
-        }
-        for bh in buffers {
-            if let Some(b) = self.buffers.get(&bh.0) {
+        if self.new_uapi {
+            // New UAPI: submit push buffer by VA via EXEC.
+            let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
+            let push_len = u32::try_from(pb_size)
+                .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
+            ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)?;
+        } else {
+            // Legacy UAPI: submit push buffer via GEM pushbuf.
+            let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 3);
+            if let Some(b) = self.buffers.get(&shader_handle.0) {
                 bo_handles.push(b.gem_handle);
             }
+            if let Some(b) = self.buffers.get(&qmd_handle.0) {
+                bo_handles.push(b.gem_handle);
+            }
+            if let Some(b) = self.buffers.get(&pb_handle.0) {
+                bo_handles.push(b.gem_handle);
+            }
+            for bh in buffers {
+                if let Some(b) = self.buffers.get(&bh.0) {
+                    bo_handles.push(b.gem_handle);
+                }
+            }
+            ioctl::pushbuf_submit(self.drm.fd(), self.channel, pb_gem, 0, pb_size, &bo_handles)?;
         }
-
-        ioctl::pushbuf_submit(self.drm.fd(), self.channel, pb_gem, 0, pb_size, &bo_handles)?;
 
         // Track the QMD GEM handle for fence sync (the GPU reads QMD last)
         self.last_submit_gem = self.buffers.get(&qmd_handle.0).map(|b| b.gem_handle);

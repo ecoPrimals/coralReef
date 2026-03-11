@@ -115,6 +115,45 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpTranscendental {
     }
 }
 
+// ---- FRnd (VOP1: V_TRUNC / V_FLOOR / V_CEIL / V_RNDNE) ----
+
+impl EncodeOp<AmdOpEncoder<'_>> for OpFRnd {
+    fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
+        let dst_reg = dst_to_vgpr_index(&self.dst)?;
+        let src_enc = src_to_encoding(&self.src)?;
+
+        if self.src_type == FloatType::F64 || self.dst_type == FloatType::F64 {
+            let vop3_opcode = match self.rnd_mode {
+                FRndMode::Zero => isa::vop3::V_TRUNC_F64,
+                FRndMode::NegInf => isa::vop3::V_FLOOR_F64,
+                FRndMode::PosInf => isa::vop3::V_CEIL_F64,
+                FRndMode::NearestEven => isa::vop3::V_RNDNE_F64,
+            };
+            let (mut prefix, materialized) = materialize_if_literal(_e.scratch_vgpr_0, &src_enc);
+            let words = Rdna2Encoder::encode_vop3(
+                vop3_opcode,
+                AmdRegRef::vgpr_pair(dst_reg),
+                materialized.src0,
+                0,
+                0,
+            );
+            prefix.extend(words);
+            Ok(prefix)
+        } else {
+            let vop1_opcode = match self.rnd_mode {
+                FRndMode::Zero => isa::vop1::V_TRUNC_F32,
+                FRndMode::NegInf => isa::vop1::V_FLOOR_F32,
+                FRndMode::PosInf => isa::vop1::V_CEIL_F32,
+                FRndMode::NearestEven => isa::vop1::V_RNDNE_F32,
+            };
+            let mut words =
+                Rdna2Encoder::encode_vop1(vop1_opcode, AmdRegRef::vgpr(dst_reg), src_enc.src0);
+            src_enc.extend_with_literal(&mut words);
+            Ok(words)
+        }
+    }
+}
+
 // ---- FMnMx (VOP2: V_MIN_F32 / V_MAX_F32) ----
 //
 // FMnMx selects min or max based on a predicate source:

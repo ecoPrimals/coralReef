@@ -29,6 +29,13 @@ pub(crate) const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
 
 const DRM_IOCTL_BASE: u32 = b'd' as u32;
 
+/// Linux DRM render node path prefix.
+const DRI_RENDER_PREFIX: &str = "/dev/dri/renderD";
+/// First DRM render node index (Linux ABI).
+const DRI_RENDER_FIRST: u32 = 128;
+/// Last DRM render node index (Linux ABI).
+const DRI_RENDER_LAST: u32 = 191;
+
 /// Construct a DRM ioctl number.
 const fn drm_ioctl(dir: u32, nr: u32, size: u32) -> u64 {
     ((dir << IOC_DIRSHIFT)
@@ -278,8 +285,8 @@ impl DrmDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if no DRM render node exists.
     pub fn open_default() -> DriverResult<Self> {
-        for idx in 128..=191 {
-            let path = format!("/dev/dri/renderD{idx}");
+        for idx in DRI_RENDER_FIRST..=DRI_RENDER_LAST {
+            let path = format!("{DRI_RENDER_PREFIX}{idx}");
             if let Ok(dev) = Self::open(&path) {
                 return Ok(dev);
             }
@@ -346,8 +353,8 @@ impl DrmDevice {
 #[must_use]
 pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
     let mut devices = Vec::new();
-    for idx in 128..=191 {
-        let path = format!("/dev/dri/renderD{idx}");
+    for idx in DRI_RENDER_FIRST..=DRI_RENDER_LAST {
+        let path = format!("{DRI_RENDER_PREFIX}{idx}");
         if let Ok(dev) = DrmDevice::open(&path)
             && let Ok(info) = dev.device_info()
         {

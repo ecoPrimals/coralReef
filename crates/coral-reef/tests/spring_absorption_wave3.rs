@@ -35,7 +35,6 @@ fn rdna2_opts() -> CompileOptions {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "vec3<f64> encoding: reg.comps() <= 2 assertion in sm70 encoder"]
 fn corpus_euler_hll_f64_sm70() {
     let wgsl = include_str!("fixtures/wgsl/corpus/euler_hll_f64.wgsl");
     let result = compile_wgsl_full(wgsl, &sm70_opts());
@@ -67,7 +66,6 @@ fn corpus_deformed_potentials_f64_sm70() {
 }
 
 #[test]
-#[ignore = "AMD Discriminant expression encoding not yet implemented"]
 fn corpus_deformed_potentials_f64_rdna2() {
     let wgsl = include_str!("fixtures/wgsl/corpus/deformed_potentials_f64.wgsl");
     let result = compile_wgsl_full(wgsl, &rdna2_opts());
@@ -137,7 +135,6 @@ fn corpus_population_pk_f64_sm70() {
 }
 
 #[test]
-#[ignore = "AMD Discriminant expression encoding not yet implemented"]
 fn corpus_population_pk_f64_rdna2() {
     let wgsl = include_str!("fixtures/wgsl/corpus/population_pk_f64.wgsl");
     let result = compile_wgsl(wgsl, &rdna2_opts());
@@ -153,7 +150,6 @@ fn corpus_population_pk_f64_rdna2() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "f64 log2 lowering edge case in hill dose-response pow pattern"]
 fn corpus_hill_dose_response_f64_sm70() {
     let wgsl = include_str!("fixtures/wgsl/corpus/hill_dose_response_f64.wgsl");
     let result = compile_wgsl(wgsl, &sm70_opts());
@@ -162,7 +158,6 @@ fn corpus_hill_dose_response_f64_sm70() {
 }
 
 #[test]
-#[ignore = "AMD Discriminant expression encoding not yet implemented"]
 fn corpus_hill_dose_response_f64_rdna2() {
     let wgsl = include_str!("fixtures/wgsl/corpus/hill_dose_response_f64.wgsl");
     let result = compile_wgsl(wgsl, &rdna2_opts());
