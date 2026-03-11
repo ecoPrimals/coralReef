@@ -126,7 +126,7 @@ pub fn vm_init(fd: RawFd) -> DriverResult<()> {
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; req outlives the call
     // 4. Exclusivity: &mut req — sole reference
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req) }
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_init") }
 }
 
 /// Bind a GEM buffer object into the GPU virtual address space.
@@ -162,7 +162,7 @@ pub fn vm_bind_map(
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; req + entry outlive the call
     // 4. Exclusivity: &mut req — sole reference; entry pointer valid for ioctl duration
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req) }
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_bind_map") }
 }
 
 /// Unmap a GPU virtual address range.
@@ -183,8 +183,12 @@ pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_VM_BIND, size_of_u32::<NouveauVmBind>());
-    // SAFETY: same as vm_bind_map — #[repr(C)] structs, synchronous ioctl
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req) }
+    // SAFETY:
+    // 1. Validity:   NouveauVmBind + NouveauVmBindEntry are #[repr(C)] matching kernel structs
+    // 2. Alignment:  stack-allocated, naturally aligned
+    // 3. Lifetime:   synchronous ioctl; req + entry outlive the call
+    // 4. Exclusivity: &mut req — sole reference; entry pointer valid for ioctl duration
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_bind_unmap") }
 }
 
 /// Submit a push buffer for GPU execution via the new UAPI.
@@ -213,5 +217,5 @@ pub fn exec_submit(fd: RawFd, channel: u32, push_va: u64, push_len: u32) -> Driv
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; req + push outlive the call
     // 4. Exclusivity: &mut req — sole reference; push pointer valid for ioctl duration
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req) }
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec") }
 }

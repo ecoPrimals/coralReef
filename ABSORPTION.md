@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 33: NVVM Poisoning Validation)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 34: Deep Debt Evolution + Deformed HFB Absorption)
 
 ---
 

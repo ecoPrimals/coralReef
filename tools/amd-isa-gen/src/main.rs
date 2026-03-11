@@ -263,7 +263,7 @@ fn parse_xml(
                 current_text_target.clear();
             }
             Ok(Event::Text(e)) => {
-                let text = e.unescape().unwrap_or_default().to_string();
+                let text = e.decode().unwrap_or_default().to_string();
                 match current_text_target.as_str() {
                     "EncodingName" => {
                         if in_instr_encoding {

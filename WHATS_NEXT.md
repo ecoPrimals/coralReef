@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 33)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 34)
 
 ---
 
@@ -235,6 +235,8 @@ the full Spring absorption map.
 
 - [x] Iteration 33: NVVM poisoning validation — sovereign compilation of hotSpring DF64 Yukawa force shader (`exp_df64` + `sqrt_df64`) verified for SM70/SM86/RDNA2. The exact shader that permanently kills NVIDIA proprietary wgpu devices compiles cleanly through coralReef. 6 new tests in `nvvm_poisoning_validation.rs` (full Yukawa DF64, isolated transcendentals, Verlet integrator). This is the 4-8x throughput unlock for hotSpring's 12.4x Kokkos gap — eliminates native f64 fallback on Ampere. Handoff to hotSpring/barraCuda/toadStool — 1562 tests (1562 passing, 54 ignored)
 
+- [x] Iteration 34: Deep debt evolution — smart refactor `legalize.rs` (772 LOC → `legalize/mod.rs` + `legalize/helpers.rs`, clean engine/API separation), `bytemuck::bytes_of` unsafe elimination in `diag.rs` (Pod+Zeroable derives on NouveauSubchan/NouveauChannelAlloc), `drm_ioctl_named` for new UAPI wrappers (informative error messages), 34 targeted naga_translate unit tests (exp/log/pow, sinh/cosh/tanh/asinh/acosh/atanh, sqrt/inverseSqrt, ceil/round/trunc/fract, dot/cross/length/normalize/distance, countOneBits/reverseBits/firstLeadingBit/countLeadingZeros/firstTrailingBit, fma/sign/mix/step/smoothstep, min/max, builtins), SM89 DF64 validation (3 tests: Yukawa, transcendentals, Verlet for Ada Lovelace sovereign path), 5 deformed HFB shaders absorbed from hotSpring (9 passing, 1 ignored RDNA2 encoding gap), `quick-xml` 0.37→0.39 with API migration — 1608 tests (1608 passing, 55 ignored)
+
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
@@ -247,13 +249,14 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1562 tests passing, 54 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1608 tests passing, 55 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa force shader compiles cleanly
-through sovereign path for SM70/SM86/RDNA2. 4-8x throughput unlock for hotSpring.
-Iteration 32: firstTrailingBit + distance implemented (NV+AMD), production placeholders eliminated.
+Iteration 34: 34 naga_translate unit tests covering all math/builtin translation paths.
+SM89 DF64 sovereign path validated. 5 deformed HFB shaders absorbed from hotSpring.
+legalize.rs smart-refactored. bytemuck unsafe elimination. quick-xml 0.39.
+Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
 All pure Rust. Sovereignty is a runtime choice.*

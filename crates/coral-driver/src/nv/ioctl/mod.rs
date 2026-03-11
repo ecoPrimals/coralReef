@@ -115,7 +115,7 @@ pub struct SubchanSpec {
 // ---------------------------------------------------------------------------
 
 #[repr(C)]
-#[derive(Default)]
+#[derive(Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct NouveauChannelAlloc {
     fb_ctxdma_handle: u32,
     tt_ctxdma_handle: u32,
@@ -127,7 +127,7 @@ struct NouveauChannelAlloc {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct NouveauSubchan {
     handle: u32,
     grclass: u32,

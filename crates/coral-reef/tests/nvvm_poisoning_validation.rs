@@ -13,9 +13,7 @@
 //! These tests validate the fix: sovereign compilation of the exact shader
 //! that poisons NVVM, targeting SM70/SM86/RDNA2.
 
-use coral_reef::{
-    AmdArch, CompileOptions, Fp64Strategy, GpuArch, GpuTarget, compile_wgsl,
-};
+use coral_reef::{AmdArch, CompileOptions, Fp64Strategy, GpuArch, GpuTarget, compile_wgsl};
 
 fn sm70_df64_opts() -> CompileOptions {
     CompileOptions {
@@ -31,6 +29,17 @@ fn sm70_df64_opts() -> CompileOptions {
 fn sm86_df64_opts() -> CompileOptions {
     CompileOptions {
         target: GpuArch::Sm86.into(),
+        opt_level: 2,
+        debug_info: false,
+        fp64_software: true,
+        fp64_strategy: Fp64Strategy::DoubleFloat,
+        ..CompileOptions::default()
+    }
+}
+
+fn sm89_df64_opts() -> CompileOptions {
+    CompileOptions {
+        target: GpuArch::Sm89.into(),
         opt_level: 2,
         debug_info: false,
         fp64_software: true,
@@ -258,6 +267,90 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     assert!(
         r.is_ok(),
         "DF64 Verlet integrator should compile for SM86: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+// ===========================================================================
+// SM89 (Ada Lovelace) — RTX 40xx series
+// neuralSpring found `enable f64;` regressions on Ada; sovereign path must
+// bypass these. SM89 has 1:64 native f64 throughput, making DF64 essential.
+// ===========================================================================
+
+#[test]
+fn nvvm_poisoning_yukawa_df64_sm89() {
+    let r = compile_wgsl(YUKAWA_FORCE_DF64_WGSL, &sm89_df64_opts());
+    assert!(
+        r.is_ok(),
+        "DF64 Yukawa force should compile via sovereign path for SM89 (Ada): {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+fn nvvm_poisoning_df64_transcendentals_isolated_sm89() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read> input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let x = df64_from_f32(input[idx]);
+
+    let e = exp_df64(x);
+    let s = sqrt_df64(x);
+    let t = tanh_df64(x);
+
+    let result = df64_add(e, df64_add(s, t));
+    output[idx] = result.hi;
+}
+";
+    let r = compile_wgsl(wgsl, &sm89_df64_opts());
+    assert!(
+        r.is_ok(),
+        "Isolated DF64 transcendentals (exp/sqrt/tanh) should compile for SM89: {r:?}"
+    );
+    assert!(!r.unwrap().is_empty());
+}
+
+#[test]
+fn nvvm_poisoning_yukawa_verlet_df64_sm89() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> pos: array<f64>;
+@group(0) @binding(1) var<storage, read_write> vel: array<f64>;
+@group(0) @binding(2) var<storage, read> force: array<f64>;
+@group(0) @binding(3) var<storage, read> params: array<f64>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    let n = u32(params[0]);
+    if (i >= n) { return; }
+
+    let dt = params[1];
+    let half_dt = df64_from_f32(0.5);
+    let dt_df = df64_from_f64(dt);
+    let half_dt_sq = df64_mul(df64_mul(half_dt, dt_df), dt_df);
+
+    for (var c = 0u; c < 3u; c = c + 1u) {
+        let idx = i * 3u + c;
+        let f = df64_from_f64(force[idx]);
+        let v = df64_from_f64(vel[idx]);
+        let p = df64_from_f64(pos[idx]);
+
+        let new_p = df64_add(p, df64_add(df64_mul(v, dt_df), df64_mul(f, half_dt_sq)));
+        pos[idx] = df64_to_f64(new_p);
+
+        let new_v = df64_add(v, df64_mul(f, dt_df));
+        vel[idx] = df64_to_f64(new_v);
+    }
+}
+";
+    let r = compile_wgsl(wgsl, &sm89_df64_opts());
+    assert!(
+        r.is_ok(),
+        "DF64 Verlet integrator should compile for SM89: {r:?}"
     );
     assert!(!r.unwrap().is_empty());
 }

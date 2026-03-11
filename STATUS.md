@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 10, 2026  
-**Phase**: 10 — Iteration 31 (Deep Debt + Nouveau UAPI Migration + UVM Fix)
+**Last updated**: March 11, 2026  
+**Phase**: 10 — Iteration 34 (Deep Debt Evolution + Test Coverage Expansion)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1562 passing, 0 failed, 54 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1608 passing, 0 failed, 55 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 30** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 34** |
 
 ### Phase 10 Completions
 
@@ -487,6 +487,19 @@
 | Test expansion | ✅ | 1556 → 1562 passing (+6), 54 ignored (stable) |
 | Coverage | ✅ | 64% (NVVM poisoning validation: 6 new tests in `nvvm_poisoning_validation.rs`) |
 
+### Iteration 34: Deep Debt Evolution — Smart Refactoring, Unsafe Elimination, Test Coverage, Absorption (Mar 11 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `legalize.rs` smart refactor | ✅ | 772 LOC → `legalize/mod.rs` (engine + tests) + `legalize/helpers.rs` (LegalizeBuildHelpers trait + helpers); clean API/engine separation |
+| `bytemuck::bytes_of` unsafe elimination | ✅ | `diag.rs` `from_raw_parts` → `bytemuck::bytes_of`; Pod+Zeroable derives on NouveauSubchan/NouveauChannelAlloc |
+| `drm_ioctl_named` for new UAPI | ✅ | `new_uapi.rs` 4 wrappers switched from `drm_ioctl_typed` → `drm_ioctl_named` for informative error messages |
+| 34 naga_translate unit tests | ✅ | exp/exp2/log/log2/pow, sinh/cosh/tanh/asinh/acosh/atanh, sqrt/inverseSqrt, ceil/round/trunc/fract, dot/cross/length/normalize/distance, countOneBits/reverseBits/firstLeadingBit/countLeadingZeros/firstTrailingBit, fma/sign/mix/step/smoothstep, min/max, local_invocation_id/workgroup_id/num_workgroups/local_invocation_index |
+| SM89 DF64 validation tests | ✅ | 3 tests: Yukawa DF64, isolated transcendentals, Verlet integrator — Ada Lovelace sovereign path validation |
+| 5 deformed HFB shaders absorbed | ✅ | hotSpring deformed Hamiltonian, wavefunction, density/energy, gradient, potentials — 9 passing, 1 ignored (RDNA2 encoding gap) |
+| `quick-xml` 0.37→0.39 | ✅ | `amd-isa-gen` dependency updated, `unescape()→decode()` API migration |
+| Test expansion | ✅ | 1562 → 1608 passing (+46), 54 → 55 ignored (+1 RDNA2 HO recurrence) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -514,7 +527,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1562 passing, 0 failed, 54 ignored) |
+| `cargo test --workspace` | PASS (1608 passing, 0 failed, 55 ignored) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

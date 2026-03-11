@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 11, Iter 33)  
+**Generated:** March 10, 2026 (metrics updated March 11, Iter 34)  
 **Workspace:** coralReef
 
 ---

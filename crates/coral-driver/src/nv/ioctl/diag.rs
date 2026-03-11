@@ -133,15 +133,9 @@ pub fn dump_channel_alloc_hex(compute_class: u32) -> String {
         grclass: compute_class,
     };
 
-    let size = std::mem::size_of::<NouveauChannelAlloc>();
-    let ptr: *const u8 = std::ptr::from_ref(&alloc).cast();
-    // SAFETY: NouveauChannelAlloc is #[repr(C)] with no padding requirements
-    // beyond u8 alignment. `ptr` is derived from a valid reference via
-    // `from_ref`, `size` matches `size_of::<NouveauChannelAlloc>()`, and the
-    // source reference outlives this slice.
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
+    let bytes = bytemuck::bytes_of(&alloc);
 
-    let mut hex = format!("NouveauChannelAlloc ({size} bytes):\n");
+    let mut hex = format!("NouveauChannelAlloc ({} bytes):\n", bytes.len());
     for (i, chunk) in bytes.chunks(16).enumerate() {
         let _ = write!(hex, "  {:04x}: ", i * 16);
         for b in chunk {
