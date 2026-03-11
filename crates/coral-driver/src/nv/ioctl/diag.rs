@@ -46,14 +46,15 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
         #[expect(clippy::cast_sign_loss, reason = "diagnostic only")]
         // SAFETY: NouveauChannelAlloc is #[repr(C)] matching kernel struct;
         // stack-allocated, synchronous ioctl, &mut alloc is sole reference
-        let result = match unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc) } {
-            Ok(()) => {
-                let ch = alloc.channel as u32;
-                let _ = destroy_channel(fd, ch);
-                Ok(ch)
-            }
-            Err(e) => Err(format!("{e}")),
-        };
+        let result =
+            match unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "diag_channel_alloc") } {
+                Ok(()) => {
+                    let ch = alloc.channel as u32;
+                    let _ = destroy_channel(fd, ch);
+                    Ok(ch)
+                }
+                Err(e) => Err(format!("{e}")),
+            };
         results.push(ChannelAllocDiag {
             description: desc,
             result,
@@ -146,8 +147,11 @@ pub fn dump_channel_alloc_hex(compute_class: u32) -> String {
     hex
 }
 
-/// Check whether nouveau firmware files are present for a GPU chip.
-pub use super::super::identity::{GpuIdentity, check_nouveau_firmware, probe_gpu_identity};
+/// GPU identity probing and firmware inventory.
+pub use super::super::identity::{
+    FirmwareInventory, FwStatus, GpuIdentity, check_nouveau_firmware, firmware_inventory,
+    probe_gpu_identity,
+};
 
 /// Try the new UAPI (VM_INIT) to detect kernel support.
 ///

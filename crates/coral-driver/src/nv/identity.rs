@@ -81,10 +81,113 @@ pub fn probe_gpu_identity(render_node_path: &str) -> Option<GpuIdentity> {
     })
 }
 
+/// Firmware component status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FwStatus {
+    /// Firmware files found.
+    Present,
+    /// Firmware files missing.
+    Missing,
+}
+
+impl FwStatus {
+    /// Returns `true` if firmware files were found.
+    #[must_use]
+    pub const fn is_present(self) -> bool {
+        matches!(self, Self::Present)
+    }
+}
+
+/// Structured firmware inventory for an NVIDIA GPU.
+///
+/// Probes `/lib/firmware/nvidia/{chip}/` for each subsystem. Desktop Volta
+/// (GV100) is missing PMU firmware, which blocks nouveau compute dispatch.
+/// Ampere+ GPUs may use GSP firmware as a substitute.
+#[derive(Debug, Clone)]
+pub struct FirmwareInventory {
+    /// Chip name used for probing (e.g. "gv100", "ga102").
+    pub chip: String,
+    /// Application Context Runtime — signed boot firmware.
+    pub acr: FwStatus,
+    /// Graphics/Compute engine firmware (FECS, GPCCS, context).
+    pub gr: FwStatus,
+    /// Security Engine v2 — secure boot chain.
+    pub sec2: FwStatus,
+    /// Video decode engine.
+    pub nvdec: FwStatus,
+    /// Power Management Unit — required for compute channel init.
+    pub pmu: FwStatus,
+    /// GPU System Processor — Ampere+ substitute for PMU.
+    pub gsp: FwStatus,
+}
+
+impl FirmwareInventory {
+    /// Whether nouveau can likely initialize a compute channel.
+    ///
+    /// Requires either PMU firmware (Volta/Turing) or GSP firmware (Ampere+).
+    /// GR firmware is always required for compute.
+    #[must_use]
+    pub fn compute_viable(&self) -> bool {
+        self.gr.is_present() && (self.pmu.is_present() || self.gsp.is_present())
+    }
+
+    /// Human-readable summary of missing components blocking compute.
+    #[must_use]
+    pub fn compute_blockers(&self) -> Vec<&'static str> {
+        let mut blockers = Vec::new();
+        if !self.gr.is_present() {
+            blockers.push("GR (graphics/compute engine)");
+        }
+        if !self.pmu.is_present() && !self.gsp.is_present() {
+            blockers.push("PMU or GSP (compute init firmware)");
+        }
+        blockers
+    }
+}
+
+/// Probe firmware inventory for an NVIDIA GPU chip.
+///
+/// Checks `/lib/firmware/nvidia/{chip}/` for each subsystem directory.
+/// A subsystem is marked `Present` if at least one firmware file exists.
+#[must_use]
+pub fn firmware_inventory(chip: &str) -> FirmwareInventory {
+    let base = format!("/lib/firmware/nvidia/{chip}");
+    let probe = |subdir: &str, files: &[&str]| -> FwStatus {
+        if files
+            .iter()
+            .any(|f| std::path::Path::new(&format!("{base}/{subdir}/{f}")).exists())
+        {
+            FwStatus::Present
+        } else {
+            FwStatus::Missing
+        }
+    };
+
+    FirmwareInventory {
+        chip: chip.to_owned(),
+        acr: probe("acr", &["bl.bin", "ucode_unload.bin"]),
+        gr: probe(
+            "gr",
+            &["fecs_bl.bin", "fecs_inst.bin", "gpccs_bl.bin", "sw_ctx.bin"],
+        ),
+        sec2: probe("sec2", &["desc.bin", "image.bin", "sig.bin"]),
+        nvdec: probe("nvdec", &["scrubber.bin"]),
+        pmu: probe("pmu", &["bl.bin", "inst.bin", "data.bin", "sig.bin"]),
+        gsp: probe(
+            "gsp",
+            &[
+                "booter_load-535.113.01.bin",
+                "bootloader-535.113.01.bin",
+                "gsp-535.113.01.bin",
+            ],
+        ),
+    }
+}
+
 /// Check for NVIDIA firmware files required by nouveau for compute on Volta+.
 ///
 /// Returns a list of (path, exists) for the firmware files that nouveau
-/// typically needs.
+/// typically needs. For structured results, use [`firmware_inventory`] instead.
 #[must_use]
 pub fn check_nouveau_firmware(chip: &str) -> Vec<(String, bool)> {
     let base = format!("/lib/firmware/nvidia/{chip}");
@@ -245,5 +348,51 @@ mod tests {
         for (path, _exists) in &entries {
             assert!(path.contains("gv100"));
         }
+    }
+
+    #[test]
+    fn firmware_inventory_nonexistent_chip() {
+        let inv = firmware_inventory("fake_chip_999");
+        assert_eq!(inv.chip, "fake_chip_999");
+        assert!(!inv.acr.is_present());
+        assert!(!inv.gr.is_present());
+        assert!(!inv.pmu.is_present());
+        assert!(!inv.gsp.is_present());
+        assert!(!inv.compute_viable());
+    }
+
+    #[test]
+    fn firmware_inventory_compute_viable_logic() {
+        let mut inv = FirmwareInventory {
+            chip: "test".into(),
+            acr: FwStatus::Present,
+            gr: FwStatus::Present,
+            sec2: FwStatus::Present,
+            nvdec: FwStatus::Present,
+            pmu: FwStatus::Missing,
+            gsp: FwStatus::Missing,
+        };
+        assert!(!inv.compute_viable(), "no PMU or GSP → not viable");
+        assert!(!inv.compute_blockers().is_empty());
+
+        inv.pmu = FwStatus::Present;
+        assert!(inv.compute_viable(), "PMU present → viable");
+        assert!(inv.compute_blockers().is_empty());
+
+        inv.pmu = FwStatus::Missing;
+        inv.gsp = FwStatus::Present;
+        assert!(inv.compute_viable(), "GSP present → viable (Ampere+ path)");
+
+        inv.gr = FwStatus::Missing;
+        assert!(
+            !inv.compute_viable(),
+            "GR missing → not viable even with GSP"
+        );
+    }
+
+    #[test]
+    fn fw_status_is_present() {
+        assert!(FwStatus::Present.is_present());
+        assert!(!FwStatus::Missing.is_present());
     }
 }

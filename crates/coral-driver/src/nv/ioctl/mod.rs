@@ -15,7 +15,10 @@ pub mod diag;
 pub mod new_uapi;
 
 pub use diag::{ChannelAllocDiag, diagnose_channel_alloc, dump_channel_alloc_hex};
-pub use diag::{GpuIdentity, check_nouveau_firmware, probe_gpu_identity};
+pub use diag::{
+    FirmwareInventory, FwStatus, GpuIdentity, check_nouveau_firmware, firmware_inventory,
+    probe_gpu_identity,
+};
 pub use new_uapi::{exec_submit, vm_bind_map, vm_bind_unmap, vm_init};
 
 use crate::MemoryDomain;
@@ -277,7 +280,7 @@ pub fn create_channel_with_subchannels(fd: RawFd, subchans: &[SubchanSpec]) -> D
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; alloc outlives the call
     // 4. Exclusivity: &mut alloc — sole reference
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut alloc)? };
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "nouveau_channel_alloc")? };
     #[expect(
         clippy::cast_sign_loss,
         reason = "kernel returns non-negative channel id on success"
@@ -335,11 +338,11 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
         size_of_u32::<NouveauChannelFree>(),
     );
     // SAFETY:
-    // 1. Validity:   NouveauChannelFree is #[repr(C)] matching kernel struct (8 bytes)
+    // 1. Validity:   NouveauChannelFree is #[repr(C)] matching kernel struct (4 bytes)
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; free outlives the call
     // 4. Exclusivity: &mut free — sole reference
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut free) }
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut free, "nouveau_channel_free") }
 }
 
 /// Create a nouveau GEM buffer object.
@@ -374,7 +377,7 @@ pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<u32> 
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; req outlives the call
     // 4. Exclusivity: &mut req — sole reference
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req)? };
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_gem_new")? };
     Ok(req.info.handle)
 }
 
@@ -393,7 +396,7 @@ pub(crate) fn gem_info(fd: RawFd, handle: u32) -> DriverResult<(u64, u64)> {
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl; req outlives the call
     // 4. Exclusivity: &mut req — sole reference
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut req)? };
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_gem_info")? };
     Ok((req.info.offset, req.info.map_handle))
 }
 
@@ -472,7 +475,7 @@ pub fn pushbuf_submit(
     // 2. Alignment:  all structures are naturally aligned
     // 3. Lifetime:   synchronous ioctl; pb, buffers, push all outlive the call
     // 4. Exclusivity: &mut pb — sole reference to the ioctl struct
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut pb) }
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut pb, "nouveau_gem_pushbuf") }
 }
 
 /// Wait for GPU operations on a GEM buffer to complete.
@@ -494,7 +497,7 @@ pub fn gem_cpu_prep(fd: RawFd, gem_handle: u32) -> DriverResult<()> {
     // 2. Alignment:  stack-allocated, naturally aligned
     // 3. Lifetime:   synchronous ioctl (blocks until buffer idle); prep outlives the call
     // 4. Exclusivity: &mut prep — sole reference
-    unsafe { drm::drm_ioctl_typed(fd, ioctl_nr, &mut prep) }
+    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut prep, "nouveau_gem_cpu_prep") }
 }
 
 /// Map a nouveau GEM buffer into CPU address space with RAII lifetime.

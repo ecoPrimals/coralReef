@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 11, 2026  
-**Phase**: 10 — Iteration 34 (Deep Debt Evolution + Test Coverage Expansion)
+**Phase**: 10 — Iteration 35 (FirmwareInventory + ioctl Evolution)
 
 ---
 
@@ -20,10 +20,10 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1608 passing, 0 failed, 55 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1616 passing, 0 failed, 55 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (24 blocks in coral-driver only) |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 34** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 35** |
 
 ### Phase 10 Completions
 
@@ -60,7 +60,7 @@
 | GEM close implemented | ✅ | Real `DRM_IOCTL_GEM_CLOSE` ioctl |
 | AMD ioctl constants fixed | ✅ | Added `DRM_AMDGPU_BO_LIST`, removed wrong `GEM_CLOSE` |
 | `is_amd()` trait method | ✅ | Capability-based vendor detection |
-| Unsafe evolved → libc | ✅ | `MappedRegion` RAII, `drm_ioctl_typed` safe wrapper |
+| Unsafe evolved → safe Rust | ✅ | `MappedRegion` RAII, `drm_ioctl_named` sole wrapper, `bytemuck::bytes_of`, `FirmwareInventory` |
 | naga_translate refactored | ✅ | expr_binary.rs, func_control.rs, func_mem.rs, func_ops.rs |
 
 ### Phase 10 — Iteration 6 Completions (Debt Reduction + Internalization)
@@ -75,7 +75,7 @@
 | IPC differentiated error codes | ✅ | `-32001` InvalidInput, `-32002` NotImplemented, `-32003` UnsupportedArch |
 | Error types → `Cow<'static, str>` | ✅ | Zero-allocation static error paths across all error enums |
 | `BufferHandle` sealed | ✅ | `pub(crate)` inner field — driver owns validity invariant |
-| `drm_ioctl_typed` sealed | ✅ | `pub(crate)` — FFI confined to `coral-driver` |
+| `drm_ioctl_named` (sole ioctl wrapper) | ✅ | `pub(crate)` — FFI confined to `coral-driver`; `drm_ioctl_typed` eliminated (zero callers) |
 | `DrmDevice` Drop removed | ✅ | `std::fs::File` already handles close |
 | `HashMap` → `FxHashMap` | ✅ | Performance-critical compiler paths (`naga_translate`) |
 | `#[allow]` → `#[expect]` | ✅ | All non-wildcard `#[allow]` converted with reason strings |
@@ -500,6 +500,20 @@
 | `quick-xml` 0.37→0.39 | ✅ | `amd-isa-gen` dependency updated, `unescape()→decode()` API migration |
 | Test expansion | ✅ | 1562 → 1608 passing (+46), 54 → 55 ignored (+1 RDNA2 HO recurrence) |
 
+### Iteration 35: FirmwareInventory + ioctl Evolution (Mar 11 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `FirmwareInventory` struct | ✅ | Structured probe for ACR/GR/SEC2/NVDEC/PMU/GSP firmware subsystems per GPU chip |
+| `compute_viable()` | ✅ | Reports dispatch viability: requires GR + (PMU or GSP) |
+| `compute_blockers()` | ✅ | Human-readable list of missing components blocking compute |
+| `firmware_inventory()` re-exports | ✅ | `FirmwareInventory`, `FwStatus`, `firmware_inventory` accessible via `nv::ioctl` |
+| `drm_ioctl_typed` eliminated | ✅ | All 7 call sites migrated to `drm_ioctl_named`; dead function removed |
+| `drm_ioctl_named` migration | ✅ | `nouveau_channel_alloc/free`, `gem_new/info`, `pushbuf_submit`, `gem_cpu_prep`, `diag_channel_alloc` |
+| 4 new tests | ✅ | `firmware_inventory_nonexistent_chip`, `firmware_inventory_compute_viable_logic`, `fw_status_is_present`, `firmware_check_returns_entries` (existing) |
+| Test expansion | ✅ | 1608 → 1616 passing (+8), 55 ignored (unchanged) |
+| Unsafe reduction | ✅ | 29 → 24 unsafe blocks (drm_ioctl_typed + bytemuck elimination) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -561,7 +575,7 @@
 | `Cow<'static, str>` error fields | Rust idiom: zero-alloc static paths | DriverError, CompileError, GpuError, PrimalError |
 | `#[expect]` with reasons | Rust 2024 idiom | workspace-wide (replaces `#[allow]`) |
 | `FxHashMap` in hot paths | Performance internalization | naga_translate/func.rs, func_ops.rs |
-| Sealed FFI boundary | wateringHole sovereignty | `drm_ioctl_typed` pub(crate), `BufferHandle` pub(crate) |
+| Sealed FFI boundary | wateringHole sovereignty | `drm_ioctl_named` pub(crate) (sole wrapper), `BufferHandle` pub(crate) |
 | `shader.compile.*` semantic naming | wateringHole PRIMAL_IPC_PROTOCOL | JSON-RPC + tarpc |
 | Differentiated IPC error codes | wateringHole PRIMAL_IPC_PROTOCOL | jsonrpc.rs |
 | `#[deny(unsafe_code)]` safety boundary | Rust best practice | 8/9 crates (all except coral-driver) |

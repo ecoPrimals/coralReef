@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 34)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 35)
 
 ---
 
@@ -237,6 +237,8 @@ the full Spring absorption map.
 
 - [x] Iteration 34: Deep debt evolution — smart refactor `legalize.rs` (772 LOC → `legalize/mod.rs` + `legalize/helpers.rs`, clean engine/API separation), `bytemuck::bytes_of` unsafe elimination in `diag.rs` (Pod+Zeroable derives on NouveauSubchan/NouveauChannelAlloc), `drm_ioctl_named` for new UAPI wrappers (informative error messages), 34 targeted naga_translate unit tests (exp/log/pow, sinh/cosh/tanh/asinh/acosh/atanh, sqrt/inverseSqrt, ceil/round/trunc/fract, dot/cross/length/normalize/distance, countOneBits/reverseBits/firstLeadingBit/countLeadingZeros/firstTrailingBit, fma/sign/mix/step/smoothstep, min/max, builtins), SM89 DF64 validation (3 tests: Yukawa, transcendentals, Verlet for Ada Lovelace sovereign path), 5 deformed HFB shaders absorbed from hotSpring (9 passing, 1 ignored RDNA2 encoding gap), `quick-xml` 0.37→0.39 with API migration — 1608 tests (1608 passing, 55 ignored)
 
+- [x] Iteration 35: `FirmwareInventory` + ioctl evolution — structured firmware probe for PMU/GSP (absorbs hwLearn pattern from toadStool handoff), `compute_viable()` reports dispatch viability, `compute_blockers()` lists missing firmware components. All `drm_ioctl_typed` calls migrated to `drm_ioctl_named` (7 calls, operation-specific error messages), dead `drm_ioctl_typed` function removed. 24 unsafe blocks (down from 29). `FirmwareInventory`/`FwStatus`/`firmware_inventory` publicly accessible via `nv::ioctl` — 1616 tests (1616 passing, 55 ignored)
+
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
@@ -259,5 +261,7 @@ Zero DEBT comments — all resolved or evolved. Zero libc dependency.
 Iteration 34: 34 naga_translate unit tests covering all math/builtin translation paths.
 SM89 DF64 sovereign path validated. 5 deformed HFB shaders absorbed from hotSpring.
 legalize.rs smart-refactored. bytemuck unsafe elimination. quick-xml 0.39.
+Iteration 35: FirmwareInventory + compute_viable() absorbs hwLearn pattern.
+All ioctl calls use drm_ioctl_named. 24 unsafe blocks (down from 29).
 Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
 All pure Rust. Sovereignty is a runtime choice.*

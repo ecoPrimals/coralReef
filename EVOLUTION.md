@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 34)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 35)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1608 tests (1608 passing, 55 ignored), 64% line coverage (target 90%),
+1616 tests (1616 passing, 55 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
@@ -18,6 +18,9 @@ markers, zero libc dependency. Multi-device compile API
 (`shader.compile.wgsl.multi`), FMA contraction enforcement
 (`FmaPolicy::Separate` splits FFma→FMul+FAdd), `PCIe` topology awareness,
 FMA hardware capability reporting per architecture.
+`FirmwareInventory` + `compute_viable()` for PMU/GSP-aware dispatch viability.
+All DRM ioctls use `drm_ioctl_named` with operation-specific error messages.
+24 unsafe blocks (all kernel ABI boundary in `coral-driver`).
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -318,17 +321,23 @@ Endgame:
 | `naga_translate/mod.rs` | 29 | **All in test code** — no production debt |
 | Production code total | ~210 | Concentrated in register allocator and encoder; these are internal invariant assertions |
 
-### Unsafe Code Audit (Iteration 15)
+### Unsafe Code Audit (Iteration 35 — updated)
 
 | Location | Blocks | Assessment |
 |----------|--------|------------|
-| `coral-driver/src/drm.rs` | 2 | `drm_ioctl_typed` + `drm_ioctl_named` — documented `#[repr(C)]` safety; typed wrappers (`gem_close`, `drm_version`) eliminate call-site unsafe |
-| `coral-driver/src/amd/gem.rs` | 1 | RAII `MappedRegion` (mmap/munmap + `as_slice()`/`as_mut_slice()`); zero raw ptr ops at call sites |
-| `coral-driver/src/amd/ioctl.rs` | 3 | `amd_ioctl`/`amd_ioctl_read` safe wrappers + `clock_monotonic_ns` consolidated helper |
-| `coral-driver/src/nv/ioctl.rs` | 1 | RAII `NvMappedRegion` (mmap/munmap + `as_slice()`/`as_mut_slice()`); `gem_mmap_region` returns safe type |
-| `nak-ir-proc/src/lib.rs` | 2 | Proc-macro `from_raw_parts` — lifetime-bounded, `repr(C)` contiguity checked |
+| `coral-driver/src/drm.rs` | 7 | `drm_ioctl_named` (sole wrapper), `MappedRegion` mmap/munmap/as_slice/as_mut_slice, `DrmIoctlCmd`, `gem_close`, `drm_version` |
+| `coral-driver/src/amd/ioctl.rs` | 1 | `amd_ioctl` safe wrapper via `drm_ioctl_named` |
+| `coral-driver/src/nv/ioctl/mod.rs` | 6 | `channel_alloc/free`, `gem_new/info`, `pushbuf_submit`, `gem_cpu_prep` — all via `drm_ioctl_named` |
+| `coral-driver/src/nv/ioctl/new_uapi.rs` | 4 | `vm_init`, `vm_bind_map/unmap`, `exec_submit` — all via `drm_ioctl_named` |
+| `coral-driver/src/nv/ioctl/diag.rs` | 1 | `diag_channel_alloc` — diagnostic via `drm_ioctl_named` |
+| `coral-driver/src/nv/uvm.rs` | 5 | UVM RM client ioctls via `drm_ioctl_named` |
 
-**libc eliminated** — DRM ioctls now use inline asm syscalls, mmap via rustix.
+**Total: 24 unsafe blocks** (down from 29). `drm_ioctl_typed` eliminated
+(zero callers), `bytemuck::bytes_of` replaced `from_raw_parts` in diag.
+All unsafe confined to `coral-driver` (kernel ABI boundary).
+8 of 9 crates enforce `#[deny(unsafe_code)]`.
+
+**libc eliminated** — DRM ioctls via rustix (pure Rust syscalls).
 No C library links. Transitive FFI from tokio (libc) and jsonrpsee (ring) in
 coralreef-core for async I/O and TLS. Evolution path: ecoPrimals BearDog/Songbird
 provides pure Rust TLS — eliminates ring/openssl transitive C.
@@ -390,14 +399,16 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 30 | Spring absorption + FMA evolution: `shader.compile.wgsl.multi` API, FMA contraction enforcement (`lower_fma` pass), FMA hardware capability reporting, `PCIe` topology awareness, capability self-description evolution, NVVM bypass test hardening | **1487** (1487 pass, 76 ignore) |
 | 10 iter 31 | Deep debt: doc link fixes, `#[allow]`/`#[expect]` tightening, SAFETY comments on unsafe blocks, service.rs refactor (→ service/), expanded codegen coverage, file size compliance | **1509** (1509 pass, 54 ignore) |
 | 10 iter 32 | Deep debt evolution: `firstTrailingBit` + `distance` implemented, AMD `OpBRev`/`OpFlo` encoding (fixes discriminant 31), `CallResult` OpUndef→error, `BindingArray` stride fix, `shader_info.rs` split (→ shader_io/shader_model/shader_info), 19 new integration tests (interp, trig, exp/log, atomics, builtins, float modulo, uniform matrix), production mock audit, dependency analysis | **1556** (1556 pass, 54 ignore), 64% coverage |
-| 10 iter 33 (current) | NVVM poisoning validation: sovereign compilation of hotSpring DF64 Yukawa force shader (`exp_df64` + `sqrt_df64`) verified for SM70/SM86/RDNA2 — bypasses NVVM device-kill path. 6 new tests (`nvvm_poisoning_validation.rs`). Verlet integrator DF64 validated. | **1562** (1562 pass, 54 ignore) |
+| 10 iter 33 | NVVM poisoning validation: sovereign compilation of hotSpring DF64 Yukawa force shader (`exp_df64` + `sqrt_df64`) verified for SM70/SM86/RDNA2 — bypasses NVVM device-kill path. 6 new tests (`nvvm_poisoning_validation.rs`). Verlet integrator DF64 validated. | **1562** (1562 pass, 54 ignore) |
+| 10 iter 34 | Legalize refactor, bytemuck unsafe elimination, 34 naga_translate tests, SM89 DF64, 5 HFB shaders, DRM ABI fixes (Exp 057), `quick-xml` 0.39 | **1613** (1613 pass, 55 ignore) |
+| 10 iter 35 (current) | `FirmwareInventory` + `compute_viable()` (hwLearn absorption), `drm_ioctl_typed` eliminated → all `drm_ioctl_named`, dead code removed. 24 unsafe blocks (down from 29). | **1616** (1616 pass, 55 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 33: 1562 tests passing, 54 ignored. NVVM poisoning bypass
-validated — the exact DF64 Yukawa force shader that kills NVIDIA
-proprietary devices compiles cleanly through coralReef's sovereign
-path for SM70, SM86 (RTX 3090), and RDNA2. This is the 4-8x
-performance unlock for hotSpring's 12.4x Kokkos gap.*
+Iteration 35: 1616 tests passing, 55 ignored. FirmwareInventory
+absorbs hwLearn pattern — compute_viable() reports PMU/GSP availability.
+All DRM ioctl calls use drm_ioctl_named for operation-specific errors.
+24 unsafe blocks (all kernel ABI boundary in coral-driver).
+8 of 9 crates enforce #[deny(unsafe_code)].*

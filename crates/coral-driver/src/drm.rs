@@ -402,21 +402,7 @@ pub(crate) fn drm_version(fd: RawFd) -> DriverResult<(DrmVersion, String)> {
     Ok((ver, name))
 }
 
-/// Perform a DRM ioctl on a `#[repr(C)]` structure.
-///
-/// # Safety
-///
-/// The caller must ensure `T` is the correct `#[repr(C)]` struct for `request`.
-///
-/// # Errors
-///
-/// Returns [`DriverError::IoctlFailed`] if the kernel returns an error.
-pub(crate) unsafe fn drm_ioctl_typed<T>(fd: RawFd, request: u64, arg: &mut T) -> DriverResult<()> {
-    // SAFETY: caller guarantees T matches the ioctl request.
-    unsafe { drm_ioctl_named(fd, request, arg, "drm_ioctl") }
-}
-
-/// Like `drm_ioctl_typed` but with a custom name for error messages.
+/// Perform a named DRM ioctl on a `#[repr(C)]` structure.
 ///
 /// Uses `rustix::ioctl` for the syscall — no inline asm, cross-platform.
 ///
