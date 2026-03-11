@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 31)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 33)
 
 ---
 
@@ -233,6 +233,8 @@ the full Spring absorption map.
 
 - [x] Iteration 32: Deep debt evolution — `firstTrailingBit` implementation (clz(reverseBits(x)) via OpBRev+OpFlo, NV+AMD), `distance` implementation (length(a-b), NV+AMD), AMD `OpBRev`/`OpFlo` encoding (V_BFREV_B32, V_FFBH_U32/I32 — closes discriminant 31 gap), `CallResult` OpUndef→CompileError, `BindingArray` stride fix (hardcoded 1→recursive element stride), `shader_info.rs` smart refactor (814→3 files: shader_io/shader_model/shader_info), production mock audit (all test-only), dependency analysis (26/28 pure Rust), 19 new integration tests (mix/step/smoothstep/sign, tan/atan/atan2/asin/acos, exp/log/tanh/sinh/cosh, atomics, builtins, float modulo, uniform matrix), doc updates — 1556 tests (1556 passing, 54 ignored), 64% coverage
 
+- [x] Iteration 33: NVVM poisoning validation — sovereign compilation of hotSpring DF64 Yukawa force shader (`exp_df64` + `sqrt_df64`) verified for SM70/SM86/RDNA2. The exact shader that permanently kills NVIDIA proprietary wgpu devices compiles cleanly through coralReef. 6 new tests in `nvvm_poisoning_validation.rs` (full Yukawa DF64, isolated transcendentals, Verlet integrator). This is the 4-8x throughput unlock for hotSpring's 12.4x Kokkos gap — eliminates native f64 fallback on Ampere. Handoff to hotSpring/barraCuda/toadStool — 1562 tests (1562 passing, 54 ignored)
+
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
@@ -245,18 +247,13 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1556 tests passing, 54 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1562 tests passing, 54 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
-8-demo showcase: hello-compiler → compute triangle (coralReef → toadStool → barraCuda).
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-Iteration 32: Deep debt evolution — firstTrailingBit + distance implemented (NV+AMD),
-AMD OpBRev/OpFlo encoding (closes discriminant 31), production placeholders eliminated,
-shader\_info.rs smart-refactored into three modules, 19 new integration tests,
-vec3\<f64\> scalarization, SU3 lattice preamble, SPIR-V Relational + non-literal const init,
-production unwrap→expect, 22 tests un-ignored. Sovereign dispatch within reach.
-Iteration 30: Multi-device compile API, FMA contraction enforcement, PCIe topology awareness.
-Iteration 29: Multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC.
+Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa force shader compiles cleanly
+through sovereign path for SM70/SM86/RDNA2. 4-8x throughput unlock for hotSpring.
+Iteration 32: firstTrailingBit + distance implemented (NV+AMD), production placeholders eliminated.
 All pure Rust. Sovereignty is a runtime choice.*

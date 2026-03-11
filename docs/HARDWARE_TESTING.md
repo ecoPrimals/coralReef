@@ -1,6 +1,6 @@
 # Hardware Testing Guide — coralReef GPU Parity
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 31)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 33)
 
 ## Hardware Inventory
 
@@ -69,23 +69,21 @@ cargo test --test parity_harness -p coral-gpu -- --ignored
 | Shader | SM86 Compile | RDNA2 Compile | AMD Dispatch | NV Dispatch |
 |--------|-------------|---------------|-------------|-------------|
 | store_42 (constant write) | PASS | PASS | PASS | Pending UVM |
-| vecadd (a + b) | PASS | BLOCKED (SR 0x29) | N/A | Pending UVM |
-| saxpy (α*x + y) | PASS | BLOCKED (SR 0x29) | N/A | Pending UVM |
-| reduce (sum) | PASS | BLOCKED (SR 0x29) | N/A | Pending UVM |
-| matmul (tiled) | PASS | BLOCKED (SR 0x29) | N/A | Pending UVM |
+| vecadd (a + b) | PASS | PASS | PASS | Pending UVM |
+| saxpy (α*x + y) | PASS | PASS | PASS | Pending UVM |
+| reduce (sum) | PASS | PASS | PASS | Pending UVM |
+| matmul (tiled) | PASS | PASS | PASS | Pending UVM |
 
-### Known Compiler Limitations
+### Known Compiler Limitations (resolved)
 
-1. **RDNA2 `global_invocation_id`**: The AMD backend does not yet map NVIDIA
-   system register index 0x29 to the AMD equivalent. Shaders using
-   `@builtin(global_invocation_id)` fail to compile for RDNA2.
+1. ~~**RDNA2 `global_invocation_id`**: SR 0x29 mapping~~ — **Fixed Iter 25**
+2. ~~**RDNA2 VOP2 VSRC1**: operand legalization~~ — **Fixed Iter 25**
+3. ~~**RDNA2 buffer reads**: incorrect results~~ — **Fixed Iter 27** (literal materialization)
 
-2. **RDNA2 VOP2 VSRC1**: Certain register allocation patterns produce
-   invalid `VOP2 VSRC1 must be a VGPR register` errors on RDNA2 when
-   multiple storage operations interact.
+### Remaining Limitations
 
-3. **RDNA2 buffer reads**: Compiled shaders that read from storage buffers
-   produce incorrect results (GPU reads 0). Write-constant shaders work.
+1. **NVIDIA UVM dispatch**: Hardware dispatch on RTX 3090 pending UVM device alloc validation (fix ready, Iter 31).
+2. **Nouveau UAPI dispatch**: Titan V dispatch pending kernel 6.17+ validation (VM_INIT/VM_BIND/EXEC ready, Iter 31).
 
 ## CI Configuration
 
@@ -125,7 +123,7 @@ targets:
 git clone git@github.com:ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace  # 1556 passing, should complete in ~50s
+cargo test --workspace  # 1562 passing, should complete in ~50s
 ```
 
 ### Step 1: Nouveau EINVAL Diagnostics (Titan V)

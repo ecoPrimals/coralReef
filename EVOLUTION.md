@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 32)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 33)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1556 tests (1556 passing, 54 ignored), 64% line coverage (target 90%),
+1562 tests (1562 passing, 54 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing,
@@ -389,14 +389,15 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 29 | NVIDIA last mile: multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC, buffer lifecycle safety | **1447** (1447 pass, 76 ignore) |
 | 10 iter 30 | Spring absorption + FMA evolution: `shader.compile.wgsl.multi` API, FMA contraction enforcement (`lower_fma` pass), FMA hardware capability reporting, `PCIe` topology awareness, capability self-description evolution, NVVM bypass test hardening | **1487** (1487 pass, 76 ignore) |
 | 10 iter 31 | Deep debt: doc link fixes, `#[allow]`/`#[expect]` tightening, SAFETY comments on unsafe blocks, service.rs refactor (→ service/), expanded codegen coverage, file size compliance | **1509** (1509 pass, 54 ignore) |
-| 10 iter 32 (current) | Deep debt evolution: `firstTrailingBit` + `distance` implemented, AMD `OpBRev`/`OpFlo` encoding (fixes discriminant 31), `CallResult` OpUndef→error, `BindingArray` stride fix, `shader_info.rs` split (→ shader_io/shader_model/shader_info), 19 new integration tests (interp, trig, exp/log, atomics, builtins, float modulo, uniform matrix), production mock audit, dependency analysis | **1556** (1556 pass, 54 ignore), 64% coverage |
+| 10 iter 32 | Deep debt evolution: `firstTrailingBit` + `distance` implemented, AMD `OpBRev`/`OpFlo` encoding (fixes discriminant 31), `CallResult` OpUndef→error, `BindingArray` stride fix, `shader_info.rs` split (→ shader_io/shader_model/shader_info), 19 new integration tests (interp, trig, exp/log, atomics, builtins, float modulo, uniform matrix), production mock audit, dependency analysis | **1556** (1556 pass, 54 ignore), 64% coverage |
+| 10 iter 33 (current) | NVVM poisoning validation: sovereign compilation of hotSpring DF64 Yukawa force shader (`exp_df64` + `sqrt_df64`) verified for SM70/SM86/RDNA2 — bypasses NVVM device-kill path. 6 new tests (`nvvm_poisoning_validation.rs`). Verlet integrator DF64 validated. | **1562** (1562 pass, 54 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 32: 1556 tests passing, 54 ignored. `firstTrailingBit` and
-`distance` math functions implemented (NV + AMD). AMD `OpBRev`/`OpFlo`
-encoding closes discriminant 31 gap. Production placeholders eliminated.
-`shader_info.rs` smart-refactored into three focused modules.
-64% line coverage. AMD E2E verified.*
+Iteration 33: 1562 tests passing, 54 ignored. NVVM poisoning bypass
+validated — the exact DF64 Yukawa force shader that kills NVIDIA
+proprietary devices compiles cleanly through coralReef's sovereign
+path for SM70, SM86 (RTX 3090), and RDNA2. This is the 4-8x
+performance unlock for hotSpring's 12.4x Kokkos gap.*

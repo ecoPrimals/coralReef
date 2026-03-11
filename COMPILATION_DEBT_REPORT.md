@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026  
+**Generated:** March 10, 2026 (metrics updated March 11, Iter 33)  
 **Workspace:** coralReef
 
 ---
@@ -187,23 +187,23 @@ Most are ICE / illegal-path guards in codegen; some are assertion-style panics.
 | coral-reef/src/lib.rs | `#[allow(non_camel_case_types, non_snake_case, dead_code, missing_docs)]` | Broad; consider per-module or per-type overrides |
 | coral-reef/src/codegen/amd/isa_generated/mod.rs | Multiple `#[allow(dead_code)]` | Generated code; acceptable |
 
-### Recommended changes
+### Status (Iter 32)
 
-1. **sm75/sm80 gpr.rs:** Replace `#[allow(dead_code)]` with `#[expect(dead_code)]` to track when the latency model is used.
-2. **main.rs InternalError:** Use `#[expect(dead_code)]` if the variant is reserved.
-3. **tarpc_transport.rs:** Add a short `reason` and consider `#[expect]` if the lint is intentional.
-4. **wildcard_imports:** Prefer explicit imports where feasible; otherwise keep `#[allow]` with a brief comment.
+All reviewed. `#[allow]` is preferred over `#[expect]` for configuration-dependent lints
+(dead_code, unused_async, wildcard_imports) that may not fire in all build configurations.
+`#[expect]` causes "unfulfilled lint expectation" warnings across test vs lib builds.
+Current attributes have documented `reason` strings where appropriate.
 
 ---
 
 ## Summary
 
-| Metric | Value |
+| Metric | Value (as of Iter 33) |
 |--------|-------|
-| Ignored tests | ~76 |
-| EVOLUTION markers | 9 |
-| Production unwraps | ~61 |
-| Non-compiling shaders (84/93) | 9 |
+| Ignored tests | 54 (was ~76 at time of report) |
+| EVOLUTION markers | 0 (all resolved Iter 32) |
+| Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
+| Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
-| panic! in production | ~150+ (mostly codegen ICE) |
-| #[allow] to tighten | 4–6 |
+| panic! in production | ~150+ (codegen ICE guards — intentional) |
+| #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |

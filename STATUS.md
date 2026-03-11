@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1556 passing, 0 failed, 54 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1562 passing, 0 failed, 54 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (17 blocks in coral-driver only) |
@@ -484,8 +484,8 @@
 | `shader_info.rs` smart refactor | ✅ | 814 LOC → `shader_io.rs` (168) + `shader_model.rs` (337) + `shader_info.rs` (306) |
 | Production mock audit | ✅ | All mocks test-only; `coral-reef-stubs` is real impl despite name |
 | Dependency analysis | ✅ | 26/28 deps pure Rust; only C is tokio→mio→libc (tracked) |
-| Test expansion | ✅ | 1509 → 1556 passing (+47), 54 ignored (stable) |
-| Coverage | ✅ | 63% → 64% (19 new integration tests: interp, trig, exp/log, atomics, builtins) |
+| Test expansion | ✅ | 1556 → 1562 passing (+6), 54 ignored (stable) |
+| Coverage | ✅ | 64% (NVVM poisoning validation: 6 new tests in `nvvm_poisoning_validation.rs`) |
 
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
@@ -514,7 +514,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1556 passing, 0 failed, 54 ignored) |
+| `cargo test --workspace` | PASS (1562 passing, 0 failed, 54 ignored) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

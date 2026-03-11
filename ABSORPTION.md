@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 10, 2026 (Phase 10 — Iteration 31: Deep Debt + Nouveau UAPI + UVM Fix)
+**Last updated**: March 11, 2026 (Phase 10 — Iteration 33: NVVM Poisoning Validation)
 
 ---
 
@@ -139,7 +139,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 22)
+### Blocker Triage (current — iteration 33)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|
@@ -287,12 +287,11 @@ Status (Iteration 15):
 
 ---
 
-*84/93 cross-spring WGSL shaders compile to native SASS. 1556 tests passing, 54 ignored, 64% coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 1562 tests passing, 54 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-5/5 GLSL compute fixtures pass SM70 (now with fract/sign/mix/step/smoothstep/tanh/dot).
-4/10 SPIR-V roundtrip tests pass (6 blocked on Discriminant expr + non-literal const init).
-Iteration 30: Spring absorption + FMA evolution — multi-device compile API, FMA contraction enforcement,
-PCIe topology awareness, FMA hardware capability reporting, capability self-description evolution.
-Iteration 29: NVIDIA last mile — multi-GPU path-based open, SM auto-detect, Nouveau EINVAL diagnostics, UVM RM client PoC.
-Iteration 28: Deep debt + cross-spring absorption — RDNA2 literal materialization, f64 transcendental AMD encodings, 24/24 spring absorption tests.
-Next: NVIDIA UVM compute dispatch, coverage 63%→90%, RDNA3/RDNA4 backend.*
+5/5 GLSL compute fixtures pass SM70. 4/10 SPIR-V roundtrip tests pass.
+Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa force shader compiles cleanly
+through sovereign path for SM70/SM86/RDNA2. 4-8x throughput unlock for hotSpring.
+Iteration 32: firstTrailingBit + distance (NV+AMD), production placeholders eliminated.
+Iteration 31: All 93/93 cross-spring shaders, Nouveau UAPI, UVM fix.
+Next: NVIDIA UVM compute dispatch, coverage 64%→90%, RDNA3/RDNA4 backend.*

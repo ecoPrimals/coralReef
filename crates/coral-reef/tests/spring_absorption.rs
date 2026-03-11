@@ -29,6 +29,7 @@ fn amd_opts() -> CompileOptions {
     }
 }
 
+
 // ---------------------------------------------------------------------------
 // groundSpring — Anderson localization (f64 + uniform + PRNG + loop)
 // Source: groundSpring/metalForge/shaders/anderson_lyapunov.wgsl
