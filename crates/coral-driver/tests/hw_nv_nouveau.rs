@@ -294,6 +294,68 @@ fn main() {
     }
 
     #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: sovereign BAR0 GR init analysis"]
+    fn nouveau_sovereign_bar0_diagnostic() {
+        use coral_driver::gsp::{GrFirmwareBlobs, GrInitSequence, split_for_application};
+        use coral_driver::nv::bar0::Bar0Access;
+        use coral_driver::drm::enumerate_render_nodes;
+
+        let nodes = enumerate_render_nodes();
+        for info in &nodes {
+            if info.driver != "nouveau" {
+                continue;
+            }
+            eprintln!("\n═══ {} ═══", info.path);
+
+            let sm = coral_driver::nv::ioctl::probe_gpu_identity(&info.path)
+                .and_then(|id| id.nvidia_sm())
+                .unwrap_or(70);
+            let chip = match sm {
+                75 => "tu102",
+                80 => "ga100",
+                86..=87 => "ga102",
+                89 => "ad102",
+                _ => "gv100",
+            };
+            eprintln!("  SM{sm} → chip {chip}");
+
+            let blobs = match GrFirmwareBlobs::parse(chip) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("  firmware not found: {e}");
+                    continue;
+                }
+            };
+            eprintln!("  bundle_init: {} entries", blobs.bundle_count());
+            eprintln!("  method_init: {} entries", blobs.method_count());
+            eprintln!("  ctx_template: {} bytes", blobs.ctx_size());
+
+            let seq = GrInitSequence::for_gv100(&blobs);
+            let (bar0, fecs) = split_for_application(&seq);
+            eprintln!("  address-aware split: {} BAR0 + {} FECS = {} total", bar0.len(), fecs.len(), seq.len());
+
+            if let Some(first) = bar0.first() {
+                eprintln!("  first BAR0 write: offset={:#010x} value={:#010x} cat={:?}", first.offset, first.value, first.category);
+            }
+            if let Some(last) = bar0.last() {
+                eprintln!("  last BAR0 write:  offset={:#010x} value={:#010x} cat={:?}", last.offset, last.value, last.category);
+            }
+
+            match Bar0Access::from_render_node(&info.path) {
+                Ok(b) => {
+                    let boot_id = b.read_boot_id().unwrap_or(0);
+                    eprintln!("  BAR0: OPEN (size={} MiB, NV_PMC_BOOT_0={boot_id:#010x})", b.size() / (1024 * 1024));
+                    eprintln!("  → Ready for sovereign GR init ({} register writes)", bar0.len());
+                }
+                Err(e) => {
+                    eprintln!("  BAR0: NOT AVAILABLE ({e})");
+                    eprintln!("  → Run with sudo for sovereign BAR0 access");
+                }
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "requires nouveau hardware — diagnostic: try GEM alloc without channel"]
     fn nouveau_gem_alloc_without_channel() {
         let drm = coral_driver::drm::DrmDevice::open_by_driver("nouveau")

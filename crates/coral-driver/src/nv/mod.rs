@@ -13,6 +13,7 @@
 //! - **nvidia-drm** (proprietary): DRM render node access, device probing.
 //!   Compute dispatch pending UVM integration. The compatibility path.
 
+pub mod bar0;
 pub mod identity;
 pub mod ioctl;
 pub mod pushbuf;
@@ -32,7 +33,7 @@ pub use uvm_compute::NvUvmComputeDevice;
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
-use crate::gsp::GrFirmwareBlobs;
+use crate::gsp::{self, GrFirmwareBlobs, GrInitSequence};
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use std::collections::HashMap;
@@ -178,8 +179,14 @@ impl NvDevice {
     fn open_from_drm(drm: DrmDevice, sm: u32) -> DriverResult<Self> {
         let compute_class = compute_class_for_sm(sm);
 
-        // Try new UAPI first (kernel 6.6+). On kernel 6.17+ Volta, this is
-        // required — CHANNEL_ALLOC fails without VM_INIT.
+        // Phase 0: Sovereign BAR0 GR init — write PGRAPH registers BEFORE
+        // channel creation so the compute engine has valid context state.
+        // This replaces the PMU firmware that nouveau lacks on Volta, and
+        // supplements GSP on Ampere where the kernel path may be incomplete.
+        try_bar0_gr_init(&drm.path, sm);
+
+        // Phase 1: New UAPI probe (kernel 6.6+). On kernel 6.17+ Volta,
+        // VM_INIT is required — CHANNEL_ALLOC fails without it.
         let new_uapi = match ioctl::vm_init(drm.fd()) {
             Ok(()) => {
                 tracing::info!(
@@ -199,6 +206,7 @@ impl NvDevice {
             }
         };
 
+        // Phase 2: Channel creation (should benefit from BAR0 GR init).
         let channel = match ioctl::create_channel(drm.fd(), compute_class) {
             Ok(ch) => ch,
             Err(e) => {
@@ -220,7 +228,6 @@ impl NvDevice {
             "NVIDIA nouveau channel created with compute subchannel"
         );
 
-        // Create a syncobj for new UAPI completion tracking.
         let exec_syncobj = if new_uapi {
             ioctl::syncobj_create(drm.fd()).ok()
         } else {
@@ -241,7 +248,9 @@ impl NvDevice {
             inflight: Vec::new(),
         };
 
-        dev.try_gr_context_init();
+        // Phase 3: Submit any remaining FECS channel methods (low-address
+        // entries that can go through the push buffer).
+        dev.try_fecs_channel_init();
 
         Ok(dev)
     }
@@ -274,63 +283,35 @@ impl NvDevice {
         self.new_uapi
     }
 
-    /// Attempt GR context initialization from firmware knowledge.
+    /// Submit low-address FECS method entries via the channel push buffer.
     ///
-    /// Parses the GPU's firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`
-    /// and logs the available init data for diagnostics. Only submits method
-    /// entries that are valid push buffer method offsets (< 0x8000) — most
-    /// `sw_method_init.bin` entries are BAR0 register addresses
-    /// (0x00400000+) that cannot be submitted via the channel and require
-    /// BAR0 MMIO access (toadStool's nvPmu).
-    ///
-    /// The kernel's nouveau driver normally handles GR context init during
-    /// channel creation. If it doesn't (CTXNOTVALID), the fix is in the
-    /// kernel driver or via BAR0 MMIO, not via channel method submission.
+    /// This is Phase 3 of device init — runs AFTER BAR0 GR init and channel
+    /// creation. Submits only entries with addresses <= 0x7FFC (valid for
+    /// 13-bit push buffer method encoding). Most architectures have zero
+    /// such entries; the bulk of GR init is BAR0 register writes handled
+    /// by [`try_bar0_gr_init`].
     #[cfg(feature = "nouveau")]
-    fn try_gr_context_init(&mut self) {
+    fn try_fecs_channel_init(&mut self) {
         let chip = sm_to_chip(self.sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,
-            Err(e) => {
-                tracing::debug!(
-                    chip,
-                    error = %e,
-                    "GR firmware not available — skipping FECS init"
-                );
-                return;
-            }
+            Err(_) => return,
         };
 
-        // Push buffer method headers encode method>>2 in 13 bits (max 0x7FFC).
-        // sw_method_init.bin entries with addresses >= 0x8000 are BAR0 register
-        // writes that must go via MMIO, not through the channel.
-        const MAX_PUSHBUF_METHOD: u32 = 0x7FFC;
+        let seq = GrInitSequence::for_gv100(&blobs);
+        let (_bar0, fecs) = gsp::split_for_application(&seq);
 
-        let channel_methods: Vec<(u32, u32)> = blobs
-            .method_init
+        let channel_methods: Vec<(u32, u32)> = fecs
             .iter()
-            .filter(|m| m.addr <= MAX_PUSHBUF_METHOD)
-            .map(|m| (m.addr, m.value))
+            .filter(|w| matches!(
+                w.category,
+                gsp::RegCategory::BundleInit | gsp::RegCategory::MethodInit
+            ))
+            .map(|w| (w.offset, w.value))
             .collect();
 
-        let bar0_count = blobs.method_init.len() - channel_methods.len();
-
-        tracing::info!(
-            chip,
-            total_method_entries = blobs.method_init.len(),
-            channel_submittable = channel_methods.len(),
-            bar0_register_writes = bar0_count,
-            bundle_init_entries = blobs.bundle_init.len(),
-            ctx_template_bytes = blobs.ctx_size(),
-            "GR firmware parsed — {} entries need BAR0 MMIO (not channel-submittable)",
-            bar0_count
-        );
-
         if channel_methods.is_empty() {
-            tracing::debug!(
-                chip,
-                "no channel-submittable method entries — GR init depends on kernel or BAR0 MMIO"
-            );
+            tracing::debug!(chip, "no FECS channel methods to submit");
             return;
         }
 
@@ -359,12 +340,7 @@ impl NvDevice {
             return;
         }
 
-        tracing::info!(
-            chip,
-            entries = channel_methods.len(),
-            "submitting {} channel method entries for GR init",
-            channel_methods.len()
-        );
+        tracing::info!(chip, entries = channel_methods.len(), "submitting FECS channel methods");
 
         let submit_result = if self.new_uapi {
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
@@ -394,25 +370,21 @@ impl NvDevice {
 
         match submit_result {
             Ok(()) => {
-                tracing::info!(chip, "GR channel method init submitted");
+                tracing::info!(chip, "FECS channel method init submitted");
                 if let Some(syncobj) = self.exec_syncobj {
                     let timeout = {
                         let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
                         tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
                     };
                     if let Err(e) = ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout) {
-                        tracing::warn!(error = %e, "GR init syncobj wait failed");
+                        tracing::warn!(error = %e, "FECS init syncobj wait failed");
                     }
                 } else if let Some(gem) = self.buffers.get(&pb_handle.0).map(|b| b.gem_handle) {
                     let _ = ioctl::gem_cpu_prep(self.drm.fd(), gem);
                 }
             }
             Err(e) => {
-                tracing::warn!(
-                    chip,
-                    error = %e,
-                    "GR channel method init failed — compute may get CTXNOTVALID"
-                );
+                tracing::warn!(chip, error = %e, "FECS channel method init failed");
             }
         }
 
@@ -437,6 +409,91 @@ impl NvDevice {
             exec_syncobj: None,
             inflight: Vec::new(),
         })
+    }
+}
+
+/// Sovereign BAR0 GR initialization — Phase 0 of device open.
+///
+/// Opens the GPU's BAR0 MMIO window via sysfs and writes the PGRAPH
+/// register init sequence parsed from NVIDIA firmware blobs. This replaces
+/// the PMU firmware that nouveau lacks on Volta and supplements GSP on
+/// Ampere where the kernel's init path may be incomplete.
+///
+/// Gracefully falls back if BAR0 access is unavailable (no root, no sysfs).
+/// When it succeeds, subsequent channel creation should find a valid GR
+/// context, resolving the CTXNOTVALID error.
+#[cfg(feature = "nouveau")]
+fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
+    let chip = sm_to_chip(sm);
+    let blobs = match GrFirmwareBlobs::parse(chip) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::debug!(chip, error = %e, "firmware not available — skipping BAR0 GR init");
+            return;
+        }
+    };
+
+    let seq = GrInitSequence::for_gv100(&blobs);
+    let (bar0_entries, fecs_entries) = gsp::split_for_application(&seq);
+
+    tracing::info!(
+        chip,
+        bar0_writes = bar0_entries.len(),
+        fecs_entries = fecs_entries.len(),
+        total = seq.len(),
+        "sovereign GR init: {} BAR0 register writes to apply",
+        bar0_entries.len()
+    );
+
+    if bar0_entries.len() <= 2 {
+        tracing::debug!(chip, "only pre-init entries — no PGRAPH registers to write via BAR0");
+        return;
+    }
+
+    let mut bar0 = match bar0::Bar0Access::from_render_node(render_node_path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::info!(
+                chip,
+                error = %e,
+                "BAR0 access not available (needs root) — falling back to kernel GR init"
+            );
+            return;
+        }
+    };
+
+    let boot_id = bar0.read_boot_id().unwrap_or(0);
+    tracing::info!(
+        chip,
+        boot_id = format_args!("{boot_id:#010x}"),
+        bar0_size_mib = bar0.size() / (1024 * 1024),
+        "BAR0 open — applying sovereign GR init sequence"
+    );
+
+    let result = gsp::apply_bar0(&seq, &mut bar0);
+
+    if result.success() {
+        tracing::info!(
+            chip,
+            bar0_writes = result.bar0_writes,
+            fecs_remaining = result.fecs_entries,
+            "sovereign BAR0 GR init complete — PGRAPH registers written"
+        );
+    } else {
+        tracing::warn!(
+            chip,
+            bar0_writes = result.bar0_writes,
+            errors = result.errors.len(),
+            "sovereign BAR0 GR init had errors: {:?}",
+            result.errors
+        );
+    }
+
+    let verify_errors = gsp::verify_pre_init(&bar0);
+    if verify_errors.is_empty() {
+        tracing::info!(chip, "BAR0 pre-init verification passed");
+    } else {
+        tracing::warn!(chip, errors = ?verify_errors, "BAR0 pre-init verification issues");
     }
 }
 

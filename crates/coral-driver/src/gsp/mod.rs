@@ -58,13 +58,15 @@ mod knowledge;
 pub mod rm_observer;
 
 /// Applicator: bridge between learned init sequences and BAR0 hardware access.
-pub use applicator::{ApplyError, apply_bar0, dry_run, split_for_application, verify_pre_init};
+pub use applicator::{
+    ApplyError, RegisterAccess, apply_bar0, dry_run, split_for_application, verify_pre_init,
+};
 /// Dispatch hints — learned workgroup sizing, FP64 availability, etc.
 pub use dispatch::{DispatchHints, build_dispatch_hints, build_hint_for};
 /// Parsed GR firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`.
 pub use firmware_parser::{BundleEntry, FirmwareFormat, GrFirmwareBlobs, MethodEntry};
 /// GR engine init register sequence (learned from firmware).
-pub use gr_init::{GrInitSequence, GrRegWrite};
+pub use gr_init::{GrInitSequence, GrRegWrite, RegCategory};
 /// Cross-architecture GPU knowledge base.
 pub use knowledge::{
     AddressSpace, ArchKnowledge, GenerationStats, GpuKnowledge, RegisterTransferMap,

@@ -94,7 +94,19 @@ impl ApplyResult {
     }
 }
 
+/// Push buffer method headers encode `method >> 2` in 13 bits.
+/// Entries with addresses above this are BAR0 register writes, not
+/// channel-submittable methods.
+const MAX_CHANNEL_METHOD: u32 = 0x7FFC;
+
 /// Split a GR init sequence into BAR0-applicable and FECS-channel parts.
+///
+/// Routing is both category-aware and address-aware:
+/// - `MasterControl`, `Fifo`, `Clock` → always BAR0
+/// - `BundleInit`, `MethodInit` with `offset > MAX_CHANNEL_METHOD` → BAR0
+///   (these are PGRAPH register addresses, not push buffer methods)
+/// - `BundleInit`, `MethodInit` with `offset <= MAX_CHANNEL_METHOD` → FECS
+/// - `GrEngine`, `Verify` → FECS
 #[must_use]
 pub fn split_for_application(seq: &GrInitSequence) -> (Vec<&GrRegWrite>, Vec<&GrRegWrite>) {
     let mut bar0_writes = Vec::new();
@@ -105,10 +117,14 @@ pub fn split_for_application(seq: &GrInitSequence) -> (Vec<&GrRegWrite>, Vec<&Gr
             RegCategory::MasterControl | RegCategory::Fifo | RegCategory::Clock => {
                 bar0_writes.push(write);
             }
-            RegCategory::BundleInit
-            | RegCategory::MethodInit
-            | RegCategory::GrEngine
-            | RegCategory::Verify => {
+            RegCategory::BundleInit | RegCategory::MethodInit => {
+                if write.offset > MAX_CHANNEL_METHOD {
+                    bar0_writes.push(write);
+                } else {
+                    fecs_entries.push(write);
+                }
+            }
+            RegCategory::GrEngine | RegCategory::Verify => {
                 fecs_entries.push(write);
             }
         }
@@ -278,7 +294,6 @@ mod tests {
                 assert!(result.dry_run);
                 assert!(result.success());
                 assert!(result.bar0_writes > 0, "should have BAR0 writes");
-                assert!(result.fecs_entries > 0, "should have FECS entries");
                 eprintln!(
                     "GV100 dry run: {} BAR0 writes, {} FECS entries",
                     result.bar0_writes, result.fecs_entries
@@ -297,7 +312,7 @@ mod tests {
                 let result = apply_bar0(&seq, &mut regs);
                 assert!(!result.dry_run);
                 assert!(result.success());
-                assert_eq!(result.bar0_writes, 2); // PMC_ENABLE + FIFO_ENABLE
+                assert!(result.bar0_writes >= 2, "at least PMC_ENABLE + FIFO_ENABLE");
 
                 // Verify the writes went through
                 let errs = verify_pre_init(&regs);
