@@ -274,15 +274,18 @@ impl NvDevice {
         self.new_uapi
     }
 
-    /// Attempt GR context initialization via FECS method entries.
+    /// Attempt GR context initialization from firmware knowledge.
     ///
-    /// Parses the GPU's firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`,
-    /// extracts the method init sequence, and submits it as a push buffer
-    /// before the first compute dispatch. This prevents `CTXNOTVALID` from
-    /// the PBDMA by giving the GR engine a valid context template.
+    /// Parses the GPU's firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`
+    /// and logs the available init data for diagnostics. Only submits method
+    /// entries that are valid push buffer method offsets (< 0x8000) — most
+    /// `sw_method_init.bin` entries are BAR0 register addresses
+    /// (0x00400000+) that cannot be submitted via the channel and require
+    /// BAR0 MMIO access (toadStool's nvPmu).
     ///
-    /// Failures are logged but not fatal — the device may still work if the
-    /// kernel driver already initialized the GR context (e.g. on Ampere with GSP).
+    /// The kernel's nouveau driver normally handles GR context init during
+    /// channel creation. If it doesn't (CTXNOTVALID), the fix is in the
+    /// kernel driver or via BAR0 MMIO, not via channel method submission.
     #[cfg(feature = "nouveau")]
     fn try_gr_context_init(&mut self) {
         let chip = sm_to_chip(self.sm_version);
@@ -298,26 +301,40 @@ impl NvDevice {
             }
         };
 
-        if blobs.method_init.is_empty() {
-            tracing::debug!(chip, "no method init entries in firmware — skipping FECS init");
-            return;
-        }
+        // Push buffer method headers encode method>>2 in 13 bits (max 0x7FFC).
+        // sw_method_init.bin entries with addresses >= 0x8000 are BAR0 register
+        // writes that must go via MMIO, not through the channel.
+        const MAX_PUSHBUF_METHOD: u32 = 0x7FFC;
 
-        let method_entries: Vec<(u32, u32)> = blobs
+        let channel_methods: Vec<(u32, u32)> = blobs
             .method_init
             .iter()
+            .filter(|m| m.addr <= MAX_PUSHBUF_METHOD)
             .map(|m| (m.addr, m.value))
             .collect();
 
+        let bar0_count = blobs.method_init.len() - channel_methods.len();
+
         tracing::info!(
             chip,
-            method_count = method_entries.len(),
-            ctx_size = blobs.ctx_size(),
-            "submitting GR context init ({} FECS method entries)",
-            method_entries.len()
+            total_method_entries = blobs.method_init.len(),
+            channel_submittable = channel_methods.len(),
+            bar0_register_writes = bar0_count,
+            bundle_init_entries = blobs.bundle_init.len(),
+            ctx_template_bytes = blobs.ctx_size(),
+            "GR firmware parsed — {} entries need BAR0 MMIO (not channel-submittable)",
+            bar0_count
         );
 
-        let pb = pushbuf::PushBuf::gr_context_init(self.compute_class, &method_entries);
+        if channel_methods.is_empty() {
+            tracing::debug!(
+                chip,
+                "no channel-submittable method entries — GR init depends on kernel or BAR0 MMIO"
+            );
+            return;
+        }
+
+        let pb = pushbuf::PushBuf::gr_context_init(self.compute_class, &channel_methods);
         let pb_bytes = pb.as_bytes();
 
         let pb_size = match u64::try_from(pb_bytes.len()) {
@@ -341,6 +358,13 @@ impl NvDevice {
             let _ = self.free(pb_handle);
             return;
         }
+
+        tracing::info!(
+            chip,
+            entries = channel_methods.len(),
+            "submitting {} channel method entries for GR init",
+            channel_methods.len()
+        );
 
         let submit_result = if self.new_uapi {
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
@@ -370,15 +394,14 @@ impl NvDevice {
 
         match submit_result {
             Ok(()) => {
-                tracing::info!(chip, "GR context init submitted successfully");
-                // Wait for completion before returning
+                tracing::info!(chip, "GR channel method init submitted");
                 if let Some(syncobj) = self.exec_syncobj {
                     let timeout = {
                         let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
                         tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
                     };
                     if let Err(e) = ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout) {
-                        tracing::warn!(error = %e, "GR context init syncobj wait failed");
+                        tracing::warn!(error = %e, "GR init syncobj wait failed");
                     }
                 } else if let Some(gem) = self.buffers.get(&pb_handle.0).map(|b| b.gem_handle) {
                     let _ = ioctl::gem_cpu_prep(self.drm.fd(), gem);
@@ -388,7 +411,7 @@ impl NvDevice {
                 tracing::warn!(
                     chip,
                     error = %e,
-                    "GR context init submit failed — compute may get CTXNOTVALID"
+                    "GR channel method init failed — compute may get CTXNOTVALID"
                 );
             }
         }
