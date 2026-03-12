@@ -36,10 +36,13 @@ pub struct GrFirmwareBlobs {
     pub bundle_init: Vec<BundleEntry>,
     /// Method address/value pairs from method init.
     pub method_init: Vec<MethodEntry>,
-    /// Context state template size in bytes.
-    pub ctx_size: usize,
-    /// Non-context state size in bytes.
-    pub nonctx_size: usize,
+    /// Context state template — raw content of `sw_ctx.bin`.
+    ///
+    /// This is the initial GR context that FECS uses when setting up a
+    /// compute channel. Without this template, channels get CTXNOTVALID.
+    pub ctx_data: Vec<u8>,
+    /// Non-context state — raw content of `sw_nonctx.bin`.
+    pub nonctx_data: Vec<u8>,
 }
 
 /// A single register write from `sw_bundle_init.bin`.
@@ -47,7 +50,9 @@ pub struct GrFirmwareBlobs {
 /// The format is packed pairs: `[addr: u32, value: u32]` repeated.
 #[derive(Debug, Clone, Copy)]
 pub struct BundleEntry {
+    /// GPU register address (BAR0-relative).
     pub addr: u32,
+    /// Value to write to the register.
     pub value: u32,
 }
 
@@ -56,7 +61,9 @@ pub struct BundleEntry {
 /// Format: `[addr: u32, value: u32]` — method address and data.
 #[derive(Debug, Clone, Copy)]
 pub struct MethodEntry {
+    /// FECS method offset (GR class method address).
     pub addr: u32,
+    /// Data value to write.
     pub value: u32,
 }
 
@@ -104,8 +111,8 @@ impl GrFirmwareBlobs {
                 .into_iter()
                 .map(|(a, v)| MethodEntry { addr: a, value: v })
                 .collect(),
-            ctx_size: ctx_data.len(),
-            nonctx_size: nonctx_data.len(),
+            ctx_data,
+            nonctx_data,
         })
     }
 
@@ -129,8 +136,8 @@ impl GrFirmwareBlobs {
 
         let mut bundle_entries = Vec::new();
         let mut method_entries = Vec::new();
-        let mut ctx_size = 0usize;
-        let mut nonctx_size = 0usize;
+        let mut ctx_data = Vec::new();
+        let mut nonctx_data = Vec::new();
 
         for i in 0..num_sections {
             let entry_off = 8 + i * 12;
@@ -158,9 +165,9 @@ impl GrFirmwareBlobs {
                         method_entries.push(MethodEntry { addr, value });
                     }
                 }
-                // Context sections
-                0x01 => ctx_size = sec_size,
-                0x03 => nonctx_size = sec_size,
+                // Context sections — store raw content for FECS init
+                0x01 => ctx_data = chunk.to_vec(),
+                0x03 => nonctx_data = chunk.to_vec(),
                 _ => {}
             }
         }
@@ -170,8 +177,8 @@ impl GrFirmwareBlobs {
             format: FirmwareFormat::NetImg,
             bundle_init: bundle_entries,
             method_init: method_entries,
-            ctx_size,
-            nonctx_size,
+            ctx_data,
+            nonctx_data,
         })
     }
 
@@ -191,6 +198,24 @@ impl GrFirmwareBlobs {
     #[must_use]
     pub fn bundle_writes_to(&self, addr: u32) -> Vec<&BundleEntry> {
         self.bundle_init.iter().filter(|e| e.addr == addr).collect()
+    }
+
+    /// Context state template size in bytes.
+    #[must_use]
+    pub fn ctx_size(&self) -> usize {
+        self.ctx_data.len()
+    }
+
+    /// Non-context state size in bytes.
+    #[must_use]
+    pub fn nonctx_size(&self) -> usize {
+        self.nonctx_data.len()
+    }
+
+    /// Whether a context template is available for FECS init.
+    #[must_use]
+    pub fn has_ctx_template(&self) -> bool {
+        !self.ctx_data.is_empty()
     }
 
     /// Unique register addresses touched by the bundle init.
@@ -261,6 +286,39 @@ mod tests {
     }
 
     #[test]
+    fn legacy_parse_retains_ctx_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        std::fs::write(base.join("sw_bundle_init.bin"), []).unwrap();
+        std::fs::write(base.join("sw_method_init.bin"), []).unwrap();
+        let ctx_content = vec![0xAA_u8; 256];
+        std::fs::write(base.join("sw_ctx.bin"), &ctx_content).unwrap();
+        let nonctx_content = vec![0xBB_u8; 128];
+        std::fs::write(base.join("sw_nonctx.bin"), &nonctx_content).unwrap();
+
+        let blobs = GrFirmwareBlobs::parse_from(base, "test").unwrap();
+        assert_eq!(blobs.ctx_data.len(), 256);
+        assert_eq!(blobs.ctx_data, ctx_content);
+        assert_eq!(blobs.nonctx_data.len(), 128);
+        assert_eq!(blobs.nonctx_data, nonctx_content);
+        assert!(blobs.has_ctx_template());
+        assert_eq!(blobs.ctx_size(), 256);
+        assert_eq!(blobs.nonctx_size(), 128);
+    }
+
+    #[test]
+    fn missing_ctx_produces_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        std::fs::write(base.join("sw_bundle_init.bin"), []).unwrap();
+        std::fs::write(base.join("sw_method_init.bin"), []).unwrap();
+
+        let blobs = GrFirmwareBlobs::parse_from(base, "test").unwrap();
+        assert!(blobs.ctx_data.is_empty());
+        assert!(!blobs.has_ctx_template());
+    }
+
+    #[test]
     fn parse_real_gv100_firmware() {
         match GrFirmwareBlobs::parse("gv100") {
             Ok(blobs) => {
@@ -272,8 +330,8 @@ mod tests {
                     "GV100 (legacy): {} bundle writes, {} method inits, ctx={}B, nonctx={}B",
                     blobs.bundle_count(),
                     blobs.method_count(),
-                    blobs.ctx_size,
-                    blobs.nonctx_size
+                    blobs.ctx_data.len(),
+                    blobs.nonctx_data.len()
                 );
                 let addrs = blobs.unique_bundle_addrs();
                 eprintln!("  {} unique registers", addrs.len());
@@ -300,8 +358,8 @@ mod tests {
                     blobs.bundle_count(),
                     addrs.len(),
                     blobs.method_count(),
-                    blobs.ctx_size,
-                    blobs.nonctx_size
+                    blobs.ctx_data.len(),
+                    blobs.nonctx_data.len()
                 );
             }
             Err(e) => {

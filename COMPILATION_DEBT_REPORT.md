@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 12, Iter 38)  
+**Generated:** March 10, 2026 (metrics updated March 12, Iter 39)  
 **Workspace:** coralReef
 
 ---
@@ -24,7 +24,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. ? passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Total ignored:** 63 tests across workspace (hardware-gated + diagnostic).
+**Total ignored:** 64 tests across workspace (hardware-gated + diagnostic).
 
 ---
 
@@ -198,10 +198,10 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 38) |
+| Metric | Value (as of Iter 39) |
 |--------|-------|
-| Tests passing | 1657 (was 1635 at Iter 37) |
-| Ignored tests | 63 (hardware-gated + diagnostic) |
+| Tests passing | 1667 (was 1657 at Iter 38) |
+| Ignored tests | 64 (hardware-gated + diagnostic) |
 | EVOLUTION markers | 9 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |

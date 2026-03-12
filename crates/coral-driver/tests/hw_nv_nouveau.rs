@@ -20,8 +20,10 @@ mod tests {
         NvDevice::open().expect("NvDevice::open() — is nouveau loaded?")
     }
 
+    #[expect(dead_code, reason = "available for Titan V-specific hardware tests")]
     fn open_nv_sm70() -> NvDevice {
-        NvDevice::open_with_sm(70).expect("NvDevice::open_with_sm(70) — is nouveau loaded with Titan V?")
+        NvDevice::open_with_sm(70)
+            .expect("NvDevice::open_with_sm(70) — is nouveau loaded with Titan V?")
     }
 
     fn compile_for_sm(sm: u32, wgsl: &str) -> coral_reef::backend::CompiledBinary {
@@ -158,16 +160,28 @@ fn main() {
             .or_else(|_| NvDevice::open_path("/dev/dri/renderD128", 70))
             .unwrap_or_else(|_| open_nv());
         let sm = dev.sm_version();
-        eprintln!("Device: SM{sm}, compute_class=0x{:04X}, new_uapi={}", dev.compute_class(), dev.uses_new_uapi());
+        eprintln!(
+            "Device: SM{sm}, compute_class=0x{:04X}, new_uapi={}",
+            dev.compute_class(),
+            dev.uses_new_uapi()
+        );
 
         let compiled = compile_for_sm(sm, WRITE_42_SHADER);
-        eprintln!("Compiled binary for SM{sm}: {} bytes", compiled.binary.len());
+        eprintln!(
+            "Compiled binary for SM{sm}: {} bytes",
+            compiled.binary.len()
+        );
         eprintln!("  gpr_count: {}", compiled.info.gpr_count);
         eprintln!("  shared_mem: {}", compiled.info.shared_mem_bytes);
         eprintln!("  barriers: {}", compiled.info.barrier_count);
         eprintln!("  local_size: {:?}", compiled.info.local_size);
 
-        let hex: Vec<String> = compiled.binary.iter().take(64).map(|b| format!("{b:02x}")).collect();
+        let hex: Vec<String> = compiled
+            .binary
+            .iter()
+            .take(64)
+            .map(|b| format!("{b:02x}"))
+            .collect();
         eprintln!("  binary[0..64]: {}", hex.join(" "));
 
         // Fill buffer with sentinel pattern (0xDEADBEEF) to detect writes
@@ -196,7 +210,10 @@ fn main() {
             let off = i * 4;
             let word = u32::from_le_bytes(readback[off..off + 4].try_into().unwrap());
             let changed = word != 0xDEAD_BEEF;
-            eprintln!("  buf[{i}] = 0x{word:08X}{}", if changed { " ← CHANGED" } else { "" });
+            eprintln!(
+                "  buf[{i}] = 0x{word:08X}{}",
+                if changed { " ← CHANGED" } else { "" }
+            );
         }
 
         let value = u32::from_le_bytes(readback[..4].try_into().unwrap());

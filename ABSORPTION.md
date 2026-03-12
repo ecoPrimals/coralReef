@@ -287,7 +287,7 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 1657 tests passing, 63 ignored, 64% coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 1667 tests passing, 64 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 4/10 SPIR-V roundtrip tests pass.
 Iteration 38: Deep debt solutions + idiomatic evolution — zero clippy/doc/fmt warnings,

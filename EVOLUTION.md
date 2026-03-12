@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 38)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 39)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1657 tests (1657 passing, 63 ignored), 64% line coverage (target 90%),
+1667 tests (1667 passing, 64 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (nouveau-first), nvidia-drm probing with
@@ -405,13 +405,14 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 34 | Legalize refactor, bytemuck unsafe elimination, 34 naga_translate tests, SM89 DF64, 5 HFB shaders, DRM ABI fixes (Exp 057), `quick-xml` 0.39 | **1608** (1608 pass, 55 ignore) |
 | 10 iter 35 | `FirmwareInventory` + `compute_viable()` (hwLearn absorption), `drm_ioctl_typed` eliminated → all `drm_ioctl_named`, dead code removed. 24 unsafe blocks (down from 29). | **1616** (1616 pass, 55 ignore) |
 | 10 iter 37 | Gap closure: `bytemuck::Zeroable` (5 structs), PCI vendor constants, AMD arch detection, `raw_nv_ioctl` helper, pushbuf constant unification, `NV_STATUS` documented, `uvm.rs` smart-refactored (→3 files), GPFIFO submission + USERD doorbell + completion polling, `NvDrmDevice` delegation to UVM, `KernelCacheEntry`, `dispatch_precompiled()`, `GpuTarget::arch_name()` | **1635** (1635 pass, 63 ignore) |
-| 10 iter 38 (current) | Deep debt solutions + idiomatic evolution: `cargo fmt` drift resolved, 6 clippy fixes (`ExternalMapping`/`RmAllocEvent`/`KernelCacheEntry` param structs, method refs, let-chain), 4 doc link fixes, smart refactors (naga_translate_tests 1486→3 files, rm_client 1031→997, op_conv 1047→796), zero-copy `Bytes`, 22 new tests (unix_jsonrpc + op_conv) | **1657** (1657 pass, 63 ignore) |
+| 10 iter 38 | Deep debt solutions + idiomatic evolution: `cargo fmt` drift resolved, 6 clippy fixes (`ExternalMapping`/`RmAllocEvent`/`KernelCacheEntry` param structs, method refs, let-chain), 4 doc link fixes, smart refactors (naga_translate_tests 1486→3 files, rm_client 1031→997, op_conv 1047→796), zero-copy `Bytes`, 22 new tests (unix_jsonrpc + op_conv) | **1657** (1657 pass, 63 ignore) |
+| 10 iter 39 (current) | FECS GR context init (Gap 3), UVM CBUF descriptor alignment (Gap 2), Unsafe evolution (SAFETY comments, safe copy_from_slice), hotSpring dispatch fixes absorbed (a691023), Test coverage +10 | **1667** (1667 pass, 64 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 38: 1657 tests passing, 63 ignored. Idiomatic evolution.
+Iteration 39: 1667 tests passing, 64 ignored. Idiomatic evolution.
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes. All parameter structs idiomatic.

@@ -402,13 +402,13 @@ impl ComputeDevice for NvUvmComputeDevice {
             return Err(DriverError::MmapFailed("buffer has no CPU mapping".into()));
         }
 
-        let dst = (buf.cpu_addr + offset) as *mut u8;
         // SAFETY: cpu_addr from rm_map_memory is a valid user-space address
         // returned by the kernel's vm_mmap. The bounds check above ensures
         // offset + data.len() <= buf.size <= mapped length.
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
-        }
+        let dst_slice = unsafe {
+            std::slice::from_raw_parts_mut((buf.cpu_addr + offset) as *mut u8, data.len())
+        };
+        dst_slice.copy_from_slice(data);
         Ok(())
     }
 
@@ -432,14 +432,11 @@ impl ComputeDevice for NvUvmComputeDevice {
             return Err(DriverError::MmapFailed("buffer has no CPU mapping".into()));
         }
 
-        let src = (buf.cpu_addr + offset) as *const u8;
-        let mut result = vec![0u8; len];
         // SAFETY: same as upload — cpu_addr is a kernel-provided vm_mmap address,
         // bounds checked above.
-        unsafe {
-            std::ptr::copy_nonoverlapping(src, result.as_mut_ptr(), len);
-        }
-        Ok(result)
+        let src_slice =
+            unsafe { std::slice::from_raw_parts((buf.cpu_addr + offset) as *const u8, len) };
+        Ok(src_slice.to_vec())
     }
 
     fn dispatch(
@@ -458,22 +455,39 @@ impl ComputeDevice for NvUvmComputeDevice {
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
 
-        let mut cbufs = Vec::with_capacity(buffers.len());
+        // Build CBUF descriptor buffer (matches nouveau dispatch model).
+        // The compiler generates `c[0][binding * 8]` to load buffer addresses,
+        // so CBUF 0 must contain the descriptor table, not raw buffer data.
+        let desc_entry_size = 16_u64;
+        let desc_buf_size = desc_entry_size
+            * u64::try_from(buffers.len().max(1))
+                .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
+        let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
+
+        let mut desc_data = vec![0u8; desc_buf_size as usize];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                cbufs.push(qmd::CbufBinding {
-                    index: u32::try_from(i)
-                        .map_err(|_| DriverError::platform_overflow("CBUF index fits in u32"))?,
-                    addr: buf.gpu_va,
-                    size: u32::try_from(buf.size).unwrap_or(u32::MAX),
-                });
+                let off = i * 8;
+                let va = buf.gpu_va;
+                let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
+                let va_lo = (va & 0xFFFF_FFFF) as u32;
+                let va_hi = (va >> 32) as u32;
+                desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
+                desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
+                let sz_off = off + 8;
+                if sz_off + 4 <= desc_data.len() {
+                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
+                }
             }
         }
+        self.upload(desc_handle, 0, &desc_data)?;
+        let desc_va = self.buffers.get(&desc_handle.0).map_or(0, |b| b.gpu_va);
 
-        let qmd_version = match self.gpu_gen {
-            GpuGen::AmpereA | GpuGen::AmpereB => qmd::build_qmd_v30,
-            GpuGen::Volta | GpuGen::Turing => qmd::build_qmd_v21,
-        };
+        let cbufs = vec![qmd::CbufBinding {
+            index: 0,
+            addr: desc_va,
+            size: u32::try_from(desc_buf_size).unwrap_or(u32::MAX),
+        }];
 
         let qmd_params = qmd::QmdParams {
             shader_va,
@@ -484,7 +498,7 @@ impl ComputeDevice for NvUvmComputeDevice {
             barrier_count: info.barrier_count,
             cbufs,
         };
-        let qmd_words = qmd_version(&qmd_params);
+        let qmd_words = qmd::build_qmd_for_sm(self.sm_version(), &qmd_params);
         let qmd_bytes = u32_slice_as_bytes(&qmd_words);
 
         let qmd_handle = self.alloc(qmd_bytes.len() as u64, MemoryDomain::Gtt)?;
@@ -507,6 +521,7 @@ impl ComputeDevice for NvUvmComputeDevice {
         self.inflight.push(shader_handle);
         self.inflight.push(qmd_handle);
         self.inflight.push(pb_handle);
+        self.inflight.push(desc_handle);
 
         Ok(())
     }
@@ -521,6 +536,9 @@ impl ComputeDevice for NvUvmComputeDevice {
     }
 }
 
+// SAFETY: NvUvmComputeDevice owns kernel FDs and mmap'd GPU addresses.
+// FDs are thread-safe (kernel guarantees ioctl serialization);
+// mmap'd regions are only accessed through &mut self methods.
 unsafe impl Send for NvUvmComputeDevice {}
 unsafe impl Sync for NvUvmComputeDevice {}
 
@@ -559,6 +577,32 @@ mod tests {
         assert_eq!(page_align(4096), 4096);
         assert_eq!(page_align(4097), 8192);
         assert_eq!(page_align(0), 0);
+    }
+
+    #[test]
+    fn gpfifo_entry_encoding() {
+        let va = 0x0000_0001_0000_1000_u64;
+        let dwords = 64_u32;
+        let entry = gpfifo_entry(va, dwords);
+        let decoded_va = (entry & 0x00_0000_003F_FFFF_FFFF) << 2;
+        assert_eq!(decoded_va, va);
+        let decoded_len = (entry >> 42) as u32;
+        assert_eq!(decoded_len, dwords);
+    }
+
+    #[test]
+    fn gpfifo_entry_zero_length() {
+        let entry = gpfifo_entry(0x1000, 0);
+        assert_eq!(entry >> 42, 0);
+        assert_ne!(entry & 0x00_0000_003F_FFFF_FFFF, 0);
+    }
+
+    #[test]
+    fn gpu_gen_sm_roundtrip() {
+        assert_eq!(GpuGen::Volta, GpuGen::from_sm(70));
+        assert_eq!(GpuGen::Turing, GpuGen::from_sm(75));
+        assert_eq!(GpuGen::AmpereA, GpuGen::from_sm(80));
+        assert_eq!(GpuGen::AmpereB, GpuGen::from_sm(86));
     }
 
     #[test]

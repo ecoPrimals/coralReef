@@ -73,7 +73,11 @@ fn qmd_set_field(q: &mut [u32; QMD_SIZE_WORDS], bit_start: usize, width: usize, 
     let bit_off = bit_start % 32;
 
     if bit_off + width <= 32 {
-        let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+        let mask = if width >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << width) - 1
+        };
         q[word_idx] &= !(mask << bit_off);
         q[word_idx] |= ((value as u32) & mask) << bit_off;
     } else {
@@ -82,7 +86,11 @@ fn qmd_set_field(q: &mut [u32; QMD_SIZE_WORDS], bit_start: usize, width: usize, 
         q[word_idx] = (q[word_idx] & !lo_mask) | ((value as u32) << bit_off);
 
         let hi_bits = width - lo_bits;
-        let hi_mask = if hi_bits >= 32 { u32::MAX } else { (1u32 << hi_bits) - 1 };
+        let hi_mask = if hi_bits >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << hi_bits) - 1
+        };
         q[word_idx + 1] = (q[word_idx + 1] & !hi_mask) | (((value >> lo_bits) as u32) & hi_mask);
     }
 }
@@ -214,13 +222,21 @@ mod tests {
         let word_idx = bit_start / 32;
         let bit_off = bit_start % 32;
         if bit_off + width <= 32 {
-            let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+            let mask = if width >= 32 {
+                u32::MAX
+            } else {
+                (1u32 << width) - 1
+            };
             u64::from((q[word_idx] >> bit_off) & mask)
         } else {
             let lo_bits = 32 - bit_off;
             let lo = u64::from(q[word_idx] >> bit_off);
             let hi_bits = width - lo_bits;
-            let hi_mask = if hi_bits >= 32 { u32::MAX } else { (1u32 << hi_bits) - 1 };
+            let hi_mask = if hi_bits >= 32 {
+                u32::MAX
+            } else {
+                (1u32 << hi_bits) - 1
+            };
             let hi = u64::from(q[word_idx + 1] & hi_mask);
             lo | (hi << lo_bits)
         }
@@ -291,7 +307,11 @@ mod tests {
         let cb0_hi = get_field(&q, 1536 + 32, 8);
         let cb0_addr = cb0_lo | (cb0_hi << 32);
         assert_eq!(cb0_addr, 0x2_0000_0000);
-        assert_eq!(get_field(&q, 1536 + 40, 17), u64::from(4096_u32 >> 4), "CBUF 0 size");
+        assert_eq!(
+            get_field(&q, 1536 + 40, 17),
+            u64::from(4096_u32 >> 4),
+            "CBUF 0 size"
+        );
 
         // CBUF 1: valid, address, size
         assert_eq!(get_field(&q, 1600 + 57, 1), 1, "CBUF 1 valid");
@@ -299,7 +319,11 @@ mod tests {
         let cb1_hi = get_field(&q, 1600 + 32, 8);
         let cb1_addr = cb1_lo | (cb1_hi << 32);
         assert_eq!(cb1_addr, 0x3_0000_0000);
-        assert_eq!(get_field(&q, 1600 + 40, 17), u64::from(8192_u32 >> 4), "CBUF 1 size");
+        assert_eq!(
+            get_field(&q, 1600 + 40, 17),
+            u64::from(8192_u32 >> 4),
+            "CBUF 1 size"
+        );
     }
 
     #[test]
@@ -364,7 +388,11 @@ mod tests {
         let q = build_qmd_v21(&params);
         // All 8 CBUF valid bits should be 0
         for i in 0..MAX_CBUFS {
-            assert_eq!(get_field(&q, 1536 + i * 64 + 57, 1), 0, "CBUF {i} should be invalid");
+            assert_eq!(
+                get_field(&q, 1536 + i * 64 + 57, 1),
+                0,
+                "CBUF {i} should be invalid"
+            );
         }
     }
 
@@ -378,7 +406,10 @@ mod tests {
         });
         let q = build_qmd_v21(&params);
         assert_eq!(get_field(&q, 1536 + 7 * 64 + 57, 1), 1, "CBUF 7 valid");
-        assert_eq!(get_field(&q, 1536 + 7 * 64 + 40, 17), u64::from(1024_u32 >> 4));
+        assert_eq!(
+            get_field(&q, 1536 + 7 * 64 + 40, 17),
+            u64::from(1024_u32 >> 4)
+        );
     }
 
     #[test]
@@ -393,9 +424,21 @@ mod tests {
         let q21 = build_qmd_v21(&params);
         let q30 = build_qmd_v30(&params);
         // Grid, shader addr, etc. should be identical
-        assert_eq!(get_field(&q21, 224, 32), get_field(&q30, 224, 32), "grid width");
-        assert_eq!(get_field(&q21, 832, 32), get_field(&q30, 832, 32), "shader addr lo");
-        assert_eq!(get_field(&q21, 864, 32), get_field(&q30, 864, 32), "shader addr hi");
+        assert_eq!(
+            get_field(&q21, 224, 32),
+            get_field(&q30, 224, 32),
+            "grid width"
+        );
+        assert_eq!(
+            get_field(&q21, 832, 32),
+            get_field(&q30, 832, 32),
+            "shader addr lo"
+        );
+        assert_eq!(
+            get_field(&q21, 864, 32),
+            get_field(&q30, 864, 32),
+            "shader addr hi"
+        );
         // But version should differ
         assert_ne!(q21[0] & 0xF, q30[0] & 0xF, "major version");
     }

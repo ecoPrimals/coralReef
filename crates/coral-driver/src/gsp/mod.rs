@@ -62,7 +62,7 @@ pub use applicator::{ApplyError, apply_bar0, dry_run, split_for_application, ver
 /// Dispatch hints — learned workgroup sizing, FP64 availability, etc.
 pub use dispatch::{DispatchHints, build_dispatch_hints, build_hint_for};
 /// Parsed GR firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`.
-pub use firmware_parser::{FirmwareFormat, GrFirmwareBlobs};
+pub use firmware_parser::{BundleEntry, FirmwareFormat, GrFirmwareBlobs, MethodEntry};
 /// GR engine init register sequence (learned from firmware).
 pub use gr_init::{GrInitSequence, GrRegWrite};
 /// Cross-architecture GPU knowledge base.

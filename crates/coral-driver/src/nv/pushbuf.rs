@@ -171,6 +171,29 @@ impl PushBuf {
 
         pb
     }
+
+    /// Build a GR context init push buffer from FECS method entries.
+    ///
+    /// Submits the method init entries from firmware blobs as class
+    /// method writes on subchannel 0. This initializes the GR engine
+    /// context so that subsequent compute dispatches have a valid
+    /// context (prevents CTXNOTVALID from PBDMA).
+    ///
+    /// Each method entry is a `(addr, value)` pair where `addr` is a
+    /// GR class method offset and `value` is the data to write.
+    #[must_use]
+    pub fn gr_context_init(compute_class: u32, method_entries: &[(u32, u32)]) -> Self {
+        let mut pb = Self::new();
+        let sub = 0_u32;
+
+        pb.push_1(sub, method::SET_OBJECT, compute_class);
+
+        for &(addr, value) in method_entries {
+            pb.push_1(sub, addr, value);
+        }
+
+        pb
+    }
 }
 
 impl Default for PushBuf {
@@ -314,5 +337,32 @@ mod tests {
             .position(|&w| w == mthd_incr(0, method::SEND_SIGNALING_PCAS_B, 1))
             .unwrap();
         assert_eq!(words[send_pcas_b_idx + 1], qmd_addr as u32);
+    }
+
+    #[test]
+    fn gr_context_init_structure() {
+        let methods = vec![(0x0100_u32, 0xAAAA_u32), (0x0200, 0xBBBB), (0x0300, 0xCCCC)];
+        let pb = PushBuf::gr_context_init(class::VOLTA_COMPUTE_A, &methods);
+        let words = pb.as_words();
+
+        // SET_OBJECT header + data, then 3 * (method header + data) = 8 words
+        assert_eq!(words.len(), 8);
+
+        // First pair: SET_OBJECT
+        assert_eq!(words[0], mthd_incr(0, method::SET_OBJECT, 1));
+        assert_eq!(words[1], class::VOLTA_COMPUTE_A);
+
+        // Method entries submitted as individual push_1 calls
+        assert_eq!(words[3], 0xAAAA);
+        assert_eq!(words[5], 0xBBBB);
+        assert_eq!(words[7], 0xCCCC);
+    }
+
+    #[test]
+    fn gr_context_init_empty_methods() {
+        let pb = PushBuf::gr_context_init(class::VOLTA_COMPUTE_A, &[]);
+        let words = pb.as_words();
+        // Just SET_OBJECT: header + data = 2 words
+        assert_eq!(words.len(), 2);
     }
 }

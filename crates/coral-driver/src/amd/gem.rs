@@ -7,6 +7,15 @@ use crate::drm::MappedRegion;
 use crate::error::{DriverError, DriverResult};
 use std::os::unix::io::RawFd;
 
+/// Base GPU virtual address for userspace buffer mappings.
+///
+/// GEM handles are spaced 16 MiB apart starting from this base. The
+/// kernel manages the actual VA space; this is our userspace convention.
+const AMD_USER_VA_BASE: u64 = 0x0000_8000_0000;
+
+/// VA spacing between consecutive buffer allocations.
+const AMD_VA_STRIDE: u64 = 0x0100_0000;
+
 /// A GEM buffer object backed by amdgpu.
 #[derive(Debug)]
 pub struct GemBuffer {
@@ -35,7 +44,7 @@ impl GemBuffer {
 
         let (handle, actual_size) = ioctl::gem_create(fd, size, domain_flags)?;
 
-        let gpu_va = 0x0000_8000_0000_u64 + u64::from(handle) * 0x0100_0000;
+        let gpu_va = AMD_USER_VA_BASE + u64::from(handle) * AMD_VA_STRIDE;
 
         ioctl::gem_va_map(fd, handle, gpu_va, actual_size)?;
 

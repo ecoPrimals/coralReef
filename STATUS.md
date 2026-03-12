@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 12, 2026  
-**Phase**: 10 — Iteration 38 (Deep Debt Solutions + Idiomatic Evolution)
+**Phase**: 10 — Iteration 39 (FECS GR Context + UVM Alignment + Safe Evolution)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1657 passing, 0 failed, 63 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1667 passing, 0 failed, 64 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 38** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 39** |
 
 ### Phase 10 Completions
 
@@ -578,6 +578,21 @@
 | File size compliance | ✅ | Zero files over 1000 LOC (3 violations resolved) |
 | Test expansion | ✅ | 1657 passing (+22), 63 ignored (stable) |
 
+### Iteration 39: FECS GR Context + UVM Alignment + Safe Evolution (Mar 12 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| FECS GR context init (Gap 3) | ✅ | `sw_ctx.bin` content stored in `GrFirmwareBlobs` (was discarded), `PushBuf::gr_context_init()` builds FECS method submission, `NvDevice::open_from_drm()` submits GR init before first dispatch |
+| UVM CBUF descriptor alignment (Gap 2) | ✅ | UVM dispatch evolved from direct CBUF binding to descriptor-table-in-CBUF-0 model — matches nouveau path and compiler codegen (`c[0][binding * 8]`) |
+| hotSpring dispatch fixes absorbed | ✅ | Commit `a691023` verified (QMD fields, CBUF descriptors, syncobj sync), `NvUvmComputeDevice` re-exported |
+| Unsafe evolution | ✅ | 4 missing `// SAFETY:` comments added (syncobj_create/destroy/wait, exec_submit_with_signal), Send/Sync impl documented, `copy_nonoverlapping` → safe `slice::copy_from_slice` |
+| Hardcoding evolution | ✅ | AMD VA base/stride extracted to named constants (`AMD_USER_VA_BASE`, `AMD_VA_STRIDE`), zero cross-primal references in production code |
+| Formatting drift fixed | ✅ | `cargo fmt` applied post-rebase (2 files) |
+| Dead code fix | ✅ | `open_nv_sm70` annotated with `#[expect(dead_code)]`, `hw_nv_nouveau.rs` |
+| Test coverage (+10 tests) | ✅ | `legacy_parse_retains_ctx_data`, `missing_ctx_produces_empty`, `gr_context_init_structure`, `gr_context_init_empty_methods`, `sm_to_chip_mapping`, `compute_class_selection`, `gpfifo_entry_encoding`, `gpfifo_entry_zero_length`, `gpu_gen_sm_roundtrip` |
+| File size compliance | ✅ | All files under 1000 LOC (largest: `rm_client.rs` at 997) |
+| Test expansion | ✅ | 1667 passing (+10), 64 ignored |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -604,7 +619,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1657 passing, 0 failed, 63 ignored) |
+| `cargo test --workspace` | PASS (1667 passing, 0 failed, 64 ignored) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
