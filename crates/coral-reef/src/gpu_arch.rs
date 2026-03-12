@@ -41,6 +41,16 @@ impl GpuTarget {
         }
     }
 
+    /// Architecture identifier within the vendor (e.g. `"sm86"`, `"rdna2"`).
+    #[must_use]
+    pub fn arch_name(&self) -> &'static str {
+        match self {
+            Self::Nvidia(nv) => nv.short_name(),
+            Self::Amd(amd) => amd.short_name(),
+            Self::Intel(intel) => intel.short_name(),
+        }
+    }
+
     /// Unwrap as [`NvArch`], or `None` if this is a different vendor.
     #[must_use]
     pub const fn as_nvidia(&self) -> Option<NvArch> {
@@ -165,6 +175,18 @@ impl NvArch {
                 s == format!("sm_{sm}") || s == format!("sm{sm}")
             })
             .copied()
+    }
+
+    /// Short architecture identifier (e.g. `"sm70"`, `"sm86"`).
+    #[must_use]
+    pub const fn short_name(self) -> &'static str {
+        match self {
+            Self::Sm70 => "sm70",
+            Self::Sm75 => "sm75",
+            Self::Sm80 => "sm80",
+            Self::Sm86 => "sm86",
+            Self::Sm89 => "sm89",
+        }
     }
 
     /// Shader model number.
@@ -294,6 +316,16 @@ impl AmdArch {
     /// All supported AMD architectures, ordered by generation.
     pub const ALL: &[Self] = &[Self::Rdna2, Self::Rdna3, Self::Rdna4];
 
+    /// Short architecture identifier (e.g. `"rdna2"`, `"rdna3"`).
+    #[must_use]
+    pub const fn short_name(self) -> &'static str {
+        match self {
+            Self::Rdna2 => "rdna2",
+            Self::Rdna3 => "rdna3",
+            Self::Rdna4 => "rdna4",
+        }
+    }
+
     /// GFX version major number for this architecture.
     #[must_use]
     pub const fn gfx_major(self) -> u8 {
@@ -401,6 +433,17 @@ pub enum IntelArch {
     XeHpg,
     /// Xe2-HPG (Battlemage).
     Xe2Hpg,
+}
+
+impl IntelArch {
+    /// Short architecture identifier (e.g. `"xe_hpg"`).
+    #[must_use]
+    pub const fn short_name(self) -> &'static str {
+        match self {
+            Self::XeHpg => "xe_hpg",
+            Self::Xe2Hpg => "xe2_hpg",
+        }
+    }
 }
 
 impl std::fmt::Display for IntelArch {

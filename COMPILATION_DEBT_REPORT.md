@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 11, Iter 34)  
+**Generated:** March 10, 2026 (metrics updated March 12, Iter 37)  
 **Workspace:** coralReef
 
 ---
@@ -198,12 +198,14 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 33) |
+| Metric | Value (as of Iter 37) |
 |--------|-------|
-| Ignored tests | 54 (was ~76 at time of report) |
-| EVOLUTION markers | 0 (all resolved Iter 32) |
+| Tests passing | 1635 (was 1556 at Iter 32) |
+| Ignored tests | 63 (hardware-gated + diagnostic) |
+| EVOLUTION markers | 9 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
 | panic! in production | ~150+ (codegen ICE guards — intentional) |
 | #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |
+| unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |

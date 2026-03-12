@@ -40,6 +40,8 @@ pub mod amd;
 #[cfg(target_os = "linux")]
 pub mod nv;
 
+pub mod gsp;
+
 pub use error::{DriverError, DriverResult};
 
 /// An opaque GPU buffer handle.

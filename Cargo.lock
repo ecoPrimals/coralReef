@@ -262,6 +262,9 @@ dependencies = [
  "bytemuck",
  "coral-reef",
  "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
  "tracing",
 ]
@@ -273,6 +276,7 @@ dependencies = [
  "bytes",
  "coral-driver",
  "coral-reef",
+ "serde",
  "thiserror",
  "tracing",
 ]

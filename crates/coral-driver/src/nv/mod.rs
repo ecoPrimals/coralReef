@@ -25,6 +25,10 @@ pub use nvidia_drm::NvDrmDevice;
 
 #[cfg(feature = "nvidia-drm")]
 pub mod uvm;
+#[cfg(feature = "nvidia-drm")]
+pub mod uvm_compute;
+#[cfg(feature = "nvidia-drm")]
+pub use uvm_compute::NvUvmComputeDevice;
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};

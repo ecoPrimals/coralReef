@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 35)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 37)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,18 +9,20 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1616 tests (1616 passing, 55 ignored), 64% line coverage (target 90%),
+1635 tests (1635 passing, 63 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 4/10 SPIR-V roundtrip tests passing. Multi-GPU
-sovereignty: driver preference (nouveau-first), nvidia-drm probing,
-toadStool ecosystem discovery, cross-vendor parity testing, zero DEBT
+sovereignty: driver preference (nouveau-first), nvidia-drm probing with
+UVM delegation, ecosystem discovery, cross-vendor parity testing, zero DEBT
 markers, zero libc dependency. Multi-device compile API
 (`shader.compile.wgsl.multi`), FMA contraction enforcement
 (`FmaPolicy::Separate` splits FFma→FMul+FAdd), `PCIe` topology awareness,
 FMA hardware capability reporting per architecture.
 `FirmwareInventory` + `compute_viable()` for PMU/GSP-aware dispatch viability.
+`NvDrmDevice` delegates to `NvUvmComputeDevice` for full compute dispatch.
+`KernelCacheEntry` + `dispatch_precompiled()` wire barraCuda kernel cache.
 All DRM ioctls use `drm_ioctl_named` with operation-specific error messages.
-24 unsafe blocks (all kernel ABI boundary in `coral-driver`).
+`unsafe` confined to kernel ABI boundary in `coral-driver`.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -321,21 +323,21 @@ Endgame:
 | `naga_translate/mod.rs` | 29 | **All in test code** — no production debt |
 | Production code total | ~210 | Concentrated in register allocator and encoder; these are internal invariant assertions |
 
-### Unsafe Code Audit (Iteration 35 — updated)
+### Unsafe Code Audit (Iteration 37 — updated)
 
 | Location | Blocks | Assessment |
 |----------|--------|------------|
-| `coral-driver/src/drm.rs` | 7 | `drm_ioctl_named` (sole wrapper), `MappedRegion` mmap/munmap/as_slice/as_mut_slice, `DrmIoctlCmd`, `gem_close`, `drm_version` |
+| `coral-driver/src/drm.rs` | 8 | `drm_ioctl_named` (sole wrapper), `MappedRegion` mmap/munmap/as_slice/as_mut_slice, `DrmIoctlCmd`, `gem_close`, `drm_version` |
 | `coral-driver/src/amd/ioctl.rs` | 1 | `amd_ioctl` safe wrapper via `drm_ioctl_named` |
-| `coral-driver/src/nv/ioctl/mod.rs` | 6 | `channel_alloc/free`, `gem_new/info`, `pushbuf_submit`, `gem_cpu_prep` — all via `drm_ioctl_named` |
+| `coral-driver/src/nv/ioctl/mod.rs` | 5 | `channel_alloc/free`, `gem_new/info`, `pushbuf_submit`, `gem_cpu_prep` — all via `drm_ioctl_named` |
 | `coral-driver/src/nv/ioctl/new_uapi.rs` | 4 | `vm_init`, `vm_bind_map/unmap`, `exec_submit` — all via `drm_ioctl_named` |
-| `coral-driver/src/nv/ioctl/diag.rs` | 1 | `diag_channel_alloc` — diagnostic via `drm_ioctl_named` |
-| `coral-driver/src/nv/uvm.rs` | 5 | UVM RM client ioctls via `drm_ioctl_named` |
+| `coral-driver/src/nv/uvm/mod.rs` | 3 | UVM_INITIALIZE, UVM raw_ioctl, NvUvmDevice helper |
+| `coral-driver/src/nv/uvm/rm_client.rs` | 8 | RM_ALLOC, RM_CONTROL, RM_FREE, raw_nv_ioctl, rm_map_memory, rm_unmap_memory, rm_map_memory_dma — kernel ABI boundary |
+| `coral-driver/src/nv/uvm_compute.rs` | 6 | `Send` + `Sync` impls, GPFIFO ring writes, USERD doorbell writes, GP_GET reads |
 
-**Total: 24 unsafe blocks** (down from 29). `drm_ioctl_typed` eliminated
-(zero callers), `bytemuck::bytes_of` replaced `from_raw_parts` in diag.
 All unsafe confined to `coral-driver` (kernel ABI boundary).
 8 of 9 crates enforce `#[deny(unsafe_code)]`.
+5 `unsafe { zeroed() }` blocks eliminated via `bytemuck::Zeroable` (Iteration 37).
 
 **libc eliminated** — DRM ioctls via rustix (pure Rust syscalls).
 No C library links. Transitive FFI from tokio (libc) and jsonrpsee (ring) in
@@ -401,14 +403,20 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 32 | Deep debt evolution: `firstTrailingBit` + `distance` implemented, AMD `OpBRev`/`OpFlo` encoding (fixes discriminant 31), `CallResult` OpUndef→error, `BindingArray` stride fix, `shader_info.rs` split (→ shader_io/shader_model/shader_info), 19 new integration tests (interp, trig, exp/log, atomics, builtins, float modulo, uniform matrix), production mock audit, dependency analysis | **1556** (1556 pass, 54 ignore), 64% coverage |
 | 10 iter 33 | NVVM poisoning validation: sovereign compilation of hotSpring DF64 Yukawa force shader (`exp_df64` + `sqrt_df64`) verified for SM70/SM86/RDNA2 — bypasses NVVM device-kill path. 6 new tests (`nvvm_poisoning_validation.rs`). Verlet integrator DF64 validated. | **1562** (1562 pass, 54 ignore) |
 | 10 iter 34 | Legalize refactor, bytemuck unsafe elimination, 34 naga_translate tests, SM89 DF64, 5 HFB shaders, DRM ABI fixes (Exp 057), `quick-xml` 0.39 | **1613** (1613 pass, 55 ignore) |
-| 10 iter 35 (current) | `FirmwareInventory` + `compute_viable()` (hwLearn absorption), `drm_ioctl_typed` eliminated → all `drm_ioctl_named`, dead code removed. 24 unsafe blocks (down from 29). | **1616** (1616 pass, 55 ignore) |
+| 10 iter 35 | `FirmwareInventory` + `compute_viable()` (hwLearn absorption), `drm_ioctl_typed` eliminated → all `drm_ioctl_named`, dead code removed. 24 unsafe blocks (down from 29). | **1616** (1616 pass, 55 ignore) |
+| 10 iter 37 (current) | Gap closure: `bytemuck::Zeroable` (5 structs), PCI vendor constants, AMD arch detection, `raw_nv_ioctl` helper, pushbuf constant unification, `NV_STATUS` documented, `uvm.rs` smart-refactored (→3 files), GPFIFO submission + USERD doorbell + completion polling, `NvDrmDevice` delegation to UVM, `KernelCacheEntry`, `dispatch_precompiled()`, `GpuTarget::arch_name()` | **1635** (1635 pass, 63 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 35: 1616 tests passing, 55 ignored. FirmwareInventory
-absorbs hwLearn pattern — compute_viable() reports PMU/GSP availability.
-All DRM ioctl calls use drm_ioctl_named for operation-specific errors.
-24 unsafe blocks (all kernel ABI boundary in coral-driver).
-8 of 9 crates enforce #[deny(unsafe_code)].*
+Iteration 37: 1635 tests passing, 63 ignored. Gap closure evolution.
+
+UVM dispatch pipeline complete: GPFIFO submission + USERD doorbell +
+completion polling. NvDrmDevice evolved from stub to full delegator.
+KernelCacheEntry + dispatch_precompiled() wire barraCuda kernel cache.
+bytemuck::Zeroable eliminates 5 unsafe zeroed() blocks.
+PCI vendor constants centralized. AMD arch detection capability-based.
+uvm.rs smart-refactored (727 LOC monolith → 3 files).
+8 of 9 crates enforce #[deny(unsafe_code)].
+Pending: RTX 3090 hardware validation of UVM dispatch path.*

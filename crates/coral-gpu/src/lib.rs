@@ -70,6 +70,65 @@ pub struct CompiledKernel {
     pub workgroup: [u32; 3],
 }
 
+/// Serializable kernel cache entry for `dispatch_binary` / cached dispatch.
+///
+/// Produced by [`CompiledKernel::to_cache_entry`], consumed by
+/// [`CompiledKernel::from_cache_entry`]. Separates the binary from
+/// metadata so that callers can cache across sessions without
+/// recompilation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct KernelCacheEntry {
+    /// Native GPU binary.
+    pub binary: Vec<u8>,
+    /// Target identifier string (e.g. `"nvidia:sm86"`, `"amd:rdna2"`).
+    pub target_id: String,
+    /// GPR count.
+    pub gpr_count: u32,
+    /// Instruction count.
+    pub instr_count: u32,
+    /// Shared memory in bytes.
+    pub shared_mem_bytes: u32,
+    /// Barrier count.
+    pub barrier_count: u32,
+    /// Workgroup size `[x, y, z]`.
+    pub workgroup: [u32; 3],
+    /// Hash of the source WGSL.
+    pub source_hash: u64,
+}
+
+impl CompiledKernel {
+    /// Convert to a serializable cache entry for on-disk persistence.
+    #[must_use]
+    pub fn to_cache_entry(&self) -> KernelCacheEntry {
+        KernelCacheEntry {
+            binary: self.binary.to_vec(),
+            target_id: format!("{}:{}", self.target.vendor(), self.target.arch_name()),
+            gpr_count: self.gpr_count,
+            instr_count: self.instr_count,
+            shared_mem_bytes: self.shared_mem_bytes,
+            barrier_count: self.barrier_count,
+            workgroup: self.workgroup,
+            source_hash: self.source_hash,
+        }
+    }
+
+    /// Reconstruct from a cache entry. `target` must match the `target_id`
+    /// in the entry — caller is responsible for validation.
+    #[must_use]
+    pub fn from_cache_entry(entry: &KernelCacheEntry, target: GpuTarget) -> Self {
+        Self {
+            binary: Bytes::from(entry.binary.clone()),
+            source_hash: entry.source_hash,
+            target,
+            gpr_count: entry.gpr_count,
+            instr_count: entry.instr_count,
+            shared_mem_bytes: entry.shared_mem_bytes,
+            barrier_count: entry.barrier_count,
+            workgroup: entry.workgroup,
+        }
+    }
+}
+
 /// GPU compute context — unified compile + dispatch.
 ///
 /// Wraps a `coral-reef` compiler and a `coral-driver` device into
@@ -182,6 +241,22 @@ impl GpuContext {
             }
             #[cfg(feature = "nvidia-drm")]
             "nvidia-drm" => {
+                if coral_driver::nv::uvm::nvidia_uvm_available() {
+                    let sm = sm_from_sysfs_or(86);
+                    match coral_driver::nv::NvUvmComputeDevice::open(0, sm) {
+                        Ok(dev) => {
+                            tracing::info!(sm, "nvidia-drm: UVM compute device opened");
+                            let target = GpuTarget::Nvidia(sm_to_nvarch(sm));
+                            return Self::with_device(target, Box::new(dev));
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "nvidia-drm: UVM init failed, falling back to DRM-only"
+                            );
+                        }
+                    }
+                }
                 let dev = coral_driver::nv::NvDrmDevice::open().map_err(GpuError::Driver)?;
                 let target = GpuTarget::Nvidia(NvArch::Sm86);
                 Self::with_device(target, Box::new(dev))
@@ -498,6 +573,35 @@ impl GpuContext {
             .dispatch(&kernel.binary, buffers, dispatch_dims, &info)?)
     }
 
+    /// Dispatch a pre-compiled native binary with explicit metadata.
+    ///
+    /// This is the `dispatch_binary` entry point for cached kernel dispatch:
+    /// the binary was compiled once (via `compile_wgsl`) and can be reused
+    /// across sessions without recompilation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if no device is attached or dispatch fails.
+    pub fn dispatch_precompiled(
+        &mut self,
+        binary: &[u8],
+        buffers: &[BufferHandle],
+        dims: [u32; 3],
+        gpr_count: u32,
+        shared_mem_bytes: u32,
+        barrier_count: u32,
+        workgroup: [u32; 3],
+    ) -> GpuResult<()> {
+        let dispatch_dims = DispatchDims::new(dims[0], dims[1], dims[2]);
+        let info = ShaderInfo {
+            gpr_count,
+            shared_mem_bytes,
+            barrier_count,
+            workgroup,
+        };
+        Ok(self.device_mut()?.dispatch(binary, buffers, dispatch_dims, &info)?)
+    }
+
     /// Wait for all submitted GPU work to complete.
     ///
     /// # Errors
@@ -616,11 +720,13 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
             .and_then(|v| u16::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok());
 
         let target = match vendor {
-            Some(0x10de) => {
+            Some(coral_driver::nv::identity::PCI_VENDOR_NVIDIA) => {
                 let sm = sm_from_sysfs(&render_path);
                 GpuTarget::Nvidia(sm_to_nvarch(sm))
             }
-            Some(0x1002) => GpuTarget::Amd(AmdArch::Rdna2),
+            Some(coral_driver::nv::identity::PCI_VENDOR_AMD) => {
+                GpuTarget::Amd(AmdArch::Rdna2)
+            }
             _ => continue,
         };
 
@@ -665,6 +771,21 @@ const fn sm_to_nvarch(sm: u32) -> NvArch {
         89 => NvArch::Sm89,
         _ => NvArch::Sm70,
     }
+}
+
+/// Detect the NVIDIA SM version from any available render node.
+/// Falls back to the provided default if detection fails.
+#[cfg(all(target_os = "linux", feature = "nvidia-drm"))]
+fn sm_from_sysfs_or(default: u32) -> u32 {
+    use coral_driver::drm::enumerate_render_nodes;
+    for node in enumerate_render_nodes() {
+        if node.driver == "nvidia-drm" {
+            return coral_driver::nv::ioctl::probe_gpu_identity(&node.path)
+                .and_then(|id| id.nvidia_sm())
+                .unwrap_or(default);
+        }
+    }
+    default
 }
 
 /// Detect the NVIDIA SM version from sysfs for a render node path.

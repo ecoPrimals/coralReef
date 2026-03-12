@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 11, 2026  
-**Phase**: 10 — Iteration 35 (FirmwareInventory + ioctl Evolution)
+**Last updated**: March 12, 2026  
+**Phase**: 10 — Iteration 37 (Gap Closure + Deep Debt Evolution)
 
 ---
 
@@ -20,10 +20,10 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1616 passing, 0 failed, 55 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1635 passing, 0 failed, 63 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI (24 blocks in coral-driver only) |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 35** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 36** |
 
 ### Phase 10 Completions
 
@@ -336,7 +336,7 @@
 | Multi-GPU DRM scan | ✅ | `enumerate_render_nodes()` returns `DrmDeviceInfo` per device; `open_by_driver()` for targeted open |
 | Driver sovereignty | ✅ | `DriverPreference` type: sovereign (`nouveau` > `amdgpu` > `nvidia-drm`), pragmatic, env var override |
 | All backends compile by default | ✅ | `default = ["nouveau", "nvidia-drm"]` — no feature gate for driver selection |
-| NVIDIA proprietary probing | ✅ | `NvDrmDevice` probes `nvidia-drm` on renderD129; explicit UVM-pending errors for dispatch |
+| NVIDIA UVM dispatch pipeline | ✅ | `NvDrmDevice` probes `nvidia-drm`, delegates to `NvUvmComputeDevice` (GPFIFO + USERD doorbell + completion polling) |
 | toadStool ecosystem discovery | ✅ | `coralreef-core::discovery` reads capability files, falls back to DRM scan |
 | `GpuContext::from_descriptor()` | ✅ | Context creation from ecosystem discovery metadata |
 | Cross-vendor compilation parity | ✅ | SM86 vs RDNA2 parity tests with known limitation documentation |
@@ -514,6 +514,54 @@
 | Test expansion | ✅ | 1608 → 1616 passing (+8), 55 ignored (unchanged) |
 | Unsafe reduction | ✅ | 29 → 24 unsafe blocks (drm_ioctl_typed + bytemuck elimination) |
 
+### Iteration 36: UVM Sovereign Compute Dispatch (Mar 11 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `docs/UVM_COMPUTE_DISPATCH.md` | ✅ | Architecture doc: RM hierarchy, dispatch pipeline, reusable components |
+| `NV_ESC_RM_CONTROL` wrapper | ✅ | Generic `rm_control<T>()` for RM control calls on any object |
+| GPU UUID query | ✅ | `query_gpu_uuid()` via `NV2080_CTRL_CMD_GPU_GET_GID_INFO` |
+| `register_gpu_with_uvm()` | ✅ | Chains UUID query → `UVM_REGISTER_GPU` |
+| `alloc_vaspace()` | ✅ | `FERMI_VASPACE_A` (0x90F1) GPU virtual address space |
+| `alloc_channel_group()` | ✅ | `KEPLER_CHANNEL_GROUP_A` (0xA06C) TSG |
+| `alloc_system_memory()` | ✅ | `NV01_MEMORY_SYSTEM` (0x3E) RM memory allocation |
+| `alloc_gpfifo_channel()` | ✅ | `VOLTA_CHANNEL_GPFIFO_A` / `AMPERE_CHANNEL_GPFIFO_A` |
+| `alloc_compute_engine()` | ✅ | `VOLTA_COMPUTE_A` / `AMPERE_COMPUTE_A` bind to channel |
+| `NvUvmComputeDevice` | ✅ | Full `ComputeDevice` impl: alloc/free/upload/readback/dispatch/sync |
+| `coral-gpu` UVM wiring | ✅ | `nvidia-drm` auto-tries UVM before DRM-only fallback |
+| `rm_alloc_typed<T>()` | ✅ | Generic RM_ALLOC helper eliminates per-class boilerplate |
+| `rm_alloc_simple()` | ✅ | Parameterless RM_ALLOC for class-only objects (compute engine) |
+| `NvChannelAllocParams` | ✅ | Full `NV_CHANNEL_ALLOC_PARAMS` #[repr(C)] (NV_MAX_SUBDEVICES=8) |
+| `NvVaspaceAllocParams` | ✅ | VA space alloc struct |
+| `NvChannelGroupAllocParams` | ✅ | Channel group alloc struct |
+| `NvMemoryAllocParams` | ✅ | System memory alloc struct |
+| `UvmMapExternalAllocParams` | ✅ | UVM_MAP_EXTERNAL_ALLOCATION struct |
+| Hardware tests | ✅ | 7 new `#[ignore]` tests: register_gpu, vaspace, channel, compute_bind, device_open, alloc_free |
+| Size assertions | ✅ | `NvRmControlParams` (32B), `Nv2080GpuGetGidInfoParams` (268B), `NvMemoryDescParams` (24B) |
+| Clippy clean | ✅ | Zero warnings on coral-driver + coral-gpu |
+| Workspace green | ✅ | All tests pass (1616+ passing, 0 failed) |
+
+### Iteration 37: Gap Closure + Deep Debt Evolution (Mar 12 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `bytemuck::Zeroable` unsafe elimination | ✅ | 5 UVM structs: `NvMemoryDescParams`, `NvChannelAllocParams`, `NvMemoryAllocParams`, `UvmGpuMappingAttributes`, `UvmMapExternalAllocParams` — `unsafe { std::mem::zeroed() }` → safe `Self::zeroed()` |
+| PCI vendor constants centralized | ✅ | `PCI_VENDOR_NVIDIA` (0x10DE), `PCI_VENDOR_AMD` (0x1002), `PCI_VENDOR_INTEL` (0x8086) in `nv/identity.rs` |
+| AMD architecture detection | ✅ | `GpuIdentity::amd_arch()` — PCI device ID → architecture string (gfx9/rdna1/rdna2/rdna3) |
+| `raw_nv_ioctl` helper extraction | ✅ | Repeated unsafe ioctl pattern in `rm_client.rs` → single reusable helper |
+| Compute class constant unification | ✅ | `pushbuf.rs` re-exports from `uvm/mod.rs` — single source of truth |
+| `NV_STATUS` code documentation | ✅ | Error constants refactored into `nv_status` module with per-constant doc comments |
+| `uvm.rs` smart refactor | ✅ | 727 LOC monolith → `uvm/mod.rs` (897) + `uvm/structs.rs` (592) + `uvm/rm_client.rs` (987) |
+| GPFIFO submission + USERD doorbell | ✅ | `submit_gpfifo()` writes GPFIFO entry + updates GP_PUT doorbell register via CPU-mapped USERD |
+| GPFIFO completion polling | ✅ | `poll_gpfifo_completion()` polls GP_GET from USERD until catch-up or timeout |
+| `NvUvmComputeDevice` dispatch complete | ✅ | Full pipeline: upload shader → build QMD (v2.1/v3.0 by GpuGen) → upload QMD → construct PushBuf → submit GPFIFO → doorbell |
+| `NvDrmDevice` stub → delegator | ✅ | Now holds `Option<NvUvmComputeDevice>`, delegates all `ComputeDevice` ops to UVM backend |
+| `KernelCacheEntry` serialization API | ✅ | `serde`-derived struct for on-disk kernel caching; `to_cache_entry()` / `from_cache_entry()` |
+| `GpuContext::dispatch_precompiled()` | ✅ | Dispatch raw binary with explicit metadata (gpr_count, shared_mem, workgroup) |
+| `GpuTarget::arch_name()` | ✅ | Canonical string identifier per architecture (e.g., `"sm86"`, `"rdna2"`) for cache keys |
+| Capability-based discovery evolution | ✅ | `discovery.rs` uses `probe_gpu_identity()` + `amd_arch()` for dynamic AMD detection |
+| Test expansion | ✅ | 1635 passing (+19), 63 ignored (+8 new hardware-gated) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -529,11 +577,10 @@
 | Task | Priority | Detail |
 |------|----------|--------|
 | Nouveau UAPI E2E validation | **P0** | Pipeline fully wired: `VM_INIT → CHANNEL_ALLOC → VM_BIND → EXEC` auto-detected in `NvDevice::open_from_drm`. Needs hotSpring hardware validation on Titan V (GV100 kernel 6.17) |
-| UVM device alloc validation | **P0** | `Nv0080AllocParams` fix deployed — needs hotSpring re-test on RTX 3090 to confirm `0x1F` resolved |
-| Pred→GPR encoder coercion chain | P2 | Encoder coercion chain |
+| UVM GPFIFO + dispatch validation | **P0** | Full dispatch pipeline implemented (GPFIFO submission + USERD doorbell + completion polling) — needs RTX 3090 hardware validation |
 | Hardware validation (AMD) | ✅ | **E2E verified** — RX 6950 XT, WGSL compile + dispatch + readback |
 | Hardware validation (NVIDIA nouveau) | P1 | Titan V: UAPI migration unblocks dispatch. hotSpring Exp 051: 16/16 firmware present, NVK Vulkan works, legacy UAPI EINVAL on all channel classes |
-| Hardware validation (NVIDIA nvidia-drm) | P1 | RTX 3090: UVM device alloc fix (`Nv0080AllocParams`) needs re-test. hotSpring Exp 051: RM client OK, device alloc `0x1F` |
+| Hardware validation (NVIDIA nvidia-drm) | P1 | RTX 3090: Full UVM dispatch pipeline implemented — `NvDrmDevice` delegates to `NvUvmComputeDevice`. Needs on-site hardware validation |
 | Intel backend | P3 | Placeholder |
 
 ## Checks
@@ -541,7 +588,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1608 passing, 0 failed, 55 ignored) |
+| `cargo test --workspace` | PASS (1635 passing, 0 failed, 63 ignored) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

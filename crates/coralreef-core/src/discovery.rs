@@ -166,6 +166,8 @@ fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
     enumerate_render_nodes()
         .into_iter()
         .map(|info| {
+            let identity = probe_gpu_identity(&info.path);
+
             let vendor = match info.driver.as_str() {
                 "amdgpu" => "amd",
                 "nvidia-drm" | "nouveau" => "nvidia",
@@ -174,8 +176,13 @@ fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
             };
 
             let arch = match info.driver.as_str() {
-                "amdgpu" => Some("rdna2".to_string()),
-                "nvidia-drm" | "nouveau" => probe_gpu_identity(&info.path)
+                "amdgpu" => identity
+                    .as_ref()
+                    .and_then(|id| id.amd_arch())
+                    .map(String::from)
+                    .or_else(|| Some("rdna2".to_string())),
+                "nvidia-drm" | "nouveau" => identity
+                    .as_ref()
                     .and_then(|id| id.nvidia_sm())
                     .map(|sm| format!("sm{sm}")),
                 _ => None,

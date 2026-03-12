@@ -30,15 +30,19 @@
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
+use crate::nv::identity::probe_gpu_identity;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
+
+use super::uvm_compute::NvUvmComputeDevice;
 
 /// NVIDIA GPU device via the proprietary nvidia-drm DRM module.
 ///
-/// Currently provides device probing and identification. Buffer
-/// management and compute dispatch require NVIDIA UVM integration
-/// (tracked for future evolution).
+/// Provides device probing via DRM render nodes and delegates compute
+/// dispatch to [`NvUvmComputeDevice`] for actual GPU work via the
+/// proprietary RM + UVM pipeline.
 pub struct NvDrmDevice {
     drm: DrmDevice,
+    compute: Option<NvUvmComputeDevice>,
 }
 
 impl NvDrmDevice {
@@ -54,7 +58,19 @@ impl NvDrmDevice {
     pub fn open() -> DriverResult<Self> {
         let drm = DrmDevice::open_by_driver("nvidia-drm")?;
         tracing::info!(path = %drm.path, "NVIDIA proprietary DRM device opened");
-        Ok(Self { drm })
+
+        let sm = probe_gpu_identity(&drm.path)
+            .and_then(|id| id.nvidia_sm())
+            .unwrap_or(86);
+
+        let compute = NvUvmComputeDevice::open(0, sm).ok();
+        if compute.is_some() {
+            tracing::info!(sm, "UVM compute device initialized for nvidia-drm");
+        } else {
+            tracing::warn!("UVM compute device unavailable — dispatch will fail");
+        }
+
+        Ok(Self { drm, compute })
     }
 
     /// Open a specific nvidia-drm device by render node path.
@@ -69,7 +85,14 @@ impl NvDrmDevice {
     pub fn open_path(path: &str) -> DriverResult<Self> {
         let drm = DrmDevice::open(path)?;
         tracing::info!(path = %drm.path, "NVIDIA proprietary DRM device opened (by path)");
-        Ok(Self { drm })
+
+        let sm = probe_gpu_identity(path)
+            .and_then(|id| id.nvidia_sm())
+            .unwrap_or(86);
+
+        let compute = NvUvmComputeDevice::open(0, sm).ok();
+
+        Ok(Self { drm, compute })
     }
 
     /// Returns the DRM render node path (e.g. `/dev/dri/renderD129`).
@@ -88,45 +111,53 @@ impl NvDrmDevice {
     }
 }
 
+impl NvDrmDevice {
+    fn compute_mut(&mut self) -> DriverResult<&mut NvUvmComputeDevice> {
+        self.compute.as_mut().ok_or_else(|| {
+            DriverError::DeviceNotFound("UVM compute backend not available".into())
+        })
+    }
+
+    fn compute_ref(&self) -> DriverResult<&NvUvmComputeDevice> {
+        self.compute.as_ref().ok_or_else(|| {
+            DriverError::DeviceNotFound("UVM compute backend not available".into())
+        })
+    }
+}
+
 impl ComputeDevice for NvDrmDevice {
-    fn alloc(&mut self, _size: u64, _domain: MemoryDomain) -> DriverResult<BufferHandle> {
-        Err(DriverError::SubmitFailed(
-            "nvidia-drm buffer allocation requires UVM integration (not yet implemented)".into(),
-        ))
+    fn alloc(&mut self, size: u64, domain: MemoryDomain) -> DriverResult<BufferHandle> {
+        self.compute_mut()?.alloc(size, domain)
     }
 
-    fn free(&mut self, _handle: BufferHandle) -> DriverResult<()> {
-        Err(DriverError::SubmitFailed(
-            "nvidia-drm buffer free requires UVM integration (not yet implemented)".into(),
-        ))
+    fn free(&mut self, handle: BufferHandle) -> DriverResult<()> {
+        self.compute_mut()?.free(handle)
     }
 
-    fn upload(&mut self, _handle: BufferHandle, _offset: u64, _data: &[u8]) -> DriverResult<()> {
-        Err(DriverError::SubmitFailed(
-            "nvidia-drm upload requires UVM integration (not yet implemented)".into(),
-        ))
+    fn upload(&mut self, handle: BufferHandle, offset: u64, data: &[u8]) -> DriverResult<()> {
+        self.compute_mut()?.upload(handle, offset, data)
     }
 
-    fn readback(&self, _handle: BufferHandle, _offset: u64, _len: usize) -> DriverResult<Vec<u8>> {
-        Err(DriverError::SubmitFailed(
-            "nvidia-drm readback requires UVM integration (not yet implemented)".into(),
-        ))
+    fn readback(&self, handle: BufferHandle, offset: u64, len: usize) -> DriverResult<Vec<u8>> {
+        self.compute_ref()?.readback(handle, offset, len)
     }
 
     fn dispatch(
         &mut self,
-        _shader: &[u8],
-        _buffers: &[BufferHandle],
-        _dims: DispatchDims,
-        _info: &ShaderInfo,
+        shader: &[u8],
+        buffers: &[BufferHandle],
+        dims: DispatchDims,
+        info: &ShaderInfo,
     ) -> DriverResult<()> {
-        Err(DriverError::SubmitFailed(
-            "nvidia-drm compute dispatch requires UVM integration (not yet implemented)".into(),
-        ))
+        self.compute_mut()?.dispatch(shader, buffers, dims, info)
     }
 
     fn sync(&mut self) -> DriverResult<()> {
-        Ok(())
+        if let Some(compute) = self.compute.as_mut() {
+            compute.sync()
+        } else {
+            Ok(())
+        }
     }
 }
 

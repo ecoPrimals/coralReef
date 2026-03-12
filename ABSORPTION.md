@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 34: Deep Debt Evolution + Deformed HFB Absorption)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 37: Gap Closure + Deep Debt Evolution)
 
 ---
 
@@ -287,11 +287,10 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 1562 tests passing, 54 ignored, 64% coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 1635 tests passing, 63 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 4/10 SPIR-V roundtrip tests pass.
-Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa force shader compiles cleanly
-through sovereign path for SM70/SM86/RDNA2. 4-8x throughput unlock for hotSpring.
-Iteration 32: firstTrailingBit + distance (NV+AMD), production placeholders eliminated.
-Iteration 31: All 93/93 cross-spring shaders, Nouveau UAPI, UVM fix.
-Next: NVIDIA UVM compute dispatch, coverage 64%→90%, RDNA3/RDNA4 backend.*
+Iteration 37: Gap closure — UVM dispatch pipeline complete (GPFIFO + USERD doorbell),
+NvDrmDevice delegates to NvUvmComputeDevice, dispatch_binary API wired for barraCuda.
+bytemuck::Zeroable eliminates unsafe zeroed(). PCI vendor constants centralized.
+Next: RTX 3090 hardware validation, coverage 64%→90%, RDNA3/RDNA4 backend.*

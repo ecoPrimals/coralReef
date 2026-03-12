@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 35)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 37)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 30)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 37)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -168,7 +168,7 @@ the full Spring absorption map.
 - [x] **Shared memory sizing** — `CompilationInfo.shared_mem_bytes` + `barrier_count` wired compiler → QMD — resolved Iteration 9
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
 - [ ] Titan V (SM70) hardware execution validation (nouveau dispatch ready, needs on-site)
-- [ ] RTX 3090 (SM86) DRM probed (nvidia-drm on renderD129); UVM module with ioctl definitions and device infrastructure ready, compute dispatch pending integration testing
+- [ ] RTX 3090 (SM86) UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell + completion polling); `NvDrmDevice` delegates to `NvUvmComputeDevice` — needs on-site hardware validation
 - [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
 
 ### P0 — AMD E2E critical fixes (Iteration 10)
@@ -239,29 +239,34 @@ the full Spring absorption map.
 
 - [x] Iteration 35: `FirmwareInventory` + ioctl evolution — structured firmware probe for PMU/GSP (absorbs hwLearn pattern from toadStool handoff), `compute_viable()` reports dispatch viability, `compute_blockers()` lists missing firmware components. All `drm_ioctl_typed` calls migrated to `drm_ioctl_named` (7 calls, operation-specific error messages), dead `drm_ioctl_typed` function removed. 24 unsafe blocks (down from 29). `FirmwareInventory`/`FwStatus`/`firmware_inventory` publicly accessible via `nv::ioctl` — 1616 tests (1616 passing, 55 ignored)
 
+- [x] Iteration 37: Gap closure + deep debt evolution — `bytemuck::Zeroable` on 5 UVM structs (eliminates `unsafe { zeroed() }`), PCI vendor constants centralized (`PCI_VENDOR_NVIDIA`/`AMD`/`INTEL`), AMD architecture auto-detection (`GpuIdentity::amd_arch()`), `raw_nv_ioctl` helper extraction, compute class constant unification (pushbuf re-exports from uvm), `NV_STATUS` documented (`nv_status` module), `uvm.rs` smart-refactored (727 LOC → 3 files), GPFIFO submission (`submit_gpfifo()` + USERD doorbell + `poll_gpfifo_completion()`), `NvDrmDevice` evolved to delegator (`Option<NvUvmComputeDevice>`), `KernelCacheEntry` (serde-derived cache struct), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — 1635 tests (1635 passing, 63 ignored)
+
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
 - [x] **DRM ioctl struct ABI fixes** — 4 mismatches resolved (Exp 057): VM_INIT size, EXEC field order, VM_BIND field order, ChannelAlloc/Free padding. VM_INIT now succeeds on Titan V.
 - [ ] **Wire new UAPI into NvDevice::open_from_drm** — replace legacy `create_channel` with `vm_init→gem_new→vm_bind→exec` (ioctls ready)
-- [ ] **Titan V nouveau dispatch blocked: PMU firmware** — CHANNEL_ALLOC fails after VM_INIT succeeds. NVIDIA does not ship signed PMU firmware for desktop Volta (GV100). Paths: (a) GSP firmware on Ampere+, (b) nvidia-drm UVM bypasses nouveau, (c) hw-learn cross-GPU recipe transfer from 4070 eastgate.
-- [ ] **Re-test UVM device alloc on RTX 3090** — `Nv0080AllocParams` fix ready, needs hotSpring validation
-- [ ] nvidia-drm UVM compute dispatch integration (device alloc fix pending)
+- [ ] **Titan V nouveau dispatch blocked: PMU firmware** — CHANNEL_ALLOC fails after VM_INIT succeeds. NVIDIA does not ship signed PMU firmware for desktop Volta (GV100). **UVM bypass path now implemented** (Iteration 36).
+- [x] **UVM Sovereign Compute Dispatch (Iteration 36)** — Full RM object hierarchy: `RM_CONTROL` wrapper, GPU UUID query, `UVM_REGISTER_GPU`, `FERMI_VASPACE_A`, `KEPLER_CHANNEL_GROUP_A`, `VOLTA_CHANNEL_GPFIFO_A`, `VOLTA_COMPUTE_A` bind, `NV01_MEMORY_SYSTEM` alloc, `NvUvmComputeDevice` with full `ComputeDevice` trait impl, `coral-gpu` auto-UVM wiring.
+- [x] **UVM GPFIFO submission (Iteration 37)** — `submit_gpfifo()` writes GPFIFO entry to CPU-mapped ring buffer + updates GP_PUT via USERD doorbell. `poll_gpfifo_completion()` polls GP_GET for sync.
+- [x] **NvDrmDevice delegation (Iteration 37)** — Evolved from stub to functional delegator: holds `Option<NvUvmComputeDevice>`, all `ComputeDevice` ops pass through to UVM backend.
+- [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
+- [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
+- [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
 - [ ] Coverage 64% → 90%
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1608 tests passing, 55 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1635 tests passing, 63 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
-Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, toadStool ecosystem discovery.
+NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
+NvDrmDevice evolved from stub to delegator. dispatch_binary API wired for barraCuda cache.
+Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-Iteration 34: 34 naga_translate unit tests covering all math/builtin translation paths.
-SM89 DF64 sovereign path validated. 5 deformed HFB shaders absorbed from hotSpring.
-legalize.rs smart-refactored. bytemuck unsafe elimination. quick-xml 0.39.
-Iteration 35: FirmwareInventory + compute_viable() absorbs hwLearn pattern.
-All ioctl calls use drm_ioctl_named. 24 unsafe blocks (down from 29).
-Iteration 33: NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
+FirmwareInventory + compute_viable() absorbs hwLearn pattern.
+All ioctl calls use drm_ioctl_named. bytemuck::Zeroable eliminates unsafe zeroed().
+NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
 All pure Rust. Sovereignty is a runtime choice.*

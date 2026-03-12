@@ -9,6 +9,8 @@ description = "Sovereign GPU driver — DRM ioctl dispatch for AMD (amdgpu) and 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 rustix = { version = "1.1.4", features = ["mm", "time", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror.workspace = true
 tracing.workspace = true
 
@@ -21,3 +23,4 @@ rdna2-buffer-read = []
 
 [dev-dependencies]
 coral-reef.workspace = true
+tempfile = "3"

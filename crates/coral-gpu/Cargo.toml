@@ -10,6 +10,7 @@ description = "Unified GPU compute abstraction — compile + dispatch in one API
 bytes.workspace = true
 coral-reef = { path = "../coral-reef" }
 coral-driver = { path = "../coral-driver" }
+serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true
 

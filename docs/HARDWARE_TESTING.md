@@ -1,13 +1,13 @@
 # Hardware Testing Guide — coralReef GPU Parity
 
-**Last updated**: March 11, 2026 (Phase 10 — Iteration 34)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 37)
 
 ## Hardware Inventory
 
 | Node | GPU | Architecture | Driver | Status |
 |------|-----|-------------|--------|--------|
 | `renderD128` | AMD RX 6950 XT | RDNA2 (GFX1030) | `amdgpu` | Full pipeline: compile + dispatch + readback |
-| `renderD129` | NVIDIA RTX 3090 | SM86 (Ampere) | `nvidia-drm` | Probe + compile-only (dispatch pending UVM) |
+| `renderD129` | NVIDIA RTX 3090 | SM86 (Ampere) | `nvidia-drm` | UVM dispatch pipeline code-complete (pending hardware validation) |
 
 ### hotSpring Test Rig (remote)
 
@@ -82,7 +82,7 @@ cargo test --test parity_harness -p coral-gpu -- --ignored
 
 ### Remaining Limitations
 
-1. **NVIDIA UVM dispatch**: Hardware dispatch on RTX 3090 pending UVM device alloc validation (fix ready, Iter 31).
+1. **NVIDIA UVM dispatch**: Full dispatch pipeline code-complete (Iter 37: GPFIFO submission + USERD doorbell + completion polling). `NvDrmDevice` delegates to `NvUvmComputeDevice`. Pending: on-site RTX 3090 hardware validation.
 2. **Nouveau dispatch — Titan V PMU firmware blocker**: hotSpring Exp 057 validated that all 4 DRM ioctl struct ABI mismatches are now fixed (VM_INIT succeeds), but CHANNEL_ALLOC fails due to missing PMU firmware. NVIDIA does not distribute signed PMU firmware blobs for desktop Volta (GV100). Firmware inventory: ACR ✓, GR ✓, SEC2 ✓, NVDEC ✓, PMU ✗. Channel creation cannot proceed without PMU. Paths forward: (a) GSP firmware on Ampere+ (RTX 3090 has GSP); (b) nvidia-drm UVM integration bypasses nouveau entirely; (c) eastgate 4070 (Ada, GSP-based) as teacher for Volta via hw-learn.
 3. **Nouveau UAPI struct ABI**: 7 compile-time size assertions now guard against future struct drift (5 new UAPI + 2 fixed legacy).
 

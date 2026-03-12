@@ -37,14 +37,9 @@ pub const fn mthd_immd(subchan: u32, method: u32, value: u32) -> u32 {
     (0x4 << 29) | (value << 16) | (subchan << 13) | (method >> 2)
 }
 
-/// NVIDIA GPU compute class identifiers.
+/// Re-exported compute class constants from the canonical UVM definitions.
 pub mod class {
-    /// Volta (GV100) compute engine class.
-    pub const VOLTA_COMPUTE_A: u32 = 0xC3C0;
-    /// Turing compute engine class.
-    pub const TURING_COMPUTE_A: u32 = 0xC5C0;
-    /// Ampere compute engine class.
-    pub const AMPERE_COMPUTE_A: u32 = 0xC6C0;
+    pub use super::super::uvm::{VOLTA_COMPUTE_A, TURING_COMPUTE_A, AMPERE_COMPUTE_A};
 }
 
 /// NVIDIA compute class method registers (offsets in bytes).

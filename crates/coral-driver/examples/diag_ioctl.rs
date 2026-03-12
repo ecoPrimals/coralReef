@@ -49,7 +49,7 @@ fn main() {
 
         // Step 2: Channel alloc diagnostics
         println!("  Step 2: Channel allocation diagnostics...");
-        let compute_class = 0xC3C0; // VOLTA_COMPUTE_A
+        let compute_class = coral_driver::nv::uvm::VOLTA_COMPUTE_A;
         let diags = diag::diagnose_channel_alloc(fd, compute_class);
         for d in &diags {
             match &d.result {
