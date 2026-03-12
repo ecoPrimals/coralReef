@@ -94,7 +94,6 @@ name = "coral-driver"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "libc",
  "rustix",
  "thiserror",
  "tracing",

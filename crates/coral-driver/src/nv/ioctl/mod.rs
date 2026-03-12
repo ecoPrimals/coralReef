@@ -19,7 +19,10 @@ pub use diag::{
     FirmwareInventory, FwStatus, GpuIdentity, check_nouveau_firmware, firmware_inventory,
     probe_gpu_identity,
 };
-pub use new_uapi::{exec_submit, vm_bind_map, vm_bind_unmap, vm_init};
+pub use new_uapi::{
+    exec_submit, exec_submit_with_signal, syncobj_create, syncobj_destroy, syncobj_wait,
+    vm_bind_map, vm_bind_unmap, vm_init,
+};
 
 use crate::MemoryDomain;
 use crate::drm::{self, MappedRegion};

@@ -64,96 +64,133 @@ impl QmdParams {
     }
 }
 
-/// Build a QMD v2.1 (Volta SM70) for compute dispatch.
+/// Helper: set a bitfield within the QMD word array.
+///
+/// `bit_start` is the starting bit (0-indexed from LSB of word 0),
+/// `width` is the field width in bits, `value` is the value to set.
+fn qmd_set_field(q: &mut [u32; QMD_SIZE_WORDS], bit_start: usize, width: usize, value: u64) {
+    let word_idx = bit_start / 32;
+    let bit_off = bit_start % 32;
+
+    if bit_off + width <= 32 {
+        let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+        q[word_idx] &= !(mask << bit_off);
+        q[word_idx] |= ((value as u32) & mask) << bit_off;
+    } else {
+        let lo_bits = 32 - bit_off;
+        let lo_mask = u32::MAX << bit_off;
+        q[word_idx] = (q[word_idx] & !lo_mask) | ((value as u32) << bit_off);
+
+        let hi_bits = width - lo_bits;
+        let hi_mask = if hi_bits >= 32 { u32::MAX } else { (1u32 << hi_bits) - 1 };
+        q[word_idx + 1] = (q[word_idx + 1] & !hi_mask) | (((value >> lo_bits) as u32) & hi_mask);
+    }
+}
+
+/// Build a QMD v2.1 (Pascal/Volta SM70) for compute dispatch.
 ///
 /// Returns the full 64-word QMD suitable for `SEND_PCAS_A/B` submission.
 ///
-/// Field layout (word offsets, from Mesa `cl_c3c0qmd.h`):
+/// Field positions are from NVIDIA open headers (`cl_c3c0qmd.h`), using
+/// **bit offsets** within the 256-byte (2048-bit) QMD structure:
 ///
-/// - Word 0: `QMD_VERSION`=2, `API_VISIBLE_CALL_LIMIT`, `SAMPLER_INDEX`.
-/// - Words 1–3: `CTA_RASTER_WIDTH`/`HEIGHT`/`DEPTH` (grid dimensions).
-/// - Word 6: `CTA_THREAD_DIMENSION0` bits 15:0, `CTA_THREAD_DIMENSION1` bits 31:16.
-/// - Word 7: `CTA_THREAD_DIMENSION2` bits 15:0, `REGISTER_COUNT` bits 23:16.
-/// - Word 10: `BARRIER_COUNT` bits 4:0.
-/// - Word 11: `SHARED_MEMORY_SIZE` (256-byte aligned).
-/// - Words 17–18: `PROGRAM_ADDRESS_LOWER`/`UPPER`.
-/// - Word 20: `CONSTANT_BUFFER_VALID` bitmask bits 7:0.
-/// - Words 22–37: `CONSTANT_BUFFER_ADDR` pairs (8 slots x 2 words each).
-/// - Words 38–45: `CONSTANT_BUFFER_SIZE_SHIFTED4` (8 slots).
+/// - Bits 0..4: `QMD_MAJOR_VERSION`=2.
+/// - Bits 4..8: `QMD_VERSION`=1.
+/// - Bits 224..256: `CTA_RASTER_WIDTH` (word 7).
+/// - Bits 256..272: `CTA_RASTER_HEIGHT` (word 8, bits 0-15).
+/// - Bits 272..288: `CTA_RASTER_DEPTH` (word 8, bits 16-31).
+/// - Bits 544..560: `CTA_THREAD_DIMENSION0` (word 17, bits 0-15).
+/// - Bits 560..576: `CTA_THREAD_DIMENSION1` (word 17, bits 16-31).
+/// - Bits 576..592: `CTA_THREAD_DIMENSION2` (word 18, bits 0-15).
+/// - Bits 592..597: `BARRIER_COUNT` (word 18, bits 16-20).
+/// - Bits 608..616: `REGISTER_COUNT` (word 19, bits 0-7).
+/// - Bits 640..658: `SHARED_MEMORY_SIZE` (word 20, bits 0-17).
+/// - Bits 832..864: `PROGRAM_ADDRESS_LOWER` (word 26).
+/// - Bits 864..896: `PROGRAM_ADDRESS_UPPER` (word 27).
+/// - Per-CBUF(i): 64-bit stride starting at bit 1536+i*64.
 #[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "QMD register fields are 32-bit by spec"
-)]
 pub fn build_qmd_v21(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     let mut q = [0u32; QMD_SIZE_WORDS];
 
-    // Word 0: QMD_VERSION=2, API_VISIBLE_CALL_LIMIT=NO_CHECK(0),
-    //         SAMPLER_INDEX=INDEPENDENTLY(1 << 12)
-    q[0] = 0x02 | (1 << 12);
+    // QMD_MAJOR_VERSION [3:0] = 2, QMD_VERSION [7:4] = 1
+    qmd_set_field(&mut q, 0, 4, 2);
+    qmd_set_field(&mut q, 4, 4, 1);
+    // SAMPLER_INDEX [11:9] = INDEPENDENTLY (0)
 
-    // Words 1-3: CTA raster dimensions (grid)
-    q[1] = params.grid.x;
-    q[2] = params.grid.y;
-    q[3] = params.grid.z;
+    // CTA raster dimensions (grid)
+    qmd_set_field(&mut q, 224, 32, u64::from(params.grid.x));
+    qmd_set_field(&mut q, 256, 16, u64::from(params.grid.y));
+    qmd_set_field(&mut q, 272, 16, u64::from(params.grid.z));
 
-    // Word 6: CTA thread dimensions (workgroup size)
-    q[6] = (params.workgroup[0] & 0xFFFF) | ((params.workgroup[1] & 0xFFFF) << 16);
+    // CTA thread dimensions (workgroup)
+    qmd_set_field(&mut q, 544, 16, u64::from(params.workgroup[0]));
+    qmd_set_field(&mut q, 560, 16, u64::from(params.workgroup[1]));
+    qmd_set_field(&mut q, 576, 16, u64::from(params.workgroup[2]));
 
-    // Word 7: CTA_THREAD_DIMENSION2 [15:0], REGISTER_COUNT [23:16]
+    // BARRIER_COUNT [596:592] (5 bits)
+    qmd_set_field(&mut q, 592, 5, u64::from(params.barrier_count));
+
+    // REGISTER_COUNT [615:608] (8 bits)
     let reg_count = params.gpr_count.min(255);
-    q[7] = (params.workgroup[2] & 0xFFFF) | (reg_count << 16);
+    qmd_set_field(&mut q, 608, 8, u64::from(reg_count));
 
-    // Word 10: BARRIER_COUNT [4:0]
-    q[10] = params.barrier_count & 0x1F;
-
-    // Word 11: SHARED_MEMORY_SIZE (aligned to 256 bytes)
+    // SHARED_MEMORY_SIZE [657:640] (18 bits, 256-byte aligned)
     let shared_aligned = (params.shared_mem_bytes + 255) & !255;
-    q[11] = shared_aligned;
+    qmd_set_field(&mut q, 640, 18, u64::from(shared_aligned));
 
-    // Word 17-18: PROGRAM_ADDRESS (256-byte aligned)
-    q[17] = params.shader_va as u32;
-    q[18] = (params.shader_va >> 32) as u32 & 0x0001_FFFF;
+    // PROGRAM_ADDRESS_LOWER [863:832] (32 bits)
+    qmd_set_field(&mut q, 832, 32, params.shader_va & 0xFFFF_FFFF);
+    // PROGRAM_ADDRESS_UPPER [895:864] (32 bits)
+    qmd_set_field(&mut q, 864, 32, params.shader_va >> 32);
 
-    // Word 20: CONSTANT_BUFFER_VALID bitmask
-    let mut cbuf_valid: u32 = 0;
-    for cb in &params.cbufs {
-        if cb.index < MAX_CBUFS as u32 {
-            cbuf_valid |= 1 << cb.index;
-        }
-    }
-    q[20] = cbuf_valid;
-
-    // Words 22-37: CBUF address pairs (lower, upper) for slots 0-7
+    // Constant buffer bindings: each CBUF(i) at bit 1536 + i*64
     for cb in &params.cbufs {
         let idx = cb.index as usize;
         if idx < MAX_CBUFS {
-            let base = 22 + idx * 2;
-            q[base] = cb.addr as u32;
-            q[base + 1] = (cb.addr >> 32) as u32 & 0x0001_FFFF;
-        }
-    }
-
-    // Words 38-45: CBUF sizes (shifted right by 4)
-    for cb in &params.cbufs {
-        let idx = cb.index as usize;
-        if idx < MAX_CBUFS {
-            q[38 + idx] = cb.size >> 4;
+            let base = 1536 + idx * 64;
+            // ADDR_LOWER [31:0]
+            qmd_set_field(&mut q, base, 32, cb.addr & 0xFFFF_FFFF);
+            // ADDR_UPPER [39:32] (8 bits)
+            qmd_set_field(&mut q, base + 32, 8, cb.addr >> 32);
+            // SIZE_SHIFTED4 [56:40] (17 bits)
+            qmd_set_field(&mut q, base + 40, 17, u64::from(cb.size >> 4));
+            // VALID [57] (1 bit)
+            qmd_set_field(&mut q, base + 57, 1, 1);
         }
     }
 
     q
 }
 
+/// Build a QMD v2.2 (Volta SM70/Turing SM75) for compute dispatch.
+///
+/// Same field layout as v2.1 but with `QMD_VERSION`=2.
+#[must_use]
+pub fn build_qmd_v22(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
+    let mut q = build_qmd_v21(params);
+    qmd_set_field(&mut q, 4, 4, 2);
+    q
+}
+
 /// Build a QMD v3.0 (Ampere SM86+) for compute dispatch.
 ///
-/// Same layout as v2.1 but with `QMD_VERSION`=3 and minor field differences.
+/// Same field layout as v2.1/v2.2 but with `QMD_MAJOR_VERSION`=3, `QMD_VERSION`=0.
 #[must_use]
 pub fn build_qmd_v30(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     let mut q = build_qmd_v21(params);
-    // Overwrite version: v3.0
-    q[0] = (q[0] & !0xFF) | 0x03;
+    q[0] &= !0xFF;
+    qmd_set_field(&mut q, 0, 4, 3);
+    qmd_set_field(&mut q, 4, 4, 0);
     q
+}
+
+/// Select the appropriate QMD builder for a given SM architecture.
+pub fn build_qmd_for_sm(sm: u32, params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
+    match sm {
+        0..=69 => build_qmd_v21(params),
+        70..=79 => build_qmd_v22(params),
+        _ => build_qmd_v30(params),
+    }
 }
 
 /// Legacy builder — wraps `build_qmd_v30` with minimal params.
@@ -173,35 +210,52 @@ pub fn build_compute_qmd(
 mod tests {
     use super::*;
 
+    fn get_field(q: &[u32; QMD_SIZE_WORDS], bit_start: usize, width: usize) -> u64 {
+        let word_idx = bit_start / 32;
+        let bit_off = bit_start % 32;
+        if bit_off + width <= 32 {
+            let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+            u64::from((q[word_idx] >> bit_off) & mask)
+        } else {
+            let lo_bits = 32 - bit_off;
+            let lo = u64::from(q[word_idx] >> bit_off);
+            let hi_bits = width - lo_bits;
+            let hi_mask = if hi_bits >= 32 { u32::MAX } else { (1u32 << hi_bits) - 1 };
+            let hi = u64::from(q[word_idx + 1] & hi_mask);
+            lo | (hi << lo_bits)
+        }
+    }
+
     #[test]
     fn qmd_v21_version() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q = build_qmd_v21(&params);
-        assert_eq!(q[0] & 0xFF, 2);
+        assert_eq!(get_field(&q, 0, 4), 2, "major version");
+        assert_eq!(get_field(&q, 4, 4), 1, "minor version");
     }
 
     #[test]
     fn qmd_v30_version() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q = build_qmd_v30(&params);
-        assert_eq!(q[0] & 0xFF, 3);
+        assert_eq!(get_field(&q, 0, 4), 3, "major version");
+        assert_eq!(get_field(&q, 4, 4), 0, "minor version");
     }
 
     #[test]
     fn qmd_grid_dimensions() {
         let params = QmdParams::simple(0, DispatchDims::new(64, 8, 2), 32);
         let q = build_qmd_v21(&params);
-        assert_eq!(q[1], 64);
-        assert_eq!(q[2], 8);
-        assert_eq!(q[3], 2);
+        assert_eq!(get_field(&q, 224, 32), 64, "CTA_RASTER_WIDTH");
+        assert_eq!(get_field(&q, 256, 16), 8, "CTA_RASTER_HEIGHT");
+        assert_eq!(get_field(&q, 272, 16), 2, "CTA_RASTER_DEPTH");
     }
 
     #[test]
     fn qmd_gpr_count() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 48);
         let q = build_qmd_v21(&params);
-        let reg_count = (q[7] >> 16) & 0xFF;
-        assert_eq!(reg_count, 48);
+        assert_eq!(get_field(&q, 608, 8), 48, "REGISTER_COUNT");
     }
 
     #[test]
@@ -209,9 +263,9 @@ mod tests {
         let va = 0x0001_0000_0000_u64;
         let params = QmdParams::simple(va, DispatchDims::linear(1), 32);
         let q = build_qmd_v21(&params);
-        let addr_lo = q[17];
-        let addr_hi = q[18];
-        let reconstructed = u64::from(addr_lo) | (u64::from(addr_hi) << 32);
+        let addr_lo = get_field(&q, 832, 32);
+        let addr_hi = get_field(&q, 864, 32);
+        let reconstructed = addr_lo | (addr_hi << 32);
         assert_eq!(reconstructed, va);
     }
 
@@ -231,26 +285,21 @@ mod tests {
 
         let q = build_qmd_v21(&params);
 
-        // CONSTANT_BUFFER_VALID should have bits 0 and 1 set
-        assert_eq!(q[20] & 0x3, 0x3);
-
-        // CBUF 0 address
-        let cb0_lo = q[22];
-        let cb0_hi = q[23];
-        let cb0_addr = u64::from(cb0_lo) | (u64::from(cb0_hi) << 32);
+        // CBUF 0: valid, address, size
+        assert_eq!(get_field(&q, 1536 + 57, 1), 1, "CBUF 0 valid");
+        let cb0_lo = get_field(&q, 1536, 32);
+        let cb0_hi = get_field(&q, 1536 + 32, 8);
+        let cb0_addr = cb0_lo | (cb0_hi << 32);
         assert_eq!(cb0_addr, 0x2_0000_0000);
+        assert_eq!(get_field(&q, 1536 + 40, 17), u64::from(4096_u32 >> 4), "CBUF 0 size");
 
-        // CBUF 0 size (shifted by 4)
-        assert_eq!(q[38], 4096 >> 4);
-
-        // CBUF 1 address
-        let cb1_lo = q[24];
-        let cb1_hi = q[25];
-        let cb1_addr = u64::from(cb1_lo) | (u64::from(cb1_hi) << 32);
+        // CBUF 1: valid, address, size
+        assert_eq!(get_field(&q, 1600 + 57, 1), 1, "CBUF 1 valid");
+        let cb1_lo = get_field(&q, 1600, 32);
+        let cb1_hi = get_field(&q, 1600 + 32, 8);
+        let cb1_addr = cb1_lo | (cb1_hi << 32);
         assert_eq!(cb1_addr, 0x3_0000_0000);
-
-        // CBUF 1 size (shifted by 4)
-        assert_eq!(q[39], 8192 >> 4);
+        assert_eq!(get_field(&q, 1600 + 40, 17), u64::from(8192_u32 >> 4), "CBUF 1 size");
     }
 
     #[test]
@@ -258,8 +307,7 @@ mod tests {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         params.shared_mem_bytes = 100;
         let q = build_qmd_v21(&params);
-        // Should be aligned to 256
-        assert_eq!(q[11], 256);
+        assert_eq!(get_field(&q, 640, 18), 256, "SHARED_MEMORY_SIZE aligned");
     }
 
     #[test]
@@ -267,7 +315,7 @@ mod tests {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         params.barrier_count = 3;
         let q = build_qmd_v21(&params);
-        assert_eq!(q[10] & 0x1F, 3);
+        assert_eq!(get_field(&q, 592, 5), 3, "BARRIER_COUNT");
     }
 
     #[test]
@@ -275,20 +323,17 @@ mod tests {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         params.workgroup = [128, 4, 2];
         let q = build_qmd_v21(&params);
-        let dim0 = q[6] & 0xFFFF;
-        let dim1 = (q[6] >> 16) & 0xFFFF;
-        let dim2 = q[7] & 0xFFFF;
-        assert_eq!(dim0, 128);
-        assert_eq!(dim1, 4);
-        assert_eq!(dim2, 2);
+        assert_eq!(get_field(&q, 544, 16), 128, "CTA_THREAD_DIMENSION0");
+        assert_eq!(get_field(&q, 560, 16), 4, "CTA_THREAD_DIMENSION1");
+        assert_eq!(get_field(&q, 576, 16), 2, "CTA_THREAD_DIMENSION2");
     }
 
     #[test]
     fn legacy_build_compute_qmd_compat() {
         let q = build_compute_qmd(0x1_0000_0000, DispatchDims::new(64, 1, 1), 256);
-        assert_eq!(q[1], 64);
-        assert_eq!(q[2], 1);
-        assert_eq!(q[3], 1);
+        assert_eq!(get_field(&q, 224, 32), 64, "CTA_RASTER_WIDTH");
+        assert_eq!(get_field(&q, 256, 16), 1, "CTA_RASTER_HEIGHT");
+        assert_eq!(get_field(&q, 272, 16), 1, "CTA_RASTER_DEPTH");
     }
 
     #[test]
@@ -301,8 +346,7 @@ mod tests {
     fn qmd_gpr_count_clamped() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 300);
         let q = build_qmd_v21(&params);
-        let reg_count = (q[7] >> 16) & 0xFF;
-        assert_eq!(reg_count, 255);
+        assert_eq!(get_field(&q, 608, 8), 255, "REGISTER_COUNT clamped");
     }
 
     #[test]
@@ -318,7 +362,10 @@ mod tests {
             size: 4096,
         });
         let q = build_qmd_v21(&params);
-        assert_eq!(q[20] & 0xFF, 0, "index 8 should not set valid bit");
+        // All 8 CBUF valid bits should be 0
+        for i in 0..MAX_CBUFS {
+            assert_eq!(get_field(&q, 1536 + i * 64 + 57, 1), 0, "CBUF {i} should be invalid");
+        }
     }
 
     #[test]
@@ -330,8 +377,8 @@ mod tests {
             size: 1024,
         });
         let q = build_qmd_v21(&params);
-        assert_eq!(q[20] & 0xFF, 1 << 7);
-        assert_eq!(q[38 + 7], 1024 >> 4);
+        assert_eq!(get_field(&q, 1536 + 7 * 64 + 57, 1), 1, "CBUF 7 valid");
+        assert_eq!(get_field(&q, 1536 + 7 * 64 + 40, 17), u64::from(1024_u32 >> 4));
     }
 
     #[test]
@@ -345,11 +392,19 @@ mod tests {
         let params = QmdParams::simple(0x1_0000_0000, DispatchDims::new(8, 4, 2), 64);
         let q21 = build_qmd_v21(&params);
         let q30 = build_qmd_v30(&params);
-        assert_eq!(q21[1], q30[1]);
-        assert_eq!(q21[2], q30[2]);
-        assert_eq!(q21[3], q30[3]);
-        assert_eq!(q21[17], q30[17]);
-        assert_eq!(q21[18], q30[18]);
-        assert_ne!(q21[0] & 0xFF, q30[0] & 0xFF);
+        // Grid, shader addr, etc. should be identical
+        assert_eq!(get_field(&q21, 224, 32), get_field(&q30, 224, 32), "grid width");
+        assert_eq!(get_field(&q21, 832, 32), get_field(&q30, 832, 32), "shader addr lo");
+        assert_eq!(get_field(&q21, 864, 32), get_field(&q30, 864, 32), "shader addr hi");
+        // But version should differ
+        assert_ne!(q21[0] & 0xF, q30[0] & 0xF, "major version");
+    }
+
+    #[test]
+    fn qmd_set_field_cross_word_boundary() {
+        let mut q = [0u32; QMD_SIZE_WORDS];
+        qmd_set_field(&mut q, 28, 8, 0xFF);
+        assert_eq!(q[0] >> 28, 0xF);
+        assert_eq!(q[1] & 0xF, 0xF);
     }
 }

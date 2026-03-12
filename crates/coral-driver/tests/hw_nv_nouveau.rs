@@ -20,16 +20,30 @@ mod tests {
         NvDevice::open().expect("NvDevice::open() — is nouveau loaded?")
     }
 
-    fn compile_for_sm70(wgsl: &str) -> coral_reef::backend::CompiledBinary {
+    fn open_nv_sm70() -> NvDevice {
+        NvDevice::open_with_sm(70).expect("NvDevice::open_with_sm(70) — is nouveau loaded with Titan V?")
+    }
+
+    fn compile_for_sm(sm: u32, wgsl: &str) -> coral_reef::backend::CompiledBinary {
+        let arch = match sm {
+            86.. => NvArch::Sm86,
+            75..=85 => NvArch::Sm75,
+            _ => NvArch::Sm70,
+        };
         let opts = CompileOptions {
-            target: GpuTarget::Nvidia(NvArch::Sm70),
+            target: GpuTarget::Nvidia(arch),
             opt_level: 2,
             debug_info: false,
             fp64_software: false,
             fma_policy: FmaPolicy::Fused,
             ..CompileOptions::default()
         };
-        coral_reef::compile_wgsl_full(wgsl, &opts).expect("SM70 compilation")
+        coral_reef::compile_wgsl_full(wgsl, &opts)
+            .unwrap_or_else(|e| panic!("SM{sm} compilation failed: {e}"))
+    }
+
+    fn compile_for_sm70(wgsl: &str) -> coral_reef::backend::CompiledBinary {
+        compile_for_sm(70, wgsl)
     }
 
     const WRITE_42_SHADER: &str = r"
@@ -134,6 +148,70 @@ fn main() {
     fn nouveau_sync_without_dispatch() {
         let mut dev = open_nv();
         dev.sync().expect("sync without dispatch should succeed");
+    }
+
+    #[test]
+    #[ignore = "requires nouveau hardware — diagnostic: dump dispatch state"]
+    fn nouveau_dispatch_diagnostic() {
+        // Try Titan V (SM70) on renderD129 first, fall back to auto-detect
+        let mut dev = NvDevice::open_path("/dev/dri/renderD129", 70)
+            .or_else(|_| NvDevice::open_path("/dev/dri/renderD128", 70))
+            .unwrap_or_else(|_| open_nv());
+        let sm = dev.sm_version();
+        eprintln!("Device: SM{sm}, compute_class=0x{:04X}, new_uapi={}", dev.compute_class(), dev.uses_new_uapi());
+
+        let compiled = compile_for_sm(sm, WRITE_42_SHADER);
+        eprintln!("Compiled binary for SM{sm}: {} bytes", compiled.binary.len());
+        eprintln!("  gpr_count: {}", compiled.info.gpr_count);
+        eprintln!("  shared_mem: {}", compiled.info.shared_mem_bytes);
+        eprintln!("  barriers: {}", compiled.info.barrier_count);
+        eprintln!("  local_size: {:?}", compiled.info.local_size);
+
+        let hex: Vec<String> = compiled.binary.iter().take(64).map(|b| format!("{b:02x}")).collect();
+        eprintln!("  binary[0..64]: {}", hex.join(" "));
+
+        // Fill buffer with sentinel pattern (0xDEADBEEF) to detect writes
+        let buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
+        let sentinel = 0xDEAD_BEEFu32.to_le_bytes();
+        let mut pattern = vec![0u8; 4096];
+        for chunk in pattern.chunks_exact_mut(4) {
+            chunk.copy_from_slice(&sentinel);
+        }
+        dev.upload(buf, 0, &pattern).expect("fill sentinel");
+
+        let info = ShaderInfo {
+            gpr_count: compiled.info.gpr_count,
+            shared_mem_bytes: compiled.info.shared_mem_bytes,
+            barrier_count: compiled.info.barrier_count,
+            workgroup: compiled.info.local_size,
+        };
+
+        dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)
+            .expect("dispatch");
+        dev.sync().expect("sync");
+
+        let readback = dev.readback(buf, 0, 64).expect("readback");
+        // Check first 16 words for changes from sentinel
+        for i in 0..16 {
+            let off = i * 4;
+            let word = u32::from_le_bytes(readback[off..off + 4].try_into().unwrap());
+            let changed = word != 0xDEAD_BEEF;
+            eprintln!("  buf[{i}] = 0x{word:08X}{}", if changed { " ← CHANGED" } else { "" });
+        }
+
+        let value = u32::from_le_bytes(readback[..4].try_into().unwrap());
+        eprintln!("\nResult: buf[0] = {value} (expected 42)");
+        if value == 42 {
+            eprintln!("SUCCESS: GPU compute dispatch works!");
+        } else if value == 0xDEAD_BEEF {
+            eprintln!("FAIL: Buffer unchanged — GPU did not write to the buffer.");
+            eprintln!("  Likely causes: QMD not processed, compute engine not initialized,");
+            eprintln!("  or shader VA incorrect.");
+        } else if value == 0 {
+            eprintln!("FAIL: Buffer zeroed — GPU wrote zeros (not 42).");
+        } else {
+            eprintln!("FAIL: Unexpected value — possible memory corruption.");
+        }
     }
 
     // ── Diagnostic tests for EINVAL investigation ──────────────────────

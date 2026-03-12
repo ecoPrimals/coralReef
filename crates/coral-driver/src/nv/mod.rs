@@ -27,8 +27,6 @@ pub use nvidia_drm::NvDrmDevice;
 pub mod uvm;
 #[cfg(feature = "nvidia-drm")]
 pub mod uvm_compute;
-#[cfg(feature = "nvidia-drm")]
-pub use uvm_compute::NvUvmComputeDevice;
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
@@ -62,6 +60,8 @@ pub struct NvDevice {
     drm: DrmDevice,
     channel: u32,
     compute_class: u32,
+    /// Detected SM architecture version (e.g. 70 for Volta, 86 for Ampere).
+    sm_version: u32,
     /// Whether the new UAPI (VM_INIT/VM_BIND/EXEC) is active.
     new_uapi: bool,
     /// Next GPU virtual address to allocate (new UAPI only).
@@ -69,8 +69,10 @@ pub struct NvDevice {
     next_va: u64,
     buffers: HashMap<u32, NvBuffer>,
     next_handle: u32,
-    /// GEM handle of the last submitted pushbuf (for fence sync).
+    /// GEM handle of the last submitted pushbuf (for fence sync, legacy UAPI).
     last_submit_gem: Option<u32>,
+    /// DRM syncobj handle for new UAPI completion signaling.
+    exec_syncobj: Option<u32>,
     /// Temp buffers allocated during dispatch that must survive until sync.
     inflight: Vec<BufferHandle>,
 }
@@ -198,15 +200,24 @@ impl NvDevice {
             "NVIDIA nouveau channel created with compute subchannel"
         );
 
+        // Create a syncobj for new UAPI completion tracking.
+        let exec_syncobj = if new_uapi {
+            ioctl::syncobj_create(drm.fd()).ok()
+        } else {
+            None
+        };
+
         Ok(Self {
             drm,
             channel,
             compute_class,
+            sm_version: sm,
             new_uapi,
             next_va: NV_USER_VA_START,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
+            exec_syncobj,
             inflight: Vec::new(),
         })
     }
@@ -248,11 +259,13 @@ impl NvDevice {
             drm,
             channel: 0,
             compute_class: pushbuf::class::VOLTA_COMPUTE_A,
+            sm_version: 70,
             new_uapi: false,
             next_va: NV_USER_VA_START,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
+            exec_syncobj: None,
             inflight: Vec::new(),
         })
     }
@@ -418,20 +431,48 @@ impl ComputeDevice for NvDevice {
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Build CBUF bindings from buffer handles: each buffer becomes a CBUF slot
-        let mut cbufs = Vec::with_capacity(buffers.len());
+        // Build CBUF descriptor buffer for group 0.
+        //
+        // The compiler (naga_translate/expr.rs) generates CBUF loads like:
+        //   addr_lo = c[group][binding * 8]
+        //   addr_hi = c[group][binding * 8 + 4]
+        //   size    = c[group][binding * 8 + 8]   (for arrayLength)
+        //
+        // All user buffers are currently in group 0. Each binding needs
+        // 12 bytes in the descriptor: [addr_lo, addr_hi, size].
+        // We round up to 16 bytes per entry for alignment.
+        let desc_entry_size = 16_u64; // 3 u32 fields + 4 bytes padding per binding
+        let desc_buf_size = desc_entry_size * u64::try_from(buffers.len().max(1))
+            .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
+        let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
+
+        // Populate the descriptor buffer with each binding's VA and size.
+        let mut desc_data = vec![0u8; desc_buf_size as usize];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                cbufs.push(qmd::CbufBinding {
-                    index: u32::try_from(i)
-                        .map_err(|_| DriverError::platform_overflow("CBUF index fits in u32"))?,
-                    addr: buf.gpu_va,
-                    size: u32::try_from(buf.size).unwrap_or(u32::MAX),
-                });
+                let off = i * 8; // binding * 8 matches compiler offset
+                let va = buf.gpu_va;
+                let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
+                desc_data[off..off + 4].copy_from_slice(&(va as u32).to_le_bytes());
+                desc_data[off + 4..off + 8].copy_from_slice(&((va >> 32) as u32).to_le_bytes());
+                // size at offset binding * 8 + 8
+                let sz_off = off + 8;
+                if sz_off + 4 <= desc_data.len() {
+                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
+                }
             }
         }
+        self.upload(desc_handle, 0, &desc_data)?;
+        let desc_va = self.buffers.get(&desc_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Build QMD v2.1 with compiler-derived metadata
+        // CBUF 0 points to the descriptor buffer, not the storage buffer
+        let cbufs = vec![qmd::CbufBinding {
+            index: 0,
+            addr: desc_va,
+            size: u32::try_from(desc_buf_size).unwrap_or(u32::MAX),
+        }];
+
+        // Build QMD with compiler-derived metadata (version selected by SM arch)
         let qmd_params = qmd::QmdParams {
             shader_va,
             grid: dims,
@@ -441,7 +482,7 @@ impl ComputeDevice for NvDevice {
             barrier_count: info.barrier_count,
             cbufs,
         };
-        let qmd_words = qmd::build_qmd_v21(&qmd_params);
+        let qmd_words = qmd::build_qmd_for_sm(self.sm_version, &qmd_params);
         let qmd_bytes = u32_slice_as_bytes(&qmd_words);
 
         // Upload QMD to GPU memory
@@ -452,7 +493,12 @@ impl ComputeDevice for NvDevice {
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
         // Build push buffer: SET_OBJECT + caches + SEND_PCAS with QMD address
-        let pb = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va, 0xFF00_0000);
+        let local_mem_window = if self.sm_version >= 70 {
+            0xFF00_0000_0000_0000_u64
+        } else {
+            0xFF00_0000_u64
+        };
+        let pb = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va, local_mem_window);
         let pb_bytes = pb.as_bytes();
 
         // Upload push buffer to GPU memory
@@ -463,14 +509,24 @@ impl ComputeDevice for NvDevice {
         let pb_gem = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gem_handle);
 
         if self.new_uapi {
-            // New UAPI: submit push buffer by VA via EXEC.
+            // New UAPI: submit push buffer by VA via EXEC with syncobj signal.
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
             let push_len = u32::try_from(pb_size)
                 .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
-            ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)?;
+            if let Some(syncobj) = self.exec_syncobj {
+                ioctl::exec_submit_with_signal(
+                    self.drm.fd(),
+                    self.channel,
+                    pb_va,
+                    push_len,
+                    syncobj,
+                )?;
+            } else {
+                ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)?;
+            }
         } else {
             // Legacy UAPI: submit push buffer via GEM pushbuf.
-            let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 3);
+            let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 4);
             if let Some(b) = self.buffers.get(&shader_handle.0) {
                 bo_handles.push(b.gem_handle);
             }
@@ -478,6 +534,9 @@ impl ComputeDevice for NvDevice {
                 bo_handles.push(b.gem_handle);
             }
             if let Some(b) = self.buffers.get(&pb_handle.0) {
+                bo_handles.push(b.gem_handle);
+            }
+            if let Some(b) = self.buffers.get(&desc_handle.0) {
                 bo_handles.push(b.gem_handle);
             }
             for bh in buffers {
@@ -495,11 +554,20 @@ impl ComputeDevice for NvDevice {
         self.inflight.push(pb_handle);
         self.inflight.push(qmd_handle);
         self.inflight.push(shader_handle);
+        self.inflight.push(desc_handle);
         Ok(())
     }
 
     fn sync(&mut self) -> DriverResult<()> {
-        if let Some(gem_handle) = self.last_submit_gem {
+        if let Some(syncobj) = self.exec_syncobj {
+            // New UAPI: wait on syncobj (5 second timeout)
+            let timeout = {
+                let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+                tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
+            };
+            ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout)?;
+        } else if let Some(gem_handle) = self.last_submit_gem {
+            // Legacy UAPI: wait via GEM CPU prep
             ioctl::gem_cpu_prep(self.drm.fd(), gem_handle)?;
         }
         let inflight = std::mem::take(&mut self.inflight);
@@ -512,7 +580,6 @@ impl ComputeDevice for NvDevice {
 
 impl Drop for NvDevice {
     fn drop(&mut self) {
-        // Drain inflight temp buffers first
         let inflight = std::mem::take(&mut self.inflight);
         for h in inflight {
             let _ = self.free(h);
@@ -520,6 +587,9 @@ impl Drop for NvDevice {
         let handles: Vec<BufferHandle> = self.buffers.keys().map(|k| BufferHandle(*k)).collect();
         for h in handles {
             let _ = self.free(h);
+        }
+        if let Some(syncobj) = self.exec_syncobj {
+            let _ = ioctl::syncobj_destroy(self.drm.fd(), syncobj);
         }
         let _ = ioctl::destroy_channel(self.drm.fd(), self.channel);
     }
@@ -532,8 +602,10 @@ mod tests {
     #[test]
     fn qmd_construction() {
         let qmd = qmd::build_compute_qmd(0x1_0000_0000, DispatchDims::new(64, 1, 1), 256);
-        assert_eq!(qmd[1], 64); // CTA_RASTER_WIDTH
-        assert_eq!(qmd[2], 1); // CTA_RASTER_HEIGHT
+        // CTA_RASTER_WIDTH at bit 224 = word 7
+        assert_eq!(qmd[7], 64);
+        // CTA_RASTER_HEIGHT at bit 256 = word 8 lower 16 bits
+        assert_eq!(qmd[8] & 0xFFFF, 1);
     }
 
     #[test]
