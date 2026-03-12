@@ -225,9 +225,9 @@ fn main() {
         let result =
             coral_driver::nv::ioctl::gem_new(drm.fd(), 4096, coral_driver::MemoryDomain::Gtt);
         match result {
-            Ok(handle) => {
-                eprintln!("GEM alloc succeeded: handle={handle}");
-                let _ = coral_driver::drm::gem_close(drm.fd(), handle);
+            Ok(gem) => {
+                eprintln!("GEM alloc succeeded: handle={}", gem.handle);
+                let _ = coral_driver::drm::gem_close(drm.fd(), gem.handle);
             }
             Err(e) => {
                 eprintln!("GEM alloc failed: {e}");

@@ -32,11 +32,18 @@ use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo}
 
 use std::collections::HashMap;
 
-/// Default VA space base for kernel-managed allocations (from NVK ioctl trace).
+/// Kernel-managed VA region base passed to VM_INIT.
 ///
-/// NVK uses `kernel_managed_addr = 0x80_0000_0000` and `size = 0x80_0000_0000`
-/// for the Volta+ VA space.
+/// VM_INIT reserves `[kernel_managed_addr, kernel_managed_addr + size)` for
+/// kernel use (page tables, internal objects). Userspace must allocate VA
+/// addresses OUTSIDE this range.
 pub const NV_KERNEL_MANAGED_ADDR: u64 = 0x80_0000_0000;
+
+/// Userspace VA heap start — below the kernel-managed region.
+///
+/// Userspace maps GEM buffers here and grows upward. Must stay below
+/// `NV_KERNEL_MANAGED_ADDR`. 4 GiB base avoids low-address collisions.
+pub const NV_USER_VA_START: u64 = 0x1_0000_0000;
 
 /// NVIDIA GPU compute device via nouveau.
 ///
@@ -192,7 +199,7 @@ impl NvDevice {
             channel,
             compute_class,
             new_uapi,
-            next_va: NV_KERNEL_MANAGED_ADDR,
+            next_va: NV_USER_VA_START,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
@@ -238,7 +245,7 @@ impl NvDevice {
             channel: 0,
             compute_class: pushbuf::class::VOLTA_COMPUTE_A,
             new_uapi: false,
-            next_va: NV_KERNEL_MANAGED_ADDR,
+            next_va: NV_USER_VA_START,
             buffers: HashMap::new(),
             next_handle: 1,
             last_submit_gem: None,
@@ -302,36 +309,33 @@ const fn page_align(size: u64) -> u64 {
 impl ComputeDevice for NvDevice {
     fn alloc(&mut self, size: u64, domain: MemoryDomain) -> DriverResult<BufferHandle> {
         let aligned_size = page_align(size);
-        let gem_handle = ioctl::gem_new(self.drm.fd(), aligned_size, domain)?;
+        let gem = ioctl::gem_new(self.drm.fd(), aligned_size, domain)?;
 
         let (gpu_va, map_handle) = if self.new_uapi {
             // New UAPI: allocate a VA slot and bind the GEM object there.
             let va = self.next_va;
-            self.next_va = self
+            let next = self
                 .next_va
                 .checked_add(aligned_size)
                 .ok_or_else(|| DriverError::platform_overflow("VA space exhausted"))?;
-            ioctl::vm_bind_map(self.drm.fd(), gem_handle, va, 0, aligned_size)?;
-            // For CPU mmap, still need map_handle from gem_info.
-            let (_, mh) = ioctl::gem_info(self.drm.fd(), gem_handle).map_err(|e| {
-                tracing::warn!(gem_handle, error = %e, "gem_info failed after vm_bind");
-                e
-            })?;
-            (va, mh)
+            if next > NV_KERNEL_MANAGED_ADDR {
+                return Err(DriverError::platform_overflow(
+                    "user VA heap would collide with kernel-managed region",
+                ));
+            }
+            self.next_va = next;
+            ioctl::vm_bind_map(self.drm.fd(), gem.handle, va, 0, aligned_size)?;
+            (va, gem.map_handle)
         } else {
-            // Legacy UAPI: kernel assigns GPU VA via gem_info offset.
-            let (offset, mh) = ioctl::gem_info(self.drm.fd(), gem_handle).map_err(|e| {
-                tracing::warn!(gem_handle, error = %e, "gem_info failed");
-                e
-            })?;
-            (offset, mh)
+            // Legacy UAPI: kernel assigns GPU VA via gem_new offset.
+            (gem.offset, gem.map_handle)
         };
 
         let handle_id = self.alloc_handle();
         self.buffers.insert(
             handle_id,
             NvBuffer {
-                gem_handle,
+                gem_handle: gem.handle,
                 size: aligned_size,
                 gpu_va,
                 map_handle,

@@ -38,9 +38,11 @@ const fn size_of_u32<T>() -> u32 {
 
 const DRM_COMMAND_BASE: u32 = 0x40;
 
-// Legacy UAPI (pre-kernel 6.6) — returns EINVAL on Volta+ with kernel 6.17+
-const DRM_NOUVEAU_CHANNEL_ALLOC: u32 = DRM_COMMAND_BASE;
-const DRM_NOUVEAU_CHANNEL_FREE: u32 = DRM_COMMAND_BASE + 0x01;
+// Legacy UAPI — channel management (present in all kernel versions).
+// Offsets from kernel nouveau_drm.h: GETPARAM=0x00, SETPARAM=0x01,
+// CHANNEL_ALLOC=0x02, CHANNEL_FREE=0x03.
+const DRM_NOUVEAU_CHANNEL_ALLOC: u32 = DRM_COMMAND_BASE + 0x02;
+const DRM_NOUVEAU_CHANNEL_FREE: u32 = DRM_COMMAND_BASE + 0x03;
 const DRM_NOUVEAU_GEM_NEW: u32 = DRM_COMMAND_BASE + 0x40;
 const DRM_NOUVEAU_GEM_PUSHBUF: u32 = DRM_COMMAND_BASE + 0x41;
 const DRM_NOUVEAU_GEM_CPU_PREP: u32 = DRM_COMMAND_BASE + 0x42;
@@ -57,7 +59,7 @@ const DRM_NOUVEAU_EXEC: u32 = DRM_COMMAND_BASE + 0x12;
 const _NOUVEAU_GEM_DOMAIN_CPU: u32 = 1 << 0;
 const NOUVEAU_GEM_DOMAIN_VRAM: u32 = 1 << 1;
 const NOUVEAU_GEM_DOMAIN_GART: u32 = 1 << 2;
-const NOUVEAU_GEM_DOMAIN_MAPPABLE: u32 = 1 << 6;
+const NOUVEAU_GEM_DOMAIN_MAPPABLE: u32 = 1 << 3;
 
 // ---------------------------------------------------------------------------
 // NVIF constants — aligned to Mesa `nvif/ioctl.h`
@@ -345,14 +347,26 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
     unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut free, "nouveau_channel_free") }
 }
 
+/// Result of a GEM buffer creation.
+pub struct GemNewResult {
+    /// Kernel GEM handle for this buffer.
+    pub handle: u32,
+    /// Kernel-assigned GPU virtual address offset (legacy UAPI).
+    pub offset: u64,
+    /// Mmap handle for CPU access.
+    pub map_handle: u64,
+}
+
 /// Create a nouveau GEM buffer object.
 ///
-/// Returns the GEM handle on success.
+/// Returns the GEM handle, offset, and mmap handle on success.
+/// The offset is the kernel-assigned GPU VA (legacy UAPI); for new UAPI,
+/// the GPU VA is assigned via `vm_bind_map` instead.
 ///
 /// # Errors
 ///
 /// Returns [`DriverError`] on kernel failure.
-pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<u32> {
+pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<GemNewResult> {
     let nv_domain = match domain {
         MemoryDomain::Vram => NOUVEAU_GEM_DOMAIN_VRAM,
         MemoryDomain::Gtt => NOUVEAU_GEM_DOMAIN_GART | NOUVEAU_GEM_DOMAIN_MAPPABLE,
@@ -378,27 +392,13 @@ pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<u32> 
     // 3. Lifetime:   synchronous ioctl; req outlives the call
     // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_gem_new")? };
-    Ok(req.info.handle)
+    Ok(GemNewResult {
+        handle: req.info.handle,
+        offset: req.info.offset,
+        map_handle: req.info.map_handle,
+    })
 }
 
-/// Query GEM buffer info (offset/`map_handle`).
-pub(crate) fn gem_info(fd: RawFd, handle: u32) -> DriverResult<(u64, u64)> {
-    let mut req = NouveauGemNew {
-        info: NouveauGemInfo {
-            handle,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_NEW, size_of_u32::<NouveauGemNew>());
-    // SAFETY:
-    // 1. Validity:   NouveauGemNew is #[repr(C)] matching kernel struct; kernel fills output
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req outlives the call
-    // 4. Exclusivity: &mut req — sole reference
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_gem_info")? };
-    Ok((req.info.offset, req.info.map_handle))
-}
 
 /// Submit a pushbuf command buffer to the GPU.
 ///
@@ -522,10 +522,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ioctl_numbers_are_consistent() {
-        assert_eq!(DRM_NOUVEAU_CHANNEL_ALLOC, 0x40);
-        assert_eq!(DRM_NOUVEAU_GEM_NEW, 0x80);
-        assert_eq!(DRM_NOUVEAU_GEM_PUSHBUF, 0x81);
+    fn ioctl_numbers_match_kernel_header() {
+        assert_eq!(DRM_NOUVEAU_CHANNEL_ALLOC, 0x42, "CHANNEL_ALLOC = DRM_COMMAND_BASE + 0x02");
+        assert_eq!(DRM_NOUVEAU_CHANNEL_FREE, 0x43, "CHANNEL_FREE = DRM_COMMAND_BASE + 0x03");
+        assert_eq!(DRM_NOUVEAU_GEM_NEW, 0x80, "GEM_NEW = DRM_COMMAND_BASE + 0x40");
+        assert_eq!(DRM_NOUVEAU_GEM_PUSHBUF, 0x81, "GEM_PUSHBUF = DRM_COMMAND_BASE + 0x41");
+        assert_eq!(DRM_NOUVEAU_GEM_CPU_PREP, 0x82, "GEM_CPU_PREP = DRM_COMMAND_BASE + 0x42");
+        assert_eq!(DRM_NOUVEAU_VM_INIT, 0x50, "VM_INIT = DRM_COMMAND_BASE + 0x10");
+        assert_eq!(DRM_NOUVEAU_VM_BIND, 0x51, "VM_BIND = DRM_COMMAND_BASE + 0x11");
+        assert_eq!(DRM_NOUVEAU_EXEC, 0x52, "EXEC = DRM_COMMAND_BASE + 0x12");
     }
 
     #[test]
@@ -533,7 +538,7 @@ mod tests {
         assert_eq!(_NOUVEAU_GEM_DOMAIN_CPU, 1);
         assert_eq!(NOUVEAU_GEM_DOMAIN_VRAM, 2);
         assert_eq!(NOUVEAU_GEM_DOMAIN_GART, 4);
-        assert_eq!(NOUVEAU_GEM_DOMAIN_MAPPABLE, 64);
+        assert_eq!(NOUVEAU_GEM_DOMAIN_MAPPABLE, 8, "MAPPABLE = (1 << 3) per kernel header");
     }
 
     #[test]
@@ -663,7 +668,7 @@ mod tests {
             size_of_u32::<NouveauChannelAlloc>(),
         );
         assert!(nr > 0);
-        assert_eq!(nr & 0xFF, u64::from(DRM_NOUVEAU_CHANNEL_ALLOC));
+        assert_eq!(nr & 0xFF, 0x42, "encoded NR field = CHANNEL_ALLOC = 0x42");
     }
 
     #[test]
