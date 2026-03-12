@@ -92,6 +92,23 @@ const fn compute_class_for_sm(sm: u32) -> u32 {
     }
 }
 
+/// Map SM architecture version to the chip codename used by firmware paths.
+///
+/// e.g. SM 70 → `"gv100"` (Volta), SM 75 → `"tu102"` (Turing),
+/// SM 86 → `"ga102"` (Ampere), SM 89 → `"ad102"` (Ada).
+const fn sm_to_chip(sm: u32) -> &'static str {
+    match sm {
+        50..=52 => "gm200",
+        60..=62 => "gp100",
+        70 => "gv100",
+        75 => "tu102",
+        80 => "ga100",
+        86..=87 => "ga102",
+        89 => "ad102",
+        _ => "gv100",
+    }
+}
+
 /// A nouveau GEM buffer with optional mmap info.
 #[derive(Debug)]
 pub struct NvBuffer {
@@ -224,10 +241,7 @@ impl NvDevice {
             inflight: Vec::new(),
         };
 
-        // Attempt GR context init from GPU firmware blobs.
-        // This submits FECS method entries that initialize the GR engine
-        // context, preventing CTXNOTVALID errors during compute dispatch.
-        dev.try_gr_context_init(sm);
+        dev.try_gr_context_init();
 
         Ok(dev)
     }
@@ -260,18 +274,18 @@ impl NvDevice {
         self.new_uapi
     }
 
-    /// Attempt to initialize the GR engine context from firmware blobs.
+    /// Attempt GR context initialization via FECS method entries.
     ///
-    /// Loads the chip's `sw_method_init.bin` entries and submits them as
-    /// class method writes on the compute channel. This is required on
-    /// GPUs where the kernel doesn't handle GR context init (e.g. Volta
-    /// without PMU firmware).
+    /// Parses the GPU's firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`,
+    /// extracts the method init sequence, and submits it as a push buffer
+    /// before the first compute dispatch. This prevents `CTXNOTVALID` from
+    /// the PBDMA by giving the GR engine a valid context template.
     ///
-    /// Non-fatal: if firmware is not present or submission fails, we log
-    /// the issue and continue. The dispatch path will get CTXNOTVALID
-    /// if the context truly isn't initialized.
-    fn try_gr_context_init(&mut self, sm: u32) {
-        let chip = sm_to_chip(sm);
+    /// Failures are logged but not fatal — the device may still work if the
+    /// kernel driver already initialized the GR context (e.g. on Ampere with GSP).
+    #[cfg(feature = "nouveau")]
+    fn try_gr_context_init(&mut self) {
+        let chip = sm_to_chip(self.sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,
             Err(e) => {
@@ -285,55 +299,52 @@ impl NvDevice {
         };
 
         if blobs.method_init.is_empty() {
-            tracing::debug!(
-                chip,
-                "no method init entries in firmware — skipping FECS init"
-            );
+            tracing::debug!(chip, "no method init entries in firmware — skipping FECS init");
             return;
         }
 
-        let entries: Vec<(u32, u32)> = blobs
+        let method_entries: Vec<(u32, u32)> = blobs
             .method_init
             .iter()
-            .map(|e| (e.addr, e.value))
+            .map(|m| (m.addr, m.value))
             .collect();
-
-        let pb = pushbuf::PushBuf::gr_context_init(self.compute_class, &entries);
-        let pb_bytes = pb.as_bytes();
 
         tracing::info!(
             chip,
-            method_entries = entries.len(),
-            ctx_template_bytes = blobs.ctx_data.len(),
-            pushbuf_bytes = pb_bytes.len(),
-            "submitting FECS GR context init"
+            method_count = method_entries.len(),
+            ctx_size = blobs.ctx_size(),
+            "submitting GR context init ({} FECS method entries)",
+            method_entries.len()
         );
 
-        match self.submit_init_pushbuf(pb_bytes) {
-            Ok(()) => {
-                tracing::info!(chip, "FECS GR context init submitted successfully");
+        let pb = pushbuf::PushBuf::gr_context_init(self.compute_class, &method_entries);
+        let pb_bytes = pb.as_bytes();
+
+        let pb_size = match u64::try_from(pb_bytes.len()) {
+            Ok(s) => s,
+            Err(_) => {
+                tracing::warn!("GR init pushbuf too large — skipping");
+                return;
             }
+        };
+
+        let pb_handle = match self.alloc(pb_size, MemoryDomain::Gtt) {
+            Ok(h) => h,
             Err(e) => {
-                tracing::warn!(
-                    chip,
-                    error = %e,
-                    "FECS GR context init failed — compute dispatch may get CTXNOTVALID"
-                );
+                tracing::warn!(error = %e, "failed to allocate GR init pushbuf");
+                return;
             }
+        };
+
+        if let Err(e) = self.upload(pb_handle, 0, pb_bytes) {
+            tracing::warn!(error = %e, "failed to upload GR init pushbuf");
+            let _ = self.free(pb_handle);
+            return;
         }
-    }
 
-    /// Submit a raw push buffer for init purposes.
-    fn submit_init_pushbuf(&mut self, pb_bytes: &[u8]) -> DriverResult<()> {
-        let pb_size = u64::try_from(pb_bytes.len())
-            .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u64"))?;
-        let pb_handle = self.alloc(pb_size, MemoryDomain::Gtt)?;
-        self.upload(pb_handle, 0, pb_bytes)?;
-
-        if self.new_uapi {
+        let submit_result = if self.new_uapi {
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
-            let push_len = u32::try_from(pb_size)
-                .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
+            let push_len = pb_size as u32;
             if let Some(syncobj) = self.exec_syncobj {
                 ioctl::exec_submit_with_signal(
                     self.drm.fd(),
@@ -341,23 +352,48 @@ impl NvDevice {
                     pb_va,
                     push_len,
                     syncobj,
-                )?;
-                let timeout = {
-                    let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-                    tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
-                };
-                ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout)?;
+                )
             } else {
-                ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)?;
+                ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)
             }
         } else {
             let pb_gem = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gem_handle);
-            ioctl::pushbuf_submit(self.drm.fd(), self.channel, pb_gem, 0, pb_size, &[pb_gem])?;
-            ioctl::gem_cpu_prep(self.drm.fd(), pb_gem)?;
+            ioctl::pushbuf_submit(
+                self.drm.fd(),
+                self.channel,
+                pb_gem,
+                0,
+                pb_size,
+                &[pb_gem],
+            )
+        };
+
+        match submit_result {
+            Ok(()) => {
+                tracing::info!(chip, "GR context init submitted successfully");
+                // Wait for completion before returning
+                if let Some(syncobj) = self.exec_syncobj {
+                    let timeout = {
+                        let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+                        tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
+                    };
+                    if let Err(e) = ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout) {
+                        tracing::warn!(error = %e, "GR context init syncobj wait failed");
+                    }
+                } else if let Some(gem) = self.buffers.get(&pb_handle.0).map(|b| b.gem_handle) {
+                    let _ = ioctl::gem_cpu_prep(self.drm.fd(), gem);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    chip,
+                    error = %e,
+                    "GR context init submit failed — compute may get CTXNOTVALID"
+                );
+            }
         }
 
-        self.free(pb_handle)?;
-        Ok(())
+        let _ = self.free(pb_handle);
     }
 
     /// Create a minimal `NvDevice` for testing (no channel alloc).
@@ -420,19 +456,6 @@ fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
             detected_sm = ?id.nvidia_sm(),
             "GPU identity from sysfs"
         );
-    }
-}
-
-/// Map SM architecture to chip codename for firmware lookup.
-const fn sm_to_chip(sm: u32) -> &'static str {
-    match sm {
-        50..=52 => "gm200",
-        60..=62 => "gp100",
-        70 => "gv100",
-        75 => "tu102",
-        80..=86 => "ga102",
-        89 => "ad102",
-        _ => "gv100",
     }
 }
 
@@ -565,9 +588,8 @@ impl ComputeDevice for NvDevice {
         // 12 bytes in the descriptor: [addr_lo, addr_hi, size].
         // We round up to 16 bytes per entry for alignment.
         let desc_entry_size = 16_u64; // 3 u32 fields + 4 bytes padding per binding
-        let desc_buf_size = desc_entry_size
-            * u64::try_from(buffers.len().max(1))
-                .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
+        let desc_buf_size = desc_entry_size * u64::try_from(buffers.len().max(1))
+            .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
         let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
 
         // Populate the descriptor buffer with each binding's VA and size.
@@ -751,7 +773,7 @@ mod tests {
         assert_eq!(sm_to_chip(60), "gp100");
         assert_eq!(sm_to_chip(70), "gv100");
         assert_eq!(sm_to_chip(75), "tu102");
-        assert_eq!(sm_to_chip(80), "ga102");
+        assert_eq!(sm_to_chip(80), "ga100");
         assert_eq!(sm_to_chip(86), "ga102");
         assert_eq!(sm_to_chip(89), "ad102");
     }
