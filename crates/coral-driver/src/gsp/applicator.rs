@@ -157,10 +157,7 @@ pub fn dry_run(seq: &GrInitSequence) -> ApplyResult {
 ///
 /// # Errors
 /// Returns result with any errors encountered during writes.
-pub fn apply_bar0<R: RegisterAccess>(
-    seq: &GrInitSequence,
-    regs: &mut R,
-) -> ApplyResult {
+pub fn apply_bar0<R: RegisterAccess>(seq: &GrInitSequence, regs: &mut R) -> ApplyResult {
     let (bar0, fecs) = split_for_application(seq);
     let mut errors = Vec::new();
     let mut applied = 0usize;
@@ -203,7 +200,11 @@ pub fn verify_pre_init<R: RegisterAccess>(regs: &R) -> Vec<ApplyError> {
     let mut errors = Vec::new();
 
     let checks: &[(u32, u32, &str)] = &[
-        (0x0000_0200, 0x0000_0001, "NV_PMC_ENABLE bit 0 (engine master)"),
+        (
+            0x0000_0200,
+            0x0000_0001,
+            "NV_PMC_ENABLE bit 0 (engine master)",
+        ),
         (0x0000_2504, 0x0000_0001, "NV_PFIFO_ENABLE"),
     ];
 
@@ -253,10 +254,13 @@ mod tests {
 
     impl RegisterAccess for MockRegs {
         fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
-            self.registers.get(&offset).copied().ok_or(ApplyError::MmioFailed {
-                offset,
-                detail: "uninitialized".to_string(),
-            })
+            self.registers
+                .get(&offset)
+                .copied()
+                .ok_or(ApplyError::MmioFailed {
+                    offset,
+                    detail: "uninitialized".to_string(),
+                })
         }
 
         fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {

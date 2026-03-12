@@ -3,6 +3,155 @@
 
 #[cfg(unix)]
 use super::*;
+
+// --- Unit tests for dispatch and make_response ---
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_valid_method_status() {
+    let result = dispatch("shader.compile.status", &serde_json::json!({}));
+    let val = result.expect("status should succeed");
+    assert!(val.get("name").and_then(|v| v.as_str()).is_some());
+    assert!(
+        val.get("supported_archs")
+            .and_then(|v| v.as_array())
+            .is_some()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_valid_method_capabilities() {
+    let result = dispatch("shader.compile.capabilities", &serde_json::json!({}));
+    let val = result.expect("capabilities should succeed");
+    let arr = val.as_array().expect("capabilities returns array");
+    assert!(!arr.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_valid_method_wgsl() {
+    let params = serde_json::json!({
+        "wgsl_source": "@compute @workgroup_size(1) fn main() {}",
+        "arch": "sm_70",
+        "opt_level": 2,
+        "fp64_software": true
+    });
+    let result = dispatch("shader.compile.wgsl", &params);
+    let val = result.expect("wgsl compile should succeed");
+    assert!(
+        val.get("size")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+            > 0
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_unknown_method() {
+    let result = dispatch("nonexistent.method", &serde_json::json!({}));
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.to_lowercase().contains("not found"));
+    assert!(err.contains("nonexistent.method"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_empty_params_array() {
+    let result = dispatch("shader.compile.wgsl", &serde_json::json!([]));
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_lowercase().contains("missing"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_null_params() {
+    let result = dispatch("shader.compile.wgsl", &serde_json::Value::Null);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_lowercase().contains("invalid"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_invalid_params_type() {
+    let result = dispatch("shader.compile.wgsl", &serde_json::json!("invalid"));
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_lowercase().contains("invalid"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_wgsl_array_params() {
+    let params = serde_json::json!([{
+        "wgsl_source": "@compute @workgroup_size(1) fn main() {}",
+        "arch": "sm_70",
+        "opt_level": 2,
+        "fp64_software": true
+    }]);
+    let result = dispatch("shader.compile.wgsl", &params);
+    let val = result.expect("wgsl compile with array params should succeed");
+    assert!(
+        val.get("size")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+            > 0
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_make_response_success() {
+    let id = serde_json::json!(42);
+    let result = Ok(serde_json::json!({"foo": "bar"}));
+    let resp = make_response(id.clone(), result);
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+    assert_eq!(parsed["jsonrpc"], "2.0");
+    assert_eq!(parsed["id"], 42);
+    assert_eq!(parsed["result"]["foo"], "bar");
+    assert!(parsed.get("error").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_make_response_error() {
+    let id = serde_json::json!("req-1");
+    let result = Err("something went wrong".to_owned());
+    let resp = make_response(id.clone(), result);
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+    assert_eq!(parsed["jsonrpc"], "2.0");
+    assert_eq!(parsed["id"], "req-1");
+    assert_eq!(parsed["error"]["code"], -32000);
+    assert_eq!(parsed["error"]["message"], "something went wrong");
+    assert!(parsed.get("result").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_make_response_null_id() {
+    let result = Ok(serde_json::json!(true));
+    let resp = make_response(serde_json::Value::Null, result);
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+    assert!(parsed["id"].is_null());
+    assert_eq!(parsed["result"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_spirv_empty_array_params() {
+    let result = dispatch("shader.compile.spirv", &serde_json::json!([]));
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_lowercase().contains("missing"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_wgsl_multi_empty_array_params() {
+    let result = dispatch("shader.compile.wgsl.multi", &serde_json::json!([]));
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_lowercase().contains("missing"));
+}
 #[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(unix)]
@@ -439,6 +588,66 @@ async fn test_unix_jsonrpc_wgsl_multi() {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0]["arch"], "sm_70");
     assert_eq!(results[1]["arch"], "sm_89");
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_missing_method_field() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("no-method-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"2.0","params":{},"id":1}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert!(resp["error"].is_object());
+    assert!(
+        resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase()
+            .contains("parse")
+    );
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_batch_request_rejected() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("batch-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"[{"jsonrpc":"2.0","method":"shader.compile.status","params":{},"id":1}]"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert!(resp["error"].is_object());
+    assert!(
+        resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase()
+            .contains("parse")
+    );
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);

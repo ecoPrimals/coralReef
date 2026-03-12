@@ -46,7 +46,10 @@ mod inner {
         message: String,
     }
 
-    fn dispatch(method: &str, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    pub(crate) fn dispatch(
+        method: &str,
+        params: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
         match method {
             "shader.compile.status" => {
                 let health = service::handle_health();
@@ -111,7 +114,10 @@ mod inner {
         }
     }
 
-    fn make_response(id: serde_json::Value, result: Result<serde_json::Value, String>) -> String {
+    pub(crate) fn make_response(
+        id: serde_json::Value,
+        result: Result<serde_json::Value, String>,
+    ) -> String {
         let resp = match result {
             Ok(val) => JsonRpcResponse {
                 jsonrpc: "2.0",
@@ -243,3 +249,5 @@ mod inner {
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};
+#[cfg(all(test, unix))]
+pub(crate) use inner::{dispatch, make_response};

@@ -3,7 +3,7 @@
 //!
 //! Every successful RM operation (alloc, control, free) is recorded as a
 //! [`RmRecord`]. A session of records forms a [`RmProtocolLog`] that can be
-//! serialized and fed into [`GpuKnowledge`] for cross-generation learning.
+//! serialized and fed into [`GpuKnowledge`](super::knowledge::GpuKnowledge) for cross-generation learning.
 //!
 //! The observer answers: "What RM operations, in what order, with what
 //! parameters, does a working GPU need to reach compute-ready state?"
@@ -47,6 +47,28 @@ pub enum RmOp {
     Control,
     /// `NV_ESC_RM_FREE` — object teardown.
     Free,
+}
+
+/// Structured event for an RM allocation operation.
+///
+/// Replaces a 7-parameter positional argument list with a named-field struct,
+/// improving readability at call sites and satisfying `clippy::too_many_arguments`.
+#[derive(Debug, Clone)]
+pub struct RmAllocEvent {
+    /// RM root client handle.
+    pub h_root: u32,
+    /// Parent object handle.
+    pub h_parent: u32,
+    /// Newly allocated object handle.
+    pub h_new: u32,
+    /// RM class ID of the allocated object.
+    pub h_class: u32,
+    /// Allocation parameter struct size (0 = kernel-inferred / simple alloc).
+    pub params_size: u32,
+    /// RM status code returned by kernel (0 = `NV_OK`).
+    pub status: u32,
+    /// Elapsed wall-clock time for the ioctl round-trip.
+    pub elapsed: std::time::Duration,
 }
 
 /// Accumulates [`RmRecord`]s for one GPU session.
@@ -165,22 +187,13 @@ pub struct RmAllocStep {
     pub params_size: u32,
 }
 
-/// Observation hook that [`RmClient`] calls on each RM operation.
+/// Observation hook that [`RmClient`](crate::nv::uvm::RmClient) calls on each RM operation.
 ///
 /// Implementations can record to an [`RmProtocolLog`], emit metrics,
 /// or feed a live learning system.
 pub trait RmObserver: Send {
     /// Called after an RM alloc (typed or simple) completes.
-    fn on_alloc(
-        &mut self,
-        h_root: u32,
-        h_parent: u32,
-        h_new: u32,
-        h_class: u32,
-        params_size: u32,
-        status: u32,
-        elapsed: std::time::Duration,
-    );
+    fn on_alloc(&mut self, event: &RmAllocEvent);
 
     /// Called after an RM control call completes.
     fn on_control(
@@ -254,17 +267,8 @@ impl Default for LoggingObserver {
 }
 
 impl RmObserver for LoggingObserver {
-    fn on_alloc(
-        &mut self,
-        h_root: u32,
-        h_parent: u32,
-        h_new: u32,
-        h_class: u32,
-        params_size: u32,
-        status: u32,
-        elapsed: std::time::Duration,
-    ) {
-        let op = if params_size > 0 {
+    fn on_alloc(&mut self, event: &RmAllocEvent) {
+        let op = if event.params_size > 0 {
             RmOp::AllocTyped
         } else {
             RmOp::AllocSimple
@@ -273,13 +277,13 @@ impl RmObserver for LoggingObserver {
         self.log.record(RmRecord {
             seq,
             op,
-            h_root,
-            h_parent,
-            h_object: h_new,
-            class_or_cmd: h_class,
-            params_size,
-            status,
-            elapsed_us: elapsed.as_micros() as u64,
+            h_root: event.h_root,
+            h_parent: event.h_parent,
+            h_object: event.h_new,
+            class_or_cmd: event.h_class,
+            params_size: event.params_size,
+            status: event.status,
+            elapsed_us: event.elapsed.as_micros() as u64,
             sm: self.log.sm,
         });
     }
@@ -336,15 +340,24 @@ mod tests {
     fn logging_observer_captures_session() {
         let mut obs = LoggingObserver::for_gpu("ga102", 86);
 
-        obs.on_alloc(1, 0, 1, 0x0041, 0, 0, std::time::Duration::from_micros(50));
-        obs.on_alloc(1, 1, 2, 0x0080, 56, 0, std::time::Duration::from_micros(30));
-        obs.on_alloc(1, 2, 3, 0x2080, 4, 0, std::time::Duration::from_micros(20));
+        let alloc = |h_root, h_parent, h_new, h_class, params_size, status, us| RmAllocEvent {
+            h_root,
+            h_parent,
+            h_new,
+            h_class,
+            params_size,
+            status,
+            elapsed: std::time::Duration::from_micros(us),
+        };
+        obs.on_alloc(&alloc(1, 0, 1, 0x0041, 0, 0, 50));
+        obs.on_alloc(&alloc(1, 1, 2, 0x0080, 56, 0, 30));
+        obs.on_alloc(&alloc(1, 2, 3, 0x2080, 4, 0, 20));
         obs.on_control(1, 3, 0x2080_014A, 0, std::time::Duration::from_micros(100));
-        obs.on_alloc(1, 2, 4, 0x90F1, 0, 0, std::time::Duration::from_micros(25));
-        obs.on_alloc(1, 2, 5, 0xA06C, 32, 0, std::time::Duration::from_micros(35));
-        obs.on_alloc(1, 2, 6, 0x003E, 128, 0, std::time::Duration::from_micros(40));
-        obs.on_alloc(1, 5, 7, 0xC56F, 0, 0, std::time::Duration::from_micros(60));
-        obs.on_alloc(1, 7, 8, 0xC7C0, 0, 0, std::time::Duration::from_micros(15));
+        obs.on_alloc(&alloc(1, 2, 4, 0x90F1, 0, 0, 25));
+        obs.on_alloc(&alloc(1, 2, 5, 0xA06C, 32, 0, 35));
+        obs.on_alloc(&alloc(1, 2, 6, 0x003E, 128, 0, 40));
+        obs.on_alloc(&alloc(1, 5, 7, 0xC56F, 0, 0, 60));
+        obs.on_alloc(&alloc(1, 7, 8, 0xC7C0, 0, 0, 15));
 
         let log = obs.into_log();
         assert_eq!(log.len(), 9);
@@ -353,7 +366,9 @@ mod tests {
         let classes = log.successful_classes();
         assert_eq!(
             classes,
-            vec![0x0041, 0x0080, 0x2080, 0x90F1, 0xA06C, 0x003E, 0xC56F, 0xC7C0]
+            vec![
+                0x0041, 0x0080, 0x2080, 0x90F1, 0xA06C, 0x003E, 0xC56F, 0xC7C0
+            ]
         );
 
         let recipe = log.allocation_recipe();

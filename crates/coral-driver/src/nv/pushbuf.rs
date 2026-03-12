@@ -39,7 +39,7 @@ pub const fn mthd_immd(subchan: u32, method: u32, value: u32) -> u32 {
 
 /// Re-exported compute class constants from the canonical UVM definitions.
 pub mod class {
-    pub use super::super::uvm::{VOLTA_COMPUTE_A, TURING_COMPUTE_A, AMPERE_COMPUTE_A};
+    pub use super::super::uvm::{AMPERE_COMPUTE_A, TURING_COMPUTE_A, VOLTA_COMPUTE_A};
 }
 
 /// NVIDIA compute class method registers (offsets in bytes).

@@ -55,10 +55,9 @@ pub fn build_hint_for(kb: &GpuKnowledge, chip: &str) -> Option<DispatchHints> {
     let sm = arch.sm?;
 
     let best_teacher = kb.best_teacher_for(chip);
-    let teacher_coverage = best_teacher.as_ref().and_then(|t| {
-        kb.transfer_map(t, chip)
-            .map(|m| m.coverage_pct())
-    });
+    let teacher_coverage = best_teacher
+        .as_ref()
+        .and_then(|t| kb.transfer_map(t, chip).map(|m| m.coverage_pct()));
 
     let fp64_full = has_full_rate_fp64(sm) || chip_has_full_fp64(chip);
 

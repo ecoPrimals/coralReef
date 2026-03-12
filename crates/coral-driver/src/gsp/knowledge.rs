@@ -215,9 +215,7 @@ impl GpuKnowledge {
             .filter(|t| *t != target)
             .max_by_key(|t| {
                 let common = self.common_registers(target, t);
-                let same_as = self
-                    .get(t)
-                    .is_some_and(|k| k.address_space == target_as);
+                let same_as = self.get(t).is_some_and(|k| k.address_space == target_as);
                 let sm_dist = self
                     .get(t)
                     .and_then(|k| k.sm)
@@ -250,12 +248,8 @@ impl GpuKnowledge {
         for (i, &sm) in gen_keys.iter().enumerate() {
             let chips = &generations[&sm];
             let representative = chips[0];
-            let reg_count = self
-                .get(representative)
-                .map_or(0, |k| k.register_count);
-            let has_firmware = self
-                .get(representative)
-                .is_some_and(|k| k.has_firmware);
+            let reg_count = self.get(representative).map_or(0, |k| k.register_count);
+            let has_firmware = self.get(representative).is_some_and(|k| k.has_firmware);
 
             let overlap_with_prev = if i > 0 {
                 let prev_chip = generations[&gen_keys[i - 1]][0];
@@ -287,11 +281,7 @@ impl GpuKnowledge {
             .filter(|a| a.has_firmware)
             .count();
         let needs_gsp = total - with_firmware;
-        let total_registers: usize = self
-            .architectures
-            .values()
-            .map(|a| a.register_count)
-            .sum();
+        let total_registers: usize = self.architectures.values().map(|a| a.register_count).sum();
 
         KnowledgeSummary {
             architectures_known: total,
@@ -380,10 +370,7 @@ fn discover_nvidia_chips() -> Vec<String> {
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         // Only chip codenames (gv100, ga102, etc.), not version dirs
-        if name.starts_with('g')
-            || name.starts_with('t')
-            || name.starts_with('a')
-        {
+        if name.starts_with('g') || name.starts_with('t') || name.starts_with('a') {
             let gr_dir = entry.path().join("gr");
             if gr_dir.is_dir() {
                 chips.push(name);
@@ -457,16 +444,8 @@ mod tests {
             for b in &rich_chips[i + 1..] {
                 let common = kb.common_registers(a, b);
                 let b_regs = kb.get(b).map(|k| k.register_count).unwrap_or(0);
-                let pct_a = if a_regs > 0 {
-                    common * 100 / a_regs
-                } else {
-                    0
-                };
-                let pct_b = if b_regs > 0 {
-                    common * 100 / b_regs
-                } else {
-                    0
-                };
+                let pct_a = if a_regs > 0 { common * 100 / a_regs } else { 0 };
+                let pct_b = if b_regs > 0 { common * 100 / b_regs } else { 0 };
                 eprintln!("  vs {b}: {common} common ({pct_a}% of {a}, {pct_b}% of {b})");
             }
         }
@@ -480,17 +459,17 @@ mod tests {
         let best = kb.best_teacher_for("gv100");
         eprintln!("Best teacher for GV100: {best:?}");
 
-        if let Some(teacher) = &best {
-            if let Some(map) = kb.transfer_map(teacher, "gv100") {
-                eprintln!(
-                    "{} -> gv100: {} common, {} teacher-only, {} target-only ({:.1}% coverage)",
-                    teacher,
-                    map.common_registers.len(),
-                    map.teacher_only_registers.len(),
-                    map.target_only_registers.len(),
-                    map.coverage_pct()
-                );
-            }
+        if let Some(teacher) = &best
+            && let Some(map) = kb.transfer_map(teacher, "gv100")
+        {
+            eprintln!(
+                "{} -> gv100: {} common, {} teacher-only, {} target-only ({:.1}% coverage)",
+                teacher,
+                map.common_registers.len(),
+                map.teacher_only_registers.len(),
+                map.target_only_registers.len(),
+                map.coverage_pct()
+            );
         }
 
         // Also check GA102 as teacher
@@ -519,11 +498,7 @@ mod tests {
                 .unwrap_or_default();
             eprintln!(
                 "SM{:2}: {} ({} chips) — {} regs, fw={}{overlap}",
-                gs.sm,
-                gs.representative,
-                gs.chip_count,
-                gs.unique_registers,
-                gs.has_firmware
+                gs.sm, gs.representative, gs.chip_count, gs.unique_registers, gs.has_firmware
             );
         }
     }

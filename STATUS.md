@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 12, 2026  
-**Phase**: 10 — Iteration 37 (Gap Closure + Deep Debt Evolution)
+**Phase**: 10 — Iteration 38 (Deep Debt Solutions + Idiomatic Evolution)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1635 passing, 0 failed, 63 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1657 passing, 0 failed, 63 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 36** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 38** |
 
 ### Phase 10 Completions
 
@@ -562,6 +562,22 @@
 | Capability-based discovery evolution | ✅ | `discovery.rs` uses `probe_gpu_identity()` + `amd_arch()` for dynamic AMD detection |
 | Test expansion | ✅ | 1635 passing (+19), 63 ignored (+8 new hardware-gated) |
 
+### Iteration 38: Deep Debt Solutions + Idiomatic Evolution (Mar 12 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `cargo fmt` drift fixed | ✅ | ~10 files with formatting drift resolved |
+| Clippy evolution (6 fixes) | ✅ | `map_external_allocation` → `ExternalMapping` struct, `on_alloc` → `RmAllocEvent` struct, `dispatch_precompiled` → accepts `KernelCacheEntry`, 2× redundant closure → method refs, collapsible if → let-chain |
+| Intra-doc links fixed | ✅ | 4 broken links: `RmObserver`, `register_gpu_with_uvm`, `GpuKnowledge`, `RmClient` |
+| `naga_translate_tests.rs` smart refactor | ✅ | 1486 LOC → 3 domain files: `tests_parse_translate.rs` (568) + `tests_math_coverage.rs` (651) + `tests_interpolation_builtins.rs` (288) |
+| `rm_client.rs` smart refactor | ✅ | 1031 LOC → 997 production + `rm_client_tests.rs` (271) + `rm_status_name` → `nv_status::status_name` |
+| `op_conv.rs` test extraction | ✅ | 1047 LOC → 796 production + `op_conv_tests.rs` (224) |
+| `// SAFETY:` comment added | ✅ | `uvm/mod.rs` test unsafe block documented |
+| Zero-copy evolution | ✅ | `primal-rpc-client` roundtrip: `Vec<u8>` → `bytes::Bytes` |
+| Coverage expansion (+22 tests) | ✅ | 15 new `unix_jsonrpc` tests (dispatch, make_response, error paths), 7 new `op_conv` tests (PrmtSelByte, OpF2F, OpPrmt, Foldable, DisplayOp) |
+| File size compliance | ✅ | Zero files over 1000 LOC (3 violations resolved) |
+| Test expansion | ✅ | 1657 passing (+22), 63 ignored (stable) |
+
 ### Pure Rust Sovereign Stack — Dependency Tracking
 
 | Component | Status | Detail |
@@ -588,7 +604,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1635 passing, 0 failed, 63 ignored) |
+| `cargo test --workspace` | PASS (1657 passing, 0 failed, 63 ignored) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

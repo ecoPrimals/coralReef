@@ -178,12 +178,12 @@ fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
             let arch = match info.driver.as_str() {
                 "amdgpu" => identity
                     .as_ref()
-                    .and_then(|id| id.amd_arch())
+                    .and_then(coral_driver::nv::identity::GpuIdentity::amd_arch)
                     .map(String::from)
                     .or_else(|| Some("rdna2".to_string())),
                 "nvidia-drm" | "nouveau" => identity
                     .as_ref()
-                    .and_then(|id| id.nvidia_sm())
+                    .and_then(coral_driver::nv::identity::GpuIdentity::nvidia_sm)
                     .map(|sm| format!("sm{sm}")),
                 _ => None,
             };

@@ -2,6 +2,7 @@
 //! Transport implementations: TCP, Unix socket, Songbird proxy.
 
 use crate::error::RpcError;
+use bytes::Bytes;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -24,7 +25,7 @@ pub enum Transport {
 
 impl Transport {
     /// Send `body` as an HTTP POST and return the response body bytes.
-    pub(crate) async fn roundtrip(&self, body: &[u8]) -> Result<Vec<u8>, RpcError> {
+    pub(crate) async fn roundtrip(&self, body: &[u8]) -> Result<Bytes, RpcError> {
         match self {
             Self::Tcp(addr) => tcp_roundtrip(*addr, "localhost", "/", body).await,
             Self::Unix(path) => unix_roundtrip(path, body).await,
@@ -44,13 +45,13 @@ async fn tcp_roundtrip(
     host: &str,
     path: &str,
     body: &[u8],
-) -> Result<Vec<u8>, RpcError> {
+) -> Result<Bytes, RpcError> {
     let mut stream = tokio::net::TcpStream::connect(addr).await?;
     send_http_request(&mut stream, host, path, body).await?;
     read_http_response_body(&mut stream).await
 }
 
-async fn unix_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Vec<u8>, RpcError> {
+async fn unix_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Bytes, RpcError> {
     let mut stream = tokio::net::UnixStream::connect(path).await?;
     send_http_request(&mut stream, "localhost", "/", body).await?;
     read_http_response_body(&mut stream).await
@@ -81,7 +82,7 @@ async fn send_http_request<W: AsyncWriteExt + Unpin>(
 /// Supports both `Content-Length` and reading until connection close.
 async fn read_http_response_body<R: AsyncReadExt + Unpin>(
     reader: &mut R,
-) -> Result<Vec<u8>, RpcError> {
+) -> Result<Bytes, RpcError> {
     let mut buf = Vec::with_capacity(4096);
     reader.read_to_end(&mut buf).await?;
 
@@ -100,7 +101,7 @@ async fn read_http_response_body<R: AsyncReadExt + Unpin>(
     }
 
     let body_start = header_end + 4; // skip \r\n\r\n
-    Ok(buf[body_start..].to_vec())
+    Ok(Bytes::copy_from_slice(&buf[body_start..]))
 }
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {

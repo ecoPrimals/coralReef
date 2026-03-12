@@ -113,15 +113,15 @@ impl NvDrmDevice {
 
 impl NvDrmDevice {
     fn compute_mut(&mut self) -> DriverResult<&mut NvUvmComputeDevice> {
-        self.compute.as_mut().ok_or_else(|| {
-            DriverError::DeviceNotFound("UVM compute backend not available".into())
-        })
+        self.compute
+            .as_mut()
+            .ok_or_else(|| DriverError::DeviceNotFound("UVM compute backend not available".into()))
     }
 
     fn compute_ref(&self) -> DriverResult<&NvUvmComputeDevice> {
-        self.compute.as_ref().ok_or_else(|| {
-            DriverError::DeviceNotFound("UVM compute backend not available".into())
-        })
+        self.compute
+            .as_ref()
+            .ok_or_else(|| DriverError::DeviceNotFound("UVM compute backend not available".into()))
     }
 }
 

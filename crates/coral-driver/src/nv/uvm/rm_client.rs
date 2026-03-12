@@ -6,15 +6,15 @@ use crate::error::{DriverError, DriverResult};
 use super::structs::*;
 use super::{
     AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B, FERMI_VASPACE_A,
-    KEPLER_CHANNEL_GROUP_A, NV01_DEVICE_0, NV01_MEMORY_LOCAL_USER, NV01_MEMORY_SYSTEM,
-    NV01_MEMORY_VIRTUAL, NV01_ROOT_CLIENT, NV20_SUBDEVICE_0, NV2080_CTRL_CMD_GPU_GET_GID_INFO,
-    NV2080_ENGINE_TYPE_GR0, NV_ESC_RM_ALLOC, NV_ESC_RM_CONTROL, NV_ESC_RM_FREE,
-    NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY, NV_OK,
+    KEPLER_CHANNEL_GROUP_A, NV_ESC_RM_ALLOC, NV_ESC_RM_CONTROL, NV_ESC_RM_FREE,
+    NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY, NV_OK, NV01_DEVICE_0,
+    NV01_MEMORY_LOCAL_USER, NV01_MEMORY_SYSTEM, NV01_MEMORY_VIRTUAL, NV01_ROOT_CLIENT,
+    NV20_SUBDEVICE_0, NV2080_CTRL_CMD_GPU_GET_GID_INFO, NV2080_ENGINE_TYPE_GR0,
     NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE, NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT,
     NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED, NVOS32_ATTR_PHYSICALITY_CONTIGUOUS,
-    NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS, NvCtlDevice, NvUvmDevice, UVM_REGISTER_GPU,
-    nv_ioctl_rw,
+    NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS, NvCtlDevice, NvUvmDevice, UVM_REGISTER_GPU, nv_ioctl_rw,
 };
+use crate::gsp::rm_observer::RmAllocEvent;
 
 /// An RM client handle allocated via `/dev/nvidiactl`.
 ///
@@ -22,7 +22,7 @@ use super::{
 /// All subsequent GPU resource allocations (devices, channels, memory) are
 /// children of this client.
 ///
-/// When an [`RmObserver`] is attached, every RM operation is recorded for
+/// When an [`RmObserver`](crate::gsp::rm_observer::RmObserver) is attached, every RM operation is recorded for
 /// the virtual GSP knowledge base.
 pub struct RmClient {
     ctl: NvCtlDevice,
@@ -208,10 +208,15 @@ impl RmClient {
         let elapsed = t0.elapsed();
 
         if let Some(obs) = self.observer.as_mut() {
-            let sz = u32::try_from(std::mem::size_of::<T>()).unwrap_or(0);
-            obs.on_alloc(
-                self.h_client, h_parent, h_new, h_class, sz, params.status, elapsed,
-            );
+            obs.on_alloc(&RmAllocEvent {
+                h_root: self.h_client,
+                h_parent,
+                h_new,
+                h_class,
+                params_size: u32::try_from(std::mem::size_of::<T>()).unwrap_or(0),
+                status: params.status,
+                elapsed,
+            });
         }
 
         if params.status != NV_OK {
@@ -219,7 +224,7 @@ impl RmClient {
                 format!(
                     "{label} failed: status=0x{:08X}{}",
                     params.status,
-                    rm_status_name(params.status),
+                    super::nv_status::status_name(params.status),
                 )
                 .into(),
             ));
@@ -254,9 +259,15 @@ impl RmClient {
         let elapsed = t0.elapsed();
 
         if let Some(obs) = self.observer.as_mut() {
-            obs.on_alloc(
-                self.h_client, h_parent, h_new, h_class, 0, params.status, elapsed,
-            );
+            obs.on_alloc(&RmAllocEvent {
+                h_root: self.h_client,
+                h_parent,
+                h_new,
+                h_class,
+                params_size: 0,
+                status: params.status,
+                elapsed,
+            });
         }
 
         if params.status != NV_OK {
@@ -264,7 +275,7 @@ impl RmClient {
                 format!(
                     "{label} failed: status=0x{:08X}{}",
                     params.status,
-                    rm_status_name(params.status),
+                    super::nv_status::status_name(params.status),
                 )
                 .into(),
             ));
@@ -314,7 +325,7 @@ impl RmClient {
                 format!(
                     "{label} failed: status=0x{:08X}{}",
                     params.status,
-                    rm_status_name(params.status),
+                    super::nv_status::status_name(params.status),
                 )
                 .into(),
             ));
@@ -346,10 +357,22 @@ impl RmClient {
         tracing::info!(
             uuid = format_args!(
                 "GPU-{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                uuid[0], uuid[1], uuid[2], uuid[3],
-                uuid[4], uuid[5], uuid[6], uuid[7],
-                uuid[8], uuid[9], uuid[10], uuid[11],
-                uuid[12], uuid[13], uuid[14], uuid[15],
+                uuid[0],
+                uuid[1],
+                uuid[2],
+                uuid[3],
+                uuid[4],
+                uuid[5],
+                uuid[6],
+                uuid[7],
+                uuid[8],
+                uuid[9],
+                uuid[10],
+                uuid[11],
+                uuid[12],
+                uuid[13],
+                uuid[14],
+                uuid[15],
             ),
             "GPU UUID queried"
         );
@@ -471,7 +494,12 @@ impl RmClient {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the RM alloc fails.
-    pub fn alloc_system_memory(&mut self, h_parent: u32, handle: u32, size: u64) -> DriverResult<u32> {
+    pub fn alloc_system_memory(
+        &mut self,
+        h_parent: u32,
+        handle: u32,
+        size: u64,
+    ) -> DriverResult<u32> {
         let mut mem_params = NvMemoryAllocParams {
             owner: self.h_client,
             flags: NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED
@@ -503,7 +531,12 @@ impl RmClient {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the RM alloc fails.
-    pub fn alloc_local_memory(&mut self, h_parent: u32, handle: u32, size: u64) -> DriverResult<u32> {
+    pub fn alloc_local_memory(
+        &mut self,
+        h_parent: u32,
+        handle: u32,
+        size: u64,
+    ) -> DriverResult<u32> {
         let mut mem_params = NvMemoryAllocParams {
             owner: self.h_client,
             flags: NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED
@@ -622,7 +655,11 @@ impl RmClient {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the RM alloc fails.
-    pub fn alloc_compute_engine(&mut self, h_channel: u32, compute_class: u32) -> DriverResult<u32> {
+    pub fn alloc_compute_engine(
+        &mut self,
+        h_channel: u32,
+        compute_class: u32,
+    ) -> DriverResult<u32> {
         let h_compute = h_channel + 0x10;
 
         self.rm_alloc_simple(
@@ -716,8 +753,10 @@ impl RmClient {
             _pad2: 0,
         };
 
-        let ioctl_nr =
-            nv_ioctl_rw(NV_ESC_RM_MAP_MEMORY, std::mem::size_of::<NvRmMapMemoryParams>());
+        let ioctl_nr = nv_ioctl_rw(
+            NV_ESC_RM_MAP_MEMORY,
+            std::mem::size_of::<NvRmMapMemoryParams>(),
+        );
         let ctl_fd = self.ctl.fd();
 
         // SAFETY: NvRmMapMemoryParams is #[repr(C)], stack-allocated, sole ref.
@@ -730,16 +769,13 @@ impl RmClient {
                     format!(
                         "RM_MAP_MEMORY failed: status=0x{:08X}{} h_mem=0x{h_memory:08X}",
                         params.status,
-                        rm_status_name(params.status),
+                        super::nv_status::status_name(params.status),
                     )
                     .into(),
                 ));
             }
             return Err(DriverError::SubmitFailed(
-                format!(
-                    "RM_MAP_MEMORY ioctl errno={errno} h_mem=0x{h_memory:08X}"
-                )
-                .into(),
+                format!("RM_MAP_MEMORY ioctl errno={errno} h_mem=0x{h_memory:08X}").into(),
             ));
         }
         if params.status != NV_OK {
@@ -747,7 +783,7 @@ impl RmClient {
                 format!(
                     "RM_MAP_MEMORY failed: status=0x{:08X}{} h_mem=0x{h_memory:08X}",
                     params.status,
-                    rm_status_name(params.status),
+                    super::nv_status::status_name(params.status),
                 )
                 .into(),
             ));
@@ -821,7 +857,7 @@ impl RmClient {
                 format!(
                     "RM_UNMAP_MEMORY failed: status=0x{:08X}{} h_mem=0x{h_memory:08X}",
                     params.status,
-                    rm_status_name(params.status),
+                    super::nv_status::status_name(params.status),
                 )
                 .into(),
             ));
@@ -873,7 +909,7 @@ impl RmClient {
                     "RM_MAP_MEMORY_DMA failed: status=0x{:08X}{} h_dma=0x{h_virt_mem:08X} \
                      h_mem=0x{h_memory:08X}",
                     params.status,
-                    rm_status_name(params.status),
+                    super::nv_status::status_name(params.status),
                 )
                 .into(),
             ));
@@ -916,7 +952,7 @@ fn parse_gid_to_uuid(gid: &[u8]) -> DriverResult<[u8; 16]> {
 
     if hex.len() < 32 {
         return Err(DriverError::SubmitFailed(
-            format!("GID hex too short after parsing: {} chars from {s:?}", hex.len()).into(),
+            format!("GID hex too short: {} chars from {s:?}", hex.len()).into(),
         ));
     }
 
@@ -938,16 +974,11 @@ fn hex_nibble(b: u8) -> u8 {
     }
 }
 
-/// Issue a raw ioctl via the C FFI, bypassing `rustix::ioctl::Ioctl` which
-/// mishandles certain NV_ESC_RM_* commands.
-///
-/// Returns the ioctl return value (negative on error).
+/// Raw ioctl via C FFI, bypassing `rustix::ioctl::Ioctl` (mishandles NV_ESC_RM_*).
 ///
 /// # Safety
 ///
-/// `fd` must be a valid open file descriptor. `params` must be a `#[repr(C)]`
-/// struct matching the kernel's expected layout, and must be the sole mutable
-/// reference.
+/// `fd` must be valid; `params` must be `#[repr(C)]` and the sole mutable reference.
 unsafe fn raw_nv_ioctl<T>(fd: i32, ioctl_nr: u64, params: &mut T) -> i32 {
     unsafe extern "C" {
         fn ioctl(fd: i32, request: u64, ...) -> i32;
@@ -955,33 +986,12 @@ unsafe fn raw_nv_ioctl<T>(fd: i32, ioctl_nr: u64, params: &mut T) -> i32 {
     unsafe { ioctl(fd, ioctl_nr, std::ptr::from_mut(params)) }
 }
 
-/// Human-readable suffix for common RM status codes.
-fn rm_status_name(status: u32) -> &'static str {
-    match status {
-        super::NV_ERR_INSUFFICIENT_PERMISSIONS => " (INSUFFICIENT_PERMISSIONS)",
-        super::NV_ERR_INVALID_ACCESS_TYPE => " (INVALID_ACCESS_TYPE)",
-        super::NV_ERR_INVALID_ADDRESS => " (INVALID_ADDRESS)",
-        super::NV_ERR_INVALID_ARGUMENT => " (INVALID_ARGUMENT)",
-        super::NV_ERR_INVALID_CLASS => " (INVALID_CLASS)",
-        super::NV_ERR_INVALID_CLIENT => " (INVALID_CLIENT)",
-        super::NV_ERR_INVALID_DEVICE => " (INVALID_DEVICE)",
-        super::NV_ERR_INVALID_FLAGS => " (INVALID_FLAGS)",
-        super::NV_ERR_INVALID_LIMIT => " (INVALID_LIMIT)",
-        super::NV_ERR_INVALID_OBJECT => " (INVALID_OBJECT)",
-        super::NV_ERR_INVALID_OBJECT_HANDLE => " (INVALID_OBJECT_HANDLE)",
-        super::NV_ERR_INVALID_OBJECT_PARENT => " (INVALID_OBJECT_PARENT)",
-        super::NV_ERR_INVALID_PARAMETER => " (INVALID_PARAMETER)",
-        super::NV_ERR_INVALID_STATE => " (INVALID_STATE)",
-        super::NV_ERR_NO_MEMORY => " (NO_MEMORY)",
-        super::NV_ERR_NOT_SUPPORTED => " (NOT_SUPPORTED)",
-        super::NV_ERR_OBJECT_NOT_FOUND => " (OBJECT_NOT_FOUND)",
-        super::NV_ERR_OPERATING_SYSTEM => " (OPERATING_SYSTEM)",
-        _ => "",
-    }
-}
-
 impl Drop for RmClient {
     fn drop(&mut self) {
         let _ = self.free_object(0, self.h_client);
     }
 }
+
+#[cfg(test)]
+#[path = "rm_client_tests.rs"]
+mod tests;

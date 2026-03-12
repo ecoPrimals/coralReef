@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 12, Iter 37)  
+**Generated:** March 10, 2026 (metrics updated March 12, Iter 38)  
 **Workspace:** coralReef
 
 ---
@@ -18,13 +18,13 @@ test result: ok. 0 passed; 0 failed; 5 ignored (hw_nv_buffers)
 test result: ok. 0 passed; 0 failed; 11 ignored (hw_nv_nouveau)
 test result: ok. 0 passed; 0 failed; 3 ignored (hw_nv_probe)
 test result: ok. 11 passed; 0 failed; 1 ignored (parity_harness)
-test result: ok. 4 passed; 0 failed; 6 ignored (spirv_roundtrip)
+test result: ok. 10 passed; 0 failed; 0 ignored (spirv_roundtrip)
 test result: ok. 17 passed; 0 failed; 7 ignored (spring_absorption)
 test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. ? passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Total ignored:** ~76 tests across workspace.
+**Total ignored:** 63 tests across workspace (hardware-gated + diagnostic).
 
 ---
 
@@ -198,9 +198,9 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 37) |
+| Metric | Value (as of Iter 38) |
 |--------|-------|
-| Tests passing | 1635 (was 1556 at Iter 32) |
+| Tests passing | 1657 (was 1635 at Iter 37) |
 | Ignored tests | 63 (hardware-gated + diagnostic) |
 | EVOLUTION markers | 9 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
@@ -209,3 +209,6 @@ Current attributes have documented `reason` strings where appropriate.
 | panic! in production | ~150+ (codegen ICE guards — intentional) |
 | #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
+| Files over 1000 LOC | 0 (3 violations resolved, Iter 38) |
+| Clippy warnings | 0 (pedantic + all, Iter 38) |
+| Doc warnings | 0 (4 intra-doc links fixed, Iter 38) |

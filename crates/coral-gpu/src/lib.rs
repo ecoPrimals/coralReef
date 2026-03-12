@@ -573,7 +573,7 @@ impl GpuContext {
             .dispatch(&kernel.binary, buffers, dispatch_dims, &info)?)
     }
 
-    /// Dispatch a pre-compiled native binary with explicit metadata.
+    /// Dispatch a pre-compiled native binary from a [`KernelCacheEntry`].
     ///
     /// This is the `dispatch_binary` entry point for cached kernel dispatch:
     /// the binary was compiled once (via `compile_wgsl`) and can be reused
@@ -584,22 +584,20 @@ impl GpuContext {
     /// Returns [`GpuError`] if no device is attached or dispatch fails.
     pub fn dispatch_precompiled(
         &mut self,
-        binary: &[u8],
+        entry: &KernelCacheEntry,
         buffers: &[BufferHandle],
         dims: [u32; 3],
-        gpr_count: u32,
-        shared_mem_bytes: u32,
-        barrier_count: u32,
-        workgroup: [u32; 3],
     ) -> GpuResult<()> {
         let dispatch_dims = DispatchDims::new(dims[0], dims[1], dims[2]);
         let info = ShaderInfo {
-            gpr_count,
-            shared_mem_bytes,
-            barrier_count,
-            workgroup,
+            gpr_count: entry.gpr_count,
+            shared_mem_bytes: entry.shared_mem_bytes,
+            barrier_count: entry.barrier_count,
+            workgroup: entry.workgroup,
         };
-        Ok(self.device_mut()?.dispatch(binary, buffers, dispatch_dims, &info)?)
+        Ok(self
+            .device_mut()?
+            .dispatch(&entry.binary, buffers, dispatch_dims, &info)?)
     }
 
     /// Wait for all submitted GPU work to complete.
@@ -724,9 +722,7 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
                 let sm = sm_from_sysfs(&render_path);
                 GpuTarget::Nvidia(sm_to_nvarch(sm))
             }
-            Some(coral_driver::nv::identity::PCI_VENDOR_AMD) => {
-                GpuTarget::Amd(AmdArch::Rdna2)
-            }
+            Some(coral_driver::nv::identity::PCI_VENDOR_AMD) => GpuTarget::Amd(AmdArch::Rdna2),
             _ => continue,
         };
 

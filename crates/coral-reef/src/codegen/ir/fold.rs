@@ -4,7 +4,7 @@
 
 use super::{Dst, DstsAsSlice, ShaderModel, Src, SrcRef, SrcsAsSlice};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FoldData {
     Pred(bool),
     Carry(bool),

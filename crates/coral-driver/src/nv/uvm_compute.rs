@@ -71,8 +71,7 @@ struct UvmBuffer {
 /// [1:0]   = fetch type (0 = normal)
 /// ```
 const fn gpfifo_entry(push_buf_va: u64, length_dwords: u32) -> u64 {
-    ((push_buf_va >> 2) & 0x00_0000_003F_FFFF_FFFF)
-        | ((length_dwords as u64) << 42)
+    ((push_buf_va >> 2) & 0x00_0000_003F_FFFF_FFFF) | ((length_dwords as u64) << 42)
 }
 
 /// USERD GP_PUT doorbell offset (bytes).
@@ -84,19 +83,31 @@ const USERD_GP_PUT_OFFSET: usize = 0x0C;
 /// mapping, QMD construction (via reused `qmd.rs`), and GPFIFO submission.
 pub struct NvUvmComputeDevice {
     client: RmClient,
-    #[expect(dead_code, reason = "held for lifetime — UVM fd needed for GPU VA operations")]
+    #[expect(
+        dead_code,
+        reason = "held for lifetime — UVM fd needed for GPU VA operations"
+    )]
     uvm: NvUvmDevice,
-    #[expect(dead_code, reason = "held for lifetime — GPU fd needed for mmap and RM operations")]
+    #[expect(
+        dead_code,
+        reason = "held for lifetime — GPU fd needed for mmap and RM operations"
+    )]
     gpu: NvGpuDevice,
     gpu_gen: GpuGen,
     h_device: u32,
     #[expect(dead_code, reason = "held for RM_CONTROL calls (e.g. perf queries)")]
     h_subdevice: u32,
-    #[expect(dead_code, reason = "held for VA space teardown and future sub-allocations")]
+    #[expect(
+        dead_code,
+        reason = "held for VA space teardown and future sub-allocations"
+    )]
     h_vaspace: u32,
     #[expect(dead_code, reason = "held for channel group teardown")]
     h_changrp: u32,
-    #[expect(dead_code, reason = "held for channel teardown / GPFIFO ring ownership")]
+    #[expect(
+        dead_code,
+        reason = "held for channel teardown / GPFIFO ring ownership"
+    )]
     h_channel: u32,
     h_compute: u32,
     #[expect(dead_code, reason = "needed for UVM_MAP_EXTERNAL_ALLOCATION")]
@@ -261,9 +272,7 @@ impl NvUvmComputeDevice {
         self.gp_put = self.gp_put.wrapping_add(1);
 
         if self.userd_cpu_addr == 0 {
-            return Err(DriverError::SubmitFailed(
-                "USERD not CPU-mapped".into(),
-            ));
+            return Err(DriverError::SubmitFailed("USERD not CPU-mapped".into()));
         }
 
         let doorbell = (self.userd_cpu_addr + USERD_GP_PUT_OFFSET as u64) as *mut u32;
@@ -316,13 +325,8 @@ impl NvUvmComputeDevice {
 
     /// Map an RM buffer into the GPU VA space via DMA.
     fn gpu_map_buffer(&mut self, h_mem: u32, size: u64) -> DriverResult<u64> {
-        self.client.rm_map_memory_dma(
-            self.h_device,
-            self.h_virt_mem,
-            h_mem,
-            0,
-            size,
-        )
+        self.client
+            .rm_map_memory_dma(self.h_device, self.h_virt_mem, h_mem, 0, size)
     }
 }
 
@@ -395,9 +399,7 @@ impl ComputeDevice for NvUvmComputeDevice {
         }
 
         if buf.cpu_addr == 0 {
-            return Err(DriverError::MmapFailed(
-                "buffer has no CPU mapping".into(),
-            ));
+            return Err(DriverError::MmapFailed("buffer has no CPU mapping".into()));
         }
 
         let dst = (buf.cpu_addr + offset) as *mut u8;
@@ -427,9 +429,7 @@ impl ComputeDevice for NvUvmComputeDevice {
         }
 
         if buf.cpu_addr == 0 {
-            return Err(DriverError::MmapFailed(
-                "buffer has no CPU mapping".into(),
-            ));
+            return Err(DriverError::MmapFailed("buffer has no CPU mapping".into()));
         }
 
         let src = (buf.cpu_addr + offset) as *const u8;

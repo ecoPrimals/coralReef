@@ -164,6 +164,32 @@ pub mod nv_status {
     pub const NV_ERR_OBJECT_NOT_FOUND: u32 = 0x0000_0057;
     /// Kernel-level error (OS interaction failed).
     pub const NV_ERR_OPERATING_SYSTEM: u32 = 0x0000_0059;
+
+    /// Human-readable suffix for common RM status codes.
+    #[must_use]
+    pub fn status_name(status: u32) -> &'static str {
+        match status {
+            NV_ERR_INSUFFICIENT_PERMISSIONS => " (INSUFFICIENT_PERMISSIONS)",
+            NV_ERR_INVALID_ACCESS_TYPE => " (INVALID_ACCESS_TYPE)",
+            NV_ERR_INVALID_ADDRESS => " (INVALID_ADDRESS)",
+            NV_ERR_INVALID_ARGUMENT => " (INVALID_ARGUMENT)",
+            NV_ERR_INVALID_CLASS => " (INVALID_CLASS)",
+            NV_ERR_INVALID_CLIENT => " (INVALID_CLIENT)",
+            NV_ERR_INVALID_DEVICE => " (INVALID_DEVICE)",
+            NV_ERR_INVALID_FLAGS => " (INVALID_FLAGS)",
+            NV_ERR_INVALID_LIMIT => " (INVALID_LIMIT)",
+            NV_ERR_INVALID_OBJECT => " (INVALID_OBJECT)",
+            NV_ERR_INVALID_OBJECT_HANDLE => " (INVALID_OBJECT_HANDLE)",
+            NV_ERR_INVALID_OBJECT_PARENT => " (INVALID_OBJECT_PARENT)",
+            NV_ERR_INVALID_PARAMETER => " (INVALID_PARAMETER)",
+            NV_ERR_INVALID_STATE => " (INVALID_STATE)",
+            NV_ERR_NO_MEMORY => " (NO_MEMORY)",
+            NV_ERR_NOT_SUPPORTED => " (NOT_SUPPORTED)",
+            NV_ERR_OBJECT_NOT_FOUND => " (OBJECT_NOT_FOUND)",
+            NV_ERR_OPERATING_SYSTEM => " (OPERATING_SYSTEM)",
+            _ => "",
+        }
+    }
 }
 pub use nv_status::*;
 
@@ -288,6 +314,28 @@ impl NvCtlDevice {
     }
 }
 
+/// Parameters for mapping an RM-allocated memory object into a UVM external VA range.
+///
+/// Groups the arguments for [`NvUvmDevice::map_external_allocation`] into a
+/// single named struct, improving readability and satisfying `clippy::too_many_arguments`.
+#[derive(Debug, Clone)]
+pub struct ExternalMapping<'a> {
+    /// Start of the VA range (must be page-aligned).
+    pub base: u64,
+    /// Length of the mapping in bytes (must be page-aligned).
+    pub length: u64,
+    /// Byte offset into the RM memory object.
+    pub offset: u64,
+    /// File descriptor for the RM control device (`/dev/nvidiactl`).
+    pub rm_ctrl_fd: i32,
+    /// RM client handle that owns the memory object.
+    pub h_client: u32,
+    /// RM handle of the memory object to map.
+    pub h_memory: u32,
+    /// 16-byte GPU UUID for the target device.
+    pub gpu_uuid: &'a [u8; 16],
+}
+
 /// Handle to the NVIDIA UVM device (`/dev/nvidia-uvm`).
 pub struct NvUvmDevice {
     file: File,
@@ -353,7 +401,7 @@ impl NvUvmDevice {
 
     /// Register an RM VA space with UVM.
     ///
-    /// This must be called after [`register_gpu_with_uvm`] and before any
+    /// This must be called after [`RmClient::register_gpu_with_uvm`](crate::nv::uvm::RmClient::register_gpu_with_uvm) and before any
     /// `UVM_MAP_EXTERNAL_ALLOCATION` calls. It connects the RM VA space
     /// to the UVM VA space so that external memory can be GPU-mapped.
     ///
@@ -439,28 +487,18 @@ impl NvUvmDevice {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the ioctl fails or returns non-OK status.
-    pub fn map_external_allocation(
-        &self,
-        base: u64,
-        length: u64,
-        offset: u64,
-        rm_ctrl_fd: i32,
-        h_client: u32,
-        h_memory: u32,
-        gpu_uuid: &[u8; 16],
-    ) -> DriverResult<()> {
-        let mut params = UvmMapExternalAllocParams::default();
-        params.base = base;
-        params.length = length;
-        params.offset = offset;
-        params.rm_ctrl_fd = rm_ctrl_fd;
-        params.h_client = h_client;
-        params.h_memory = h_memory;
-
-        params.per_gpu_attributes[0].gpu_uuid = *gpu_uuid;
-        // UvmGpuMappingTypeDefault = 0, UvmGpuCachingTypeDefault = 0
-        // All other fields default to 0 from zeroed init.
-        params.gpu_attributes_count = 1;
+    pub fn map_external_allocation(&self, mapping: &ExternalMapping<'_>) -> DriverResult<()> {
+        let mut params = UvmMapExternalAllocParams {
+            base: mapping.base,
+            length: mapping.length,
+            offset: mapping.offset,
+            rm_ctrl_fd: mapping.rm_ctrl_fd,
+            h_client: mapping.h_client,
+            h_memory: mapping.h_memory,
+            gpu_attributes_count: 1,
+            ..UvmMapExternalAllocParams::default()
+        };
+        params.per_gpu_attributes[0].gpu_uuid = *mapping.gpu_uuid;
 
         self.raw_ioctl(
             UVM_MAP_EXTERNAL_ALLOCATION,
@@ -470,16 +508,16 @@ impl NvUvmDevice {
         if params.rm_status != NV_OK {
             return Err(DriverError::SubmitFailed(
                 format!(
-                    "UVM_MAP_EXTERNAL_ALLOCATION failed: status=0x{:08X} base=0x{base:X} h_mem=0x{h_memory:08X}",
-                    params.rm_status
+                    "UVM_MAP_EXTERNAL_ALLOCATION failed: status=0x{:08X} base=0x{:X} h_mem=0x{:08X}",
+                    params.rm_status, mapping.base, mapping.h_memory,
                 )
                 .into(),
             ));
         }
         tracing::debug!(
-            base = format_args!("0x{base:X}"),
-            length = format_args!("0x{length:X}"),
-            h_memory = format_args!("0x{h_memory:08X}"),
+            base = format_args!("0x{:X}", mapping.base),
+            length = format_args!("0x{:X}", mapping.length),
+            h_memory = format_args!("0x{:08X}", mapping.h_memory),
             "UVM external allocation mapped"
         );
         Ok(())
@@ -525,19 +563,17 @@ impl NvGpuDevice {
     /// Returns [`DriverError`] if the `NV_ESC_REGISTER_FD` ioctl fails.
     pub fn register_fd(&self, ctl_fd: RawFd) -> DriverResult<()> {
         let mut params = NvRegisterFdParams { ctl_fd };
-        let ioctl_nr = nv_ioctl_rw(NV_ESC_REGISTER_FD, std::mem::size_of::<NvRegisterFdParams>());
+        let ioctl_nr = nv_ioctl_rw(
+            NV_ESC_REGISTER_FD,
+            std::mem::size_of::<NvRegisterFdParams>(),
+        );
         // SAFETY:
         // 1. Validity:   NvRegisterFdParams is #[repr(C)] matching nv_ioctl_register_fd_t
         // 2. Alignment:  stack-allocated, naturally aligned
         // 3. Lifetime:   synchronous ioctl; params outlives the call
         // 4. Exclusivity: sole mutable reference
         unsafe {
-            crate::drm::drm_ioctl_named(
-                self.fd(),
-                ioctl_nr,
-                &mut params,
-                "NV_ESC_REGISTER_FD",
-            )?;
+            crate::drm::drm_ioctl_named(self.fd(), ioctl_nr, &mut params, "NV_ESC_REGISTER_FD")?;
         }
         tracing::debug!(
             gpu_index = self.index,
@@ -640,258 +676,5 @@ mod tests {
     fn uvm_initialize() {
         let uvm = NvUvmDevice::open().expect("open uvm");
         uvm.initialize().expect("UVM_INITIALIZE should succeed");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn rm_client_alloc() {
-        let client = RmClient::new().expect("RM root client allocation");
-        assert!(client.handle() != 0);
-    }
-
-    /// Open an RM client + GPU device (common setup for hardware tests).
-    fn hw_client_and_device() -> (RmClient, NvGpuDevice, u32) {
-        let gpu = NvGpuDevice::open(0).expect("open GPU");
-        let mut client = RmClient::new().expect("RM root client");
-        gpu.register_fd(client.ctl_fd()).expect("register GPU fd");
-        let h_device = client.alloc_device(gpu.index()).expect("RM device");
-        (client, gpu, h_device)
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn rm_client_alloc_device() {
-        let (_client, _gpu, _h_device) = hw_client_and_device();
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn rm_client_alloc_subdevice() {
-        let (mut client, _gpu, h_device) = hw_client_and_device();
-        let _h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn uvm_register_gpu() {
-        let (mut client, _gpu, h_device) = hw_client_and_device();
-        let h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-        let uvm = NvUvmDevice::open().expect("open uvm");
-        uvm.initialize().expect("UVM_INITIALIZE");
-        let _uuid = client
-            .register_gpu_with_uvm(h_subdevice, &uvm)
-            .expect("GPU registration with UVM");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn uvm_alloc_vaspace() {
-        let (mut client, _gpu, h_device) = hw_client_and_device();
-        let _h_vaspace = client.alloc_vaspace(h_device).expect("VA space");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn uvm_alloc_channel() {
-        let (mut client, _gpu, h_device) = hw_client_and_device();
-        let _h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-        let h_vaspace = client.alloc_vaspace(h_device).expect("VA space");
-        let h_changrp = client
-            .alloc_channel_group(h_device, h_vaspace)
-            .expect("Channel group");
-
-        let gpfifo_entries: u32 = 512;
-        let gpfifo_size = u64::from(gpfifo_entries) * 8;
-        let h_gpfifo_mem = h_device + 0x5000;
-        let h_userd_mem = h_device + 0x5001;
-        let h_virt_mem = h_device + 0x5002;
-        client
-            .alloc_system_memory(h_device, h_gpfifo_mem, gpfifo_size)
-            .expect("GPFIFO");
-        client
-            .alloc_system_memory(h_device, h_userd_mem, 4096)
-            .expect("USERD");
-        client
-            .alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)
-            .expect("virtual memory");
-
-        let gpfifo_gpu_va = client
-            .rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, gpfifo_size)
-            .expect("GPFIFO DMA map");
-
-        let _h_channel = client
-            .alloc_gpfifo_channel(
-                h_changrp,
-                h_userd_mem,
-                gpfifo_gpu_va,
-                gpfifo_entries,
-                AMPERE_CHANNEL_GPFIFO_A,
-            )
-            .expect("GPFIFO channel");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn uvm_compute_bind() {
-        let (mut client, _gpu, h_device) = hw_client_and_device();
-        let _h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-        let h_vaspace = client.alloc_vaspace(h_device).expect("VA space");
-        let h_changrp = client
-            .alloc_channel_group(h_device, h_vaspace)
-            .expect("Channel group");
-
-        let gpfifo_entries: u32 = 512;
-        let gpfifo_size = u64::from(gpfifo_entries) * 8;
-        let h_gpfifo_mem = h_device + 0x5000;
-        let h_userd_mem = h_device + 0x5001;
-        let h_virt_mem = h_device + 0x5002;
-        client
-            .alloc_system_memory(h_device, h_gpfifo_mem, gpfifo_size)
-            .expect("GPFIFO");
-        client
-            .alloc_system_memory(h_device, h_userd_mem, 4096)
-            .expect("USERD");
-        client
-            .alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)
-            .expect("virtual memory");
-
-        let gpfifo_gpu_va = client
-            .rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, gpfifo_size)
-            .expect("GPFIFO DMA map");
-
-        let h_channel = client
-            .alloc_gpfifo_channel(
-                h_changrp,
-                h_userd_mem,
-                gpfifo_gpu_va,
-                gpfifo_entries,
-                AMPERE_CHANNEL_GPFIFO_A,
-            )
-            .expect("GPFIFO channel");
-
-        let _h_compute = client
-            .alloc_compute_engine(h_channel, AMPERE_COMPUTE_B)
-            .expect("Compute engine bind");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn rm_protocol_observer_captures_session() {
-        use crate::gsp::rm_observer::LoggingObserver;
-
-        let gpu = NvGpuDevice::open(0).expect("open GPU");
-        let mut client = RmClient::new().expect("RM root client");
-        gpu.register_fd(client.ctl_fd()).expect("register GPU fd");
-        client.attach_observer(Box::new(LoggingObserver::for_gpu("ga102", 86)));
-
-        let h_device = client.alloc_device(gpu.index()).expect("RM device");
-        let h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-
-        let uvm = NvUvmDevice::open().expect("open uvm");
-        uvm.initialize().expect("UVM_INITIALIZE");
-        let _uuid = client
-            .register_gpu_with_uvm(h_subdevice, &uvm)
-            .expect("GPU registration");
-
-        let h_vaspace = client.alloc_vaspace(h_device).expect("VA space");
-        let h_changrp = client
-            .alloc_channel_group(h_device, h_vaspace)
-            .expect("Channel group");
-
-        let gpfifo_entries: u32 = 512;
-        let gpfifo_size = u64::from(gpfifo_entries) * 8;
-        let h_gpfifo_mem = h_device + 0x5000;
-        let h_userd_mem = h_device + 0x5001;
-        let h_virt_mem = h_device + 0x5002;
-        client
-            .alloc_system_memory(h_device, h_gpfifo_mem, gpfifo_size)
-            .expect("GPFIFO mem");
-        client
-            .alloc_system_memory(h_device, h_userd_mem, 4096)
-            .expect("USERD mem");
-        client
-            .alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)
-            .expect("virtual memory");
-
-        let gpfifo_gpu_va = client
-            .rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, gpfifo_size)
-            .expect("GPFIFO DMA map");
-
-        let h_channel = client
-            .alloc_gpfifo_channel(
-                h_changrp,
-                h_userd_mem,
-                gpfifo_gpu_va,
-                gpfifo_entries,
-                AMPERE_CHANNEL_GPFIFO_A,
-            )
-            .expect("GPFIFO channel");
-
-        let _h_compute = client
-            .alloc_compute_engine(h_channel, AMPERE_COMPUTE_B)
-            .expect("Compute engine");
-
-        let obs = client.detach_observer().expect("observer was attached");
-        let logging_obs: Box<LoggingObserver> = obs
-            .into_any()
-            .downcast()
-            .expect("is LoggingObserver");
-        let log = logging_obs.into_log();
-
-        eprintln!("\n=== RM Protocol Log for GA102 (RTX 3090) ===");
-        eprintln!("Total operations: {}", log.len());
-        eprintln!("Successful alloc classes:");
-        for class in &log.successful_classes() {
-            eprintln!("  0x{class:04X}");
-        }
-        eprintln!("\nAllocation recipe ({} steps):", log.allocation_recipe().len());
-        for step in &log.allocation_recipe() {
-            eprintln!(
-                "  class=0x{:04X} typed={} params_size={}",
-                step.class, step.has_params, step.params_size
-            );
-        }
-
-        assert!(log.len() >= 8, "should capture RM operations after observer attached");
-        let recipe = log.allocation_recipe();
-        assert!(recipe.len() >= 7, "should have successful allocs (root alloc precedes observer)");
-        assert_eq!(recipe[0].class, NV01_DEVICE_0, "first observed alloc is DEVICE");
-    }
-
-    #[test]
-    #[ignore = "requires proprietary nvidia driver loaded"]
-    fn uvm_external_memory_mapping() {
-        let gpu = NvGpuDevice::open(0).expect("open GPU");
-        let mut client = RmClient::new().expect("RM root client");
-        gpu.register_fd(client.ctl_fd()).expect("register GPU fd");
-        let uvm = NvUvmDevice::open().expect("open UVM");
-        uvm.initialize().expect("UVM_INITIALIZE");
-
-        let h_device = client.alloc_device(gpu.index()).expect("RM device");
-        let h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-        client
-            .register_gpu_with_uvm(h_subdevice, &uvm)
-            .expect("GPU registered with UVM");
-
-        let h_mem = h_device + 0x7000;
-        client
-            .alloc_system_memory(h_device, h_mem, 4096)
-            .expect("RM system memory");
-
-        let cpu_addr = client
-            .rm_map_memory(h_device, h_mem, 0, 4096)
-            .expect("RM_MAP_MEMORY");
-
-        let ptr = cpu_addr as *mut u32;
-        unsafe {
-            std::ptr::write_volatile(ptr, 0xDEAD_BEEF);
-            let readback = std::ptr::read_volatile(ptr);
-            assert_eq!(readback, 0xDEAD_BEEF);
-        }
-
-        client
-            .rm_unmap_memory(h_device, h_mem, cpu_addr)
-            .expect("RM_UNMAP_MEMORY");
-        client.free_object(h_device, h_mem).expect("free memory");
     }
 }

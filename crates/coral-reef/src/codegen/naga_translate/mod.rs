@@ -231,5 +231,8 @@ pub fn translate<'sm>(
 }
 
 #[cfg(test)]
-#[path = "naga_translate_tests.rs"]
-mod tests;
+mod tests_interpolation_builtins;
+#[cfg(test)]
+mod tests_math_coverage;
+#[cfg(test)]
+mod tests_parse_translate;

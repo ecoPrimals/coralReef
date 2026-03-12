@@ -287,10 +287,9 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 1635 tests passing, 63 ignored, 64% coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 1657 tests passing, 63 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 4/10 SPIR-V roundtrip tests pass.
-Iteration 37: Gap closure — UVM dispatch pipeline complete (GPFIFO + USERD doorbell),
-NvDrmDevice delegates to NvUvmComputeDevice, dispatch_binary API wired for barraCuda.
-bytemuck::Zeroable eliminates unsafe zeroed(). PCI vendor constants centralized.
+Iteration 38: Deep debt solutions + idiomatic evolution — zero clippy/doc/fmt warnings,
+zero files over 1000 LOC, zero-copy transport, +22 tests.
 Next: RTX 3090 hardware validation, coverage 64%→90%, RDNA3/RDNA4 backend.*

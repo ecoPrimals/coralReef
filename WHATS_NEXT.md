@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 37)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 38)
 
 ---
 
@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 37)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 38)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -241,6 +241,8 @@ the full Spring absorption map.
 
 - [x] Iteration 37: Gap closure + deep debt evolution — `bytemuck::Zeroable` on 5 UVM structs (eliminates `unsafe { zeroed() }`), PCI vendor constants centralized (`PCI_VENDOR_NVIDIA`/`AMD`/`INTEL`), AMD architecture auto-detection (`GpuIdentity::amd_arch()`), `raw_nv_ioctl` helper extraction, compute class constant unification (pushbuf re-exports from uvm), `NV_STATUS` documented (`nv_status` module), `uvm.rs` smart-refactored (727 LOC → 3 files), GPFIFO submission (`submit_gpfifo()` + USERD doorbell + `poll_gpfifo_completion()`), `NvDrmDevice` evolved to delegator (`Option<NvUvmComputeDevice>`), `KernelCacheEntry` (serde-derived cache struct), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — 1635 tests (1635 passing, 63 ignored)
 
+- [x] Iteration 38: Deep debt solutions + idiomatic evolution — `cargo fmt` drift resolved (~10 files), 6 clippy fixes (`ExternalMapping` struct, `RmAllocEvent` struct, `KernelCacheEntry` param, redundant closures → method refs, collapsible if → let-chain), 4 intra-doc links fixed, `naga_translate_tests.rs` smart-refactored (1486 LOC → 3 domain files), `rm_client.rs` under 1000 LOC (`rm_status_name` → `nv_status::status_name`, `rm_client_tests.rs` extracted), `op_conv.rs` test extraction (1047 → 796 LOC), `// SAFETY:` comments on all unsafe blocks, zero-copy `primal-rpc-client` (`Vec<u8>` → `bytes::Bytes`), 22 new tests (15 `unix_jsonrpc` + 7 `op_conv`), zero files over 1000 LOC — 1657 tests (1657 passing, 63 ignored)
+
 ### P3 — Remaining gaps (sovereign pipeline)
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
@@ -258,7 +260,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1635 tests passing, 63 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1657 tests passing, 63 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
@@ -266,7 +268,7 @@ NvDrmDevice evolved from stub to delegator. dispatch_binary API wired for barraC
 Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-FirmwareInventory + compute_viable() absorbs hwLearn pattern.
+Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings.
 All ioctl calls use drm_ioctl_named. bytemuck::Zeroable eliminates unsafe zeroed().
 NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
 All pure Rust. Sovereignty is a runtime choice.*

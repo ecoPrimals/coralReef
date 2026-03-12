@@ -790,3 +790,7 @@ impl DisplayOp for OpRedux {
     }
 }
 impl_display_for_op!(OpRedux);
+
+#[cfg(test)]
+#[path = "op_conv_tests.rs"]
+mod tests;

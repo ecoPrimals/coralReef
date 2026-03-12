@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 37 (Gap Closure + Deep Debt Evolution)
+**Status**: Phase 10 — Iteration 38 (Deep Debt Solutions + Idiomatic Evolution)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -33,7 +33,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1635 passing, 0 failed, 63 ignored
+cargo test --workspace     # 1657 passing, 0 failed, 63 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -166,7 +166,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1635 passing, 0 failed, 63 ignored) |
+| `cargo test --workspace` | PASS (1657 passing, 0 failed, 63 ignored) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
