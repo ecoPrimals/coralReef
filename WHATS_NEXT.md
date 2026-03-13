@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 13, 2026 (Phase 10 — Iteration 43)
+**Last updated**: March 13, 2026 (Phase 10 — Iteration 44)
 
 ---
 
@@ -79,7 +79,16 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 43)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 44)
+
+### Iteration 44 — USERD_TARGET + INST_TARGET Runlist Fix
+- [x] Runlist DW0: `USERD_TARGET` bits (3:2) set to SYS_MEM_COHERENT (2) — PBDMA reads USERD from system memory
+- [x] Runlist DW2: `INST_TARGET` bits (5:4) set to SYS_MEM_NCOH (3) — PBDMA locates instance block in system memory
+- [x] Replaced literal PFIFO register addresses with named constants (`pfifo::RUNLIST_BASE`, `pfifo::RUNLIST`)
+- [x] Removed unused constants (`pmc::PBDMA_ENABLE`, `pmc::PBDMA_INTR_EN`)
+- [x] Clippy clean: `identity_op`, `assertions_on_constants`, `unused_variables` all resolved
+- [x] Tests: `runlist_chan_dw0_userd_target` + `runlist_chan_dw2_inst_target` validate target bit encoding
+- [x] Root cause: hotSpring HW debug traced FenceTimeout to PBDMA unable to read USERD page (target=VRAM instead of SYS_MEM)
 
 ### Iteration 43 — PFIFO Channel Init + Cross-Primal Rewire
 - [x] PFIFO hardware channel creation via BAR0 MMIO (`vfio/channel.rs`)
@@ -293,13 +302,14 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1693+47 tests passing, 71 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1669+48 tests passing, 74 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel init + V2 MMU page tables + sync.
-PFIFO channel: RAMFC, instance block, 5-level V2 MMU, TSG+channel runlist, PCCSR bind/enable.
-RAMUSERD corrected (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
+VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
+PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist, PCCSR bind/enable.
+Runlist USERD_TARGET=SYS_MEM_COHERENT, INST_TARGET=SYS_MEM_NCOH — PBDMA reads USERD correctly.
+RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
 GpuContext::from_vfio() convenience API unblocks barraCuda CoralReefDevice wiring.
 Multi-GPU sovereignty: vfio-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.

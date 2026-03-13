@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 13, 2026 (Phase 10 — Iteration 43: PFIFO Channel Init + Cross-Primal Rewire)
+**Last updated**: March 13, 2026 (Phase 10 — Iteration 44: USERD_TARGET + INST_TARGET Runlist Fix)
 
 ---
 
@@ -287,7 +287,7 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 1693+47 tests passing, 71 ignored, 64% coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 1669+48 tests passing, 74 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass (resolved Iteration 31).
 VFIO sovereign dispatch with PFIFO channel init, V2 MMU page tables, RAMUSERD correction.

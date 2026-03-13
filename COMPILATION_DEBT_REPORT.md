@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 13, Iter 43)  
+**Generated:** March 10, 2026 (metrics updated March 13, Iter 44)  
 **Workspace:** coralReef
 
 ---
@@ -198,10 +198,10 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 43) |
+| Metric | Value (as of Iter 44) |
 |--------|-------|
-| Tests passing | 1693 default + 47 VFIO (was 1669 at Iter 40) |
-| Ignored tests | 71 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 1669 default + 48 VFIO (was 1693+47 at Iter 43) |
+| Ignored tests | 74 (66 default + 8 VFIO: hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 8 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |

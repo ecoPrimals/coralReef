@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 13, 2026 (Phase 10 — Iteration 43)
+**Last updated**: March 13, 2026 (Phase 10 — Iteration 44)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1693 tests (1693 passing, 71 ignored), 64% line coverage (target 90%),
+1717 tests (1669 default + 48 VFIO, 74 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -414,21 +414,22 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 40 | BAR0 breakthrough absorbed (sovereign MMIO GR init), 2 bugs fixed (`sm_version()` derivation, `pushbuf::class` portability), hardcoding evolved (sync timeout, page mask, local mem window, cache invalidation, SM defaults, FNV constants), Gap 6 error recovery (dispatch cleanup-on-error), chip mapping dedup, error logging, doc warning fixed | **1669** (1669 pass, 64 ignore) |
 | 10 iter 41 | VFIO sovereign GPU dispatch: full VFIO core module (types, ioctls, DMA, VfioDevice), NvVfioComputeDevice with BAR0/DMA/GPFIFO dispatch, feature gate (`--features vfio`), DriverPreference updated (`vfio` first), sysfs VFIO discovery, `from_descriptor` VFIO path, 35 new unit tests + 5 HW integration tests, wateringHole toadStool hardware contract | **1669+35** (1669 default + 35 vfio, 64+5 ignore) |
 | 10 iter 42 | VFIO sync + barraCuda API: `poll_gpfifo_completion()` reads GP_GET from USERD DMA page (volatile read, spin-loop, 5s timeout — mirrors UVM pattern), USERD GP_PUT write in `submit_pushbuf()`, `GpuContext::from_vfio(bdf)` + `from_vfio_with_sm()` convenience API for barraCuda integration, named constants (`userd::GP_PUT_OFFSET/GP_GET_OFFSET`, `SYNC_TIMEOUT`, `POLL_INTERVAL`) | **1669+35** (1669 default + 35 vfio, 64+5 ignore) |
-| 10 iter 43 (current) | PFIFO channel init + V2 MMU page tables + cross-primal rewire: `vfio/channel.rs` with full Volta PFIFO channel creation (RAMFC, instance block, 5-level V2 MMU, TSG+channel runlist, PCCSR bind/enable), RAMUSERD offset correction (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090, subcontext PDB setup, toadStool S150-S152 acknowledged, barraCuda VFIO-primary wiring acknowledged, 12 new channel tests | **1693+47** (1693 default + 47 vfio, 71 ignore) |
+| 10 iter 43 | PFIFO channel init + V2 MMU page tables + cross-primal rewire: `vfio/channel.rs` with full Volta PFIFO channel creation (RAMFC, instance block, 5-level V2 MMU, TSG+channel runlist, PCCSR bind/enable), RAMUSERD offset correction (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090, subcontext PDB setup, toadStool S150-S152 acknowledged, barraCuda VFIO-primary wiring acknowledged, 12 new channel tests | **1693+47** (1693 default + 47 vfio, 71 ignore) |
+| 10 iter 44 (current) | USERD_TARGET + INST_TARGET runlist fix: `USERD_TARGET` bits (3:2) set to SYS_MEM_COHERENT (2) in DW0, `INST_TARGET` bits (5:4) set to SYS_MEM_NCOH (3) in DW2, resolves PBDMA unable to read USERD page from system memory, pfifo register constants replace literals, clippy clean, cargo fmt clean, 1 new VFIO test | **1669+48** (1669 default + 48 vfio, 74 ignore) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 43: 1693+47 tests passing, 71 ignored. Idiomatic evolution.
+Iteration 44: 1669+48 tests passing, 74 ignored. Idiomatic evolution.
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes. All parameter structs idiomatic.
 VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
-PFIFO channel creation: RAMFC, instance block, 5-level V2 MMU page tables,
-TSG+channel runlist, PCCSR bind/enable, RAMUSERD corrected (GP_GET@0x88,
-GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
+PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist,
+PCCSR bind/enable, RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), doorbell BAR0+0x810090.
+Runlist USERD_TARGET=SYS_MEM_COHERENT, INST_TARGET=SYS_MEM_NCOH — PBDMA reads
+USERD from system memory correctly.
 GpuContext::from_vfio() convenience API unblocks barraCuda integration.
-toadStool S150-S152 gaps resolved. barraCuda VFIO-primary wiring acknowledged.
 8 of 9 crates enforce #[deny(unsafe_code)].
-Pending: Titan V hardware validation of PFIFO channel + full dispatch path.*
+Pending: Titan V hardware validation of full dispatch path.*
