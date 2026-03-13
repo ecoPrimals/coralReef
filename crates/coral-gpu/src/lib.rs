@@ -46,6 +46,15 @@ use bytes::Bytes;
 pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 pub use coral_reef::{AmdArch, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
+/// Default NVIDIA SM architecture for sysfs-based fallback detection.
+///
+/// SM 86 (Ampere, GA102) is the default because it covers RTX 3090/3080/3070
+/// which are the most common sovereign compute GPUs.
+const DEFAULT_NV_SM: u32 = 86;
+
+/// Default NVIDIA SM for the nouveau sovereign path when sysfs detection fails.
+const DEFAULT_NV_SM_NOUVEAU: u32 = 70;
+
 /// A compiled compute shader ready for dispatch.
 ///
 /// Uses `bytes::Bytes` for the native binary to enable zero-copy sharing
@@ -242,7 +251,7 @@ impl GpuContext {
             #[cfg(feature = "nvidia-drm")]
             "nvidia-drm" => {
                 if coral_driver::nv::uvm::nvidia_uvm_available() {
-                    let sm = sm_from_sysfs_or(86);
+                    let sm = sm_from_sysfs_or(DEFAULT_NV_SM);
                     match coral_driver::nv::NvUvmComputeDevice::open(0, sm) {
                         Ok(dev) => {
                             tracing::info!(sm, "nvidia-drm: UVM compute device opened");
@@ -785,29 +794,35 @@ fn sm_from_sysfs_or(default: u32) -> u32 {
 }
 
 /// Detect the NVIDIA SM version from sysfs for a render node path.
-/// Falls back to SM70 if detection fails.
+/// Falls back to `DEFAULT_NV_SM_NOUVEAU` if detection fails.
 #[cfg(target_os = "linux")]
 fn sm_from_sysfs(path: &str) -> u32 {
     coral_driver::nv::ioctl::probe_gpu_identity(path)
         .and_then(|id| id.nvidia_sm())
-        .unwrap_or(70)
+        .unwrap_or(DEFAULT_NV_SM_NOUVEAU)
 }
 
 /// Detect the GPU target from sysfs for an nvidia-drm render node.
-/// Falls back to SM86 if detection fails.
+/// Falls back to `DEFAULT_NV_SM` if detection fails.
 #[cfg(all(target_os = "linux", feature = "nvidia-drm"))]
 fn sm_target_from_sysfs(path: &str) -> GpuTarget {
     let sm = coral_driver::nv::ioctl::probe_gpu_identity(path)
         .and_then(|id| id.nvidia_sm())
-        .unwrap_or(86);
+        .unwrap_or(DEFAULT_NV_SM);
     GpuTarget::Nvidia(sm_to_nvarch(sm))
 }
 
+/// FNV-1a 64-bit offset basis.
+const FNV1A_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+/// FNV-1a 64-bit prime.
+const FNV1A_PRIME: u64 = 0x0100_0000_01b3;
+
+/// Compute a fast non-cryptographic hash of WGSL source (FNV-1a 64-bit).
 pub(crate) fn hash_wgsl(wgsl: &str) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let mut hash = FNV1A_OFFSET_BASIS;
     for byte in wgsl.bytes() {
         hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
+        hash = hash.wrapping_mul(FNV1A_PRIME);
     }
     hash
 }

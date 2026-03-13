@@ -20,8 +20,10 @@ mod tests {
         NvDevice::open().expect("NvDevice::open() — is nouveau loaded?")
     }
 
+    #[expect(dead_code, reason = "available for Titan V-specific hardware tests")]
     fn open_nv_sm70() -> NvDevice {
-        NvDevice::open_with_sm(70).expect("NvDevice::open_with_sm(70) — is nouveau loaded with Titan V?")
+        NvDevice::open_with_sm(70)
+            .expect("NvDevice::open_with_sm(70) — is nouveau loaded with Titan V?")
     }
 
     fn compile_for_sm(sm: u32, wgsl: &str) -> coral_reef::backend::CompiledBinary {
@@ -156,16 +158,28 @@ fn main() {
         // Auto-detect GPU — tests show CTXNOTVALID on both Volta and Ampere
         let mut dev = open_nv();
         let sm = dev.sm_version();
-        eprintln!("Device: SM{sm}, compute_class=0x{:04X}, new_uapi={}", dev.compute_class(), dev.uses_new_uapi());
+        eprintln!(
+            "Device: SM{sm}, compute_class=0x{:04X}, new_uapi={}",
+            dev.compute_class(),
+            dev.uses_new_uapi()
+        );
 
         let compiled = compile_for_sm(sm, WRITE_42_SHADER);
-        eprintln!("Compiled binary for SM{sm}: {} bytes", compiled.binary.len());
+        eprintln!(
+            "Compiled binary for SM{sm}: {} bytes",
+            compiled.binary.len()
+        );
         eprintln!("  gpr_count: {}", compiled.info.gpr_count);
         eprintln!("  shared_mem: {}", compiled.info.shared_mem_bytes);
         eprintln!("  barriers: {}", compiled.info.barrier_count);
         eprintln!("  local_size: {:?}", compiled.info.local_size);
 
-        let hex: Vec<String> = compiled.binary.iter().take(64).map(|b| format!("{b:02x}")).collect();
+        let hex: Vec<String> = compiled
+            .binary
+            .iter()
+            .take(64)
+            .map(|b| format!("{b:02x}"))
+            .collect();
         eprintln!("  binary[0..64]: {}", hex.join(" "));
 
         // Fill buffer with sentinel pattern (0xDEADBEEF) to detect writes
@@ -194,7 +208,10 @@ fn main() {
             let off = i * 4;
             let word = u32::from_le_bytes(readback[off..off + 4].try_into().unwrap());
             let changed = word != 0xDEAD_BEEF;
-            eprintln!("  buf[{i}] = 0x{word:08X}{}", if changed { " ← CHANGED" } else { "" });
+            eprintln!(
+                "  buf[{i}] = 0x{word:08X}{}",
+                if changed { " ← CHANGED" } else { "" }
+            );
         }
 
         let value = u32::from_le_bytes(readback[..4].try_into().unwrap());
@@ -296,9 +313,9 @@ fn main() {
     #[test]
     #[ignore = "requires nouveau hardware — diagnostic: sovereign BAR0 GR init analysis"]
     fn nouveau_sovereign_bar0_diagnostic() {
+        use coral_driver::drm::enumerate_render_nodes;
         use coral_driver::gsp::{GrFirmwareBlobs, GrInitSequence, split_for_application};
         use coral_driver::nv::bar0::Bar0Access;
-        use coral_driver::drm::enumerate_render_nodes;
 
         let nodes = enumerate_render_nodes();
         for info in &nodes {
@@ -332,20 +349,37 @@ fn main() {
 
             let seq = GrInitSequence::for_gv100(&blobs);
             let (bar0, fecs) = split_for_application(&seq);
-            eprintln!("  address-aware split: {} BAR0 + {} FECS = {} total", bar0.len(), fecs.len(), seq.len());
+            eprintln!(
+                "  address-aware split: {} BAR0 + {} FECS = {} total",
+                bar0.len(),
+                fecs.len(),
+                seq.len()
+            );
 
             if let Some(first) = bar0.first() {
-                eprintln!("  first BAR0 write: offset={:#010x} value={:#010x} cat={:?}", first.offset, first.value, first.category);
+                eprintln!(
+                    "  first BAR0 write: offset={:#010x} value={:#010x} cat={:?}",
+                    first.offset, first.value, first.category
+                );
             }
             if let Some(last) = bar0.last() {
-                eprintln!("  last BAR0 write:  offset={:#010x} value={:#010x} cat={:?}", last.offset, last.value, last.category);
+                eprintln!(
+                    "  last BAR0 write:  offset={:#010x} value={:#010x} cat={:?}",
+                    last.offset, last.value, last.category
+                );
             }
 
             match Bar0Access::from_render_node(&info.path) {
                 Ok(b) => {
                     let boot_id = b.read_boot_id().unwrap_or(0);
-                    eprintln!("  BAR0: OPEN (size={} MiB, NV_PMC_BOOT_0={boot_id:#010x})", b.size() / (1024 * 1024));
-                    eprintln!("  → Ready for sovereign GR init ({} register writes)", bar0.len());
+                    eprintln!(
+                        "  BAR0: OPEN (size={} MiB, NV_PMC_BOOT_0={boot_id:#010x})",
+                        b.size() / (1024 * 1024)
+                    );
+                    eprintln!(
+                        "  → Ready for sovereign GR init ({} register writes)",
+                        bar0.len()
+                    );
                 }
                 Err(e) => {
                     eprintln!("  BAR0: NOT AVAILABLE ({e})");

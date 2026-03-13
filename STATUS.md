@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 12, 2026  
-**Phase**: 10 — Iteration 39 (FECS GR Context + UVM Alignment + Safe Evolution)
+**Phase**: 10 — Iteration 40 (BAR0 Absorption + Deep Debt Evolution + Error Recovery)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1667 passing, 0 failed, 64 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1669 passing, 0 failed, 64 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 39** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 40** |
 
 ### Phase 10 Completions
 
@@ -592,6 +592,25 @@
 | Test coverage (+10 tests) | ✅ | `legacy_parse_retains_ctx_data`, `missing_ctx_produces_empty`, `gr_context_init_structure`, `gr_context_init_empty_methods`, `sm_to_chip_mapping`, `compute_class_selection`, `gpfifo_entry_encoding`, `gpfifo_entry_zero_length`, `gpu_gen_sm_roundtrip` |
 | File size compliance | ✅ | All files under 1000 LOC (largest: `rm_client.rs` at 997) |
 | Test expansion | ✅ | 1667 passing (+10), 64 ignored |
+
+### Iteration 40: BAR0 Absorption + Deep Debt Evolution + Error Recovery (Mar 12 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| BAR0 breakthrough absorbed | ✅ | Team commits `23ed6f8`, `e160d89`, `996b7c1` — sovereign BAR0 MMIO GR init, address-aware firmware split, phased device open (BAR0 → VM_INIT → CHANNEL_ALLOC → FECS) |
+| BUG: `sm_version()` fix | ✅ | Was deriving SM from `compute_class` match (wrong for Turing/Ampere) — now returns stored `sm_version` field |
+| BUG: `pushbuf::class` portability | ✅ | Was unconditionally importing from `uvm` module (breaks nouveau-only builds) — now imports from `ioctl` constants |
+| Hardcoding evolution (nv/mod.rs) | ✅ | Sync timeout → `SYNCOBJ_TIMEOUT_NS`, page mask → `GPU_PAGE_MASK`, local mem window → `LOCAL_MEM_WINDOW_VOLTA` / `LOCAL_MEM_WINDOW_LEGACY`, syncobj deadline → `syncobj_deadline()` helper |
+| Hardcoding evolution (pushbuf.rs) | ✅ | Cache invalidation → `method::INVALIDATE_INSTR_AND_DATA`, pushbuf capacity → `DEFAULT_PUSHBUF_WORDS` |
+| Hardcoding evolution (coral-gpu) | ✅ | SM fallbacks → `DEFAULT_NV_SM` / `DEFAULT_NV_SM_NOUVEAU`, FNV hash → `FNV1A_OFFSET_BASIS` / `FNV1A_PRIME` with documentation |
+| Chip mapping dedup | ✅ | `run_open_diagnostics` now uses `sm_to_chip()` instead of duplicated match |
+| Error logging improved | ✅ | `try_fecs_channel_init` now logs firmware parse errors instead of silent discard |
+| Gap 6: Error recovery | ✅ | Dispatch refactored to `dispatch_inner` pattern — temp buffers freed on error instead of leaking |
+| Method address validation | ✅ | `gr_context_init` adds `debug_assert!(addr <= 0x7FFC)` for push buffer encoding limit |
+| Doc warning fixed | ✅ | `bar0.rs` module doc link to private `firmware_parser` → plain text reference |
+| Dead code fix (re-applied) | ✅ | Team's commits overwrote our `#[expect(dead_code)]` — re-applied |
+| Quality gates | ✅ | Zero clippy warnings, zero fmt drift, zero doc warnings |
+| Test expansion | ✅ | 1669 passing (+2), 64 ignored |
 
 ### Pure Rust Sovereign Stack — Dependency Tracking
 

@@ -51,6 +51,33 @@ pub const NV_KERNEL_MANAGED_ADDR: u64 = 0x80_0000_0000;
 /// `NV_KERNEL_MANAGED_ADDR`. 4 GiB base avoids low-address collisions.
 pub const NV_USER_VA_START: u64 = 0x1_0000_0000;
 
+/// GPU page size (4 KiB) — standard for NVIDIA and AMD discrete GPUs.
+const GPU_PAGE_SIZE: u64 = 4096;
+
+/// GPU page mask for alignment — `GPU_PAGE_SIZE - 1`.
+const GPU_PAGE_MASK: u64 = GPU_PAGE_SIZE - 1;
+
+/// Syncobj wait timeout in nanoseconds (5 seconds).
+///
+/// Applied to both FECS init and compute dispatch syncobj waits.
+const SYNCOBJ_TIMEOUT_NS: i64 = 5_000_000_000;
+
+/// Local memory window address for Volta+ (SM >= 70).
+///
+/// The shader local memory window tells the GPU where to map per-thread
+/// scratch space. Volta uses a 64-bit address space with the window
+/// high in virtual memory.
+const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
+
+/// Local memory window address for pre-Volta (SM < 70).
+const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
+
+/// Compute a monotonic deadline `SYNCOBJ_TIMEOUT_NS` from now.
+fn syncobj_deadline() -> i64 {
+    let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + SYNCOBJ_TIMEOUT_NS
+}
+
 /// NVIDIA GPU compute device via nouveau.
 ///
 /// Supports two dispatch paths:
@@ -264,11 +291,7 @@ impl NvDevice {
     /// The SM architecture version this device targets.
     #[must_use]
     pub const fn sm_version(&self) -> u32 {
-        match self.compute_class {
-            pushbuf::class::TURING_COMPUTE_A => 75,
-            pushbuf::class::AMPERE_COMPUTE_A => 86,
-            _ => 70,
-        }
+        self.sm_version
     }
 
     const fn alloc_handle(&mut self) -> u32 {
@@ -295,7 +318,10 @@ impl NvDevice {
         let chip = sm_to_chip(self.sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,
-            Err(_) => return,
+            Err(e) => {
+                tracing::debug!(chip, error = %e, "firmware not available — skipping FECS channel init");
+                return;
+            }
         };
 
         let seq = GrInitSequence::for_gv100(&blobs);
@@ -303,10 +329,12 @@ impl NvDevice {
 
         let channel_methods: Vec<(u32, u32)> = fecs
             .iter()
-            .filter(|w| matches!(
-                w.category,
-                gsp::RegCategory::BundleInit | gsp::RegCategory::MethodInit
-            ))
+            .filter(|w| {
+                matches!(
+                    w.category,
+                    gsp::RegCategory::BundleInit | gsp::RegCategory::MethodInit
+                )
+            })
             .map(|w| (w.offset, w.value))
             .collect();
 
@@ -340,7 +368,11 @@ impl NvDevice {
             return;
         }
 
-        tracing::info!(chip, entries = channel_methods.len(), "submitting FECS channel methods");
+        tracing::info!(
+            chip,
+            entries = channel_methods.len(),
+            "submitting FECS channel methods"
+        );
 
         let submit_result = if self.new_uapi {
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
@@ -358,25 +390,15 @@ impl NvDevice {
             }
         } else {
             let pb_gem = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gem_handle);
-            ioctl::pushbuf_submit(
-                self.drm.fd(),
-                self.channel,
-                pb_gem,
-                0,
-                pb_size,
-                &[pb_gem],
-            )
+            ioctl::pushbuf_submit(self.drm.fd(), self.channel, pb_gem, 0, pb_size, &[pb_gem])
         };
 
         match submit_result {
             Ok(()) => {
                 tracing::info!(chip, "FECS channel method init submitted");
                 if let Some(syncobj) = self.exec_syncobj {
-                    let timeout = {
-                        let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-                        tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
-                    };
-                    if let Err(e) = ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout) {
+                    if let Err(e) = ioctl::syncobj_wait(self.drm.fd(), syncobj, syncobj_deadline())
+                    {
                         tracing::warn!(error = %e, "FECS init syncobj wait failed");
                     }
                 } else if let Some(gem) = self.buffers.get(&pb_handle.0).map(|b| b.gem_handle) {
@@ -446,7 +468,10 @@ fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
     );
 
     if bar0_entries.len() <= 2 {
-        tracing::debug!(chip, "only pre-init entries — no PGRAPH registers to write via BAR0");
+        tracing::debug!(
+            chip,
+            "only pre-init entries — no PGRAPH registers to write via BAR0"
+        );
         return;
     }
 
@@ -515,11 +540,7 @@ fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
             ),
         }
     }
-    let chip = match sm {
-        75 => "tu102",
-        80..=89 => "ga102",
-        _ => "gv100",
-    };
+    let chip = sm_to_chip(sm);
     let fw = ioctl::check_nouveau_firmware(chip);
     let missing: Vec<_> = fw.iter().filter(|(_, exists)| !*exists).collect();
     if !missing.is_empty() {
@@ -544,9 +565,9 @@ fn u32_slice_as_bytes(words: &[u32]) -> &[u8] {
     bytemuck::cast_slice(words)
 }
 
-/// Page-align a size upward (4 KiB pages).
+/// Page-align a size upward to `GPU_PAGE_SIZE` (4 KiB).
 const fn page_align(size: u64) -> u64 {
-    (size + 0xFFF) & !0xFFF
+    (size + GPU_PAGE_MASK) & !GPU_PAGE_MASK
 }
 
 impl ComputeDevice for NvDevice {
@@ -650,9 +671,49 @@ impl ComputeDevice for NvDevice {
         dims: DispatchDims,
         info: &ShaderInfo,
     ) -> DriverResult<()> {
+        // Track temp allocations so we can clean up on error.
+        let mut temps: Vec<BufferHandle> = Vec::with_capacity(4);
+        let result = self.dispatch_inner(shader, buffers, dims, info, &mut temps);
+        if result.is_ok() {
+            self.inflight.extend(temps);
+        } else {
+            for h in temps {
+                let _ = self.free(h);
+            }
+        }
+        result
+    }
+
+    fn sync(&mut self) -> DriverResult<()> {
+        if let Some(syncobj) = self.exec_syncobj {
+            // New UAPI: wait on syncobj
+            ioctl::syncobj_wait(self.drm.fd(), syncobj, syncobj_deadline())?;
+        } else if let Some(gem_handle) = self.last_submit_gem {
+            // Legacy UAPI: wait via GEM CPU prep
+            ioctl::gem_cpu_prep(self.drm.fd(), gem_handle)?;
+        }
+        let inflight = std::mem::take(&mut self.inflight);
+        for handle in inflight {
+            let _ = self.free(handle);
+        }
+        Ok(())
+    }
+}
+
+impl NvDevice {
+    /// Inner dispatch — separated so the caller can clean up `temps` on error.
+    fn dispatch_inner(
+        &mut self,
+        shader: &[u8],
+        buffers: &[BufferHandle],
+        dims: DispatchDims,
+        info: &ShaderInfo,
+        temps: &mut Vec<BufferHandle>,
+    ) -> DriverResult<()> {
         let shader_size = u64::try_from(shader.len())
             .map_err(|_| DriverError::platform_overflow("shader size fits in u64"))?;
         let shader_handle = self.alloc(shader_size, MemoryDomain::Gtt)?;
+        temps.push(shader_handle);
         self.upload(shader_handle, 0, shader)?;
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
@@ -667,21 +728,21 @@ impl ComputeDevice for NvDevice {
         // All user buffers are currently in group 0. Each binding needs
         // 12 bytes in the descriptor: [addr_lo, addr_hi, size].
         // We round up to 16 bytes per entry for alignment.
-        let desc_entry_size = 16_u64; // 3 u32 fields + 4 bytes padding per binding
-        let desc_buf_size = desc_entry_size * u64::try_from(buffers.len().max(1))
-            .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
+        let desc_entry_size = 16_u64;
+        let desc_buf_size = desc_entry_size
+            * u64::try_from(buffers.len().max(1))
+                .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
         let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
+        temps.push(desc_handle);
 
-        // Populate the descriptor buffer with each binding's VA and size.
         let mut desc_data = vec![0u8; desc_buf_size as usize];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                let off = i * 8; // binding * 8 matches compiler offset
+                let off = i * 8;
                 let va = buf.gpu_va;
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
                 desc_data[off..off + 4].copy_from_slice(&(va as u32).to_le_bytes());
                 desc_data[off + 4..off + 8].copy_from_slice(&((va >> 32) as u32).to_le_bytes());
-                // size at offset binding * 8 + 8
                 let sz_off = off + 8;
                 if sz_off + 4 <= desc_data.len() {
                     desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
@@ -691,14 +752,12 @@ impl ComputeDevice for NvDevice {
         self.upload(desc_handle, 0, &desc_data)?;
         let desc_va = self.buffers.get(&desc_handle.0).map_or(0, |b| b.gpu_va);
 
-        // CBUF 0 points to the descriptor buffer, not the storage buffer
         let cbufs = vec![qmd::CbufBinding {
             index: 0,
             addr: desc_va,
             size: u32::try_from(desc_buf_size).unwrap_or(u32::MAX),
         }];
 
-        // Build QMD with compiler-derived metadata (version selected by SM arch)
         let qmd_params = qmd::QmdParams {
             shader_va,
             grid: dims,
@@ -711,31 +770,29 @@ impl ComputeDevice for NvDevice {
         let qmd_words = qmd::build_qmd_for_sm(self.sm_version, &qmd_params);
         let qmd_bytes = u32_slice_as_bytes(&qmd_words);
 
-        // Upload QMD to GPU memory
         let qmd_size = u64::try_from(qmd_bytes.len())
             .map_err(|_| DriverError::platform_overflow("QMD size fits in u64"))?;
         let qmd_handle = self.alloc(qmd_size, MemoryDomain::Gtt)?;
+        temps.push(qmd_handle);
         self.upload(qmd_handle, 0, qmd_bytes)?;
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Build push buffer: SET_OBJECT + caches + SEND_PCAS with QMD address
         let local_mem_window = if self.sm_version >= 70 {
-            0xFF00_0000_0000_0000_u64
+            LOCAL_MEM_WINDOW_VOLTA
         } else {
-            0xFF00_0000_u64
+            LOCAL_MEM_WINDOW_LEGACY
         };
         let pb = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va, local_mem_window);
         let pb_bytes = pb.as_bytes();
 
-        // Upload push buffer to GPU memory
         let pb_size = u64::try_from(pb_bytes.len())
             .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u64"))?;
         let pb_handle = self.alloc(pb_size, MemoryDomain::Gtt)?;
+        temps.push(pb_handle);
         self.upload(pb_handle, 0, pb_bytes)?;
         let pb_gem = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gem_handle);
 
         if self.new_uapi {
-            // New UAPI: submit push buffer by VA via EXEC with syncobj signal.
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
             let push_len = u32::try_from(pb_size)
                 .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
@@ -751,7 +808,6 @@ impl ComputeDevice for NvDevice {
                 ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)?;
             }
         } else {
-            // Legacy UAPI: submit push buffer via GEM pushbuf.
             let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 4);
             if let Some(b) = self.buffers.get(&shader_handle.0) {
                 bo_handles.push(b.gem_handle);
@@ -773,33 +829,7 @@ impl ComputeDevice for NvDevice {
             ioctl::pushbuf_submit(self.drm.fd(), self.channel, pb_gem, 0, pb_size, &bo_handles)?;
         }
 
-        // Track the QMD GEM handle for fence sync (the GPU reads QMD last)
         self.last_submit_gem = self.buffers.get(&qmd_handle.0).map(|b| b.gem_handle);
-
-        // Defer temp buffer cleanup until sync() — the GPU may still be reading
-        self.inflight.push(pb_handle);
-        self.inflight.push(qmd_handle);
-        self.inflight.push(shader_handle);
-        self.inflight.push(desc_handle);
-        Ok(())
-    }
-
-    fn sync(&mut self) -> DriverResult<()> {
-        if let Some(syncobj) = self.exec_syncobj {
-            // New UAPI: wait on syncobj (5 second timeout)
-            let timeout = {
-                let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-                tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + 5_000_000_000
-            };
-            ioctl::syncobj_wait(self.drm.fd(), syncobj, timeout)?;
-        } else if let Some(gem_handle) = self.last_submit_gem {
-            // Legacy UAPI: wait via GEM CPU prep
-            ioctl::gem_cpu_prep(self.drm.fd(), gem_handle)?;
-        }
-        let inflight = std::mem::take(&mut self.inflight);
-        for handle in inflight {
-            let _ = self.free(handle);
-        }
         Ok(())
     }
 }

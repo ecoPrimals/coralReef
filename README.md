@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 39 (FECS GR Context + UVM Alignment + Safe Evolution)
+**Status**: Phase 10 — Iteration 40 (BAR0 Absorption + Deep Debt Evolution + Error Recovery)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -33,7 +33,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1667 passing, 0 failed, 64 ignored
+cargo test --workspace     # 1669 passing, 0 failed, 64 ignored
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

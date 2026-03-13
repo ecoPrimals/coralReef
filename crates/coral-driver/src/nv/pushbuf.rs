@@ -37,9 +37,15 @@ pub const fn mthd_immd(subchan: u32, method: u32, value: u32) -> u32 {
     (0x4 << 29) | (value << 16) | (subchan << 13) | (method >> 2)
 }
 
-/// Re-exported compute class constants from the canonical UVM definitions.
+/// Compute engine class constants — canonical values used across all dispatch
+/// paths (nouveau, UVM, VFIO). Sourced from ioctl definitions so this module
+/// compiles with any feature combination.
 pub mod class {
-    pub use super::super::uvm::{AMPERE_COMPUTE_A, TURING_COMPUTE_A, VOLTA_COMPUTE_A};
+    pub use super::super::ioctl::{
+        NVIF_CLASS_AMPERE_COMPUTE_A as AMPERE_COMPUTE_A,
+        NVIF_CLASS_TURING_COMPUTE_A as TURING_COMPUTE_A,
+        NVIF_CLASS_VOLTA_COMPUTE_A as VOLTA_COMPUTE_A,
+    };
 }
 
 /// NVIDIA compute class method registers (offsets in bytes).
@@ -56,7 +62,14 @@ pub mod method {
     pub const SEND_PCAS_A: u32 = 0x0D00;
     /// Launch compute: QMD address (lower 32 bits).
     pub const SEND_SIGNALING_PCAS_B: u32 = 0x0D04;
+
+    /// Invalidate instruction + data caches (bits 0 + 4).
+    pub const INVALIDATE_INSTR_AND_DATA: u32 = 0x11;
 }
+
+/// Default word capacity for push buffers — sufficient for most
+/// single-dispatch command sequences.
+const DEFAULT_PUSHBUF_WORDS: usize = 64;
 
 /// Push buffer builder for nouveau command submission.
 ///
@@ -71,7 +84,7 @@ impl PushBuf {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            words: Vec::with_capacity(64),
+            words: Vec::with_capacity(DEFAULT_PUSHBUF_WORDS),
         }
     }
 
@@ -146,7 +159,7 @@ impl PushBuf {
         pb.push_1(
             sub,
             method::INVALIDATE_SHADER_CACHES,
-            0x11, // instruction + data caches
+            method::INVALIDATE_INSTR_AND_DATA,
         );
 
         #[expect(
@@ -181,6 +194,10 @@ impl PushBuf {
     ///
     /// Each method entry is a `(addr, value)` pair where `addr` is a
     /// GR class method offset and `value` is the data to write.
+    ///
+    /// Callers must ensure all addresses fit in the 13-bit push buffer
+    /// method encoding (<= 0x7FFC). Use [`crate::gsp::split_for_application`]
+    /// to separate BAR0 from channel-submittable entries.
     #[must_use]
     pub fn gr_context_init(compute_class: u32, method_entries: &[(u32, u32)]) -> Self {
         let mut pb = Self::new();
@@ -189,6 +206,10 @@ impl PushBuf {
         pb.push_1(sub, method::SET_OBJECT, compute_class);
 
         for &(addr, value) in method_entries {
+            debug_assert!(
+                addr <= 0x7FFC,
+                "method addr {addr:#x} exceeds 13-bit push buffer encoding limit"
+            );
             pb.push_1(sub, addr, value);
         }
 

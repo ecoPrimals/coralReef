@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 12, Iter 39)  
+**Generated:** March 10, 2026 (metrics updated March 12, Iter 40)  
 **Workspace:** coralReef
 
 ---
@@ -198,9 +198,9 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 39) |
+| Metric | Value (as of Iter 40) |
 |--------|-------|
-| Tests passing | 1667 (was 1657 at Iter 38) |
+| Tests passing | 1669 (was 1657 at Iter 38, 1667 at Iter 39) |
 | Ignored tests | 64 (hardware-gated + diagnostic) |
 | EVOLUTION markers | 9 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |

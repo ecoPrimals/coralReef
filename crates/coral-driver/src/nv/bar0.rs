@@ -12,7 +12,7 @@
 //! BAR0 writes affect real hardware state. Incorrect register writes can
 //! hang the GPU, corrupt display, or require a reboot. This module is used
 //! exclusively for well-known init sequences parsed from NVIDIA firmware
-//! blobs by [`crate::gsp::firmware_parser`].
+//! blobs by the `gsp::firmware_parser` module.
 
 use std::fs::OpenOptions;
 use std::os::unix::io::AsRawFd;
@@ -44,10 +44,13 @@ impl Bar0Access {
     ///
     /// Resolves the sysfs device directory and maps `resource0`.
     pub fn from_render_node(render_node_path: &str) -> Result<Self, ApplyError> {
-        let node_name = render_node_path.rsplit('/').next().ok_or(ApplyError::MmioFailed {
-            offset: 0,
-            detail: format!("cannot parse render node from '{render_node_path}'"),
-        })?;
+        let node_name = render_node_path
+            .rsplit('/')
+            .next()
+            .ok_or(ApplyError::MmioFailed {
+                offset: 0,
+                detail: format!("cannot parse render node from '{render_node_path}'"),
+            })?;
         let sysfs_device = format!("/sys/class/drm/{node_name}/device");
         Self::from_sysfs_device(&sysfs_device)
     }
@@ -140,10 +143,7 @@ impl RegisterAccess for Bar0Access {
         if off + 4 > self.size {
             return Err(ApplyError::MmioFailed {
                 offset,
-                detail: format!(
-                    "offset {off:#x} + 4 exceeds BAR0 size {:#x}",
-                    self.size
-                ),
+                detail: format!("offset {off:#x} + 4 exceeds BAR0 size {:#x}", self.size),
             });
         }
         // SAFETY: ptr is a valid mmap of BAR0. Offset is bounds-checked.
@@ -160,10 +160,7 @@ impl RegisterAccess for Bar0Access {
         if off + 4 > self.size {
             return Err(ApplyError::MmioFailed {
                 offset,
-                detail: format!(
-                    "offset {off:#x} + 4 exceeds BAR0 size {:#x}",
-                    self.size
-                ),
+                detail: format!("offset {off:#x} + 4 exceeds BAR0 size {:#x}", self.size),
             });
         }
         // SAFETY: ptr is a valid mmap of BAR0. Offset is bounds-checked.
@@ -216,11 +213,14 @@ mod tests {
     #[test]
     #[ignore = "requires root and NVIDIA GPU"]
     fn bar0_read_boot_id() {
-        let bar0 = Bar0Access::from_render_node("/dev/dri/renderD128")
-            .expect("BAR0 access (needs root)");
+        let bar0 =
+            Bar0Access::from_render_node("/dev/dri/renderD128").expect("BAR0 access (needs root)");
         let boot_id = bar0.read_boot_id().expect("read NV_PMC_BOOT_0");
         eprintln!("NV_PMC_BOOT_0 = {boot_id:#010x}");
         assert_ne!(boot_id, 0, "boot ID should not be zero");
-        assert_ne!(boot_id, 0xFFFF_FFFF, "boot ID should not be all-ones (unmapped)");
+        assert_ne!(
+            boot_id, 0xFFFF_FFFF,
+            "boot ID should not be all-ones (unmapped)"
+        );
     }
 }
