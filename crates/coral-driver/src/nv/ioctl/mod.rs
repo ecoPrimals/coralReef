@@ -402,6 +402,7 @@ pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<GemNe
     })
 }
 
+
 /// Submit a pushbuf command buffer to the GPU.
 ///
 /// `channel` is the channel handle from `create_channel`.
@@ -525,34 +526,13 @@ mod tests {
 
     #[test]
     fn ioctl_numbers_match_kernel_header() {
-        assert_eq!(
-            DRM_NOUVEAU_CHANNEL_ALLOC, 0x42,
-            "CHANNEL_ALLOC = DRM_COMMAND_BASE + 0x02"
-        );
-        assert_eq!(
-            DRM_NOUVEAU_CHANNEL_FREE, 0x43,
-            "CHANNEL_FREE = DRM_COMMAND_BASE + 0x03"
-        );
-        assert_eq!(
-            DRM_NOUVEAU_GEM_NEW, 0x80,
-            "GEM_NEW = DRM_COMMAND_BASE + 0x40"
-        );
-        assert_eq!(
-            DRM_NOUVEAU_GEM_PUSHBUF, 0x81,
-            "GEM_PUSHBUF = DRM_COMMAND_BASE + 0x41"
-        );
-        assert_eq!(
-            DRM_NOUVEAU_GEM_CPU_PREP, 0x82,
-            "GEM_CPU_PREP = DRM_COMMAND_BASE + 0x42"
-        );
-        assert_eq!(
-            DRM_NOUVEAU_VM_INIT, 0x50,
-            "VM_INIT = DRM_COMMAND_BASE + 0x10"
-        );
-        assert_eq!(
-            DRM_NOUVEAU_VM_BIND, 0x51,
-            "VM_BIND = DRM_COMMAND_BASE + 0x11"
-        );
+        assert_eq!(DRM_NOUVEAU_CHANNEL_ALLOC, 0x42, "CHANNEL_ALLOC = DRM_COMMAND_BASE + 0x02");
+        assert_eq!(DRM_NOUVEAU_CHANNEL_FREE, 0x43, "CHANNEL_FREE = DRM_COMMAND_BASE + 0x03");
+        assert_eq!(DRM_NOUVEAU_GEM_NEW, 0x80, "GEM_NEW = DRM_COMMAND_BASE + 0x40");
+        assert_eq!(DRM_NOUVEAU_GEM_PUSHBUF, 0x81, "GEM_PUSHBUF = DRM_COMMAND_BASE + 0x41");
+        assert_eq!(DRM_NOUVEAU_GEM_CPU_PREP, 0x82, "GEM_CPU_PREP = DRM_COMMAND_BASE + 0x42");
+        assert_eq!(DRM_NOUVEAU_VM_INIT, 0x50, "VM_INIT = DRM_COMMAND_BASE + 0x10");
+        assert_eq!(DRM_NOUVEAU_VM_BIND, 0x51, "VM_BIND = DRM_COMMAND_BASE + 0x11");
         assert_eq!(DRM_NOUVEAU_EXEC, 0x52, "EXEC = DRM_COMMAND_BASE + 0x12");
     }
 
@@ -561,10 +541,7 @@ mod tests {
         assert_eq!(_NOUVEAU_GEM_DOMAIN_CPU, 1);
         assert_eq!(NOUVEAU_GEM_DOMAIN_VRAM, 2);
         assert_eq!(NOUVEAU_GEM_DOMAIN_GART, 4);
-        assert_eq!(
-            NOUVEAU_GEM_DOMAIN_MAPPABLE, 8,
-            "MAPPABLE = (1 << 3) per kernel header"
-        );
+        assert_eq!(NOUVEAU_GEM_DOMAIN_MAPPABLE, 8, "MAPPABLE = (1 << 3) per kernel header");
     }
 
     #[test]

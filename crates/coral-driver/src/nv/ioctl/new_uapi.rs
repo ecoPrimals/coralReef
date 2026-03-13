@@ -243,11 +243,6 @@ pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
 /// Returns [`crate::error::DriverError`] on kernel failure.
 pub fn syncobj_create(fd: RawFd) -> DriverResult<u32> {
     let mut req = DrmSyncobjCreate::default();
-    // SAFETY:
-    // 1. Validity:   DrmSyncobjCreate is #[repr(C)] matching kernel drm_syncobj_create
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req outlives the call
-    // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_CREATE, &mut req, "syncobj_create")? };
     Ok(req.handle)
 }
@@ -262,11 +257,6 @@ pub fn syncobj_destroy(fd: RawFd, handle: u32) -> DriverResult<()> {
         handle,
         ..Default::default()
     };
-    // SAFETY:
-    // 1. Validity:   DrmSyncobjDestroy is #[repr(C)] matching kernel drm_syncobj_destroy
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req outlives the call
-    // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_DESTROY, &mut req, "syncobj_destroy") }
 }
 
@@ -286,11 +276,6 @@ pub fn syncobj_wait(fd: RawFd, handle: u32, timeout_nsec: i64) -> DriverResult<(
         flags: DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL,
         ..Default::default()
     };
-    // SAFETY:
-    // 1. Validity:   DrmSyncobjWait is #[repr(C)] matching kernel drm_syncobj_wait
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req and handles array outlive the call
-    // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_WAIT, &mut req, "syncobj_wait") }
 }
 
@@ -357,11 +342,6 @@ pub fn exec_submit_with_signal(
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_EXEC, size_of_u32::<NouveauExec>());
-    // SAFETY:
-    // 1. Validity:   NouveauExec is #[repr(C)] matching kernel drm_nouveau_exec
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req, push, and sig arrays outlive the call
-    // 4. Exclusivity: &mut req — sole reference
     unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec_signal") }
 }
 

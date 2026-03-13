@@ -58,17 +58,23 @@ mod gpfifo {
     /// Total GPFIFO ring size in bytes.
     pub const RING_SIZE: usize = ENTRIES * ENTRY_SIZE;
 
-    /// GPFIFO entry: encode an IB (indirect buffer) entry.
+    /// Encode a GPFIFO indirect-buffer entry (NVB06F GP_ENTRY format).
     ///
-    /// Format (64 bits):
-    /// - `[39:0]`  = GPU virtual address >> 2
-    /// - `[41:40]` = reserved
-    /// - `[72:42]` = length in dwords
-    /// - `[73]`    = reserved
+    /// DW0 (GP_ENTRY0):
+    ///   `[1:0]`  = TYPE (0 = PB_SEGMENT)
+    ///   `[31:2]` = VA[31:2] (address bits at natural positions)
+    ///
+    /// DW1 (GP_ENTRY1):
+    ///   `[7:0]`  = VA[39:32]
+    ///   `[9:8]`  = PRIV (0)
+    ///   `[30:10]` = LENGTH in dwords
+    ///   `[31]`   = SYNC (0)
     pub fn encode_entry(gpu_addr: u64, len_bytes: u32) -> u64 {
-        let addr_field = gpu_addr >> 2;
+        let lo = gpu_addr & 0xFFFF_FFFC; // VA with TYPE=0 (PB_SEG)
+        let hi_addr = (gpu_addr >> 32) & 0xFF;
         let len_dwords = u64::from(len_bytes / 4);
-        addr_field | (len_dwords << 42)
+        let hi = hi_addr | (len_dwords << 10);
+        lo | (hi << 32)
     }
 }
 
@@ -199,25 +205,37 @@ impl NvVfioComputeDevice {
     /// Writes a GPFIFO entry pointing to the given IOVA/size, updates
     /// GP_PUT in the USERD page at the correct Volta RAMUSERD offset,
     /// then notifies the GPU via the USERMODE doorbell register.
+    ///
+    /// Uses volatile writes + memory fences to ensure the GPU sees the
+    /// GPFIFO entry and GP_PUT before the doorbell MMIO write.
     fn submit_pushbuf(&mut self, pb_iova: u64, pb_size: u32) -> DriverResult<()> {
         let entry = gpfifo::encode_entry(pb_iova, pb_size);
-        let entry_bytes = entry.to_le_bytes();
 
         let slot = (self.gpfifo_put as usize) % gpfifo::ENTRIES;
         let offset = slot * gpfifo::ENTRY_SIZE;
 
-        let ring = self.gpfifo_ring.as_mut_slice();
-        ring[offset..offset + 8].copy_from_slice(&entry_bytes);
+        // Volatile write GPFIFO entry to DMA ring.
+        let ring_ptr = self.gpfifo_ring.vaddr().cast_mut();
+        unsafe {
+            std::ptr::write_volatile(ring_ptr.add(offset).cast::<u64>(), entry);
+        }
 
         self.gpfifo_put = self.gpfifo_put.wrapping_add(1);
 
-        // Write GP_PUT to RAMUSERD at the Volta-specified offset (0x8C).
-        let userd_slice = self.userd.as_mut_slice();
-        userd_slice[ramuserd::GP_PUT..ramuserd::GP_PUT + 4]
-            .copy_from_slice(&self.gpfifo_put.to_le_bytes());
+        // Volatile write GP_PUT to USERD at Volta RAMUSERD offset 0x8C.
+        let userd_ptr = self.userd.vaddr().cast_mut();
+        unsafe {
+            std::ptr::write_volatile(
+                userd_ptr.add(ramuserd::GP_PUT).cast::<u32>(),
+                self.gpfifo_put,
+            );
+        }
 
-        // Notify the GPU via NV_USERMODE_NOTIFY_CHANNEL_PENDING — write the
-        // channel ID to tell Host that this channel has new work available.
+        // Full memory fence to ensure DMA writes are globally visible
+        // before the MMIO doorbell write crosses the PCIe bus.
+        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+
+        // Notify the GPU via NV_USERMODE_NOTIFY_CHANNEL_PENDING.
         self.bar0
             .write_u32(VfioChannel::doorbell_offset(), self.channel.id())
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
@@ -251,6 +269,31 @@ impl NvVfioComputeDevice {
             }
 
             if std::time::Instant::now() > deadline {
+                let gp_put_val = unsafe {
+                    std::ptr::read_volatile(userd_ptr.add(ramuserd::GP_PUT).cast::<u32>())
+                };
+                let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
+                eprintln!("╔══ FENCE TIMEOUT DIAGNOSTICS ═══════════════════════════════╗");
+                eprintln!("║ GP_GET (from USERD): {gp_get}  (expected >= {expected})", expected = self.gpfifo_put);
+                eprintln!("║ GP_PUT (from USERD): {gp_put_val}");
+                eprintln!("║ channel_id: {}", self.channel.id());
+                eprintln!("║ PFIFO_INTR:    {:#010x}", r(0x2100));
+                eprintln!("║ PCCSR_CHAN[0]: {:#010x}", r(0x80_0004));
+                for pbdma_id in [0_usize, 1, 2, 3] {
+                    let intr = r(0x40108 + pbdma_id * 0x2000);
+                    let hce  = r(0x40148 + pbdma_id * 0x2000);
+                    let idle = r(0x3080 + pbdma_id * 4);
+                    eprintln!("║ PBDMA{pbdma_id}_INTR: {intr:#010x}  HCE: {hce:#010x}  IDLE: {idle:#010x}");
+                }
+                // PBDMA-to-runlist mapping
+                for i in 0..4_usize {
+                    eprintln!("║ PBDMA_RUNL_MAP[{i}]: {:#010x}", r(0x2390 + i * 4));
+                }
+                // Volta replayable + non-replayable fault buffers
+                eprintln!("║ MMU_FAULT_STATUS:     {:#010x}", r(0x0010_0A2C));
+                eprintln!("║ MMU_HUBTLB_ERR:       {:#010x}", r(0x0010_4A20));
+                eprintln!("║ PRIV_RING_INTR:       {:#010x}", r(0x0001_2070));
+                eprintln!("╚════════════════════════════════════════════════════════════╝");
                 return Err(DriverError::FenceTimeout { ms: 5000 });
             }
 
@@ -450,12 +493,18 @@ mod tests {
     #[test]
     fn gpfifo_entry_encoding() {
         let addr = 0x1000_u64;
-        let size = 64_u32;
+        let size = 64_u32; // 16 dwords
         let entry = gpfifo::encode_entry(addr, size);
-        let addr_field = entry & 0xFF_FFFF_FFFF;
-        assert_eq!(addr_field, addr >> 2);
-        let len_field = (entry >> 42) & 0x7FFF_FFFF;
-        assert_eq!(len_field, u64::from(size / 4));
+        // DW0: VA[31:2] at natural positions, TYPE=0
+        let dw0 = entry as u32;
+        assert_eq!(dw0, 0x1000, "DW0 = addr with type=0");
+        // DW1: LENGTH in [30:10], VA[39:32] in [7:0]
+        let dw1 = (entry >> 32) as u32;
+        let len_field = (dw1 >> 10) & 0x1F_FFFF;
+        assert_eq!(len_field, 16, "length = 16 dwords");
+        // Recover full address
+        let recovered = (dw0 as u64 & 0xFFFF_FFFC) | ((dw1 as u64 & 0xFF) << 32);
+        assert_eq!(recovered, addr);
     }
 
     #[test]
@@ -472,10 +521,14 @@ mod tests {
     #[test]
     fn gpfifo_entry_large_addr() {
         let addr = 0x10_0000_0000_u64;
-        let size = 256_u32;
+        let size = 256_u32; // 64 dwords
         let entry = gpfifo::encode_entry(addr, size);
-        let recovered_addr = (entry & 0xFF_FFFF_FFFF) << 2;
-        assert_eq!(recovered_addr, addr);
+        let dw0 = entry as u32;
+        let dw1 = (entry >> 32) as u32;
+        let recovered = (dw0 as u64 & 0xFFFF_FFFC) | ((dw1 as u64 & 0xFF) << 32);
+        assert_eq!(recovered, addr);
+        let len_field = (dw1 >> 10) & 0x1F_FFFF;
+        assert_eq!(len_field, 64, "length = 64 dwords");
     }
 
     #[test]
