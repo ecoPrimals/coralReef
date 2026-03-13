@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 40)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 42)
 
 ---
 
@@ -79,7 +79,25 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 40)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 42)
+
+### Iteration 42 — VFIO Sync + barraCuda API
+- [x] VFIO `sync()` — proper GPFIFO GP_GET polling from USERD DMA page (volatile read, spin-loop, 5s timeout)
+- [x] USERD GP_PUT write in `submit_pushbuf()` — GPU tracks put pointer for completion detection
+- [x] `GpuContext::from_vfio(bdf)` — public convenience API, auto SM detection, unblocks barraCuda
+- [x] `GpuContext::from_vfio_with_sm(bdf, sm)` — explicit SM override for testing
+- [x] Named constants: `userd::GP_PUT_OFFSET`, `userd::GP_GET_OFFSET`, `SYNC_TIMEOUT`, `POLL_INTERVAL`
+
+### Iteration 41 — VFIO Sovereign GPU Dispatch
+- [x] VFIO core module: types, ioctls, DMA buffer, VfioDevice
+- [x] NvVfioComputeDevice: full ComputeDevice impl via BAR0/DMA
+- [x] Feature gate: `--features vfio` on coral-driver and coral-gpu
+- [x] DriverPreference: `vfio` > `nouveau` > `amdgpu` > `nvidia-drm`
+- [x] VFIO GPU discovery: sysfs scan for vfio-pci NVIDIA devices
+- [x] 35 new unit tests, 5 ignored HW integration tests
+- [x] wateringHole handoff: toadStool hardware contract for VFIO setup
+
+### Iteration 40 (previous)
 
 Bug reports from groundSpring V85–V95 sovereign compilation testing
 and the Titan V pipeline gap analysis. See `ABSORPTION.md` for
@@ -179,7 +197,8 @@ the full Spring absorption map.
 - [x] **`unwrap_or(0)` audit** — register index, branch offset, FLAT offset overflow: all return `CompileError` instead of silent truncation
 
 ### P2 — barraCuda integration
-- [ ] `ComputeDispatch::CoralReef` variant in barraCuda
+- [x] `GpuContext::from_vfio()` convenience API — unblocks `CoralReefDevice::from_vfio_device()` stub in barraCuda
+- [ ] `CoralReefDevice` fully wired (barraCuda-side: currently stub, needs `from_vfio` call)
 - [ ] SovereignCompiler → coralReef routing (replace PTXAS/NAK)
 - [ ] `PrecisionRoutingAdvice` support (F64Native, F64NativeNoSharedMem, Df64Only, F32Only)
 

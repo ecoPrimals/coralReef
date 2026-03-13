@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
-/// DRM driver identifiers in preference order.
+/// Driver identifiers in preference order.
 ///
 /// coralReef prefers sovereign (open-source) drivers because they force deep
 /// understanding and give us full control. But we also want to work on
 /// whatever already exists on a deployment target.
 ///
-/// Default preference: `nouveau` > `amdgpu` > `nvidia-drm`
+/// Default preference: `vfio` > `nouveau` > `amdgpu` > `nvidia-drm`
 ///
+/// - **vfio**: Direct BAR0/DMA dispatch via VFIO-IOMMU. No kernel GPU driver
+///   needed — maximum sovereignty. Requires toadStool hardware setup.
 /// - **nouveau**: Open-source NVIDIA DRM driver. Forces us to solve deep
 ///   (our own channel management, QMD, pushbuf). Full sovereignty.
 /// - **amdgpu**: Open-source AMD DRM driver. Native Linux citizen. Full
@@ -20,9 +22,10 @@
 /// variable (comma-separated driver names):
 ///
 /// ```text
-/// CORALREEF_DRIVER_PREFERENCE=nouveau,amdgpu,nvidia-drm  # sovereign default
-/// CORALREEF_DRIVER_PREFERENCE=nvidia-drm,amdgpu           # pragmatic (use what's installed)
-/// CORALREEF_DRIVER_PREFERENCE=amdgpu                       # AMD-only deployment
+/// CORALREEF_DRIVER_PREFERENCE=vfio,nouveau,amdgpu,nvidia-drm  # sovereign default
+/// CORALREEF_DRIVER_PREFERENCE=nvidia-drm,amdgpu                # pragmatic
+/// CORALREEF_DRIVER_PREFERENCE=amdgpu                            # AMD-only
+/// CORALREEF_DRIVER_PREFERENCE=vfio                              # VFIO-only
 /// ```
 #[derive(Debug, Clone)]
 pub struct DriverPreference {
@@ -30,11 +33,12 @@ pub struct DriverPreference {
 }
 
 impl DriverPreference {
-    /// Sovereign default: prefer open-source drivers, fall back to proprietary.
+    /// Sovereign default: prefer direct hardware access, then open-source, then proprietary.
     #[must_use]
     pub fn sovereign() -> Self {
         Self {
             order: vec![
+                "vfio".to_string(),
                 "nouveau".to_string(),
                 "amdgpu".to_string(),
                 "nvidia-drm".to_string(),

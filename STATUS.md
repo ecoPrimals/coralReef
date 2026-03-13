@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 12, 2026  
-**Phase**: 10 — Iteration 40 (BAR0 Absorption + Deep Debt Evolution + Error Recovery)
+**Phase**: 10 — Iteration 42 (VFIO Sync + barraCuda API)
 
 ---
 
@@ -17,10 +17,10 @@
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), multi-GPU scan, pure Rust |
+| coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1669 passing, 0 failed, 64 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1669 passing (+35 VFIO), 0 failed, 64 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 40** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 42** |
 
 ### Phase 10 Completions
 
@@ -592,6 +592,34 @@
 | Test coverage (+10 tests) | ✅ | `legacy_parse_retains_ctx_data`, `missing_ctx_produces_empty`, `gr_context_init_structure`, `gr_context_init_empty_methods`, `sm_to_chip_mapping`, `compute_class_selection`, `gpfifo_entry_encoding`, `gpfifo_entry_zero_length`, `gpu_gen_sm_roundtrip` |
 | File size compliance | ✅ | All files under 1000 LOC (largest: `rm_client.rs` at 997) |
 | Test expansion | ✅ | 1667 passing (+10), 64 ignored |
+
+### Iteration 42: VFIO Sync + barraCuda API (Mar 12 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| VFIO sync() — GPFIFO GP_GET polling | ✅ | `poll_gpfifo_completion()` reads GP_GET from USERD DMA page via volatile read, spin-loop + 5s timeout — matches UVM path pattern exactly |
+| USERD GP_PUT write in submit | ✅ | `submit_pushbuf()` now writes GP_PUT to USERD DMA page before BAR0 doorbell — GPU can track put pointer |
+| USERD module constants | ✅ | `userd::GP_PUT_OFFSET` (0x00) and `userd::GP_GET_OFFSET` (0x04) — named constants replace magic offsets |
+| `GpuContext::from_vfio(bdf)` | ✅ | Public convenience API: auto-detects SM from sysfs, opens VFIO device — unblocks barraCuda `CoralReefDevice::from_vfio_device()` |
+| `GpuContext::from_vfio_with_sm(bdf, sm)` | ✅ | Explicit SM override for testing or when sysfs unavailable |
+| Sync/poll constants | ✅ | `SYNC_TIMEOUT` (5s) and `POLL_INTERVAL` (10µs) — extracted from inline values |
+| `#[expect(dead_code)]` cleanup | ✅ | Removed stale `dead_code` annotation from `userd` field (now actively used by sync) |
+| All tests pass | ✅ | 1669 default + 35 VFIO, 0 failed, 64+5 ignored |
+
+### Iteration 41: VFIO Sovereign GPU Dispatch (Mar 12 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| VFIO core module | ✅ | `coral-driver/src/vfio/` — types, ioctls, DMA buffer, VfioDevice (container/group/device fd, BAR mapping) |
+| NvVfioComputeDevice | ✅ | `nv/vfio_compute.rs` — full `ComputeDevice` impl: alloc/free/upload/readback/dispatch/sync via VFIO BAR0 + DMA |
+| GPFIFO direct dispatch | ✅ | DMA-backed GPFIFO ring + USERD doorbell via BAR0, pushbuf + QMD reuse from existing builders |
+| Feature gate | ✅ | `--features vfio` on both `coral-driver` and `coral-gpu`, zero impact on default builds |
+| DriverPreference updated | ✅ | `vfio` > `nouveau` > `amdgpu` > `nvidia-drm` in sovereign mode |
+| VFIO GPU discovery | ✅ | Scans `/sys/bus/pci/drivers/vfio-pci/` for NVIDIA vendor ID, auto-detects SM from PCI device ID |
+| from_descriptor support | ✅ | `("nvidia", Some("vfio"))` path in `GpuContext::from_descriptor_with_path` |
+| 35 new tests | ✅ | 27 unit tests (types, DMA, ioctl layout) + 8 integration tests (GPFIFO encoding, constants, device open) |
+| 5 HW integration tests | ✅ | Ignored by default, require `CORALREEF_VFIO_BDF` env var + VFIO-bound GPU |
+| wateringHole handoff | ✅ | toadStool hardware contract: VFIO bind, IOMMU, permissions, eventfd |
 
 ### Iteration 40: BAR0 Absorption + Deep Debt Evolution + Error Recovery (Mar 12 2026)
 

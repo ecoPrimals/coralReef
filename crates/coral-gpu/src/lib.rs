@@ -188,10 +188,10 @@ impl GpuContext {
 
     /// Auto-detect the best available GPU via DRM render node probing.
     ///
-    /// Enumerates ALL `/dev/dri/renderD*` nodes and selects the best
-    /// backend according to the [`DriverPreference`] order (read from
-    /// `CORALREEF_DRIVER_PREFERENCE` env var, defaulting to sovereign:
-    /// `nouveau` > `amdgpu` > `nvidia-drm`).
+    /// Enumerates ALL `/dev/dri/renderD*` nodes (and VFIO groups if `vfio`
+    /// feature is enabled) and selects the best backend according to the
+    /// [`DriverPreference`] order (read from `CORALREEF_DRIVER_PREFERENCE`
+    /// env var, defaulting to sovereign: `vfio` > `nouveau` > `amdgpu` > `nvidia-drm`).
     ///
     /// # Errors
     ///
@@ -210,16 +210,29 @@ impl GpuContext {
     pub fn auto_with_preference(pref: &DriverPreference) -> GpuResult<Self> {
         use coral_driver::drm::enumerate_render_nodes;
 
-        let nodes = enumerate_render_nodes();
-        if nodes.is_empty() {
-            return Err(GpuError::NoDevice("no DRM render nodes found".into()));
+        let mut available: Vec<String> = Vec::new();
+
+        #[cfg(feature = "vfio")]
+        if discover_vfio_nvidia_bdf().is_some() {
+            available.push("vfio".to_string());
         }
 
-        let available: Vec<&str> = nodes.iter().map(|n| n.driver.as_str()).collect();
-        let selected = pref.select(&available);
+        let nodes = enumerate_render_nodes();
+        for node in &nodes {
+            if !available.iter().any(|a| a == &node.driver) {
+                available.push(node.driver.clone());
+            }
+        }
+
+        if available.is_empty() {
+            return Err(GpuError::NoDevice("no GPU devices found".into()));
+        }
+
+        let available_refs: Vec<&str> = available.iter().map(String::as_str).collect();
+        let selected = pref.select(&available_refs);
 
         tracing::info!(
-            available = ?available,
+            available = ?available_refs,
             preference = ?pref.order(),
             selected = ?selected,
             "GPU driver selection"
@@ -243,6 +256,17 @@ impl GpuContext {
     #[cfg(target_os = "linux")]
     fn open_driver(driver: &str) -> GpuResult<Self> {
         match driver {
+            #[cfg(feature = "vfio")]
+            "vfio" => {
+                let bdf = discover_vfio_nvidia_bdf()
+                    .ok_or_else(|| GpuError::NoDevice("no VFIO-bound NVIDIA GPU found".into()))?;
+                let sm = vfio_detect_sm(&bdf);
+                let compute_class = sm_to_compute_class(sm);
+                let dev = coral_driver::nv::NvVfioComputeDevice::open(&bdf, sm, compute_class)
+                    .map_err(GpuError::Driver)?;
+                let target = GpuTarget::Nvidia(sm_to_nvarch(sm));
+                Self::with_device(target, Box::new(dev))
+            }
             "amdgpu" => {
                 let dev = coral_driver::amd::AmdDevice::open().map_err(GpuError::Driver)?;
                 let target = GpuTarget::Amd(AmdArch::Rdna2);
@@ -434,10 +458,68 @@ impl GpuContext {
                     .map_err(GpuError::Driver)?;
                 Self::with_device(target, Box::new(dev))
             }
+            #[cfg(feature = "vfio")]
+            ("nvidia", Some("vfio")) => {
+                let bdf = render_node.ok_or_else(|| {
+                    GpuError::NoDevice("VFIO requires a BDF address as render_node".into())
+                })?;
+                let target = match arch {
+                    Some("sm86") => GpuTarget::Nvidia(NvArch::Sm86),
+                    Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
+                    Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
+                    _ => GpuTarget::Nvidia(NvArch::Sm70),
+                };
+                let sm = match target {
+                    GpuTarget::Nvidia(nv) => nv.sm(),
+                    _ => 70,
+                };
+                let compute_class = sm_to_compute_class(sm);
+                let dev = coral_driver::nv::NvVfioComputeDevice::open(bdf, sm, compute_class)
+                    .map_err(GpuError::Driver)?;
+                Self::with_device(target, Box::new(dev))
+            }
             _ => Err(GpuError::NoDevice(
                 format!("unsupported vendor/driver: vendor={vendor}, driver={driver:?}").into(),
             )),
         }
+    }
+
+    /// Open a VFIO-bound NVIDIA GPU by PCI Bus:Device.Function address.
+    ///
+    /// This is the primary entry point for sovereign VFIO compute. The SM
+    /// version is auto-detected from sysfs; use [`from_vfio_with_sm`](Self::from_vfio_with_sm)
+    /// for an explicit override.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let ctx = GpuContext::from_vfio("0000:01:00.0")?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if VFIO open, BAR0 mapping, or DMA setup fails.
+    #[cfg(all(target_os = "linux", feature = "vfio"))]
+    pub fn from_vfio(bdf: &str) -> GpuResult<Self> {
+        let sm = vfio_detect_sm(bdf);
+        Self::from_vfio_with_sm(bdf, sm)
+    }
+
+    /// Open a VFIO-bound NVIDIA GPU with an explicit SM version.
+    ///
+    /// Use this when sysfs detection is unavailable or you need to target
+    /// a specific SM architecture (e.g. testing SM 70 paths on newer hardware).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError`] if VFIO open, BAR0 mapping, or DMA setup fails.
+    #[cfg(all(target_os = "linux", feature = "vfio"))]
+    pub fn from_vfio_with_sm(bdf: &str, sm: u32) -> GpuResult<Self> {
+        let compute_class = sm_to_compute_class(sm);
+        let dev = coral_driver::nv::NvVfioComputeDevice::open(bdf, sm, compute_class)
+            .map_err(GpuError::Driver)?;
+        let target = GpuTarget::Nvidia(sm_to_nvarch(sm));
+        Self::with_device(target, Box::new(dev))
     }
 
     /// Compile WGSL source to a native GPU kernel.
@@ -810,6 +892,64 @@ fn sm_target_from_sysfs(path: &str) -> GpuTarget {
         .and_then(|id| id.nvidia_sm())
         .unwrap_or(DEFAULT_NV_SM);
     GpuTarget::Nvidia(sm_to_nvarch(sm))
+}
+
+/// Map an SM version to the NVIDIA compute class constant.
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+const fn sm_to_compute_class(sm: u32) -> u32 {
+    match sm {
+        70..=74 => coral_driver::nv::pushbuf::class::VOLTA_COMPUTE_A,
+        75..=79 => coral_driver::nv::pushbuf::class::TURING_COMPUTE_A,
+        _ => coral_driver::nv::pushbuf::class::AMPERE_COMPUTE_A,
+    }
+}
+
+/// Discover a VFIO-bound NVIDIA GPU by scanning sysfs for `vfio-pci` bindings.
+///
+/// Returns the first BDF address of an NVIDIA GPU bound to `vfio-pci`, or `None`.
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+fn discover_vfio_nvidia_bdf() -> Option<String> {
+    let vfio_dir = std::path::Path::new("/sys/bus/pci/drivers/vfio-pci");
+    let entries = std::fs::read_dir(vfio_dir).ok()?;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let bdf = name.to_string_lossy();
+        if !bdf.contains(':') {
+            continue;
+        }
+
+        let vendor_path = format!("/sys/bus/pci/devices/{bdf}/vendor");
+        if let Ok(vendor_str) = std::fs::read_to_string(&vendor_path) {
+            let vendor_str = vendor_str.trim().trim_start_matches("0x");
+            if let Ok(vendor) = u16::from_str_radix(vendor_str, 16)
+                && vendor == coral_driver::nv::identity::PCI_VENDOR_NVIDIA
+            {
+                tracing::info!(bdf = %bdf, "discovered VFIO-bound NVIDIA GPU");
+                return Some(bdf.into_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Detect SM version for a VFIO-bound GPU from sysfs device ID.
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+fn vfio_detect_sm(bdf: &str) -> u32 {
+    let device_path = format!("/sys/bus/pci/devices/{bdf}/device");
+    let device_id = std::fs::read_to_string(&device_path)
+        .ok()
+        .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok());
+
+    match device_id {
+        Some(0x1D81) => 70,                            // Titan V
+        Some(0x1E00..=0x1E8F) => 75,                   // Turing (TU10x)
+        Some(0x2200..=0x2203 | 0x2207..=0x22FF) => 80, // GA100
+        Some(0x2204..=0x2206) => 86,                   // GA102 (RTX 3090/3080)
+        Some(0x2300..=0x23FF) => 86,                   // GA10x
+        Some(0x2400..=0x26FF) => 89,                   // Ada Lovelace
+        _ => DEFAULT_NV_SM,
+    }
 }
 
 /// FNV-1a 64-bit offset basis.

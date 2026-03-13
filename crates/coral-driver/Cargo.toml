@@ -18,6 +18,7 @@ tracing.workspace = true
 default = ["nouveau", "nvidia-drm"]
 nouveau = []
 nvidia-drm = []
+vfio = []
 test-utils = []
 rdna2-buffer-read = []
 

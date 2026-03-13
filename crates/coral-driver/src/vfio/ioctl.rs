@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//! Safe Rust wrappers over VFIO kernel ioctls.
+//!
+//! Each function encapsulates one `unsafe` ioctl call with documented safety
+//! invariants. Callers pass valid `BorrowedFd` handles from VFIO opens.
+
+use crate::error::DriverError;
+use rustix::io::Result as IoResult;
+use rustix::ioctl::{Ioctl, IoctlOutput, Opcode};
+use std::borrow::Cow;
+use std::os::fd::BorrowedFd;
+
+use super::types::ioctls;
+use super::types::{VfioDeviceInfo, VfioDmaMap, VfioDmaUnmap, VfioGroupStatus, VfioRegionInfo};
+
+/// Ioctl adapter for VFIO commands that return an i32 (no-arg or integer-arg).
+pub(crate) struct VfioIoctlReturn<const OP: Opcode> {
+    arg: usize,
+}
+
+// SAFETY: opcode is a compile-time VFIO constant; as_ptr returns arg cast to
+// *mut c_void (integer-arg ioctl); output_from_ptr wraps the kernel return value.
+unsafe impl<const OP: Opcode> Ioctl for VfioIoctlReturn<OP> {
+    type Output = i32;
+    const IS_MUTATING: bool = false;
+
+    fn opcode(&self) -> Opcode {
+        OP
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        self.arg as *mut std::ffi::c_void
+    }
+
+    unsafe fn output_from_ptr(
+        out: IoctlOutput,
+        _extract_output: *mut std::ffi::c_void,
+    ) -> IoResult<Self::Output> {
+        Ok(out)
+    }
+}
+
+/// Ioctl adapter for VFIO commands that read/write a kernel ABI struct.
+pub(crate) struct VfioIoctlPtr<const OP: Opcode, T> {
+    ptr: *mut T,
+}
+
+// SAFETY: opcode is compile-time constant; T is repr(C) matching kernel ABI;
+// IS_MUTATING=true because kernel writes back into the struct.
+unsafe impl<const OP: Opcode, T> Ioctl for VfioIoctlPtr<OP, T> {
+    type Output = ();
+    const IS_MUTATING: bool = true;
+
+    fn opcode(&self) -> Opcode {
+        OP
+    }
+
+    fn as_ptr(&mut self) -> *mut std::ffi::c_void {
+        self.ptr.cast()
+    }
+
+    unsafe fn output_from_ptr(
+        _out: IoctlOutput,
+        _extract_output: *mut std::ffi::c_void,
+    ) -> IoResult<Self::Output> {
+        Ok(())
+    }
+}
+
+fn vfio_err(op: &str, e: rustix::io::Errno) -> DriverError {
+    DriverError::DeviceNotFound(Cow::Owned(format!("VFIO {op}: {e}")))
+}
+
+#[inline]
+pub(crate) fn get_api_version(fd: BorrowedFd<'_>) -> Result<i32, DriverError> {
+    // SAFETY: no-arg VFIO ioctl; fd is valid from caller.
+    let ioctl = VfioIoctlReturn::<{ ioctls::OP_GET_API_VERSION }> { arg: 0 };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("GET_API_VERSION", e))
+}
+
+#[inline]
+pub(crate) fn check_extension(fd: BorrowedFd<'_>, arg: u32) -> Result<i32, DriverError> {
+    // SAFETY: integer-arg VFIO ioctl; fd valid; arg is extension id.
+    let ioctl = VfioIoctlReturn::<{ ioctls::OP_CHECK_EXTENSION }> { arg: arg as usize };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("CHECK_EXTENSION", e))
+}
+
+#[inline]
+pub(crate) fn set_iommu(fd: BorrowedFd<'_>, arg: u32) -> Result<i32, DriverError> {
+    // SAFETY: integer-arg VFIO ioctl; fd valid; arg is IOMMU type.
+    let ioctl = VfioIoctlReturn::<{ ioctls::OP_SET_IOMMU }> { arg: arg as usize };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("SET_IOMMU", e))
+}
+
+#[inline]
+pub(crate) fn group_status(
+    fd: BorrowedFd<'_>,
+    arg: &mut VfioGroupStatus,
+) -> Result<(), DriverError> {
+    // SAFETY: struct ioctl; fd valid; arg has kernel layout with correct argsz.
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_GROUP_GET_STATUS }, _> {
+        ptr: std::ptr::from_mut(arg),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("GROUP_GET_STATUS", e))
+}
+
+#[inline]
+pub(crate) fn group_set_container(
+    fd: BorrowedFd<'_>,
+    arg: *const std::ffi::c_void,
+) -> Result<i32, DriverError> {
+    // SAFETY: pointer-arg ioctl; fd valid; arg points to container fd int.
+    let ioctl = VfioIoctlReturn::<{ ioctls::OP_GROUP_SET_CONTAINER }> { arg: arg as usize };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("GROUP_SET_CONTAINER", e))
+}
+
+#[inline]
+pub(crate) fn group_get_device_fd(
+    fd: BorrowedFd<'_>,
+    arg: *const std::ffi::c_void,
+) -> Result<i32, DriverError> {
+    // SAFETY: pointer-arg ioctl; fd valid; arg is C string (PCIe BDF).
+    let ioctl = VfioIoctlReturn::<{ ioctls::OP_GROUP_GET_DEVICE_FD }> { arg: arg as usize };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("GROUP_GET_DEVICE_FD", e))
+}
+
+#[inline]
+pub(crate) fn device_info(fd: BorrowedFd<'_>, arg: &mut VfioDeviceInfo) -> Result<(), DriverError> {
+    // SAFETY: struct ioctl; fd valid; arg has kernel layout.
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_GET_INFO }, _> {
+        ptr: std::ptr::from_mut(arg),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_GET_INFO", e))
+}
+
+#[inline]
+pub(crate) fn device_get_region_info(
+    fd: BorrowedFd<'_>,
+    arg: &mut VfioRegionInfo,
+) -> Result<(), DriverError> {
+    // SAFETY: struct ioctl; fd valid; arg has kernel layout with argsz and index set.
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_GET_REGION_INFO }, _> {
+        ptr: std::ptr::from_mut(arg),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_GET_REGION_INFO", e))
+}
+
+#[inline]
+pub(crate) fn device_reset(fd: BorrowedFd<'_>) -> Result<i32, DriverError> {
+    // SAFETY: no-arg VFIO ioctl; fd valid.
+    let ioctl = VfioIoctlReturn::<{ ioctls::OP_DEVICE_RESET }> { arg: 0 };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_RESET", e))
+}
+
+#[inline]
+pub(crate) fn dma_map(fd: BorrowedFd<'_>, arg: &VfioDmaMap) -> Result<(), DriverError> {
+    // SAFETY: struct ioctl; fd valid (container); arg has kernel layout.
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_IOMMU_MAP_DMA }, VfioDmaMap> {
+        ptr: std::ptr::from_ref(arg).cast_mut(),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("IOMMU_MAP_DMA", e))
+}
+
+#[inline]
+pub(crate) fn dma_unmap(fd: BorrowedFd<'_>, arg: &VfioDmaUnmap) -> Result<(), DriverError> {
+    // SAFETY: struct ioctl; fd valid (container); arg has kernel layout.
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_IOMMU_UNMAP_DMA }, VfioDmaUnmap> {
+        ptr: std::ptr::from_ref(arg).cast_mut(),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("IOMMU_UNMAP_DMA", e))
+}

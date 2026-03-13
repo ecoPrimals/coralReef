@@ -18,6 +18,7 @@ tracing.workspace = true
 default = ["nouveau", "nvidia-drm"]
 nouveau = ["coral-driver/nouveau"]
 nvidia-drm = ["coral-driver/nvidia-drm"]
+vfio = ["coral-driver/vfio"]
 
 [dev-dependencies]
 coral-driver = { path = "../coral-driver", features = ["test-utils"] }

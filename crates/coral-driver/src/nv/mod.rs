@@ -31,6 +31,11 @@ pub mod uvm_compute;
 #[cfg(feature = "nvidia-drm")]
 pub use uvm_compute::NvUvmComputeDevice;
 
+#[cfg(feature = "vfio")]
+pub mod vfio_compute;
+#[cfg(feature = "vfio")]
+pub use vfio_compute::NvVfioComputeDevice;
+
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
 use crate::gsp::{self, GrFirmwareBlobs, GrInitSequence};

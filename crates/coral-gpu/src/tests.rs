@@ -269,9 +269,10 @@ fn readback_fails_without_device() {
 #[test]
 fn sovereign_preference_prefers_nouveau() {
     let pref = DriverPreference::sovereign();
-    assert_eq!(pref.order()[0], "nouveau");
-    assert_eq!(pref.order()[1], "amdgpu");
-    assert_eq!(pref.order()[2], "nvidia-drm");
+    assert_eq!(pref.order()[0], "vfio");
+    assert_eq!(pref.order()[1], "nouveau");
+    assert_eq!(pref.order()[2], "amdgpu");
+    assert_eq!(pref.order()[3], "nvidia-drm");
 }
 
 #[test]

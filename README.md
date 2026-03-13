@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 40 (BAR0 Absorption + Deep Debt Evolution + Error Recovery)
+**Status**: Phase 10 — Iteration 42 (VFIO Sync + barraCuda API)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -18,13 +18,14 @@ drives vendor-specific legalization, register allocation, and encoding.
 No manual vtables, no C-era dispatch macros.
 
 coralDriver provides userspace GPU dispatch via DRM ioctl — AMD amdgpu
-(fully wired: GEM, PM4, CS submit, fence sync) and NVIDIA nouveau
-(legacy + new UAPI: VM_INIT/VM_BIND/EXEC for kernel 6.6+, auto-detected)
-plus nvidia-drm/UVM (proprietary driver with RM alloc). coralGpu unifies
-compilation and dispatch into a single API with automatic multi-GPU
-detection and sovereign driver preference (prefer open-source, fall back
-to what exists). Every layer pure Rust — zero FFI, zero `*-sys`, zero
-`extern "C"`, syscalls via rustix.
+(fully wired: GEM, PM4, CS submit, fence sync), NVIDIA nouveau
+(legacy + new UAPI: VM_INIT/VM_BIND/EXEC for kernel 6.6+, auto-detected),
+nvidia-drm/UVM (proprietary driver with RM alloc), and NVIDIA VFIO
+(direct BAR0/DMA dispatch without kernel GPU driver — maximum sovereignty).
+coralGpu unifies compilation and dispatch into a single API with automatic
+multi-GPU detection and sovereign driver preference (`vfio` > `nouveau` >
+`amdgpu` > `nvidia-drm`). Every layer pure Rust — zero FFI, zero `*-sys`,
+zero `extern "C"`, syscalls via rustix.
 
 Part of the ecoPrimals Sovereign Compute Evolution.
 
@@ -33,7 +34,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1669 passing, 0 failed, 64 ignored
+cargo test --workspace     # 1669 passing, 0 failed, 64 ignored (+35 VFIO with --features vfio)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -71,7 +72,8 @@ WGSL / SPIR-V / GLSL input
 │ ├ amd/  DRM amdgpu ioctl    │
 │ ├ nv/   DRM nouveau ioctl   │
 │ ├ nv/   nvidia-drm (compat) │
-│ └ nv/   UVM infra (research) │
+│ ├ nv/   UVM infra (research) │
+│ └ vfio/ VFIO direct dispatch │
 └───────────────────────────────┘
          │
          ▼
@@ -131,7 +133,7 @@ coralReef/
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control, multi-device compile API |
 | `coral-reef` | Shader compiler — 24 spring absorption tests passing (14 original + 4 FMA + 6 neuralSpring), f64 lowering, optimizers, RA, vendor encoding |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
-| `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: nouveau > amdgpu > nvidia-drm), FMA capability reporting, `PCIe` topology discovery |
+| `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: vfio > nouveau > amdgpu > nvidia-drm), `from_vfio()` convenience API, FMA capability reporting, `PCIe` topology discovery |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
 | `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
@@ -177,7 +179,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 coralReef compiles for everything, prefers open-source drivers at runtime:
 
 ```
-Default:   nouveau → amdgpu → nvidia-drm
+Default:   vfio → nouveau → amdgpu → nvidia-drm
 Override:  CORALREEF_DRIVER_PREFERENCE=nvidia-drm,amdgpu
 ```
 

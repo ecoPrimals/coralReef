@@ -8,25 +8,28 @@
 //!
 //! ## Supported backends
 //!
-//! All backends compile by default. Runtime selection via `DriverPreference`.
+//! All DRM backends compile by default. VFIO requires `--features vfio`.
+//! Runtime selection via `DriverPreference`.
 //!
 //! - **AMD**: `amdgpu` DRM driver — GEM buffers, PM4 command streams, CS submit, fence sync
 //! - **NVIDIA (nouveau)**: `nouveau` DRM driver — sovereign path (our channel, QMD, pushbuf)
 //! - **NVIDIA (proprietary)**: `nvidia-drm` — compatibility path (probe + pending UVM dispatch)
+//! - **NVIDIA (VFIO)**: `vfio-pci` — direct BAR0/DMA dispatch, no kernel driver (feature `vfio`)
 //!
 //! ## Architecture
 //!
 //! ```text
-//! ┌──────────────────────┐
-//! │  ComputeDevice trait │  ← vendor-agnostic API
-//! ├──────────────────────┤
-//! │  AmdDevice           │  ← amdgpu DRM backend
-//! │  NvDevice            │  ← nouveau DRM backend
-//! └──────────────────────┘
-//!          │
-//!     ioctl::drm       ← pure Rust ioctl wrappers
-//!          │
-//!     /dev/dri/renderD* ← Linux DRM subsystem
+//! ┌──────────────────────────┐
+//! │    ComputeDevice trait   │  ← vendor-agnostic API
+//! ├──────────────────────────┤
+//! │  AmdDevice               │  ← amdgpu DRM backend
+//! │  NvDevice                │  ← nouveau DRM backend
+//! │  NvVfioComputeDevice     │  ← VFIO direct-dispatch backend
+//! └──────────────────────────┘
+//!          │                │
+//!     ioctl::drm        vfio/   ← pure Rust ioctl wrappers
+//!          │                │
+//!     /dev/dri/renderD*  /dev/vfio/* ← Linux DRM / VFIO
 //! ```
 
 pub mod error;
@@ -39,6 +42,9 @@ pub mod amd;
 
 #[cfg(target_os = "linux")]
 pub mod nv;
+
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+pub mod vfio;
 
 pub mod gsp;
 

@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 40)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 42)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -407,7 +407,9 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 37 | Gap closure: `bytemuck::Zeroable` (5 structs), PCI vendor constants, AMD arch detection, `raw_nv_ioctl` helper, pushbuf constant unification, `NV_STATUS` documented, `uvm.rs` smart-refactored (→3 files), GPFIFO submission + USERD doorbell + completion polling, `NvDrmDevice` delegation to UVM, `KernelCacheEntry`, `dispatch_precompiled()`, `GpuTarget::arch_name()` | **1635** (1635 pass, 63 ignore) |
 | 10 iter 38 | Deep debt solutions + idiomatic evolution: `cargo fmt` drift resolved, 6 clippy fixes (`ExternalMapping`/`RmAllocEvent`/`KernelCacheEntry` param structs, method refs, let-chain), 4 doc link fixes, smart refactors (naga_translate_tests 1486→3 files, rm_client 1031→997, op_conv 1047→796), zero-copy `Bytes`, 22 new tests (unix_jsonrpc + op_conv) | **1657** (1657 pass, 63 ignore) |
 | 10 iter 39 | FECS GR context init (Gap 3), UVM CBUF descriptor alignment (Gap 2), Unsafe evolution (SAFETY comments, safe copy_from_slice), hotSpring dispatch fixes absorbed (a691023), Test coverage +10 | **1667** (1667 pass, 64 ignore) |
-| 10 iter 40 (current) | BAR0 breakthrough absorbed (sovereign MMIO GR init), 2 bugs fixed (`sm_version()` derivation, `pushbuf::class` portability), hardcoding evolved (sync timeout, page mask, local mem window, cache invalidation, SM defaults, FNV constants), Gap 6 error recovery (dispatch cleanup-on-error), chip mapping dedup, error logging, doc warning fixed | **1669** (1669 pass, 64 ignore) |
+| 10 iter 40 | BAR0 breakthrough absorbed (sovereign MMIO GR init), 2 bugs fixed (`sm_version()` derivation, `pushbuf::class` portability), hardcoding evolved (sync timeout, page mask, local mem window, cache invalidation, SM defaults, FNV constants), Gap 6 error recovery (dispatch cleanup-on-error), chip mapping dedup, error logging, doc warning fixed | **1669** (1669 pass, 64 ignore) |
+| 10 iter 42 (current) | VFIO sync + barraCuda API: `poll_gpfifo_completion()` reads GP_GET from USERD DMA page (volatile read, spin-loop, 5s timeout — mirrors UVM pattern), USERD GP_PUT write in `submit_pushbuf()`, `GpuContext::from_vfio(bdf)` + `from_vfio_with_sm()` convenience API for barraCuda integration, named constants (`userd::GP_PUT_OFFSET/GP_GET_OFFSET`, `SYNC_TIMEOUT`, `POLL_INTERVAL`) | **1669+35** (1669 default + 35 vfio, 64+5 ignore) |
+| 10 iter 41 | VFIO sovereign GPU dispatch: full VFIO core module (types, ioctls, DMA, VfioDevice), NvVfioComputeDevice with BAR0/DMA/GPFIFO dispatch, feature gate (`--features vfio`), DriverPreference updated (`vfio` first), sysfs VFIO discovery, `from_descriptor` VFIO path, 35 new unit tests + 5 HW integration tests, wateringHole toadStool hardware contract | **1669+35** (1669 default + 35 vfio, 64+5 ignore) |
 
 ---
 
