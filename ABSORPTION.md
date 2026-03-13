@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 42: VFIO Sync + barraCuda API)
+**Last updated**: March 13, 2026 (Phase 10 — Iteration 43: PFIFO Channel Init + Cross-Primal Rewire)
 
 ---
 
@@ -287,9 +287,8 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 1669 tests passing, 64 ignored, 64% coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 1693+47 tests passing, 71 ignored, 64% coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-5/5 GLSL compute fixtures pass SM70. 4/10 SPIR-V roundtrip tests pass.
-Iteration 38: Deep debt solutions + idiomatic evolution — zero clippy/doc/fmt warnings,
-zero files over 1000 LOC, zero-copy transport, +22 tests.
-Next: RTX 3090 hardware validation, coverage 64%→90%, RDNA3/RDNA4 backend.*
+5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass (resolved Iteration 31).
+VFIO sovereign dispatch with PFIFO channel init, V2 MMU page tables, RAMUSERD correction.
+Next: Titan V hardware validation with PFIFO channel, coverage 64%→90%, RDNA3/RDNA4 backend.*

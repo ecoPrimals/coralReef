@@ -681,7 +681,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1669 passing, 0 failed, 64 ignored) (+35 VFIO with `--features vfio`) |
+| `cargo test --workspace` | PASS (1693 passing, 0 failed, 71 ignored) (+47 VFIO with `--features vfio`) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
