@@ -274,16 +274,21 @@ impl NvVfioComputeDevice {
                 };
                 let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
                 eprintln!("╔══ FENCE TIMEOUT DIAGNOSTICS ═══════════════════════════════╗");
-                eprintln!("║ GP_GET (from USERD): {gp_get}  (expected >= {expected})", expected = self.gpfifo_put);
+                eprintln!(
+                    "║ GP_GET (from USERD): {gp_get}  (expected >= {expected})",
+                    expected = self.gpfifo_put
+                );
                 eprintln!("║ GP_PUT (from USERD): {gp_put_val}");
                 eprintln!("║ channel_id: {}", self.channel.id());
                 eprintln!("║ PFIFO_INTR:    {:#010x}", r(0x2100));
                 eprintln!("║ PCCSR_CHAN[0]: {:#010x}", r(0x80_0004));
                 for pbdma_id in [0_usize, 1, 2, 3] {
                     let intr = r(0x40108 + pbdma_id * 0x2000);
-                    let hce  = r(0x40148 + pbdma_id * 0x2000);
+                    let hce = r(0x40148 + pbdma_id * 0x2000);
                     let idle = r(0x3080 + pbdma_id * 4);
-                    eprintln!("║ PBDMA{pbdma_id}_INTR: {intr:#010x}  HCE: {hce:#010x}  IDLE: {idle:#010x}");
+                    eprintln!(
+                        "║ PBDMA{pbdma_id}_INTR: {intr:#010x}  HCE: {hce:#010x}  IDLE: {idle:#010x}"
+                    );
                 }
                 // PBDMA-to-runlist mapping
                 for i in 0..4_usize {
@@ -533,8 +538,8 @@ mod tests {
 
     #[test]
     fn iova_constants_non_overlapping() {
-        assert!(GPFIFO_IOVA < USERD_IOVA);
-        assert!(USERD_IOVA + 4096 <= USER_IOVA_BASE);
+        const { assert!(GPFIFO_IOVA < USERD_IOVA) };
+        const { assert!(USERD_IOVA + 4096 <= USER_IOVA_BASE) };
     }
 
     #[test]

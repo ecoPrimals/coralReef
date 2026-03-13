@@ -243,9 +243,7 @@ impl VfioDevice {
         )
         .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCI config read: {e}"))))?;
         if n != 2 {
-            return Err(DriverError::SubmitFailed(
-                "PCI config read short".into(),
-            ));
+            return Err(DriverError::SubmitFailed("PCI config read short".into()));
         }
         let cmd = u16::from_le_bytes(cmd_buf);
 
@@ -258,16 +256,10 @@ impl VfioDevice {
         // Set Bus Master + Memory + I/O enable.
         let new_cmd = cmd | PCI_COMMAND_BUS_MASTER | PCI_COMMAND_MEMORY | PCI_COMMAND_IO;
         let new_buf = new_cmd.to_le_bytes();
-        let n = rustix::io::pwrite(
-            self.device.as_fd(),
-            &new_buf,
-            config_offset + PCI_COMMAND,
-        )
-        .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCI config write: {e}"))))?;
+        let n = rustix::io::pwrite(self.device.as_fd(), &new_buf, config_offset + PCI_COMMAND)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCI config write: {e}"))))?;
         if n != 2 {
-            return Err(DriverError::SubmitFailed(
-                "PCI config write short".into(),
-            ));
+            return Err(DriverError::SubmitFailed("PCI config write short".into()));
         }
 
         // Verify.
@@ -313,7 +305,7 @@ impl VfioDevice {
                 "Transitioning GPU from D{power_state} to D0"
             );
 
-            let new_pmcsr = (pmcsr & !0x3) | 0; // D0
+            let new_pmcsr = pmcsr & !0x3; // D0 = power state 0
             let pm_new_buf = new_pmcsr.to_le_bytes();
             let _ = rustix::io::pwrite(
                 self.device.as_fd(),
@@ -326,11 +318,7 @@ impl VfioDevice {
 
             // Re-enable bus master (D3→D0 transition may clear it).
             let new_buf2 = new_cmd.to_le_bytes();
-            let _ = rustix::io::pwrite(
-                self.device.as_fd(),
-                &new_buf2,
-                config_offset + PCI_COMMAND,
-            );
+            let _ = rustix::io::pwrite(self.device.as_fd(), &new_buf2, config_offset + PCI_COMMAND);
         }
 
         // Verify final state.
