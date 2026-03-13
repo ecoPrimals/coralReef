@@ -17,9 +17,10 @@ Planned:
 
 ## Status
 
-Pending — genomeBin deployment will be configured once both AMD and
-NVIDIA hardware paths are validated end-to-end. AMD E2E dispatch is
-verified (RX 6950 XT). NVIDIA nouveau path is wired with full diagnostic
-instrumentation, SM auto-detection, and inflight buffer safety (Iteration
-29); nvidia-drm UVM RM client proof-of-concept in place. The compiler
-pipeline is fully functional via `cargo run -- compile`.
+Pending — genomeBin deployment will be configured once NVIDIA VFIO and
+UVM hardware paths are validated end-to-end. AMD E2E dispatch is
+verified (RX 6950 XT). NVIDIA VFIO dispatch pipeline is functionally
+complete (BAR0 + DMA + GPFIFO + sync with GP_GET polling). UVM dispatch
+pipeline is code-complete (GPFIFO + USERD doorbell + completion polling).
+Both await on-site hardware validation. The compiler pipeline is fully
+functional via `cargo run -- compile`.

@@ -1,6 +1,6 @@
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 37: Gap Closure + Deep Debt Evolution)
+**Last updated**: March 12, 2026 (Phase 10 — Iteration 42: VFIO Sync + barraCuda API)
 
 ---
 

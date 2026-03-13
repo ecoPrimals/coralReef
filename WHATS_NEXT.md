@@ -280,12 +280,13 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1669 tests passing, 64 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1669+35 tests passing, 64+5 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-NvDrmDevice evolved from stub to delegator. dispatch_binary API wired for barraCuda cache.
-Multi-GPU sovereignty: nouveau-first driver preference, nvidia-drm probing, ecosystem discovery.
+VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + sync (GP_GET polling from USERD DMA page).
+GpuContext::from_vfio() convenience API unblocks barraCuda CoralReefDevice wiring.
+Multi-GPU sovereignty: vfio-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
 Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings.

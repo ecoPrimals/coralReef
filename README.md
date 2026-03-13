@@ -168,7 +168,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1667 passing, 0 failed, 64 ignored) |
+| `cargo test --workspace` | PASS (1669 passing, 0 failed, 64 ignored) (+35 VFIO with `--features vfio`) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -229,7 +229,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 39 — FECS GR context init, UVM CBUF alignment, unsafe evolution, safe Rust patterns, +10 tests** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 42 — VFIO sovereign dispatch + sync, barraCuda API** |
 
 ---
 

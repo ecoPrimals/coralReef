@@ -12,7 +12,7 @@ coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 1669 tests (1669 passing, 64 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
-sovereignty: driver preference (nouveau-first), nvidia-drm probing with
+sovereignty: driver preference (vfio-first), nvidia-drm probing with
 UVM delegation, ecosystem discovery, cross-vendor parity testing, zero DEBT
 markers, zero libc dependency. Multi-device compile API
 (`shader.compile.wgsl.multi`), FMA contraction enforcement
@@ -415,11 +415,11 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 39: 1667 tests passing, 64 ignored. Idiomatic evolution.
+Iteration 42: 1669+35 tests passing, 64+5 ignored. Idiomatic evolution.
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes. All parameter structs idiomatic.
-Smart refactoring: naga_translate_tests (1486 LOC monolith → 3 domain files),
-rm_client under 1000 LOC, op_conv tests extracted.
+VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + sync (GP_GET polling).
+GpuContext::from_vfio() convenience API unblocks barraCuda integration.
 8 of 9 crates enforce #[deny(unsafe_code)].
-Pending: RTX 3090 hardware validation of UVM dispatch path.*
+Pending: RTX 3090 hardware validation of UVM + VFIO dispatch paths.*
