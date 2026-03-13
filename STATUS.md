@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 13, 2026  
-**Phase**: 10 — Iteration 43 (PFIFO Channel Init + Cross-Primal Rewire)
+**Phase**: 10 — Iteration 44 (USERD_TARGET + INST_TARGET Runlist Fix)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1693 passing (+47 VFIO), 0 failed, 71 ignored, 64% line coverage (target 90%) |
+| Tests | A+ | 1669 passing (+48 VFIO), 0 failed, 66+8 ignored, 64% line coverage (target 90%) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -640,6 +640,19 @@
 | `#[expect(dead_code)]` cleanup | ✅ | Removed stale `dead_code` annotation from `userd` field (now actively used by sync) |
 | All tests pass | ✅ | 1669 default + 35 VFIO, 0 failed, 64+5 ignored |
 
+### Iteration 44: USERD_TARGET + INST_TARGET Runlist Fix (Mar 13 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| USERD_TARGET in runlist DW0 | ✅ | Bits [3:2] = SYS_MEM_COHERENT (2) — tells PBDMA where to read the USERD page. Was 0 (VRAM), causing PBDMA to never see host GP_PUT writes |
+| INST_TARGET in runlist DW2 | ✅ | Bits [5:4] = SYS_MEM_NCOH (3) — tells PBDMA where the instance block lives. Was missing |
+| TARGET_SYS_MEM_NCOH constant | ✅ | Value 3 for PCCSR/PFIFO/Runlist encoding (distinct from PBDMA encoding) |
+| pfifo::RUNLIST_BASE/RUNLIST wired | ✅ | Replaced literal 0x2270/0x2274 with named constants |
+| Clippy warnings resolved | ✅ | identity_op in device.rs, assertions_on_constants in tests |
+| Formatting drift fixed | ✅ | `cargo fmt` applied across ioctl, qmd, vfio_compute, channel, device |
+| 2 new runlist encoding tests | ✅ | DW0 USERD_TARGET encoding, DW2 INST_TARGET encoding (replaces 1 old test) |
+| All tests pass | ✅ | 1669 default + 48 VFIO, 0 failed, 66+8 ignored |
+
 ### Iteration 43: PFIFO Channel Init + Cross-Primal Rewire (Mar 13 2026)
 
 | Item | Status | Detail |
@@ -681,7 +694,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1693 passing, 0 failed, 71 ignored) (+47 VFIO with `--features vfio`) |
+| `cargo test --workspace` | PASS (1669 passing, 0 failed, 66 ignored) (+48 VFIO with `--features vfio`) |
 | `cargo llvm-cov` | 64% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 43 (PFIFO Channel Init + Cross-Primal Rewire)
+**Status**: Phase 10 — Iteration 44 (USERD_TARGET + INST_TARGET Runlist Fix)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -229,7 +229,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 43 — PFIFO channel init, V2 MMU page tables, cross-primal rewire** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 44 — USERD_TARGET + INST_TARGET runlist fix (hotSpring HW debug)** |
 
 ---
 
