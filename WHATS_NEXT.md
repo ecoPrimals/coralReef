@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 42)
+**Last updated**: March 13, 2026 (Phase 10 — Iteration 43)
 
 ---
 
@@ -79,7 +79,20 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 42)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 43)
+
+### Iteration 43 — PFIFO Channel Init + Cross-Primal Rewire
+- [x] PFIFO hardware channel creation via BAR0 MMIO (`vfio/channel.rs`)
+- [x] V2 MMU 5-level page tables (PD3→PD2→PD1→PD0→PT) with identity-mapped 2 MiB IOVA
+- [x] RAMFC population: GPFIFO base, USERD ptr, channel signature, engine config
+- [x] TSG+channel runlist construction and submission via PFIFO registers
+- [x] PCCSR channel bind/enable for Volta+ GPUs
+- [x] RAMUSERD offset correction: GP_GET at 0x88, GP_PUT at 0x8C (per `dev_ram.ref.txt`)
+- [x] USERMODE doorbell: NV_USERMODE_NOTIFY_CHANNEL_PENDING at BAR0+0x810090
+- [x] Subcontext PDB setup (SC_PDB_VALID(0) + SC_PAGE_DIR_BASE(0))
+- [x] toadStool S150-S152 evolution acknowledged (12 software gaps resolved)
+- [x] barraCuda VFIO-primary wiring acknowledged (dispatch_binary/dispatch_kernel)
+- [x] 12 new channel unit tests (PDE/PTE encoding, register offsets, IOVA layout)
 
 ### Iteration 42 — VFIO Sync + barraCuda API
 - [x] VFIO `sync()` — proper GPFIFO GP_GET polling from USERD DMA page (volatile read, spin-loop, 5s timeout)
@@ -280,11 +293,13 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1669+35 tests passing, 64+5 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1693+47 tests passing, 71 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + sync (GP_GET polling from USERD DMA page).
+VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel init + V2 MMU page tables + sync.
+PFIFO channel: RAMFC, instance block, 5-level V2 MMU, TSG+channel runlist, PCCSR bind/enable.
+RAMUSERD corrected (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
 GpuContext::from_vfio() convenience API unblocks barraCuda CoralReefDevice wiring.
 Multi-GPU sovereignty: vfio-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.

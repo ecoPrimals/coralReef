@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 42)
+**Last updated**: March 13, 2026 (Phase 10 — Iteration 43)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1669 tests (1669 passing, 64 ignored), 64% line coverage (target 90%),
+1693 tests (1693 passing, 71 ignored), 64% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -23,6 +23,10 @@ FMA hardware capability reporting per architecture.
 `KernelCacheEntry` + `dispatch_precompiled()` wire barraCuda kernel cache.
 All DRM ioctls use `drm_ioctl_named` with operation-specific error messages.
 `unsafe` confined to kernel ABI boundary in `coral-driver`.
+VFIO PFIFO channel creation via BAR0 — full Volta hardware channel init with
+V2 MMU 5-level page tables, RAMFC population, TSG+channel runlist, PCCSR
+bind/enable. RAMUSERD offsets corrected (GP_GET@0x88, GP_PUT@0x8C).
+USERMODE doorbell at BAR0+0x810090.
 
 **Iteration 19 milestone**: Back-edge live-in pre-allocation in RA (loop
 headers pre-allocate for ALL live-in SSA values via `live_in_values()`),
@@ -415,11 +419,15 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 42: 1669+35 tests passing, 64+5 ignored. Idiomatic evolution.
+Iteration 43: 1693+47 tests passing, 71 ignored. Idiomatic evolution.
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes. All parameter structs idiomatic.
-VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + sync (GP_GET polling).
+VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
+PFIFO channel creation: RAMFC, instance block, 5-level V2 MMU page tables,
+TSG+channel runlist, PCCSR bind/enable, RAMUSERD corrected (GP_GET@0x88,
+GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
 GpuContext::from_vfio() convenience API unblocks barraCuda integration.
+toadStool S150-S152 gaps resolved. barraCuda VFIO-primary wiring acknowledged.
 8 of 9 crates enforce #[deny(unsafe_code)].
-Pending: RTX 3090 hardware validation of UVM + VFIO dispatch paths.*
+Pending: Titan V hardware validation of PFIFO channel + full dispatch path.*

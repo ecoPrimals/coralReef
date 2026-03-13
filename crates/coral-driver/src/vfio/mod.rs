@@ -23,10 +23,12 @@
 //!   └─ DMA buffers             (IOMMU-mapped host memory)
 //! ```
 
+pub mod channel;
 pub mod device;
 pub mod dma;
 pub mod ioctl;
 pub mod types;
 
+pub use channel::VfioChannel;
 pub use device::VfioDevice;
 pub use dma::DmaBuffer;

@@ -26,6 +26,7 @@
 //! ```
 
 use crate::error::{DriverError, DriverResult};
+use crate::vfio::channel::{VfioChannel, ramuserd};
 use crate::vfio::device::{MappedBar, VfioDevice};
 use crate::vfio::dma::DmaBuffer;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
@@ -40,17 +41,6 @@ use std::collections::HashMap;
 mod bar0_reg {
     /// Boot0 register — chip identification.
     pub const BOOT0: usize = 0x0000_0000;
-}
-
-/// USERD (User Space Register Descriptor) offsets within the USERD DMA page.
-///
-/// The GPU writes GP_GET back to the USERD page as it consumes GPFIFO entries.
-/// We poll this to detect dispatch completion.
-mod userd {
-    /// Offset of GP_PUT in the USERD page (written by host).
-    pub const GP_PUT_OFFSET: usize = 0x00;
-    /// Offset of GP_GET in the USERD page (written by GPU).
-    pub const GP_GET_OFFSET: usize = 0x04;
 }
 
 /// Sync timeout — 5 seconds matches the nouveau/UVM paths.
@@ -102,6 +92,7 @@ pub struct NvVfioComputeDevice {
     gpfifo_ring: DmaBuffer,
     gpfifo_put: u32,
     userd: DmaBuffer,
+    channel: VfioChannel,
     next_handle: u32,
     next_iova: u64,
     container_fd: std::os::fd::RawFd,
@@ -151,6 +142,19 @@ impl NvVfioComputeDevice {
         let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "GPFIFO entries constant always fits u32"
+        )]
+        let channel = VfioChannel::create(
+            container_fd,
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+            0, // channel ID 0
+        )?;
+
         Ok(Self {
             device,
             bar0,
@@ -159,6 +163,7 @@ impl NvVfioComputeDevice {
             gpfifo_ring,
             gpfifo_put: 0,
             userd,
+            channel,
             next_handle: 1,
             next_iova: USER_IOVA_BASE,
             container_fd,
@@ -192,7 +197,8 @@ impl NvVfioComputeDevice {
     /// Submit a push buffer via GPFIFO.
     ///
     /// Writes a GPFIFO entry pointing to the given IOVA/size, updates
-    /// GP_PUT in the USERD page, then rings the BAR0 doorbell.
+    /// GP_PUT in the USERD page at the correct Volta RAMUSERD offset,
+    /// then notifies the GPU via the USERMODE doorbell register.
     fn submit_pushbuf(&mut self, pb_iova: u64, pb_size: u32) -> DriverResult<()> {
         let entry = gpfifo::encode_entry(pb_iova, pb_size);
         let entry_bytes = entry.to_le_bytes();
@@ -205,15 +211,16 @@ impl NvVfioComputeDevice {
 
         self.gpfifo_put = self.gpfifo_put.wrapping_add(1);
 
-        // Write GP_PUT to the USERD DMA page so the GPU can track it.
+        // Write GP_PUT to RAMUSERD at the Volta-specified offset (0x8C).
         let userd_slice = self.userd.as_mut_slice();
-        userd_slice[userd::GP_PUT_OFFSET..userd::GP_PUT_OFFSET + 4]
+        userd_slice[ramuserd::GP_PUT..ramuserd::GP_PUT + 4]
             .copy_from_slice(&self.gpfifo_put.to_le_bytes());
 
-        // Ring the BAR0 doorbell to notify the GPU that new work is available.
+        // Notify the GPU via NV_USERMODE_NOTIFY_CHANNEL_PENDING — write the
+        // channel ID to tell Host that this channel has new work available.
         self.bar0
-            .write_u32(0x0090, self.gpfifo_put)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("USERD doorbell: {e}"))))?;
+            .write_u32(VfioChannel::doorbell_offset(), self.channel.id())
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
 
         Ok(())
     }
@@ -221,9 +228,9 @@ impl NvVfioComputeDevice {
     /// Poll USERD GP_GET until it catches up to GP_PUT, indicating
     /// the GPU has consumed all submitted GPFIFO entries.
     ///
-    /// The GPU writes GP_GET back to the USERD DMA page as it processes
-    /// each GPFIFO entry. We poll this with a spin-loop + sleep, matching
-    /// the UVM path's `poll_gpfifo_completion()` pattern.
+    /// The GPU writes GP_GET back to the USERD DMA page at the Volta
+    /// RAMUSERD offset (0x88). We poll this with a spin-loop + sleep,
+    /// matching the UVM path's `poll_gpfifo_completion()` pattern.
     fn poll_gpfifo_completion(&self) -> DriverResult<()> {
         if self.gpfifo_put == 0 {
             return Ok(());
@@ -234,11 +241,10 @@ impl NvVfioComputeDevice {
 
         loop {
             // SAFETY: userd DMA page is valid for the lifetime of the device;
-            // GP_GET at offset 0x04 is a u32 written by the GPU via IOMMU DMA.
-            // volatile read required because the GPU writes asynchronously.
-            let gp_get = unsafe {
-                std::ptr::read_volatile(userd_ptr.add(userd::GP_GET_OFFSET).cast::<u32>())
-            };
+            // GP_GET at Volta RAMUSERD offset 0x88 is a u32 written by the
+            // GPU via IOMMU DMA. Volatile read required for async GPU writes.
+            let gp_get =
+                unsafe { std::ptr::read_volatile(userd_ptr.add(ramuserd::GP_GET).cast::<u32>()) };
 
             if gp_get >= self.gpfifo_put {
                 return Ok(());
