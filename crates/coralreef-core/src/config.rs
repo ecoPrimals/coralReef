@@ -93,4 +93,11 @@ mod tests {
     fn test_ecosystem_namespace_no_trailing_slash() {
         assert!(!ECOSYSTEM_NAMESPACE.ends_with('/'));
     }
+
+    #[test]
+    fn test_discovery_dir_parent_exists_or_creatable() {
+        let path = discovery_dir().unwrap();
+        let parent = path.parent().unwrap_or(&path);
+        assert!(parent.exists() || std::fs::create_dir_all(parent).is_ok());
+    }
 }

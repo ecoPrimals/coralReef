@@ -18,11 +18,11 @@
 //!
 //! ## Public API (target)
 //!
-//! ```rust,ignore
-//! use coral_reef_isa::{Sm70Encoder, InstrLatency};
+//! ```rust
+//! use coral_reef_isa::{InstrLatency, IsaTarget};
 //!
-//! let latency = InstrLatency::for_arch(GpuArch::Sm70, &instr);
-//! let binary = Sm70Encoder::encode(&shader)?;
+//! let _latency = InstrLatency::DEFAULT;
+//! let _target = IsaTarget::Sm70;
 //! ```
 
 /// Instruction latency model for scheduling.

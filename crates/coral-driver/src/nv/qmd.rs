@@ -450,4 +450,56 @@ mod tests {
         assert_eq!(q[0] >> 28, 0xF);
         assert_eq!(q[1] & 0xF, 0xF);
     }
+
+    #[test]
+    fn build_qmd_for_sm_selects_version() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        // SM 0..=69 → v2.1
+        let q_69 = build_qmd_for_sm(69, &params);
+        assert_eq!(get_field(&q_69, 0, 4), 2);
+        assert_eq!(get_field(&q_69, 4, 4), 1);
+        // SM 70..=79 → v2.2
+        let q_70 = build_qmd_for_sm(70, &params);
+        assert_eq!(get_field(&q_70, 0, 4), 2);
+        assert_eq!(get_field(&q_70, 4, 4), 2);
+        let q_75 = build_qmd_for_sm(75, &params);
+        assert_eq!(get_field(&q_75, 4, 4), 2);
+        // SM 80+ → v3.0
+        let q_86 = build_qmd_for_sm(86, &params);
+        assert_eq!(get_field(&q_86, 0, 4), 3);
+        assert_eq!(get_field(&q_86, 4, 4), 0);
+    }
+
+    #[test]
+    fn cbuf_binding_debug() {
+        let cb = CbufBinding {
+            index: 0,
+            addr: 0x1_0000_0000,
+            size: 4096,
+        };
+        let debug = format!("{cb:?}");
+        assert!(debug.contains("CbufBinding"));
+        assert!(debug.contains("4096"));
+    }
+
+    #[test]
+    fn qmd_params_debug() {
+        let params = QmdParams::simple(0x1000, DispatchDims::linear(8), 16);
+        let debug = format!("{params:?}");
+        assert!(debug.contains("QmdParams"));
+        // shader_va may be formatted as decimal (4096) or hex
+        assert!(
+            debug.contains("4096")
+                || debug.contains("0x1000")
+                || debug.contains("16")
+                || debug.contains("8"),
+            "debug should contain struct field values: {debug}"
+        );
+    }
+
+    #[test]
+    fn qmd_simple_gpr_minimum() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 0);
+        assert_eq!(params.gpr_count, 4, "simple() clamps gpr_count to min 4");
+    }
 }

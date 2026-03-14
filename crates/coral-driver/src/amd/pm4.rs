@@ -279,4 +279,71 @@ mod tests {
         let last_header = pm4[pm4.len() - 2];
         assert_eq!(last_header >> 30, 3, "trailing packet should be Type 3");
     }
+
+    #[test]
+    fn compute_pgm_rsrc2_encoding() {
+        let rsrc2_zero = compute_pgm_rsrc2(0);
+        assert_eq!(rsrc2_zero & 0x7E, 4, "zero user_sgpr uses default 2");
+        let rsrc2_with_user = compute_pgm_rsrc2(4);
+        assert_eq!((rsrc2_with_user >> 1) & 0x3F, 4);
+        assert_eq!((rsrc2_with_user >> 7) & 1, 1, "tgid_x_en");
+    }
+
+    #[test]
+    fn pm4_dispatch_direct_dims() {
+        let info = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [32, 4, 2],
+        };
+        let dims = DispatchDims::new(128, 64, 8);
+        let pm4 = build_compute_dispatch(0x1000, dims, &info, &[]);
+        // DISPATCH_DIRECT is second-to-last packet: header + 4 dwords (x,y,z,initiator)
+        // NOP is last: header + 1 dword
+        let dispatch_start = pm4.len() - 7;
+        assert_eq!((pm4[dispatch_start] >> 8) & 0xFF, PM4_DISPATCH_DIRECT);
+        assert_eq!(pm4[dispatch_start + 1], 128);
+        assert_eq!(pm4[dispatch_start + 2], 64);
+        assert_eq!(pm4[dispatch_start + 3], 8);
+    }
+
+    #[test]
+    fn pm4_shader_address_encoding() {
+        let shader_va = 0x1_2345_6789_ABCD_u64;
+        let info = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [64, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(shader_va, DispatchDims::linear(1), &info, &[]);
+        let pgm_lo_expected = (shader_va >> 8) as u32;
+        let pgm_hi_expected = (shader_va >> 40) as u32;
+        assert!(
+            pm4.windows(3)
+                .any(|w| w[1] == pgm_lo_expected && w[2] == pgm_hi_expected),
+            "PGM_LO/HI values should appear in stream"
+        );
+    }
+
+    #[test]
+    fn pm4_nop_opcode() {
+        let info = ShaderInfo {
+            gpr_count: 4,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [1, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0, DispatchDims::new(1, 1, 1), &info, &[]);
+        let nop_header = pm4[pm4.len() - 2];
+        assert_eq!((nop_header >> 8) & 0xFF, PM4_NOP);
+    }
+
+    #[test]
+    fn compute_pgm_rsrc1_minimum_vgpr() {
+        let rsrc1 = compute_pgm_rsrc1(4, 16);
+        let vgprs = rsrc1 & 0x3F;
+        assert_eq!(vgprs, 0, "4 VGPRs encodes as 0 (ceil(4/8)-1)");
+    }
 }

@@ -88,8 +88,8 @@ impl Bar0Access {
         }
 
         // SAFETY: resource0 is a PCI BAR sysfs file. mmap with SHARED gives
-        // direct MMIO access to GPU registers. The file descriptor stays open
-        // for the lifetime of the mapping.
+        // direct MMIO access to GPU registers. file.as_raw_fd() is valid (open File);
+        // BorrowedFd::borrow_raw requires valid fd for the duration of the call.
         let raw_ptr = unsafe {
             rustix::mm::mmap(
                 std::ptr::null_mut(),

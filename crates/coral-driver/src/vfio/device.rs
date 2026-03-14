@@ -337,10 +337,11 @@ impl VfioDevice {
         let final_cmd = u16::from_le_bytes(final_cmd_buf);
         let final_pm = u16::from_le_bytes(final_pm_buf) & 0x3;
 
-        eprintln!(
-            "║ PCI: CMD={:#06x} BusMaster={} PowerState=D{final_pm}",
-            final_cmd,
-            final_cmd & PCI_COMMAND_BUS_MASTER != 0,
+        tracing::info!(
+            pci_command = format!("{final_cmd:#06x}"),
+            bus_master = final_cmd & PCI_COMMAND_BUS_MASTER != 0,
+            power_state = final_pm,
+            "PCI: CMD/BusMaster/PowerState verified"
         );
 
         Ok(())
@@ -382,7 +383,7 @@ impl VfioDevice {
 
         // SAFETY: device fd valid; region offset from kernel; size verified non-zero;
         // MAP_SHARED for MMIO semantics; ProtFlags R|W for register access.
-        let base_ptr = unsafe {
+        let raw_ptr = unsafe {
             rustix::mm::mmap(
                 std::ptr::null_mut(),
                 region_size,
@@ -394,8 +395,15 @@ impl VfioDevice {
             .map_err(|e| {
                 DriverError::MmapFailed(Cow::Owned(format!("BAR{bar_index} mmap failed: {e}")))
             })?
+        };
+        // Defensive null check: Linux mmap returns MAP_FAILED on error (handled above);
+        // on success the pointer is non-null. Check for robustness across platforms.
+        if raw_ptr.is_null() {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "BAR{bar_index} mmap returned null"
+            ))));
         }
-        .cast::<u8>();
+        let base_ptr = raw_ptr.cast::<u8>();
 
         tracing::info!(
             bdf = %self.bdf,

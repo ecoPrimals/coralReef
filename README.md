@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 44 (USERD_TARGET + INST_TARGET Runlist Fix)
+**Status**: Phase 10 — Iteration 45 (Deep Audit + Refactor + Coverage)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -34,7 +34,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1669 passing, 0 failed, 66 ignored (+48 VFIO with --features vfio)
+cargo test --workspace     # 1721 passing, 0 failed, 61 ignored (+48 VFIO with --features vfio)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -168,8 +168,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1669 passing, 0 failed, 66 ignored) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 64% line coverage (target 90%) |
+| `cargo test --workspace` | PASS (1721 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 66% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |
@@ -229,7 +229,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 44 — USERD_TARGET + INST_TARGET runlist fix (hotSpring HW debug)** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 45 — Deep audit, vfio/channel refactor, IPC chaos tests, tracing migration** |
 
 ---
 

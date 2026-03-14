@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 13, Iter 44)  
+**Generated:** March 10, 2026 (metrics updated March 14, Iter 45)  
 **Workspace:** coralReef
 
 ---
@@ -198,10 +198,10 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 44) |
+| Metric | Value (as of Iter 45) |
 |--------|-------|
-| Tests passing | 1669 default + 48 VFIO (was 1693+47 at Iter 43) |
-| Ignored tests | 74 (66 default + 8 VFIO: hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 1691 default + 48 VFIO |
+| Ignored tests | 61 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 8 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
@@ -209,6 +209,10 @@ Current attributes have documented `reason` strings where appropriate.
 | panic! in production | ~150+ (codegen ICE guards — intentional) |
 | #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
-| Files over 1000 LOC | 0 (3 violations resolved, Iter 38) |
-| Clippy warnings | 0 (pedantic + all, Iter 38) |
-| Doc warnings | 0 (4 intra-doc links fixed, Iter 38) |
+| Files over 1000 LOC | 1 (diagnostic.rs 1988 — hardware bring-up only, Iter 45) |
+| Clippy warnings | 0 (pedantic + all) |
+| Doc warnings | 0 |
+| Line coverage (llvm-cov) | 65.6% (target 90%) |
+| IPC chaos/fault tests | 6 new (Iter 45) |
+| eprintln! in production | 0 (migrated to tracing, Iter 45) |
+| vfio/channel.rs | Refactored 2894→5 modules (Iter 45) |

@@ -433,17 +433,17 @@ mod tests {
         let rich_chips: Vec<&str> = kb
             .known_chips()
             .into_iter()
-            .filter(|c| kb.get(c).map(|k| k.register_count).unwrap_or(0) > 100)
+            .filter(|c| kb.get(c).map_or(0, |k| k.register_count) > 100)
             .collect();
 
         eprintln!("=== Cross-architecture register comparison ===");
         for (i, a) in rich_chips.iter().enumerate() {
-            let a_regs = kb.get(a).map(|k| k.register_count).unwrap_or(0);
+            let a_regs = kb.get(a).map_or(0, |k| k.register_count);
             let a_sm = kb.get(a).and_then(|k| k.sm).unwrap_or(0);
             eprintln!("{a} (SM{a_sm}): {a_regs} unique registers");
             for b in &rich_chips[i + 1..] {
                 let common = kb.common_registers(a, b);
-                let b_regs = kb.get(b).map(|k| k.register_count).unwrap_or(0);
+                let b_regs = kb.get(b).map_or(0, |k| k.register_count);
                 let pct_a = if a_regs > 0 { common * 100 / a_regs } else { 0 };
                 let pct_b = if b_regs > 0 { common * 100 / b_regs } else { 0 };
                 eprintln!("  vs {b}: {common} common ({pct_a}% of {a}, {pct_b}% of {b})");
@@ -509,5 +509,96 @@ mod tests {
         assert_eq!(sm_for_chip("ga102"), Some(86));
         assert_eq!(sm_for_chip("ad104"), Some(89));
         assert_eq!(sm_for_chip("unknown"), None);
+    }
+
+    #[test]
+    fn empty_knowledge_base() {
+        let kb = GpuKnowledge::new();
+        assert!(kb.known_chips().is_empty());
+        assert!(kb.needs_sovereign_gsp().is_empty());
+        assert!(kb.can_teach().is_empty());
+        assert!(kb.get("gv100").is_none());
+        assert!(kb.best_teacher_for("gv100").is_none());
+        let summary = kb.summary();
+        assert_eq!(summary.architectures_known, 0);
+        assert_eq!(summary.with_native_firmware, 0);
+        assert_eq!(summary.needs_sovereign_gsp, 0);
+    }
+
+    #[test]
+    fn empty_knowledge_common_registers() {
+        let kb = GpuKnowledge::new();
+        assert_eq!(kb.common_registers("gv100", "ga102"), 0);
+    }
+
+    #[test]
+    fn empty_knowledge_transfer_map() {
+        let kb = GpuKnowledge::new();
+        assert!(kb.transfer_map("ga102", "gv100").is_none());
+    }
+
+    #[test]
+    fn empty_knowledge_generational_evolution() {
+        let kb = GpuKnowledge::new();
+        let evo = kb.generational_evolution();
+        assert!(evo.is_empty());
+    }
+
+    #[test]
+    fn register_transfer_map_coverage() {
+        use std::collections::BTreeSet;
+        let map = RegisterTransferMap {
+            teacher: "ga102".into(),
+            target: "gv100".into(),
+            common_registers: BTreeSet::from([0x100, 0x200]),
+            teacher_only_registers: BTreeSet::from([0x300]),
+            target_only_registers: BTreeSet::from([0x400, 0x500]),
+        };
+        let pct = map.coverage_pct();
+        // 2 common of (2 common + 2 target_only) = 50%
+        assert!(
+            (49.0..=51.0).contains(&pct),
+            "expected ~50% coverage, got {pct}"
+        );
+    }
+
+    #[test]
+    fn register_transfer_map_coverage_empty() {
+        use std::collections::BTreeSet;
+        let map = RegisterTransferMap {
+            teacher: "a".into(),
+            target: "b".into(),
+            common_registers: BTreeSet::new(),
+            teacher_only_registers: BTreeSet::new(),
+            target_only_registers: BTreeSet::new(),
+        };
+        assert_eq!(map.coverage_pct(), 0.0);
+    }
+
+    #[test]
+    fn address_space_equality() {
+        assert_eq!(AddressSpace::MethodOffset, AddressSpace::MethodOffset);
+        assert_ne!(AddressSpace::MethodOffset, AddressSpace::Bar0Mmio);
+        assert_ne!(AddressSpace::Bar0Mmio, AddressSpace::Unknown);
+    }
+
+    #[test]
+    fn gpu_vendor_equality() {
+        assert_eq!(GpuVendor::Nvidia, GpuVendor::Nvidia);
+        assert_ne!(GpuVendor::Nvidia, GpuVendor::Amd);
+        assert_ne!(GpuVendor::Amd, GpuVendor::Other);
+    }
+
+    #[test]
+    fn knowledge_summary_debug() {
+        let summary = KnowledgeSummary {
+            architectures_known: 5,
+            with_native_firmware: 3,
+            needs_sovereign_gsp: 2,
+            total_unique_registers: 100,
+        };
+        let debug = format!("{summary:?}");
+        assert!(debug.contains("5"));
+        assert!(debug.contains("100"));
     }
 }

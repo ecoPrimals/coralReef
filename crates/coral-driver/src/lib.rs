@@ -247,4 +247,40 @@ mod tests {
             assert!(!debug.is_empty());
         }
     }
+
+    #[test]
+    fn shader_info_default() {
+        let info = ShaderInfo::default();
+        assert_eq!(info.gpr_count, 0);
+        assert_eq!(info.shared_mem_bytes, 0);
+        assert_eq!(info.barrier_count, 0);
+        assert_eq!(info.workgroup, [0, 0, 0]);
+    }
+
+    #[test]
+    fn shader_info_debug_format() {
+        let info = ShaderInfo {
+            gpr_count: 32,
+            shared_mem_bytes: 256,
+            barrier_count: 2,
+            workgroup: [64, 1, 1],
+        };
+        let debug = format!("{info:?}");
+        assert!(debug.contains("ShaderInfo"));
+        assert!(debug.contains("32"));
+        assert!(debug.contains("256"));
+    }
+
+    #[test]
+    fn shader_info_clone_copy() {
+        let a = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 128,
+            barrier_count: 1,
+            workgroup: [32, 2, 1],
+        };
+        let b = a;
+        assert_eq!(a.gpr_count, b.gpr_count);
+        assert_eq!(a.workgroup, b.workgroup);
+    }
 }

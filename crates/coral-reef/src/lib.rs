@@ -28,20 +28,22 @@
 //!
 //! ## Public API
 //!
-//! ```rust,ignore
+//! ```rust
 //! use coral_reef::{compile_wgsl, CompileOptions, GpuTarget, NvArch, AmdArch};
+//!
+//! let wgsl = "@compute @workgroup_size(1) fn main() {}";
 //!
 //! // NVIDIA
 //! let nv_binary = compile_wgsl(wgsl, &CompileOptions {
 //!     target: GpuTarget::Nvidia(NvArch::Sm86),
 //!     ..Default::default()
-//! })?;
+//! }).unwrap();
 //!
 //! // AMD
 //! let amd_binary = compile_wgsl(wgsl, &CompileOptions {
 //!     target: GpuTarget::Amd(AmdArch::Rdna2),
 //!     ..Default::default()
-//! })?;
+//! }).unwrap();
 //! ```
 
 pub mod backend;

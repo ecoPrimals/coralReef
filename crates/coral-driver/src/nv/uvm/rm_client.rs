@@ -980,9 +980,11 @@ fn hex_nibble(b: u8) -> u8 {
 ///
 /// `fd` must be valid; `params` must be `#[repr(C)]` and the sole mutable reference.
 unsafe fn raw_nv_ioctl<T>(fd: i32, ioctl_nr: u64, params: &mut T) -> i32 {
+    // SAFETY: ioctl is the kernel ABI; caller guarantees fd valid, params repr(C) and sole ref.
     unsafe extern "C" {
         fn ioctl(fd: i32, request: u64, ...) -> i32;
     }
+    // SAFETY: from_mut(params) is valid for ioctl duration; kernel reads/writes synchronously.
     unsafe { ioctl(fd, ioctl_nr, std::ptr::from_mut(params)) }
 }
 

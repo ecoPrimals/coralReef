@@ -243,6 +243,7 @@ pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
 /// Returns [`crate::error::DriverError`] on kernel failure.
 pub fn syncobj_create(fd: RawFd) -> DriverResult<u32> {
     let mut req = DrmSyncobjCreate::default();
+    // SAFETY: DrmSyncobjCreate is #[repr(C)] matching kernel struct; fd valid; sole ref.
     unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_CREATE, &mut req, "syncobj_create")? };
     Ok(req.handle)
 }
@@ -257,6 +258,7 @@ pub fn syncobj_destroy(fd: RawFd, handle: u32) -> DriverResult<()> {
         handle,
         ..Default::default()
     };
+    // SAFETY: DrmSyncobjDestroy is #[repr(C)] matching kernel struct; fd valid; sole ref.
     unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_DESTROY, &mut req, "syncobj_destroy") }
 }
 
@@ -276,6 +278,7 @@ pub fn syncobj_wait(fd: RawFd, handle: u32, timeout_nsec: i64) -> DriverResult<(
         flags: DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL,
         ..Default::default()
     };
+    // SAFETY: DrmSyncobjWait is #[repr(C)]; handles points to valid stack array; fd valid.
     unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_WAIT, &mut req, "syncobj_wait") }
 }
 
@@ -342,6 +345,7 @@ pub fn exec_submit_with_signal(
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_EXEC, size_of_u32::<NouveauExec>());
+    // SAFETY: NouveauExec + NouveauExecPush + NouveauSync are #[repr(C)]; push/sig valid for call.
     unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec_signal") }
 }
 

@@ -12,7 +12,7 @@ rustup update stable
 git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace            # 1669 passing, 66 ignored (+48 VFIO)
+cargo test --workspace            # 1721 passing, 61 ignored (+48 VFIO)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -25,7 +25,7 @@ coralReef follows ecoPrimals ecosystem conventions from `wateringHole/`.
 - **Linting**: `clippy::all` + `clippy::pedantic` + `missing_docs`, zero warnings
 - **Formatting**: `cargo fmt` — no exceptions
 - **Max file size**: 1000 lines
-- **Test coverage**: 90%+ target (current: 64%, measured with `cargo llvm-cov`; see `scripts/coverage.sh`)
+- **Test coverage**: 90%+ target (current: 66%, measured with `cargo llvm-cov`; see `scripts/coverage.sh`)
 - **Unsafe**: zero `unsafe` in new code
 - **Error handling**: `Result<_, CompileError>` propagation; optimizer passes skip instead of panicking
 - **No `panic!` in new production code**: use `?`, `.ok_or()`, `debug_assert!`, or graceful fallback

@@ -136,4 +136,40 @@ mod tests {
         let e: Box<dyn std::error::Error> = Box::new(DriverError::DeviceNotFound("test".into()));
         assert!(e.to_string().contains("test"));
     }
+
+    #[test]
+    fn error_platform_overflow() {
+        let e = DriverError::platform_overflow("offset exceeds platform pointer width");
+        let msg = e.to_string();
+        assert!(msg.contains("offset exceeds platform pointer width"));
+    }
+
+    #[test]
+    fn error_alloc_failed_domain_display() {
+        for domain in [
+            crate::MemoryDomain::Vram,
+            crate::MemoryDomain::Gtt,
+            crate::MemoryDomain::VramOrGtt,
+        ] {
+            let e = DriverError::AllocFailed { size: 8192, domain };
+            let msg = e.to_string();
+            assert!(msg.contains("8192"));
+            assert!(msg.contains("domain"));
+        }
+    }
+
+    #[test]
+    fn error_debug_format() {
+        let e = DriverError::DeviceNotFound("probe failed".into());
+        let debug = format!("{e:?}");
+        assert!(debug.contains("DeviceNotFound"));
+        assert!(debug.contains("probe failed"));
+    }
+
+    #[test]
+    fn error_display_dynamic_cow() {
+        let msg = format!("custom error: {}", 42);
+        let e = DriverError::MmapFailed(msg.into());
+        assert!(e.to_string().contains("custom error: 42"));
+    }
 }

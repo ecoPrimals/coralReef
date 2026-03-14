@@ -1,1003 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! PFIFO hardware channel creation for Volta+ via BAR0 MMIO.
-//!
-//! Creates a GPU command channel from scratch using direct register writes,
-//! bypassing the kernel GPU driver. This is the bridge between VFIO BAR0/DMA
-//! setup and actual GPU command dispatch — without a channel, the GPU's PFIFO
-//! engine does not know our GPFIFO ring exists.
-//!
-//! # Channel creation sequence
-//!
-//! 1. Allocate DMA buffers for instance block, runlist, and V2 page tables
-//! 2. Populate RAMFC (GPFIFO base, USERD pointer, channel ID, signature)
-//! 3. Set up V2 MMU page tables (identity map for first 2 MiB of IOVA space)
-//! 4. Build runlist with TSG header + channel entry (Volta RAMRL format)
-//! 5. Bind instance block to channel via PCCSR registers
-//! 6. Enable channel and submit runlist to PFIFO
-//!
-//! # Register sources
-//!
-//! - NVIDIA open-gpu-doc `dev_fifo.ref.txt` (PCCSR, PFIFO runlist)
-//! - NVIDIA open-gpu-doc `dev_ram.ref.txt` (RAMFC, RAMUSERD, RAMRL, RAMIN)
-//! - NVIDIA open-gpu-doc `dev_usermode.ref.txt` (doorbell)
-//! - nouveau `nvkm/engine/fifo/gv100.c` (Volta RAMFC write, runlist format)
+//! Hardware bring-up diagnostic experiment matrix for VFIO channel creation.
+
+use std::borrow::Cow;
+use std::os::fd::RawFd;
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::device::MappedBar;
 use crate::vfio::dma::DmaBuffer;
 
-use std::borrow::Cow;
-use std::os::fd::RawFd;
-
-// ── BAR0 register offsets ──────────────────────────────────────────────
-
-/// NV_PFIFO registers (BAR0 + 0x2000..0x3FFF).
-mod pfifo {
-    /// PFIFO engine enable — toggle 0→1 to reset scheduler + PBDMAs.
-    pub const ENABLE: usize = 0x0000_2200;
-    /// FIFO scheduler enable (1 = enabled).
-    pub const SCHED_EN: usize = 0x0000_2504;
-    /// PFIFO interrupt status — write 0xFFFFFFFF to clear pending.
-    pub const INTR: usize = 0x0000_2100;
-    /// PFIFO interrupt enable mask.
-    pub const INTR_EN: usize = 0x0000_2140;
-    /// PBDMA active map — bit N = 1 means PBDMA N exists.
-    pub const PBDMA_MAP: usize = 0x0000_2004;
-    /// Runlist base address and aperture target.
-    pub const RUNLIST_BASE: usize = 0x0000_2270;
-    /// Runlist submit: length + runlist ID.
-    pub const RUNLIST: usize = 0x0000_2274;
-}
-
-/// NV_PMC — Power Management Controller / engine enables.
-mod pmc {
-    /// Master engine enable — write 0xFFFFFFFF to un-gate all clock domains.
-    /// After readback, bits that remained 1 correspond to present engines.
-    pub const ENABLE: usize = 0x0000_0200;
-    /// PBDMA master enable — set bit N to enable PBDMA N.
-    pub const PBDMA_ENABLE: usize = 0x0000_0204;
-    /// PBDMA interrupt routing.
-    pub const PBDMA_INTR_EN: usize = 0x0000_2A04;
-}
-
-/// Per-PBDMA registers (stride 0x2000, base 0x040000).
-mod pbdma {
-    const BASE: usize = 0x0004_0000;
-    const STRIDE: usize = 0x2000;
-
-    const fn reg(id: usize, off: usize) -> usize {
-        BASE + id * STRIDE + off
-    }
-
-    /// PBDMA interrupt status — write 0xFFFFFFFF to clear.
-    pub const fn intr(id: usize) -> usize {
-        reg(id, 0x0108)
-    }
-    /// PBDMA interrupt enable mask.
-    pub const fn intr_en(id: usize) -> usize {
-        reg(id, 0x010C)
-    }
-    /// PBDMA HCE (Host Compute Engine) interrupt status.
-    pub const fn hce_intr(id: usize) -> usize {
-        reg(id, 0x0148)
-    }
-    /// PBDMA HCE interrupt enable mask.
-    pub const fn hce_intr_en(id: usize) -> usize {
-        reg(id, 0x014C)
-    }
-}
-
-/// NV_PCCSR — per-channel control/status registers (BAR0 + 0x800000).
-mod pccsr {
-    /// Instance block pointer register for channel `id`.
-    /// Contains INST_PTR[27:0], INST_TARGET[29:28], INST_BIND[31].
-    pub const fn inst(id: u32) -> usize {
-        0x0080_0000 + (id as usize) * 8
-    }
-
-    /// Channel control register for channel `id`.
-    /// Contains ENABLE[0], ENABLE_SET[10], ENABLE_CLR[11], STATUS[27:24].
-    pub const fn channel(id: u32) -> usize {
-        0x0080_0004 + (id as usize) * 8
-    }
-
-    /// INST_TARGET = SYS_MEM_NONCOHERENT (bits [29:28] = 3).
-    /// Nouveau uses NCOH for system memory (gk104_runl_commit: target=3).
-    /// On x86, PCIe DMA is always coherent regardless of this bit, but
-    /// the PFIFO may require target=3 for system memory paths.
-    pub const INST_TARGET_SYS_MEM_NCOH: u32 = 3 << 28;
-    /// INST_BIND = TRUE (bit 31).
-    pub const INST_BIND_TRUE: u32 = 1 << 31;
-    /// CHANNEL_ENABLE_SET trigger (bit 10).
-    pub const CHANNEL_ENABLE_SET: u32 = 1 << 10;
-    /// CHANNEL_ENABLE_CLR trigger (bit 11).
-    pub const CHANNEL_ENABLE_CLR: u32 = 1 << 11;
-    /// PBDMA_FAULTED — write 1 to clear (bit 24).
-    pub const PBDMA_FAULTED_RESET: u32 = 1 << 24;
-    /// ENG_FAULTED — write 1 to clear (bit 28).
-    pub const ENG_FAULTED_RESET: u32 = 1 << 28;
-}
-
-/// NV_USERMODE doorbell (BAR0 + 0x810000..0x81FFFF).
-mod usermode {
-    /// Write channel ID here to notify Host that a channel has new work.
-    /// Equivalent to setting PENDING in NV_PCCSR_CHANNEL_STATUS.
-    pub const NOTIFY_CHANNEL_PENDING: usize = 0x0081_0090;
-}
-
-/// Volta RAMUSERD (User-Driver State Descriptor) offsets within a 512-byte
-/// channel USERD page. These offsets are from NVIDIA `dev_ram.ref.txt`.
-pub mod ramuserd {
-    /// GP_GET: next GP entry the GPU will process (GPU writes, host reads).
-    /// NV_RAMUSERD_GP_GET = dword 34 = byte offset 0x88.
-    pub const GP_GET: usize = 34 * 4;
-    /// GP_PUT: next GP entry available for GPU (host writes, GPU reads).
-    /// NV_RAMUSERD_GP_PUT = dword 35 = byte offset 0x8C.
-    pub const GP_PUT: usize = 35 * 4;
-}
-
-// ── RAMFC (FIFO Context) offsets within the 512-byte RAMFC region ──────
-
-/// Offsets within the RAMFC region of the instance block.
-/// Derived from `gv100_chan_ramfc_write()` and `dev_ram.ref.txt`.
-mod ramfc {
-    /// NV_RAMFC_USERD (dword 2) — USERD base address low + aperture target.
-    pub const USERD_LO: usize = 0x008;
-    /// NV_RAMFC_USERD_HI (dword 3) — USERD base address high.
-    pub const USERD_HI: usize = 0x00C;
-    /// NV_RAMFC_SIGNATURE (dword 4) — channel signature (0xFACE).
-    pub const SIGNATURE: usize = 0x010;
-    /// NV_RAMFC_ACQUIRE (dword 12) — semaphore acquire timeout.
-    pub const ACQUIRE: usize = 0x030;
-    /// NV_RAMFC_GP_BASE (dword 18) — GPFIFO ring GPU VA low.
-    pub const GP_BASE_LO: usize = 0x048;
-    /// NV_RAMFC_GP_BASE_HI (dword 19) — GPFIFO ring GPU VA high + limit.
-    pub const GP_BASE_HI: usize = 0x04C;
-    /// NV_RAMFC_PB_HEADER (dword 33).
-    pub const PB_HEADER: usize = 0x084;
-    /// NV_RAMFC_SUBDEVICE (dword 37) — subdevice mask.
-    pub const SUBDEVICE: usize = 0x094;
-    /// NV_RAMFC_HCE_CTRL (dword 57) — host compute engine control.
-    pub const HCE_CTRL: usize = 0x0E4;
-    /// Channel ID (Volta-specific, dword 58).
-    pub const CHID: usize = 0x0E8;
-    /// NV_RAMFC_CONFIG (dword 61) — PBDMA configuration.
-    pub const CONFIG: usize = 0x0F4;
-    /// Volta-specific channel info (dword 62).
-    pub const CHANNEL_INFO: usize = 0x0F8;
-}
-
-/// NV_RAMIN offsets beyond RAMFC for MMU page directory configuration.
-mod ramin {
-    /// Page directory base — low word (DW128, offset 0x200).
-    /// Contains TARGET[1:0], VOL[2], VER2_PT[10], BIG_PAGE[11], ADDR_LO[31:12].
-    pub const PAGE_DIR_BASE_LO: usize = 128 * 4;
-    /// Page directory base — high word (DW129, offset 0x204).
-    pub const PAGE_DIR_BASE_HI: usize = 129 * 4;
-    /// Engine WFI VEID (DW134, offset 0x218).
-    pub const ENGINE_WFI_VEID: usize = 134 * 4;
-    /// Subcontext PDB valid bitmap (DW166, offset 0x298).
-    pub const SC_PDB_VALID: usize = 166 * 4;
-    /// Subcontext 0 page directory base — low word (DW168, offset 0x2A0).
-    pub const SC0_PAGE_DIR_BASE_LO: usize = 168 * 4;
-    /// Subcontext 0 page directory base — high word (DW169, offset 0x2A4).
-    pub const SC0_PAGE_DIR_BASE_HI: usize = 169 * 4;
-}
-
-// ── IOVA assignments for channel infrastructure DMA buffers ────────────
-
-const INSTANCE_IOVA: u64 = 0x3000;
-const RUNLIST_IOVA: u64 = 0x4000;
-const PD3_IOVA: u64 = 0x5000;
-const PD2_IOVA: u64 = 0x6000;
-const PD1_IOVA: u64 = 0x7000;
-const PD0_IOVA: u64 = 0x8000;
-const PT0_IOVA: u64 = 0x9000;
-
-/// SYS_MEM_COHERENT aperture target for PCCSR/PFIFO/RAMIN/runlist registers.
-/// PCCSR_INST_TARGET[29:28]: 0=VRAM, 2=COHERENT_SYSMEM, 3=NONCOHERENT_SYSMEM
-/// RUNLIST_BASE_TARGET[31:28]: same encoding as PCCSR.
-/// RAMRL DW0 USERD_TARGET[3:2] and DW2 INST_TARGET[5:4]: same encoding.
-const TARGET_SYS_MEM_COHERENT: u32 = 2;
-
-/// SYS_MEM_NONCOHERENT aperture target (PCCSR/RAMIN/runlist encoding).
-const TARGET_SYS_MEM_NONCOHERENT: u32 = 3;
-
-/// SYS_MEM_COHERENT aperture target for PBDMA registers (RAMFC fields).
-/// NV_PPBDMA_USERD_TARGET[1:0]: 0=VID_MEM, 1=SYS_MEM_COHERENT, 2=SYS_MEM_NONCOHERENT
-/// These differ from the PCCSR/RAMIN encoding!
-const PBDMA_TARGET_SYS_MEM_COHERENT: u32 = 1;
-
-/// Number of 4 KiB pages identity-mapped in PT0.
-const PT_ENTRIES: usize = 512;
-
-// ── PFIFO hardware channel ────────────────────────────────────────────
-
-/// PFIFO hardware channel — owns all DMA resources for a single GPU channel.
-///
-/// Created during [`super::NvVfioComputeDevice::open()`] and held alive for
-/// the device lifetime. Dropped automatically when the parent device drops,
-/// releasing all DMA allocations.
-pub struct VfioChannel {
-    instance: DmaBuffer,
-    runlist: DmaBuffer,
-    pd3: DmaBuffer,
-    pd2: DmaBuffer,
-    pd1: DmaBuffer,
-    pd0: DmaBuffer,
-    pt0: DmaBuffer,
-    channel_id: u32,
-    runlist_id: u32,
-}
-
-impl VfioChannel {
-    /// Create and activate a GPU PFIFO channel via BAR0 register programming.
-    ///
-    /// This performs the full channel lifecycle:
-    /// 1. Allocate DMA buffers for instance block, runlist, and page tables
-    /// 2. Populate RAMFC (GPFIFO base, USERD, channel ID)
-    /// 3. Set up V2 MMU page tables (identity map for first 2 MiB)
-    /// 4. Build runlist with TSG header + channel entry
-    /// 5. Bind instance block and enable channel via PCCSR
-    /// 6. Submit runlist to PFIFO
-    ///
-    /// # Errors
-    ///
-    /// Returns error if any DMA allocation or BAR0 write fails.
-    pub fn create(
-        container_fd: RawFd,
-        bar0: &MappedBar,
-        gpfifo_iova: u64,
-        gpfifo_entries: u32,
-        userd_iova: u64,
-        channel_id: u32,
-    ) -> DriverResult<Self> {
-        let instance = DmaBuffer::new(container_fd, 4096, INSTANCE_IOVA)?;
-        let runlist = DmaBuffer::new(container_fd, 4096, RUNLIST_IOVA)?;
-        let pd3 = DmaBuffer::new(container_fd, 4096, PD3_IOVA)?;
-        let pd2 = DmaBuffer::new(container_fd, 4096, PD2_IOVA)?;
-        let pd1 = DmaBuffer::new(container_fd, 4096, PD1_IOVA)?;
-        let pd0 = DmaBuffer::new(container_fd, 4096, PD0_IOVA)?;
-        let pt0 = DmaBuffer::new(container_fd, 4096, PT0_IOVA)?;
-
-        let mut chan = Self {
-            instance,
-            runlist,
-            pd3,
-            pd2,
-            pd1,
-            pd0,
-            pt0,
-            channel_id,
-            runlist_id: 0, // will be set by init_pfifo_engine discovery
-        };
-
-        // Read PCCSR state to detect if GPU is warm (nouveau-initialized) or cold (after reset).
-        let boot0 = bar0.read_u32(0).unwrap_or(0xDEAD);
-        let raw_pmc = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-        let raw_chan = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0xDEAD);
-        eprintln!("║ BOOT0={boot0:#010x} PMC_EN={raw_pmc:#010x} PCCSR_CHAN={raw_chan:#010x}");
-
-        let gpu_warm = boot0 != 0xFFFF_FFFF && boot0 != 0xBAD0_DA00 && raw_pmc != 0;
-
-        // Always run full PFIFO init — on a warm GPU it just re-enables clocks
-        // and resets the PFIFO scheduler + PBDMAs, which is safe.
-        let (runq, runlist_id) = Self::init_pfifo_engine(bar0)?;
-        chan.runlist_id = runlist_id;
-
-        // Probe: read VRAM at offset 0x3000 via PRAMIN to check what the scheduler
-        // would see if it reads the instance block from VRAM (target=0).
-        const NV_PBUS_BAR0_WINDOW: usize = 0x0000_1700;
-        const PRAMIN_BASE: usize = 0x0070_0000;
-        let _ = bar0.write_u32(NV_PBUS_BAR0_WINDOW, 0);
-        // PRAMIN maps a 64K window starting at VRAM offset = BAR0_WINDOW * 0x10000.
-        // To read VRAM:0x3000, set BAR0_WINDOW = 0 → PRAMIN base = VRAM:0.
-        // Then read PRAMIN_BASE + 0x3000.
-        let vram_3000 = bar0.read_u32(PRAMIN_BASE + 0x3000).unwrap_or(0xDEAD);
-        let vram_3008 = bar0.read_u32(PRAMIN_BASE + 0x3008).unwrap_or(0xDEAD);
-        let vram_3048 = bar0.read_u32(PRAMIN_BASE + 0x3048).unwrap_or(0xDEAD);
-        let vram_3200 = bar0.read_u32(PRAMIN_BASE + 0x3200).unwrap_or(0xDEAD);
-        eprintln!("║ VRAM probe: [0x3000]={vram_3000:#010x} [0x3008]={vram_3008:#010x} [0x3048]={vram_3048:#010x} [0x3200]={vram_3200:#010x}");
-
-        chan.populate_page_tables();
-        chan.populate_instance_block(gpfifo_iova, gpfifo_entries, userd_iova);
-        chan.populate_runlist(userd_iova, runq);
-
-        // ── Clear stale PCCSR state from prior driver (nouveau residue) ──
-        // After empty runlist flush, check if channel 0 still has fault flags.
-        let stale = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
-        eprintln!("║ PCCSR_CHAN post-flush: {stale:#010x}  PBDMA_FAULT={} ENG_FAULT={}",
-            (stale >> 24) & 1, (stale >> 28) & 1);
-
-        if stale != 0 {
-            // Disable channel if it was left enabled.
-            if stale & 1 != 0 {
-                bar0.write_u32(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_CLR)
-                    .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR disable: {e}"))))?;
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-
-            // Clear fault bits (W1C) — must be done after channel is disabled.
-            bar0.write_u32(
-                pccsr::channel(channel_id),
-                pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET,
-            )
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR fault clear: {e}"))))?;
-            std::thread::sleep(std::time::Duration::from_millis(10));
-
-            // Clear instance binding (nouveau gk104_chan_unbind).
-            bar0.write_u32(pccsr::inst(channel_id), 0)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR clear inst: {e}"))))?;
-            std::thread::sleep(std::time::Duration::from_millis(10));
-
-            let after_clear = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
-            eprintln!("║ PCCSR_CHAN after clear: {after_clear:#010x}");
-        }
-
-        chan.bind_channel(bar0)?;
-        std::thread::sleep(std::time::Duration::from_millis(5));
-
-        // Bind may inherit stale faults — clear them before enabling.
-        chan.clear_channel_faults(bar0)?;
-
-        let pre_enable = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0xDEAD);
-        eprintln!("║ PCCSR_CHAN pre-enable: {pre_enable:#010x}  PBDMA_FAULT={}", (pre_enable >> 24) & 1);
-
-        chan.enable_channel(bar0)?;
-
-        // Check PCCSR state after enable, before runlist submit.
-        let post_enable = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0xDEAD);
-        eprintln!("║ PCCSR_CHAN post-enable: {post_enable:#010x}  PBDMA_FAULT={}", (post_enable >> 24) & 1);
-
-        chan.submit_runlist(bar0)?;
-
-        // Brief delay for scheduler to process runlist.
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        // Check PCCSR state after runlist submit (scheduler may have assigned channel).
-        let post_runlist = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0xDEAD);
-        eprintln!("║ PCCSR_CHAN post-runlist: {post_runlist:#010x}  PBDMA_FAULT={}", (post_runlist >> 24) & 1);
-
-        Self::log_pfifo_diagnostics(bar0);
-
-        // Hex dump of runlist + instance block for validation.
-        {
-            let rl_bytes = chan.runlist.as_slice();
-            eprintln!("║ ── RUNLIST hex (32 bytes) ──");
-            for i in (0..32).step_by(4) {
-                let dw = u32::from_le_bytes([rl_bytes[i], rl_bytes[i+1], rl_bytes[i+2], rl_bytes[i+3]]);
-                eprintln!("║  RL[{i:#04x}] = {dw:#010x}");
-            }
-            let inst_bytes = chan.instance.as_slice();
-            eprintln!("║ ── INSTANCE (RAMFC + RAMIN) ──");
-            for &(off, name) in &[
-                (ramfc::USERD_LO, "USERD_LO"),
-                (ramfc::USERD_HI, "USERD_HI"),
-                (ramfc::SIGNATURE, "SIGNATURE"),
-                (ramfc::ACQUIRE, "ACQUIRE"),
-                (ramfc::GP_BASE_LO, "GP_BASE_LO"),
-                (ramfc::GP_BASE_HI, "GP_BASE_HI"),
-                (ramfc::PB_HEADER, "PB_HEADER"),
-                (ramfc::SUBDEVICE, "SUBDEVICE"),
-                (ramfc::HCE_CTRL, "HCE_CTRL"),
-                (ramfc::CHID, "CHID"),
-                (ramfc::CONFIG, "CONFIG"),
-                (ramfc::CHANNEL_INFO, "CHANNEL_INFO"),
-                (ramin::PAGE_DIR_BASE_LO, "PDB_LO"),
-                (ramin::PAGE_DIR_BASE_HI, "PDB_HI"),
-            ] {
-                let off: usize = off;
-                if off + 4 <= inst_bytes.len() {
-                    let dw = u32::from_le_bytes([
-                        inst_bytes[off], inst_bytes[off+1],
-                        inst_bytes[off+2], inst_bytes[off+3],
-                    ]);
-                    eprintln!("║  [{off:#05x}] {name:15} = {dw:#010x}");
-                }
-            }
-        }
-
-        tracing::info!(
-            channel_id,
-            gpfifo_iova = format_args!("{gpfifo_iova:#x}"),
-            userd_iova = format_args!("{userd_iova:#x}"),
-            instance_iova = format_args!("{INSTANCE_IOVA:#x}"),
-            "VFIO PFIFO channel created"
-        );
-
-        Ok(chan)
-    }
-
-    /// Channel ID used for doorbell notification.
-    #[must_use]
-    pub const fn id(&self) -> u32 {
-        self.channel_id
-    }
-
-    /// BAR0 offset for the USERMODE doorbell register.
-    #[must_use]
-    pub const fn doorbell_offset() -> usize {
-        usermode::NOTIFY_CHANNEL_PENDING
-    }
-
-    // ── PFIFO engine initialization ──────────────────────────────────
-
-    /// Enable the PFIFO engine in PMC, discover PBDMAs, and initialize.
-    ///
-    /// Returns the RUNQ selector (0-based index into the PBDMAs serving
-    /// runlist 0). The RUNQ field in the runlist channel entry is this
-    /// index, NOT the hardware PBDMA ID.
-    ///
-    /// After VFIO FLR the GPU's engine clock domains are gated — PFIFO
-    /// registers read `0xBAD0DA00`.  We must enable the engine in
-    /// `NV_PMC_ENABLE` (0x200) first, matching nouveau's `gp100_mc_init()`
-    /// which writes `0xFFFFFFFF` to un-gate all clock domains.
-    ///
-    /// Then we discover available PBDMAs via `NV_PFIFO_PBDMA_MAP` (0x2004)
-    /// and run the init sequence from nouveau: `gk104_fifo_init()` +
-    /// `gk104_fifo_init_pbdmas()` + `gf100_runq_init()` + `gk104_runq_init()`.
-    fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
-        let w = |reg: usize, val: u32| {
-            bar0.write_u32(reg, val)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {e}"))))
-        };
-
-        // ── Step 0: Enable all engines in PMC (un-gate clock domains) ────
-        let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-        w(pmc::ENABLE, 0xFFFF_FFFF)?;
-        let pmc_after = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-
-        tracing::info!(
-            pmc_before = format_args!("{pmc_before:#010x}"),
-            pmc_after = format_args!("{pmc_after:#010x}"),
-            "PMC engine enable"
-        );
-
-        // ── Step 1: Verify PFIFO is enabled (warm from nouveau) ──────────
-        // On a warm GPU, the scheduler is already running. Toggling
-        // PFIFO_ENABLE would reset the scheduler to a state we cannot
-        // reinitialize from userspace (SCHED_EN at 0x2504 is inaccessible
-        // on GV100). Instead, we verify PFIFO is enabled and proceed to
-        // flush stale channels via empty runlist submissions.
-        let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
-        if pfifo_en == 0 {
-            // Cold GPU — must toggle PFIFO to initialize.
-            w(pfifo::ENABLE, 0)?;
-            std::thread::sleep(std::time::Duration::from_millis(2));
-            w(pfifo::ENABLE, 1)?;
-            std::thread::sleep(std::time::Duration::from_millis(2));
-            eprintln!("║ PFIFO was disabled, toggled 0→1");
-        } else {
-            eprintln!("║ PFIFO already enabled ({pfifo_en:#010x}), preserving scheduler");
-        }
-
-        // ── Step 2: Discover PBDMAs and their runlist assignments ────────
-        let pbdma_map = bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
-        if pbdma_map == 0 {
-            return Err(DriverError::SubmitFailed(Cow::Borrowed(
-                "no PBDMAs found in PBDMA_MAP (0x2004)",
-            )));
-        }
-
-        // Dump raw TOP_INFO entries and parse the GR engine's runlist.
-        // gk104_top chained format: each device is 1-3 entries, bit 31 = chain end.
-        let mut gr_runlist: Option<u32> = None;
-        let mut cur_type: u32 = 0xFFFF;
-        let mut cur_runlist: u32 = 0xFFFF;
-        for i in 0..64_u32 {
-            let data = bar0.read_u32(0x0002_2700 + (i as usize) * 4).unwrap_or(0);
-            if data == 0 {
-                break;
-            }
-            let kind = data & 3;
-            match kind {
-                1 => cur_type = (data >> 2) & 0x3F,
-                3 => cur_runlist = (data >> 11) & 0x1F,
-                _ => {}
-            }
-            eprintln!("║ TOP[{i:2}] = {data:#010x}  kind={kind} {}{}",
-                if kind == 1 { format!("type={} inst={}", (data >> 2) & 0x3F, (data >> 6) & 0xFF) }
-                else if kind == 2 { format!("addr={:#x} fault={}", (data >> 12) & 0xFFF, (data >> 3) & 0x1F) }
-                else if kind == 3 { format!("runlist={} engine={} reset={}", (data >> 11) & 0x1F, (data >> 7) & 0xF, data & 0x7F) }
-                else { String::new() },
-                if data & (1 << 31) != 0 { " [END]" } else { "" },
-            );
-            if data & (1 << 31) != 0 {
-                if cur_type == 0 && gr_runlist.is_none() && cur_runlist != 0xFFFF {
-                    gr_runlist = Some(cur_runlist);
-                    eprintln!("║   → GR engine found on runlist {cur_runlist}");
-                }
-                cur_type = 0xFFFF;
-                cur_runlist = 0xFFFF;
-            }
-        }
-
-        // Scan PBDMA-to-runlist map. On GV100 the registers at 0x002390+i*4
-        // use SEQUENTIAL indexing (i = 0..pbdma_count-1), NOT by PBDMA ID.
-        let pbdma_count = pbdma_map.count_ones();
-        let mut pbdma_ids: Vec<u32> = Vec::new();
-        for pid in 0..32_u32 {
-            if pbdma_map & (1 << pid) != 0 {
-                pbdma_ids.push(pid);
-            }
-        }
-        let mut pbdma_runlists: Vec<(u32, u32)> = Vec::new(); // (pbdma_id, runlist_id)
-        for (seq, &pid) in pbdma_ids.iter().enumerate() {
-            let rl = bar0.read_u32(0x0000_2390 + seq * 4).unwrap_or(0xFFFF);
-            pbdma_runlists.push((pid, rl));
-            eprintln!("║ PBDMA {pid:2} (seq={seq}) → runlist {rl}");
-        }
-
-        // Use GR runlist if found, otherwise first PBDMA's runlist.
-        let target_runlist = gr_runlist.unwrap_or_else(|| pbdma_runlists.first().map_or(0, |e| e.1));
-        eprintln!("║ GR runlist: {gr_runlist:?}, using runlist {target_runlist}");
-        eprintln!("║ PBDMA_MAP={pbdma_map:#010x}");
-
-        tracing::info!(
-            pbdma_map = format_args!("{pbdma_map:#010x}"),
-            target_runlist,
-            "PBDMA/runlist discovery"
-        );
-
-        // ── Step 3: Per-PBDMA init (gk104_fifo_init_pbdmas + gk208_runq_init) ──
-        for id in 0..32_usize {
-            if pbdma_map & (1 << id) == 0 {
-                continue;
-            }
-            let b = 0x0004_0000 + id * 0x2000;
-
-            // gk104_fifo_init_pbdmas: clear + enable PBDMA interrupts.
-            w(pbdma::intr(id), 0xFFFF_FFFF)?;
-            w(pbdma::intr_en(id), 0xFFFF_FEFF)?;
-
-            // gf100_runq_init: clear PBDMA METHOD0 register (stale methods).
-            w(b + 0x13C, 0)?;
-
-            // gk104_runq_init: clear + disable HCE interrupts.
-            w(pbdma::hce_intr(id), 0)?;
-            w(pbdma::hce_intr_en(id), 0)?;
-
-            // gk208_runq_init: initialize PBDMA token register.
-            w(b + 0x164, 0xFFFF_FFFF)?;
-        }
-
-        // ── Step 4: Clear + enable PFIFO interrupts ──────────────────────
-        w(pfifo::INTR, 0xFFFF_FFFF)?;
-        w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
-
-        // ── Step 4b: Enable PFIFO scheduler (nouveau gk104_fifo_init) ──
-        // The PFIFO toggle resets the scheduler. It must be re-enabled
-        // explicitly or runlists are accepted but never processed.
-        w(pfifo::SCHED_EN, 1)?;
-
-        // ── Step 5: Submit empty runlists to flush stale channels ────────
-        // GK104 format: 0x2270 = (target<<28)|(addr>>12), 0x2274 = (rl_id<<20)|count.
-        // Submitting 0-entry runlists tells the scheduler to unload all channels.
-        let mut flushed_runlists = std::collections::HashSet::new();
-        #[expect(clippy::cast_possible_truncation)]
-        let rl_base = (3_u32 << 28) | (RUNLIST_IOVA >> 12) as u32;
-        for &(_, rl) in &pbdma_runlists {
-            if rl > 31 || !flushed_runlists.insert(rl) {
-                continue;
-            }
-            w(0x2270, rl_base)?;
-            w(0x2274, (rl << 20) | 0)?; // 0 entries
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            eprintln!("║ Flushed runlist {rl} (empty)");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-
-        // Also confirm GR runlist via ENGN0_STATUS register (bits [15:12] = runlist ID).
-        let engn0 = bar0.read_u32(0x0000_2640).unwrap_or(0);
-        let engn0_runlist = (engn0 >> 12) & 0xF;
-        eprintln!("║ ENGN0_STATUS={engn0:#010x} → GR runlist={engn0_runlist}");
-        if gr_runlist.is_none() && engn0_runlist <= 31 {
-            gr_runlist = Some(engn0_runlist);
-        }
-        let target_runlist = gr_runlist.unwrap_or_else(|| pbdma_runlists.first().map_or(0, |e| e.1));
-        eprintln!("║ Final target runlist: {target_runlist}");
-
-        let runq: u32 = 0;
-
-        tracing::info!(
-            target_runlist,
-            runq,
-            "PFIFO engine initialized"
-        );
-
-        Ok((runq, target_runlist))
-    }
-
-    /// Read back PFIFO/PBDMA/PCCSR state for diagnostics.
-    fn log_pfifo_diagnostics(bar0: &MappedBar) {
-        let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
-
-        let pfifo_intr = r(pfifo::INTR);
-        let pfifo_en = r(pfifo::INTR_EN);
-        let sched = r(pfifo::SCHED_EN);
-        let pccsr_inst = r(pccsr::inst(0));
-        let pccsr_chan = r(pccsr::channel(0));
-        let pbdma0_intr = r(pbdma::intr(0));
-        let pbdma0_hce = r(pbdma::hce_intr(0));
-        let pbdma1_intr = r(pbdma::intr(1));
-
-        // Engine status registers: GR=engn0, CE0..CE7
-        let engn0_status = r(0x0000_2640);
-        // PBDMA idle status
-        let pbdma0_idle = r(0x0000_3080);
-        let pbdma1_idle = r(0x0000_3084);
-        // RUNLIST pending
-        let rl0_info = r(0x0000_2284);
-        // PMC enable (bit 8 = PFIFO, bit 1 = PBDMA)
-        let pmc_enable = r(0x0000_0200);
-        // BIND_ERROR status
-        let bind_err = r(0x0000_252C);
-
-        // Additional Volta-specific registers
-        let sched_dis = r(0x0000_2630); // NV_PFIFO_SCHED_DISABLE
-        let preempt = r(0x0000_2634);   // NV_PFIFO_PREEMPT
-        let runl_submit_info = r(0x0000_2270); // RUNLIST_BASE readback
-        let doorbell_test = r(0x0081_0090); // Doorbell register probe
-        let pbdma_map = r(0x0000_2004); // PBDMA active map
-        let top_info0 = r(0x0002_2700); // Top device info entry 0
-
-        eprintln!("╔══ PFIFO DIAGNOSTICS ══════════════════════════════════════╗");
-        eprintln!("║ PMC_ENABLE:     {pmc_enable:#010x}");
-        eprintln!("║ SCHED_EN:       {sched:#010x}");
-        eprintln!("║ SCHED_DISABLE:  {sched_dis:#010x}");
-        eprintln!("║ PREEMPT:        {preempt:#010x}");
-        eprintln!("║ PFIFO_INTR:     {pfifo_intr:#010x}");
-        eprintln!("║ PFIFO_INTR_EN:  {pfifo_en:#010x}");
-        eprintln!("║ PCCSR_INST[0]:  {pccsr_inst:#010x}");
-        eprintln!("║ PCCSR_CHAN[0]:  {pccsr_chan:#010x}  (bit10=en_set, bit0=enabled)");
-        eprintln!("║ PBDMA0_INTR:    {pbdma0_intr:#010x}");
-        eprintln!("║ PBDMA0_HCE:     {pbdma0_hce:#010x}");
-        eprintln!("║ PBDMA1_INTR:    {pbdma1_intr:#010x}");
-        eprintln!("║ PBDMA0_IDLE:    {pbdma0_idle:#010x}  (bits[15:13]=busy)");
-        eprintln!("║ PBDMA1_IDLE:    {pbdma1_idle:#010x}");
-        eprintln!("║ ENGN0_STATUS:   {engn0_status:#010x}");
-        eprintln!("║ RUNLIST0_INFO:  {rl0_info:#010x}  (bit20=pending)");
-        eprintln!("║ RUNLIST_BASE:   {runl_submit_info:#010x}");
-        eprintln!("║ BIND_ERROR:     {bind_err:#010x}");
-        eprintln!("║ PBDMA_MAP:      {pbdma_map:#010x}");
-        eprintln!("║ TOP_INFO[0]:    {top_info0:#010x}");
-        eprintln!("║ DOORBELL_PROBE: {doorbell_test:#010x}");
-        // Dump internal state for each PBDMA that actually exists.
-        let mut seq = 0_usize;
-        for pid in 0..32_usize {
-            if pbdma_map & (1 << pid) == 0 {
-                continue;
-            }
-            let b = 0x040000 + pid * 0x2000;
-            let rl_assign = r(0x2390 + seq * 4);
-            eprintln!("║ ── PBDMA{pid} (seq={seq}, →runlist {rl_assign}) ──");
-            eprintln!("║ GP_BASE:  {:#010x}_{:#010x}", r(b + 0x44), r(b + 0x40));
-            eprintln!("║ GP_PUT:   {:#010x}  GP_FETCH: {:#010x}  GP_STATE: {:#010x}",
-                r(b + 0x54), r(b + 0x48), r(b + 0x4C));
-            eprintln!("║ USERD:    {:#010x}_{:#010x}", r(b + 0xD4), r(b + 0xD0));
-            eprintln!("║ CHN_INF:  {:#010x}  CHN_STATE: {:#010x}  SIG: {:#010x}",
-                r(b + 0xAC), r(b + 0xB0), r(b + 0xC0));
-            seq += 1;
-        }
-        eprintln!("╚═══════════════════════════════════════════════════════════╝");
-    }
-
-    // ── Page table setup ───────────────────────────────────────────────
-
-    /// Populate V2 MMU page tables with identity mapping for the first 2 MiB.
-    ///
-    /// The 5-level hierarchy (PD3→PD2→PD1→PD0→PT) maps GPU virtual addresses
-    /// directly to their IOVA equivalents, so GPU VA 0x1000 → physical 0x1000
-    /// (which the IOMMU then translates to the actual host physical address).
-    fn populate_page_tables(&mut self) {
-        // PD3 entry 0 → PD2 (VA[48:47] = 0)
-        write_pde(self.pd3.as_mut_slice(), 0, PD2_IOVA);
-
-        // PD2 entry 0 → PD1 (VA[46:38] = 0)
-        write_pde(self.pd2.as_mut_slice(), 0, PD1_IOVA);
-
-        // PD1 entry 0 → PD0 (VA[37:29] = 0)
-        write_pde(self.pd1.as_mut_slice(), 0, PD0_IOVA);
-
-        // PD0 entry 0: dual PDE format — 16 bytes per entry.
-        // Bytes [0:7]  = big page PDE (unused, leave as 0)
-        // Bytes [8:15] = small page PDE → PT0
-        let pd0_slice = self.pd0.as_mut_slice();
-        let small_pde = encode_pde(PT0_IOVA);
-        pd0_slice[8..16].copy_from_slice(&small_pde.to_le_bytes());
-
-        // PT0: identity-map 512 small pages (4 KiB each, total 2 MiB).
-        // Page 0 left unmapped as a null guard.
-        let pt_slice = self.pt0.as_mut_slice();
-        for i in 1..PT_ENTRIES {
-            let phys = (i as u64) * 4096;
-            let pte = encode_pte(phys);
-            let off = i * 8;
-            pt_slice[off..off + 8].copy_from_slice(&pte.to_le_bytes());
-        }
-    }
-
-    // ── Instance block / RAMFC ─────────────────────────────────────────
-
-    /// Populate RAMFC and page directory base within the instance block.
-    ///
-    /// Field values match `gv100_chan_ramfc_write()` from nouveau with
-    /// `priv=true` and `devm=0xFFF`, adapted for system memory aperture.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "IOVA values and ilog2 results always fit u32"
-    )]
-    fn populate_instance_block(&mut self, gpfifo_iova: u64, gpfifo_entries: u32, userd_iova: u64) {
-        let inst = self.instance.as_mut_slice();
-        let limit2 = gpfifo_entries.ilog2();
-
-        // ── RAMFC fields (offsets 0x000..0x1FF) ────────────────────────
-
-        // USERD pointer with SYS_MEM_COHERENT target in low bits.
-        // NV_PPBDMA_USERD: ADDR[31:9], TARGET[1:0].
-        // PBDMA encoding: 0=VID_MEM, 1=SYS_MEM_COH, 2=SYS_MEM_NCOH
-        // (differs from PCCSR where 2=COH!)
-        write_u32_le(
-            inst,
-            ramfc::USERD_LO,
-            (userd_iova as u32 & 0xFFFF_FE00) | PBDMA_TARGET_SYS_MEM_COHERENT,
-        );
-        write_u32_le(inst, ramfc::USERD_HI, (userd_iova >> 32) as u32);
-
-        write_u32_le(inst, ramfc::SIGNATURE, 0x0000_FACE);
-        write_u32_le(inst, ramfc::ACQUIRE, 0x7FFF_F902);
-
-        // GPFIFO base (GPU virtual address — our identity map makes VA = IOVA).
-        // No target/aperture bits: the PBDMA accesses GPFIFO through the GPU MMU,
-        // which uses the page tables in this instance block to translate.
-        write_u32_le(inst, ramfc::GP_BASE_LO, gpfifo_iova as u32);
-        write_u32_le(
-            inst,
-            ramfc::GP_BASE_HI,
-            (gpfifo_iova >> 32) as u32 | (limit2 << 16),
-        );
-
-        write_u32_le(inst, ramfc::PB_HEADER, 0x2040_0000);
-        write_u32_le(inst, ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF);
-        write_u32_le(inst, ramfc::HCE_CTRL, 0x0000_0020);
-        write_u32_le(inst, ramfc::CHID, self.channel_id);
-        write_u32_le(inst, ramfc::CONFIG, 0x0000_1100);
-        write_u32_le(inst, ramfc::CHANNEL_INFO, 0x1000_3080);
-
-        // ── NV_RAMIN page directory base (offset 0x200) ────────────────
-
-        let pdb_lo: u32 = ((PD3_IOVA >> 12) as u32) << 12
-            | (1 << 11) // BIG_PAGE_SIZE = 64 KiB
-            | (1 << 10) // USE_VER2_PT_FORMAT = TRUE
-            | (1 << 2)  // VOL = TRUE
-            | TARGET_SYS_MEM_COHERENT;
-        write_u32_le(inst, ramin::PAGE_DIR_BASE_LO, pdb_lo);
-        write_u32_le(inst, ramin::PAGE_DIR_BASE_HI, (PD3_IOVA >> 32) as u32);
-
-        // Clear engine WFI VEID.
-        write_u32_le(inst, ramin::ENGINE_WFI_VEID, 0);
-
-        // ── Subcontext 0 page directory (mirrors main PDB) ────────────
-        // FECS uses subcontexts for compute; at least SC0 must be valid.
-
-        write_u32_le(inst, ramin::SC_PDB_VALID, 1); // SC0 valid
-        write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_LO, pdb_lo);
-        write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_HI, (PD3_IOVA >> 32) as u32);
-    }
-
-    // ── Runlist ────────────────────────────────────────────────────────
-
-    /// Populate runlist with a TSG header + channel entry (Volta RAMRL format).
-    ///
-    /// The runlist contains one channel group (TSG) with one channel.
-    /// Format from `gv100_runl_insert_cgrp()` and `gv100_runl_insert_chan()`.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "IOVA values always fit u32 for our allocation range"
-    )]
-    fn populate_runlist(&mut self, userd_iova: u64, runq: u32) {
-        let rl = self.runlist.as_mut_slice();
-
-        // ── TSG (channel group) header — 16 bytes ──────────────────────
-        // DW0: (timeslice=128 << 24) | (tsg_length=3 << 16) | type=1
-        write_u32_le(rl, 0x00, (128 << 24) | (3 << 16) | 1);
-        write_u32_le(rl, 0x04, 1); // 1 channel in group
-        write_u32_le(rl, 0x08, 0); // group ID = 0
-        write_u32_le(rl, 0x0C, 0);
-
-        // ── Channel entry — 16 bytes (gv100_runl_insert_chan) ────────────
-        //
-        // GV100 RAMRL channel entry format (from dev_ram.ref.txt):
-        //   DW0: USERD_PTR_LO[31:8] | USERD_TARGET[7:6] | INST_TARGET[5:4] | RQ[1] | TYPE[0]=0
-        //   DW1: USERD_PTR_HI[31:0]
-        //   DW2: INST_PTR_LO[31:12] | CHID[11:0]
-        //   DW3: INST_PTR_HI[31:0]
-        //
-        // Note: GV100 hardware ignores the RAMRL INST fields and uses PCCSR
-        // INST_PTR instead. USERD fields may also be ignored (read from RAMFC).
-        // TARGET encoding: 0=VID_MEM, 2=SYS_MEM_COH, 3=SYS_MEM_NCOH
-        write_u32_le(
-            rl,
-            0x10,
-            (userd_iova as u32 & 0xFFFF_FF00)
-                | (TARGET_SYS_MEM_COHERENT << 6)
-                | (TARGET_SYS_MEM_NONCOHERENT << 4)
-                | (runq << 1),
-        );
-        write_u32_le(rl, 0x14, (userd_iova >> 32) as u32);
-        write_u32_le(
-            rl,
-            0x18,
-            (INSTANCE_IOVA as u32 & 0xFFFF_F000) | self.channel_id,
-        );
-        write_u32_le(rl, 0x1C, (INSTANCE_IOVA >> 32) as u32);
-    }
-
-    // ── BAR0 register programming ─────────────────────────────────────
-
-    /// Bind the channel's instance block to PCCSR.
-    ///
-    /// Matches nouveau's `gk104_chan_bind_inst()`: write INST_PTR and
-    /// INST_TARGET to PCCSR_INST. On GV100 with VFIO, the instance block
-    /// is in system memory — we set INST_TARGET to SYS_MEM_NONCOHERENT
-    /// (matching the runlist entry DW2 encoding). INST_BIND is NOT set;
-    /// context load happens via the scheduler + runlist path.
-    fn bind_channel(&self, bar0: &MappedBar) -> DriverResult<()> {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "INSTANCE_IOVA >> 12 fits u32 for our allocation range"
-        )]
-        let value = (INSTANCE_IOVA >> 12) as u32
-            | pccsr::INST_TARGET_SYS_MEM_NCOH;
-
-        bar0.write_u32(pccsr::inst(self.channel_id), value)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR bind: {e}"))))
-    }
-
-    /// Clear stale PBDMA_FAULTED / ENG_FAULTED flags, then disable-before-re-enable
-    /// to put the channel in a clean state for a new runlist submission.
-    fn clear_channel_faults(&self, bar0: &MappedBar) -> DriverResult<()> {
-        let ch = pccsr::channel(self.channel_id);
-        let pre = bar0.read_u32(ch).unwrap_or(0);
-        if pre & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0 {
-            // Disable channel first.
-            bar0.write_u32(ch, pccsr::CHANNEL_ENABLE_CLR)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("chan disable: {e}"))))?;
-            std::thread::sleep(std::time::Duration::from_millis(2));
-
-            // Clear fault bits by writing 1 to them.
-            bar0.write_u32(ch, pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("fault clear: {e}"))))?;
-            std::thread::sleep(std::time::Duration::from_millis(2));
-
-            let post = bar0.read_u32(ch).unwrap_or(0xDEAD);
-            eprintln!("║ Cleared channel faults: {pre:#010x} → {post:#010x}");
-        }
-        Ok(())
-    }
-
-    /// Enable the channel via PCCSR ENABLE_SET trigger.
-    fn enable_channel(&self, bar0: &MappedBar) -> DriverResult<()> {
-        bar0.write_u32(pccsr::channel(self.channel_id), pccsr::CHANNEL_ENABLE_SET)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("channel enable: {e}"))))
-    }
-
-    /// Submit runlist to PFIFO using the GK104 register format.
-    ///
-    /// GK104 uses a SINGLE pair of registers (0x2270, 0x2274) for ALL runlists:
-    /// - 0x2270: (target << 28) | (addr >> 12)
-    /// - 0x2274: (runlist_id << 20) | count
-    fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "RUNLIST_IOVA >> 12 fits u32 for our allocation range"
-        )]
-        // target=3 (NCOH) for system memory, addr is IOVA >> 12.
-        let rl_base = (3_u32 << 28) | (RUNLIST_IOVA >> 12) as u32;
-        // runlist_id in bits [23:20], count=2 (TSG header + channel entry).
-        let rl_submit = (self.runlist_id << 20) | 2;
-
-        eprintln!("║ submit_runlist: id={} base={rl_base:#010x} submit={rl_submit:#010x}",
-            self.runlist_id);
-
-        bar0.write_u32(0x0000_2270, rl_base)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base: {e}"))))?;
-
-        bar0.write_u32(0x0000_2274, rl_submit)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist submit: {e}"))))
-    }
-}
-
-impl std::fmt::Debug for VfioChannel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VfioChannel")
-            .field("channel_id", &self.channel_id)
-            .field("instance_iova", &format_args!("{INSTANCE_IOVA:#x}"))
-            .finish_non_exhaustive()
-    }
-}
-
-// ── Diagnostic experiment matrix ────────────────────────────────────────
-
-/// Populate page tables in pre-allocated buffers (static version for matrix).
-fn populate_page_tables_static(
-    pd3: &mut [u8], pd2: &mut [u8], pd1: &mut [u8], pd0: &mut [u8], pt0: &mut [u8],
-) {
-    write_pde(pd3, 0, PD2_IOVA);
-    write_pde(pd2, 0, PD1_IOVA);
-    write_pde(pd1, 0, PD0_IOVA);
-    let small_pde = encode_pde(PT0_IOVA);
-    pd0[8..16].copy_from_slice(&small_pde.to_le_bytes());
-    for i in 1..PT_ENTRIES {
-        let phys = (i as u64) * 4096;
-        let pte = encode_pte(phys);
-        let off = i * 8;
-        pt0[off..off + 8].copy_from_slice(&pte.to_le_bytes());
-    }
-}
-
-/// Populate instance block in a pre-allocated buffer (static version for matrix).
-#[expect(clippy::cast_possible_truncation)]
-fn populate_instance_block_static(
-    inst: &mut [u8],
-    gpfifo_iova: u64, gpfifo_entries: u32, userd_iova: u64, channel_id: u32,
-) {
-    let limit2 = gpfifo_entries.ilog2();
-
-    write_u32_le(inst, ramfc::USERD_LO,
-        (userd_iova as u32 & 0xFFFF_FE00) | PBDMA_TARGET_SYS_MEM_COHERENT);
-    write_u32_le(inst, ramfc::USERD_HI, (userd_iova >> 32) as u32);
-    write_u32_le(inst, ramfc::SIGNATURE, 0x0000_FACE);
-    write_u32_le(inst, ramfc::ACQUIRE, 0x7FFF_F902);
-    write_u32_le(inst, ramfc::GP_BASE_LO, gpfifo_iova as u32);
-    // GP_BASE is a GPU virtual address (goes through instance block's page tables).
-    // No target/aperture bits — only upper address + limit2 (log2 entries).
-    write_u32_le(inst, ramfc::GP_BASE_HI,
-        (gpfifo_iova >> 32) as u32 | (limit2 << 16));
-    write_u32_le(inst, ramfc::PB_HEADER, 0x2040_0000);
-    write_u32_le(inst, ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF);
-    write_u32_le(inst, ramfc::HCE_CTRL, 0x0000_0020);
-    write_u32_le(inst, ramfc::CHID, channel_id);
-    write_u32_le(inst, ramfc::CONFIG, 0x0000_1100);
-    write_u32_le(inst, ramfc::CHANNEL_INFO, 0x1000_3080);
-
-    let pdb_lo: u32 = ((PD3_IOVA >> 12) as u32) << 12
-        | (1 << 11)
-        | (1 << 10)
-        | (1 << 2)
-        | TARGET_SYS_MEM_COHERENT;
-    write_u32_le(inst, ramin::PAGE_DIR_BASE_LO, pdb_lo);
-    write_u32_le(inst, ramin::PAGE_DIR_BASE_HI, (PD3_IOVA >> 32) as u32);
-    write_u32_le(inst, ramin::ENGINE_WFI_VEID, 0);
-    write_u32_le(inst, ramin::SC_PDB_VALID, 1);
-    write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_LO, pdb_lo);
-    write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_HI, (PD3_IOVA >> 32) as u32);
-}
-
-/// Populate runlist in a pre-allocated buffer (static version for matrix).
-#[expect(clippy::cast_possible_truncation)]
-fn populate_runlist_static(
-    rl: &mut [u8],
-    userd_iova: u64, channel_id: u32,
-    userd_target: u32, inst_target: u32,
-    runq: u32,
-) {
-    write_u32_le(rl, 0x00, (128 << 24) | (3 << 16) | 1);
-    write_u32_le(rl, 0x04, 1);
-    write_u32_le(rl, 0x08, 0);
-    write_u32_le(rl, 0x0C, 0);
-    // DW0: USERD_PTR_LO[31:8] | USERD_TARGET[7:6] | INST_TARGET[5:4] | RUNQUEUE[1] | TYPE=0
-    write_u32_le(rl, 0x10,
-        (userd_iova as u32 & 0xFFFF_FF00)
-        | (userd_target << 6)
-        | (inst_target << 4)
-        | (runq << 1));
-    write_u32_le(rl, 0x14, (userd_iova >> 32) as u32);
-    // DW2: INST_PTR_LO[31:12] | CHID[11:0]
-    write_u32_le(rl, 0x18,
-        (INSTANCE_IOVA as u32 & 0xFFFF_F000) | channel_id);
-    write_u32_le(rl, 0x1C, (INSTANCE_IOVA >> 32) as u32);
-}
+use super::page_tables::{
+    populate_instance_block_static, populate_page_tables, populate_runlist_static, write_u32_le,
+};
+use super::registers::*;
 
 /// Operation ordering for the diagnostic experiment.
 #[derive(Debug, Clone, Copy)]
@@ -1056,6 +70,23 @@ pub enum ExperimentOrdering {
     /// via the PRAMIN window, uses VRAM target in PCCSR_INST and runlist entry,
     /// then follows the full D+N dispatch path with doorbell.
     VramFullDispatch,
+    /// T: I config (direct PBDMA at active offsets 0xD0/0x40) + doorbell AFTER
+    /// SCHED bit set. Tests whether doorbell triggers GP_FETCH when channel is
+    /// marked scheduled with directly programmed PBDMA registers.
+    DirectPbdmaSchedDoorbell,
+    /// R: RAMFC-mirror path — write USERD/GP_BASE/SIGNATURE to the
+    /// RAMFC-mapped PBDMA context offsets (0x008, 0x048, 0x010) instead of
+    /// direct offsets (0xD0, 0x40, 0xC0). + SCHED bit + doorbell.
+    /// Tests hypothesis: PBDMA DMA engine reads from context-area registers.
+    RamfcMirrorSchedDoorbell,
+    /// S: Both register sets — write to RAMFC-mirror AND direct offsets.
+    /// + SCHED bit + doorbell. Covers both hypotheses simultaneously.
+    BothPathsSchedDoorbell,
+    /// V: Pure scheduler path — enable channel, ensure SCHED_EN/SCHED_DISABLE
+    /// are correct, submit runlist, ring doorbell. NO INST_BIND, NO direct PBDMA.
+    /// Tests whether the GV100 hardware scheduler loads RAMFC context on its own
+    /// when the scheduler is explicitly enabled.
+    SchedulerPathOnly,
 }
 
 /// Configuration for a single experiment in the diagnostic matrix.
@@ -1086,10 +117,14 @@ pub struct ExperimentResult {
     pub pccsr_chan: u32,
     /// PCCSR inst register readback.
     pub pccsr_inst_readback: u32,
-    /// PBDMA USERD low word.
+    /// PBDMA USERD low (offset 0xD0 — direct programming register).
     pub pbdma_userd_lo: u32,
-    /// PBDMA USERD high word.
+    /// PBDMA USERD high (offset 0xD4 — direct programming register).
     pub pbdma_userd_hi: u32,
+    /// PBDMA USERD low from RAMFC context load (offset 0x008).
+    pub pbdma_ramfc_userd_lo: u32,
+    /// PBDMA USERD high from RAMFC context load (offset 0x00C).
+    pub pbdma_ramfc_userd_hi: u32,
     /// PBDMA GP_BASE low word.
     pub pbdma_gp_base_lo: u32,
     /// PBDMA GP_BASE high word.
@@ -1121,13 +156,13 @@ impl ExperimentResult {
     pub fn summary_line(&self) -> String {
         let pbdma_tag = if self.pbdma_ours { "OUR" } else { "old" };
         format!(
-            "{:<42} | {:08x} | {:<5} | {:<5} | {:08x}_{:08x} | {:>3} | gp={:02x}/{:02x} | {:08x}",
+            "{:<42} | {:08x} | {:<5} | {:<5} | D0={:08x} R8={:08x} | {:>3} | gp={:02x}/{:02x} | {:08x}",
             self.name,
             self.pccsr_chan,
             if self.faulted { "FAULT" } else { "ok" },
             if self.scheduled { "SCHED" } else { "no" },
-            self.pbdma_userd_hi,
             self.pbdma_userd_lo,
+            self.pbdma_ramfc_userd_lo,
             pbdma_tag,
             self.pbdma_gp_put,
             self.pbdma_gp_fetch,
@@ -1143,7 +178,11 @@ impl ExperimentResult {
 pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
     let mut configs = Vec::new();
 
-    // ── Scheduler-based orderings (A-D) with encoding axes ──────────────
+    // ── Scheduler-based orderings (A-D) — reduced set ────────────────────
+    // Prior runs proved encoding doesn't change outcomes on GV100: the
+    // scheduler never loads RAMFC context regardless of target bits.
+    // Keep one COH representative per ordering for regression coverage.
+    // Exhaustive encoding sweeps can be re-enabled per-card as needed.
 
     let orderings = [
         (ExperimentOrdering::BindEnableRunlist, "A"),
@@ -1152,36 +191,16 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         (ExperimentOrdering::BindWithInstBindEnableRunlist, "D"),
     ];
 
-    let pccsr_targets = [(2_u32, "coh"), (3_u32, "ncoh")];
-
-    let runlist_targets = [
-        (2_u32, 3_u32, "Ucoh_Incoh"),
-        (2_u32, 2_u32, "Ucoh_Icoh"),
-        (3_u32, 3_u32, "Uncoh_Incoh"),
-    ];
-
-    let runlist_base_targets = [(3_u32, "rlNcoh"), (2_u32, "rlCoh")];
-
     for &(ordering, ord_name) in &orderings {
-        for &(pccsr_t, pccsr_name) in &pccsr_targets {
-            for &(userd_t, inst_t, rl_name) in &runlist_targets {
-                for &(rl_base_t, rl_base_name) in &runlist_base_targets {
-                    let name = Box::leak(
-                        format!("{ord_name}_{pccsr_name}_{rl_name}_{rl_base_name}")
-                            .into_boxed_str(),
-                    );
-                    configs.push(ExperimentConfig {
-                        name,
-                        pccsr_target: pccsr_t,
-                        runlist_userd_target: userd_t,
-                        runlist_inst_target: inst_t,
-                        runlist_base_target: rl_base_t,
-                        ordering,
-                        skip_pfifo_toggle: true,
-                    });
-                }
-            }
-        }
+        configs.push(ExperimentConfig {
+            name: Box::leak(format!("{ord_name}_coh").into_boxed_str()),
+            pccsr_target: 2,
+            runlist_userd_target: 2,
+            runlist_inst_target: 3,
+            runlist_base_target: 1, // GV100 aperture: 1=SYS_MEM_COH (best guess)
+            ordering,
+            skip_pfifo_toggle: true,
+        });
     }
 
     // ── Q: VRAM instance block + full dispatch — run FIRST on warm GPU ──
@@ -1190,8 +209,8 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
     // PRAMIN writes to low VRAM offsets are non-destructive to warm state.
     for &(rl_utgt, rl_btgt, suffix) in &[
         (2_u32, 3_u32, "Ucoh"),
-        (2,     2,     "Ucoh_rlCoh"),
-        (3,     3,     "Uncoh"),
+        (2, 2, "Ucoh_rlCoh"),
+        (3, 3, "Uncoh"),
     ] {
         configs.push(ExperimentConfig {
             name: match suffix {
@@ -1212,8 +231,8 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
     // Must run before VRAM/PRAMIN experiments (J/K/L) which can corrupt state.
     for &(pccsr_tgt, rl_utgt, rl_itgt, rl_btgt, suffix) in &[
         (2_u32, 2_u32, 3_u32, 3_u32, "coh"),
-        (3,     2,     3,     2,     "ncoh"),
-        (2,     2,     2,     2,     "allCoh"),
+        (3, 2, 3, 2, "ncoh"),
+        (2, 2, 2, 2, "allCoh"),
     ] {
         configs.push(ExperimentConfig {
             name: match suffix {
@@ -1316,6 +335,58 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         });
     }
 
+    // ── T: Direct PBDMA + SCHED + doorbell (I + doorbell AFTER) ────────
+    for &(pccsr_t, pccsr_name) in &[(2_u32, "coh"), (3_u32, "ncoh")] {
+        configs.push(ExperimentConfig {
+            name: Box::leak(format!("T_sched_doorbell_{pccsr_name}").into_boxed_str()),
+            pccsr_target: pccsr_t,
+            runlist_userd_target: 2,
+            runlist_inst_target: 3,
+            runlist_base_target: 1,
+            ordering: ExperimentOrdering::DirectPbdmaSchedDoorbell,
+            skip_pfifo_toggle: true,
+        });
+    }
+
+    // ── R: RAMFC-mirror PBDMA registers + SCHED + doorbell ───────────
+    for &(pccsr_t, pccsr_name) in &[(2_u32, "coh"), (3_u32, "ncoh")] {
+        configs.push(ExperimentConfig {
+            name: Box::leak(format!("R_ramfc_sched_{pccsr_name}").into_boxed_str()),
+            pccsr_target: pccsr_t,
+            runlist_userd_target: 2,
+            runlist_inst_target: 3,
+            runlist_base_target: 1,
+            ordering: ExperimentOrdering::RamfcMirrorSchedDoorbell,
+            skip_pfifo_toggle: true,
+        });
+    }
+
+    // ── S: Both register paths + SCHED + doorbell ────────────────────
+    for &(pccsr_t, pccsr_name) in &[(2_u32, "coh"), (3_u32, "ncoh")] {
+        configs.push(ExperimentConfig {
+            name: Box::leak(format!("S_both_sched_{pccsr_name}").into_boxed_str()),
+            pccsr_target: pccsr_t,
+            runlist_userd_target: 2,
+            runlist_inst_target: 3,
+            runlist_base_target: 1,
+            ordering: ExperimentOrdering::BothPathsSchedDoorbell,
+            skip_pfifo_toggle: true,
+        });
+    }
+
+    // ── V: Pure scheduler path (SCHED_EN + runlist, no direct PBDMA) ─
+    for &(pccsr_t, pccsr_name) in &[(2_u32, "coh"), (3_u32, "ncoh")] {
+        configs.push(ExperimentConfig {
+            name: Box::leak(format!("V_scheduler_only_{pccsr_name}").into_boxed_str()),
+            pccsr_target: pccsr_t,
+            runlist_userd_target: 2,
+            runlist_inst_target: 3,
+            runlist_base_target: 1,
+            ordering: ExperimentOrdering::SchedulerPathOnly,
+            skip_pfifo_toggle: true,
+        });
+    }
+
     // ── VRAM instance block experiments (J) ─────────────────────────────
 
     for &(rl_base_t, rl_name) in &[(3_u32, "rlNcoh"), (2_u32, "rlCoh")] {
@@ -1357,7 +428,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
     // ── M: PFIFO engine reset + re-init ──────────────────────────────────
     for &(pccsr_tgt, rl_utgt, rl_itgt, rl_btgt, suffix) in &[
         (2_u32, 2_u32, 3_u32, 3_u32, "coh_Ucoh_Incoh_rlNcoh"),
-        (3,     2,     3,     2,     "ncoh_Ucoh_Incoh_rlCoh"),
+        (3, 2, 3, 2, "ncoh_Ucoh_Incoh_rlCoh"),
     ] {
         configs.push(ExperimentConfig {
             name: match suffix {
@@ -1423,14 +494,28 @@ pub fn diagnostic_matrix(
     eprintln!("║ FB_TIMEOUT:    {:#010x}", r(0x2254));
     eprintln!("║ PRIV_RING:     {:#010x}", r(0x012070));
     eprintln!("║ ── MMU Fault Buffers ──");
-    eprintln!("║ BUF0_LO:  {:#010x}  BUF0_HI:  {:#010x}  SIZE: {:#010x}",
-        r(0x100E24), r(0x100E28), r(0x100E2C));
-    eprintln!("║ BUF0_GET: {:#010x}  BUF0_PUT: {:#010x}",
-        r(0x100E30), r(0x100E34));
-    eprintln!("║ BUF1_LO:  {:#010x}  BUF1_HI:  {:#010x}  SIZE: {:#010x}",
-        r(0x100E44), r(0x100E48), r(0x100E4C));
-    eprintln!("║ BUF1_GET: {:#010x}  BUF1_PUT: {:#010x}",
-        r(0x100E50), r(0x100E54));
+    eprintln!(
+        "║ BUF0_LO:  {:#010x}  BUF0_HI:  {:#010x}  SIZE: {:#010x}",
+        r(0x100E24),
+        r(0x100E28),
+        r(0x100E2C)
+    );
+    eprintln!(
+        "║ BUF0_GET: {:#010x}  BUF0_PUT: {:#010x}",
+        r(0x100E30),
+        r(0x100E34)
+    );
+    eprintln!(
+        "║ BUF1_LO:  {:#010x}  BUF1_HI:  {:#010x}  SIZE: {:#010x}",
+        r(0x100E44),
+        r(0x100E48),
+        r(0x100E4C)
+    );
+    eprintln!(
+        "║ BUF1_GET: {:#010x}  BUF1_PUT: {:#010x}",
+        r(0x100E50),
+        r(0x100E54)
+    );
     eprintln!("║ ── PCCSR Channel Scan ──");
     for ch in 0..8_u32 {
         let inst_val = r(pccsr::inst(ch));
@@ -1440,33 +525,71 @@ pub fn diagnostic_matrix(
         }
     }
     eprintln!("║ MMU_FAULT_STATUS: {:#010x}", r(0x100A2C));
-    eprintln!("║ MMU_FAULT_ADDR:   {:#010x}_{:#010x}", r(0x100A34), r(0x100A30));
-    eprintln!("║ MMU_FAULT_INST:   {:#010x}_{:#010x}", r(0x100A3C), r(0x100A38));
+    eprintln!(
+        "║ MMU_FAULT_ADDR:   {:#010x}_{:#010x}",
+        r(0x100A34),
+        r(0x100A30)
+    );
+    eprintln!(
+        "║ MMU_FAULT_INST:   {:#010x}_{:#010x}",
+        r(0x100A3C),
+        r(0x100A38)
+    );
 
-    // ── Warm state verification ──
+    // ── Warm state verification + self-warming ("glow plug") ──
     let pmc_en = r(pmc::ENABLE);
     let pfifo_en = r(pfifo::ENABLE);
+
+    if pmc_en == 0xFFFF_FFFF {
+        return Err(DriverError::SubmitFailed(Cow::Borrowed(
+            "BAR0 returns 0xFFFFFFFF — GPU in D3hot (PCIe sleep). \
+             Set power/control=on: echo on > /sys/bus/pci/devices/<BDF>/power/control",
+        )));
+    }
+
     let gpu_warm = pmc_en != 0x4000_0020 && pfifo_en != 0xBAD0_DA00;
-    eprintln!("║ WARM STATE:       {}", if gpu_warm { "WARM ✓" } else { "COLD ✗ — PFIFO de-clocked, results unreliable" });
-    eprintln!("╚═══════════════════════════════════════════════════════════╝");
 
     if !gpu_warm {
-        eprintln!("╔══ WARNING: GPU IS COLD ═════════════════════════════════════╗");
-        eprintln!("║ PMC_ENABLE={pmc_en:#010x} (expect 0x5fecdff1 when warm)");
-        eprintln!("║ PFIFO_ENABLE={pfifo_en:#010x} (expect 0x00000000, not 0xbad0da00)");
-        eprintln!("║ Nouveau warm-boot may have failed. Re-run rebind sequence.");
-        eprintln!("║ Continuing anyway — some experiments still yield useful data.");
-        eprintln!("╚═════════════════════════════════════════════════════════════╝");
+        eprintln!("╔══ GLOW PLUG — SELF-WARMING GPU ═══════════════════════════╗");
+        eprintln!("║ PMC_ENABLE={pmc_en:#010x} → writing 0xFFFFFFFF to clock all engines");
+
+        w(pmc::ENABLE, 0xFFFF_FFFF)?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let pmc_after = r(pmc::ENABLE);
+        let pfifo_after = r(pfifo::ENABLE);
+        eprintln!("║ PMC_ENABLE={pmc_after:#010x} (readback)");
+        eprintln!("║ PFIFO_ENABLE={pfifo_after:#010x}");
+
+        if pfifo_after == 0xBAD0_DA00 || pfifo_after == 0xFFFF_FFFF {
+            eprintln!("║ PFIFO still de-clocked after PMC write — toggling PFIFO 0→1");
+            let _ = w(pfifo::ENABLE, 0);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let _ = w(pfifo::ENABLE, 1);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let pfifo_retry = r(pfifo::ENABLE);
+            eprintln!("║ PFIFO_ENABLE={pfifo_retry:#010x} (after toggle)");
+        }
+
+        let pmc_final = r(pmc::ENABLE);
+        let pfifo_final = r(pfifo::ENABLE);
+        let warmed = pmc_final != 0x4000_0020 && pfifo_final != 0xBAD0_DA00;
+        eprintln!(
+            "║ SELF-WARM: {}",
+            if warmed { "SUCCESS ✓" } else { "FAILED ✗" }
+        );
+        eprintln!("╚═══════════════════════════════════════════════════════════╝");
+    } else {
+        eprintln!("║ WARM STATE:       WARM ✓ (PMC={pmc_en:#010x})");
+        eprintln!("╚═══════════════════════════════════════════════════════════╝");
     }
 
     // ── Shared init ─────────────────────────────────────────────────────
-    // DO NOT write PMC_ENABLE — on a warm GPU, nouveau left the correct
-    // value (0x5fecdff1). Writing 0xFFFFFFFF can break engine clocking.
 
     let pbdma_map = r(pfifo::PBDMA_MAP);
     if pbdma_map == 0 || pbdma_map == 0xBAD0_DA00 {
         return Err(DriverError::SubmitFailed(Cow::Borrowed(
-            "no PBDMAs (PFIFO de-clocked — GPU cold, need nouveau warm)"
+            "no PBDMAs after self-warm — PFIFO failed to initialize",
         )));
     }
 
@@ -1475,7 +598,9 @@ pub fn diagnostic_matrix(
     let mut cur_runlist: u32 = 0xFFFF;
     for i in 0..64_u32 {
         let data = r(0x0002_2700 + (i as usize) * 4);
-        if data == 0 { break; }
+        if data == 0 {
+            break;
+        }
         let kind = data & 3;
         match kind {
             1 => cur_type = (data >> 2) & 0x3F,
@@ -1493,7 +618,9 @@ pub fn diagnostic_matrix(
     if gr_runlist.is_none() {
         let engn0 = r(0x2640);
         let rl = (engn0 >> 12) & 0xF;
-        if rl <= 31 { gr_runlist = Some(rl); }
+        if rl <= 31 {
+            gr_runlist = Some(rl);
+        }
     }
     let target_runlist = gr_runlist.unwrap_or(0);
     eprintln!("║ Target runlist: {target_runlist}");
@@ -1502,7 +629,9 @@ pub fn diagnostic_matrix(
     {
         let mut seq = 0_usize;
         for pid in 0..32_usize {
-            if pbdma_map & (1 << pid) == 0 { continue; }
+            if pbdma_map & (1 << pid) == 0 {
+                continue;
+            }
             let rl = r(0x2390 + seq * 4);
             eprintln!("║ PBDMA_RUNL_MAP[{seq}]: PBDMA {pid} → runlist {rl}");
             seq += 1;
@@ -1513,7 +642,9 @@ pub fn diagnostic_matrix(
         let mut cur_rl: u32 = 0xFFFF;
         for i in 0..32_u32 {
             let data = r(0x2_2700 + (i as usize) * 4);
-            if data == 0 { break; }
+            if data == 0 {
+                break;
+            }
             let kind = data & 3;
             match kind {
                 1 => cur_type = (data >> 2) & 0x3F,
@@ -1521,7 +652,9 @@ pub fn diagnostic_matrix(
                 _ => {}
             }
             if data & (1 << 31) != 0 {
-                eprintln!("║   ENGN_TABLE[{i}]: {data:#010x} — type={cur_type} runlist={cur_rl} (FINAL)");
+                eprintln!(
+                    "║   ENGN_TABLE[{i}]: {data:#010x} — type={cur_type} runlist={cur_rl} (FINAL)"
+                );
             } else {
                 eprintln!("║   ENGN_TABLE[{i}]: {data:#010x} — kind={kind}");
             }
@@ -1531,7 +664,9 @@ pub fn diagnostic_matrix(
             let status = r(0x2640 + (eidx as usize) * 4);
             if status != 0 {
                 let rl_from_status = (status >> 12) & 0xF;
-                eprintln!("║   ENGN{eidx}_STATUS: {status:#010x} runlist_from_bits={rl_from_status}");
+                eprintln!(
+                    "║   ENGN{eidx}_STATUS: {status:#010x} runlist_from_bits={rl_from_status}"
+                );
             }
         }
     }
@@ -1541,7 +676,9 @@ pub fn diagnostic_matrix(
     {
         let mut seq = 0_usize;
         for pid in 0..32_usize {
-            if pbdma_map & (1 << pid) == 0 { continue; }
+            if pbdma_map & (1 << pid) == 0 {
+                continue;
+            }
             let rl = r(0x2390 + seq * 4);
             if rl == target_runlist {
                 target_pbdma = pid;
@@ -1554,7 +691,9 @@ pub fn diagnostic_matrix(
     eprintln!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
 
     for id in 0..32_usize {
-        if pbdma_map & (1 << id) == 0 { continue; }
+        if pbdma_map & (1 << id) == 0 {
+            continue;
+        }
         w(pbdma::intr(id), 0xFFFF_FFFF)?;
         w(pbdma::intr_en(id), 0xFFFF_FEFF)?;
         let b = 0x0004_0000 + id * 0x2000;
@@ -1567,21 +706,28 @@ pub fn diagnostic_matrix(
     w(pfifo::INTR, 0xFFFF_FFFF)?;
     w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
 
-    populate_page_tables_static(
-        pd3.as_mut_slice(), pd2.as_mut_slice(),
-        pd1.as_mut_slice(), pd0.as_mut_slice(),
+    populate_page_tables(
+        pd3.as_mut_slice(),
+        pd2.as_mut_slice(),
+        pd1.as_mut_slice(),
+        pd0.as_mut_slice(),
         pt0.as_mut_slice(),
     );
 
     // Snapshot PBDMA residual state before any experiments (for comparison)
     let residual_userd_lo = r(pb + 0xD0);
+    let residual_ramfc_userd_lo = r(pb + 0x08);
     let residual_gp_base_lo = r(pb + 0x40);
-    eprintln!("║ PBDMA residual: USERD_LO={residual_userd_lo:#010x} GP_BASE_LO={residual_gp_base_lo:#010x}");
+    eprintln!(
+        "║ PBDMA residual: USERD@xD0={residual_userd_lo:#010x} USERD@x08={residual_ramfc_userd_lo:#010x} GP_BASE={residual_gp_base_lo:#010x}"
+    );
 
     // Comprehensive PBDMA register dump for all active PBDMAs
     eprintln!("║ ── Full PBDMA Register Dump ──");
     for pid in [0_usize, 1, 2, 3] {
-        if pbdma_map & (1 << pid) == 0 && pid != 0 { continue; }
+        if pbdma_map & (1 << pid) == 0 && pid != 0 {
+            continue;
+        }
         let base = 0x40000 + pid * 0x2000;
         let active = pbdma_map & (1 << pid) != 0;
         eprint!("║ PBDMA{pid}{}:", if active { "" } else { "(off)" });
@@ -1597,15 +743,19 @@ pub fn diagnostic_matrix(
     // ── Run experiment matrix ───────────────────────────────────────────
 
     let header = format!(
-        "{:<42} | {:>8} | {:<5} | {:<5} | {:>17} | {:>3} | {:>9} | {:>8}",
-        "Config", "PCCSR", "Fault", "Sched", "PBDMA USERD", "Own", "GP pt/ft", "ENGN0"
+        "{:<42} | {:>8} | {:<5} | {:<5} | {:>19} | {:>3} | {:>9} | {:>8}",
+        "Config", "PCCSR", "Fault", "Sched", "USERD D0=xD0 R8=x08", "Own", "GP pt/ft", "ENGN0"
     );
-    eprintln!("\n╔══ EXPERIMENT MATRIX ({} configs) ════════════════════════╗", configs.len());
+    eprintln!(
+        "\n╔══ EXPERIMENT MATRIX ({} configs) ════════════════════════╗",
+        configs.len()
+    );
     eprintln!("║ {header}");
     eprintln!("║ {}", "─".repeat(header.len()));
 
     let limit2 = gpfifo_entries.ilog2();
     let mut results = Vec::with_capacity(configs.len());
+    let mut first = true;
 
     for cfg in configs {
         instance.as_mut_slice().fill(0);
@@ -1613,14 +763,48 @@ pub fn diagnostic_matrix(
 
         populate_instance_block_static(
             instance.as_mut_slice(),
-            gpfifo_iova, gpfifo_entries, userd_iova, channel_id,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
         );
 
         populate_runlist_static(
             runlist.as_mut_slice(),
-            userd_iova, channel_id,
-            cfg.runlist_userd_target, cfg.runlist_inst_target, 0,
+            userd_iova,
+            channel_id,
+            cfg.runlist_userd_target,
+            cfg.runlist_inst_target,
+            0,
         );
+
+        if first {
+            first = false;
+            let inst = instance.as_slice();
+            let rd = |off: usize| u32::from_le_bytes(inst[off..off + 4].try_into().unwrap());
+            eprintln!("║ ── DMA Buffer Verification (first experiment) ──");
+            eprintln!(
+                "║   RAMFC[0x008] USERD_LO   = {:#010x} (expect userd|tgt)",
+                rd(ramfc::USERD_LO)
+            );
+            eprintln!("║   RAMFC[0x00C] USERD_HI   = {:#010x}", rd(ramfc::USERD_HI));
+            eprintln!(
+                "║   RAMFC[0x010] SIGNATURE  = {:#010x} (expect 0x0000FACE)",
+                rd(ramfc::SIGNATURE)
+            );
+            eprintln!("║   RAMFC[0x030] ACQUIRE    = {:#010x}", rd(ramfc::ACQUIRE));
+            eprintln!("║   RAMFC[0x048] GP_BASE_LO = {:#010x}", rd(ramfc::GP_BASE_LO));
+            let rl = runlist.as_slice();
+            let rr = |off: usize| u32::from_le_bytes(rl[off..off + 4].try_into().unwrap());
+            eprintln!(
+                "║   RL[0x010] ChanDW0       = {:#010x} (USERD_PTR|tgts|runq)",
+                rr(0x10)
+            );
+            eprintln!("║   RL[0x018] ChanDW2       = {:#010x} (INST_PTR|CHID)", rr(0x18));
+            eprintln!(
+                "║   userd_iova={userd_iova:#x} gpfifo_iova={gpfifo_iova:#x} instance_iova={INSTANCE_IOVA:#x}"
+            );
+        }
 
         // Clear stale PCCSR state
         let stale = r(pccsr::channel(channel_id));
@@ -1629,8 +813,10 @@ pub fn diagnostic_matrix(
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         if stale & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0 {
-            let _ = w(pccsr::channel(channel_id),
-                pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET);
+            let _ = w(
+                pccsr::channel(channel_id),
+                pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET,
+            );
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         let _ = w(pccsr::inst(channel_id), 0);
@@ -1650,8 +836,14 @@ pub fn diagnostic_matrix(
                 _ => base,
             }
         };
-        let rl_base = (cfg.runlist_base_target << 28) | (RUNLIST_IOVA >> 12) as u32;
-        let rl_submit = (target_runlist << 20) | 2;
+        // GV100 runlist register format (per-runlist at stride 16):
+        //   RUNLIST_BASE_LO (0x2270): pure address >> 12, no target bits
+        //   RUNLIST_BASE_HI (0x2274): upper addr | aperture flag
+        //   RUNLIST_SUBMIT  (0x2278): (count << 16) | start
+        let rl_stride = target_runlist as usize * 16;
+        let rl_base_lo = (RUNLIST_IOVA >> 12) as u32;
+        let rl_base_hi = cfg.runlist_base_target; // aperture: 1=COH?, 2=VRAM, 3=NCOH?
+        let rl_submit = 2_u32 << 16; // 2 entries (TSG + channel), start=0
 
         match cfg.ordering {
             ExperimentOrdering::BindEnableRunlist => {
@@ -1659,32 +851,54 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(2));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
             }
             ExperimentOrdering::BindRunlistEnable => {
                 let _ = w(pccsr::inst(channel_id), pccsr_inst_val);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(2));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
             }
             ExperimentOrdering::RunlistBindEnable => {
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(2));
                 let _ = w(pccsr::inst(channel_id), pccsr_inst_val);
                 std::thread::sleep(std::time::Duration::from_millis(2));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
             }
             ExperimentOrdering::BindWithInstBindEnableRunlist => {
+                // Clear RAMFC-mapped PBDMA registers to sentinels so we can
+                // detect which ones the INST_BIND actually loads from RAMFC.
+                let _ = w(pb + 0x08, 0xBEEF_0008); // USERD_LO
+                let _ = w(pb + 0x0C, 0xBEEF_000C); // USERD_HI
+                let _ = w(pb + 0x10, 0xBEEF_0010); // SIGNATURE
+                let _ = w(pb + 0x30, 0xBEEF_0030); // ACQUIRE
+                let _ = w(pb + 0x48, 0xBEEF_0048); // GP_BASE_LO
+                let _ = w(pb + 0x4C, 0xBEEF_004C); // GP_BASE_HI
+
                 let _ = w(pccsr::inst(channel_id), pccsr_inst_val);
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                std::thread::sleep(std::time::Duration::from_millis(10));
+
+                // Snapshot immediately after INST_BIND (before enable/runlist)
+                let ib_userd_lo = r(pb + 0x08);
+                let ib_sig = r(pb + 0x10);
+                let ib_gpb = r(pb + 0x48);
+                eprintln!(
+                    "║   D INST_BIND: R8={ib_userd_lo:#010x} SIG={ib_sig:#010x} GPB={ib_gpb:#010x} (BEEF=sentinel)"
+                );
+
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
             }
             ExperimentOrdering::DirectPbdmaProgramming
             | ExperimentOrdering::DirectPbdmaWithInstBind => {
@@ -1694,13 +908,16 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(5));
 
                 let _ = w(pb + 0x40, gpfifo_iova as u32);
-                let _ = w(pb + 0x44,
+                let _ = w(
+                    pb + 0x44,
                     (gpfifo_iova >> 32) as u32
-                    | (limit2 << 16)
-                    | (PBDMA_TARGET_SYS_MEM_COHERENT << 28));
-                let _ = w(pb + 0xD0,
-                    (userd_iova as u32 & 0xFFFF_FE00)
-                    | PBDMA_TARGET_SYS_MEM_COHERENT);
+                        | (limit2 << 16)
+                        | (PBDMA_TARGET_SYS_MEM_COHERENT << 28),
+                );
+                let _ = w(
+                    pb + 0xD0,
+                    (userd_iova as u32 & 0xFFFF_FE00) | PBDMA_TARGET_SYS_MEM_COHERENT,
+                );
                 let _ = w(pb + 0xD4, (userd_iova >> 32) as u32);
                 let _ = w(pb + 0xC0, 0x0000_FACE);
                 let _ = w(pb + 0xAC, 0x1000_3080);
@@ -1718,13 +935,16 @@ pub fn diagnostic_matrix(
 
                 // Step 2: Write PBDMA registers (same as E)
                 let _ = w(pb + 0x40, gpfifo_iova as u32);
-                let _ = w(pb + 0x44,
+                let _ = w(
+                    pb + 0x44,
                     (gpfifo_iova >> 32) as u32
-                    | (limit2 << 16)
-                    | (PBDMA_TARGET_SYS_MEM_COHERENT << 28));
-                let _ = w(pb + 0xD0,
-                    (userd_iova as u32 & 0xFFFF_FE00)
-                    | PBDMA_TARGET_SYS_MEM_COHERENT);
+                        | (limit2 << 16)
+                        | (PBDMA_TARGET_SYS_MEM_COHERENT << 28),
+                );
+                let _ = w(
+                    pb + 0xD0,
+                    (userd_iova as u32 & 0xFFFF_FE00) | PBDMA_TARGET_SYS_MEM_COHERENT,
+                );
                 let _ = w(pb + 0xD4, (userd_iova >> 32) as u32);
                 let _ = w(pb + 0xC0, 0x0000_FACE);
                 let _ = w(pb + 0xAC, 0x1000_3080);
@@ -1737,8 +957,7 @@ pub fn diagnostic_matrix(
                 // Step 4: Write a GPFIFO entry into the ring buffer (slot 0).
                 // Points to RUNLIST_IOVA (filled with zeros = NOP pushbuffer).
                 // GPFIFO entry: DW0 = VA[31:2]|TYPE=0, DW1 = VA_HI|LEN_DWORDS<<10
-                let gp_entry: u64 = (RUNLIST_IOVA & 0xFFFF_FFFC)
-                    | ((1_u64) << (32 + 10)); // 1 dword of NOP
+                let gp_entry: u64 = (RUNLIST_IOVA & 0xFFFF_FFFC) | ((1_u64) << (32 + 10)); // 1 dword of NOP
                 gpfifo_ring[0..8].copy_from_slice(&gp_entry.to_le_bytes());
 
                 // Step 5: Write USERD GP_PUT = 1 (host DMA memory)
@@ -1753,12 +972,17 @@ pub fn diagnostic_matrix(
                 let _ = w(pb + 0x54, 1);
 
                 // Step 7: Variant-specific activation
-                if matches!(cfg.ordering, ExperimentOrdering::DirectPbdmaActivateDoorbell) {
+                if matches!(
+                    cfg.ordering,
+                    ExperimentOrdering::DirectPbdmaActivateDoorbell
+                ) {
                     let _ = w(usermode::NOTIFY_CHANNEL_PENDING, channel_id);
                 }
-                if matches!(cfg.ordering, ExperimentOrdering::DirectPbdmaActivateScheduled) {
-                    let _ = w(pccsr::channel(channel_id),
-                        pccsr::CHANNEL_ENABLE_SET | 0x2);
+                if matches!(
+                    cfg.ordering,
+                    ExperimentOrdering::DirectPbdmaActivateScheduled
+                ) {
+                    let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET | 0x2);
                 }
             }
             ExperimentOrdering::VramInstanceBind => {
@@ -1773,8 +997,10 @@ pub fn diagnostic_matrix(
                 let inst_bytes = instance.as_slice();
                 for off in (0..inst_bytes.len()).step_by(4) {
                     let val = u32::from_le_bytes([
-                        inst_bytes[off], inst_bytes[off+1],
-                        inst_bytes[off+2], inst_bytes[off+3],
+                        inst_bytes[off],
+                        inst_bytes[off + 1],
+                        inst_bytes[off + 2],
+                        inst_bytes[off + 3],
                     ]);
                     let _ = w(PRAMIN_BASE + VRAM_INST_OFF + off, val);
                 }
@@ -1787,9 +1013,9 @@ pub fn diagnostic_matrix(
                 // detect if the scheduler overwrites them with RAMFC values.
                 let _ = w(pb + 0x40, 0xBEEF_0040); // GP_BASE_LO
                 let _ = w(pb + 0x44, 0xBEEF_0044); // GP_BASE_HI
-                let _ = w(pb + 0x48, 0);            // GP_FETCH
-                let _ = w(pb + 0x4C, 0);            // GP_STATE
-                let _ = w(pb + 0x54, 0);            // GP_PUT
+                let _ = w(pb + 0x48, 0); // GP_FETCH
+                let _ = w(pb + 0x4C, 0); // GP_STATE
+                let _ = w(pb + 0x54, 0); // GP_PUT
                 let _ = w(pb + 0xD0, 0xBEEF_00D0); // USERD_LO
                 let _ = w(pb + 0xD4, 0xBEEF_00D4); // USERD_HI
                 let _ = w(pb + 0xC0, 0xBEEF_00C0); // SIGNATURE
@@ -1799,7 +1025,8 @@ pub fn diagnostic_matrix(
                 runlist.as_mut_slice().fill(0);
                 populate_runlist_static(
                     runlist.as_mut_slice(),
-                    userd_iova, channel_id,
+                    userd_iova,
+                    channel_id,
                     cfg.runlist_userd_target,
                     0, // INST_TARGET = VID_MEM
                     0,
@@ -1808,7 +1035,9 @@ pub fn diagnostic_matrix(
                 // Flush GPU L2 cache so engines see our PRAMIN writes
                 let _ = w(0x70010, 0x0000_0001);
                 for _ in 0..2000_u32 {
-                    if r(0x70010) & 3 == 0 { break; }
+                    if r(0x70010) & 3 == 0 {
+                        break;
+                    }
                     std::thread::sleep(std::time::Duration::from_micros(100));
                 }
 
@@ -1824,8 +1053,9 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(5));
 
                 // Submit runlist
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 // Check PBDMA after scheduler should have loaded context
@@ -1833,11 +1063,12 @@ pub fn diagnostic_matrix(
                 let sched_userd = r(pb + 0xD0);
                 let sched_sig = r(pb + 0xC0);
                 let sched_state = r(pb + 0xB0);
-                eprintln!("║   post-sched PBDMA: GP_BASE={sched_gpb:#010x} USERD={sched_userd:#010x} SIG={sched_sig:#010x} STATE={sched_state:#010x}");
+                eprintln!(
+                    "║   post-sched PBDMA: GP_BASE={sched_gpb:#010x} USERD={sched_userd:#010x} SIG={sched_sig:#010x} STATE={sched_state:#010x}"
+                );
 
                 // Set up GPFIFO entry + USERD GP_PUT + doorbell
-                let gp_entry: u64 = (RUNLIST_IOVA & 0xFFFF_FFFC)
-                    | ((1_u64) << (32 + 10));
+                let gp_entry: u64 = (RUNLIST_IOVA & 0xFFFF_FFFC) | ((1_u64) << (32 + 10));
                 gpfifo_ring[0..8].copy_from_slice(&gp_entry.to_le_bytes());
                 write_u32_le(userd_page, ramuserd::GP_PUT, 1);
                 write_u32_le(userd_page, ramuserd::GP_GET, 0);
@@ -2013,8 +1244,9 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(5));
 
                 // Submit runlist: base=VRAM 0xC000, target=VID_MEM(0), 2 entries
-                let _ = w(pfifo::RUNLIST_BASE, (0_u32 << 28) | (0xC000_u32 >> 12));
-                let _ = w(pfifo::RUNLIST, (target_runlist << 20) | 2);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, 0xC000_u32 >> 12);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, 0); // VID_MEM aperture
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, 2 << 16);
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 // Check scheduler status
@@ -2135,8 +1367,9 @@ pub fn diagnostic_matrix(
                 let _ = w(pb + 0xA8, 0x0000_1100); // CONFIG
 
                 // Submit runlist
-                let _ = w(pfifo::RUNLIST_BASE, 0xC000_u32 >> 12);
-                let _ = w(pfifo::RUNLIST, (target_runlist << 20) | 2);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, 0xC000_u32 >> 12);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, 0); // VID_MEM
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, 2 << 16);
                 std::thread::sleep(std::time::Duration::from_millis(20));
 
                 // GP_PUT = 1 (both PBDMA register and doorbell)
@@ -2178,8 +1411,9 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(5));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 let post = r(pccsr::channel(channel_id));
@@ -2211,7 +1445,7 @@ pub fn diagnostic_matrix(
                     let mmu_fault_addr_hi = r(0x100E3C);
                     let mmu_fault_inst_lo = r(0x100E40);
                     let mmu_fault_inst_hi = r(0x100E44);
-                    let mmu_buf0_put = r(0x100E34 - 4);
+                    let _mmu_buf0_put = r(0x100E34 - 4);
                     eprintln!("║   N FAULT DIAG: BIND_ERR={bind_err:#010x} PFIFO_INTR={pfifo_intr:#010x}");
                     eprintln!("║   N FAULT DIAG: MMU_STATUS={mmu_fault_status:#010x} ADDR={mmu_fault_addr_hi:#010x}_{mmu_fault_addr_lo:#010x}");
                     eprintln!("║   N FAULT DIAG: MMU_INST={mmu_fault_inst_hi:#010x}_{mmu_fault_inst_lo:#010x}");
@@ -2233,8 +1467,9 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(2));
 
                 // Step 4: Submit runlist
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 let post_rl = r(pccsr::channel(channel_id));
@@ -2326,8 +1561,9 @@ pub fn diagnostic_matrix(
                 std::thread::sleep(std::time::Duration::from_millis(5));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 let post_rl = r(pccsr::channel(channel_id));
@@ -2386,8 +1622,9 @@ pub fn diagnostic_matrix(
                 let post_bind = r(pccsr::channel(channel_id));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(100));
 
                 let post_rl = r(pccsr::channel(channel_id));
@@ -2535,14 +1772,15 @@ pub fn diagnostic_matrix(
                 eprintln!("║   Q pre-preempt: pending={preempt_pending:#010x}");
 
                 // INST_BIND with VRAM target + enable + runlist (D path)
-                eprintln!("║   Q pccsr_inst_val={pccsr_inst_val:#010x} rl_base={rl_base:#010x} rl_submit={rl_submit:#010x}");
+                eprintln!("║   Q pccsr_inst_val={pccsr_inst_val:#010x} rl_lo={rl_base_lo:#010x} rl_hi={rl_base_hi:#010x} rl_submit={rl_submit:#010x}");
                 let _ = w(pccsr::inst(channel_id), pccsr_inst_val);
                 std::thread::sleep(std::time::Duration::from_millis(5));
                 let post_bind = r(pccsr::channel(channel_id));
                 let _ = w(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_SET);
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                let _ = w(pfifo::RUNLIST_BASE, rl_base);
-                let _ = w(pfifo::RUNLIST, rl_submit);
+                let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, rl_base_lo);
+                let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+                let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, rl_submit);
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 // Check if runlist update was processed (pending bit should clear)
@@ -2642,6 +1880,8 @@ pub fn diagnostic_matrix(
         let pccsr_inst_rb = r(pccsr::inst(channel_id));
         let cur_userd_lo = r(pb + 0xD0);
         let cur_userd_hi = r(pb + 0xD4);
+        let cur_ramfc_userd_lo = r(pb + 0x08);
+        let cur_ramfc_userd_hi = r(pb + 0x0C);
         let cur_gp_base_lo = r(pb + 0x40);
 
         let result = ExperimentResult {
@@ -2650,6 +1890,8 @@ pub fn diagnostic_matrix(
             pccsr_inst_readback: pccsr_inst_rb,
             pbdma_userd_lo: cur_userd_lo,
             pbdma_userd_hi: cur_userd_hi,
+            pbdma_ramfc_userd_lo: cur_ramfc_userd_lo,
+            pbdma_ramfc_userd_hi: cur_ramfc_userd_hi,
             pbdma_gp_base_lo: cur_gp_base_lo,
             pbdma_gp_base_hi: r(pb + 0x44),
             pbdma_gp_put: r(pb + 0x54),
@@ -2662,6 +1904,7 @@ pub fn diagnostic_matrix(
             faulted: (pccsr_chan >> 24) & 1 != 0 || (pccsr_chan >> 28) & 1 != 0,
             scheduled: (pccsr_chan & 2) != 0,
             pbdma_ours: cur_userd_lo != residual_userd_lo
+                || cur_ramfc_userd_lo != residual_ramfc_userd_lo
                 || cur_gp_base_lo != residual_gp_base_lo,
         };
 
@@ -2682,9 +1925,9 @@ pub fn diagnostic_matrix(
         write_u32_le(userd_page, ramuserd::GP_GET, 0);
 
         runlist.as_mut_slice().fill(0);
-        let empty_rl_base = (cfg.runlist_base_target << 28) | (RUNLIST_IOVA >> 12) as u32;
-        let _ = w(pfifo::RUNLIST_BASE, empty_rl_base);
-        let _ = w(pfifo::RUNLIST, (target_runlist << 20) | 0);
+        let _ = w(pfifo::RUNLIST_BASE_LO + rl_stride, (RUNLIST_IOVA >> 12) as u32);
+        let _ = w(pfifo::RUNLIST_BASE_HI + rl_stride, rl_base_hi);
+        let _ = w(pfifo::RUNLIST_SUBMIT + rl_stride, 0); // count=0 → empty runlist
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         results.push(result);
@@ -2692,172 +1935,4 @@ pub fn diagnostic_matrix(
 
     eprintln!("╚═══════════════════════════════════════════════════════════╝");
     Ok(results)
-}
-
-// ── V2 MMU page table encoding ─────────────────────────────────────────
-
-/// Write a PDE entry at `index` in a page directory buffer.
-///
-/// V2 PDE layout: `(phys_addr >> 4) | flags` — the GPU decodes the
-/// physical address as `(PDE & ~0x7) << 4`.  Matches nouveau's
-/// `gp100_vmm_pd0_pde()`: `(spt->addr >> 4) | spt->type`.
-fn write_pde(pd_slice: &mut [u8], index: usize, target_iova: u64) {
-    let pde = encode_pde(target_iova);
-    let off = index * 8;
-    pd_slice[off..off + 8].copy_from_slice(&pde.to_le_bytes());
-}
-
-/// Encode a V2 PDE pointing to a page table at `iova` in system memory.
-///
-/// Bit layout: `[1:0]=aperture, [2]=volatile, addr in upper bits`.
-/// Encoding: `(iova >> 4) | flags`.  For 4K-aligned IOVAs the low 8 bits
-/// of `(iova >> 4)` are zero, so the OR with flags (bits [2:0]) is clean.
-fn encode_pde(iova: u64) -> u64 {
-    const FLAGS: u64 = 2 | (1 << 2); // aperture=SYS_MEM_COH(2) + VOL(bit2)
-    (iova >> 4) | FLAGS
-}
-
-/// Encode a V2 small-page PTE for an identity-mapped physical address.
-///
-/// Bit layout: `[0]=valid, [1]=aperture(SYS_MEM_COH), [2]=volatile`.
-/// Encoding matches nouveau `gp100_vmm_pgt_mem()`: `(addr >> 4) | type`.
-fn encode_pte(phys_addr: u64) -> u64 {
-    const FLAGS: u64 = 1 | 2 | (1 << 2); // VALID(bit0) + SYS_MEM_COH(bit1) + VOL(bit2)
-    (phys_addr >> 4) | FLAGS
-}
-
-/// Write a little-endian `u32` into a byte slice at the given byte offset.
-fn write_u32_le(buf: &mut [u8], offset: usize, value: u32) {
-    buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pde_encoding_sys_mem_coherent() {
-        // PDE = (0x6000 >> 4) | 6 = 0x600 | 6 = 0x606
-        let pde = encode_pde(0x6000);
-        assert_eq!(pde, 0x606);
-        assert_eq!(pde & 0x7, 6, "flags: aperture(2) + VOL(4)");
-        let addr = (pde & !0x7) << 4;
-        assert_eq!(addr, 0x6000, "GPU decode: (PDE & ~0x7) << 4");
-    }
-
-    #[test]
-    fn pte_encoding_identity_map() {
-        // PTE = (0x1000 >> 4) | 7 = 0x100 | 7 = 0x107
-        let pte = encode_pte(0x1000);
-        assert_eq!(pte, 0x107);
-        assert_eq!(pte & 1, 1, "valid bit");
-        assert_eq!(pte & 0x7, 7, "flags: VALID(1) + SYS_MEM_COH(2) + VOL(4)");
-        let addr = (pte & !0x7) << 4;
-        assert_eq!(addr, 0x1000, "GPU decode: (PTE & ~0x7) << 4");
-    }
-
-    #[test]
-    fn pte_encoding_higher_address() {
-        // PTE = (0x10_0000 >> 4) | 7 = 0x10000 | 7 = 0x10007
-        let pte = encode_pte(0x10_0000);
-        assert_eq!(pte, 0x1_0007);
-        let addr = (pte & !0x7) << 4;
-        assert_eq!(addr, 0x10_0000);
-    }
-
-    #[test]
-    fn ramuserd_offsets_match_nvidia_spec() {
-        assert_eq!(ramuserd::GP_GET, 0x88);
-        assert_eq!(ramuserd::GP_PUT, 0x8C);
-    }
-
-    #[test]
-    fn pccsr_register_offsets() {
-        assert_eq!(pccsr::inst(0), 0x80_0000);
-        assert_eq!(pccsr::channel(0), 0x80_0004);
-        assert_eq!(pccsr::inst(1), 0x80_0008);
-        assert_eq!(pccsr::channel(1), 0x80_000C);
-    }
-
-    #[test]
-    fn iova_layout_non_overlapping() {
-        let iovas = [
-            ("INSTANCE", INSTANCE_IOVA),
-            ("RUNLIST", RUNLIST_IOVA),
-            ("PD3", PD3_IOVA),
-            ("PD2", PD2_IOVA),
-            ("PD1", PD1_IOVA),
-            ("PD0", PD0_IOVA),
-            ("PT0", PT0_IOVA),
-        ];
-        for i in 0..iovas.len() {
-            for j in (i + 1)..iovas.len() {
-                assert_ne!(
-                    iovas[i].1, iovas[j].1,
-                    "{} and {} overlap at {:#x}",
-                    iovas[i].0, iovas[j].0, iovas[i].1
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn iova_layout_after_userd() {
-        assert!(INSTANCE_IOVA > 0x2000, "instance after USERD");
-        assert!(
-            PT0_IOVA + 4096 <= 0x10_0000,
-            "page tables before USER_IOVA_BASE"
-        );
-    }
-
-    #[test]
-    fn channel_info_constants() {
-        assert_eq!(VfioChannel::doorbell_offset(), 0x81_0090);
-    }
-
-    #[test]
-    fn pccsr_inst_value_channel_zero() {
-        let value = (INSTANCE_IOVA >> 12) as u32
-            | pccsr::INST_TARGET_SYS_MEM_NCOH;
-        assert_eq!(value & 0x0FFF_FFFF, 3, "INST_PTR = 3 (0x3000 >> 12)");
-        assert_eq!((value >> 28) & 3, 3, "target = SYS_MEM_NCOH");
-        assert_eq!((value >> 31) & 1, 0, "BIND not set — implicit via runlist");
-    }
-
-    #[test]
-    fn runlist_base_value() {
-        let rl_base = (RUNLIST_IOVA >> 12) as u32 | (3_u32 << 28);
-        assert_eq!(rl_base & 0x0FFF_FFFF, 4, "PTR = 4 (0x4000 >> 12)");
-        assert_eq!((rl_base >> 28) & 3, 3, "target = SYS_MEM_NCOH");
-    }
-
-    #[test]
-    fn runlist_chan_entry_encoding() {
-        let userd: u64 = 0x2000;
-
-        // DW0: USERD_ADDR | USERD_TARGET(COH=2) | RUNQ | TYPE=0
-        let dw0 = userd as u32 | (TARGET_SYS_MEM_COHERENT << 2) | (0 << 1);
-        assert_eq!(dw0, 0x2008, "USERD=0x2000, target=COH(2), runq=0");
-        assert_eq!((dw0 >> 2) & 3, 2, "USERD_TARGET = SYS_MEM_COH");
-        assert_eq!(dw0 & 1, 0, "TYPE = 0 (channel)");
-
-        let dw0_runq1 = userd as u32 | (TARGET_SYS_MEM_COHERENT << 2) | (1 << 1);
-        assert_eq!(dw0_runq1, 0x200A, "USERD=0x2000, target=COH(2), runq=1");
-        assert_eq!((dw0_runq1 >> 1) & 1, 1, "RUNQUEUE = 1");
-
-        // DW2: INST_ADDR | INST_TARGET(NCOH=3) | CHID
-        let inst: u64 = 0x3000;
-        let chid: u32 = 0;
-        let dw2 = inst as u32 | (TARGET_SYS_MEM_NONCOHERENT << 4) | chid;
-        assert_eq!(dw2, 0x3030, "INST=0x3000, target=NCOH(3), chid=0");
-        assert_eq!((dw2 >> 4) & 3, 3, "INST_TARGET = SYS_MEM_NCOH");
-    }
-
-    #[test]
-    fn write_u32_le_roundtrip() {
-        let mut buf = [0u8; 8];
-        write_u32_le(&mut buf, 4, 0xDEAD_BEEF);
-        let val = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        assert_eq!(val, 0xDEAD_BEEF);
-    }
 }

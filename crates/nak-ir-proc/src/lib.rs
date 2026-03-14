@@ -144,7 +144,7 @@ fn derive_as_slice(
 /// Generate named accessor methods for array fields with `#[src_names(...)]` or `#[dst_names(...)]`.
 ///
 /// For `#[src_names(a, b, c)]` on `srcs: [Src; 3]`, generates:
-/// ```ignore
+/// ```text
 /// impl OpFoo {
 ///     pub fn a(&self) -> &Src { &self.srcs[0] }
 ///     pub fn a_mut(&mut self) -> &mut Src { &mut self.srcs[0] }
@@ -614,7 +614,7 @@ fn get_field_attr_list(field: &Field, attr_name: &str) -> Option<Vec<Ident>> {
 ///
 /// # Example (conceptual — requires `bitview::TypedBitField` in scope)
 ///
-/// ```ignore
+/// ```text
 /// #[derive(Encode)]
 /// #[encoding(VOP3)] // 64-bit → 2 words
 /// struct EncodedVop3Add {

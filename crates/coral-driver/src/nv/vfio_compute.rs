@@ -146,17 +146,29 @@ impl RawVfioDevice {
         let bar0 = device.map_bar(0)?;
         let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
-        Ok(Self { device, bar0, container_fd, gpfifo_ring, userd })
+        Ok(Self {
+            device,
+            bar0,
+            container_fd,
+            gpfifo_ring,
+            userd,
+        })
     }
 
     /// GPFIFO ring IOVA.
-    pub const fn gpfifo_iova() -> u64 { GPFIFO_IOVA }
+    pub const fn gpfifo_iova() -> u64 {
+        GPFIFO_IOVA
+    }
 
     /// Number of GPFIFO entries.
-    pub const fn gpfifo_entries() -> u32 { gpfifo::ENTRIES as u32 }
+    pub const fn gpfifo_entries() -> u32 {
+        gpfifo::ENTRIES as u32
+    }
 
     /// USERD page IOVA.
-    pub const fn userd_iova() -> u64 { USERD_IOVA }
+    pub const fn userd_iova() -> u64 {
+        USERD_IOVA
+    }
 }
 
 impl NvVfioComputeDevice {
@@ -311,32 +323,53 @@ impl NvVfioComputeDevice {
                     std::ptr::read_volatile(userd_ptr.add(ramuserd::GP_PUT).cast::<u32>())
                 };
                 let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
-                eprintln!("╔══ FENCE TIMEOUT DIAGNOSTICS ═══════════════════════════════╗");
-                eprintln!(
-                    "║ GP_GET (from USERD): {gp_get}  (expected >= {expected})",
-                    expected = self.gpfifo_put
+                let pfifo_intr = r(0x2100);
+                let pccsr_chan0 = r(0x80_0004);
+                let pbdma_intr: [u32; 4] = [
+                    r(0x40108),
+                    r(0x40108 + 0x2000),
+                    r(0x40108 + 0x4000),
+                    r(0x40108 + 0x6000),
+                ];
+                let pbdma_hce: [u32; 4] = [
+                    r(0x40148),
+                    r(0x40148 + 0x2000),
+                    r(0x40148 + 0x4000),
+                    r(0x40148 + 0x6000),
+                ];
+                let pbdma_idle: [u32; 4] = [r(0x3080), r(0x3084), r(0x3088), r(0x308C)];
+                let pbdma_runl_map: [u32; 4] = [r(0x2390), r(0x2394), r(0x2398), r(0x239C)];
+                let mmu_fault_status = r(0x0010_0A2C);
+                let mmu_hubtlb_err = r(0x0010_4A20);
+                let priv_ring_intr = r(0x0001_2070);
+                tracing::error!(
+                    gp_get,
+                    gp_put = gp_put_val,
+                    expected = self.gpfifo_put,
+                    channel_id = self.channel.id(),
+                    pfifo_intr = format!("{pfifo_intr:#010x}"),
+                    pccsr_chan0 = format!("{pccsr_chan0:#010x}"),
+                    pbdma_0_intr = format!("{:#010x}", pbdma_intr[0]),
+                    pbdma_0_hce = format!("{:#010x}", pbdma_hce[0]),
+                    pbdma_0_idle = format!("{:#010x}", pbdma_idle[0]),
+                    pbdma_1_intr = format!("{:#010x}", pbdma_intr[1]),
+                    pbdma_1_hce = format!("{:#010x}", pbdma_hce[1]),
+                    pbdma_1_idle = format!("{:#010x}", pbdma_idle[1]),
+                    pbdma_2_intr = format!("{:#010x}", pbdma_intr[2]),
+                    pbdma_2_hce = format!("{:#010x}", pbdma_hce[2]),
+                    pbdma_2_idle = format!("{:#010x}", pbdma_idle[2]),
+                    pbdma_3_intr = format!("{:#010x}", pbdma_intr[3]),
+                    pbdma_3_hce = format!("{:#010x}", pbdma_hce[3]),
+                    pbdma_3_idle = format!("{:#010x}", pbdma_idle[3]),
+                    pbdma_runl_map_0 = format!("{:#010x}", pbdma_runl_map[0]),
+                    pbdma_runl_map_1 = format!("{:#010x}", pbdma_runl_map[1]),
+                    pbdma_runl_map_2 = format!("{:#010x}", pbdma_runl_map[2]),
+                    pbdma_runl_map_3 = format!("{:#010x}", pbdma_runl_map[3]),
+                    mmu_fault_status = format!("{mmu_fault_status:#010x}"),
+                    mmu_hubtlb_err = format!("{mmu_hubtlb_err:#010x}"),
+                    priv_ring_intr = format!("{priv_ring_intr:#010x}"),
+                    "Fence timeout: GPFIFO completion did not complete within timeout"
                 );
-                eprintln!("║ GP_PUT (from USERD): {gp_put_val}");
-                eprintln!("║ channel_id: {}", self.channel.id());
-                eprintln!("║ PFIFO_INTR:    {:#010x}", r(0x2100));
-                eprintln!("║ PCCSR_CHAN[0]: {:#010x}", r(0x80_0004));
-                for pbdma_id in [0_usize, 1, 2, 3] {
-                    let intr = r(0x40108 + pbdma_id * 0x2000);
-                    let hce = r(0x40148 + pbdma_id * 0x2000);
-                    let idle = r(0x3080 + pbdma_id * 4);
-                    eprintln!(
-                        "║ PBDMA{pbdma_id}_INTR: {intr:#010x}  HCE: {hce:#010x}  IDLE: {idle:#010x}"
-                    );
-                }
-                // PBDMA-to-runlist mapping
-                for i in 0..4_usize {
-                    eprintln!("║ PBDMA_RUNL_MAP[{i}]: {:#010x}", r(0x2390 + i * 4));
-                }
-                // Volta replayable + non-replayable fault buffers
-                eprintln!("║ MMU_FAULT_STATUS:     {:#010x}", r(0x0010_0A2C));
-                eprintln!("║ MMU_HUBTLB_ERR:       {:#010x}", r(0x0010_4A20));
-                eprintln!("║ PRIV_RING_INTR:       {:#010x}", r(0x0001_2070));
-                eprintln!("╚════════════════════════════════════════════════════════════╝");
                 return Err(DriverError::FenceTimeout { ms: 5000 });
             }
 

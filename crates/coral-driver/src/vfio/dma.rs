@@ -118,17 +118,25 @@ impl DmaBuffer {
 
     /// Immutable slice view of the buffer contents.
     pub fn as_slice(&self) -> &[u8] {
-        debug_assert!(!self.vaddr.is_null());
-        debug_assert!(self.size > 0);
-        // SAFETY: vaddr from alloc in new(), valid for size; &self prevents concurrent mutation.
+        // SAFETY: vaddr from alloc_zeroed in new() (null checked before use); valid for size
+        // bytes; &self prevents concurrent mutation. DmaBuffer is only constructible via new().
+        assert!(
+            !self.vaddr.is_null(),
+            "DmaBuffer vaddr is null (invalid state)"
+        );
+        assert!(self.size > 0, "DmaBuffer size is 0 (invalid state)");
         unsafe { std::slice::from_raw_parts(self.vaddr, self.size) }
     }
 
     /// Mutable slice view for writing data into the buffer.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        debug_assert!(!self.vaddr.is_null());
-        debug_assert!(self.size > 0);
-        // SAFETY: vaddr valid for size; &mut self guarantees exclusive access.
+        // SAFETY: vaddr valid for size bytes; &mut self guarantees exclusive access.
+        // Same invariants as as_slice.
+        assert!(
+            !self.vaddr.is_null(),
+            "DmaBuffer vaddr is null (invalid state)"
+        );
+        assert!(self.size > 0, "DmaBuffer size is 0 (invalid state)");
         unsafe { std::slice::from_raw_parts_mut(self.vaddr, self.size) }
     }
 

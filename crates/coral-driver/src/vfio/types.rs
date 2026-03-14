@@ -158,6 +158,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "size_of::<T>() as u32 will never overflow for VFIO structs"
+    )]
     fn dma_map_struct_layout() {
         let m = VfioDmaMap {
             argsz: std::mem::size_of::<VfioDmaMap>() as u32,
@@ -171,6 +175,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "size_of::<T>() as u32 will never overflow for VFIO structs"
+    )]
     fn dma_unmap_struct_layout() {
         let u = VfioDmaUnmap {
             argsz: std::mem::size_of::<VfioDmaUnmap>() as u32,
@@ -183,6 +191,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "size_of::<T>() as u32 will never overflow for VFIO structs"
+    )]
     fn device_info_argsz() {
         let info = VfioDeviceInfo {
             argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,

@@ -203,4 +203,22 @@ mod tests {
         let e: PrimalError = err.unwrap_err().into();
         assert!(e.to_string().to_lowercase().contains("system"));
     }
+
+    #[test]
+    fn state_failed_can_start() {
+        assert!(PrimalState::Failed.can_start());
+        assert!(!PrimalState::Failed.can_stop());
+    }
+
+    #[test]
+    fn error_lifecycle_owned_string() {
+        let e = PrimalError::lifecycle(String::from("dynamic msg"));
+        assert!(e.to_string().contains("dynamic msg"));
+    }
+
+    #[test]
+    fn error_health_owned_string() {
+        let e = PrimalError::Health(String::from("health failure").into());
+        assert!(e.to_string().contains("health failure"));
+    }
 }

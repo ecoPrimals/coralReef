@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 13, 2026 (Phase 10 — Iteration 44)
+**Last updated**: March 14, 2026 (Phase 10 — Iteration 45)
 
 ---
 
@@ -79,7 +79,18 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 44)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 45)
+
+### Iteration 45 — Deep Audit + Refactor + Coverage Expansion
+- [x] Full codebase audit: specs, wateringHole standards, UniBin/ecoBin/genomeBin compliance
+- [x] `vfio/channel.rs` smart refactor (2894 LOC → 5 modules: mod.rs, registers.rs, page_tables.rs, pfifo.rs, diagnostic.rs — all production files under 1000 LOC)
+- [x] `eprintln!` → `tracing` migration in production code (pfifo.rs, mod.rs, vfio_compute.rs, device.rs)
+- [x] IPC chaos/fault tests: concurrent JSON-RPC, malformed requests, rapid connect/disconnect, oversized payloads, concurrent tarpc, invalid methods
+- [x] 30+ new unit tests across coralreef-core (config, health, lifecycle, capability) and coral-driver (error, qmd, pushbuf, pm4, identity, knowledge)
+- [x] 5 ignored doctests fixed (coral-gpu, coral-reef, coral-reef-isa, nak-ir-proc)
+- [x] Unsafe evolution: `// SAFETY:` comments on all unsafe blocks, null checks for mmap, assert over debug_assert for DMA slices
+- [x] Clippy pedantic: `map_unwrap_or` → `map_or`, `identity_op` resolved, `cast_possible_truncation` with `#[expect]`
+- [x] STATUS.md and COMPILATION_DEBT_REPORT.md updated with iteration 45 metrics
 
 ### Iteration 44 — USERD_TARGET + INST_TARGET Runlist Fix
 - [x] Runlist DW0: `USERD_TARGET` bits (3:2) set to SYS_MEM_COHERENT (2) — PBDMA reads USERD from system memory
@@ -297,16 +308,18 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
-- [ ] Coverage 64% → 90%
+- [ ] Coverage 66% → 90%
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1669+48 tests passing, 74 ignored, 64% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1721+48 tests passing, 61 ignored, 66% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
+vfio/channel.rs smart refactored: 2894 LOC → 5 modules (mod.rs, registers.rs, page_tables.rs, pfifo.rs, diagnostic.rs).
+eprintln! → tracing migration in production code. IPC chaos/fault tests added.
 PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist, PCCSR bind/enable.
 Runlist USERD_TARGET=SYS_MEM_COHERENT, INST_TARGET=SYS_MEM_NCOH — PBDMA reads USERD correctly.
 RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
@@ -314,7 +327,7 @@ GpuContext::from_vfio() convenience API unblocks barraCuda CoralReefDevice wirin
 Multi-GPU sovereignty: vfio-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
 Zero DEBT comments — all resolved or evolved. Zero libc dependency.
-Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings.
+Zero files over 1000 LOC (production). Zero clippy warnings. Zero doc warnings.
 All ioctl calls use drm_ioctl_named. bytemuck::Zeroable eliminates unsafe zeroed().
 NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
 All pure Rust. Sovereignty is a runtime choice.*

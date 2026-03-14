@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 13, 2026 (Phase 10 — Iteration 44)
+**Last updated**: March 14, 2026 (Phase 10 — Iteration 45)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1717 tests (1669 default + 48 VFIO, 74 ignored), 64% line coverage (target 90%),
+1769 tests (1721 default + 48 VFIO, 61 ignored), 66% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -421,15 +421,14 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 44: 1669+48 tests passing, 74 ignored. Idiomatic evolution.
+Iteration 45: 1721+48 tests passing, 61 ignored. Idiomatic evolution.
 
-Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC.
+Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
 Zero-copy transport via bytes::Bytes. All parameter structs idiomatic.
+vfio/channel.rs smart refactored: 2894 LOC → 5 modules. eprintln! → tracing.
+IPC chaos/fault tests. 52+ new unit tests. Unsafe evolved with SAFETY comments.
 VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist,
 PCCSR bind/enable, RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), doorbell BAR0+0x810090.
-Runlist USERD_TARGET=SYS_MEM_COHERENT, INST_TARGET=SYS_MEM_NCOH — PBDMA reads
-USERD from system memory correctly.
-GpuContext::from_vfio() convenience API unblocks barraCuda integration.
 8 of 9 crates enforce #[deny(unsafe_code)].
 Pending: Titan V hardware validation of full dispatch path.*

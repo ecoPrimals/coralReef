@@ -244,4 +244,54 @@ mod tests {
             assert_eq!(a.version, b.version);
         }
     }
+
+    #[test]
+    fn capability_equality_and_hash() {
+        let c1 = Capability {
+            id: "test.cap".into(),
+            version: "1.0".into(),
+            metadata: serde_json::json!({"key": "value"}),
+        };
+        let c2 = Capability {
+            id: "test.cap".into(),
+            version: "1.0".into(),
+            metadata: serde_json::json!({"key": "value"}),
+        };
+        assert_eq!(c1, c2);
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(c1);
+        set.insert(c2);
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn with_transports_empty_preserves_rest() {
+        let desc = self_description();
+        let desc = with_transports(desc, vec![]);
+        assert!(desc.transports.is_empty());
+        assert!(!desc.provides.is_empty());
+        assert!(!desc.requires.is_empty());
+    }
+
+    #[test]
+    fn transport_serialization() {
+        let t = Transport {
+            protocol: "tarpc".into(),
+            address: "unix:///tmp/sock".into(),
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        let roundtrip: Transport = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.protocol, t.protocol);
+        assert_eq!(roundtrip.address, t.address);
+    }
+
+    #[test]
+    fn self_description_shader_health_capability() {
+        let desc = self_description();
+        assert!(
+            desc.provides.iter().any(|c| c.id == "shader.health"),
+            "must advertise shader.health capability"
+        );
+    }
 }

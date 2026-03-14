@@ -196,6 +196,12 @@ mod tests {
     }
 
     #[test]
+    fn health_status_is_healthy() {
+        assert!(HealthStatus::Healthy.is_healthy());
+        assert!(!HealthStatus::Degraded { reason: "x".into() }.is_healthy());
+    }
+
+    #[test]
     fn report_builder() {
         let r = HealthReport::new("test", "0.1.0")
             .unwrap()
@@ -234,5 +240,40 @@ mod tests {
         let ts = Timestamp::now().unwrap();
         let debug = format!("{ts:?}");
         assert!(debug.contains("secs"));
+    }
+
+    #[test]
+    fn report_with_status_overwrites() {
+        let r = HealthReport::new("x", "1.0")
+            .unwrap()
+            .with_status(HealthStatus::Degraded {
+                reason: "old".into(),
+            })
+            .with_status(HealthStatus::Healthy);
+        assert!(r.status.is_healthy());
+    }
+
+    #[test]
+    fn report_with_detail_overwrites_same_key() {
+        let r = HealthReport::new("x", "1.0")
+            .unwrap()
+            .with_detail("k", "v1")
+            .with_detail("k", "v2");
+        assert_eq!(r.details.get("k").unwrap(), "v2");
+    }
+
+    #[test]
+    fn report_unknown_status_display() {
+        assert_eq!(HealthStatus::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn timestamp_ordering() {
+        let ts1 = Timestamp::now().unwrap();
+        let ts2 = Timestamp {
+            secs: ts1.secs + 1,
+            nanos: ts1.nanos,
+        };
+        assert!(ts2 > ts1);
     }
 }

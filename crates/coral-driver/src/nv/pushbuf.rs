@@ -386,4 +386,40 @@ mod tests {
         // Just SET_OBJECT: header + data = 2 words
         assert_eq!(words.len(), 2);
     }
+
+    #[test]
+    fn mthd_immd_value_encoding() {
+        // Value must fit in 13 bits (bits 28:16) to avoid overwriting type field
+        let hdr = mthd_immd(0, 0x200, 0x42);
+        assert_eq!(hdr >> 29, 4);
+        assert_eq!((hdr >> 16) & 0x1FFF, 0x42);
+        assert_eq!(hdr & 0x1FFF, 0x200 >> 2);
+    }
+
+    #[test]
+    fn pushbuf_default() {
+        let pb = PushBuf::default();
+        assert!(pb.as_words().is_empty());
+        assert_eq!(pb.size_bytes(), 0);
+    }
+
+    #[test]
+    fn pushbuf_new_empty() {
+        let pb = PushBuf::new();
+        assert!(pb.as_words().is_empty());
+    }
+
+    #[test]
+    fn mthd_ninc_subchan_encoding() {
+        let hdr = mthd_ninc(2, 0x100, 1);
+        let subchan = (hdr >> 13) & 0x7;
+        assert_eq!(subchan, 2);
+    }
+
+    #[test]
+    fn mthd_incr_count_encoding() {
+        let hdr = mthd_incr(0, 0x400, 5);
+        let count = (hdr >> 16) & 0x1FFF;
+        assert_eq!(count, 5);
+    }
 }

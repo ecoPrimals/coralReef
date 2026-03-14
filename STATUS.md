@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 13, 2026  
-**Phase**: 10 — Iteration 44 (USERD_TARGET + INST_TARGET Runlist Fix)
+**Last updated**: March 14, 2026  
+**Phase**: 10 — Iteration 45 (Deep Audit + Refactor + Coverage)
 
 ---
 
@@ -19,8 +19,8 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: scheduler prepass 842→313 LOC, cfg.rs→cfg/{mod,dom}.rs, ir/{pred,src,fold}.rs, ipc/{jsonrpc,tarpc_transport}.rs |
-| Tests | A+ | 1669 passing (+48 VFIO), 0 failed, 66+8 ignored, 64% line coverage (target 90%) |
+| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
+| Tests | A+ | 1721 passing (+48 VFIO), 0 failed, 61 ignored, 66% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -36,7 +36,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 44** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 45** |
 
 ### Phase 10 Completions
 
@@ -640,6 +640,22 @@
 | `#[expect(dead_code)]` cleanup | ✅ | Removed stale `dead_code` annotation from `userd` field (now actively used by sync) |
 | All tests pass | ✅ | 1669 default + 35 VFIO, 0 failed, 64+5 ignored |
 
+### Iteration 45: Deep Audit + Refactor + Coverage Expansion (Mar 14 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Full codebase audit | ✅ | specs, wateringHole standards (UniBin, ecoBin, genomeBin, IPC protocol, semantic naming), sovereignty, AGPL3 |
+| `vfio/channel.rs` smart refactor | ✅ | 2894 LOC → 5 modules (`mod.rs` 269, `registers.rs` 187, `page_tables.rs` 334, `pfifo.rs` 236, `diagnostic.rs` 1988) — production files under 1000 LOC |
+| `eprintln!` → `tracing` migration | ✅ | `pfifo.rs`, `mod.rs`, `vfio_compute.rs`, `device.rs` — structured logging in production; `eprintln!` retained in `diagnostic.rs` for HW debugging |
+| IPC chaos/fault tests | ✅ | 6 new tests in `tests_chaos.rs`: concurrent JSON-RPC, malformed requests, rapid connect/disconnect, oversized payloads, concurrent tarpc, invalid methods |
+| coralreef-core unit tests | ✅ | New tests for config (error variants, display, defaults), health (display, clone), lifecycle (display, error), capability (display, error) |
+| coral-driver unit tests | ✅ | 30+ new tests: error variants/display, QMD encoding, pushbuf, PM4, identity parsing, knowledge base queries |
+| Doctest fixes | ✅ | 5 ignored doctests fixed: `coral-gpu`, `coral-reef`, `coral-reef-isa` → `no_run`; `nak-ir-proc` → `text` |
+| Unsafe evolution | ✅ | `// SAFETY:` comments on all unsafe blocks (`bar0.rs`, `new_uapi.rs`, `rm_client.rs`), mmap null check, `debug_assert!` → `assert!` for DMA slices |
+| Clippy pedantic | ✅ | `map_unwrap_or` → `map_or` (3 sites), `identity_op` resolved, `cast_possible_truncation` with `#[expect]` |
+| Test expansion | ✅ | 1721 passing (+52), 0 failed, 61 ignored (−13 from fixed doctests + test consolidation) |
+| Coverage | ✅ | 65.74% line, 73.48% function (up from 64%) |
+
 ### Iteration 44: USERD_TARGET + INST_TARGET Runlist Fix (Mar 13 2026)
 
 | Item | Status | Detail |
@@ -694,8 +710,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1669 passing, 0 failed, 66 ignored) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 64% line coverage (target 90%) |
+| `cargo test --workspace` | PASS (1721 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 66% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

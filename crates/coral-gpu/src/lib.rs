@@ -25,15 +25,18 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
+//! ```no_run
+//! # fn main() -> Result<(), coral_gpu::GpuError> {
 //! use coral_gpu::{GpuContext, GpuTarget};
 //!
-//! let ctx = GpuContext::auto()?;
+//! let mut ctx = GpuContext::auto()?;
 //! let shader = ctx.compile_wgsl("@compute @workgroup_size(64) fn main() {}")?;
-//! let buf = ctx.alloc(1024)?;
+//! let mut buf = ctx.alloc(1024)?;
 //! ctx.dispatch(&shader, &[buf], [16, 1, 1])?;
 //! ctx.sync()?;
-//! let data = ctx.readback(buf, 1024)?;
+//! let _data = ctx.readback(buf, 1024)?;
+//! # Ok(())
+//! # }
 //! ```
 
 mod error;
@@ -492,8 +495,11 @@ impl GpuContext {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let ctx = GpuContext::from_vfio("0000:01:00.0")?;
+    /// ```no_run
+    /// # fn main() -> Result<(), coral_gpu::GpuError> {
+    /// let ctx = coral_gpu::GpuContext::from_vfio("0000:01:00.0")?;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors
