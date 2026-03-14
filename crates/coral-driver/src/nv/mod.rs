@@ -34,7 +34,7 @@ pub use uvm_compute::NvUvmComputeDevice;
 #[cfg(feature = "vfio")]
 pub mod vfio_compute;
 #[cfg(feature = "vfio")]
-pub use vfio_compute::NvVfioComputeDevice;
+pub use vfio_compute::{NvVfioComputeDevice, RawVfioDevice};
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};

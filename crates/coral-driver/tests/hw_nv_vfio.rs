@@ -113,6 +113,72 @@ mod tests {
         dev.sync().expect("sync");
     }
 
+    #[test]
+    #[ignore = "requires VFIO-bound GPU hardware"]
+    fn vfio_pfifo_diagnostic_matrix() {
+        use coral_driver::nv::RawVfioDevice;
+        use coral_driver::vfio::channel::{build_experiment_matrix, diagnostic_matrix};
+
+        let bdf = vfio_bdf();
+        let mut raw = RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+
+        let configs = build_experiment_matrix();
+        eprintln!("\n=== PFIFO DIAGNOSTIC MATRIX: {} configurations ===\n", configs.len());
+
+        let results = diagnostic_matrix(
+            raw.container_fd,
+            &raw.bar0,
+            RawVfioDevice::gpfifo_iova(),
+            RawVfioDevice::gpfifo_entries(),
+            RawVfioDevice::userd_iova(),
+            0, // channel ID
+            &configs,
+            raw.gpfifo_ring.as_mut_slice(),
+            raw.userd.as_mut_slice(),
+        )
+        .expect("diagnostic_matrix failed");
+
+        let total = results.len();
+        let faulted: Vec<_> = results.iter().filter(|r| r.faulted).collect();
+        let scheduled: Vec<_> = results.iter().filter(|r| r.scheduled).collect();
+        let clean: Vec<_> = results.iter().filter(|r| !r.faulted && r.scheduled).collect();
+        let pbdma_ours: Vec<_> = results.iter().filter(|r| r.pbdma_ours).collect();
+
+        eprintln!("\n=== SUMMARY ===");
+        eprintln!("Total:        {total}");
+        eprintln!("Faulted:      {}", faulted.len());
+        eprintln!("Scheduled:    {}", scheduled.len());
+        eprintln!("Clean:        {} (no fault + scheduled)", clean.len());
+        eprintln!("PBDMA ours:   {} (registers changed from residual)", pbdma_ours.len());
+
+        if !clean.is_empty() {
+            eprintln!("\n=== WINNING CONFIGURATIONS ===");
+            for r in &clean {
+                eprintln!("  {}", r.name);
+            }
+        }
+
+        if !pbdma_ours.is_empty() {
+            eprintln!("\n=== PBDMA REGISTERS CHANGED (direct programming worked) ===");
+            for r in &pbdma_ours {
+                eprintln!("  {} | USERD={:08x}_{:08x} GP_BASE={:08x}_{:08x} SIG={:08x} GP_PUT={} GP_FETCH={}",
+                    r.name, r.pbdma_userd_hi, r.pbdma_userd_lo,
+                    r.pbdma_gp_base_hi, r.pbdma_gp_base_lo,
+                    r.pbdma_signature, r.pbdma_gp_put, r.pbdma_gp_fetch);
+            }
+        }
+
+        if !scheduled.is_empty() {
+            eprintln!("\n=== SCHEDULED (may have faults) ===");
+            for r in &scheduled {
+                eprintln!("  {} (faulted={})", r.name, r.faulted);
+            }
+        }
+
+        eprintln!("\nDiagnostic matrix complete. Analyze the table above.");
+    }
+
     #[cfg(feature = "test-utils")]
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]

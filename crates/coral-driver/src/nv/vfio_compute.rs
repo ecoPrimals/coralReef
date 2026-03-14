@@ -121,6 +121,44 @@ const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
 /// Local memory window address for pre-Volta (SM < 70).
 const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
 
+/// Raw VFIO device handle for diagnostic/experimental access to BAR0
+/// without creating a PFIFO channel.
+pub struct RawVfioDevice {
+    #[expect(dead_code, reason = "kept alive for fd lifecycle")]
+    device: VfioDevice,
+    /// BAR0 MMIO mapping for register access.
+    pub bar0: MappedBar,
+    /// VFIO container fd for DMA buffer allocation.
+    pub container_fd: std::os::fd::RawFd,
+    /// GPFIFO ring DMA buffer (pre-allocated at standard IOVA).
+    pub gpfifo_ring: DmaBuffer,
+    /// USERD page DMA buffer (pre-allocated at standard IOVA).
+    pub userd: DmaBuffer,
+}
+
+impl RawVfioDevice {
+    /// Open a VFIO device with BAR0 mapped and GPFIFO/USERD DMA buffers
+    /// allocated, but WITHOUT creating a PFIFO channel. Used by the
+    /// diagnostic experiment matrix.
+    pub fn open(bdf: &str) -> DriverResult<Self> {
+        let device = VfioDevice::open(bdf)?;
+        let container_fd = device.container_fd();
+        let bar0 = device.map_bar(0)?;
+        let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
+        Ok(Self { device, bar0, container_fd, gpfifo_ring, userd })
+    }
+
+    /// GPFIFO ring IOVA.
+    pub const fn gpfifo_iova() -> u64 { GPFIFO_IOVA }
+
+    /// Number of GPFIFO entries.
+    pub const fn gpfifo_entries() -> u32 { gpfifo::ENTRIES as u32 }
+
+    /// USERD page IOVA.
+    pub const fn userd_iova() -> u64 { USERD_IOVA }
+}
+
 impl NvVfioComputeDevice {
     /// Open an NVIDIA GPU via VFIO and prepare for compute dispatch.
     ///
