@@ -623,6 +623,7 @@ pub fn diagnostic_matrix(
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         // Capture snapshot
+        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
         let pccsr_chan = r(pccsr::channel(channel_id));
         let pccsr_inst_rb = r(pccsr::inst(channel_id));
         let cur_userd_lo = r(pb + 0xD0);
@@ -630,6 +631,15 @@ pub fn diagnostic_matrix(
         let cur_ramfc_userd_lo = r(pb + 0x08);
         let cur_ramfc_userd_hi = r(pb + 0x0C);
         let cur_gp_base_lo = r(pb + 0x40);
+
+        // Read GP_GET and GP_PUT from host USERD page via volatile reads
+        // (GPU may have written to this DMA-mapped page)
+        let host_gp_get = unsafe {
+            std::ptr::read_volatile(userd_page.as_ptr().add(ramuserd::GP_GET).cast::<u32>())
+        };
+        let host_gp_put = unsafe {
+            std::ptr::read_volatile(userd_page.as_ptr().add(ramuserd::GP_PUT).cast::<u32>())
+        };
 
         let result = ExperimentResult {
             name: cfg.name.to_string(),
@@ -660,6 +670,8 @@ pub fn diagnostic_matrix(
                 || cur_ramfc_userd_lo != residual_ramfc_userd_lo
                 || cur_gp_base_lo != residual_gp_base_lo,
             chsw_error: r(pfifo::CHSW_ERROR),
+            userd_gp_get: host_gp_get,
+            userd_gp_put: host_gp_put,
         };
 
         let exp_ms = exp_start.elapsed().as_millis();
@@ -738,15 +750,17 @@ pub fn diagnostic_matrix(
         .iter()
         .filter(|r| r.pbdma_gp_fetch > 0 && r.pbdma_gp_fetch != r.pbdma_gp_base_lo)
         .count();
+    let num_gp_get = results.iter().filter(|r| r.userd_gp_get > 0).count();
     eprintln!("╠══ SUMMARY ═══════════════════════════════════════════════════╣");
     eprintln!(
-        "║ Total: {} | Scheduled: {} | ON_PBDMA+: {} | Faulted: {} | CHSW_ERR: {} | GP_FETCH advancing: {}",
+        "║ Total: {} | Scheduled: {} | ON_PBDMA+: {} | Faulted: {} | CHSW_ERR: {} | GP_FETCH advancing: {} | GP_GET writeback: {}",
         results.len(),
         num_sched,
         num_on_pbdma,
         num_faulted,
         num_chsw,
-        num_gp_fetch
+        num_gp_fetch,
+        num_gp_get
     );
     if num_faulted > 0 {
         eprintln!("║ ⚠ Faulted experiments:");
@@ -765,6 +779,15 @@ pub fn diagnostic_matrix(
                 r.name,
                 r.chsw_error,
                 r.chsw_error_name()
+            );
+        }
+    }
+    if num_gp_get > 0 {
+        eprintln!("║ ★ GP_GET WRITEBACK — GPU wrote to host USERD:");
+        for r in results.iter().filter(|r| r.userd_gp_get > 0) {
+            eprintln!(
+                "║   {} GP_GET={} GP_PUT={}",
+                r.name, r.userd_gp_get, r.userd_gp_put
             );
         }
     }

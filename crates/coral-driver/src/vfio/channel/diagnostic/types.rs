@@ -187,6 +187,11 @@ pub struct ExperimentResult {
     /// PFIFO CHSW_ERROR (0x256C) — channel switch error detail.
     /// 0=NO_ERROR, 1=REQ_TIMEOUT, 2=ACK_TIMEOUT, 3=ACK_EXTRA, 4=RDAT_TIMEOUT, 5=RDAT_EXTRA.
     pub chsw_error: u32,
+    /// Host USERD page GP_GET (offset 0x88) — written by GPU when GPFIFO entry is consumed.
+    /// If this advances from 0, the PBDMA successfully wrote back to host memory.
+    pub userd_gp_get: u32,
+    /// Host USERD page GP_PUT (offset 0x8C) — written by host, read by GPU.
+    pub userd_gp_put: u32,
 }
 
 impl ExperimentResult {
@@ -205,8 +210,9 @@ impl ExperimentResult {
             5 => " CHSW:RDAT_XTR",
             _ => " CHSW:UNK",
         };
+        let gp_get_tag = if self.userd_gp_get > 0 { "GET!" } else { "" };
         format!(
-            "{:<42} | {:08x} | {:<5} | {:<5} | {:<14} | D0={:08x} R8={:08x} | {:>3} | gp={:02x}/{:02x} | {:08x}{}",
+            "{:<42} | {:08x} | {:<5} | {:<5} | {:<14} | D0={:08x} R8={:08x} | {:>3} | gp={:02x}/{:02x} GET={} | {:08x}{} {}",
             self.name,
             self.pccsr_chan,
             fault_tag,
@@ -217,8 +223,10 @@ impl ExperimentResult {
             pbdma_tag,
             self.pbdma_gp_put,
             self.pbdma_gp_fetch,
+            self.userd_gp_get,
             self.engn0_status,
             chsw_tag,
+            gp_get_tag,
         )
     }
 
