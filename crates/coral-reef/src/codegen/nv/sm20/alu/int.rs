@@ -461,7 +461,7 @@ impl SM20Op for OpIMadSp {
                     match src1.unsigned() {
                         U24 => 1_u8,
                         U16Lo => 0,
-                        _ => panic!("imadsp src[1] can only be 16 or 24 bits"),
+                        _ => unreachable!("SM20 legalization rejects IMadSp src1 non-U16Lo/U24"),
                     },
                 );
                 e.set_bit(7, src0.sign());
@@ -481,7 +481,7 @@ impl SM20Op for OpIMadSp {
                         U32 => 0_u8,
                         U24 => 1,
                         U16Lo => 2,
-                        U16Hi => panic!("src2 u16h1 not encodable"),
+                        U16Hi => unreachable!("SM20 legalization rejects IMadSp src2 U16Hi"),
                         _ => unreachable!(),
                     },
                 );

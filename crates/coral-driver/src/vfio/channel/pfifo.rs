@@ -79,7 +79,9 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     let mut cur_type: u32 = 0xFFFF;
     let mut cur_runlist: u32 = 0xFFFF;
     for i in 0..64_u32 {
-        let data = bar0.read_u32(0x0002_2700 + (i as usize) * 4).unwrap_or(0);
+        let data = bar0
+            .read_u32(pfifo::ENGN_TABLE + (i as usize) * 4)
+            .unwrap_or(0);
         if data == 0 {
             break;
         }
@@ -107,7 +109,9 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     }
     let mut pbdma_runlists: Vec<(u32, u32)> = Vec::new();
     for (seq, &pid) in pbdma_ids.iter().enumerate() {
-        let rl = bar0.read_u32(0x0000_2390 + seq * 4).unwrap_or(0xFFFF);
+        let rl = bar0
+            .read_u32(pfifo::PBDMA_RUNL_MAP + seq * 4)
+            .unwrap_or(0xFFFF);
         pbdma_runlists.push((pid, rl));
     }
 
@@ -138,20 +142,27 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
     w(pfifo::SCHED_EN, 1)?;
 
-    // Submit empty runlists to flush stale channels (GV100 format).
+    // Submit empty runlists to flush stale channels (gk104 format).
+    // RUNLIST_BASE (0x2270) = (target << 28) | (addr >> 12)
+    // RUNLIST_SUBMIT (0x2274) = (runlist_id << 20) | count — triggers scheduler
     let mut flushed_runlists = std::collections::HashSet::new();
     #[expect(clippy::cast_possible_truncation)]
-    let rl_base_lo = (RUNLIST_IOVA >> 12) as u32;
+    let rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
     for &(_, rl) in &pbdma_runlists {
         if rl > 31 || !flushed_runlists.insert(rl) {
             continue;
         }
-        let stride = rl as usize * 16;
-        w(pfifo::RUNLIST_BASE_LO + stride, rl_base_lo)?;
-        w(pfifo::RUNLIST_BASE_HI + stride, 1)?; // SYS_MEM aperture (guess: 1=COH)
-        w(pfifo::RUNLIST_SUBMIT + stride, 0)?; // count=0 → empty
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 format)");
+        w(pfifo::RUNLIST_BASE, rl_base)?;
+        w(pfifo::RUNLIST_SUBMIT, rl << 20)?; // count=0 → empty flush
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0);
+        if intr & pfifo::INTR_RL_COMPLETE != 0 {
+            let _ = bar0.read_u32(pfifo::RUNLIST_ACK);
+            w(pfifo::RUNLIST_ACK, 1u32 << rl)?;
+            w(pfifo::INTR, pfifo::INTR_RL_COMPLETE)?;
+            tracing::debug!(runlist = rl, "ACK'd empty runlist completion");
+        }
+        tracing::debug!(runlist = rl, "flushed runlist (empty, gk104 format)");
     }
     std::thread::sleep(std::time::Duration::from_millis(20));
 

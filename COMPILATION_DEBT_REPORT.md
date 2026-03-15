@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 14, Iter 45)  
+**Generated:** March 10, 2026 (metrics updated March 15, Iter 46)  
 **Workspace:** coralReef
 
 ---
@@ -24,7 +24,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. ? passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Total ignored:** 64 tests across workspace (hardware-gated + diagnostic).
+**Total ignored:** 61 tests across workspace (hardware-gated + diagnostic).
 
 ---
 
@@ -198,9 +198,9 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 45) |
+| Metric | Value (as of Iter 46) |
 |--------|-------|
-| Tests passing | 1691 default + 48 VFIO |
+| Tests passing | 1804 default + 48 VFIO |
 | Ignored tests | 61 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 8 (documented future optimizations — intentional) |
 | Production unwraps | ~0 (evolved to expect/error Iter 31-32) |
@@ -209,10 +209,11 @@ Current attributes have documented `reason` strings where appropriate.
 | panic! in production | ~150+ (codegen ICE guards — intentional) |
 | #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
-| Files over 1000 LOC | 1 (diagnostic.rs 1988 — hardware bring-up only, Iter 45) |
+| Files over 1000 LOC | 0 (Iter 46: diagnostic/runner.rs 2485→769 + experiments/) |
 | Clippy warnings | 0 (pedantic + all) |
 | Doc warnings | 0 |
-| Line coverage (llvm-cov) | 65.6% (target 90%) |
+| Line coverage (llvm-cov) | 66.43% (target 90%) |
 | IPC chaos/fault tests | 6 new (Iter 45) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45) |
 | vfio/channel.rs | Refactored 2894→5 modules (Iter 45) |
+| diagnostic/runner.rs | Refactored 2485→769 + experiments/ (Iter 46) |

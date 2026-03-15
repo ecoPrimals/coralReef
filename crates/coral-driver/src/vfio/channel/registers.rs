@@ -17,36 +17,61 @@ pub(crate) mod pfifo {
     pub const SCHED_EN: usize = 0x0000_2504;
     /// Scheduler disable (0 = scheduler runs). Read to verify scheduler state.
     pub const SCHED_DISABLE: usize = 0x0000_2630;
+    /// Channel switch error detail (REQ_TIMEOUT, ACK_TIMEOUT, etc.).
+    /// Read after PFIFO_INTR bit 16 (CHSW_ERROR) fires.
+    pub const CHSW_ERROR: usize = 0x0000_256C;
     /// PFIFO interrupt status — write `0xFFFF_FFFF` to clear pending.
     pub const INTR: usize = 0x0000_2100;
     /// PFIFO interrupt enable mask.
     pub const INTR_EN: usize = 0x0000_2140;
+    /// PFIFO_INTR bit 30 — runlist update completion event.
+    pub const INTR_RL_COMPLETE: u32 = 0x4000_0000;
+    /// PFIFO_INTR bit 16 — channel switch error.
+    pub const INTR_CHSW_ERROR: u32 = 0x0001_0000;
+    /// PFIFO_INTR bit 29 — aggregate "any PBDMA has an interrupt pending".
+    #[allow(
+        dead_code,
+        reason = "hardware register definition for future diagnostic use"
+    )]
+    pub const INTR_PBDMA: u32 = 0x2000_0000;
     /// PBDMA active map — bit N = 1 means PBDMA N exists.
     pub const PBDMA_MAP: usize = 0x0000_2004;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// PBDMA-to-runlist mapping table. Entry at `+seq*4` for each active PBDMA.
     pub const PBDMA_RUNL_MAP: usize = 0x0000_2390;
-    /// GV100 runlist base address LO (addr >> 12, no target bits).
-    /// Per-runlist registers at stride 16: 0x2270 + runlist_id * 16.
-    pub const RUNLIST_BASE_LO: usize = 0x0000_2270;
-    /// GV100 runlist base address HI (upper addr | aperture flag).
-    /// Nouveau uses `| 0x2` for VRAM aperture.
-    pub const RUNLIST_BASE_HI: usize = 0x0000_2274;
-    /// GV100 runlist submit: (count << 16) | start_offset.
-    pub const RUNLIST_SUBMIT: usize = 0x0000_2278;
+    /// GK104/GV100 runlist base address (global, NOT per-runlist strided).
+    /// Format: `(target << 28) | (addr >> 12)`.
+    /// TARGET[31:28] = aperture (0=VID_MEM, 3=SYS_MEM_NCOH).
+    /// PTR[27:0] = physical/IOVA page number.
+    /// Source: nouveau `gk104_runl_commit()`.
+    pub const RUNLIST_BASE: usize = 0x0000_2270;
+    /// GK104/GV100 runlist submit trigger (global, NOT per-runlist strided).
+    /// Format: `(runlist_id << 20) | count`.
+    /// Writing this register triggers the scheduler to process the runlist.
+    /// Source: nouveau `gk104_runl_commit()`.
+    pub const RUNLIST_SUBMIT: usize = 0x0000_2274;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// Runlist pending status. Per-runlist at stride 8.
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// Preempt trigger (channel or runlist).
     pub const PREEMPT: usize = 0x0000_2634;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// GV100 runlist-level preempt — write bitmask of runlist IDs.
     pub const GV100_PREEMPT: usize = 0x0000_2638;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// Runlist interrupt acknowledge mask.
     pub const RUNLIST_ACK: usize = 0x0000_2A00;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// BIND_ERROR status.
     pub const BIND_ERROR: usize = 0x0000_252C;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// FB timeout counter.
     pub const FB_TIMEOUT: usize = 0x0000_2254;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// Engine status, per-engine at stride 4.
     pub const ENGN_STATUS: usize = 0x0000_2640;
+    #[allow(dead_code, reason = "hardware register definition for future use")]
     /// Engine topology table at stride 4 (GV100).
     pub const ENGN_TABLE: usize = 0x0002_2700;
 }
@@ -70,6 +95,10 @@ pub(crate) mod pbdma {
     pub const STRIDE: usize = 0x2000;
 
     /// Base address for a specific PBDMA in BAR0.
+    #[allow(
+        dead_code,
+        reason = "will be used when diagnostic migrates from inline computation"
+    )]
     pub const fn base(id: usize) -> usize {
         BASE + id * STRIDE
     }
@@ -94,6 +123,11 @@ pub(crate) mod pbdma {
     pub const fn hce_intr_en(id: usize) -> usize {
         reg(id, 0x014C)
     }
+
+    /// PBDMA METHOD0 — method address that caused a fault (offset within PBDMA).
+    pub const METHOD0: usize = 0x1C0;
+    /// PBDMA DATA0 — method data payload for a faulted method.
+    pub const DATA0: usize = 0x1C4;
 
     // RAMFC-mapped PBDMA register offsets (context save/restore area).
     // These mirror the RAMFC layout — the scheduler loads RAMFC fields HERE.
@@ -122,6 +156,7 @@ pub(crate) mod pbdma {
 }
 
 /// MMU fault buffer registers (BAR0 + 0x10_0E00).
+#[allow(dead_code, reason = "hardware register definition for future use")]
 pub(crate) mod mmu {
     pub const FAULT_BUF0_LO: usize = 0x0010_0E24;
     pub const FAULT_BUF0_HI: usize = 0x0010_0E28;
@@ -141,12 +176,24 @@ pub(crate) mod mmu {
 }
 
 /// Miscellaneous BAR0 registers.
+#[allow(
+    dead_code,
+    reason = "used by diagnostic matrix; will migrate inline magic numbers"
+)]
 pub(crate) mod misc {
     pub const BOOT0: usize = 0x0000_0000;
     pub const PRIV_RING: usize = 0x0001_2070;
     pub const PRAMIN_BASE: usize = 0x0070_0000;
     pub const BAR0_WINDOW: usize = 0x0000_1700;
     pub const L2_FLUSH: usize = 0x0007_0010;
+    /// PBUS BAR1 block register — BAR1 aperture instance block pointer.
+    /// Format: PTR[27:0] | TARGET[29:28] | MODE[31] (0=PHYS, 1=VIRTUAL).
+    /// GV100 BAR1_BLOCK offset — 0x1704 per dev_bus.ref.txt; 0x1714 may be BAR2_BLOCK.
+    pub const PBUS_BAR1_BLOCK: usize = 0x0000_1714;
+    /// PBUS BAR2 block register — BAR2 aperture instance block pointer.
+    pub const PBUS_BAR2_BLOCK: usize = 0x0000_1718;
+    /// Candidate for real BAR1_BLOCK on GV100 (per open-gpu-doc dev_bus.ref.txt).
+    pub const PBUS_BAR1_BLOCK_ALT: usize = 0x0000_1704;
 }
 
 /// `NV_PCCSR` — per-channel control/status registers (BAR0 + 0x80_0000).
@@ -157,8 +204,16 @@ pub(crate) mod pccsr {
         0x0080_0000 + (id as usize) * 8
     }
 
-    /// Channel control register for channel `id`.
-    /// Contains `ENABLE[0]`, `ENABLE_SET[10]`, `ENABLE_CLR[11]`, `STATUS[27:24]`.
+    /// Channel control/status register for channel `id`.
+    /// Layout (from open-gpu-doc dev_fifo.ref.txt):
+    ///   [0]     ENABLE (R)
+    ///   [1]     NEXT (RW) — scheduled on runlist
+    ///   [10]    ENABLE_SET (W)
+    ///   [11]    ENABLE_CLR (W)
+    ///   [22]    PBDMA_FAULTED (RW1C)
+    ///   [23]    ENG_FAULTED (RW1C)
+    ///   [27:24] STATUS — 0=IDLE, 5=ON_PBDMA, 6=ON_PBDMA_AND_ENG, 7=ON_ENG
+    ///   [28]    BUSY
     pub const fn channel(id: u32) -> usize {
         0x0080_0004 + (id as usize) * 8
     }
@@ -171,10 +226,31 @@ pub(crate) mod pccsr {
     pub const CHANNEL_ENABLE_SET: u32 = 1 << 10;
     /// `CHANNEL_ENABLE_CLR` trigger (bit 11).
     pub const CHANNEL_ENABLE_CLR: u32 = 1 << 11;
-    /// `PBDMA_FAULTED` — write 1 to clear (bit 24).
-    pub const PBDMA_FAULTED_RESET: u32 = 1 << 24;
-    /// `ENG_FAULTED` — write 1 to clear (bit 28).
-    pub const ENG_FAULTED_RESET: u32 = 1 << 28;
+    /// `PBDMA_FAULTED` — read to check, write 1 to clear (bit 22).
+    pub const PBDMA_FAULTED_RESET: u32 = 1 << 22;
+    /// `ENG_FAULTED` — read to check, write 1 to clear (bit 23).
+    pub const ENG_FAULTED_RESET: u32 = 1 << 23;
+
+    /// Decode STATUS[27:24] from a PCCSR channel register value.
+    pub const fn status(val: u32) -> u32 {
+        (val >> 24) & 0xF
+    }
+
+    /// Status name for display.
+    pub fn status_name(val: u32) -> &'static str {
+        match status(val) {
+            0x0 => "IDLE",
+            0x1 => "PENDING",
+            0x2 => "PEND_CTX_RELOAD",
+            0x3 => "PEND_ACQUIRE",
+            0x5 => "ON_PBDMA",
+            0x6 => "ON_PBDMA+ENG",
+            0x7 => "ON_ENG",
+            0x8 => "ENG_PEND_ACQ",
+            0x9 => "ENG_PENDING",
+            _ => "UNKNOWN",
+        }
+    }
 }
 
 /// `NV_USERMODE` doorbell (BAR0 + 0x81_0000..0x81_FFFF).
@@ -253,6 +329,10 @@ pub(super) const PD1_IOVA: u64 = 0x7000;
 pub(super) const PD0_IOVA: u64 = 0x8000;
 /// PT0 (page table) IOVA.
 pub(super) const PT0_IOVA: u64 = 0x9000;
+/// Non-replayable MMU fault buffer IOVA.
+pub(super) const FAULT_BUF_IOVA: u64 = 0xA000;
+/// NOP push buffer IOVA — dedicated buffer with valid NOP GPU methods.
+pub(super) const NOP_PB_IOVA: u64 = 0xB000;
 
 /// `SYS_MEM_COHERENT` aperture target for PCCSR/PFIFO/RAMIN/runlist registers.
 pub(super) const TARGET_SYS_MEM_COHERENT: u32 = 2;

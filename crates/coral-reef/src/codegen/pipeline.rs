@@ -36,7 +36,7 @@ pub fn compile_shader(
     // one branch arm but used on both paths to a merge block. Must run
     // before any pass that computes liveness (scheduler, RA).
     for f in &mut shader.functions {
-        f.fix_entry_live_in();
+        f.fix_entry_live_in()?;
     }
 
     // FMA contraction lowering — split FFma/DFma when FmaPolicy::Separate.
@@ -55,7 +55,7 @@ pub fn compile_shader(
     shader.legalize()?;
 
     // Register allocation
-    shader.assign_regs();
+    shader.assign_regs()?;
 
     // Post-RA lowering
     shader.lower_par_copies();

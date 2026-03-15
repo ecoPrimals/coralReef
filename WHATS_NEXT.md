@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 14, 2026 (Phase 10 — Iteration 45)
+**Last updated**: March 15, 2026 (Phase 10 — Iteration 46)
 
 ---
 
@@ -79,7 +79,15 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 45)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 46)
+
+### Iteration 46 — Structural Refactor + Coverage Expansion
+- [x] `diagnostic/runner.rs` smart refactor: 2485 LOC → 769 LOC — split into `experiments/` submodule with 8 handler files + context struct
+- [x] Clippy pedantic workspace-wide: all warnings resolved (identity ops, constant assertions, redundant closures, range contains, etc.)
+- [x] 53+ new tests: AMD ISA generated table lookup (25), Unix JSON-RPC coverage (8), SM70 latency/encoder tests (20)
+- [x] Coverage: 65.90% → 66.43% lines, 73.75% → 75.15% functions, 68.21% regions
+- [x] Zero files over 1000 lines
+- [x] 1804 passing, 0 failed, 61 ignored
 
 ### Iteration 45 — Deep Audit + Refactor + Coverage Expansion
 - [x] Full codebase audit: specs, wateringHole standards, UniBin/ecoBin/genomeBin compliance
@@ -313,7 +321,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1721+48 tests passing, 61 ignored, 66% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1804+48 tests passing, 61 ignored, 66.43% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.

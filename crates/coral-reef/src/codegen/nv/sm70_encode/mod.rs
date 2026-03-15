@@ -179,4 +179,78 @@ mod tests {
         let encoded = encode_sm70_shader(&sm, &shader);
         assert!(!encoded.is_empty(), "minimal shader should produce binary");
     }
+
+    #[test]
+    fn test_encode_sm70_shader_with_bra() {
+        use crate::codegen::ir::{
+            BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, OpBra, OpExit, OpNop,
+            PhiAllocator, Shader, ShaderInfo, ShaderIoInfo, ShaderStageInfo, Src,
+        };
+        use coral_reef_stubs::cfg::CFGBuilder;
+
+        let sm = ShaderModel70::new(70);
+        let sm_info = Box::leak(Box::new(crate::codegen::ir::ShaderModelInfo::new(70, 64)));
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+
+        let exit_label = label_alloc.alloc();
+        let bra_label = label_alloc.alloc();
+
+        let bra_block = BasicBlock {
+            label: bra_label,
+            uniform: false,
+            instrs: vec![
+                Instr::new(OpNop { label: None }),
+                Instr::new(OpBra {
+                    target: exit_label,
+                    cond: Src::new_imm_bool(true),
+                }),
+            ],
+        };
+        cfg_builder.add_block(bra_block);
+
+        let exit_block = BasicBlock {
+            label: exit_label,
+            uniform: false,
+            instrs: vec![Instr::new(OpExit {})],
+        };
+        cfg_builder.add_block(exit_block);
+
+        let function = Function {
+            ssa_alloc: SSAValueAllocator::new(),
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        let shader = Shader {
+            sm: sm_info,
+            info: ShaderInfo {
+                max_warps_per_sm: 0,
+                gpr_count: 0,
+                control_barrier_count: 0,
+                instr_count: 0,
+                static_cycle_count: 0,
+                spills_to_mem: 0,
+                fills_from_mem: 0,
+                spills_to_reg: 0,
+                fills_from_reg: 0,
+                shared_local_mem_size: 0,
+                max_crs_depth: 0,
+                uses_global_mem: false,
+                writes_global_mem: false,
+                uses_fp64: false,
+                stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                    local_size: [1, 1, 1],
+                    shared_mem_size: 0,
+                }),
+                io: ShaderIoInfo::None,
+            },
+            functions: vec![function],
+            fma_policy: crate::FmaPolicy::default(),
+        };
+        let encoded = encode_sm70_shader(&sm, &shader);
+        assert!(
+            encoded.len() >= 8,
+            "shader with Bra and Exit should produce at least 2 instructions (8 bytes)"
+        );
+    }
 }

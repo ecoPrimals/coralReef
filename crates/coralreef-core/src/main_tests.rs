@@ -408,3 +408,67 @@ fn cmd_compile_opt_levels() {
     }
     let _ = std::fs::remove_file(&tmp);
 }
+
+// --- Command parsing edge cases ---
+
+#[test]
+fn parse_cli_compile_default_fp64_software() {
+    let cli = parse_cli_from(["coralreef", "compile", "x.wgsl"]).unwrap();
+    match &cli.command {
+        Commands::Compile { fp64_software, .. } => assert!(*fp64_software, "default is true"),
+        _ => panic!("expected Compile command"),
+    }
+}
+
+#[test]
+fn parse_cli_compile_default_opt_level() {
+    let cli = parse_cli_from(["coralreef", "compile", "x.wgsl"]).unwrap();
+    match &cli.command {
+        Commands::Compile { opt_level, .. } => assert_eq!(*opt_level, 2, "default opt_level is 2"),
+        _ => panic!("expected Compile command"),
+    }
+}
+
+#[test]
+fn parse_cli_server_rpc_bind_only() {
+    let cli = parse_cli_from(["coralreef", "server", "--rpc-bind", "127.0.0.1:8888"]).unwrap();
+    match &cli.command {
+        Commands::Server {
+            rpc_bind,
+            tarpc_bind,
+        } => {
+            assert_eq!(rpc_bind, "127.0.0.1:8888");
+            assert!(tarpc_bind.is_none());
+        }
+        _ => panic!("expected Server command"),
+    }
+}
+
+#[test]
+fn parse_cli_help_flag() {
+    let result = parse_cli_from(["coralreef", "--help"]);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().to_lowercase().contains("usage")
+            || err.to_string().to_lowercase().contains("coralreef"),
+        "help should show usage"
+    );
+}
+
+#[test]
+fn parse_cli_server_help() {
+    let result = parse_cli_from(["coralreef", "server", "--help"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_cli_version_long_form() {
+    let result = parse_cli_from(["coralreef", "-V"]);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains(env!("CARGO_PKG_VERSION")),
+        "version output should contain package version"
+    );
+}

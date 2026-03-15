@@ -269,6 +269,92 @@ fn test_rpc_error_from_serde_json() {
     assert!(s.contains("json"));
 }
 
+// ---------------------------------------------------------------------------
+// Transport error handling (primal-rpc-client/src/transport.rs coverage)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_http_non_200_status() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let _ = stream.read(&mut buf).await.unwrap();
+        let http_response =
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+    });
+
+    let client = RpcClient::tcp(addr);
+    let result: Result<String, _> = client.request("test.method", no_params()).await;
+    assert!(matches!(result, Err(RpcError::Http(_))));
+    if let Err(RpcError::Http(msg)) = result {
+        assert!(msg.to_lowercase().contains("404") || msg.to_lowercase().contains("non-200"));
+    }
+
+    let _ = handle.await;
+}
+
+#[tokio::test]
+async fn test_http_500_status() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let _ = stream.read(&mut buf).await.unwrap();
+        let http_response =
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+    });
+
+    let client = RpcClient::tcp(addr);
+    let result: Result<String, _> = client.request("test.method", no_params()).await;
+    assert!(matches!(result, Err(RpcError::Http(_))));
+    if let Err(RpcError::Http(msg)) = result {
+        assert!(msg.to_lowercase().contains("500") || msg.to_lowercase().contains("non-200"));
+    }
+
+    let _ = handle.await;
+}
+
+#[tokio::test]
+async fn test_http_missing_header_separator() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let _ = stream.read(&mut buf).await.unwrap();
+        let http_response = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nno-double-crlf-here";
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+    });
+
+    let client = RpcClient::tcp(addr);
+    let result: Result<String, _> = client.request("test.method", no_params()).await;
+    assert!(matches!(result, Err(RpcError::Http(_))));
+    if let Err(RpcError::Http(msg)) = result {
+        assert!(
+            msg.to_lowercase().contains("separator") || msg.to_lowercase().contains("\\r\\n\\r\\n"),
+            "expected header separator error: {msg}"
+        );
+    }
+
+    let _ = handle.await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_socket_connection_refused() {
+    let client = RpcClient::unix("/nonexistent/path/coralreef.sock");
+    let result: Result<String, _> = client.request("test.method", no_params()).await;
+    assert!(matches!(result, Err(RpcError::Io(_))));
+}
+
 #[test]
 fn test_rpc_error_variants_display_substrings() {
     let io_err = RpcError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"));

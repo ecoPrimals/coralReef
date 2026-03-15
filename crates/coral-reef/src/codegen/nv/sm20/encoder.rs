@@ -104,6 +104,20 @@ impl ShaderModel for ShaderModel20 {
     }
 
     fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), crate::CompileError> {
+        if let Op::IMadSp(imadsp) = op {
+            if let IMadSpMode::Explicit([_src0, src1, src2]) = imadsp.mode {
+                if src2.unsigned() == IMadSpSrcType::U16Hi {
+                    return Err(crate::CompileError::Encoding(
+                        "SM20 IMadSp src2 U16Hi is not encodable".into(),
+                    ));
+                }
+                if !matches!(src1.unsigned(), IMadSpSrcType::U16Lo | IMadSpSrcType::U24) {
+                    return Err(crate::CompileError::Encoding(
+                        "SM20 IMadSp src1 must be 16 or 24 bits".into(),
+                    ));
+                }
+            }
+        }
         op.legalize(b);
         Ok(())
     }

@@ -65,7 +65,12 @@ impl Function {
     /// just for the sake of a parallel copy.  While this may not be true in
     /// general, especially not when spilling to memory, the register allocator
     /// is good at eliding unnecessary copies.
-    pub fn spill_values(&mut self, file: RegFile, limit: u32, info: &mut ShaderInfo) {
+    pub fn spill_values(
+        &mut self,
+        file: RegFile,
+        limit: u32,
+        info: &mut ShaderInfo,
+    ) -> Result<(), crate::CompileError> {
         match file {
             RegFile::GPR => {
                 let spill = SpillGPR::new(info);
@@ -90,12 +95,13 @@ impl Function {
             _ => panic!("Don't know how to spill {file} registers"),
         }
 
-        self.repair_ssa();
+        self.repair_ssa()?;
         self.opt_dce();
 
         if DEBUG.print() {
             eprintln!("IR after spilling {file}:\n{self}");
         }
+        Ok(())
     }
 }
 
@@ -165,7 +171,7 @@ mod tests {
             io: ShaderIoInfo::None,
         };
         func.to_cssa();
-        func.spill_values(RegFile::UGPR, 4, &mut info);
+        func.spill_values(RegFile::UGPR, 4, &mut info).unwrap();
         assert!(!func.blocks[0].instrs.is_empty());
     }
 
@@ -225,7 +231,7 @@ mod tests {
             io: ShaderIoInfo::None,
         };
         func.to_cssa();
-        func.spill_values(RegFile::GPR, 4, &mut info);
+        func.spill_values(RegFile::GPR, 4, &mut info).unwrap();
         assert!(!func.blocks[0].instrs.is_empty());
         let last = func.blocks[0].instrs.last().unwrap();
         assert!(matches!(last.op, Op::Exit(_)));

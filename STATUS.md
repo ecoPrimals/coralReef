@@ -1,7 +1,7 @@
 # coralReef — Status
 
-**Last updated**: March 14, 2026  
-**Phase**: 10 — Iteration 45 (Deep Audit + Refactor + Coverage)
+**Last updated**: March 15, 2026  
+**Phase**: 10 — Iteration 46 (Structural Refactor + Coverage Expansion)
 
 ---
 
@@ -19,8 +19,8 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 1721 passing (+48 VFIO), 0 failed, 61 ignored, 66% line coverage (target 90%), IPC chaos/fault tests |
+| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
+| Tests | A+ | 1804 passing (+48 VFIO), 0 failed, 61 ignored, 66.43% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -36,7 +36,18 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 45** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 46** |
+
+### Iteration 46: Structural Refactor + Coverage Expansion (Mar 15 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `diagnostic/runner.rs` smart refactor | ✅ | 2485 LOC → 769 LOC — split into `experiments/` submodule with 8 handler files + context struct |
+| Clippy pedantic workspace-wide | ✅ | All warnings resolved: identity ops, constant assertions, redundant closures, range contains, etc. |
+| 53+ new tests | ✅ | AMD ISA generated table lookup (25), Unix JSON-RPC coverage (8), SM70 latency/encoder tests (20) |
+| Coverage improvement | ✅ | 65.90% → 66.43% lines, 73.75% → 75.15% functions, 68.21% regions |
+| File size compliance | ✅ | Zero files over 1000 lines |
+| Test expansion | ✅ | 1804 passing (+83 from Iter 45), 0 failed, 61 ignored |
 
 ### Phase 10 Completions
 
@@ -710,8 +721,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1721 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 66% line coverage (target 90%) |
+| `cargo test --workspace` | PASS (1804 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 66.43% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

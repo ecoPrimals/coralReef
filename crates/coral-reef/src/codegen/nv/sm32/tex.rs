@@ -442,9 +442,7 @@ impl SM32Op for OpIMadSp {
                         U32 => 0_u8,
                         U24 => 1,
                         U16Lo => 2,
-                        U16Hi => {
-                            panic!("src2 u16h1 not encodable")
-                        }
+                        U16Hi => unreachable!("SM32 legalization rejects IMadSp src2 U16Hi"),
                         _ => unreachable!(),
                     },
                 );
@@ -456,7 +454,7 @@ impl SM32Op for OpIMadSp {
                     match src1.unsigned() {
                         U24 => 1_u8,
                         U16Lo => 0,
-                        _ => panic!("imadsp src[1] can only be 16 or 24 bits"),
+                        _ => unreachable!("SM32 legalization rejects IMadSp src1 non-U16Lo/U24"),
                     },
                 );
             }

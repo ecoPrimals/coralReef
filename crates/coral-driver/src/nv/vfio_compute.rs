@@ -266,6 +266,8 @@ impl NvVfioComputeDevice {
 
         // Volatile write GPFIFO entry to DMA ring.
         let ring_ptr = self.gpfifo_ring.vaddr().cast_mut();
+        // SAFETY: gpfifo_ring.vaddr() is valid from DmaBuffer::new; offset is
+        // bounds-checked by slot % ENTRIES; volatile required for GPU DMA visibility.
         unsafe {
             std::ptr::write_volatile(ring_ptr.add(offset).cast::<u64>(), entry);
         }
@@ -274,6 +276,8 @@ impl NvVfioComputeDevice {
 
         // Volatile write GP_PUT to USERD at Volta RAMUSERD offset 0x8C.
         let userd_ptr = self.userd.vaddr().cast_mut();
+        // SAFETY: userd.vaddr() is valid from DmaBuffer::new; ramuserd::GP_PUT
+        // (0x8C) is within the 4096-byte USERD page; volatile required for GPU DMA.
         unsafe {
             std::ptr::write_volatile(
                 userd_ptr.add(ramuserd::GP_PUT).cast::<u32>(),
@@ -319,6 +323,7 @@ impl NvVfioComputeDevice {
             }
 
             if std::time::Instant::now() > deadline {
+                // SAFETY: same as GP_GET — userd DMA page valid; GP_PUT within bounds.
                 let gp_put_val = unsafe {
                     std::ptr::read_volatile(userd_ptr.add(ramuserd::GP_PUT).cast::<u32>())
                 };

@@ -36,7 +36,7 @@ fn get_ssa_or_phi(
     synth_undefs: &mut Vec<(usize, SSAValue)>,
     b_idx: usize,
     ssa: SSAValue,
-) -> SSAValue {
+) -> Result<SSAValue, crate::CompileError> {
     // Annoyingly, Rust stack sizes get to be a problem so we don't want to use
     // actual recursion here.  Instead we use a worklist in the form of a binary
     // heap.  Using a binary heap ensures that we process the earliest blocks
@@ -52,7 +52,7 @@ fn get_ssa_or_phi(
             // We already sorted this one out, pop the stack.
             worklist.pop();
             if worklist.is_empty() {
-                return b_ssa;
+                return Ok(b_ssa);
             } else {
                 continue;
             }
@@ -94,7 +94,12 @@ fn get_ssa_or_phi(
                 None => {
                     // Entry block reached with no definition — this
                     // should have been handled by fix_entry_live_in.
-                    panic!("Undefined SSA value {ssa:?} at entry — fix_entry_live_in missed it")
+                    return Err(crate::CompileError::Validation(
+                        format!(
+                            "Undefined SSA value {ssa:?} at entry — fix_entry_live_in missed it"
+                        )
+                        .into(),
+                    ));
                 }
             }
         } else {
@@ -126,7 +131,7 @@ fn get_ssa_or_phi(
         blocks[b_idx].defs.borrow_mut().insert(ssa, b_ssa);
         worklist.pop();
         if worklist.is_empty() {
-            return b_ssa;
+            return Ok(b_ssa);
         }
     }
 }
@@ -177,7 +182,7 @@ impl Function {
     /// in hash tables and handle removing redundant phis with back-edges as a
     /// separate pass between figuring out where phis are needed and actually
     /// constructing the phi instructions.
-    pub fn repair_ssa(&mut self) {
+    pub fn repair_ssa(&mut self) -> Result<(), crate::CompileError> {
         // First, count the number of defs for each SSA value.  This will allow
         // us to skip any SSA values which only have a single definition in
         // later passes.
@@ -198,7 +203,7 @@ impl Function {
         }
 
         if !has_mult_defs {
-            return;
+            return Ok(());
         }
 
         let cfg = &mut self.blocks;
@@ -219,9 +224,10 @@ impl Function {
             });
 
             for instr in &mut cfg[b_idx].instrs {
+                let mut err = Ok(());
                 instr.for_each_ssa_use_mut(|ssa| {
-                    if num_defs.get(ssa).copied().unwrap_or(0) > 1 {
-                        *ssa = get_ssa_or_phi(
+                    if err.is_ok() && num_defs.get(ssa).copied().unwrap_or(0) > 1 {
+                        match get_ssa_or_phi(
                             &mut ssa_or_phi_worklist,
                             ssa_alloc,
                             phi_alloc,
@@ -230,9 +236,13 @@ impl Function {
                             &mut synth_undefs,
                             b_idx,
                             *ssa,
-                        );
+                        ) {
+                            Ok(v) => *ssa = v,
+                            Err(e) => err = Err(e),
+                        }
                     }
                 });
+                err?;
 
                 instr.for_each_ssa_def_mut(|ssa| {
                     if num_defs.get(ssa).copied().unwrap_or(0) > 1 {
@@ -272,6 +282,7 @@ impl Function {
                                 b_idx,
                                 phi.orig,
                             )
+                            .expect("get_ssa_or_phi failed")
                         });
                     }
                 }
@@ -392,6 +403,8 @@ impl Function {
                 }),
             );
         }
+
+        Ok(())
     }
 }
 
@@ -405,7 +418,7 @@ impl Function {
     /// always trace backward to a definition (the OpUndef provides a
     /// reaching def on paths that miss the real definitions). DCE
     /// removes unused undefs and dead phi inputs afterward.
-    pub fn fix_entry_live_in(&mut self) {
+    pub fn fix_entry_live_in(&mut self) -> Result<(), crate::CompileError> {
         use super::liveness::SimpleLiveness;
         use coral_reef_stubs::fxhash::FxHashSet;
 
@@ -435,7 +448,7 @@ impl Function {
         }
 
         if needs_undef.is_empty() {
-            return;
+            return Ok(());
         }
 
         // Also collect all SSA values that appear as uses but not as defs.
@@ -486,8 +499,9 @@ impl Function {
         undefs.append(&mut entry.instrs);
         entry.instrs = undefs;
 
-        self.repair_ssa();
+        self.repair_ssa()?;
         self.opt_dce();
+        Ok(())
     }
 }
 
@@ -523,7 +537,7 @@ mod tests {
             blocks: cfg_builder.build(),
         };
         let instr_count_before = func.blocks[0].instrs.len();
-        func.repair_ssa();
+        func.repair_ssa().unwrap();
         let instr_count_after = func.blocks[0].instrs.len();
         assert_eq!(
             instr_count_before, instr_count_after,
@@ -563,7 +577,7 @@ mod tests {
             phi_alloc: PhiAllocator::new(),
             blocks: cfg_builder.build(),
         };
-        func.repair_ssa();
+        func.repair_ssa().unwrap();
         assert!(!func.blocks[0].instrs.is_empty());
     }
 }

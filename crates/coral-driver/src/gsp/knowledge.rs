@@ -82,18 +82,19 @@ impl GpuKnowledge {
     /// firmware and parses the init sequences.
     pub fn learn_nvidia_firmware(&mut self) {
         let nvidia_chips = discover_nvidia_chips();
-        for chip in &nvidia_chips {
-            if let Ok(blobs) = GrFirmwareBlobs::parse(chip) {
+        for chip in nvidia_chips {
+            if let Ok(blobs) = GrFirmwareBlobs::parse(&chip) {
                 let gr_init = GrInitSequence::from_blobs(&blobs);
                 let register_count = blobs.unique_bundle_addrs().len();
-                let has_firmware = has_gsp_or_pmu(chip);
+                let has_firmware = has_gsp_or_pmu(&chip);
+                let sm = sm_for_chip(&chip);
 
                 let address_space = detect_address_space(&blobs);
                 self.architectures.insert(
                     chip.clone(),
                     ArchKnowledge {
-                        chip: chip.clone(),
-                        sm: sm_for_chip(chip),
+                        chip,
+                        sm,
                         vendor: GpuVendor::Nvidia,
                         has_firmware,
                         format: Some(blobs.format),

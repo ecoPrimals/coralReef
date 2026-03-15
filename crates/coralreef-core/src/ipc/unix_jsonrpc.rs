@@ -48,7 +48,7 @@ mod inner {
 
     pub(crate) fn dispatch(
         method: &str,
-        params: &serde_json::Value,
+        mut params: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         match method {
             "shader.compile.status" => {
@@ -61,13 +61,13 @@ mod inner {
             }
             "shader.compile.wgsl" => {
                 let req: service::CompileWgslRequest = if params.is_array() {
-                    let arr = params.as_array().expect("params confirmed array");
+                    let arr = params.as_array_mut().expect("params confirmed array");
                     if arr.is_empty() {
                         return Err("missing request parameter".to_owned());
                     }
-                    serde_json::from_value(arr[0].clone()).map_err(|e| e.to_string())?
+                    serde_json::from_value(arr.remove(0)).map_err(|e| e.to_string())?
                 } else if params.is_object() {
-                    serde_json::from_value(params.clone()).map_err(|e| e.to_string())?
+                    serde_json::from_value(params).map_err(|e| e.to_string())?
                 } else {
                     return Err("invalid params".to_owned());
                 };
@@ -78,13 +78,13 @@ mod inner {
             }
             "shader.compile.spirv" => {
                 let req: service::CompileRequest = if params.is_array() {
-                    let arr = params.as_array().expect("params confirmed array");
+                    let arr = params.as_array_mut().expect("params confirmed array");
                     if arr.is_empty() {
                         return Err("missing request parameter".to_owned());
                     }
-                    serde_json::from_value(arr[0].clone()).map_err(|e| e.to_string())?
+                    serde_json::from_value(arr.remove(0)).map_err(|e| e.to_string())?
                 } else if params.is_object() {
-                    serde_json::from_value(params.clone()).map_err(|e| e.to_string())?
+                    serde_json::from_value(params).map_err(|e| e.to_string())?
                 } else {
                     return Err("invalid params".to_owned());
                 };
@@ -95,17 +95,17 @@ mod inner {
             }
             "shader.compile.wgsl.multi" => {
                 let req: service::MultiDeviceCompileRequest = if params.is_array() {
-                    let arr = params.as_array().expect("params confirmed array");
+                    let arr = params.as_array_mut().expect("params confirmed array");
                     if arr.is_empty() {
                         return Err("missing request parameter".to_owned());
                     }
-                    serde_json::from_value(arr[0].clone()).map_err(|e| e.to_string())?
+                    serde_json::from_value(arr.remove(0)).map_err(|e| e.to_string())?
                 } else if params.is_object() {
-                    serde_json::from_value(params.clone()).map_err(|e| e.to_string())?
+                    serde_json::from_value(params).map_err(|e| e.to_string())?
                 } else {
                     return Err("invalid params".to_owned());
                 };
-                match service::handle_compile_wgsl_multi(&req) {
+                match service::handle_compile_wgsl_multi(req) {
                     Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
                     Err(e) => Err(e.to_string()),
                 }
@@ -202,7 +202,7 @@ mod inner {
                                             Ok(req) => {
                                                 if req.jsonrpc == "2.0" {
                                                     let result =
-                                                        dispatch(&req.method, &req.params);
+                                                        dispatch(&req.method, req.params);
                                                     make_response(req.id, result)
                                                 } else {
                                                     make_response(

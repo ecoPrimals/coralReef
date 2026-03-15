@@ -183,10 +183,13 @@ impl Drop for Bar0Access {
     }
 }
 
-// SAFETY: Bar0Access owns the mmap. The file descriptor and mapping are
-// thread-safe when accessed through &mut self (write) or &self (read).
-// Volatile operations provide the necessary ordering for MMIO.
+// SAFETY: Bar0Access owns the mmap exclusively. No shared mutable state;
+// transfer across threads is safe.
 unsafe impl Send for Bar0Access {}
+
+// SAFETY: MMIO region is process-private. All access uses volatile ops which
+// are inherently safe for concurrent reads; writes require &mut self.
+unsafe impl Sync for Bar0Access {}
 
 #[cfg(test)]
 mod tests {

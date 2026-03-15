@@ -70,7 +70,7 @@ pub fn build_hint_for(kb: &GpuKnowledge, chip: &str) -> Option<DispatchHints> {
         needs_sovereign_init: !arch.has_firmware,
         init_address_space: arch.address_space,
         init_register_count: arch.register_count,
-        best_teacher: best_teacher.clone(),
+        best_teacher,
         teacher_coverage_pct: teacher_coverage,
     })
 }

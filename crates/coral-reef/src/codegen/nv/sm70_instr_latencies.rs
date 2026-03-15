@@ -5,6 +5,10 @@
 
 use super::sm75_instr_latencies::pred;
 use crate::codegen::ir::*;
+use tracing::warn;
+
+/// Conservative default latency for unknown patterns (worst-case RAW).
+const DEFAULT_LATENCY: u32 = 15;
 
 // SM70 (Volta GV100 / GV102) instruction latency tables.
 //
@@ -294,7 +298,10 @@ impl RegLatencySM70 {
                 _ => 1,
             },
 
-            BMov | GuardPredicate => panic!("Not a RAW category"),
+            BMov | GuardPredicate => {
+                warn!("SM70 RAW: {reader:?} is not a RAW reader category, returning default");
+                DEFAULT_LATENCY
+            }
         }
     }
 
@@ -303,7 +310,8 @@ impl RegLatencySM70 {
         use RegLatencySM70::*;
         match writer1 {
             IMADWideAB | DecoupledOther => {
-                panic!("Illegal category for writer1 in WAW");
+                warn!("SM70 WAW: illegal writer1 category, returning default latency");
+                return DEFAULT_LATENCY;
             }
             _ => {}
         }
@@ -372,7 +380,8 @@ impl RegLatencySM70 {
                 _ => 1,
             },
             IMADWideAB | DecoupledOther | GuardPredicate => {
-                panic!("Not a WAW category")
+                warn!("SM70 WAW: illegal writer2 category, returning default latency");
+                DEFAULT_LATENCY
             }
         }
     }
@@ -402,7 +411,8 @@ impl RegLatencySM70 {
                 _ => 9,
             },
             IMADWideAB | DecoupledOther | GuardPredicate => {
-                panic!("Illegal in WAR");
+                warn!("SM70 WAR: illegal category, returning default latency");
+                DEFAULT_LATENCY
             }
         }
     }
@@ -421,7 +431,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 15,
                 RedirectedFP16 => 14,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred RAW: illegal writer for CoupledDisp, using default");
+                    DEFAULT_LATENCY
+                }
             },
             CoupledAlu => match writer {
                 CoupledDisp | CoupledAlu => 4,
@@ -429,7 +442,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 9,
                 RedirectedFP16 => 8,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred RAW: illegal writer for CoupledAlu, using default");
+                    DEFAULT_LATENCY
+                }
             },
             CoupledFMA | IMADLo => match writer {
                 CoupledDisp | CoupledAlu => 5,
@@ -437,7 +453,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 9,
                 RedirectedFP16 => 8,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred RAW: illegal writer for CoupledFMA/IMADLo, using default");
+                    DEFAULT_LATENCY
+                }
             },
             IMADWideUpper | IMADWideLower => match writer {
                 CoupledDisp | CoupledAlu => 5,
@@ -446,7 +465,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 9,
                 RedirectedFP16 => 8,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred RAW: illegal writer for IMADWide, using default");
+                    DEFAULT_LATENCY
+                }
             },
             RedirectedFP64 => match writer {
                 CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower => {
@@ -456,7 +478,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 8,
                 RedirectedFP16 => 14,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred RAW: illegal writer for RedirectedFP64, using default");
+                    DEFAULT_LATENCY
+                }
             },
             RedirectedFP16 => match writer {
                 CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower => {
@@ -465,7 +490,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 15,
                 RedirectedFP16 => 6,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred RAW: illegal writer for RedirectedFP16, using default");
+                    DEFAULT_LATENCY
+                }
             },
             Decoupled | GuardPredicate => match writer {
                 CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower => {
@@ -476,7 +504,10 @@ impl RegLatencySM70 {
                 Decoupled => 1,
                 _ => panic!("Illegal RAW in Predicate"),
             },
-            _ => panic!("Illegal reader in SM70 predicate RAW"),
+            _ => {
+                warn!("SM70 pred RAW: illegal reader, using default");
+                DEFAULT_LATENCY
+            }
         }
     }
 
@@ -488,7 +519,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => pred(has_pred, 4, 1),
                 RedirectedFP16 => pred(has_pred, 3, 1),
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred WAW: illegal writer1 for CoupledDisp/Alu/FMA/IMADLo");
+                    return DEFAULT_LATENCY;
+                }
             },
             IMADWideUpper | IMADWideLower => match writer1 {
                 CoupledDisp | CoupledAlu => pred(has_pred, 1, 2),
@@ -497,7 +531,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => pred(has_pred, 4, 3),
                 RedirectedFP16 => pred(has_pred, 3, 3),
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred WAW: illegal writer1 for IMADWide");
+                    return DEFAULT_LATENCY;
+                }
             },
             RedirectedFP64 => match writer1 {
                 CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower => {
@@ -506,7 +543,10 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 1,
                 RedirectedFP16 => pred(has_pred, 2, 4),
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred WAW: illegal writer1 for RedirectedFP64");
+                    return DEFAULT_LATENCY;
+                }
             },
             RedirectedFP16 => match writer1 {
                 CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower => {
@@ -515,15 +555,24 @@ impl RegLatencySM70 {
                 RedirectedFP64 => pred(has_pred, 2, 7),
                 RedirectedFP16 => 1,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred WAW: illegal writer1 for RedirectedFP16");
+                    return DEFAULT_LATENCY;
+                }
             },
             Decoupled => match writer1 {
                 CoupledDisp | CoupledAlu | CoupledFMA | IMADLo | IMADWideUpper | IMADWideLower
                 | RedirectedFP64 | RedirectedFP16 => 2,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!("SM70 pred WAW: illegal writer1 for Decoupled");
+                    return DEFAULT_LATENCY;
+                }
             },
-            _ => panic!("Illegal WAR category in SM70 Predicates"),
+            _ => {
+                warn!("SM70 pred WAW: illegal writer2 category");
+                DEFAULT_LATENCY
+            }
         }
     }
 
@@ -546,7 +595,10 @@ impl RegLatencySM70 {
                 | RedirectedFP16 | RedirectedFP64 => 2,
                 _ => 1,
             },
-            _ => panic!("Illegal WAR category in SM70 Predicates"),
+            _ => {
+                warn!("SM70 pred WAR: illegal writer category");
+                DEFAULT_LATENCY
+            }
         }
     }
 }
@@ -595,7 +647,10 @@ impl SM70Latency {
                 RegLatencySM70::pred_read_after_write(write_cat, read_cat)
             }
             RegFile::Bar => 0, // Hardware scoreboard handles barriers
-            _ => panic!("SM70: unexpected dst register file in raw()"),
+            _ => {
+                warn!("SM70 raw: unexpected dst register file, using default latency");
+                DEFAULT_LATENCY
+            }
         }
     }
 
@@ -616,7 +671,10 @@ impl SM70Latency {
                 let read_cat = RegLatencySM70::op_category(read, true, src_idx);
                 RegLatencySM70::pred_write_after_read(read_cat, write_cat)
             }
-            _ => panic!("SM70: unexpected dst register file in war()"),
+            _ => {
+                warn!("SM70 war: unexpected dst register file, using default latency");
+                DEFAULT_LATENCY
+            }
         }
     }
 
@@ -637,7 +695,159 @@ impl SM70Latency {
                 let cat_b = RegLatencySM70::op_category(b, false, b_dst_idx);
                 RegLatencySM70::pred_write_after_write(cat_a, cat_b, a_has_pred)
             }
-            _ => panic!("SM70: unexpected dst register file in waw()"),
+            _ => {
+                warn!("SM70 waw: unexpected dst register file, using default latency");
+                DEFAULT_LATENCY
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::ir::{
+        Dst, FRndMode, MemAccess, MemAddrType, MemEvictionPriority, MemOrder, MemScope, MemSpace,
+        MemType, OffsetStride, Op, OpExit, OpFFma, OpIMad, OpLd, OpMov, OpNop, RegFile, RegRef,
+        Src,
+    };
+
+    fn gpr_dst() -> Dst {
+        Dst::Reg(RegRef::new(RegFile::GPR, 0, 1))
+    }
+
+    fn make_mov() -> Op {
+        Op::Mov(Box::new(OpMov {
+            dst: gpr_dst(),
+            src: Src::ZERO,
+            quad_lanes: 0xf,
+        }))
+    }
+
+    fn make_ffma() -> Op {
+        Op::FFma(Box::new(OpFFma {
+            dst: gpr_dst(),
+            srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
+            saturate: false,
+            rnd_mode: FRndMode::NearestEven,
+            ftz: false,
+            dnz: false,
+        }))
+    }
+
+    fn make_imad() -> Op {
+        Op::IMad(Box::new(OpIMad {
+            dst: gpr_dst(),
+            srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
+            signed: false,
+        }))
+    }
+
+    fn make_ld() -> Op {
+        Op::Ld(Box::new(OpLd {
+            dst: gpr_dst(),
+            addr: Src::ZERO,
+            offset: 0,
+            stride: OffsetStride::X1,
+            access: MemAccess {
+                mem_type: MemType::B32,
+                space: MemSpace::Global(MemAddrType::A32),
+                order: MemOrder::Strong(MemScope::CTA),
+                eviction_priority: MemEvictionPriority::Normal,
+            },
+        }))
+    }
+
+    fn make_nop() -> Op {
+        Op::Nop(OpNop { label: None })
+    }
+
+    fn make_exit() -> Op {
+        Op::Exit(OpExit {})
+    }
+
+    #[test]
+    fn test_needs_scoreboards_decoupled_ops() {
+        // Ld is decoupled (variable latency) - needs scoreboards
+        assert!(SM70Latency::needs_scoreboards(&make_ld()));
+    }
+
+    #[test]
+    fn test_needs_scoreboards_coupled_ops() {
+        // Mov, FFma, IMad are coupled - no scoreboards
+        assert!(!SM70Latency::needs_scoreboards(&make_mov()));
+        assert!(!SM70Latency::needs_scoreboards(&make_ffma()));
+        assert!(!SM70Latency::needs_scoreboards(&make_imad()));
+    }
+
+    #[test]
+    fn test_raw_mov_to_mov() {
+        let write = make_mov();
+        let read = make_mov();
+        // CoupledAlu -> CoupledAlu = 4cy
+        let lat = SM70Latency::raw(&write, 0, Some(&read), 0);
+        assert!((1..=10).contains(&lat), "expected CoupledAlu RAW latency");
+    }
+
+    #[test]
+    fn test_raw_ffma_to_mov() {
+        let write = make_ffma();
+        let read = make_mov();
+        // CoupledFMA -> CoupledAlu = 5cy
+        let lat = SM70Latency::raw(&write, 0, Some(&read), 0);
+        assert!((1..=10).contains(&lat), "expected FMA to ALU RAW latency");
+    }
+
+    #[test]
+    fn test_raw_imad_to_ffma() {
+        let write = make_imad();
+        let read = make_ffma();
+        // IMADLo -> CoupledFMA = 4cy
+        let lat = SM70Latency::raw(&write, 0, Some(&read), 0);
+        assert!((1..=10).contains(&lat), "expected IMAD to FMA RAW latency");
+    }
+
+    #[test]
+    fn test_raw_ld_worst_case() {
+        let write = make_ld();
+        let read = make_mov();
+        // Decoupled -> CoupledAlu = 6cy
+        let lat = SM70Latency::raw(&write, 0, Some(&read), 0);
+        assert!((1..=20).contains(&lat), "expected Ld to Mov RAW latency");
+    }
+
+    #[test]
+    fn test_raw_none_returns_worst_case() {
+        let write = make_ffma();
+        // Worst case when read is None: RedirectedFP64 reader
+        let lat = SM70Latency::raw(&write, 0, None, 0);
+        assert!(
+            lat >= 1,
+            "raw with None read should return conservative latency"
+        );
+    }
+
+    #[test]
+    fn test_war_mov_to_ffma() {
+        let read = make_mov();
+        let write = make_ffma();
+        let lat = SM70Latency::war(&read, 0, &write, 0);
+        assert!((1..=5).contains(&lat), "expected WAR latency");
+    }
+
+    #[test]
+    fn test_waw_ffma_ffma() {
+        let a = make_ffma();
+        let b = make_ffma();
+        let lat = SM70Latency::waw(&a, 0, &b, 0, false);
+        assert!((1..=5).contains(&lat), "expected WAW latency for FMA pair");
+    }
+
+    #[test]
+    fn test_needs_scoreboards_control_flow_ops() {
+        // Nop is CoupledDisp - no scoreboards
+        assert!(!SM70Latency::needs_scoreboards(&make_nop()));
+        // Exit is Decoupled - needs scoreboards
+        assert!(SM70Latency::needs_scoreboards(&make_exit()));
     }
 }

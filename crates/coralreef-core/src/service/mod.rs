@@ -9,9 +9,10 @@ mod types;
 pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
+#[allow(unused_imports)] // DeviceTarget used by ipc::tests_tarpc
 pub use types::{
-    CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest, HealthResponse,
-    MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+    CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest, DeviceTarget,
+    HealthResponse, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
 };
 
 use coral_reef::{AmdArch, NvArch};
@@ -32,9 +33,14 @@ pub fn handle_health() -> HealthResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
     use compile::parse_target;
     use coral_reef::{FmaPolicy, GpuArch, GpuTarget};
-    use types::{DeviceTarget, MultiDeviceCompileRequest};
+    use types::{
+        CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
+        DeviceCompileResult, DeviceTarget, HealthResponse, MultiDeviceCompileRequest,
+        MultiDeviceCompileResponse,
+    };
 
     #[test]
     fn test_handle_compile_spirv_valid_minimal() {
@@ -256,7 +262,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        let resp = handle_compile_wgsl_multi(&req).expect("multi-device should succeed");
+        let resp = handle_compile_wgsl_multi(req.clone()).expect("multi-device should succeed");
         assert_eq!(resp.total_count, 2);
         assert_eq!(resp.success_count, 2);
         assert_eq!(resp.results.len(), 2);
@@ -291,8 +297,8 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        let resp =
-            handle_compile_wgsl_multi(&req).expect("partial failure is not a top-level error");
+        let resp = handle_compile_wgsl_multi(req.clone())
+            .expect("partial failure is not a top-level error");
         assert_eq!(resp.total_count, 2);
         assert_eq!(resp.success_count, 1);
         assert!(resp.results[0].binary.is_some());
@@ -314,7 +320,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        assert!(handle_compile_wgsl_multi(&req).is_err());
+        assert!(handle_compile_wgsl_multi(req.clone()).is_err());
     }
 
     #[test]
@@ -327,7 +333,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        assert!(handle_compile_wgsl_multi(&req).is_err());
+        assert!(handle_compile_wgsl_multi(req.clone()).is_err());
     }
 
     #[test]
@@ -351,7 +357,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: Some("fused".to_owned()),
         };
-        let resp = handle_compile_wgsl_multi(&req).expect("cross-vendor should succeed");
+        let resp = handle_compile_wgsl_multi(req.clone()).expect("cross-vendor should succeed");
         assert_eq!(resp.success_count, 2);
         assert_eq!(resp.results[0].arch, "sm_80");
         assert_eq!(resp.results[1].arch, "rdna2");
@@ -378,5 +384,191 @@ mod tests {
         assert_eq!(roundtrip.targets[0].arch, "sm_70");
         assert_eq!(roundtrip.targets[0].pcie_group, Some(1));
         assert_eq!(roundtrip.fma_policy.as_deref(), Some("separate"));
+    }
+
+    // --- types.rs serde and default value tests ---
+
+    #[test]
+    fn test_compile_request_serde_roundtrip() {
+        let req = CompileRequest {
+            spirv_words: vec![0x0723_0203, 0x0001_0000],
+            arch: "sm_70".to_owned(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let roundtrip: CompileRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.spirv_words, req.spirv_words);
+        assert_eq!(roundtrip.arch, req.arch);
+        assert_eq!(roundtrip.opt_level, req.opt_level);
+        assert_eq!(roundtrip.fp64_software, req.fp64_software);
+    }
+
+    #[test]
+    fn test_compile_request_defaults_from_json() {
+        let json = r#"{"spirv_words":[1,2,3,4]}"#;
+        let req: CompileRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.arch, coral_reef::GpuArch::default().to_string());
+        assert_eq!(req.opt_level, 2);
+        assert!(!req.fp64_software);
+    }
+
+    #[test]
+    fn test_compile_wgsl_request_serde_roundtrip() {
+        let req = CompileWgslRequest {
+            wgsl_source: "fn main() {}".to_owned(),
+            arch: "sm_80".to_owned(),
+            opt_level: 3,
+            fp64_software: false,
+            fp64_strategy: Some("native".to_owned()),
+            fma_policy: Some("fused".to_owned()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let roundtrip: CompileWgslRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.wgsl_source, req.wgsl_source);
+        assert_eq!(roundtrip.arch, req.arch);
+        assert_eq!(roundtrip.fp64_strategy.as_deref(), Some("native"));
+        assert_eq!(roundtrip.fma_policy.as_deref(), Some("fused"));
+    }
+
+    #[test]
+    fn test_compile_wgsl_request_defaults_from_json() {
+        let json = r#"{"wgsl_source":"fn main() {}"}"#;
+        let req: CompileWgslRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.arch, coral_reef::GpuArch::default().to_string());
+        assert_eq!(req.opt_level, 2);
+        assert!(req.fp64_strategy.is_none());
+        assert!(req.fma_policy.is_none());
+    }
+
+    #[test]
+    fn test_compile_response_serde_roundtrip() {
+        let resp = CompileResponse {
+            binary: Bytes::from(vec![0x01, 0x02, 0x03]),
+            size: 3,
+            arch: Some("sm_70".to_owned()),
+            status: Some("success".to_owned()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.binary.as_ref(), resp.binary.as_ref());
+        assert_eq!(roundtrip.size, resp.size);
+        assert_eq!(roundtrip.arch, resp.arch);
+        assert_eq!(roundtrip.status, resp.status);
+    }
+
+    #[test]
+    fn test_compile_response_defaults_from_json() {
+        let resp = CompileResponse {
+            binary: Bytes::from(vec![1, 2, 3]),
+            size: 3,
+            arch: None,
+            status: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.binary.as_ref(), &[1, 2, 3]);
+        assert_eq!(roundtrip.size, 3);
+        assert!(roundtrip.arch.is_none());
+        assert!(roundtrip.status.is_none());
+    }
+
+    #[test]
+    fn test_device_target_serde_roundtrip() {
+        let target = DeviceTarget {
+            card_index: 1,
+            arch: "sm_89".to_owned(),
+            pcie_group: Some(2),
+        };
+        let json = serde_json::to_string(&target).unwrap();
+        let roundtrip: DeviceTarget = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.card_index, target.card_index);
+        assert_eq!(roundtrip.arch, target.arch);
+        assert_eq!(roundtrip.pcie_group, target.pcie_group);
+    }
+
+    #[test]
+    fn test_device_target_defaults_from_json() {
+        let json = r#"{"arch":"sm_70"}"#;
+        let target: DeviceTarget = serde_json::from_str(json).unwrap();
+        assert_eq!(target.card_index, 0);
+        assert!(target.pcie_group.is_none());
+    }
+
+    #[test]
+    fn test_device_compile_result_serde_roundtrip() {
+        let result = DeviceCompileResult {
+            card_index: 0,
+            arch: "sm_70".to_owned(),
+            binary: Some(Bytes::from(vec![0xCA, 0xFE])),
+            size: 2,
+            error: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let roundtrip: DeviceCompileResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.card_index, result.card_index);
+        assert_eq!(roundtrip.binary.as_ref(), result.binary.as_ref());
+        assert_eq!(roundtrip.error, result.error);
+    }
+
+    #[test]
+    fn test_device_compile_result_error_skips_binary_in_json() {
+        let result = DeviceCompileResult {
+            card_index: 1,
+            arch: "sm_99".to_owned(),
+            binary: None,
+            size: 0,
+            error: Some("unsupported arch".to_owned()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("\"binary\""));
+        assert!(json.contains("unsupported arch"));
+        let roundtrip: DeviceCompileResult = serde_json::from_str(&json).unwrap();
+        assert!(roundtrip.binary.is_none());
+        assert_eq!(roundtrip.error.as_deref(), Some("unsupported arch"));
+    }
+
+    #[test]
+    fn test_multi_device_compile_response_serde_roundtrip() {
+        let resp = MultiDeviceCompileResponse {
+            results: vec![DeviceCompileResult {
+                card_index: 0,
+                arch: "sm_70".to_owned(),
+                binary: Some(Bytes::from(vec![1, 2, 3])),
+                size: 3,
+                error: None,
+            }],
+            success_count: 1,
+            total_count: 1,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let roundtrip: MultiDeviceCompileResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.results.len(), 1);
+        assert_eq!(roundtrip.success_count, 1);
+        assert_eq!(roundtrip.total_count, 1);
+    }
+
+    #[test]
+    fn test_compile_spirv_request_tarpc_serde_roundtrip() {
+        let req = CompileSpirvRequestTarpc {
+            spirv: Bytes::from(vec![0x07, 0x23, 0x02, 0x03]),
+            arch: "sm_70".to_owned(),
+            opt_level: 2,
+            fp64_software: true,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let roundtrip: CompileSpirvRequestTarpc = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.spirv.as_ref(), req.spirv.as_ref());
+        assert_eq!(roundtrip.arch, req.arch);
+    }
+
+    #[test]
+    fn test_health_response_serde_roundtrip() {
+        let health = handle_health();
+        let json = serde_json::to_string(&health).unwrap();
+        let roundtrip: HealthResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.name.as_ref(), health.name.as_ref());
+        assert_eq!(roundtrip.version.as_ref(), health.version.as_ref());
+        assert_eq!(roundtrip.supported_archs, health.supported_archs);
     }
 }

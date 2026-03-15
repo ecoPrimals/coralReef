@@ -32,8 +32,7 @@ async fn raw_http_post(addr: std::net::SocketAddr, body: &[u8]) -> Result<Vec<u8
     let header_end = buf
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
-        .map(|i| i + 4)
-        .unwrap_or(0);
+        .map_or(0, |i| i + 4);
     Ok(buf[header_end..].to_vec())
 }
 
@@ -189,7 +188,7 @@ async fn test_concurrent_tarpc_requests() {
     for handle in handles {
         let result = handle.await.expect("task should not panic");
         match result {
-            Ok(Ok(_)) | Ok(Err(_)) => {}
+            Ok(Ok(_) | Err(_)) => {}
             Err(conn_err) => {
                 let msg = conn_err;
                 assert!(

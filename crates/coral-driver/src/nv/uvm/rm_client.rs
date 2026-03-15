@@ -793,9 +793,10 @@ impl RmClient {
         // Now call mmap(MAP_FIXED) at that address to trigger nvidia_mmap_helper
         // which populates the physical pages.
         let rm_addr = params.p_linear_address;
-        // SAFETY: mmap_target_fd is a valid open nvidia device fd. The address
-        // and length were validated by the RM. MAP_FIXED replaces the
-        // RM-reserved VMA with the actual page-backed mapping.
+        // SAFETY:
+        // 1. mmap_target_fd: valid open nvidia device fd (BorrowedFd::borrow_raw).
+        // 2. rm_addr, length: validated by RM_MAP_MEMORY ioctl above.
+        // 3. MAP_FIXED: replaces RM-reserved VMA with page-backed mapping.
         let mapped = unsafe {
             rustix::mm::mmap(
                 rm_addr as *mut std::ffi::c_void,

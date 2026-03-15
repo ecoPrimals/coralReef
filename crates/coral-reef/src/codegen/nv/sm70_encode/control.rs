@@ -253,7 +253,10 @@ impl SM70Op for OpPixLd {
                 PixVal::CentroidOffset => 2_u8,
                 PixVal::MyIndex => 3_u8,
                 PixVal::InnerCoverage => 4_u8,
-                other => panic!("Unsupported PixVal: {other}"),
+                // Covered and Offset are rejected by legalization
+                PixVal::Covered | PixVal::Offset => {
+                    unreachable!("SM70 legalization rejects PixLd Covered/Offset")
+                }
             },
         );
         e.set_pred_dst(81..84, &Dst::None);

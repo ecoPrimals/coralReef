@@ -52,7 +52,7 @@ impl ShaderCompileTarpc for TarpcServer {
     ) -> Result<service::CompileResponse, String> {
         service::handle_compile_spirv(
             &request.spirv,
-            &request.arch,
+            request.arch,
             request.opt_level,
             request.fp64_software,
         )
@@ -80,7 +80,7 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, String> {
-        service::handle_compile_wgsl_multi(&request).map_err(|e| e.to_string())
+        service::handle_compile_wgsl_multi(request).map_err(|e| e.to_string())
     }
 }
 

@@ -289,6 +289,16 @@ impl ShaderModel for ShaderModel70 {
     }
 
     fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), crate::CompileError> {
+        if let Op::PixLd(pixld) = op {
+            match pixld.val {
+                PixVal::Covered | PixVal::Offset => {
+                    return Err(crate::CompileError::NotImplemented(
+                        format!("SM70 PixLd does not support {val}", val = pixld.val).into(),
+                    ));
+                }
+                _ => {}
+            }
+        }
         legalize_sm70_op(self, b, op);
         Ok(())
     }

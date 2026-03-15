@@ -123,6 +123,17 @@ mod tests {
         let mut raw =
             RawVfioDevice::open(&bdf).expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
 
+        // Verify PCIe bus mastering via sysfs (critical for DMA)
+        let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+        if let Ok(cfg) = std::fs::read(&config_path)
+            && cfg.len() >= 6
+        {
+            let cmd = u16::from_le_bytes([cfg[4], cfg[5]]);
+            let bm = cmd & 0x0004 != 0;
+            eprintln!("PCI_COMMAND={cmd:#06x} BusMaster={bm}");
+            assert!(bm, "PCIe bus mastering MUST be enabled for DMA");
+        }
+
         let configs = build_experiment_matrix();
         eprintln!(
             "\n=== PFIFO DIAGNOSTIC MATRIX: {} configurations ===\n",

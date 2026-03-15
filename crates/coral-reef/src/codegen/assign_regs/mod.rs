@@ -21,7 +21,12 @@ use reg_allocator::*;
 use types::*;
 
 impl Shader<'_> {
-    pub fn assign_regs(&mut self) {
+    /// Assigns hardware registers to virtual registers for all instructions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompileError`](crate::CompileError) if spilling or register allocation fails.
+    pub fn assign_regs(&mut self) -> Result<(), crate::CompileError> {
         assert!(self.functions.len() == 1);
         let f = &mut self.functions[0];
 
@@ -38,7 +43,7 @@ impl Shader<'_> {
         for file in spill_files {
             let reg_count = self.sm.reg_count(file);
             if max_live[file] > reg_count {
-                f.spill_values(file, reg_count, &mut self.info);
+                f.spill_values(file, reg_count, &mut self.info)?;
 
                 // Re-calculate liveness after we spill
                 live = SimpleLiveness::for_function(f);
@@ -99,7 +104,7 @@ impl Shader<'_> {
             total_gprs = max_gpr_count;
             gpr_limit = total_gprs - u32::from(tmp_gprs);
 
-            f.spill_values(RegFile::GPR, gpr_limit, &mut self.info);
+            f.spill_values(RegFile::GPR, gpr_limit, &mut self.info)?;
 
             // Re-calculate liveness one last time
             live = SimpleLiveness::for_function(f);
@@ -170,5 +175,6 @@ impl Shader<'_> {
                 }
             }
         }
+        Ok(())
     }
 }

@@ -71,11 +71,12 @@ fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
 /// Returns [`CompileError`] on invalid input or compilation failure.
 pub fn handle_compile_spirv(
     spirv: impl AsRef<[u8]>,
-    arch: &str,
+    arch: impl Into<String>,
     opt_level: u32,
     fp64_software: bool,
 ) -> Result<CompileResponse, CompileError> {
-    let options = build_options(arch, opt_level, fp64_software, FmaPolicy::Auto)?;
+    let arch = arch.into();
+    let options = build_options(&arch, opt_level, fp64_software, FmaPolicy::Auto)?;
     let words = bytes_to_spirv_words(spirv.as_ref())?;
     if words.is_empty() {
         return Err(CompileError::InvalidInput("empty SPIR-V module".into()));
@@ -85,7 +86,7 @@ pub fn handle_compile_spirv(
     Ok(CompileResponse {
         binary: Bytes::from(binary),
         size,
-        arch: Some(arch.to_owned()),
+        arch: Some(arch),
         status: Some("success".to_owned()),
     })
 }
@@ -149,7 +150,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
 /// (e.g. empty WGSL source). Per-target failures are reported inline
 /// in [`DeviceCompileResult::error`].
 pub fn handle_compile_wgsl_multi(
-    req: &MultiDeviceCompileRequest,
+    req: MultiDeviceCompileRequest,
 ) -> Result<MultiDeviceCompileResponse, CompileError> {
     if req.wgsl_source.is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));
@@ -166,10 +167,11 @@ pub fn handle_compile_wgsl_multi(
         .map_or(req.fp64_software, |s| s == "software");
     let fma = parse_fma_policy(req.fma_policy.as_deref());
 
-    let mut results = Vec::with_capacity(req.targets.len());
+    let total_count = req.targets.len();
+    let mut results = Vec::with_capacity(total_count);
     let mut success_count = 0usize;
 
-    for target in &req.targets {
+    for target in req.targets {
         let result = (|| -> Result<(Bytes, usize), CompileError> {
             let gpu_target = parse_target(&target.arch)?;
             let options = CompileOptions {
@@ -190,7 +192,7 @@ pub fn handle_compile_wgsl_multi(
                 success_count += 1;
                 results.push(DeviceCompileResult {
                     card_index: target.card_index,
-                    arch: target.arch.clone(),
+                    arch: target.arch,
                     binary: Some(binary),
                     size,
                     error: None,
@@ -199,7 +201,7 @@ pub fn handle_compile_wgsl_multi(
             Err(e) => {
                 results.push(DeviceCompileResult {
                     card_index: target.card_index,
-                    arch: target.arch.clone(),
+                    arch: target.arch,
                     binary: None,
                     size: 0,
                     error: Some(e.to_string()),
@@ -207,8 +209,6 @@ pub fn handle_compile_wgsl_multi(
             }
         }
     }
-
-    let total_count = req.targets.len();
     Ok(MultiDeviceCompileResponse {
         results,
         success_count,

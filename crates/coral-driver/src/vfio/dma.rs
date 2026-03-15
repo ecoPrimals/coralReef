@@ -57,6 +57,8 @@ impl DmaBuffer {
 
         // SAFETY: Layout validated above (size>0, align=4096 power-of-two).
         // Returns null on OOM (checked below). Dealloc'd in Drop with same layout.
+        // Note: Vec<u8> cannot replace this — VFIO DMA map requires page-aligned
+        // (4096) virtual addresses; Vec does not guarantee alignment.
         let vaddr = unsafe { std::alloc::alloc_zeroed(layout) };
         if vaddr.is_null() {
             return Err(DriverError::MmapFailed(

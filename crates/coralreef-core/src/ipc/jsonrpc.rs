@@ -102,7 +102,7 @@ impl CoralReefRpcServer for RpcImpl {
         &self,
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, ErrorObjectOwned> {
-        service::handle_compile_wgsl_multi(&request).map_err(|e| compile_error_to_rpc(&e))
+        service::handle_compile_wgsl_multi(request).map_err(|e| compile_error_to_rpc(&e))
     }
 }
 

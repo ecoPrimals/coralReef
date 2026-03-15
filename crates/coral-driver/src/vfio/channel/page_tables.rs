@@ -149,16 +149,21 @@ pub(super) fn populate_runlist(
     write_u32_le(rl, 0x0C, 0);
 
     // ── Channel entry — 16 bytes (gv100_runl_insert_chan) ────────────
+    // DW0: [31:8] USERD_ADDR[31:8], [7:6] USERD_TARGET, [1] RUNQ, [0] TYPE=0
+    // DW1: [31:0] USERD_ADDR_HI
+    // DW2: [31:12] INST_ADDR[31:12], [21:20] INST_TARGET, [11:0] CHID
+    // DW3: [31:0] INST_ADDR_HI
     write_u32_le(
         rl,
         0x10,
-        (userd_iova as u32 & 0xFFFF_FF00)
-            | (TARGET_SYS_MEM_COHERENT << 6)
-            | (TARGET_SYS_MEM_NONCOHERENT << 4)
-            | (runq << 1),
+        (userd_iova as u32 & 0xFFFF_FF00) | (TARGET_SYS_MEM_COHERENT << 6) | (runq << 1),
     );
     write_u32_le(rl, 0x14, (userd_iova >> 32) as u32);
-    write_u32_le(rl, 0x18, (instance_iova as u32 & 0xFFFF_F000) | channel_id);
+    write_u32_le(
+        rl,
+        0x18,
+        (instance_iova as u32 & 0xFFFF_F000) | (TARGET_SYS_MEM_NONCOHERENT << 20) | channel_id,
+    );
     write_u32_le(rl, 0x1C, (instance_iova >> 32) as u32);
 }
 
@@ -176,13 +181,20 @@ pub(super) fn populate_runlist_static(
     write_u32_le(rl, 0x04, 1);
     write_u32_le(rl, 0x08, 0);
     write_u32_le(rl, 0x0C, 0);
+    // DW0: [31:8] USERD_ADDR, [7:6] USERD_TARGET, [1] RUNQ, [0] TYPE=0
     write_u32_le(
         rl,
         0x10,
-        (userd_iova as u32 & 0xFFFF_FF00) | (userd_target << 6) | (inst_target << 4) | (runq << 1),
+        (userd_iova as u32 & 0xFFFF_FF00) | (userd_target << 6) | (runq << 1),
     );
+    // DW1: USERD_ADDR_HI
     write_u32_le(rl, 0x14, (userd_iova >> 32) as u32);
-    write_u32_le(rl, 0x18, (INSTANCE_IOVA as u32 & 0xFFFF_F000) | channel_id);
+    // DW2: [31:12] INST_ADDR, [21:20] INST_TARGET, [11:0] CHID
+    write_u32_le(
+        rl,
+        0x18,
+        (INSTANCE_IOVA as u32 & 0xFFFF_F000) | (inst_target << 20) | channel_id,
+    );
     write_u32_le(rl, 0x1C, (INSTANCE_IOVA >> 32) as u32);
 }
 
@@ -274,11 +286,13 @@ mod tests {
 
     #[test]
     fn iova_layout_after_userd() {
-        assert!(INSTANCE_IOVA > 0x2000, "instance after USERD");
-        assert!(
-            PT0_IOVA + 4096 <= 0x10_0000,
-            "page tables before USER_IOVA_BASE"
-        );
+        const { assert!(INSTANCE_IOVA > 0x2000, "instance after USERD") };
+        const {
+            assert!(
+                PT0_IOVA + 4096 <= 0x10_0000,
+                "page tables before USER_IOVA_BASE"
+            )
+        };
     }
 
     #[test]
@@ -298,11 +312,16 @@ mod tests {
         clippy::cast_possible_truncation,
         reason = "IOVA addresses are intentionally truncated to 32-bit hardware register fields"
     )]
-    fn runlist_base_value_gv100() {
-        // GV100 format: RUNLIST_BASE_LO is pure address >> 12, no target bits.
-        let rl_base_lo = (RUNLIST_IOVA >> 12) as u32;
-        assert_eq!(rl_base_lo, 4, "PTR = 4 (0x4000 >> 12)");
-        assert_eq!(rl_base_lo >> 28, 0, "no target bits in GV100 RUNLIST_BASE_LO");
+    fn runlist_base_value_gk104() {
+        // GK104/GV100 format: RUNLIST_BASE = (target << 28) | (addr >> 12).
+        // RUNLIST_SUBMIT (0x2274) = (runlist_id << 20) | count.
+        let rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
+        assert_eq!(rl_base & 0x0FFF_FFFF, 4, "PTR = 4 (0x4000 >> 12)");
+        assert_eq!((rl_base >> 28) & 0xF, 2, "TARGET = SYS_MEM_COHERENT");
+        assert_eq!(rl_base, 0x2000_0004, "full value: target|addr");
+        let rl_submit = (1_u32 << 20) | 2;
+        assert_eq!((rl_submit >> 20) & 0xFFF, 1, "runlist_id = 1");
+        assert_eq!(rl_submit & 0xF_FFFF, 2, "count = 2");
     }
 
     #[test]

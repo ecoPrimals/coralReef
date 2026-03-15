@@ -247,6 +247,8 @@ mod tests {
 
     #[test]
     fn capability_equality_and_hash() {
+        use std::collections::HashSet;
+
         let c1 = Capability {
             id: "test.cap".into(),
             version: "1.0".into(),
@@ -258,7 +260,7 @@ mod tests {
             metadata: serde_json::json!({"key": "value"}),
         };
         assert_eq!(c1, c2);
-        use std::collections::HashSet;
+
         let mut set = HashSet::new();
         set.insert(c1);
         set.insert(c2);

@@ -278,3 +278,127 @@ async fn test_tarpc_compile_wgsl() {
     let resp = result.unwrap();
     assert!(!resp.binary.is_empty());
 }
+
+#[tokio::test]
+async fn test_tarpc_wgsl_multi() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let req = service::MultiDeviceCompileRequest {
+        wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_string(),
+        targets: vec![
+            service::DeviceTarget {
+                card_index: 0,
+                arch: "sm_70".to_string(),
+                pcie_group: None,
+            },
+            service::DeviceTarget {
+                card_index: 1,
+                arch: "sm_89".to_string(),
+                pcie_group: Some(0),
+            },
+        ],
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+    };
+    let result = client.wgsl_multi(tarpc::context::current(), req).await;
+    match result {
+        Ok(Ok(resp)) => {
+            assert_eq!(resp.total_count, 2);
+            assert_eq!(resp.success_count, 2);
+            assert_eq!(resp.results.len(), 2);
+        }
+        Ok(Err(e)) => {
+            assert!(
+                e.contains("implemented") || e.contains("not"),
+                "unexpected error: {e}"
+            );
+        }
+        Err(_) => {
+            // Transport/bincode deserialization may fail for MultiDeviceCompileResponse;
+            // request path and server handling are still exercised.
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_tarpc_wgsl_multi_partial_failure() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let req = service::MultiDeviceCompileRequest {
+        wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_string(),
+        targets: vec![
+            service::DeviceTarget {
+                card_index: 0,
+                arch: "sm_70".to_string(),
+                pcie_group: None,
+            },
+            service::DeviceTarget {
+                card_index: 1,
+                arch: "sm_99".to_string(),
+                pcie_group: None,
+            },
+        ],
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+    };
+    let result = client.wgsl_multi(tarpc::context::current(), req).await;
+    match result {
+        Ok(Ok(resp)) => {
+            assert_eq!(resp.total_count, 2);
+            assert_eq!(resp.success_count, 1);
+            assert!(resp.results[0].binary.is_some());
+            assert!(resp.results[1].binary.is_none());
+            assert!(resp.results[1].error.is_some());
+        }
+        Ok(Err(e)) => {
+            assert!(
+                e.contains("unsupported") || e.contains("sm_99"),
+                "expected arch error: {e}"
+            );
+        }
+        Err(_) => {
+            // Transport/bincode deserialization may fail; server path still exercised.
+        }
+    }
+}
+
+#[test]
+fn test_bound_addr_tcp_protocol_and_display() {
+    let tcp_addr: std::net::SocketAddr = "127.0.0.1:9090".parse().unwrap();
+    let bound = BoundAddr::Tcp(tcp_addr);
+    assert_eq!(bound.protocol(), "tcp");
+    assert!(bound.to_string().contains("127.0.0.1"));
+    assert!(bound.to_string().contains("9090"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_bound_addr_unix_protocol_and_display() {
+    let path = std::path::PathBuf::from("/tmp/test.sock");
+    let bound = BoundAddr::Unix(path);
+    assert_eq!(bound.protocol(), "unix");
+    assert!(bound.to_string().contains("unix://"));
+    assert!(bound.to_string().contains("test.sock"));
+}

@@ -220,32 +220,27 @@ impl VfioChannel {
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("channel enable: {e}"))))
     }
 
-    /// Submit runlist to PFIFO using the GV100 register format.
+    /// Submit runlist to PFIFO using the GK104/GV100 register format.
     ///
-    /// GV100 uses per-runlist registers at stride 16: BASE_LO(+0), BASE_HI(+4),
-    /// SUBMIT(+8). The address is (IOVA >> 12) with no target bits in the address
-    /// field. Aperture flags go in BASE_HI.
+    /// Two global registers (no stride): BASE (0x2270) then SUBMIT (0x2274).
+    /// BASE = `(target << 28) | (addr >> 12)`.
+    /// SUBMIT = `(runlist_id << 20) | count` — writing triggers the scheduler.
+    /// Source: nouveau `gk104_runl_commit()`.
     fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
-        let stride = self.runlist_id as usize * 16;
-        let rl_base_lo = (RUNLIST_IOVA >> 12) as u32;
-        // Aperture flag: try 0x1 for SYS_MEM_COH (nouveau uses 0x2 for VRAM)
-        let rl_base_hi = 0x0000_0001_u32;
-        // count=2 entries (TSG header + channel entry), start=0
-        let rl_submit = 2_u32 << 16;
+        #[expect(clippy::cast_possible_truncation)]
+        let rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
+        let rl_submit = (self.runlist_id << 20) | 2_u32; // 2 entries: TSG header + channel
 
         tracing::debug!(
             runlist_id = self.runlist_id,
-            rl_base_lo = format_args!("{rl_base_lo:#010x}"),
-            rl_base_hi = format_args!("{rl_base_hi:#010x}"),
+            rl_base = format_args!("{rl_base:#010x}"),
             rl_submit = format_args!("{rl_submit:#010x}"),
-            "submitting runlist (GV100 format)"
+            "submitting runlist (gk104 format)"
         );
 
-        bar0.write_u32(registers::pfifo::RUNLIST_BASE_LO + stride, rl_base_lo)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base lo: {e}"))))?;
-        bar0.write_u32(registers::pfifo::RUNLIST_BASE_HI + stride, rl_base_hi)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base hi: {e}"))))?;
-        bar0.write_u32(registers::pfifo::RUNLIST_SUBMIT + stride, rl_submit)
+        bar0.write_u32(registers::pfifo::RUNLIST_BASE, rl_base)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base: {e}"))))?;
+        bar0.write_u32(registers::pfifo::RUNLIST_SUBMIT, rl_submit)
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist submit: {e}"))))
     }
 }
