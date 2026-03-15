@@ -91,11 +91,13 @@ pub(super) fn both_paths_sched_doorbell(ctx: &mut ExperimentContext<'_>) -> Driv
     let _ = ctx.w(pb + pbdma::CTX_GP_BASE_HI, gpbase_hi_val);
     let _ = ctx.w(pb + pbdma::CTX_GP_FETCH, 0);
 
-    let gp_entry: u64 = (NOP_PB_IOVA & 0xFFFF_FFFC) | ((2_u64) << (32 + 10));
+    let gp_entry: u64 = (NOP_PB_IOVA & 0xFFFF_FFFC) | 1 | ((2_u64) << (32 + 10));
     ctx.gpfifo_ring[0..8].copy_from_slice(&gp_entry.to_le_bytes());
     write_u32_le(ctx.userd_page, ramuserd::GP_PUT, 1);
     write_u32_le(ctx.userd_page, ramuserd::GP_GET, 0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+    #[cfg(target_arch = "x86_64")]
+    ctx.flush_dma();
 
     let _ = ctx.w(pb + pbdma::GP_PUT, 1);
     let _ = ctx.w(pb + pbdma::CTX_GP_PUT, 1);
@@ -213,11 +215,13 @@ pub(super) fn sched_with_nop_pushbuf(ctx: &mut ExperimentContext<'_>) -> DriverR
     pushbuf_slice[0..4].copy_from_slice(&nop_header.to_le_bytes());
     pushbuf_slice[4..8].copy_from_slice(&nop_data.to_le_bytes());
 
-    let gp_entry: u64 = (pushbuf_iova & 0xFFFF_FFFC) | ((2_u64) << (32 + 10));
+    let gp_entry: u64 = (pushbuf_iova & 0xFFFF_FFFC) | 1 | ((2_u64) << (32 + 10));
     ctx.gpfifo_ring[0..8].copy_from_slice(&gp_entry.to_le_bytes());
     write_u32_le(ctx.userd_page, ramuserd::GP_PUT, 1);
     write_u32_le(ctx.userd_page, ramuserd::GP_GET, 0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+    #[cfg(target_arch = "x86_64")]
+    ctx.flush_dma();
 
     let _ = ctx.w(pb + pbdma::CTX_GP_PUT, 1);
 

@@ -282,6 +282,12 @@ pub(super) mod ramfc {
     pub const GP_BASE_LO: usize = 0x048;
     /// `NV_RAMFC_GP_BASE_HI` (dword 19) — GPFIFO ring GPU VA high + limit.
     pub const GP_BASE_HI: usize = 0x04C;
+    /// `NV_RAMFC_GP_FETCH` (dword 20) — PBDMA fetch pointer (byte address in ring).
+    pub const GP_FETCH: usize = 0x050;
+    /// `NV_RAMFC_GP_PUT` (dword 21) — next GP entry index for GPU.
+    pub const GP_PUT: usize = 0x054;
+    /// `NV_RAMFC_GP_GET` (dword 22) — next GP entry index consumed by GPU.
+    pub const GP_GET: usize = 0x058;
     /// `NV_RAMFC_PB_HEADER` (dword 33).
     pub const PB_HEADER: usize = 0x084;
     /// `NV_RAMFC_SUBDEVICE` (dword 37) — subdevice mask.
@@ -290,26 +296,39 @@ pub(super) mod ramfc {
     pub const HCE_CTRL: usize = 0x0E4;
     /// Channel ID (Volta-specific, dword 58).
     pub const CHID: usize = 0x0E8;
-    /// `NV_RAMFC_CONFIG` (dword 61) — PBDMA configuration.
-    pub const CONFIG: usize = 0x0F4;
-    /// Volta-specific channel info (dword 62).
-    pub const CHANNEL_INFO: usize = 0x0F8;
+    /// `NV_RAMFC_CONFIG` — PBDMA configuration. Maps to NV_PPBDMA_CONFIG.
+    /// 0xbad00200 on GV100 PBDMA (register doesn't exist on Volta).
+    pub const CONFIG: usize = 0x0A8;
+    /// `NV_RAMFC_CHANNEL_INFO` — channel ID + group info.
+    /// Maps to NV_PPBDMA_CHANNEL_INFO (PBDMA offset 0x0AC).
+    /// Nouveau writes (chid | 0x03000000) for GV100.
+    pub const CHANNEL_INFO: usize = 0x0AC;
 }
 
 /// `NV_RAMIN` offsets beyond RAMFC for MMU page directory configuration.
 pub(super) mod ramin {
     /// Page directory base — low word (DW128, offset 0x200).
-    pub const PAGE_DIR_BASE_LO: usize = 128 * 4;
+    pub const PAGE_DIR_BASE_LO: usize = 0x200;
     /// Page directory base — high word (DW129, offset 0x204).
-    pub const PAGE_DIR_BASE_HI: usize = 129 * 4;
-    /// Engine WFI VEID (DW134, offset 0x218).
-    pub const ENGINE_WFI_VEID: usize = 134 * 4;
+    pub const PAGE_DIR_BASE_HI: usize = 0x204;
+    /// VA space address limit — low word (DW130, offset 0x208).
+    /// Nouveau sets to `vmm->limit - 1` = 0xFFFFFFFF for 128TB (low 32 bits).
+    pub const ADDR_LIMIT_LO: usize = 0x208;
+    /// VA space address limit — high word (DW131, offset 0x20C).
+    /// Nouveau sets to 0x0001FFFF for 128TB (bits[47:32]).
+    pub const ADDR_LIMIT_HI: usize = 0x20C;
+    /// Engine WFI VEID (offset 0x218).
+    pub const ENGINE_WFI_VEID: usize = 0x218;
     /// Subcontext PDB valid bitmap (DW166, offset 0x298).
-    pub const SC_PDB_VALID: usize = 166 * 4;
-    /// Subcontext 0 page directory base — low word (DW168, offset 0x2A0).
-    pub const SC0_PAGE_DIR_BASE_LO: usize = 168 * 4;
-    /// Subcontext 0 page directory base — high word (DW169, offset 0x2A4).
-    pub const SC0_PAGE_DIR_BASE_HI: usize = 169 * 4;
+    pub const SC_PDB_VALID: usize = 0x298;
+    /// Subcontext 0 page directory base — low word (offset 0x2A0).
+    pub const SC0_PAGE_DIR_BASE_LO: usize = 0x2A0;
+    /// Subcontext 0 page directory base — high word (offset 0x2A4).
+    pub const SC0_PAGE_DIR_BASE_HI: usize = 0x2A4;
+    /// Subcontext 1 page directory base — low word (offset 0x2B0).
+    pub const SC1_PAGE_DIR_BASE_LO: usize = 0x2B0;
+    /// Subcontext 1 page directory base — high word (offset 0x2B4).
+    pub const SC1_PAGE_DIR_BASE_HI: usize = 0x2B4;
 }
 
 // ── IOVA assignments for channel infrastructure DMA buffers ────────────

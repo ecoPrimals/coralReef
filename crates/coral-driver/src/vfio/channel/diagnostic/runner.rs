@@ -8,6 +8,21 @@ use crate::error::{DriverError, DriverResult};
 use crate::vfio::device::MappedBar;
 use crate::vfio::dma::DmaBuffer;
 
+/// Flush cache lines from CPU cache to ensure DMA coherence.
+/// On AMD Zen 2, VFIO DMA may not snoop CPU cache for all transactions.
+#[cfg(target_arch = "x86_64")]
+fn clflush_range(ptr: *const u8, len: usize) {
+    let mut addr = ptr as usize & !63;
+    let end = (ptr as usize + len + 63) & !63;
+    while addr < end {
+        // SAFETY: flushing a valid cache line address
+        unsafe { std::arch::x86_64::_mm_clflush(addr as *const u8) };
+        addr += 64;
+    }
+    // SAFETY: x86_64 memory fence
+    unsafe { std::arch::x86_64::_mm_mfence() };
+}
+
 use super::super::page_tables::{
     populate_instance_block_static, populate_page_tables, populate_runlist_static, write_u32_le,
 };
@@ -522,6 +537,22 @@ pub fn diagnostic_matrix(
             cfg.runlist_inst_target,
             0,
         );
+
+        // Flush ALL DMA buffers from CPU cache to ensure GPU sees latest data.
+        // AMD Zen 2 VFIO DMA may not snoop CPU cache for all transaction types.
+        #[cfg(target_arch = "x86_64")]
+        {
+            clflush_range(instance.as_slice().as_ptr(), instance.as_slice().len());
+            clflush_range(runlist.as_slice().as_ptr(), runlist.as_slice().len());
+            clflush_range(pd3.as_slice().as_ptr(), pd3.as_slice().len());
+            clflush_range(pd2.as_slice().as_ptr(), pd2.as_slice().len());
+            clflush_range(pd1.as_slice().as_ptr(), pd1.as_slice().len());
+            clflush_range(pd0.as_slice().as_ptr(), pd0.as_slice().len());
+            clflush_range(pt0.as_slice().as_ptr(), pt0.as_slice().len());
+            clflush_range(nop_pb.as_slice().as_ptr(), nop_pb.as_slice().len());
+            clflush_range(gpfifo_ring.as_ptr(), gpfifo_ring.len());
+            clflush_range(userd_page.as_ptr(), userd_page.len());
+        }
 
         if first {
             first = false;

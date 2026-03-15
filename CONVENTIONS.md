@@ -86,6 +86,7 @@ The `Backend` trait in `backend.rs` and `GpuTarget` enum in
 - **No hardcoded bind addresses**: Bind addresses are resolved from environment variables (`$CORALREEF_TCP_BIND`) with sensible fallbacks (`127.0.0.1:0`).
 - **No hardcoded primal names**: Primal code only knows itself. Other primals are discovered at runtime via capability-based IPC.
 - **Named constants**: Magic numbers (BitSet capacity, timeouts, ISA limits) must be named constants with documentation.
+- **Driver identifiers**: Use `DRIVER_VFIO`, `DRIVER_NOUVEAU`, `DRIVER_AMDGPU`, `DRIVER_NVIDIA_DRM` from `coral_gpu::preference` — no string literals in match arms or comparisons.
 
 ## Toolchain Sovereignty Policy
 

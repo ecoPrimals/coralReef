@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 46 (Structural Refactor + Coverage Expansion)
+**Status**: Phase 10 — Iteration 47 (Deep Debt Evolution + Modern Idiomatic Rust)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -34,7 +34,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1804 passing, 0 failed, 61 ignored (+48 VFIO with --features vfio)
+cargo test --workspace     # 1819 passing, 0 failed, 61 ignored (+48 VFIO with --features vfio)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -138,6 +138,7 @@ coralReef/
 | `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
+| `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal communication (tests + production) |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
@@ -168,8 +169,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1804 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 66% line coverage (target 90%) |
+| `cargo test --workspace` | PASS (1819 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 66.43% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |
@@ -229,7 +230,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 46 — diagnostic/runner refactor, clippy pedantic, 53+ tests, 66.43% coverage** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 47 — deep debt evolution, unsafe elimination, zero-copy Bytes, driver constants, 1819 tests, 66.43% coverage** |
 
 ---
 

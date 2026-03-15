@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 15, 2026 (Phase 10 — Iteration 46)
+**Last updated**: March 15, 2026 (Phase 10 — Iteration 47)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-1852 tests (1804 default + 48 VFIO, 61 ignored), 66.43% line coverage (target 90%),
+1867 tests (1819 default + 48 VFIO, 61 ignored), 66.43% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -27,6 +27,14 @@ VFIO PFIFO channel creation via BAR0 — full Volta hardware channel init with
 V2 MMU 5-level page tables, RAMFC population, TSG+channel runlist, PCCSR
 bind/enable. RAMUSERD offsets corrected (GP_GET@0x88, GP_PUT@0x8C).
 USERMODE doorbell at BAR0+0x810090.
+
+**Iteration 47 milestone**: Deep debt evolution — unsafe code elimination (`from_raw_parts_mut` →
+safe `as_mut_slice()`), zero-copy evolution (`KernelCacheEntry.binary: Vec<u8>` → `Bytes`),
+driver string centralization (`DRIVER_VFIO`/`DRIVER_NOUVEAU`/`DRIVER_AMDGPU`/`DRIVER_NVIDIA_DRM`
+constants in `preference.rs`), production panic elimination (6 `panic!()` → `warn!` +
+`DEFAULT_LATENCY` / `debug_assert!`), `runner.rs` delegate to `experiments::run_experiment()`
+(2509→778 LOC), `rm_client.rs` UUID/ioctl extraction to `rm_helpers.rs` (1000→944 LOC),
+`FenceTimeout` constant, `unwrap()` → `Option::zip`. +15 new tests. 1819 tests passing.
 
 **Iteration 46 milestone**: Structural refactoring — `diagnostic/runner.rs` (2485 LOC)
 split into `experiments/` submodule with 8 handler files + context struct (769 LOC).
@@ -424,18 +432,19 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 43 | PFIFO channel init + V2 MMU page tables + cross-primal rewire: `vfio/channel.rs` with full Volta PFIFO channel creation (RAMFC, instance block, 5-level V2 MMU, TSG+channel runlist, PCCSR bind/enable), RAMUSERD offset correction (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090, subcontext PDB setup, toadStool S150-S152 acknowledged, barraCuda VFIO-primary wiring acknowledged, 12 new channel tests | **1693+47** (1693 default + 47 vfio, 71 ignore) |
 | 10 iter 44 | USERD_TARGET + INST_TARGET runlist fix: `USERD_TARGET` bits (3:2) set to SYS_MEM_COHERENT (2) in DW0, `INST_TARGET` bits (5:4) set to SYS_MEM_NCOH (3) in DW2, resolves PBDMA unable to read USERD page from system memory, pfifo register constants replace literals, clippy clean, cargo fmt clean, 1 new VFIO test | **1669+48** (1669 default + 48 vfio, 74 ignore) |
 | 10 iter 45 | Deep audit + refactor: vfio/channel.rs 2894→5 modules, eprintln!→tracing, IPC chaos/fault tests, 30+ unit tests (coralreef-core, coral-driver), 5 doctests fixed, unsafe evolution (SAFETY comments), clippy pedantic | **1721** (1721 passing, 61 ignored), 65.74% coverage |
-| 10 iter 46 (current) | Structural refactor + coverage: `diagnostic/runner.rs` 2485→769 LOC + `experiments/` submodule (8 handlers + context), clippy pedantic workspace-wide, 53+ new tests (AMD ISA 25, Unix JSON-RPC 8, SM70 latency/encoder 20), coverage 66.43% lines / 75.15% functions / 68.21% regions, zero files over 1000 LOC | **1804** (1804 passing, 61 ignored) |
+| 10 iter 46 | Structural refactor + coverage: `diagnostic/runner.rs` 2485→769 LOC + `experiments/` submodule (8 handlers + context), clippy pedantic workspace-wide, 53+ new tests (AMD ISA 25, Unix JSON-RPC 8, SM70 latency/encoder 20), coverage 66.43% lines / 75.15% functions / 68.21% regions, zero files over 1000 LOC | **1804** (1804 passing, 61 ignored) |
+| 10 iter 47 (current) | Deep debt evolution: unsafe elimination (`from_raw_parts_mut` → safe `as_mut_slice()`), zero-copy `KernelCacheEntry.binary` → `Bytes`, driver string constants (`preference.rs`), 6 `panic!()` → `warn!`+`debug_assert!`, `runner.rs` experiment delegation (2509→778 LOC), `rm_helpers.rs` extraction (1000→944 LOC), `FenceTimeout` constant, `unwrap()` → `Option::zip`, +15 tests | **1819** (1819 passing, 61 ignored) |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 46: 1804+48 tests passing, 61 ignored. Idiomatic evolution.
+Iteration 47: 1819+48 tests passing, 61 ignored. Deep debt evolution.
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
-Zero-copy transport via bytes::Bytes. All parameter structs idiomatic.
-vfio/channel.rs smart refactored: 2894 LOC → 5 modules. eprintln! → tracing.
-IPC chaos/fault tests. 52+ new unit tests. Unsafe evolved with SAFETY comments.
+Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).
+Driver strings centralized as constants. Production panics eliminated (warn + debug_assert).
+Unsafe code evolved: from_raw_parts_mut → safe as_mut_slice().
 VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist,
 PCCSR bind/enable, RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), doorbell BAR0+0x810090.

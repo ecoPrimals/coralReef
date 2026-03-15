@@ -108,13 +108,19 @@ pub(super) fn populate_instance_block(
         ramfc::GP_BASE_HI,
         (gpfifo_iova >> 32) as u32 | (limit2 << 16),
     );
+    // GP_PUT=1 so the scheduler loads work immediately; GP_GET=0.
+    // Without this, the PBDMA sees GP_PUT=0=GP_GET and waits for a doorbell
+    // that may never deliver if the USERD DMA path isn't fully working.
+    write_u32_le(inst, ramfc::GP_PUT, 1);
+    write_u32_le(inst, ramfc::GP_GET, 0);
+    write_u32_le(inst, ramfc::GP_FETCH, 0);
 
     write_u32_le(inst, ramfc::PB_HEADER, 0x2040_0000);
     write_u32_le(inst, ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF);
     write_u32_le(inst, ramfc::HCE_CTRL, 0x0000_0020);
     write_u32_le(inst, ramfc::CHID, channel_id);
-    write_u32_le(inst, ramfc::CONFIG, 0x0000_1100);
-    write_u32_le(inst, ramfc::CHANNEL_INFO, 0x1000_3080);
+    // CONFIG (0xA8) not written — register doesn't exist on GV100 PBDMA
+    write_u32_le(inst, ramfc::CHANNEL_INFO, 0x0300_0000 | channel_id);
 
     // ── NV_RAMIN page directory base (offset 0x200) ────────────────
     let pdb_lo: u32 = ((PD3_IOVA >> 12) as u32) << 12
@@ -124,12 +130,22 @@ pub(super) fn populate_instance_block(
         | TARGET_SYS_MEM_COHERENT;
     write_u32_le(inst, ramin::PAGE_DIR_BASE_LO, pdb_lo);
     write_u32_le(inst, ramin::PAGE_DIR_BASE_HI, (PD3_IOVA >> 32) as u32);
+
+    // VA space address limit — 128 TB (matches nouveau gp100_vmm with 47-bit VA).
+    // Without this, the MMU rejects all VA translations as VA_LIMIT_VIOLATION.
+    write_u32_le(inst, ramin::ADDR_LIMIT_LO, 0xFFFF_FFFF);
+    write_u32_le(inst, ramin::ADDR_LIMIT_HI, 0x0001_FFFF);
+
     write_u32_le(inst, ramin::ENGINE_WFI_VEID, 0);
 
     // ── Subcontext 0 page directory (mirrors main PDB) ────────────
     write_u32_le(inst, ramin::SC_PDB_VALID, 1);
     write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_LO, pdb_lo);
     write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_HI, (PD3_IOVA >> 32) as u32);
+
+    // Subcontext 1: mark as INVALID (nouveau sets 0x00000001 for unused)
+    write_u32_le(inst, ramin::SC1_PAGE_DIR_BASE_LO, 1);
+    write_u32_le(inst, ramin::SC1_PAGE_DIR_BASE_HI, 1);
 }
 
 /// Populate runlist with a TSG header + channel entry (Volta RAMRL format).

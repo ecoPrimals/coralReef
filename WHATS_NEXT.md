@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 15, 2026 (Phase 10 — Iteration 46)
+**Last updated**: March 15, 2026 (Phase 10 — Iteration 47)
 
 ---
 
@@ -79,7 +79,19 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 46)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 47)
+
+### Iteration 47 — Deep Debt Evolution + Modern Idiomatic Rust
+- [x] `runner.rs` delegate to `experiments::run_experiment()` — 2509 LOC → 778 LOC (eliminated duplicated inline experiment dispatch)
+- [x] Unsafe code elimination — `unsafe { from_raw_parts_mut }` → safe `as_mut_slice()` in NOP pushbuf init
+- [x] `rm_client.rs` extract helpers — UUID parsing + raw ioctl → `rm_helpers.rs` (1000 → 944 LOC)
+- [x] Zero-copy evolution — `KernelCacheEntry.binary: Vec<u8>` → `Bytes` (eliminates copy in `to_cache_entry`/`from_cache_entry`)
+- [x] Driver string centralization — `DRIVER_VFIO`/`DRIVER_NOUVEAU`/`DRIVER_AMDGPU`/`DRIVER_NVIDIA_DRM` constants in `preference.rs`; all match arms use constants
+- [x] Production panic elimination — 6 `panic!()` in `sm70_instr_latencies.rs` → `warn!` + `DEFAULT_LATENCY` / `debug_assert!`
+- [x] Production unwrap elimination — `runner.rs` unwrap → `Option::zip` pattern
+- [x] FenceTimeout constant — hardcoded `5000` → `SYNC_TIMEOUT.as_millis()`
+- [x] +15 new tests: rm_helpers UUID parsing (9), cache entry roundtrip (3), driver constants (2), zero-copy clone (1)
+- [x] 1819 passing, 0 failed, 61 ignored
 
 ### Iteration 46 — Structural Refactor + Coverage Expansion
 - [x] `diagnostic/runner.rs` smart refactor: 2485 LOC → 769 LOC — split into `experiments/` submodule with 8 handler files + context struct
@@ -321,7 +333,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1804+48 tests passing, 61 ignored, 66.43% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1819+48 tests passing, 61 ignored, 66.43% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
