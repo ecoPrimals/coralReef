@@ -90,8 +90,8 @@ pub struct CompiledKernel {
 /// recompilation.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KernelCacheEntry {
-    /// Native GPU binary.
-    pub binary: Vec<u8>,
+    /// Native GPU binary (zero-copy via `Bytes`).
+    pub binary: Bytes,
     /// Target identifier string (e.g. `"nvidia:sm86"`, `"amd:rdna2"`).
     pub target_id: String,
     /// GPR count.
@@ -113,7 +113,7 @@ impl CompiledKernel {
     #[must_use]
     pub fn to_cache_entry(&self) -> KernelCacheEntry {
         KernelCacheEntry {
-            binary: self.binary.to_vec(),
+            binary: self.binary.clone(),
             target_id: format!("{}:{}", self.target.vendor(), self.target.arch_name()),
             gpr_count: self.gpr_count,
             instr_count: self.instr_count,
@@ -129,7 +129,7 @@ impl CompiledKernel {
     #[must_use]
     pub fn from_cache_entry(entry: &KernelCacheEntry, target: GpuTarget) -> Self {
         Self {
-            binary: Bytes::from(entry.binary.clone()),
+            binary: entry.binary.clone(),
             source_hash: entry.source_hash,
             target,
             gpr_count: entry.gpr_count,
@@ -217,7 +217,7 @@ impl GpuContext {
 
         #[cfg(feature = "vfio")]
         if discover_vfio_nvidia_bdf().is_some() {
-            available.push("vfio".to_string());
+            available.push(preference::DRIVER_VFIO.to_string());
         }
 
         let nodes = enumerate_render_nodes();
@@ -260,7 +260,7 @@ impl GpuContext {
     fn open_driver(driver: &str) -> GpuResult<Self> {
         match driver {
             #[cfg(feature = "vfio")]
-            "vfio" => {
+            preference::DRIVER_VFIO => {
                 let bdf = discover_vfio_nvidia_bdf()
                     .ok_or_else(|| GpuError::NoDevice("no VFIO-bound NVIDIA GPU found".into()))?;
                 let sm = vfio_detect_sm(&bdf);
@@ -270,13 +270,13 @@ impl GpuContext {
                 let target = GpuTarget::Nvidia(sm_to_nvarch(sm));
                 Self::with_device(target, Box::new(dev))
             }
-            "amdgpu" => {
+            preference::DRIVER_AMDGPU => {
                 let dev = coral_driver::amd::AmdDevice::open().map_err(GpuError::Driver)?;
                 let target = GpuTarget::Amd(AmdArch::Rdna2);
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
-            "nvidia-drm" => {
+            preference::DRIVER_NVIDIA_DRM => {
                 if coral_driver::nv::uvm::nvidia_uvm_available() {
                     let sm = sm_from_sysfs_or(DEFAULT_NV_SM);
                     match coral_driver::nv::NvUvmComputeDevice::open(0, sm) {
@@ -298,7 +298,7 @@ impl GpuContext {
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nouveau")]
-            "nouveau" => {
+            preference::DRIVER_NOUVEAU => {
                 let dev = coral_driver::nv::NvDevice::open().map_err(GpuError::Driver)?;
                 let target = GpuTarget::Nvidia(sm_to_nvarch(dev.sm_version()));
                 Self::with_device(target, Box::new(dev))
@@ -313,21 +313,21 @@ impl GpuContext {
     #[cfg(target_os = "linux")]
     fn open_driver_at_path(driver: &str, path: &str) -> GpuResult<Self> {
         match driver {
-            "amdgpu" => {
+            preference::DRIVER_AMDGPU => {
                 let dev =
                     coral_driver::amd::AmdDevice::open_path(path).map_err(GpuError::Driver)?;
                 let target = GpuTarget::Amd(AmdArch::Rdna2);
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
-            "nvidia-drm" => {
+            preference::DRIVER_NVIDIA_DRM => {
                 let dev =
                     coral_driver::nv::NvDrmDevice::open_path(path).map_err(GpuError::Driver)?;
                 let target = sm_target_from_sysfs(path);
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nouveau")]
-            "nouveau" => {
+            preference::DRIVER_NOUVEAU => {
                 let sm = sm_from_sysfs(path);
                 let dev =
                     coral_driver::nv::NvDevice::open_path(path, sm).map_err(GpuError::Driver)?;
@@ -410,7 +410,7 @@ impl GpuContext {
         render_node: Option<&str>,
     ) -> GpuResult<Self> {
         match (vendor, driver) {
-            ("amd", Some("amdgpu") | None) => {
+            ("amd", Some(preference::DRIVER_AMDGPU) | None) => {
                 let target = match arch {
                     Some("rdna3") => GpuTarget::Amd(AmdArch::Rdna3),
                     Some("rdna4") => GpuTarget::Amd(AmdArch::Rdna4),
@@ -425,7 +425,7 @@ impl GpuContext {
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
-            ("nvidia", Some("nvidia-drm")) => {
+            ("nvidia", Some(preference::DRIVER_NVIDIA_DRM)) => {
                 let target = match arch {
                     Some("sm89") => GpuTarget::Nvidia(NvArch::Sm89),
                     Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
@@ -442,7 +442,7 @@ impl GpuContext {
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nouveau")]
-            ("nvidia", Some("nouveau") | None) => {
+            ("nvidia", Some(preference::DRIVER_NOUVEAU) | None) => {
                 let target = match arch {
                     Some("sm86") => GpuTarget::Nvidia(NvArch::Sm86),
                     Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
@@ -462,7 +462,7 @@ impl GpuContext {
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "vfio")]
-            ("nvidia", Some("vfio")) => {
+            ("nvidia", Some(preference::DRIVER_VFIO)) => {
                 let bdf = render_node.ok_or_else(|| {
                     GpuError::NoDevice("VFIO requires a BDF address as render_node".into())
                 })?;
@@ -872,7 +872,7 @@ const fn sm_to_nvarch(sm: u32) -> NvArch {
 fn sm_from_sysfs_or(default: u32) -> u32 {
     use coral_driver::drm::enumerate_render_nodes;
     for node in enumerate_render_nodes() {
-        if node.driver == "nvidia-drm" {
+        if node.driver == preference::DRIVER_NVIDIA_DRM {
             return coral_driver::nv::ioctl::probe_gpu_identity(&node.path)
                 .and_then(|id| id.nvidia_sm())
                 .unwrap_or(default);

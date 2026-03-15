@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
-use crate::{FmaCapability, error::GpuError, preference::DriverPreference};
+use bytes::Bytes;
+
+use crate::{
+    CompiledKernel, FmaCapability, KernelCacheEntry, error::GpuError, preference,
+    preference::DriverPreference,
+};
 use coral_driver::MemoryDomain;
 use coral_driver::{DispatchDims, DriverError, DriverResult, ShaderInfo};
 use coral_reef::{AmdArch, FmaPolicy, GpuTarget, NvArch};
@@ -706,4 +711,88 @@ fn fma_capability_debug_format() {
     let debug = format!("{cap:?}");
     assert!(debug.contains("FmaCapability"));
     assert!(debug.contains("f32_fma"));
+}
+
+// ── KernelCacheEntry zero-copy roundtrip ────────────────────────────
+
+#[test]
+fn cache_entry_roundtrip_preserves_binary() {
+    let kernel = CompiledKernel {
+        binary: Bytes::from(vec![0xDE, 0xAD, 0xBE, 0xEF]),
+        source_hash: 0x1234_5678_9ABC_DEF0,
+        target: GpuTarget::Nvidia(NvArch::Sm86),
+        gpr_count: 32,
+        instr_count: 100,
+        shared_mem_bytes: 4096,
+        barrier_count: 2,
+        workgroup: [64, 1, 1],
+    };
+    let entry = kernel.to_cache_entry();
+    assert_eq!(&entry.binary[..], &[0xDE, 0xAD, 0xBE, 0xEF]);
+    assert_eq!(entry.source_hash, 0x1234_5678_9ABC_DEF0);
+    assert_eq!(entry.gpr_count, 32);
+    assert_eq!(entry.instr_count, 100);
+    assert_eq!(entry.shared_mem_bytes, 4096);
+    assert_eq!(entry.barrier_count, 2);
+    assert_eq!(entry.workgroup, [64, 1, 1]);
+    assert_eq!(entry.target_id, "nvidia:sm86");
+
+    let restored = CompiledKernel::from_cache_entry(&entry, GpuTarget::Nvidia(NvArch::Sm86));
+    assert_eq!(&restored.binary[..], &[0xDE, 0xAD, 0xBE, 0xEF]);
+    assert_eq!(restored.source_hash, kernel.source_hash);
+    assert_eq!(restored.gpr_count, kernel.gpr_count);
+}
+
+#[test]
+fn cache_entry_serde_roundtrip() {
+    let entry = KernelCacheEntry {
+        binary: Bytes::from(vec![1, 2, 3, 4, 5]),
+        target_id: "amd:rdna2".to_string(),
+        gpr_count: 16,
+        instr_count: 50,
+        shared_mem_bytes: 0,
+        barrier_count: 0,
+        workgroup: [32, 2, 1],
+        source_hash: 42,
+    };
+    let json = serde_json::to_string(&entry).expect("serialize");
+    let deserialized: KernelCacheEntry = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(&deserialized.binary[..], &[1, 2, 3, 4, 5]);
+    assert_eq!(deserialized.target_id, "amd:rdna2");
+    assert_eq!(deserialized.workgroup, [32, 2, 1]);
+}
+
+#[test]
+fn cache_entry_zero_copy_clone() {
+    let entry = KernelCacheEntry {
+        binary: Bytes::from(vec![0xFF; 1024]),
+        target_id: "nvidia:sm70".to_string(),
+        gpr_count: 8,
+        instr_count: 10,
+        shared_mem_bytes: 256,
+        barrier_count: 1,
+        workgroup: [1, 1, 1],
+        source_hash: 99,
+    };
+    let cloned = entry.clone();
+    assert_eq!(entry.binary.as_ptr(), cloned.binary.as_ptr());
+}
+
+// ── Driver preference constants ─────────────────────────────────────
+
+#[test]
+fn driver_constants_match_preference_order() {
+    let sovereign = DriverPreference::sovereign();
+    let order = sovereign.order();
+    assert_eq!(order[0], preference::DRIVER_VFIO);
+    assert_eq!(order[1], preference::DRIVER_NOUVEAU);
+    assert_eq!(order[2], preference::DRIVER_AMDGPU);
+    assert_eq!(order[3], preference::DRIVER_NVIDIA_DRM);
+}
+
+#[test]
+fn driver_constants_select_from_available() {
+    let pref = DriverPreference::sovereign();
+    let available = [preference::DRIVER_NOUVEAU, preference::DRIVER_AMDGPU];
+    assert_eq!(pref.select(&available), Some(preference::DRIVER_NOUVEAU));
 }

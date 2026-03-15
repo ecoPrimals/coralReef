@@ -932,62 +932,7 @@ impl RmClient {
     }
 }
 
-/// Parse a GID (either binary with 0x04 header or ASCII "GPU-XXXX-...")
-/// into a 16-byte `NvProcessorUuid`.
-fn parse_gid_to_uuid(gid: &[u8]) -> DriverResult<[u8; 16]> {
-    if gid.len() >= 16 && gid[0] == 0x04 {
-        let mut uuid = [0u8; 16];
-        uuid.copy_from_slice(&gid[..16]);
-        return Ok(uuid);
-    }
-
-    let s = std::str::from_utf8(gid)
-        .map_err(|_| DriverError::SubmitFailed("GID is neither binary nor valid ASCII".into()))?;
-
-    let hex: String = s
-        .trim_start_matches("GPU-")
-        .trim_end_matches('\0')
-        .chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .collect();
-
-    if hex.len() < 32 {
-        return Err(DriverError::SubmitFailed(
-            format!("GID hex too short: {} chars from {s:?}", hex.len()).into(),
-        ));
-    }
-
-    let mut uuid = [0u8; 16];
-    for (i, chunk) in hex.as_bytes().chunks(2).take(16).enumerate() {
-        let hi = hex_nibble(chunk[0]);
-        let lo = hex_nibble(chunk[1]);
-        uuid[i] = (hi << 4) | lo;
-    }
-    Ok(uuid)
-}
-
-fn hex_nibble(b: u8) -> u8 {
-    match b {
-        b'0'..=b'9' => b - b'0',
-        b'a'..=b'f' => 10 + b - b'a',
-        b'A'..=b'F' => 10 + b - b'A',
-        _ => 0,
-    }
-}
-
-/// Raw ioctl via C FFI, bypassing `rustix::ioctl::Ioctl` (mishandles NV_ESC_RM_*).
-///
-/// # Safety
-///
-/// `fd` must be valid; `params` must be `#[repr(C)]` and the sole mutable reference.
-unsafe fn raw_nv_ioctl<T>(fd: i32, ioctl_nr: u64, params: &mut T) -> i32 {
-    // SAFETY: ioctl is the kernel ABI; caller guarantees fd valid, params repr(C) and sole ref.
-    unsafe extern "C" {
-        fn ioctl(fd: i32, request: u64, ...) -> i32;
-    }
-    // SAFETY: from_mut(params) is valid for ioctl duration; kernel reads/writes synchronously.
-    unsafe { ioctl(fd, ioctl_nr, std::ptr::from_mut(params)) }
-}
+use super::rm_helpers::{parse_gid_to_uuid, raw_nv_ioctl};
 
 impl Drop for RmClient {
     fn drop(&mut self) {

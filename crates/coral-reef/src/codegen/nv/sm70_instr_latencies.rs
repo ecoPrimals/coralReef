@@ -66,7 +66,10 @@ impl RegLatencySM70 {
                     match op_reg_idx {
                         0 | 1 => IMADWideAB,
                         2 => IMADWideLower,
-                        _ => panic!("Illegal field in imadwide"),
+                        _ => {
+                            debug_assert!(false, "unexpected imadwide field {op_reg_idx}");
+                            IMADWideLower
+                        }
                     }
                 } else {
                     IMADWideUpper
@@ -147,11 +150,8 @@ impl RegLatencySM70 {
             | Op::HSetP2(_)
             | Op::HMnMx2(_) => RedirectedFP16,
             Op::R2UR(_) => {
-                if reader {
-                    Decoupled
-                } else {
-                    panic!("Illegal R2UR")
-                }
+                debug_assert!(reader, "R2UR should only appear as reader");
+                Decoupled
             }
             Op::CS2R(cs2r) => {
                 if cs2r.dst.comps() == 2 {
@@ -167,7 +167,10 @@ impl RegLatencySM70 {
 
             Op::Nop(_) | Op::Vote(_) => CoupledDisp,
             Op::CCtl(_) => DecoupledOther,
-            x => panic!("Illegal instruction in SM70 reg category: {x}"),
+            x => {
+                warn!("SM70 reg category: unhandled op {x}, using Decoupled");
+                Decoupled
+            }
         }
     }
 
@@ -184,7 +187,8 @@ impl RegLatencySM70 {
         use RegLatencySM70::*;
         match writer {
             IMADWideAB | DecoupledOther => {
-                panic!("Illegal category for writer in RAW");
+                warn!("SM70 RAW: {writer:?} is not a valid writer category, using default");
+                return DEFAULT_LATENCY;
             }
             _ => {}
         }
@@ -248,7 +252,10 @@ impl RegLatencySM70 {
                     RedirectedFP16 => 6,
                     _ => 1,
                 },
-                _ => panic!("Illegal IMAD field in RAW"),
+                _ => {
+                    warn!("SM70 RAW: unexpected IMAD reader variant {reader:?}, using default");
+                    DEFAULT_LATENCY
+                }
             },
 
             // FP64 reader — DFMA → DFMA = 8cy (arXiv:1804.06826 §3.2)
@@ -502,7 +509,12 @@ impl RegLatencySM70 {
                 RedirectedFP64 => 15,
                 RedirectedFP16 => 14,
                 Decoupled => 1,
-                _ => panic!("Illegal RAW in Predicate"),
+                _ => {
+                    warn!(
+                        "SM70 pred RAW: unexpected writer for Decoupled/GuardPredicate, using default"
+                    );
+                    DEFAULT_LATENCY
+                }
             },
             _ => {
                 warn!("SM70 pred RAW: illegal reader, using default");

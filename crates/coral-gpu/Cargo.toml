@@ -22,3 +22,4 @@ vfio = ["coral-driver/vfio"]
 
 [dev-dependencies]
 coral-driver = { path = "../coral-driver", features = ["test-utils"] }
+serde_json.workspace = true

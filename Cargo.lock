@@ -316,6 +316,7 @@ dependencies = [
  "coral-driver",
  "coral-reef",
  "serde",
+ "serde_json",
  "thiserror",
  "tracing",
 ]

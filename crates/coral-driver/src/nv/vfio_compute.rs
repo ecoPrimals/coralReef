@@ -375,7 +375,9 @@ impl NvVfioComputeDevice {
                     priv_ring_intr = format!("{priv_ring_intr:#010x}"),
                     "Fence timeout: GPFIFO completion did not complete within timeout"
                 );
-                return Err(DriverError::FenceTimeout { ms: 5000 });
+                return Err(DriverError::FenceTimeout {
+                    ms: SYNC_TIMEOUT.as_millis() as u64,
+                });
             }
 
             std::hint::spin_loop();

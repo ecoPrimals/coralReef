@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 15, 2026  
-**Phase**: 10 — Iteration 46 (Structural Refactor + Coverage Expansion)
+**Phase**: 10 — Iteration 47 (Deep Debt Evolution + Modern Idiomatic Rust)
 
 ---
 
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 1804 passing (+48 VFIO), 0 failed, 61 ignored, 66.43% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 1819 passing (+48 VFIO), 0 failed, 61 ignored, 66.43% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
@@ -37,6 +37,21 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 46** |
+
+### Iteration 47: Deep Debt Evolution + Modern Idiomatic Rust (Mar 15 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `runner.rs` delegate to experiments module | ✅ | 2509 LOC → 778 LOC — eliminated 2000+ lines of duplicated inline experiment dispatch, delegates to `experiments::run_experiment()` |
+| Unsafe code elimination | ✅ | Removed `unsafe { from_raw_parts_mut }` in NOP pushbuf init → safe `as_mut_slice()` |
+| `rm_client.rs` extract helpers | ✅ | UUID parsing + raw ioctl → `rm_helpers.rs` (1000 → 944 LOC) |
+| Zero-copy evolution | ✅ | `KernelCacheEntry.binary: Vec<u8>` → `Bytes` — eliminates copy in `to_cache_entry` / `from_cache_entry` |
+| Driver string centralization | ✅ | `DRIVER_VFIO`, `DRIVER_NOUVEAU`, `DRIVER_AMDGPU`, `DRIVER_NVIDIA_DRM` constants in `preference.rs`; all match arms and comparisons use constants |
+| Production panic elimination | ✅ | 6 `panic!()` in `sm70_instr_latencies.rs` → `warn!` + `DEFAULT_LATENCY` / `debug_assert!` |
+| Production unwrap elimination | ✅ | `runner.rs` unwrap → `Option::zip` pattern |
+| FenceTimeout constant | ✅ | Hardcoded `5000` → `SYNC_TIMEOUT.as_millis()` |
+| CONTRIBUTING.md sync | ✅ | Test count updated to 1819 |
+| New test coverage | ✅ | +15 tests: rm_helpers UUID parsing (9), cache entry roundtrip (3), driver constants (2), zero-copy clone (1) |
 
 ### Iteration 46: Structural Refactor + Coverage Expansion (Mar 15 2026)
 

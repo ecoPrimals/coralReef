@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
+/// VFIO direct BAR0/DMA dispatch — maximum sovereignty.
+pub const DRIVER_VFIO: &str = "vfio";
+/// Open-source NVIDIA DRM driver — full sovereignty.
+pub const DRIVER_NOUVEAU: &str = "nouveau";
+/// Open-source AMD DRM driver — native Linux citizen.
+pub const DRIVER_AMDGPU: &str = "amdgpu";
+/// NVIDIA proprietary DRM module — pragmatic compatibility.
+pub const DRIVER_NVIDIA_DRM: &str = "nvidia-drm";
+
 /// Driver identifiers in preference order.
 ///
 /// coralReef prefers sovereign (open-source) drivers because they force deep
@@ -38,10 +47,10 @@ impl DriverPreference {
     pub fn sovereign() -> Self {
         Self {
             order: vec![
-                "vfio".to_string(),
-                "nouveau".to_string(),
-                "amdgpu".to_string(),
-                "nvidia-drm".to_string(),
+                DRIVER_VFIO.to_string(),
+                DRIVER_NOUVEAU.to_string(),
+                DRIVER_AMDGPU.to_string(),
+                DRIVER_NVIDIA_DRM.to_string(),
             ],
         }
     }
@@ -51,9 +60,9 @@ impl DriverPreference {
     pub fn pragmatic() -> Self {
         Self {
             order: vec![
-                "amdgpu".to_string(),
-                "nvidia-drm".to_string(),
-                "nouveau".to_string(),
+                DRIVER_AMDGPU.to_string(),
+                DRIVER_NVIDIA_DRM.to_string(),
+                DRIVER_NOUVEAU.to_string(),
             ],
         }
     }

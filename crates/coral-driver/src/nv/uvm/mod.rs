@@ -27,6 +27,7 @@
 //! - `kernel-open/common/inc/nv-ioctl.h`
 
 mod rm_client;
+mod rm_helpers;
 pub mod structs;
 
 pub use rm_client::RmClient;
