@@ -29,14 +29,10 @@ pub(crate) mod pfifo {
     /// PFIFO_INTR bit 16 — channel switch error.
     pub const INTR_CHSW_ERROR: u32 = 0x0001_0000;
     /// PFIFO_INTR bit 29 — aggregate "any PBDMA has an interrupt pending".
-    #[allow(
-        dead_code,
-        reason = "hardware register definition for future diagnostic use"
-    )]
     pub const INTR_PBDMA: u32 = 0x2000_0000;
     /// PBDMA active map — bit N = 1 means PBDMA N exists.
     pub const PBDMA_MAP: usize = 0x0000_2004;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// PBDMA-to-runlist mapping table. Entry at `+seq*4` for each active PBDMA.
     pub const PBDMA_RUNL_MAP: usize = 0x0000_2390;
     /// GK104/GV100 runlist base address (global, NOT per-runlist strided).
@@ -50,28 +46,28 @@ pub(crate) mod pfifo {
     /// Writing this register triggers the scheduler to process the runlist.
     /// Source: nouveau `gk104_runl_commit()`.
     pub const RUNLIST_SUBMIT: usize = 0x0000_2274;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Runlist pending status. Per-runlist at stride 8.
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Preempt trigger (channel or runlist).
     pub const PREEMPT: usize = 0x0000_2634;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// GV100 runlist-level preempt — write bitmask of runlist IDs.
     pub const GV100_PREEMPT: usize = 0x0000_2638;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Runlist interrupt acknowledge mask.
     pub const RUNLIST_ACK: usize = 0x0000_2A00;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// BIND_ERROR status.
     pub const BIND_ERROR: usize = 0x0000_252C;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// FB timeout counter.
     pub const FB_TIMEOUT: usize = 0x0000_2254;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Engine status, per-engine at stride 4.
     pub const ENGN_STATUS: usize = 0x0000_2640;
-    #[allow(dead_code, reason = "hardware register definition for future use")]
+    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Engine topology table at stride 4 (GV100).
     pub const ENGN_TABLE: usize = 0x0002_2700;
 }
@@ -156,7 +152,7 @@ pub(crate) mod pbdma {
 }
 
 /// MMU fault buffer registers (BAR0 + 0x10_0E00).
-#[allow(dead_code, reason = "hardware register definition for future use")]
+#[allow(dead_code, reason = "diagnostic matrix migration in progress")]
 pub(crate) mod mmu {
     pub const FAULT_BUF0_LO: usize = 0x0010_0E24;
     pub const FAULT_BUF0_HI: usize = 0x0010_0E28;
@@ -186,14 +182,17 @@ pub(crate) mod misc {
     pub const PRAMIN_BASE: usize = 0x0070_0000;
     pub const BAR0_WINDOW: usize = 0x0000_1700;
     pub const L2_FLUSH: usize = 0x0007_0010;
-    /// PBUS BAR1 block register — BAR1 aperture instance block pointer.
+    /// NV_PBUS_BAR1_BLOCK — BAR1 aperture instance block pointer.
     /// Format: PTR[27:0] | TARGET[29:28] | MODE[31] (0=PHYS, 1=VIRTUAL).
-    /// GV100 BAR1_BLOCK offset — 0x1704 per dev_bus.ref.txt; 0x1714 may be BAR2_BLOCK.
-    pub const PBUS_BAR1_BLOCK: usize = 0x0000_1714;
-    /// PBUS BAR2 block register — BAR2 aperture instance block pointer.
-    pub const PBUS_BAR2_BLOCK: usize = 0x0000_1718;
-    /// Candidate for real BAR1_BLOCK on GV100 (per open-gpu-doc dev_bus.ref.txt).
-    pub const PBUS_BAR1_BLOCK_ALT: usize = 0x0000_1704;
+    /// Per `dev_bus.ref.txt`: 0x1704.
+    pub const PBUS_BAR1_BLOCK: usize = 0x0000_1704;
+    /// NV_PBUS_BIND_STATUS — pending/outstanding bits for BAR1/BAR2 bind ops.
+    /// [0] BAR1_PENDING, [1] BAR1_OUTSTANDING, [2] BAR2_PENDING, [3] BAR2_OUTSTANDING.
+    pub const PBUS_BIND_STATUS: usize = 0x0000_1710;
+    /// NV_PBUS_BAR2_BLOCK — BAR2 aperture instance block pointer.
+    /// Format: PTR[27:0] | TARGET[29:28] | MODE[31] (0=PHYS, 1=VIRTUAL).
+    /// Per `dev_bus.ref.txt`: 0x1714. PFIFO scheduler requires this configured.
+    pub const PBUS_BAR2_BLOCK: usize = 0x0000_1714;
 }
 
 /// `NV_PCCSR` — per-channel control/status registers (BAR0 + 0x80_0000).
@@ -341,9 +340,36 @@ pub(super) const TARGET_SYS_MEM_COHERENT: u32 = 2;
 pub(super) const TARGET_SYS_MEM_NONCOHERENT: u32 = 3;
 
 /// `SYS_MEM_COHERENT` aperture target for PBDMA registers (RAMFC fields).
-/// NV_PPBDMA_USERD_TARGET[1:0]: 0=VID_MEM, 1=SYS_MEM_COHERENT, 2=SYS_MEM_NONCOHERENT.
-/// These differ from the PCCSR/RAMIN encoding.
-pub(super) const PBDMA_TARGET_SYS_MEM_COHERENT: u32 = 1;
+/// RAMFC + PBDMA USERD target encoding (bits [1:0]), same as PCCSR/RAMIN:
+///   0 = VID_MEM, 2 = SYS_MEM_COH, 3 = SYS_MEM_NCOH
+pub(super) const PBDMA_TARGET_SYS_MEM_COHERENT: u32 = 2;
 
 /// Number of 4 KiB pages identity-mapped in PT0.
 pub(super) const PT_ENTRIES: usize = 512;
+
+// ── BAR2 VRAM page table layout (for glow plug self-warm) ──────────────
+// All structures live in VRAM, written via PRAMIN.  BAR0_WINDOW is set to
+// (BAR2_VRAM_BASE >> 16) so PRAMIN offsets start at 0.
+//
+// VRAM layout (6 × 4KB pages, 24KB total):
+//   0x20000  Instance block   (PDB + GV100 subcontexts)
+//   0x21000  PD3 root         (4 entries × 8 bytes)
+//   0x22000  PD2              (512 entries × 8 bytes)
+//   0x23000  PD1              (512 entries × 8 bytes)
+//   0x24000  PD0              (256 dual entries × 16 bytes)
+//   0x25000  SPT              (512 PTEs × 8 bytes → maps first 2MB)
+
+/// Base VRAM offset for BAR2 page tables.
+pub(super) const BAR2_VRAM_BASE: u32 = 0x0002_0000;
+/// VRAM offset of the BAR2 instance block.
+pub(super) const BAR2_INST_OFF: u32 = 0x0000;
+/// VRAM offset of PD3 root (relative to BAR2_VRAM_BASE).
+pub(super) const BAR2_PD3_OFF: u32 = 0x1000;
+/// VRAM offset of PD2 (relative to BAR2_VRAM_BASE).
+pub(super) const BAR2_PD2_OFF: u32 = 0x2000;
+/// VRAM offset of PD1 (relative to BAR2_VRAM_BASE).
+pub(super) const BAR2_PD1_OFF: u32 = 0x3000;
+/// VRAM offset of PD0 (relative to BAR2_VRAM_BASE).
+pub(super) const BAR2_PD0_OFF: u32 = 0x4000;
+/// VRAM offset of SPT (small page table, relative to BAR2_VRAM_BASE).
+pub(super) const BAR2_SPT_OFF: u32 = 0x5000;

@@ -13,6 +13,7 @@ use super::super::page_tables::{
 };
 use super::super::registers::*;
 use super::experiments::context::ExperimentContext;
+use super::experiments::run_experiment;
 use super::types::{ExperimentConfig, ExperimentOrdering, ExperimentResult};
 
 /// Run the full diagnostic experiment matrix.
@@ -22,11 +23,7 @@ use super::types::{ExperimentConfig, ExperimentOrdering, ExperimentResult};
 ///
 /// The GPU should be warm from nouveau (bind nouveau → unbind → bind vfio-pci)
 /// so the PFIFO scheduler is already running.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::too_many_arguments,
-    reason = "hardware diagnostic context requires all parameters"
-)]
+#[expect(clippy::cast_possible_truncation, clippy::too_many_lines)]
 pub fn diagnostic_matrix(
     container_fd: RawFd,
     bar0: &MappedBar,
@@ -45,14 +42,12 @@ pub fn diagnostic_matrix(
     let mut pd1 = DmaBuffer::new(container_fd, 4096, PD1_IOVA)?;
     let mut pd0 = DmaBuffer::new(container_fd, 4096, PD0_IOVA)?;
     let mut pt0 = DmaBuffer::new(container_fd, 4096, PT0_IOVA)?;
-    let nop_pb = DmaBuffer::new(container_fd, 4096, NOP_PB_IOVA)?;
+    let mut nop_pb = DmaBuffer::new(container_fd, 4096, NOP_PB_IOVA)?;
     {
-        let pb_slice = nop_pb.as_slice();
-        let pb_mut =
-            unsafe { std::slice::from_raw_parts_mut(pb_slice.as_ptr() as *mut u8, pb_slice.len()) };
-        let nop_hdr: u32 = (1 << 29) | (1 << 16) | 0x40; // INC_METHOD type=1, count=1, method=0x40 (NOP=0x100>>2)
+        let pb_mut = nop_pb.as_mut_slice();
+        let nop_hdr: u32 = (1 << 29) | (1 << 16) | 0x40;
         pb_mut[0..4].copy_from_slice(&nop_hdr.to_le_bytes());
-        pb_mut[4..8].copy_from_slice(&0_u32.to_le_bytes()); // NOP data = 0
+        pb_mut[4..8].copy_from_slice(&0_u32.to_le_bytes());
     }
 
     let w = |reg: usize, val: u32| -> DriverResult<()> {
@@ -165,6 +160,23 @@ pub fn diagnostic_matrix(
         eprintln!("╚═══════════════════════════════════════════════════════════╝");
     }
 
+    // ── BAR2 page table setup ──────────────────────────────────────────────
+    // PFIFO scheduler requires BAR2_BLOCK (0x1714) configured. On a cold GPU
+    // it reads 0x40000000 (invalid) → CHSW_ERROR RDAT_TIMEOUT.
+    // Build a minimal V2 page table in VRAM and program BAR2_BLOCK.
+    {
+        let bar2_val = r(misc::PBUS_BAR2_BLOCK);
+        let bar2_valid = bar2_val & 0x8000_0000 != 0 || (bar2_val != 0x4000_0000 && bar2_val != 0);
+        if !bar2_valid {
+            eprintln!("║ BAR2_BLOCK={bar2_val:#010x} (invalid) → building VRAM page table");
+            super::super::pfifo::setup_bar2_page_table(bar0)?;
+            let bar2_after = r(misc::PBUS_BAR2_BLOCK);
+            eprintln!("║ BAR2_BLOCK={bar2_after:#010x} (after glow plug setup)");
+        } else {
+            eprintln!("║ BAR2_BLOCK={bar2_val:#010x} (already configured)");
+        }
+    }
+
     // ── MMU physical memory access + fault buffer init ────────────────────
     // NV_PFB_PRI_MMU_PHYS_SECURE controls what physical memory the GPU can DMA.
     // Oracle shows 0x002FFEDE0; our GPU has 0x0 → GPU can't access system memory!
@@ -224,16 +236,12 @@ pub fn diagnostic_matrix(
         r(pmc::ENABLE)
     );
     eprintln!(
-        "║ PBUS@0x1704:        {:#010x} (BAR1_BLOCK per dev_bus.ref.txt)",
-        r(0x001704)
+        "║ BAR1_BLOCK(1704):   {:#010x} (oracle: 0x002ffeca)",
+        r(misc::PBUS_BAR1_BLOCK)
     );
     eprintln!(
-        "║ PBUS@0x1714:        {:#010x} (oracle: 0x802ffedf — BAR2_BLOCK or BAR1_BLOCK?)",
-        r(0x001714)
-    );
-    eprintln!(
-        "║ PBUS@0x1718:        {:#010x} (oracle: 0xbad00200 — MMIO fault)",
-        r(0x001718)
+        "║ BAR2_BLOCK(1714):   {:#010x} (oracle: 0x802ffedf)",
+        r(misc::PBUS_BAR2_BLOCK)
     );
     eprintln!(
         "║ MMU_PHYS_SECURE:    {:#010x} (oracle: 0x002ffede0)",
@@ -372,8 +380,8 @@ pub fn diagnostic_matrix(
     let pb = 0x040000 + target_pbdma * 0x2000;
     let pb2 = alt_pbdma.map(|id| 0x040000 + id * 0x2000);
     eprintln!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
-    if let Some(alt) = alt_pbdma {
-        eprintln!("║ Alt PBDMA: {alt} (base={:#x})", pb2.unwrap());
+    if let Some((alt, alt_base)) = alt_pbdma.zip(pb2) {
+        eprintln!("║ Alt PBDMA: {alt} (base={alt_base:#x})");
     }
 
     for id in 0..32_usize {
@@ -413,7 +421,7 @@ pub fn diagnostic_matrix(
                 continue;
             }
             let _ = w(pfifo::RUNLIST_BASE, rl_base_flush);
-            let _ = w(pfifo::RUNLIST_SUBMIT, rl << 20); // count=0 → empty flush
+            let _ = w(pfifo::RUNLIST_SUBMIT, (rl << 20) | 0); // count=0 → empty flush
             std::thread::sleep(std::time::Duration::from_millis(10));
             let intr = r(pfifo::INTR);
             let chsw = r(pfifo::CHSW_ERROR);
@@ -586,30 +594,31 @@ pub fn diagnostic_matrix(
         //   RUNLIST_BASE (0x2270): (target << 28) | (addr >> 12)
         //   RUNLIST_SUBMIT (0x2274): (runlist_id << 20) | count — triggers scheduler
         let rl_base = (RUNLIST_IOVA >> 12) as u32 | (cfg.runlist_base_target << 28);
-        let rl_submit = (target_runlist << 20) | 2_u32; // runlist_id + 2 entries (TSG + channel)
+        let rl_submit = (target_runlist << 20) | 2_u32;
 
-        let mut ctx = ExperimentContext {
-            bar0,
-            channel_id,
-            gpfifo_iova,
-            userd_iova,
-            instance: &mut instance,
-            runlist: &mut runlist,
-            gpfifo_ring,
-            userd_page,
-            target_runlist,
-            target_pbdma,
-            pbdma_base: pb,
-            pbdma_map,
-            pccsr_inst_val,
-            rl_base,
-            rl_submit,
-            limit2,
-            gpu_warm,
-            cfg,
-        };
-        super::experiments::run_experiment(&mut ctx)?;
-
+        {
+            let mut ctx = ExperimentContext {
+                bar0,
+                channel_id,
+                gpfifo_iova,
+                userd_iova,
+                instance: &mut instance,
+                runlist: &mut runlist,
+                gpfifo_ring,
+                userd_page,
+                target_runlist,
+                target_pbdma,
+                pbdma_base: pb,
+                pbdma_map,
+                pccsr_inst_val,
+                rl_base,
+                rl_submit,
+                limit2,
+                gpu_warm,
+                cfg,
+            };
+            run_experiment(&mut ctx)?;
+        }
         // Wait for hardware to process
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -714,7 +723,7 @@ pub fn diagnostic_matrix(
             pfifo::RUNLIST_BASE,
             (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28),
         );
-        let _ = w(pfifo::RUNLIST_SUBMIT, target_runlist << 20); // empty flush
+        let _ = w(pfifo::RUNLIST_SUBMIT, (target_runlist << 20) | 0); // empty flush
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         results.push(result);

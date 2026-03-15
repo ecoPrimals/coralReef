@@ -19,20 +19,21 @@ pub(super) fn write_pde(pd_slice: &mut [u8], index: usize, target_iova: u64) {
 
 /// Encode a V2 PDE pointing to a page table at `iova` in system memory.
 ///
-/// Bit layout: `[1:0]=aperture, [2]=volatile, addr in upper bits`.
-/// For 4K-aligned IOVAs the low 8 bits of `(iova >> 4)` are zero,
-/// so the OR with flags (bits [2:0]) is clean.
+/// GP100 PDE bit layout (from nouveau `gp100_vmm_pde`):
+///   `[2:1]=aperture, [3]=VOL, addr = (PDE & ~0xF) << 4`
+///   Aperture: 0=invalid, 1=VRAM, 2=SYS_MEM_COH, 3=SYS_MEM_NCOH
 pub(super) fn encode_pde(iova: u64) -> u64 {
-    const FLAGS: u64 = 2 | (1 << 2); // aperture=SYS_MEM_COH(2) + VOL(bit2)
+    const FLAGS: u64 = (2 << 1) | (1 << 3); // aperture=COH in bits[2:1], VOL=bit3
     (iova >> 4) | FLAGS
 }
 
 /// Encode a V2 small-page PTE for an identity-mapped physical address.
 ///
-/// Bit layout: `[0]=valid, [1]=aperture(SYS_MEM_COH), [2]=volatile`.
-/// Encoding matches nouveau `gp100_vmm_pgt_mem()`.
+/// GP100 PTE bit layout (from nouveau `gp100_vmm_valid` + `gf100_vmm_aper`):
+///   `[0]=VALID, [2:1]=aperture, [3]=VOL, addr = (PTE & ~0xF) << 4`
+///   Aperture: 0=VRAM, 2=SYS_MEM_COH, 3=SYS_MEM_NCOH
 pub(super) fn encode_pte(phys_addr: u64) -> u64 {
-    const FLAGS: u64 = 1 | 2 | (1 << 2); // VALID(bit0) + SYS_MEM_COH(bit1) + VOL(bit2)
+    const FLAGS: u64 = 1 | (2 << 1) | (1 << 3); // VALID + COH(aper=2) + VOL
     (phys_addr >> 4) | FLAGS
 }
 
@@ -58,10 +59,11 @@ pub(super) fn populate_page_tables(
     write_pde(pd1, 0, PD0_IOVA);
 
     // PD0 entry 0: dual PDE format — 16 bytes per entry.
-    // Bytes [0:7]  = big page PDE (unused, leave as 0)
-    // Bytes [8:15] = small page PDE → PT0
+    // Bytes [0:7]  = small page PDE (SPT, pt[0]) → PT0
+    // Bytes [8:15] = large page PDE (LPT, pt[1]) — unused, leave as 0
+    // Layout matches nouveau's VMM_WO128(pd, ..., data[0]=SPT, data[1]=LPT)
     let small_pde = encode_pde(PT0_IOVA);
-    pd0[8..16].copy_from_slice(&small_pde.to_le_bytes());
+    pd0[0..8].copy_from_slice(&small_pde.to_le_bytes());
 
     // PT0: identity-map 512 small pages (4 KiB each, total 2 MiB).
     // Page 0 left unmapped as a null guard.
@@ -216,27 +218,31 @@ mod tests {
     #[test]
     fn pde_encoding_sys_mem_coherent() {
         let pde = encode_pde(0x6000);
-        assert_eq!(pde, 0x606);
-        assert_eq!(pde & 0x7, 6, "flags: aperture(2) + VOL(4)");
-        let addr = (pde & !0x7) << 4;
-        assert_eq!(addr, 0x6000, "GPU decode: (PDE & ~0x7) << 4");
+        // (0x6000 >> 4) | (2 << 1) | (1 << 3) = 0x600 | 0xC = 0x60C
+        assert_eq!(pde, 0x60C);
+        assert_eq!((pde >> 1) & 3, 2, "aperture bits[2:1] = COH(2)");
+        assert_eq!((pde >> 3) & 1, 1, "VOL bit 3");
+        let addr = (pde & !0xF) << 4;
+        assert_eq!(addr, 0x6000, "GPU decode: (PDE & ~0xF) << 4");
     }
 
     #[test]
     fn pte_encoding_identity_map() {
         let pte = encode_pte(0x1000);
-        assert_eq!(pte, 0x107);
+        // (0x1000 >> 4) | 1 | (2 << 1) | (1 << 3) = 0x100 | 0xD = 0x10D
+        assert_eq!(pte, 0x10D);
         assert_eq!(pte & 1, 1, "valid bit");
-        assert_eq!(pte & 0x7, 7, "flags: VALID(1) + SYS_MEM_COH(2) + VOL(4)");
-        let addr = (pte & !0x7) << 4;
-        assert_eq!(addr, 0x1000, "GPU decode: (PTE & ~0x7) << 4");
+        assert_eq!((pte >> 1) & 3, 2, "aperture bits[2:1] = COH(2)");
+        assert_eq!((pte >> 3) & 1, 1, "VOL bit 3");
+        let addr = (pte & !0xF) << 4;
+        assert_eq!(addr, 0x1000, "GPU decode: (PTE & ~0xF) << 4");
     }
 
     #[test]
     fn pte_encoding_higher_address() {
         let pte = encode_pte(0x10_0000);
-        assert_eq!(pte, 0x1_0007);
-        let addr = (pte & !0x7) << 4;
+        assert_eq!(pte, 0x1_000D);
+        let addr = (pte & !0xF) << 4;
         assert_eq!(addr, 0x10_0000);
     }
 
@@ -286,13 +292,11 @@ mod tests {
 
     #[test]
     fn iova_layout_after_userd() {
-        const { assert!(INSTANCE_IOVA > 0x2000, "instance after USERD") };
-        const {
-            assert!(
-                PT0_IOVA + 4096 <= 0x10_0000,
-                "page tables before USER_IOVA_BASE"
-            )
-        };
+        assert!(INSTANCE_IOVA > 0x2000, "instance after USERD");
+        assert!(
+            PT0_IOVA + 4096 <= 0x10_0000,
+            "page tables before USER_IOVA_BASE"
+        );
     }
 
     #[test]
