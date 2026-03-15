@@ -709,6 +709,119 @@ impl<'a> GlowPlug<'a> {
             });
         }
 
+        // Step 2.75: Clock gating sweep — disable BLCG/SLCG/ELCG to ungate faulted domains.
+        //
+        // Domains reporting 0xBADF1100 (BLCG/SLCG gated) or 0xBADF3000 (hub clock gate)
+        // need their clock gating disabled before they'll respond to PRI accesses.
+        // This must happen BEFORE any VRAM/HBM2 strategies since those need live FBPA/LTC/PCLOCK.
+        {
+            let before_cg = self.snap();
+            let mut cg_log = Vec::new();
+            cg_log.push("step 2.75: Clock gating sweep — disabling CG on faulted domains".into());
+
+            // Phase 1: Sweep all known CG control registers
+            for &(offset, name) in cg::CG_SWEEP_TARGETS {
+                let old = self.r(offset);
+                let is_error = super::registers::pri::is_pri_error(old);
+                if is_error {
+                    cg_log.push(format!("  {name} [{offset:#08x}]: PRI error {old:#010x} — domain unreachable"));
+                } else {
+                    self.w(offset, cg::CG_DISABLE);
+                    let new = self.r(offset);
+                    if old != new {
+                        cg_log.push(format!("  {name} [{offset:#08x}]: {old:#010x} → {new:#010x}"));
+                    }
+                }
+            }
+
+            // Phase 2: Per-FBPA clock gating disable
+            for i in 0..cg::FBPA_COUNT {
+                let base = cg::FBPA0_BASE + i * cg::FBPA_STRIDE;
+                let cg_reg = base + cg::FBPA_CG_OFFSET;
+                let old = self.r(cg_reg);
+                if super::registers::pri::is_pri_error(old) {
+                    cg_log.push(format!(
+                        "  FBPA{i} CG [{cg_reg:#08x}]: PRI error {old:#010x}"
+                    ));
+                    // Try writing anyway — sometimes the CG register itself is accessible
+                    // even when other FBPA registers are gated
+                    self.w(cg_reg, cg::CG_DISABLE);
+                } else {
+                    self.w(cg_reg, cg::CG_DISABLE);
+                    let new = self.r(cg_reg);
+                    if old != new {
+                        cg_log.push(format!(
+                            "  FBPA{i} CG [{cg_reg:#08x}]: {old:#010x} → {new:#010x}"
+                        ));
+                    }
+                }
+            }
+
+            // Phase 3: Per-LTC clock gating disable
+            for i in 0..cg::LTC_COUNT {
+                let base = cg::LTC0_BASE + i * cg::LTC_STRIDE;
+                let cg_reg = base + cg::LTC_CG_OFFSET;
+                let old = self.r(cg_reg);
+                if super::registers::pri::is_pri_error(old) {
+                    // Write CG disable even on error — might unlock the domain
+                    self.w(cg_reg, cg::CG_DISABLE);
+                } else {
+                    self.w(cg_reg, cg::CG_DISABLE);
+                    let new = self.r(cg_reg);
+                    if old != new {
+                        cg_log.push(format!(
+                            "  LTC{i} CG [{cg_reg:#08x}]: {old:#010x} → {new:#010x}"
+                        ));
+                    }
+                }
+            }
+
+            // Phase 4: PRI recovery after CG sweep (clear any faults from probing)
+            let recovered = self.recover_pri_bus();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Phase 5: Re-probe domains to see what came alive
+            let (alive2, faulted2, probe_log) = self.check_pri_health();
+            cg_log.push(format!(
+                "  Post-CG sweep: {alive2} alive, {faulted2} faulted (recovery={})",
+                if recovered { "ok" } else { "failed" }
+            ));
+            cg_log.extend(probe_log.into_iter().map(|l| format!("    {l}")));
+
+            // Phase 6: PCLOCK PLL probe — read PLL status registers
+            cg_log.push("  PCLOCK PLL probe:".into());
+            let pclock_base = 0x0013_7000_usize;
+            for &(off, name) in &[
+                (0x000, "PCLOCK_CTL"),
+                (0x004, "PCLOCK_STATUS"),
+                (0x008, "PCLOCK_COEFF"),
+                (0x010, "PCLOCK_PLL0"),
+                (0x014, "PCLOCK_PLL1"),
+                (0x020, "PCLOCK_BYPASS"),
+                (0x050, "NVPLL_CTL"),
+                (0x054, "NVPLL_COEFF"),
+                (0x100, "MEMPLL_CTL"),
+                (0x104, "MEMPLL_COEFF"),
+            ] {
+                let reg = pclock_base + off;
+                let val = self.r(reg);
+                let err = if super::registers::pri::is_pri_error(val) {
+                    format!(" ← {}", super::registers::pri::decode_pri_error(val))
+                } else {
+                    String::new()
+                };
+                cg_log.push(format!("    {name} [{reg:#08x}] = {val:#010x}{err}"));
+            }
+
+            let after_cg = self.snap();
+            step_snapshots.push(StepSnapshot {
+                step: "Clock gating sweep + PLL probe".into(),
+                before: before_cg,
+                after: after_cg,
+            });
+            log.extend(cg_log);
+        }
+
         // Step 3: Check VRAM — if dead, attempt HBM2 training
         let state_after_pfifo = self.check_state();
         if state_after_pfifo == GpuThermalState::PfifoAliveVramDead {

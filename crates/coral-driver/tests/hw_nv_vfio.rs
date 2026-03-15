@@ -1336,4 +1336,149 @@ mod tests {
         }
         eprintln!("╚══════════════════════════════════════════════════════════════╝");
     }
+
+    #[test]
+    #[ignore = "requires VFIO-bound GPU hardware"]
+    fn vfio_pclock_deep_probe() {
+        use coral_driver::nv::RawVfioDevice;
+        use coral_driver::vfio::channel::registers::pri;
+
+        let bdf = vfio_bdf();
+        let raw = RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open()");
+
+        eprintln!("╔══════════════════════════════════════════════════════════════╗");
+        eprintln!("║ PCLOCK DEEP PROBE — Scanning clock domain for live regs     ║");
+        eprintln!("╠══════════════════════════════════════════════════════════════╣");
+
+        // Phase 1: Enable PMC and wait
+        let r = |off: usize| -> u32 { raw.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD) };
+        let w = |off: usize, val: u32| { let _ = raw.bar0.write_u32(off, val); };
+
+        w(0x200, 0xFFFF_FFFF);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        eprintln!("║ PMC_ENABLE = {:#010x}", r(0x200));
+
+        // Phase 2: Disable PTHERM clock gating first
+        for &cg_off in &[0x020200_usize, 0x020204, 0x020208] {
+            let old = r(cg_off);
+            if !pri::is_pri_error(old) {
+                w(cg_off, 0);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        // Phase 3: Scan PCLOCK range (0x130000-0x138000) for readable registers
+        eprintln!("╠══ PCLOCK Register Scan (0x130000-0x138000) ════════════════╣");
+        let mut live_regs = Vec::new();
+        let mut faulted_patterns: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+
+        for off in (0x130000..0x138000).step_by(4) {
+            let val = r(off);
+            if pri::is_pri_error(val) {
+                *faulted_patterns.entry(val).or_default() += 1;
+            } else if val != 0xDEAD_DEAD {
+                live_regs.push((off, val));
+            }
+        }
+
+        eprintln!("║ Live registers: {}", live_regs.len());
+        for &(off, val) in &live_regs {
+            eprintln!("║   [{off:#08x}] = {val:#010x}");
+        }
+
+        eprintln!("║ Faulted patterns:");
+        let mut sorted: Vec<_> = faulted_patterns.iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(a.1));
+        for (pattern, count) in &sorted {
+            eprintln!("║   {pattern:#010x}: {count} registers — {}", pri::decode_pri_error(**pattern));
+        }
+
+        // Phase 4: Try enabling clocks through accessible registers
+        eprintln!("╠══ PLL Enable Attempts ═════════════════════════════════════╣");
+
+        // The PCLOCK_BYPASS register is accessible — try different bypass modes
+        let bypass = r(0x137020);
+        eprintln!("║ PCLOCK_BYPASS before: {bypass:#010x}");
+
+        // Try enabling various PLL control bits
+        let attempts: &[(usize, u32, &str)] = &[
+            // NVPLL control — try enable bit
+            (0x137050, 0x00000001, "NVPLL_CTL enable"),
+            (0x137050, 0x00000009, "NVPLL_CTL enable+current"),
+            // Memory PLL — try enable
+            (0x137100, 0x00000001, "MEMPLL_CTL enable"),
+            (0x137100, 0x00000003, "MEMPLL_CTL enable+bypass"),
+            // PCLOCK bypass — try different modes
+            (0x137020, 0x00030011, "BYPASS mode +1"),
+            (0x137020, 0x00010010, "BYPASS no upper"),
+            (0x137020, 0x00030000, "BYPASS mask only"),
+            // CLK domain at 0x132000 range (from envytools PCLOCK starts at 0x130000)
+            (0x132000, 0x00000001, "CLK_BASE enable"),
+            (0x132004, 0x00000001, "CLK_BASE+4 enable"),
+        ];
+
+        for &(reg, val, desc) in attempts {
+            let before = r(reg);
+            let before_err = pri::is_pri_error(before);
+            if before_err {
+                eprintln!("║ {desc}: [{reg:#08x}] is faulted ({before:#010x}), writing anyway...");
+            }
+            w(reg, val);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let after = r(reg);
+            let pclock_status = r(0x137000);
+
+            let changed = if before_err { "was faulted" } else if before == after { "unchanged" } else { "CHANGED" };
+            let pclock_alive = if pri::is_pri_error(pclock_status) { "dead" } else { "ALIVE" };
+            eprintln!("║   {desc}: {before:#010x} → {after:#010x} ({changed}) | PCLOCK[0]={pclock_status:#010x} ({pclock_alive})");
+        }
+
+        // Phase 5: PRI recovery and re-scan
+        eprintln!("╠══ Post-PLL Re-scan ════════════════════════════════════════╣");
+        // Clear PRI faults
+        w(0x12004C, 0x02);
+        w(0x000100, r(0x000100) | (1 << 26));
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Re-probe critical domains
+        let domains: &[(usize, &str)] = &[
+            (0x137000, "PCLOCK"),
+            (0x137050, "NVPLL"),
+            (0x137100, "MEMPLL"),
+            (0x17E200, "LTC0"),
+            (0x9A0000, "FBPA0"),
+            (0x9A4000, "FBPA1"),
+            (0x9A8000, "FBPA2"),
+            (0x9AC000, "FBPA3"),
+            (0x001200, "PBUS"),
+            (0x100000, "PFB"),
+        ];
+
+        for &(off, name) in domains {
+            let val = r(off);
+            let status = if pri::is_pri_error(val) {
+                format!("FAULTED — {}", pri::decode_pri_error(val))
+            } else {
+                format!("ALIVE ({val:#010x})")
+            };
+            eprintln!("║ {name:12} [{off:#08x}]: {status}");
+        }
+
+        // Phase 6: Deeper CLK range scan (0x130000-0x133000 = core CLK block)
+        eprintln!("╠══ CLK Block Scan (0x130000-0x133000) ═════════════════════╣");
+        let mut clk_live = Vec::new();
+        for off in (0x130000..0x133000).step_by(4) {
+            let val = r(off);
+            if !pri::is_pri_error(val) && val != 0xDEAD_DEAD {
+                clk_live.push((off, val));
+            }
+        }
+        eprintln!("║ Live CLK registers: {}", clk_live.len());
+        for &(off, val) in &clk_live {
+            eprintln!("║   [{off:#08x}] = {val:#010x}");
+        }
+
+        eprintln!("╚══════════════════════════════════════════════════════════════╝");
+    }
 }
