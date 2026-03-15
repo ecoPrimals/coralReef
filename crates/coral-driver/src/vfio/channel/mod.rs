@@ -15,6 +15,10 @@
 //! 5. Bind instance block to channel via PCCSR registers
 //! 6. Enable channel and submit runlist to PFIFO
 
+pub mod devinit;
+pub mod glowplug;
+pub mod hbm2_training;
+pub mod pri_monitor;
 pub mod registers;
 
 mod diagnostic;
@@ -22,8 +26,10 @@ mod page_tables;
 mod pfifo;
 
 pub use diagnostic::{
-    ExperimentConfig, ExperimentOrdering, ExperimentResult, build_experiment_matrix,
+    ExperimentConfig, ExperimentOrdering, ExperimentResult,
+    build_experiment_matrix, build_metal_discovery_matrix,
     diagnostic_matrix,
+    interpreter::{ProbeInterpreter, ProbeReport, memory_probe},
 };
 pub use registers::ramuserd;
 

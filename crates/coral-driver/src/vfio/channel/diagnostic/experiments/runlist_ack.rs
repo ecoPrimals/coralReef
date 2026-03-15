@@ -28,8 +28,7 @@ pub(super) fn runlist_ack_protocol(ctx: &mut ExperimentContext<'_>) -> DriverRes
     write_u32_le(ctx.userd_page, ramuserd::GP_GET, 0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
 
     let mut rl_completed = false;
     for poll in 0..20 {
@@ -104,8 +103,7 @@ pub(super) fn inst_bind_with_runlist_ack(ctx: &mut ExperimentContext<'_>) -> Dri
     write_u32_le(ctx.userd_page, ramuserd::GP_GET, 0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
 
     let mut rl_completed = false;
     for poll in 0..20 {
@@ -188,8 +186,7 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
     write_u32_le(ctx.userd_page, ramuserd::GP_GET, 0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
 
     let mut rl_completed = false;
     for poll in 0..20 {

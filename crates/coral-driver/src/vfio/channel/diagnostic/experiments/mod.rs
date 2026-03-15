@@ -63,5 +63,20 @@ pub(super) fn run_experiment(ctx: &mut ExperimentContext<'_>) -> DriverResult<()
         ExperimentOrdering::NoPmcResetFastPoll => no_pmc_reset_fast_poll(ctx),
         ExperimentOrdering::FullPfifoReinitDispatch
         | ExperimentOrdering::FullPfifoReinitDirectPbdma => full_pfifo_reinit(ctx),
+
+        // Metal capability discovery experiments — handled separately by
+        // the bar_cartography and gpu_vendor systems, not PFIFO dispatch.
+        ExperimentOrdering::PowerStateSweep
+        | ExperimentOrdering::RegisterCartography
+        | ExperimentOrdering::MemoryPathMatrix
+        | ExperimentOrdering::ClockDomainSweep
+        | ExperimentOrdering::EngineProbe => Ok(()),
+
+        // HBM2 training experiments — handled by the hbm2_training module
+        // and exposed as hardware tests, not PFIFO dispatch experiments.
+        ExperimentOrdering::Hbm2PhyProbe
+        | ExperimentOrdering::Hbm2TimingCapture
+        | ExperimentOrdering::Hbm2TrainingAttempt
+        | ExperimentOrdering::Hbm2MinimalSet => Ok(()),
     }
 }

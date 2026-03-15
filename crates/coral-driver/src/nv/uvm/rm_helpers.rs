@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Helper functions for RM client operations: UUID parsing and raw ioctl.
+//! Helper functions for RM client operations: UUID parsing and RM ioctl.
+
+use std::borrow::Cow;
 
 use crate::error::{DriverError, DriverResult};
 
@@ -46,6 +48,49 @@ fn hex_nibble(b: u8) -> u8 {
     }
 }
 
+/// Perform an NV RM ioctl via `rustix`, checking both the ioctl result and
+/// the RM `status` field.
+///
+/// Replaces the previous `extern "C" { fn ioctl }` FFI with the sovereign
+/// `drm_ioctl_named` path. The `extract_status` closure reads the RM status
+/// from the response struct so we can produce informative errors even when
+/// the ioctl syscall itself succeeds but RM reports failure.
+///
+/// # Safety
+///
+/// `fd` must be a valid nvidia control device file descriptor. `params` must
+/// be the correct `#[repr(C)]` struct for `ioctl_nr`.
+pub(super) unsafe fn nv_rm_ioctl<T>(
+    fd: i32,
+    ioctl_nr: u64,
+    params: &mut T,
+    name: &'static str,
+    extract_status: impl FnOnce(&T) -> u32,
+) -> DriverResult<()> {
+    let ioctl_result = unsafe { crate::drm::drm_ioctl_named(fd, ioctl_nr, params, name) };
+
+    let rm_status = extract_status(params);
+
+    if let Err(ioctl_err) = ioctl_result {
+        if rm_status != super::NV_OK {
+            return Err(DriverError::SubmitFailed(Cow::Owned(format!(
+                "{name} failed: status=0x{rm_status:08X}{}",
+                super::nv_status::status_name(rm_status),
+            ))));
+        }
+        return Err(ioctl_err);
+    }
+
+    if rm_status != super::NV_OK {
+        return Err(DriverError::SubmitFailed(Cow::Owned(format!(
+            "{name} failed: status=0x{rm_status:08X}{}",
+            super::nv_status::status_name(rm_status),
+        ))));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,8 +99,8 @@ mod tests {
     fn parse_binary_gid_with_0x04_header() {
         let mut gid = [0u8; 16];
         gid[0] = 0x04;
-        for i in 1..16 {
-            gid[i] = i as u8;
+        for (i, byte) in gid.iter_mut().enumerate().skip(1) {
+            *byte = i as u8;
         }
         let uuid = parse_gid_to_uuid(&gid).expect("binary GID should parse");
         assert_eq!(uuid, gid);
@@ -65,8 +110,8 @@ mod tests {
     fn parse_binary_gid_longer_than_16_bytes() {
         let mut gid = [0u8; 32];
         gid[0] = 0x04;
-        for i in 1..16 {
-            gid[i] = (0xA0 + i) as u8;
+        for (i, byte) in gid.iter_mut().enumerate().take(16).skip(1) {
+            *byte = (0xA0 + i) as u8;
         }
         let uuid = parse_gid_to_uuid(&gid).expect("long binary GID should parse");
         assert_eq!(uuid[0], 0x04);
@@ -134,18 +179,4 @@ mod tests {
         assert_eq!(hex_nibble(b' '), 0);
         assert_eq!(hex_nibble(b'-'), 0);
     }
-}
-
-/// Raw ioctl via C FFI, bypassing `rustix::ioctl::Ioctl` (mishandles `NV_ESC_RM_*`).
-///
-/// # Safety
-///
-/// `fd` must be valid; `params` must be `#[repr(C)]` and the sole mutable reference.
-pub(super) unsafe fn raw_nv_ioctl<T>(fd: i32, ioctl_nr: u64, params: &mut T) -> i32 {
-    // SAFETY: ioctl is the kernel ABI; caller guarantees fd valid, params repr(C) and sole ref.
-    unsafe extern "C" {
-        fn ioctl(fd: i32, request: u64, ...) -> i32;
-    }
-    // SAFETY: from_mut(params) is valid for ioctl duration; kernel reads/writes synchronously.
-    unsafe { ioctl(fd, ioctl_nr, std::ptr::from_mut(params)) }
 }

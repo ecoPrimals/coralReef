@@ -1,0 +1,1171 @@
+{
+  "architecture": "Volta",
+  "bdf": "0000:4a:00.0",
+  "boot0": "0x140000a1",
+  "chip": "GV100",
+  "cold_scan": {
+    "bar_map": {
+      "bar_index": 0,
+      "error_bytes": 664436,
+      "region_count": 24,
+      "regions": [
+        {
+          "access": "Dead",
+          "dead": 986,
+          "end": "0x1000",
+          "name": "PMC",
+          "responsive": 38,
+          "start": "0x0"
+        },
+        {
+          "access": "Dead",
+          "dead": 888,
+          "end": "0x2000",
+          "name": "PBUS",
+          "responsive": 136,
+          "start": "0x1000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1812,
+          "end": "0x4000",
+          "name": "PFIFO",
+          "responsive": 236,
+          "start": "0x2000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1008,
+          "end": "0xa000",
+          "name": "PTIMER",
+          "responsive": 16,
+          "start": "0x9000"
+        },
+        {
+          "access": "Dead",
+          "dead": 673,
+          "end": "0x21000",
+          "name": "PTOP",
+          "responsive": 351,
+          "start": "0x20000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 349,
+          "end": "0x22000",
+          "name": "FUSE",
+          "responsive": 675,
+          "start": "0x21000"
+        },
+        {
+          "access": "Dead",
+          "dead": 939,
+          "end": "0x23000",
+          "name": "PTOP/ENGINE",
+          "responsive": 85,
+          "start": "0x22000"
+        },
+        {
+          "access": "Dead",
+          "dead": 63976,
+          "end": "0x80000",
+          "name": "PBDMA",
+          "responsive": 1560,
+          "start": "0x40000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1024,
+          "end": "0x85000",
+          "name": "NVDEC",
+          "responsive": 0,
+          "start": "0x84000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1882,
+          "end": "0x102000",
+          "name": "PFB",
+          "responsive": 166,
+          "start": "0x100000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1006,
+          "end": "0x105000",
+          "name": "CE",
+          "responsive": 18,
+          "start": "0x104000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 252,
+          "end": "0x10b000",
+          "name": "PMU",
+          "responsive": 772,
+          "start": "0x10a000"
+        },
+        {
+          "access": "Dead",
+          "dead": 558,
+          "end": "0x123000",
+          "name": "PRI_MASTER",
+          "responsive": 466,
+          "start": "0x122000"
+        },
+        {
+          "access": "Dead",
+          "dead": 893,
+          "end": "0x133000",
+          "name": "CLK",
+          "responsive": 131,
+          "start": "0x132000"
+        },
+        {
+          "access": "Dead",
+          "dead": 854,
+          "end": "0x138000",
+          "name": "PCLOCK",
+          "responsive": 170,
+          "start": "0x137000"
+        },
+        {
+          "access": "Dead",
+          "dead": 17849,
+          "end": "0x190000",
+          "name": "LTC",
+          "responsive": 583,
+          "start": "0x17e000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1024,
+          "end": "0x1c9000",
+          "name": "NVENC",
+          "responsive": 0,
+          "start": "0x1c8000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1007,
+          "end": "0x1fb000",
+          "name": "PMEM",
+          "responsive": 17,
+          "start": "0x1fa000"
+        },
+        {
+          "access": "Dead",
+          "dead": 32575,
+          "end": "0x420000",
+          "name": "GR",
+          "responsive": 193,
+          "start": "0x400000"
+        },
+        {
+          "access": "Dead",
+          "dead": 13272,
+          "end": "0x620000",
+          "name": "DISP",
+          "responsive": 3112,
+          "start": "0x610000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 0,
+          "end": "0x800000",
+          "name": "PRAMIN",
+          "responsive": 262144,
+          "start": "0x700000"
+        },
+        {
+          "access": "Dead",
+          "dead": 8192,
+          "end": "0x810000",
+          "name": "PCCSR",
+          "responsive": 8192,
+          "start": "0x800000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 0,
+          "end": "0x820000",
+          "name": "USERMODE",
+          "responsive": 16384,
+          "start": "0x810000"
+        },
+        {
+          "access": "Dead",
+          "dead": 15090,
+          "end": "0x9b0000",
+          "name": "FBPA",
+          "responsive": 1294,
+          "start": "0x9a0000"
+        }
+      ],
+      "responsive_bytes": 1186956,
+      "size": 10158080
+    },
+    "probe": {
+      "active_fbps": 4,
+      "active_gpcs": 6,
+      "active_tpcs": 84,
+      "domains": [
+        {
+          "active": false,
+          "name": "GR"
+        },
+        {
+          "active": true,
+          "name": "PFIFO"
+        },
+        {
+          "active": false,
+          "name": "PBDMA"
+        },
+        {
+          "active": false,
+          "name": "CE0"
+        },
+        {
+          "active": false,
+          "name": "PMU"
+        },
+        {
+          "active": false,
+          "name": "FB"
+        },
+        {
+          "active": false,
+          "name": "LTC"
+        },
+        {
+          "active": true,
+          "name": "DISP"
+        }
+      ],
+      "falcons": [
+        {
+          "base": "0x10a000",
+          "ctrl": "0x00000020",
+          "halted": false,
+          "name": "PMU"
+        }
+      ],
+      "fbpa": [
+        {
+          "alive": true,
+          "index": 0
+        },
+        {
+          "alive": false,
+          "index": 1
+        },
+        {
+          "alive": false,
+          "index": 2
+        },
+        {
+          "alive": false,
+          "index": 3
+        }
+      ],
+      "fuses": [
+        {
+          "name": "OPT_GPU_DISABLE",
+          "value": "0x00000000"
+        },
+        {
+          "name": "OPT_GPC_DISABLE",
+          "value": "0x00000000"
+        },
+        {
+          "name": "OPT_FBP_DISABLE",
+          "value": "0x0000f000"
+        },
+        {
+          "name": "OPT_PES_DISABLE",
+          "value": "0x0000f000"
+        }
+      ],
+      "ltc": [
+        {
+          "alive": true,
+          "index": 0
+        },
+        {
+          "alive": false,
+          "index": 1
+        },
+        {
+          "alive": false,
+          "index": 2
+        },
+        {
+          "alive": false,
+          "index": 3
+        },
+        {
+          "alive": false,
+          "index": 4
+        },
+        {
+          "alive": false,
+          "index": 5
+        }
+      ],
+      "pmc_enable": "0x40000121",
+      "temperature_c": 47
+    }
+  },
+  "diff": {
+    "unchanged": 296278,
+    "value_changed": 92,
+    "value_changed_registers": [
+      {
+        "after": "0x0000000c",
+        "before": "0x00000008",
+        "offset": "0x1100"
+      },
+      {
+        "after": "0x80000020",
+        "before": "0x002fff00",
+        "offset": "0x1704"
+      },
+      {
+        "after": "0x80000020",
+        "before": "0x40000000",
+        "offset": "0x1714"
+      },
+      {
+        "after": "0x87453fc0",
+        "before": "0x91406e20",
+        "offset": "0x9400"
+      },
+      {
+        "after": "0x00000032",
+        "before": "0x00000031",
+        "offset": "0x9410"
+      },
+      {
+        "after": "0x0000307b",
+        "before": "0x00003076",
+        "offset": "0x20008"
+      },
+      {
+        "after": "0x00000002",
+        "before": "0x00000000",
+        "offset": "0x20038"
+      },
+      {
+        "after": "0x0200af4e",
+        "before": "0x0200b146",
+        "offset": "0x20350"
+      },
+      {
+        "after": "0x00005725",
+        "before": "0x0000581c",
+        "offset": "0x20354"
+      },
+      {
+        "after": "0x00000030",
+        "before": "0x0000002f",
+        "offset": "0x20400"
+      },
+      {
+        "after": "0x00000010",
+        "before": "0x000000e0",
+        "offset": "0x20444"
+      },
+      {
+        "after": "0x10e003f3",
+        "before": "0x10d603f3",
+        "offset": "0x20448"
+      },
+      {
+        "after": "0x00000070",
+        "before": "0x0000006f",
+        "offset": "0x2044c"
+      },
+      {
+        "after": "0x20002f80",
+        "before": "0x20002f58",
+        "offset": "0x20460"
+      },
+      {
+        "after": "0x20004380",
+        "before": "0x20004358",
+        "offset": "0x20464"
+      },
+      {
+        "after": "0x20004380",
+        "before": "0x20004358",
+        "offset": "0x2046c"
+      },
+      {
+        "after": "0x20003090",
+        "before": "0x20003060",
+        "offset": "0x20470"
+      },
+      {
+        "after": "0x20003010",
+        "before": "0x20002fe0",
+        "offset": "0x20474"
+      },
+      {
+        "after": "0x20003c40",
+        "before": "0x20003c60",
+        "offset": "0x20478"
+      },
+      {
+        "after": "0x20003b10",
+        "before": "0x20003ae0",
+        "offset": "0x2047c"
+      },
+      {
+        "after": "0xa0002f80",
+        "before": "0xa0002f58",
+        "offset": "0x20480"
+      },
+      {
+        "after": "0xa0002f80",
+        "before": "0xa0002f58",
+        "offset": "0x20484"
+      },
+      {
+        "after": "0x20003050",
+        "before": "0x20003060",
+        "offset": "0x206e0"
+      },
+      {
+        "after": "0x20003c50",
+        "before": "0x20003c60",
+        "offset": "0x206e8"
+      },
+      {
+        "after": "0x800056fb",
+        "before": "0x800056fc",
+        "offset": "0x206ec"
+      },
+      {
+        "after": "0x566ca34f",
+        "before": "0x562ed43b",
+        "offset": "0x4002c"
+      },
+      {
+        "after": "0x189caacb",
+        "before": "0x185edb23",
+        "offset": "0x4202c"
+      },
+      {
+        "after": "0x267ab986",
+        "before": "0x263ce728",
+        "offset": "0x4402c"
+      },
+      {
+        "after": "0x3a72c700",
+        "before": "0x3a34f25d",
+        "offset": "0x4602c"
+      },
+      {
+        "after": "0x5b98d3dd",
+        "before": "0x5b5afe88",
+        "offset": "0x4802c"
+      },
+      {
+        "after": "0x5a791f9d",
+        "before": "0x5a3b49d5",
+        "offset": "0x4a02c"
+      },
+      {
+        "after": "0x2f2c5ba2",
+        "before": "0x2eee8581",
+        "offset": "0x4c02c"
+      },
+      {
+        "after": "0x1e696614",
+        "before": "0x1e2b8ed0",
+        "offset": "0x4e02c"
+      },
+      {
+        "after": "0xb69d251e",
+        "before": "0xb65f4d7c",
+        "offset": "0x5002c"
+      },
+      {
+        "after": "0x1ec9a04f",
+        "before": "0x1e8bc87e",
+        "offset": "0x5202c"
+      },
+      {
+        "after": "0xba69a977",
+        "before": "0xba2bd0c2",
+        "offset": "0x5402c"
+      },
+      {
+        "after": "0x184546d4",
+        "before": "0x18076e40",
+        "offset": "0x5602c"
+      },
+      {
+        "after": "0x206a0b97",
+        "before": "0x202c3314",
+        "offset": "0x5802c"
+      },
+      {
+        "after": "0x9aa147ed",
+        "before": "0x9a636f6c",
+        "offset": "0x5a02c"
+      },
+      {
+        "after": "0x00000210",
+        "before": "0x00000000",
+        "offset": "0x100cb8"
+      },
+      {
+        "after": "0x00000005",
+        "before": "0x04000000",
+        "offset": "0x100cbc"
+      },
+      {
+        "after": "0x02eff001",
+        "before": "0x00000003",
+        "offset": "0x100cd0"
+      },
+      {
+        "after": "0x1ffffe02",
+        "before": "0x08000000",
+        "offset": "0x100cd4"
+      },
+      {
+        "after": "0x02eff001",
+        "before": "0x000000cf",
+        "offset": "0x100cd8"
+      },
+      {
+        "after": "0x000721fd",
+        "before": "0x0007092f",
+        "offset": "0x10a024"
+      },
+      {
+        "after": "0xa14a6cc0",
+        "before": "0xa8eba040",
+        "offset": "0x10a02c"
+      },
+      {
+        "after": "0x00000032",
+        "before": "0x00000031",
+        "offset": "0x10a030"
+      },
+      {
+        "after": "0x000100ed",
+        "before": "0x000100e9",
+        "offset": "0x10a094"
+      },
+      {
+        "after": "0x0000000a",
+        "before": "0x00000008",
+        "offset": "0x10a488"
+      },
+      {
+        "after": "0x950cca86",
+        "before": "0x8d47d9fb",
+        "offset": "0x10a5c0"
+      },
+      {
+        "after": "0x789f1b1c",
+        "before": "0xf1dddc1c",
+        "offset": "0x137654"
+      },
+      {
+        "after": "0x0000000a",
+        "before": "0x00000009",
+        "offset": "0x137658"
+      },
+      {
+        "after": "0x00030004",
+        "before": "0x00030000",
+        "offset": "0x17e2e4"
+      },
+      {
+        "after": "0x0001001a",
+        "before": "0x00010018",
+        "offset": "0x17e360"
+      },
+      {
+        "after": "0x00000004",
+        "before": "0x00000000",
+        "offset": "0x17e370"
+      },
+      {
+        "after": "0x00000004",
+        "before": "0x00000000",
+        "offset": "0x17e378"
+      },
+      {
+        "after": "0xf0008000",
+        "before": "0xb0008000",
+        "offset": "0x17e3b0"
+      },
+      {
+        "after": "0x00030005",
+        "before": "0x00030002",
+        "offset": "0x17e4e4"
+      },
+      {
+        "after": "0x00000000",
+        "before": "0x7003ffff",
+        "offset": "0x17e4e8"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17e570"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17e578"
+      },
+      {
+        "after": "0xf0008000",
+        "before": "0xb0008000",
+        "offset": "0x17e5b0"
+      },
+      {
+        "after": "0x00030005",
+        "before": "0x00030002",
+        "offset": "0x17e6e4"
+      },
+      {
+        "after": "0x00000000",
+        "before": "0x7003ffff",
+        "offset": "0x17e6e8"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17e770"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17e778"
+      },
+      {
+        "after": "0xe0008000",
+        "before": "0xb0008000",
+        "offset": "0x17e7b0"
+      },
+      {
+        "after": "0x00030005",
+        "before": "0x00030002",
+        "offset": "0x17e8e4"
+      },
+      {
+        "after": "0x00000000",
+        "before": "0x7003ffff",
+        "offset": "0x17e8e8"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17e970"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17e978"
+      },
+      {
+        "after": "0xe0008000",
+        "before": "0xb0008000",
+        "offset": "0x17e9b0"
+      },
+      {
+        "after": "0x00030005",
+        "before": "0x00030002",
+        "offset": "0x17eae4"
+      },
+      {
+        "after": "0x00000000",
+        "before": "0x7003ffff",
+        "offset": "0x17eae8"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17eb70"
+      },
+      {
+        "after": "0x00000001",
+        "before": "0x00000002",
+        "offset": "0x17eb78"
+      },
+      {
+        "after": "0xe0008000",
+        "before": "0xb0008000",
+        "offset": "0x17ebb0"
+      },
+      {
+        "after": "0x0000802d",
+        "before": "0x00000000",
+        "offset": "0x61612c"
+      },
+      {
+        "after": "0xba1b8319",
+        "before": "0x00000000",
+        "offset": "0x616384"
+      },
+      {
+        "after": "0x000018d1",
+        "before": "0x00000000",
+        "offset": "0x616388"
+      },
+      {
+        "after": "0x000080e5",
+        "before": "0x00000000",
+        "offset": "0x61692c"
+      },
+      {
+        "after": "0xfb13bfe9",
+        "before": "0x00000000",
+        "offset": "0x616b84"
+      },
+      {
+        "after": "0x0000be0a",
+        "before": "0x00000000",
+        "offset": "0x616b88"
+      },
+      {
+        "after": "0x000082bf",
+        "before": "0x00000000",
+        "offset": "0x61712c"
+      },
+      {
+        "after": "0xf7f6a4f0",
+        "before": "0x00000000",
+        "offset": "0x617384"
+      },
+      {
+        "after": "0x0000cac2",
+        "before": "0x00000000",
+        "offset": "0x617388"
+      },
+      {
+        "after": "0x0000833d",
+        "before": "0x00000000",
+        "offset": "0x61792c"
+      },
+      {
+        "after": "0x86a5cbb8",
+        "before": "0x00000000",
+        "offset": "0x617b84"
+      },
+      {
+        "after": "0x00007cfb",
+        "before": "0x00000000",
+        "offset": "0x617b88"
+      },
+      {
+        "after": "0x71895460",
+        "before": "0x6d847a00",
+        "offset": "0x810080"
+      },
+      {
+        "after": "0x00000033",
+        "before": "0x00000032",
+        "offset": "0x810084"
+      },
+      {
+        "after": "0x80000b0b",
+        "before": "0x80004d4d",
+        "offset": "0x9a0210"
+      }
+    ],
+    "went_dead": 369,
+    "woke_up": 0,
+    "woke_up_registers": []
+  },
+  "engines": [
+    {
+      "base": "0x400000",
+      "has_firmware": true,
+      "kind": "Compute",
+      "name": "GR (Graphics/Compute)"
+    },
+    {
+      "base": "0x104000",
+      "has_firmware": true,
+      "kind": "Copy",
+      "name": "CE0 (Copy Engine)"
+    },
+    {
+      "base": "0x10a000",
+      "has_firmware": true,
+      "kind": "Scheduler",
+      "name": "PMU (Power Management)"
+    },
+    {
+      "base": "0x610000",
+      "has_firmware": false,
+      "kind": "Display",
+      "name": "PDISP (Display)"
+    },
+    {
+      "base": "0x84000",
+      "has_firmware": true,
+      "kind": "Video",
+      "name": "NVDEC (Video Decode)"
+    },
+    {
+      "base": "0x1c8000",
+      "has_firmware": true,
+      "kind": "Video",
+      "name": "NVENC (Video Encode)"
+    }
+  ],
+  "glowplug": {
+    "final": "Warm",
+    "initial": "VramAliveBar2Dead",
+    "steps": [],
+    "success": true
+  },
+  "memory_regions": [
+    {
+      "control_base": "0x100000",
+      "kind": "Vram",
+      "name": "VRAM (HBM2)",
+      "partitions": 4,
+      "size": null
+    },
+    {
+      "control_base": "0x17e000",
+      "kind": "L2Cache",
+      "name": "L2 Cache",
+      "partitions": 6,
+      "size": null
+    },
+    {
+      "control_base": "0x700000",
+      "kind": "Aperture",
+      "name": "PRAMIN Aperture",
+      "partitions": null,
+      "size": 1048576
+    }
+  ],
+  "timestamp": "1773611523",
+  "warm_scan": {
+    "bar_map": {
+      "bar_index": 0,
+      "error_bytes": 665912,
+      "region_count": 24,
+      "regions": [
+        {
+          "access": "Dead",
+          "dead": 986,
+          "end": "0x1000",
+          "name": "PMC",
+          "responsive": 38,
+          "start": "0x0"
+        },
+        {
+          "access": "Dead",
+          "dead": 888,
+          "end": "0x2000",
+          "name": "PBUS",
+          "responsive": 136,
+          "start": "0x1000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1812,
+          "end": "0x4000",
+          "name": "PFIFO",
+          "responsive": 236,
+          "start": "0x2000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1008,
+          "end": "0xa000",
+          "name": "PTIMER",
+          "responsive": 16,
+          "start": "0x9000"
+        },
+        {
+          "access": "Dead",
+          "dead": 673,
+          "end": "0x21000",
+          "name": "PTOP",
+          "responsive": 351,
+          "start": "0x20000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 349,
+          "end": "0x22000",
+          "name": "FUSE",
+          "responsive": 675,
+          "start": "0x21000"
+        },
+        {
+          "access": "Dead",
+          "dead": 939,
+          "end": "0x23000",
+          "name": "PTOP/ENGINE",
+          "responsive": 85,
+          "start": "0x22000"
+        },
+        {
+          "access": "Dead",
+          "dead": 63976,
+          "end": "0x80000",
+          "name": "PBDMA",
+          "responsive": 1560,
+          "start": "0x40000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1024,
+          "end": "0x85000",
+          "name": "NVDEC",
+          "responsive": 0,
+          "start": "0x84000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1882,
+          "end": "0x102000",
+          "name": "PFB",
+          "responsive": 166,
+          "start": "0x100000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1006,
+          "end": "0x105000",
+          "name": "CE",
+          "responsive": 18,
+          "start": "0x104000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 252,
+          "end": "0x10b000",
+          "name": "PMU",
+          "responsive": 772,
+          "start": "0x10a000"
+        },
+        {
+          "access": "Dead",
+          "dead": 558,
+          "end": "0x123000",
+          "name": "PRI_MASTER",
+          "responsive": 466,
+          "start": "0x122000"
+        },
+        {
+          "access": "Dead",
+          "dead": 893,
+          "end": "0x133000",
+          "name": "CLK",
+          "responsive": 131,
+          "start": "0x132000"
+        },
+        {
+          "access": "Dead",
+          "dead": 854,
+          "end": "0x138000",
+          "name": "PCLOCK",
+          "responsive": 170,
+          "start": "0x137000"
+        },
+        {
+          "access": "Dead",
+          "dead": 17850,
+          "end": "0x190000",
+          "name": "LTC",
+          "responsive": 582,
+          "start": "0x17e000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1024,
+          "end": "0x1c9000",
+          "name": "NVENC",
+          "responsive": 0,
+          "start": "0x1c8000"
+        },
+        {
+          "access": "Dead",
+          "dead": 1007,
+          "end": "0x1fb000",
+          "name": "PMEM",
+          "responsive": 17,
+          "start": "0x1fa000"
+        },
+        {
+          "access": "Dead",
+          "dead": 32575,
+          "end": "0x420000",
+          "name": "GR",
+          "responsive": 193,
+          "start": "0x400000"
+        },
+        {
+          "access": "Dead",
+          "dead": 13272,
+          "end": "0x620000",
+          "name": "DISP",
+          "responsive": 3112,
+          "start": "0x610000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 0,
+          "end": "0x800000",
+          "name": "PRAMIN",
+          "responsive": 262144,
+          "start": "0x700000"
+        },
+        {
+          "access": "Dead",
+          "dead": 8192,
+          "end": "0x810000",
+          "name": "PCCSR",
+          "responsive": 8192,
+          "start": "0x800000"
+        },
+        {
+          "access": "ReadOnly",
+          "dead": 0,
+          "end": "0x820000",
+          "name": "USERMODE",
+          "responsive": 16384,
+          "start": "0x810000"
+        },
+        {
+          "access": "Dead",
+          "dead": 15458,
+          "end": "0x9b0000",
+          "name": "FBPA",
+          "responsive": 926,
+          "start": "0x9a0000"
+        }
+      ],
+      "responsive_bytes": 1185480,
+      "size": 10158080
+    },
+    "probe": {
+      "active_fbps": 4,
+      "active_gpcs": 6,
+      "active_tpcs": 84,
+      "domains": [
+        {
+          "active": false,
+          "name": "GR"
+        },
+        {
+          "active": true,
+          "name": "PFIFO"
+        },
+        {
+          "active": false,
+          "name": "PBDMA"
+        },
+        {
+          "active": false,
+          "name": "CE0"
+        },
+        {
+          "active": false,
+          "name": "PMU"
+        },
+        {
+          "active": false,
+          "name": "FB"
+        },
+        {
+          "active": false,
+          "name": "LTC"
+        },
+        {
+          "active": true,
+          "name": "DISP"
+        }
+      ],
+      "falcons": [
+        {
+          "base": "0x10a000",
+          "ctrl": "0x00000020",
+          "halted": false,
+          "name": "PMU"
+        }
+      ],
+      "fbpa": [
+        {
+          "alive": true,
+          "index": 0
+        },
+        {
+          "alive": false,
+          "index": 1
+        },
+        {
+          "alive": false,
+          "index": 2
+        },
+        {
+          "alive": false,
+          "index": 3
+        }
+      ],
+      "fuses": [
+        {
+          "name": "OPT_GPU_DISABLE",
+          "value": "0x00000000"
+        },
+        {
+          "name": "OPT_GPC_DISABLE",
+          "value": "0x00000000"
+        },
+        {
+          "name": "OPT_FBP_DISABLE",
+          "value": "0x0000f000"
+        },
+        {
+          "name": "OPT_PES_DISABLE",
+          "value": "0x0000f000"
+        }
+      ],
+      "ltc": [
+        {
+          "alive": true,
+          "index": 0
+        },
+        {
+          "alive": false,
+          "index": 1
+        },
+        {
+          "alive": false,
+          "index": 2
+        },
+        {
+          "alive": false,
+          "index": 3
+        },
+        {
+          "alive": false,
+          "index": 4
+        },
+        {
+          "alive": false,
+          "index": 5
+        }
+      ],
+      "pmc_enable": "0x40000121",
+      "temperature_c": 47
+    }
+  }
+}

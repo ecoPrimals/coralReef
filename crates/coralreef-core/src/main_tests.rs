@@ -472,3 +472,58 @@ fn parse_cli_version_long_form() {
         "version output should contain package version"
     );
 }
+
+#[test]
+fn unibin_exit_code_values() {
+    assert_eq!(UniBinExit::Success as i32, 0);
+    assert_eq!(UniBinExit::GeneralError as i32, 1);
+    assert_eq!(UniBinExit::ConfigError as i32, 2);
+    assert_eq!(UniBinExit::InternalError as i32, 3);
+    assert_eq!(UniBinExit::Signal as i32, 130);
+}
+
+#[test]
+fn unibin_exit_to_exit_code() {
+    let _: ExitCode = UniBinExit::Success.into();
+    let _: ExitCode = UniBinExit::GeneralError.into();
+    let _: ExitCode = UniBinExit::ConfigError.into();
+    let _: ExitCode = UniBinExit::Signal.into();
+}
+
+#[test]
+fn remove_discovery_file_is_idempotent() {
+    remove_discovery_file();
+    remove_discovery_file();
+}
+
+#[test]
+fn parse_cli_invalid_subcommand() {
+    let result = parse_cli_from(["coralreef", "nonexistent"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_cli_compile_nv_archs() {
+    for arch_str in ["sm70", "sm75", "sm80", "sm86", "sm89"] {
+        let result = parse_cli_from(["coralreef", "compile", "x.wgsl", "--arch", arch_str]);
+        assert!(result.is_ok(), "arch {arch_str} should be valid");
+    }
+}
+
+#[test]
+fn parse_cli_compile_invalid_arch() {
+    let result = parse_cli_from(["coralreef", "compile", "x.wgsl", "--arch", "invalid"]);
+    assert!(result.is_err(), "invalid arch should fail CLI parse");
+}
+
+#[test]
+fn parse_cli_global_log_level() {
+    let cli = parse_cli_from(["coralreef", "--log-level", "debug", "doctor"]).unwrap();
+    assert_eq!(cli.log_level, "debug");
+}
+
+#[test]
+fn parse_cli_default_log_level() {
+    let cli = parse_cli_from(["coralreef", "doctor"]).unwrap();
+    assert_eq!(cli.log_level, "info");
+}

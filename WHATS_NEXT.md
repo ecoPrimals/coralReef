@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 15, 2026 (Phase 10 — Iteration 47)
+**Last updated**: March 15, 2026 (Phase 10 — Iteration 49)
 
 ---
 
@@ -79,7 +79,26 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 47)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 49)
+
+### Iteration 49 — hotSpring Absorption: GV100 Dispatch Fixes
+- [x] **GV100 per-runlist registers**: all RUNLIST_BASE/SUBMIT migrated from GK104 global constants to GV100 per-runlist at stride 0x10 (`runlist_base(id)`, `runlist_submit(id)`). Value encoding: base = `lower_32(iova >> 12)`, submit = `upper_32(iova >> 12) | (count << 16)`
+- [x] **MMU fault buffer DMA**: interpreter probe L3 fault buffers migrated from VRAM (`PraminRegion`) to DMA system memory (`DmaBuffer` at `FAULT_BUF_IOVA`). Both BUF0+BUF1 configured with PUT enable bit
+- [x] **PFIFO INTR bit 8**: new `INTR_BIT8` constant + `clear_pfifo_intr_bit8()` on `ExperimentContext`. Z experiment (full_pfifo_reinit) clears bit 8 before checking bit 30 completion
+- [x] **PBDMA reset sequence**: `reset_pbdma()` method: clear PBDMA INTR+HCE, clear PCCSR faults, toggle PMC PBDMA enable bit. Applied pre-dispatch in experiments N (full_dispatch_with_inst_bind) and P (scheduled_plus_direct_pbdma)
+- [x] **GlowPlug consolidation**: ~100 LOC inline glow plug warming in `diagnostic_matrix()` replaced with `GlowPlug::check_state()` + `GlowPlug::full_init()`. Runner.rs reduced by ~90 LOC
+- [x] **`submit_runlist()` helper**: `ExperimentContext::submit_runlist()` encapsulates per-runlist register writes — 20+ call sites migrated from inline `pfifo::RUNLIST_BASE`/`SUBMIT` pairs
+- [x] **GV100 register tests**: `runlist_gv100_register_addresses` + `runlist_gv100_value_encoding` unit tests validate stride and value format
+- [x] All CI gates pass: `fmt`, `clippy`, `test` — 1842+ passing, 0 failures
+
+### Iteration 48 — Deep Debt Solutions + Sovereignty Evolution
+- [x] `extern "C" { fn ioctl }` eliminated — `raw_nv_ioctl` → `nv_rm_ioctl` via `rustix::ioctl` through `drm_ioctl_named`; zero C FFI remaining in entire workspace
+- [x] Clippy `items_after_test_module` + `needless_range_loop` in `rm_helpers.rs` — idiomatic iterator patterns
+- [x] Formatting drift resolved workspace-wide (`context.rs`, `layers.rs`, `probe.rs`, `rm_helpers.rs`, `rm_client.rs`)
+- [x] Last 2 production `unwrap()` → `expect()` with context (runner.rs DMA buffer verification)
+- [x] Capability test evolved — hardcoded primal name list → structural self-knowledge assertions
+- [x] +23 new tests: Unix JSON-RPC dispatch (15), main.rs coverage (8)
+- [x] 1842 passing, 0 failed, 61 ignored; 66.67% region / 68.45% line coverage
 
 ### Iteration 47 — Deep Debt Evolution + Modern Idiomatic Rust
 - [x] `runner.rs` delegate to `experiments::run_experiment()` — 2509 LOC → 778 LOC (eliminated duplicated inline experiment dispatch)
@@ -333,11 +352,13 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1819+48 tests passing, 61 ignored, 66.43% line coverage. Zero production unwrap/todo. Error types zero-alloc. IPC semantic.
+1842+48 tests passing, 61 ignored, 68.45% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
+GV100 dispatch fixes absorbed from hotSpring: per-runlist registers, MMU fault buffer DMA, PFIFO INTR bit 8, PBDMA reset sequence.
+GlowPlug self-warming consolidated: inline duplication eliminated, GlowPlug::full_init() canonical path.
 vfio/channel.rs smart refactored: 2894 LOC → 5 modules (mod.rs, registers.rs, page_tables.rs, pfifo.rs, diagnostic.rs).
 eprintln! → tracing migration in production code. IPC chaos/fault tests added.
 PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist, PCCSR bind/enable.
@@ -346,8 +367,8 @@ RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
 GpuContext::from_vfio() convenience API unblocks barraCuda CoralReefDevice wiring.
 Multi-GPU sovereignty: vfio-first driver preference, nvidia-drm probing, ecosystem discovery.
 All AMD f64 ops encoded including transcendentals via literal materialization.
-Zero DEBT comments — all resolved or evolved. Zero libc dependency.
+Zero DEBT comments — all resolved or evolved. Zero libc dependency. Zero extern "C".
 Zero files over 1000 LOC (production). Zero clippy warnings. Zero doc warnings.
-All ioctl calls use drm_ioctl_named. bytemuck::Zeroable eliminates unsafe zeroed().
+All ioctl calls use rustix via drm_ioctl_named/nv_rm_ioctl. bytemuck::Zeroable eliminates unsafe zeroed().
 NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
 All pure Rust. Sovereignty is a runtime choice.*

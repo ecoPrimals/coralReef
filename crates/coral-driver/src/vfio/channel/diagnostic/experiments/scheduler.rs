@@ -10,8 +10,7 @@ pub(super) fn bind_enable_runlist(ctx: &mut ExperimentContext<'_>) -> DriverResu
     std::thread::sleep(std::time::Duration::from_millis(2));
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     Ok(())
 }
 
@@ -19,8 +18,7 @@ pub(super) fn bind_enable_runlist(ctx: &mut ExperimentContext<'_>) -> DriverResu
 pub(super) fn bind_runlist_enable(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     let _ = ctx.w(pccsr::inst(ctx.channel_id), ctx.pccsr_inst_val);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(2));
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     Ok(())
@@ -28,8 +26,7 @@ pub(super) fn bind_runlist_enable(ctx: &mut ExperimentContext<'_>) -> DriverResu
 
 /// C: runlist → bind → enable
 pub(super) fn runlist_bind_enable(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(2));
     let _ = ctx.w(pccsr::inst(ctx.channel_id), ctx.pccsr_inst_val);
     std::thread::sleep(std::time::Duration::from_millis(2));
@@ -64,7 +61,6 @@ pub(super) fn bind_with_inst_bind_enable_runlist(
 
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     Ok(())
 }

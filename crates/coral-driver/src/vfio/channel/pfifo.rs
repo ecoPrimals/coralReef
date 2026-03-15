@@ -138,18 +138,16 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
     w(pfifo::SCHED_EN, 1)?;
 
-    // Submit empty runlists to flush stale channels (gk104 format).
-    // RUNLIST_BASE (0x2270) = (target << 28) | (addr >> 12)
-    // RUNLIST_SUBMIT (0x2274) = (runlist_id << 20) | count — triggers scheduler
+    // GV100 per-runlist registers at stride 0x10 — flush with count=0.
     let mut flushed_runlists = std::collections::HashSet::new();
-    #[expect(clippy::cast_possible_truncation)]
-    let rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
+    let rl_base_val = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
+    let rl_submit_val = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0);
     for &(_, rl) in &pbdma_runlists {
         if rl > 31 || !flushed_runlists.insert(rl) {
             continue;
         }
-        w(pfifo::RUNLIST_BASE, rl_base)?;
-        w(pfifo::RUNLIST_SUBMIT, (rl << 20) | 0)?; // count=0 → empty flush
+        w(pfifo::runlist_base(rl), rl_base_val)?;
+        w(pfifo::runlist_submit(rl), rl_submit_val)?;
         std::thread::sleep(std::time::Duration::from_millis(10));
         let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0);
         if intr & 0x4000_0000 != 0 {
@@ -158,7 +156,7 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
             w(pfifo::INTR, 0x4000_0000)?;
             tracing::debug!(runlist = rl, "ACK'd empty runlist completion");
         }
-        tracing::debug!(runlist = rl, "flushed runlist (empty, gk104 format)");
+        tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
     }
     std::thread::sleep(std::time::Duration::from_millis(20));
 

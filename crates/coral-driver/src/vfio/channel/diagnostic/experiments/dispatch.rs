@@ -10,6 +10,10 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
     let pb = ctx.pb();
     let pbdma_map = ctx.pbdma_map;
 
+    // Pre-dispatch: reset PBDMA + clear stale PFIFO interrupts (incl. bit 8).
+    ctx.reset_pbdma();
+    ctx.clear_pfifo_intr();
+
     let gp_entry: u64 = (NOP_PB_IOVA & 0xFFFF_FFFC) | ((2_u64) << (32 + 10));
     ctx.gpfifo_ring[0..8].copy_from_slice(&gp_entry.to_le_bytes());
     write_u32_le(ctx.userd_page, ramuserd::GP_PUT, 1);
@@ -47,8 +51,7 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
@@ -154,8 +157,7 @@ pub(super) fn full_dispatch_with_preempt(ctx: &mut ExperimentContext<'_>) -> Dri
     std::thread::sleep(std::time::Duration::from_millis(5));
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
@@ -202,6 +204,8 @@ pub(super) fn full_dispatch_with_preempt(ctx: &mut ExperimentContext<'_>) -> Dri
 pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     let pb = ctx.pb();
 
+    ctx.reset_pbdma();
+    ctx.clear_pfifo_intr();
     let _ = ctx.w(pfifo::INTR_EN, 0x6181_0101);
     let _ = ctx.w(pbdma::intr_en(1), 0xFFFF_FFFF);
     let _ = ctx.w(pbdma::intr_en(2), 0xFFFF_FFFF);
@@ -217,8 +221,7 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
     let post_bind = ctx.r(pccsr::channel(ctx.channel_id));
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));

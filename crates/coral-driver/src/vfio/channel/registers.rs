@@ -24,28 +24,64 @@ pub(crate) mod pfifo {
     pub const INTR: usize = 0x0000_2100;
     /// PFIFO interrupt enable mask.
     pub const INTR_EN: usize = 0x0000_2140;
-    /// PFIFO_INTR bit 30 — runlist update completion event.
-    pub const INTR_RL_COMPLETE: u32 = 0x4000_0000;
+    /// PFIFO_INTR bit 8 — fires after runlist submit on GV100 (undocumented).
+    /// Must be cleared before retrying dispatch or the scheduler stalls.
+    pub const INTR_BIT8: u32 = 0x0000_0100;
     /// PFIFO_INTR bit 16 — channel switch error.
     pub const INTR_CHSW_ERROR: u32 = 0x0001_0000;
     /// PFIFO_INTR bit 29 — aggregate "any PBDMA has an interrupt pending".
     pub const INTR_PBDMA: u32 = 0x2000_0000;
+    /// PFIFO_INTR bit 30 — runlist update completion event.
+    pub const INTR_RL_COMPLETE: u32 = 0x4000_0000;
     /// PBDMA active map — bit N = 1 means PBDMA N exists.
     pub const PBDMA_MAP: usize = 0x0000_2004;
     #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// PBDMA-to-runlist mapping table. Entry at `+seq*4` for each active PBDMA.
     pub const PBDMA_RUNL_MAP: usize = 0x0000_2390;
-    /// GK104/GV100 runlist base address (global, NOT per-runlist strided).
-    /// Format: `(target << 28) | (addr >> 12)`.
-    /// TARGET[31:28] = aperture (0=VID_MEM, 3=SYS_MEM_NCOH).
-    /// PTR[27:0] = physical/IOVA page number.
-    /// Source: nouveau `gk104_runl_commit()`.
+    /// GK104 runlist base address (global pair — gk104 only, NOT Volta).
+    ///
+    /// **GV100+ uses per-runlist registers** at stride 0x10; prefer
+    /// [`runlist_base`] and [`runlist_submit`] for Volta.
+    #[allow(
+        dead_code,
+        reason = "kept for hardware documentation and pre-Volta support"
+    )]
     pub const RUNLIST_BASE: usize = 0x0000_2270;
-    /// GK104/GV100 runlist submit trigger (global, NOT per-runlist strided).
-    /// Format: `(runlist_id << 20) | count`.
-    /// Writing this register triggers the scheduler to process the runlist.
-    /// Source: nouveau `gk104_runl_commit()`.
+    /// GK104 runlist submit trigger (global — gk104 only).
+    #[allow(
+        dead_code,
+        reason = "kept for hardware documentation and pre-Volta support"
+    )]
     pub const RUNLIST_SUBMIT: usize = 0x0000_2274;
+
+    /// GV100 per-runlist base register (stride 0x10).
+    ///
+    /// Value: `lower_32(phys_or_iova >> 12)`.
+    /// Source: nouveau `gv100_runl_commit()`.
+    pub const fn runlist_base(id: u32) -> usize {
+        0x0000_2270 + (id as usize) * 0x10
+    }
+
+    /// GV100 per-runlist submit register (stride 0x10).
+    ///
+    /// Value: `upper_32(phys_or_iova >> 12) | (entry_count << 16)`.
+    /// Writing triggers the scheduler to process the runlist.
+    /// Source: nouveau `gv100_runl_commit()`.
+    pub const fn runlist_submit(id: u32) -> usize {
+        0x0000_2274 + (id as usize) * 0x10
+    }
+
+    /// Encode GV100 runlist BASE register value.
+    #[must_use]
+    pub const fn gv100_runlist_base_value(iova: u64) -> u32 {
+        (iova >> 12) as u32
+    }
+
+    /// Encode GV100 runlist SUBMIT register value.
+    #[must_use]
+    pub const fn gv100_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
+        ((iova >> 44) as u32) | (entry_count << 16)
+    }
     #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Runlist pending status. Per-runlist at stride 8.
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
@@ -125,7 +161,7 @@ pub(crate) mod pbdma {
     /// PBDMA DATA0 — method data payload for a faulted method.
     pub const DATA0: usize = 0x1C4;
 
-    // RAMFC-mapped PBDMA register offsets (context save/restore area).
+    // RAMFC-mapped PBDMA context register offsets (context save/restore area).
     // These mirror the RAMFC layout — the scheduler loads RAMFC fields HERE.
     pub const CTX_USERD_LO: usize = 0x008;
     pub const CTX_USERD_HI: usize = 0x00C;
@@ -133,7 +169,11 @@ pub(crate) mod pbdma {
     pub const CTX_ACQUIRE: usize = 0x030;
     pub const CTX_GP_BASE_LO: usize = 0x048;
     pub const CTX_GP_BASE_HI: usize = 0x04C;
+    /// RAMFC GP_FETCH (byte-granular fetch pointer) mapped to PBDMA[0x050].
+    pub const CTX_GP_FETCH_BYTE: usize = 0x050;
+    /// RAMFC GP_PUT (entry index) mapped to PBDMA[0x054].
     pub const CTX_GP_PUT: usize = 0x054;
+    /// RAMFC GP_GET (entry index consumed) mapped to PBDMA[0x058].
     pub const CTX_GP_FETCH: usize = 0x058;
 
     // Direct PBDMA programming offsets (operational registers).
@@ -149,6 +189,38 @@ pub(crate) mod pbdma {
     pub const CHANNEL_INFO: usize = 0x0AC;
     pub const CHANNEL_STATE: usize = 0x0B0;
     pub const SIGNATURE: usize = 0x0C0;
+}
+
+/// NV_PFB — Framebuffer controller registers (BAR0 + 0x100000).
+/// These control HBM2/GDDR memory initialization and are the key to
+/// sovereign VRAM access after D3cold. Register values vary by GPU model;
+/// the differential probe discovers which writes unlock VRAM.
+#[allow(dead_code, reason = "used by glowplug FB init probe")]
+pub(crate) mod pfb {
+    /// NV_PFB_PRI_MMU_CTRL — MMU control (enable, invalidate config).
+    pub const MMU_CTRL: usize = 0x0010_0C80;
+    /// NV_PFB_PRI_MMU_INVALIDATE_PDB — PDB address for TLB invalidation.
+    pub const MMU_INVALIDATE_PDB: usize = 0x0010_0CB8;
+    /// NV_PFB_PRI_MMU_INVALIDATE_PDB_HI — high bits.
+    pub const MMU_INVALIDATE_PDB_HI: usize = 0x0010_0CEC;
+    /// NV_PFB_PRI_MMU_INVALIDATE — trigger TLB invalidation.
+    pub const MMU_INVALIDATE: usize = 0x0010_0CBC;
+
+    /// NV_PFB_NISO_FLUSH_SYSMEM_ADDR_LO — NISO flush target (lo).
+    pub const NISO_FLUSH_ADDR_LO: usize = 0x0010_0B20;
+    /// NV_PFB_NISO_FLUSH_SYSMEM_ADDR_HI — NISO flush target (hi).
+    pub const NISO_FLUSH_ADDR_HI: usize = 0x0010_0B24;
+
+    /// Start of the FB register region to scan during differential probe.
+    pub const REGION_START: usize = 0x0010_0000;
+    /// End of the scannable FB region.
+    pub const REGION_END: usize = 0x0010_1000;
+
+    /// FBPA (Framebuffer Partition) base — per-partition config.
+    /// GV100 has 4 FBPAs (0x900000, 0x900800, 0x901000, 0x901800).
+    pub const FBPA_BASE: usize = 0x0090_0000;
+    pub const FBPA_STRIDE: usize = 0x800;
+    pub const FBPA_COUNT_MAX: usize = 16;
 }
 
 /// MMU fault buffer registers (BAR0 + 0x10_0E00).
@@ -169,6 +241,100 @@ pub(crate) mod mmu {
     pub const FAULT_ADDR_HI: usize = 0x0010_0A34;
     pub const FAULT_INST_LO: usize = 0x0010_0A38;
     pub const FAULT_INST_HI: usize = 0x0010_0A3C;
+}
+
+/// PRI (Primary Register Interface) bus monitoring and recovery.
+///
+/// When a BAR0 read returns `0xBADxxxxx`, the PRI bus has faulted — the
+/// target domain didn't respond within the timeout window. This happens
+/// when writing to clock-gated or power-gated domains. Without detection,
+/// subsequent writes pile up and lock the entire bus.
+#[allow(dead_code)]
+pub(crate) mod pri {
+    /// PMC master interrupt status. Bit 26 = PRIV_RING fault pending.
+    pub const PMC_INTR: usize = 0x0000_0100;
+    pub const PMC_INTR_PRIV_RING_BIT: u32 = 1 << 26;
+
+    /// PRIV ring interrupt status — reports which hub/GPC/FBP faulted.
+    pub const PRIV_RING_INTR_STATUS: usize = 0x0012_0058;
+    /// PRIV ring command — write 0x2 to ack/clear faults.
+    pub const PRIV_RING_COMMAND: usize = 0x0012_004C;
+    pub const PRIV_RING_CMD_ACK: u32 = 0x0000_0002;
+
+    /// PRI master IOCTL — controls timeout duration and enable.
+    pub const PRI_IOCTL: usize = 0x0012_2120;
+
+    /// Sentinel values returned when a PRI target doesn't respond.
+    /// The upper 16 bits encode the error type.
+    pub const fn is_pri_error(val: u32) -> bool {
+        let hi = val >> 16;
+        hi == 0xBADF || hi == 0xBAD0 || hi == 0xBAD1
+    }
+
+    /// Check if a specific PRI error indicates a timeout (domain unresponsive).
+    pub const fn is_pri_timeout(val: u32) -> bool {
+        (val & 0xFFFF_0000) == 0xBAD0_0000
+    }
+
+    /// Check if a specific PRI error indicates an access violation.
+    pub const fn is_pri_access_error(val: u32) -> bool {
+        (val & 0xFFFF_0000) == 0xBADF_0000
+    }
+
+    /// Decode a PRI error value into a human-readable description.
+    ///
+    /// NVIDIA PRI errors encode the source and reason:
+    /// - `0xBADF_xxxx`: PRIV fault — target domain rejected the access
+    ///   - `0xBADF1100`: FBPA partition powered down (BLCG/SLCG gated)
+    ///   - `0xBADF3000`: Domain clock-gated at hub level (PRIV ring)
+    ///   - `0xBADF5040`: Clock domain not configured (PLL not locked)
+    /// - `0xBAD0_xxxx`: PRI timeout — no response within timeout window
+    ///   - `0xBAD0_0200`: PBUS timeout (bus controller not responding)
+    ///   - `0xBAD0_AC0x`: PRAMIN/VRAM timeout (memory not trained)
+    ///   - `0xBAD0_DA00`: PFIFO timeout (scheduler not initialized)
+    pub fn decode_pri_error(val: u32) -> &'static str {
+        match val & 0xFFFF_FF00 {
+            0xBADF_1100 => "FBPA power-gated (BLCG/SLCG)",
+            0xBADF_3000 => "Hub-level clock gate (PRIV ring)",
+            0xBADF_5000 => "Clock domain unconfigured (PLL unlocked)",
+            0xBAD0_0200 => "PBUS timeout",
+            0xBAD0_AC00 => "PRAMIN/VRAM timeout (memory untrained)",
+            0xBAD0_DA00 => "PFIFO scheduler timeout",
+            _ => match val & 0xFFFF_0000 {
+                0xBADF_0000 => "PRIV fault (domain rejected access)",
+                0xBAD0_0000 => "PRI timeout (no response)",
+                0xBAD1_0000 => "PRI target error",
+                _ => "Unknown PRI error pattern",
+            }
+        }
+    }
+
+    /// Classify a BAR0 domain by address range.
+    pub fn domain_name(offset: usize) -> &'static str {
+        match offset {
+            0x000000..=0x000FFF => "PMC",
+            0x001000..=0x001FFF => "PBUS",
+            0x002000..=0x003FFF => "PFIFO",
+            0x009000..=0x009FFF => "PTIMER",
+            0x00D000..=0x00DFFF => "PGRAPH_GLOBAL",
+            0x020000..=0x022FFF => "PTOP/FUSE",
+            0x040000..=0x09FFFF => "PBDMA",
+            // Narrower PFB sub-regions first
+            0x100800..=0x100AFF => "FBHUB",
+            0x100C00..=0x100FFF => "PFB_NISO/MMU",
+            0x100000..=0x101FFF => "PFB",
+            0x10A000..=0x10BFFF => "PMU_FALCON",
+            0x122000..=0x122FFF => "PRI_MASTER",
+            0x130000..=0x139FFF => "PCLOCK/CLK",
+            0x140000..=0x17DFFF => "GPC",
+            0x17E000..=0x18FFFF => "LTC",
+            0x1FA000..=0x1FAFFF => "PMEM",
+            0x700000..=0x7FFFFF => "PRAMIN",
+            0x800000..=0x8FFFFF => "PCCSR",
+            0x900000..=0x9BFFFF => "FBPA",
+            _ => "UNKNOWN",
+        }
+    }
 }
 
 /// Miscellaneous BAR0 registers.

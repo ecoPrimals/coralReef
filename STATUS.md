@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 15, 2026  
-**Phase**: 10 — Iteration 47 (Deep Debt Evolution + Modern Idiomatic Rust)
+**Phase**: 10 — Iteration 49 (hotSpring Absorption — GV100 Dispatch Fixes)
 
 ---
 
@@ -20,10 +20,10 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 1819 passing (+48 VFIO), 0 failed, 61 ignored, 66.43% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 1842+ passing (+48 VFIO), 0 failed, 61 ignored, 68.45% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
@@ -36,7 +36,36 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 46** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 49** |
+
+### Iteration 49: hotSpring Absorption — GV100 Dispatch Fixes (Mar 15 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| GV100 per-runlist registers | ✅ | All RUNLIST_BASE/SUBMIT usage migrated from gk104 global (0x2270/0x2274) to GV100 per-runlist at stride 0x10 (`runlist_base(id)`, `runlist_submit(id)`). Submit encoding fixed: `(rl_id << 20) \| count` → `upper_32(addr >> 12) \| (count << 16)` |
+| MMU fault buffer DMA | ✅ | Interpreter probe L3 fault buffers migrated from VRAM (PraminRegion) to DMA system memory (`DmaBuffer` at `FAULT_BUF_IOVA`). Both BUF0+BUF1 configured with PUT enable bit |
+| PFIFO INTR bit 8 decode | ✅ | New `INTR_BIT8` constant + `clear_pfifo_intr_bit8()` on `ExperimentContext`. Z experiment poll loop clears bit 8 before checking bit 30 |
+| PBDMA reset sequence | ✅ | `reset_pbdma()` method: clear PBDMA INTR+HCE, clear PCCSR faults, toggle PMC PBDMA bit. Applied pre-dispatch in experiments N and P |
+| GlowPlug consolidation | ✅ | Inline glow plug (~100 LOC) in `diagnostic_matrix()` replaced with `GlowPlug::check_state()` + `GlowPlug::full_init()`. Runner.rs reduced by ~90 LOC |
+| `submit_runlist()` helper | ✅ | `ExperimentContext::submit_runlist()` encapsulates per-runlist register writes — 20+ call sites migrated from inline `pfifo::RUNLIST_BASE`/`SUBMIT` pairs |
+| GV100 register test | ✅ | `runlist_gv100_register_addresses` + `runlist_gv100_value_encoding` unit tests validate stride and value format |
+| All CI gates pass | ✅ | `fmt`, `clippy`, `test` — 48 test suites, 0 failures |
+
+### Iteration 48: Deep Debt Solutions + Sovereignty Evolution (Mar 15 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `extern "C" { fn ioctl }` eliminated | ✅ | `raw_nv_ioctl` evolved to `nv_rm_ioctl` using `rustix::ioctl` via `drm_ioctl_named` — zero C FFI remaining in entire workspace |
+| Clippy `items_after_test_module` fix | ✅ | `rm_helpers.rs`: production function moved above `mod tests` |
+| Clippy `needless_range_loop` fix | ✅ | `rm_helpers.rs`: `for i in 1..16` loops → idiomatic `iter_mut().enumerate().skip(1)` |
+| Formatting drift resolved | ✅ | `context.rs`, `layers.rs`, `probe.rs`, `rm_helpers.rs`, `rm_client.rs` — `cargo fmt` applied workspace-wide |
+| Production `unwrap()` → `expect()` | ✅ | Last 2 `unwrap()` in `runner.rs` DMA buffer verification → `expect()` with context |
+| Capability test evolved | ✅ | Hardcoded primal name list replaced with structural self-knowledge assertions (domain validation, no paths, no addresses before bind, version match) |
+| Unix JSON-RPC dispatch coverage | ✅ | +15 tests: all 5 method paths (status, capabilities, wgsl, spirv, wgsl.multi) with object/array/invalid params, `make_response` success/error/null-id |
+| `main.rs` coverage expansion | ✅ | +8 tests: `UniBinExit` code values, exit code conversion, CLI arch parsing, invalid subcommand, log level, discovery file idempotency |
+| `nv_rm_ioctl` helper | ✅ | Generic RM ioctl helper with status-aware error reporting — replaces 3 `raw_nv_ioctl` call sites with informative named errors |
+| Test expansion | ✅ | 1819 → 1842 passing (+23 tests), 0 failed, 61 ignored |
+| Coverage | ✅ | 66.43% → 66.67% region, 68.36% → 68.45% line |
 
 ### Iteration 47: Deep Debt Evolution + Modern Idiomatic Rust (Mar 15 2026)
 
@@ -736,8 +765,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1804 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 66.43% line coverage (target 90%) |
+| `cargo test --workspace` | PASS (1842 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 66.67% region / 68.45% line coverage (target 90%) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `cargo doc --workspace --no-deps` | PASS |

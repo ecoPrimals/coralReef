@@ -759,35 +759,8 @@ impl RmClient {
         );
         let ctl_fd = self.ctl.fd();
 
-        // SAFETY: NvRmMapMemoryParams is #[repr(C)], stack-allocated, sole ref.
-        let ret = unsafe { raw_nv_ioctl(ctl_fd, ioctl_nr, &mut params) };
-
-        if ret < 0 {
-            let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            if params.status != NV_OK {
-                return Err(DriverError::SubmitFailed(
-                    format!(
-                        "RM_MAP_MEMORY failed: status=0x{:08X}{} h_mem=0x{h_memory:08X}",
-                        params.status,
-                        super::nv_status::status_name(params.status),
-                    )
-                    .into(),
-                ));
-            }
-            return Err(DriverError::SubmitFailed(
-                format!("RM_MAP_MEMORY ioctl errno={errno} h_mem=0x{h_memory:08X}").into(),
-            ));
-        }
-        if params.status != NV_OK {
-            return Err(DriverError::SubmitFailed(
-                format!(
-                    "RM_MAP_MEMORY failed: status=0x{:08X}{} h_mem=0x{h_memory:08X}",
-                    params.status,
-                    super::nv_status::status_name(params.status),
-                )
-                .into(),
-            ));
-        }
+        // SAFETY: NvRmMapMemoryParams is #[repr(C)], ctl_fd is a valid nvidiactl fd.
+        unsafe { nv_rm_ioctl(ctl_fd, ioctl_nr, &mut params, "RM_MAP_MEMORY", |p| p.status) }?;
 
         // The RM reserved a VA range and created an mmap context on mmap_target_fd.
         // Now call mmap(MAP_FIXED) at that address to trigger nvidia_mmap_helper
@@ -851,19 +824,16 @@ impl RmClient {
             NV_ESC_RM_UNMAP_MEMORY,
             std::mem::size_of::<NvRmUnmapMemoryParams>(),
         );
-        // SAFETY: NvRmUnmapMemoryParams is #[repr(C)], stack-allocated, sole ref.
-        let ret = unsafe { raw_nv_ioctl(self.ctl.fd(), ioctl_nr, &mut params) };
-        if ret < 0 || params.status != NV_OK {
-            return Err(DriverError::SubmitFailed(
-                format!(
-                    "RM_UNMAP_MEMORY failed: status=0x{:08X}{} h_mem=0x{h_memory:08X}",
-                    params.status,
-                    super::nv_status::status_name(params.status),
-                )
-                .into(),
-            ));
+        // SAFETY: NvRmUnmapMemoryParams is #[repr(C)], ctl fd is a valid nvidiactl fd.
+        unsafe {
+            nv_rm_ioctl(
+                self.ctl.fd(),
+                ioctl_nr,
+                &mut params,
+                "RM_UNMAP_MEMORY",
+                |p| p.status,
+            )
         }
-        Ok(())
     }
 
     /// Map an RM memory object into a GPU virtual address space.
@@ -901,20 +871,16 @@ impl RmClient {
             NV_ESC_RM_MAP_MEMORY_DMA,
             std::mem::size_of::<NvRmMapMemoryDmaParams>(),
         );
-        // SAFETY: NvRmMapMemoryDmaParams is #[repr(C)], stack-allocated, sole ref.
-        let ret = unsafe { raw_nv_ioctl(self.ctl.fd(), ioctl_nr, &mut params) };
-
-        if ret < 0 || params.status != NV_OK {
-            return Err(DriverError::SubmitFailed(
-                format!(
-                    "RM_MAP_MEMORY_DMA failed: status=0x{:08X}{} h_dma=0x{h_virt_mem:08X} \
-                     h_mem=0x{h_memory:08X}",
-                    params.status,
-                    super::nv_status::status_name(params.status),
-                )
-                .into(),
-            ));
-        }
+        // SAFETY: NvRmMapMemoryDmaParams is #[repr(C)], ctl fd is a valid nvidiactl fd.
+        unsafe {
+            nv_rm_ioctl(
+                self.ctl.fd(),
+                ioctl_nr,
+                &mut params,
+                "RM_MAP_MEMORY_DMA",
+                |p| p.status,
+            )
+        }?;
 
         tracing::debug!(
             h_memory = format_args!("0x{h_memory:08X}"),
@@ -932,7 +898,7 @@ impl RmClient {
     }
 }
 
-use super::rm_helpers::{parse_gid_to_uuid, raw_nv_ioctl};
+use super::rm_helpers::{nv_rm_ioctl, parse_gid_to_uuid};
 
 impl Drop for RmClient {
     fn drop(&mut self) {

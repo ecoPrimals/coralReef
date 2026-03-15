@@ -156,8 +156,7 @@ pub(super) fn clean_sched_no_work(ctx: &mut ExperimentContext<'_>) -> DriverResu
     ctx.gpfifo_ring[0..8].fill(0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(30));
 
     let _ = ctx.w(
@@ -225,8 +224,7 @@ pub(super) fn sched_with_nop_pushbuf(ctx: &mut ExperimentContext<'_>) -> DriverR
 
     let _ = ctx.w(pb + pbdma::CTX_GP_PUT, 1);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(30));
 
     let _ = ctx.w(
@@ -287,8 +285,7 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     write_u32_le(ctx.userd_page, ramuserd::GP_GET, 0);
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));

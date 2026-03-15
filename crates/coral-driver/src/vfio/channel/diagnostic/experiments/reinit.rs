@@ -32,8 +32,7 @@ pub(super) fn pfifo_reset_init(ctx: &mut ExperimentContext<'_>) -> DriverResult<
     std::thread::sleep(std::time::Duration::from_millis(5));
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post = ctx.r(pccsr::channel(ctx.channel_id));
@@ -67,11 +66,10 @@ pub(super) fn no_pmc_reset_fast_poll(ctx: &mut ExperimentContext<'_>) -> DriverR
 
     let _ = ctx.w(pfifo::INTR, 0xFFFF_FFFF);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
 
     let imm_intr = ctx.r(pfifo::INTR);
-    let imm_rb_lo = ctx.r(pfifo::RUNLIST_BASE);
+    let imm_rb_lo = ctx.r(ctx.rl_base_reg);
     let imm_pccsr = ctx.r(pccsr::channel(ctx.channel_id));
     eprintln!(
         "║   Z3: IMMEDIATE after submit: INTR={imm_intr:#010x} RB_LO={imm_rb_lo:#010x} PCCSR={imm_pccsr:#010x}"
@@ -151,10 +149,15 @@ pub(super) fn full_pfifo_reinit(ctx: &mut ExperimentContext<'_>) -> DriverResult
     let intr_rb = ctx.r(pfifo::INTR);
     eprintln!("║   Z: INTR_EN={intr_en_rb:#010x} INTR={intr_rb:#010x}");
 
-    let flush_rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
     let rl_id = ctx.target_runlist;
-    let _ = ctx.w(pfifo::RUNLIST_BASE, flush_rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, rl_id << 20);
+    let _ = ctx.w(
+        pfifo::runlist_base(rl_id),
+        pfifo::gv100_runlist_base_value(RUNLIST_IOVA),
+    );
+    let _ = ctx.w(
+        pfifo::runlist_submit(rl_id),
+        pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0),
+    );
     std::thread::sleep(std::time::Duration::from_millis(10));
     let flush_intr = ctx.r(pfifo::INTR);
     if flush_intr & 0x4000_0000 != 0 {
@@ -211,11 +214,10 @@ pub(super) fn full_pfifo_reinit(ctx: &mut ExperimentContext<'_>) -> DriverResult
     }
 
     let _ = ctx.w(pfifo::INTR, 0xFFFF_FFFF);
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
 
-    let rb_lo = ctx.r(pfifo::RUNLIST_BASE);
-    let rb_sub = ctx.r(pfifo::RUNLIST_SUBMIT);
+    let rb_lo = ctx.r(ctx.rl_base_reg);
+    let rb_sub = ctx.r(ctx.rl_submit_reg);
     eprintln!(
         "║   Z: RL submit: wrote BASE={:#010x} SUB={:#010x} → rb BASE={rb_lo:#010x} SUB={rb_sub:#010x}",
         ctx.rl_base, ctx.rl_submit
@@ -225,12 +227,19 @@ pub(super) fn full_pfifo_reinit(ctx: &mut ExperimentContext<'_>) -> DriverResult
     for poll in 0..40 {
         std::thread::sleep(std::time::Duration::from_millis(5));
         let intr = ctx.r(pfifo::INTR);
-        if intr & 0x4000_0000 != 0 {
+        // Clear bit 8 (GV100 post-submit interrupt) so scheduler doesn't stall.
+        if intr & pfifo::INTR_BIT8 != 0 {
+            let _ = ctx.w(pfifo::INTR, pfifo::INTR_BIT8);
+            if poll < 5 {
+                eprintln!("║   Z: cleared INTR bit8 at poll {poll}");
+            }
+        }
+        if intr & pfifo::INTR_RL_COMPLETE != 0 {
             rl_completed = true;
             let ack_val = ctx.r(pfifo::RUNLIST_ACK);
             eprintln!("║   Z: BIT30 SET at poll {poll}: INTR={intr:#010x} ACK={ack_val:#010x}");
             let _ = ctx.w(pfifo::RUNLIST_ACK, 1u32 << ctx.target_runlist);
-            let _ = ctx.w(pfifo::INTR, 0x4000_0000);
+            let _ = ctx.w(pfifo::INTR, pfifo::INTR_RL_COMPLETE);
             std::thread::sleep(std::time::Duration::from_millis(5));
             break;
         }

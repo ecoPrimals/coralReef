@@ -75,6 +75,97 @@ pub(super) fn populate_page_tables(
     }
 }
 
+/// Populate V2 MMU page tables with custom IOVAs for the page table chain.
+///
+/// Same identity mapping as `populate_page_tables`, but using caller-provided
+/// IOVAs for the page directory/table buffers.
+pub(super) fn populate_page_tables_custom(
+    pd3: &mut [u8],
+    pd2: &mut [u8],
+    pd1: &mut [u8],
+    pd0: &mut [u8],
+    pt0: &mut [u8],
+    pd2_iova: u64,
+    pd1_iova: u64,
+    pd0_iova: u64,
+    pt0_iova: u64,
+) {
+    write_pde(pd3, 0, pd2_iova);
+    write_pde(pd2, 0, pd1_iova);
+    write_pde(pd1, 0, pd0_iova);
+
+    let small_pde = encode_pde(pt0_iova);
+    pd0[0..8].copy_from_slice(&small_pde.to_le_bytes());
+
+    for i in 1..PT_ENTRIES {
+        let phys = (i as u64) * 4096;
+        let pte = encode_pte(phys);
+        let off = i * 8;
+        pt0[off..off + 8].copy_from_slice(&pte.to_le_bytes());
+    }
+}
+
+/// Populate instance block with custom PD3 IOVA (RAMFC + RAMIN page directory base).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "IOVA values and ilog2 results always fit u32"
+)]
+pub(super) fn populate_instance_block_custom(
+    inst: &mut [u8],
+    gpfifo_iova: u64,
+    gpfifo_entries: u32,
+    userd_iova: u64,
+    channel_id: u32,
+    pd3_iova: u64,
+) {
+    let limit2 = gpfifo_entries.ilog2();
+
+    write_u32_le(
+        inst,
+        ramfc::USERD_LO,
+        (userd_iova as u32 & 0xFFFF_FE00) | PBDMA_TARGET_SYS_MEM_COHERENT,
+    );
+    write_u32_le(inst, ramfc::USERD_HI, (userd_iova >> 32) as u32);
+    write_u32_le(inst, ramfc::SIGNATURE, 0x0000_FACE);
+    write_u32_le(inst, ramfc::ACQUIRE, 0x7FFF_F902);
+
+    write_u32_le(inst, ramfc::GP_BASE_LO, gpfifo_iova as u32);
+    write_u32_le(
+        inst,
+        ramfc::GP_BASE_HI,
+        (gpfifo_iova >> 32) as u32 | (limit2 << 16),
+    );
+    write_u32_le(inst, ramfc::GP_PUT, 1);
+    write_u32_le(inst, ramfc::GP_GET, 0);
+    write_u32_le(inst, ramfc::GP_FETCH, 0);
+
+    write_u32_le(inst, ramfc::PB_HEADER, 0x2040_0000);
+    write_u32_le(inst, ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF);
+    write_u32_le(inst, ramfc::HCE_CTRL, 0x0000_0020);
+    write_u32_le(inst, ramfc::CHID, channel_id);
+    write_u32_le(inst, ramfc::CHANNEL_INFO, 0x0300_0000 | channel_id);
+
+    let pdb_lo: u32 = ((pd3_iova >> 12) as u32) << 12
+        | (1 << 11)
+        | (1 << 10)
+        | (1 << 2)
+        | TARGET_SYS_MEM_COHERENT;
+    write_u32_le(inst, ramin::PAGE_DIR_BASE_LO, pdb_lo);
+    write_u32_le(inst, ramin::PAGE_DIR_BASE_HI, (pd3_iova >> 32) as u32);
+
+    write_u32_le(inst, ramin::ADDR_LIMIT_LO, 0xFFFF_FFFF);
+    write_u32_le(inst, ramin::ADDR_LIMIT_HI, 0x0001_FFFF);
+
+    write_u32_le(inst, ramin::ENGINE_WFI_VEID, 0);
+
+    write_u32_le(inst, ramin::SC_PDB_VALID, 1);
+    write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_LO, pdb_lo);
+    write_u32_le(inst, ramin::SC0_PAGE_DIR_BASE_HI, (pd3_iova >> 32) as u32);
+
+    write_u32_le(inst, ramin::SC1_PAGE_DIR_BASE_LO, 1);
+    write_u32_le(inst, ramin::SC1_PAGE_DIR_BASE_HI, 1);
+}
+
 /// Populate instance block (RAMFC + RAMIN page directory base).
 ///
 /// Field values match `gv100_chan_ramfc_write()` from nouveau with
@@ -328,20 +419,23 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "IOVA addresses are intentionally truncated to 32-bit hardware register fields"
-    )]
-    fn runlist_base_value_gk104() {
-        // GK104/GV100 format: RUNLIST_BASE = (target << 28) | (addr >> 12).
-        // RUNLIST_SUBMIT (0x2274) = (runlist_id << 20) | count.
-        let rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
-        assert_eq!(rl_base & 0x0FFF_FFFF, 4, "PTR = 4 (0x4000 >> 12)");
-        assert_eq!((rl_base >> 28) & 0xF, 2, "TARGET = SYS_MEM_COHERENT");
-        assert_eq!(rl_base, 0x2000_0004, "full value: target|addr");
-        let rl_submit = (1_u32 << 20) | 2;
-        assert_eq!((rl_submit >> 20) & 0xFFF, 1, "runlist_id = 1");
-        assert_eq!(rl_submit & 0xF_FFFF, 2, "count = 2");
+    fn runlist_gv100_register_addresses() {
+        use super::registers::pfifo;
+        assert_eq!(pfifo::runlist_base(0), 0x2270, "RL0 base");
+        assert_eq!(pfifo::runlist_submit(0), 0x2274, "RL0 submit");
+        assert_eq!(pfifo::runlist_base(1), 0x2280, "RL1 base");
+        assert_eq!(pfifo::runlist_submit(1), 0x2284, "RL1 submit");
+        assert_eq!(pfifo::runlist_base(2), 0x2290, "RL2 base");
+    }
+
+    #[test]
+    fn runlist_gv100_value_encoding() {
+        use super::registers::pfifo;
+        let base = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
+        assert_eq!(base, 4, "lower_32(0x4000 >> 12) = 4");
+        let submit = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 2);
+        assert_eq!(submit, 2 << 16, "upper_32(0x4000>>12)=0, count=2<<16");
+        assert_eq!((submit >> 16) & 0xFFFF, 2, "entry count");
     }
 
     #[test]

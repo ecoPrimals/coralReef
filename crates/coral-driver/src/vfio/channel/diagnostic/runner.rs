@@ -127,124 +127,41 @@ pub fn diagnostic_matrix(
         r(0x100A38)
     );
 
-    // ── Warm state verification + self-warming ("glow plug") ──
-    let pmc_en = r(pmc::ENABLE);
-    let pfifo_en = r(pfifo::ENABLE);
-
-    if pmc_en == 0xFFFF_FFFF {
-        return Err(DriverError::SubmitFailed(Cow::Borrowed(
-            "BAR0 returns 0xFFFFFFFF — GPU in D3hot (PCIe sleep). \
-             Set power/control=on: echo on > /sys/bus/pci/devices/<BDF>/power/control",
-        )));
-    }
-
-    let gpu_warm = pmc_en != 0x4000_0020 && pfifo_en != 0xBAD0_DA00;
-
-    if !gpu_warm {
-        eprintln!("╔══ GLOW PLUG — SELF-WARMING GPU ═══════════════════════════╗");
-        eprintln!("║ PMC_ENABLE={pmc_en:#010x} → writing 0xFFFFFFFF to clock all engines");
-
-        w(pmc::ENABLE, 0xFFFF_FFFF)?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        let pmc_after = r(pmc::ENABLE);
-        let pfifo_after = r(pfifo::ENABLE);
-        eprintln!("║ PMC_ENABLE={pmc_after:#010x} (readback)");
-        eprintln!("║ PFIFO_ENABLE={pfifo_after:#010x}");
-
-        if pfifo_after != 1 {
-            eprintln!("║ PFIFO not enabled ({pfifo_after:#010x}) — toggling PFIFO 0→1");
-            let _ = w(pfifo::ENABLE, 0);
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            let _ = w(pfifo::ENABLE, 1);
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            let pfifo_retry = r(pfifo::ENABLE);
-            eprintln!("║ PFIFO_ENABLE={pfifo_retry:#010x} (after toggle)");
+    // ── GlowPlug: warm GPU + BAR2 + fault buffers ─────────────────────
+    let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, container_fd);
+    let state = gp.check_state();
+    eprintln!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
+    match state {
+        crate::vfio::channel::glowplug::GpuThermalState::D3Hot => {
+            return Err(DriverError::SubmitFailed(Cow::Borrowed(
+                "BAR0 returns 0xFFFFFFFF — GPU in D3hot (PCIe sleep). \
+                 Set power/control=on: echo on > /sys/bus/pci/devices/<BDF>/power/control",
+            )));
         }
-
-        let pmc_final = r(pmc::ENABLE);
-        let pfifo_final = r(pfifo::ENABLE);
-        let warmed = pmc_final != 0x4000_0020 && pfifo_final != 0xBAD0_DA00;
-        eprintln!(
-            "║ SELF-WARM: {}",
-            if warmed { "SUCCESS ✓" } else { "FAILED ✗" }
-        );
-        eprintln!("╚═══════════════════════════════════════════════════════════╝");
-    } else {
-        eprintln!("║ WARM STATE:       WARM ✓ (PMC={pmc_en:#010x})");
-        eprintln!("╚═══════════════════════════════════════════════════════════╝");
-    }
-
-    // ── BAR2 page table setup ──────────────────────────────────────────────
-    // PFIFO scheduler requires BAR2_BLOCK (0x1714) configured. On a cold GPU
-    // it reads 0x40000000 (invalid) → CHSW_ERROR RDAT_TIMEOUT.
-    // Build a minimal V2 page table in VRAM and program BAR2_BLOCK.
-    {
-        let bar2_val = r(misc::PBUS_BAR2_BLOCK);
-        let bar2_valid = bar2_val & 0x8000_0000 != 0 || (bar2_val != 0x4000_0000 && bar2_val != 0);
-        if !bar2_valid {
-            eprintln!("║ BAR2_BLOCK={bar2_val:#010x} (invalid) → building VRAM page table");
-            super::super::pfifo::setup_bar2_page_table(bar0)?;
-            let bar2_after = r(misc::PBUS_BAR2_BLOCK);
-            eprintln!("║ BAR2_BLOCK={bar2_after:#010x} (after glow plug setup)");
-        } else {
-            eprintln!("║ BAR2_BLOCK={bar2_val:#010x} (already configured)");
+        crate::vfio::channel::glowplug::GpuThermalState::Warm => {
+            eprintln!("║ GPU already warm — skipping glow plug");
+        }
+        _ => {
+            let result = gp.full_init();
+            for msg in &result.log {
+                eprintln!("║ {msg}");
+            }
+            if !result.success {
+                eprintln!("║ WARNING: glow plug did not fully succeed");
+            }
         }
     }
+    let gpu_warm = !matches!(
+        gp.check_state(),
+        crate::vfio::channel::glowplug::GpuThermalState::D3Hot
+            | crate::vfio::channel::glowplug::GpuThermalState::ColdGated
+    );
 
-    // ── MMU physical memory access + fault buffer init ────────────────────
-    // NV_PFB_PRI_MMU_PHYS_SECURE controls what physical memory the GPU can DMA.
-    // Oracle shows 0x002FFEDE0; our GPU has 0x0 → GPU can't access system memory!
-    {
-        let phys_sec_before = r(0x100CB8);
-        if phys_sec_before == 0 {
-            let _ = w(0x100CB8, 0x002F_FEDE_u32);
-            let phys_sec_after = r(0x100CB8);
-            eprintln!(
-                "║ MMU_PHYS_SECURE: {phys_sec_before:#010x} → {phys_sec_after:#010x} (wrote oracle value)"
-            );
-        } else {
-            eprintln!("║ MMU_PHYS_SECURE: {phys_sec_before:#010x} (already set)");
-        }
-    }
-
-    // BUF0 = replayable fault buffer (oracle has this configured).
+    // DMA fault buffer — kept alive for the entire matrix run.
     let fault_buf = DmaBuffer::new(container_fd, 4096, FAULT_BUF_IOVA)?;
-    fault_buf.as_slice(); // ensure mlock'd
-    {
-        let fb_addr_lo = (FAULT_BUF_IOVA >> 12) as u32;
-        let fb_entries: u32 = 64; // 64 entries × 32 bytes = 2KB
-        // BUF0 (replayable): oracle uses this one
-        let _ = w(mmu::FAULT_BUF0_LO, fb_addr_lo);
-        let _ = w(mmu::FAULT_BUF0_HI, 0);
-        let _ = w(mmu::FAULT_BUF0_SIZE, fb_entries);
-        let _ = w(mmu::FAULT_BUF0_PUT, 0x8000_0000); // CTRL bit 31 = enable
-        let fb0_lo = r(mmu::FAULT_BUF0_LO);
-        let fb0_ctrl = r(mmu::FAULT_BUF0_PUT);
-        // BUF1 (non-replayable): try it too
-        let _ = w(mmu::FAULT_BUF1_LO, fb_addr_lo);
-        let _ = w(mmu::FAULT_BUF1_HI, 0);
-        let _ = w(mmu::FAULT_BUF1_SIZE, fb_entries);
-        let _ = w(mmu::FAULT_BUF1_PUT, 0x8000_0000);
-        let fb1_lo = r(mmu::FAULT_BUF1_LO);
-        let fb1_ctrl = r(mmu::FAULT_BUF1_PUT);
-        eprintln!("║ FAULT_BUF0: LO={fb0_lo:#010x} CTRL={fb0_ctrl:#010x}");
-        eprintln!("║ FAULT_BUF1: LO={fb1_lo:#010x} CTRL={fb1_ctrl:#010x}");
-    }
+    fault_buf.as_slice();
 
-    // ── PTIMER check ──────────────────────────────────────────────────────
-    {
-        let t0 = r(0x009400); // NV_PTIMER_TIME_0
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        let t1 = r(0x009400);
-        let ticking = t0 != t1 && t0 != 0xDEAD_DEAD && t0 != 0xBAD0_DA00;
-        eprintln!("║ PTIMER: {t0:#010x} → {t1:#010x} ticking={ticking}");
-        if !ticking {
-            eprintln!("║ PTIMER NOT TICKING — DMA timeouts will not work!");
-        }
-    }
-
-    // ── Oracle-compared register snapshot (after glow plug) ─────────────
+    // Oracle-compared register snapshot.
     eprintln!("║ ── Post-warm Oracle Compare ──");
     eprintln!(
         "║ PMC_ENABLE:         {:#010x} (oracle: 0x5fecdff1)",
@@ -259,29 +176,14 @@ pub fn diagnostic_matrix(
         r(misc::PBUS_BAR2_BLOCK)
     );
     eprintln!(
-        "║ MMU_PHYS_SECURE:    {:#010x} (oracle: 0x002ffede0)",
-        r(0x100CB8)
-    );
-    eprintln!(
-        "║ MMU_PHYS_CTRL:      {:#010x} (oracle: 0x000000000)",
-        r(0x100CB4)
-    );
-    eprintln!(
         "║ PFIFO_INTR_EN:      {:#010x} (oracle: 0x061810101)",
         r(pfifo::INTR_EN)
-    );
-    eprintln!(
-        "║ PMC_INTR_EN_0:      {:#010x} (oracle: 0x05f37ffff)",
-        r(0x000140)
-    );
-    eprintln!(
-        "║ PFIFO_PREEMPT(2634):{:#010x} (oracle: 0x001000002 — NOT SCHED_EN)",
-        r(0x002634)
     );
     eprintln!(
         "║ CHSW_ERROR(256C):   {:#010x} (0=NO_ERROR)",
         r(pfifo::CHSW_ERROR)
     );
+    eprintln!("╚═══════════════════════════════════════════════════════════╝");
 
     // ── Shared init ─────────────────────────────────────────────────────
 
@@ -421,9 +323,10 @@ pub fn diagnostic_matrix(
         "║ SCHED_DISABLE={:#010x} (0=scheduler runs)",
         r(pfifo::SCHED_DISABLE)
     );
-    // Empty runlist flush to clear stale channels (gk104 format: global regs, no stride)
+    // Empty runlist flush — GV100 per-runlist registers at stride 0x10.
     {
-        let rl_base_flush = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
+        let rl_base_val = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
+        let rl_submit_val = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0);
         let mut flushed = std::collections::HashSet::new();
         let mut seq = 0_usize;
         for pid in 0..32_usize {
@@ -435,8 +338,8 @@ pub fn diagnostic_matrix(
             if rl > 31 || !flushed.insert(rl) {
                 continue;
             }
-            let _ = w(pfifo::RUNLIST_BASE, rl_base_flush);
-            let _ = w(pfifo::RUNLIST_SUBMIT, (rl << 20) | 0); // count=0 → empty flush
+            let _ = w(pfifo::runlist_base(rl), rl_base_val);
+            let _ = w(pfifo::runlist_submit(rl), rl_submit_val);
             std::thread::sleep(std::time::Duration::from_millis(10));
             let intr = r(pfifo::INTR);
             let chsw = r(pfifo::CHSW_ERROR);
@@ -557,7 +460,13 @@ pub fn diagnostic_matrix(
         if first {
             first = false;
             let inst = instance.as_slice();
-            let rd = |off: usize| u32::from_le_bytes(inst[off..off + 4].try_into().unwrap());
+            let rd = |off: usize| {
+                u32::from_le_bytes(
+                    inst[off..off + 4]
+                        .try_into()
+                        .expect("DMA buffer slice is always 4 bytes"),
+                )
+            };
             eprintln!("║ ── DMA Buffer Verification (first experiment) ──");
             eprintln!(
                 "║   RAMFC[0x008] USERD_LO   = {:#010x} (expect userd|tgt)",
@@ -577,7 +486,13 @@ pub fn diagnostic_matrix(
                 rd(ramfc::GP_BASE_LO)
             );
             let rl = runlist.as_slice();
-            let rr = |off: usize| u32::from_le_bytes(rl[off..off + 4].try_into().unwrap());
+            let rr = |off: usize| {
+                u32::from_le_bytes(
+                    rl[off..off + 4]
+                        .try_into()
+                        .expect("DMA buffer slice is always 4 bytes"),
+                )
+            };
             eprintln!(
                 "║   RL[0x010] ChanDW0       = {:#010x} (USERD_PTR|tgts|runq)",
                 rr(0x10)
@@ -621,11 +536,8 @@ pub fn diagnostic_matrix(
                 _ => base,
             }
         };
-        // GK104/GV100 runlist register format (global, no stride):
-        //   RUNLIST_BASE (0x2270): (target << 28) | (addr >> 12)
-        //   RUNLIST_SUBMIT (0x2274): (runlist_id << 20) | count — triggers scheduler
-        let rl_base = (RUNLIST_IOVA >> 12) as u32 | (cfg.runlist_base_target << 28);
-        let rl_submit = (target_runlist << 20) | 2_u32;
+        let rl_base = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
+        let rl_submit = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 2);
 
         {
             let mut ctx = ExperimentContext {
@@ -642,6 +554,8 @@ pub fn diagnostic_matrix(
                 pbdma_base: pb,
                 pbdma_map,
                 pccsr_inst_val,
+                rl_base_reg: pfifo::runlist_base(target_runlist),
+                rl_submit_reg: pfifo::runlist_submit(target_runlist),
                 rl_base,
                 rl_submit,
                 limit2,
@@ -763,10 +677,13 @@ pub fn diagnostic_matrix(
 
         runlist.as_mut_slice().fill(0);
         let _ = w(
-            pfifo::RUNLIST_BASE,
-            (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28),
+            pfifo::runlist_base(target_runlist),
+            pfifo::gv100_runlist_base_value(RUNLIST_IOVA),
         );
-        let _ = w(pfifo::RUNLIST_SUBMIT, (target_runlist << 20) | 0); // empty flush
+        let _ = w(
+            pfifo::runlist_submit(target_runlist),
+            pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0),
+        );
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         results.push(result);

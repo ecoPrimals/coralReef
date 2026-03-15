@@ -141,6 +141,11 @@ impl RawVfioDevice {
     /// allocated, but WITHOUT creating a PFIFO channel. Used by the
     /// diagnostic experiment matrix.
     pub fn open(bdf: &str) -> DriverResult<Self> {
+        // Force D0 before VFIO open — vfio-pci probe puts the device in D3hot,
+        // but HBM2 training is preserved. This restores BAR0 access.
+        if let Err(e) = crate::vfio::channel::devinit::force_pci_d0(bdf) {
+            tracing::warn!(bdf, error = %e, "force_pci_d0 failed (may already be in D0)");
+        }
         let device = VfioDevice::open(bdf)?;
         let container_fd = device.container_fd();
         let bar0 = device.map_bar(0)?;

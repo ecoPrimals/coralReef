@@ -117,29 +117,67 @@ mod tests {
     }
 
     #[test]
-    fn self_description_no_peer_names() {
+    fn self_description_contains_only_self_knowledge() {
         let desc = self_description();
         let json = serde_json::to_string(&desc).unwrap();
         let json_lower = json.to_lowercase();
 
-        for name in ["toadstool", "barracuda", "songbird", "nestgate", "squirrel"] {
+        let our_name = env!("CARGO_PKG_NAME").to_lowercase();
+        for cap in &desc.provides {
             assert!(
-                !json_lower.contains(name),
-                "self-description must not contain peer name: {name}"
+                !cap.id.contains('/'),
+                "capability id must be namespace-only, no paths: {}",
+                cap.id
+            );
+        }
+        for req in &desc.requires {
+            assert!(
+                !req.id.contains('/'),
+                "required capability must be namespace-only: {}",
+                req.id
+            );
+        }
+
+        assert!(
+            !json_lower.contains("unix:///"),
+            "self-description must not contain socket paths before bind"
+        );
+        assert!(
+            !json_lower.contains("127.0.0.1"),
+            "self-description must not contain hardcoded addresses"
+        );
+        assert!(
+            desc.transports.is_empty(),
+            "transports must be empty before bind (populated at runtime)"
+        );
+
+        let ids: Vec<&str> = desc
+            .provides
+            .iter()
+            .chain(desc.requires.iter())
+            .map(|c| c.id.as_ref())
+            .collect();
+        for id in &ids {
+            let domain = id.split('.').next().unwrap_or("");
+            assert!(
+                ["shader", "gpu"].contains(&domain),
+                "capability domain must be self-relevant, got: {id} (primal: {our_name})"
             );
         }
     }
 
     #[test]
-    fn self_description_no_hardcoded_addresses() {
+    fn self_description_versions_match_crate() {
         let desc = self_description();
-        let json = serde_json::to_string(&desc).unwrap();
-
-        assert!(
-            !json.contains("127.0.0.1"),
-            "no hardcoded addresses in capabilities"
-        );
-        assert!(desc.transports.is_empty(), "transports empty before bind");
+        let pkg_version = env!("CARGO_PKG_VERSION");
+        for cap in &desc.provides {
+            assert_eq!(
+                cap.version.as_ref(),
+                pkg_version,
+                "capability {} version must match crate version",
+                cap.id
+            );
+        }
     }
 
     #[test]

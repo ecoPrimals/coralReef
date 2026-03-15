@@ -426,3 +426,94 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
 
     configs
 }
+
+/// Build metal capability discovery experiments.
+///
+/// These experiments are separate from the PFIFO dispatch matrix — they
+/// probe hardware capabilities rather than channel creation orderings.
+/// Run them after the GPU is warm (GlowPlug has succeeded).
+pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
+    vec![
+        ExperimentConfig {
+            name: "METAL_PowerStateSweep",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::PowerStateSweep,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "METAL_RegisterCartography",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::RegisterCartography,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "METAL_MemoryPathMatrix",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::MemoryPathMatrix,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "METAL_ClockDomainSweep",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::ClockDomainSweep,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "METAL_EngineProbe",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::EngineProbe,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "HBM2_PhyProbe",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::Hbm2PhyProbe,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "HBM2_TimingCapture",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::Hbm2TimingCapture,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "HBM2_TrainingAttempt",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::Hbm2TrainingAttempt,
+            skip_pfifo_toggle: true,
+        },
+        ExperimentConfig {
+            name: "HBM2_MinimalSet",
+            pccsr_target: 0,
+            runlist_userd_target: 0,
+            runlist_inst_target: 0,
+            runlist_base_target: 0,
+            ordering: ExperimentOrdering::Hbm2MinimalSet,
+            skip_pfifo_toggle: true,
+        },
+    ]
+}

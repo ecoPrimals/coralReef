@@ -68,8 +68,7 @@ pub(super) fn vram_instance_bind(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(5));
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let sched_gpb = ctx.r(pb + 0x40);
@@ -223,8 +222,14 @@ pub(super) fn all_vram(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(5));
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, 0xC000_u32 >> 12);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, (ctx.target_runlist << 20) | 2);
+    let _ = ctx.w(
+        pfifo::runlist_base(ctx.target_runlist),
+        pfifo::gv100_runlist_base_value(0xC000),
+    );
+    let _ = ctx.w(
+        pfifo::runlist_submit(ctx.target_runlist),
+        pfifo::gv100_runlist_submit_value(0xC000, 2),
+    );
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
@@ -358,8 +363,14 @@ pub(super) fn all_vram_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> DriverRe
     let _ = ctx.w(pb + 0xAC, 0x1000_3080);
     let _ = ctx.w(pb + 0xA8, 0x0000_1100);
 
-    let _ = ctx.w(pfifo::RUNLIST_BASE, 0xC000_u32 >> 12);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, (ctx.target_runlist << 20) | 2);
+    let _ = ctx.w(
+        pfifo::runlist_base(ctx.target_runlist),
+        pfifo::gv100_runlist_base_value(0xC000),
+    );
+    let _ = ctx.w(
+        pfifo::runlist_submit(ctx.target_runlist),
+        pfifo::gv100_runlist_submit_value(0xC000, 2),
+    );
     std::thread::sleep(std::time::Duration::from_millis(20));
 
     let _ = ctx.w(pb + 0x54, 1);
@@ -446,8 +457,7 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let post_bind = ctx.r(pccsr::channel(ctx.channel_id));
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(2));
-    let _ = ctx.w(pfifo::RUNLIST_BASE, ctx.rl_base);
-    let _ = ctx.w(pfifo::RUNLIST_SUBMIT, ctx.rl_submit);
+    ctx.submit_runlist()?;
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let rl_pending = ctx.r(0x002284 + (ctx.target_runlist as usize) * 8);

@@ -23,12 +23,21 @@
 //!   └─ DMA buffers             (IOMMU-mapped host memory)
 //! ```
 
+pub mod amd_metal;
+pub mod bar_cartography;
 pub mod channel;
 pub mod device;
 pub mod dma;
+pub mod gpu_vendor;
 pub mod ioctl;
+pub mod memory;
+pub mod nv_metal;
+pub mod pci_discovery;
 pub mod types;
 
 pub use channel::VfioChannel;
 pub use device::VfioDevice;
 pub use dma::DmaBuffer;
+pub use gpu_vendor::GpuMetal;
+pub use nv_metal::detect_gpu_metal;
+pub use pci_discovery::{GpuVendor, PciDeviceInfo, force_pci_d0};

@@ -110,6 +110,35 @@ pub enum ExperimentOrdering {
     /// = NOP, subchannel 0). Tests if PBDMA executes a real command after
     /// scheduling + RAMFC load.
     SchedWithNopPushbuf,
+
+    // ── Metal capability discovery experiments ────────────────────────
+
+    /// Cycle through D0/D3hot/D3cold, snapshot registers before/after.
+    /// Discovers what state persists across power transitions.
+    PowerStateSweep,
+    /// Systematic BAR0 scan with register classification (RO/RW/WO/Trigger/Dead).
+    /// Discovers the register space topology of an unknown GPU.
+    RegisterCartography,
+    /// Test all CPU→GPU, GPU→VRAM, GPU→GPU memory paths.
+    /// Validates every aperture and DMA path is functional.
+    MemoryPathMatrix,
+    /// Enable/disable each PMC bit individually, measure which engines
+    /// respond and which registers change. Maps the clock domain topology.
+    ClockDomainSweep,
+    /// Enumerate engines via PTOP table, test firmware status, probe
+    /// scheduler and FALCON microcontrollers.
+    EngineProbe,
+
+    // ── HBM2 training experiments ────────────────────────────────────
+
+    /// Read all FBPA registers across 4 stacks, classify as trained/untrained/dead.
+    Hbm2PhyProbe,
+    /// Capture timing register values from a trained card for replay.
+    Hbm2TimingCapture,
+    /// Execute the typestate training sequence, record per-phase snapshots.
+    Hbm2TrainingAttempt,
+    /// Binary search for the minimal register write set that trains HBM2.
+    Hbm2MinimalSet,
 }
 
 /// Configuration for a single experiment in the diagnostic matrix.
