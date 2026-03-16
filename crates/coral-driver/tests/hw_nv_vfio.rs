@@ -1794,4 +1794,193 @@ mod tests {
 
         eprintln!("╚══════════════════════════════════════════════════════════════╝");
     }
+
+    /// HBM2 lifecycle probe: map exactly which domains are alive/dead,
+    /// measure VRAM accessibility, and test resurrection via nouveau hot-swap.
+    #[test]
+    #[ignore = "requires VFIO-bound GPU hardware"]
+    fn vfio_hbm2_lifecycle_probe() {
+        use coral_driver::nv::RawVfioDevice;
+
+        let bdf = vfio_bdf();
+
+        // ── Helper: probe all VRAM-related domains ────────────────────────
+        fn probe_hbm2_health(bar0: &coral_driver::vfio::device::MappedBar) -> Vec<(&'static str, usize, u32, bool)> {
+            let domains: &[(&str, usize)] = &[
+                ("BOOT0",   0x000000),
+                ("PMC_EN",  0x000200),
+                ("PFIFO",   0x002004),
+                ("PFB",     0x100000),
+                ("FBHUB",   0x100800),
+                ("PFB_NISO",0x100C80),
+                ("PMU",     0x10A000),
+                ("LTC0",    0x17E200),
+                ("FBPA0",   0x9A0000),
+                ("NVPLL",   0x137050),
+                ("MEMPLL",  0x137100),
+                ("PRAMIN",  0x700000),
+                ("PRAMIN+4",0x700004),
+                ("PRAMIN+8",0x700008),
+            ];
+
+            domains.iter().map(|&(name, off)| {
+                let val = bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+                let alive = val != 0xDEAD_DEAD
+                    && val != 0xFFFF_FFFF
+                    && (val >> 16) != 0xBADF
+                    && (val >> 16) != 0xBAD0
+                    && (val >> 16) != 0xBAD1;
+                (name, off, val, alive)
+            }).collect()
+        }
+
+        fn print_health(label: &str, health: &[(&str, usize, u32, bool)]) {
+            let alive = health.iter().filter(|h| h.3).count();
+            let total = health.len();
+            eprintln!("║ {label}: {alive}/{total} domains alive");
+            for &(name, off, val, alive) in health {
+                let icon = if alive { "✓" } else { "✗" };
+                eprintln!("║   {icon} {name:10} [{off:#08x}] = {val:#010x}");
+            }
+        }
+
+        eprintln!("╔══════════════════════════════════════════════════════════════╗");
+        eprintln!("║ HBM2 LIFECYCLE PROBE                                       ║");
+        eprintln!("╠══════════════════════════════════════════════════════════════╣");
+
+        // ── Phase 1: Fresh VFIO open (POST state) ─────────────────────────
+        eprintln!("╠══ PHASE 1: FRESH VFIO OPEN (POST STATE) ═══════════════════╣");
+        {
+            let raw = RawVfioDevice::open(&bdf)
+                .expect("VFIO open failed");
+            let h = probe_hbm2_health(&raw.bar0);
+            print_health("POST state", &h);
+
+            let pramin_alive = h.iter().any(|x| x.0.starts_with("PRAMIN") && x.3);
+            eprintln!("║ VRAM accessible: {pramin_alive}");
+
+            // Write a sentinel to PRAMIN if accessible
+            if pramin_alive {
+                let sentinel: u32 = 0xC0EE_1EEF;
+                raw.bar0.write_u32(0x700000, sentinel).ok();
+                let readback = raw.bar0.read_u32(0x700000).unwrap_or(0);
+                eprintln!("║ Sentinel write/read: wrote {sentinel:#010x}, read {readback:#010x}, match={}",
+                    readback == sentinel);
+            }
+
+            eprintln!("║ Dropping VFIO fd (this triggers PM reset)...");
+            // raw drops here — fd closes, kernel does PM reset
+        }
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        // ── Phase 2: Re-open after fd close (PM reset happened) ───────────
+        eprintln!("╠══ PHASE 2: RE-OPEN AFTER PM RESET ═════════════════════════╣");
+        {
+            // Pin D0 first
+            let _ = std::fs::write(
+                format!("/sys/bus/pci/devices/{bdf}/power/control"), "on"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            let raw = RawVfioDevice::open(&bdf)
+                .expect("VFIO re-open failed");
+            let h = probe_hbm2_health(&raw.bar0);
+            print_health("After PM reset", &h);
+
+            let pramin_alive = h.iter().any(|x| x.0.starts_with("PRAMIN") && x.3);
+            eprintln!("║ VRAM accessible: {pramin_alive}");
+
+            if pramin_alive {
+                let readback = raw.bar0.read_u32(0x700000).unwrap_or(0);
+                eprintln!("║ Sentinel survived PM reset? read {readback:#010x} (expected 0xC0EE1EEF)");
+            }
+
+            eprintln!("║ Dropping again...");
+        }
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        // ── Phase 3: Resurrection via nouveau hot-swap ────────────────────
+        eprintln!("╠══ PHASE 3: NOUVEAU RESURRECTION ═══════════════════════════╣");
+        eprintln!("║ Swapping {bdf} → nouveau for HBM2 re-training...");
+
+        // Unbind from vfio-pci
+        fn sysfs_write(path: &str, val: &str) {
+            if std::fs::write(path, val).is_err() {
+                let _ = std::process::Command::new("sudo")
+                    .args(["-n", "/usr/bin/tee", path])
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .and_then(|mut c| {
+                        use std::io::Write;
+                        if let Some(s) = c.stdin.as_mut() { s.write_all(val.as_bytes())?; }
+                        c.wait()
+                    });
+            }
+        }
+
+        let unbind = format!("/sys/bus/pci/devices/{bdf}/driver/unbind");
+        sysfs_write(&unbind, &bdf);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Clear driver_override so nouveau can claim it
+        sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/driver_override"), "");
+        sysfs_write("/sys/bus/pci/drivers/nouveau/bind", &bdf);
+        eprintln!("║ Waiting for nouveau init (HBM2 training)...");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+
+        // Check nouveau claimed it
+        let drv = std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/driver"))
+            .ok()
+            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+        eprintln!("║ Driver after nouveau bind: {:?}", drv);
+
+        // ── Phase 4: Swap back to VFIO and check resurrection ─────────────
+        eprintln!("╠══ PHASE 4: SWAP BACK TO VFIO — CHECK RESURRECTION ═════════╣");
+
+        // Unbind from nouveau
+        sysfs_write(&unbind, &bdf);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Bind to vfio-pci
+        sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/driver_override"), "vfio-pci");
+        sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &bdf);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Pin D0
+        let _ = std::fs::write(
+            format!("/sys/bus/pci/devices/{bdf}/power/control"), "on"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        let raw = RawVfioDevice::open(&bdf)
+            .expect("VFIO open after resurrection failed");
+        let h = probe_hbm2_health(&raw.bar0);
+        print_health("After nouveau resurrection", &h);
+
+        let pramin_alive = h.iter().any(|x| x.0.starts_with("PRAMIN") && x.3);
+        eprintln!("║ VRAM RESURRECTED: {pramin_alive}");
+
+        // Try the sentinel test on resurrected VRAM
+        if pramin_alive {
+            let sentinel: u32 = 0xDEAD_BEEF;
+            raw.bar0.write_u32(0x700000, sentinel).ok();
+            let readback = raw.bar0.read_u32(0x700000).unwrap_or(0);
+            eprintln!("║ Post-resurrection sentinel: wrote {sentinel:#010x}, read {readback:#010x}, match={}",
+                readback == sentinel);
+        }
+
+        let alive_count = h.iter().filter(|x| x.3).count();
+        eprintln!("╠══════════════════════════════════════════════════════════════╣");
+        eprintln!("║ SUMMARY:");
+        eprintln!("║   Phase 1 (POST state):       check log above");
+        eprintln!("║   Phase 2 (after PM reset):    check log above");
+        eprintln!("║   Phase 3 (nouveau warm):      driver={:?}", drv);
+        eprintln!("║   Phase 4 (resurrection):      {alive_count}/{} domains, VRAM={pramin_alive}", h.len());
+        eprintln!("╚══════════════════════════════════════════════════════════════╝");
+
+    }
 }

@@ -19,6 +19,7 @@ pub enum Request {
     GetDevice { bdf: String },
     Swap { bdf: String, target: String },
     Health { bdf: String },
+    Resurrect { bdf: String },
     Status,
     Shutdown,
 }
@@ -28,6 +29,7 @@ pub enum Response {
     Devices(Vec<DeviceInfo>),
     DeviceReady { bdf: String, personality: String, vram_alive: bool },
     SwapComplete { bdf: String, personality: String, vram_alive: bool },
+    Resurrected { bdf: String, vram_alive: bool, domains_alive: usize },
     Health(HealthInfo),
     Status(DaemonStatus),
     Error(String),
@@ -163,6 +165,27 @@ async fn handle_client(
                                 bdf,
                                 personality: slot.personality.to_string(),
                                 vram_alive: slot.health.vram_alive,
+                            },
+                            Err(e) => Response::Error(e),
+                        }
+                    } else {
+                        Response::Error(format!("device {bdf} not managed"))
+                    }
+                }).await.unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")));
+                result
+            }
+
+            Request::Resurrect { bdf } => {
+                let devs_clone = devices.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let rt = tokio::runtime::Handle::current();
+                    let mut devs = rt.block_on(devs_clone.lock());
+                    if let Some(slot) = devs.iter_mut().find(|d| d.bdf == bdf) {
+                        match slot.resurrect_hbm2() {
+                            Ok(alive) => Response::Resurrected {
+                                bdf,
+                                vram_alive: alive,
+                                domains_alive: slot.health.domains_alive,
                             },
                             Err(e) => Response::Error(e),
                         }

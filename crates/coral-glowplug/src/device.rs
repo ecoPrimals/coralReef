@@ -235,10 +235,12 @@ impl DeviceSlot {
     }
 
     fn bind_driver(&mut self, driver: &str) -> Result<(), String> {
+        // Write newline to clear driver_override (empty string doesn't work via tee)
         sysfs_write(
             &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
-            "",
+            "\n",
         );
+        std::thread::sleep(std::time::Duration::from_millis(200));
         sysfs_write(
             &format!("/sys/bus/pci/drivers/{driver}/bind"),
             &self.bdf,
@@ -323,6 +325,114 @@ impl DeviceSlot {
         }
         self.health.domains_alive = alive;
         self.health.domains_faulted = faulted;
+    }
+
+    /// Resurrect HBM2 by cycling through nouveau.
+    ///
+    /// Sequence: snapshot → close VFIO fd → unbind → nouveau bind (HBM2 training)
+    /// → wait for init → unbind nouveau → rebind VFIO → verify PRAMIN alive.
+    ///
+    /// Returns Ok(true) if VRAM came back alive, Ok(false) if resurrection
+    /// completed but VRAM is still dead, Err if a step failed.
+    pub fn resurrect_hbm2(&mut self) -> Result<bool, String> {
+        tracing::info!(bdf = %self.bdf, "HBM2 resurrection starting");
+
+        // Step 1: snapshot current state (even if partially dead)
+        self.snapshot_registers();
+        let snapshot_count = self.register_snapshot.len();
+        tracing::info!(bdf = %self.bdf, regs = snapshot_count, "state vault snapshot saved");
+
+        // Step 2: close VFIO fd (triggers PM reset, but frees the group for unbind)
+        drop(self.vfio_device.take());
+
+        // Step 3: pin power to prevent D3 during transition
+        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+
+        // Step 4: unbind from current driver
+        let unbind = format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf);
+        sysfs_write(&unbind, &self.bdf);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+
+        // Step 5: bind to nouveau — this triggers full HBM2 training
+        // CRITICAL: clear driver_override BEFORE bind, otherwise the kernel
+        // won't match nouveau because override says "vfio-pci"
+        tracing::info!(bdf = %self.bdf, "clearing driver_override and binding nouveau...");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
+            "\n",
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Verify override was cleared
+        let override_val = std::fs::read_to_string(
+            format!("/sys/bus/pci/devices/{}/driver_override", self.bdf)
+        ).unwrap_or_default();
+        tracing::info!(bdf = %self.bdf, driver_override = ?override_val.trim(), "override after clear");
+
+        sysfs_write("/sys/bus/pci/drivers/nouveau/bind", &self.bdf);
+
+        // Step 6: wait for nouveau to complete init
+        // nouveau does: VBIOS parse → PMU → FBPA init → HBM2 PHY training → DRM
+        // typically takes 2-5 seconds on GV100
+        for attempt in 0..10 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let drv = std::fs::read_link(format!("/sys/bus/pci/devices/{}/driver", self.bdf))
+                .ok()
+                .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+            if drv.as_deref() == Some("nouveau") {
+                // Check if DRM is up (indicates full init including HBM2)
+                if find_drm_card(&self.bdf).is_some() {
+                    tracing::info!(
+                        bdf = %self.bdf,
+                        attempt,
+                        "nouveau init complete (DRM card found)"
+                    );
+                    break;
+                }
+            }
+            tracing::debug!(bdf = %self.bdf, attempt, driver = ?drv, "waiting for nouveau init...");
+        }
+
+        let nouveau_drv = std::fs::read_link(format!("/sys/bus/pci/devices/{}/driver", self.bdf))
+            .ok()
+            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+        if nouveau_drv.as_deref() != Some("nouveau") {
+            tracing::warn!(bdf = %self.bdf, driver = ?nouveau_drv, "nouveau did not bind — resurrection may fail");
+        }
+
+        // Step 7: swap back to VFIO
+        tracing::info!(bdf = %self.bdf, "nouveau warm complete, swapping back to vfio-pci...");
+        sysfs_write(&unbind, &self.bdf);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+
+        self.bind_vfio()?;
+
+        // Step 8: verify PRAMIN is alive
+        self.check_health();
+
+        let alive = self.health.vram_alive;
+        if alive {
+            tracing::info!(
+                bdf = %self.bdf,
+                domains_alive = self.health.domains_alive,
+                boot0 = format_args!("{:#010x}", self.health.boot0),
+                pmc = format_args!("{:#010x}", self.health.pmc_enable),
+                "HBM2 RESURRECTED — VRAM alive"
+            );
+        } else {
+            tracing::warn!(
+                bdf = %self.bdf,
+                domains_alive = self.health.domains_alive,
+                domains_faulted = self.health.domains_faulted,
+                "HBM2 resurrection failed — VRAM still dead"
+            );
+        }
+
+        Ok(alive)
     }
 
     fn refresh_power_state(&mut self) {
