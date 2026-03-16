@@ -306,7 +306,7 @@ impl DeviceSlot {
     }
 
     /// Take a snapshot of key registers (for state preservation across swaps).
-    fn snapshot_registers(&mut self) {
+    pub fn snapshot_registers(&mut self) {
         let Some(dev) = &self.vfio_device else { return };
         self.register_snapshot.clear();
 

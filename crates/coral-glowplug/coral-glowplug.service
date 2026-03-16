@@ -9,6 +9,9 @@ Type=simple
 ExecStart=/usr/local/bin/coral-glowplug --config /etc/coralreef/glowplug.toml
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
+KillSignal=SIGTERM
 Environment=RUST_LOG=info
 RuntimeDirectory=coralreef
 RuntimeDirectoryMode=0755

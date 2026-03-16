@@ -180,7 +180,37 @@ async fn main() {
         }
     }
 
-    // Accept connections forever
-    // The VFIO fds in DeviceSlots stay open as long as the daemon runs
-    server.accept_loop(devices).await;
+    // Run accept loop until SIGTERM/SIGINT
+    let accept_devices = devices.clone();
+    let accept_handle = tokio::spawn(async move {
+        server.accept_loop(accept_devices).await;
+    });
+
+    // Wait for shutdown signal
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("failed to register SIGTERM handler");
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .expect("failed to register SIGINT handler");
+
+    tokio::select! {
+        _ = sigterm.recv() => tracing::info!("received SIGTERM"),
+        _ = sigint.recv() => tracing::info!("received SIGINT"),
+    }
+
+    // Graceful shutdown: snapshot state, release VFIO fds, clean up socket
+    tracing::info!("shutting down — releasing devices");
+    {
+        let mut devs = devices.lock().await;
+        for slot in devs.iter_mut() {
+            if slot.has_vfio() {
+                slot.snapshot_registers();
+                tracing::info!(bdf = %slot.bdf, "snapshot saved, releasing VFIO fd");
+            }
+        }
+        // Drop all device slots explicitly (closes VFIO fds)
+        devs.clear();
+    }
+
+    accept_handle.abort();
+    tracing::info!("coral-glowplug stopped cleanly");
 }
