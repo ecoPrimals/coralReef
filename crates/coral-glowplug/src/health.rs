@@ -7,12 +7,10 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub async fn health_loop(
-    devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
-    interval_ms: u64,
-) {
+pub async fn health_loop(devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>, interval_ms: u64) {
     let interval = std::time::Duration::from_millis(interval_ms);
-    let mut consecutive_dead: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut consecutive_dead: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
 
     loop {
         tokio::time::sleep(interval).await;
@@ -68,10 +66,7 @@ pub async fn health_loop(
 
             // Auto-resurrect: if VRAM has been dead for 3+ consecutive checks
             // and we have VFIO access, attempt nouveau resurrection
-            if *dead_count >= 3
-                && slot.has_vfio()
-                && slot.config.power_policy == "always_on"
-            {
+            if *dead_count >= 3 && slot.has_vfio() && slot.config.power_policy == "always_on" {
                 tracing::warn!(
                     bdf = %slot.bdf,
                     consecutive_dead = *dead_count,

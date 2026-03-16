@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 //! Unified memory abstraction for GPU/CPU bidirectional topology.
 //!
 //! Models GPU and CPU memory as a graph of regions connected by access paths.

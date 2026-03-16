@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 //! Typed layer outputs for the GPU interpreter.
 //!
 //! Each struct is produced by one layer and consumed by the next.

@@ -10,9 +10,15 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Personality {
-    Vfio { group_id: u32 },
-    Nouveau { drm_card: Option<String> },
-    Amdgpu { drm_card: Option<String> },
+    Vfio {
+        group_id: u32,
+    },
+    Nouveau {
+        drm_card: Option<String>,
+    },
+    Amdgpu {
+        drm_card: Option<String>,
+    },
     #[allow(dead_code)] // constructed from config deserialization
     NvidiaProprietary,
     Unbound,
@@ -123,9 +129,10 @@ impl DeviceSlot {
         self.refresh_power_state();
 
         // Check current driver — if already correct, skip rebind
-        let current_driver = std::fs::read_link(format!("/sys/bus/pci/devices/{}/driver", self.bdf))
-            .ok()
-            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+        let current_driver =
+            std::fs::read_link(format!("/sys/bus/pci/devices/{}/driver", self.bdf))
+                .ok()
+                .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
 
         let needs_rebind = match target.as_str() {
             "vfio" => current_driver.as_deref() != Some("vfio-pci"),
@@ -233,7 +240,10 @@ impl DeviceSlot {
         drop(self.vfio_device.take());
 
         // Pin power before unbind to prevent D3 transition
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
 
         // Unbind from current driver
         let drv_path = format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf);
@@ -241,7 +251,10 @@ impl DeviceSlot {
         std::thread::sleep(std::time::Duration::from_millis(500));
 
         // Keep power pinned
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
         self.personality = Personality::Unbound;
         Ok(())
     }
@@ -264,8 +277,14 @@ impl DeviceSlot {
         std::thread::sleep(std::time::Duration::from_millis(500));
 
         // Pin D0
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/d3cold_allowed", self.bdf), "0");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/d3cold_allowed", self.bdf),
+            "0",
+        );
 
         // Open VFIO device
         match coral_driver::nv::RawVfioDevice::open(&self.bdf) {
@@ -288,13 +307,13 @@ impl DeviceSlot {
             "\n",
         );
         std::thread::sleep(std::time::Duration::from_millis(200));
-        sysfs_write(
-            &format!("/sys/bus/pci/drivers/{driver}/bind"),
-            &self.bdf,
-        );
+        sysfs_write(&format!("/sys/bus/pci/drivers/{driver}/bind"), &self.bdf);
         std::thread::sleep(std::time::Duration::from_secs(3));
 
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
 
         let drm_card = find_drm_card(&self.bdf);
         self.personality = match driver {
@@ -327,7 +346,9 @@ impl DeviceSlot {
         tracing::debug!(bdf = %self.bdf, regs = self.register_snapshot.len(), "snapshot taken");
 
         if let Some(path) = &self.config.oracle_dump {
-            let dump: Vec<String> = self.register_snapshot.iter()
+            let dump: Vec<String> = self
+                .register_snapshot
+                .iter()
                 .map(|(off, val)| format!("{off:#010x} = {val:#010x}"))
                 .collect();
             if let Err(e) = std::fs::write(path, dump.join("\n")) {
@@ -340,15 +361,12 @@ impl DeviceSlot {
     pub fn check_health(&mut self) {
         self.refresh_power_state();
 
-        if !self.has_vfio() {
-            // Can't probe without VFIO — just report power state
+        let Some(dev) = self.vfio_device.as_ref() else {
             self.health.vram_alive = false;
             self.health.domains_alive = 0;
             self.health.domains_faulted = 0;
             return;
-        }
-
-        let dev = self.vfio_device.as_ref().unwrap();
+        };
         let r = |off: usize| dev.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
 
         self.health.boot0 = r(0x000000);
@@ -356,24 +374,32 @@ impl DeviceSlot {
 
         // VRAM test via PRAMIN sentinel
         let pramin_val = r(0x700000);
-        self.health.vram_alive = pramin_val != 0xDEAD_DEAD
-            && (pramin_val >> 16) != 0xBAD0
-            && pramin_val != 0xFFFF_FFFF;
+        self.health.vram_alive =
+            pramin_val != 0xDEAD_DEAD && (pramin_val >> 16) != 0xBAD0 && pramin_val != 0xFFFF_FFFF;
 
         // Domain health
         let domains: &[(usize, &str)] = &[
-            (0x000200, "PMC"), (0x002004, "PFIFO"), (0x100000, "PFB"),
-            (0x100800, "FBHUB"), (0x10A000, "PMU"), (0x17E200, "LTC0"),
-            (0x9A0000, "FBPA0"), (0x137050, "NVPLL"), (0x700000, "PRAMIN"),
+            (0x000200, "PMC"),
+            (0x002004, "PFIFO"),
+            (0x100000, "PFB"),
+            (0x100800, "FBHUB"),
+            (0x10A000, "PMU"),
+            (0x17E200, "LTC0"),
+            (0x9A0000, "FBPA0"),
+            (0x137050, "NVPLL"),
+            (0x700000, "PRAMIN"),
         ];
 
         let mut alive = 0;
         let mut faulted = 0;
         for &(off, _) in domains {
             let val = r(off);
-            if val == 0xDEAD_DEAD || val == 0xFFFF_FFFF {
-                faulted += 1;
-            } else if (val >> 16) == 0xBADF || (val >> 16) == 0xBAD0 || (val >> 16) == 0xBAD1 {
+            if val == 0xDEAD_DEAD
+                || val == 0xFFFF_FFFF
+                || (val >> 16) == 0xBADF
+                || (val >> 16) == 0xBAD0
+                || (val >> 16) == 0xBAD1
+            {
                 faulted += 1;
             } else {
                 alive += 1;
@@ -402,13 +428,19 @@ impl DeviceSlot {
         drop(self.vfio_device.take());
 
         // Step 3: pin power to prevent D3 during transition
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
 
         // Step 4: unbind from current driver
         let unbind = format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf);
         sysfs_write(&unbind, &self.bdf);
         std::thread::sleep(std::time::Duration::from_secs(1));
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
 
         // Step 5: bind to nouveau — this triggers full HBM2 training
         // CRITICAL: clear driver_override BEFORE bind, otherwise the kernel
@@ -421,9 +453,9 @@ impl DeviceSlot {
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // Verify override was cleared
-        let override_val = std::fs::read_to_string(
-            format!("/sys/bus/pci/devices/{}/driver_override", self.bdf)
-        ).unwrap_or_default();
+        let override_val =
+            std::fs::read_to_string(format!("/sys/bus/pci/devices/{}/driver_override", self.bdf))
+                .unwrap_or_default();
         tracing::info!(bdf = %self.bdf, driver_override = ?override_val.trim(), "override after clear");
 
         sysfs_write("/sys/bus/pci/drivers/nouveau/bind", &self.bdf);
@@ -463,7 +495,10 @@ impl DeviceSlot {
         tracing::info!(bdf = %self.bdf, "nouveau warm complete, swapping back to vfio-pci...");
         sysfs_write(&unbind, &self.bdf);
         std::thread::sleep(std::time::Duration::from_secs(1));
-        sysfs_write(&format!("/sys/bus/pci/devices/{}/power/control", self.bdf), "on");
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+            "on",
+        );
 
         self.bind_vfio()?;
 
@@ -568,7 +603,9 @@ fn identify_chip(vendor: u16, device: u16) -> String {
 /// VFIO requires group viability: every device in the group must use vfio-pci.
 fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
     let group_path = format!("/sys/kernel/iommu_groups/{group_id}/devices");
-    let Ok(entries) = std::fs::read_dir(&group_path) else { return };
+    let Ok(entries) = std::fs::read_dir(&group_path) else {
+        return;
+    };
 
     for entry in entries.flatten() {
         let peer_bdf = entry.file_name().to_string_lossy().to_string();

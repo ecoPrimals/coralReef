@@ -12,10 +12,7 @@ pub struct Config {
 }
 
 /// GPU vendor IDs worth managing.
-const GPU_VENDORS: &[(u16, &str)] = &[
-    (0x10de, "nvidia"),
-    (0x1002, "amd"),
-];
+const GPU_VENDORS: &[(u16, &str)] = &[(0x10de, "nvidia"), (0x1002, "amd")];
 
 #[derive(Debug, Deserialize)]
 pub struct DaemonConfig {
@@ -76,10 +73,9 @@ fn default_power_policy() -> String {
 
 impl Config {
     pub fn load(path: &str) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("read config {path}: {e}"))?;
-        toml::from_str(&content)
-            .map_err(|e| format!("parse config {path}: {e}"))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("read config {path}: {e}"))?;
+        toml::from_str(&content).map_err(|e| format!("parse config {path}: {e}"))
     }
 
     /// Build a config by scanning the PCI bus for discrete GPUs.
@@ -90,7 +86,10 @@ impl Config {
         let mut devices = Vec::new();
 
         let Ok(entries) = std::fs::read_dir("/sys/bus/pci/devices") else {
-            return Self { daemon: DaemonConfig::default(), device: devices };
+            return Self {
+                daemon: DaemonConfig::default(),
+                device: devices,
+            };
         };
 
         for entry in entries.flatten() {
@@ -108,7 +107,8 @@ impl Config {
             }
 
             // Only known GPU vendors
-            let vendor_name = GPU_VENDORS.iter()
+            let vendor_name = GPU_VENDORS
+                .iter()
                 .find(|(vid, _)| *vid == vendor as u16)
                 .map(|(_, name)| *name);
             if vendor_name.is_none() {
@@ -126,11 +126,12 @@ impl Config {
                 continue;
             }
 
-            let personality = if driver.as_deref() == Some("nouveau") || driver.as_deref() == Some("amdgpu") {
-                driver.as_deref().unwrap_or("vfio").to_string()
-            } else {
-                "vfio".into()
-            };
+            let personality =
+                if driver.as_deref() == Some("nouveau") || driver.as_deref() == Some("amdgpu") {
+                    driver.as_deref().unwrap_or("vfio").to_string()
+                } else {
+                    "vfio".into()
+                };
 
             tracing::info!(
                 bdf = %bdf,
@@ -151,7 +152,10 @@ impl Config {
             });
         }
 
-        Self { daemon: DaemonConfig::default(), device: devices }
+        Self {
+            daemon: DaemonConfig::default(),
+            device: devices,
+        }
     }
 }
 

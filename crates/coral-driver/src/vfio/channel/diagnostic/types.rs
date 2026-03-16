@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 
 use super::super::registers::*;
 
@@ -112,7 +113,6 @@ pub enum ExperimentOrdering {
     SchedWithNopPushbuf,
 
     // ── Metal capability discovery experiments ────────────────────────
-
     /// Cycle through D0/D3hot/D3cold, snapshot registers before/after.
     /// Discovers what state persists across power transitions.
     PowerStateSweep,
@@ -130,7 +130,6 @@ pub enum ExperimentOrdering {
     EngineProbe,
 
     // ── HBM2 training experiments ────────────────────────────────────
-
     /// Read all FBPA registers across 4 stacks, classify as trained/untrained/dead.
     Hbm2PhyProbe,
     /// Capture timing register values from a trained card for replay.
@@ -199,7 +198,7 @@ pub struct ExperimentResult {
     pub faulted: bool,
     /// Whether PCCSR bit 1 (NEXT/scheduled) is set.
     pub scheduled: bool,
-    /// PCCSR STATUS[27:24] — 0=IDLE, 5=ON_PBDMA, 6=ON_PBDMA+ENG, 7=ON_ENG.
+    /// PCCSR STATUS\[27:24\] — 0=IDLE, 5=ON_PBDMA, 6=ON_PBDMA+ENG, 7=ON_ENG.
     pub status: u32,
     /// PBDMA interrupt register for the target PBDMA.
     pub pbdma_intr: u32,

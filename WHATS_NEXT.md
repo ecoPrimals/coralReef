@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 15, 2026 (Phase 10 — Iteration 49)
+**Last updated**: March 16, 2026 (Phase 10 — Iteration 50)
 
 ---
 
@@ -79,7 +79,21 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 49)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 50)
+
+### Iteration 50 — Full Audit Execution + Coverage Expansion
+- [x] Doc warnings eliminated (4 rustdoc warnings: escaped bit-field notation, fixed intra-doc links)
+- [x] Clippy clean with VFIO features (`cargo clippy --workspace --features vfio -- -D warnings` — zero warnings)
+- [x] Hardcoded `/home/biomegate` paths → `$HOTSPRING_DATA_DIR` env var
+- [x] Production `unwrap()`/`expect()` evolved to `match`/`let-else` + `tracing::error!` in coral-glowplug
+- [x] All production `eprintln!` → structured `tracing::*` macros
+- [x] Smart refactoring: `devinit.rs` (2197→5), `probe.rs` (1572→6), `glowplug.rs` (1405→6), `hbm2_training.rs` (1355→10), `hw_nv_vfio.rs` (2469→5), `tests_unix.rs` (1094→2)
+- [x] All files under 1000 LOC — zero violations
+- [x] 16 experimental VFIO diagnostic modules annotated with `#![allow(missing_docs)]`
+- [x] +214 coverage tests: texture, memory, f64, shader I/O, control flow, spiller, latency, fold across SM20/32/50/70/75/80/86/89 + RDNA2
+- [x] GPU hardware tests: 9/14 nouveau passing on Titan V
+- [x] Root docs updated: README.md, STATUS.md, CONTRIBUTING.md, hardware inventory
+- [x] 1992 passing, 0 failed; 57.10% region / 57.54% line / 67.80% function coverage
 
 ### Iteration 49 — hotSpring Absorption: GV100 Dispatch Fixes
 - [x] **GV100 per-runlist registers**: all RUNLIST_BASE/SUBMIT migrated from GK104 global constants to GV100 per-runlist at stride 0x10 (`runlist_base(id)`, `runlist_submit(id)`). Value encoding: base = `lower_32(iova >> 12)`, submit = `upper_32(iova >> 12) | (count << 16)`
@@ -347,28 +361,15 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
-- [ ] Coverage 66% → 90%
+- [ ] Coverage 57.54% → 90% (57.54% line reflects full workspace measurement including hardware-gated VFIO code)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1842+48 tests passing, 61 ignored, 68.45% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+1992+48 tests passing, 0 failed, 57.54% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-AMD E2E verified — WGSL → compile → PM4 dispatch → GPU execution → readback on RX 6950 XT.
-NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
-GV100 dispatch fixes absorbed from hotSpring: per-runlist registers, MMU fault buffer DMA, PFIFO INTR bit 8, PBDMA reset sequence.
-GlowPlug self-warming consolidated: inline duplication eliminated, GlowPlug::full_init() canonical path.
-vfio/channel.rs smart refactored: 2894 LOC → 5 modules (mod.rs, registers.rs, page_tables.rs, pfifo.rs, diagnostic.rs).
-eprintln! → tracing migration in production code. IPC chaos/fault tests added.
-PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist, PCCSR bind/enable.
-Runlist USERD_TARGET=SYS_MEM_COHERENT, INST_TARGET=SYS_MEM_NCOH — PBDMA reads USERD correctly.
-RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), USERMODE doorbell at BAR0+0x810090.
-GpuContext::from_vfio() convenience API unblocks barraCuda CoralReefDevice wiring.
-Multi-GPU sovereignty: vfio-first driver preference, nvidia-drm probing, ecosystem discovery.
-All AMD f64 ops encoded including transcendentals via literal materialization.
-Zero DEBT comments — all resolved or evolved. Zero libc dependency. Zero extern "C".
-Zero files over 1000 LOC (production). Zero clippy warnings. Zero doc warnings.
-All ioctl calls use rustix via drm_ioctl_named/nv_rm_ioctl. bytemuck::Zeroable eliminates unsafe zeroed().
-NVVM poisoning bypass validated — DF64 Yukawa compiles cleanly for SM70/SM86/RDNA2.
+NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
+Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
+Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings. Zero fmt drift.
 All pure Rust. Sovereignty is a runtime choice.*

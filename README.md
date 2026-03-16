@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 47 (Deep Debt Evolution + Modern Idiomatic Rust)
+**Status**: Phase 10 — Iteration 50 (Full Audit Execution + Coverage Expansion)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -34,7 +34,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 1819 passing, 0 failed, 61 ignored (+48 VFIO with --features vfio)
+cargo test --workspace     # 1992 passing, 0 failed (+48 VFIO with --features vfio)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -169,11 +169,11 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1819 passing, 0 failed, 61 ignored) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 66.43% line coverage (target 90%) |
-| `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 warnings) |
+| `cargo test --workspace` | PASS (1992 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 57.10% region / 57.54% line / 67.80% function (target 90%) |
+| `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
-| `cargo doc --workspace --no-deps` | PASS |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
 
 ## Driver Sovereignty
 
@@ -200,10 +200,11 @@ cd showcase/00-local-primal/01-hello-compiler && ./demo.sh
 
 ## Hardware — On-Site
 
-| GPU | Architecture | Kernel Driver | DRM Node | f64 | Role |
-|-----|-------------|---------------|----------|-----|------|
-| AMD RX 6950 XT | RDNA2 GFX1030 | amdgpu (open) | renderD128 | 1/16 | AMD primary (E2E verified) |
-| NVIDIA RTX 3090 | Ampere SM86 | nvidia-drm (proprietary) | renderD129 | 1/32 | NVIDIA target (probe verified) |
+| GPU | Architecture | Kernel Driver | f64 | Role |
+|-----|-------------|---------------|-----|------|
+| NVIDIA Titan V #1 | Volta SM70 (GV100) | vfio-pci | 1/2 | Oracle card (VFIO sovereign) |
+| NVIDIA Titan V #2 | Volta SM70 (GV100) | vfio-pci | 1/2 | Compute target (VFIO sovereign) |
+| NVIDIA RTX 5060 | Ada SM89 | nvidia-drm | 1/64 | Desktop + UVM dispatch |
 
 ## vs CUDA / Kokkos
 
@@ -230,7 +231,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 47 — deep debt evolution, unsafe elimination, zero-copy Bytes, driver constants, 1819 tests, 66.43% coverage** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 50 — full audit execution, 1992 tests, zero clippy/doc warnings, all files <1000 LOC, 57.54% line coverage** |
 
 ---
 

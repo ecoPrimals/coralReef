@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 
 use std::borrow::Cow;
 use std::os::fd::RawFd;
@@ -38,7 +39,11 @@ use super::types::{ExperimentConfig, ExperimentOrdering, ExperimentResult};
 ///
 /// The GPU should be warm from nouveau (bind nouveau → unbind → bind vfio-pci)
 /// so the PFIFO scheduler is already running.
-#[expect(clippy::cast_possible_truncation, clippy::too_many_lines)]
+#[expect(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "diagnostic matrix needs all buffers and configs"
+)]
 pub fn diagnostic_matrix(
     container_fd: RawFd,
     bar0: &MappedBar,
@@ -73,55 +78,55 @@ pub fn diagnostic_matrix(
 
     // ── One-shot probes ─────────────────────────────────────────────────
 
-    eprintln!("╔══ DIAGNOSTIC MATRIX — ONE-SHOT PROBES ═══════════════════╗");
-    eprintln!("║ BOOT0:         {:#010x}", r(0));
-    eprintln!("║ PMC_ENABLE:    {:#010x}", r(pmc::ENABLE));
-    eprintln!("║ PFIFO_ENABLE:  {:#010x}", r(pfifo::ENABLE));
-    eprintln!("║ SCHED_DISABLE: {:#010x}", r(0x2630));
-    eprintln!("║ PFIFO_INTR:    {:#010x}", r(pfifo::INTR));
-    eprintln!("║ PBDMA_MAP:     {:#010x}", r(pfifo::PBDMA_MAP));
-    eprintln!("║ ENGN0_STATUS:  {:#010x}", r(0x2640));
-    eprintln!("║ BIND_ERROR:    {:#010x}", r(0x252C));
-    eprintln!("║ FB_TIMEOUT:    {:#010x}", r(0x2254));
-    eprintln!("║ PRIV_RING:     {:#010x}", r(0x012070));
-    eprintln!("║ ── MMU Fault Buffers ──");
-    eprintln!(
+    tracing::debug!("╔══ DIAGNOSTIC MATRIX — ONE-SHOT PROBES ═══════════════════╗");
+    tracing::debug!("║ BOOT0:         {:#010x}", r(0));
+    tracing::debug!("║ PMC_ENABLE:    {:#010x}", r(pmc::ENABLE));
+    tracing::debug!("║ PFIFO_ENABLE:  {:#010x}", r(pfifo::ENABLE));
+    tracing::debug!("║ SCHED_DISABLE: {:#010x}", r(0x2630));
+    tracing::debug!("║ PFIFO_INTR:    {:#010x}", r(pfifo::INTR));
+    tracing::debug!("║ PBDMA_MAP:     {:#010x}", r(pfifo::PBDMA_MAP));
+    tracing::debug!("║ ENGN0_STATUS:  {:#010x}", r(0x2640));
+    tracing::debug!("║ BIND_ERROR:    {:#010x}", r(0x252C));
+    tracing::debug!("║ FB_TIMEOUT:    {:#010x}", r(0x2254));
+    tracing::debug!("║ PRIV_RING:     {:#010x}", r(0x012070));
+    tracing::debug!("║ ── MMU Fault Buffers ──");
+    tracing::debug!(
         "║ BUF0_LO:  {:#010x}  BUF0_HI:  {:#010x}  SIZE: {:#010x}",
         r(0x100E24),
         r(0x100E28),
         r(0x100E2C)
     );
-    eprintln!(
+    tracing::debug!(
         "║ BUF0_GET: {:#010x}  BUF0_PUT: {:#010x}",
         r(0x100E30),
         r(0x100E34)
     );
-    eprintln!(
+    tracing::debug!(
         "║ BUF1_LO:  {:#010x}  BUF1_HI:  {:#010x}  SIZE: {:#010x}",
         r(0x100E44),
         r(0x100E48),
         r(0x100E4C)
     );
-    eprintln!(
+    tracing::debug!(
         "║ BUF1_GET: {:#010x}  BUF1_PUT: {:#010x}",
         r(0x100E50),
         r(0x100E54)
     );
-    eprintln!("║ ── PCCSR Channel Scan ──");
+    tracing::debug!("║ ── PCCSR Channel Scan ──");
     for ch in 0..8_u32 {
         let inst_val = r(pccsr::inst(ch));
         let chan_val = r(pccsr::channel(ch));
         if inst_val != 0 || chan_val != 0 {
-            eprintln!("║ CH{ch}: INST={inst_val:#010x} CHAN={chan_val:#010x}");
+            tracing::debug!("║ CH{ch}: INST={inst_val:#010x} CHAN={chan_val:#010x}");
         }
     }
-    eprintln!("║ MMU_FAULT_STATUS: {:#010x}", r(0x100A2C));
-    eprintln!(
+    tracing::debug!("║ MMU_FAULT_STATUS: {:#010x}", r(0x100A2C));
+    tracing::debug!(
         "║ MMU_FAULT_ADDR:   {:#010x}_{:#010x}",
         r(0x100A34),
         r(0x100A30)
     );
-    eprintln!(
+    tracing::debug!(
         "║ MMU_FAULT_INST:   {:#010x}_{:#010x}",
         r(0x100A3C),
         r(0x100A38)
@@ -130,7 +135,7 @@ pub fn diagnostic_matrix(
     // ── GlowPlug: warm GPU + BAR2 + fault buffers ─────────────────────
     let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, container_fd);
     let state = gp.check_state();
-    eprintln!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
+    tracing::debug!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
     match state {
         crate::vfio::channel::glowplug::GpuThermalState::D3Hot => {
             return Err(DriverError::SubmitFailed(Cow::Borrowed(
@@ -139,15 +144,15 @@ pub fn diagnostic_matrix(
             )));
         }
         crate::vfio::channel::glowplug::GpuThermalState::Warm => {
-            eprintln!("║ GPU already warm — skipping glow plug");
+            tracing::debug!("║ GPU already warm — skipping glow plug");
         }
         _ => {
             let result = gp.full_init();
             for msg in &result.log {
-                eprintln!("║ {msg}");
+                tracing::debug!("║ {msg}");
             }
             if !result.success {
-                eprintln!("║ WARNING: glow plug did not fully succeed");
+                tracing::warn!("glow plug did not fully succeed");
             }
         }
     }
@@ -162,28 +167,28 @@ pub fn diagnostic_matrix(
     fault_buf.as_slice();
 
     // Oracle-compared register snapshot.
-    eprintln!("║ ── Post-warm Oracle Compare ──");
-    eprintln!(
+    tracing::debug!("║ ── Post-warm Oracle Compare ──");
+    tracing::debug!(
         "║ PMC_ENABLE:         {:#010x} (oracle: 0x5fecdff1)",
         r(pmc::ENABLE)
     );
-    eprintln!(
+    tracing::debug!(
         "║ BAR1_BLOCK(1704):   {:#010x} (oracle: 0x002ffeca)",
         r(misc::PBUS_BAR1_BLOCK)
     );
-    eprintln!(
+    tracing::debug!(
         "║ BAR2_BLOCK(1714):   {:#010x} (oracle: 0x802ffedf)",
         r(misc::PBUS_BAR2_BLOCK)
     );
-    eprintln!(
+    tracing::debug!(
         "║ PFIFO_INTR_EN:      {:#010x} (oracle: 0x061810101)",
         r(pfifo::INTR_EN)
     );
-    eprintln!(
+    tracing::debug!(
         "║ CHSW_ERROR(256C):   {:#010x} (0=NO_ERROR)",
         r(pfifo::CHSW_ERROR)
     );
-    eprintln!("╚═══════════════════════════════════════════════════════════╝");
+    tracing::debug!("╚═══════════════════════════════════════════════════════════╝");
 
     // ── Shared init ─────────────────────────────────────────────────────
 
@@ -224,7 +229,7 @@ pub fn diagnostic_matrix(
         }
     }
     let target_runlist = gr_runlist.unwrap_or(0);
-    eprintln!("║ Target runlist: {target_runlist}");
+    tracing::debug!("║ Target runlist: {target_runlist}");
 
     // Dump ALL PBDMA → runlist mappings and engine info
     {
@@ -234,11 +239,11 @@ pub fn diagnostic_matrix(
                 continue;
             }
             let rl = r(0x2390 + seq * 4);
-            eprintln!("║ PBDMA_RUNL_MAP[{seq}]: PBDMA {pid} → runlist {rl}");
+            tracing::debug!("║ PBDMA_RUNL_MAP[{seq}]: PBDMA {pid} → runlist {rl}");
             seq += 1;
         }
         // Also dump engine table at 0x22700
-        eprintln!("║ ── Engine Table (0x22700) ──");
+        tracing::debug!("║ ── Engine Table (0x22700) ──");
         let mut cur_type: u32 = 0xFFFF;
         let mut cur_rl: u32 = 0xFFFF;
         for i in 0..32_u32 {
@@ -253,11 +258,11 @@ pub fn diagnostic_matrix(
                 _ => {}
             }
             if data & (1 << 31) != 0 {
-                eprintln!(
+                tracing::debug!(
                     "║   ENGN_TABLE[{i}]: {data:#010x} — type={cur_type} runlist={cur_rl} (FINAL)"
                 );
             } else {
-                eprintln!("║   ENGN_TABLE[{i}]: {data:#010x} — kind={kind}");
+                tracing::debug!("║   ENGN_TABLE[{i}]: {data:#010x} — kind={kind}");
             }
         }
         // Dump all engine statuses
@@ -265,7 +270,7 @@ pub fn diagnostic_matrix(
             let status = r(0x2640 + (eidx as usize) * 4);
             if status != 0 {
                 let rl_from_status = (status >> 12) & 0xF;
-                eprintln!(
+                tracing::debug!(
                     "║   ENGN{eidx}_STATUS: {status:#010x} runlist_from_bits={rl_from_status}"
                 );
             }
@@ -296,9 +301,9 @@ pub fn diagnostic_matrix(
     }
     let pb = 0x040000 + target_pbdma * 0x2000;
     let pb2 = alt_pbdma.map(|id| 0x040000 + id * 0x2000);
-    eprintln!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
+    tracing::debug!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
     if let Some((alt, alt_base)) = alt_pbdma.zip(pb2) {
-        eprintln!("║ Alt PBDMA: {alt} (base={alt_base:#x})");
+        tracing::debug!("║ Alt PBDMA: {alt} (base={alt_base:#x})");
     }
 
     for id in 0..32_usize {
@@ -319,7 +324,7 @@ pub fn diagnostic_matrix(
     w(pfifo::SCHED_DISABLE, 0)?; // ensure scheduler is NOT disabled
     // NB: SCHED_EN (0x2504) does NOT exist on GV100 — writes cause MMIO fault (0xbad00200).
     // The oracle value at 0x2634 is actually NV_PFIFO_PREEMPT, not SCHED_EN.
-    eprintln!(
+    tracing::debug!(
         "║ SCHED_DISABLE={:#010x} (0=scheduler runs)",
         r(pfifo::SCHED_DISABLE)
     );
@@ -346,10 +351,10 @@ pub fn diagnostic_matrix(
             if intr & pfifo::INTR_RL_COMPLETE != 0 {
                 let _ = w(pfifo::RUNLIST_ACK, 1u32 << rl);
                 let _ = w(pfifo::INTR, pfifo::INTR_RL_COMPLETE);
-                eprintln!("║ Flush RL{rl}: BIT30 ACK'd ✓ CHSW={chsw:#x}");
+                tracing::debug!("║ Flush RL{rl}: BIT30 ACK'd ✓ CHSW={chsw:#x}");
             } else {
                 let chsw_bit = intr & pfifo::INTR_CHSW_ERROR != 0;
-                eprintln!(
+                tracing::debug!(
                     "║ Flush RL{rl}: no BIT30 (INTR={intr:#010x}) CHSW_ERR={chsw:#x} bit16={chsw_bit}"
                 );
                 if chsw_bit {
@@ -371,26 +376,26 @@ pub fn diagnostic_matrix(
     let residual_userd_lo = r(pb + 0xD0);
     let residual_ramfc_userd_lo = r(pb + 0x08);
     let residual_gp_base_lo = r(pb + 0x40);
-    eprintln!(
+    tracing::debug!(
         "║ PBDMA residual: USERD@xD0={residual_userd_lo:#010x} USERD@x08={residual_ramfc_userd_lo:#010x} GP_BASE={residual_gp_base_lo:#010x}"
     );
 
     // Comprehensive PBDMA register dump for all active PBDMAs
-    eprintln!("║ ── Full PBDMA Register Dump ──");
+    tracing::debug!("║ ── Full PBDMA Register Dump ──");
     for pid in [0_usize, 1, 2, 3] {
         if pbdma_map & (1 << pid) == 0 && pid != 0 {
             continue;
         }
         let base = 0x40000 + pid * 0x2000;
         let active = pbdma_map & (1 << pid) != 0;
-        eprint!("║ PBDMA{pid}{}:", if active { "" } else { "(off)" });
+        let mut line = format!("║ PBDMA{pid}{}:", if active { "" } else { "(off)" });
         for off in (0x00..=0x1FC_usize).step_by(4) {
             let val = r(base + off);
             if val != 0 {
-                eprint!(" [{off:#05x}]={val:#010x}");
+                line.push_str(&format!(" [{off:#05x}]={val:#010x}"));
             }
         }
-        eprintln!();
+        tracing::debug!("{line}");
     }
 
     // ── Run experiment matrix ───────────────────────────────────────────
@@ -407,12 +412,12 @@ pub fn diagnostic_matrix(
         "GP pt/ft",
         "ENGN0"
     );
-    eprintln!(
+    tracing::debug!(
         "\n╔══ EXPERIMENT MATRIX ({} configs) ════════════════════════╗",
         configs.len()
     );
-    eprintln!("║ {header}");
-    eprintln!("║ {}", "─".repeat(header.len()));
+    tracing::debug!("║ {header}");
+    tracing::debug!("║ {}", "─".repeat(header.len()));
 
     let limit2 = gpfifo_entries.ilog2();
     let mut results = Vec::with_capacity(configs.len());
@@ -467,21 +472,21 @@ pub fn diagnostic_matrix(
                         .expect("DMA buffer slice is always 4 bytes"),
                 )
             };
-            eprintln!("║ ── DMA Buffer Verification (first experiment) ──");
-            eprintln!(
+            tracing::debug!("║ ── DMA Buffer Verification (first experiment) ──");
+            tracing::debug!(
                 "║   RAMFC[0x008] USERD_LO   = {:#010x} (expect userd|tgt)",
                 rd(ramfc::USERD_LO)
             );
-            eprintln!(
+            tracing::debug!(
                 "║   RAMFC[0x00C] USERD_HI   = {:#010x}",
                 rd(ramfc::USERD_HI)
             );
-            eprintln!(
+            tracing::debug!(
                 "║   RAMFC[0x010] SIGNATURE  = {:#010x} (expect 0x0000FACE)",
                 rd(ramfc::SIGNATURE)
             );
-            eprintln!("║   RAMFC[0x030] ACQUIRE    = {:#010x}", rd(ramfc::ACQUIRE));
-            eprintln!(
+            tracing::debug!("║   RAMFC[0x030] ACQUIRE    = {:#010x}", rd(ramfc::ACQUIRE));
+            tracing::debug!(
                 "║   RAMFC[0x048] GP_BASE_LO = {:#010x}",
                 rd(ramfc::GP_BASE_LO)
             );
@@ -493,15 +498,15 @@ pub fn diagnostic_matrix(
                         .expect("DMA buffer slice is always 4 bytes"),
                 )
             };
-            eprintln!(
+            tracing::debug!(
                 "║   RL[0x010] ChanDW0       = {:#010x} (USERD_PTR|tgts|runq)",
                 rr(0x10)
             );
-            eprintln!(
+            tracing::debug!(
                 "║   RL[0x018] ChanDW2       = {:#010x} (INST_PTR|CHID)",
                 rr(0x18)
             );
-            eprintln!(
+            tracing::debug!(
                 "║   userd_iova={userd_iova:#x} gpfifo_iova={gpfifo_iova:#x} instance_iova={INSTANCE_IOVA:#x}"
             );
         }
@@ -620,17 +625,17 @@ pub fn diagnostic_matrix(
         };
 
         let exp_ms = exp_start.elapsed().as_millis();
-        eprintln!("║ {} [{exp_ms}ms]", result.summary_line());
+        tracing::debug!("║ {} [{exp_ms}ms]", result.summary_line());
         if result.chsw_error != 0 {
-            eprintln!(
-                "║   ⚠ CHSW_ERROR={:#x} ({}) PFIFO_INTR={:#010x}",
+            tracing::warn!(
+                "CHSW_ERROR={:#x} ({}) PFIFO_INTR={:#010x}",
                 result.chsw_error,
                 result.chsw_error_name(),
                 result.pfifo_intr,
             );
         }
         if result.scheduled && pb2.is_some() {
-            eprintln!(
+            tracing::debug!(
                 "║   ALT_PBDMA{}: PUT={} FETCH={:#010x} STATE={:#010x} USERD={:#010x}",
                 alt_pbdma.unwrap_or(0),
                 result.alt_gp_put,
@@ -699,8 +704,8 @@ pub fn diagnostic_matrix(
         .filter(|r| r.pbdma_gp_fetch > 0 && r.pbdma_gp_fetch != r.pbdma_gp_base_lo)
         .count();
     let num_gp_get = results.iter().filter(|r| r.userd_gp_get > 0).count();
-    eprintln!("╠══ SUMMARY ═══════════════════════════════════════════════════╣");
-    eprintln!(
+    tracing::debug!("╠══ SUMMARY ═══════════════════════════════════════════════════╣");
+    tracing::debug!(
         "║ Total: {} | Scheduled: {} | ON_PBDMA+: {} | Faulted: {} | CHSW_ERR: {} | GP_FETCH advancing: {} | GP_GET writeback: {}",
         results.len(),
         num_sched,
@@ -711,18 +716,20 @@ pub fn diagnostic_matrix(
         num_gp_get
     );
     if num_faulted > 0 {
-        eprintln!("║ ⚠ Faulted experiments:");
+        tracing::warn!("Faulted experiments:");
         for r in results.iter().filter(|r| r.faulted) {
-            eprintln!(
+            tracing::debug!(
                 "║   {} PCCSR={:#010x} PBDMA_INTR={:#010x}",
-                r.name, r.pccsr_chan, r.pbdma_intr
+                r.name,
+                r.pccsr_chan,
+                r.pbdma_intr
             );
         }
     }
     if num_chsw > 0 {
-        eprintln!("║ ⚠ Channel switch errors:");
+        tracing::warn!("Channel switch errors:");
         for r in results.iter().filter(|r| r.chsw_error != 0) {
-            eprintln!(
+            tracing::debug!(
                 "║   {} CHSW={:#x} ({})",
                 r.name,
                 r.chsw_error,
@@ -731,17 +738,19 @@ pub fn diagnostic_matrix(
         }
     }
     if num_gp_get > 0 {
-        eprintln!("║ ★ GP_GET WRITEBACK — GPU wrote to host USERD:");
+        tracing::debug!("║ ★ GP_GET WRITEBACK — GPU wrote to host USERD:");
         for r in results.iter().filter(|r| r.userd_gp_get > 0) {
-            eprintln!(
+            tracing::debug!(
                 "║   {} GP_GET={} GP_PUT={}",
-                r.name, r.userd_gp_get, r.userd_gp_put
+                r.name,
+                r.userd_gp_get,
+                r.userd_gp_put
             );
         }
     }
-    eprintln!("║ Final CHSW_ERROR: {:#x}", r(pfifo::CHSW_ERROR));
-    eprintln!("║ Final PFIFO_INTR: {:#010x}", r(pfifo::INTR));
-    eprintln!(
+    tracing::debug!("║ Final CHSW_ERROR: {:#x}", r(pfifo::CHSW_ERROR));
+    tracing::debug!("║ Final PFIFO_INTR: {:#010x}", r(pfifo::INTR));
+    tracing::debug!(
         "╚══ {total_ms}ms total, {} experiments ═══════════════════════╝",
         configs.len()
     );

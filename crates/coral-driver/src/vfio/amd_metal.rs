@@ -48,6 +48,7 @@ pub struct AmdVegaMetal {
 }
 
 impl AmdVegaMetal {
+    #[allow(missing_docs)]
     pub fn new(raw_id: u32) -> Self {
         Self {
             identity: AmdVegaIdentity { raw: raw_id },

@@ -8,10 +8,9 @@
 //! - Query device health
 
 use serde::{Deserialize, Serialize};
-use tokio::net::UnixListener;
 use std::sync::Arc;
+use tokio::net::UnixListener;
 use tokio::sync::Mutex;
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Request {
@@ -27,9 +26,21 @@ pub enum Request {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Response {
     Devices(Vec<DeviceInfo>),
-    DeviceReady { bdf: String, personality: String, vram_alive: bool },
-    SwapComplete { bdf: String, personality: String, vram_alive: bool },
-    Resurrected { bdf: String, vram_alive: bool, domains_alive: usize },
+    DeviceReady {
+        bdf: String,
+        personality: String,
+        vram_alive: bool,
+    },
+    SwapComplete {
+        bdf: String,
+        personality: String,
+        vram_alive: bool,
+    },
+    Resurrected {
+        bdf: String,
+        vram_alive: bool,
+        domains_alive: usize,
+    },
     Health(HealthInfo),
     Status(DaemonStatus),
     Error(String),
@@ -85,14 +96,10 @@ impl SocketServer {
         // Remove stale socket
         let _ = std::fs::remove_file(path);
 
-        let listener = UnixListener::bind(path)
-            .map_err(|e| format!("bind {path}: {e}"))?;
+        let listener = UnixListener::bind(path).map_err(|e| format!("bind {path}: {e}"))?;
 
         // Set permissions so non-root toadStool can connect
-        let _ = std::fs::set_permissions(
-            path,
-            std::os::unix::fs::PermissionsExt::from_mode(0o666),
-        );
+        let _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o666));
 
         tracing::info!(path, "socket server listening");
         Ok(Self {
@@ -101,10 +108,7 @@ impl SocketServer {
         })
     }
 
-    pub async fn accept_loop(
-        &self,
-        devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
-    ) {
+    pub async fn accept_loop(&self, devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>) {
         loop {
             match self.listener.accept().await {
                 Ok((stream, _addr)) => {
@@ -136,27 +140,30 @@ async fn handle_client(
     let mut lines = BufReader::new(reader).lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
-        let request: Request = serde_json::from_str(&line)
-            .map_err(|e| format!("parse request: {e}"))?;
+        let request: Request =
+            serde_json::from_str(&line).map_err(|e| format!("parse request: {e}"))?;
 
         let response = match request {
             Request::ListDevices => {
                 let devs = devices.lock().await;
-                let infos: Vec<DeviceInfo> = devs.iter().map(|d| DeviceInfo {
-                    bdf: d.bdf.clone(),
-                    name: d.config.name.clone(),
-                    chip: d.chip_name.clone(),
-                    vendor_id: d.vendor_id,
-                    device_id: d.device_id,
-                    personality: d.personality.to_string(),
-                    role: d.config.role.clone(),
-                    power: d.health.power.to_string(),
-                    vram_alive: d.health.vram_alive,
-                    domains_alive: d.health.domains_alive,
-                    domains_faulted: d.health.domains_faulted,
-                    has_vfio_fd: d.has_vfio(),
-                    pci_link_width: d.health.pci_link_width,
-                }).collect();
+                let infos: Vec<DeviceInfo> = devs
+                    .iter()
+                    .map(|d| DeviceInfo {
+                        bdf: d.bdf.clone(),
+                        name: d.config.name.clone(),
+                        chip: d.chip_name.clone(),
+                        vendor_id: d.vendor_id,
+                        device_id: d.device_id,
+                        personality: d.personality.to_string(),
+                        role: d.config.role.clone(),
+                        power: d.health.power.to_string(),
+                        vram_alive: d.health.vram_alive,
+                        domains_alive: d.health.domains_alive,
+                        domains_faulted: d.health.domains_faulted,
+                        has_vfio_fd: d.has_vfio(),
+                        pci_link_width: d.health.pci_link_width,
+                    })
+                    .collect();
                 Response::Devices(infos)
             }
 
@@ -164,7 +171,7 @@ async fn handle_client(
                 // Swap involves blocking sysfs writes + driver bind (can take 30s+)
                 // so we run it on a blocking thread to avoid stalling the runtime.
                 let devs_clone = devices.clone();
-                let result = tokio::task::spawn_blocking(move || {
+                tokio::task::spawn_blocking(move || {
                     let rt = tokio::runtime::Handle::current();
                     let mut devs = rt.block_on(devs_clone.lock());
                     if let Some(slot) = devs.iter_mut().find(|d| d.bdf == bdf) {
@@ -179,13 +186,14 @@ async fn handle_client(
                     } else {
                         Response::Error(format!("device {bdf} not managed"))
                     }
-                }).await.unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")));
-                result
+                })
+                .await
+                .unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")))
             }
 
             Request::Resurrect { bdf } => {
                 let devs_clone = devices.clone();
-                let result = tokio::task::spawn_blocking(move || {
+                tokio::task::spawn_blocking(move || {
                     let rt = tokio::runtime::Handle::current();
                     let mut devs = rt.block_on(devs_clone.lock());
                     if let Some(slot) = devs.iter_mut().find(|d| d.bdf == bdf) {
@@ -200,8 +208,9 @@ async fn handle_client(
                     } else {
                         Response::Error(format!("device {bdf} not managed"))
                     }
-                }).await.unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")));
-                result
+                })
+                .await
+                .unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")))
             }
 
             Request::Health { bdf } => {
@@ -251,11 +260,15 @@ async fn handle_client(
             }
         };
 
-        let json = serde_json::to_string(&response)
-            .map_err(|e| format!("serialize response: {e}"))?;
-        writer.write_all(json.as_bytes()).await
+        let json =
+            serde_json::to_string(&response).map_err(|e| format!("serialize response: {e}"))?;
+        writer
+            .write_all(json.as_bytes())
+            .await
             .map_err(|e| format!("write: {e}"))?;
-        writer.write_all(b"\n").await
+        writer
+            .write_all(b"\n")
+            .await
             .map_err(|e| format!("write newline: {e}"))?;
     }
 

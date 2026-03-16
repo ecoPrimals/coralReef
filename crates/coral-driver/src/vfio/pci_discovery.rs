@@ -276,8 +276,7 @@ impl PciDeviceInfo {
     /// Parse PCI device info from sysfs config space.
     pub fn from_sysfs(bdf: &str) -> Result<Self, String> {
         let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
-        let config = std::fs::read(&config_path)
-            .map_err(|e| format!("read {config_path}: {e}"))?;
+        let config = std::fs::read(&config_path).map_err(|e| format!("read {config_path}: {e}"))?;
 
         if config.len() < 64 {
             return Err(format!("PCI config too short: {} bytes", config.len()));
@@ -285,7 +284,12 @@ impl PciDeviceInfo {
 
         let r16 = |off: usize| u16::from_le_bytes([config[off], config[off + 1]]);
         let r32 = |off: usize| {
-            u32::from_le_bytes([config[off], config[off + 1], config[off + 2], config[off + 3]])
+            u32::from_le_bytes([
+                config[off],
+                config[off + 1],
+                config[off + 2],
+                config[off + 3],
+            ])
         };
 
         let vendor_id = r16(0x00);
@@ -450,13 +454,14 @@ impl PciDeviceInfo {
                 PcieLinkSpeed::Unknown(0)
             }
         };
-        let parse_width = |s: &str| -> u8 {
-            s.trim().trim_start_matches('x').parse().unwrap_or(0)
-        };
+        let parse_width = |s: &str| -> u8 { s.trim().trim_start_matches('x').parse().unwrap_or(0) };
         let cur_speed = std::fs::read_to_string(format!("{dev}/current_link_speed")).ok()?;
-        let max_speed = std::fs::read_to_string(format!("{dev}/max_link_speed")).unwrap_or_default();
-        let cur_width = std::fs::read_to_string(format!("{dev}/current_link_width")).unwrap_or_default();
-        let max_width = std::fs::read_to_string(format!("{dev}/max_link_width")).unwrap_or_default();
+        let max_speed =
+            std::fs::read_to_string(format!("{dev}/max_link_speed")).unwrap_or_default();
+        let cur_width =
+            std::fs::read_to_string(format!("{dev}/current_link_width")).unwrap_or_default();
+        let max_width =
+            std::fs::read_to_string(format!("{dev}/max_link_width")).unwrap_or_default();
         Some(PcieLinkInfo {
             current_speed: parse_speed(&cur_speed),
             max_speed: parse_speed(&max_speed),
@@ -516,7 +521,10 @@ impl PciDeviceInfo {
             self.vendor_id, self.device_id, self.vendor
         );
         eprintln!("║ Class:   {:#08x}", self.class_code);
-        eprintln!("║ Power:   {} (PMCSR={:#06x})", self.power.current_state, self.power.pmcsr_raw);
+        eprintln!(
+            "║ Power:   {} (PMCSR={:#06x})",
+            self.power.current_state, self.power.pmcsr_raw
+        );
         for bar in &self.bars {
             eprintln!(
                 "║ BAR{}:    {:#014x} ({} KB) {}{}{}",
@@ -529,13 +537,15 @@ impl PciDeviceInfo {
             );
         }
         for cap in &self.capabilities {
-            eprintln!("║ Cap:     [{:#04x}] {} @ {:#04x}", cap.id, cap.name, cap.offset);
+            eprintln!(
+                "║ Cap:     [{:#04x}] {} @ {:#04x}",
+                cap.id, cap.name, cap.offset
+            );
         }
         if let Some(ref link) = self.pcie_link {
             eprintln!(
                 "║ PCIe:    x{} @ {} (max x{} @ {})",
-                link.current_width, link.current_speed,
-                link.max_width, link.max_speed,
+                link.current_width, link.current_speed, link.max_width, link.max_speed,
             );
         }
     }
@@ -554,8 +564,7 @@ impl PciDeviceInfo {
 /// This is vendor-agnostic — works for any PCI device with PM capability.
 pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
-    let config = std::fs::read(&config_path)
-        .map_err(|e| format!("read PCI config: {e}"))?;
+    let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
     if config.len() < 0x40 {
         return Err("PCI config too short".into());
@@ -625,12 +634,11 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
 
 /// Transition a PCI device to a specific power state.
 ///
-/// Writes the target state to PMCSR bits [1:0]. Observe PCI spec recovery
+/// Writes the target state to PMCSR bits \[1:0\]. Observe PCI spec recovery
 /// delays: D3hot→D0 requires 10ms, D2→D0 requires 200µs, etc.
 pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, String> {
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
-    let config = std::fs::read(&config_path)
-        .map_err(|e| format!("read PCI config: {e}"))?;
+    let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
     if config.len() < 0x40 {
         return Err("PCI config too short".into());
@@ -703,13 +711,11 @@ pub fn pci_power_cycle(bdf: &str) -> Result<bool, String> {
     let _ = std::fs::write(format!("{dev_path}/d3cold_allowed"), "1");
     let _ = std::fs::write(format!("{dev_path}/power/control"), "auto");
 
-    std::fs::write(format!("{dev_path}/remove"), "1")
-        .map_err(|e| format!("remove failed: {e}"))?;
+    std::fs::write(format!("{dev_path}/remove"), "1").map_err(|e| format!("remove failed: {e}"))?;
 
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    std::fs::write("/sys/bus/pci/rescan", "1")
-        .map_err(|e| format!("rescan failed: {e}"))?;
+    std::fs::write("/sys/bus/pci/rescan", "1").map_err(|e| format!("rescan failed: {e}"))?;
 
     std::thread::sleep(std::time::Duration::from_secs(3));
 
@@ -726,16 +732,24 @@ pub fn pci_power_cycle(bdf: &str) -> Result<bool, String> {
 /// Snapshot a range of PCI config space registers.
 ///
 /// Returns `(offset, value)` pairs for each 32-bit register in the range.
-pub fn snapshot_config_space(bdf: &str, start: usize, end: usize) -> Result<Vec<(usize, u32)>, String> {
+pub fn snapshot_config_space(
+    bdf: &str,
+    start: usize,
+    end: usize,
+) -> Result<Vec<(usize, u32)>, String> {
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
-    let config = std::fs::read(&config_path)
-        .map_err(|e| format!("read config: {e}"))?;
+    let config = std::fs::read(&config_path).map_err(|e| format!("read config: {e}"))?;
 
     let mut regs = Vec::new();
     let end = end.min(config.len());
     for off in (start..end).step_by(4) {
         if off + 4 <= config.len() {
-            let val = u32::from_le_bytes([config[off], config[off + 1], config[off + 2], config[off + 3]]);
+            let val = u32::from_le_bytes([
+                config[off],
+                config[off + 1],
+                config[off + 2],
+                config[off + 3],
+            ]);
             regs.push((off, val));
         }
     }

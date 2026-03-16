@@ -9,11 +9,13 @@ socket = "/run/user/1000/coralreef/glowplug.sock"
 log_level = "info"
 health_interval_ms = 5000
 
-# Titan V #1 — oracle card (nouveau warms HBM2, then available for VFIO)
+# Titan V #1 — oracle card (VFIO at boot, nouveau only for HBM2 resurrection)
+# CRITICAL: do NOT boot on nouveau — desktop apps (Cursor/Xorg) will grab
+# renderD129 and block during shutdown, causing kernel oops on GV100.
 [[device]]
 bdf = "0000:03:00.0"
 name = "titan-oracle"
-boot_personality = "nouveau"
+boot_personality = "vfio"
 power_policy = "always_on"
 role = "oracle"
 

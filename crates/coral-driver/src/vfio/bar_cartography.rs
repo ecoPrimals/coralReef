@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 //! BAR0 register space cartography — systematic scanning and classification.
 //!
 //! Scans the entire BAR0 MMIO space in 4-byte strides, classifying each
@@ -208,10 +209,7 @@ pub fn scan_bar0(
 ///
 /// Much faster — only probes the ranges provided, which is useful for
 /// targeted domain analysis.
-pub fn scan_ranges(
-    bar0: &MappedBar,
-    ranges: &[(&str, usize, usize)],
-) -> BarMap {
+pub fn scan_ranges(bar0: &MappedBar, ranges: &[(&str, usize, usize)]) -> BarMap {
     let mut register_map = BTreeMap::new();
     let mut responsive_bytes = 0usize;
     let mut error_bytes = 0usize;
@@ -315,10 +313,7 @@ pub fn snapshot_registers(bar0: &MappedBar, offsets: &[usize]) -> Vec<(usize, u3
 }
 
 /// Compare two register snapshots and return deltas.
-pub fn diff_snapshots(
-    before: &[(usize, u32)],
-    after: &[(usize, u32)],
-) -> Vec<(usize, u32, u32)> {
+pub fn diff_snapshots(before: &[(usize, u32)], after: &[(usize, u32)]) -> Vec<(usize, u32, u32)> {
     before
         .iter()
         .zip(after.iter())
@@ -336,7 +331,10 @@ impl BarMap {
         } else {
             0.0
         };
-        eprintln!("╠══ BAR{} CARTOGRAPHY ═══════════════════════════════════════╣", self.bar_index);
+        eprintln!(
+            "╠══ BAR{} CARTOGRAPHY ═══════════════════════════════════════╣",
+            self.bar_index
+        );
         eprintln!(
             "║ Scanned: {} KB | Responsive: {} KB ({pct:.1}%) | Dead: {} KB",
             total / 1024,
@@ -403,8 +401,14 @@ impl BarMapDiff {
     /// Print a human-readable summary.
     pub fn print_summary(&self) {
         eprintln!("╠══ BAR MAP DIFF ════════════════════════════════════════════╣");
-        eprintln!("║ Woke up:       {} registers (dead → alive)", self.woke_up.len());
-        eprintln!("║ Went dead:     {} registers (alive → dead)", self.went_dead.len());
+        eprintln!(
+            "║ Woke up:       {} registers (dead → alive)",
+            self.woke_up.len()
+        );
+        eprintln!(
+            "║ Went dead:     {} registers (alive → dead)",
+            self.went_dead.len()
+        );
         eprintln!("║ Value changed: {} registers", self.value_changed.len());
         eprintln!("║ Unchanged:     {} registers", self.unchanged);
         if !self.woke_up.is_empty() {
@@ -451,7 +455,7 @@ pub fn diff_bar_maps(before: &BarMap, after: &BarMap) -> BarMapDiff {
 
     for (&offset, after_probe) in &after.register_map {
         let before_probe = before.register_map.get(&offset);
-        let before_dead = before_probe.map_or(true, |bp| bp.access == RegisterAccess::Dead);
+        let before_dead = before_probe.is_none_or(|bp| bp.access == RegisterAccess::Dead);
         let after_dead = after_probe.access == RegisterAccess::Dead;
 
         match (before_dead, after_dead) {
@@ -486,16 +490,16 @@ pub fn diff_bar_maps(before: &BarMap, after: &BarMap) -> BarMapDiff {
 fn is_dangerous_offset(offset: usize) -> bool {
     matches!(
         offset,
-        0x009000..=0x0090FF        // PTIMER
-        | 0x100CBC                 // MMU invalidation
-        | 0x100CB8                 // MMU invalidation PDB
-        | 0x100CEC                 // MMU invalidation PDB HI
-        | 0x100E24..=0x100E54      // Fault buffer registers
-        | 0x10A040..=0x10A048      // PMU mailboxes
-        | 0x10A100                 // PMU CPUCTL
-        | 0x610000..=0x610FFF      // PDISP
-        | 0x2200                   // PFIFO_ENABLE
-        | 0x0200                   // PMC_ENABLE
+        0x0000_9000..=0x0009_00FF   // PTIMER
+        | 0x0010_0CBC              // MMU invalidation
+        | 0x0010_0CB8              // MMU invalidation PDB
+        | 0x0010_0CEC              // MMU invalidation PDB HI
+        | 0x0010_0E24..=0x0010_0E54 // Fault buffer registers
+        | 0x0010_A040..=0x0010_A048 // PMU mailboxes
+        | 0x0010_A100              // PMU CPUCTL
+        | 0x0061_0000..=0x0061_0FFF // PDISP
+        | 0x0000_2200              // PFIFO_ENABLE
+        | 0x0000_0200              // PMC_ENABLE
     )
 }
 
@@ -515,7 +519,7 @@ fn group_into_regions(
     let mut prev_offset: Option<usize> = None;
 
     for (&offset, probe) in register_map {
-        let is_contiguous = prev_offset.map_or(true, |p| offset == p + 4);
+        let is_contiguous = prev_offset.is_none_or(|p| offset == p + 4);
         let same_type = current_start.is_some() && probe.access == current_access && is_contiguous;
 
         if !same_type {

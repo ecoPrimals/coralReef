@@ -126,3 +126,5 @@ mod tests_jsonrpc;
 mod tests_tarpc;
 #[cfg(test)]
 mod tests_unix;
+#[cfg(test)]
+mod tests_unix_edge;

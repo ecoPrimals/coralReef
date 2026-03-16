@@ -20,20 +20,16 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
-    // Handle BDF:personality format like "0000:03:00.0:nouveau"
-    // BDF itself contains colons, so split on the last colon-word
-    let (bdf, personality) = if arg.matches(':').count() > 2 {
-        // More colons than a BDF has — last segment might be personality
-        let last_colon = arg.rfind(':').unwrap();
-        let candidate = &arg[last_colon + 1..];
-        if candidate.chars().all(|c| c.is_ascii_alphabetic() || c == '-') && !candidate.is_empty() {
-            (&arg[..last_colon], candidate)
-        } else {
-            (arg, "vfio")
-        }
-    } else {
-        (arg, "vfio")
-    };
+    // BDF format: "DDDD:BB:DD.F" (3 colons). If a 4th colon-word is present
+    // and purely alphabetic, it's the personality suffix (e.g. ":nouveau").
+    let (bdf, personality) = arg
+        .rfind(':')
+        .filter(|_| arg.matches(':').count() > 2)
+        .map(|pos| (&arg[..pos], &arg[pos + 1..]))
+        .filter(|(_, tail)| {
+            !tail.is_empty() && tail.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+        })
+        .unwrap_or((arg, "vfio"));
 
     config::DeviceConfig {
         bdf: bdf.to_string(),
@@ -47,7 +43,6 @@ fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing early so config loading can log
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -58,21 +53,29 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     let config = if let Some(idx) = args.iter().position(|a| a == "--config") {
-        let path = args.get(idx + 1).expect("--config requires a path");
-        Config::load(path).expect("failed to load config")
+        let Some(path) = args.get(idx + 1) else {
+            tracing::error!("--config requires a path argument");
+            std::process::exit(2);
+        };
+        match Config::load(path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(path, error = %e, "failed to load config");
+                std::process::exit(1);
+            }
+        }
     } else if args.iter().any(|a| a == "--auto") {
         tracing::info!("auto-discovering GPUs on PCI bus");
         Config::auto_discover()
     } else {
-        // Build config from --bdf arguments
-        let bdf_args: Vec<&String> = args.iter()
+        let bdf_args: Vec<&String> = args
+            .iter()
             .enumerate()
             .filter(|(_, a)| *a == "--bdf")
             .filter_map(|(i, _)| args.get(i + 1))
             .collect();
 
         if bdf_args.is_empty() {
-            // Try standard config paths before giving up
             let candidates = [
                 format!(
                     "{}/.config/coralreef/glowplug.toml",
@@ -81,26 +84,20 @@ async fn main() {
                 "/etc/coralreef/glowplug.toml".into(),
             ];
             let loaded = candidates.iter().find_map(|p| {
-                Config::load(p).ok().map(|c| {
-                    tracing::info!(path = %p, "loaded config");
-                    c
-                })
+                Config::load(p)
+                    .ok()
+                    .inspect(|_| tracing::info!(path = %p, "loaded config"))
             });
 
             if let Some(c) = loaded {
                 c
             } else {
-                eprintln!("Usage:");
-                eprintln!("  coral-glowplug --config /etc/coralreef/glowplug.toml");
-                eprintln!("  coral-glowplug --auto                              # scan PCI bus");
-                eprintln!("  coral-glowplug --bdf 0000:4a:00.0");
-                eprintln!("  coral-glowplug --bdf 0000:4a:00.0 --bdf 0000:03:00.0:nouveau");
-                eprintln!();
-                eprintln!("Config search paths:");
+                tracing::error!("no config found — provide --config, --auto, or --bdf arguments");
+                tracing::info!("config search paths:");
                 for c in &candidates {
-                    eprintln!("  {c}");
+                    tracing::info!("  {c}");
                 }
-                std::process::exit(1);
+                std::process::exit(2);
             }
         } else {
             Config {
@@ -116,12 +113,12 @@ async fn main() {
         "coral-glowplug starting"
     );
 
-    // Create device slots
-    let mut slots: Vec<DeviceSlot> = config.device.iter()
+    let mut slots: Vec<DeviceSlot> = config
+        .device
+        .iter()
         .map(|dc| DeviceSlot::new(dc.clone()))
         .collect();
 
-    // Activate each device
     for slot in &mut slots {
         match slot.activate() {
             Ok(()) => tracing::info!(
@@ -141,36 +138,54 @@ async fn main() {
 
     let devices = Arc::new(Mutex::new(slots));
 
-    // Start health monitor
     let health_devices = devices.clone();
     let health_interval = config.daemon.health_interval_ms;
     tokio::spawn(async move {
         health::health_loop(health_devices, health_interval).await;
     });
 
-    // Start socket server
-    let server = socket::SocketServer::bind(&config.daemon.socket)
-        .await
-        .expect("failed to bind socket");
+    let server = match socket::SocketServer::bind(&config.daemon.socket).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                socket = %config.daemon.socket,
+                error = %e,
+                "failed to bind socket"
+            );
+            std::process::exit(1);
+        }
+    };
 
-    // Print summary
     {
         let devs = devices.lock().await;
-        eprintln!("╔══════════════════════════════════════════════════════════╗");
-        eprintln!("║ coral-glowplug — Sovereign Device Broker                ║");
-        eprintln!("╠══════════════════════════════════════════════════════════╣");
+        tracing::info!("╔══════════════════════════════════════════════════════════╗");
+        tracing::info!("║ coral-glowplug — Sovereign Device Broker                ║");
+        tracing::info!("╠══════════════════════════════════════════════════════════╣");
         for d in devs.iter() {
-            let vram = if d.health.vram_alive { "VRAM ✓" } else { "VRAM ✗" };
-            eprintln!("║ {} {} ({}) {} {}", d.bdf, d.chip_name, d.personality, vram, d.health.power);
+            let vram = if d.health.vram_alive {
+                "VRAM ✓"
+            } else {
+                "VRAM ✗"
+            };
+            tracing::info!(
+                "║ {} {} ({}) {} {}",
+                d.bdf,
+                d.chip_name,
+                d.personality,
+                vram,
+                d.health.power
+            );
         }
-        eprintln!("╠══════════════════════════════════════════════════════════╣");
-        eprintln!("║ Socket: {}", config.daemon.socket);
-        eprintln!("║ Log level: {}", config.daemon.log_level);
-        eprintln!("║ Health check: every {}ms", config.daemon.health_interval_ms);
-        eprintln!("╚══════════════════════════════════════════════════════════╝");
+        tracing::info!("╠══════════════════════════════════════════════════════════╣");
+        tracing::info!("║ Socket: {}", config.daemon.socket);
+        tracing::info!("║ Log level: {}", config.daemon.log_level);
+        tracing::info!(
+            "║ Health check: every {}ms",
+            config.daemon.health_interval_ms
+        );
+        tracing::info!("╚══════════════════════════════════════════════════════════╝");
     }
 
-    // Notify systemd we're ready (if running under systemd)
     #[cfg(target_os = "linux")]
     {
         if std::env::var("NOTIFY_SOCKET").is_ok() {
@@ -180,34 +195,57 @@ async fn main() {
         }
     }
 
-    // Run accept loop until SIGTERM/SIGINT
     let accept_devices = devices.clone();
     let accept_handle = tokio::spawn(async move {
         server.accept_loop(accept_devices).await;
     });
 
-    // Wait for shutdown signal
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
+    let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+    else {
+        tracing::error!("failed to register SIGTERM handler");
+        std::process::exit(1);
+    };
+    let Ok(mut sigint) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+    else {
+        tracing::error!("failed to register SIGINT handler");
+        std::process::exit(1);
+    };
 
     tokio::select! {
         _ = sigterm.recv() => tracing::info!("received SIGTERM"),
         _ = sigint.recv() => tracing::info!("received SIGINT"),
     }
 
-    // Graceful shutdown: snapshot state, release VFIO fds, clean up socket
-    tracing::info!("shutting down — releasing devices");
+    tracing::info!("shutting down — disabling PCI resets and releasing devices");
+
     {
         let mut devs = devices.lock().await;
         for slot in devs.iter_mut() {
+            device::sysfs_write(
+                &format!("/sys/bus/pci/devices/{}/reset_method", slot.bdf),
+                "",
+            );
+            let audio_bdf = format!("{}.1", &slot.bdf[..slot.bdf.len() - 1]);
+            device::sysfs_write(
+                &format!("/sys/bus/pci/devices/{audio_bdf}/reset_method"),
+                "",
+            );
+
+            device::sysfs_write(
+                &format!("/sys/bus/pci/devices/{}/power/control", slot.bdf),
+                "on",
+            );
+            device::sysfs_write(
+                &format!("/sys/bus/pci/devices/{}/d3cold_allowed", slot.bdf),
+                "0",
+            );
+
             if slot.has_vfio() {
                 slot.snapshot_registers();
-                tracing::info!(bdf = %slot.bdf, "snapshot saved, releasing VFIO fd");
+                tracing::info!(bdf = %slot.bdf, "reset disabled, snapshot saved");
             }
         }
-        // Drop all device slots explicitly (closes VFIO fds)
+
         devs.clear();
     }
 

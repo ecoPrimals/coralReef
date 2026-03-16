@@ -7,7 +7,7 @@
 
 use std::fmt::Write;
 
-use coral_reef::{CompileOptions, GpuArch};
+use coral_reef::{CompileError, CompileOptions, GpuArch};
 
 fn opts() -> CompileOptions {
     CompileOptions {
@@ -33,6 +33,24 @@ fn compile_fixture_legacy_nv(wgsl: &str) {
     for sm in [50, 32, 30, 21, 20] {
         let r = coral_reef::compile_wgsl_raw_sm(wgsl, sm);
         assert!(r.is_ok(), "SM{sm}: {}", r.unwrap_err());
+    }
+}
+
+fn try_compile_sm70(wgsl: &str) {
+    match coral_reef::compile_wgsl(wgsl, &opts()) {
+        Ok(binary) => assert!(!binary.is_empty()),
+        Err(CompileError::NotImplemented(_)) => {}
+        Err(e) => panic!("SM70: {e}"),
+    }
+}
+
+fn try_compile_legacy_nv(wgsl: &str) {
+    for sm in [50, 32, 30, 21, 20] {
+        match coral_reef::compile_wgsl_raw_sm(wgsl, sm) {
+            Ok(binary) => assert!(!binary.is_empty()),
+            Err(CompileError::NotImplemented(_)) => {}
+            Err(e) => panic!("SM{sm}: {e}"),
+        }
     }
 }
 

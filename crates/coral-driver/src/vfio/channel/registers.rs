@@ -29,6 +29,7 @@ pub(crate) mod pfifo {
     pub const INTR_BIT8: u32 = 0x0000_0100;
     /// PFIFO_INTR bit 16 — channel switch error.
     pub const INTR_CHSW_ERROR: u32 = 0x0001_0000;
+    #[allow(dead_code)]
     /// PFIFO_INTR bit 29 — aggregate "any PBDMA has an interrupt pending".
     pub const INTR_PBDMA: u32 = 0x2000_0000;
     /// PFIFO_INTR bit 30 — runlist update completion event.
@@ -169,6 +170,7 @@ pub(crate) mod pbdma {
     pub const CTX_ACQUIRE: usize = 0x030;
     pub const CTX_GP_BASE_LO: usize = 0x048;
     pub const CTX_GP_BASE_HI: usize = 0x04C;
+    #[allow(dead_code)]
     /// RAMFC GP_FETCH (byte-granular fetch pointer) mapped to PBDMA[0x050].
     pub const CTX_GP_FETCH_BYTE: usize = 0x050;
     /// RAMFC GP_PUT (entry index) mapped to PBDMA[0x054].
@@ -249,7 +251,7 @@ pub(crate) mod mmu {
 /// target domain didn't respond within the timeout window. This happens
 /// when writing to clock-gated or power-gated domains. Without detection,
 /// subsequent writes pile up and lock the entire bus.
-#[allow(dead_code)]
+#[allow(dead_code, missing_docs)]
 pub mod pri {
     /// PMC master interrupt status. Bit 26 = PRIV_RING fault pending.
     pub const PMC_INTR: usize = 0x0000_0100;
@@ -305,7 +307,7 @@ pub mod pri {
                 0xBAD0_0000 => "PRI timeout (no response)",
                 0xBAD1_0000 => "PRI target error",
                 _ => "Unknown PRI error pattern",
-            }
+            },
         }
     }
 
@@ -348,7 +350,7 @@ pub mod pri {
 /// `0xBADF1100` (BLCG/SLCG gated) or `0xBADF3000` (hub clock gated).
 ///
 /// Register map derived from nouveau `nvkm/subdev/therm/` and open-gpu-doc.
-#[allow(dead_code)]
+#[allow(dead_code, missing_docs)]
 pub(crate) mod cg {
     /// PTHERM CG control — master clock gating override.
     /// Writing 0x0 disables CG at the top level.
@@ -417,7 +419,7 @@ pub(crate) mod cg {
 ///
 /// From PCLOCK deep probe (March 2026): 283 readable registers found in
 /// the 0x136xxx range on a cold GV100 card.
-#[allow(dead_code)]
+#[allow(dead_code, missing_docs)]
 pub mod pclock {
     /// Root PLL domain — always-on, writable from host even when PCLOCK is gated.
     pub const ROOT_PLL_BASE: usize = 0x0013_6000;

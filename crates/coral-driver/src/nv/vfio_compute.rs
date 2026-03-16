@@ -147,10 +147,16 @@ impl std::fmt::Display for GrEngineStatus {
         write!(
             f,
             "GR: pmc={:#010x} pfifo={:#010x} pgraph={:#010x} fecs_cpu={:#010x} fecs_mb0={:#010x} fecs_mb1={:#010x} fecs_hw={:#010x} gpccs={:#010x} [fecs_halted={} gr_en={}]",
-            self.pmc_enable, self.pfifo_enable, self.pgraph_status,
-            self.fecs_cpuctl, self.fecs_mailbox0, self.fecs_mailbox1,
-            self.fecs_hwcfg, self.gpccs_cpuctl,
-            self.fecs_halted(), self.gr_enabled()
+            self.pmc_enable,
+            self.pfifo_enable,
+            self.pgraph_status,
+            self.fecs_cpuctl,
+            self.fecs_mailbox0,
+            self.fecs_mailbox1,
+            self.fecs_hwcfg,
+            self.gpccs_cpuctl,
+            self.fecs_halted(),
+            self.gr_enabled()
         )
     }
 }
@@ -457,7 +463,9 @@ impl NvVfioComputeDevice {
 
         match pb_result {
             Ok(()) => tracing::info!(chip, "FECS channel init complete — GR engine ready"),
-            Err(e) => tracing::warn!(chip, error = %e, "FECS channel init failed (expected on cold VFIO — GR engine requires falcon firmware)"),
+            Err(e) => {
+                tracing::warn!(chip, error = %e, "FECS channel init failed (expected on cold VFIO — GR engine requires falcon firmware)")
+            }
         }
     }
 

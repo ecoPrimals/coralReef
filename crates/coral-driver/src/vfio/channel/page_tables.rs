@@ -79,6 +79,10 @@ pub(super) fn populate_page_tables(
 ///
 /// Same identity mapping as `populate_page_tables`, but using caller-provided
 /// IOVAs for the page directory/table buffers.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "page table chain requires 4 buffers + 4 IOVAs"
+)]
 pub(super) fn populate_page_tables_custom(
     pd3: &mut [u8],
     pd2: &mut [u8],
@@ -420,7 +424,6 @@ mod tests {
 
     #[test]
     fn runlist_gv100_register_addresses() {
-        use super::registers::pfifo;
         assert_eq!(pfifo::runlist_base(0), 0x2270, "RL0 base");
         assert_eq!(pfifo::runlist_submit(0), 0x2274, "RL0 submit");
         assert_eq!(pfifo::runlist_base(1), 0x2280, "RL1 base");
@@ -430,7 +433,6 @@ mod tests {
 
     #[test]
     fn runlist_gv100_value_encoding() {
-        use super::registers::pfifo;
         let base = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
         assert_eq!(base, 4, "lower_32(0x4000 >> 12) = 4");
         let submit = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 2);

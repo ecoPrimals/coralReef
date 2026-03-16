@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 //! Oracle data loading and digital PMU emulation.
 //!
 //! This module provides the bridge between captured oracle data
@@ -25,10 +26,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::vfio::device::MappedBar;
-use crate::vfio::memory::{MemoryRegion, PraminRegion};
 use super::pri_monitor::{PriBusMonitor, WriteOutcome};
 use super::registers::pri;
+use crate::vfio::device::MappedBar;
+use crate::vfio::memory::MemoryRegion;
 
 /// Oracle register state loaded from a capture.
 #[derive(Debug, Clone)]
@@ -79,34 +80,34 @@ pub struct DomainApplyResult {
 /// Applied in dependency order: clocks first, then memory, then engines.
 const APPLY_ORDER: &[(&str, usize, usize)] = &[
     // Phase 1: Root clocks (always-on domain — the crack in the wall)
-    ("ROOT_PLL",    0x136000, 0x137000),
+    ("ROOT_PLL", 0x136000, 0x137000),
     // Phase 2: PCLOCK configuration (depends on root PLL)
-    ("PCLOCK",      0x137000, 0x138000),
+    ("PCLOCK", 0x137000, 0x138000),
     // Phase 3: Clock distribution (CLK domain)
-    ("CLK",         0x130000, 0x136000),
+    ("CLK", 0x130000, 0x136000),
     // Phase 4: Power management controller
-    ("PMC",         0x000000, 0x001000),
+    ("PMC", 0x000000, 0x001000),
     // Phase 5: PRI master (bus arbitration)
-    ("PRI_MASTER",  0x122000, 0x123000),
+    ("PRI_MASTER", 0x122000, 0x123000),
     // Phase 6: Memory controller (PFB)
-    ("PFB",         0x100000, 0x100800),
-    ("FBHUB",       0x100800, 0x100C00),
-    ("PFB_NISO",    0x100C00, 0x101000),
+    ("PFB", 0x100000, 0x100800),
+    ("FBHUB", 0x100800, 0x100C00),
+    ("PFB_NISO", 0x100C00, 0x101000),
     // Phase 7: FBPA partitions (HBM2 controllers)
-    ("FBPA0",       0x9A0000, 0x9A4000),
-    ("FBPA1",       0x9A4000, 0x9A8000),
-    ("FBPA_BC",     0x9A8000, 0x9AC000),
+    ("FBPA0", 0x9A0000, 0x9A4000),
+    ("FBPA1", 0x9A4000, 0x9A8000),
+    ("FBPA_BC", 0x9A8000, 0x9AC000),
     // Phase 8: L2 cache (LTC)
-    ("LTC0",        0x17E000, 0x180000),
-    ("LTC1",        0x180000, 0x182000),
-    ("LTC2",        0x182000, 0x184000),
+    ("LTC0", 0x17E000, 0x180000),
+    ("LTC1", 0x180000, 0x182000),
+    ("LTC2", 0x182000, 0x184000),
     // Phase 9: PMU FALCON
-    ("PMU",         0x10A000, 0x10B000),
+    ("PMU", 0x10A000, 0x10B000),
     // Phase 10: Other domains
-    ("PBUS",        0x001000, 0x002000),
-    ("PTOP",        0x020000, 0x024000),
-    ("FUSE",        0x021000, 0x022000),
-    ("PMEM",        0x1FA000, 0x1FB000),
+    ("PBUS", 0x001000, 0x002000),
+    ("PTOP", 0x020000, 0x024000),
+    ("FUSE", 0x021000, 0x022000),
+    ("PMEM", 0x1FA000, 0x1FB000),
 ];
 
 /// Registers that must NEVER be written (triggers, invalidations, counters).
@@ -134,13 +135,18 @@ impl OracleState {
 
         let mut registers = BTreeMap::new();
         for &(_, start, end) in APPLY_ORDER {
-            if end > data.len() { continue; }
+            if end > data.len() {
+                continue;
+            }
             for off in (start..end).step_by(4) {
-                let val = u32::from_le_bytes([
-                    data[off], data[off + 1], data[off + 2], data[off + 3],
-                ]);
-                if val == 0 || val == 0xFFFFFFFF { continue; }
-                if pri::is_pri_error(val) { continue; }
+                let val =
+                    u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
+                if val == 0 || val == 0xFFFFFFFF {
+                    continue;
+                }
+                if pri::is_pri_error(val) {
+                    continue;
+                }
                 registers.insert(off, val);
             }
         }
@@ -159,9 +165,13 @@ impl OracleState {
         let mut registers = BTreeMap::new();
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 2 { continue; }
+            if parts.len() < 2 {
+                continue;
+            }
 
             let (off_str, val_str) = if parts.len() == 3 {
                 (parts[1], parts[2])
@@ -191,7 +201,6 @@ impl OracleState {
             .open(&resource0_path)
             .map_err(|e| format!("cannot open {resource0_path}: {e}"))?;
 
-        use std::os::unix::io::AsRawFd;
         let bar0_size: usize = 16 * 1024 * 1024;
         let ptr = unsafe {
             rustix::mm::mmap(
@@ -202,10 +211,13 @@ impl OracleState {
                 &file,
                 0,
             )
-        }.map_err(|e| format!("mmap failed: {e}"))?;
+        }
+        .map_err(|e| format!("mmap failed: {e}"))?;
 
         let read_u32 = |offset: usize| -> u32 {
-            if offset + 4 > bar0_size { return 0; }
+            if offset + 4 > bar0_size {
+                return 0;
+            }
             unsafe { std::ptr::read_volatile(ptr.cast::<u8>().add(offset).cast::<u32>()) }
         };
 
@@ -213,13 +225,19 @@ impl OracleState {
         for &(_, start, end) in APPLY_ORDER {
             for off in (start..end.min(bar0_size)).step_by(4) {
                 let val = read_u32(off);
-                if val == 0 || val == 0xFFFFFFFF { continue; }
-                if pri::is_pri_error(val) { continue; }
+                if val == 0 || val == 0xFFFFFFFF {
+                    continue;
+                }
+                if pri::is_pri_error(val) {
+                    continue;
+                }
                 registers.insert(off, val);
             }
         }
 
-        unsafe { let _ = rustix::mm::munmap(ptr, bar0_size); }
+        unsafe {
+            let _ = rustix::mm::munmap(ptr, bar0_size);
+        }
 
         Ok(Self {
             registers,
@@ -229,7 +247,8 @@ impl OracleState {
 
     /// Get registers for a specific domain.
     pub fn domain_registers(&self, start: usize, end: usize) -> Vec<(usize, u32)> {
-        self.registers.range(start..end)
+        self.registers
+            .range(start..end)
             .map(|(&off, &val)| (off, val))
             .collect()
     }
@@ -264,7 +283,11 @@ pub struct DigitalPmu<'a> {
 
 impl<'a> DigitalPmu<'a> {
     pub fn new(bar0: &'a MappedBar, oracle: &'a OracleState) -> Self {
-        Self { bar0, oracle, log: Vec::new() }
+        Self {
+            bar0,
+            oracle,
+            log: Vec::new(),
+        }
     }
 
     /// Execute the full digital PMU init sequence.
@@ -295,18 +318,22 @@ impl<'a> DigitalPmu<'a> {
 
         self.log.push(format!(
             "Digital PMU: {} oracle registers from {}",
-            self.oracle.registers.len(), self.oracle.source,
+            self.oracle.registers.len(),
+            self.oracle.source,
         ));
 
         let mut monitor = PriBusMonitor::new(self.bar0).with_fault_threshold(10);
 
         for &(domain_name, start, end) in APPLY_ORDER {
             let oracle_regs = self.oracle.domain_registers(start, end);
-            if oracle_regs.is_empty() { continue; }
+            if oracle_regs.is_empty() {
+                continue;
+            }
 
             let mut domain_result = DomainApplyResult {
                 name: domain_name.to_string(),
-                start, end,
+                start,
+                end,
                 diffs: 0,
                 applied: 0,
                 stuck: 0,
@@ -315,7 +342,10 @@ impl<'a> DigitalPmu<'a> {
 
             self.log.push(format!(
                 "  Phase: {} ({:#08x}-{:#08x}, {} oracle regs)",
-                domain_name, start, end, oracle_regs.len(),
+                domain_name,
+                start,
+                end,
+                oracle_regs.len(),
             ));
 
             // Clear PRI faults before each domain
@@ -328,7 +358,9 @@ impl<'a> DigitalPmu<'a> {
                 }
 
                 let cold_val = monitor.read_u32(*off);
-                if cold_val == *oracle_val { continue; }
+                if cold_val == *oracle_val {
+                    continue;
+                }
 
                 domain_result.diffs += 1;
                 result.total_diffs += 1;
@@ -346,7 +378,7 @@ impl<'a> DigitalPmu<'a> {
                         domain_result.applied += 1;
                         result.applied += 1;
                         // Periodic recovery for domains with mixed access
-                        if domain_result.applied % 20 == 0 {
+                        if domain_result.applied.is_multiple_of(20) {
                             monitor.attempt_recovery();
                         }
                     }
@@ -357,7 +389,9 @@ impl<'a> DigitalPmu<'a> {
             let verify_count = domain_result.applied.min(50);
             let mut verify_stuck = 0;
             for (off, oracle_val) in oracle_regs.iter().take(verify_count) {
-                if is_dangerous_register(*off) { continue; }
+                if is_dangerous_register(*off) {
+                    continue;
+                }
                 let rb = monitor.read_u32(*off);
                 if rb != *oracle_val && !pri::is_pri_error(rb) {
                     verify_stuck += 1;
@@ -368,21 +402,25 @@ impl<'a> DigitalPmu<'a> {
 
             self.log.push(format!(
                 "    {} diffs, {} applied, {} stuck, {} PRI-skipped",
-                domain_result.diffs, domain_result.applied,
-                domain_result.stuck, domain_result.pri_skipped,
+                domain_result.diffs,
+                domain_result.applied,
+                domain_result.stuck,
+                domain_result.pri_skipped,
             ));
 
             result.domain_results.push(domain_result);
 
             // Check VRAM after critical domains
-            if matches!(domain_name, "PCLOCK" | "PFB" | "FBPA0" | "FBPA1" | "FBPA_BC" | "LTC0") {
-                if !result.vram_unlocked && self.check_vram() {
-                    result.vram_unlocked = true;
-                    result.vram_unlocked_after = Some(domain_name.to_string());
-                    self.log.push(format!(
-                        "    *** VRAM UNLOCKED after {domain_name}! ***"
-                    ));
-                }
+            if matches!(
+                domain_name,
+                "PCLOCK" | "PFB" | "FBPA0" | "FBPA1" | "FBPA_BC" | "LTC0"
+            ) && !result.vram_unlocked
+                && self.check_vram()
+            {
+                result.vram_unlocked = true;
+                result.vram_unlocked_after = Some(domain_name.to_string());
+                self.log
+                    .push(format!("    *** VRAM UNLOCKED after {domain_name}! ***"));
             }
 
             // Small delay between domains for PLL lock / clock propagation
@@ -393,14 +431,18 @@ impl<'a> DigitalPmu<'a> {
         if !result.vram_unlocked && self.check_vram() {
             result.vram_unlocked = true;
             result.vram_unlocked_after = Some("final".to_string());
-            self.log.push("  *** VRAM UNLOCKED after all phases! ***".into());
+            self.log
+                .push("  *** VRAM UNLOCKED after all phases! ***".into());
         }
 
         let stats = monitor.stats();
         self.log.push(format!(
             "  PRI stats: {} reads ({} faulted), {} writes ({} applied, {} skipped), {} recoveries",
-            stats.reads_total, stats.reads_faulted,
-            stats.writes_total, stats.writes_applied, stats.writes_skipped_faulted,
+            stats.reads_total,
+            stats.reads_faulted,
+            stats.writes_total,
+            stats.writes_applied,
+            stats.writes_skipped_faulted,
             stats.bus_recoveries,
         ));
 
@@ -426,13 +468,17 @@ impl<'a> DigitalPmu<'a> {
 
         for (off, oracle_val) in &root_plls {
             let cold_val = monitor.read_u32(*off);
-            if cold_val == *oracle_val { continue; }
+            if cold_val == *oracle_val {
+                continue;
+            }
 
             match monitor.write_u32(*off, *oracle_val) {
                 WriteOutcome::Applied | WriteOutcome::AppliedButFaulted => {
                     applied += 1;
                 }
-                _ => { skipped += 1; }
+                _ => {
+                    skipped += 1;
+                }
             }
         }
 

@@ -27,9 +27,8 @@ mod page_tables;
 mod pfifo;
 
 pub use diagnostic::{
-    ExperimentConfig, ExperimentOrdering, ExperimentResult,
-    build_experiment_matrix, build_metal_discovery_matrix,
-    diagnostic_matrix,
+    ExperimentConfig, ExperimentOrdering, ExperimentResult, build_experiment_matrix,
+    build_metal_discovery_matrix, diagnostic_matrix,
     interpreter::{ProbeInterpreter, ProbeReport, memory_probe},
 };
 pub use registers::ramuserd;
@@ -45,7 +44,7 @@ use registers::*;
 
 /// PFIFO hardware channel — owns all DMA resources for a single GPU channel.
 ///
-/// Created during [`super::NvVfioComputeDevice::open()`] and held alive for
+/// Created during `NvVfioComputeDevice::open()` and held alive for
 /// the device lifetime. Dropped automatically when the parent device drops,
 /// releasing all DMA allocations.
 pub struct VfioChannel {

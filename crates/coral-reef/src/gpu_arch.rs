@@ -43,7 +43,7 @@ impl GpuTarget {
 
     /// Architecture identifier within the vendor (e.g. `"sm86"`, `"rdna2"`).
     #[must_use]
-    pub fn arch_name(&self) -> &'static str {
+    pub const fn arch_name(&self) -> &'static str {
         match self {
             Self::Nvidia(nv) => nv.short_name(),
             Self::Amd(amd) => amd.short_name(),

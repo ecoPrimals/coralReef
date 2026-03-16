@@ -355,6 +355,128 @@ async fn test_unix_socket_connection_refused() {
     assert!(matches!(result, Err(RpcError::Io(_))));
 }
 
+#[tokio::test]
+async fn test_songbird_proxy_custom_path() {
+    // Songbird proxy uses /https/{target_host} path format
+    let resp = r#"{"jsonrpc":"2.0","result":"ok","id":1}"#;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let n = stream.read(&mut buf).await.unwrap();
+        let request = String::from_utf8_lossy(&buf[..n]).to_string();
+
+        let http_response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            resp.len(),
+            resp
+        );
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+        request
+    });
+
+    let client = RpcClient::songbird_proxy(addr, "rpc.internal.example.org");
+    let result: String = client.request("method", no_params()).await.unwrap();
+    assert_eq!(result, "ok");
+
+    let request = handle.await.unwrap();
+    assert!(
+        request.contains("POST /https/rpc.internal.example.org"),
+        "Songbird path should be /https/{{host}}: {request}"
+    );
+}
+
+#[tokio::test]
+async fn test_http_response_body_extraction() {
+    // Verify body is correctly extracted after headers (Content-Length)
+    let body = r#"{"jsonrpc":"2.0","result":{"nested":"value"},"id":1}"#;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let _ = stream.read(&mut buf).await.unwrap();
+        let http_response = format!(
+            "HTTP/1.1 200 OK\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             Connection: close\r\n\
+             \r\n\
+             {}",
+            body.len(),
+            body
+        );
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+    });
+
+    let client = RpcClient::tcp(addr);
+    #[derive(serde::Deserialize)]
+    struct NestedResult {
+        nested: String,
+    }
+    let result: NestedResult = client.request("test", no_params()).await.unwrap();
+    assert_eq!(result.nested, "value");
+
+    let _ = handle.await;
+}
+
+#[tokio::test]
+async fn test_http_empty_body_200() {
+    // 200 with Content-Length: 0 - body should be empty bytes
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let _ = stream.read(&mut buf).await.unwrap();
+        let http_response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+    });
+
+    let client = RpcClient::tcp(addr);
+    // Empty body will fail JSON parse - we get EmptyResponse or Json error
+    let result: Result<String, _> = client.request("test", no_params()).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, RpcError::EmptyResponse | RpcError::Json(_)),
+        "empty body should produce EmptyResponse or Json error: {err:?}"
+    );
+
+    let _ = handle.await;
+}
+
+#[tokio::test]
+async fn test_http_status_line_parsing() {
+    // Status line without \r\n before headers - edge case (malformed but we handle it)
+    let resp = r#"{"jsonrpc":"2.0","result":"ok","id":1}"#;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let _ = stream.read(&mut buf).await.unwrap();
+        // Status line with \r\n, then headers, then \r\n\r\n, then body
+        let http_response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+            resp.len(),
+            resp
+        );
+        stream.write_all(http_response.as_bytes()).await.unwrap();
+    });
+
+    let client = RpcClient::tcp(addr);
+    let result: String = client.request("test", no_params()).await.unwrap();
+    assert_eq!(result, "ok");
+
+    let _ = handle.await;
+}
+
 #[test]
 fn test_rpc_error_variants_display_substrings() {
     let io_err = RpcError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"));

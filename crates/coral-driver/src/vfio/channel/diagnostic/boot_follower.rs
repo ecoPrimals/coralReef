@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 //! Boot sequence follower — diff driver boot sequences in real-time.
 //!
 //! Parses mmiotrace or oracle BAR0 data and compares it against the diagnostic
@@ -89,23 +90,23 @@ pub struct RecipeStep {
 
 /// Domain ranges and their dependency priority (lower = write first).
 const DOMAIN_PRIORITY: &[(&str, usize, usize, u32)] = &[
-    ("ROOT_PLL",    0x136000, 0x137000, 0),
-    ("PCLOCK",      0x137000, 0x138000, 1),
-    ("CLK",         0x130000, 0x136000, 2),
-    ("PMC",         0x000000, 0x001000, 3),
-    ("PRI_MASTER",  0x122000, 0x123000, 4),
-    ("PBUS",        0x001000, 0x002000, 5),
-    ("PTOP",        0x020000, 0x024000, 6),
-    ("PFB",         0x100000, 0x100800, 10),
-    ("FBHUB",       0x100800, 0x100C00, 11),
-    ("PFB_NISO",    0x100C00, 0x101000, 12),
-    ("FBPA",        0x9A0000, 0x9B0000, 15),
-    ("LTC",         0x17E000, 0x190000, 16),
-    ("PMU",         0x10A000, 0x10C000, 20),
-    ("PFIFO",       0x002000, 0x004000, 25),
-    ("PBDMA",       0x040000, 0x0A0000, 26),
-    ("PCCSR",       0x800000, 0x900000, 30),
-    ("PRAMIN",      0x700000, 0x710000, 35),
+    ("ROOT_PLL", 0x136000, 0x137000, 0),
+    ("PCLOCK", 0x137000, 0x138000, 1),
+    ("CLK", 0x130000, 0x136000, 2),
+    ("PMC", 0x000000, 0x001000, 3),
+    ("PRI_MASTER", 0x122000, 0x123000, 4),
+    ("PBUS", 0x001000, 0x002000, 5),
+    ("PTOP", 0x020000, 0x024000, 6),
+    ("PFB", 0x100000, 0x100800, 10),
+    ("FBHUB", 0x100800, 0x100C00, 11),
+    ("PFB_NISO", 0x100C00, 0x101000, 12),
+    ("FBPA", 0x9A0000, 0x9B0000, 15),
+    ("LTC", 0x17E000, 0x190000, 16),
+    ("PMU", 0x10A000, 0x10C000, 20),
+    ("PFIFO", 0x002000, 0x004000, 25),
+    ("PBDMA", 0x040000, 0x0A0000, 26),
+    ("PCCSR", 0x800000, 0x900000, 30),
+    ("PRAMIN", 0x700000, 0x710000, 35),
 ];
 
 fn classify_domain(offset: usize) -> (&'static str, u32) {
@@ -137,36 +138,38 @@ impl BootTrace {
 
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
 
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 6 { continue; }
+            if parts.len() < 6 {
+                continue;
+            }
 
             // Detect MAP lines to find BAR0 base address
             if parts[0] == "MAP" && parts.len() >= 4 {
-                if let Ok(addr) = u64::from_str_radix(
-                    parts[2].trim_start_matches("0x"), 16
-                ) {
-                    if bar0_base.is_none() {
-                        bar0_base = Some(addr);
-                    }
+                if let Ok(addr) = u64::from_str_radix(parts[2].trim_start_matches("0x"), 16)
+                    && bar0_base.is_none()
+                {
+                    bar0_base = Some(addr);
                 }
                 continue;
             }
 
             let kind = parts[0];
-            if kind != "W" && kind != "R" { continue; }
+            if kind != "W" && kind != "R" {
+                continue;
+            }
 
             let width = parts[1].parse::<u8>().unwrap_or(4);
             let ts = parts[2].parse::<f64>().unwrap_or(0.0);
-            let addr = u64::from_str_radix(
-                parts[4].trim_start_matches("0x"), 16
-            ).unwrap_or(0);
-            let value = u32::from_str_radix(
-                parts[5].trim_start_matches("0x"), 16
-            ).unwrap_or(0);
+            let addr = u64::from_str_radix(parts[4].trim_start_matches("0x"), 16).unwrap_or(0);
+            let value = u32::from_str_radix(parts[5].trim_start_matches("0x"), 16).unwrap_or(0);
 
-            if first_ts.is_none() { first_ts = Some(ts); }
+            if first_ts.is_none() {
+                first_ts = Some(ts);
+            }
             last_ts = ts;
 
             let base = bar0_base.unwrap_or(0);
@@ -177,13 +180,24 @@ impl BootTrace {
             };
 
             // Only include BAR0 range (0-16MB)
-            if offset > 0x0100_0000 { continue; }
+            if offset > 0x0100_0000 {
+                continue;
+            }
 
             let ts_us = ((ts - first_ts.unwrap_or(0.0)) * 1_000_000.0) as u64;
 
             match kind {
-                "W" => writes.push(MmioWrite { timestamp_us: ts_us, offset, value, width }),
-                "R" => reads.push(MmioRead { timestamp_us: ts_us, offset, value }),
+                "W" => writes.push(MmioWrite {
+                    timestamp_us: ts_us,
+                    offset,
+                    value,
+                    width,
+                }),
+                "R" => reads.push(MmioRead {
+                    timestamp_us: ts_us,
+                    offset,
+                    value,
+                }),
                 _ => {}
             }
         }
@@ -203,7 +217,9 @@ impl BootTrace {
     /// Returns writes grouped by domain in dependency order,
     /// suitable for replay via the digital PMU.
     pub fn to_recipe(&self) -> Vec<RecipeStep> {
-        let mut steps: Vec<RecipeStep> = self.writes.iter()
+        let mut steps: Vec<RecipeStep> = self
+            .writes
+            .iter()
             .map(|w| {
                 let (domain, priority) = classify_domain(w.offset);
                 RecipeStep {
@@ -222,7 +238,8 @@ impl BootTrace {
 
     /// Get writes for a specific domain.
     pub fn domain_writes(&self, start: usize, end: usize) -> Vec<&MmioWrite> {
-        self.writes.iter()
+        self.writes
+            .iter()
             .filter(|w| w.offset >= start && w.offset < end)
             .collect()
     }
@@ -243,27 +260,24 @@ impl BootDiff {
     ///
     /// The oracle snapshot is a `BTreeMap<usize, u32>` (offset → value),
     /// and the cold snapshot is the same format from the diagnostic matrix.
-    pub fn compare(
-        oracle: &BTreeMap<usize, u32>,
-        cold: &BTreeMap<usize, u32>,
-    ) -> Self {
+    pub fn compare(oracle: &BTreeMap<usize, u32>, cold: &BTreeMap<usize, u32>) -> Self {
         let mut deltas = Vec::new();
         let mut domain_stats: BTreeMap<String, DomainStats> = BTreeMap::new();
         let mut total_compared = 0;
         let mut total_changed = 0;
 
         // Compare all offsets present in either snapshot
-        let all_offsets: std::collections::BTreeSet<usize> = oracle.keys()
-            .chain(cold.keys())
-            .copied()
-            .collect();
+        let all_offsets: std::collections::BTreeSet<usize> =
+            oracle.keys().chain(cold.keys()).copied().collect();
 
         for &offset in &all_offsets {
             let warm_val = oracle.get(&offset).copied().unwrap_or(0);
             let cold_val = cold.get(&offset).copied().unwrap_or(0);
 
             // Skip PRI errors in either snapshot
-            if super::super::registers::pri::is_pri_error(warm_val) { continue; }
+            if super::super::registers::pri::is_pri_error(warm_val) {
+                continue;
+            }
             if super::super::registers::pri::is_pri_error(cold_val) && cold_val != 0 {
                 let (domain, _) = classify_domain(offset);
                 let stats = domain_stats.entry(domain.to_string()).or_default();
@@ -308,7 +322,9 @@ impl BootDiff {
 
     /// Convert the diff into a priority-ordered recipe for GlowPlug replay.
     pub fn to_recipe(&self) -> Vec<RecipeStep> {
-        let mut steps: Vec<RecipeStep> = self.deltas.iter()
+        let mut steps: Vec<RecipeStep> = self
+            .deltas
+            .iter()
             .map(|d| {
                 let (_, priority) = classify_domain(d.offset);
                 RecipeStep {

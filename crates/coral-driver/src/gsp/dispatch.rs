@@ -126,9 +126,9 @@ mod tests {
         let hints = build_dispatch_hints(&kb);
         assert!(!hints.is_empty());
 
-        eprintln!("=== Dispatch Hints ===");
+        tracing::debug!("=== Dispatch Hints ===");
         for h in &hints {
-            eprintln!(
+            tracing::debug!(
                 "{:8} SM{:2}: wg={:3} fp64={:5} sovereign={:5} regs={:4} teacher={:8} ({:.1}%)",
                 h.chip,
                 h.sm,
@@ -153,7 +153,7 @@ mod tests {
             assert!(h.needs_sovereign_init);
             assert_eq!(h.recommended_workgroup_size, 128);
             assert!(h.best_teacher.is_some());
-            eprintln!("GV100 hints: {h:?}");
+            tracing::debug!("GV100 hints: {h:?}");
         }
     }
 }

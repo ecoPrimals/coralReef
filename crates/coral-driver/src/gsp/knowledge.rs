@@ -414,16 +414,16 @@ mod tests {
         kb.learn_nvidia_firmware();
 
         let summary = kb.summary();
-        eprintln!("Knowledge base: {summary:?}");
+        tracing::debug!("Knowledge base: {summary:?}");
 
         let chips = kb.known_chips();
-        eprintln!("Known chips: {chips:?}");
+        tracing::debug!("Known chips: {chips:?}");
 
         let needs = kb.needs_sovereign_gsp();
-        eprintln!("Needs sovereign GSP: {needs:?}");
+        tracing::debug!("Needs sovereign GSP: {needs:?}");
 
         let teachers = kb.can_teach();
-        eprintln!("Can teach: {teachers:?}");
+        tracing::debug!("Can teach: {teachers:?}");
     }
 
     #[test]
@@ -437,17 +437,17 @@ mod tests {
             .filter(|c| kb.get(c).map_or(0, |k| k.register_count) > 100)
             .collect();
 
-        eprintln!("=== Cross-architecture register comparison ===");
+        tracing::debug!("=== Cross-architecture register comparison ===");
         for (i, a) in rich_chips.iter().enumerate() {
             let a_regs = kb.get(a).map_or(0, |k| k.register_count);
             let a_sm = kb.get(a).and_then(|k| k.sm).unwrap_or(0);
-            eprintln!("{a} (SM{a_sm}): {a_regs} unique registers");
+            tracing::debug!("{a} (SM{a_sm}): {a_regs} unique registers");
             for b in &rich_chips[i + 1..] {
                 let common = kb.common_registers(a, b);
                 let b_regs = kb.get(b).map_or(0, |k| k.register_count);
                 let pct_a = if a_regs > 0 { common * 100 / a_regs } else { 0 };
                 let pct_b = if b_regs > 0 { common * 100 / b_regs } else { 0 };
-                eprintln!("  vs {b}: {common} common ({pct_a}% of {a}, {pct_b}% of {b})");
+                tracing::debug!("  vs {b}: {common} common ({pct_a}% of {a}, {pct_b}% of {b})");
             }
         }
     }
@@ -458,12 +458,12 @@ mod tests {
         kb.learn_nvidia_firmware();
 
         let best = kb.best_teacher_for("gv100");
-        eprintln!("Best teacher for GV100: {best:?}");
+        tracing::debug!("Best teacher for GV100: {best:?}");
 
         if let Some(teacher) = &best
             && let Some(map) = kb.transfer_map(teacher, "gv100")
         {
-            eprintln!(
+            tracing::debug!(
                 "{} -> gv100: {} common, {} teacher-only, {} target-only ({:.1}% coverage)",
                 teacher,
                 map.common_registers.len(),
@@ -475,7 +475,7 @@ mod tests {
 
         // Also check GA102 as teacher
         if let Some(map) = kb.transfer_map("ga102", "gv100") {
-            eprintln!(
+            tracing::debug!(
                 "ga102 -> gv100: {} common, {} teacher-only, {} target-only ({:.1}% coverage)",
                 map.common_registers.len(),
                 map.teacher_only_registers.len(),
@@ -491,15 +491,19 @@ mod tests {
         kb.learn_nvidia_firmware();
 
         let evo = kb.generational_evolution();
-        eprintln!("=== Generational Register Evolution ===");
+        tracing::debug!("=== Generational Register Evolution ===");
         for gs in &evo {
             let overlap = gs
                 .overlap_with_previous
                 .map(|o| format!(" (overlap: {o})"))
                 .unwrap_or_default();
-            eprintln!(
+            tracing::debug!(
                 "SM{:2}: {} ({} chips) — {} regs, fw={}{overlap}",
-                gs.sm, gs.representative, gs.chip_count, gs.unique_registers, gs.has_firmware
+                gs.sm,
+                gs.representative,
+                gs.chip_count,
+                gs.unique_registers,
+                gs.has_firmware
             );
         }
     }

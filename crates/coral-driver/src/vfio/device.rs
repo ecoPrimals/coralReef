@@ -32,7 +32,7 @@ impl MappedBar {
         reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
     )]
     pub fn read_u32(&self, offset: usize) -> Result<u32, DriverError> {
-        if offset % 4 != 0 {
+        if !offset.is_multiple_of(4) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} is not 4-byte aligned"
             ))));
@@ -59,7 +59,7 @@ impl MappedBar {
         reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
     )]
     pub fn write_u32(&self, offset: usize, value: u32) -> Result<(), DriverError> {
-        if offset % 4 != 0 {
+        if !offset.is_multiple_of(4) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} is not 4-byte aligned"
             ))));
@@ -110,10 +110,11 @@ impl MappedBar {
 
 impl RegisterAccess for MappedBar {
     fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
-        self.read_u32(offset as usize).map_err(|e| ApplyError::MmioFailed {
-            offset,
-            detail: e.to_string(),
-        })
+        self.read_u32(offset as usize)
+            .map_err(|e| ApplyError::MmioFailed {
+                offset,
+                detail: e.to_string(),
+            })
     }
 
     fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {

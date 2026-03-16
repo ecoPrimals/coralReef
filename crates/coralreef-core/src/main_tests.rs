@@ -527,3 +527,33 @@ fn parse_cli_default_log_level() {
     let cli = parse_cli_from(["coralreef", "doctor"]).unwrap();
     assert_eq!(cli.log_level, "info");
 }
+
+// --- Config/error path coverage ---
+
+#[test]
+fn parse_cli_compile_unknown_flag_is_error() {
+    let result = parse_cli_from(["coralreef", "compile", "x.wgsl", "--unknown-flag"]);
+    assert!(result.is_err(), "unknown flags should be rejected");
+}
+
+#[test]
+fn cmd_compile_fp64_software_false() {
+    let tmp = std::env::temp_dir().join("coralreef_test_fp64_false.wgsl");
+    std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+    let result = cmd_compile(&tmp, None, GpuArch::Sm70, 2, false);
+    let _ = std::fs::remove_file(&tmp);
+    assert!(matches!(result, UniBinExit::Success));
+}
+
+#[test]
+fn cmd_compile_read_error_directory_as_input() {
+    // Passing a directory path causes read to fail with IsADirectory (GeneralError)
+    let tmp_dir = std::env::temp_dir().join("coralreef_test_input_dir");
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let result = cmd_compile(tmp_dir.as_path(), None, GpuArch::Sm70, 2, true);
+    let _ = std::fs::remove_dir(&tmp_dir);
+    assert!(
+        matches!(result, UniBinExit::GeneralError),
+        "reading directory as input should produce GeneralError"
+    );
+}

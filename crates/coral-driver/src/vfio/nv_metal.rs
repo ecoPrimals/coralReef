@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(missing_docs)]
 //! NVIDIA Volta `GpuMetal` implementation.
 //!
 //! Provides register maps, power domains, engine topology, and warm-up
@@ -13,6 +14,7 @@ use super::pci_discovery::GpuVendor;
 
 // ── NVIDIA Volta register constants ─────────────────────────────────────
 
+#[allow(dead_code)]
 mod volta_regs {
     pub const BOOT0: usize = 0x0000_0000;
     pub const PMC_ENABLE: usize = 0x0000_0200;
@@ -70,7 +72,10 @@ impl NvVoltaIdentity {
             0x160..=0x16F => (format!("TU{:02X}", arch_code & 0xFF), "Turing".into()),
             0x170..=0x17F => (format!("GA{:02X}", arch_code & 0xFF), "Ampere".into()),
             0x190..=0x19F => (format!("AD{:02X}", arch_code & 0xFF), "Ada".into()),
-            _ => (format!("NV{arch_code:03X}"), format!("Unknown({arch_code:#x})")),
+            _ => (
+                format!("NV{arch_code:03X}"),
+                format!("Unknown({arch_code:#x})"),
+            ),
         };
 
         Self {
@@ -304,30 +309,126 @@ impl GpuMetal for NvVoltaMetal {
 
     fn domain_hints(&self) -> Vec<DomainHint> {
         vec![
-            DomainHint { start: 0x000000, end: 0x001000, name: "PMC" },
-            DomainHint { start: 0x001000, end: 0x002000, name: "PBUS" },
-            DomainHint { start: 0x002000, end: 0x004000, name: "PFIFO" },
-            DomainHint { start: 0x009000, end: 0x00A000, name: "PTIMER" },
-            DomainHint { start: 0x020000, end: 0x021000, name: "PTOP" },
-            DomainHint { start: 0x021000, end: 0x022000, name: "FUSE" },
-            DomainHint { start: 0x022000, end: 0x023000, name: "PTOP/ENGINE" },
-            DomainHint { start: 0x040000, end: 0x080000, name: "PBDMA" },
-            DomainHint { start: 0x084000, end: 0x085000, name: "NVDEC" },
-            DomainHint { start: 0x100000, end: 0x102000, name: "PFB" },
-            DomainHint { start: 0x104000, end: 0x105000, name: "CE" },
-            DomainHint { start: 0x10A000, end: 0x10B000, name: "PMU" },
-            DomainHint { start: 0x122000, end: 0x123000, name: "PRI_MASTER" },
-            DomainHint { start: 0x132000, end: 0x133000, name: "CLK" },
-            DomainHint { start: 0x137000, end: 0x138000, name: "PCLOCK" },
-            DomainHint { start: 0x17E000, end: 0x190000, name: "LTC" },
-            DomainHint { start: 0x1C8000, end: 0x1C9000, name: "NVENC" },
-            DomainHint { start: 0x1FA000, end: 0x1FB000, name: "PMEM" },
-            DomainHint { start: 0x400000, end: 0x420000, name: "GR" },
-            DomainHint { start: 0x610000, end: 0x620000, name: "DISP" },
-            DomainHint { start: 0x700000, end: 0x800000, name: "PRAMIN" },
-            DomainHint { start: 0x800000, end: 0x810000, name: "PCCSR" },
-            DomainHint { start: 0x810000, end: 0x820000, name: "USERMODE" },
-            DomainHint { start: 0x9A0000, end: 0x9B0000, name: "FBPA" },
+            DomainHint {
+                start: 0x000000,
+                end: 0x001000,
+                name: "PMC",
+            },
+            DomainHint {
+                start: 0x001000,
+                end: 0x002000,
+                name: "PBUS",
+            },
+            DomainHint {
+                start: 0x002000,
+                end: 0x004000,
+                name: "PFIFO",
+            },
+            DomainHint {
+                start: 0x009000,
+                end: 0x00A000,
+                name: "PTIMER",
+            },
+            DomainHint {
+                start: 0x020000,
+                end: 0x021000,
+                name: "PTOP",
+            },
+            DomainHint {
+                start: 0x021000,
+                end: 0x022000,
+                name: "FUSE",
+            },
+            DomainHint {
+                start: 0x022000,
+                end: 0x023000,
+                name: "PTOP/ENGINE",
+            },
+            DomainHint {
+                start: 0x040000,
+                end: 0x080000,
+                name: "PBDMA",
+            },
+            DomainHint {
+                start: 0x084000,
+                end: 0x085000,
+                name: "NVDEC",
+            },
+            DomainHint {
+                start: 0x100000,
+                end: 0x102000,
+                name: "PFB",
+            },
+            DomainHint {
+                start: 0x104000,
+                end: 0x105000,
+                name: "CE",
+            },
+            DomainHint {
+                start: 0x10A000,
+                end: 0x10B000,
+                name: "PMU",
+            },
+            DomainHint {
+                start: 0x122000,
+                end: 0x123000,
+                name: "PRI_MASTER",
+            },
+            DomainHint {
+                start: 0x132000,
+                end: 0x133000,
+                name: "CLK",
+            },
+            DomainHint {
+                start: 0x137000,
+                end: 0x138000,
+                name: "PCLOCK",
+            },
+            DomainHint {
+                start: 0x17E000,
+                end: 0x190000,
+                name: "LTC",
+            },
+            DomainHint {
+                start: 0x1C8000,
+                end: 0x1C9000,
+                name: "NVENC",
+            },
+            DomainHint {
+                start: 0x1FA000,
+                end: 0x1FB000,
+                name: "PMEM",
+            },
+            DomainHint {
+                start: 0x400000,
+                end: 0x420000,
+                name: "GR",
+            },
+            DomainHint {
+                start: 0x610000,
+                end: 0x620000,
+                name: "DISP",
+            },
+            DomainHint {
+                start: 0x700000,
+                end: 0x800000,
+                name: "PRAMIN",
+            },
+            DomainHint {
+                start: 0x800000,
+                end: 0x810000,
+                name: "PCCSR",
+            },
+            DomainHint {
+                start: 0x810000,
+                end: 0x820000,
+                name: "USERMODE",
+            },
+            DomainHint {
+                start: 0x9A0000,
+                end: 0x9B0000,
+                name: "FBPA",
+            },
         ]
     }
 
@@ -349,25 +450,21 @@ impl GpuMetal for NvVoltaMetal {
             },
             WarmupStep {
                 description: "PFIFO reset cycle: toggle PMC bit 8".into(),
-                writes: vec![
-                    RegisterWrite {
-                        offset: volta_regs::PMC_ENABLE,
-                        value: 0,
-                        mask: Some(!(1u32 << 8)),
-                    },
-                ],
+                writes: vec![RegisterWrite {
+                    offset: volta_regs::PMC_ENABLE,
+                    value: 0,
+                    mask: Some(!(1u32 << 8)),
+                }],
                 delay_ms: 20,
                 verify: vec![],
             },
             WarmupStep {
                 description: "PFIFO re-enable: set PMC bit 8 (preserve all other domains)".into(),
-                writes: vec![
-                    RegisterWrite {
-                        offset: volta_regs::PMC_ENABLE,
-                        value: 1 << 8,
-                        mask: Some(0xFFFF_FFFF),
-                    },
-                ],
+                writes: vec![RegisterWrite {
+                    offset: volta_regs::PMC_ENABLE,
+                    value: 1 << 8,
+                    mask: Some(0xFFFF_FFFF),
+                }],
                 delay_ms: 50,
                 verify: vec![RegisterVerify {
                     offset: volta_regs::PBDMA_MAP,
@@ -430,12 +527,18 @@ impl NvVoltaProbe {
         eprintln!("╠══ LIVE HARDWARE PROBE ═════════════════════════════════════╣");
         eprintln!("║ PMC_ENABLE = {:#010x}", self.pmc_enable);
         for (name, active) in &self.domain_states {
-            eprintln!("║   {name:<8} → {}", if *active { "ACTIVE" } else { "gated" });
+            eprintln!(
+                "║   {name:<8} → {}",
+                if *active { "ACTIVE" } else { "gated" }
+            );
         }
         if let Some(t) = self.temperature_c {
             eprintln!("║ Temperature: ~{}°C", t);
         }
-        eprintln!("║ Active: {} GPCs, {} TPCs, {} FBPs", self.active_gpcs, self.active_tpcs, self.active_fbps);
+        eprintln!(
+            "║ Active: {} GPCs, {} TPCs, {} FBPs",
+            self.active_gpcs, self.active_tpcs, self.active_fbps
+        );
         for (idx, alive) in &self.fbpa_alive {
             eprintln!("║   FBPA{idx}: {}", if *alive { "alive" } else { "dead" });
         }
@@ -486,14 +589,20 @@ impl NvVoltaMetal {
     /// temperature, fuse configuration, and partition liveness.
     pub fn probe_live(&self, bar0: &MappedBar) -> NvVoltaProbe {
         let r = |off: usize| bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
-        let is_err = |v: u32| v == 0xFFFF_FFFF || v == 0xDEAD_DEAD || (v >> 16) == 0xBADF || (v >> 16) == 0xBAD0;
+        let is_err = |v: u32| {
+            v == 0xFFFF_FFFF || v == 0xDEAD_DEAD || (v >> 16) == 0xBADF || (v >> 16) == 0xBAD0
+        };
 
         let pmc_enable = r(volta_regs::PMC_ENABLE);
 
-        let domain_states: Vec<(String, bool)> = self.power_domains.iter().map(|d| {
-            let active = d.enable_bit.map_or(false, |bit| pmc_enable & bit != 0);
-            (d.name.clone(), active)
-        }).collect();
+        let domain_states: Vec<(String, bool)> = self
+            .power_domains
+            .iter()
+            .map(|d| {
+                let active = d.enable_bit.is_some_and(|bit| pmc_enable & bit != 0);
+                (d.name.clone(), active)
+            })
+            .collect();
 
         // FALCON states
         let falcon_defs: &[(&str, usize)] = &[
@@ -503,12 +612,17 @@ impl NvVoltaMetal {
             ("NVDEC", volta_regs::NVDEC_BASE),
             ("NVENC", volta_regs::NVENC_BASE),
         ];
-        let falcon_states: Vec<(String, usize, u32, bool)> = falcon_defs.iter().filter_map(|&(name, base)| {
-            let ctrl = r(base + 0x100);
-            if is_err(ctrl) { return None; }
-            let halted = ctrl & 0x10 != 0;
-            Some((name.to_string(), base, ctrl, halted))
-        }).collect();
+        let falcon_states: Vec<(String, usize, u32, bool)> = falcon_defs
+            .iter()
+            .filter_map(|&(name, base)| {
+                let ctrl = r(base + 0x100);
+                if is_err(ctrl) {
+                    return None;
+                }
+                let halted = ctrl & 0x10 != 0;
+                Some((name.to_string(), base, ctrl, halted))
+            })
+            .collect();
 
         // Temperature: Volta uses NV_THERM_I2C_SENSOR_DATA at 0x20460
         // Format: bits [23:8] are temperature in 8.8 fixed point
@@ -518,7 +632,11 @@ impl NvVoltaMetal {
         } else {
             // Fallback: try 0x20008 (NV_THERM_TSENSE_U2_A_0_TEMPERATURE)
             let t2 = r(0x20008);
-            if !is_err(t2) && t2 != 0 { Some(t2 & 0x3FF) } else { None }
+            if !is_err(t2) && t2 != 0 {
+                Some(t2 & 0x3FF)
+            } else {
+                None
+            }
         };
 
         // Fuse configuration
@@ -529,33 +647,54 @@ impl NvVoltaMetal {
             ("OPT_FBP_DISABLE", 0x21C14),
             ("OPT_PES_DISABLE", 0x21C18),
         ];
-        let fuse_config: Vec<(String, u32)> = fuse_defs.iter().filter_map(|&(name, off)| {
-            let val = r(off);
-            if is_err(val) { return None; }
-            Some((name.to_string(), val))
-        }).collect();
+        let fuse_config: Vec<(String, u32)> = fuse_defs
+            .iter()
+            .filter_map(|&(name, off)| {
+                let val = r(off);
+                if is_err(val) {
+                    return None;
+                }
+                Some((name.to_string(), val))
+            })
+            .collect();
 
         // Derive active counts from fuses
-        let gpc_disable = fuse_config.iter().find(|(n, _)| n == "OPT_GPC_DISABLE").map(|(_, v)| *v).unwrap_or(0);
-        let tpc_disable = fuse_config.iter().find(|(n, _)| n == "OPT_TPC_DISABLE").map(|(_, v)| *v).unwrap_or(0);
-        let fbp_disable = fuse_config.iter().find(|(n, _)| n == "OPT_FBP_DISABLE").map(|(_, v)| *v).unwrap_or(0);
+        let gpc_disable = fuse_config
+            .iter()
+            .find(|(n, _)| n == "OPT_GPC_DISABLE")
+            .map(|(_, v)| *v)
+            .unwrap_or(0);
+        let tpc_disable = fuse_config
+            .iter()
+            .find(|(n, _)| n == "OPT_TPC_DISABLE")
+            .map(|(_, v)| *v)
+            .unwrap_or(0);
+        let fbp_disable = fuse_config
+            .iter()
+            .find(|(n, _)| n == "OPT_FBP_DISABLE")
+            .map(|(_, v)| *v)
+            .unwrap_or(0);
         let active_gpcs = 6 - gpc_disable.count_ones();
         let active_tpcs = 84 - tpc_disable.count_ones();
         let active_fbps = 4 - (fbp_disable & 0xF).count_ones();
 
         // FBPA partition liveness
-        let fbpa_alive: Vec<(u32, bool)> = (0..4).map(|i| {
-            let base = volta_regs::FBPA0_BASE + (i as usize) * volta_regs::FBPA_STRIDE;
-            let v = r(base);
-            (i, !is_err(v))
-        }).collect();
+        let fbpa_alive: Vec<(u32, bool)> = (0..4)
+            .map(|i| {
+                let base = volta_regs::FBPA0_BASE + (i as usize) * volta_regs::FBPA_STRIDE;
+                let v = r(base);
+                (i, !is_err(v))
+            })
+            .collect();
 
         // LTC partition liveness
-        let ltc_alive: Vec<(u32, bool)> = (0..6).map(|i| {
-            let base = volta_regs::LTC_BASE + (i as usize) * volta_regs::LTC_STRIDE;
-            let v = r(base);
-            (i, !is_err(v))
-        }).collect();
+        let ltc_alive: Vec<(u32, bool)> = (0..6)
+            .map(|i| {
+                let base = volta_regs::LTC_BASE + (i as usize) * volta_regs::LTC_STRIDE;
+                let v = r(base);
+                (i, !is_err(v))
+            })
+            .collect();
 
         NvVoltaProbe {
             pmc_enable,

@@ -348,6 +348,77 @@ fn test_sm70_encode_texture_load() {
     }
 }
 
+/// Exercises `sm70_encode/tex.rs`: `textureGather` (OpTld4) instruction encoding.
+#[test]
+fn test_sm70_encode_texture_gather() {
+    let wgsl = "
+        @group(0) @binding(0) var tex: texture_2d<f32>;
+        @group(0) @binding(1) var samp: sampler;
+        @group(0) @binding(2) var<storage, read_write> out: array<vec4<f32>>;
+        @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            let uv = vec2<f32>(f32(gid.x) / 256.0, f32(gid.y) / 256.0);
+            out[gid.x] = textureGather(0, tex, samp, uv);
+        }
+    ";
+    let opts = CompileOptions {
+        target: GpuArch::Sm70.into(),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    match result {
+        Ok(binary) => assert!(!binary.is_empty()),
+        Err(CompileError::NotImplemented(_)) => {}
+        Err(e) => panic!("unexpected error: {e}"),
+    }
+}
+
+/// Exercises `sm70_encode/tex.rs`: `textureDimensions` (OpTxq) instruction encoding.
+#[test]
+fn test_sm70_encode_texture_dimensions() {
+    let wgsl = "
+        @group(0) @binding(0) var tex: texture_2d<f32>;
+        @group(0) @binding(1) var<storage, read_write> out: array<vec2<u32>>;
+        @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            out[gid.x] = textureDimensions(tex);
+        }
+    ";
+    let opts = CompileOptions {
+        target: GpuArch::Sm70.into(),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    match result {
+        Ok(binary) => assert!(!binary.is_empty()),
+        Err(CompileError::NotImplemented(_)) => {}
+        Err(e) => panic!("unexpected error: {e}"),
+    }
+}
+
+/// Exercises `sm70_encode/tex.rs`: texture_2d_array and texture_3d variants.
+#[test]
+fn test_sm70_encode_texture_array_3d() {
+    let wgsl = "
+        @group(0) @binding(0) var tex_2d_array: texture_2d_array<f32>;
+        @group(0) @binding(1) var tex_3d: texture_3d<f32>;
+        @group(0) @binding(2) var<storage, read_write> out: array<vec4<f32>>;
+        @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            let layer = i32(gid.z % 4u);
+            out[gid.x] = textureLoad(tex_2d_array, vec2<i32>(i32(gid.x), 0), layer, 0);
+            out[gid.x + 1u] = textureLoad(tex_3d, vec3<i32>(i32(gid.x), 0, 0), 0);
+        }
+    ";
+    let opts = CompileOptions {
+        target: GpuArch::Sm70.into(),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    match result {
+        Ok(binary) => assert!(!binary.is_empty()),
+        Err(CompileError::NotImplemented(_)) => {}
+        Err(e) => panic!("unexpected error: {e}"),
+    }
+}
+
 /// Exercises `sm70_encode/alu/conv.rs`: i32 to f32 and f32 to i32 conversions.
 #[test]
 fn test_sm70_alu_conv_ops() {
