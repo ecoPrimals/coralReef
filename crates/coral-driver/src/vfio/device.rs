@@ -13,6 +13,7 @@ use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 use super::ioctl;
 use super::types::ioctls;
 use super::types::{VfioDeviceInfo, VfioGroupStatus, VfioRegionInfo};
+use crate::gsp::{ApplyError, RegisterAccess};
 
 /// A mapped BAR region from a VFIO device.
 pub struct MappedBar {
@@ -25,19 +26,25 @@ impl MappedBar {
     ///
     /// # Errors
     ///
-    /// Returns error if offset is out of range.
+    /// Returns error if offset is out of range or not 4-byte aligned.
     #[expect(
         clippy::cast_ptr_alignment,
-        reason = "BAR offsets are u32-aligned by hardware spec"
+        reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
     )]
     pub fn read_u32(&self, offset: usize) -> Result<u32, DriverError> {
+        if offset % 4 != 0 {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "BAR offset {offset:#x} is not 4-byte aligned"
+            ))));
+        }
         if offset + 4 > self.size {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} out of range (size {:#x})",
                 self.size
             ))));
         }
-        // SAFETY: base_ptr valid from mmap; offset bounds-checked; volatile for MMIO.
+        // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
+        // bounds checked above; volatile for MMIO.
         let val = unsafe { std::ptr::read_volatile(self.base_ptr.add(offset).cast::<u32>()) };
         Ok(val)
     }
@@ -46,19 +53,25 @@ impl MappedBar {
     ///
     /// # Errors
     ///
-    /// Returns error if offset is out of range.
+    /// Returns error if offset is out of range or not 4-byte aligned.
     #[expect(
         clippy::cast_ptr_alignment,
-        reason = "BAR offsets are u32-aligned by hardware spec"
+        reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
     )]
     pub fn write_u32(&self, offset: usize, value: u32) -> Result<(), DriverError> {
+        if offset % 4 != 0 {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "BAR offset {offset:#x} is not 4-byte aligned"
+            ))));
+        }
         if offset + 4 > self.size {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} out of range (size {:#x})",
                 self.size
             ))));
         }
-        // SAFETY: base_ptr valid from mmap; offset bounds-checked; volatile for MMIO.
+        // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
+        // bounds checked above; volatile for MMIO.
         unsafe {
             std::ptr::write_volatile(self.base_ptr.add(offset).cast::<u32>(), value);
         }
@@ -71,10 +84,43 @@ impl MappedBar {
         self.size
     }
 
+    /// Apply a GR init sequence's BAR0 writes.
+    ///
+    /// Implements the `RegisterAccess` trait bridge so the GSP applicator
+    /// can write directly through the VFIO-mapped BAR0.
+    pub fn apply_gr_bar0_writes(&self, writes: &[(u32, u32)]) -> (usize, usize) {
+        let mut applied = 0;
+        let mut failed = 0;
+        for &(offset, value) in writes {
+            if self.write_u32(offset as usize, value).is_ok() {
+                applied += 1;
+            } else {
+                failed += 1;
+            }
+        }
+        (applied, failed)
+    }
+
     /// Raw pointer to the BAR base (for callers that need ptr arithmetic).
     #[must_use]
     pub const fn base_ptr(&self) -> *mut u8 {
         self.base_ptr
+    }
+}
+
+impl RegisterAccess for MappedBar {
+    fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
+        self.read_u32(offset as usize).map_err(|e| ApplyError::MmioFailed {
+            offset,
+            detail: e.to_string(),
+        })
+    }
+
+    fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {
+        MappedBar::write_u32(self, offset as usize, value).map_err(|e| ApplyError::MmioFailed {
+            offset,
+            detail: e.to_string(),
+        })
     }
 }
 

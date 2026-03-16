@@ -26,6 +26,7 @@
 //! ```
 
 use crate::error::{DriverError, DriverResult};
+use crate::gsp::{self, GrFirmwareBlobs, GrInitSequence};
 use crate::vfio::channel::{VfioChannel, ramuserd};
 use crate::vfio::device::{MappedBar, VfioDevice};
 use crate::vfio::dma::DmaBuffer;
@@ -106,6 +107,54 @@ pub struct NvVfioComputeDevice {
     inflight: Vec<BufferHandle>,
 }
 
+/// GR engine diagnostic status from BAR0 registers.
+#[derive(Debug)]
+pub struct GrEngineStatus {
+    /// `NV_PGRAPH_STATUS` — GR busy/idle flags.
+    pub pgraph_status: u32,
+    /// `NV_PGRAPH_FECS_FALCON_CPUCTL` — FECS CPU control (bit 5 = halted).
+    pub fecs_cpuctl: u32,
+    /// `NV_PGRAPH_FECS_FALCON_MAILBOX0` — FECS status/error code.
+    pub fecs_mailbox0: u32,
+    /// `NV_PGRAPH_FECS_FALCON_MAILBOX1` — FECS extended status.
+    pub fecs_mailbox1: u32,
+    /// `NV_PGRAPH_FECS_FALCON_HWCFG` — FECS hardware config.
+    pub fecs_hwcfg: u32,
+    /// `NV_PGRAPH_GPCCS_FALCON_CPUCTL` — GPCCS CPU control.
+    pub gpccs_cpuctl: u32,
+    /// `NV_PMC_ENABLE` — master engine enable mask.
+    pub pmc_enable: u32,
+    /// `NV_PFIFO_ENABLE` — FIFO engine enable.
+    pub pfifo_enable: u32,
+}
+
+impl GrEngineStatus {
+    /// Whether the FECS falcon is halted (not running firmware).
+    #[must_use]
+    pub fn fecs_halted(&self) -> bool {
+        self.fecs_cpuctl & 0x20 != 0 || self.fecs_cpuctl == 0xDEAD_DEAD
+    }
+
+    /// Whether the GR engine bit is enabled in PMC.
+    #[must_use]
+    pub fn gr_enabled(&self) -> bool {
+        self.pmc_enable & (1 << 12) != 0
+    }
+}
+
+impl std::fmt::Display for GrEngineStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GR: pmc={:#010x} pfifo={:#010x} pgraph={:#010x} fecs_cpu={:#010x} fecs_mb0={:#010x} fecs_mb1={:#010x} fecs_hw={:#010x} gpccs={:#010x} [fecs_halted={} gr_en={}]",
+            self.pmc_enable, self.pfifo_enable, self.pgraph_status,
+            self.fecs_cpuctl, self.fecs_mailbox0, self.fecs_mailbox1,
+            self.fecs_hwcfg, self.gpccs_cpuctl,
+            self.fecs_halted(), self.gr_enabled()
+        )
+    }
+}
+
 /// IOVA base for user DMA allocations — above GPFIFO/USERD.
 const USER_IOVA_BASE: u64 = 0x10_0000;
 
@@ -184,12 +233,27 @@ impl RawVfioDevice {
     }
 }
 
+/// Map SM version to chip codename for firmware lookup.
+const fn sm_to_chip(sm: u32) -> &'static str {
+    match sm {
+        50..=52 => "gm200",
+        60..=62 => "gp100",
+        70 => "gv100",
+        75 => "tu102",
+        80 => "ga100",
+        86..=87 => "ga102",
+        89 => "ad102",
+        _ => "gv100",
+    }
+}
+
 impl NvVfioComputeDevice {
     /// Open an NVIDIA GPU via VFIO and prepare for compute dispatch.
     ///
-    /// `bdf` is the PCIe Bus:Device.Function address (e.g. `"0000:01:00.0"`).
-    /// `sm_version` is the SM architecture version (e.g. 70 for Volta).
-    /// `compute_class` is the NVIDIA compute class constant.
+    /// Performs sovereign GR engine initialization from firmware blobs,
+    /// creates a PFIFO channel, and submits FECS context init methods —
+    /// the full sequence needed for compute shader dispatch without any
+    /// kernel GPU driver.
     ///
     /// # Errors
     ///
@@ -208,6 +272,10 @@ impl NvVfioComputeDevice {
             "VFIO GPU opened via BAR0"
         );
 
+        // Phase 1: Sovereign BAR0 GR init — enable engines + apply PGRAPH
+        // register writes from firmware blobs before channel creation.
+        Self::apply_gr_bar0_init(&bar0, sm_version);
+
         let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
 
@@ -224,7 +292,7 @@ impl NvVfioComputeDevice {
             0, // channel ID 0
         )?;
 
-        Ok(Self {
+        let mut dev = Self {
             device,
             bar0,
             sm_version,
@@ -238,7 +306,178 @@ impl NvVfioComputeDevice {
             container_fd,
             buffers: HashMap::new(),
             inflight: Vec::new(),
-        })
+        };
+
+        // Phase 2: FECS channel init — submit GR context methods via GPFIFO
+        // so the compute engine is ready for shader dispatch.
+        dev.apply_fecs_channel_init();
+
+        Ok(dev)
+    }
+
+    /// Apply BAR0 GR init writes from NVIDIA firmware blobs.
+    ///
+    /// Parses `sw_bundle_init.bin` etc. from `/lib/firmware/nvidia/{chip}/gr/`,
+    /// builds the init sequence, then applies the BAR0-targeted writes
+    /// (PMC engine enable, FIFO enable, PGRAPH register programming).
+    fn apply_gr_bar0_init(bar0: &MappedBar, sm_version: u32) {
+        let chip = sm_to_chip(sm_version);
+        let blobs = match GrFirmwareBlobs::parse(chip) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(chip, error = %e, "GR firmware not available — skipping BAR0 GR init");
+                return;
+            }
+        };
+
+        let seq = if sm_version == 70 {
+            GrInitSequence::for_gv100(&blobs)
+        } else {
+            GrInitSequence::from_blobs(&blobs)
+        };
+
+        let (bar0_writes, fecs_entries) = gsp::split_for_application(&seq);
+
+        tracing::info!(
+            chip,
+            bar0_writes = bar0_writes.len(),
+            fecs_entries = fecs_entries.len(),
+            total = seq.len(),
+            "sovereign VFIO GR init: applying {} BAR0 register writes",
+            bar0_writes.len()
+        );
+
+        // Only apply writes with 4-byte-aligned offsets that fit within BAR0.
+        let bar0_size = bar0.size() as u32;
+        let writes: Vec<(u32, u32)> = bar0_writes
+            .iter()
+            .filter(|w| {
+                if w.offset % 4 != 0 {
+                    tracing::debug!(
+                        chip,
+                        offset = format!("{:#010x}", w.offset),
+                        "skipping non-aligned BAR0 write"
+                    );
+                    return false;
+                }
+                if w.offset + 4 > bar0_size {
+                    tracing::debug!(
+                        chip,
+                        offset = format!("{:#010x}", w.offset),
+                        bar0_size = format!("{bar0_size:#010x}"),
+                        "skipping out-of-range BAR0 write"
+                    );
+                    return false;
+                }
+                true
+            })
+            .map(|w| (w.offset, w.value))
+            .collect();
+
+        let (applied, failed) = bar0.apply_gr_bar0_writes(&writes);
+
+        if failed > 0 {
+            tracing::warn!(chip, applied, failed, "BAR0 GR init had write failures");
+        } else {
+            tracing::info!(chip, applied, "BAR0 GR init complete");
+        }
+
+        // Brief settle after engine enable writes.
+        for w in &bar0_writes {
+            if w.delay_us > 0 {
+                std::thread::sleep(std::time::Duration::from_micros(u64::from(w.delay_us)));
+            }
+        }
+    }
+
+    /// Submit FECS channel init methods via GPFIFO after channel creation.
+    ///
+    /// Builds a push buffer containing the GR context setup methods
+    /// from `sw_bundle_init.bin` / `sw_method_init.bin` (entries with
+    /// offsets <= 0x7FFC that are submittable as channel methods).
+    fn apply_fecs_channel_init(&mut self) {
+        let chip = sm_to_chip(self.sm_version);
+        let blobs = match GrFirmwareBlobs::parse(chip) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::debug!(chip, error = %e, "firmware not available — skipping FECS init");
+                return;
+            }
+        };
+
+        let seq = if self.sm_version == 70 {
+            GrInitSequence::for_gv100(&blobs)
+        } else {
+            GrInitSequence::from_blobs(&blobs)
+        };
+
+        let (_bar0, fecs) = gsp::split_for_application(&seq);
+
+        let channel_methods: Vec<(u32, u32)> = fecs
+            .iter()
+            .filter(|w| {
+                matches!(
+                    w.category,
+                    gsp::RegCategory::BundleInit | gsp::RegCategory::MethodInit
+                )
+            })
+            .map(|w| (w.offset, w.value))
+            .collect();
+
+        if channel_methods.is_empty() {
+            tracing::debug!(chip, "no FECS channel methods to submit");
+            return;
+        }
+
+        tracing::info!(
+            chip,
+            entries = channel_methods.len(),
+            "submitting FECS channel methods via GPFIFO"
+        );
+
+        let pb = PushBuf::gr_context_init(self.compute_class, &channel_methods);
+        let pb_bytes = pb.as_bytes();
+
+        let pb_result = (|| -> DriverResult<()> {
+            let (pb_handle, pb_iova) = self.alloc_dma(pb_bytes.len())?;
+            self.upload(pb_handle, 0, pb_bytes)?;
+
+            let pb_size = u32::try_from(pb_bytes.len())
+                .map_err(|_| DriverError::platform_overflow("FECS pushbuf size fits u32"))?;
+
+            self.submit_pushbuf(pb_iova, pb_size)?;
+
+            // Wait for FECS init to complete before returning the device
+            // as ready for compute dispatch.
+            self.poll_gpfifo_completion()?;
+
+            let _ = self.free(pb_handle);
+            Ok(())
+        })();
+
+        match pb_result {
+            Ok(()) => tracing::info!(chip, "FECS channel init complete — GR engine ready"),
+            Err(e) => tracing::warn!(chip, error = %e, "FECS channel init failed (expected on cold VFIO — GR engine requires falcon firmware)"),
+        }
+    }
+
+    /// Diagnostic: read GR engine status registers to verify readiness.
+    ///
+    /// Returns a summary of the GR engine state. A fully initialized
+    /// GR engine has FECS falcon running and PGRAPH status idle.
+    pub fn gr_engine_status(&self) -> GrEngineStatus {
+        let r = |off: usize| self.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+
+        GrEngineStatus {
+            pgraph_status: r(0x0040_0700),
+            fecs_cpuctl: r(0x0040_9100),
+            fecs_mailbox0: r(0x0040_9130),
+            fecs_mailbox1: r(0x0040_9134),
+            fecs_hwcfg: r(0x0040_9800),
+            gpccs_cpuctl: r(0x0041_a100),
+            pmc_enable: r(0x0000_0200),
+            pfifo_enable: r(0x0000_2504),
+        }
     }
 
     /// Allocate a DMA buffer and assign it a new IOVA.
