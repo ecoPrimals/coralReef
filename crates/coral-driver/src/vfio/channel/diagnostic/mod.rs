@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Hardware bring-up diagnostic experiment matrix for VFIO channel creation.
 
+pub mod boot_follower;
 mod experiments;
 pub mod interpreter;
 mod matrix;

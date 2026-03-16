@@ -716,13 +716,22 @@ mod tests {
         let status = devinit::DevinitStatus::probe(&raw.bar0);
         status.print_summary();
 
-        // Run GlowPlug with all strategies
-        let gp = if let Some(ref oracle) = oracle_bdf {
-            eprintln!("║ Oracle: {oracle}");
-            GlowPlug::with_oracle(&raw.bar0, raw.container_fd, &bdf, oracle)
+        // Run GlowPlug with all strategies — load oracle from best available source
+        let mut gp = GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf);
+        if let Some(ref oracle) = oracle_bdf {
+            eprintln!("║ Oracle (live): {oracle}");
+            gp.load_oracle_live(oracle).expect("failed to load live oracle");
+        } else if let Ok(text_path) = std::env::var("CORALREEF_ORACLE_TEXT") {
+            eprintln!("║ Oracle (text dump): {text_path}");
+            gp.load_oracle_text(std::path::Path::new(&text_path))
+                .expect("failed to load oracle text dump");
+        } else if let Ok(dump_path) = std::env::var("CORALREEF_ORACLE_DUMP") {
+            eprintln!("║ Oracle (binary dump): {dump_path}");
+            gp.load_oracle_dump(std::path::Path::new(&dump_path))
+                .expect("failed to load oracle binary dump");
         } else {
-            GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf)
-        };
+            eprintln!("║ No oracle — running sovereign-only strategies");
+        }
 
         let result = gp.full_init();
         eprintln!("╠══ GLOWPLUG LOG ════════════════════════════════════════════╣");
@@ -1477,6 +1486,310 @@ mod tests {
         eprintln!("║ Live CLK registers: {}", clk_live.len());
         for &(off, val) in &clk_live {
             eprintln!("║   [{off:#08x}] = {val:#010x}");
+        }
+
+        eprintln!("╚══════════════════════════════════════════════════════════════╝");
+    }
+
+    /// Oracle-driven root PLL comparison and programming.
+    ///
+    /// Reads oracle data from either:
+    /// - Live oracle card (CORALREEF_ORACLE_BDF env var)
+    /// - BAR0 binary dump (CORALREEF_ORACLE_DUMP env var)
+    /// - Text dump (CORALREEF_ORACLE_TEXT env var)
+    ///
+    /// Compares root PLL registers (0x136xxx) between oracle and cold card,
+    /// then writes oracle values to cold card and checks if PCLOCK unlocks.
+    #[test]
+    #[ignore = "requires VFIO-bound GPU hardware + oracle data"]
+    fn vfio_oracle_root_pll_programming() {
+        use coral_driver::nv::RawVfioDevice;
+        use coral_driver::vfio::channel::oracle::{OracleState, DigitalPmu};
+        use coral_driver::vfio::channel::registers::pri;
+
+        let bdf = vfio_bdf();
+        let raw = RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open()");
+
+        eprintln!("╔══════════════════════════════════════════════════════════════╗");
+        eprintln!("║ Oracle Root PLL Programming                                 ║");
+        eprintln!("╠══════════════════════════════════════════════════════════════╣");
+
+        // Load oracle data from best available source
+        let oracle = if let Ok(oracle_bdf) = std::env::var("CORALREEF_ORACLE_BDF") {
+            eprintln!("║ Loading oracle from live card: {oracle_bdf}");
+            OracleState::from_live_card(&oracle_bdf)
+                .expect("failed to read oracle BAR0")
+        } else if let Ok(dump_path) = std::env::var("CORALREEF_ORACLE_DUMP") {
+            eprintln!("║ Loading oracle from BAR0 dump: {dump_path}");
+            OracleState::from_bar0_dump(std::path::Path::new(&dump_path))
+                .expect("failed to load BAR0 dump")
+        } else if let Ok(text_path) = std::env::var("CORALREEF_ORACLE_TEXT") {
+            eprintln!("║ Loading oracle from text dump: {text_path}");
+            OracleState::from_text_dump(std::path::Path::new(&text_path))
+                .expect("failed to load text dump")
+        } else {
+            panic!("Set CORALREEF_ORACLE_BDF, CORALREEF_ORACLE_DUMP, or CORALREEF_ORACLE_TEXT");
+        };
+
+        eprintln!("║ Oracle: {} total registers from {}", oracle.registers.len(), oracle.source);
+        eprintln!("║ Root PLLs (0x136xxx): {} registers", oracle.root_pll_registers().len());
+        eprintln!("║ PCLOCK (0x137xxx): {} registers", oracle.pclock_registers().len());
+
+        let r = |off: usize| -> u32 { raw.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD) };
+
+        // Phase 1: Read cold card's current root PLL state
+        eprintln!("╠══ Cold Card Root PLL State ════════════════════════════════╣");
+        let root_plls = oracle.root_pll_registers();
+        let mut cold_match = 0;
+        let mut cold_diff = 0;
+        let mut cold_dead = 0;
+        for &(off, oracle_val) in &root_plls {
+            let cold_val = r(off);
+            if pri::is_pri_error(cold_val) {
+                cold_dead += 1;
+            } else if cold_val == oracle_val {
+                cold_match += 1;
+            } else {
+                cold_diff += 1;
+                if cold_diff <= 20 {
+                    eprintln!("║   [{off:#08x}] cold={cold_val:#010x} oracle={oracle_val:#010x}");
+                }
+            }
+        }
+        eprintln!("║ Root PLL comparison: {cold_match} match, {cold_diff} differ, {cold_dead} dead");
+
+        // Phase 2: Check PCLOCK before programming
+        let pclock_before = r(0x137000);
+        eprintln!("║ PCLOCK[0] before: {pclock_before:#010x} ({})",
+            if pri::is_pri_error(pclock_before) { "FAULTED" } else { "ALIVE" }
+        );
+
+        // Phase 3: Program root PLLs
+        eprintln!("╠══ Programming Root PLLs ═══════════════════════════════════╣");
+        let mut dpmu = DigitalPmu::new(&raw.bar0, &oracle);
+        let (applied, skipped) = dpmu.program_root_plls();
+        for msg in dpmu.take_log() {
+            eprintln!("║ {msg}");
+        }
+
+        // Phase 4: Check PCLOCK after root PLL programming
+        let pclock_after = r(0x137000);
+        eprintln!("║ PCLOCK[0] after root PLLs: {pclock_after:#010x} ({})",
+            if pri::is_pri_error(pclock_after) { "FAULTED" } else { "ALIVE" }
+        );
+
+        // Phase 5: Program PCLOCK bypass registers
+        eprintln!("╠══ Programming PCLOCK Bypass ═══════════════════════════════╣");
+        let bypass_log = dpmu.program_pclock_bypass();
+        for msg in &bypass_log {
+            eprintln!("║ {msg}");
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Phase 6: Final domain health check
+        eprintln!("╠══ Post-Programming Domain Health ══════════════════════════╣");
+        let domains: &[(usize, &str)] = &[
+            (0x137000, "PCLOCK"),
+            (0x137050, "NVPLL"),
+            (0x137100, "MEMPLL"),
+            (0x17E200, "LTC0"),
+            (0x9A0000, "FBPA0"),
+            (0x100000, "PFB"),
+            (0x002200, "PFIFO"),
+            (0x700000, "PRAMIN"),
+        ];
+
+        for &(off, name) in domains {
+            let val = r(off);
+            let status = if pri::is_pri_error(val) {
+                format!("FAULTED — {}", pri::decode_pri_error(val))
+            } else {
+                format!("ALIVE ({val:#010x})")
+            };
+            eprintln!("║ {name:12} [{off:#08x}]: {status}");
+        }
+
+        eprintln!("║");
+        eprintln!("║ Summary: {applied} root PLLs applied, {skipped} skipped");
+        eprintln!("╚══════════════════════════════════════════════════════════════╝");
+    }
+
+    /// Full digital PMU emulation — apply complete oracle state in dependency order.
+    ///
+    /// This is the sovereign initialization path: instead of running signed
+    /// firmware on the PMU FALCON, we program registers from the host using
+    /// oracle data in the correct dependency order.
+    #[test]
+    #[ignore = "requires VFIO-bound GPU hardware + oracle data"]
+    fn vfio_digital_pmu_full() {
+        use coral_driver::nv::RawVfioDevice;
+        use coral_driver::vfio::channel::oracle::{OracleState, DigitalPmu};
+        use coral_driver::vfio::channel::glowplug::GlowPlug;
+
+        let bdf = vfio_bdf();
+        let raw = RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open()");
+
+        eprintln!("╔══════════════════════════════════════════════════════════════╗");
+        eprintln!("║ Digital PMU Full Emulation                                  ║");
+        eprintln!("╠══════════════════════════════════════════════════════════════╣");
+
+        // Load oracle
+        let oracle = if let Ok(oracle_bdf) = std::env::var("CORALREEF_ORACLE_BDF") {
+            OracleState::from_live_card(&oracle_bdf)
+                .expect("failed to read oracle BAR0")
+        } else if let Ok(dump_path) = std::env::var("CORALREEF_ORACLE_DUMP") {
+            OracleState::from_bar0_dump(std::path::Path::new(&dump_path))
+                .expect("failed to load BAR0 dump")
+        } else if let Ok(text_path) = std::env::var("CORALREEF_ORACLE_TEXT") {
+            OracleState::from_text_dump(std::path::Path::new(&text_path))
+                .expect("failed to load text dump")
+        } else {
+            panic!("Set CORALREEF_ORACLE_BDF, CORALREEF_ORACLE_DUMP, or CORALREEF_ORACLE_TEXT");
+        };
+
+        eprintln!("║ Oracle: {} registers from {}", oracle.registers.len(), oracle.source);
+
+        // Check pre-state
+        let plug = GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf);
+        let pre_state = plug.check_state();
+        eprintln!("║ Pre-state: {pre_state:?}");
+
+        // Execute digital PMU
+        let mut dpmu = DigitalPmu::new(&raw.bar0, &oracle);
+        let result = dpmu.execute();
+
+        eprintln!("╠══ Digital PMU Results ═════════════════════════════════════╣");
+        for msg in &result.log {
+            eprintln!("║ {msg}");
+        }
+
+        eprintln!("╠══ Domain Results ══════════════════════════════════════════╣");
+        for dr in &result.domain_results {
+            if dr.diffs > 0 {
+                eprintln!("║   {}: {} diffs, {} applied, {} stuck, {} PRI-skipped",
+                    dr.name, dr.diffs, dr.applied, dr.stuck, dr.pri_skipped);
+            }
+        }
+
+        eprintln!("╠══ Summary ═════════════════════════════════════════════════╣");
+        eprintln!("║ Total diffs: {}", result.total_diffs);
+        eprintln!("║ Applied: {}", result.applied);
+        eprintln!("║ Stuck: {}", result.stuck);
+        eprintln!("║ PRI-skipped: {}", result.pri_skipped);
+        eprintln!("║ Danger-skipped: {}", result.danger_skipped);
+        eprintln!("║ VRAM unlocked: {} (after {:?})", result.vram_unlocked, result.vram_unlocked_after);
+
+        // Post-state
+        let post_state = plug.check_state();
+        eprintln!("║ Post-state: {post_state:?}");
+
+        eprintln!("╚══════════════════════════════════════════════════════════════╝");
+    }
+
+    /// Boot sequence follower — diff oracle BAR0 against cold card.
+    ///
+    /// Uses the boot_follower module to compare a warm oracle's register
+    /// state against the cold VFIO target, producing a domain-ordered diff
+    /// that shows exactly what needs to change for each domain.
+    #[test]
+    #[ignore = "requires VFIO-bound GPU hardware + oracle data"]
+    fn vfio_boot_follower_diff() {
+        use coral_driver::nv::RawVfioDevice;
+        use coral_driver::vfio::channel::oracle::OracleState;
+        use coral_driver::vfio::channel::diagnostic::boot_follower::{BootDiff, BootTrace};
+        use coral_driver::vfio::channel::registers::pri;
+
+        let bdf = vfio_bdf();
+        let raw = RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open()");
+
+        eprintln!("╔══════════════════════════════════════════════════════════════╗");
+        eprintln!("║ Boot Sequence Follower — Oracle vs Cold Diff                ║");
+        eprintln!("╠══════════════════════════════════════════════════════════════╣");
+
+        // Load oracle
+        let oracle = if let Ok(oracle_bdf) = std::env::var("CORALREEF_ORACLE_BDF") {
+            OracleState::from_live_card(&oracle_bdf)
+                .expect("failed to read oracle BAR0")
+        } else if let Ok(dump_path) = std::env::var("CORALREEF_ORACLE_DUMP") {
+            OracleState::from_bar0_dump(std::path::Path::new(&dump_path))
+                .expect("failed to load BAR0 dump")
+        } else if let Ok(text_path) = std::env::var("CORALREEF_ORACLE_TEXT") {
+            OracleState::from_text_dump(std::path::Path::new(&text_path))
+                .expect("failed to load text dump")
+        } else {
+            panic!("Set CORALREEF_ORACLE_BDF, CORALREEF_ORACLE_DUMP, or CORALREEF_ORACLE_TEXT");
+        };
+
+        // Build cold card register snapshot
+        let r = |off: usize| -> u32 { raw.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD) };
+        let mut cold_regs = std::collections::BTreeMap::new();
+        for &off in oracle.registers.keys() {
+            cold_regs.insert(off, r(off));
+        }
+
+        // Perform the diff
+        let diff = BootDiff::compare(&oracle.registers, &cold_regs);
+
+        eprintln!("║ Compared: {} registers", diff.total_compared);
+        eprintln!("║ Changed:  {} registers", diff.total_changed);
+        eprintln!("║");
+        eprintln!("╠══ Per-Domain Changes ══════════════════════════════════════╣");
+        for (domain, stats) in &diff.domain_stats {
+            if stats.changed > 0 || stats.cold_dead > 0 {
+                eprintln!("║ {domain:12}: {}/{} changed, {} cold-dead, {} warm-alive",
+                    stats.changed, stats.compared, stats.cold_dead, stats.warm_alive);
+            }
+        }
+
+        // Extract and display recipe
+        let recipe = diff.to_recipe();
+        eprintln!("║");
+        eprintln!("╠══ Init Recipe ({} steps) ═════════════════════════════════╣", recipe.len());
+        let mut current_domain = String::new();
+        let mut domain_count = 0;
+        for step in &recipe {
+            if step.domain != current_domain {
+                if !current_domain.is_empty() {
+                    eprintln!("║   ... ({domain_count} total steps in {current_domain})");
+                }
+                current_domain = step.domain.clone();
+                domain_count = 0;
+                eprintln!("║ [{current_domain}] (priority {})", step.priority);
+            }
+            domain_count += 1;
+            if domain_count <= 5 {
+                eprintln!("║   [{:#08x}] = {:#010x}", step.offset, step.value);
+            }
+        }
+        if !current_domain.is_empty() {
+            eprintln!("║   ... ({domain_count} total steps in {current_domain})");
+        }
+
+        // If mmiotrace file is available, parse and display summary
+        if let Ok(trace_path) = std::env::var("CORALREEF_MMIOTRACE") {
+            eprintln!("║");
+            eprintln!("╠══ mmiotrace Summary ═══════════════════════════════════════╣");
+            match BootTrace::from_mmiotrace(std::path::Path::new(&trace_path)) {
+                Ok(trace) => {
+                    eprintln!("║ Total writes: {}", trace.writes.len());
+                    eprintln!("║ Total reads:  {}", trace.reads.len());
+                    eprintln!("║ Duration:     {}ms", trace.duration_us / 1000);
+                    eprintln!("║ Per-domain write counts:");
+                    for (domain, count) in trace.domain_summary() {
+                        eprintln!("║   {domain:12}: {count}");
+                    }
+
+                    let mmio_recipe = trace.to_recipe();
+                    eprintln!("║ Recipe steps: {}", mmio_recipe.len());
+                }
+                Err(e) => {
+                    eprintln!("║ mmiotrace parse error: {e}");
+                }
+            }
         }
 
         eprintln!("╚══════════════════════════════════════════════════════════════╝");

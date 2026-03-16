@@ -18,10 +18,11 @@
 pub mod devinit;
 pub mod glowplug;
 pub mod hbm2_training;
+pub mod oracle;
 pub mod pri_monitor;
 pub mod registers;
 
-mod diagnostic;
+pub mod diagnostic;
 mod page_tables;
 mod pfifo;
 

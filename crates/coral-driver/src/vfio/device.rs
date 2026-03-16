@@ -446,6 +446,18 @@ impl VfioDevice {
     pub const fn num_regions(&self) -> u32 {
         self.num_regions
     }
+
+    /// Leak the VFIO file descriptors so they are NOT closed on drop.
+    ///
+    /// This prevents the kernel from performing a PM reset on the GPU,
+    /// preserving HBM2 training state across process exits. Call this
+    /// when you want to keep the GPU warm between test runs.
+    ///
+    /// The fds become unreachable but the kernel keeps them alive until
+    /// the process exits, at which point the kernel will reset the device.
+    pub fn leak(self) {
+        std::mem::forget(self);
+    }
 }
 
 impl std::fmt::Debug for VfioDevice {

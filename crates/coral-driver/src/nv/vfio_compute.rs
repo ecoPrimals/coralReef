@@ -174,6 +174,14 @@ impl RawVfioDevice {
     pub const fn userd_iova() -> u64 {
         USERD_IOVA
     }
+
+    /// Leak the underlying VFIO fds to prevent kernel PM reset on drop.
+    ///
+    /// Preserves HBM2 training state — call when `CORALREEF_PRESERVE_STATE`
+    /// is set so the GPU stays warm across test runs.
+    pub fn leak(self) {
+        std::mem::forget(self);
+    }
 }
 
 impl NvVfioComputeDevice {

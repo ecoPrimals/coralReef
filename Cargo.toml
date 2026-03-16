@@ -11,6 +11,7 @@ members = [
     "tools/amd-isa-gen",
     "crates/coral-driver",
     "crates/coral-gpu",
+    "crates/coral-glowplug",
 ]
 exclude = [
     "showcase",

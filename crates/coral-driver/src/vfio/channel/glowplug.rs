@@ -24,6 +24,7 @@ use crate::vfio::pci_discovery;
 
 use super::devinit;
 use super::diagnostic::interpreter::memory_probe;
+use super::oracle::{DigitalPmu, OracleState};
 use super::pfifo as pfifo_init;
 use super::pri_monitor::PriBusMonitor;
 use super::registers::*;
@@ -129,17 +130,21 @@ pub struct GlowPlug<'a> {
     oracle_bdf: Option<String>,
     /// Vendor-agnostic GPU metal interface (optional).
     metal: Option<Box<dyn GpuMetal>>,
+    /// Pre-loaded oracle state for digital PMU emulation.
+    /// When set, the warm-up sequence includes an oracle-informed root PLL
+    /// programming step before attempting other VRAM strategies.
+    oracle_state: Option<OracleState>,
 }
 
 impl<'a> GlowPlug<'a> {
     pub fn new(bar0: &'a MappedBar, container_fd: RawFd) -> Self {
-        Self { bar0, container_fd, bdf: None, oracle_bdf: None, metal: None }
+        Self { bar0, container_fd, bdf: None, oracle_bdf: None, metal: None, oracle_state: None }
     }
 
     /// Create a GlowPlug with BDF for VBIOS access.
     /// This enables the sovereign PMU devinit path for HBM2 training.
     pub fn with_bdf(bar0: &'a MappedBar, container_fd: RawFd, bdf: &str) -> Self {
-        Self { bar0, container_fd, bdf: Some(bdf.to_string()), oracle_bdf: None, metal: None }
+        Self { bar0, container_fd, bdf: Some(bdf.to_string()), oracle_bdf: None, metal: None, oracle_state: None }
     }
 
     /// Create a GlowPlug with both BDF and an oracle card for register cloning.
@@ -155,7 +160,35 @@ impl<'a> GlowPlug<'a> {
             bdf: Some(bdf.to_string()),
             oracle_bdf: Some(oracle_bdf.to_string()),
             metal: None,
+            oracle_state: None,
         }
+    }
+
+    /// Load oracle state from a live nouveau-warm card.
+    /// Call before `warm()` to enable digital PMU emulation.
+    pub fn load_oracle_live(&mut self, oracle_bdf: &str) -> Result<(), String> {
+        let state = OracleState::from_live_card(oracle_bdf)?;
+        self.oracle_state = Some(state);
+        Ok(())
+    }
+
+    /// Load oracle state from a BAR0 binary dump file.
+    pub fn load_oracle_dump(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let state = OracleState::from_bar0_dump(path)?;
+        self.oracle_state = Some(state);
+        Ok(())
+    }
+
+    /// Load oracle state from a text register dump file.
+    pub fn load_oracle_text(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let state = OracleState::from_text_dump(path)?;
+        self.oracle_state = Some(state);
+        Ok(())
+    }
+
+    /// Set a pre-loaded oracle state directly.
+    pub fn set_oracle_state(&mut self, state: OracleState) {
+        self.oracle_state = Some(state);
     }
 
     /// Attach a vendor-agnostic GPU metal implementation.
@@ -820,6 +853,86 @@ impl<'a> GlowPlug<'a> {
                 after: after_cg,
             });
             log.extend(cg_log);
+        }
+
+        // Step 2.9: Digital PMU emulation — oracle-informed root PLL programming.
+        //
+        // If oracle data is available (from a live nouveau card, BAR0 dump, or text dump),
+        // use it to program registers in dependency order. The key insight: root PLLs at
+        // 0x136xxx are in an always-on power domain. Writing oracle values there may cause
+        // downstream clock gates (PCLOCK, FBPA, LTC) to open, enabling VRAM access without
+        // signed PMU firmware.
+        if self.oracle_state.is_some() || self.oracle_bdf.is_some() {
+            let oracle_state = if let Some(ref state) = self.oracle_state {
+                Some(state.clone())
+            } else if let Some(ref obdf) = self.oracle_bdf {
+                match OracleState::from_live_card(obdf) {
+                    Ok(state) => Some(state),
+                    Err(e) => {
+                        log.push(format!("step 2.9: oracle load failed: {e}"));
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            if let Some(ref oracle) = oracle_state {
+                log.push(format!(
+                    "step 2.9: Digital PMU — {} oracle registers from {}",
+                    oracle.registers.len(), oracle.source,
+                ));
+                let before_dpmu = self.snap();
+
+                let mut dpmu = DigitalPmu::new(self.bar0, oracle);
+
+                // Phase 1: Program root PLLs (always-on domain)
+                let (pll_applied, pll_skipped) = dpmu.program_root_plls();
+                log.extend(dpmu.take_log());
+
+                if pll_applied > 0 {
+                    // Phase 2: Program PCLOCK bypass registers
+                    let bypass_log = dpmu.program_pclock_bypass();
+                    log.extend(bypass_log);
+
+                    // Phase 3: Check if PCLOCK opened
+                    let pclock_val = self.r(0x137000);
+                    let pclock_alive = !super::registers::pri::is_pri_error(pclock_val);
+                    log.push(format!(
+                        "  Post-PLL: PCLOCK={pclock_val:#010x} ({})",
+                        if pclock_alive { "ALIVE" } else { "still gated" }
+                    ));
+
+                    // Phase 4: If PCLOCK came alive, run full digital PMU
+                    if pclock_alive || pll_applied > 10 {
+                        log.push("  Running full digital PMU sequence...".into());
+                        let result = dpmu.execute();
+                        log.extend(result.log);
+
+                        if result.vram_unlocked {
+                            log.push(format!(
+                                "  *** DIGITAL PMU UNLOCKED VRAM after {:?}! ***",
+                                result.vram_unlocked_after,
+                            ));
+                        } else {
+                            log.push(format!(
+                                "  Digital PMU: {} applied, {} stuck, {} PRI-skipped — VRAM still dead",
+                                result.applied, result.stuck, result.pri_skipped,
+                            ));
+                        }
+                    }
+                }
+
+                let after_dpmu = self.snap();
+                step_snapshots.push(StepSnapshot {
+                    step: format!("Digital PMU ({pll_applied} PLLs, {pll_skipped} skipped)"),
+                    before: before_dpmu,
+                    after: after_dpmu,
+                });
+
+                // PRI recovery after digital PMU
+                self.recover_pri_bus();
+            }
         }
 
         // Step 3: Check VRAM — if dead, attempt HBM2 training

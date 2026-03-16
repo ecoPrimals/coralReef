@@ -614,6 +614,12 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     // PCI spec requires 10ms after D3hot → D0 transition
     std::thread::sleep(std::time::Duration::from_millis(20));
 
+    // Pin runtime PM to "on" so the kernel doesn't put the device back to D3hot
+    let power_control = format!("/sys/bus/pci/devices/{bdf}/power/control");
+    if let Err(e) = std::fs::write(&power_control, "on") {
+        eprintln!("  warning: could not pin power/control=on: {e}");
+    }
+
     Ok(())
 }
 
