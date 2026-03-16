@@ -47,6 +47,7 @@ fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
 
 #[tokio::main]
 async fn main() {
+    // Initialize tracing early so config loading can log
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -59,6 +60,9 @@ async fn main() {
     let config = if let Some(idx) = args.iter().position(|a| a == "--config") {
         let path = args.get(idx + 1).expect("--config requires a path");
         Config::load(path).expect("failed to load config")
+    } else if args.iter().any(|a| a == "--auto") {
+        tracing::info!("auto-discovering GPUs on PCI bus");
+        Config::auto_discover()
     } else {
         // Build config from --bdf arguments
         let bdf_args: Vec<&String> = args.iter()
@@ -68,16 +72,41 @@ async fn main() {
             .collect();
 
         if bdf_args.is_empty() {
-            eprintln!("Usage:");
-            eprintln!("  coral-glowplug --config /etc/coralreef/glowplug.toml");
-            eprintln!("  coral-glowplug --bdf 0000:4a:00.0");
-            eprintln!("  coral-glowplug --bdf 0000:4a:00.0 --bdf 0000:03:00.0:nouveau");
-            std::process::exit(1);
-        }
+            // Try standard config paths before giving up
+            let candidates = [
+                format!(
+                    "{}/.config/coralreef/glowplug.toml",
+                    std::env::var("HOME").unwrap_or_default()
+                ),
+                "/etc/coralreef/glowplug.toml".into(),
+            ];
+            let loaded = candidates.iter().find_map(|p| {
+                Config::load(p).ok().map(|c| {
+                    tracing::info!(path = %p, "loaded config");
+                    c
+                })
+            });
 
-        Config {
-            daemon: config::DaemonConfig::default(),
-            device: bdf_args.iter().map(|a| parse_bdf_arg(a)).collect(),
+            if let Some(c) = loaded {
+                c
+            } else {
+                eprintln!("Usage:");
+                eprintln!("  coral-glowplug --config /etc/coralreef/glowplug.toml");
+                eprintln!("  coral-glowplug --auto                              # scan PCI bus");
+                eprintln!("  coral-glowplug --bdf 0000:4a:00.0");
+                eprintln!("  coral-glowplug --bdf 0000:4a:00.0 --bdf 0000:03:00.0:nouveau");
+                eprintln!();
+                eprintln!("Config search paths:");
+                for c in &candidates {
+                    eprintln!("  {c}");
+                }
+                std::process::exit(1);
+            }
+        } else {
+            Config {
+                daemon: config::DaemonConfig::default(),
+                device: bdf_args.iter().map(|a| parse_bdf_arg(a)).collect(),
+            }
         }
     };
 
@@ -135,7 +164,8 @@ async fn main() {
             eprintln!("║ {} {} ({}) {} {}", d.bdf, d.chip_name, d.personality, vram, d.health.power);
         }
         eprintln!("╠══════════════════════════════════════════════════════════╣");
-        eprintln!("║ Socket: {}",config.daemon.socket);
+        eprintln!("║ Socket: {}", config.daemon.socket);
+        eprintln!("║ Log level: {}", config.daemon.log_level);
         eprintln!("║ Health check: every {}ms", config.daemon.health_interval_ms);
         eprintln!("╚══════════════════════════════════════════════════════════╝");
     }

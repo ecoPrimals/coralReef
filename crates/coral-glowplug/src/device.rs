@@ -13,7 +13,7 @@ pub enum Personality {
     Vfio { group_id: u32 },
     Nouveau { drm_card: Option<String> },
     Amdgpu { drm_card: Option<String> },
-    #[allow(dead_code)]
+    #[allow(dead_code)] // constructed from config deserialization
     NvidiaProprietary,
     Unbound,
 }
@@ -67,7 +67,6 @@ pub struct DeviceHealth {
     pub boot0: u32,
     pub pmc_enable: u32,
     pub power: PowerState,
-    #[allow(dead_code)]
     pub pci_link_width: Option<u8>,
     pub domains_alive: usize,
     pub domains_faulted: usize,
@@ -78,9 +77,7 @@ pub struct DeviceSlot {
     pub bdf: String,
     pub personality: Personality,
     pub health: DeviceHealth,
-    #[allow(dead_code)]
     pub vendor_id: u16,
-    #[allow(dead_code)]
     pub device_id: u16,
     pub chip_name: String,
     vfio_device: Option<coral_driver::nv::RawVfioDevice>,
@@ -125,10 +122,55 @@ impl DeviceSlot {
 
         self.refresh_power_state();
 
+        // Check current driver — if already correct, skip rebind
+        let current_driver = std::fs::read_link(format!("/sys/bus/pci/devices/{}/driver", self.bdf))
+            .ok()
+            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+        let needs_rebind = match target.as_str() {
+            "vfio" => current_driver.as_deref() != Some("vfio-pci"),
+            other => current_driver.as_deref() != Some(other),
+        };
+
+        if needs_rebind {
+            // Unbind current driver first
+            if current_driver.is_some() {
+                tracing::info!(
+                    bdf = %self.bdf,
+                    current = current_driver.as_deref().unwrap_or("none"),
+                    target = %target,
+                    "unbinding current driver before activation"
+                );
+                sysfs_write(
+                    &format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf),
+                    &self.bdf,
+                );
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                sysfs_write(
+                    &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                    "on",
+                );
+            }
+        }
+
         match target.as_str() {
             "vfio" => self.bind_vfio()?,
-            "nouveau" => self.bind_driver("nouveau")?,
-            "amdgpu" => self.bind_driver("amdgpu")?,
+            "nouveau" => {
+                if needs_rebind {
+                    self.bind_driver("nouveau")?;
+                } else {
+                    let drm = find_drm_card(&self.bdf);
+                    self.personality = Personality::Nouveau { drm_card: drm };
+                }
+            }
+            "amdgpu" => {
+                if needs_rebind {
+                    self.bind_driver("amdgpu")?;
+                } else {
+                    let drm = find_drm_card(&self.bdf);
+                    self.personality = Personality::Amdgpu { drm_card: drm };
+                }
+            }
             other => return Err(format!("unknown personality: {other}")),
         }
 
@@ -205,7 +247,13 @@ impl DeviceSlot {
     }
 
     fn bind_vfio(&mut self) -> Result<(), String> {
-        // Set driver override
+        let group_id = read_iommu_group(&self.bdf);
+
+        // Bind all devices in the same IOMMU group to vfio-pci
+        // (required for group viability — e.g. audio companion device)
+        bind_iommu_group_to_vfio(&self.bdf, group_id);
+
+        // Set driver override for the primary device
         sysfs_write(
             &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
             "vfio-pci",
@@ -220,7 +268,6 @@ impl DeviceSlot {
         sysfs_write(&format!("/sys/bus/pci/devices/{}/d3cold_allowed", self.bdf), "0");
 
         // Open VFIO device
-        let group_id = read_iommu_group(&self.bdf);
         match coral_driver::nv::RawVfioDevice::open(&self.bdf) {
             Ok(dev) => {
                 self.vfio_device = Some(dev);
@@ -278,6 +325,15 @@ impl DeviceSlot {
             }
         }
         tracing::debug!(bdf = %self.bdf, regs = self.register_snapshot.len(), "snapshot taken");
+
+        if let Some(path) = &self.config.oracle_dump {
+            let dump: Vec<String> = self.register_snapshot.iter()
+                .map(|(off, val)| format!("{off:#010x} = {val:#010x}"))
+                .collect();
+            if let Err(e) = std::fs::write(path, dump.join("\n")) {
+                tracing::warn!(path, error = %e, "failed to write oracle dump");
+            }
+        }
     }
 
     /// Check device health by probing key registers.
@@ -446,6 +502,11 @@ impl DeviceSlot {
             },
             Err(_) => PowerState::Unknown,
         };
+
+        let link_path = format!("/sys/bus/pci/devices/{}/current_link_width", self.bdf);
+        self.health.pci_link_width = std::fs::read_to_string(&link_path)
+            .ok()
+            .and_then(|s| s.trim().parse().ok());
     }
 }
 
@@ -500,6 +561,52 @@ fn identify_chip(vendor: u16, device: u16) -> String {
         (0x1002, 0x66a0) => "Vega 20 (MI50)".into(),
         (0x1002, 0x66a1) => "Vega 20 (MI60)".into(),
         (v, d) => format!("{v:#06x}:{d:#06x}"),
+    }
+}
+
+/// Ensure all devices in the same IOMMU group are bound to vfio-pci.
+/// VFIO requires group viability: every device in the group must use vfio-pci.
+fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
+    let group_path = format!("/sys/kernel/iommu_groups/{group_id}/devices");
+    let Ok(entries) = std::fs::read_dir(&group_path) else { return };
+
+    for entry in entries.flatten() {
+        let peer_bdf = entry.file_name().to_string_lossy().to_string();
+        if peer_bdf == primary_bdf {
+            continue;
+        }
+
+        let driver = std::fs::read_link(format!("/sys/bus/pci/devices/{peer_bdf}/driver"))
+            .ok()
+            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+        if driver.as_deref() == Some("vfio-pci") {
+            continue;
+        }
+
+        tracing::info!(
+            peer = %peer_bdf,
+            driver = driver.as_deref().unwrap_or("none"),
+            group = group_id,
+            "binding IOMMU group peer to vfio-pci"
+        );
+
+        // Unbind from current driver
+        if driver.is_some() {
+            sysfs_write(
+                &format!("/sys/bus/pci/devices/{peer_bdf}/driver/unbind"),
+                &peer_bdf,
+            );
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
+        // Override and bind to vfio-pci
+        sysfs_write(
+            &format!("/sys/bus/pci/devices/{peer_bdf}/driver_override"),
+            "vfio-pci",
+        );
+        sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
+        std::thread::sleep(std::time::Duration::from_millis(200));
     }
 }
 

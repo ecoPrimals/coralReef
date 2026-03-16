@@ -41,12 +41,16 @@ pub struct DeviceInfo {
     pub bdf: String,
     pub name: Option<String>,
     pub chip: String,
+    pub vendor_id: u16,
+    pub device_id: u16,
     pub personality: String,
+    pub role: Option<String>,
     pub power: String,
     pub vram_alive: bool,
     pub domains_alive: usize,
     pub domains_faulted: usize,
     pub has_vfio_fd: bool,
+    pub pci_link_width: Option<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -142,12 +146,16 @@ async fn handle_client(
                     bdf: d.bdf.clone(),
                     name: d.config.name.clone(),
                     chip: d.chip_name.clone(),
+                    vendor_id: d.vendor_id,
+                    device_id: d.device_id,
                     personality: d.personality.to_string(),
+                    role: d.config.role.clone(),
                     power: d.health.power.to_string(),
                     vram_alive: d.health.vram_alive,
                     domains_alive: d.health.domains_alive,
                     domains_faulted: d.health.domains_faulted,
                     has_vfio_fd: d.has_vfio(),
+                    pci_link_width: d.health.pci_link_width,
                 }).collect();
                 Response::Devices(infos)
             }

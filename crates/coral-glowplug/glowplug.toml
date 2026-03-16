@@ -1,0 +1,26 @@
+# coral-glowplug configuration — biomeGate dual Titan V + RTX 5060
+#
+# This file is the reference config. Install to:
+#   ~/.config/coralreef/glowplug.toml  (user service)
+#   /etc/coralreef/glowplug.toml       (system service)
+
+[daemon]
+socket = "/run/user/1000/coralreef/glowplug.sock"
+log_level = "info"
+health_interval_ms = 5000
+
+# Titan V #1 — oracle card (nouveau warms HBM2, then available for VFIO)
+[[device]]
+bdf = "0000:03:00.0"
+name = "titan-oracle"
+boot_personality = "nouveau"
+power_policy = "always_on"
+role = "oracle"
+
+# Titan V #2 — primary compute target (VFIO sovereign dispatch)
+[[device]]
+bdf = "0000:4a:00.0"
+name = "titan-target"
+boot_personality = "vfio"
+power_policy = "always_on"
+role = "compute"
