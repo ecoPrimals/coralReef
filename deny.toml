@@ -20,7 +20,7 @@
 exclude-dev = true
 
 [advisories]
-yanked = "warn"
+yanked = "deny"
 unmaintained = "workspace"
 
 [licenses]

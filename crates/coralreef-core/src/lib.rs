@@ -36,6 +36,7 @@ pub mod config;
 pub mod discovery;
 pub mod health;
 pub mod lifecycle;
+pub mod or_exit;
 
 /// IPC and service — exposed for integration tests (tests/e2e_ipc.rs).
 #[cfg(any(test, feature = "e2e"))]

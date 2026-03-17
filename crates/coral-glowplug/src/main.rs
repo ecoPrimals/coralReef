@@ -12,6 +12,7 @@
 mod config;
 mod device;
 mod health;
+mod personality;
 mod socket;
 
 use config::Config;

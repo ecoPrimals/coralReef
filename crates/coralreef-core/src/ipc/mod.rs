@@ -18,6 +18,8 @@ use std::net::SocketAddr;
 
 use crate::config;
 
+pub mod error;
+
 mod jsonrpc;
 pub use jsonrpc::start_jsonrpc_server;
 

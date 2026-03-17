@@ -6,47 +6,8 @@
 //! health, and provides the VFIO fd for toadStool consumers.
 
 use crate::config::DeviceConfig;
+use crate::personality::Personality;
 use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Personality {
-    Vfio {
-        group_id: u32,
-    },
-    Nouveau {
-        drm_card: Option<String>,
-    },
-    Amdgpu {
-        drm_card: Option<String>,
-    },
-    #[allow(dead_code)] // constructed from config deserialization
-    NvidiaProprietary,
-    Unbound,
-}
-
-impl std::fmt::Display for Personality {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Vfio { group_id } => write!(f, "vfio (group {group_id})"),
-            Self::Nouveau { drm_card } => {
-                write!(f, "nouveau")?;
-                if let Some(card) = drm_card {
-                    write!(f, " ({card})")?;
-                }
-                Ok(())
-            }
-            Self::Amdgpu { drm_card } => {
-                write!(f, "amdgpu")?;
-                if let Some(card) = drm_card {
-                    write!(f, " ({card})")?;
-                }
-                Ok(())
-            }
-            Self::NvidiaProprietary => write!(f, "nvidia"),
-            Self::Unbound => write!(f, "unbound"),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PowerState {
@@ -442,7 +403,24 @@ impl DeviceSlot {
             "on",
         );
 
-        // Step 5: bind to nouveau — this triggers full HBM2 training
+        // Step 5a: DRM consumer fence check — verify no active DRM consumers
+        // before nouveau bind. Active consumers (from a prior DRM session)
+        // would race with nouveau's HBM2 training init.
+        if has_active_drm_consumers(&self.bdf) {
+            tracing::warn!(
+                bdf = %self.bdf,
+                "active DRM consumers detected — waiting for fence drain"
+            );
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if has_active_drm_consumers(&self.bdf) {
+                tracing::error!(
+                    bdf = %self.bdf,
+                    "DRM consumers still active — resurrection may conflict"
+                );
+            }
+        }
+
+        // Step 5b: bind to nouveau — this triggers full HBM2 training
         // CRITICAL: clear driver_override BEFORE bind, otherwise the kernel
         // won't match nouveau because override says "vfio-pci"
         tracing::info!(bdf = %self.bdf, "clearing driver_override and binding nouveau...");
@@ -547,25 +525,22 @@ impl DeviceSlot {
 
 // ── Sysfs Helpers ────────────────────────────────────────────────────────
 
+/// Write to a sysfs path using direct filesystem access.
+///
+/// Requires the process to have `CAP_SYS_ADMIN` capability or appropriate
+/// udev rules for the target path. Does NOT fall back to `sudo` — the
+/// binary should be deployed with the correct capabilities via systemd
+/// `AmbientCapabilities=CAP_SYS_ADMIN` or `setcap`.
+///
+/// If the write fails, logs the error with guidance on capability setup.
 pub(crate) fn sysfs_write(path: &str, value: &str) {
-    // Try direct write first (if udev rules set permissions)
-    if std::fs::write(path, value).is_ok() {
-        return;
+    if let Err(e) = std::fs::write(path, value) {
+        tracing::warn!(
+            path,
+            error = %e,
+            "sysfs write failed — ensure CAP_SYS_ADMIN or udev rules grant access"
+        );
     }
-    // Fall back to sudo tee (passwordless via sudoers)
-    let _ = std::process::Command::new("sudo")
-        .args(["-n", "/usr/bin/tee", path])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            if let Some(stdin) = child.stdin.as_mut() {
-                stdin.write_all(value.as_bytes())?;
-            }
-            child.wait()
-        });
 }
 
 fn read_pci_ids(bdf: &str) -> (u16, u16) {
@@ -645,6 +620,70 @@ fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
         sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
+}
+
+/// Check whether a DRM device has active consumer fds (open file handles).
+///
+/// Scans `/proc/*/fd` for symlinks pointing to the device's DRM render node.
+/// Returns `true` if any non-self process holds a DRM fd open.
+fn has_active_drm_consumers(bdf: &str) -> bool {
+    let drm_dir = format!("/sys/bus/pci/devices/{bdf}/drm");
+    let Ok(entries) = std::fs::read_dir(&drm_dir) else {
+        return false;
+    };
+
+    let drm_paths: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("card") || name.starts_with("renderD") {
+                Some(format!("/dev/dri/{name}"))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if drm_paths.is_empty() {
+        return false;
+    }
+
+    let self_pid = std::process::id();
+    let Ok(proc_entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+
+    for entry in proc_entries.flatten() {
+        let pid_str = entry.file_name().to_string_lossy().to_string();
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        if pid == self_pid {
+            continue;
+        }
+
+        let fd_dir = format!("/proc/{pid}/fd");
+        let Ok(fds) = std::fs::read_dir(&fd_dir) else {
+            continue;
+        };
+
+        for fd_entry in fds.flatten() {
+            if let Ok(target) = std::fs::read_link(fd_entry.path()) {
+                let target_str = target.to_string_lossy();
+                if drm_paths.iter().any(|p| target_str.as_ref() == p.as_str()) {
+                    tracing::debug!(
+                        pid,
+                        fd = ?fd_entry.file_name(),
+                        target = %target_str,
+                        "active DRM consumer found"
+                    );
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn find_drm_card(bdf: &str) -> Option<String> {

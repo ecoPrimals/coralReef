@@ -111,8 +111,9 @@ fn test_dispatch_unknown_method() {
     let result = dispatch("nonexistent.method", serde_json::json!({}));
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.to_lowercase().contains("not found"));
-    assert!(err.contains("nonexistent.method"));
+    let msg = err.to_string().to_lowercase();
+    assert!(msg.contains("not found"));
+    assert!(msg.contains("nonexistent.method"));
 }
 
 #[cfg(unix)]
@@ -120,7 +121,13 @@ fn test_dispatch_unknown_method() {
 fn test_dispatch_empty_params_array() {
     let result = dispatch("shader.compile.wgsl", serde_json::json!([]));
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_lowercase().contains("missing"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .to_lowercase()
+            .contains("missing")
+    );
 }
 
 #[cfg(unix)]
@@ -128,7 +135,13 @@ fn test_dispatch_empty_params_array() {
 fn test_dispatch_null_params() {
     let result = dispatch("shader.compile.wgsl", serde_json::Value::Null);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_lowercase().contains("invalid"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .to_lowercase()
+            .contains("must be array or object")
+    );
 }
 
 #[cfg(unix)]
@@ -136,7 +149,13 @@ fn test_dispatch_null_params() {
 fn test_dispatch_invalid_params_type() {
     let result = dispatch("shader.compile.wgsl", serde_json::json!("invalid"));
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_lowercase().contains("invalid"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .to_lowercase()
+            .contains("must be array or object")
+    );
 }
 
 #[cfg(unix)]
@@ -174,14 +193,20 @@ fn test_make_response_success() {
 #[cfg(unix)]
 #[test]
 fn test_make_response_error() {
+    use super::error::IpcServiceError;
     let id = serde_json::json!("req-1");
-    let result = Err("something went wrong".to_owned());
+    let result = Err(IpcServiceError::handler("something went wrong"));
     let resp = make_response(id.clone(), result);
     let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
     assert_eq!(parsed["jsonrpc"], "2.0");
     assert_eq!(parsed["id"], "req-1");
     assert_eq!(parsed["error"]["code"], -32000);
-    assert_eq!(parsed["error"]["message"], "something went wrong");
+    assert!(
+        parsed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("something went wrong")
+    );
     assert!(parsed.get("result").is_none());
 }
 
@@ -200,7 +225,13 @@ fn test_make_response_null_id() {
 fn test_dispatch_spirv_empty_array_params() {
     let result = dispatch("shader.compile.spirv", serde_json::json!([]));
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_lowercase().contains("missing"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .to_lowercase()
+            .contains("missing")
+    );
 }
 
 #[cfg(unix)]
@@ -208,7 +239,13 @@ fn test_dispatch_spirv_empty_array_params() {
 fn test_dispatch_wgsl_multi_empty_array_params() {
     let result = dispatch("shader.compile.wgsl.multi", serde_json::json!([]));
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_lowercase().contains("missing"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .to_lowercase()
+            .contains("missing")
+    );
 }
 
 #[cfg(unix)]
@@ -230,7 +267,8 @@ fn test_dispatch_spirv_object_params() {
                 > 0
         ),
         Err(e) => {
-            assert!(e.to_lowercase().contains("implemented") || e.to_lowercase().contains("not"));
+            let msg = e.to_string().to_lowercase();
+            assert!(msg.contains("implemented") || msg.contains("not"));
         }
     }
 }

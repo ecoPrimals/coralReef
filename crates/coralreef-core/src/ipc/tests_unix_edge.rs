@@ -113,12 +113,13 @@ async fn test_unix_jsonrpc_spirv_invalid_params() {
     let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
 
     assert!(resp["error"].is_object());
+    let msg = resp["error"]["message"]
+        .as_str()
+        .unwrap_or("")
+        .to_lowercase();
     assert!(
-        resp["error"]["message"]
-            .as_str()
-            .unwrap_or("")
-            .to_lowercase()
-            .contains("invalid")
+        msg.contains("must be array or object") || msg.contains("invalid"),
+        "expected error about invalid params, got: {msg}"
     );
 
     let _: Result<(), _> = shutdown_tx.send(());
@@ -542,7 +543,7 @@ fn dispatch_capabilities_returns_archs() {
 fn dispatch_unknown_method_returns_error() {
     let result = super::dispatch("nonexistent.method", serde_json::json!({}));
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("method not found"));
+    assert!(result.unwrap_err().to_string().contains("method not found"));
 }
 
 #[cfg(unix)]
@@ -572,7 +573,12 @@ fn dispatch_wgsl_with_array_params() {
 fn dispatch_wgsl_with_invalid_params_type() {
     let result = super::dispatch("shader.compile.wgsl", serde_json::json!("string"));
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("invalid params"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("must be array or object")
+    );
 }
 
 #[cfg(unix)]
@@ -580,7 +586,12 @@ fn dispatch_wgsl_with_invalid_params_type() {
 fn dispatch_wgsl_with_empty_array() {
     let result = super::dispatch("shader.compile.wgsl", serde_json::json!([]));
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("missing request parameter"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("missing request parameter")
+    );
 }
 
 #[cfg(unix)]
@@ -636,7 +647,11 @@ fn make_response_success_format() {
 #[cfg(unix)]
 #[test]
 fn make_response_error_format() {
-    let resp = super::make_response(serde_json::json!(2), Err("something went wrong".to_owned()));
+    use super::error::IpcServiceError;
+    let resp = super::make_response(
+        serde_json::json!(2),
+        Err(IpcServiceError::handler("something went wrong")),
+    );
     let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
     assert_eq!(parsed["jsonrpc"], "2.0");
     assert_eq!(parsed["id"], 2);

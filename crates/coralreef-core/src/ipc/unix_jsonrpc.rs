@@ -19,6 +19,7 @@ mod inner {
     use tokio::sync::watch;
     use tokio::task::JoinHandle;
 
+    use crate::ipc::error::IpcServiceError;
     use crate::service;
 
     #[derive(Deserialize)]
@@ -46,89 +47,83 @@ mod inner {
         message: String,
     }
 
+    fn extract_params<T: serde::de::DeserializeOwned>(
+        mut params: serde_json::Value,
+    ) -> Result<T, IpcServiceError> {
+        if params.is_array() {
+            let arr = params.as_array_mut().expect("params confirmed array");
+            if arr.is_empty() {
+                return Err(IpcServiceError::dispatch("missing request parameter"));
+            }
+            serde_json::from_value(arr.remove(0))
+                .map_err(|e| IpcServiceError::dispatch(format!("invalid params: {e}")))
+        } else if params.is_object() {
+            serde_json::from_value(params)
+                .map_err(|e| IpcServiceError::dispatch(format!("invalid params: {e}")))
+        } else {
+            Err(IpcServiceError::dispatch("params must be array or object"))
+        }
+    }
+
     pub(crate) fn dispatch(
         method: &str,
-        mut params: serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, IpcServiceError> {
         match method {
             "shader.compile.status" => {
                 let health = service::handle_health();
-                serde_json::to_value(health).map_err(|e| e.to_string())
+                serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))
             }
             "shader.compile.capabilities" => {
                 let health = service::handle_health();
-                serde_json::to_value(health.supported_archs).map_err(|e| e.to_string())
+                serde_json::to_value(health.supported_archs)
+                    .map_err(|e| IpcServiceError::internal(e.to_string()))
             }
             "shader.compile.wgsl" => {
-                let req: service::CompileWgslRequest = if params.is_array() {
-                    let arr = params.as_array_mut().expect("params confirmed array");
-                    if arr.is_empty() {
-                        return Err("missing request parameter".to_owned());
-                    }
-                    serde_json::from_value(arr.remove(0)).map_err(|e| e.to_string())?
-                } else if params.is_object() {
-                    serde_json::from_value(params).map_err(|e| e.to_string())?
-                } else {
-                    return Err("invalid params".to_owned());
-                };
+                let req: service::CompileWgslRequest = extract_params(params)?;
                 match service::handle_compile_wgsl(&req) {
-                    Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
-                    Err(e) => Err(e.to_string()),
+                    Ok(resp) => serde_json::to_value(resp)
+                        .map_err(|e| IpcServiceError::internal(e.to_string())),
+                    Err(e) => Err(IpcServiceError::handler(e.to_string())),
                 }
             }
             "shader.compile.spirv" => {
-                let req: service::CompileRequest = if params.is_array() {
-                    let arr = params.as_array_mut().expect("params confirmed array");
-                    if arr.is_empty() {
-                        return Err("missing request parameter".to_owned());
-                    }
-                    serde_json::from_value(arr.remove(0)).map_err(|e| e.to_string())?
-                } else if params.is_object() {
-                    serde_json::from_value(params).map_err(|e| e.to_string())?
-                } else {
-                    return Err("invalid params".to_owned());
-                };
+                let req: service::CompileRequest = extract_params(params)?;
                 match service::handle_compile(&req) {
-                    Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
-                    Err(e) => Err(e.to_string()),
+                    Ok(resp) => serde_json::to_value(resp)
+                        .map_err(|e| IpcServiceError::internal(e.to_string())),
+                    Err(e) => Err(IpcServiceError::handler(e.to_string())),
                 }
             }
             "shader.compile.wgsl.multi" => {
-                let req: service::MultiDeviceCompileRequest = if params.is_array() {
-                    let arr = params.as_array_mut().expect("params confirmed array");
-                    if arr.is_empty() {
-                        return Err("missing request parameter".to_owned());
-                    }
-                    serde_json::from_value(arr.remove(0)).map_err(|e| e.to_string())?
-                } else if params.is_object() {
-                    serde_json::from_value(params).map_err(|e| e.to_string())?
-                } else {
-                    return Err("invalid params".to_owned());
-                };
+                let req: service::MultiDeviceCompileRequest = extract_params(params)?;
                 match service::handle_compile_wgsl_multi(req) {
-                    Ok(resp) => serde_json::to_value(resp).map_err(|e| e.to_string()),
-                    Err(e) => Err(e.to_string()),
+                    Ok(resp) => serde_json::to_value(resp)
+                        .map_err(|e| IpcServiceError::internal(e.to_string())),
+                    Err(e) => Err(IpcServiceError::handler(e.to_string())),
                 }
             }
             "health.check" => {
                 let resp = service::handle_health_check();
-                serde_json::to_value(resp).map_err(|e| e.to_string())
+                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
             }
             "health.liveness" => {
                 let resp = service::handle_health_liveness();
-                serde_json::to_value(resp).map_err(|e| e.to_string())
+                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
             }
             "health.readiness" => {
                 let resp = service::handle_health_readiness();
-                serde_json::to_value(resp).map_err(|e| e.to_string())
+                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
             }
-            other => Err(format!("method not found: {other}")),
+            other => Err(IpcServiceError::dispatch(format!(
+                "method not found: {other}"
+            ))),
         }
     }
 
     pub(crate) fn make_response(
         id: serde_json::Value,
-        result: Result<serde_json::Value, String>,
+        result: Result<serde_json::Value, IpcServiceError>,
     ) -> String {
         let resp = match result {
             Ok(val) => JsonRpcResponse {
@@ -137,12 +132,12 @@ mod inner {
                 error: None,
                 id,
             },
-            Err(msg) => JsonRpcResponse {
+            Err(e) => JsonRpcResponse {
                 jsonrpc: "2.0",
                 result: None,
                 error: Some(JsonRpcError {
-                    code: -32000,
-                    message: msg,
+                    code: e.phase.jsonrpc_code(),
+                    message: e.to_string(),
                 }),
                 id,
             },
@@ -221,17 +216,17 @@ mod inner {
                                                 } else {
                                                     make_response(
                                                         req.id,
-                                                        Err(format!(
+                                                        Err(IpcServiceError::dispatch(format!(
                                                             "invalid jsonrpc version: {}",
                                                             req.jsonrpc
-                                                        )),
+                                                        ))),
                                                     )
                                                 }
                                             }
                                             Err(e) => {
                                                 make_response(
                                                     serde_json::Value::Null,
-                                                    Err(format!("parse error: {e}")),
+                                                    Err(IpcServiceError::transport(format!("parse error: {e}"))),
                                                 )
                                             }
                                         };

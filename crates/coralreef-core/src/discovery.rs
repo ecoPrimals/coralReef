@@ -46,19 +46,77 @@ pub struct GpuDeviceDescriptor {
 
 /// A discovered provider with GPU capabilities.
 ///
-/// Supports both legacy format (`capabilities`) and Phase 10 (`provides`).
+/// Supports three ecosystem formats for capability advertisement:
+/// 1. Legacy flat array: `{ "capabilities": ["gpu.dispatch"] }`
+/// 2. Phase 10 flat array: `{ "provides": ["gpu.dispatch"] }`
+/// 3. Phase 10 nested objects: `{ "provides": [{"id": "gpu.dispatch", "version": "0.1.0"}] }`
+///
+/// The nested format is handled by [`CapabilityRef`] which deserializes both
+/// a plain string and an object with an `id` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DiscoveryEntry {
-    /// Legacy: capability list.
+    /// Legacy: capability list (flat strings).
     #[serde(default)]
     capabilities: Vec<String>,
-    /// Phase 10: what this primal provides (preferred over capabilities).
+    /// Phase 10: what this primal provides — supports both flat strings
+    /// and nested `{id, version}` objects via [`CapabilityRef`].
     #[serde(default)]
-    provides: Vec<String>,
+    provides: Vec<CapabilityRef>,
     #[serde(default)]
     endpoint: Option<String>,
     #[serde(default)]
     devices: Vec<DiscoveryDevice>,
+}
+
+/// Dual-format capability reference: accepts both `"gpu.dispatch"` (string)
+/// and `{"id": "gpu.dispatch", "version": "0.1.0"}` (object).
+///
+/// Absorbed from neuralSpring S156 ecosystem standardization discussion.
+#[derive(Debug, Clone, Serialize)]
+struct CapabilityRef {
+    id: String,
+}
+
+impl<'de> Deserialize<'de> for CapabilityRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+
+        struct CapabilityRefVisitor;
+
+        impl<'de> de::Visitor<'de> for CapabilityRefVisitor {
+            type Value = CapabilityRef;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a capability string or {id: string} object")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<CapabilityRef, E> {
+                Ok(CapabilityRef { id: v.to_owned() })
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<CapabilityRef, A::Error> {
+                let mut id = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "id" {
+                        id = Some(map.next_value::<String>()?);
+                    } else {
+                        let _ = map.next_value::<serde_json::Value>()?;
+                    }
+                }
+                Ok(CapabilityRef {
+                    id: id.ok_or_else(|| de::Error::missing_field("id"))?,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(CapabilityRefVisitor)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,10 +171,12 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
         if path.extension().is_some_and(|ext| ext == "json") {
             if let Ok(contents) = std::fs::read_to_string(&path) {
                 if let Ok(discovery) = serde_json::from_str::<DiscoveryEntry>(&contents) {
-                    let caps = if discovery.provides.is_empty() {
+                    let provides_ids: Vec<String> =
+                        discovery.provides.iter().map(|c| c.id.clone()).collect();
+                    let caps: &[String] = if provides_ids.is_empty() {
                         &discovery.capabilities
                     } else {
-                        &discovery.provides
+                        &provides_ids
                     };
                     let has_gpu_cap = caps.iter().any(|c| {
                         c == "gpu.dispatch" || c.starts_with("gpu-") || c == "science.gpu.dispatch"
@@ -334,6 +394,49 @@ mod tests {
 
         let result = discover_from_ecosystem(dir.path());
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn discover_from_ecosystem_nested_object_provides() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = serde_json::json!({
+            "provides": [
+                {"id": "gpu.dispatch", "version": "0.1.0"},
+                {"id": "gpu.memory", "version": "0.1.0"}
+            ],
+            "devices": [
+                {
+                    "vendor": "nvidia",
+                    "arch": "sm_89",
+                    "render_node": "/dev/dri/renderD128",
+                    "driver": "nvidia-drm"
+                }
+            ]
+        });
+        let path = dir.path().join("gpu-provider-nested.json");
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{entry}").unwrap();
+
+        let result = discover_from_ecosystem(dir.path());
+        assert!(result.is_some());
+        let devices = result.unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].vendor, "nvidia");
+        assert_eq!(devices[0].arch.as_deref(), Some("sm_89"));
+    }
+
+    #[test]
+    fn capability_ref_deserializes_string() {
+        let json = r#""gpu.dispatch""#;
+        let cap: CapabilityRef = serde_json::from_str(json).unwrap();
+        assert_eq!(cap.id, "gpu.dispatch");
+    }
+
+    #[test]
+    fn capability_ref_deserializes_object() {
+        let json = r#"{"id": "gpu.dispatch", "version": "0.1.0"}"#;
+        let cap: CapabilityRef = serde_json::from_str(json).unwrap();
+        assert_eq!(cap.id, "gpu.dispatch");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # coralReef
 
-**Status**: Phase 10 — Iteration 51 (Deep Audit Compliance + IPC Health + Doc Hygiene)
+**Status**: Phase 10 — Iteration 52 (Ecosystem Absorption + Glowplug JSON-RPC 2.0 + Typed IPC Errors)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -34,7 +34,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 2157 passing, 0 failed (+48 VFIO with --features vfio)
+cargo test --workspace     # 2185 passing, 0 failed (+48 VFIO with --features vfio)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -169,7 +169,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2157 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo test --workspace` | PASS (2185 passing, 0 failed) (+48 VFIO with `--features vfio`) |
 | `cargo llvm-cov` | 57.28% region / 57.71% line / 67.98% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -231,7 +231,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 51 — deep audit compliance, 2157 tests, IPC health methods, zero clippy/doc warnings, all files <1000 LOC, 57.71% line coverage** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 52 — ecosystem absorption, 2185 tests, glowplug JSON-RPC 2.0, typed IPC errors, trait-based personality, dual-format capability parsing, AMD Vega metal registers** |
 
 ---
 

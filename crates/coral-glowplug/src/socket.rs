@@ -1,50 +1,52 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Unix socket server with SCM_RIGHTS fd passing.
+//! JSON-RPC 2.0 Unix socket server for coral-glowplug.
 //!
-//! toadStool (and other consumers) connect to this socket to:
-//! - List available devices and their capabilities
-//! - Receive VFIO container fds via SCM_RIGHTS
-//! - Request driver personality swaps
-//! - Query device health
+//! Evolved from custom Request/Response enums to proper JSON-RPC 2.0
+//! per hotSpring P1 requirement. toadStool (and other consumers) connect
+//! via newline-delimited JSON-RPC over a Unix domain socket.
+//!
+//! ## Semantic methods
+//!
+//! | Method             | Description                                |
+//! |--------------------|--------------------------------------------|
+//! | `device.list`      | List all managed devices and capabilities   |
+//! | `device.get`       | Get details for a specific device (by BDF)  |
+//! | `device.swap`      | Hot-swap driver personality                 |
+//! | `device.health`    | Query device health registers               |
+//! | `device.resurrect` | Attempt HBM2 resurrection via nouveau       |
+//! | `health.check`     | Daemon health check                         |
+//! | `health.liveness`  | Lightweight alive probe                     |
+//! | `daemon.status`    | Daemon uptime and device count              |
+//! | `daemon.shutdown`  | Graceful shutdown                           |
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Request {
-    ListDevices,
-    GetDevice { bdf: String },
-    Swap { bdf: String, target: String },
-    Health { bdf: String },
-    Resurrect { bdf: String },
-    Status,
-    Shutdown,
+#[derive(Deserialize)]
+struct JsonRpcRequest {
+    jsonrpc: String,
+    method: String,
+    #[serde(default)]
+    params: serde_json::Value,
+    id: serde_json::Value,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Response {
-    Devices(Vec<DeviceInfo>),
-    DeviceReady {
-        bdf: String,
-        personality: String,
-        vram_alive: bool,
-    },
-    SwapComplete {
-        bdf: String,
-        personality: String,
-        vram_alive: bool,
-    },
-    Resurrected {
-        bdf: String,
-        vram_alive: bool,
-        domains_alive: usize,
-    },
-    Health(HealthInfo),
-    Status(DaemonStatus),
-    Error(String),
-    Ok,
+#[derive(Serialize)]
+struct JsonRpcResponse {
+    jsonrpc: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<JsonRpcError>,
+    id: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct JsonRpcError {
+    code: i32,
+    message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -75,13 +77,6 @@ pub struct HealthInfo {
     pub domains_faulted: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DaemonStatus {
-    pub uptime_secs: u64,
-    pub device_count: usize,
-    pub healthy_count: usize,
-}
-
 pub struct SocketServer {
     listener: UnixListener,
     pub started_at: std::time::Instant,
@@ -89,19 +84,16 @@ pub struct SocketServer {
 
 impl SocketServer {
     pub async fn bind(path: &str) -> Result<Self, String> {
-        // Ensure parent directory exists
         if let Some(parent) = std::path::Path::new(path).parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        // Remove stale socket
         let _ = std::fs::remove_file(path);
 
         let listener = UnixListener::bind(path).map_err(|e| format!("bind {path}: {e}"))?;
 
-        // Set permissions so non-root toadStool can connect
         let _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o666));
 
-        tracing::info!(path, "socket server listening");
+        tracing::info!(path, "JSON-RPC 2.0 socket server listening");
         Ok(Self {
             listener,
             started_at: std::time::Instant::now(),
@@ -129,6 +121,149 @@ impl SocketServer {
     }
 }
 
+fn make_response(
+    id: serde_json::Value,
+    result: Result<serde_json::Value, (i32, String)>,
+) -> String {
+    let resp = match result {
+        Ok(val) => JsonRpcResponse {
+            jsonrpc: "2.0",
+            result: Some(val),
+            error: None,
+            id,
+        },
+        Err((code, msg)) => JsonRpcResponse {
+            jsonrpc: "2.0",
+            result: None,
+            error: Some(JsonRpcError { code, message: msg }),
+            id,
+        },
+    };
+    serde_json::to_string(&resp).unwrap_or_else(|_| {
+        r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
+            .to_owned()
+    })
+}
+
+fn dispatch(
+    method: &str,
+    params: &serde_json::Value,
+    devices: &mut [crate::device::DeviceSlot],
+    started_at: std::time::Instant,
+) -> Result<serde_json::Value, (i32, String)> {
+    match method {
+        "device.list" => {
+            let infos: Vec<DeviceInfo> = devices.iter().map(device_to_info).collect();
+            serde_json::to_value(infos).map_err(|e| (-32603, e.to_string()))
+        }
+        "device.get" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or((-32602, "missing 'bdf' parameter".into()))?;
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf == bdf)
+                .ok_or((-32000, format!("device {bdf} not managed")))?;
+            serde_json::to_value(device_to_info(slot)).map_err(|e| (-32603, e.to_string()))
+        }
+        "device.swap" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or((-32602, "missing 'bdf' parameter".into()))?
+                .to_owned();
+            let target = params
+                .get("target")
+                .and_then(serde_json::Value::as_str)
+                .ok_or((-32602, "missing 'target' parameter".into()))?
+                .to_owned();
+            let slot = devices
+                .iter_mut()
+                .find(|d| d.bdf == bdf)
+                .ok_or((-32000, format!("device {bdf} not managed")))?;
+            slot.swap(&target).map_err(|e| (-32000, e))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "personality": slot.personality.to_string(),
+                "vram_alive": slot.health.vram_alive,
+            }))
+        }
+        "device.health" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or((-32602, "missing 'bdf' parameter".into()))?;
+            let slot = devices
+                .iter_mut()
+                .find(|d| d.bdf == bdf)
+                .ok_or((-32000, format!("device {bdf} not managed")))?;
+            slot.check_health();
+            serde_json::to_value(HealthInfo {
+                bdf: bdf.to_owned(),
+                boot0: slot.health.boot0,
+                pmc_enable: slot.health.pmc_enable,
+                vram_alive: slot.health.vram_alive,
+                power: slot.health.power.to_string(),
+                domains_alive: slot.health.domains_alive,
+                domains_faulted: slot.health.domains_faulted,
+            })
+            .map_err(|e| (-32603, e.to_string()))
+        }
+        "device.resurrect" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or((-32602, "missing 'bdf' parameter".into()))?
+                .to_owned();
+            let slot = devices
+                .iter_mut()
+                .find(|d| d.bdf == bdf)
+                .ok_or((-32000, format!("device {bdf} not managed")))?;
+            let alive = slot.resurrect_hbm2().map_err(|e| (-32000, e))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "vram_alive": alive,
+                "domains_alive": slot.health.domains_alive,
+            }))
+        }
+        "health.check" | "health.liveness" => Ok(serde_json::json!({
+            "alive": true,
+            "name": "coral-glowplug",
+            "device_count": devices.len(),
+            "healthy_count": devices.iter().filter(|d| d.health.vram_alive).count(),
+        })),
+        "daemon.status" => Ok(serde_json::json!({
+            "uptime_secs": started_at.elapsed().as_secs(),
+            "device_count": devices.len(),
+            "healthy_count": devices.iter().filter(|d| d.health.vram_alive).count(),
+        })),
+        "daemon.shutdown" => {
+            tracing::info!("shutdown requested via JSON-RPC");
+            Err((-32000, "shutdown".into()))
+        }
+        other => Err((-32601, format!("method not found: {other}"))),
+    }
+}
+
+fn device_to_info(d: &crate::device::DeviceSlot) -> DeviceInfo {
+    DeviceInfo {
+        bdf: d.bdf.clone(),
+        name: d.config.name.clone(),
+        chip: d.chip_name.clone(),
+        vendor_id: d.vendor_id,
+        device_id: d.device_id,
+        personality: d.personality.to_string(),
+        role: d.config.role.clone(),
+        power: d.health.power.to_string(),
+        vram_alive: d.health.vram_alive,
+        domains_alive: d.health.domains_alive,
+        domains_faulted: d.health.domains_faulted,
+        has_vfio_fd: d.has_vfio(),
+        pci_link_width: d.health.pci_link_width,
+    }
+}
+
 async fn handle_client(
     stream: tokio::net::UnixStream,
     devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
@@ -140,136 +275,57 @@ async fn handle_client(
     let mut lines = BufReader::new(reader).lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
-        let request: Request =
-            serde_json::from_str(&line).map_err(|e| format!("parse request: {e}"))?;
+        let line = line.trim().to_owned();
+        if line.is_empty() {
+            continue;
+        }
 
-        let response = match request {
-            Request::ListDevices => {
-                let devs = devices.lock().await;
-                let infos: Vec<DeviceInfo> = devs
-                    .iter()
-                    .map(|d| DeviceInfo {
-                        bdf: d.bdf.clone(),
-                        name: d.config.name.clone(),
-                        chip: d.chip_name.clone(),
-                        vendor_id: d.vendor_id,
-                        device_id: d.device_id,
-                        personality: d.personality.to_string(),
-                        role: d.config.role.clone(),
-                        power: d.health.power.to_string(),
-                        vram_alive: d.health.vram_alive,
-                        domains_alive: d.health.domains_alive,
-                        domains_faulted: d.health.domains_faulted,
-                        has_vfio_fd: d.has_vfio(),
-                        pci_link_width: d.health.pci_link_width,
+        let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
+            Ok(req) => {
+                if req.jsonrpc != "2.0" {
+                    make_response(
+                        req.id,
+                        Err((-32600, format!("invalid jsonrpc version: {}", req.jsonrpc))),
+                    )
+                } else if req.method == "device.swap" || req.method == "device.resurrect" {
+                    let devs_clone = devices.clone();
+                    let method = req.method.clone();
+                    let params = req.params.clone();
+                    let id = req.id.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        let rt = tokio::runtime::Handle::current();
+                        let mut devs = rt.block_on(devs_clone.lock());
+                        dispatch(&method, &params, &mut devs, started_at)
                     })
-                    .collect();
-                Response::Devices(infos)
-            }
-
-            Request::Swap { bdf, target } => {
-                // Swap involves blocking sysfs writes + driver bind (can take 30s+)
-                // so we run it on a blocking thread to avoid stalling the runtime.
-                let devs_clone = devices.clone();
-                tokio::task::spawn_blocking(move || {
-                    let rt = tokio::runtime::Handle::current();
-                    let mut devs = rt.block_on(devs_clone.lock());
-                    if let Some(slot) = devs.iter_mut().find(|d| d.bdf == bdf) {
-                        match slot.swap(&target) {
-                            Ok(()) => Response::SwapComplete {
-                                bdf,
-                                personality: slot.personality.to_string(),
-                                vram_alive: slot.health.vram_alive,
-                            },
-                            Err(e) => Response::Error(e),
+                    .await
+                    {
+                        Ok(result) => make_response(id, result),
+                        Err(e) => {
+                            make_response(req.id, Err((-32603, format!("spawn_blocking: {e}"))))
                         }
-                    } else {
-                        Response::Error(format!("device {bdf} not managed"))
-                    }
-                })
-                .await
-                .unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")))
-            }
-
-            Request::Resurrect { bdf } => {
-                let devs_clone = devices.clone();
-                tokio::task::spawn_blocking(move || {
-                    let rt = tokio::runtime::Handle::current();
-                    let mut devs = rt.block_on(devs_clone.lock());
-                    if let Some(slot) = devs.iter_mut().find(|d| d.bdf == bdf) {
-                        match slot.resurrect_hbm2() {
-                            Ok(alive) => Response::Resurrected {
-                                bdf,
-                                vram_alive: alive,
-                                domains_alive: slot.health.domains_alive,
-                            },
-                            Err(e) => Response::Error(e),
-                        }
-                    } else {
-                        Response::Error(format!("device {bdf} not managed"))
-                    }
-                })
-                .await
-                .unwrap_or_else(|e| Response::Error(format!("spawn_blocking: {e}")))
-            }
-
-            Request::Health { bdf } => {
-                let mut devs = devices.lock().await;
-                if let Some(slot) = devs.iter_mut().find(|d| d.bdf == bdf) {
-                    slot.check_health();
-                    Response::Health(HealthInfo {
-                        bdf,
-                        boot0: slot.health.boot0,
-                        pmc_enable: slot.health.pmc_enable,
-                        vram_alive: slot.health.vram_alive,
-                        power: slot.health.power.to_string(),
-                        domains_alive: slot.health.domains_alive,
-                        domains_faulted: slot.health.domains_faulted,
-                    })
-                } else {
-                    Response::Error(format!("device {bdf} not managed"))
-                }
-            }
-
-            Request::Status => {
-                let devs = devices.lock().await;
-                let healthy = devs.iter().filter(|d| d.health.vram_alive).count();
-                Response::Status(DaemonStatus {
-                    uptime_secs: started_at.elapsed().as_secs(),
-                    device_count: devs.len(),
-                    healthy_count: healthy,
-                })
-            }
-
-            Request::GetDevice { bdf } => {
-                let devs = devices.lock().await;
-                if let Some(slot) = devs.iter().find(|d| d.bdf == bdf) {
-                    Response::DeviceReady {
-                        bdf,
-                        personality: slot.personality.to_string(),
-                        vram_alive: slot.health.vram_alive,
                     }
                 } else {
-                    Response::Error(format!("device {bdf} not managed"))
+                    let mut devs = devices.lock().await;
+                    let result = dispatch(&req.method, &req.params, &mut devs, started_at);
+                    if req.method == "daemon.shutdown" {
+                        let resp_str = make_response(req.id, Ok(serde_json::json!({"ok": true})));
+                        let msg = format!("{resp_str}\n");
+                        let _ = writer.write_all(msg.as_bytes()).await;
+                        return Ok(());
+                    }
+                    make_response(req.id, result)
                 }
             }
-
-            Request::Shutdown => {
-                tracing::info!("shutdown requested via socket");
-                return Ok(());
-            }
+            Err(e) => make_response(
+                serde_json::Value::Null,
+                Err((-32700, format!("parse error: {e}"))),
+            ),
         };
 
-        let json =
-            serde_json::to_string(&response).map_err(|e| format!("serialize response: {e}"))?;
-        writer
-            .write_all(json.as_bytes())
-            .await
-            .map_err(|e| format!("write: {e}"))?;
-        writer
-            .write_all(b"\n")
-            .await
-            .map_err(|e| format!("write newline: {e}"))?;
+        let msg = format!("{resp}\n");
+        if writer.write_all(msg.as_bytes()).await.is_err() {
+            break;
+        }
     }
 
     Ok(())
