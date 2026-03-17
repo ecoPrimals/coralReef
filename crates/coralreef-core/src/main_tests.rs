@@ -557,3 +557,37 @@ fn cmd_compile_read_error_directory_as_input() {
         "reading directory as input should produce GeneralError"
     );
 }
+
+// --- cmd_server error path coverage ---
+
+#[tokio::test]
+async fn cmd_server_jsonrpc_invalid_bind_returns_general_error() {
+    let result = cmd_server("not-a-valid-address", "127.0.0.1:0").await;
+    assert!(
+        matches!(result, UniBinExit::GeneralError),
+        "invalid JSON-RPC bind address should produce GeneralError"
+    );
+}
+
+#[tokio::test]
+async fn cmd_server_tarpc_invalid_bind_returns_general_error() {
+    // JSON-RPC binds successfully; tarpc fails with invalid address
+    let result = cmd_server("127.0.0.1:0", "garbage:not-valid").await;
+    assert!(
+        matches!(result, UniBinExit::GeneralError),
+        "invalid tarpc bind address should produce GeneralError"
+    );
+}
+
+// --- parse_cli edge cases for coverage ---
+
+#[test]
+fn parse_cli_long_about() {
+    let result = parse_cli_from(["coralreef", "doctor", "--help"]);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("coralreef") || err.to_string().contains("doctor"),
+        "help output should mention command"
+    );
+}

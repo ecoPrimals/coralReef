@@ -64,7 +64,7 @@ coralReef compiles for everything but prefers sovereign (open-source) drivers
 at runtime. This forces deep understanding and gives full control.
 
 ```text
-Default preference:  nouveau → amdgpu → nvidia-drm
+Default preference:  vfio → nouveau → amdgpu → nvidia-drm
 Override:            CORALREEF_DRIVER_PREFERENCE=nvidia-drm,amdgpu
 ```
 

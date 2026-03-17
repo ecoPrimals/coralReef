@@ -662,7 +662,14 @@ For more information on this, and how to apply and follow the GNU AGPL, see
 
 ---
 
-Files under crates/coral-reef/src/nak/ are derived from Mesa's NAK compiler
+Files under crates/coral-reef/src/codegen/ marked with
+"Derived from Collabora, Ltd." are derived from Mesa's NAK compiler
 (src/nouveau/compiler/nak/) and retain their original MIT license.
 Copyright © 2022-2024 Collabora, Ltd.
 SPDX-License-Identifier: MIT
+
+This constitutes a symbiotic exception per the ecoPrimals scyBorg
+Provenance Trio guidance: the NAK-derived IR, register allocation,
+spiller, instruction scheduling, and NVIDIA encoder code retains its
+upstream MIT license while the surrounding coralReef codebase is
+AGPL-3.0-only. New code and AMD-specific modules are AGPL-3.0-only.

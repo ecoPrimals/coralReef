@@ -77,8 +77,7 @@ pub fn probe_dma(
 
     #[cfg(target_arch = "x86_64")]
     {
-        let slice = instance.as_slice();
-        crate::vfio::cache_ops::clflush_range(slice.as_ptr(), slice.len());
+        crate::vfio::cache_ops::clflush_range(instance.as_slice());
         crate::vfio::cache_ops::memory_fence();
     }
 

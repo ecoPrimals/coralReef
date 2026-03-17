@@ -7,9 +7,9 @@
 //!
 //! # Safety contract
 //!
-//! `cache_line_flush` and `clflush_range` require that the address points to
-//! valid mapped memory. This is guaranteed by only calling from DMA/BAR0
-//! contexts with valid mappings (DmaBuffer, MappedBar, etc.).
+//! `cache_line_flush` requires that the address points to valid mapped memory.
+//! `clflush_range` takes `&[u8]` and thus guarantees valid memory; the slice
+//! must be backed by DMA-mapped memory (DmaBuffer, MappedBar, etc.).
 
 /// Flush a single cache line containing the given address.
 ///
@@ -23,7 +23,6 @@ pub unsafe fn cache_line_flush(addr: *const u8) {
     unsafe { core::arch::x86_64::_mm_clflush(addr) }
 }
 
-/// No-op on non-x86_64 (cache flush not needed for coherent platforms).
 /// No-op on non-x86_64 (cache flush not needed for coherent platforms).
 ///
 /// # Safety
@@ -50,23 +49,26 @@ pub fn memory_fence() {
 #[allow(dead_code)]
 pub fn memory_fence() {}
 
-/// Flush all cache lines covering the range [ptr, ptr + len).
+/// Flush all cache lines covering the given slice.
 ///
 /// Rounds to 64-byte cache line boundaries. Call `memory_fence()` after
 /// if you need a full barrier (typically yes for DMA coherence).
 ///
-/// # Safety contract upheld internally
-///
-/// The range must be within valid mapped memory. Callers must ensure this;
-/// we only call from DMA buffer contexts.
+/// Takes `&[u8]` to guarantee the range is valid; callers must ensure the
+/// slice is backed by DMA-mapped memory (DmaBuffer, MappedBar, etc.).
 #[cfg(target_arch = "x86_64")]
 #[inline]
-pub fn clflush_range(ptr: *const u8, len: usize) {
+pub fn clflush_range(slice: &[u8]) {
+    if slice.is_empty() {
+        return;
+    }
+    let ptr = slice.as_ptr();
+    let len = slice.len();
     let mut addr = ptr as usize & !63;
     let end = (ptr as usize + len + 63) & !63;
     while addr < end {
         // SAFETY: addr is within the valid mapped range [ptr, ptr+len) rounded
-        // to cache-line boundaries; the caller guarantees the mapping is valid.
+        // to cache-line boundaries; slice guarantees valid memory.
         unsafe { cache_line_flush(addr as *const u8) };
         addr += 64;
     }
@@ -76,4 +78,4 @@ pub fn clflush_range(ptr: *const u8, len: usize) {
 #[cfg(not(target_arch = "x86_64"))]
 #[inline]
 #[allow(dead_code)]
-pub fn clflush_range(_ptr: *const u8, _len: usize) {}
+pub fn clflush_range(_slice: &[u8]) {}

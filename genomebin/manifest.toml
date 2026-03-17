@@ -11,6 +11,8 @@ name = "coralreef"
 version = "0.1.0"
 license = "AGPL-3.0-only"
 binary = "coralreef"
+pie_verified = true
+ecobin_grade = "A++"
 description = "Sovereign Rust GPU shader compiler. Compiles WGSL and SPIR-V compute shaders to native GPU binaries. coralDriver + coralGpu. Zero C dependencies."
 
 [capabilities]

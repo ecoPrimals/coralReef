@@ -119,16 +119,10 @@ impl<'a> ExperimentContext<'a> {
     /// Flush all DMA buffers from CPU cache so the GPU sees latest writes.
     #[cfg(target_arch = "x86_64")]
     pub fn flush_dma(&self) {
-        crate::vfio::cache_ops::clflush_range(
-            self.instance.as_slice().as_ptr(),
-            self.instance.as_slice().len(),
-        );
-        crate::vfio::cache_ops::clflush_range(
-            self.runlist.as_slice().as_ptr(),
-            self.runlist.as_slice().len(),
-        );
-        crate::vfio::cache_ops::clflush_range(self.gpfifo_ring.as_ptr(), self.gpfifo_ring.len());
-        crate::vfio::cache_ops::clflush_range(self.userd_page.as_ptr(), self.userd_page.len());
+        crate::vfio::cache_ops::clflush_range(self.instance.as_slice());
+        crate::vfio::cache_ops::clflush_range(self.runlist.as_slice());
+        crate::vfio::cache_ops::clflush_range(self.gpfifo_ring);
+        crate::vfio::cache_ops::clflush_range(self.userd_page);
         crate::vfio::cache_ops::memory_fence();
     }
 }

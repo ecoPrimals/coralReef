@@ -14,6 +14,15 @@ pub struct Config {
 /// GPU vendor IDs worth managing.
 const GPU_VENDORS: &[(u16, &str)] = &[(0x10de, "nvidia"), (0x1002, "amd")];
 
+/// PCI class code for VGA controllers.
+const PCI_CLASS_VGA: u64 = 0x0300;
+/// PCI class code for 3D controllers.
+const PCI_CLASS_3D: u64 = 0x0302;
+
+const DEFAULT_PERSONALITY: &str = "vfio";
+const DEFAULT_POWER_POLICY: &str = "always_on";
+const DEFAULT_ROLE: &str = "compute";
+
 #[derive(Debug, Deserialize)]
 pub struct DaemonConfig {
     #[serde(default = "default_socket")]
@@ -91,10 +100,10 @@ fn default_health_interval() -> u64 {
     5000
 }
 fn default_personality() -> String {
-    "vfio".into()
+    DEFAULT_PERSONALITY.into()
 }
 fn default_power_policy() -> String {
-    "always_on".into()
+    DEFAULT_POWER_POLICY.into()
 }
 
 impl Config {
@@ -126,9 +135,8 @@ impl Config {
             let device_id = read_sysfs_hex(&path.join("device"));
             let class = read_sysfs_hex(&path.join("class"));
 
-            // Only VGA controllers (0x0300xx) and 3D controllers (0x0302xx)
             let class_top = (class >> 8) & 0xFFFF;
-            if class_top != 0x0300 && class_top != 0x0302 {
+            if class_top != PCI_CLASS_VGA && class_top != PCI_CLASS_3D {
                 continue;
             }
 
@@ -154,9 +162,9 @@ impl Config {
 
             let personality =
                 if driver.as_deref() == Some("nouveau") || driver.as_deref() == Some("amdgpu") {
-                    driver.as_deref().unwrap_or("vfio").to_string()
+                    driver.clone().expect("driver checked in condition")
                 } else {
-                    "vfio".into()
+                    DEFAULT_PERSONALITY.into()
                 };
 
             tracing::info!(
@@ -172,8 +180,8 @@ impl Config {
                 bdf,
                 name: None,
                 boot_personality: personality,
-                power_policy: "always_on".into(),
-                role: Some("compute".into()),
+                power_policy: DEFAULT_POWER_POLICY.into(),
+                role: Some(DEFAULT_ROLE.into()),
                 oracle_dump: None,
             });
         }

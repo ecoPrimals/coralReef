@@ -243,10 +243,14 @@ fn make_response(
             id,
         },
     };
-    serde_json::to_string(&resp).unwrap_or_else(|_| {
-        r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
-            .to_owned()
-    })
+    match serde_json::to_string(&resp) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to serialize JSON-RPC response");
+            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
+                .to_owned()
+        }
+    }
 }
 
 fn dispatch(
@@ -392,13 +396,21 @@ where
     let (reader, mut writer) = tokio::io::split(stream);
     let mut lines = BufReader::new(reader).lines();
 
-    while let Ok(Some(line)) = lines.next_line().await {
-        let line = line.trim().to_owned();
+    loop {
+        let line = match lines.next_line().await {
+            Ok(Some(l)) => l,
+            Ok(None) => break,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to read line from client");
+                break;
+            }
+        };
+        let line = line.trim();
         if line.is_empty() {
             continue;
         }
 
-        let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
+        let resp = match serde_json::from_str::<JsonRpcRequest>(line) {
             Ok(req) => {
                 if req.jsonrpc != "2.0" {
                     make_response(
@@ -409,7 +421,6 @@ where
                     let devs_clone = devices.clone();
                     let method = req.method.clone();
                     let params = req.params.clone();
-                    let id = req.id.clone();
                     match tokio::task::spawn_blocking(move || {
                         let rt = tokio::runtime::Handle::current();
                         let mut devs = rt.block_on(devs_clone.lock());
@@ -417,7 +428,7 @@ where
                     })
                     .await
                     {
-                        Ok(result) => make_response(id, result),
+                        Ok(result) => make_response(req.id, result),
                         Err(e) => {
                             make_response(req.id, Err((-32603, format!("spawn_blocking: {e}"))))
                         }

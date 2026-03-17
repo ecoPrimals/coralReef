@@ -13,7 +13,10 @@ use super::pci_discovery::GpuVendor;
 
 // ── NVIDIA Volta register constants ─────────────────────────────────────
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "some register constants reserved for completeness; BAR0_WINDOW, STRAP_BASE"
+)]
 mod volta_regs {
     pub const BOOT0: usize = 0x0000_0000;
     pub const PMC_ENABLE: usize = 0x0000_0200;

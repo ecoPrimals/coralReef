@@ -108,11 +108,10 @@ pub fn probe_channel(
     #[cfg(target_arch = "x86_64")]
     {
         for buf in [instance.as_slice(), gpfifo.as_slice(), userd.as_slice()] {
-            crate::vfio::cache_ops::clflush_range(buf.as_ptr(), buf.len());
+            crate::vfio::cache_ops::clflush_range(buf);
         }
         if let Some(ref p) = pd3 {
-            let s = p.as_slice();
-            crate::vfio::cache_ops::clflush_range(s.as_ptr(), s.len());
+            crate::vfio::cache_ops::clflush_range(p.as_slice());
         }
         crate::vfio::cache_ops::memory_fence();
     }
@@ -211,7 +210,7 @@ pub fn probe_channel(
 
                 #[cfg(target_arch = "x86_64")]
                 {
-                    crate::vfio::cache_ops::clflush_range(rl_data.as_ptr(), 64);
+                    crate::vfio::cache_ops::clflush_range(&rl_data[..64]);
                     crate::vfio::cache_ops::memory_fence();
                 }
 

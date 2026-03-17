@@ -201,31 +201,34 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 54) |
+| Metric | Value (as of Iter 55) |
 |--------|-------|
-| Tests passing | 2364 default + 48 VFIO |
+| Tests passing | 2394 default + 48 VFIO |
 | Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 (amd_metal.rs stubs filled with MI50/GFX906 registers, Iter 52) |
-| Production unwraps | 0 (all evolved to expect/error) |
+| Production unwraps | 0 (all evolved to expect/error; glowplug socket.rs → match + tracing, Iter 55) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
 | panic! in production | ~150+ (codegen ICE guards — intentional; ~80 standardized to ice!() macro, Iter 53) |
-| #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |
+| #[allow] to tighten | Reviewed Iter 55: nv_metal.rs → `#[expect]`, ipc `redundant_pub_crate` resolved structurally |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
 | Files over 1000 LOC | 0 (Iter 54: pci_discovery.rs test extraction; excl. generated ISA tables) |
 | Clippy warnings | 0 (pedantic + nursery + all) |
 | Doc warnings | 0 (Iter 54: 10 DriverError links fixed) |
-| Region coverage (llvm-cov) | 59.39% (target 90%) |
-| Line coverage (llvm-cov) | 59.92% (target 90%; testable code: 72.7%) |
-| Function coverage | 69.45% (target 90%) |
+| Region coverage (llvm-cov) | 60.32% (target 90%; was 59.39% Iter 54) |
+| Line coverage (llvm-cov) | 60.89% (target 90%; was 59.92% Iter 54) |
+| Function coverage | 69.72% (target 90%; was 69.45% Iter 54) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45; diagnostic eprintln retained for HW debug) |
 | Zero-copy | KernelCacheEntry.binary: Bytes, RPC transport: buf.drain() → Bytes |
 | Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |
-| Driver constants | DRIVER_VFIO/NOUVEAU/AMDGPU/NVIDIA_DRM in preference.rs (Iter 47) |
+| Driver constants | DRIVER_VFIO/NOUVEAU/AMDGPU/NVIDIA_DRM in preference.rs (Iter 47); DEFAULT_NV_SM → env var fallback (Iter 55) |
 | RM ioctl sovereignty | nv_rm_ioctl via rustix (Iter 48: zero extern "C") |
 | SAFETY documentation | All `unsafe impl Send/Sync` blocks documented (Iter 51) |
+| Unsafe evolution | `clflush_range` evolved to safe `&[u8]` API (Iter 55); 6 call sites migrated |
+| Hardcoding evolution | PCI class codes, personality/policy defaults → named constants (Iter 55) |
+| scyBorg license | NAK MIT exception documented in LICENSE with symbiotic exception note (Iter 55) |

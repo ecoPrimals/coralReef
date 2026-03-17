@@ -216,8 +216,7 @@ impl MemoryRegion for DmaRegion {
     fn flush(&self) {
         #[cfg(target_arch = "x86_64")]
         {
-            let slice = self.buf.as_slice();
-            super::cache_ops::clflush_range(slice.as_ptr(), slice.len());
+            super::cache_ops::clflush_range(self.buf.as_slice());
             super::cache_ops::memory_fence();
         }
     }

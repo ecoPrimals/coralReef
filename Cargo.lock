@@ -18,6 +18,7 @@ dependencies = [
  "anyhow",
  "quick-xml",
  "serde",
+ "tempfile",
 ]
 
 [[package]]

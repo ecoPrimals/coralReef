@@ -435,19 +435,17 @@ pub fn diagnostic_matrix(
         // AMD Zen 2 VFIO DMA may not snoop CPU cache for all transaction types.
         #[cfg(target_arch = "x86_64")]
         {
-            let flush = |ptr: *const u8, len: usize| {
-                crate::vfio::cache_ops::clflush_range(ptr, len);
-            };
-            flush(instance.as_slice().as_ptr(), instance.as_slice().len());
-            flush(runlist.as_slice().as_ptr(), runlist.as_slice().len());
-            flush(pd3.as_slice().as_ptr(), pd3.as_slice().len());
-            flush(pd2.as_slice().as_ptr(), pd2.as_slice().len());
-            flush(pd1.as_slice().as_ptr(), pd1.as_slice().len());
-            flush(pd0.as_slice().as_ptr(), pd0.as_slice().len());
-            flush(pt0.as_slice().as_ptr(), pt0.as_slice().len());
-            flush(nop_pb.as_slice().as_ptr(), nop_pb.as_slice().len());
-            flush(gpfifo_ring.as_ptr(), gpfifo_ring.len());
-            flush(userd_page.as_ptr(), userd_page.len());
+            let flush = |slice: &[u8]| crate::vfio::cache_ops::clflush_range(slice);
+            flush(instance.as_slice());
+            flush(runlist.as_slice());
+            flush(pd3.as_slice());
+            flush(pd2.as_slice());
+            flush(pd1.as_slice());
+            flush(pd0.as_slice());
+            flush(pt0.as_slice());
+            flush(nop_pb.as_slice());
+            flush(gpfifo_ring);
+            flush(userd_page);
             crate::vfio::cache_ops::memory_fence();
         }
 

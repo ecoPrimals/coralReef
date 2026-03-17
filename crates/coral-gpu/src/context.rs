@@ -148,7 +148,7 @@ impl GpuContext {
             #[cfg(feature = "nvidia-drm")]
             preference::DRIVER_NVIDIA_DRM => {
                 if coral_driver::nv::uvm::nvidia_uvm_available() {
-                    let sm = driver::sm_from_sysfs_or(driver::DEFAULT_NV_SM);
+                    let sm = driver::sm_from_sysfs_or(driver::default_nv_sm());
                     match coral_driver::nv::NvUvmComputeDevice::open(0, sm) {
                         Ok(dev) => {
                             tracing::info!(sm, "nvidia-drm: UVM compute device opened");

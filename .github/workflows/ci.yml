@@ -22,6 +22,8 @@ jobs:
         run: cargo check --workspace
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
+      - name: Doc
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test

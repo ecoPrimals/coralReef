@@ -5,14 +5,30 @@ use coral_reef::{GpuTarget, NvArch};
 
 use crate::preference;
 
+const FALLBACK_NV_SM: u32 = 86;
+const FALLBACK_NV_SM_NOUVEAU: u32 = 70;
+
 /// Default NVIDIA SM architecture for sysfs-based fallback detection.
 ///
-/// SM 86 (Ampere, GA102) is the default because it covers RTX 3090/3080/3070
-/// which are the most common sovereign compute GPUs.
-pub(crate) const DEFAULT_NV_SM: u32 = 86;
+/// Checks `$CORALREEF_DEFAULT_SM` environment variable first (e.g. "70", "86"),
+/// falling back to SM 86 (Ampere GA102, RTX 3090/3080/3070).
+pub(crate) fn default_nv_sm() -> u32 {
+    std::env::var("CORALREEF_DEFAULT_SM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(FALLBACK_NV_SM)
+}
 
 /// Default NVIDIA SM for the nouveau sovereign path when sysfs detection fails.
-pub(crate) const DEFAULT_NV_SM_NOUVEAU: u32 = 70;
+///
+/// Checks `$CORALREEF_DEFAULT_SM_NOUVEAU` environment variable first,
+/// falling back to SM 70 (Volta).
+pub(crate) fn default_nv_sm_nouveau() -> u32 {
+    std::env::var("CORALREEF_DEFAULT_SM_NOUVEAU")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(FALLBACK_NV_SM_NOUVEAU)
+}
 
 /// Map an SM version number to the corresponding `NvArch`.
 #[cfg(target_os = "linux")]
@@ -42,21 +58,19 @@ pub(crate) fn sm_from_sysfs_or(default: u32) -> u32 {
 }
 
 /// Detect the NVIDIA SM version from sysfs for a render node path.
-/// Falls back to `DEFAULT_NV_SM_NOUVEAU` if detection fails.
 #[cfg(target_os = "linux")]
 pub(crate) fn sm_from_sysfs(path: &str) -> u32 {
     coral_driver::nv::ioctl::probe_gpu_identity(path)
         .and_then(|id| id.nvidia_sm())
-        .unwrap_or(DEFAULT_NV_SM_NOUVEAU)
+        .unwrap_or_else(default_nv_sm_nouveau)
 }
 
 /// Detect the GPU target from sysfs for an nvidia-drm render node.
-/// Falls back to `DEFAULT_NV_SM` if detection fails.
 #[cfg(all(target_os = "linux", feature = "nvidia-drm"))]
 pub(crate) fn sm_target_from_sysfs(path: &str) -> GpuTarget {
     let sm = coral_driver::nv::ioctl::probe_gpu_identity(path)
         .and_then(|id| id.nvidia_sm())
-        .unwrap_or(DEFAULT_NV_SM);
+        .unwrap_or_else(default_nv_sm);
     GpuTarget::Nvidia(sm_to_nvarch(sm))
 }
 
@@ -114,6 +128,6 @@ pub(crate) fn vfio_detect_sm(bdf: &str) -> u32 {
         Some(0x2204..=0x2206) => 86,                   // GA102 (RTX 3090/3080)
         Some(0x2300..=0x23FF) => 86,                   // GA10x
         Some(0x2400..=0x26FF) => 89,                   // Ada Lovelace
-        _ => DEFAULT_NV_SM,
+        _ => default_nv_sm(),
     }
 }
