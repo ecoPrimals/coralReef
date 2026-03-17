@@ -2,9 +2,9 @@
 //! Unix socket JSON-RPC 2.0 server — newline-delimited protocol.
 //!
 //! Ecosystem primals discover coralReef via a Unix socket at
-//! `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/coralreef.sock`. This module
-//! serves the same `shader.compile.*` methods as the TCP/HTTP server
-//! but over newline-delimited JSON on a Unix domain socket.
+//! `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`. This module
+//! serves the same `shader.compile.*` and `health.*` methods as the
+//! TCP/HTTP server but over newline-delimited JSON on a Unix domain socket.
 //!
 //! Protocol: each request is a single JSON-RPC 2.0 object terminated
 //! by `\n`. Responses are also newline-terminated.
@@ -110,6 +110,18 @@ mod inner {
                     Err(e) => Err(e.to_string()),
                 }
             }
+            "health.check" => {
+                let resp = service::handle_health_check();
+                serde_json::to_value(resp).map_err(|e| e.to_string())
+            }
+            "health.liveness" => {
+                let resp = service::handle_health_liveness();
+                serde_json::to_value(resp).map_err(|e| e.to_string())
+            }
+            "health.readiness" => {
+                let resp = service::handle_health_readiness();
+                serde_json::to_value(resp).map_err(|e| e.to_string())
+            }
             other => Err(format!("method not found: {other}")),
         }
     }
@@ -144,17 +156,19 @@ mod inner {
     /// Build the socket path from an explicit base directory.
     ///
     /// When `runtime_dir` is `None`, falls back to `$TMPDIR`.
-    /// Extracted for deterministic, safe testing without env-var mutation.
+    /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0:
+    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
     #[must_use]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
         let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
-        base.join(coralreef_core::config::ECOSYSTEM_NAMESPACE)
-            .join("coralreef.sock")
+        base.join(crate::config::ECOSYSTEM_NAMESPACE)
+            .join(crate::config::primal_socket_name())
     }
 
-    /// Default socket path: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/coralreef.sock`.
+    /// Default socket path per wateringHole standard.
     ///
-    /// Falls back to `$TMPDIR/{ECOSYSTEM_NAMESPACE}/coralreef.sock` if XDG is unset.
+    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
+    /// Falls back to `$TMPDIR/biomeos/<primal>-<family_id>.sock` if XDG is unset.
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
         unix_socket_path_for_base(std::env::var("XDG_RUNTIME_DIR").ok().map(PathBuf::from))

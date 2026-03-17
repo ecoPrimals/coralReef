@@ -19,6 +19,9 @@ use coral_reef::GpuArch;
 use coralreef_core::commands;
 use tracing_subscriber::EnvFilter;
 
+mod config {
+    pub use coralreef_core::config::*;
+}
 mod ipc;
 mod service;
 
@@ -247,23 +250,20 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     let _ = rpc_handle.stop();
 
     let rpc_stopped = rpc_handle.clone().stopped();
-    let shutdown_result = tokio::time::timeout(
-        coralreef_core::config::DEFAULT_SHUTDOWN_TIMEOUT,
-        async move {
-            rpc_stopped.await;
-            tarpc_handle.await.ok();
-            #[cfg(unix)]
-            if let Some(h) = unix_jsonrpc_handle {
-                h.await.ok();
-            }
-        },
-    )
+    let shutdown_result = tokio::time::timeout(config::DEFAULT_SHUTDOWN_TIMEOUT, async move {
+        rpc_stopped.await;
+        tarpc_handle.await.ok();
+        #[cfg(unix)]
+        if let Some(h) = unix_jsonrpc_handle {
+            h.await.ok();
+        }
+    })
     .await;
 
     if shutdown_result.is_err() {
         tracing::warn!(
             "shutdown timed out after {:?}",
-            coralreef_core::config::DEFAULT_SHUTDOWN_TIMEOUT
+            config::DEFAULT_SHUTDOWN_TIMEOUT
         );
     }
 
@@ -332,7 +332,7 @@ fn remove_discovery_file() {
 
 /// The shared discovery directory for all ecoPrimals.
 fn discovery_dir() -> io::Result<std::path::PathBuf> {
-    coralreef_core::config::discovery_dir()
+    config::discovery_dir()
 }
 
 /// Wait for SIGTERM or SIGINT. Returns which signal was received.

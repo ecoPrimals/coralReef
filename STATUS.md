@@ -1,7 +1,7 @@
 # coralReef — Status
 
 **Last updated**: March 16, 2026  
-**Phase**: 10 — Iteration 50 (Full Audit Execution + Coverage Expansion)
+**Phase**: 10 — Iteration 51 (Deep Audit Compliance + IPC Health + Doc Hygiene)
 
 ---
 
@@ -11,7 +11,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` semantic naming, differentiated error codes |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` semantic naming (wateringHole compliant), differentiated error codes |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -20,7 +20,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 1992 passing (+48 VFIO), 0 failed, 57.54% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 2157 passing (+48 VFIO), 0 failed, 57.71% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
@@ -36,7 +36,25 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 50** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 51** |
+
+### Iteration 51: Deep Audit Compliance + IPC Health + Doc Hygiene (Mar 16 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| wateringHole IPC health methods | ✅ | `health.check`, `health.liveness`, `health.readiness` implemented across JSON-RPC, tarpc, and Unix socket transports per wateringHole `CORALREEF_LEVERAGE_GUIDE` |
+| Health response types | ✅ | `HealthCheckResponse`, `LivenessResponse`, `ReadinessResponse` structs in `service/types.rs` |
+| Socket path standard | ✅ | `ECOSYSTEM_NAMESPACE` → `"biomeos"`, `primal_socket_name()` → `<primal>-<family_id>.sock` per wateringHole `PRIMAL_IPC_PROTOCOL` |
+| Config self-knowledge | ✅ | `PRIMAL_NAME`, `PRIMAL_VERSION` via `env!()`, `family_id()` from `$BIOMEOS_FAMILY_ID` |
+| Zero-copy transport | ✅ | `Bytes::copy_from_slice` → `buf.drain()` + `Bytes::from(buf)` in `primal-rpc-client` transport |
+| Clippy pedantic fixes | ✅ | `items_after_statements`, `case_sensitive_file_extension_comparison`, `redundant_closure_for_method_calls`, `map_unwrap_or`, `useless_format`, `assertions_on_constants`, unused imports, doc backticks |
+| `#[must_use]` attributes | ✅ | Added to `family_id()`, `default_tcp_bind()`, `default_tarpc_bind()` |
+| `coral-gpu` smart refactor | ✅ | `lib.rs` (977 LOC) → 6 submodules: `kernel.rs`, `context.rs`, `fma.rs`, `pcie.rs`, `driver.rs`, `hash.rs` (65 LOC lib.rs) |
+| `// SAFETY:` documentation | ✅ | All `unsafe impl Send/Sync` blocks in `dma.rs`, `device.rs`, `uvm_compute.rs`, `bar0.rs` documented |
+| genomeBin manifest updated | ✅ | `pie_verified = true`, `ecobin_grade = "A++"` |
+| E2E IPC test | ✅ | `e2e_ipc.rs` — JSON-RPC + tarpc servers, all semantic methods, response format verification |
+| Test expansion | ✅ | 1992 → 2157 passing (+165 tests), 0 failed |
+| Coverage improvement | ✅ | 57.10% → 57.28% region, 57.54% → 57.71% line, 67.80% → 67.98% function |
 
 ### Iteration 50: Full Audit Execution + Coverage Expansion (Mar 16 2026)
 
@@ -783,8 +801,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (1992 passing, 0 failed) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 57.10% region / 57.54% line / 67.80% function (target 90%) |
+| `cargo test --workspace` | PASS (2157 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 57.28% region / 57.71% line / 67.98% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

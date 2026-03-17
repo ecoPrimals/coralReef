@@ -36,8 +36,8 @@ fn compile_error_to_rpc(e: &CompileError) -> ErrorObjectOwned {
 
 /// JSON-RPC 2.0 API definition.
 ///
-/// Method names follow `shader.compile.*` — aligned with capability
-/// advertisement and wateringHole `SEMANTIC_METHOD_NAMING_STANDARD`.
+/// Method names follow `shader.compile.*` and `health.*` — aligned with
+/// capability advertisement and wateringHole `SEMANTIC_METHOD_NAMING_STANDARD`.
 #[rpc(server)]
 trait CoralReefRpc {
     /// `shader.compile.spirv` — compile SPIR-V to native GPU binary.
@@ -68,6 +68,18 @@ trait CoralReefRpc {
         &self,
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, ErrorObjectOwned>;
+
+    /// `health.check` — full health probe per wateringHole standard.
+    #[method(name = "health.check")]
+    async fn health_check(&self) -> Result<service::HealthCheckResponse, ErrorObjectOwned>;
+
+    /// `health.liveness` — lightweight alive probe.
+    #[method(name = "health.liveness")]
+    async fn health_liveness(&self) -> Result<service::LivenessResponse, ErrorObjectOwned>;
+
+    /// `health.readiness` — ready to accept compilation requests.
+    #[method(name = "health.readiness")]
+    async fn health_readiness(&self) -> Result<service::ReadinessResponse, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
@@ -103,6 +115,18 @@ impl CoralReefRpcServer for RpcImpl {
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, ErrorObjectOwned> {
         service::handle_compile_wgsl_multi(request).map_err(|e| compile_error_to_rpc(&e))
+    }
+
+    async fn health_check(&self) -> Result<service::HealthCheckResponse, ErrorObjectOwned> {
+        Ok(service::handle_health_check())
+    }
+
+    async fn health_liveness(&self) -> Result<service::LivenessResponse, ErrorObjectOwned> {
+        Ok(service::handle_health_liveness())
+    }
+
+    async fn health_readiness(&self) -> Result<service::ReadinessResponse, ErrorObjectOwned> {
+        Ok(service::handle_health_readiness())
     }
 }
 

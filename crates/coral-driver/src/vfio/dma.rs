@@ -196,10 +196,14 @@ impl Drop for DmaBuffer {
     }
 }
 
-// SAFETY: DmaBuffer owns its allocation exclusively — no shared mutable state.
+// SAFETY: The raw pointer (`vaddr`) is obtained from a dedicated allocation, is only
+// accessed through `&self`/`&mut self` (Rust borrow rules apply), and is freed in
+// Drop. The container_fd is an OS file descriptor that is thread-safe.
 unsafe impl Send for DmaBuffer {}
 
-// SAFETY: Reads via &self are safe from multiple threads; writes require &mut self.
+// SAFETY: The raw pointer (`vaddr`) is obtained from a dedicated allocation, is only
+// accessed through `&self`/`&mut self` (Rust borrow rules apply), and is freed in
+// Drop. The container_fd is an OS file descriptor that is thread-safe.
 unsafe impl Sync for DmaBuffer {}
 
 #[cfg(test)]

@@ -536,10 +536,14 @@ impl ComputeDevice for NvUvmComputeDevice {
     }
 }
 
-// SAFETY: NvUvmComputeDevice owns kernel FDs and mmap'd GPU addresses.
-// FDs are thread-safe (kernel guarantees ioctl serialization);
-// mmap'd regions are only accessed through &mut self methods.
+// SAFETY: All internal state is protected by the struct's ownership semantics.
+// GPU operations are serialized through the channel's pushbuffer protocol. File
+// descriptors are thread-safe.
 unsafe impl Send for NvUvmComputeDevice {}
+
+// SAFETY: All internal state is protected by the struct's ownership semantics.
+// GPU operations are serialized through the channel's pushbuffer protocol. File
+// descriptors are thread-safe.
 unsafe impl Sync for NvUvmComputeDevice {}
 
 impl Drop for NvUvmComputeDevice {

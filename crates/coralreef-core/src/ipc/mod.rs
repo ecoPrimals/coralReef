@@ -16,6 +16,8 @@
 use std::fmt;
 use std::net::SocketAddr;
 
+use crate::config;
+
 mod jsonrpc;
 pub use jsonrpc::start_jsonrpc_server;
 
@@ -23,7 +25,8 @@ mod tarpc_transport;
 pub use tarpc_transport::start_tarpc_server;
 #[cfg(all(test, unix))]
 pub use tarpc_transport::start_tarpc_unix_server;
-#[cfg(test)]
+#[cfg(any(test, feature = "e2e"))]
+#[allow(unused_imports)] // used by tests_tarpc, tests.rs, and e2e_ipc integration test
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 #[cfg(unix)]
@@ -89,6 +92,7 @@ pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
 ///
 /// Checks `$CORALREEF_TCP_BIND` first for deployment configuration,
 /// then falls back to loopback with OS-assigned port.
+#[must_use]
 pub fn default_tcp_bind() -> String {
     std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
@@ -97,15 +101,19 @@ pub fn default_tcp_bind() -> String {
 ///
 /// On Unix: returns a path for a Unix domain socket under `$XDG_RUNTIME_DIR`
 /// (or `std::env::temp_dir()` as fallback — no hardcoded paths per ecoBin),
-/// namespaced by the primal binary name.
+/// namespaced by the primal identity and family ID.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
+#[must_use]
 pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
     {
-        let dir = coralreef_core::config::discovery_dir().unwrap_or_else(|_| {
-            std::env::temp_dir().join(coralreef_core::config::ECOSYSTEM_NAMESPACE)
-        });
-        let sock = dir.join(format!("{}-tarpc.sock", env!("CARGO_PKG_NAME")));
+        let dir = config::discovery_dir()
+            .unwrap_or_else(|_| std::env::temp_dir().join(config::ECOSYSTEM_NAMESPACE));
+        let sock = dir.join(format!(
+            "{}-{}-tarpc.sock",
+            config::PRIMAL_NAME,
+            config::family_id(),
+        ));
         format!("unix://{}", sock.display())
     }
     #[cfg(not(unix))]

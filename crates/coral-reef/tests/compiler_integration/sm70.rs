@@ -348,7 +348,7 @@ fn test_sm70_encode_texture_load() {
     }
 }
 
-/// Exercises `sm70_encode/tex.rs`: `textureGather` (OpTld4) instruction encoding.
+/// Exercises `sm70_encode/tex.rs`: `textureGather` (`OpTld4`) instruction encoding.
 #[test]
 fn test_sm70_encode_texture_gather() {
     let wgsl = "
@@ -372,7 +372,7 @@ fn test_sm70_encode_texture_gather() {
     }
 }
 
-/// Exercises `sm70_encode/tex.rs`: `textureDimensions` (OpTxq) instruction encoding.
+/// Exercises `sm70_encode/tex.rs`: `textureDimensions` (`OpTxq`) instruction encoding.
 #[test]
 fn test_sm70_encode_texture_dimensions() {
     let wgsl = "
@@ -394,7 +394,7 @@ fn test_sm70_encode_texture_dimensions() {
     }
 }
 
-/// Exercises `sm70_encode/tex.rs`: texture_2d_array and texture_3d variants.
+/// Exercises `sm70_encode/tex.rs`: `texture_2d_array` and `texture_3d` variants.
 #[test]
 fn test_sm70_encode_texture_array_3d() {
     let wgsl = "

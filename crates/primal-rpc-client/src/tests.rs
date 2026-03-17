@@ -390,7 +390,11 @@ async fn test_songbird_proxy_custom_path() {
 
 #[tokio::test]
 async fn test_http_response_body_extraction() {
-    // Verify body is correctly extracted after headers (Content-Length)
+    #[derive(serde::Deserialize)]
+    struct NestedResult {
+        nested: String,
+    }
+
     let body = r#"{"jsonrpc":"2.0","result":{"nested":"value"},"id":1}"#;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -413,10 +417,6 @@ async fn test_http_response_body_extraction() {
     });
 
     let client = RpcClient::tcp(addr);
-    #[derive(serde::Deserialize)]
-    struct NestedResult {
-        nested: String,
-    }
     let result: NestedResult = client.request("test", no_params()).await.unwrap();
     assert_eq!(result.nested, "value");
 

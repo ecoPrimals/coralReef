@@ -183,12 +183,14 @@ impl Drop for Bar0Access {
     }
 }
 
-// SAFETY: Bar0Access owns the mmap exclusively. No shared mutable state;
-// transfer across threads is safe.
+// SAFETY: The raw pointer points to mmap'd BAR0 MMIO. Access is through volatile
+// operations which are atomic for aligned 32-bit reads/writes. Lifetime is tied
+// to the struct via the OwnedFd.
 unsafe impl Send for Bar0Access {}
 
-// SAFETY: MMIO region is process-private. All access uses volatile ops which
-// are inherently safe for concurrent reads; writes require &mut self.
+// SAFETY: The raw pointer points to mmap'd BAR0 MMIO. Access is through volatile
+// operations which are atomic for aligned 32-bit reads/writes. Lifetime is tied
+// to the struct via the OwnedFd.
 unsafe impl Sync for Bar0Access {}
 
 #[cfg(test)]

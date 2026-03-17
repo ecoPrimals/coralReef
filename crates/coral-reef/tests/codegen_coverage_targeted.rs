@@ -36,7 +36,7 @@ fn compile_fixture_legacy_nv(wgsl: &str) {
     }
 }
 
-fn try_compile_sm70(wgsl: &str) {
+fn _try_compile_sm70(wgsl: &str) {
     match coral_reef::compile_wgsl(wgsl, &opts()) {
         Ok(binary) => assert!(!binary.is_empty()),
         Err(CompileError::NotImplemented(_)) => {}
@@ -44,7 +44,7 @@ fn try_compile_sm70(wgsl: &str) {
     }
 }
 
-fn try_compile_legacy_nv(wgsl: &str) {
+fn _try_compile_legacy_nv(wgsl: &str) {
     for sm in [50, 32, 30, 21, 20] {
         match coral_reef::compile_wgsl_raw_sm(wgsl, sm) {
             Ok(binary) => assert!(!binary.is_empty()),

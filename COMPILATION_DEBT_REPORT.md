@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 15, Iter 48)  
+**Generated:** March 10, 2026 (metrics updated March 16, Iter 51)  
 **Workspace:** coralReef
 
 ---
@@ -198,12 +198,13 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 48) |
+| Metric | Value (as of Iter 51) |
 |--------|-------|
-| Tests passing | 1842 default + 48 VFIO |
-| Ignored tests | 61 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 2157 default + 48 VFIO |
+| Ignored tests | 89 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 9 (documented future optimizations — intentional) |
-| Production unwraps | 0 (all evolved to expect/error; last 2 in runner.rs evolved Iter 48) |
+| TODO markers | 6 (all in `amd_metal.rs` — AMD VFIO metal stubs) |
+| Production unwraps | 0 (all evolved to expect/error) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
 | panic! in production | ~150+ (codegen ICE guards — intentional; 6 sm70 latency panics evolved Iter 47) |
@@ -211,15 +212,17 @@ Current attributes have documented `reason` strings where appropriate.
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (Iter 47: runner.rs experiment delegation 2509→778) |
+| Files over 1000 LOC | 0 (Iter 51: coral-gpu lib.rs 977→65 via 6-module refactor) |
 | Clippy warnings | 0 (pedantic + all) |
 | Doc warnings | 0 |
-| Region coverage (llvm-cov) | 66.67% (target 90%) |
-| Line coverage (llvm-cov) | 68.45% (target 90%) |
+| Region coverage (llvm-cov) | 57.28% (target 90%) |
+| Line coverage (llvm-cov) | 57.71% (target 90%) |
+| Function coverage | 67.98% (target 90%) |
+| IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45; diagnostic eprintln retained for HW debug) |
-| Zero-copy | KernelCacheEntry.binary: Bytes (Iter 47) |
+| Zero-copy | KernelCacheEntry.binary: Bytes, RPC transport: buf.drain() → Bytes |
+| Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |
 | Driver constants | DRIVER_VFIO/NOUVEAU/AMDGPU/NVIDIA_DRM in preference.rs (Iter 47) |
-| diagnostic/runner.rs | Experiment delegation 2509→778 (Iter 47) |
-| rm_client.rs | UUID/ioctl extraction to rm_helpers.rs 1000→944 (Iter 47) |
 | RM ioctl sovereignty | nv_rm_ioctl via rustix (Iter 48: zero extern "C") |
+| SAFETY documentation | All `unsafe impl Send/Sync` blocks documented (Iter 51) |

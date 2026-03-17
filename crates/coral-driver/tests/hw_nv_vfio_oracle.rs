@@ -660,9 +660,9 @@ mod tests {
         // Phase 4: Swap to VFIO
         eprintln!("║ Phase 4: Swapping to vfio-pci...");
         // Unbind nouveau
-        let unbind_path = format!("/sys/bus/pci/drivers/nouveau/unbind");
+        let unbind_path = "/sys/bus/pci/drivers/nouveau/unbind";
         let _ = std::process::Command::new("sudo")
-            .args(["-n", "tee", &unbind_path])
+            .args(["-n", "tee", unbind_path])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -768,9 +768,9 @@ mod tests {
         // Swap back to nouveau for subsequent tests
         drop(raw);
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let unbind_path = format!("/sys/bus/pci/drivers/vfio-pci/unbind");
+        let unbind_path = "/sys/bus/pci/drivers/vfio-pci/unbind";
         let _ = std::process::Command::new("sudo")
-            .args(["-n", "tee", &unbind_path])
+            .args(["-n", "tee", unbind_path])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

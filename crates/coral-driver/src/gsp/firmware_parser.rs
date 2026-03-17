@@ -97,8 +97,8 @@ impl GrFirmwareBlobs {
         let bundle_init = parse_u32_pairs(&base.join("sw_bundle_init.bin"))?;
         let method_init = parse_u32_pairs(&base.join("sw_method_init.bin"))?;
 
-        let ctx_data = std::fs::read(base.join("sw_ctx.bin")).unwrap_or_default();
-        let nonctx_data = std::fs::read(base.join("sw_nonctx.bin")).unwrap_or_default();
+        let ctx_data = std::fs::read(base.join("sw_ctx.bin")).unwrap_or_else(|_| Vec::new());
+        let nonctx_data = std::fs::read(base.join("sw_nonctx.bin")).unwrap_or_else(|_| Vec::new());
 
         Ok(Self {
             chip: chip.to_string(),

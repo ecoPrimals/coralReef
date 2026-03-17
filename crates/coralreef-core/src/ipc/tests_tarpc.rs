@@ -118,6 +118,74 @@ async fn test_tarpc_health_endpoint() {
 }
 
 #[tokio::test]
+async fn test_tarpc_health_check() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client
+        .health_check(tarpc::context::current())
+        .await
+        .unwrap();
+
+    assert!(response.healthy);
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
+    assert!(!response.version.is_empty());
+    assert!(!response.supported_archs.is_empty());
+    assert!(!response.family_id.is_empty());
+}
+
+#[tokio::test]
+async fn test_tarpc_health_liveness() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client
+        .health_liveness(tarpc::context::current())
+        .await
+        .unwrap();
+
+    assert!(response.alive);
+}
+
+#[tokio::test]
+async fn test_tarpc_health_readiness() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client
+        .health_readiness(tarpc::context::current())
+        .await
+        .unwrap();
+
+    assert!(response.ready);
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
+}
+
+#[tokio::test]
 async fn test_tarpc_compile_empty_spirv() {
     let (_tx, rx) = test_helpers::test_shutdown_channel();
     let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();

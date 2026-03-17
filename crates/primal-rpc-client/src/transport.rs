@@ -101,7 +101,8 @@ async fn read_http_response_body<R: AsyncReadExt + Unpin>(
     }
 
     let body_start = header_end + 4; // skip \r\n\r\n
-    Ok(Bytes::copy_from_slice(&buf[body_start..]))
+    buf.drain(..body_start);
+    Ok(Bytes::from(buf))
 }
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {

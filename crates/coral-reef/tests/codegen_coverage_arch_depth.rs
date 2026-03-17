@@ -4,7 +4,7 @@
 //! Targets coverage gaps in f64, texture, memory, and control encoding
 //! across SM20/SM32/SM50/SM70/SM80+ architectures.
 
-use coral_reef::{CompileError, CompileOptions, GpuArch, GpuTarget, NvArch};
+use coral_reef::{CompileError, CompileOptions, GpuTarget, NvArch};
 
 fn opts_for(nv: NvArch) -> CompileOptions {
     CompileOptions {

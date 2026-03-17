@@ -164,6 +164,39 @@ pub struct MultiDeviceCompileResponse {
     pub total_count: usize,
 }
 
+/// `health.check` response per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResponse {
+    /// Primal name (self-knowledge only).
+    pub name: Cow<'static, str>,
+    /// Primal version.
+    pub version: Cow<'static, str>,
+    /// Whether the primal is healthy.
+    pub healthy: bool,
+    /// Human-readable status.
+    pub status: Cow<'static, str>,
+    /// Supported GPU architectures.
+    pub supported_archs: Vec<String>,
+    /// Family ID for multi-instance disambiguation.
+    pub family_id: Cow<'static, str>,
+}
+
+/// `health.liveness` response — lightweight alive check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LivenessResponse {
+    /// `true` if the process is alive and responsive.
+    pub alive: bool,
+}
+
+/// `health.readiness` response — ready to accept work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadinessResponse {
+    /// `true` if the primal is ready to serve requests.
+    pub ready: bool,
+    /// Primal name (self-knowledge).
+    pub name: Cow<'static, str>,
+}
+
 pub(crate) fn default_arch() -> String {
     coral_reef::GpuArch::default().to_string()
 }

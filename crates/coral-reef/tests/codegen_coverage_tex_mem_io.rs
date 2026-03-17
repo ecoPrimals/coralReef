@@ -2,7 +2,7 @@
 //! Texture, memory, and shader I/O coverage tests.
 //!
 //! Targets tex.rs (sm20/32/50/70), mem.rs load/store patterns,
-//! shader_io.rs uniform buffers, and spiller legacy paths.
+//! `shader_io.rs` uniform buffers, and spiller legacy paths.
 
 use std::fmt::Write;
 

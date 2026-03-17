@@ -122,7 +122,7 @@ fn unibin_exit_to_exit_code_signal() {
 #[test]
 fn discovery_dir_returns_path() {
     let dir = discovery_dir().unwrap();
-    assert!(dir.ends_with(coralreef_core::config::ECOSYSTEM_NAMESPACE));
+    assert!(dir.ends_with(crate::config::ECOSYSTEM_NAMESPACE));
 }
 
 #[test]

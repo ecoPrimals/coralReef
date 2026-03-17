@@ -38,6 +38,15 @@ pub trait ShaderCompileTarpc {
     async fn wgsl_multi(
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, String>;
+
+    /// Full health probe (`health.check`).
+    async fn health_check() -> service::HealthCheckResponse;
+
+    /// Lightweight alive probe (`health.liveness`).
+    async fn health_liveness() -> service::LivenessResponse;
+
+    /// Ready to accept work (`health.readiness`).
+    async fn health_readiness() -> service::ReadinessResponse;
 }
 
 /// tarpc server implementation.
@@ -81,6 +90,18 @@ impl ShaderCompileTarpc for TarpcServer {
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, String> {
         service::handle_compile_wgsl_multi(request).map_err(|e| e.to_string())
+    }
+
+    async fn health_check(self, _ctx: tarpc::context::Context) -> service::HealthCheckResponse {
+        service::handle_health_check()
+    }
+
+    async fn health_liveness(self, _ctx: tarpc::context::Context) -> service::LivenessResponse {
+        service::handle_health_liveness()
+    }
+
+    async fn health_readiness(self, _ctx: tarpc::context::Context) -> service::ReadinessResponse {
+        service::handle_health_readiness()
     }
 }
 

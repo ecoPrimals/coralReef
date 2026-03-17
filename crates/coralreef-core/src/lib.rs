@@ -37,6 +37,12 @@ pub mod discovery;
 pub mod health;
 pub mod lifecycle;
 
+/// IPC and service — exposed for integration tests (tests/e2e_ipc.rs).
+#[cfg(any(test, feature = "e2e"))]
+pub mod ipc;
+#[cfg(any(test, feature = "e2e"))]
+pub mod service;
+
 use health::{HealthReport, HealthStatus, PrimalHealth};
 use lifecycle::{PrimalError, PrimalLifecycle, PrimalState};
 

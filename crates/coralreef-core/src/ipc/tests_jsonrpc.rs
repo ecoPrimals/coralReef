@@ -240,3 +240,45 @@ async fn test_jsonrpc_capabilities_endpoint() {
     assert!(!archs.is_empty());
     assert!(archs.iter().any(|a| a == "sm_70"));
 }
+
+#[tokio::test]
+async fn test_jsonrpc_health_check() {
+    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let client = RpcClient::tcp(addr);
+
+    let response: service::HealthCheckResponse =
+        client.request("health.check", no_params()).await.unwrap();
+
+    assert!(response.healthy);
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
+    assert!(!response.version.is_empty());
+    assert!(!response.supported_archs.is_empty());
+    assert!(!response.family_id.is_empty());
+}
+
+#[tokio::test]
+async fn test_jsonrpc_health_liveness() {
+    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let client = RpcClient::tcp(addr);
+
+    let response: service::LivenessResponse = client
+        .request("health.liveness", no_params())
+        .await
+        .unwrap();
+
+    assert!(response.alive);
+}
+
+#[tokio::test]
+async fn test_jsonrpc_health_readiness() {
+    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let client = RpcClient::tcp(addr);
+
+    let response: service::ReadinessResponse = client
+        .request("health.readiness", no_params())
+        .await
+        .unwrap();
+
+    assert!(response.ready);
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
+}

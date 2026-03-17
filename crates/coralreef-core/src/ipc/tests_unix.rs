@@ -21,6 +21,64 @@ fn test_dispatch_valid_method_status() {
 
 #[cfg(unix)]
 #[test]
+fn test_dispatch_health_check() {
+    let result = dispatch("health.check", serde_json::json!({}));
+    let val = result.expect("health.check should succeed");
+    assert_eq!(
+        val.get("healthy").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert!(
+        val.get("name")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    assert!(
+        val.get("version")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    assert!(
+        val.get("family_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    assert!(
+        val.get("supported_archs")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|a| !a.is_empty())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_health_liveness() {
+    let result = dispatch("health.liveness", serde_json::json!({}));
+    let val = result.expect("health.liveness should succeed");
+    assert_eq!(
+        val.get("alive").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_health_readiness() {
+    let result = dispatch("health.readiness", serde_json::json!({}));
+    let val = result.expect("health.readiness should succeed");
+    assert_eq!(
+        val.get("ready").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert!(
+        val.get("name")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn test_dispatch_valid_method_capabilities() {
     let result = dispatch("shader.compile.capabilities", serde_json::json!({}));
     let val = result.expect("capabilities should succeed");
@@ -226,9 +284,13 @@ fn test_unix_socket_path_with_xdg() {
     assert!(path.to_string_lossy().contains("/run/user/1234"));
     assert!(
         path.to_string_lossy()
-            .contains(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+            .contains(crate::config::ECOSYSTEM_NAMESPACE)
     );
-    assert!(path.to_string_lossy().contains("coralreef.sock"));
+    assert!(
+        path.to_string_lossy().contains("coralreef") && path.to_string_lossy().contains(".sock"),
+        "path should contain primal name and .sock: {}",
+        path.to_string_lossy()
+    );
 }
 
 #[cfg(unix)]
@@ -237,9 +299,13 @@ fn test_unix_socket_path_fallback() {
     let path = unix_socket_path_for_base(None);
     assert!(
         path.to_string_lossy()
-            .contains(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+            .contains(crate::config::ECOSYSTEM_NAMESPACE)
     );
-    assert!(path.to_string_lossy().contains("coralreef.sock"));
+    assert!(
+        path.to_string_lossy().contains("coralreef") && path.to_string_lossy().contains(".sock"),
+        "path should contain primal name and .sock: {}",
+        path.to_string_lossy()
+    );
 }
 
 #[cfg(unix)]
@@ -247,21 +313,18 @@ fn test_unix_socket_path_fallback() {
 fn test_default_unix_socket_path_with_xdg() {
     let temp = tempfile::tempdir().unwrap();
     let xdg = temp.path().to_path_buf();
-    // SAFETY: test-only; we restore the env before the test ends
-    unsafe {
-        std::env::set_var("XDG_RUNTIME_DIR", xdg.as_os_str());
-    }
-    let path = default_unix_socket_path();
-    // SAFETY: test-only; restoring env after our test mutation
-    unsafe {
-        std::env::remove_var("XDG_RUNTIME_DIR");
-    }
+    // Test unix_socket_path_for_base directly to avoid unsafe env mutation
+    let path = unix_socket_path_for_base(Some(xdg.clone()));
     assert!(
         path.to_string_lossy()
             .contains(xdg.to_string_lossy().as_ref()),
         "path should contain XDG_RUNTIME_DIR"
     );
-    assert!(path.to_string_lossy().contains("coralreef.sock"));
+    assert!(
+        path.to_string_lossy().contains("coralreef") && path.to_string_lossy().contains(".sock"),
+        "path should contain primal name and .sock: {}",
+        path.to_string_lossy()
+    );
 }
 
 #[cfg(unix)]
@@ -270,9 +333,14 @@ fn test_default_unix_socket_path_structure() {
     let path = default_unix_socket_path();
     assert!(
         path.to_string_lossy()
-            .contains(coralreef_core::config::ECOSYSTEM_NAMESPACE)
+            .contains(crate::config::ECOSYSTEM_NAMESPACE)
     );
-    assert!(path.to_string_lossy().ends_with("coralreef.sock"));
+    assert!(
+        path.to_string_lossy()
+            .ends_with(&crate::config::primal_socket_name()),
+        "path should end with primal socket name: {}",
+        path.to_string_lossy()
+    );
 }
 
 #[cfg(unix)]
@@ -466,6 +534,85 @@ async fn test_unix_jsonrpc_capabilities() {
     let archs = resp["result"].as_array().unwrap();
     assert!(!archs.is_empty());
     assert!(archs.iter().any(|a| a.as_str() == Some("sm_70")));
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_health_check() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("health-check-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"2.0","method":"health.check","params":{},"id":10}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 10);
+    let result = &resp["result"];
+    assert_eq!(result["healthy"], true);
+    assert!(result["name"].is_string());
+    assert!(result["version"].is_string());
+    assert!(result["family_id"].is_string());
+    assert!(result["supported_archs"].is_array());
+    assert!(!result["supported_archs"].as_array().unwrap().is_empty());
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_health_liveness() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("health-liveness-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"2.0","method":"health.liveness","params":{},"id":11}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 11);
+    assert_eq!(resp["result"]["alive"], true);
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_health_readiness() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("health-readiness-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"2.0","method":"health.readiness","params":{},"id":12}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 12);
+    assert_eq!(resp["result"]["ready"], true);
+    assert!(resp["result"]["name"].is_string());
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);

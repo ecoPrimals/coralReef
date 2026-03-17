@@ -1,6 +1,6 @@
 # coralReef — What's Next
 
-**Last updated**: March 16, 2026 (Phase 10 — Iteration 50)
+**Last updated**: March 16, 2026 (Phase 10 — Iteration 51)
 
 ---
 
@@ -79,7 +79,19 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 50)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 51)
+
+### Iteration 51 — Deep Audit Compliance + IPC Health + Doc Hygiene
+- [x] wateringHole IPC health methods: `health.check`, `health.liveness`, `health.readiness` across JSON-RPC, tarpc, Unix socket
+- [x] Socket path standard: `ECOSYSTEM_NAMESPACE` → `"biomeos"`, `primal_socket_name()` → `<primal>-<family_id>.sock`
+- [x] Config self-knowledge: `PRIMAL_NAME`, `PRIMAL_VERSION` via `env!()`, `family_id()` from `$BIOMEOS_FAMILY_ID`
+- [x] Zero-copy transport: `Bytes::copy_from_slice` → `buf.drain()` + `Bytes::from(buf)` in RPC client
+- [x] `coral-gpu` smart refactor: `lib.rs` 977 LOC → 6 submodules (65 LOC lib.rs)
+- [x] `// SAFETY:` comments on all `unsafe impl Send/Sync` in coral-driver
+- [x] genomeBin manifest: `pie_verified = true`, `ecobin_grade = "A++"`
+- [x] E2E IPC test: JSON-RPC + tarpc full semantic method validation
+- [x] Clippy pedantic: 8+ additional lint categories resolved
+- [x] 2157 passing, 0 failed; 57.28% region / 57.71% line / 67.98% function coverage
 
 ### Iteration 50 — Full Audit Execution + Coverage Expansion
 - [x] Doc warnings eliminated (4 rustdoc warnings: escaped bit-field notation, fixed intra-doc links)
@@ -361,15 +373,16 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
-- [ ] Coverage 57.54% → 90% (57.54% line reflects full workspace measurement including hardware-gated VFIO code)
+- [ ] Coverage 57.71% → 90% (57.71% line reflects full workspace measurement including hardware-gated VFIO code)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-1992+48 tests passing, 0 failed, 57.54% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+2157+48 tests passing, 0 failed, 57.71% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
+IPC: `shader.compile.*` + `health.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
 Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings. Zero fmt drift.
 All pure Rust. Sovereignty is a runtime choice.*

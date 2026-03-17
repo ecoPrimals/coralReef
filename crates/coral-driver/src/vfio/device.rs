@@ -134,11 +134,14 @@ impl Drop for MappedBar {
     }
 }
 
-// SAFETY: MMIO region is process-private; all writes go through volatile ops.
+// SAFETY: The base_ptr points to MMIO-mapped memory via mmap. Access is through
+// volatile reads/writes which are inherently atomic for 32-bit aligned access on
+// x86_64. The mmap lifetime is tied to the struct.
 unsafe impl Send for MappedBar {}
 
-// SAFETY: All access to the MMIO region uses volatile ops which are inherently
-// atomic at the hardware level; &self methods are read-only (read_volatile).
+// SAFETY: The base_ptr points to MMIO-mapped memory via mmap. Access is through
+// volatile reads/writes which are inherently atomic for 32-bit aligned access on
+// x86_64. The mmap lifetime is tied to the struct.
 unsafe impl Sync for MappedBar {}
 
 /// A VFIO-managed PCIe device.

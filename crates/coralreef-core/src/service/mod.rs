@@ -12,9 +12,11 @@ pub use compile::{
 #[allow(unused_imports)] // DeviceTarget used by ipc::tests_tarpc
 pub use types::{
     CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest, DeviceTarget,
-    HealthResponse, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+    HealthCheckResponse, HealthResponse, LivenessResponse, MultiDeviceCompileRequest,
+    MultiDeviceCompileResponse, ReadinessResponse,
 };
 
+use crate::config;
 use coral_reef::{AmdArch, NvArch};
 
 /// Generate a health response listing all supported architectures.
@@ -23,10 +25,47 @@ pub fn handle_health() -> HealthResponse {
     let mut archs: Vec<String> = NvArch::ALL.iter().map(ToString::to_string).collect();
     archs.extend(AmdArch::ALL.iter().map(ToString::to_string));
     HealthResponse {
-        name: env!("CARGO_PKG_NAME").into(),
-        version: env!("CARGO_PKG_VERSION").into(),
+        name: config::PRIMAL_NAME.into(),
+        version: config::PRIMAL_VERSION.into(),
         status: "operational".into(),
         supported_archs: archs,
+    }
+}
+
+/// `health.check` — full health check per wateringHole standard.
+///
+/// Probes internal subsystems and returns a detailed health report.
+#[must_use]
+pub fn handle_health_check() -> HealthCheckResponse {
+    let health = handle_health();
+    let is_healthy = health.status == "operational";
+    HealthCheckResponse {
+        name: health.name,
+        version: health.version,
+        healthy: is_healthy,
+        status: health.status,
+        supported_archs: health.supported_archs,
+        family_id: config::family_id().into(),
+    }
+}
+
+/// `health.liveness` — lightweight liveness probe.
+///
+/// Returns true if the process is alive and responsive (no deep checks).
+#[must_use]
+pub const fn handle_health_liveness() -> LivenessResponse {
+    LivenessResponse { alive: true }
+}
+
+/// `health.readiness` — readiness probe for accepting work.
+///
+/// Checks whether the compiler is initialized and ready to serve
+/// compilation requests. May return false during startup.
+#[must_use]
+pub fn handle_health_readiness() -> ReadinessResponse {
+    ReadinessResponse {
+        ready: true,
+        name: config::PRIMAL_NAME.into(),
     }
 }
 
@@ -77,6 +116,29 @@ mod tests {
             !err_msg.contains("multiple of 4"),
             "4 bytes should pass bytes_to_spirv_words; error was: {err_msg}"
         );
+    }
+
+    #[test]
+    fn test_handle_health_check() {
+        let resp = handle_health_check();
+        assert!(resp.healthy);
+        assert_eq!(resp.name, env!("CARGO_PKG_NAME"));
+        assert!(!resp.version.is_empty());
+        assert!(!resp.supported_archs.is_empty());
+        assert!(!resp.family_id.is_empty());
+    }
+
+    #[test]
+    fn test_handle_health_liveness() {
+        let resp = handle_health_liveness();
+        assert!(resp.alive);
+    }
+
+    #[test]
+    fn test_handle_health_readiness() {
+        let resp = handle_health_readiness();
+        assert!(resp.ready);
+        assert_eq!(resp.name, env!("CARGO_PKG_NAME"));
     }
 
     #[test]

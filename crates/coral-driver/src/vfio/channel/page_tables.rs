@@ -403,11 +403,13 @@ mod tests {
 
     #[test]
     fn iova_layout_after_userd() {
-        assert!(INSTANCE_IOVA > 0x2000, "instance after USERD");
-        assert!(
-            PT0_IOVA + 4096 <= 0x10_0000,
-            "page tables before USER_IOVA_BASE"
-        );
+        const { assert!(INSTANCE_IOVA > 0x2000, "instance after USERD") };
+        const {
+            assert!(
+                PT0_IOVA + 4096 <= 0x10_0000,
+                "page tables before USER_IOVA_BASE"
+            )
+        };
     }
 
     #[test]
