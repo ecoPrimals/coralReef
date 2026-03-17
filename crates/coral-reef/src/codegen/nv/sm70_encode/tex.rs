@@ -73,7 +73,7 @@ impl SM70Encoder<'_> {
         let ndv = match deriv_mode {
             TexDerivMode::Auto => false,
             TexDerivMode::NonDivergent => true,
-            _ => panic!("{deriv_mode} is not supported"),
+            _ => crate::codegen::ice!("{deriv_mode} is not supported"),
         };
         self.set_bit(bit, ndv);
     }
@@ -156,7 +156,7 @@ impl SM70Op for OpTex {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         match self.tex {
             TexRef::Bound(_) => {
-                panic!("SM70+ doesn't have legacy bound textures");
+                crate::codegen::ice!("SM70+ doesn't have legacy bound textures");
             }
             TexRef::CBuf(cb) => {
                 assert!(e.sm < 100);
@@ -197,7 +197,7 @@ impl SM70Op for OpTex {
                 match self.offset_mode {
                     TexOffsetMode::None => 0_u8,
                     TexOffsetMode::AddOffI => 1_u8,
-                    TexOffsetMode::PerPx => panic!("Illegal offset value"),
+                    TexOffsetMode::PerPx => crate::codegen::ice!("Illegal offset value"),
                 },
             );
             e.set_tex_deriv_mode(76..78, self.deriv_mode);
@@ -224,7 +224,7 @@ impl SM70Op for OpTld {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         match self.tex {
             TexRef::Bound(_) => {
-                panic!("SM70+ doesn't have legacy bound textures");
+                crate::codegen::ice!("SM70+ doesn't have legacy bound textures");
             }
             TexRef::CBuf(cb) => {
                 assert!(e.sm < 100);
@@ -263,7 +263,7 @@ impl SM70Op for OpTld {
                 match self.offset_mode {
                     TexOffsetMode::None => 0_u8,
                     TexOffsetMode::AddOffI => 1_u8,
-                    TexOffsetMode::PerPx => panic!("Illegal offset value"),
+                    TexOffsetMode::PerPx => crate::codegen::ice!("Illegal offset value"),
                 },
             );
         } else {
@@ -299,7 +299,7 @@ impl SM70Op for OpTld4 {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         match self.tex {
             TexRef::Bound(_) => {
-                panic!("SM70+ doesn't have legacy bound textures");
+                crate::codegen::ice!("SM70+ doesn't have legacy bound textures");
             }
             TexRef::CBuf(cb) => {
                 assert!(e.sm < 100);
@@ -358,7 +358,7 @@ impl SM70Op for OpTmml {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         match self.tex {
             TexRef::Bound(_) => {
-                panic!("SM70+ doesn't have legacy bound textures");
+                crate::codegen::ice!("SM70+ doesn't have legacy bound textures");
             }
             TexRef::CBuf(cb) => {
                 assert!(e.sm < 100);
@@ -403,7 +403,7 @@ impl SM70Op for OpTxd {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         match self.tex {
             TexRef::Bound(_) => {
-                panic!("SM70+ doesn't have legacy bound textures");
+                crate::codegen::ice!("SM70+ doesn't have legacy bound textures");
             }
             TexRef::CBuf(cb) => {
                 assert!(e.sm < 100);
@@ -442,7 +442,7 @@ impl SM70Op for OpTxd {
                 match self.offset_mode {
                     TexOffsetMode::None => 0_u8,
                     TexOffsetMode::AddOffI => 1_u8,
-                    TexOffsetMode::PerPx => panic!("Illegal offset value"),
+                    TexOffsetMode::PerPx => crate::codegen::ice!("Illegal offset value"),
                 },
             );
         } else {
@@ -464,7 +464,7 @@ impl SM70Op for OpTxq {
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         match self.tex {
             TexRef::Bound(_) => {
-                panic!("SM70+ doesn't have legacy bound textures");
+                crate::codegen::ice!("SM70+ doesn't have legacy bound textures");
             }
             TexRef::CBuf(cb) => {
                 assert!(e.sm < 100);

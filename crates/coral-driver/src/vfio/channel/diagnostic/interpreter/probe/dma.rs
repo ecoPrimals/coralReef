@@ -77,15 +77,9 @@ pub fn probe_dma(
 
     #[cfg(target_arch = "x86_64")]
     {
-        let ptr = instance.as_slice().as_ptr();
-        let len = instance.as_slice().len();
-        let mut addr = ptr as usize & !63;
-        let end = (ptr as usize + len + 63) & !63;
-        while addr < end {
-            unsafe { std::arch::x86_64::_mm_clflush(addr as *const u8) };
-            addr += 64;
-        }
-        unsafe { std::arch::x86_64::_mm_mfence() };
+        let slice = instance.as_slice();
+        crate::vfio::cache_ops::clflush_range(slice.as_ptr(), slice.len());
+        crate::vfio::cache_ops::memory_fence();
     }
 
     let pbdma_id = engines.gr_pbdma.unwrap_or(1);

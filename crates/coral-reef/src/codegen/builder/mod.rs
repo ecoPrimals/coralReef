@@ -562,6 +562,59 @@ mod tests {
     }
 
     #[test]
+    fn test_prmt_src1_identity_optimizes_to_copy() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        let _ = builder.prmt(x.into(), y.into(), [4, 5, 6, 7]);
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(matches!(instrs[0].op, Op::Copy(_)));
+    }
+
+    #[test]
+    fn test_lop2_predicate_and() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let p1 = builder.alloc_ssa(RegFile::Pred);
+        let p2 = builder.alloc_ssa(RegFile::Pred);
+        let _ = builder.lop2(LogicOp2::And, p1.into(), p2.into());
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(matches!(instrs[0].op, Op::PLop3(_) | Op::PSetP(_)));
+    }
+
+    #[test]
+    fn test_predicated_builder_wraps_instrs() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let pred = builder.alloc_ssa(RegFile::Pred);
+        let x = builder.alloc_ssa(RegFile::GPR);
+        let y = builder.alloc_ssa(RegFile::GPR);
+        {
+            let mut pred_b = builder.predicate(pred.into());
+            let _ = pred_b.fadd(x.into(), y.into());
+        }
+        let instrs = builder.into_vec();
+        assert_eq!(instrs.len(), 1);
+        assert!(!instrs[0].pred.is_true());
+    }
+
+    #[test]
+    fn test_uniform_builder_allocates_uniform() {
+        let sm = make_sm70();
+        let mut alloc = SSAValueAllocator::new();
+        let mut builder = SSAInstrBuilder::new(&sm, &mut alloc);
+        let mut uniform_b = crate::codegen::builder::UniformBuilder::new(&mut builder, true);
+        let u = uniform_b.alloc_ssa(RegFile::GPR);
+        assert!(u.file().is_uniform());
+    }
+
+    #[test]
     fn test_undef() {
         let sm = make_sm70();
         let mut alloc = SSAValueAllocator::new();

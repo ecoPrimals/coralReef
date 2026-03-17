@@ -171,9 +171,9 @@ pub const DS_READ_U8: u16 = 58;
 pub const DS_READ_I16: u16 = 59;
 /// Load 16 bits of unsigned data from a data share, zero extend to 32 bits and store the result into a vector register.
 pub const DS_READ_U16: u16 = 60;
-/// LDS & GDS. Subtract (count_bits(exec_mask)) from the value stored in DS memory at (M0.base + instr_offset). Return th...
+/// LDS
 pub const DS_CONSUME: u16 = 61;
-/// LDS & GDS. Add (count_bits(exec_mask)) to the value stored in DS memory at (M0.base + instr_offset). Return the pre-o...
+/// LDS
 pub const DS_APPEND: u16 = 62;
 /// GDS-only. Add (count_bits(exec_mask)) to one of 4 dedicated ordered-count counters (aka 'packers'). Additional bits o...
 pub const DS_ORDERED_COUNT: u16 = 63;

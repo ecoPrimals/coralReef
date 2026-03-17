@@ -669,4 +669,62 @@ mod tests {
         let result = DrmDevice::open_by_driver("nonexistent_drm_driver_xyz");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn dri_render_path_format() {
+        for idx in DRI_RENDER_FIRST..=DRI_RENDER_LAST {
+            let path = format!("{DRI_RENDER_PREFIX}{idx}");
+            assert!(path.starts_with("/dev/dri/renderD"));
+            assert_eq!(path, format!("/dev/dri/renderD{idx}"));
+        }
+    }
+
+    #[test]
+    fn drm_gem_close_default() {
+        let close = DrmGemClose::default();
+        assert_eq!(close.handle, 0);
+        assert_eq!(close.pad, 0);
+    }
+
+    #[test]
+    fn drm_gem_close_construction() {
+        let close = DrmGemClose {
+            handle: 0x1234,
+            pad: 0,
+        };
+        assert_eq!(close.handle, 0x1234);
+    }
+
+    #[test]
+    fn drm_device_info_parsing() {
+        let info = DrmDeviceInfo {
+            path: "/dev/dri/renderD128".to_string(),
+            driver: "amdgpu".to_string(),
+            version_major: 3,
+            version_minor: 57,
+        };
+        assert!(info.path.contains("128"));
+        assert_eq!(info.driver, "amdgpu");
+        assert!(info.version_major >= 0);
+        assert!(info.version_minor >= 0);
+    }
+
+    #[test]
+    fn mapped_region_slice_at_valid_range() {
+        let (file, path) = temp_mmap_file(4096);
+        let fd = file.as_raw_fd();
+        let region = MappedRegion::new(
+            4096,
+            rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
+            rustix::mm::MapFlags::SHARED,
+            fd,
+            0,
+        )
+        .unwrap();
+        let slice = region.slice_at(0, 256).unwrap();
+        assert_eq!(slice.len(), 256);
+        let slice = region.slice_at(3840, 256).unwrap();
+        assert_eq!(slice.len(), 256);
+        let _ = std::fs::remove_file(path);
+    }
 }

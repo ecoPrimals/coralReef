@@ -203,3 +203,138 @@ impl Shader<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::ir::{
+        BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, Op, OpCopy, OpExit,
+        OpF64Exp2, OpF64Sqrt, PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo,
+        ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, Src,
+    };
+    use coral_reef_stubs::cfg::CFGBuilder;
+
+    fn make_shader_with_f64_op(
+        instrs: Vec<Instr>,
+        ssa_alloc: SSAValueAllocator,
+    ) -> Shader<'static> {
+        let sm = Box::leak(Box::new(ShaderModelInfo::new(70, 64)));
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        let block = BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        };
+        cfg_builder.add_block(block);
+        let function = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        Shader {
+            sm,
+            info: ShaderInfo {
+                max_warps_per_sm: 0,
+                gpr_count: 0,
+                control_barrier_count: 0,
+                instr_count: 0,
+                static_cycle_count: 0,
+                spills_to_mem: 0,
+                fills_from_mem: 0,
+                spills_to_reg: 0,
+                fills_from_reg: 0,
+                shared_local_mem_size: 0,
+                max_crs_depth: 0,
+                uses_global_mem: false,
+                writes_global_mem: false,
+                uses_fp64: true,
+                stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                    local_size: [1, 1, 1],
+                    shared_mem_size: 0,
+                }),
+                io: ShaderIoInfo::None,
+            },
+            functions: vec![function],
+            fma_policy: crate::FmaPolicy::default(),
+        }
+    }
+
+    #[test]
+    fn test_lower_f64_transcendentals_exp2_produces_dfma() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let src = ssa_alloc.alloc_vec(RegFile::GPR, 2);
+        let dst = ssa_alloc.alloc_vec(RegFile::GPR, 2);
+        let mut shader = make_shader_with_f64_op(
+            vec![
+                Instr::new(OpCopy {
+                    dst: src[0].into(),
+                    src: Src::ZERO,
+                }),
+                Instr::new(OpCopy {
+                    dst: src[1].into(),
+                    src: Src::new_imm_u32(0x3FF0_0000),
+                }),
+                Instr::new(OpF64Exp2 {
+                    dst: dst.into(),
+                    src: Src::from(src),
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.lower_f64_transcendentals();
+        let blocks = &shader.functions[0].blocks;
+        let mut total_instrs = 0;
+        let mut has_dfma = false;
+        for b in blocks {
+            for instr in &b.instrs {
+                total_instrs += 1;
+                if matches!(instr.op, Op::DFma(_)) {
+                    has_dfma = true;
+                }
+            }
+        }
+        assert!(
+            total_instrs > 5,
+            "exp2 lowering should expand to many instructions"
+        );
+        assert!(has_dfma, "exp2 polynomial should use DFMA");
+    }
+
+    #[test]
+    fn test_lower_f64_transcendentals_sqrt_produces_newton() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let src = ssa_alloc.alloc_vec(RegFile::GPR, 2);
+        let dst = ssa_alloc.alloc_vec(RegFile::GPR, 2);
+        let mut shader = make_shader_with_f64_op(
+            vec![
+                Instr::new(OpCopy {
+                    dst: src[0].into(),
+                    src: Src::ZERO,
+                }),
+                Instr::new(OpCopy {
+                    dst: src[1].into(),
+                    src: Src::new_imm_u32(0x3FF0_0000),
+                }),
+                Instr::new(OpF64Sqrt {
+                    dst: dst.into(),
+                    src: Src::from(src),
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.lower_f64_transcendentals();
+        let mut has_rsq64h = false;
+        for b in &shader.functions[0].blocks {
+            for instr in &b.instrs {
+                if let Op::Transcendental(t) = &instr.op {
+                    if matches!(t.op, super::super::ir::TranscendentalOp::Rsq64H) {
+                        has_rsq64h = true;
+                    }
+                }
+            }
+        }
+        assert!(has_rsq64h, "sqrt Newton-Raphson should use Rsq64H seed");
+    }
+}

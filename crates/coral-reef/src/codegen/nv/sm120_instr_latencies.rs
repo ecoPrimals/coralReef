@@ -31,7 +31,7 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
                     0 | 1 => ImadWideReadAb,
                     2 => ImadWideReadCl, // vs upper C operand - work it out
                     _ => {
-                        panic!("Illegal field in imadwide")
+                        crate::codegen::ice!("Illegal field in imadwide")
                     }
                 }
             } else {
@@ -122,7 +122,7 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
             if reader {
                 Decoupled
             } else {
-                panic!("Illegal R2UR");
+                crate::codegen::ice!("Illegal R2UR");
             }
         }
         Op::CS2R(cs2r) => {
@@ -138,7 +138,7 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
         Op::Nop(_) => Disp64,
         Op::Imma(_) => Imma,
         x => {
-            panic!("Illegal instuction in reg category {x}");
+            crate::codegen::ice!("Illegal instuction in reg category {x}");
         }
     }
 }
@@ -176,7 +176,7 @@ fn op_pred_latency(op: &Op) -> PredLatencySM100 {
         Op::Vote(_) => DispDualAlu,
         Op::Match(_) => Decoupled,
         _ => {
-            panic!("Illegal op in sm120 pred latency {op}");
+            crate::codegen::ice!("Illegal op in sm120 pred latency {op}");
         }
     }
 }
@@ -258,14 +258,14 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
             if !reader {
                 R2Ur
             } else {
-                panic!("Illegal R2UR in ureg");
+                crate::codegen::ice!("Illegal R2UR in ureg");
             }
         }
         Op::Redux(_) => {
             if !reader {
                 ToUr
             } else {
-                panic!("Illegal R2UR in ureg");
+                crate::codegen::ice!("Illegal R2UR in ureg");
             }
         }
         Op::Vote(_) => Voteu,
@@ -288,7 +288,7 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
         | Op::HSetP2(_) => coupled,
         Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => decoupled,
         _ => {
-            panic!("Illegal instuction in ureg category {op}");
+            crate::codegen::ice!("Illegal instuction in ureg category {op}");
         }
     }
 }
@@ -335,11 +335,11 @@ fn op_upred_latency(op: &Op) -> UpredLatencySM100 {
             if uniform_op {
                 Voteu
             } else {
-                panic!("Illegal Vote in upred");
+                crate::codegen::ice!("Illegal Vote in upred");
             }
         }
         _ => {
-            panic!("Illegal instuction in upred category {op}");
+            crate::codegen::ice!("Illegal instuction in upred category {op}");
         }
     }
 }
@@ -415,7 +415,7 @@ impl SM120Latency {
                 UpredLatencySM100::raw(write_latency, read_latency, false) + 1
             }
             RegFile::Bar => 0, // Barriers have a HW scoreboard
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 
@@ -450,7 +450,7 @@ impl SM120Latency {
                 let read_latency = op_upred_latency(read);
                 UpredLatencySM100::war(read_latency, write_latency, false)
             }
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 
@@ -486,7 +486,7 @@ impl SM120Latency {
                 let write2_latency = op_upred_latency(b);
                 UpredLatencySM100::waw(write1_latency, write2_latency, false)
             }
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 }

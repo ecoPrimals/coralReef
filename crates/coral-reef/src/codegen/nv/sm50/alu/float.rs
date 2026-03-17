@@ -40,7 +40,7 @@ impl SM50Op for OpFAdd {
                     e.set_opcode(0x4c58);
                     e.set_cb_fmod_src(20..39, 49, 45, &self.srcs[1]);
                 }
-                src => panic!("Invalid fadd src1: {src}"),
+                src => crate::codegen::ice!("Invalid fadd src1: {src}"),
             }
 
             e.set_dst(&self.dst);
@@ -99,7 +99,7 @@ impl SM50Op for OpFFma {
                         e.set_opcode(0x4980);
                         e.set_src_cb(20..39, cb);
                     }
-                    src => panic!("Invalid ffma src1: {src}"),
+                    src => crate::codegen::ice!("Invalid ffma src1: {src}"),
                 }
 
                 e.set_reg_src_ref(39..47, &self.srcs[2].reference);
@@ -109,7 +109,7 @@ impl SM50Op for OpFFma {
                 e.set_src_cb(20..39, cb);
                 e.set_reg_src_ref(39..47, &self.srcs[1].reference);
             }
-            src => panic!("Invalid ffma src2: {src}"),
+            src => crate::codegen::ice!("Invalid ffma src2: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -149,7 +149,7 @@ impl SM50Op for OpFMnMx {
                 e.set_opcode(0x4c60);
                 e.set_cb_fmod_src(20..39, 49, 45, &self.srcs[1]);
             }
-            src => panic!("Invalid fmnmx src2: {src}"),
+            src => crate::codegen::ice!("Invalid fmnmx src2: {src}"),
         }
 
         e.set_reg_fmod_src(8..16, 46, 48, &self.srcs[0]);
@@ -209,7 +209,7 @@ impl SM50Op for OpFMul {
                     e.set_opcode(0x4c68);
                     e.set_src_cb(20..39, cbuf);
                 }
-                src => panic!("Invalid fmul src1: {src}"),
+                src => crate::codegen::ice!("Invalid fmul src1: {src}"),
             }
 
             e.set_rnd_mode(39..41, self.rnd_mode);
@@ -246,7 +246,7 @@ impl SM50Op for OpRro {
                 e.set_opcode(0x4c90);
                 e.set_cb_fmod_src(20..39, 49, 45, &self.src);
             }
-            src => panic!("Invalid rro src: {src}"),
+            src => crate::codegen::ice!("Invalid rro src: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -284,8 +284,8 @@ impl SM50Op for OpTranscendental {
                 TranscendentalOp::Rsq64H => 7_u8,
                 // SQRT is only on SM52 and later
                 TranscendentalOp::Sqrt if e.sm.sm() >= 52 => 8_u8,
-                TranscendentalOp::Sqrt => panic!("MUFU.SQRT not supported on SM50"),
-                TranscendentalOp::Tanh => panic!("MUFU.TANH not supported on SM50"),
+                TranscendentalOp::Sqrt => crate::codegen::ice!("MUFU.SQRT not supported on SM50"),
+                TranscendentalOp::Tanh => crate::codegen::ice!("MUFU.TANH not supported on SM50"),
             },
         );
     }
@@ -317,7 +317,7 @@ impl SM50Op for OpFSet {
                 e.set_opcode(0x4800);
                 e.set_cb_fmod_src(20..39, 44, 6, &self.srcs[1]);
             }
-            src => panic!("Invalid fset src1: {src}"),
+            src => crate::codegen::ice!("Invalid fset src1: {src}"),
         }
 
         e.set_reg_fmod_src(8..16, 54, 43, &self.srcs[0]);
@@ -356,7 +356,7 @@ impl SM50Op for OpFSetP {
                 e.set_opcode(0x4bb0);
                 e.set_cb_fmod_src(20..39, 44, 6, &self.srcs[1]);
             }
-            src => panic!("Invalid fsetp src1: {src}"),
+            src => crate::codegen::ice!("Invalid fsetp src1: {src}"),
         }
 
         e.set_pred_dst(3..6, &self.dst);

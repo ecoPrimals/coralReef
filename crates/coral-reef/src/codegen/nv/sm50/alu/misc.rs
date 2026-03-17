@@ -82,7 +82,7 @@ impl SM50Op for OpMov {
                 e.set_src_cb(20..39, cb);
                 e.set_field(39..43, self.quad_lanes);
             }
-            src => panic!("Invalid mov src: {src}"),
+            src => crate::codegen::ice!("Invalid mov src: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -112,7 +112,7 @@ impl SM50Op for OpPrmt {
                 e.set_opcode(0x4bc0);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid prmt selector: {src}"),
+            src => crate::codegen::ice!("Invalid prmt selector: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -162,7 +162,7 @@ impl SM50Op for OpSel {
                 e.set_opcode(0x4ca0);
                 e.set_src_cb(20..39, cbuf);
             }
-            src => panic!("Invalid sel src1: {src}"),
+            src => crate::codegen::ice!("Invalid sel src1: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -196,7 +196,7 @@ impl SM50Op for OpShfl {
                 e.set_bit(28, true);
                 e.set_field(20..25, *imm32);
             }
-            src => panic!("Invalid shfl lane: {src}"),
+            src => crate::codegen::ice!("Invalid shfl lane: {src}"),
         }
         match &self.c().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
@@ -207,7 +207,7 @@ impl SM50Op for OpShfl {
                 e.set_bit(29, true);
                 e.set_field(34..47, *imm32);
             }
-            src => panic!("Invalid shfl c: {src}"),
+            src => crate::codegen::ice!("Invalid shfl c: {src}"),
         }
 
         e.set_field(

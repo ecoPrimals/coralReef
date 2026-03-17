@@ -229,4 +229,45 @@ mod tests {
         };
         assert!(matches!(buf.domain, MemoryDomain::VramOrGtt));
     }
+
+    #[test]
+    fn gem_buffer_struct_all_fields() {
+        let buf = GemBuffer {
+            gem_handle: 0xABCD,
+            size: 0x10_0000,
+            gpu_va: 0x8000_0000,
+            domain: MemoryDomain::Vram,
+        };
+        assert_eq!(buf.gem_handle, 0xABCD);
+        assert_eq!(buf.size, 0x10_0000);
+        assert_eq!(buf.gpu_va, 0x8000_0000);
+    }
+
+    #[test]
+    fn gem_buffer_write_exact_boundary_fails() {
+        let buf = GemBuffer {
+            gem_handle: 0,
+            size: 100,
+            gpu_va: 0,
+            domain: MemoryDomain::Vram,
+        };
+        // offset=0, len=101 > 100 — out of bounds
+        let result = buf.write(-1_i32, 0, &[0u8; 101]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn gem_buffer_read_exact_boundary_fails() {
+        let buf = GemBuffer {
+            gem_handle: 0,
+            size: 100,
+            gpu_va: 0,
+            domain: MemoryDomain::Vram,
+        };
+        // offset=0, len=101 > 100 — out of bounds
+        let result = buf.read(-1_i32, 0, 101);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
 }

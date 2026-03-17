@@ -71,7 +71,7 @@ impl FloatCmpOp {
             Self::UnordLe => Self::UnordGe,
             Self::UnordGt => Self::UnordLt,
             Self::UnordGe => Self::UnordLe,
-            Self::IsNum | Self::IsNan => panic!("ICE: Cannot flip unop"),
+            Self::IsNum | Self::IsNan => crate::codegen::ice!("Cannot flip unop"),
         }
     }
 }

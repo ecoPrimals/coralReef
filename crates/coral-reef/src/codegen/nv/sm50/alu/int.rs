@@ -25,7 +25,7 @@ impl SM50Op for OpBfe {
                 e.set_opcode(0x4c00);
                 e.set_src_cb(20..39, cbuf);
             }
-            src => panic!("Invalid bfe range: {src}"),
+            src => crate::codegen::ice!("Invalid bfe range: {src}"),
         }
 
         if self.signed {
@@ -62,7 +62,7 @@ impl SM50Op for OpFlo {
                 e.set_opcode(0x4c30);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid flo src: {src}"),
+            src => crate::codegen::ice!("Invalid flo src: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -97,7 +97,7 @@ impl SM50Op for OpIAdd2 {
         let carry_out = match self.carry_out() {
             Dst::Reg(reg) if reg.file() == RegFile::Carry => true,
             Dst::None => false,
-            dst => panic!("Invalid iadd carry_out: {dst}"),
+            dst => crate::codegen::ice!("Invalid iadd carry_out: {dst}"),
         };
 
         if let Some(imm32) = self.srcs[1].as_imm_not_i20() {
@@ -124,7 +124,7 @@ impl SM50Op for OpIAdd2 {
                     e.set_opcode(0x4c10);
                     e.set_cb_ineg_src(20..39, 48, &self.srcs[1]);
                 }
-                src => panic!("Invalid iadd src1: {src}"),
+                src => crate::codegen::ice!("Invalid iadd src1: {src}"),
             }
 
             e.set_dst(self.dst());
@@ -147,13 +147,13 @@ impl SM50Op for OpIAdd2X {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         match &self.carry_in().reference {
             SrcRef::Reg(reg) if reg.file() == RegFile::Carry => (),
-            src => panic!("Invalid iadd.x carry_in: {src}"),
+            src => crate::codegen::ice!("Invalid iadd.x carry_in: {src}"),
         }
 
         let carry_out = match self.carry_out() {
             Dst::Reg(reg) if reg.file() == RegFile::Carry => true,
             Dst::None => false,
-            dst => panic!("Invalid iadd.x carry_out: {dst}"),
+            dst => crate::codegen::ice!("Invalid iadd.x carry_out: {dst}"),
         };
 
         if let Some(imm32) = self.srcs[1].as_imm_not_i20() {
@@ -180,7 +180,7 @@ impl SM50Op for OpIAdd2X {
                     e.set_opcode(0x4c10);
                     e.set_cb_bnot_src(20..39, 48, &self.srcs[1]);
                 }
-                src => panic!("Invalid iadd.x src1: {src}"),
+                src => crate::codegen::ice!("Invalid iadd.x src1: {src}"),
             }
 
             e.set_dst(self.dst());
@@ -226,7 +226,7 @@ impl SM50Op for OpIMad {
                         e.set_opcode(0x4a00);
                         e.set_src_cb(20..39, cb);
                     }
-                    src => panic!("Invalid imad src1: {src}"),
+                    src => crate::codegen::ice!("Invalid imad src1: {src}"),
                 }
 
                 e.set_reg_src_ref(39..47, &self.srcs[2].reference);
@@ -236,7 +236,7 @@ impl SM50Op for OpIMad {
                 e.set_src_cb(20..39, cb);
                 e.set_reg_src_ref(39..47, &self.srcs[1].reference);
             }
-            src => panic!("Invalid imad src2: {src}"),
+            src => crate::codegen::ice!("Invalid imad src2: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -284,7 +284,7 @@ impl SM50Op for OpIMul {
                     e.set_opcode(0x4c38);
                     e.set_src_cb(20..39, cb);
                 }
-                src => panic!("Invalid imul src1: {src}"),
+                src => crate::codegen::ice!("Invalid imul src1: {src}"),
             }
 
             e.set_bit(39, self.high);
@@ -321,7 +321,7 @@ impl SM50Op for OpIMnMx {
                 e.set_opcode(0x4c20);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid imnmx src1: {src}"),
+            src => crate::codegen::ice!("Invalid imnmx src1: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -365,7 +365,7 @@ impl SM50Op for OpISetP {
                 e.set_opcode(0x4b60);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid isetp src1: {src}"),
+            src => crate::codegen::ice!("Invalid isetp src1: {src}"),
         }
 
         e.set_pred_dst(0..3, &Dst::None); // dst1
@@ -420,7 +420,7 @@ impl SM50Op for OpLop2 {
                     LogicOp2::Or => 1_u8,
                     LogicOp2::Xor => 2_u8,
                     LogicOp2::PassB => {
-                        panic!("PASS_B is not supported for LOP32I");
+                        crate::codegen::ice!("PASS_B is not supported for LOP32I");
                     }
                 },
             );
@@ -440,7 +440,7 @@ impl SM50Op for OpLop2 {
                     e.set_opcode(0x4c40);
                     e.set_cb_bnot_src(20..39, 40, &self.srcs[1]);
                 }
-                src => panic!("Invalid lop2 src1: {src}"),
+                src => crate::codegen::ice!("Invalid lop2 src1: {src}"),
             }
 
             e.set_dst(&self.dst);
@@ -482,7 +482,7 @@ impl SM50Op for OpPopC {
                 e.set_opcode(0x4c08);
                 e.set_cb_bnot_src(20..39, 40, &self.src);
             }
-            src => panic!("Invalid popc src1: {src}"),
+            src => crate::codegen::ice!("Invalid popc src1: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -509,7 +509,7 @@ impl SM50Op for OpShf {
                 e.set_src_imm_i20(20..39, 56, *imm32);
                 assert!(self.shift().is_unmodified());
             }
-            src => panic!("Invalid shf shift: {src}"),
+            src => crate::codegen::ice!("Invalid shf shift: {src}"),
         }
 
         e.set_field(
@@ -518,7 +518,7 @@ impl SM50Op for OpShf {
                 IntType::I32 | IntType::U32 => 0_u8,
                 IntType::U64 => 2_u8,
                 IntType::I64 => 3_u8,
-                _ => panic!("Invalid shift data type"),
+                _ => crate::codegen::ice!("Invalid shift data type"),
             },
         );
 
@@ -562,7 +562,7 @@ impl SM50Op for OpShl {
                 e.set_opcode(0x4c48);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid shl shift: {src}"),
+            src => crate::codegen::ice!("Invalid shl shift: {src}"),
         }
 
         e.set_bit(39, self.wrap);
@@ -592,7 +592,7 @@ impl SM50Op for OpShr {
                 e.set_opcode(0x4c28);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid shr shift: {src}"),
+            src => crate::codegen::ice!("Invalid shr shift: {src}"),
         }
 
         e.set_bit(39, self.wrap);

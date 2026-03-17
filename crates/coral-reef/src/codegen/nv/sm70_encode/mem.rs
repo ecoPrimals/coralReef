@@ -242,7 +242,7 @@ impl SM70Op for OpLdc {
 
     fn encode(&self, e: &mut SM70Encoder<'_>) {
         let SrcRef::CBuf(cb) = &self.cb().reference else {
-            panic!("LDC must take a cbuf source");
+            crate::codegen::ice!("LDC must take a cbuf source");
         };
 
         match cb.buf {
@@ -306,7 +306,7 @@ impl SM70Op for OpLdc {
                 assert!(self.mode == LdcMode::Indexed);
                 e.set_bit(91, true); // Bindless
             }
-            CBuf::BindlessSSA(_) => panic!("SSA values must be lowered"),
+            CBuf::BindlessSSA(_) => crate::codegen::ice!("SSA values must be lowered"),
         }
 
         if e.sm >= 100 && self.is_uniform() {
@@ -377,7 +377,7 @@ impl SM70Encoder<'_> {
                 AtomOp::Or => 6_u8,
                 AtomOp::Xor => 7_u8,
                 AtomOp::Exch => 8_u8,
-                AtomOp::CmpExch(_) => panic!("CmpExch is a separate opcode"),
+                AtomOp::CmpExch(_) => crate::codegen::ice!("CmpExch is a separate opcode"),
             },
         );
     }
@@ -474,7 +474,7 @@ impl SM70Op for OpAtom {
                 e.set_eviction_priority(&self.mem_eviction_priority);
                 assert_eq!(self.addr_stride, OffsetStride::X1);
             }
-            MemSpace::Local => panic!("Atomics do not support local"),
+            MemSpace::Local => crate::codegen::ice!("Atomics do not support local"),
             MemSpace::Shared => {
                 if let AtomOp::CmpExch(cmp_src) = self.atom_op {
                     e.set_opcode(0x38d);
@@ -596,7 +596,7 @@ impl SM70Op for OpIpa {
                 InterpFreq::Constant => 1_u8,
                 InterpFreq::State => 2_u8,
                 InterpFreq::PassMulW => {
-                    panic!("InterpFreq::PassMulW is invalid on SM70+");
+                    crate::codegen::ice!("InterpFreq::PassMulW is invalid on SM70+");
                 }
             },
         );
@@ -653,7 +653,7 @@ impl SM70Op for OpCCtl {
                 CCtlOp::IVAllP => 6_u8,
                 CCtlOp::WBAll => 7_u8,
                 CCtlOp::WBAllP => 8_u8,
-                op => panic!("Unsupported cache control {op:?}"),
+                op => crate::codegen::ice!("Unsupported cache control {op:?}"),
             },
         );
     }

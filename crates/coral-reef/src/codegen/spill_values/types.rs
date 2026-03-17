@@ -135,7 +135,7 @@ impl Spill for SpillPred<'_> {
         match file {
             RegFile::Pred => RegFile::GPR,
             RegFile::UPred => RegFile::UGPR,
-            _ => panic!("Unsupported register file"),
+            _ => crate::codegen::ice!("Unsupported register file"),
         }
     }
 

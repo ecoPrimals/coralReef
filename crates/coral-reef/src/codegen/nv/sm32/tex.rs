@@ -37,7 +37,7 @@ impl SM32Encoder<'_> {
                 TexLodMode::Lod => 3_u8,
                 // 6: lba
                 // 7: lla
-                _ => panic!("Unknown LOD mode"),
+                _ => crate::codegen::ice!("Unknown LOD mode"),
             },
         );
     }
@@ -46,7 +46,7 @@ impl SM32Encoder<'_> {
         let ndv = match deriv_mode {
             TexDerivMode::Auto => false,
             TexDerivMode::NonDivergent => true,
-            _ => panic!("{deriv_mode} is not supported"),
+            _ => crate::codegen::ice!("{deriv_mode} is not supported"),
         };
         self.set_bit(bit, ndv);
     }
@@ -76,7 +76,7 @@ impl SM32Op for OpTex {
                 e.set_field(47..60, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM32 doesn't have CBuf textures");
+                crate::codegen::ice!("SM32 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0x7d8, 2);
@@ -116,7 +116,7 @@ impl SM32Op for OpTld {
                 e.set_field(47..60, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM32 doesn't have CBuf textures");
+                crate::codegen::ice!("SM32 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0x780, 2);
@@ -158,7 +158,7 @@ impl SM32Op for OpTld4 {
                 e.set_field(47..60, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM32 doesn't have CBuf textures");
+                crate::codegen::ice!("SM32 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0x7dc, 2);
@@ -204,7 +204,7 @@ impl SM32Op for OpTmml {
                 e.set_field(47..60, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM32 doesn't have CBuf textures");
+                crate::codegen::ice!("SM32 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0x7e8, 2);
@@ -240,7 +240,7 @@ impl SM32Op for OpTxd {
                 e.set_field(47..60, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM32 doesn't have CBuf textures");
+                crate::codegen::ice!("SM32 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0x7e0, 2);
@@ -277,7 +277,7 @@ impl SM32Op for OpTxq {
                 e.set_field(41..54, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM32 doesn't have CBuf textures");
+                crate::codegen::ice!("SM32 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0x7d4, 2);
@@ -472,7 +472,7 @@ impl SM32Encoder<'_> {
             LdCacheOp::CacheGlobal => 1_u8,
             LdCacheOp::CacheStreaming => 2_u8,
             LdCacheOp::CacheInvalidate => 3_u8,
-            LdCacheOp::CacheIncoherent => panic!("Unsupported cache op: ld{op}"),
+            LdCacheOp::CacheIncoherent => crate::codegen::ice!("Unsupported cache op: ld{op}"),
         };
         self.set_field(range, cache_op);
     }
@@ -520,7 +520,7 @@ impl SM32Op for OpSuLdGa {
                 e.set_ld_cache_op(31..33, self.cache_op);
                 e.set_reg_src(23..31, self.format());
             }
-            _ => panic!("Unhandled format src type"),
+            _ => crate::codegen::ice!("Unhandled format src type"),
         }
 
         // surface pred: 42..46
@@ -589,7 +589,7 @@ impl SM32Op for OpSuStGa {
                 e.set_su_ga_offset_mode(29..31, self.offset_mode);
                 e.set_st_cache_op(31..33, self.cache_op);
             }
-            _ => panic!("Unhandled format src type"),
+            _ => crate::codegen::ice!("Unhandled format src type"),
         }
 
         // out_of_bounds pred

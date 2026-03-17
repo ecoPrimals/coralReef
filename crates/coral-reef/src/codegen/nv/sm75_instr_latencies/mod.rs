@@ -91,7 +91,7 @@ impl SM75Latency {
                 uniform::URegLatencySM75::pred_read_after_write(write_latency, read_latency)
             }
             RegFile::Bar => 0, // Barriers have a HW scoreboard
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 
@@ -125,7 +125,7 @@ impl SM75Latency {
 
                 uniform::URegLatencySM75::pred_write_after_read(read_latency, write_latency)
             }
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 
@@ -167,7 +167,7 @@ impl SM75Latency {
 
                 uniform::URegLatencySM75::pred_write_after_write(write1_latency, write2_latency)
             }
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 }

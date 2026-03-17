@@ -217,15 +217,8 @@ impl MemoryRegion for DmaRegion {
         #[cfg(target_arch = "x86_64")]
         {
             let slice = self.buf.as_slice();
-            let mut addr = slice.as_ptr() as usize & !63;
-            let end = (slice.as_ptr() as usize + slice.len() + 63) & !63;
-            while addr < end {
-                // SAFETY: addr is within the mlock'd DMA allocation, aligned to cache line.
-                unsafe { std::arch::x86_64::_mm_clflush(addr as *const u8) };
-                addr += 64;
-            }
-            // SAFETY: Fence ensures all preceding stores are globally visible.
-            unsafe { std::arch::x86_64::_mm_mfence() };
+            super::cache_ops::clflush_range(slice.as_ptr(), slice.len());
+            super::cache_ops::memory_fence();
         }
     }
 }

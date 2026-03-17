@@ -346,4 +346,29 @@ mod tests {
         let vgprs = rsrc1 & 0x3F;
         assert_eq!(vgprs, 0, "4 VGPRs encodes as 0 (ceil(4/8)-1)");
     }
+
+    #[test]
+    fn pm4_set_sh_reg_packet_structure() {
+        let info = ShaderInfo {
+            gpr_count: 8,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [1, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0x1000, DispatchDims::new(1, 1, 1), &info, &[]);
+        // First packet: SET_SH_REG for PGM_LO/HI (header + reg_offset + 2 values)
+        assert!(pm4.len() >= 4);
+        let first_header = pm4[0];
+        assert_eq!(first_header >> 30, 3, "Type 3 packet");
+        assert_eq!((first_header >> 8) & 0xFF, PM4_SET_SH_REG);
+    }
+
+    #[test]
+    fn pm4_user_data_va_split() {
+        let va = 0x1234_5678_9ABC_DEF0_u64;
+        let lo = va as u32;
+        let hi = (va >> 32) as u32;
+        assert_eq!(lo, 0x9ABC_DEF0);
+        assert_eq!(hi, 0x1234_5678);
+    }
 }

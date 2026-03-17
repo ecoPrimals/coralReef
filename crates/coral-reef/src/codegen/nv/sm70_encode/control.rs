@@ -495,7 +495,7 @@ impl SM70Op for OpLdsm {
                 1 => 0u8,
                 2 => 1u8,
                 4 => 2u8,
-                _ => panic!("Invalid LDSM mat count"),
+                _ => crate::codegen::ice!("Invalid LDSM mat count"),
             },
         );
         e.set_field(
@@ -620,7 +620,7 @@ macro_rules! sm70_op_match {
             Op::Hmma($x) => $y,
             Op::Imma($x) => $y,
             Op::Ldsm($x) => $y,
-            _ => panic!("Unsupported op: {}", $op),
+            _ => crate::codegen::ice!("Unsupported op: {}", $op),
         }
     };
 }

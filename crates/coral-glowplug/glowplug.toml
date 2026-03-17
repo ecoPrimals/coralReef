@@ -5,7 +5,7 @@
 #   /etc/coralreef/glowplug.toml       (system service)
 
 [daemon]
-socket = "/run/user/1000/coralreef/glowplug.sock"
+socket = "$XDG_RUNTIME_DIR/coralreef/glowplug.sock"
 log_level = "info"
 health_interval_ms = 5000
 

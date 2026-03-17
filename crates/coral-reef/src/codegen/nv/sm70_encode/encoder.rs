@@ -53,7 +53,7 @@ impl SM70Encoder<'_> {
         let nr = match file {
             RegFile::GPR => 255,
             RegFile::UGPR => self.ugpr_max(),
-            _ => panic!("Not a GPR"),
+            _ => crate::codegen::ice!("Not a GPR"),
         };
         RegRef::new(file, nr, 1)
     }
@@ -322,7 +322,7 @@ pub(super) fn src_mod_is_bnot(modifier: SrcMod) -> bool {
     match modifier {
         SrcMod::None => false,
         SrcMod::BNot => true,
-        _ => panic!("Not an predicate source modifier"),
+        _ => crate::codegen::ice!("Not an predicate source modifier"),
     }
 }
 
@@ -352,7 +352,7 @@ impl ALUSrc {
                         e.zero_reg(file)
                     }
                     SrcRef::Reg(reg) => reg,
-                    _ => panic!("Invalid source ref"),
+                    _ => crate::codegen::ice!("Invalid source ref"),
                 };
                 assert!(reg.comps() <= 2);
                 let alu_ref = ALURegRef {
@@ -368,7 +368,7 @@ impl ALUSrc {
                     match reg.file() {
                         RegFile::GPR => Self::Reg(alu_ref),
                         RegFile::UGPR => Self::UReg(alu_ref),
-                        _ => panic!("Invalid ALU register file"),
+                        _ => crate::codegen::ice!("Invalid ALU register file"),
                     }
                 }
             }
@@ -386,7 +386,7 @@ impl ALUSrc {
                 };
                 Self::CBuf(alu_ref)
             }
-            _ => panic!("Invalid ALU source"),
+            _ => crate::codegen::ice!("Invalid ALU source"),
         }
     }
 }
@@ -429,7 +429,7 @@ impl SM70Encoder<'_> {
         match file {
             RegFile::GPR => self.set_reg(range, reg.reg),
             RegFile::UGPR => self.set_ureg(range, reg.reg),
-            _ => panic!("Invalid ALU src register file"),
+            _ => crate::codegen::ice!("Invalid ALU src register file"),
         }
 
         self.set_bit(abs_bit, reg.abs);
@@ -446,7 +446,7 @@ impl SM70Encoder<'_> {
         let reg = match src {
             ALUSrc::None => return,
             ALUSrc::Reg(reg) => reg,
-            _ => panic!("Invalid ALU src"),
+            _ => crate::codegen::ice!("Invalid ALU src"),
         };
         self.set_alu_reg(24..32, 73, 72, 74..76, file, is_fp16_alu, reg);
     }
@@ -455,7 +455,7 @@ impl SM70Encoder<'_> {
         let reg = match src {
             ALUSrc::None => return,
             ALUSrc::Reg(reg) => reg,
-            _ => panic!("Invalid ALU src"),
+            _ => crate::codegen::ice!("Invalid ALU src"),
         };
         self.set_alu_reg(
             64..72,
@@ -617,21 +617,21 @@ impl SM70Encoder<'_> {
                         self.encode_alu_ureg(reg1, false);
                         1_u8 // form
                     }
-                    ALUSrc::UReg(_) => panic!("UALU never has UReg"),
+                    ALUSrc::UReg(_) => crate::codegen::ice!("UALU never has UReg"),
                     ALUSrc::Imm32(imm1) => {
                         self.encode_alu_imm(imm1);
                         4_u8 // form
                     }
-                    ALUSrc::CBuf(_) => panic!("UALU does not support cbufs"),
+                    ALUSrc::CBuf(_) => crate::codegen::ice!("UALU does not support cbufs"),
                 }
             }
-            ALUSrc::UReg(_) => panic!("UALU never has UReg"),
+            ALUSrc::UReg(_) => crate::codegen::ice!("UALU never has UReg"),
             ALUSrc::Imm32(imm2) => {
                 self.encode_alu_imm(imm2);
                 self.encode_alu_src2(&src1, RegFile::UGPR, false);
                 2_u8 // form
             }
-            ALUSrc::CBuf(_) => panic!("UALU does not support cbufs"),
+            ALUSrc::CBuf(_) => crate::codegen::ice!("UALU does not support cbufs"),
         };
 
         self.set_field(0..9, opcode);
@@ -682,7 +682,7 @@ pub(super) fn legalize_ext_instr(op: &mut impl SrcsAsSlice, b: &mut LegalizeBuil
                 SrcRef::SSA(ssa) => {
                     b.copy_ssa_ref_if_uniform(ssa);
                 }
-                _ => panic!("Unsupported source reference"),
+                _ => crate::codegen::ice!("Unsupported source reference"),
             },
             SrcType::ALU
             | SrcType::F16
@@ -691,13 +691,13 @@ pub(super) fn legalize_ext_instr(op: &mut impl SrcsAsSlice, b: &mut LegalizeBuil
             | SrcType::F64
             | SrcType::I32
             | SrcType::B32 => {
-                panic!("ALU srcs must be legalized explicitly");
+                crate::codegen::ice!("ALU srcs must be legalized explicitly");
             }
             SrcType::Pred => {
-                panic!("Predicates must be legalized explicitly");
+                crate::codegen::ice!("Predicates must be legalized explicitly");
             }
             SrcType::Carry => {
-                panic!("Carry is invalid on Volta+");
+                crate::codegen::ice!("Carry is invalid on Volta+");
             }
             SrcType::Bar => (),
         }

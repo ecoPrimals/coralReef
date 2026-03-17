@@ -63,7 +63,7 @@ impl ShaderModel70 {
             RegFile::UPred => 11,
             RegFile::Bar => 0,
             RegFile::Carry => 6,
-            RegFile::Mem => panic!("Not a register"),
+            RegFile::Mem => crate::codegen::ice!("Not a register"),
         }
     }
 }

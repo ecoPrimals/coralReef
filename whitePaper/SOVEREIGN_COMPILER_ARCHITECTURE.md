@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 # Sovereign Compiler Architecture
 
 **Status**: Implemented (NVIDIA + AMD), Sovereign Pipeline Complete

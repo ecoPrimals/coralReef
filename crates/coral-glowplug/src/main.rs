@@ -182,7 +182,7 @@ async fn main() {
             );
         }
         tracing::info!("╠══════════════════════════════════════════════════════════╣");
-        tracing::info!("║ Socket: {}", config.daemon.socket);
+        tracing::info!("║ Socket: {}", server.bound_addr());
         tracing::info!("║ Log level: {}", config.daemon.log_level);
         tracing::info!(
             "║ Health check: every {}ms",
@@ -256,4 +256,48 @@ async fn main() {
 
     accept_handle.abort();
     tracing::info!("coral-glowplug stopped cleanly");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_bdf_arg_simple() {
+        let cfg = parse_bdf_arg("0000:01:00.0");
+        assert_eq!(cfg.bdf, "0000:01:00.0");
+        assert_eq!(cfg.boot_personality, "vfio");
+        assert!(cfg.name.is_none());
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_with_personality() {
+        let cfg = parse_bdf_arg("0000:4a:00.0:nouveau");
+        assert_eq!(cfg.bdf, "0000:4a:00.0");
+        assert_eq!(cfg.boot_personality, "nouveau");
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_with_amdgpu() {
+        let cfg = parse_bdf_arg("0000:03:00.0:amdgpu");
+        assert_eq!(cfg.bdf, "0000:03:00.0");
+        assert_eq!(cfg.boot_personality, "amdgpu");
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_colon_in_bdf_no_personality() {
+        // "0000:01:00.0" has 3 colons - no 4th segment, so default vfio
+        let cfg = parse_bdf_arg("0000:01:00.0");
+        assert_eq!(cfg.bdf, "0000:01:00.0");
+        assert_eq!(cfg.boot_personality, "vfio");
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_numeric_suffix_ignored() {
+        // If 4th segment has digits, it's not a personality (must be alphabetic).
+        // Filter fails, so full arg is used as bdf with default vfio.
+        let cfg = parse_bdf_arg("0000:01:00.0:1");
+        assert_eq!(cfg.bdf, "0000:01:00.0:1");
+        assert_eq!(cfg.boot_personality, "vfio");
+    }
 }

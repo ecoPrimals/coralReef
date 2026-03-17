@@ -843,4 +843,44 @@ mod tests {
         assert!(!registry.supports("nvidia-proprietary"));
         assert!(!registry.supports("unknown"));
     }
+
+    #[test]
+    fn test_device_slot_has_vfio_initially_false() {
+        let config = DeviceConfig {
+            bdf: "0000:99:00.0".into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let slot = DeviceSlot::new(config);
+        assert!(!slot.has_vfio());
+    }
+
+    #[test]
+    fn test_device_health_struct() {
+        let health = DeviceHealth {
+            vram_alive: true,
+            boot0: 0x1234_5678,
+            pmc_enable: 0x9abc_def0,
+            power: PowerState::D0,
+            pci_link_width: Some(16),
+            domains_alive: 9,
+            domains_faulted: 0,
+        };
+        assert!(health.vram_alive);
+        assert_eq!(health.boot0, 0x1234_5678);
+        assert_eq!(health.pmc_enable, 0x9abc_def0);
+        assert_eq!(health.power, PowerState::D0);
+        assert_eq!(health.pci_link_width, Some(16));
+        assert_eq!(health.domains_alive, 9);
+        assert_eq!(health.domains_faulted, 0);
+    }
+
+    #[test]
+    fn test_power_state_equality() {
+        assert_eq!(PowerState::D0, PowerState::D0);
+        assert_ne!(PowerState::D0, PowerState::D3Hot);
+    }
 }

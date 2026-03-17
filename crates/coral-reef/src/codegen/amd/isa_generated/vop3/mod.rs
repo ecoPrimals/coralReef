@@ -11,8 +11,6 @@
 use super::isa_types::{BitField, InstrEntry};
 mod table_arith;
 mod table_cmp;
-mod table_cmp_f;
-mod table_cmp_i;
 mod table_logic;
 mod table_math;
 
@@ -26,7 +24,7 @@ pub fn table() -> &'static [InstrEntry] {
     TABLE_CACHE
         .get_or_init(|| {
             [
-                table_cmp::table(),
+                table_cmp::TABLE,
                 table_math::TABLE,
                 table_arith::TABLE,
                 table_logic::TABLE,
@@ -894,9 +892,9 @@ pub const V_LDEXP_F32: u16 = 866;
 pub const V_BFM_B32: u16 = 867;
 /// Count the number of \"1\" bits in the vector input and store the result into a vector register.
 pub const V_BCNT_U32_B32: u16 = 868;
-/// For each lane 0 <= N < 32, examine the N least significant bits of the first input and count how many of those bits a...
+/// For each lane 0
 pub const V_MBCNT_LO_U32_B32: u16 = 869;
-/// For each lane 32 <= N < 64, examine the N least significant bits of the first input and count how many of those bits ...
+/// For each lane 32
 pub const V_MBCNT_HI_U32_B32: u16 = 870;
 /// Convert from two single-precision float inputs to a packed signed normalized short and store the result into a vector...
 pub const V_CVT_PKNORM_I16_F32: u16 = 872;

@@ -197,7 +197,7 @@ impl SM50Op for OpPixLd {
                 PixVal::Offset => 3_u8,
                 PixVal::CentroidOffset => 4_u8,
                 PixVal::MyIndex => 5_u8,
-                other => panic!("Unsupported PixVal: {other}"),
+                other => crate::codegen::ice!("Unsupported PixVal: {other}"),
             },
         );
         e.set_pred_dst(45..48, &Dst::None);
@@ -260,7 +260,7 @@ impl SM50Op for OpOut {
                 e.set_opcode(0xebe0);
                 e.set_src_cb(20..39, cbuf);
             }
-            src => panic!("Invalid out stream: {src}"),
+            src => crate::codegen::ice!("Invalid out stream: {src}"),
         }
 
         e.set_field(

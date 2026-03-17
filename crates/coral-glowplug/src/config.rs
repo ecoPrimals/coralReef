@@ -51,12 +51,38 @@ pub struct DeviceConfig {
     pub oracle_dump: Option<String>,
 }
 
+/// TCP loopback with OS-assigned port (ecoBin fallback on non-Unix platforms).
+#[cfg_attr(unix, allow(dead_code))]
+pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
+
+/// Default TCP bind address for ecoBin compliance.
+///
+/// Returns `127.0.0.1:0` (localhost, OS-assigned port). Callers may override
+/// via `$CORALREEF_TCP_BIND` for deployment configuration.
+#[must_use]
+#[cfg_attr(unix, allow(dead_code))]
+pub fn default_tcp_fallback() -> String {
+    std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
+}
+
+/// Platform-aware default socket address (ecoBin compliance).
+///
+/// On Unix: primary transport is Unix domain socket under `$XDG_RUNTIME_DIR`
+/// (or `/run/coralreef/` as fallback).
+/// On non-Unix: TCP fallback to `127.0.0.1:0` (OS-assigned port).
+#[must_use]
 fn default_socket() -> String {
-    // Use XDG_RUNTIME_DIR when available (user-owned, no root needed)
-    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-        return format!("{xdg}/coralreef/glowplug.sock");
+    #[cfg(unix)]
+    {
+        if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+            return format!("{xdg}/coralreef/glowplug.sock");
+        }
+        "/run/coralreef/glowplug.sock".into()
     }
-    "/run/coralreef/glowplug.sock".into()
+    #[cfg(not(unix))]
+    {
+        default_tcp_fallback()
+    }
 }
 fn default_log_level() -> String {
     "info".into()
@@ -328,7 +354,44 @@ bdf = 12345
         let default = DaemonConfig::default();
         assert_eq!(default.log_level, "info");
         assert_eq!(default.health_interval_ms, 5000);
+        #[cfg(unix)]
         assert!(default.socket.contains("glowplug.sock"));
+        #[cfg(not(unix))]
+        assert!(default.socket.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn test_default_tcp_fallback() {
+        assert_eq!(FALLBACK_TCP_BIND, "127.0.0.1:0");
+        let fallback = default_tcp_fallback();
+        assert!(fallback.contains("127.0.0.1"));
+        assert!(fallback.contains(':'));
+    }
+
+    #[test]
+    fn test_read_sysfs_hex_valid() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("glowplug_test_hex_{}.txt", std::process::id()));
+        let _ = std::fs::write(&path, "0x10de");
+        let val = super::read_sysfs_hex(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(val, 0x10de);
+    }
+
+    #[test]
+    fn test_read_sysfs_hex_no_prefix() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("glowplug_test_hex2_{}.txt", std::process::id()));
+        let _ = std::fs::write(&path, "1234");
+        let val = super::read_sysfs_hex(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(val, 0x1234);
+    }
+
+    #[test]
+    fn test_read_sysfs_hex_missing_returns_zero() {
+        let val = super::read_sysfs_hex(std::path::Path::new("/nonexistent/path/hex"));
+        assert_eq!(val, 0);
     }
 
     #[test]

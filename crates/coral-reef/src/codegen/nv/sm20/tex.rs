@@ -28,7 +28,7 @@ impl SM20Op for OpTex {
                 e.set_field(32..40, idx);
                 e.set_bit(50, false);
             }
-            TexRef::CBuf { .. } => panic!("SM20 doesn't have CBuf textures"),
+            TexRef::CBuf { .. } => crate::codegen::ice!("SM20 doesn't have CBuf textures"),
             TexRef::Bindless => {
                 assert!(e.sm.sm() >= 30);
                 e.set_field(32..40, 0xff_u8);
@@ -63,7 +63,7 @@ impl SM20Op for OpTld {
                 e.set_field(32..40, idx);
                 e.set_bit(50, false);
             }
-            TexRef::CBuf { .. } => panic!("SM20 doesn't have CBuf textures"),
+            TexRef::CBuf { .. } => crate::codegen::ice!("SM20 doesn't have CBuf textures"),
             TexRef::Bindless => {
                 assert!(e.sm.sm() >= 30);
                 e.set_field(32..40, 0xff_u8);
@@ -87,7 +87,7 @@ impl SM20Op for OpTld {
             match self.lod_mode {
                 TexLodMode::Zero => 0_u8,
                 TexLodMode::Lod => 1_u8,
-                _ => panic!("Tld does not support {}", self.lod_mode),
+                _ => crate::codegen::ice!("Tld does not support {}", self.lod_mode),
             },
         );
     }
@@ -105,7 +105,7 @@ impl SM20Op for OpTld4 {
                 e.set_field(32..40, idx);
                 e.set_bit(50, false);
             }
-            TexRef::CBuf { .. } => panic!("SM20 doesn't have CBuf textures"),
+            TexRef::CBuf { .. } => crate::codegen::ice!("SM20 doesn't have CBuf textures"),
             TexRef::Bindless => {
                 assert!(e.sm.sm() >= 30);
                 e.set_field(32..40, 0xff_u8);
@@ -147,7 +147,7 @@ impl SM20Op for OpTmml {
                 e.set_field(32..40, idx);
                 e.set_bit(50, false);
             }
-            TexRef::CBuf { .. } => panic!("SM20 doesn't have CBuf textures"),
+            TexRef::CBuf { .. } => crate::codegen::ice!("SM20 doesn't have CBuf textures"),
             TexRef::Bindless => {
                 assert!(e.sm.sm() >= 30);
                 e.set_field(32..40, 0xff_u8);
@@ -178,7 +178,7 @@ impl SM20Op for OpTxd {
                 e.set_field(32..40, idx);
                 e.set_bit(50, false);
             }
-            TexRef::CBuf { .. } => panic!("SM20 doesn't have CBuf textures"),
+            TexRef::CBuf { .. } => crate::codegen::ice!("SM20 doesn't have CBuf textures"),
             TexRef::Bindless => {
                 assert!(e.sm.sm() >= 30);
                 e.set_field(32..40, 0xff_u8);
@@ -209,7 +209,7 @@ impl SM20Op for OpTxq {
                 e.set_field(32..40, idx);
                 e.set_bit(50, false);
             }
-            TexRef::CBuf { .. } => panic!("SM20 doesn't have CBuf textures"),
+            TexRef::CBuf { .. } => crate::codegen::ice!("SM20 doesn't have CBuf textures"),
             TexRef::Bindless => {
                 assert!(e.sm.sm() >= 30);
                 e.set_field(32..40, 0xff_u8);
@@ -270,7 +270,7 @@ impl SM20Op for OpPixLd {
                 PixVal::Offset => 3_u8,
                 PixVal::CentroidOffset => 4_u8,
                 PixVal::MyIndex => 5_u8,
-                other => panic!("Unsupported PixVal: {other}"),
+                other => crate::codegen::ice!("Unsupported PixVal: {other}"),
             },
         );
         e.set_dst(14..20, &self.dst);

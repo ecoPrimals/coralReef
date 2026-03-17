@@ -27,14 +27,14 @@ impl SM20Op for OpSuLdGa {
             }
             SrcRef::CBuf(cb) => {
                 let CBuf::Binding(idx) = cb.buf else {
-                    panic!("Must be a bound constant buffer");
+                    crate::codegen::ice!("Must be a bound constant buffer");
                 };
                 assert!(cb.offset & 0x3 == 0);
                 e.set_field(26..40, cb.offset >> 2);
                 e.set_field(40..45, idx);
                 e.set_bit(53, true);
             }
-            _ => panic!("Invalid format source"),
+            _ => crate::codegen::ice!("Invalid format source"),
         }
         e.set_su_ga_offset_mode(45..47, self.offset_mode);
         e.set_field(47..49, 0_u8);
@@ -70,14 +70,14 @@ impl SM20Op for OpSuStGa {
             }
             SrcRef::CBuf(cb) => {
                 let CBuf::Binding(idx) = cb.buf else {
-                    panic!("Must be a bound constant buffer");
+                    crate::codegen::ice!("Must be a bound constant buffer");
                 };
                 assert!(cb.offset & 0x3 == 0);
                 e.set_field(26..40, cb.offset >> 2);
                 e.set_field(40..45, idx);
                 e.set_bit(53, true);
             }
-            _ => panic!("Invalid format source"),
+            _ => crate::codegen::ice!("Invalid format source"),
         }
         e.set_su_ga_offset_mode(45..47, self.offset_mode);
         e.set_field(47..49, 0_u8);
@@ -125,10 +125,10 @@ impl SM20Op for OpLdc {
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         assert!(self.cb().modifier.is_none());
         let SrcRef::CBuf(cb) = &self.cb().reference else {
-            panic!("Not a CBuf source");
+            crate::codegen::ice!("Not a CBuf source");
         };
         let CBuf::Binding(cb_idx) = cb.buf else {
-            panic!("Must be a bound constant buffer");
+            crate::codegen::ice!("Must be a bound constant buffer");
         };
         e.set_opcode(SM20Unit::Tex, 0x5);
         e.set_mem_type(5..8, self.mem_type);
@@ -244,7 +244,7 @@ impl SM20Op for OpAtom {
 
     fn encode(&self, e: &mut SM20Encoder<'_>) {
         let MemSpace::Global(addr_type) = self.mem_space else {
-            panic!("SM20 only supports global atomics");
+            crate::codegen::ice!("SM20 only supports global atomics");
         };
         assert!(addr_type == MemAddrType::A64);
         assert_eq!(self.addr_stride, OffsetStride::X1);
@@ -270,12 +270,12 @@ impl SM20Op for OpAtom {
         e.set_field(5..9, op);
 
         let typ = match self.atom_type {
-            AtomType::F16x2 => panic!("Unsupported atomic type"),
+            AtomType::F16x2 => crate::codegen::ice!("Unsupported atomic type"),
             AtomType::U32 => 0x4_u8,
             AtomType::I32 => 0x7_u8,
             AtomType::F32 => 0xd_u8,
             AtomType::U64 | AtomType::I64 | AtomType::F64 => {
-                panic!("64-bit atomics are not supported");
+                crate::codegen::ice!("64-bit atomics are not supported");
             }
         };
         e.set_field(9..10, typ & 0x1);
@@ -407,7 +407,7 @@ impl SM20Op for OpCCtl {
         let op = match self.mem_space {
             MemSpace::Global(MemAddrType::A32) => 0x26,
             MemSpace::Global(MemAddrType::A64) => 0x27,
-            MemSpace::Local => panic!("cctl does not support local"),
+            MemSpace::Local => crate::codegen::ice!("cctl does not support local"),
             MemSpace::Shared => 0x34,
         };
         e.set_opcode(SM20Unit::Mem, op);
@@ -425,7 +425,7 @@ impl SM20Op for OpCCtl {
                 CCtlOp::WBAll => 8_u8,
                 CCtlOp::RSLB => 9_u8,
                 CCtlOp::IVAllP | CCtlOp::WBAllP => {
-                    panic!("cctl{} is not supported on SM20", self.op);
+                    crate::codegen::ice!("cctl{} is not supported on SM20", self.op);
                 }
             },
         );

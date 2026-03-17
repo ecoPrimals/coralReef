@@ -235,7 +235,7 @@ impl SM70Op for OpIDp4 {
             match self.src_types[0] {
                 IntType::U8 => false,
                 IntType::I8 => true,
-                _ => panic!("Invalid DP4 source type"),
+                _ => crate::codegen::ice!("Invalid DP4 source type"),
             },
         );
         e.set_bit(
@@ -243,7 +243,7 @@ impl SM70Op for OpIDp4 {
             match self.src_types[1] {
                 IntType::U8 => false,
                 IntType::I8 => true,
-                _ => panic!("Invalid DP4 source type"),
+                _ => crate::codegen::ice!("Invalid DP4 source type"),
             },
         );
     }
@@ -577,7 +577,7 @@ impl SM70Op for OpShf {
                 IntType::U64 => 1_u8,
                 IntType::I32 => 2_u8,
                 IntType::U32 => 3_u8,
-                _ => panic!("Invalid shift data type"),
+                _ => crate::codegen::ice!("Invalid shift data type"),
             },
         );
         e.set_bit(75, self.wrap);

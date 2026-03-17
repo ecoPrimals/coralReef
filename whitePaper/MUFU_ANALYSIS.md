@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 # MUFU Instruction Analysis
 
 **Status**: Reference  

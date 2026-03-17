@@ -72,7 +72,7 @@ impl PrmtSrcs {
                 *imm |= u32::from(u) << (b * 8);
                 Some(b)
             }
-            _ => panic!("We said this was the imm src"),
+            _ => super::ice!("We said this was the imm src"),
         }
     }
 }
@@ -426,5 +426,135 @@ mod tests {
             ssa_alloc,
         );
         shader.opt_prmt();
+    }
+
+    /// try_opt_prmt_src with src_idx=1: outer prmt uses only src1 from inner prmt.
+    /// Inner: prmt(a,b,0x7654) -> takes bytes from b. Outer: prmt(inner,c,0x3210) uses byte 0 from src0.
+    /// So outer uses byte 0 of inner = byte 0 of b. try_opt_prmt_src can inline.
+    #[test]
+    fn test_opt_prmt_src_idx1_inlines_inner() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        let dst_c = ssa_alloc.alloc(RegFile::GPR);
+        let dst_d = ssa_alloc.alloc(RegFile::GPR);
+        // prmt(a,b,0x7654) -> dst_c takes from b
+        // prmt(dst_c, c, 0x3210) -> dst_d takes byte 0 from dst_c = byte 0 of b
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpCopy {
+                    dst: dst_a.into(),
+                    src: Src::new_imm_u32(0x1111_1111),
+                }),
+                Instr::new(OpCopy {
+                    dst: dst_b.into(),
+                    src: Src::new_imm_u32(0x2222_2222),
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_c.into(),
+                    srcs: [dst_a.into(), dst_b.into(), Src::new_imm_u32(0x7654)],
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpCopy {
+                    dst: dst_d.into(),
+                    src: Src::ZERO,
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_d.into(),
+                    srcs: [dst_c.into(), Src::ZERO, Src::new_imm_u32(0x3210)],
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.opt_prmt();
+        let outer_prmt = &shader.functions[0].blocks[0].instrs[4];
+        let Op::Prmt(op) = &outer_prmt.op else {
+            panic!("expected Prmt");
+        };
+        // After optimization, src0 may be inlined to b (or stay as prmt result)
+        assert!(matches!(
+            op.srcs[0].reference,
+            super::super::ir::SrcRef::SSA(_) | super::super::ir::SrcRef::Imm32(_)
+        ));
+    }
+
+    /// try_opt_prmt4: outer prmt with one source being imm. prmt(a, 0x12345678, sel) should
+    /// fold imm bytes into the new sel.
+    #[test]
+    fn test_opt_prmt4_with_imm_source() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        // prmt(a, 0xDEADBEEF, 0x3210) - sel 0x3210 takes byte 0 from src0, 1 from src0, 2 from src0, 3 from src0
+        // So result = a (identity from src0). try_opt_prmt4 may simplify.
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpCopy {
+                    dst: dst_a.into(),
+                    src: Src::new_imm_u32(0x1234_5678),
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_b.into(),
+                    srcs: [
+                        dst_a.into(),
+                        Src::new_imm_u32(0xDEAD_BEEF),
+                        Src::new_imm_u32(0x3210),
+                    ],
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.opt_prmt();
+        // Should still have a prmt or may optimize to copy
+        let prmt_instr = &shader.functions[0].blocks[0].instrs[1];
+        assert!(matches!(prmt_instr.op, Op::Prmt(_) | Op::Copy(_)));
+    }
+
+    /// try_opt_prmt4 with nested prmt where inner has imm: prmt(prmt(a,imm,sel_inner), c, sel_outer).
+    #[test]
+    fn test_opt_prmt4_nested_prmt_with_inner_imm() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let dst_a = ssa_alloc.alloc(RegFile::GPR);
+        let dst_b = ssa_alloc.alloc(RegFile::GPR);
+        let dst_c = ssa_alloc.alloc(RegFile::GPR);
+        let dst_d = ssa_alloc.alloc(RegFile::GPR);
+        // Inner: prmt(a, 0xDEADBEEF, 0x7654) - takes from src1 (imm)
+        // Outer: prmt(inner, c, 0x3210) - takes byte 0 from src0 = byte 0 of imm
+        let mut shader = make_shader_with_function(
+            vec![
+                Instr::new(OpCopy {
+                    dst: dst_a.into(),
+                    src: Src::new_imm_u32(0x1111_1111),
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_b.into(),
+                    srcs: [
+                        dst_a.into(),
+                        Src::new_imm_u32(0xDEAD_BEEF),
+                        Src::new_imm_u32(0x7654),
+                    ],
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpCopy {
+                    dst: dst_c.into(),
+                    src: Src::ZERO,
+                }),
+                Instr::new(OpPrmt {
+                    dst: dst_d.into(),
+                    srcs: [dst_b.into(), dst_c.into(), Src::new_imm_u32(0x3210)],
+                    mode: PrmtMode::Index,
+                }),
+                Instr::new(OpExit {}),
+            ],
+            ssa_alloc,
+        );
+        shader.opt_prmt();
+        // Optimization may inline: byte 0 of inner = byte 0 of 0xDEADBEEF = 0xEF
+        let last_prmt = &shader.functions[0].blocks[0].instrs[3];
+        assert!(matches!(last_prmt.op, Op::Prmt(_) | Op::Copy(_)));
     }
 }

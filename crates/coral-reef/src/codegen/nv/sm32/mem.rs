@@ -25,15 +25,15 @@ pub(super) fn legalize_ext_instr(op: &mut impl SrcsAsSlice, _b: &mut LegalizeBui
             | SrcType::F64
             | SrcType::I32
             | SrcType::B32 => {
-                panic!("ALU srcs must be legalized explicitly");
+                crate::codegen::ice!("ALU srcs must be legalized explicitly");
             }
             SrcType::Pred => {
-                panic!("Predicates must be legalized explicitly");
+                crate::codegen::ice!("Predicates must be legalized explicitly");
             }
             SrcType::Carry => {
-                panic!("Carry values must be legalized explicitly");
+                crate::codegen::ice!("Carry values must be legalized explicitly");
             }
-            SrcType::Bar => panic!("Barrier regs are Volta+"),
+            SrcType::Bar => crate::codegen::ice!("Barrier regs are Volta+"),
         }
     }
 }
@@ -112,10 +112,10 @@ impl SM32Op for OpLdc {
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         assert!(self.cb().modifier.is_none());
         let SrcRef::CBuf(cb) = &self.cb().reference else {
-            panic!("Not a CBuf source");
+            crate::codegen::ice!("Not a CBuf source");
         };
         let CBuf::Binding(cb_idx) = cb.buf else {
-            panic!("Must be a bound constant buffer");
+            crate::codegen::ice!("Must be a bound constant buffer");
         };
 
         e.set_opcode(0x7c8, 2);
@@ -236,7 +236,7 @@ impl SM32Encoder<'_> {
                 AtomOp::Or => 6_u8,
                 AtomOp::Xor => 7_u8,
                 AtomOp::Exch => 8_u8,
-                AtomOp::CmpExch(_) => panic!("CmpExch is a separate opcode"),
+                AtomOp::CmpExch(_) => crate::codegen::ice!("CmpExch is a separate opcode"),
                 // SafeAdd: 0xa_u8 (unused; CmpExch is separate opcode).
             },
         );
@@ -287,7 +287,7 @@ impl SM32Op for OpAtom {
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
                         AtomType::U64 => 1_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(52..53, data_type);
                     e.set_field(53..55, data_layout);
@@ -303,7 +303,7 @@ impl SM32Op for OpAtom {
                         AtomType::F32 => 3_u8,
                         // NOTE: U128 => 4_u8,
                         AtomType::I64 => 5_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(52..55, data_type);
 
@@ -322,9 +322,11 @@ impl SM32Op for OpAtom {
                     },
                 );
             }
-            MemSpace::Local => panic!("Atomics do not support local"),
+            MemSpace::Local => crate::codegen::ice!("Atomics do not support local"),
             MemSpace::Shared => {
-                panic!("Shared atomics should be lowered into ld-locked and st-locked")
+                crate::codegen::ice!(
+                    "Shared atomics should be lowered into ld-locked and st-locked"
+                )
             }
         }
     }

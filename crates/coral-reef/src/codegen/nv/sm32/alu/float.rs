@@ -210,7 +210,7 @@ impl SM32Op for OpRro {
                 e.set_opcode(0x648, 2);
                 e.set_src_cbuf(23..42, cb);
             }
-            _ => panic!("Invalid Rro src"),
+            _ => crate::codegen::ice!("Invalid Rro src"),
         }
 
         e.set_dst(&self.dst);
@@ -249,8 +249,8 @@ impl SM32Op for OpTranscendental {
                 TranscendentalOp::Rsq => 5_u8,
                 TranscendentalOp::Rcp64H => 6_u8,
                 TranscendentalOp::Rsq64H => 7_u8,
-                TranscendentalOp::Sqrt => panic!("MUFU.SQRT not supported on SM32"),
-                TranscendentalOp::Tanh => panic!("MUFU.TANH not supported on SM32"),
+                TranscendentalOp::Sqrt => crate::codegen::ice!("MUFU.SQRT not supported on SM32"),
+                TranscendentalOp::Tanh => crate::codegen::ice!("MUFU.TANH not supported on SM32"),
             },
         );
     }

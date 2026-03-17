@@ -719,8 +719,9 @@ impl NvVoltaMetal {
 
 /// Detect which `GpuMetal` implementation to use from a BOOT0 value.
 ///
-/// Currently only supports NVIDIA Volta. Future: add Turing, Ampere,
-/// AMD Vega, etc.
+/// Returns `Some(metal)` for supported NVIDIA architectures (Volta and later).
+/// Returns `None` for AMD (placeholder awaiting MI50 hardware) and other
+/// vendors. Future: add Turing, Ampere, Ada variants; AMD Vega/MI50.
 pub fn detect_gpu_metal(vendor: GpuVendor, boot0: u32) -> Option<Box<dyn GpuMetal>> {
     match vendor {
         GpuVendor::Nvidia => {
@@ -732,7 +733,11 @@ pub fn detect_gpu_metal(vendor: GpuVendor, boot0: u32) -> Option<Box<dyn GpuMeta
             }
         }
         GpuVendor::Amd => {
-            // Stub — will be implemented when MI50 arrives
+            // EVOLUTION(hardware): AMD Metal MI50 support
+            //
+            // Placeholder: AMD GpuMetal (register maps, power domains, engine
+            // topology) will be implemented when MI50/Vega hardware is available
+            // for bring-up. Returns None so callers treat AMD as unsupported.
             None
         }
         _ => None,

@@ -92,7 +92,7 @@ impl Function {
                 let spill = SpillBar::new(info);
                 spill_values(self, file, limit, spill);
             }
-            _ => panic!("Don't know how to spill {file} registers"),
+            _ => super::ice!("Don't know how to spill {file} registers"),
         }
 
         self.repair_ssa()?;
@@ -109,8 +109,8 @@ impl Function {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        BasicBlock, ComputeShaderInfo, Instr, LabelAllocator, Op, OpCopy, OpExit, PhiAllocator,
-        ShaderIoInfo, ShaderStageInfo, Src,
+        BasicBlock, ComputeShaderInfo, Instr, IntCmpOp, IntCmpType, LabelAllocator, Op, OpCopy,
+        OpExit, OpISetP, OpPin, PhiAllocator, PredSetOp, ShaderIoInfo, ShaderStageInfo, Src,
     };
     use crate::codegen::ssa_value::SSAValueAllocator;
     use coral_reef_stubs::cfg::CFGBuilder;
@@ -235,5 +235,259 @@ mod tests {
         assert!(!func.blocks[0].instrs.is_empty());
         let last = func.blocks[0].instrs.last().unwrap();
         assert!(matches!(last.op, Op::Exit(_)));
+    }
+
+    #[test]
+    fn test_spill_values_pred_with_high_pressure() {
+        let mut func = make_function_with_many_preds(8);
+        let mut info = ShaderInfo {
+            max_warps_per_sm: 0,
+            gpr_count: 0,
+            control_barrier_count: 0,
+            instr_count: 0,
+            static_cycle_count: 0,
+            spills_to_mem: 0,
+            fills_from_mem: 0,
+            spills_to_reg: 0,
+            fills_from_reg: 0,
+            shared_local_mem_size: 0,
+            max_crs_depth: 0,
+            uses_global_mem: false,
+            writes_global_mem: false,
+            uses_fp64: false,
+            stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                local_size: [1, 1, 1],
+                shared_mem_size: 0,
+            }),
+            io: ShaderIoInfo::None,
+        };
+        func.to_cssa();
+        func.spill_values(RegFile::Pred, 4, &mut info).unwrap();
+        assert!(!func.blocks[0].instrs.is_empty());
+    }
+
+    fn make_function_with_many_preds(num_defs: usize) -> Function {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let mut instrs = Vec::new();
+        let base = ssa_alloc.alloc(RegFile::GPR);
+        instrs.push(Instr::new(OpCopy {
+            dst: base.into(),
+            src: Src::ZERO,
+        }));
+        for _ in 0..num_defs {
+            let p = ssa_alloc.alloc(RegFile::Pred);
+            instrs.push(Instr::new(OpISetP {
+                dst: p.into(),
+                set_op: PredSetOp::And,
+                cmp_op: IntCmpOp::Ne,
+                cmp_type: IntCmpType::U32,
+                ex: false,
+                srcs: [base.into(), base.into(), true.into(), true.into()],
+            }));
+            let _ = p;
+        }
+        instrs.push(Instr::new(OpExit {}));
+
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        });
+        Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        }
+    }
+
+    fn default_shader_info() -> ShaderInfo {
+        ShaderInfo {
+            max_warps_per_sm: 0,
+            gpr_count: 0,
+            control_barrier_count: 0,
+            instr_count: 0,
+            static_cycle_count: 0,
+            spills_to_mem: 0,
+            fills_from_mem: 0,
+            spills_to_reg: 0,
+            fills_from_reg: 0,
+            shared_local_mem_size: 0,
+            max_crs_depth: 0,
+            uses_global_mem: false,
+            writes_global_mem: false,
+            uses_fp64: false,
+            stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                local_size: [1, 1, 1],
+                shared_mem_size: 0,
+            }),
+            io: ShaderIoInfo::None,
+        }
+    }
+
+    /// Two-block linear CFG (entry -> exit) exercises single-predecessor path in spiller.
+    #[test]
+    fn test_spill_values_two_blocks_single_predecessor() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let mut label_alloc = LabelAllocator::new();
+
+        let mut entry_instrs = Vec::new();
+        let base = ssa_alloc.alloc(RegFile::GPR);
+        entry_instrs.push(Instr::new(OpCopy {
+            dst: base.into(),
+            src: Src::ZERO,
+        }));
+        for _ in 1..8 {
+            let next = ssa_alloc.alloc(RegFile::GPR);
+            entry_instrs.push(Instr::new(OpCopy {
+                dst: next.into(),
+                src: base.into(),
+            }));
+        }
+
+        let mut exit_instrs = Vec::new();
+        let use_val = ssa_alloc.alloc(RegFile::GPR);
+        exit_instrs.push(Instr::new(OpCopy {
+            dst: use_val.into(),
+            src: base.into(),
+        }));
+        exit_instrs.push(Instr::new(OpExit {}));
+
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs: entry_instrs,
+        });
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs: exit_instrs,
+        });
+        cfg_builder.add_edge(0, 1);
+
+        let mut func = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        let mut info = default_shader_info();
+        func.to_cssa();
+        func.spill_values(RegFile::GPR, 4, &mut info).unwrap();
+        assert_eq!(func.blocks.len(), 2);
+        assert!(
+            !func.blocks[0].instrs.is_empty() || !func.blocks[1].instrs.is_empty(),
+            "at least one block should have instructions"
+        );
+    }
+
+    /// Very low limit with high pressure exercises spill cost/selection paths.
+    #[test]
+    fn test_spill_values_very_low_limit() {
+        let mut func = make_function_with_many_gprs(20);
+        let mut info = default_shader_info();
+        func.to_cssa();
+        func.spill_values(RegFile::GPR, 2, &mut info).unwrap();
+        let last = func.blocks[0].instrs.last().unwrap();
+        assert!(matches!(last.op, Op::Exit(_)));
+    }
+
+    /// High limit: no spilling needed; exercises early-exit paths.
+    #[test]
+    fn test_spill_values_no_spill_needed() {
+        let mut func = make_function_with_many_gprs(4);
+        let mut info = default_shader_info();
+        func.to_cssa();
+        func.spill_values(RegFile::GPR, 64, &mut info).unwrap();
+        assert_eq!(info.spills_to_mem, 0);
+        assert_eq!(info.fills_from_mem, 0);
+    }
+
+    /// UPred spilling path (spills to UGPR, fills via OpISetP).
+    #[test]
+    fn test_spill_values_upred_with_pressure() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let mut instrs = Vec::new();
+        let base = ssa_alloc.alloc(RegFile::UGPR);
+        instrs.push(Instr::new(OpCopy {
+            dst: base.into(),
+            src: Src::ZERO,
+        }));
+        for _ in 0..6 {
+            let p = ssa_alloc.alloc(RegFile::UPred);
+            instrs.push(Instr::new(OpISetP {
+                dst: p.into(),
+                set_op: PredSetOp::And,
+                cmp_op: IntCmpOp::Ne,
+                cmp_type: IntCmpType::U32,
+                ex: false,
+                srcs: [base.into(), base.into(), true.into(), true.into()],
+            }));
+        }
+        instrs.push(Instr::new(OpExit {}));
+
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: true,
+            instrs,
+        });
+        let mut func = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        let mut info = default_shader_info();
+        func.to_cssa();
+        func.spill_values(RegFile::UPred, 3, &mut info).unwrap();
+        assert!(!func.blocks[0].instrs.is_empty());
+    }
+
+    /// OpPin marks destination as pinned; SpillChooser skips pinned values.
+    #[test]
+    fn test_spill_values_with_pinned() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let mut instrs = Vec::new();
+        let base = ssa_alloc.alloc(RegFile::GPR);
+        instrs.push(Instr::new(OpCopy {
+            dst: base.into(),
+            src: Src::ZERO,
+        }));
+        let pinned = ssa_alloc.alloc(RegFile::GPR);
+        instrs.push(Instr::new(Op::Pin(Box::new(OpPin {
+            dst: pinned.into(),
+            src: base.into(),
+        }))));
+        for _ in 0..10 {
+            let next = ssa_alloc.alloc(RegFile::GPR);
+            instrs.push(Instr::new(OpCopy {
+                dst: next.into(),
+                src: base.into(),
+            }));
+        }
+        instrs.push(Instr::new(OpCopy {
+            dst: ssa_alloc.alloc(RegFile::GPR).into(),
+            src: pinned.into(),
+        }));
+        instrs.push(Instr::new(OpExit {}));
+
+        let mut label_alloc = LabelAllocator::new();
+        let mut cfg_builder = CFGBuilder::new();
+        cfg_builder.add_block(BasicBlock {
+            label: label_alloc.alloc(),
+            uniform: false,
+            instrs,
+        });
+        let mut func = Function {
+            ssa_alloc,
+            phi_alloc: PhiAllocator::new(),
+            blocks: cfg_builder.build(),
+        };
+        let mut info = default_shader_info();
+        func.to_cssa();
+        func.spill_values(RegFile::GPR, 4, &mut info).unwrap();
+        assert!(!func.blocks[0].instrs.is_empty());
     }
 }

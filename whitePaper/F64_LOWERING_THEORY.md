@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 # f64 Transcendental Lowering — Theory
 
 **Status**: Implemented  

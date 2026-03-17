@@ -108,23 +108,13 @@ pub fn probe_channel(
     #[cfg(target_arch = "x86_64")]
     {
         for buf in [instance.as_slice(), gpfifo.as_slice(), userd.as_slice()] {
-            let ptr = buf.as_ptr();
-            let len = buf.len();
-            let mut addr = ptr as usize & !63;
-            let end = (ptr as usize + len + 63) & !63;
-            while addr < end {
-                unsafe { std::arch::x86_64::_mm_clflush(addr as *const u8) };
-                addr += 64;
-            }
+            crate::vfio::cache_ops::clflush_range(buf.as_ptr(), buf.len());
         }
         if let Some(ref p) = pd3 {
-            let mut a = p.as_slice().as_ptr() as usize & !63;
-            while a < p.as_slice().as_ptr() as usize + p.as_slice().len() {
-                unsafe { std::arch::x86_64::_mm_clflush(a as *const u8) };
-                a += 64;
-            }
+            let s = p.as_slice();
+            crate::vfio::cache_ops::clflush_range(s.as_ptr(), s.len());
         }
-        unsafe { std::arch::x86_64::_mm_mfence() };
+        crate::vfio::cache_ops::memory_fence();
     }
 
     w(bar0, 0x100CBC, 1);
@@ -193,11 +183,10 @@ pub fn probe_channel(
         us[ramuserd::GP_GET..ramuserd::GP_GET + 4].copy_from_slice(&0xDEADu32.to_le_bytes());
         #[cfg(target_arch = "x86_64")]
         {
-            let ptr = us.as_ptr() as usize + ramuserd::GP_GET;
-            unsafe {
-                std::arch::x86_64::_mm_clflush(ptr as *const u8);
-                std::arch::x86_64::_mm_mfence();
-            }
+            let ptr = us[ramuserd::GP_GET..].as_ptr();
+            // SAFETY: ptr points into a valid DMA-mapped USERD page.
+            unsafe { crate::vfio::cache_ops::cache_line_flush(ptr) };
+            crate::vfio::cache_ops::memory_fence();
         }
 
         let inst_val =
@@ -222,13 +211,8 @@ pub fn probe_channel(
 
                 #[cfg(target_arch = "x86_64")]
                 {
-                    let ptr = rl_data.as_ptr();
-                    let mut addr = ptr as usize & !63;
-                    while addr < ptr as usize + 64 {
-                        unsafe { std::arch::x86_64::_mm_clflush(addr as *const u8) };
-                        addr += 64;
-                    }
-                    unsafe { std::arch::x86_64::_mm_mfence() };
+                    crate::vfio::cache_ops::clflush_range(rl_data.as_ptr(), 64);
+                    crate::vfio::cache_ops::memory_fence();
                 }
 
                 let gr_rl = engines.gr_runlist.unwrap_or(1);
@@ -262,11 +246,11 @@ pub fn probe_channel(
 
         #[cfg(target_arch = "x86_64")]
         {
-            let ptr = userd.as_slice().as_ptr() as usize + ramuserd::GP_GET;
-            unsafe {
-                std::arch::x86_64::_mm_clflush(ptr as *const u8);
-                std::arch::x86_64::_mm_mfence();
-            }
+            let userd_slice = userd.as_slice();
+            let ptr = userd_slice[ramuserd::GP_GET..].as_ptr();
+            // SAFETY: ptr points into a valid DMA-mapped USERD page.
+            unsafe { crate::vfio::cache_ops::cache_line_flush(ptr) };
+            crate::vfio::cache_ops::memory_fence();
         }
         let userd_gp_get = u32::from_le_bytes(
             userd.as_slice()[ramuserd::GP_GET..ramuserd::GP_GET + 4]

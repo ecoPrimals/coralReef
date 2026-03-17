@@ -77,7 +77,7 @@ impl SM50Encoder<'_> {
             LdCacheOp::CacheGlobal => 1_u8,
             LdCacheOp::CacheIncoherent => 2_u8,
             LdCacheOp::CacheInvalidate => 3_u8,
-            LdCacheOp::CacheStreaming => panic!("Unsupported cache op: ld{op}"),
+            LdCacheOp::CacheStreaming => crate::codegen::ice!("Unsupported cache op: ld{op}"),
         };
         self.set_field(range, cache_op);
     }
@@ -166,7 +166,7 @@ impl SM50Encoder<'_> {
                 AtomOp::Or => 6_u8,
                 AtomOp::Xor => 7_u8,
                 AtomOp::Exch => 8_u8,
-                AtomOp::CmpExch(_) => panic!("CmpExch is a separate opcode"),
+                AtomOp::CmpExch(_) => crate::codegen::ice!("CmpExch is a separate opcode"),
             },
         );
     }
@@ -191,7 +191,7 @@ impl SM50Op for OpSuAtom {
             AtomType::F32 => 3,
             AtomType::U64 => 2,
             AtomType::I64 => 5,
-            _ => panic!("Unsupported atom type {}", self.atom_type),
+            _ => crate::codegen::ice!("Unsupported atom type {}", self.atom_type),
         };
 
         e.set_image_dim(33..36, self.image_dim);
@@ -243,10 +243,10 @@ impl SM50Op for OpLdc {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         assert!(self.cb().modifier.is_none());
         let SrcRef::CBuf(cb) = &self.cb().reference else {
-            panic!("Not a CBuf source");
+            crate::codegen::ice!("Not a CBuf source");
         };
         let CBuf::Binding(cb_idx) = cb.buf else {
-            panic!("Must be a bound constant buffer");
+            crate::codegen::ice!("Must be a bound constant buffer");
         };
 
         e.set_opcode(0xef90);
@@ -339,7 +339,7 @@ impl SM50Op for OpAtom {
                         AtomType::F32 => 3_u8,
                         // NOTE: U128 => 4_u8,
                         AtomType::I64 => 5_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(20..23, data_type);
                     e.set_atom_op(23..26, self.atom_op);
@@ -366,7 +366,7 @@ impl SM50Op for OpAtom {
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
                         AtomType::U64 => 1_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(49..50, data_type);
                     e.set_field(50..52, data_layout);
@@ -384,7 +384,7 @@ impl SM50Op for OpAtom {
                         AtomType::F32 => 3_u8,
                         // NOTE: U128 => 4_u8,
                         AtomType::I64 => 5_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(49..52, data_type);
                     e.set_atom_op(52..56, self.atom_op);
@@ -400,7 +400,7 @@ impl SM50Op for OpAtom {
                     },
                 );
             }
-            MemSpace::Local => panic!("Atomics do not support local"),
+            MemSpace::Local => crate::codegen::ice!("Atomics do not support local"),
             MemSpace::Shared => {
                 if let AtomOp::CmpExch(cmp_src) = self.atom_op {
                     e.set_opcode(0xee00);
@@ -412,7 +412,7 @@ impl SM50Op for OpAtom {
                     let subop = match self.atom_type {
                         AtomType::U32 => 4_u8,
                         AtomType::U64 => 5_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(52..56, subop);
                 } else {
@@ -425,7 +425,7 @@ impl SM50Op for OpAtom {
                         AtomType::I32 => 1_u8,
                         AtomType::U64 => 2_u8,
                         AtomType::I64 => 3_u8,
-                        _ => panic!("Unsupported data type"),
+                        _ => crate::codegen::ice!("Unsupported data type"),
                     };
                     e.set_field(28..30, data_type);
                     assert!(
@@ -561,7 +561,7 @@ impl SM50Op for OpCCtl {
                     },
                 );
             }
-            MemSpace::Local => panic!("cctl does not support local"),
+            MemSpace::Local => crate::codegen::ice!("cctl does not support local"),
             MemSpace::Shared => {
                 e.set_opcode(0xef80);
 
@@ -582,7 +582,7 @@ impl SM50Op for OpCCtl {
                 CCtlOp::IVAll => 6_u8,
                 CCtlOp::RS => 7_u8,
                 CCtlOp::RSLB => 7_u8,
-                op => panic!("Unsupported cache control {op:?}"),
+                op => crate::codegen::ice!("Unsupported cache control {op:?}"),
             },
         );
         e.set_reg_src(8..16, &self.addr);

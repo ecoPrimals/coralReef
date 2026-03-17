@@ -25,6 +25,7 @@
 
 pub mod amd_metal;
 pub mod bar_cartography;
+pub mod cache_ops;
 pub mod channel;
 pub mod device;
 pub mod dma;

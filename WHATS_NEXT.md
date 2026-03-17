@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 17, 2026 (Phase 10 — Iteration 53)
+**Last updated**: March 17, 2026 (Phase 10 — Iteration 54)
 
 ---
 
@@ -81,7 +81,18 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 53)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 54)
+
+### Iteration 54 — Coverage Expansion + Doc Cleanup + Debt Resolution
+- [x] 40 constant folding tests (`fold.rs`: integer, identity, bitwise, shift, comparison, overflow)
+- [x] 30+ coral-glowplug tests (config, device, personality, JSON-RPC dispatch, TCP bind, BDF parsing)
+- [x] 30+ coral-driver tests (PCI config parsing, vendor detection, PM state, BAR/capability, PM4, GEM, RM params)
+- [x] 12 coral-reef codegen tests (opt_prmt, naga_translate, lower_f64, builder, assign_regs)
+- [x] 7 api.rs + spiller.rs coverage tests (eprint_hex, debug re-export, spill pressure, pinned values)
+- [x] File size compliance: pci_discovery.rs test extraction (1027→890 LOC), all files under 1000 LOC
+- [x] 10 doc link warnings fixed (`DriverError` in rm_client/alloc.rs → full crate path)
+- [x] 10 EVOLUTION markers catalogued and audited for feasibility
+- [x] 2241 → 2364 passing (+123 tests), 58.16% → 59.92% line coverage, 0 doc warnings
 
 ### Iteration 53 — Deep Audit Execution + Safe Rust Evolution + Test Coverage
 - [x] `clippy::nursery` lints enabled workspace-wide (`nursery = "warn"` in `[workspace.lints.clippy]`)
@@ -389,12 +400,12 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
-- [ ] Coverage 58.16% → 90% (58.16% line reflects full workspace measurement including hardware-gated VFIO code)
+- [ ] Coverage 59.92% → 90% (59.92% line reflects full workspace including hardware-gated VFIO code; testable code at 72.7%)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-2241+48 tests passing, 0 failed, 58.16% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+2364+48 tests passing, 0 failed, 59.92% line coverage (72.7% testable). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.

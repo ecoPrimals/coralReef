@@ -273,6 +273,135 @@ pub struct PciDeviceInfo {
 }
 
 impl PciDeviceInfo {
+    /// Parse PCI device info from raw config space bytes (for testing without sysfs).
+    ///
+    /// `config` must be at least 64 bytes. `bars` and `pcie_link` are passed through
+    /// (from sysfs in production; use empty/None for unit tests).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if config is too short.
+    pub fn from_config_bytes(
+        bdf: &str,
+        config: &[u8],
+        bars: Vec<PciBar>,
+        pcie_link: Option<PcieLinkInfo>,
+    ) -> Result<Self, String> {
+        if config.len() < 64 {
+            return Err(format!("PCI config too short: {} bytes", config.len()));
+        }
+
+        let r16 = |off: usize| u16::from_le_bytes([config[off], config[off + 1]]);
+        let r32 = |off: usize| {
+            u32::from_le_bytes([
+                config[off],
+                config[off + 1],
+                config[off + 2],
+                config[off + 3],
+            ])
+        };
+
+        let vendor_id = r16(0x00);
+        let device_id = r16(0x02);
+        let class_code = r32(0x08) >> 8;
+        let subsystem = (r16(0x2C), r16(0x2E));
+
+        let status = r16(0x06);
+        let mut capabilities = Vec::new();
+        let mut pm_cap_offset = None;
+        let mut pcie_cap_offset = None;
+
+        let has_cap_list = status & 0x10 != 0;
+        if has_cap_list && config.len() >= 0x40 {
+            let mut cap_ptr = (config[0x34] & 0xFC) as usize;
+            let mut visited = HashSet::new();
+            while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
+                visited.insert(cap_ptr);
+                let cap_id = config[cap_ptr];
+                let name = PciCapability::name_for_id(cap_id);
+
+                capabilities.push(PciCapability {
+                    id: cap_id,
+                    offset: cap_ptr as u8,
+                    name,
+                });
+
+                if cap_id == 0x01 {
+                    pm_cap_offset = Some(cap_ptr as u8);
+                }
+                if cap_id == 0x10 {
+                    pcie_cap_offset = Some(cap_ptr as u8);
+                }
+
+                cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
+            }
+        }
+
+        let power = if let Some(pm_off) = pm_cap_offset {
+            let pm_off = pm_off as usize;
+            if pm_off + 6 <= config.len() {
+                let pmc = r16(pm_off + 2);
+                let pmcsr = r16(pm_off + 4);
+                PciPowerInfo {
+                    pm_cap_offset: Some(pm_off as u8),
+                    current_state: PciPmState::from_pmcsr_bits((pmcsr & 0x03) as u8),
+                    d1_support: pmc & (1 << 9) != 0,
+                    d2_support: pmc & (1 << 10) != 0,
+                    pme_support: ((pmc >> 11) & 0x1F) as u8,
+                    pmcsr_raw: pmcsr,
+                }
+            } else {
+                PciPowerInfo {
+                    pm_cap_offset: Some(pm_off as u8),
+                    current_state: PciPmState::Unknown(0xFF),
+                    d1_support: false,
+                    d2_support: false,
+                    pme_support: 0,
+                    pmcsr_raw: 0,
+                }
+            }
+        } else {
+            PciPowerInfo {
+                pm_cap_offset: None,
+                current_state: PciPmState::Unknown(0xFF),
+                d1_support: false,
+                d2_support: false,
+                pme_support: 0,
+                pmcsr_raw: 0,
+            }
+        };
+
+        let pcie_link_parsed = pcie_cap_offset.and_then(|off| {
+            let off = off as usize;
+            if off + 0x14 <= config.len() {
+                let link_cap = r32(off + 0x0C);
+                let link_sta = r16(off + 0x12);
+                Some(PcieLinkInfo {
+                    max_speed: PcieLinkSpeed::from_encoding((link_cap & 0x0F) as u8),
+                    current_speed: PcieLinkSpeed::from_encoding((link_sta & 0x0F) as u8),
+                    max_width: ((link_cap >> 4) & 0x3F) as u8,
+                    current_width: ((link_sta >> 4) & 0x3F) as u8,
+                })
+            } else {
+                None
+            }
+        });
+        let pcie_link_final = pcie_link_parsed.or(pcie_link);
+
+        Ok(Self {
+            bdf: bdf.to_string(),
+            vendor_id,
+            device_id,
+            class_code,
+            subsystem,
+            bars,
+            capabilities,
+            power,
+            pcie_link: pcie_link_final,
+            vendor: GpuVendor::from_vendor_id(vendor_id),
+        })
+    }
+
     /// Parse PCI device info from sysfs config space.
     pub fn from_sysfs(bdf: &str) -> Result<Self, String> {
         let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
@@ -755,3 +884,7 @@ pub fn snapshot_config_space(
     }
     Ok(regs)
 }
+
+#[cfg(test)]
+#[path = "pci_discovery_tests.rs"]
+mod tests;

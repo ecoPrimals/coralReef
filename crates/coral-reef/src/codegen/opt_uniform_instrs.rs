@@ -122,12 +122,16 @@ impl Shader<'_> {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        Instr, OpCopy, OpNop, RegFile, SSAValueAllocator, ShaderModelInfo, Src,
+        Instr, OpCopy, OpIMad, OpNop, RegFile, SSAValueAllocator, ShaderModelInfo, Src,
     };
     use coral_reef_stubs::fxhash::FxHashMap;
 
     fn make_sm70() -> ShaderModelInfo {
         ShaderModelInfo::new(70, 64)
+    }
+
+    fn make_sm75() -> ShaderModelInfo {
+        ShaderModelInfo::new(75, 64)
     }
 
     #[test]
@@ -138,6 +142,63 @@ mod tests {
         assert!(
             should_lower_to_warp(&sm, &instr, &r2ur),
             "OpNop cannot be uniform, should lower to warp"
+        );
+    }
+
+    #[test]
+    fn test_should_lower_to_warp_two_non_uniform_srcs() {
+        let sm = make_sm75();
+        let mut alloc = SSAValueAllocator::new();
+        let ugpr = alloc.alloc(RegFile::UGPR);
+        let gpr1 = alloc.alloc(RegFile::GPR);
+        let gpr2 = alloc.alloc(RegFile::GPR);
+        let instr = Instr::new(OpIMad {
+            dst: ugpr.into(),
+            srcs: [Src::from(gpr1), Src::from(gpr2), Src::ZERO],
+            signed: false,
+        });
+        let r2ur = FxHashMap::default();
+        assert!(
+            should_lower_to_warp(&sm, &instr, &r2ur),
+            "2+ non-uniform srcs should lower to warp"
+        );
+    }
+
+    #[test]
+    fn test_should_lower_to_warp_one_non_uniform_src() {
+        let sm = make_sm75();
+        let mut alloc = SSAValueAllocator::new();
+        let ugpr_dst = alloc.alloc(RegFile::UGPR);
+        let gpr_src = alloc.alloc(RegFile::GPR);
+        let instr = Instr::new(OpCopy {
+            dst: ugpr_dst.into(),
+            src: Src::from(gpr_src),
+        });
+        let r2ur = FxHashMap::default();
+        assert!(
+            !should_lower_to_warp(&sm, &instr, &r2ur),
+            "1 non-uniform src should not lower to warp"
+        );
+    }
+
+    #[test]
+    fn test_should_lower_to_warp_r2ur_counts_as_non_uniform() {
+        let sm = make_sm75();
+        let mut alloc = SSAValueAllocator::new();
+        let ugpr_dst = alloc.alloc(RegFile::UGPR);
+        let ugpr_mapped = alloc.alloc(RegFile::UGPR);
+        let gpr1 = alloc.alloc(RegFile::GPR);
+        let gpr2 = alloc.alloc(RegFile::GPR);
+        let mut r2ur = FxHashMap::default();
+        r2ur.insert(gpr1, ugpr_mapped);
+        let instr = Instr::new(OpIMad {
+            dst: ugpr_dst.into(),
+            srcs: [Src::from(gpr1), Src::from(gpr2), Src::ZERO],
+            signed: false,
+        });
+        assert!(
+            should_lower_to_warp(&sm, &instr, &r2ur),
+            "gpr1 in r2ur + gpr2 non-uniform = 2, should lower to warp"
         );
     }
 

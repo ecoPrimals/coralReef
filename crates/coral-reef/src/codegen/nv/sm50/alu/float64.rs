@@ -28,7 +28,7 @@ impl SM50Op for OpDAdd {
                 e.set_opcode(0x4c70);
                 e.set_cb_fmod_src(20..39, 49, 45, &self.srcs[1]);
             }
-            src => panic!("Invalid dadd src1: {src}"),
+            src => crate::codegen::ice!("Invalid dadd src1: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -79,7 +79,7 @@ impl SM50Op for OpDFma {
                         e.set_opcode(0x4b70);
                         e.set_src_cb(20..39, cb);
                     }
-                    src => panic!("Invalid dfma src1: {src}"),
+                    src => crate::codegen::ice!("Invalid dfma src1: {src}"),
                 }
 
                 e.set_reg_src_ref(39..47, &self.srcs[2].reference);
@@ -89,7 +89,7 @@ impl SM50Op for OpDFma {
                 e.set_src_cb(20..39, cb);
                 e.set_reg_src_ref(39..47, &self.srcs[1].reference);
             }
-            src => panic!("Invalid dfma src2: {src}"),
+            src => crate::codegen::ice!("Invalid dfma src2: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -126,7 +126,7 @@ impl SM50Op for OpDMnMx {
                 e.set_opcode(0x4c50);
                 e.set_cb_fmod_src(20..39, 49, 45, &self.srcs[1]);
             }
-            src => panic!("Invalid dmnmx src1: {src}"),
+            src => crate::codegen::ice!("Invalid dmnmx src1: {src}"),
         }
 
         e.set_reg_fmod_src(8..16, 46, 48, &self.srcs[0]);
@@ -166,7 +166,7 @@ impl SM50Op for OpDMul {
                 e.set_opcode(0x4c80);
                 e.set_src_cb(20..39, cb);
             }
-            src => panic!("Invalid dmul src1: {src}"),
+            src => crate::codegen::ice!("Invalid dmul src1: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -204,7 +204,7 @@ impl SM50Op for OpDSetP {
                 e.set_opcode(0x4b80);
                 e.set_reg_fmod_src(20..39, 44, 6, &self.srcs[1]);
             }
-            src => panic!("Invalid dsetp src1: {src}"),
+            src => crate::codegen::ice!("Invalid dsetp src1: {src}"),
         }
 
         e.set_pred_dst(3..6, &self.dst);

@@ -161,7 +161,7 @@ impl AluSrc {
                 SrcRef::Reg(r) => Self::Reg(*r),
                 SrcRef::Imm32(x) => Self::Imm(*x),
                 SrcRef::CBuf(x) => Self::CBuf(x.clone()),
-                _ => panic!("Unhandled ALU src type"),
+                _ => crate::codegen::ice!("Unhandled ALU src type"),
             }
         } else {
             Self::None
@@ -244,7 +244,7 @@ impl SM20Encoder<'_> {
             SrcRef::True => (false, true_reg()),
             SrcRef::False => (true, true_reg()),
             SrcRef::Reg(reg) => (false, reg),
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         };
         self.set_pred_reg(range.start..(range.end - 1), reg);
         self.set_bit(range.end - 1, not ^ src.modifier.is_bnot());
@@ -254,7 +254,7 @@ impl SM20Encoder<'_> {
         let reg = match dst {
             Dst::None => true_reg(),
             Dst::Reg(reg) => *reg,
-            Dst::SSA(_) => panic!("Dst is not pred {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("Dst is not pred {dst}"),
         };
         self.set_pred_reg(range, reg);
     }
@@ -263,7 +263,7 @@ impl SM20Encoder<'_> {
         let reg = match dst {
             Dst::None => true_reg(),
             Dst::Reg(reg) => *reg,
-            Dst::SSA(_) => panic!("Dst is not pred {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("Dst is not pred {dst}"),
         };
         assert!(reg.file() == RegFile::Pred);
         assert!(reg.comps() == 1);
@@ -277,7 +277,7 @@ impl SM20Encoder<'_> {
             match pred.predicate {
                 PredRef::None => true_reg(),
                 PredRef::Reg(reg) => reg,
-                PredRef::SSA(_) => panic!("SSA values must be lowered"),
+                PredRef::SSA(_) => crate::codegen::ice!("SSA values must be lowered"),
             },
         );
         self.set_bit(13, pred.inverted);
@@ -294,7 +294,7 @@ impl SM20Encoder<'_> {
             SrcRef::Zero => self.set_reg(range, zero_reg()),
             SrcRef::Reg(reg) => self.set_reg(range, *reg),
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                panic!("Not a register")
+                crate::codegen::ice!("Not a register")
             }
         }
     }
@@ -308,7 +308,7 @@ impl SM20Encoder<'_> {
         let reg = match dst {
             Dst::None => zero_reg(),
             Dst::Reg(reg) => *reg,
-            Dst::SSA(_) => panic!("Invalid dst {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("Invalid dst {dst}"),
         };
         self.set_reg(range, reg);
     }
@@ -322,7 +322,7 @@ impl SM20Encoder<'_> {
                 self.set_bit(bit, true);
             }
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                panic!("Invalid carry in: {src}")
+                crate::codegen::ice!("Invalid carry in: {src}")
             }
         }
     }
@@ -334,7 +334,7 @@ impl SM20Encoder<'_> {
                 assert!(*reg == RegRef::new(RegFile::Carry, 0, 1));
                 self.set_bit(bit, true);
             }
-            Dst::SSA(_) => panic!("Invalid carry out: {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("Invalid carry out: {dst}"),
         }
     }
 
@@ -368,20 +368,20 @@ impl SM20Encoder<'_> {
         if let AluSrc::Reg(reg0) = AluSrc::from_src(Some(src0)) {
             self.set_reg(20..26, reg0);
         } else {
-            panic!("Unsupported src0");
+            crate::codegen::ice!("Unsupported src0");
         }
         match AluSrc::from_src(Some(src1)) {
-            AluSrc::None => panic!("Unsupported src1"),
+            AluSrc::None => crate::codegen::ice!("Unsupported src1"),
             AluSrc::Reg(reg1) => match AluSrc::from_src(src2) {
                 AluSrc::None => self.set_reg(26..32, reg1),
                 AluSrc::Reg(reg2) => {
                     self.set_reg(26..32, reg1);
                     self.set_reg(49..55, reg2);
                 }
-                AluSrc::Imm(_) => panic!("Immediates are only allowed in src1"),
+                AluSrc::Imm(_) => crate::codegen::ice!("Immediates are only allowed in src1"),
                 AluSrc::CBuf(cb) => {
                     let CBuf::Binding(idx) = cb.buf else {
-                        panic!("Must be a bound constant buffer");
+                        crate::codegen::ice!("Must be a bound constant buffer");
                     };
                     self.set_field(26..42, cb.offset);
                     self.set_field(42..46, idx);
@@ -397,7 +397,7 @@ impl SM20Encoder<'_> {
                     SM20Unit::Int | SM20Unit::Move | SM20Unit::Tex => {
                         self.set_src_imm_i20(26..45, 45, imm32);
                     }
-                    _ => panic!("Unknown unit for immediate: {unit}"),
+                    _ => crate::codegen::ice!("Unknown unit for immediate: {unit}"),
                 }
                 self.set_field(46..48, 3_u8);
                 if let Some(src2) = src2 {
@@ -406,7 +406,7 @@ impl SM20Encoder<'_> {
             }
             AluSrc::CBuf(cb) => {
                 let CBuf::Binding(idx) = cb.buf else {
-                    panic!("Must be a bound constant buffer");
+                    crate::codegen::ice!("Must be a bound constant buffer");
                 };
                 self.set_field(26..42, cb.offset);
                 self.set_field(42..46, idx);
@@ -446,7 +446,7 @@ impl SM20Encoder<'_> {
         if let AluSrc::Reg(reg0) = AluSrc::from_src(Some(src0)) {
             self.set_reg(20..26, reg0);
         } else {
-            panic!("Unsupported src0");
+            crate::codegen::ice!("Unsupported src0");
         }
         self.set_field(26..58, imm_src1);
     }
@@ -455,7 +455,7 @@ impl SM20Encoder<'_> {
         self.set_opcode(unit, opcode);
         self.set_dst(14..20, dst);
         match AluSrc::from_src(Some(src)) {
-            AluSrc::None => panic!("src is always Some"),
+            AluSrc::None => crate::codegen::ice!("src is always Some"),
             AluSrc::Reg(reg) => self.set_reg(26..32, reg),
             AluSrc::Imm(imm32) => {
                 match unit {
@@ -465,13 +465,13 @@ impl SM20Encoder<'_> {
                     SM20Unit::Int | SM20Unit::Move | SM20Unit::Tex => {
                         self.set_src_imm_i20(26..45, 45, imm32);
                     }
-                    _ => panic!("Unknown unit for immediate: {unit}"),
+                    _ => crate::codegen::ice!("Unknown unit for immediate: {unit}"),
                 }
                 self.set_field(46..48, 3_u8);
             }
             AluSrc::CBuf(cb) => {
                 let CBuf::Binding(idx) = cb.buf else {
-                    panic!("Must be a bound constant buffer");
+                    crate::codegen::ice!("Must be a bound constant buffer");
                 };
                 self.set_field(26..42, cb.offset);
                 self.set_field(42..46, idx);
@@ -575,7 +575,7 @@ impl SM20Encoder<'_> {
                 TexLodMode::Zero => 1_u8,
                 TexLodMode::Bias => 2_u8,
                 TexLodMode::Lod => 3_u8,
-                _ => panic!("Unknown LOD mode"),
+                _ => crate::codegen::ice!("Unknown LOD mode"),
             },
         );
     }
@@ -584,7 +584,7 @@ impl SM20Encoder<'_> {
         let ndv = match deriv_mode {
             TexDerivMode::Auto => false,
             TexDerivMode::NonDivergent => true,
-            _ => panic!("{deriv_mode} is not supported"),
+            _ => crate::codegen::ice!("{deriv_mode} is not supported"),
         };
         self.set_bit(bit, ndv);
     }
@@ -615,7 +615,7 @@ impl SM20Encoder<'_> {
             LdCacheOp::CacheGlobal => 1_u8,
             LdCacheOp::CacheStreaming => 2_u8,
             LdCacheOp::CacheInvalidate => 3_u8,
-            LdCacheOp::CacheIncoherent => panic!("Unsupported cache op: ld{op}"),
+            LdCacheOp::CacheIncoherent => crate::codegen::ice!("Unsupported cache op: ld{op}"),
         };
         self.set_field(range, cache_op);
     }
@@ -670,10 +670,10 @@ pub(super) fn legalize_ext_instr(op: &mut impl SrcsAsSlice, _b: &mut LegalizeBui
             | SrcType::F32
             | SrcType::F64
             | SrcType::I32
-            | SrcType::B32 => panic!("ALU srcs must be legalized explicitly"),
+            | SrcType::B32 => crate::codegen::ice!("ALU srcs must be legalized explicitly"),
             SrcType::Pred => assert!(src_is_reg(src, RegFile::Pred)),
-            SrcType::Carry => panic!("Carry values must be legalized explicitly"),
-            SrcType::Bar => panic!("Barrier regs are Volta+"),
+            SrcType::Carry => crate::codegen::ice!("Carry values must be legalized explicitly"),
+            SrcType::Bar => crate::codegen::ice!("Barrier regs are Volta+"),
         }
     }
 }
@@ -757,7 +757,7 @@ macro_rules! sm20_op_match {
             Op::S2R($x) => $y,
             Op::Vote($x) => $y,
             Op::Out($x) => $y,
-            _ => panic!("Unhandled instruction {}", $op),
+            _ => crate::codegen::ice!("Unhandled instruction {}", $op),
         }
     };
 }

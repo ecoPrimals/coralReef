@@ -15,6 +15,7 @@ dependencies = [
 name = "amd-isa-gen"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "quick-xml",
  "serde",
 ]

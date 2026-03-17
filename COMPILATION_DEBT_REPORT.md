@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 17, Iter 53)  
+**Generated:** March 10, 2026 (metrics updated March 17, Iter 54)  
 **Workspace:** coralReef
 
 ---
@@ -107,6 +107,7 @@ All AMD RDNA2 encoding issues resolved:
 | `codegen/opt_instr_sched_prepass/mod.rs` | 23 | Model more cases where we actually need 2 reserved GPRs |
 | `codegen/nv/sm70_encode/encoder.rs` | 558 | set_src_cx for CBuf ALU encoding |
 | `codegen/opt_jump_thread.rs` | 60 | Jump threading for OpBra with non-uniform predicate |
+| `coral-driver/.../nv_metal.rs` | 736 | AMD Metal MI50 support (blocked by hardware) |
 
 ---
 
@@ -200,26 +201,26 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 53) |
+| Metric | Value (as of Iter 54) |
 |--------|-------|
-| Tests passing | 2241 default + 48 VFIO |
+| Tests passing | 2364 default + 48 VFIO |
 | Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
-| EVOLUTION markers | 9 (documented future optimizations — intentional) |
+| EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 (amd_metal.rs stubs filled with MI50/GFX906 registers, Iter 52) |
 | Production unwraps | 0 (all evolved to expect/error) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
-| panic! in production | ~150+ (codegen ICE guards — intentional; 6 sm70 latency panics evolved Iter 47) |
+| panic! in production | ~150+ (codegen ICE guards — intentional; ~80 standardized to ice!() macro, Iter 53) |
 | #[allow] to tighten | Reviewed Iter 32: `#[allow]` preferred for config-dependent lints |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (Iter 51: coral-gpu lib.rs 977→65 via 6-module refactor) |
+| Files over 1000 LOC | 0 (Iter 54: pci_discovery.rs test extraction; excl. generated ISA tables) |
 | Clippy warnings | 0 (pedantic + nursery + all) |
-| Doc warnings | 0 |
-| Region coverage (llvm-cov) | 57.75% (target 90%) |
-| Line coverage (llvm-cov) | 58.16% (target 90%) |
-| Function coverage | 68.50% (target 90%) |
+| Doc warnings | 0 (Iter 54: 10 DriverError links fixed) |
+| Region coverage (llvm-cov) | 59.39% (target 90%) |
+| Line coverage (llvm-cov) | 59.92% (target 90%; testable code: 72.7%) |
+| Function coverage | 69.45% (target 90%) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45; diagnostic eprintln retained for HW debug) |

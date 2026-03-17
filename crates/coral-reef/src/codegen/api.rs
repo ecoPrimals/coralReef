@@ -22,3 +22,24 @@ pub(super) fn eprint_hex(label: &str, data: &[u32]) {
     }
     eprintln!();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_eprint_hex_no_panic() {
+        // eprint_hex prints to stderr; verify it doesn't panic
+        eprint_hex("test", &[0x1234_5678, 0xabcd_ef00]);
+        eprint_hex("empty", &[]);
+        eprint_hex("single", &[0xdead_beef]);
+    }
+
+    #[test]
+    fn test_debug_re_export() {
+        // Verify DEBUG and GetDebugFlags are re-exported and usable
+        let _ = &DEBUG;
+        assert!(!DEBUG.print());
+        assert!(!DEBUG.annotate());
+    }
+}

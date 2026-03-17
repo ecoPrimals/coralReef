@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 17, 2026  
-**Phase**: 10 — Iteration 53 (Deep Audit Execution + Safe Rust Evolution + Test Coverage)
+**Phase**: 10 — Iteration 54 (Coverage Expansion + Doc Cleanup + Debt Resolution)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 2241 passing (+48 VFIO), 0 failed, 58.16% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 2364 passing (+48 VFIO), 0 failed, 59.92% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates + `#[forbid(unsafe_code)]` on coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
@@ -38,7 +38,22 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 53** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 54** |
+
+### Iteration 54: Coverage Expansion + Doc Cleanup + Debt Resolution (Mar 17 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Constant folding tests | ✅ | 40 new fold.rs tests: integer add/abs, identity elimination, bitwise/logic, shift, comparison, predicate, overflow, PrmtSel, FoldData |
+| coral-glowplug test expansion | ✅ | 30+ tests: config sysfs parsing, device slots, personality trait/registry, JSON-RPC dispatch (device.list/get/health/swap, health.check/liveness, daemon.status/shutdown, unknown method), TCP bind, BDF arg parsing |
+| coral-driver test expansion | ✅ | 30+ tests: PCI config parsing (NVIDIA/AMD/too-short), vendor detection/display, PM state, BAR/capability construction, PM capability, PCIe link, PM4 packets, GEM buffers, RM alloc params |
+| coral-reef codegen tests | ✅ | 12 tests: opt_prmt (src_idx1, imm source, nested), naga_translate (all/any vector, f64 add, array length), lower_f64 (exp2→DFMA, sqrt→Newton), builder (prmt identity, lop2 pred, predicated, uniform), assign_regs block-level RA |
+| api.rs + spiller.rs coverage | ✅ | 7 tests: eprint_hex, debug re-export, two-block CFG spill, very-low-limit spill stress, no-spill-needed, UPred spilling, pinned value skip |
+| File size compliance | ✅ | pci_discovery.rs tests extracted to sibling file (1027→890 LOC); all files under 1000 LOC (excl. generated ISA tables) |
+| Doc link warnings | ✅ | 10 unresolved `DriverError` links in rm_client/alloc.rs → full crate path; zero doc warnings |
+| EVOLUTION markers audited | ✅ | 10 markers catalogued: 3 feasible now, 3 need ISA docs, 3 need scheduling docs, 1 blocked by hardware (AMD Metal MI50) |
+| Coverage improvement | ✅ | 58.16% → 59.92% line, 57.75% → 59.39% region, 68.50% → 69.45% function |
+| Test expansion | ✅ | 2241 → 2364 passing (+123 tests), 0 failed |
 
 ### Iteration 53: Deep Audit Execution + Safe Rust Evolution + Test Coverage (Mar 17 2026)
 
@@ -837,8 +852,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2241 passing, 0 failed) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 57.75% region / 58.16% line / 68.50% function (target 90%) |
+| `cargo test --workspace` | PASS (2364 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 59.39% region / 59.92% line / 69.45% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

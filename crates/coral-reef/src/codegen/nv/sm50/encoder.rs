@@ -44,10 +44,10 @@ pub fn instr_latency(_sm: u8, op: &Op, dst_idx: usize) -> u32 {
     match file {
         RegFile::GPR => gpr_latency,
         RegFile::Pred => pred_latency,
-        RegFile::UGPR | RegFile::UPred => panic!("No uniform registers"),
+        RegFile::UGPR | RegFile::UPred => crate::codegen::ice!("No uniform registers"),
         RegFile::Bar => 0, // Barriers have a HW scoreboard
         RegFile::Carry => 6,
-        RegFile::Mem => panic!("Not a register"),
+        RegFile::Mem => crate::codegen::ice!("Not a register"),
     }
 }
 
@@ -226,7 +226,7 @@ impl SM50Encoder<'_> {
             match pred.predicate {
                 PredRef::None => true_reg(),
                 PredRef::Reg(reg) => reg,
-                PredRef::SSA(_) => panic!("SSA values must be lowered"),
+                PredRef::SSA(_) => crate::codegen::ice!("SSA values must be lowered"),
             },
         );
         self.set_bit(19, pred.inverted);
@@ -251,7 +251,7 @@ impl SM50Encoder<'_> {
         match reference {
             SrcRef::Zero => self.set_reg(range, zero_reg()),
             SrcRef::Reg(reg) => self.set_reg(range, *reg),
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         }
     }
 
@@ -288,7 +288,7 @@ impl SM50Encoder<'_> {
                 self.set_pred_reg(range, true_reg());
             }
             Dst::Reg(reg) => self.set_pred_reg(range, *reg),
-            Dst::SSA(_) => panic!("Not a register"),
+            Dst::SSA(_) => crate::codegen::ice!("Not a register"),
         }
     }
 
@@ -298,7 +298,7 @@ impl SM50Encoder<'_> {
             SrcRef::False => (true, true_reg()),
             SrcRef::Reg(reg) => (false, reg),
             SrcRef::Zero | SrcRef::SSA(_) | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                panic!("Not a register")
+                crate::codegen::ice!("Not a register")
             }
         };
         self.set_pred_reg(range, reg);
@@ -309,7 +309,7 @@ impl SM50Encoder<'_> {
         let reg = match dst {
             Dst::None => zero_reg(),
             Dst::Reg(reg) => *reg,
-            Dst::SSA(_) => panic!("invalid dst {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("invalid dst {dst}"),
         };
         self.set_reg(0..8, reg);
     }
@@ -344,7 +344,7 @@ impl SM50Encoder<'_> {
         if let CBuf::Binding(idx) = cb.buf {
             v.set_field(14..19, idx);
         } else {
-            panic!("Must be a bound constant buffer");
+            crate::codegen::ice!("Must be a bound constant buffer");
         }
     }
 
@@ -358,7 +358,7 @@ impl SM50Encoder<'_> {
         if let SrcRef::CBuf(cb) = &src.reference {
             self.set_src_cb(range, cb);
         } else {
-            panic!("Not a CBuf source");
+            crate::codegen::ice!("Not a CBuf source");
         }
 
         self.set_bit(abs_bit, src.modifier.has_fabs());
@@ -369,7 +369,7 @@ impl SM50Encoder<'_> {
         if let SrcRef::CBuf(cb) = &src.reference {
             self.set_src_cb(range, cb);
         } else {
-            panic!("Not a CBuf source");
+            crate::codegen::ice!("Not a CBuf source");
         }
 
         self.set_bit(neg_bit, src.modifier.is_ineg());
@@ -379,7 +379,7 @@ impl SM50Encoder<'_> {
         if let SrcRef::CBuf(cb) = &src.reference {
             self.set_src_cb(range, cb);
         } else {
-            panic!("Not a CBuf source");
+            crate::codegen::ice!("Not a CBuf source");
         }
 
         self.set_bit(not_bit, src.modifier.is_bnot());
@@ -413,15 +413,15 @@ pub(super) fn legalize_ext_instr(op: &mut impl SrcsAsSlice, _b: &mut LegalizeBui
             | SrcType::F64
             | SrcType::I32
             | SrcType::B32 => {
-                panic!("ALU srcs must be legalized explicitly");
+                crate::codegen::ice!("ALU srcs must be legalized explicitly");
             }
             SrcType::Pred => {
-                panic!("Predicates must be legalized explicitly");
+                crate::codegen::ice!("Predicates must be legalized explicitly");
             }
             SrcType::Carry => {
-                panic!("Carry values must be legalized explicitly");
+                crate::codegen::ice!("Carry values must be legalized explicitly");
             }
-            SrcType::Bar => panic!("Barrier regs are Volta+"),
+            SrcType::Bar => crate::codegen::ice!("Barrier regs are Volta+"),
         }
     }
 }
@@ -471,7 +471,7 @@ impl SM50Encoder<'_> {
                 TexLodMode::Zero => 1_u8,
                 TexLodMode::Bias => 2_u8,
                 TexLodMode::Lod => 3_u8,
-                _ => panic!("Unknown LOD mode"),
+                _ => crate::codegen::ice!("Unknown LOD mode"),
             },
         );
     }
@@ -480,7 +480,7 @@ impl SM50Encoder<'_> {
         let ndv = match deriv_mode {
             TexDerivMode::Auto => false,
             TexDerivMode::NonDivergent => true,
-            _ => panic!("{deriv_mode} is not supported"),
+            _ => crate::codegen::ice!("{deriv_mode} is not supported"),
         };
         self.set_bit(bit, ndv);
     }
@@ -583,7 +583,7 @@ macro_rules! sm50_op_match {
             Op::Isberd($x) => $y,
             Op::Out($x) => $y,
             Op::Bfe($x) => $y,
-            _ => panic!("Unhandled instruction {}", $op),
+            _ => crate::codegen::ice!("Unhandled instruction {}", $op),
         }
     };
 }

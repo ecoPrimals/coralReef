@@ -32,7 +32,7 @@ impl SM50Op for OpTex {
                 e.set_tex_lod_mode(55..57, self.lod_mode);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM50 doesn't have CBuf textures");
+                crate::codegen::ice!("SM50 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0xdeb8);
@@ -67,7 +67,7 @@ impl SM50Op for OpTld {
                 e.set_field(36..49, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM50 doesn't have CBuf textures");
+                crate::codegen::ice!("SM50 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0xdd38);
@@ -110,7 +110,7 @@ impl SM50Op for OpTld4 {
                 e.set_field(56..58, self.comp);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM50 doesn't have CBuf textures");
+                crate::codegen::ice!("SM50 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0xdef8);
@@ -145,7 +145,7 @@ impl SM50Op for OpTmml {
                 e.set_field(36..49, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM50 doesn't have CBuf textures");
+                crate::codegen::ice!("SM50 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0xdf60);
@@ -176,7 +176,7 @@ impl SM50Op for OpTxd {
                 e.set_field(36..49, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM50 doesn't have CBuf textures");
+                crate::codegen::ice!("SM50 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0xde78);
@@ -208,7 +208,7 @@ impl SM50Op for OpTxq {
                 e.set_field(36..49, idx);
             }
             TexRef::CBuf { .. } => {
-                panic!("SM50 doesn't have CBuf textures");
+                crate::codegen::ice!("SM50 doesn't have CBuf textures");
             }
             TexRef::Bindless => {
                 e.set_opcode(0xdf50);

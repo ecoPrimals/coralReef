@@ -175,3 +175,128 @@ impl<T> RegRefIterable<T> for RegTracker<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reg_tracker_new_with() {
+        let tracker: RegTracker<u32> = RegTracker::new_with(&|| 0);
+        let reg = RegRef::new(RegFile::GPR, 0, 1);
+        assert_eq!(tracker[reg].len(), 1);
+        assert_eq!(tracker[reg][0], 0);
+    }
+
+    #[test]
+    fn reg_tracker_index_gpr() {
+        let mut tracker: RegTracker<u32> = RegTracker::new_with(&|| 0);
+        let reg = RegRef::new(RegFile::GPR, 5, 2);
+        tracker[reg][0] = 42;
+        tracker[reg][1] = 43;
+        assert_eq!(tracker[reg], [42, 43]);
+    }
+
+    #[test]
+    fn reg_tracker_index_ugpr() {
+        let mut tracker: RegTracker<u32> = RegTracker::new_with(&|| 0);
+        let reg = RegRef::new(RegFile::UGPR, 0, 1);
+        tracker[reg][0] = 10;
+        assert_eq!(tracker[reg][0], 10);
+    }
+
+    #[test]
+    fn reg_tracker_index_pred() {
+        let mut tracker: RegTracker<bool> = RegTracker::new_with(&|| false);
+        let reg = RegRef::new(RegFile::Pred, 0, 7);
+        tracker[reg][0] = true;
+        assert!(tracker[reg][0]);
+    }
+
+    #[test]
+    fn reg_tracker_index_bar_returns_empty() {
+        let tracker: RegTracker<u32> = RegTracker::new_with(&|| 0);
+        let reg = RegRef::new(RegFile::Bar, 0, 1);
+        assert!(tracker[reg].is_empty());
+    }
+
+    #[test]
+    fn reg_tracker_for_each_ref_mut() {
+        let mut tracker: RegTracker<u32> = RegTracker::new_with(&|| 0);
+        let reg = RegRef::new(RegFile::GPR, 1, 2);
+        tracker.for_each_ref_mut(reg, |t| *t += 1);
+        assert_eq!(tracker[reg], [1, 1]);
+    }
+
+    #[test]
+    fn sparse_reg_tracker_for_each_pred() {
+        let mut tracker = SparseRegTracker::<u32>::default();
+        tracker.for_each_pred(|t| *t = 1);
+        let mut sum = 0;
+        tracker.for_each_pred(|t| sum += *t);
+        assert_eq!(sum, 7, "all 7 preds should be set to 1");
+    }
+
+    #[test]
+    fn sparse_reg_tracker_for_each_carry() {
+        let mut tracker = SparseRegTracker::<u32>::default();
+        tracker.for_each_carry(|t| *t = 99);
+        let mut val = 0;
+        tracker.for_each_carry(|t| val = *t);
+        assert_eq!(val, 99);
+    }
+
+    #[test]
+    fn sparse_reg_tracker_merge_with() {
+        let mut a = SparseRegTracker::<u32>::default();
+        let mut b = SparseRegTracker::<u32>::default();
+        a.for_each_ref_mut(RegRef::new(RegFile::GPR, 0, 1), |t| *t = 1);
+        b.for_each_ref_mut(RegRef::new(RegFile::GPR, 0, 1), |t| *t = 2);
+        b.for_each_ref_mut(RegRef::new(RegFile::GPR, 1, 1), |t| *t = 3);
+        a.merge_with(&b, |a, b| *a += *b);
+        let mut v0 = 0;
+        let mut v1 = 0;
+        a.for_each_ref_mut(RegRef::new(RegFile::GPR, 0, 1), |t| v0 = *t);
+        a.for_each_ref_mut(RegRef::new(RegFile::GPR, 1, 1), |t| v1 = *t);
+        assert_eq!(v0, 3);
+        assert_eq!(v1, 3);
+    }
+
+    #[test]
+    fn sparse_reg_tracker_retain() {
+        let mut tracker = SparseRegTracker::<u32>::default();
+        tracker.for_each_ref_mut(RegRef::new(RegFile::Pred, 0, 1), |t| *t = 1);
+        tracker.for_each_ref_mut(RegRef::new(RegFile::Pred, 1, 1), |t| *t = 2);
+        tracker.for_each_ref_mut(RegRef::new(RegFile::Pred, 2, 1), |t| *t = 3);
+        tracker.retain(|t| *t != 2);
+        let mut sum = 0;
+        tracker.for_each_pred(|t| sum += *t);
+        assert_eq!(
+            sum, 4,
+            "retain should remove pred 1 (value 2), leaving 1+3=4"
+        );
+    }
+
+    #[test]
+    fn sparse_reg_tracker_for_each_ref_mut_bar_skips() {
+        let mut tracker = SparseRegTracker::<u32>::default();
+        let mut count = 0;
+        tracker.for_each_ref_mut(RegRef::new(RegFile::Bar, 0, 1), |_| count += 1);
+        assert_eq!(count, 0, "Bar should be skipped");
+    }
+
+    #[test]
+    #[should_panic(expected = "Not a register")]
+    fn reg_tracker_index_mem_panics() {
+        let tracker: RegTracker<u32> = RegTracker::new_with(&|| 0);
+        let reg = RegRef::new(RegFile::Mem, 0, 1);
+        let _ = &tracker[reg];
+    }
+
+    #[test]
+    #[should_panic(expected = "Not a register")]
+    fn sparse_reg_tracker_for_each_ref_mut_mem_panics() {
+        let mut tracker = SparseRegTracker::<u32>::default();
+        tracker.for_each_ref_mut(RegRef::new(RegFile::Mem, 0, 1), |_| {});
+    }
+}

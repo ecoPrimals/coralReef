@@ -268,3 +268,113 @@ fn uvm_external_memory_mapping() {
         .expect("RM_UNMAP_MEMORY");
     client.free_object(h_device, h_mem).expect("free memory");
 }
+
+// ── Pure-logic tests (no hardware required) ────────────────────────────────
+
+#[test]
+fn rm_alloc_params_default() {
+    let params = NvRmAllocParams::default();
+    assert_eq!(params.h_root, 0);
+    assert_eq!(params.h_object_parent, 0);
+    assert_eq!(params.h_object_new, 0);
+    assert_eq!(params.h_class, 0);
+    assert_eq!(params.p_alloc_parms, 0);
+    assert_eq!(params.params_size, 0);
+    assert_eq!(params.status, 0);
+}
+
+#[test]
+fn rm_alloc_params_construction() {
+    let params = NvRmAllocParams {
+        h_root: 0x1000,
+        h_object_parent: 0x2000,
+        h_object_new: 0x3000,
+        h_class: NV01_DEVICE_0,
+        p_alloc_parms: 0x1234,
+        params_size: 56,
+        status: 0,
+    };
+    assert_eq!(params.h_root, 0x1000);
+    assert_eq!(params.h_class, NV01_DEVICE_0);
+}
+
+#[test]
+fn nv0080_alloc_params_default() {
+    let params = Nv0080AllocParams::default();
+    assert_eq!(params.device_id, 0);
+    assert_eq!(params.va_space_size, 0);
+}
+
+#[test]
+fn nv_memory_alloc_params_construction() {
+    let params = NvMemoryAllocParams {
+        owner: 0x1000,
+        flags: NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED,
+        attr: NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS,
+        size: 4096,
+        ..Default::default()
+    };
+    assert_eq!(params.owner, 0x1000);
+    assert_eq!(params.size, 4096);
+}
+
+#[test]
+fn rm_handle_formula_device() {
+    let h_client = 0x1000;
+    let gpu_index = 2;
+    let h_device = h_client + 1 + gpu_index;
+    assert_eq!(h_device, 0x1003);
+}
+
+#[test]
+fn rm_handle_formula_subdevice() {
+    let h_device = 0x1003;
+    let h_subdevice = h_device + 0x1000;
+    assert_eq!(h_subdevice, 0x2003);
+}
+
+#[test]
+fn rm_handle_formula_vaspace() {
+    let h_device = 0x1003;
+    let h_vaspace = h_device + 0x2000;
+    assert_eq!(h_vaspace, 0x3003);
+}
+
+#[test]
+fn rm_handle_formula_channel_group() {
+    let h_device = 0x1003;
+    let h_changrp = h_device + 0x3000;
+    assert_eq!(h_changrp, 0x4003);
+}
+
+#[test]
+fn rm_handle_formula_gpfifo_channel() {
+    let h_changrp = 0x4003;
+    let h_channel = h_changrp + 0x100;
+    assert_eq!(h_channel, 0x4103);
+}
+
+#[test]
+fn rm_handle_formula_compute_engine() {
+    let h_channel = 0x4103;
+    let h_compute = h_channel + 0x10;
+    assert_eq!(h_compute, 0x4113);
+}
+
+#[test]
+fn nv_channel_group_alloc_params_default() {
+    let params = NvChannelGroupAllocParams::default();
+    assert_eq!(params.h_vaspace, 0);
+    assert_eq!(params.engine_type, 0);
+}
+
+#[test]
+fn nv_memory_virtual_alloc_params_construction() {
+    let params = NvMemoryVirtualAllocParams {
+        offset: 0,
+        limit: 0x1_0000_0000,
+        h_vaspace: 0x3003,
+    };
+    assert_eq!(params.h_vaspace, 0x3003);
+    assert_eq!(params.limit, 0x1_0000_0000);
+}

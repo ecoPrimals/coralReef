@@ -42,7 +42,7 @@ impl SM32Op for OpFlo {
                 e.set_opcode(0x618, 2);
                 e.set_src_cbuf(23..42, cb);
             }
-            _ => panic!("Invalid flo src"),
+            _ => crate::codegen::ice!("Invalid flo src"),
         }
 
         e.set_bit(43, self.src.modifier.is_bnot());
@@ -74,7 +74,7 @@ impl SM32Op for OpIAdd2 {
         let carry_out = match self.carry_out() {
             Dst::Reg(reg) if reg.file() == RegFile::Carry => true,
             Dst::None => false,
-            dst => panic!("Invalid iadd carry_out: {dst}"),
+            dst => crate::codegen::ice!("Invalid iadd carry_out: {dst}"),
         };
 
         if let Some(limm) = self.srcs[1].as_imm_not_i20() {
@@ -117,13 +117,13 @@ impl SM32Op for OpIAdd2X {
     fn encode(&self, e: &mut SM32Encoder<'_>) {
         match &self.carry_in().reference {
             SrcRef::Reg(reg) if reg.file() == RegFile::Carry => (),
-            src => panic!("Invalid iadd.x carry_in: {src}"),
+            src => crate::codegen::ice!("Invalid iadd.x carry_in: {src}"),
         }
 
         let carry_out = match self.carry_out() {
             Dst::Reg(reg) if reg.file() == RegFile::Carry => true,
             Dst::None => false,
-            dst => panic!("Invalid iadd.x carry_out: {dst}"),
+            dst => crate::codegen::ice!("Invalid iadd.x carry_out: {dst}"),
         };
 
         if let Some(limm) = self.srcs[1].as_imm_not_i20() {
@@ -336,7 +336,7 @@ impl SM32Op for OpLop2 {
                     LogicOp2::And => 0_u8,
                     LogicOp2::Or => 1_u8,
                     LogicOp2::Xor => 2_u8,
-                    LogicOp2::PassB => panic!("Not supported for imm32"),
+                    LogicOp2::PassB => crate::codegen::ice!("Not supported for imm32"),
                 },
             );
             e.set_bit(58, self.srcs[0].modifier.is_bnot());
@@ -434,7 +434,7 @@ impl SM32Op for OpShf {
                 IntType::I32 | IntType::U32 => 0_u8,
                 IntType::U64 => 2_u8,
                 IntType::I64 => 3_u8,
-                _ => panic!("Invalid shift data type"),
+                _ => crate::codegen::ice!("Invalid shift data type"),
             },
         );
     }

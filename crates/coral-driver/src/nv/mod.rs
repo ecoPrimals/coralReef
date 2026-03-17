@@ -19,6 +19,9 @@ pub mod ioctl;
 pub mod pushbuf;
 pub mod qmd;
 
+#[cfg(feature = "nouveau")]
+mod probe;
+
 #[cfg(feature = "nvidia-drm")]
 pub mod nvidia_drm;
 #[cfg(feature = "nvidia-drm")]
@@ -62,11 +65,6 @@ const GPU_PAGE_SIZE: u64 = 4096;
 /// GPU page mask for alignment — `GPU_PAGE_SIZE - 1`.
 const GPU_PAGE_MASK: u64 = GPU_PAGE_SIZE - 1;
 
-/// Syncobj wait timeout in nanoseconds (5 seconds).
-///
-/// Applied to both FECS init and compute dispatch syncobj waits.
-const SYNCOBJ_TIMEOUT_NS: i64 = 5_000_000_000;
-
 /// Local memory window address for Volta+ (SM >= 70).
 ///
 /// The shader local memory window tells the GPU where to map per-thread
@@ -76,12 +74,6 @@ const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
 
 /// Local memory window address for pre-Volta (SM < 70).
 const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
-
-/// Compute a monotonic deadline `SYNCOBJ_TIMEOUT_NS` from now.
-fn syncobj_deadline() -> i64 {
-    let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-    tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + SYNCOBJ_TIMEOUT_NS
-}
 
 /// NVIDIA GPU compute device via nouveau.
 ///
@@ -111,35 +103,6 @@ pub struct NvDevice {
     exec_syncobj: Option<u32>,
     /// Temp buffers allocated during dispatch that must survive until sync.
     inflight: Vec<BufferHandle>,
-}
-
-/// Select the compute engine class for a GPU architecture.
-///
-/// Returns the DRM class ID that the kernel needs to instantiate a compute
-/// engine on this GPU generation.
-const fn compute_class_for_sm(sm: u32) -> u32 {
-    match sm {
-        75 => pushbuf::class::TURING_COMPUTE_A,
-        80..=89 => pushbuf::class::AMPERE_COMPUTE_A,
-        _ => pushbuf::class::VOLTA_COMPUTE_A,
-    }
-}
-
-/// Map SM architecture version to the chip codename used by firmware paths.
-///
-/// e.g. SM 70 → `"gv100"` (Volta), SM 75 → `"tu102"` (Turing),
-/// SM 86 → `"ga102"` (Ampere), SM 89 → `"ad102"` (Ada).
-const fn sm_to_chip(sm: u32) -> &'static str {
-    match sm {
-        50..=52 => "gm200",
-        60..=62 => "gp100",
-        70 => "gv100",
-        75 => "tu102",
-        80 => "ga100",
-        86..=87 => "ga102",
-        89 => "ad102",
-        _ => "gv100",
-    }
 }
 
 /// A nouveau GEM buffer with optional mmap info.
@@ -209,13 +172,13 @@ impl NvDevice {
 
     #[cfg(feature = "nouveau")]
     fn open_from_drm(drm: DrmDevice, sm: u32) -> DriverResult<Self> {
-        let compute_class = compute_class_for_sm(sm);
+        let compute_class = probe::compute_class_for_sm(sm);
 
         // Phase 0: Sovereign BAR0 GR init — write PGRAPH registers BEFORE
         // channel creation so the compute engine has valid context state.
         // This replaces the PMU firmware that nouveau lacks on Volta, and
         // supplements GSP on Ampere where the kernel path may be incomplete.
-        try_bar0_gr_init(&drm.path, sm);
+        probe::try_bar0_gr_init(&drm.path, sm);
 
         // Phase 1: New UAPI probe (kernel 6.6+). On kernel 6.17+ Volta,
         // VM_INIT is required — CHANNEL_ALLOC fails without it.
@@ -249,7 +212,7 @@ impl NvDevice {
                     error = %e,
                     "Channel creation failed — running diagnostics"
                 );
-                run_open_diagnostics(&drm, sm, compute_class);
+                probe::run_open_diagnostics(&drm, sm, compute_class);
                 return Err(e);
             }
         };
@@ -320,7 +283,7 @@ impl NvDevice {
     /// by [`try_bar0_gr_init`].
     #[cfg(feature = "nouveau")]
     fn try_fecs_channel_init(&mut self) {
-        let chip = sm_to_chip(self.sm_version);
+        let chip = probe::sm_to_chip(self.sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,
             Err(e) => {
@@ -402,7 +365,8 @@ impl NvDevice {
             Ok(()) => {
                 tracing::info!(chip, "FECS channel method init submitted");
                 if let Some(syncobj) = self.exec_syncobj {
-                    if let Err(e) = ioctl::syncobj_wait(self.drm.fd(), syncobj, syncobj_deadline())
+                    if let Err(e) =
+                        ioctl::syncobj_wait(self.drm.fd(), syncobj, probe::syncobj_deadline())
                     {
                         tracing::warn!(error = %e, "FECS init syncobj wait failed");
                     }
@@ -436,132 +400,6 @@ impl NvDevice {
             exec_syncobj: None,
             inflight: Vec::new(),
         })
-    }
-}
-
-/// Sovereign BAR0 GR initialization — Phase 0 of device open.
-///
-/// Opens the GPU's BAR0 MMIO window via sysfs and writes the PGRAPH
-/// register init sequence parsed from NVIDIA firmware blobs. This replaces
-/// the PMU firmware that nouveau lacks on Volta and supplements GSP on
-/// Ampere where the kernel's init path may be incomplete.
-///
-/// Gracefully falls back if BAR0 access is unavailable (no root, no sysfs).
-/// When it succeeds, subsequent channel creation should find a valid GR
-/// context, resolving the CTXNOTVALID error.
-#[cfg(feature = "nouveau")]
-fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
-    let chip = sm_to_chip(sm);
-    let blobs = match GrFirmwareBlobs::parse(chip) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::debug!(chip, error = %e, "firmware not available — skipping BAR0 GR init");
-            return;
-        }
-    };
-
-    let seq = GrInitSequence::for_gv100(&blobs);
-    let (bar0_entries, fecs_entries) = gsp::split_for_application(&seq);
-
-    tracing::info!(
-        chip,
-        bar0_writes = bar0_entries.len(),
-        fecs_entries = fecs_entries.len(),
-        total = seq.len(),
-        "sovereign GR init: {} BAR0 register writes to apply",
-        bar0_entries.len()
-    );
-
-    if bar0_entries.len() <= 2 {
-        tracing::debug!(
-            chip,
-            "only pre-init entries — no PGRAPH registers to write via BAR0"
-        );
-        return;
-    }
-
-    let mut bar0 = match bar0::Bar0Access::from_render_node(render_node_path) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::info!(
-                chip,
-                error = %e,
-                "BAR0 access not available (needs root) — falling back to kernel GR init"
-            );
-            return;
-        }
-    };
-
-    let boot_id = bar0.read_boot_id().unwrap_or(0);
-    tracing::info!(
-        chip,
-        boot_id = format_args!("{boot_id:#010x}"),
-        bar0_size_mib = bar0.size() / (1024 * 1024),
-        "BAR0 open — applying sovereign GR init sequence"
-    );
-
-    let result = gsp::apply_bar0(&seq, &mut bar0);
-
-    if result.success() {
-        tracing::info!(
-            chip,
-            bar0_writes = result.bar0_writes,
-            fecs_remaining = result.fecs_entries,
-            "sovereign BAR0 GR init complete — PGRAPH registers written"
-        );
-    } else {
-        tracing::warn!(
-            chip,
-            bar0_writes = result.bar0_writes,
-            errors = result.errors.len(),
-            "sovereign BAR0 GR init had errors: {:?}",
-            result.errors
-        );
-    }
-
-    let verify_errors = gsp::verify_pre_init(&bar0);
-    if verify_errors.is_empty() {
-        tracing::info!(chip, "BAR0 pre-init verification passed");
-    } else {
-        tracing::warn!(chip, errors = ?verify_errors, "BAR0 pre-init verification issues");
-    }
-}
-
-/// Run diagnostic probes when channel creation fails.
-#[cfg(feature = "nouveau")]
-fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
-    let diags = ioctl::diagnose_channel_alloc(drm.fd(), compute_class);
-    for diag in &diags {
-        match &diag.result {
-            Ok(ch) => tracing::info!(
-                description = %diag.description,
-                channel = ch,
-                "diagnostic: PASS"
-            ),
-            Err(err) => tracing::warn!(
-                description = %diag.description,
-                error = %err,
-                "diagnostic: FAIL"
-            ),
-        }
-    }
-    let chip = sm_to_chip(sm);
-    let fw = ioctl::check_nouveau_firmware(chip);
-    let missing: Vec<_> = fw.iter().filter(|(_, exists)| !*exists).collect();
-    if !missing.is_empty() {
-        tracing::warn!(
-            chip,
-            missing_count = missing.len(),
-            "nouveau firmware files missing — compute may not be available"
-        );
-    }
-    if let Some(id) = ioctl::probe_gpu_identity(&drm.path) {
-        tracing::info!(
-            vendor = format_args!("0x{:04X}", id.vendor_id),
-            device = format_args!("0x{:04X}", id.device_id),
-            detected_sm = ?id.nvidia_sm(),
-            "GPU identity from sysfs"
-        );
     }
 }
 
@@ -692,7 +530,7 @@ impl ComputeDevice for NvDevice {
     fn sync(&mut self) -> DriverResult<()> {
         if let Some(syncobj) = self.exec_syncobj {
             // New UAPI: wait on syncobj
-            ioctl::syncobj_wait(self.drm.fd(), syncobj, syncobj_deadline())?;
+            ioctl::syncobj_wait(self.drm.fd(), syncobj, probe::syncobj_deadline())?;
         } else if let Some(gem_handle) = self.last_submit_gem {
             // Legacy UAPI: wait via GEM CPU prep
             ioctl::gem_cpu_prep(self.drm.fd(), gem_handle)?;
@@ -884,19 +722,28 @@ mod tests {
 
     #[test]
     fn sm_to_chip_mapping() {
-        assert_eq!(sm_to_chip(50), "gm200");
-        assert_eq!(sm_to_chip(60), "gp100");
-        assert_eq!(sm_to_chip(70), "gv100");
-        assert_eq!(sm_to_chip(75), "tu102");
-        assert_eq!(sm_to_chip(80), "ga100");
-        assert_eq!(sm_to_chip(86), "ga102");
-        assert_eq!(sm_to_chip(89), "ad102");
+        assert_eq!(probe::sm_to_chip(50), "gm200");
+        assert_eq!(probe::sm_to_chip(60), "gp100");
+        assert_eq!(probe::sm_to_chip(70), "gv100");
+        assert_eq!(probe::sm_to_chip(75), "tu102");
+        assert_eq!(probe::sm_to_chip(80), "ga100");
+        assert_eq!(probe::sm_to_chip(86), "ga102");
+        assert_eq!(probe::sm_to_chip(89), "ad102");
     }
 
     #[test]
     fn compute_class_selection() {
-        assert_eq!(compute_class_for_sm(70), pushbuf::class::VOLTA_COMPUTE_A);
-        assert_eq!(compute_class_for_sm(75), pushbuf::class::TURING_COMPUTE_A);
-        assert_eq!(compute_class_for_sm(86), pushbuf::class::AMPERE_COMPUTE_A);
+        assert_eq!(
+            probe::compute_class_for_sm(70),
+            pushbuf::class::VOLTA_COMPUTE_A
+        );
+        assert_eq!(
+            probe::compute_class_for_sm(75),
+            pushbuf::class::TURING_COMPUTE_A
+        );
+        assert_eq!(
+            probe::compute_class_for_sm(86),
+            pushbuf::class::AMPERE_COMPUTE_A
+        );
     }
 }

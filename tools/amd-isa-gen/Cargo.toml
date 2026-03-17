@@ -11,5 +11,6 @@ name = "amd-isa-gen"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
 quick-xml = { version = "0.39", features = ["serialize"] }
 serde = { version = "1", features = ["derive"] }

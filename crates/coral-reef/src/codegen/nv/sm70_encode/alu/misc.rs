@@ -106,7 +106,7 @@ impl SM70Op for OpMov {
                     e.encode_alu_imm(imm);
                     0x4 // form
                 }
-                _ => panic!("Invalid umov src"),
+                _ => crate::codegen::ice!("Invalid umov src"),
             };
             e.set_field(9..12, form);
         } else {
@@ -255,7 +255,7 @@ impl SM70Op for OpShfl {
                     e.set_reg_src(32..40, self.lane());
                     e.set_field(40..53, *imm_c);
                 }
-                _ => panic!("Invalid instruction form"),
+                _ => crate::codegen::ice!("Invalid instruction form"),
             },
             SrcRef::Imm32(imm_lane) => match &self.c().reference {
                 SrcRef::Zero | SrcRef::Reg(_) => {
@@ -268,9 +268,9 @@ impl SM70Op for OpShfl {
                     e.set_field(40..53, *imm_c);
                     e.set_field(53..58, *imm_lane);
                 }
-                _ => panic!("Invalid instruction form"),
+                _ => crate::codegen::ice!("Invalid instruction form"),
             },
-            _ => panic!("Invalid instruction form"),
+            _ => crate::codegen::ice!("Invalid instruction form"),
         }
 
         e.set_dst(self.dst());

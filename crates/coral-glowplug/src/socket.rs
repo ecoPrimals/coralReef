@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! JSON-RPC 2.0 Unix socket server for coral-glowplug.
+//! JSON-RPC 2.0 socket server for coral-glowplug (ecoBin compliant).
 //!
-//! Evolved from custom Request/Response enums to proper JSON-RPC 2.0
-//! per hotSpring P1 requirement. toadStool (and other consumers) connect
-//! via newline-delimited JSON-RPC over a Unix domain socket.
+//! Platform-agnostic IPC per ecoBin standard:
+//! - **Unix**: primary transport is Unix domain socket
+//! - **Non-Unix**: TCP fallback to `127.0.0.1:0` (OS-assigned port)
+//!
+//! toadStool (and other consumers) connect via newline-delimited JSON-RPC
+//! over either transport. The JSON-RPC dispatch logic is identical for both.
 //!
 //! ## Semantic methods
 //!
@@ -20,8 +23,10 @@
 //! | `daemon.shutdown`  | Graceful shutdown                           |
 
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::UnixListener;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
 #[derive(Deserialize)]
@@ -77,48 +82,147 @@ pub struct HealthInfo {
     pub domains_faulted: usize,
 }
 
+/// Platform-agnostic JSON-RPC socket server (ecoBin compliant).
+///
+/// Binds to either a Unix domain socket path or a TCP address.
+/// Use `SocketServer::bind` with a path (e.g. `/run/coralreef/glowplug.sock`)
+/// or TCP address (e.g. `127.0.0.1:0`).
 pub struct SocketServer {
-    listener: UnixListener,
+    transport: Transport,
     pub started_at: std::time::Instant,
 }
 
+#[cfg(unix)]
+enum Transport {
+    Unix(UnixListener),
+    Tcp(TcpListener),
+}
+
+#[cfg(not(unix))]
+enum Transport {
+    Tcp(TcpListener),
+}
+
 impl SocketServer {
-    pub async fn bind(path: &str) -> Result<Self, String> {
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            let _ = std::fs::create_dir_all(parent);
+    /// Bind to the given address.
+    ///
+    /// - If `addr` parses as a `SocketAddr` (e.g. `127.0.0.1:0`), binds TCP.
+    /// - Otherwise, treats `addr` as a Unix socket path (Unix platforms only).
+    ///
+    /// On non-Unix platforms, only TCP addresses are supported.
+    pub async fn bind(addr: &str) -> Result<Self, String> {
+        let started_at = std::time::Instant::now();
+
+        if let Ok(socket_addr) = addr.parse::<SocketAddr>() {
+            // TCP transport
+            let listener = TcpListener::bind(socket_addr)
+                .await
+                .map_err(|e| format!("bind TCP {addr}: {e}"))?;
+            let bound = listener
+                .local_addr()
+                .map_err(|e| format!("get TCP local addr: {e}"))?;
+            tracing::info!(%bound, "JSON-RPC 2.0 TCP server listening");
+            Ok(Self {
+                transport: Transport::Tcp(listener),
+                started_at,
+            })
+        } else {
+            // Unix transport (Unix platforms only)
+            #[cfg(unix)]
+            {
+                if let Some(parent) = std::path::Path::new(addr).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::remove_file(addr);
+
+                let listener =
+                    UnixListener::bind(addr).map_err(|e| format!("bind Unix {addr}: {e}"))?;
+
+                let _ = std::fs::set_permissions(
+                    addr,
+                    std::os::unix::fs::PermissionsExt::from_mode(0o666),
+                );
+
+                tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
+                Ok(Self {
+                    transport: Transport::Unix(listener),
+                    started_at,
+                })
+            }
+            #[cfg(not(unix))]
+            {
+                Err(format!(
+                    "Unix socket path not supported on this platform; use TCP address (e.g. {})",
+                    crate::config::FALLBACK_TCP_BIND
+                ))
+            }
         }
-        let _ = std::fs::remove_file(path);
+    }
 
-        let listener = UnixListener::bind(path).map_err(|e| format!("bind {path}: {e}"))?;
-
-        let _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o666));
-
-        tracing::info!(path, "JSON-RPC 2.0 socket server listening");
-        Ok(Self {
-            listener,
-            started_at: std::time::Instant::now(),
-        })
+    /// Returns the bound address for display (e.g. in startup banner).
+    ///
+    /// For TCP with port 0, returns the actual bound address including the
+    /// OS-assigned port.
+    #[must_use]
+    pub fn bound_addr(&self) -> String {
+        match &self.transport {
+            #[cfg(unix)]
+            Transport::Unix(listener) => listener
+                .local_addr()
+                .ok()
+                .and_then(|a| a.as_pathname().map(|p| format!("unix://{}", p.display())))
+                .unwrap_or_else(|| "unix:(unknown)".to_owned()),
+            Transport::Tcp(listener) => listener
+                .local_addr()
+                .map(|a| a.to_string())
+                .unwrap_or_else(|_| "tcp:(unknown)".to_owned()),
+        }
     }
 
     pub async fn accept_loop(&self, devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>) {
         loop {
-            match self.listener.accept().await {
-                Ok((stream, _addr)) => {
-                    let devices = devices.clone();
-                    let started_at = self.started_at;
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_client(stream, devices, started_at).await {
-                            tracing::warn!(error = %e, "client handler error");
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "accept error");
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
+            let (accepted, started_at) = match &self.transport {
+                #[cfg(unix)]
+                Transport::Unix(listener) => match listener.accept().await {
+                    Ok((stream, _addr)) => (Some(ClientStream::Unix(stream)), self.started_at),
+                    Err(e) => {
+                        tracing::error!(error = %e, "Unix accept error");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+                },
+                Transport::Tcp(listener) => match listener.accept().await {
+                    Ok((stream, _addr)) => (Some(ClientStream::Tcp(stream)), self.started_at),
+                    Err(e) => {
+                        tracing::error!(error = %e, "TCP accept error");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+                },
+            };
+
+            if let Some(stream) = accepted {
+                let devices = devices.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle_client(stream, devices, started_at).await {
+                        tracing::warn!(error = %e, "client handler error");
+                    }
+                });
             }
         }
     }
+}
+
+/// Client stream abstraction — Unix or TCP.
+#[cfg(unix)]
+enum ClientStream {
+    Unix(UnixStream),
+    Tcp(TcpStream),
+}
+
+#[cfg(not(unix))]
+enum ClientStream {
+    Tcp(TcpStream),
 }
 
 fn make_response(
@@ -265,13 +369,27 @@ fn device_to_info(d: &crate::device::DeviceSlot) -> DeviceInfo {
 }
 
 async fn handle_client(
-    stream: tokio::net::UnixStream,
+    stream: ClientStream,
     devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
     started_at: std::time::Instant,
 ) -> Result<(), String> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    match stream {
+        #[cfg(unix)]
+        ClientStream::Unix(s) => handle_client_stream(s, devices, started_at).await,
+        ClientStream::Tcp(s) => handle_client_stream(s, devices, started_at).await,
+    }
+}
 
-    let (reader, mut writer) = stream.into_split();
+/// Generic JSON-RPC handler — identical logic for Unix and TCP (ecoBin).
+async fn handle_client_stream<S>(
+    stream: S,
+    devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
+    started_at: std::time::Instant,
+) -> Result<(), String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut lines = BufReader::new(reader).lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
@@ -460,5 +578,226 @@ mod tests {
         assert_eq!(response["name"], "coral-glowplug");
         assert_eq!(response["device_count"], 0);
         assert_eq!(response["healthy_count"], 0);
+    }
+
+    #[test]
+    fn test_dispatch_device_list_empty() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch("device.list", &serde_json::json!({}), &mut devices, started);
+        let val = result.expect("device.list should succeed");
+        let arr = val.as_array().expect("should be array");
+        assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn test_dispatch_device_list_with_devices() {
+        let config = crate::config::DeviceConfig {
+            bdf: "0000:99:00.0".into(),
+            name: Some("Test GPU".into()),
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: Some("compute".into()),
+            oracle_dump: None,
+        };
+        let mut devices = vec![crate::device::DeviceSlot::new(config)];
+        let started = std::time::Instant::now();
+        let result = super::dispatch("device.list", &serde_json::json!({}), &mut devices, started);
+        let val = result.expect("device.list should succeed");
+        let arr = val.as_array().expect("should be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["bdf"], "0000:99:00.0");
+        assert_eq!(arr[0]["name"], "Test GPU");
+    }
+
+    #[test]
+    fn test_dispatch_device_get_found() {
+        let config = crate::config::DeviceConfig {
+            bdf: "0000:99:00.0".into(),
+            name: Some("Test".into()),
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let mut devices = vec![crate::device::DeviceSlot::new(config)];
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "device.get",
+            &serde_json::json!({"bdf": "0000:99:00.0"}),
+            &mut devices,
+            started,
+        );
+        let val = result.expect("device.get should succeed");
+        assert_eq!(val["bdf"], "0000:99:00.0");
+    }
+
+    #[test]
+    fn test_dispatch_device_get_missing_bdf() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch("device.get", &serde_json::json!({}), &mut devices, started);
+        let err = result.expect_err("device.get without bdf should fail");
+        assert_eq!(err.0, -32602);
+        assert!(err.1.contains("bdf"));
+    }
+
+    #[test]
+    fn test_dispatch_device_get_not_managed() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "device.get",
+            &serde_json::json!({"bdf": "0000:01:00.0"}),
+            &mut devices,
+            started,
+        );
+        let err = result.expect_err("device.get for unmanaged device should fail");
+        assert_eq!(err.0, -32000);
+        assert!(err.1.contains("not managed"));
+    }
+
+    #[test]
+    fn test_dispatch_health_check() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "health.check",
+            &serde_json::json!({}),
+            &mut devices,
+            started,
+        );
+        let val = result.expect("health.check should succeed");
+        assert_eq!(val["alive"], true);
+        assert_eq!(val["name"], "coral-glowplug");
+        assert_eq!(val["device_count"], 0);
+    }
+
+    #[test]
+    fn test_dispatch_health_liveness() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "health.liveness",
+            &serde_json::json!({}),
+            &mut devices,
+            started,
+        );
+        let val = result.expect("health.liveness should succeed");
+        assert_eq!(val["alive"], true);
+    }
+
+    #[test]
+    fn test_dispatch_daemon_status() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "daemon.status",
+            &serde_json::json!({}),
+            &mut devices,
+            started,
+        );
+        let val = result.expect("daemon.status should succeed");
+        assert!(val["uptime_secs"].as_u64().is_some());
+        assert_eq!(val["device_count"], 0);
+    }
+
+    #[test]
+    fn test_dispatch_daemon_shutdown_returns_error() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "daemon.shutdown",
+            &serde_json::json!({}),
+            &mut devices,
+            started,
+        );
+        let err = result.expect_err("daemon.shutdown should return Err for shutdown signal");
+        assert_eq!(err.0, -32000);
+        assert_eq!(err.1, "shutdown");
+    }
+
+    #[test]
+    fn test_dispatch_unknown_method() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "nonexistent.method",
+            &serde_json::json!({}),
+            &mut devices,
+            started,
+        );
+        let err = result.expect_err("unknown method should fail");
+        assert_eq!(err.0, -32601);
+        assert!(err.1.contains("method not found"));
+    }
+
+    #[test]
+    fn test_dispatch_device_swap_missing_params() {
+        let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+        let started = std::time::Instant::now();
+        let result = super::dispatch("device.swap", &serde_json::json!({}), &mut devices, started);
+        let err = result.expect_err("device.swap without params should fail");
+        assert_eq!(err.0, -32602);
+    }
+
+    #[test]
+    fn test_dispatch_device_health() {
+        let config = crate::config::DeviceConfig {
+            bdf: "0000:99:00.0".into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let mut devices = vec![crate::device::DeviceSlot::new(config)];
+        let started = std::time::Instant::now();
+        let result = super::dispatch(
+            "device.health",
+            &serde_json::json!({"bdf": "0000:99:00.0"}),
+            &mut devices,
+            started,
+        );
+        let val = result.expect("device.health should succeed");
+        assert_eq!(val["bdf"], "0000:99:00.0");
+        assert!(val.get("vram_alive").is_some());
+        assert!(val.get("domains_alive").is_some());
+    }
+
+    #[test]
+    fn test_make_response_success() {
+        let resp = super::make_response(serde_json::json!(1), Ok(serde_json::json!({"ok": true})));
+        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+        assert_eq!(parsed["jsonrpc"], "2.0");
+        assert_eq!(parsed["result"]["ok"], true);
+        assert_eq!(parsed["id"], 1);
+    }
+
+    #[test]
+    fn test_make_response_error() {
+        let resp = super::make_response(
+            serde_json::json!("req-1"),
+            Err((-32602, "missing parameter".into())),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+        assert_eq!(parsed["jsonrpc"], "2.0");
+        assert!(parsed["error"].is_object());
+        assert_eq!(parsed["error"]["code"], -32602);
+        assert_eq!(parsed["error"]["message"], "missing parameter");
+    }
+
+    #[tokio::test]
+    async fn test_tcp_bind_127_0_0_1_0() {
+        let server = SocketServer::bind("127.0.0.1:0")
+            .await
+            .expect("TCP bind should succeed");
+        let addr = server.bound_addr();
+        assert!(addr.contains("127.0.0.1"));
+        assert!(addr.contains(':'));
+        // Port 0 means OS assigns; we should get a non-zero port
+        let port_part: &str = addr.rsplit(':').next().unwrap_or("");
+        let port: u16 = port_part.parse().expect("port should parse");
+        assert!(port > 0, "OS should assign non-zero port");
     }
 }

@@ -83,7 +83,9 @@ impl From<&ShaderStageInfo> for ShaderType {
             ShaderStageInfo::Geometry(_) => Self::Geometry,
             ShaderStageInfo::TessellationInit(_) => Self::TessellationInit,
             ShaderStageInfo::Tessellation(_) => Self::Tessellation,
-            ShaderStageInfo::Compute(_) => panic!("Invalid ShaderStageInfo {value:?}"),
+            ShaderStageInfo::Compute(_) => {
+                crate::codegen::ice!("Invalid ShaderStageInfo {value:?}")
+            }
         }
     }
 }
@@ -580,7 +582,7 @@ pub fn encode_header(
             sph.set_threads_per_input_primitive(stage.threads_per_patch);
         }
         ShaderStageInfo::Compute(_) => {
-            panic!("Compute shaders don't have a SPH!")
+            crate::codegen::ice!("Compute shaders don't have a SPH!")
         }
         ShaderStageInfo::Tessellation(_) => {}
     }

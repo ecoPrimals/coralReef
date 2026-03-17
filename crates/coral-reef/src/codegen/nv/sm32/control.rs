@@ -29,7 +29,7 @@ impl SM32Op for OpCCtl {
                     },
                 );
             }
-            MemSpace::Local => panic!("cctl does not support local"),
+            MemSpace::Local => crate::codegen::ice!("cctl does not support local"),
             MemSpace::Shared => {
                 e.set_opcode(0x7c0, 2);
 
@@ -49,7 +49,7 @@ impl SM32Op for OpCCtl {
                 CCtlOp::IVAll => 6_u8,
                 CCtlOp::RS => 7_u8,
                 CCtlOp::RSLB => 7_u8,
-                op => panic!("Unsupported cache control {op:?}"),
+                op => crate::codegen::ice!("Unsupported cache control {op:?}"),
             },
         );
         e.set_reg_src(10..18, &self.addr);
@@ -302,7 +302,7 @@ impl SM32Op for OpPixLd {
                 PixVal::Offset => 3_u8,
                 PixVal::CentroidOffset => 4_u8,
                 PixVal::MyIndex => 5_u8,
-                PixVal::InnerCoverage => panic!("Unsupported PixVal: InnerCoverage"),
+                PixVal::InnerCoverage => crate::codegen::ice!("Unsupported PixVal: InnerCoverage"),
             },
         );
 

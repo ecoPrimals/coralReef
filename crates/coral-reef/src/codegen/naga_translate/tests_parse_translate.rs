@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Parsing, translation entry point, E2E WGSL → IR, and expression coverage tests.
 
-use super::super::ir::{ComputeShaderInfo, Op, ShaderModelInfo, ShaderStageInfo};
+use super::super::ir::{ComputeShaderInfo, Op, ShaderModelInfo, ShaderStageInfo, SrcRef};
 use super::{parse_glsl, parse_spirv, parse_wgsl, translate};
 use crate::error::CompileError;
 
@@ -565,4 +565,109 @@ fn test_translate_math_function_variety() {
     });
     assert!(has_fmnmx, "clamp should emit FMnMx");
     assert!(has_frnd, "floor should emit FRnd");
+}
+
+// ---------------------------------------------------------------------------
+// func_ops coverage: all, any, f64, arrayLength, translate_select
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_translate_all_any_vector() {
+    let wgsl = r"
+        @group(0) @binding(0) var<storage, read_write> data: array<vec3<f32>>;
+        @compute @workgroup_size(64)
+        fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            let v = data[gid.x];
+            let ok = all(v == vec3<f32>(0.0, 0.0, 0.0)) && any(v > vec3<f32>(1.0, 1.0, 1.0));
+            data[gid.x] = select(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), ok);
+        }
+    ";
+    let module = parse_wgsl(wgsl).expect("valid WGSL");
+    let sm = sm70();
+    let result = translate(&module, &sm, "main");
+    assert!(result.is_ok(), "all/any with vector should translate");
+    let shader = result.unwrap();
+    let mut has_isetp = false;
+    shader.for_each_instr(&mut |instr| {
+        if matches!(instr.op, Op::ISetP(_)) {
+            has_isetp = true;
+        }
+    });
+    assert!(has_isetp, "all/any reduction should emit ISetP");
+}
+
+#[test]
+fn test_translate_f64_add() {
+    let wgsl = r"
+        @group(0) @binding(0) var<storage, read_write> data: array<f64>;
+        @compute @workgroup_size(64)
+        fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            let a = data[gid.x];
+            let b = data[gid.x + 1u];
+            data[gid.x] = a + b;
+        }
+    ";
+    let module = parse_wgsl(wgsl).expect("valid WGSL");
+    let sm = sm70();
+    let result = translate(&module, &sm, "main");
+    assert!(result.is_ok(), "f64 add should translate");
+    let shader = result.unwrap();
+    let mut has_dadd = false;
+    shader.for_each_instr(&mut |instr| {
+        if matches!(instr.op, Op::DAdd(_)) {
+            has_dadd = true;
+        }
+    });
+    assert!(has_dadd, "f64 add should emit DAdd");
+}
+
+#[test]
+fn test_translate_array_length() {
+    let wgsl = r"
+        @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+        @compute @workgroup_size(64)
+        fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            let n = arrayLength(&data);
+            data[gid.x] = select(1.0, 0.0, gid.x < n);
+        }
+    ";
+    let module = parse_wgsl(wgsl).expect("valid WGSL");
+    let sm = sm70();
+    let result = translate(&module, &sm, "main");
+    assert!(result.is_ok(), "arrayLength should translate");
+    let shader = result.unwrap();
+    let mut has_cbuf = false;
+    shader.for_each_instr(&mut |instr| {
+        if let Op::Copy(c) = &instr.op {
+            if matches!(c.src.reference, SrcRef::CBuf(_)) {
+                has_cbuf = true;
+            }
+        }
+    });
+    assert!(has_cbuf, "arrayLength should load from CBuf");
+}
+
+// ---------------------------------------------------------------------------
+// assign_regs block coverage: full compile with control flow exercises RA
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_assign_regs_block_via_compile() {
+    let wgsl = r"
+        @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+        @compute @workgroup_size(64)
+        fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+            if (gid.x % 2u == 0u) {
+                data[gid.x] = 1.0;
+            } else {
+                data[gid.x] = 2.0;
+            }
+        }
+    ";
+    let result = crate::compile_wgsl_raw_sm(wgsl, 70);
+    assert!(
+        result.is_ok(),
+        "shader with branches should compile (assign_regs): {:?}",
+        result.err()
+    );
 }

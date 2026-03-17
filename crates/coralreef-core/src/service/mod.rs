@@ -9,7 +9,7 @@ mod types;
 pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "re-exported for IPC transport consumers")]
 pub use types::{
     CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
     DeviceCompileResult, DeviceTarget, HealthCheckResponse, HealthResponse, LivenessResponse,
@@ -324,7 +324,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        let resp = handle_compile_wgsl_multi(req.clone()).expect("multi-device should succeed");
+        let resp = handle_compile_wgsl_multi(req).expect("multi-device should succeed");
         assert_eq!(resp.total_count, 2);
         assert_eq!(resp.success_count, 2);
         assert_eq!(resp.results.len(), 2);
@@ -359,8 +359,8 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        let resp = handle_compile_wgsl_multi(req.clone())
-            .expect("partial failure is not a top-level error");
+        let resp =
+            handle_compile_wgsl_multi(req).expect("partial failure is not a top-level error");
         assert_eq!(resp.total_count, 2);
         assert_eq!(resp.success_count, 1);
         assert!(resp.results[0].binary.is_some());
@@ -382,7 +382,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        assert!(handle_compile_wgsl_multi(req.clone()).is_err());
+        assert!(handle_compile_wgsl_multi(req).is_err());
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: None,
         };
-        assert!(handle_compile_wgsl_multi(req.clone()).is_err());
+        assert!(handle_compile_wgsl_multi(req).is_err());
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
             fp64_strategy: None,
             fma_policy: Some("fused".to_owned()),
         };
-        let resp = handle_compile_wgsl_multi(req.clone()).expect("cross-vendor should succeed");
+        let resp = handle_compile_wgsl_multi(req).expect("cross-vendor should succeed");
         assert_eq!(resp.success_count, 2);
         assert_eq!(resp.results[0].arch, "sm_80");
         assert_eq!(resp.results[1].arch, "rdna2");

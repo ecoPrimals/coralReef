@@ -65,7 +65,7 @@ pub struct OpLdc {
 impl DisplayOp for OpLdc {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let SrcRef::CBuf(cb) = &self.cb().reference else {
-            panic!("ICE: Not a cbuf");
+            crate::codegen::ice!("Not a cbuf");
         };
         write!(f, "ldc{}{} {}[", self.mode, self.mem_type, cb.buf)?;
         if self.offset().is_zero() {

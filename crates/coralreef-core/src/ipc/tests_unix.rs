@@ -182,7 +182,7 @@ fn test_dispatch_wgsl_array_params() {
 fn test_make_response_success() {
     let id = serde_json::json!(42);
     let result = Ok(serde_json::json!({"foo": "bar"}));
-    let resp = make_response(id.clone(), result);
+    let resp = make_response(id, result);
     let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
     assert_eq!(parsed["jsonrpc"], "2.0");
     assert_eq!(parsed["id"], 42);
@@ -196,7 +196,7 @@ fn test_make_response_error() {
     use super::error::IpcServiceError;
     let id = serde_json::json!("req-1");
     let result = Err(IpcServiceError::handler("something went wrong"));
-    let resp = make_response(id.clone(), result);
+    let resp = make_response(id, result);
     let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
     assert_eq!(parsed["jsonrpc"], "2.0");
     assert_eq!(parsed["id"], "req-1");
@@ -208,6 +208,42 @@ fn test_make_response_error() {
             .contains("something went wrong")
     );
     assert!(parsed.get("result").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_make_response_dispatch_error() {
+    use super::error::IpcServiceError;
+    let id = serde_json::json!(42);
+    let result = Err(IpcServiceError::dispatch("method not found: foo.bar"));
+    let resp = make_response(id, result);
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+    assert_eq!(parsed["jsonrpc"], "2.0");
+    assert_eq!(parsed["error"]["code"], -32601);
+    assert!(
+        parsed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("method not found")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_make_response_internal_error() {
+    use super::error::IpcServiceError;
+    let id = serde_json::json!(1);
+    let result = Err(IpcServiceError::internal("serialization failed"));
+    let resp = make_response(id, result);
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+    assert_eq!(parsed["jsonrpc"], "2.0");
+    assert_eq!(parsed["error"]["code"], -32603);
+    assert!(
+        parsed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("serialization failed")
+    );
 }
 
 #[cfg(unix)]

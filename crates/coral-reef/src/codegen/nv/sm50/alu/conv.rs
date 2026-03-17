@@ -27,7 +27,7 @@ impl SM50Op for OpF2F {
                 e.set_opcode(0x4ca8);
                 e.set_cb_fmod_src(20..39, 49, 45, &src);
             }
-            src => panic!("Invalid f2f src: {src}"),
+            src => crate::codegen::ice!("Invalid f2f src: {src}"),
         }
 
         // We can't span 32 bits
@@ -69,7 +69,7 @@ impl SM50Op for OpF2I {
                 e.set_opcode(0x4cb0);
                 e.set_cb_fmod_src(20..39, 49, 45, &self.src);
             }
-            src => panic!("Invalid f2i src: {src}"),
+            src => crate::codegen::ice!("Invalid f2i src: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -110,7 +110,7 @@ impl SM50Op for OpI2F {
                 e.set_opcode(0x4cb8);
                 e.set_cb_ineg_src(20..39, 45, &self.src);
             }
-            src => panic!("Invalid i2f src: {src}"),
+            src => crate::codegen::ice!("Invalid i2f src: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -150,7 +150,7 @@ impl SM50Op for OpI2I {
                 e.set_opcode(0x4ce0);
                 e.set_src_cb(20..39, cbuf);
             }
-            src => panic!("Invalid i2i src: {src}"),
+            src => crate::codegen::ice!("Invalid i2i src: {src}"),
         }
 
         e.set_dst(&self.dst);

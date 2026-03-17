@@ -78,7 +78,7 @@ impl SM32Op for OpMov {
                 e.set_src_cbuf(23..42, cb);
                 e.set_field(42..46, self.quad_lanes);
             }
-            src => panic!("Invalid mov src: {src}"),
+            src => crate::codegen::ice!("Invalid mov src: {src}"),
         }
 
         e.set_dst(&self.dst);
@@ -189,7 +189,7 @@ impl SM32Op for OpShfl {
                 e.set_field(23..28, *imm32);
                 e.set_bit(31, true);
             }
-            src => panic!("Invalid shfl lane: {src}"),
+            src => crate::codegen::ice!("Invalid shfl lane: {src}"),
         }
         match &self.c().reference {
             SrcRef::Zero | SrcRef::Reg(_) => {
@@ -200,7 +200,7 @@ impl SM32Op for OpShfl {
                 e.set_bit(32, true);
                 e.set_field(37..50, *imm32);
             }
-            src => panic!("Invalid shfl c: {src}"),
+            src => crate::codegen::ice!("Invalid shfl c: {src}"),
         }
     }
 }

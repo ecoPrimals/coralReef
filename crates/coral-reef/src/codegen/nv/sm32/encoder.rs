@@ -191,7 +191,7 @@ impl SM32Encoder<'_> {
             SrcRef::True => (false, true_reg()),
             SrcRef::False => (true, true_reg()),
             SrcRef::Reg(reg) => (false, reg),
-            _ => panic!("Not a register"),
+            _ => crate::codegen::ice!("Not a register"),
         };
         self.set_pred_reg(range.start..(range.end - 1), reg);
         self.set_bit(range.end - 1, not ^ src.modifier.is_bnot());
@@ -201,7 +201,7 @@ impl SM32Encoder<'_> {
         let reg = match dst {
             Dst::None => true_reg(),
             Dst::Reg(reg) => *reg,
-            Dst::SSA(_) => panic!("Dst is not pred {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("Dst is not pred {dst}"),
         };
         self.set_pred_reg(range, reg);
     }
@@ -214,7 +214,7 @@ impl SM32Encoder<'_> {
             match pred.predicate {
                 PredRef::None => true_reg(),
                 PredRef::Reg(reg) => reg,
-                PredRef::SSA(_) => panic!("SSA values must be lowered"),
+                PredRef::SSA(_) => crate::codegen::ice!("SSA values must be lowered"),
             },
         );
         self.set_bit(21, pred.inverted);
@@ -231,7 +231,7 @@ impl SM32Encoder<'_> {
             SrcRef::Zero => zero_reg(),
             SrcRef::Reg(reg) => *reg,
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                panic!("Not a register")
+                crate::codegen::ice!("Not a register")
             }
         };
         self.set_reg(range, reg);
@@ -258,7 +258,7 @@ impl SM32Encoder<'_> {
         let reg = match dst {
             Dst::None => zero_reg(),
             Dst::Reg(reg) => *reg,
-            Dst::SSA(_) => panic!("Invalid dst {dst}"),
+            Dst::SSA(_) => crate::codegen::ice!("Invalid dst {dst}"),
         };
         self.set_reg(2..10, reg);
     }
@@ -286,7 +286,7 @@ impl SM32Encoder<'_> {
         v.set_field(0..14, cb.offset >> 2);
 
         let CBuf::Binding(idx) = cb.buf else {
-            panic!("Must be a bound constant buffer");
+            crate::codegen::ice!("Must be a bound constant buffer");
         };
 
         v.set_field(14..19, idx);
@@ -325,7 +325,7 @@ impl AluSrc {
             SrcRef::Reg(r) => Self::Reg(*r),
             SrcRef::Imm32(x) => Self::Imm(*x),
             SrcRef::CBuf(x) => Self::CBuf(x.clone()),
-            _ => panic!("Unhandled ALU src type"),
+            _ => crate::codegen::ice!("Unhandled ALU src type"),
         }
     }
 }
@@ -375,7 +375,7 @@ impl SM32Encoder<'_> {
                 match src2 {
                     None => {}
                     Some(AluSrc::Reg(src2)) => self.set_reg(42..50, src2),
-                    _ => panic!("Invalid form"),
+                    _ => crate::codegen::ice!("Invalid form"),
                 }
                 Form::RIR
             }
@@ -385,7 +385,7 @@ impl SM32Encoder<'_> {
                 match src2 {
                     None => {}
                     Some(AluSrc::Reg(src2)) => self.set_reg(42..50, src2),
-                    _ => panic!("Invalid form"),
+                    _ => crate::codegen::ice!("Invalid form"),
                 }
                 Form::RCR
             }
@@ -406,7 +406,7 @@ impl SM32Encoder<'_> {
                         self.set_reg(42..50, r1);
                         Form::RRC
                     }
-                    _ => panic!("Invalid form"),
+                    _ => crate::codegen::ice!("Invalid form"),
                 }
             }
         };
@@ -507,7 +507,7 @@ macro_rules! sm32_op_match {
             Op::S2R($x) => $y,
             Op::Vote($x) => $y,
             Op::Out($x) => $y,
-            _ => panic!("Unhandled instruction {}", $op),
+            _ => crate::codegen::ice!("Unhandled instruction {}", $op),
         }
     };
 }

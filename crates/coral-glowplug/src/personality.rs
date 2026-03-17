@@ -343,5 +343,74 @@ mod tests {
             drm_card_path: Some("/dev/dri/card1".into()),
         };
         assert_eq!(nouveau.to_string(), "nouveau (/dev/dri/card1)");
+
+        let amdgpu = AmdgpuPersonality {
+            drm_card_path: Some("/dev/dri/card2".into()),
+        };
+        assert_eq!(amdgpu.to_string(), "amdgpu (/dev/dri/card2)");
+
+        let amdgpu_no_card = AmdgpuPersonality {
+            drm_card_path: None,
+        };
+        assert_eq!(amdgpu_no_card.to_string(), "amdgpu");
+
+        assert_eq!(UnboundPersonality.to_string(), "unbound");
+    }
+
+    #[test]
+    fn test_amdgpu_personality_trait() {
+        let amdgpu = AmdgpuPersonality {
+            drm_card_path: Some("/dev/dri/card1".into()),
+        };
+        assert_eq!(amdgpu.name(), "amdgpu");
+        assert!(!amdgpu.provides_vfio());
+        assert_eq!(amdgpu.drm_card(), Some("/dev/dri/card1"));
+        assert!(!amdgpu.supports_hbm2_training());
+        assert_eq!(amdgpu.driver_module(), "amdgpu");
+    }
+
+    #[test]
+    fn test_unbound_personality_trait() {
+        let unbound = UnboundPersonality;
+        assert_eq!(unbound.name(), "unbound");
+        assert!(!unbound.provides_vfio());
+        assert!(unbound.drm_card().is_none());
+        assert!(!unbound.supports_hbm2_training());
+        assert_eq!(unbound.driver_module(), "");
+    }
+
+    #[test]
+    fn test_registry_list() {
+        let reg = PersonalityRegistry::default_linux();
+        let list = reg.list();
+        assert!(list.contains(&"vfio"));
+        assert!(list.contains(&"nouveau"));
+        assert!(list.contains(&"amdgpu"));
+        assert!(list.contains(&"unbound"));
+        assert_eq!(list.len(), 4);
+    }
+
+    #[test]
+    fn test_registry_create_vfio_pci_alias() {
+        let reg = PersonalityRegistry::default_linux();
+        let p = reg.create("vfio-pci").unwrap();
+        assert_eq!(p.name(), "vfio");
+        assert!(p.provides_vfio());
+    }
+
+    #[test]
+    fn test_personality_amdgpu_display_with_card() {
+        assert_eq!(
+            Personality::Amdgpu {
+                drm_card: Some("/dev/dri/card1".into())
+            }
+            .to_string(),
+            "amdgpu (/dev/dri/card1)"
+        );
+    }
+
+    #[test]
+    fn test_personality_amdgpu_display_without_card() {
+        assert_eq!(Personality::Amdgpu { drm_card: None }.to_string(), "amdgpu");
     }
 }
