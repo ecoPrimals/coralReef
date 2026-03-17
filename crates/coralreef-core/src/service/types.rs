@@ -197,10 +197,10 @@ pub struct ReadinessResponse {
     pub name: Cow<'static, str>,
 }
 
-pub(crate) fn default_arch() -> String {
+pub fn default_arch() -> String {
     coral_reef::GpuArch::default().to_string()
 }
 
-pub(crate) const fn default_opt_level() -> u32 {
+pub const fn default_opt_level() -> u32 {
     2
 }

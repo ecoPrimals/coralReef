@@ -9,11 +9,11 @@ mod types;
 pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
-#[allow(unused_imports)] // DeviceTarget used by ipc::tests_tarpc
+#[allow(unused_imports)]
 pub use types::{
-    CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest, DeviceTarget,
-    HealthCheckResponse, HealthResponse, LivenessResponse, MultiDeviceCompileRequest,
-    MultiDeviceCompileResponse, ReadinessResponse,
+    CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
+    DeviceCompileResult, DeviceTarget, HealthCheckResponse, HealthResponse, LivenessResponse,
+    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse,
 };
 
 use crate::config;

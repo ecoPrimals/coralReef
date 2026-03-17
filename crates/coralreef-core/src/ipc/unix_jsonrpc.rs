@@ -50,8 +50,7 @@ mod inner {
     fn extract_params<T: serde::de::DeserializeOwned>(
         mut params: serde_json::Value,
     ) -> Result<T, IpcServiceError> {
-        if params.is_array() {
-            let arr = params.as_array_mut().expect("params confirmed array");
+        if let Some(arr) = params.as_array_mut() {
             if arr.is_empty() {
                 return Err(IpcServiceError::dispatch("missing request parameter"));
             }
@@ -65,7 +64,7 @@ mod inner {
         }
     }
 
-    pub(crate) fn dispatch(
+    pub fn dispatch(
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, IpcServiceError> {
@@ -121,7 +120,7 @@ mod inner {
         }
     }
 
-    pub(crate) fn make_response(
+    pub fn make_response(
         id: serde_json::Value,
         result: Result<serde_json::Value, IpcServiceError>,
     ) -> String {

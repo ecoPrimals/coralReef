@@ -164,7 +164,7 @@ fn run_step_pmc_enable(
             }
             let step_after = gp.snap();
             step_snapshots.push(StepSnapshot {
-                step: step.description.clone(),
+                step: (*step.description).to_owned(),
                 before: step_before,
                 after: step_after,
             });

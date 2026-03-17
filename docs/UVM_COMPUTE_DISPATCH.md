@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # UVM Sovereign Compute Dispatch — Bypass Nouveau
 
 **Created**: March 11, 2026 (Phase 10 — Iteration 36)

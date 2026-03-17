@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # Sovereign Multi-GPU Evolution — Pure Rust Pipeline
 
 **Version**: 0.1.0

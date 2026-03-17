@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![forbid(unsafe_code)]
 //! coral-glowplug — Sovereign PCIe device lifecycle broker.
 //!
 //! Starts at boot, binds GPUs, holds VFIO fds open forever,
 //! and exposes a Unix socket for toadStool to consume.
 //!
 //! Usage:
-//!   coral-glowplug --config /etc/coralreef/glowplug.toml
+//!   coral-glowplug --config $XDG_CONFIG_HOME/coralreef/glowplug.toml
 //!   coral-glowplug --bdf 0000:4a:00.0              # single device, defaults
 //!   coral-glowplug --bdf 0000:4a:00.0 --bdf 0000:03:00.0:nouveau
 
@@ -77,11 +78,14 @@ async fn main() {
             .collect();
 
         if bdf_args.is_empty() {
-            let candidates = [
+            let xdg_config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
                 format!(
-                    "{}/.config/coralreef/glowplug.toml",
-                    std::env::var("HOME").unwrap_or_default()
-                ),
+                    "{}/.config",
+                    std::env::var("HOME").unwrap_or_else(|_| "/root".into()),
+                )
+            });
+            let candidates = [
+                format!("{xdg_config}/coralreef/glowplug.toml"),
                 "/etc/coralreef/glowplug.toml".into(),
             ];
             let loaded = candidates.iter().find_map(|p| {

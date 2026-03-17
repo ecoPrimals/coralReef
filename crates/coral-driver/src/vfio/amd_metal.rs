@@ -27,6 +27,12 @@ const RLC_BASE: usize = 0xEC00;
 const MMHUB_VM_BASE: usize = 0x0600;
 const MC_VM_FB_LOCATION_BASE: usize = 0x0928;
 
+const MI50_HBM2_SIZE: u64 = 16 * 1024 * 1024 * 1024;
+const MI50_HBM2_STACKS: u32 = 4;
+const MI50_L2_SIZE: u64 = 4 * 1024 * 1024;
+const MI50_L2_SLICES: u32 = 16;
+const BUSY_BIT_MASK: u32 = 0x8000_0000;
+
 /// AMD Vega 20 (MI50) identity.
 #[derive(Debug, Clone)]
 pub struct AmdVegaIdentity {
@@ -66,27 +72,26 @@ pub struct AmdVegaMetal {
 
 impl AmdVegaMetal {
     /// Create a new Vega 20 metal instance with GFX906 register layout.
-    #[allow(missing_docs)]
     pub fn new(raw_id: u32) -> Self {
         Self {
             identity: AmdVegaIdentity { raw: raw_id },
             power_domains: vec![
                 PowerDomain {
-                    name: "GFX".into(),
+                    name: "GFX",
                     enable_reg: Some(GRBM_SOFT_RESET),
                     enable_bit: Some(0x01),
                     clock_reg: None,
                     state: DomainState::Unknown,
                 },
                 PowerDomain {
-                    name: "SYS".into(),
+                    name: "SYS",
                     enable_reg: Some(SRBM_STATUS),
                     enable_bit: None,
                     clock_reg: None,
                     state: DomainState::Unknown,
                 },
                 PowerDomain {
-                    name: "RLC".into(),
+                    name: "RLC",
                     enable_reg: None,
                     enable_bit: None,
                     clock_reg: None,
@@ -95,44 +100,44 @@ impl AmdVegaMetal {
             ],
             memory_regions: vec![
                 MetalMemoryRegion {
-                    name: "HBM2_FB".into(),
+                    name: "HBM2_FB",
                     kind: MemoryKind::Vram,
                     control_base: Some(MC_VM_FB_LOCATION_BASE),
-                    size: Some(16 * 1024 * 1024 * 1024),
-                    partitions: Some(4),
+                    size: Some(MI50_HBM2_SIZE),
+                    partitions: Some(MI50_HBM2_STACKS),
                 },
                 MetalMemoryRegion {
-                    name: "GART".into(),
+                    name: "GART",
                     kind: MemoryKind::SystemMemory,
                     control_base: Some(MMHUB_VM_BASE),
                     size: None,
                     partitions: None,
                 },
                 MetalMemoryRegion {
-                    name: "L2_CACHE".into(),
+                    name: "L2_CACHE",
                     kind: MemoryKind::L2Cache,
                     control_base: None,
-                    size: Some(4 * 1024 * 1024),
-                    partitions: Some(16),
+                    size: Some(MI50_L2_SIZE),
+                    partitions: Some(MI50_L2_SLICES),
                 },
             ],
             engines: vec![
                 EngineInfo {
-                    name: "GFX".into(),
+                    name: "GFX",
                     kind: EngineKind::Compute,
                     base_offset: CP_STAT,
                     has_firmware: true,
                     firmware_state: FirmwareState::NotLoaded,
                 },
                 EngineInfo {
-                    name: "SDMA0".into(),
+                    name: "SDMA0",
                     kind: EngineKind::Copy,
                     base_offset: SDMA0_BASE,
                     has_firmware: true,
                     firmware_state: FirmwareState::NotLoaded,
                 },
                 EngineInfo {
-                    name: "SDMA1".into(),
+                    name: "SDMA1",
                     kind: EngineKind::Copy,
                     base_offset: SDMA1_BASE,
                     has_firmware: true,
@@ -177,37 +182,37 @@ impl GpuMetal for AmdVegaMetal {
     fn domain_hints(&self) -> Vec<DomainHint> {
         vec![
             DomainHint {
-                name: "GRBM".into(),
+                name: "GRBM",
                 start: 0x8000,
                 end: 0x8FFF,
             },
             DomainHint {
-                name: "SRBM".into(),
+                name: "SRBM",
                 start: 0x0E00,
                 end: 0x0EFF,
             },
             DomainHint {
-                name: "CP".into(),
+                name: "CP",
                 start: 0x8600,
                 end: 0x86FF,
             },
             DomainHint {
-                name: "SDMA0".into(),
+                name: "SDMA0",
                 start: 0x4D00,
                 end: 0x4DFF,
             },
             DomainHint {
-                name: "SDMA1".into(),
+                name: "SDMA1",
                 start: 0x5900,
                 end: 0x59FF,
             },
             DomainHint {
-                name: "RLC".into(),
+                name: "RLC",
                 start: RLC_BASE,
                 end: 0xECFF,
             },
             DomainHint {
-                name: "MMHUB".into(),
+                name: "MMHUB",
                 start: MMHUB_VM_BASE,
                 end: 0x0AFF,
             },
@@ -216,19 +221,19 @@ impl GpuMetal for AmdVegaMetal {
 
     fn warmup_sequence(&self) -> Vec<WarmupStep> {
         vec![WarmupStep {
-            description: "Read GRBM and SRBM status registers".into(),
+            description: "Read GRBM and SRBM status registers",
             writes: vec![],
             delay_ms: 0,
             verify: vec![
                 RegisterVerify {
                     offset: GRBM_STATUS,
                     expected: 0,
-                    mask: 0x8000_0000,
+                    mask: BUSY_BIT_MASK,
                 },
                 RegisterVerify {
                     offset: SRBM_STATUS,
                     expected: 0,
-                    mask: 0x8000_0000,
+                    mask: BUSY_BIT_MASK,
                 },
             ],
         }]

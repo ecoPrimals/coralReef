@@ -102,3 +102,54 @@ pub async fn health_loop(devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>, in
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::device::{DeviceHealth, PowerState};
+
+    #[test]
+    fn test_power_state_display() {
+        assert_eq!(PowerState::D0.to_string(), "D0");
+        assert_eq!(PowerState::D3Hot.to_string(), "D3hot");
+        assert_eq!(PowerState::D3Cold.to_string(), "D3cold");
+        assert_eq!(PowerState::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn test_device_health_default_values() {
+        let health = DeviceHealth {
+            vram_alive: false,
+            boot0: 0,
+            pmc_enable: 0,
+            power: PowerState::Unknown,
+            pci_link_width: None,
+            domains_alive: 0,
+            domains_faulted: 0,
+        };
+        assert!(!health.vram_alive);
+        assert_eq!(health.boot0, 0);
+        assert_eq!(health.pmc_enable, 0);
+        assert_eq!(health.power, PowerState::Unknown);
+        assert!(health.pci_link_width.is_none());
+        assert_eq!(health.domains_alive, 0);
+        assert_eq!(health.domains_faulted, 0);
+    }
+
+    #[test]
+    fn test_device_health_with_values() {
+        let health = DeviceHealth {
+            vram_alive: true,
+            boot0: 0x1234_5678,
+            pmc_enable: 0x9abc_def0,
+            power: PowerState::D0,
+            pci_link_width: Some(16),
+            domains_alive: 8,
+            domains_faulted: 1,
+        };
+        assert_eq!(health.power.to_string(), "D0");
+        assert!(health.vram_alive);
+        assert_eq!(health.pci_link_width, Some(16));
+        assert_eq!(health.domains_alive, 8);
+        assert_eq!(health.domains_faulted, 1);
+    }
+}

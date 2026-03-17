@@ -165,3 +165,196 @@ fn read_sysfs_hex(path: &std::path::Path) -> u64 {
         .and_then(|s| u64::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_temp_config(content: &str, suffix: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "glowplug_test_{}_{}.toml",
+            std::process::id(),
+            suffix
+        ));
+        let _ = std::fs::write(&path, content);
+        path
+    }
+
+    #[test]
+    fn test_load_valid_minimal() {
+        let path = write_temp_config(
+            r#"
+[daemon]
+socket = "/tmp/test.sock"
+log_level = "debug"
+health_interval_ms = 1000
+
+[[device]]
+bdf = "0000:01:00.0"
+"#,
+            "minimal",
+        );
+        let path_str = path.to_str().expect("path has str");
+        let result = Config::load(path_str);
+        let _ = std::fs::remove_file(&path);
+        let config = match result {
+            Ok(c) => c,
+            Err(e) => panic!("valid config should load: {e}"),
+        };
+        assert_eq!(config.daemon.socket, "/tmp/test.sock");
+        assert_eq!(config.daemon.log_level, "debug");
+        assert_eq!(config.daemon.health_interval_ms, 1000);
+        assert_eq!(config.device.len(), 1);
+        assert_eq!(config.device[0].bdf, "0000:01:00.0");
+        assert_eq!(config.device[0].boot_personality, "vfio");
+        assert_eq!(config.device[0].power_policy, "always_on");
+        assert!(config.device[0].name.is_none());
+        assert!(config.device[0].role.is_none());
+    }
+
+    #[test]
+    fn test_load_valid_full_device() {
+        let path = write_temp_config(
+            r#"
+[[device]]
+bdf = "0000:02:00.0"
+name = "Compute GPU"
+boot_personality = "nouveau"
+power_policy = "power_save"
+role = "compute"
+oracle_dump = "/var/lib/glowplug/state.txt"
+"#,
+            "full_device",
+        );
+        let path_str = path.to_str().expect("path has str");
+        let result = Config::load(path_str);
+        let _ = std::fs::remove_file(&path);
+        let config = match result {
+            Ok(c) => c,
+            Err(e) => panic!("valid config should load: {e}"),
+        };
+        assert_eq!(config.device.len(), 1);
+        assert_eq!(config.device[0].bdf, "0000:02:00.0");
+        assert_eq!(config.device[0].name.as_deref(), Some("Compute GPU"));
+        assert_eq!(config.device[0].boot_personality, "nouveau");
+        assert_eq!(config.device[0].power_policy, "power_save");
+        assert_eq!(config.device[0].role.as_deref(), Some("compute"));
+        assert_eq!(
+            config.device[0].oracle_dump.as_deref(),
+            Some("/var/lib/glowplug/state.txt")
+        );
+    }
+
+    #[test]
+    fn test_load_empty_uses_defaults() {
+        let path = write_temp_config("", "empty");
+        let path_str = path.to_str().expect("path has str");
+        let result = Config::load(path_str);
+        let _ = std::fs::remove_file(&path);
+        let config = match result {
+            Ok(c) => c,
+            Err(e) => panic!("empty config should parse: {e}"),
+        };
+        assert_eq!(config.daemon.log_level, "info");
+        assert_eq!(config.daemon.health_interval_ms, 5000);
+        assert!(config.device.is_empty());
+    }
+
+    #[test]
+    fn test_load_device_defaults() {
+        let path = write_temp_config(
+            r#"
+[[device]]
+bdf = "0000:03:00.0"
+"#,
+            "device_defaults",
+        );
+        let path_str = path.to_str().expect("path has str");
+        let result = Config::load(path_str);
+        let _ = std::fs::remove_file(&path);
+        let config = match result {
+            Ok(c) => c,
+            Err(e) => panic!("config should load: {e}"),
+        };
+        let dev = &config.device[0];
+        assert_eq!(dev.boot_personality, "vfio");
+        assert_eq!(dev.power_policy, "always_on");
+        assert!(dev.name.is_none());
+        assert!(dev.role.is_none());
+        assert!(dev.oracle_dump.is_none());
+    }
+
+    #[test]
+    fn test_load_missing_file() {
+        let result = Config::load("/nonexistent/path/glowplug.toml");
+        let err = match result {
+            Ok(_) => panic!("expected load to fail"),
+            Err(e) => e,
+        };
+        assert!(err.contains("read config"));
+        assert!(err.contains("/nonexistent/path/glowplug.toml"));
+    }
+
+    #[test]
+    fn test_load_invalid_toml() {
+        let path = write_temp_config("{{{ invalid toml }}}", "invalid");
+        let path_str = path.to_str().expect("path has str");
+        let result = Config::load(path_str);
+        let _ = std::fs::remove_file(&path);
+        let err = match result {
+            Ok(_) => panic!("expected parse to fail"),
+            Err(e) => e,
+        };
+        assert!(err.contains("parse config"));
+    }
+
+    #[test]
+    fn test_load_invalid_structure() {
+        let path = write_temp_config(
+            r#"
+[[device]]
+bdf = 12345
+"#,
+            "invalid_structure",
+        );
+        let result = Config::load(path.to_str().expect("path has str"));
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_daemon_config_default() {
+        let default = DaemonConfig::default();
+        assert_eq!(default.log_level, "info");
+        assert_eq!(default.health_interval_ms, 5000);
+        assert!(default.socket.contains("glowplug.sock"));
+    }
+
+    #[test]
+    fn test_load_multiple_devices() {
+        let path = write_temp_config(
+            r#"
+[[device]]
+bdf = "0000:01:00.0"
+
+[[device]]
+bdf = "0000:02:00.0"
+boot_personality = "amdgpu"
+"#,
+            "multiple_devices",
+        );
+        let path_str = path.to_str().expect("path has str");
+        let result = Config::load(path_str);
+        let _ = std::fs::remove_file(&path);
+        let config = match result {
+            Ok(c) => c,
+            Err(e) => panic!("valid config should load: {e}"),
+        };
+        assert_eq!(config.device.len(), 2);
+        assert_eq!(config.device[0].bdf, "0000:01:00.0");
+        assert_eq!(config.device[0].boot_personality, "vfio");
+        assert_eq!(config.device[1].bdf, "0000:02:00.0");
+        assert_eq!(config.device[1].boot_personality, "amdgpu");
+    }
+}

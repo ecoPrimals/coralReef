@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # coralReef — Start Here
 
 Welcome to coralReef, the sovereign Rust GPU compiler.

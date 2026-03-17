@@ -1,6 +1,8 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 16, Iter 52)  
+**Generated:** March 10, 2026 (metrics updated March 17, Iter 53)  
 **Workspace:** coralReef
 
 ---
@@ -198,9 +200,9 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 52) |
+| Metric | Value (as of Iter 53) |
 |--------|-------|
-| Tests passing | 2185 default + 48 VFIO |
+| Tests passing | 2241 default + 48 VFIO |
 | Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 9 (documented future optimizations — intentional) |
 | TODO markers | 0 (amd_metal.rs stubs filled with MI50/GFX906 registers, Iter 52) |
@@ -213,13 +215,13 @@ Current attributes have documented `reason` strings where appropriate.
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
 | Files over 1000 LOC | 0 (Iter 51: coral-gpu lib.rs 977→65 via 6-module refactor) |
-| Clippy warnings | 0 (pedantic + all) |
+| Clippy warnings | 0 (pedantic + nursery + all) |
 | Doc warnings | 0 |
-| Region coverage (llvm-cov) | 57.28% (target 90%) |
-| Line coverage (llvm-cov) | 57.71% (target 90%) |
-| Function coverage | 67.98% (target 90%) |
+| Region coverage (llvm-cov) | 57.75% (target 90%) |
+| Line coverage (llvm-cov) | 58.16% (target 90%) |
+| Function coverage | 68.50% (target 90%) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
-| IPC chaos/fault tests | 6 (Iter 45) |
+| IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45; diagnostic eprintln retained for HW debug) |
 | Zero-copy | KernelCacheEntry.binary: Bytes, RPC transport: buf.drain() → Bytes |
 | Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |

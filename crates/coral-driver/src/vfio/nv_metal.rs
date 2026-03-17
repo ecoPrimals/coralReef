@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 //! NVIDIA Volta `GpuMetal` implementation.
 //!
 //! Provides register maps, power domains, engine topology, and warm-up
@@ -52,10 +51,15 @@ mod volta_regs {
 /// Decoded NVIDIA GPU identity from BOOT0 register.
 #[derive(Debug, Clone)]
 pub struct NvVoltaIdentity {
+    /// Raw BOOT0 register value.
     pub boot0: u32,
+    /// Chip implementation number within the architecture.
     pub chip_impl: u8,
+    /// Silicon revision.
     pub chip_rev: u8,
+    /// Human-readable chip name (e.g., "GV100", "TU102").
     pub chip_name_str: String,
+    /// Architecture generation name (e.g., "Volta", "Turing").
     pub arch_name: String,
 }
 
@@ -130,56 +134,56 @@ impl NvVoltaMetal {
 
         let power_domains = vec![
             PowerDomain {
-                name: "GR".into(),
+                name: "GR",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 12),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "PFIFO".into(),
+                name: "PFIFO",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 8),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "PBDMA".into(),
+                name: "PBDMA",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 13),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "CE0".into(),
+                name: "CE0",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 6),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "PMU".into(),
+                name: "PMU",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 24),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "FB".into(),
+                name: "FB",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 20),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "LTC".into(),
+                name: "LTC",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 21),
                 clock_reg: None,
                 state: DomainState::Unknown,
             },
             PowerDomain {
-                name: "DISP".into(),
+                name: "DISP",
                 enable_reg: Some(volta_regs::PMC_ENABLE),
                 enable_bit: Some(1 << 30),
                 clock_reg: None,
@@ -187,68 +191,70 @@ impl NvVoltaMetal {
             },
         ];
 
+        const PRAMIN_APERTURE_SIZE: u64 = 1024 * 1024;
+
         let memory_regions = vec![
             MetalMemoryRegion {
-                name: "VRAM (HBM2)".into(),
+                name: "VRAM (HBM2)",
                 kind: MemoryKind::Vram,
                 control_base: Some(volta_regs::PFB_BASE),
                 size: None,
                 partitions: Some(4),
             },
             MetalMemoryRegion {
-                name: "L2 Cache".into(),
+                name: "L2 Cache",
                 kind: MemoryKind::L2Cache,
                 control_base: Some(volta_regs::LTC_BASE),
                 size: None,
                 partitions: Some(6),
             },
             MetalMemoryRegion {
-                name: "PRAMIN Aperture".into(),
+                name: "PRAMIN Aperture",
                 kind: MemoryKind::Aperture,
                 control_base: Some(volta_regs::PRAMIN_BASE),
-                size: Some(1024 * 1024),
+                size: Some(PRAMIN_APERTURE_SIZE),
                 partitions: None,
             },
         ];
 
         let engines = vec![
             EngineInfo {
-                name: "GR (Graphics/Compute)".into(),
+                name: "GR (Graphics/Compute)",
                 kind: EngineKind::Compute,
                 base_offset: volta_regs::GR_BASE,
                 has_firmware: true,
                 firmware_state: FirmwareState::NotLoaded,
             },
             EngineInfo {
-                name: "CE0 (Copy Engine)".into(),
+                name: "CE0 (Copy Engine)",
                 kind: EngineKind::Copy,
                 base_offset: volta_regs::CE_BASE,
                 has_firmware: true,
                 firmware_state: FirmwareState::NotLoaded,
             },
             EngineInfo {
-                name: "PMU (Power Management)".into(),
+                name: "PMU (Power Management)",
                 kind: EngineKind::Scheduler,
                 base_offset: volta_regs::PMU_BASE,
                 has_firmware: true,
                 firmware_state: FirmwareState::NotLoaded,
             },
             EngineInfo {
-                name: "PDISP (Display)".into(),
+                name: "PDISP (Display)",
                 kind: EngineKind::Display,
                 base_offset: volta_regs::PDISP_BASE,
                 has_firmware: false,
                 firmware_state: FirmwareState::NotPresent,
             },
             EngineInfo {
-                name: "NVDEC (Video Decode)".into(),
+                name: "NVDEC (Video Decode)",
                 kind: EngineKind::Video,
                 base_offset: volta_regs::NVDEC_BASE,
                 has_firmware: true,
                 firmware_state: FirmwareState::NotLoaded,
             },
             EngineInfo {
-                name: "NVENC (Video Encode)".into(),
+                name: "NVENC (Video Encode)",
                 kind: EngineKind::Video,
                 base_offset: volta_regs::NVENC_BASE,
                 has_firmware: true,
@@ -435,7 +441,7 @@ impl GpuMetal for NvVoltaMetal {
     fn warmup_sequence(&self) -> Vec<WarmupStep> {
         vec![
             WarmupStep {
-                description: "PMC_ENABLE: un-gate all engine clock domains".into(),
+                description: "PMC_ENABLE: un-gate all engine clock domains",
                 writes: vec![RegisterWrite {
                     offset: volta_regs::PMC_ENABLE,
                     value: 0xFFFF_FFFF,
@@ -449,7 +455,7 @@ impl GpuMetal for NvVoltaMetal {
                 }],
             },
             WarmupStep {
-                description: "PFIFO reset cycle: toggle PMC bit 8".into(),
+                description: "PFIFO reset cycle: toggle PMC bit 8",
                 writes: vec![RegisterWrite {
                     offset: volta_regs::PMC_ENABLE,
                     value: 0,
@@ -459,7 +465,7 @@ impl GpuMetal for NvVoltaMetal {
                 verify: vec![],
             },
             WarmupStep {
-                description: "PFIFO re-enable: set PMC bit 8 (preserve all other domains)".into(),
+                description: "PFIFO re-enable: set PMC bit 8 (preserve all other domains)",
                 writes: vec![RegisterWrite {
                     offset: volta_regs::PMC_ENABLE,
                     value: 1 << 8,
@@ -600,7 +606,7 @@ impl NvVoltaMetal {
             .iter()
             .map(|d| {
                 let active = d.enable_bit.is_some_and(|bit| pmc_enable & bit != 0);
-                (d.name.clone(), active)
+                (d.name.to_owned(), active)
             })
             .collect();
 

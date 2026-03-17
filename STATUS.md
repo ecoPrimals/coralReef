@@ -1,7 +1,9 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # coralReef — Status
 
-**Last updated**: March 16, 2026  
-**Phase**: 10 — Iteration 52 (Ecosystem Absorption + Glowplug JSON-RPC 2.0 + Typed IPC Errors)
+**Last updated**: March 17, 2026  
+**Phase**: 10 — Iteration 53 (Deep Audit Execution + Safe Rust Evolution + Test Coverage)
 
 ---
 
@@ -20,10 +22,10 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 2185 passing (+48 VFIO), 0 failed, 57.71% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 2241 passing (+48 VFIO), 0 failed, 58.16% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates + `#[forbid(unsafe_code)]` on coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
@@ -36,7 +38,26 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 52** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 53** |
+
+### Iteration 53: Deep Audit Execution + Safe Rust Evolution + Test Coverage (Mar 17 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| clippy::nursery lints | ✅ | `nursery = "warn"` added to workspace `[lints.clippy]` — catches additional patterns (redundant clones, option-if-let-else, etc.) |
+| `SysfsBar0` safe wrapper | ✅ | New `crates/coral-driver/src/vfio/sysfs_bar0.rs` — consolidates mmap→volatile-read→munmap pattern into safe API with bounds checking; 3 oracle modules refactored to use it |
+| Magic number extraction | ✅ | `amd_metal.rs`: MI50 HBM2/L2 sizes, busy bit mask; `nv_metal.rs`: PRAMIN aperture size; `device.rs`: PCI fault read constants + `is_faulted_read()` helper |
+| `&'static str` evolution | ✅ | `gpu_vendor.rs` structs (`PowerDomain`, `MetalMemoryRegion`, `EngineInfo`, `WarmupStep`) evolved from `String` to `&'static str` — zero-allocation metal interface |
+| `#![forbid(unsafe_code)]` on coral-glowplug | ✅ | Compile-time enforcement of zero unsafe in glowplug binary crate |
+| XDG config path | ✅ | `coral-glowplug` now prefers `$XDG_CONFIG_HOME/coralreef/glowplug.toml` before `/etc/coralreef/glowplug.toml` |
+| IPC fault injection tests | ✅ | New `tests_fault.rs` — 12 async tests: client disconnect, malformed/truncated/oversized/empty JSON, invalid methods, missing fields, concurrent stress |
+| coral-glowplug unit tests | ✅ | +39 tests across `config.rs`, `health.rs`, `device.rs`, `socket.rs` — config loading, device health states, `is_faulted_read`, chip identification, personality registry, JSON-RPC parsing |
+| Idiomatic Rust evolution | ✅ | `if let/else` → `unwrap_or_else`, `pub(crate)` in private modules → `pub`, `Option::map_or_else` patterns, doc link fixes |
+| SPDX license headers | ✅ | `CC-BY-SA-4.0` headers added to 14 markdown files (README, CONTRIBUTING, STATUS, etc.) |
+| `PersonalityRegistry` integration | ✅ | Wired into `DeviceSlot::activate` for live personality validation via `dyn GpuPersonality` dispatch |
+| Doc hygiene | ✅ | `DeviceCompileResult` re-exported in `service/mod.rs`, broken doc links fixed, `DriverPreference` full-path resolution |
+| Test expansion | ✅ | 2185 → 2241 passing (+56 tests), 0 failed, 90 ignored |
+| Coverage improvement | ✅ | 57.28% → 57.75% region, 57.71% → 58.16% line, 67.98% → 68.50% function |
 
 ### Iteration 52: Ecosystem Absorption + Glowplug JSON-RPC 2.0 + Typed IPC Errors (Mar 16 2026)
 
@@ -816,8 +837,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2185 passing, 0 failed) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 57.28% region / 57.71% line / 67.98% function (target 90%) |
+| `cargo test --workspace` | PASS (2241 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 57.75% region / 58.16% line / 68.50% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
@@ -843,7 +864,7 @@
 | Result propagation | groundSpring error handling | pipeline |
 | Three-tier precision (f32/DF64/f64) | barraCuda Fp64Strategy | gpu_arch.rs |
 | 13-tier tolerance constants | groundSpring V73 | tol.rs |
-| WGSL shader corpus (cross-spring) | 6 springs (93 shaders, 84 compiling SM70) | tests/fixtures/wgsl/corpus/ |
+| WGSL shader corpus (cross-spring) | 6 springs (93 shaders, 84 compiling SM70) | `tests/fixtures/wgsl/corpus/` |
 | GLSL compute frontend | naga `glsl-in` feature | `compile_glsl()` public API, 5 GLSL fixtures |
 | SPIR-V roundtrip testing | naga `spv-out` → `compile()` | 10 roundtrip tests (10 passing, 0 ignored) |
 | FMA control / NoContraction | wateringHole NUMERICAL_STABILITY_PLAN | FmaPolicy |

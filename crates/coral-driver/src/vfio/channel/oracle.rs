@@ -195,37 +195,15 @@ impl OracleState {
 
     /// Load oracle state from a live nouveau-warm card via sysfs mmap.
     pub fn from_live_card(bdf: &str) -> Result<Self, String> {
-        let resource0_path = format!("/sys/bus/pci/devices/{bdf}/resource0");
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .open(&resource0_path)
-            .map_err(|e| format!("cannot open {resource0_path}: {e}"))?;
+        use crate::vfio::sysfs_bar0::{DEFAULT_BAR0_SIZE, SysfsBar0};
 
-        let bar0_size: usize = 16 * 1024 * 1024;
-        let ptr = unsafe {
-            rustix::mm::mmap(
-                std::ptr::null_mut(),
-                bar0_size,
-                rustix::mm::ProtFlags::READ,
-                rustix::mm::MapFlags::SHARED,
-                &file,
-                0,
-            )
-        }
-        .map_err(|e| format!("mmap failed: {e}"))?;
-
-        let read_u32 = |offset: usize| -> u32 {
-            if offset + 4 > bar0_size {
-                return 0;
-            }
-            unsafe { std::ptr::read_volatile(ptr.cast::<u8>().add(offset).cast::<u32>()) }
-        };
+        let bar0 = SysfsBar0::open(bdf, DEFAULT_BAR0_SIZE)?;
 
         let mut registers = BTreeMap::new();
         for &(_, start, end) in APPLY_ORDER {
-            for off in (start..end.min(bar0_size)).step_by(4) {
-                let val = read_u32(off);
-                if val == 0 || val == 0xFFFFFFFF {
+            for off in (start..end.min(bar0.size())).step_by(4) {
+                let val = bar0.read_u32(off);
+                if val == 0 || val == 0xFFFF_FFFF {
                     continue;
                 }
                 if pri::is_pri_error(val) {
@@ -233,10 +211,6 @@ impl OracleState {
                 }
                 registers.insert(off, val);
             }
-        }
-
-        unsafe {
-            let _ = rustix::mm::munmap(ptr, bar0_size);
         }
 
         Ok(Self {

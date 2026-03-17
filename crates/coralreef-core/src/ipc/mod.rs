@@ -28,7 +28,7 @@ pub use tarpc_transport::start_tarpc_server;
 #[cfg(all(test, unix))]
 pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(any(test, feature = "e2e"))]
-#[allow(unused_imports)] // used by tests_tarpc, tests.rs, and e2e_ipc integration test
+#[allow(unused_imports)]
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 #[cfg(unix)]
@@ -68,7 +68,8 @@ pub enum BoundAddr {
 
 impl BoundAddr {
     /// Protocol name for capability advertisement.
-    pub(crate) const fn protocol(&self) -> &'static str {
+    #[must_use]
+    pub const fn protocol(&self) -> &'static str {
         match self {
             Self::Tcp(_) => "tcp",
             #[cfg(unix)]
@@ -130,6 +131,8 @@ mod test_helpers;
 mod tests;
 #[cfg(test)]
 mod tests_chaos;
+#[cfg(test)]
+mod tests_fault;
 #[cfg(test)]
 mod tests_jsonrpc;
 #[cfg(test)]

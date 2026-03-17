@@ -53,12 +53,10 @@ impl<T> OrExit<T> for Option<T> {
     }
 
     fn or_exit_code(self, context: &str, code: i32) -> T {
-        if let Some(val) = self {
-            val
-        } else {
+        self.unwrap_or_else(|| {
             tracing::error!(context, "fatal: value required but absent");
             process::exit(code);
-        }
+        })
     }
 }
 

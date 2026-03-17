@@ -1,6 +1,8 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # coralReef — What's Next
 
-**Last updated**: March 16, 2026 (Phase 10 — Iteration 52)
+**Last updated**: March 17, 2026 (Phase 10 — Iteration 53)
 
 ---
 
@@ -79,7 +81,21 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 52)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 53)
+
+### Iteration 53 — Deep Audit Execution + Safe Rust Evolution + Test Coverage
+- [x] `clippy::nursery` lints enabled workspace-wide (`nursery = "warn"` in `[workspace.lints.clippy]`)
+- [x] `SysfsBar0` safe wrapper for BAR0 mmap reads — consolidates unsafe mmap/volatile-read/munmap into safe API with bounds checking; 3 oracle modules refactored
+- [x] Magic number extraction: MI50 HBM2/L2 sizes, PRAMIN aperture, PCI fault constants → named constants
+- [x] `&'static str` evolution for metal interface structs (zero-allocation `PowerDomain`, `MetalMemoryRegion`, `EngineInfo`, `WarmupStep`)
+- [x] `#![forbid(unsafe_code)]` on `coral-glowplug` — compile-time safety enforcement
+- [x] XDG Base Directory config: `$XDG_CONFIG_HOME/coralreef/glowplug.toml` preferred over `/etc/coralreef/glowplug.toml`
+- [x] IPC fault injection tests: 12 async tests (client disconnect, malformed/truncated/oversized/empty JSON, invalid methods, missing fields, concurrent stress)
+- [x] +39 coral-glowplug unit tests: config loading, health states, `is_faulted_read`, chip identification, personality registry, JSON-RPC parsing
+- [x] Idiomatic Rust: `unwrap_or_else`, `pub(crate)` → `pub` in private modules, doc link fixes, `DeviceCompileResult` re-export
+- [x] SPDX `CC-BY-SA-4.0` license headers on 14 markdown files
+- [x] `PersonalityRegistry` wired into `DeviceSlot::activate` for live `dyn GpuPersonality` dispatch
+- [x] 2241 passing, 0 failed, 90 ignored; 57.75% region / 58.16% line / 68.50% function coverage
 
 ### Iteration 51 — Deep Audit Compliance + IPC Health + Doc Hygiene
 - [x] wateringHole IPC health methods: `health.check`, `health.liveness`, `health.readiness` across JSON-RPC, tarpc, Unix socket
@@ -373,18 +389,19 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
-- [ ] Coverage 57.71% → 90% (57.71% line reflects full workspace measurement including hardware-gated VFIO code)
+- [ ] Coverage 58.16% → 90% (58.16% line reflects full workspace measurement including hardware-gated VFIO code)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-2185+48 tests passing, 0 failed, 57.71% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+2241+48 tests passing, 0 failed, 58.16% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 IPC: `shader.compile.*` + `health.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
 Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
-Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings. Zero fmt drift.
+Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero doc warnings. Zero fmt drift.
+`SysfsBar0` safe wrapper for BAR0 reads. `#![forbid(unsafe_code)]` on coral-glowplug. XDG config paths.
 OrExit\<T\> for zero-panic binary entry. IpcServiceError for structured IPC errors.
 coral-glowplug JSON-RPC 2.0 with trait-based GpuPersonality system.
 All pure Rust. Sovereignty is a runtime choice.*

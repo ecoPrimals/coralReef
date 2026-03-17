@@ -33,6 +33,7 @@ pub mod ioctl;
 pub mod memory;
 pub mod nv_metal;
 pub mod pci_discovery;
+pub mod sysfs_bar0;
 pub mod types;
 
 pub use channel::VfioChannel;

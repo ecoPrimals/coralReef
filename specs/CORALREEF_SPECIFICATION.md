@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # coralReef — Specification
 
 **Version**: 0.5.0

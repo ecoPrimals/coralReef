@@ -21,49 +21,23 @@ impl GlowPlug<'_> {
             }
         };
 
-        let resource0_path = format!("/sys/bus/pci/devices/{oracle_bdf}/resource0");
-        let oracle_file = match std::fs::OpenOptions::new().read(true).open(&resource0_path) {
-            Ok(f) => f,
+        use crate::vfio::sysfs_bar0::{DEFAULT_BAR0_SIZE, SysfsBar0};
+
+        let oracle_bar0 = match SysfsBar0::open(&oracle_bdf, DEFAULT_BAR0_SIZE) {
+            Ok(b) => b,
             Err(e) => {
-                log.push(format!("oracle: cannot open {resource0_path}: {e}"));
+                log.push(format!("oracle: {e}"));
                 return (0, 0, 0);
             }
-        };
-
-        let bar0_size: usize = 16 * 1024 * 1024;
-        let oracle_ptr = unsafe {
-            rustix::mm::mmap(
-                std::ptr::null_mut(),
-                bar0_size,
-                rustix::mm::ProtFlags::READ,
-                rustix::mm::MapFlags::SHARED,
-                &oracle_file,
-                0,
-            )
-        };
-        let oracle_ptr = match oracle_ptr {
-            Ok(p) => p,
-            Err(e) => {
-                log.push(format!("oracle: mmap failed: {e}"));
-                return (0, 0, 0);
-            }
-        };
-
-        let oracle_read = |offset: usize| -> u32 {
-            assert!(offset + 4 <= bar0_size);
-            unsafe { std::ptr::read_volatile(oracle_ptr.cast::<u8>().add(offset).cast::<u32>()) }
         };
 
         // Verify oracle is the same GPU
-        let oracle_boot0 = oracle_read(0);
+        let oracle_boot0 = oracle_bar0.read_u32(0);
         let cold_boot0 = self.r(misc::BOOT0);
         if oracle_boot0 != cold_boot0 {
             log.push(format!(
                 "oracle: BOOT0 mismatch! oracle={oracle_boot0:#010x} cold={cold_boot0:#010x}"
             ));
-            unsafe {
-                let _ = rustix::mm::munmap(oracle_ptr, bar0_size);
-            }
             return (0, 0, 0);
         }
 
@@ -77,7 +51,7 @@ impl GlowPlug<'_> {
         for &(name, start, end) in ORACLE_RANGES {
             let mut range_diffs = 0;
             for off in (start..end).step_by(4) {
-                let ov = oracle_read(off);
+                let ov = oracle_bar0.read_u32(off);
                 let cv = self.r(off);
                 // Skip if both are error patterns or identical
                 if ov == cv {
@@ -150,9 +124,7 @@ impl GlowPlug<'_> {
             "oracle: applied {applied}, stuck {stuck}, total_diff {total_diff}"
         ));
 
-        unsafe {
-            let _ = rustix::mm::munmap(oracle_ptr, bar0_size);
-        }
+        drop(oracle_bar0);
         (applied, stuck, total_diff)
     }
 }

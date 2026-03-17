@@ -55,7 +55,7 @@ pub enum DomainState {
 #[derive(Debug, Clone)]
 pub struct PowerDomain {
     /// Human-readable domain name (e.g., "GR", "PFIFO", "CE0").
-    pub name: String,
+    pub name: &'static str,
     /// Register offset for the enable/status register (if known).
     pub enable_reg: Option<usize>,
     /// Bit in the enable register that controls this domain.
@@ -72,7 +72,7 @@ pub struct PowerDomain {
 #[derive(Debug, Clone)]
 pub struct MetalMemoryRegion {
     /// Human-readable name (e.g., "VRAM", "L2 Cache", "PRAMIN").
-    pub name: String,
+    pub name: &'static str,
     /// Type of memory.
     pub kind: MemoryKind,
     /// Base BAR0 offset for control registers (if applicable).
@@ -106,7 +106,7 @@ pub enum MemoryKind {
 #[derive(Debug, Clone)]
 pub struct EngineInfo {
     /// Human-readable engine name.
-    pub name: String,
+    pub name: &'static str,
     /// Engine type.
     pub kind: EngineKind,
     /// Base BAR0 register offset for this engine.
@@ -157,7 +157,7 @@ pub enum FirmwareState {
 #[derive(Debug, Clone)]
 pub struct WarmupStep {
     /// Human-readable step description.
-    pub description: String,
+    pub description: &'static str,
     /// Register writes to perform.
     pub writes: Vec<RegisterWrite>,
     /// Delay after writes (milliseconds).

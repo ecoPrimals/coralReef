@@ -63,7 +63,7 @@ impl GpuContext {
     ///
     /// Enumerates ALL `/dev/dri/renderD*` nodes (and VFIO groups if `vfio`
     /// feature is enabled) and selects the best backend according to the
-    /// [`DriverPreference`] order (read from `CORALREEF_DRIVER_PREFERENCE`
+    /// [`DriverPreference`](crate::DriverPreference) order (read from `CORALREEF_DRIVER_PREFERENCE`
     /// env var, defaulting to sovereign: `vfio` > `nouveau` > `amdgpu` > `nvidia-drm`).
     ///
     /// # Errors

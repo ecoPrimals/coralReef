@@ -6,8 +6,22 @@
 //! health, and provides the VFIO fd for toadStool consumers.
 
 use crate::config::DeviceConfig;
-use crate::personality::Personality;
+use crate::personality::{Personality, PersonalityRegistry};
 use std::collections::BTreeMap;
+
+const PCI_READ_DEAD: u32 = 0xDEAD_DEAD;
+const PCI_READ_ALL_ONES: u32 = 0xFFFF_FFFF;
+const PCI_FAULT_BADF: u16 = 0xBADF;
+const PCI_FAULT_BAD0: u16 = 0xBAD0;
+const PCI_FAULT_BAD1: u16 = 0xBAD1;
+
+fn is_faulted_read(val: u32) -> bool {
+    val == PCI_READ_DEAD
+        || val == PCI_READ_ALL_ONES
+        || (val >> 16) as u16 == PCI_FAULT_BADF
+        || (val >> 16) as u16 == PCI_FAULT_BAD0
+        || (val >> 16) as u16 == PCI_FAULT_BAD1
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PowerState {
@@ -85,6 +99,13 @@ impl DeviceSlot {
     /// Bind device to the configured boot personality and take ownership.
     pub fn activate(&mut self) -> Result<(), String> {
         let target = self.config.boot_personality.clone();
+        let registry = PersonalityRegistry::default_linux();
+        if !registry.supports(&target) {
+            return Err(format!(
+                "unknown personality '{target}' (known: {:?})",
+                registry.list(),
+            ));
+        }
         tracing::info!(bdf = %self.bdf, personality = %target, "activating device");
 
         self.refresh_power_state();
@@ -95,17 +116,20 @@ impl DeviceSlot {
                 .ok()
                 .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
 
-        let needs_rebind = match target.as_str() {
-            "vfio" => current_driver.as_deref() != Some("vfio-pci"),
-            other => current_driver.as_deref() != Some(other),
-        };
+        let trait_personality = registry.create(&target);
+        let expected_module = trait_personality
+            .as_ref()
+            .map(|p| p.driver_module().to_owned());
+        let needs_rebind = expected_module
+            .as_deref()
+            .is_some_and(|module| current_driver.as_deref() != Some(module));
 
         if needs_rebind {
             // Unbind current driver first
             if current_driver.is_some() {
                 tracing::info!(
                     bdf = %self.bdf,
-                    current = current_driver.as_deref().unwrap_or("none"),
+                    current = current_driver.as_deref().unwrap_or("<none>"),
                     target = %target,
                     "unbinding current driver before activation"
                 );
@@ -322,23 +346,28 @@ impl DeviceSlot {
     pub fn check_health(&mut self) {
         self.refresh_power_state();
 
+        tracing::debug!(
+            bdf = %self.bdf,
+            personality = self.personality.name(),
+            has_vfio = self.personality.provides_vfio(),
+            hbm2_capable = self.personality.supports_hbm2_training(),
+            "checking device health"
+        );
+
         let Some(dev) = self.vfio_device.as_ref() else {
             self.health.vram_alive = false;
             self.health.domains_alive = 0;
             self.health.domains_faulted = 0;
             return;
         };
-        let r = |off: usize| dev.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+        let r = |off: usize| dev.bar0.read_u32(off).unwrap_or(PCI_READ_DEAD);
 
         self.health.boot0 = r(0x000000);
         self.health.pmc_enable = r(0x000200);
 
-        // VRAM test via PRAMIN sentinel
         let pramin_val = r(0x700000);
-        self.health.vram_alive =
-            pramin_val != 0xDEAD_DEAD && (pramin_val >> 16) != 0xBAD0 && pramin_val != 0xFFFF_FFFF;
+        self.health.vram_alive = !is_faulted_read(pramin_val);
 
-        // Domain health
         let domains: &[(usize, &str)] = &[
             (0x000200, "PMC"),
             (0x002004, "PFIFO"),
@@ -354,13 +383,7 @@ impl DeviceSlot {
         let mut alive = 0;
         let mut faulted = 0;
         for &(off, _) in domains {
-            let val = r(off);
-            if val == 0xDEAD_DEAD
-                || val == 0xFFFF_FFFF
-                || (val >> 16) == 0xBADF
-                || (val >> 16) == 0xBAD0
-                || (val >> 16) == 0xBAD1
-            {
+            if is_faulted_read(r(off)) {
                 faulted += 1;
             } else {
                 alive += 1;
@@ -696,4 +719,128 @@ fn find_drm_card(bdf: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DeviceConfig;
+
+    #[test]
+    fn test_is_faulted_read_pci_dead() {
+        assert!(is_faulted_read(0xDEAD_DEAD));
+    }
+
+    #[test]
+    fn test_is_faulted_read_all_ones() {
+        assert!(is_faulted_read(0xFFFF_FFFF));
+    }
+
+    #[test]
+    fn test_is_faulted_read_badf() {
+        assert!(is_faulted_read((PCI_FAULT_BADF as u32) << 16));
+    }
+
+    #[test]
+    fn test_is_faulted_read_bad0() {
+        assert!(is_faulted_read((PCI_FAULT_BAD0 as u32) << 16));
+    }
+
+    #[test]
+    fn test_is_faulted_read_bad1() {
+        assert!(is_faulted_read((PCI_FAULT_BAD1 as u32) << 16));
+    }
+
+    #[test]
+    fn test_is_faulted_read_valid() {
+        assert!(!is_faulted_read(0x0000_0000));
+        assert!(!is_faulted_read(0x1234_5678));
+        assert!(!is_faulted_read(0x0001_0000));
+    }
+
+    #[test]
+    fn test_pci_constants() {
+        assert_eq!(PCI_READ_DEAD, 0xDEAD_DEAD);
+        assert_eq!(PCI_READ_ALL_ONES, 0xFFFF_FFFF);
+        assert_eq!(PCI_FAULT_BADF, 0xBADF);
+        assert_eq!(PCI_FAULT_BAD0, 0xBAD0);
+        assert_eq!(PCI_FAULT_BAD1, 0xBAD1);
+    }
+
+    #[test]
+    fn test_power_state_display() {
+        assert_eq!(PowerState::D0.to_string(), "D0");
+        assert_eq!(PowerState::D3Hot.to_string(), "D3hot");
+        assert_eq!(PowerState::D3Cold.to_string(), "D3cold");
+        assert_eq!(PowerState::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn test_device_health_defaults_in_slot() {
+        let config = DeviceConfig {
+            bdf: "0000:99:00.0".into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let slot = DeviceSlot::new(config);
+        assert!(!slot.health.vram_alive);
+        assert_eq!(slot.health.boot0, 0);
+        assert_eq!(slot.health.pmc_enable, 0);
+        assert_eq!(slot.health.power, PowerState::Unknown);
+        assert!(slot.health.pci_link_width.is_none());
+        assert_eq!(slot.health.domains_alive, 0);
+        assert_eq!(slot.health.domains_faulted, 0);
+    }
+
+    #[test]
+    fn test_device_slot_new_with_mock_config() {
+        let config = DeviceConfig {
+            bdf: "0000:99:00.0".into(),
+            name: Some("Test GPU".into()),
+            boot_personality: "nouveau".into(),
+            power_policy: "power_save".into(),
+            role: Some("compute".into()),
+            oracle_dump: Some("/tmp/dump.txt".into()),
+        };
+        let slot = DeviceSlot::new(config.clone());
+        assert_eq!(slot.bdf, "0000:99:00.0");
+        assert_eq!(slot.config.name.as_deref(), Some("Test GPU"));
+        assert_eq!(slot.config.boot_personality, "nouveau");
+        assert_eq!(slot.config.power_policy, "power_save");
+        assert_eq!(slot.config.role.as_deref(), Some("compute"));
+        assert_eq!(slot.config.oracle_dump.as_deref(), Some("/tmp/dump.txt"));
+        assert_eq!(slot.personality, Personality::Unbound);
+        assert!(!slot.has_vfio());
+    }
+
+    #[test]
+    fn test_identify_chip_known_devices() {
+        assert_eq!(identify_chip(0x10de, 0x1d81), "GV100 (Titan V)");
+        assert_eq!(identify_chip(0x10de, 0x1db1), "GV100GL (V100)");
+        assert_eq!(identify_chip(0x10de, 0x2204), "GA102 (RTX 3090)");
+        assert_eq!(identify_chip(0x10de, 0x2d05), "GB206 (RTX 5060)");
+        assert_eq!(identify_chip(0x1002, 0x66a0), "Vega 20 (MI50)");
+        assert_eq!(identify_chip(0x1002, 0x66a1), "Vega 20 (MI60)");
+    }
+
+    #[test]
+    fn test_identify_chip_unknown() {
+        let name = identify_chip(0x1234, 0x5678);
+        assert!(name.contains("0x1234"));
+        assert!(name.contains("0x5678"));
+    }
+
+    #[test]
+    fn test_personality_registry_validation() {
+        let registry = crate::personality::PersonalityRegistry::default_linux();
+        assert!(registry.supports("vfio"));
+        assert!(registry.supports("nouveau"));
+        assert!(registry.supports("amdgpu"));
+        assert!(registry.supports("unbound"));
+        assert!(!registry.supports("nvidia-proprietary"));
+        assert!(!registry.supports("unknown"));
+    }
 }

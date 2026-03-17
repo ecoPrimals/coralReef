@@ -108,7 +108,7 @@ pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileEr
 }
 
 /// Parse an optional FMA policy string into an [`FmaPolicy`].
-pub(crate) fn parse_fma_policy(s: Option<&str>) -> FmaPolicy {
+pub fn parse_fma_policy(s: Option<&str>) -> FmaPolicy {
     match s {
         Some("fused") => FmaPolicy::Fused,
         Some("separate") => FmaPolicy::Separate,
@@ -148,7 +148,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
 ///
 /// Returns [`CompileError`] only if the request itself is malformed
 /// (e.g. empty WGSL source). Per-target failures are reported inline
-/// in [`DeviceCompileResult::error`].
+/// in the `error` field of each [`DeviceCompileResult`].
 pub fn handle_compile_wgsl_multi(
     req: MultiDeviceCompileRequest,
 ) -> Result<MultiDeviceCompileResponse, CompileError> {

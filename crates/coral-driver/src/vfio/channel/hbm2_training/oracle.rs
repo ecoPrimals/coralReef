@@ -60,49 +60,25 @@ impl GoldenCapture {
 
 /// Capture the golden register state from an oracle card via sysfs BAR0.
 pub fn capture_oracle_state(oracle_bdf: &str) -> Result<GoldenCapture, String> {
-    let resource0_path = format!("/sys/bus/pci/devices/{oracle_bdf}/resource0");
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .open(&resource0_path)
-        .map_err(|e| format!("cannot open {resource0_path}: {e}"))?;
+    use crate::vfio::sysfs_bar0::{DEFAULT_BAR0_SIZE, SysfsBar0};
 
-    let bar0_size: usize = 16 * 1024 * 1024;
-    let ptr = unsafe {
-        rustix::mm::mmap(
-            std::ptr::null_mut(),
-            bar0_size,
-            rustix::mm::ProtFlags::READ,
-            rustix::mm::MapFlags::SHARED,
-            &file,
-            0,
-        )
-    }
-    .map_err(|e| format!("mmap {resource0_path}: {e}"))?;
+    let bar0 = SysfsBar0::open(oracle_bdf, DEFAULT_BAR0_SIZE)?;
 
-    let read = |offset: usize| -> u32 {
-        if offset + 4 > bar0_size {
-            return 0xDEAD_DEAD;
-        }
-        unsafe { std::ptr::read_volatile(ptr.cast::<u8>().add(offset).cast::<u32>()) }
-    };
     let is_err =
         |v: u32| v == 0xFFFF_FFFF || v == 0xDEAD_DEAD || (v >> 16) == 0xBADF || (v >> 16) == 0xBAD0;
 
-    let boot0 = read(0);
+    let boot0 = bar0.read_u32(0);
     if boot0 == 0xFFFF_FFFF {
-        unsafe {
-            let _ = rustix::mm::munmap(ptr, bar0_size);
-        }
         return Err("Oracle BAR0 reads 0xFFFFFFFF — card in D3hot?".into());
     }
 
-    let pmc_enable = read(0x200);
+    let pmc_enable = bar0.read_u32(0x200);
     let mut domains = Vec::new();
 
     for &(name, start, end) in HBM2_CAPTURE_DOMAINS {
         let mut registers = Vec::new();
         for off in (start..end).step_by(4) {
-            let val = read(off);
+            let val = bar0.read_u32(off);
             if !is_err(val) {
                 registers.push((off, val));
             }
@@ -113,9 +89,7 @@ pub fn capture_oracle_state(oracle_bdf: &str) -> Result<GoldenCapture, String> {
         });
     }
 
-    unsafe {
-        let _ = rustix::mm::munmap(ptr, bar0_size);
-    }
+    drop(bar0);
 
     let total: usize = domains.iter().map(|d| d.registers.len()).sum();
     tracing::debug!(

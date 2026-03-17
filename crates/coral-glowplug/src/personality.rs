@@ -8,11 +8,15 @@
 
 use std::fmt;
 
-#[allow(dead_code)]
 /// Trait defining a GPU driver personality.
 ///
 /// Each personality manages its driver-specific bind/unbind logic
-/// and provides metadata for capability advertisement.
+/// and provides metadata for capability advertisement. Consumed as
+/// `dyn GpuPersonality` from [`PersonalityRegistry::create`].
+#[allow(
+    dead_code,
+    reason = "dyn-dispatch API exercised via PersonalityRegistry"
+)]
 pub trait GpuPersonality: fmt::Display + fmt::Debug + Send + Sync {
     /// Short name for IPC identification (e.g. `"vfio"`, `"nouveau"`, `"amdgpu"`).
     fn name(&self) -> &str;
@@ -32,8 +36,8 @@ pub trait GpuPersonality: fmt::Display + fmt::Debug + Send + Sync {
 
 /// VFIO-PCI personality — direct hardware access for sovereign GPU control.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct VfioPersonality {
+    /// VFIO group this device belongs to.
     pub group_id: u32,
 }
 
@@ -63,8 +67,8 @@ impl GpuPersonality for VfioPersonality {
 
 /// Nouveau personality — open-source NVIDIA driver (required for HBM2 training).
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct NouveauPersonality {
+    /// DRM card device path (e.g. `/dev/dri/card0`).
     pub drm_card_path: Option<String>,
 }
 
@@ -98,8 +102,8 @@ impl GpuPersonality for NouveauPersonality {
 
 /// AMDGPU personality — AMD kernel driver.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct AmdgpuPersonality {
+    /// DRM card device path (e.g. `/dev/dri/card1`).
     pub drm_card_path: Option<String>,
 }
 
@@ -133,7 +137,6 @@ impl GpuPersonality for AmdgpuPersonality {
 
 /// Unbound state — no driver attached.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct UnboundPersonality;
 
 impl fmt::Display for UnboundPersonality {
@@ -164,12 +167,10 @@ impl GpuPersonality for UnboundPersonality {
 ///
 /// Capabilities are discovered at runtime rather than hardcoded —
 /// each primal only knows about the personalities it can manage.
-#[allow(dead_code)]
 pub struct PersonalityRegistry {
     known: Vec<&'static str>,
 }
 
-#[allow(dead_code)]
 impl PersonalityRegistry {
     /// Build the default registry with all known driver personalities.
     #[must_use]
@@ -222,7 +223,6 @@ pub enum Personality {
     Unbound,
 }
 
-#[allow(dead_code)]
 impl Personality {
     /// Short name for IPC/config interchange.
     #[must_use]

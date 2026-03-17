@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
 # Coding Conventions
 
 This primal follows the ecoPrimals coding conventions (modeled on wateringHole standards).
