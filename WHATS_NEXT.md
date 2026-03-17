@@ -79,7 +79,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 51)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 52)
 
 ### Iteration 51 — Deep Audit Compliance + IPC Health + Doc Hygiene
 - [x] wateringHole IPC health methods: `health.check`, `health.liveness`, `health.readiness` across JSON-RPC, tarpc, Unix socket
@@ -378,11 +378,13 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-2157+48 tests passing, 0 failed, 57.71% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+2185+48 tests passing, 0 failed, 57.71% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 IPC: `shader.compile.*` + `health.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
 Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 Zero files over 1000 LOC. Zero clippy warnings. Zero doc warnings. Zero fmt drift.
+OrExit\<T\> for zero-panic binary entry. IpcServiceError for structured IPC errors.
+coral-glowplug JSON-RPC 2.0 with trait-based GpuPersonality system.
 All pure Rust. Sovereignty is a runtime choice.*

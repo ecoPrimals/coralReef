@@ -1,6 +1,6 @@
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 16, 2026 (Phase 10 — Iteration 51)
+**Last updated**: March 16, 2026 (Phase 10 — Iteration 52)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -9,7 +9,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-2205 tests (2157 default + 48 VFIO, 89 ignored), 57.71% line coverage (target 90%),
+2233 tests (2185 default + 48 VFIO, 90 ignored), 57.71% line coverage (target 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -433,20 +433,26 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 44 | USERD_TARGET + INST_TARGET runlist fix: `USERD_TARGET` bits (3:2) set to SYS_MEM_COHERENT (2) in DW0, `INST_TARGET` bits (5:4) set to SYS_MEM_NCOH (3) in DW2, resolves PBDMA unable to read USERD page from system memory, pfifo register constants replace literals, clippy clean, cargo fmt clean, 1 new VFIO test | **1669+48** (1669 default + 48 vfio, 74 ignore) |
 | 10 iter 45 | Deep audit + refactor: vfio/channel.rs 2894→5 modules, eprintln!→tracing, IPC chaos/fault tests, 30+ unit tests (coralreef-core, coral-driver), 5 doctests fixed, unsafe evolution (SAFETY comments), clippy pedantic | **1721** (1721 passing, 61 ignored), 65.74% coverage |
 | 10 iter 46 | Structural refactor + coverage: `diagnostic/runner.rs` 2485→769 LOC + `experiments/` submodule (8 handlers + context), clippy pedantic workspace-wide, 53+ new tests (AMD ISA 25, Unix JSON-RPC 8, SM70 latency/encoder 20), coverage 66.43% lines / 75.15% functions / 68.21% regions, zero files over 1000 LOC | **1804** (1804 passing, 61 ignored) |
-| 10 iter 47 (current) | Deep debt evolution: unsafe elimination (`from_raw_parts_mut` → safe `as_mut_slice()`), zero-copy `KernelCacheEntry.binary` → `Bytes`, driver string constants (`preference.rs`), 6 `panic!()` → `warn!`+`debug_assert!`, `runner.rs` experiment delegation (2509→778 LOC), `rm_helpers.rs` extraction (1000→944 LOC), `FenceTimeout` constant, `unwrap()` → `Option::zip`, +15 tests | **1819** (1819 passing, 61 ignored) |
+| 10 iter 47 | Deep debt evolution: unsafe elimination (`from_raw_parts_mut` → safe `as_mut_slice()`), zero-copy `KernelCacheEntry.binary` → `Bytes`, driver string constants (`preference.rs`), 6 `panic!()` → `warn!`+`debug_assert!`, `runner.rs` experiment delegation (2509→778 LOC), `rm_helpers.rs` extraction (1000→944 LOC), `FenceTimeout` constant, `unwrap()` → `Option::zip`, +15 tests | **1819** (1819 passing, 61 ignored) |
+| 10 iter 48 | Deep debt + sovereignty: `extern "C" { fn ioctl }` eliminated → `nv_rm_ioctl` via `rustix::ioctl`, clippy idiomatic patterns (`items_after_test_module`, `needless_range_loop`), formatting drift resolved, last 2 production `unwrap()` → `expect()`, capability test evolved (structural self-knowledge), +23 new tests (Unix JSON-RPC 15, main.rs 8) | **1842** (1842 passing, 61 ignored) |
+| 10 iter 49 | hotSpring absorption: GV100 per-runlist registers (stride 0x10), MMU fault buffer DMA, PFIFO INTR bit 8 decode, PBDMA reset sequence, GlowPlug consolidation, `submit_runlist()` helper, GV100 register tests | **1842** (1842 passing, 61 ignored) |
+| 10 iter 50 | Full audit execution: doc warnings eliminated, clippy clean with VFIO, hardcoded paths → env vars, production unwrap evolved, eprintln → tracing, smart refactoring (6 files), all files under 1000 LOC, +214 coverage tests | **1992** (1992 passing, 89 ignored), 57.54% coverage |
+| 10 iter 51 | Deep audit compliance: wateringHole IPC health methods, socket path standard, config self-knowledge, zero-copy transport, coral-gpu smart refactor (977→65 LOC), SAFETY documentation, genomeBin manifest, E2E IPC test, clippy pedantic | **2157** (2157 passing, 89 ignored), 57.71% coverage |
+| 10 iter 52 (current) | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 47: 1819+48 tests passing, 61 ignored. Deep debt evolution.
+Iteration 52: 2185+48 tests passing, 90 ignored. Ecosystem absorption.
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).
-Driver strings centralized as constants. Production panics eliminated (warn + debug_assert).
-Unsafe code evolved: from_raw_parts_mut → safe as_mut_slice().
+OrExit\<T\> for zero-panic binary validation. IpcServiceError for structured IPC errors.
+coral-glowplug JSON-RPC 2.0 compliant. GpuPersonality trait-based system.
 VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
-PFIFO channel: RAMFC, instance block, V2 MMU page tables, TSG+channel runlist,
-PCCSR bind/enable, RAMUSERD (GP_GET@0x88, GP_PUT@0x8C), doorbell BAR0+0x810090.
+NVIDIA UVM dispatch: GPFIFO submission, USERD doorbell, completion polling.
+IPC: `shader.compile.*` + `health.*` — JSON-RPC 2.0 + tarpc + Unix socket.
+Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 8 of 9 crates enforce #[deny(unsafe_code)].
-Pending: Titan V hardware validation of full dispatch path.*
+All pure Rust. Sovereignty is a runtime choice.*

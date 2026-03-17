@@ -36,7 +36,22 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 51** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 52** |
+
+### Iteration 52: Ecosystem Absorption + Glowplug JSON-RPC 2.0 + Typed IPC Errors (Mar 16 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| deny.toml yanked → deny | ✅ | `yanked = "warn"` upgraded to `yanked = "deny"` |
+| OrExit\<T\> pattern | ✅ | `coralreef-core/src/or_exit.rs` — zero-panic validation for binary entry points, absorbed from wetSpring/rhizoCrypt |
+| IpcServiceError structured errors | ✅ | `coralreef-core/src/ipc/error.rs` — `IpcPhase` (Transport/Dispatch/Handler/Internal), phase-aware JSON-RPC error codes, `retryable()` |
+| coral-glowplug JSON-RPC 2.0 | ✅ | `socket.rs` rewritten — semantic methods (`device.list`, `device.swap`, `device.health`, `health.check`, `daemon.status`, `daemon.shutdown`) |
+| GpuPersonality trait system | ✅ | `personality.rs` — `VfioPersonality`, `NouveauPersonality`, `AmdgpuPersonality`, `UnboundPersonality` + `PersonalityRegistry` |
+| CAP_SYS_ADMIN evolution | ✅ | Removed `sudo tee` fallback from `sysfs_write()` — direct `std::fs::write()` with capability guidance |
+| DRM consumer fence check | ✅ | `has_active_drm_consumers(bdf)` before nouveau bind in HBM2 resurrection |
+| AMD Vega metal registers | ✅ | `amd_metal.rs` populated with MI50/GFX906 register layout (GRBM_STATUS, SRBM_STATUS, CP_STAT, SDMA0, power domains, memory regions, engines) |
+| Dual-format capability parsing | ✅ | `CapabilityRef` accepts flat strings or nested objects for `provides` in discovery |
+| Test expansion | ✅ | 2157 → 2185 passing (+28 tests), 0 failed, 90 ignored |
 
 ### Iteration 51: Deep Audit Compliance + IPC Health + Doc Hygiene (Mar 16 2026)
 
@@ -801,7 +816,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2157 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo test --workspace` | PASS (2185 passing, 0 failed) (+48 VFIO with `--features vfio`) |
 | `cargo llvm-cov` | 57.28% region / 57.71% line / 67.98% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

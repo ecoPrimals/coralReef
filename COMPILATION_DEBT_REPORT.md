@@ -1,6 +1,6 @@
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 16, Iter 51)  
+**Generated:** March 10, 2026 (metrics updated March 16, Iter 52)  
 **Workspace:** coralReef
 
 ---
@@ -198,12 +198,12 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 51) |
+| Metric | Value (as of Iter 52) |
 |--------|-------|
-| Tests passing | 2157 default + 48 VFIO |
-| Ignored tests | 89 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 2185 default + 48 VFIO |
+| Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 9 (documented future optimizations — intentional) |
-| TODO markers | 6 (all in `amd_metal.rs` — AMD VFIO metal stubs) |
+| TODO markers | 0 (amd_metal.rs stubs filled with MI50/GFX906 registers, Iter 52) |
 | Production unwraps | 0 (all evolved to expect/error) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
