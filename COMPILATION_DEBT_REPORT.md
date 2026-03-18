@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 18, Iter 56)  
+**Generated:** March 10, 2026 (metrics updated March 18, Iter 57)  
 **Workspace:** coralReef
 
 ---
@@ -202,9 +202,9 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 56) |
+| Metric | Value (as of Iter 57) |
 |--------|-------|
-| Tests passing | 2527 default + 48 VFIO |
+| Tests passing | 2560 default + 48 VFIO |
 | Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |

@@ -12,6 +12,7 @@
 
 mod config;
 mod device;
+mod pci_ids;
 mod error;
 mod health;
 mod personality;
@@ -75,9 +76,11 @@ fn validate_boot_safety(config: &Config) {
 
     if !cmdline.contains("vfio-pci.ids") {
         tracing::warn!(
-            "BOOT SAFETY: kernel cmdline is missing 'vfio-pci.ids=10de:1d81'. \
+            "BOOT SAFETY: kernel cmdline is missing '{}'. \
              Without this, nvidia may probe Titan V GPUs before vfio-pci binds, \
-             corrupting hardware state. Run: sudo kernelstub -a 'vfio-pci.ids=10de:1d81'"
+             corrupting hardware state. Run: sudo kernelstub -a '{}'",
+            pci_ids::TITAN_V_VFIO_IDS_CMDLINE,
+            pci_ids::TITAN_V_VFIO_IDS_CMDLINE
         );
     }
 
@@ -107,13 +110,14 @@ fn validate_boot_safety(config: &Config) {
             tracing::warn!(
                 "BOOT SAFETY: nvidia module is loaded and not all managed devices have \
                  driver_override=vfio-pci. Ensure /etc/modprobe.d/coralreef-dual-titanv.conf \
-                 contains 'softdep nvidia pre: vfio-pci' and 'options vfio-pci ids=10de:1d81'"
+                 contains 'softdep nvidia pre: vfio-pci' and 'options vfio-pci ids={}'",
+                pci_ids::TITAN_V_VFIO_IDS
             );
         }
     }
 
-    let vfio_ids_in_cmdline =
-        cmdline.contains("vfio-pci.ids=10de:1d81") || cmdline.contains("vfio-pci.ids=10de:1D81");
+    let vfio_ids_in_cmdline = cmdline.contains(pci_ids::TITAN_V_VFIO_IDS_CMDLINE)
+        || cmdline.contains(pci_ids::TITAN_V_VFIO_IDS_CMDLINE_ALT);
     let nvidia_loaded = std::path::Path::new("/sys/module/nvidia").exists();
     let all_on_vfio = config.device.iter().all(|dev| {
         let driver_path = format!("/sys/bus/pci/devices/{}/driver", dev.bdf);

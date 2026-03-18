@@ -424,24 +424,45 @@ impl std::fmt::Display for AmdArch {
 // ---------------------------------------------------------------------------
 // Intel architectures (placeholder)
 // ---------------------------------------------------------------------------
+//
+// Intel backend planned — register addresses TBD. These variants prepare the
+// codebase for a third vendor without implementing the full backend.
 
 /// Intel GPU architecture (future).
+///
+/// Xe-HPG (DG2/Alchemist) and Xe2-HPG (Battlemage) — register addresses TBD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[allow(dead_code)] // Intel backend planned — register addresses TBD
 pub enum IntelArch {
-    /// Xe-HPG (Arc A-series).
+    /// Xe-HPG (Arc A-series discrete — DG2/Alchemist).
     XeHpg,
-    /// Xe2-HPG (Battlemage).
+    /// Xe-HPG DG2/Alchemist (Arc A770, A750, A380, etc.).
+    Dg2Alchemist,
+    /// Xe2-HPG (Battlemage — next-gen Arc discrete).
     Xe2Hpg,
+    /// Xe-LPG (Meteor Lake / Arrow Lake integrated graphics).
+    XeLpg,
 }
 
 impl IntelArch {
-    /// Short architecture identifier (e.g. `"xe_hpg"`).
+    /// All known Intel architectures (for iteration; backend not implemented).
+    #[allow(dead_code)] // Intel backend planned — register addresses TBD
+    pub const ALL: &[Self] = &[
+        Self::XeHpg,
+        Self::Dg2Alchemist,
+        Self::Xe2Hpg,
+        Self::XeLpg,
+    ];
+
+    /// Short architecture identifier (e.g. `"xe_hpg"`, `"dg2_alchemist"`).
     #[must_use]
     pub const fn short_name(self) -> &'static str {
         match self {
             Self::XeHpg => "xe_hpg",
+            Self::Dg2Alchemist => "dg2_alchemist",
             Self::Xe2Hpg => "xe2_hpg",
+            Self::XeLpg => "xe_lpg",
         }
     }
 }
@@ -450,7 +471,9 @@ impl std::fmt::Display for IntelArch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::XeHpg => write!(f, "xe_hpg"),
+            Self::Dg2Alchemist => write!(f, "dg2_alchemist"),
             Self::Xe2Hpg => write!(f, "xe2_hpg"),
+            Self::XeLpg => write!(f, "xe_lpg"),
         }
     }
 }
@@ -635,7 +658,16 @@ mod tests {
     #[test]
     fn test_intel_display() {
         assert_eq!(IntelArch::XeHpg.to_string(), "xe_hpg");
+        assert_eq!(IntelArch::Dg2Alchemist.to_string(), "dg2_alchemist");
         assert_eq!(IntelArch::Xe2Hpg.to_string(), "xe2_hpg");
+        assert_eq!(IntelArch::XeLpg.to_string(), "xe_lpg");
+    }
+
+    #[test]
+    fn test_intel_arch_all() {
+        assert_eq!(IntelArch::ALL.len(), 4);
+        assert!(IntelArch::ALL.contains(&IntelArch::Dg2Alchemist));
+        assert!(IntelArch::ALL.contains(&IntelArch::XeLpg));
     }
 
     #[test]

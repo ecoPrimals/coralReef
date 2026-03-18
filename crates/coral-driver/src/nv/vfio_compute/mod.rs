@@ -78,17 +78,10 @@ pub(super) const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
 pub(super) const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
 
 /// Map SM version to chip codename for firmware lookup.
+///
+/// Delegates to [`crate::nv::identity::chip_name`] — single source of truth.
 pub(super) const fn sm_to_chip(sm: u32) -> &'static str {
-    match sm {
-        50..=52 => "gm200",
-        60..=62 => "gp100",
-        70 => "gv100",
-        75 => "tu102",
-        80 => "ga100",
-        86..=87 => "ga102",
-        89 => "ad102",
-        _ => "gv100",
-    }
+    crate::nv::identity::chip_name(sm)
 }
 
 /// DMA-backed GPU buffer tracked by the VFIO device.

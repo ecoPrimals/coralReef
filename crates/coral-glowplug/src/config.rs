@@ -90,6 +90,9 @@ pub struct DeviceConfig {
 }
 
 /// TCP loopback with OS-assigned port (ecoBin fallback on non-Unix platforms).
+///
+/// Kept in sync with `coralreef-core::ipc::FALLBACK_TCP_BIND` — coral-glowplug does not
+/// depend on coralreef-core, so both define this constant for ecoBin compliance.
 #[cfg_attr(unix, allow(dead_code))]
 pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
 

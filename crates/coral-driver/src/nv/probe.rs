@@ -33,18 +33,10 @@ pub const fn compute_class_for_sm(sm: u32) -> u32 {
 
 /// Map SM architecture version to the chip codename used by firmware paths.
 ///
-/// e.g. SM 70 → `"gv100"` (Volta), SM 75 → `"tu102"` (Turing),
-/// SM 86 → `"ga102"` (Ampere), SM 89 → `"ad102"` (Ada).
+/// Delegates to [`super::identity::chip_name`] — single source of truth.
+#[must_use]
 pub const fn sm_to_chip(sm: u32) -> &'static str {
-    match sm {
-        50..=52 => "gm200",
-        60..=62 => "gp100",
-        75 => "tu102",
-        80 => "ga100",
-        86..=87 => "ga102",
-        89 => "ad102",
-        _ => "gv100",
-    }
+    super::identity::chip_name(sm)
 }
 
 /// Sovereign BAR0 GR initialization — Phase 0 of device open.

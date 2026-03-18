@@ -18,7 +18,7 @@ use crate::CompileError;
 use crate::codegen::amd::encoding::{self, Rdna2Encoder};
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
-#[expect(
+#[allow(
     clippy::wildcard_imports,
     reason = "op module re-exports are intentional for codegen"
 )]

@@ -396,7 +396,7 @@ mod tests {
         let path = write_xml_temp(xml);
         let (encodings, instructions) = parse::parse_xml(&path).unwrap();
         assert_eq!(encodings.len(), 1);
-        assert!(instructions.get("ENC_SOP1").map_or(true, |v| v.is_empty()));
+        assert!(instructions.get("ENC_SOP1").is_none_or(|v| v.is_empty()));
         std::fs::remove_file(&path).ok();
     }
 
@@ -426,7 +426,7 @@ mod tests {
         let path = write_xml_temp(xml);
         let (encodings, instructions) = parse::parse_xml(&path).unwrap();
         assert_eq!(encodings.len(), 1);
-        assert!(instructions.get("ENC_SOP1").map_or(true, |v| v.is_empty()));
+        assert!(instructions.get("ENC_SOP1").is_none_or(|v| v.is_empty()));
         std::fs::remove_file(&path).ok();
     }
 

@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 18, 2026 (Phase 10 — Iteration 56)
+**Last updated**: March 18, 2026 (Phase 10 — Iteration 57)
 
 ---
 
@@ -81,7 +81,20 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 56)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 57)
+
+### Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline
+- [x] Specs v0.6.0 — all-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned
+- [x] socket.rs smart refactor: 1488→556 lines (tests extracted to socket_tests.rs)
+- [x] GP_PUT cache flush experiment H1: clflush USERD + GPFIFO before doorbell in VFIO submission
+- [x] Production .expect() evolution: signal handlers → or_exit(), GSP observer → Result, SAFETY comments
+- [x] Unsafe code evolution: VolatilePtr consolidation, SAFETY comments on from_raw_parts and Send/Sync impls
+- [x] AMD metal placeholder → real GFX906 register offsets from AMD docs
+- [x] Intel GPU arch: Dg2Alchemist + XeLpg variants added
+- [x] Hardcoding evolution: pci_ids.rs constants, unified chip_name() identity module
+- [x] Coverage expansion: GSP knowledge/parser/applicator, MMIO VolatilePtr, identity, pci_ids, error module
+- [x] Clippy clean: map_or → is_none_or, unfulfilled lint expectations → allow, doc backtick fixes
+- [x] 2527 → 2560 passing (+33 tests), 0 failed, 90 ignored
 
 ### Iteration 56 — Coverage Expansion + Doc Cleanup + Debt Resolution
 - [x] 40 constant folding tests (`fold.rs`: integer, identity, bitwise, shift, comparison, overflow)
@@ -321,7 +334,7 @@ the full Spring absorption map.
 - [x] **Shared memory sizing** — `CompilationInfo.shared_mem_bytes` + `barrier_count` wired compiler → QMD — resolved Iteration 9
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
 - [ ] Titan V (SM70) hardware execution validation (nouveau dispatch ready, needs on-site)
-- [ ] RTX 3090 (SM86) UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell + completion polling); `NvDrmDevice` delegates to `NvUvmComputeDevice` — needs on-site hardware validation
+- [ ] RTX 5060 (SM89) UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell + completion polling); `NvDrmDevice` delegates to `NvUvmComputeDevice` — needs on-site hardware validation (RTX 3090 decommissioned)
 - [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
 
 ### P0 — AMD E2E critical fixes (Iteration 10)
@@ -409,13 +422,13 @@ the full Spring absorption map.
 - [x] **NvDrmDevice delegation (Iteration 37)** — Evolved from stub to functional delegator: holds `Option<NvUvmComputeDevice>`, all `ComputeDevice` ops pass through to UVM backend.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
-- [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 3090 on-site testing
+- [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 5060 on-site testing (RTX 3090 decommissioned)
 - [ ] Coverage 59.92% → 90% (59.92% line reflects full workspace including hardware-gated VFIO code; testable code at 72.7%)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-2364+48 tests passing, 0 failed, 59.92% line coverage (72.7% testable). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+2560+48 tests passing, 0 failed, 59.92% line coverage (72.7% testable). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.

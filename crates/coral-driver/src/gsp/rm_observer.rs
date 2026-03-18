@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn log_serialization_roundtrip() {
+    fn log_serialization_roundtrip() -> Result<(), serde_json::Error> {
         let mut log = RmProtocolLog::for_gpu("gv100", 70);
         log.records.push(RmRecord {
             seq: 0,
@@ -473,8 +473,9 @@ mod tests {
             elapsed_us: 42,
             sm: Some(70),
         });
-        let json = log.to_json().expect("serialize");
+        let json = log.to_json()?;
         assert!(json.contains("\"class_or_cmd\": 65"));
         assert!(json.contains("gv100"));
+        Ok(())
     }
 }

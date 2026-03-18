@@ -258,4 +258,4 @@ pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};
 #[cfg(all(test, unix))]
-pub(crate) use inner::{dispatch, make_response};
+pub use inner::{dispatch, make_response};

@@ -190,6 +190,23 @@ mod tests {
     }
 
     #[test]
+    fn error_display_io_variant() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let e: DriverError = io_err.into();
+        let msg = e.to_string();
+        assert!(msg.contains("I/O"), "Io variant should display 'I/O'");
+        assert!(msg.contains("file not found"));
+    }
+
+    #[test]
+    fn error_from_io_conversion() {
+        let inner = std::io::Error::new(std::io::ErrorKind::WouldBlock, "would block");
+        let e: DriverError = DriverError::from(inner);
+        assert!(matches!(e, DriverError::Io(_)));
+        assert!(e.to_string().contains("would block"));
+    }
+
+    #[test]
     fn error_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<DriverError>();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Integration tests for OrExit error paths.
+//! Integration tests for `OrExit` error paths.
 //!
-//! The error path calls process::exit(), so we must run in a subprocess.
+//! The error path calls `process::exit()`, so we must run in a subprocess.
 
 #[test]
 fn or_exit_err_exits_with_code_one() {

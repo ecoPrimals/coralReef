@@ -194,6 +194,9 @@ impl Drop for DmaBuffer {
         let container_borrowed = unsafe { BorrowedFd::borrow_raw(self.container_fd) };
         let _ = ioctl::dma_unmap(container_borrowed, &dma_unmap);
 
+        // SAFETY: self.size and PAGE_SIZE are identical to those used in new().
+        // size is from aligned_size (div_ceil * PAGE_SIZE); PAGE_SIZE is 4096.
+        // Layout::from_size_align(size, 4096) cannot fail for this combination.
         let layout = std::alloc::Layout::from_size_align(self.size, PAGE_SIZE)
             .expect("Layout valid: matches alloc in new()");
         // SAFETY: dealloc matches alloc_zeroed from new(); layout identical.

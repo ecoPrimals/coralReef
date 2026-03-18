@@ -2,10 +2,10 @@
 
 # Sovereign Multi-GPU Evolution — Pure Rust Pipeline
 
-**Version**: 0.1.0
-**Date**: March 6, 2026
-**Status**: Complete — Phases 6–9 implemented (March 6, 2026)
-**Hardware**: NVIDIA RTX 3090 (GA102/SM86) + AMD RX 6950 XT (Navi 21/RDNA2/GFX1030)
+**Version**: 0.2.0
+**Date**: March 18, 2026
+**Status**: Phase 10 — Iteration 57 (All-Silicon Sovereign Pipeline)
+**Hardware**: NVIDIA Titan V ×2 (GV100/SM70) + NVIDIA RTX 5060 (AD107/SM89)
 
 ---
 
@@ -26,28 +26,27 @@ build our own. The scaffold comes down when the structure stands.
 ## Hardware Present
 
 ```
-PCI 25:00.0 — AMD Radeon RX 6950 XT (Navi 21)
-  Kernel:   amdgpu (open-source)
-  Vulkan:   RADV (Mesa 25.1.5, ACO compiler)
-  DRM:      /dev/dri/card0, /dev/dri/renderD128
-  ISA:      GFX1030 (RDNA2)
-  f64:      1/16 rate (v_fma_f64 native)
-  VRAM:     16 GB GDDR6
-  Status:   Fully open stack — best sovereign candidate
+PCI 03:00.0 — NVIDIA Titan V #1 (GV100)
+  Kernel:   vfio-pci (sovereign — nvidia preempted at boot)
+  ISA:      SM70 (Volta)
+  f64:      1/2 rate (native DFMA)
+  VRAM:     12 GB HBM2
+  Status:   VFIO sovereign dispatch 6/7, boot sovereignty complete
 
-PCI 41:00.0 — NVIDIA GeForce RTX 3090 (GA102)
-  Kernel:   nvidia (proprietary, 580.119.02)
-  Vulkan:   NVIDIA proprietary (Vulkan 1.4.312)
-  DRM:      /dev/dri/card1, /dev/dri/renderD129
-  ISA:      SM86 (Ampere)
-  f64:      1/32 rate (DFMA native, DF64 preferred)
-  VRAM:     24 GB GDDR6X
-  Status:   Proprietary driver — sovereign path requires nouveau
+PCI 4a:00.0 — NVIDIA Titan V #2 (GV100)
+  Kernel:   vfio-pci (sovereign — nvidia preempted at boot)
+  ISA:      SM70 (Volta)
+  f64:      1/2 rate (native DFMA)
+  VRAM:     12 GB HBM2
+  Status:   VFIO sovereign dispatch target, boot sovereignty complete
+
+PCI 21:00.0 — NVIDIA RTX 5060 (AD107)
+  Kernel:   nvidia-drm (proprietary)
+  ISA:      SM89 (Ada Lovelace)
+  f64:      1/64 rate (DF64 preferred)
+  VRAM:     8 GB GDDR7
+  Status:   Desktop display + UVM dispatch (code-complete)
 ```
-
-Both GPUs verified accessible via Vulkan (`vulkaninfo`) and wgpu
-(barraCuda `doctor`). The AMD card is the primary sovereign evolution
-target because its entire stack is already open-source.
 
 ---
 
@@ -129,8 +128,8 @@ encoding tables, build the GFX1030 instruction assembler.
 
 | Task | Scaffolds From | Output |
 |------|---------------|--------|
-| Download AMD ISA XML specs (RDNA2) | GPUOpen `isa_spec_manager` | `specs/amd/rdna2.xml` |
-| Build XML → Rust codegen tool | AMD spec schema docs | `tools/isa_gen/` (build-time) |
+| Download AMD ISA XML specs (RDNA2) | GPUOpen `isa_spec_manager` | `specs/amd/amdgpu_isa_rdna2.xml` |
+| Build XML → Rust codegen tool | AMD spec schema docs | `tools/amd-isa-gen/` (build-time) |
 | Generate RDNA2 instruction encoding tables | XML specs | `codegen/amd/isa_tables.rs` |
 | Implement GFX1030 instruction assembler | Generated tables + ACO reference | `codegen/amd/encode.rs` |
 | Wire `AmdBackend` into `backend_for()` | Existing `Backend` trait | `backend.rs` |
@@ -200,15 +199,15 @@ is proven.
 
 | Task | Scaffolds From | Status |
 |------|---------------|--------|
-| nouveau DRM ioctl interface | NVK `nvk_cmd_dispatch.c` | Explicit `Unsupported` — returns `DriverError::Unsupported` |
-| QMD construction (SM86 Ampere) | coralReef `nvidia_headers` (QMD v3.0) | QMD v3.0 complete |
-| Pushbuf command buffer | nouveau `nouveau_pushbuf.c` | Explicit `Unsupported` |
-| Memory management (GEM) | NVK + nouveau | GEM close implemented; alloc returns `Unsupported` |
-| Fence/sync | nouveau fence API | Explicit `Unsupported` |
-
-**Blocker**: nouveau compute dispatch is unstable (known system freezes
-on Volta). The AMD path validates the architecture first, then NVIDIA
-follows.
+| nouveau DRM ioctl interface | NVK `nvk_cmd_dispatch.c` | **Done** — full struct ABI, 7 size assertions |
+| QMD construction (SM70 Volta + SM86 Ampere) | coralReef `nvidia_headers` | **Done** — QMD v2.1 + v3.0 |
+| Pushbuf command buffer | nouveau `nouveau_pushbuf.c` | **Done** — `DRM_NOUVEAU_GEM_PUSHBUF` |
+| Memory management (GEM) | NVK + nouveau | **Done** — alloc/mmap/info/close |
+| Fence/sync | nouveau fence API | **Done** — `gem_cpu_prep` |
+| VFIO BAR0 dispatch | bare metal reverse-engineering | **6/7** — GP_PUT DMA read remaining |
+| UVM RM dispatch | nvidia proprietary driver | **Code-complete** — needs HW validation |
+| New UAPI (VM_INIT/VM_BIND/EXEC) | kernel 6.6+ | **Struct-complete** — wired in `new_uapi.rs` |
+| Boot sovereignty | modprobe + vfio-pci.ids | **COMPLETE** (Iter 56) |
 
 ---
 
@@ -305,18 +304,18 @@ Every external dependency has a planned evolution path:
 | Dependency | Type | Current | Evolution Target | Pass |
 |------------|------|---------|------------------|------|
 | `naga` | Rust crate | Frontend parser | Fork or upstream contrib | Pass 3 |
-| `drm` crate | Rust crate (FFI) | Not yet used | Pure Rust DRM types | Pass 2→3 |
-| `nix` | Rust crate (FFI) | Not yet used | Replace with direct syscall wrappers | Pass 3 |
+| `drm` crate | Rust crate (FFI) | Replaced — pure Rust DRM types in `coral-driver/src/drm.rs` | Pure Rust DRM types | Pass 2→3 |
+| `nix` | Rust crate (FFI) | Replaced — rustix used for all syscalls | Replace with direct syscall wrappers | Pass 3 |
 | `tokio` | Rust crate | IPC runtime | Keep (ecosystem standard) | Stable |
 | `tarpc` | Rust crate | RPC framework | Keep (ecosystem standard) | Stable |
 | `thiserror` | Rust crate | Error derives | Keep (zero-cost) | Stable |
 | `bytes` | Rust crate | Zero-copy buffers | Keep (ecosystem standard) | Stable |
 | `clap` | Rust crate | CLI parsing | Keep (ecosystem standard) | Stable |
 | `tracing` | Rust crate | Observability | Keep (ecosystem standard) | Stable |
-| AMD ISA XML | Reference docs | Not yet ingested | Rust encoding tables generated at build time | Pass 1 |
+| AMD ISA XML | Reference docs | Ingested — `tools/amd-isa-gen/` generates 1,446 opcodes | Rust encoding tables generated at build time | Pass 1 |
 | Mesa ACO | Reference (C++) | Study only | Never ingested — we build our own from ISA docs | — |
 | Mesa NVK | Reference (C) | Study only | Never ingested — coralDriver replaces it | — |
-| Linux DRM headers | Kernel ABI | Not yet used | Pure Rust ioctl constants (stable ABI) | Pass 1→3 |
+| Linux DRM headers | Kernel ABI | Replaced — pure Rust ioctl constants (Iter 30) | Pure Rust ioctl constants (stable ABI) | Pass 1→3 |
 
 ### Categories
 
@@ -333,7 +332,7 @@ Every external dependency has a planned evolution path:
 
 | Test Type | NVIDIA | AMD | Method |
 |-----------|:------:|:---:|--------|
-| Unit (encoder) | ✅ 710+ tests | ✅ 34+ tests | Instruction-level encoding verification |
+| Unit (encoder) | ✅ 2527+ tests | ✅ 34+ tests | Instruction-level encoding verification |
 | Integration (pipeline) | ✅ Complete | ✅ Complete | WGSL → binary round-trip |
 | Property (proptest) | ✅ 5 tests | Extend | Random shader fuzzing |
 | Chaos | ✅ 6 tests | Extend | Concurrent, truncated, determinism |
@@ -380,6 +379,12 @@ All evolution passes must maintain:
 | 7c — coralDriver NVIDIA | nouveau dispatch (if stable) | 3-4 weeks | 7b |
 | 8 — coralGpu | Unified Rust GPU abstraction | 4-6 weeks | 7b |
 | 9 — Full sovereignty | Zero FFI, zero C, all internal Rust | Ongoing | 8 |
+| 10a — VFIO sovereign dispatch | BAR0 + PFIFO channel + V2 MMU, 6/7 HW tests | ✅ Done | 7b |
+| 10b — UVM code-complete | RM hierarchy + GPFIFO + USERD doorbell | ✅ Done | 9 |
+| 10c — Boot sovereignty | vfio-pci.ids preemption, nvidia guard | ✅ Done (Iter 56) | 9 |
+| 10d — Security hardening | BDF validation, circuit breaker, chaos tests | ✅ Done (Iter 56) | 10c |
+| 10e — GP_PUT last mile | Cache flush, USERD PRAMIN, GPCCS | In progress | 10a |
+| 10f — UVM hardware validation | RTX 5060 on-site validation | Next | 10b |
 
 ---
 

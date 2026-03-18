@@ -41,3 +41,43 @@ impl<T: Copy> VolatilePtr<T> {
         unsafe { std::ptr::write_volatile(self.ptr, value) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volatile_ptr_construction_from_aligned_u32() {
+        let mut value: u32 = 0xDEAD_BEEF;
+        let ptr = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        assert_eq!(ptr.read(), 0xDEAD_BEEF);
+    }
+
+    #[test]
+    fn volatile_ptr_read_write_roundtrip() {
+        let mut value: u32 = 0;
+        let ptr = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        ptr.write(0x1234_5678);
+        assert_eq!(ptr.read(), 0x1234_5678);
+        assert_eq!(value, 0x1234_5678);
+    }
+
+    #[test]
+    fn volatile_ptr_multiple_writes_persist() {
+        let mut value: u32 = 0;
+        let ptr = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        ptr.write(1);
+        ptr.write(2);
+        ptr.write(3);
+        assert_eq!(ptr.read(), 3);
+    }
+
+    #[test]
+    fn volatile_ptr_clone_copy_independent_access() {
+        let mut value: u32 = 0x42;
+        let ptr1 = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        let ptr2 = ptr1;
+        ptr1.write(0x100);
+        assert_eq!(ptr2.read(), 0x100);
+    }
+}

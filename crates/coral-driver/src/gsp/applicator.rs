@@ -459,4 +459,151 @@ mod tests {
             Err(e) => eprintln!("GV100 firmware not present: {e}"),
         }
     }
+
+    #[test]
+    fn split_for_application_gr_engine_and_verify_go_to_fecs() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "test".to_string(),
+            writes: vec![
+                GrRegWrite {
+                    offset: 0x0040_1000,
+                    value: 1,
+                    category: RegCategory::GrEngine,
+                    delay_us: 0,
+                },
+                GrRegWrite {
+                    offset: 0x0040_2000,
+                    value: 2,
+                    category: RegCategory::Verify,
+                    delay_us: 0,
+                },
+            ],
+        };
+        let (bar0, fecs) = split_for_application(&seq);
+        assert_eq!(bar0.len(), 0);
+        assert_eq!(fecs.len(), 2);
+    }
+
+    #[test]
+    fn split_for_application_clock_goes_to_bar0() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "test".to_string(),
+            writes: vec![GrRegWrite {
+                offset: 0x0010_0000,
+                value: 0x1234,
+                category: RegCategory::Clock,
+                delay_us: 50,
+            }],
+        };
+        let (bar0, fecs) = split_for_application(&seq);
+        assert_eq!(bar0.len(), 1);
+        assert_eq!(bar0[0].offset, 0x0010_0000);
+        assert_eq!(bar0[0].value, 0x1234);
+        assert_eq!(bar0[0].delay_us, 50);
+        assert_eq!(fecs.len(), 0);
+    }
+
+    #[test]
+    fn split_for_application_fifo_goes_to_bar0() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "test".to_string(),
+            writes: vec![GrRegWrite {
+                offset: 0x0000_2504,
+                value: 1,
+                category: RegCategory::Fifo,
+                delay_us: 0,
+            }],
+        };
+        let (bar0, fecs) = split_for_application(&seq);
+        assert_eq!(bar0.len(), 1);
+        assert_eq!(fecs.len(), 0);
+    }
+
+    #[test]
+    fn apply_result_success_with_no_errors() {
+        let result = ApplyResult {
+            bar0_writes: 5,
+            fecs_entries: 100,
+            errors: Vec::new(),
+            dry_run: false,
+        };
+        assert!(result.success());
+    }
+
+    #[test]
+    fn apply_result_success_false_with_errors() {
+        let result = ApplyResult {
+            bar0_writes: 2,
+            fecs_entries: 50,
+            errors: vec![ApplyError::MmioFailed {
+                offset: 0x200,
+                detail: "test".to_string(),
+            }],
+            dry_run: false,
+        };
+        assert!(!result.success());
+    }
+
+    #[test]
+    fn apply_bar0_mock_register_map_verification() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "test".to_string(),
+            writes: vec![
+                GrRegWrite {
+                    offset: 0x0000_0200,
+                    value: 0xFFFF_FFFF,
+                    category: RegCategory::MasterControl,
+                    delay_us: 0,
+                },
+                GrRegWrite {
+                    offset: 0x0000_2504,
+                    value: 0x0000_0001,
+                    category: RegCategory::Fifo,
+                    delay_us: 0,
+                },
+            ],
+        };
+        let mut regs = MockRegs::new();
+        let result = apply_bar0(&seq, &mut regs);
+        assert!(result.success());
+        assert_eq!(result.bar0_writes, 2);
+
+        // Verify mock register map contains expected values
+        assert_eq!(regs.read_u32(0x0000_0200).unwrap(), 0xFFFF_FFFF);
+        assert_eq!(regs.read_u32(0x0000_2504).unwrap(), 0x0000_0001);
+
+        let errs = verify_pre_init(&regs);
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn dry_run_synthetic_sequence_no_firmware() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "synthetic".to_string(),
+            writes: vec![
+                GrRegWrite {
+                    offset: 0x0000_0200,
+                    value: 1,
+                    category: RegCategory::MasterControl,
+                    delay_us: 100,
+                },
+                GrRegWrite {
+                    offset: 0x1000,
+                    value: 0x42,
+                    category: RegCategory::MethodInit,
+                    delay_us: 0,
+                },
+            ],
+        };
+        let result = dry_run(&seq);
+        assert!(result.dry_run);
+        assert!(result.success());
+        assert_eq!(result.bar0_writes, 1);
+        assert_eq!(result.fecs_entries, 1);
+    }
 }

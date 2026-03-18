@@ -11,6 +11,24 @@ pub const PCI_VENDOR_AMD: u16 = 0x1002;
 /// PCI vendor ID: Intel Corporation.
 pub const PCI_VENDOR_INTEL: u16 = 0x8086;
 
+/// Map SM architecture version to chip codename for firmware lookup.
+///
+/// Used by nouveau BAR0 init, VFIO compute, and GSP knowledge. Single source
+/// of truth for sm → chip mapping (e.g. SM 70 → "gv100", SM 86 → "ga102").
+#[must_use]
+pub const fn chip_name(sm: u32) -> &'static str {
+    match sm {
+        50..=52 => "gm200",
+        60..=62 => "gp100",
+        70 => "gv100",
+        75 => "tu102",
+        80 => "ga100",
+        86..=87 => "ga102",
+        89 => "ad102",
+        _ => "gv100",
+    }
+}
+
 /// PCI identity of a GPU device.
 #[derive(Debug, Clone)]
 pub struct GpuIdentity {
@@ -440,5 +458,62 @@ mod tests {
     fn fw_status_is_present() {
         assert!(FwStatus::Present.is_present());
         assert!(!FwStatus::Missing.is_present());
+    }
+
+    #[test]
+    fn chip_name_sm30_default_fallback() {
+        assert_eq!(chip_name(30), "gv100");
+    }
+
+    #[test]
+    fn chip_name_sm50_maxwell() {
+        assert_eq!(chip_name(50), "gm200");
+        assert_eq!(chip_name(51), "gm200");
+        assert_eq!(chip_name(52), "gm200");
+    }
+
+    #[test]
+    fn chip_name_sm60_pascal() {
+        assert_eq!(chip_name(60), "gp100");
+        assert_eq!(chip_name(61), "gp100");
+        assert_eq!(chip_name(62), "gp100");
+    }
+
+    #[test]
+    fn chip_name_sm70_volta() {
+        assert_eq!(chip_name(70), "gv100");
+    }
+
+    #[test]
+    fn chip_name_sm75_turing() {
+        assert_eq!(chip_name(75), "tu102");
+    }
+
+    #[test]
+    fn chip_name_sm80_ampere_ga100() {
+        assert_eq!(chip_name(80), "ga100");
+    }
+
+    #[test]
+    fn chip_name_sm86_ampere_ga102() {
+        assert_eq!(chip_name(86), "ga102");
+        assert_eq!(chip_name(87), "ga102");
+    }
+
+    #[test]
+    fn chip_name_sm89_ada_lovelace() {
+        assert_eq!(chip_name(89), "ad102");
+    }
+
+    #[test]
+    fn chip_name_sm120_default_fallback() {
+        assert_eq!(chip_name(120), "gv100");
+    }
+
+    #[test]
+    fn chip_name_unknown_sm_returns_gv100() {
+        assert_eq!(chip_name(0), "gv100");
+        assert_eq!(chip_name(99), "gv100");
+        assert_eq!(chip_name(u32::MAX), "gv100");
     }
 }

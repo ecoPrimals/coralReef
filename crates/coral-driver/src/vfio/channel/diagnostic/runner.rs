@@ -6,6 +6,7 @@ use std::os::fd::RawFd;
 use std::time::Instant;
 
 use crate::error::{DriverError, DriverResult};
+use crate::mmio::VolatilePtr;
 use crate::vfio::device::MappedBar;
 use crate::vfio::dma::DmaBuffer;
 
@@ -573,12 +574,14 @@ pub fn diagnostic_matrix(
         // (GPU may have written to this DMA-mapped page)
         // SAFETY: userd_page is a valid DMA-mapped slice; ramuserd::GP_GET/GP_PUT are in-bounds
         // offsets; volatile required because GPU may have written to this shared memory.
-        let host_gp_get = unsafe {
-            std::ptr::read_volatile(userd_page.as_ptr().add(ramuserd::GP_GET).cast::<u32>())
+        let vol_get = unsafe {
+            VolatilePtr::new((userd_page.as_ptr().add(ramuserd::GP_GET) as *mut u8).cast::<u32>())
         };
-        let host_gp_put = unsafe {
-            std::ptr::read_volatile(userd_page.as_ptr().add(ramuserd::GP_PUT).cast::<u32>())
+        let vol_put = unsafe {
+            VolatilePtr::new((userd_page.as_ptr().add(ramuserd::GP_PUT) as *mut u8).cast::<u32>())
         };
+        let host_gp_get = vol_get.read();
+        let host_gp_put = vol_put.read();
 
         let result = ExperimentResult {
             name: cfg.name.to_string(),

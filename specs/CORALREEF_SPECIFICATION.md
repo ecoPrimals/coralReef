@@ -2,9 +2,9 @@
 
 # coralReef — Specification
 
-**Version**: 0.5.0
-**Date**: March 6, 2026
-**Status**: Phase 10 — Spring Absorption + Compiler Hardening
+**Version**: 0.6.0
+**Date**: March 18, 2026
+**Status**: Phase 10 — Iteration 57 (Deep Debt Evolution + All-Silicon Pipeline)
 
 ---
 
@@ -22,13 +22,16 @@ coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
 NVIDIA nouveau). coralGpu wraps compilation and dispatch into a unified
 API. Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 
+coralGlowPlug manages GPU lifecycle at the PCIe level — boot-persistent VFIO binding, health monitoring with circuit breaker, personality hot-swap, and boot sovereignty that prevents vendor drivers from touching managed devices.
+
 ## Target Hardware
 
 | GPU | Architecture | ISA | Kernel Driver | f64 | Role |
 |-----|-------------|-----|---------------|-----|------|
-| NVIDIA RTX 3090 | Ampere SM86 | SASS | nvidia (proprietary) | 1/32, DF64 | NVIDIA compilation target |
-| NVIDIA Titan V | Volta SM70 | SASS | nouveau (open) | 1/2, native | Sovereign f64 endgame |
-| AMD RX 6950 XT | RDNA2 GFX1030 | GCN/RDNA | amdgpu (open) | 1/16, native `v_fma_f64` | AMD compilation target |
+| NVIDIA Titan V #1 | Volta SM70 (GV100) | SASS | vfio-pci (sovereign) | 1/2, native | Oracle card — sovereign VFIO dispatch |
+| NVIDIA Titan V #2 | Volta SM70 (GV100) | SASS | vfio-pci (sovereign) | 1/2, native | Compute target — sovereign VFIO dispatch |
+| NVIDIA RTX 5060 | Ada SM89 | SASS | nvidia-drm | 1/64, DF64 | Desktop display + UVM dispatch |
+| AMD MI50 (planned) | Vega GFX906 | GCN | amdgpu (open) | Full rate | GFX9 cross-architecture validation |
 
 ## Architecture
 
@@ -90,6 +93,49 @@ WGSL / SPIR-V input
 | `coral-reef-bitview` | Bit-level field manipulation for instruction encoding |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs |
+| `coral-glowplug` | PCIe GPU lifecycle daemon: VFIO binding, health monitoring, circuit breaker, personality hot-swap, boot sovereignty |
+| `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal IPC |
+
+## Sovereign Pipeline — All Silicon
+
+The aim is to target every piece of silicon available. Each GPU has a sovereign
+dispatch path that bypasses vendor kernel modules entirely where possible.
+
+### Dispatch Paths
+
+| Path | Silicon | Status | Remaining Gap |
+|------|---------|--------|---------------|
+| VFIO BAR0 + PFIFO | GV100 (Titan V ×2) | 6/7 — GP_PUT last mile | Cache flush experiment (H1) |
+| UVM (nvidia-drm) | SM89 (RTX 5060) | Code-complete | Hardware validation needed |
+| DRM nouveau | SM70 (Volta) | Struct-complete | PMU firmware blocker |
+| DRM amdgpu | GFX1030 (RDNA2) | E2E proven | — (COMPLETE) |
+| DRM amdgpu | GFX906 (Vega) | Planned | MI50 hardware swap |
+
+### Sovereign Boot (Iteration 56)
+
+nvidia's open kernel module probes ALL nvidia PCI devices at boot. On GV100
+(no GSP), the failed probe corrupts hardware state. coralReef defends at three layers:
+
+1. **Kernel preemption**: `softdep nvidia pre: vfio-pci` + `vfio-pci.ids=10de:1d81`
+2. **Circuit breaker**: halts BAR0 reads after 6 consecutive faults
+3. **nvidia module guard**: blocks swap/resurrect when nvidia.ko loaded
+
+### FECS Sovereign Compute (In Progress)
+
+hotSpring Exp 068 proved FECS firmware executes from host-loaded IMEM on clean
+falcon after D3hot→D0 cycle. Remaining: GPCCS address discovery on GV100,
+DMA instance block, FECS halt resolution at PC=0x2835.
+
+### Sovereignty Roadmap
+
+| Phase | Target | Status |
+|-------|--------|--------|
+| Boot preemption (vfio-pci.ids) | GV100 protected from nvidia | COMPLETE (Iter 56) |
+| GP_PUT DMA dispatch | Sovereign GPFIFO execution | 6/7 (cache flush H1 next) |
+| UVM dispatch | RTX 5060 compute | Code-complete (needs HW validation) |
+| Custom PMU Falcon firmware | Replace vendor firmware dependency | PLANNED |
+| Sovereign HBM2 training | Direct FBPA/LTC/PFB register programming | PLANNED |
+| Vendor-agnostic abstraction | Unified AMD/NVIDIA init + power + memory | VISION |
 
 ## f64 Transcendental Lowering
 
@@ -136,6 +182,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
+| 10 | Security hardening, boot sovereignty, all-silicon pipeline, deep debt evolution | **Iteration 57 — 2560 tests, 131 glowplug tests** |
 
 ## Evolution Policy
 
@@ -148,5 +195,5 @@ plan, pass definitions, and dependency tracking.
 
 ---
 
-**Date**: March 6, 2026
-**Version**: 0.5.0
+**Date**: March 18, 2026
+**Version**: 0.6.0

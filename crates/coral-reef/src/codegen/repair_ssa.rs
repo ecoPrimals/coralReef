@@ -282,7 +282,7 @@ impl Function {
                                 b_idx,
                                 phi.orig,
                             )
-                            .expect("get_ssa_or_phi failed")
+                            .expect("ICE: phi source for back-edge must resolve via get_ssa_or_phi")
                         });
                     }
                 }

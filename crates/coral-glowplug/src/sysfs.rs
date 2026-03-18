@@ -5,6 +5,8 @@
 //! PCI identity probing, IOMMU group management, DRM consumer detection,
 //! driver bind/unbind, and power state queries.
 
+use crate::pci_ids;
+
 /// Write to a sysfs path using direct filesystem access.
 ///
 /// Requires `CAP_SYS_ADMIN` or udev rules for the target path.
@@ -45,7 +47,7 @@ pub(crate) fn read_iommu_group(bdf: &str) -> u32 {
 #[must_use]
 pub(crate) fn identify_chip(vendor: u16, device: u16) -> String {
     match (vendor, device) {
-        (0x10de, 0x1d81) => "GV100 (Titan V)".into(),
+        (pci_ids::NVIDIA_VENDOR_ID, pci_ids::TITAN_V_DEVICE_ID) => "GV100 (Titan V)".into(),
         (0x10de, 0x1db1) => "GV100GL (V100)".into(),
         (0x10de, 0x2204) => "GA102 (RTX 3090)".into(),
         (0x10de, 0x2d05) => "GB206 (RTX 5060)".into(),

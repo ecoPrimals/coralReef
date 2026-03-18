@@ -229,7 +229,9 @@ impl VfioDevice {
         let bdf_cstr = std::ffi::CString::new(bdf)
             .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("Invalid BDF: {e}"))))?;
         let device_fd = ioctl::group_get_device_fd(group.as_fd(), bdf_cstr.as_ptr().cast())?;
-        // SAFETY: kernel returns a valid fd on success.
+        // SAFETY: VFIO_GROUP_GET_DEVICE_FD returns a new fd on success; we take
+        // ownership. No rustix API exists for ioctl-returned fds — from_raw_fd
+        // is the standard way. Caller must not use device_fd after this.
         let device = unsafe { OwnedFd::from_raw_fd(device_fd) };
 
         let mut dev_info = VfioDeviceInfo {

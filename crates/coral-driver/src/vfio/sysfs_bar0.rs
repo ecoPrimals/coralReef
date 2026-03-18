@@ -6,6 +6,8 @@
 
 use std::ptr::NonNull;
 
+use crate::mmio::VolatilePtr;
+
 /// Read-only mmap of a PCI BAR0 resource via sysfs.
 ///
 /// Provides safe, bounds-checked volatile reads for register probing.
@@ -19,10 +21,12 @@ pub struct SysfsBar0 {
 /// 16 MiB — standard BAR0 size for NVIDIA Volta-class GPUs.
 pub const DEFAULT_BAR0_SIZE: usize = 16 * 1024 * 1024;
 
-// SAFETY: The mmap region is read-only and the file descriptor is held
-// alive for the lifetime of the mapping. Volatile reads are atomic for
-// aligned u32 on x86/aarch64.
+// SAFETY: ptr points to read-only mmap'd BAR0; _file keeps the mapping valid.
+// Volatile reads are atomic for aligned u32 on x86/aarch64. SysfsBar0 is used
+// for register probing across threads (e.g. oracle modules).
 unsafe impl Send for SysfsBar0 {}
+
+// SAFETY: Same as Send — no mutable state; volatile reads are thread-safe.
 unsafe impl Sync for SysfsBar0 {}
 
 impl SysfsBar0 {
@@ -69,8 +73,9 @@ impl SysfsBar0 {
         if offset + 4 > self.size {
             return 0;
         }
-        // SAFETY: bounds-checked above; volatile read of a valid mmap region.
-        unsafe { std::ptr::read_volatile(self.ptr.as_ptr().add(offset).cast::<u32>()) }
+        // SAFETY: bounds-checked above; ptr is valid mmap of BAR0; volatile for MMIO.
+        let vol = unsafe { VolatilePtr::new(self.ptr.as_ptr().add(offset).cast::<u32>()) };
+        vol.read()
     }
 
     /// The size of the mapped BAR0 region in bytes.

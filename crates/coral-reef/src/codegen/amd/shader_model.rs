@@ -12,7 +12,7 @@
 //! | Pred | Exec mask bits / SCC |
 //! | warp (32 threads) | wave (32 or 64 lanes) |
 
-#[expect(
+#[allow(
     clippy::wildcard_imports,
     reason = "op module re-exports are intentional for codegen"
 )]

@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use crate::error::{DriverError, DriverResult};
+use crate::mmio::VolatilePtr;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use super::qmd;
@@ -270,9 +271,8 @@ impl NvUvmComputeDevice {
         let gpfifo_slot = (self.gpfifo_cpu_addr + entry_offset as u64) as *mut u64;
         // SAFETY: gpfifo_cpu_addr is a valid kernel mmap'd address (from rm_map_memory).
         // entry_offset < GPFIFO_SIZE is guaranteed by the modulo above.
-        unsafe {
-            std::ptr::write_volatile(gpfifo_slot, entry);
-        }
+        let vol = unsafe { VolatilePtr::new(gpfifo_slot) };
+        vol.write(entry);
 
         self.gp_put = self.gp_put.wrapping_add(1);
 
@@ -283,9 +283,8 @@ impl NvUvmComputeDevice {
         let doorbell = (self.userd_cpu_addr + USERD_GP_PUT_OFFSET as u64) as *mut u32;
         // SAFETY: userd_cpu_addr is a valid kernel mmap'd address.
         // GP_PUT offset (0x0C) is within the 4096-byte USERD page.
-        unsafe {
-            std::ptr::write_volatile(doorbell, self.gp_put);
-        }
+        let vol = unsafe { VolatilePtr::new(doorbell) };
+        vol.write(self.gp_put);
 
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
@@ -407,8 +406,9 @@ impl ComputeDevice for NvUvmComputeDevice {
         }
 
         // SAFETY: cpu_addr from rm_map_memory is a valid user-space address
-        // returned by the kernel's vm_mmap. The bounds check above ensures
-        // offset + data.len() <= buf.size <= mapped length.
+        // returned by the kernel's vm_mmap; valid for buf.size bytes. Bounds
+        // check above ensures offset + data.len() <= buf.size. Pointer is
+        // non-null (cpu_addr != 0 checked) and properly aligned for u8.
         let dst_slice = unsafe {
             std::slice::from_raw_parts_mut((buf.cpu_addr + offset) as *mut u8, data.len())
         };
@@ -436,8 +436,9 @@ impl ComputeDevice for NvUvmComputeDevice {
             return Err(DriverError::MmapFailed("buffer has no CPU mapping".into()));
         }
 
-        // SAFETY: same as upload — cpu_addr is a kernel-provided vm_mmap address,
-        // bounds checked above.
+        // SAFETY: cpu_addr from rm_map_memory is a valid kernel vm_mmap address;
+        // valid for buf.size bytes. Bounds check ensures offset + len <= buf.size.
+        // Pointer is non-null (cpu_addr != 0 checked) and properly aligned for u8.
         let src_slice =
             unsafe { std::slice::from_raw_parts((buf.cpu_addr + offset) as *const u8, len) };
         Ok(src_slice.to_vec())

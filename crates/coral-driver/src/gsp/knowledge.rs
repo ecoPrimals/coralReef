@@ -523,6 +523,60 @@ mod tests {
     }
 
     #[test]
+    fn sm_for_chip_all_known_chips() {
+        // Kepler (SM 32)
+        assert_eq!(sm_for_chip("gk20a"), Some(32));
+
+        // Maxwell (SM 52)
+        assert_eq!(sm_for_chip("gm200"), Some(52));
+        assert_eq!(sm_for_chip("gm204"), Some(52));
+        assert_eq!(sm_for_chip("gm206"), Some(52));
+        assert_eq!(sm_for_chip("gm20b"), Some(52));
+
+        // Pascal (SM 60)
+        assert_eq!(sm_for_chip("gp100"), Some(60));
+        assert_eq!(sm_for_chip("gp102"), Some(60));
+        assert_eq!(sm_for_chip("gp104"), Some(60));
+        assert_eq!(sm_for_chip("gp106"), Some(60));
+        assert_eq!(sm_for_chip("gp107"), Some(60));
+        assert_eq!(sm_for_chip("gp108"), Some(60));
+        assert_eq!(sm_for_chip("gp10b"), Some(60));
+
+        // Volta (SM 70)
+        assert_eq!(sm_for_chip("gv100"), Some(70));
+
+        // Turing (SM 75)
+        assert_eq!(sm_for_chip("tu102"), Some(75));
+        assert_eq!(sm_for_chip("tu104"), Some(75));
+        assert_eq!(sm_for_chip("tu106"), Some(75));
+        assert_eq!(sm_for_chip("tu10x"), Some(75));
+        assert_eq!(sm_for_chip("tu116"), Some(75));
+        assert_eq!(sm_for_chip("tu117"), Some(75));
+
+        // Ampere GA100 (SM 80)
+        assert_eq!(sm_for_chip("ga100"), Some(80));
+
+        // Ampere GA102/103/104/106/107 (SM 86)
+        assert_eq!(sm_for_chip("ga102"), Some(86));
+        assert_eq!(sm_for_chip("ga103"), Some(86));
+        assert_eq!(sm_for_chip("ga104"), Some(86));
+        assert_eq!(sm_for_chip("ga106"), Some(86));
+        assert_eq!(sm_for_chip("ga107"), Some(86));
+
+        // Ada Lovelace (SM 89)
+        assert_eq!(sm_for_chip("ad102"), Some(89));
+        assert_eq!(sm_for_chip("ad103"), Some(89));
+        assert_eq!(sm_for_chip("ad104"), Some(89));
+        assert_eq!(sm_for_chip("ad106"), Some(89));
+        assert_eq!(sm_for_chip("ad107"), Some(89));
+
+        // Unknown chips
+        assert_eq!(sm_for_chip("unknown"), None);
+        assert_eq!(sm_for_chip(""), None);
+        assert_eq!(sm_for_chip("gb200"), None); // Blackwell not yet in table
+    }
+
+    #[test]
     fn empty_knowledge_base() {
         let kb = GpuKnowledge::new();
         assert!(kb.known_chips().is_empty());

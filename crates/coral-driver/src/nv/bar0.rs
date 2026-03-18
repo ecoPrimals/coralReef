@@ -199,14 +199,13 @@ impl Drop for Bar0Access {
     }
 }
 
-// SAFETY: The raw pointer points to mmap'd BAR0 MMIO. Access is through volatile
-// operations which are atomic for aligned 32-bit reads/writes. Lifetime is tied
-// to the struct via the OwnedFd.
+// SAFETY: ptr points to mmap'd BAR0 MMIO; lifetime tied to _file (keeps mapping
+// valid). All access is via VolatilePtr (atomic for aligned u32 on x86/aarch64).
+// Bar0Access is used across async/thread boundaries for GSP init.
 unsafe impl Send for Bar0Access {}
 
-// SAFETY: The raw pointer points to mmap'd BAR0 MMIO. Access is through volatile
-// operations which are atomic for aligned 32-bit reads/writes. Lifetime is tied
-// to the struct via the OwnedFd.
+// SAFETY: Same as Send — ptr valid while _file lives; volatile access is
+// thread-safe for aligned 32-bit MMIO; no interior mutability of the pointer.
 unsafe impl Sync for Bar0Access {}
 
 #[cfg(test)]

@@ -2,13 +2,13 @@
 //! Evolution coverage tests — targets low-coverage codegen paths.
 //!
 //! Each test exercises a specific codegen module:
-//! - opt_instr_sched_prepass: instruction scheduling pre-pass
-//! - spill_values: register spill/fill logic
-//! - assign_regs: register allocation
-//! - legalize: IR legalization passes
-//! - lower_f64/poly: f64 polynomial approximations (trig, exp2, log2)
-//! - repair_ssa: SSA repair pass (triggered via spill_values)
-//! - nv/sm50, nv/sm32: older SM encoding paths
+//! - `opt_instr_sched_prepass`: instruction scheduling pre-pass
+//! - `spill_values`: register spill/fill logic
+//! - `assign_regs`: register allocation
+//! - `legalize`: IR legalization passes
+//! - `lower_f64/poly`: f64 polynomial approximations (trig, `exp2`, `log2`)
+//! - `repair_ssa`: SSA repair pass (triggered via `spill_values`)
+//! - `nv/sm50`, `nv/sm32`: older SM encoding paths
 
 use std::fmt::Write;
 
@@ -163,7 +163,7 @@ fn evolution_spill_loop_many_live() {
     assert_compile_sm70(&wgsl);
 }
 
-/// Branch with many phis — repair_ssa + spill interaction.
+/// Branch with many phis — `repair_ssa` + spill interaction.
 #[test]
 fn evolution_spill_branch_many_phis() {
     let mut wgsl = String::from(
@@ -227,7 +227,7 @@ fn main() {
     assert_compile_sm70(wgsl);
 }
 
-/// Loop with phi webs — assign_regs block coverage.
+/// Loop with phi webs — `assign_regs` block coverage.
 #[test]
 fn evolution_assign_regs_phi_webs() {
     let wgsl = r"
@@ -316,7 +316,7 @@ fn main() {
 // 5. lower_f64/poly — f64 polynomial approximations (trig, exp2, log2)
 // =============================================================================
 
-/// f64 sin/cos — lower_f64 trig poly.
+/// f64 sin/cos — `lower_f64` trig poly.
 #[test]
 fn evolution_lower_f64_sin_cos() {
     let wgsl = r"
@@ -333,7 +333,7 @@ fn main() {
     assert_compile_sm70(wgsl);
 }
 
-/// f64 exp2 — lower_f64 exp2 poly.
+/// f64 `exp2` — `lower_f64` exp2 poly.
 #[test]
 fn evolution_lower_f64_exp2() {
     let wgsl = r"
@@ -349,7 +349,7 @@ fn main() {
     assert_compile_sm70(wgsl);
 }
 
-/// f64 log2 — lower_f64 log2 poly.
+/// f64 `log2` — `lower_f64` log2 poly.
 #[test]
 fn evolution_lower_f64_log2() {
     let wgsl = r"
@@ -388,7 +388,7 @@ fn main() {
 // 6. repair_ssa — SSA repair pass (triggered by spill_values)
 // =============================================================================
 
-/// Phi nodes with dominance violation pattern — repair_ssa.
+/// Phi nodes with dominance violation pattern — `repair_ssa`.
 #[test]
 fn evolution_repair_ssa_phi_dominance() {
     let wgsl = r"
@@ -414,7 +414,7 @@ fn main() {
     assert_compile_sm70(wgsl);
 }
 
-/// Multi-block phi — repair_ssa multi-def.
+/// Multi-block phi — `repair_ssa` multi-def.
 #[test]
 fn evolution_repair_ssa_multi_def() {
     let wgsl = r"

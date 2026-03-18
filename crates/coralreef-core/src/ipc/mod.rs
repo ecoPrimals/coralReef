@@ -85,6 +85,9 @@ impl fmt::Display for BoundAddr {
 }
 
 /// TCP loopback with OS-assigned port (fallback when `CORALREEF_TCP_BIND` is unset).
+///
+/// Kept in sync with `coral-glowplug::config::FALLBACK_TCP_BIND` — coral-glowplug does not
+/// depend on coralreef-core, so both define this constant for ecoBin compliance.
 pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
 
 /// Resolve the TCP bind address for JSON-RPC.

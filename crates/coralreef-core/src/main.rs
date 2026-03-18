@@ -17,6 +17,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use coral_reef::GpuArch;
 use coralreef_core::commands;
+use coralreef_core::or_exit::OrExit;
 use tracing_subscriber::EnvFilter;
 
 mod config {
@@ -89,7 +90,7 @@ enum UniBinExit {
     GeneralError = 1,
     ConfigError = 2,
     /// Used by the panic hook via `abort()` — the OS maps this to exit code 3.
-    #[expect(
+    #[allow(
         dead_code,
         reason = "abort() sets this implicitly; no Rust code constructs it"
     )]
@@ -344,10 +345,10 @@ fn discovery_dir() -> io::Result<std::path::PathBuf> {
 async fn wait_for_shutdown_signal() -> &'static str {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{SignalKind, signal};
+        use tokio::signal::unix::{signal, SignalKind};
 
-        let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM");
-        let mut sigint = signal(SignalKind::interrupt()).expect("failed to register SIGINT");
+        let mut sigterm = signal(SignalKind::terminate()).or_exit("failed to register SIGTERM");
+        let mut sigint = signal(SignalKind::interrupt()).or_exit("failed to register SIGINT");
 
         tokio::select! {
             _ = sigterm.recv() => "SIGTERM",
@@ -359,7 +360,7 @@ async fn wait_for_shutdown_signal() -> &'static str {
     {
         tokio::signal::ctrl_c()
             .await
-            .expect("failed to register Ctrl+C");
+            .or_exit("failed to register Ctrl+C");
         "SIGINT"
     }
 }

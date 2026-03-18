@@ -420,10 +420,77 @@ mod tests {
     fn parse_net_img_too_small() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("NET_img.bin");
-        std::fs::write(&path, &[0u8; 4]).unwrap();
+        std::fs::write(&path, [0u8; 4]).unwrap();
         let result = GrFirmwareBlobs::parse_from(dir.path(), "ga102");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("too small"));
+    }
+
+    #[test]
+    fn parse_net_img_header_truncated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+        // Header: pad(4) + num_sections=10(4) = 8 bytes, but we claim 10 sections
+        // so we need 8 + 10*12 = 128 bytes. We only provide 20 bytes.
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&10u32.to_le_bytes());
+        data.extend_from_slice(&[0u8; 12]); // only 1 section entry
+        std::fs::write(&path, &data).unwrap();
+        let result = GrFirmwareBlobs::parse_from(dir.path(), "ga102");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("truncated"));
+    }
+
+    #[test]
+    fn parse_net_img_empty_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+        // Valid minimal header: 0 sections
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        std::fs::write(&path, &data).unwrap();
+        let blobs = GrFirmwareBlobs::parse_from(dir.path(), "ga102").unwrap();
+        assert_eq!(blobs.chip, "ga102");
+        assert_eq!(blobs.format, FirmwareFormat::NetImg);
+        assert!(blobs.bundle_init.is_empty());
+        assert!(blobs.method_init.is_empty());
+        assert!(blobs.ctx_data.is_empty());
+        assert!(blobs.nonctx_data.is_empty());
+    }
+
+    #[test]
+    fn parse_net_img_register_section_out_of_range_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+        // Section with offset+size beyond data length - should be skipped
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&0x05u32.to_le_bytes()); // register type
+        data.extend_from_slice(&8u32.to_le_bytes());   // size
+        data.extend_from_slice(&1000u32.to_le_bytes()); // offset beyond our 20-byte file
+        std::fs::write(&path, &data).unwrap();
+        let blobs = GrFirmwareBlobs::parse_from(dir.path(), "ga102").unwrap();
+        assert!(blobs.bundle_init.is_empty());
+    }
+
+    #[test]
+    fn parse_net_img_section_size_too_small_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+        // Section with size < 8 (can't hold a u32 pair) - skipped
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&0x05u32.to_le_bytes());
+        data.extend_from_slice(&4u32.to_le_bytes()); // size too small
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.resize(24, 0);
+        std::fs::write(&path, &data).unwrap();
+        let blobs = GrFirmwareBlobs::parse_from(dir.path(), "ga102").unwrap();
+        assert!(blobs.bundle_init.is_empty());
     }
 
     #[test]

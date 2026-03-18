@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 18, 2026  
-**Phase**: 10 — Iteration 56 (Coverage Expansion + Doc Cleanup + Debt Resolution)
+**Phase**: 10 — Iteration 57 (Deep Debt Evolution + All-Silicon Pipeline)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 2364 passing (+48 VFIO), 0 failed, 59.92% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 2560 passing (+48 VFIO), 0 failed, 59.92% line coverage (target 90%), IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates + `#[forbid(unsafe_code)]` on coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
@@ -40,7 +40,23 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 56** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 57** |
+
+### Iteration 57: Deep Debt Evolution + All-Silicon Pipeline (Mar 18 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Specs v0.6.0 | ✅ | All-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned |
+| socket.rs smart refactor | ✅ | 1488→556 lines (tests extracted to socket_tests.rs) |
+| GP_PUT cache flush experiment H1 | ✅ | clflush USERD + GPFIFO before doorbell in VFIO submission |
+| Production .expect() evolution | ✅ | Signal handlers → or_exit(), GSP observer → Result, SAFETY comments |
+| Unsafe code evolution | ✅ | All volatile reads/writes through VolatilePtr, SAFETY comments on from_raw_parts and Send/Sync impls |
+| AMD metal placeholder → real GFX906 | ✅ | Register offsets from AMD docs |
+| Intel GPU arch | ✅ | Dg2Alchemist + XeLpg variants added |
+| Hardcoding evolution | ✅ | pci_ids.rs constants, unified chip_name() identity module |
+| Coverage expansion | ✅ | GSP knowledge/parser/applicator, MMIO VolatilePtr, identity, pci_ids, error module |
+| Clippy clean | ✅ | map_or → is_none_or, unfulfilled lint expectations → allow, doc backtick fixes |
+| Test expansion | ✅ | 2527 → 2560 passing (+33 tests), 0 failed, 90 ignored |
 
 ### Iteration 56: Coverage Expansion + Doc Cleanup + Debt Resolution (Mar 18 2026)
 
@@ -844,10 +860,10 @@
 | Task | Priority | Detail |
 |------|----------|--------|
 | Nouveau UAPI E2E validation | **P0** | Pipeline fully wired: `VM_INIT → CHANNEL_ALLOC → VM_BIND → EXEC` auto-detected in `NvDevice::open_from_drm`. Needs hotSpring hardware validation on Titan V (GV100 kernel 6.17) |
-| UVM GPFIFO + dispatch validation | **P0** | Full dispatch pipeline implemented (GPFIFO submission + USERD doorbell + completion polling) — needs RTX 3090 hardware validation |
+| UVM GPFIFO + dispatch validation | **P0** | Full dispatch pipeline implemented (GPFIFO submission + USERD doorbell + completion polling) — needs RTX 5060 hardware validation (RTX 3090 decommissioned) |
 | Hardware validation (AMD) | ✅ | **E2E verified** — RX 6950 XT, WGSL compile + dispatch + readback |
 | Hardware validation (NVIDIA nouveau) | P1 | Titan V: UAPI migration unblocks dispatch. hotSpring Exp 051: 16/16 firmware present, NVK Vulkan works, legacy UAPI EINVAL on all channel classes |
-| Hardware validation (NVIDIA nvidia-drm) | P1 | RTX 3090: Full UVM dispatch pipeline implemented — `NvDrmDevice` delegates to `NvUvmComputeDevice`. Needs on-site hardware validation |
+| Hardware validation (NVIDIA nvidia-drm) | P1 | RTX 5060 (SM89): Full UVM dispatch pipeline implemented — `NvDrmDevice` delegates to `NvUvmComputeDevice`. Needs on-site hardware validation (RTX 3090 decommissioned) |
 | Intel backend | P3 | Placeholder |
 
 ## Checks
@@ -855,7 +871,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2364 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo test --workspace` | PASS (2560 passing, 0 failed) (+48 VFIO with `--features vfio`) |
 | `cargo llvm-cov` | 59.39% region / 59.92% line / 69.45% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

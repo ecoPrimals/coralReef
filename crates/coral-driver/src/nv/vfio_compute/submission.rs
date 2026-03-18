@@ -2,6 +2,8 @@
 //! GPFIFO submission and completion polling.
 
 use crate::error::{DriverError, DriverResult};
+use crate::mmio::VolatilePtr;
+use crate::vfio::cache_ops::{clflush_range, memory_fence};
 use crate::vfio::channel::{VfioChannel, ramuserd};
 
 use std::borrow::Cow;
@@ -24,6 +26,10 @@ impl NvVfioComputeDevice {
     ///
     /// Uses volatile writes + memory fences to ensure the GPU sees the
     /// GPFIFO entry and GP_PUT before the doorbell MMIO write.
+    ///
+    /// H1 experiment: On non-coherent platforms (e.g. AMD Zen 2 + VFIO), CPU
+    /// writes may remain in cache; PBDMA reads via IOMMU see stale data. We
+    /// flush the GPFIFO slot and USERD page from CPU cache before the doorbell.
     pub(super) fn submit_pushbuf(&mut self, pb_iova: u64, pb_size: u32) -> DriverResult<()> {
         let entry = gpfifo::encode_entry(pb_iova, pb_size);
 
@@ -34,9 +40,8 @@ impl NvVfioComputeDevice {
         let ring_ptr = self.gpfifo_ring.vaddr().cast_mut();
         // SAFETY: gpfifo_ring.vaddr() is valid from DmaBuffer::new; offset is
         // bounds-checked by slot % ENTRIES; volatile required for GPU DMA visibility.
-        unsafe {
-            std::ptr::write_volatile(ring_ptr.add(offset).cast::<u64>(), entry);
-        }
+        let vol = unsafe { VolatilePtr::new(ring_ptr.add(offset).cast::<u64>()) };
+        vol.write(entry);
 
         self.gpfifo_put = self.gpfifo_put.wrapping_add(1);
 
@@ -44,16 +49,17 @@ impl NvVfioComputeDevice {
         let userd_ptr = self.userd.vaddr().cast_mut();
         // SAFETY: userd.vaddr() is valid from DmaBuffer::new; ramuserd::GP_PUT
         // (0x8C) is within the 4096-byte USERD page; volatile required for GPU DMA.
-        unsafe {
-            std::ptr::write_volatile(
-                userd_ptr.add(ramuserd::GP_PUT).cast::<u32>(),
-                self.gpfifo_put,
-            );
-        }
+        let vol = unsafe { VolatilePtr::new(userd_ptr.add(ramuserd::GP_PUT).cast::<u32>()) };
+        vol.write(self.gpfifo_put);
 
-        // Full memory fence to ensure DMA writes are globally visible
-        // before the MMIO doorbell write crosses the PCIe bus.
-        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+        // H1 hypothesis: CPU writes GP_PUT to DMA-mapped USERD page, but the write
+        // sits in CPU cache. PBDMA reads via IOMMU DMA and sees stale zero, so
+        // GP_GET never advances. Fix: flush both GPFIFO entry and USERD from CPU
+        // cache before the doorbell, so PBDMA sees the latest values when it
+        // reads after the doorbell notification.
+        clflush_range(&self.gpfifo_ring.as_slice()[offset..offset + gpfifo::ENTRY_SIZE]);
+        clflush_range(self.userd.as_slice());
+        memory_fence();
 
         // Notify the GPU via NV_USERMODE_NOTIFY_CHANNEL_PENDING.
         self.bar0
@@ -81,8 +87,10 @@ impl NvVfioComputeDevice {
             // SAFETY: userd DMA page is valid for the lifetime of the device;
             // GP_GET at Volta RAMUSERD offset 0x88 is a u32 written by the
             // GPU via IOMMU DMA. Volatile read required for async GPU writes.
-            let gp_get =
-                unsafe { std::ptr::read_volatile(userd_ptr.add(ramuserd::GP_GET).cast::<u32>()) };
+            let vol = unsafe {
+                VolatilePtr::new((userd_ptr.add(ramuserd::GP_GET) as *mut u8).cast::<u32>())
+            };
+            let gp_get = vol.read();
 
             if gp_get >= self.gpfifo_put {
                 return Ok(());
@@ -90,9 +98,10 @@ impl NvVfioComputeDevice {
 
             if std::time::Instant::now() > deadline {
                 // SAFETY: same as GP_GET — userd DMA page valid; GP_PUT within bounds.
-                let gp_put_val = unsafe {
-                    std::ptr::read_volatile(userd_ptr.add(ramuserd::GP_PUT).cast::<u32>())
+                let vol = unsafe {
+                    VolatilePtr::new((userd_ptr.add(ramuserd::GP_PUT) as *mut u8).cast::<u32>())
                 };
+                let gp_put_val = vol.read();
                 let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
                 let pfifo_intr = r(0x2100);
                 let pccsr_chan0 = r(0x80_0004);

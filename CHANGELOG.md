@@ -4,11 +4,25 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 54
+**Current status**: Phase 10 — Iteration 57
 
 ---
 
 ## [Unreleased]
+
+### Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline (Mar 18 2026)
+
+- Specs updated to v0.6.0 — all-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned
+- Smart refactor: socket.rs 1488→556 lines (tests extracted to socket_tests.rs)
+- GP_PUT cache flush experiment H1: clflush USERD + GPFIFO before doorbell in VFIO submission
+- Production .expect() evolution: signal handlers → or_exit(), GSP observer → Result, SAFETY comments
+- Unsafe code evolution: all volatile reads/writes consolidated through VolatilePtr, SAFETY comments on all from_raw_parts and Send/Sync impls
+- AMD metal placeholder → real GFX906 register offsets from AMD docs
+- Intel GPU arch: added Dg2Alchemist + XeLpg variants
+- Hardcoding evolution: pci_ids.rs constants, unified chip_name() identity module
+- Coverage expansion: GSP knowledge/parser/applicator, MMIO VolatilePtr, identity, pci_ids, error module
+- Clippy clean: fixed map_or → is_none_or, unfulfilled lint expectations → allow, doc backtick fixes
+- Test expansion: 2527 → 2560 passing (+33 tests), 0 failed, 90 ignored
 
 ### Added
 - GlowPlug security hardening: BDF validation (path traversal, null bytes, shell injection), max 64 concurrent clients via semaphore, 30s idle timeout, 64KiB max request line (iter56)
