@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Memory access, load, store, and address computation for Naga translation.
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::{FuncTranslator, VarRef};
 use crate::error::CompileError;

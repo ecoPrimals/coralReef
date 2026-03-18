@@ -20,3 +20,6 @@ toml = "0.8"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
+
+[dev-dependencies]
+coral-driver = { path = "../coral-driver", features = ["vfio"] }

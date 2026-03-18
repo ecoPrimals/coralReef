@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2023)
 //! SM50 texture instruction encoders.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::encoder::*;
 
 fn legalize_tex_instr(op: &mut impl SrcsAsSlice, _b: &mut LegalizeBuilder) {

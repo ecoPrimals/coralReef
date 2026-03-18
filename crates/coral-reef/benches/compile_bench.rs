@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "benchmark harness; docs not required")]
 //! Criterion benchmarks for coral-reef compiler throughput.
 //!
 //! Measures WGSL→SM70, WGSL→RDNA2, and SPIR-V→SM70 compile times.

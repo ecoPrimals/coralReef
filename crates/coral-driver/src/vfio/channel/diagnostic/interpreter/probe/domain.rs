@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 //! Domain probing — BAR, identity, power, engine topology.
 
 use std::os::fd::RawFd;

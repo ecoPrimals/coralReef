@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-#![allow(clippy::wildcard_imports)]
-
 use super::super::*;
 
 #[repr(C)]

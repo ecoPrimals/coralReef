@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2025)
 //! SM32 memory instruction encoders.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::encoder::*;
 use crate::codegen::ir::RegFile;
 

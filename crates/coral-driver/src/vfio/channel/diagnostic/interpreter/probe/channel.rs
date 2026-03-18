@@ -76,11 +76,21 @@ pub fn probe_channel(
 
     if pt_ok {
         crate::vfio::channel::page_tables::populate_page_tables_custom(
-            pd3.as_mut().unwrap().as_mut_slice(),
-            pd2.as_mut().unwrap().as_mut_slice(),
-            pd1.as_mut().unwrap().as_mut_slice(),
-            pd0.as_mut().unwrap().as_mut_slice(),
-            pt0.as_mut().unwrap().as_mut_slice(),
+            pd3.as_mut()
+                .expect("pt_ok guarantees all page table buffers are Some")
+                .as_mut_slice(),
+            pd2.as_mut()
+                .expect("pt_ok guarantees all page table buffers are Some")
+                .as_mut_slice(),
+            pd1.as_mut()
+                .expect("pt_ok guarantees all page table buffers are Some")
+                .as_mut_slice(),
+            pd0.as_mut()
+                .expect("pt_ok guarantees all page table buffers are Some")
+                .as_mut_slice(),
+            pt0.as_mut()
+                .expect("pt_ok guarantees all page table buffers are Some")
+                .as_mut_slice(),
             l5_pd2_iova,
             l5_pd1_iova,
             l5_pd0_iova,
@@ -249,7 +259,7 @@ pub fn probe_channel(
         let userd_gp_get = u32::from_le_bytes(
             userd.as_slice()[ramuserd::GP_GET..ramuserd::GP_GET + 4]
                 .try_into()
-                .unwrap(),
+                .expect("4-byte slice always fits [u8; 4]"),
         );
 
         let context_loaded = sig != 0xBEEF_0010 && gpbase != 0xBEEF_0048;

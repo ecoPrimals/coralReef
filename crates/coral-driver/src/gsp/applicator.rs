@@ -437,7 +437,10 @@ mod tests {
         let regs = MockRegsReadWrong;
         let errs = verify_pre_init(&regs);
         assert_eq!(errs.len(), 2);
-        assert!(errs.iter().all(|e| matches!(e, ApplyError::VerifyFailed { .. })));
+        assert!(
+            errs.iter()
+                .all(|e| matches!(e, ApplyError::VerifyFailed { .. }))
+        );
     }
 
     #[test]

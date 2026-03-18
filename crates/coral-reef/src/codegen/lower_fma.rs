@@ -20,8 +20,6 @@
 //! shader requests NoContraction on an operation, `FmaPolicy::Separate`
 //! prevents the compiler from fusing it into FMA.
 
-#![allow(clippy::wildcard_imports)]
-
 use super::ir::*;
 use crate::FmaPolicy;
 

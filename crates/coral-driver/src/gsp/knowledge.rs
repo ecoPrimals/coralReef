@@ -331,7 +331,10 @@ impl RegisterTransferMap {
         if total == 0 {
             return 0.0;
         }
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "coverage percentage; usize→f64 loss acceptable"
+        )]
         {
             self.common_registers.len() as f64 / total as f64 * 100.0
         }

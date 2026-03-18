@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2023)
 //! f64 exp2(x) via Horner polynomial with range reduction + ldexp.
 
-#![allow(clippy::wildcard_imports, clippy::redundant_clone)]
-
 use super::super::*;
 
 /// exp2(x) via Horner polynomial with range reduction.

@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2023)
 //! f64 sin/cos via minimax polynomial + Cody-Waite range reduction.
 
-#![allow(clippy::wildcard_imports, clippy::redundant_clone)]
-
 use super::super::*;
 use super::{emit_cody_waite_reduction, emit_f64_sel};
 use crate::codegen::ir::{IntCmpOp, IntCmpType, LogicOp2, PredSetOp};

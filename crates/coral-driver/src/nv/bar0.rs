@@ -50,13 +50,14 @@ impl Bar0Access {
     /// Returns `ApplyError::MmioFailed` if the render node path cannot be parsed
     /// or if opening/mapping the BAR0 resource fails.
     pub fn from_render_node(render_node_path: &str) -> Result<Self, ApplyError> {
-        let node_name = render_node_path
-            .rsplit('/')
-            .next()
-            .ok_or_else(|| ApplyError::MmioFailed {
-                offset: 0,
-                detail: format!("cannot parse render node from '{render_node_path}'"),
-            })?;
+        let node_name =
+            render_node_path
+                .rsplit('/')
+                .next()
+                .ok_or_else(|| ApplyError::MmioFailed {
+                    offset: 0,
+                    detail: format!("cannot parse render node from '{render_node_path}'"),
+                })?;
         let sysfs_device = format!("/sys/class/drm/{node_name}/device");
         Self::from_sysfs_device(&sysfs_device)
     }
@@ -157,7 +158,10 @@ impl Bar0Access {
 }
 
 impl RegisterAccess for Bar0Access {
-    #[allow(clippy::cast_ptr_alignment)] // MMIO register reads at known-aligned offsets
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "MMIO register access at known-aligned offsets"
+    )]
     fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
         let off = offset as usize;
         if off + 4 > self.size {
@@ -172,7 +176,10 @@ impl RegisterAccess for Bar0Access {
         Ok(vol.read())
     }
 
-    #[allow(clippy::cast_ptr_alignment)] // MMIO register writes at known-aligned offsets
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "MMIO register access at known-aligned offsets"
+    )]
     fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {
         let off = offset as usize;
         if off + 4 > self.size {

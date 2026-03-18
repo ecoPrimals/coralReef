@@ -16,8 +16,6 @@
 //!   single-transcendental paths), validation pipeline (34 binaries, 395 checks)
 //! - **F64_LOWERING_THEORY.md**: MUFU seed + Newton-Raphson + Horner + Cody-Waite theory
 
-#![allow(clippy::wildcard_imports, clippy::redundant_clone)]
-
 use super::ir::*;
 
 pub mod newton;

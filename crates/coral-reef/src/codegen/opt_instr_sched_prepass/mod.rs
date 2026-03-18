@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Valve Corporation (2025)
 
-#![allow(clippy::wildcard_imports)]
-
 mod generate_order;
 mod net_live;
 mod schedule;

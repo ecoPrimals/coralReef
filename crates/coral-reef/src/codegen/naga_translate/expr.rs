@@ -9,7 +9,6 @@
 //! carry no runtime data — actual values are read via `Load` / written via
 //! `Store`. This is intentional: Naga's type system distinguishes value and
 //! reference types, and we preserve that distinction in the IR.
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;

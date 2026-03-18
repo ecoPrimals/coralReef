@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "probe interpreter; full docs planned")]
 //! Probe interpreter — chains layer probes and collects a full report.
 
 mod channel;

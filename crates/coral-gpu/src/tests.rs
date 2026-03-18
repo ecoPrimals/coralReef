@@ -228,9 +228,9 @@ fn compiled_kernel_has_target() {
 
 #[test]
 fn hash_deterministic() {
-    let a = crate::hash_wgsl("hello");
-    let b = crate::hash_wgsl("hello");
-    let c = crate::hash_wgsl("world");
+    let a = crate::hash::hash_wgsl("hello");
+    let b = crate::hash::hash_wgsl("hello");
+    let c = crate::hash::hash_wgsl("world");
     assert_eq!(a, b);
     assert_ne!(a, c);
 }

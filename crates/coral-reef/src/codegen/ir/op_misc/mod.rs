@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Miscellaneous virtual ops: copy, pin, phi, parallel copy, register output.
 
-#![allow(clippy::wildcard_imports)]
-
 use super::*;
 
 mod system;

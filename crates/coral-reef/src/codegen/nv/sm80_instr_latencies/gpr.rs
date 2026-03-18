@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Red Hat. (2025)
-#![allow(non_camel_case_types, clippy::wildcard_imports, clippy::enum_glob_use)]
+#![expect(
+    non_camel_case_types,
+    reason = "latency model mirrors hardware naming from Red Hat spec"
+)]
 
 use super::super::sm75_instr_latencies::pred;
 use crate::codegen::ir::*;
 
-#[allow(dead_code, reason = "latency model for future SM target support")]
 #[derive(Debug, Clone, Copy)]
 pub(super) enum RegLatencySM80 {
     CoupledAlu,

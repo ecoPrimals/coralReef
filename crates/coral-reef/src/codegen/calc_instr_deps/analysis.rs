@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::*;
 use coral_reef_stubs::dataflow::{BackwardDataflow, ForwardDataflow};
 

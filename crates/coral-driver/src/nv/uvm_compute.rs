@@ -225,14 +225,20 @@ impl NvUvmComputeDevice {
         })
     }
 
-    #[allow(clippy::missing_const_for_fn)]
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "mutates self for handle allocation; not const-compatible"
+    )]
     fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h
     }
 
-    #[allow(clippy::missing_const_for_fn)]
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "mutates self for handle allocation; not const-compatible"
+    )]
     fn alloc_mem_handle(&mut self) -> u32 {
         let h = self.next_mem_handle;
         self.next_mem_handle += 1;
@@ -469,8 +475,12 @@ impl ComputeDevice for NvUvmComputeDevice {
                 .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
         let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
 
-        let mut desc_data = vec![0u8; usize::try_from(desc_buf_size)
-            .map_err(|_| DriverError::platform_overflow("desc_buf_size fits in usize"))?];
+        let mut desc_data = vec![
+            0u8;
+            usize::try_from(desc_buf_size).map_err(|_| {
+                DriverError::platform_overflow("desc_buf_size fits in usize")
+            })?
+        ];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
                 let off = i * 8;

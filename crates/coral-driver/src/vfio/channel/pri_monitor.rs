@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "PRI bus monitor; full docs planned")]
 //! PRI Bus Monitor — backpressure sensor for sovereign GPU register access.
 //!
 //! NVIDIA GPUs route all BAR0 register access through the PRI (Primary Register

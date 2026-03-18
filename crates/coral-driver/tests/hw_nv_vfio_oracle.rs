@@ -4,10 +4,34 @@
 //! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio_oracle --features vfio -- --ignored`
 
 #[cfg(feature = "vfio")]
+#[path = "glowplug_client.rs"]
+mod glowplug_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
+    use super::glowplug_client::VfioLease;
+
     fn vfio_bdf() -> String {
         std::env::var("CORALREEF_VFIO_BDF")
             .expect("set CORALREEF_VFIO_BDF=0000:XX:XX.X to run VFIO tests")
+    }
+
+    fn try_lease(bdf: &str) -> Option<VfioLease> {
+        match VfioLease::acquire(bdf) {
+            Ok(lease) => Some(lease),
+            Err(e) => {
+                eprintln!("glowplug not available ({e}), opening VFIO directly");
+                None
+            }
+        }
+    }
+
+    fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
+        let bdf = vfio_bdf();
+        let lease = try_lease(&bdf);
+        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        (lease, raw)
     }
 
     fn vfio_sm() -> u32 {
@@ -29,12 +53,10 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware + oracle data"]
     fn vfio_oracle_root_pll_programming() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::oracle::{DigitalPmu, OracleState};
         use coral_driver::vfio::channel::registers::pri;
 
-        let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ Oracle Root PLL Programming                                 ║");
@@ -170,12 +192,11 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware + oracle data"]
     fn vfio_digital_pmu_full() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
         use coral_driver::vfio::channel::oracle::{DigitalPmu, OracleState};
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ Digital PMU Full Emulation                                  ║");
@@ -250,12 +271,10 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware + oracle data"]
     fn vfio_boot_follower_diff() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::diagnostic::boot_follower::{BootDiff, BootTrace};
         use coral_driver::vfio::channel::oracle::OracleState;
 
-        let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ Boot Sequence Follower — Oracle vs Cold Diff                ║");
@@ -355,8 +374,6 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_hbm2_lifecycle_probe() {
-        use coral_driver::nv::RawVfioDevice;
-
         let bdf = vfio_bdf();
 
         // ── Helper: probe all VRAM-related domains ────────────────────────
@@ -411,7 +428,7 @@ mod tests {
         // ── Phase 1: Fresh VFIO open (POST state) ─────────────────────────
         eprintln!("╠══ PHASE 1: FRESH VFIO OPEN (POST STATE) ═══════════════════╣");
         {
-            let raw = RawVfioDevice::open(&bdf).expect("VFIO open failed");
+            let (_lease, raw) = open_vfio();
             let h = probe_hbm2_health(&raw.bar0);
             print_health("POST state", &h);
 
@@ -442,7 +459,7 @@ mod tests {
             let _ = std::fs::write(format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
             std::thread::sleep(std::time::Duration::from_millis(500));
 
-            let raw = RawVfioDevice::open(&bdf).expect("VFIO re-open failed");
+            let (_lease, raw) = open_vfio();
             let h = probe_hbm2_health(&raw.bar0);
             print_health("After PM reset", &h);
 
@@ -519,7 +536,7 @@ mod tests {
         let _ = std::fs::write(format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        let raw = RawVfioDevice::open(&bdf).expect("VFIO open after resurrection failed");
+        let (_lease, raw) = open_vfio();
         let h = probe_hbm2_health(&raw.bar0);
         print_health("After nouveau resurrection", &h);
 
@@ -562,7 +579,6 @@ mod tests {
     #[test]
     #[ignore = "requires GPU hardware + nouveau + VFIO support"]
     fn vfio_single_card_oracle_pipeline() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::nv::vfio_compute::GrEngineStatus;
 
         let bdf = vfio_bdf();
@@ -711,7 +727,7 @@ mod tests {
 
         // Phase 5: Open VFIO and check GR state
         eprintln!("║ Phase 5: Reading GR engine state via VFIO BAR0...");
-        let raw = RawVfioDevice::open(&bdf).expect("VFIO open after swap");
+        let (_lease, raw) = open_vfio();
 
         // Read GR registers manually (same as GrEngineStatus)
         let r = |off: usize| raw.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);

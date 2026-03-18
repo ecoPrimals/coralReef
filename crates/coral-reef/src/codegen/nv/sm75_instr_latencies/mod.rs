@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Red Hat. (2025)
-#![allow(non_camel_case_types, clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use crate::codegen::ir::*;
 
 // This contains the register scheduling information provided by NVIDIA.  This

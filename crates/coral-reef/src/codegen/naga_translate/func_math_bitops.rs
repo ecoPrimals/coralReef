@@ -2,7 +2,6 @@
 //! Integer bit operations: countOneBits, reverseBits, firstLeadingBit, firstTrailingBit,
 //! countLeadingZeros.
 
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;

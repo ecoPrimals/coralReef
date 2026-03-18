@@ -91,9 +91,7 @@ async fn test_graceful_shutdown_unix() {
     let sock_path = dir.join(format!("shutdown-{}.sock", std::process::id()));
 
     let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
-    let (_addr, handle) = start_tarpc_unix_server(&sock_path, shutdown_rx)
-        .await
-        .unwrap();
+    let (_addr, handle) = start_tarpc_unix_server(&sock_path, shutdown_rx).unwrap();
 
     let _: Result<(), _> = shutdown_tx.send(());
 

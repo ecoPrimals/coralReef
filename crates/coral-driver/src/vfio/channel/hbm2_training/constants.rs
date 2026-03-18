@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![expect(missing_docs, reason = "HBM2 register constants mirror hardware")]
 //! GV100 (Volta) HBM2 register constants.
 
 use super::types::{FbpaOffset, LtcOffset, PfbOffset};

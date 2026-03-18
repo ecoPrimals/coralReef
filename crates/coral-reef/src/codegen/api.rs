@@ -7,8 +7,6 @@
 //! This module provides the internal compilation pipeline, connected
 //! via `naga_translate` (naga frontend).
 
-#![allow(clippy::wildcard_imports)]
-
 pub use super::debug::{DEBUG, GetDebugFlags};
 
 pub(super) fn eprint_hex(label: &str, data: &[u32]) {

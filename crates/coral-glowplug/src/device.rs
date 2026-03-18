@@ -127,10 +127,19 @@ impl DeviceSlot {
         let trait_personality = registry.create(&target);
         let expected_module = trait_personality
             .as_ref()
-            .map(|p| p.driver_module().to_owned());
+            .map(|p| (p.name(), p.driver_module().to_owned()));
         let needs_rebind = expected_module
-            .as_deref()
-            .is_some_and(|module| current_driver.as_deref() != Some(module));
+            .as_ref()
+            .is_some_and(|(_, module)| current_driver.as_deref() != Some(module.as_str()));
+
+        if let Some(ref p) = trait_personality {
+            tracing::debug!(
+                has_vfio = p.provides_vfio(),
+                drm_card = ?p.drm_card(),
+                hbm2_training = p.supports_hbm2_training(),
+                "personality capabilities"
+            );
+        }
 
         if needs_rebind {
             if sysfs::has_active_drm_consumers(&self.bdf) {
@@ -271,7 +280,6 @@ impl DeviceSlot {
     /// blocks sysfs unbind indefinitely. The PM reset from fd close is
     /// accepted — the state vault snapshot preserves register state for
     /// restoration after re-binding.
-    #[allow(clippy::unnecessary_wraps)]
     fn release(&mut self) -> Result<(), DeviceError> {
         if sysfs::has_active_drm_consumers(&self.bdf) {
             tracing::error!(
@@ -353,7 +361,6 @@ impl DeviceSlot {
         }
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     fn bind_driver(&mut self, driver: &str) -> Result<(), DeviceError> {
         // Write newline to clear driver_override (empty string doesn't work via tee)
         sysfs::sysfs_write(
@@ -376,6 +383,95 @@ impl DeviceSlot {
             _ => Personality::Unbound,
         };
         Ok(())
+    }
+
+    /// Lend the VFIO fd to an external consumer (e.g. a hardware test).
+    ///
+    /// Drops the internal VFIO fd so another process can open the VFIO group,
+    /// but keeps `vfio-pci` bound so the consumer doesn't need to rebind.
+    /// Returns the IOMMU group id for the consumer to open `/dev/vfio/{group}`.
+    ///
+    /// The device transitions to a "lent" state where health checks are
+    /// suspended (no VFIO fd to probe). Call [`reclaim`](Self::reclaim) after
+    /// the consumer finishes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeviceError::DriverBind` if the device is not currently in
+    /// VFIO personality (nothing to lend).
+    pub fn lend(&mut self) -> Result<u32, DeviceError> {
+        let group_id = match self.personality {
+            Personality::Vfio { group_id } => group_id,
+            _ => {
+                return Err(DeviceError::DriverBind {
+                    bdf: self.bdf.clone(),
+                    driver: "vfio-pci".into(),
+                    reason: format!("device is {}, not VFIO — nothing to lend", self.personality),
+                });
+            }
+        };
+
+        if self.vfio_device.is_none() {
+            return Err(DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: "vfio-pci".into(),
+                reason: "VFIO fd already lent or not open".into(),
+            });
+        }
+
+        self.snapshot_registers();
+        drop(self.vfio_device.take());
+        tracing::info!(bdf = %self.bdf, group_id, "VFIO fd lent — group available for external consumer");
+
+        Ok(group_id)
+    }
+
+    /// Reclaim a previously lent VFIO fd.
+    ///
+    /// Re-opens the VFIO group fd and verifies device health.
+    /// Must be called after the external consumer has dropped its fd.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeviceError::VfioOpen` if the VFIO group fd cannot be
+    /// re-opened (e.g. the external consumer still holds it).
+    pub fn reclaim(&mut self) -> Result<(), DeviceError> {
+        let group_id = match self.personality {
+            Personality::Vfio { group_id } => group_id,
+            _ => {
+                return Err(DeviceError::DriverBind {
+                    bdf: self.bdf.clone(),
+                    driver: "vfio-pci".into(),
+                    reason: format!(
+                        "device is {}, not VFIO — nothing to reclaim",
+                        self.personality
+                    ),
+                });
+            }
+        };
+
+        if self.vfio_device.is_some() {
+            tracing::warn!(bdf = %self.bdf, "VFIO fd already held — reclaim is a no-op");
+            return Ok(());
+        }
+
+        match coral_driver::nv::RawVfioDevice::open(&self.bdf) {
+            Ok(dev) => {
+                self.vfio_device = Some(dev);
+                self.check_health();
+                tracing::info!(
+                    bdf = %self.bdf,
+                    group_id,
+                    vram = self.health.vram_alive,
+                    "VFIO fd reclaimed"
+                );
+                Ok(())
+            }
+            Err(e) => Err(DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: e.to_string(),
+            }),
+        }
     }
 
     /// Take a snapshot of key registers (for state preservation across swaps).
@@ -803,6 +899,58 @@ mod tests {
         let result = slot.swap("nouveau");
         // Should not panic — guard passes (no DRM), bind may fail
         drop(result);
+    }
+
+    #[test]
+    fn test_lend_requires_vfio_personality() {
+        let config = DeviceConfig {
+            bdf: "0000:ff:00.0".into(),
+            name: None,
+            boot_personality: "nouveau".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let mut slot = DeviceSlot::new(config);
+        slot.personality = Personality::Nouveau { drm_card: None };
+        let result = slot.lend();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not VFIO"));
+    }
+
+    #[test]
+    fn test_lend_returns_error_when_no_fd() {
+        let config = DeviceConfig {
+            bdf: "0000:ff:00.0".into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let mut slot = DeviceSlot::new(config);
+        slot.personality = Personality::Vfio { group_id: 42 };
+        // No vfio_device set — lend should fail
+        let result = slot.lend();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already lent"));
+    }
+
+    #[test]
+    fn test_reclaim_requires_vfio_personality() {
+        let config = DeviceConfig {
+            bdf: "0000:ff:00.0".into(),
+            name: None,
+            boot_personality: "nouveau".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let mut slot = DeviceSlot::new(config);
+        slot.personality = Personality::Unbound;
+        let result = slot.reclaim();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not VFIO"));
     }
 
     #[test]

@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Source and destination types: `Dst`, `Src`, `SrcRef`, `SrcMod`, `CBuf`, `CBufRef`.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::regs::*;
 use super::{PredRef, PrmtSel};
 use crate::codegen::ssa_value::*;

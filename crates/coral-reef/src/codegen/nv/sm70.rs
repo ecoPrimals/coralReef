@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-#![allow(clippy::wildcard_imports)]
-
 use super::sm70_encode::*;
 use super::sm70_instr_latencies::SM70Latency;
 use super::sm75_instr_latencies::SM75Latency;

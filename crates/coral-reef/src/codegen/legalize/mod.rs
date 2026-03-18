@@ -5,8 +5,6 @@
 //! Legalization pass — rewrites IR so every instruction satisfies
 //! hardware register-file constraints for the target shader model.
 
-#![allow(clippy::wildcard_imports)]
-
 mod helpers;
 
 pub use helpers::{

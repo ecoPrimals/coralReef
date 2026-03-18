@@ -25,10 +25,6 @@ pub mod system;
 use super::amd::encoding::Rdna2Encoder;
 use super::amd::isa;
 use super::amd::reg::AmdRegRef;
-#[allow(
-    clippy::wildcard_imports,
-    reason = "op module re-exports are intentional for codegen"
-)]
 use super::ir::*;
 use crate::CompileError;
 

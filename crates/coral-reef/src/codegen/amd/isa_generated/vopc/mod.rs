@@ -19,9 +19,9 @@ static TABLE_CACHE: OnceLock<Vec<InstrEntry>> = OnceLock::new();
 /// All ENC_VOPC instructions (combined from sub-tables).
 #[must_use]
 pub fn table() -> &'static [InstrEntry] {
-    TABLE_CACHE.get_or_init(|| {
-        [table_a::TABLE, table_b::TABLE].concat()
-    }).as_slice()
+    TABLE_CACHE
+        .get_or_init(|| [table_a::TABLE, table_b::TABLE].concat())
+        .as_slice()
 }
 
 /// Look up an instruction by opcode.
@@ -33,10 +33,22 @@ pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
 /// ENC_VOPC encoding fields (32 bits).
 pub mod fields {
     use super::BitField;
-    pub const SRC0: BitField = BitField { offset: 0, width: 9 };
-    pub const VSRC1: BitField = BitField { offset: 9, width: 8 };
-    pub const OP: BitField = BitField { offset: 17, width: 8 };
-    pub const ENCODING: BitField = BitField { offset: 25, width: 7 };
+    pub const SRC0: BitField = BitField {
+        offset: 0,
+        width: 9,
+    };
+    pub const VSRC1: BitField = BitField {
+        offset: 9,
+        width: 8,
+    };
+    pub const OP: BitField = BitField {
+        offset: 17,
+        width: 8,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 25,
+        width: 7,
+    };
 }
 
 /// Set the vector condition code to 0. Store the result into VCC or a scalar register.
@@ -419,4 +431,3 @@ pub const V_CMPX_NEQ_F16: u16 = 253;
 pub const V_CMPX_NLT_F16: u16 = 254;
 /// Set the vector condition code to 1. Store the result into the EXEC mask.
 pub const V_CMPX_TRU_F16: u16 = 255;
-

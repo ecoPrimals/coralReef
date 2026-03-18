@@ -8,7 +8,6 @@
 //! - **f32 dot**: self-dot-product via FMul + FFma chain
 //! - **SM-portable logic ops**: LOP3 (SM70+) / LOP2 (older)
 
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;

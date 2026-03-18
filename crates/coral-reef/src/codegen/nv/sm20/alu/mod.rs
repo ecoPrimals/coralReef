@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2025)
 //! SM20 ALU instruction encoders.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 mod conv;
 mod float;
 mod float64;

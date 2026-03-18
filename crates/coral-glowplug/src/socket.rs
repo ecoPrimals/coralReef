@@ -17,6 +17,8 @@
 //! | `device.swap`      | Hot-swap driver personality                 |
 //! | `device.health`    | Query device health registers               |
 //! | `device.resurrect` | Attempt HBM2 resurrection via nouveau       |
+//! | `device.lend`      | Lend VFIO fd to an external consumer        |
+//! | `device.reclaim`   | Reclaim a previously lent VFIO fd           |
 //! | `health.check`     | Daemon health check                         |
 //! | `health.liveness`  | Lightweight alive probe                     |
 //! | `daemon.status`    | Daemon uptime and device count              |
@@ -41,7 +43,6 @@ const CLIENT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
-    #[allow(dead_code)] // Read by serde for validation; clippy may flag as unused
     jsonrpc: String,
     method: String,
     #[serde(default)]
@@ -335,7 +336,10 @@ fn dispatch(
             let slot = devices
                 .iter()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| RpcError::device_error(format!("device {bdf} not managed")))?;
+                .ok_or_else(|| crate::error::DeviceError::NotManaged {
+                    bdf: bdf.to_string(),
+                })
+                .map_err(RpcError::from)?;
             serde_json::to_value(device_to_info(slot))
                 .map_err(|e| RpcError::internal(e.to_string()))
         }
@@ -353,7 +357,8 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| RpcError::device_error(format!("device {bdf} not managed")))?;
+                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .map_err(RpcError::from)?;
             slot.swap(&target)
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
             Ok(serde_json::json!({
@@ -371,7 +376,10 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| RpcError::device_error(format!("device {bdf} not managed")))?;
+                .ok_or_else(|| crate::error::DeviceError::NotManaged {
+                    bdf: bdf.to_string(),
+                })
+                .map_err(RpcError::from)?;
             slot.check_health();
             serde_json::to_value(HealthInfo {
                 bdf: bdf.to_owned(),
@@ -384,6 +392,46 @@ fn dispatch(
             })
             .map_err(|e| RpcError::internal(e.to_string()))
         }
+        "device.lend" => {
+            let raw_bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(raw_bdf)?.to_owned();
+            let slot = devices
+                .iter_mut()
+                .find(|d| d.bdf == bdf)
+                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .map_err(RpcError::from)?;
+            let group_id = slot
+                .lend()
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "group_id": group_id,
+                "personality": slot.personality.to_string(),
+            }))
+        }
+        "device.reclaim" => {
+            let raw_bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(raw_bdf)?.to_owned();
+            let slot = devices
+                .iter_mut()
+                .find(|d| d.bdf == bdf)
+                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .map_err(RpcError::from)?;
+            slot.reclaim()
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "personality": slot.personality.to_string(),
+                "vram_alive": slot.health.vram_alive,
+                "has_vfio_fd": slot.has_vfio(),
+            }))
+        }
         "device.resurrect" => {
             let raw_bdf = params
                 .get("bdf")
@@ -393,7 +441,8 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| RpcError::device_error(format!("device {bdf} not managed")))?;
+                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .map_err(RpcError::from)?;
             let alive = slot
                 .resurrect_hbm2()
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
@@ -513,7 +562,10 @@ where
                             message: format!("invalid jsonrpc version: {}", req.jsonrpc),
                         }),
                     )
-                } else if req.method == "device.swap" || req.method == "device.resurrect" {
+                } else if matches!(
+                    req.method.as_str(),
+                    "device.swap" | "device.resurrect" | "device.lend" | "device.reclaim"
+                ) {
                     let result = {
                         let mut devs = devices.lock().await;
                         dispatch(&req.method, &req.params, &mut devs, started_at)

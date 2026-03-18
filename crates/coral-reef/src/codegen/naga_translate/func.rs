@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Per-function translation state: types, constructors, block management, statement dispatch.
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use crate::error::CompileError;
 use coral_reef_stubs::cfg::CFGBuilder;

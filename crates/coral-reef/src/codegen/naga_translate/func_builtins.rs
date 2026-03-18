@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;

@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Register types: `RegFile`, `RegRef`, `RegFileSet`, `PerRegFile`.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use std::fmt;
 use std::ops::{Index, IndexMut, Range};
 use std::slice;

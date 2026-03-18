@@ -50,7 +50,7 @@ async fn test_tarpc_unix_server_starts() {
     let path = dir.join(format!("test-{}.sock", std::process::id()));
 
     let (_tx, rx) = test_helpers::test_shutdown_channel();
-    let (addr, _handle) = start_tarpc_unix_server(&path, rx).await.unwrap();
+    let (addr, _handle) = start_tarpc_unix_server(&path, rx).unwrap();
     assert!(matches!(addr, BoundAddr::Unix(_)));
 
     let _ = std::fs::remove_file(&path);
@@ -61,7 +61,7 @@ async fn test_tarpc_unix_server_starts() {
 async fn test_tarpc_unix_server_invalid_path() {
     let (_tx, rx) = test_helpers::test_shutdown_channel();
     let path = std::env::temp_dir();
-    let result = start_tarpc_unix_server(&path, rx).await;
+    let result = start_tarpc_unix_server(&path, rx);
     assert!(result.is_err());
 }
 
@@ -75,7 +75,7 @@ async fn test_tarpc_unix_server_parent_is_file() {
     let sock_path = file_path.join("nested.sock");
 
     let (_tx, rx) = test_helpers::test_shutdown_channel();
-    let result = start_tarpc_unix_server(&sock_path, rx).await;
+    let result = start_tarpc_unix_server(&sock_path, rx);
     assert!(
         result.is_err(),
         "parent as file should prevent socket creation"
@@ -363,12 +363,12 @@ async fn test_tarpc_wgsl_multi() {
     let req = service::MultiDeviceCompileRequest {
         wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
         targets: vec![
-            service::DeviceTarget {
+            service::types::DeviceTarget {
                 card_index: 0,
                 arch: "sm_70".to_string(),
                 pcie_group: None,
             },
-            service::DeviceTarget {
+            service::types::DeviceTarget {
                 card_index: 1,
                 arch: "sm_89".to_string(),
                 pcie_group: Some(0),
@@ -415,12 +415,12 @@ async fn test_tarpc_wgsl_multi_partial_failure() {
     let req = service::MultiDeviceCompileRequest {
         wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
         targets: vec![
-            service::DeviceTarget {
+            service::types::DeviceTarget {
                 card_index: 0,
                 arch: "sm_70".to_string(),
                 pcie_group: None,
             },
-            service::DeviceTarget {
+            service::types::DeviceTarget {
                 card_index: 1,
                 arch: "sm_99".to_string(),
                 pcie_group: None,

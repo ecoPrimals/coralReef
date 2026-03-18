@@ -6,8 +6,6 @@
 //! Provenance: MUFU.RSQ64H/RCP64H seeds from NVIDIA ISA; 2-iteration refinement
 //! targets ≤1 ULP (per hotSpring DF64 requirements and groundSpring `tol::ANALYTICAL`).
 
-#![allow(clippy::wildcard_imports, clippy::redundant_clone)]
-
 use super::*;
 
 /// Ensure `src` is a 2-component SSA ref. If copy propagation folded it to

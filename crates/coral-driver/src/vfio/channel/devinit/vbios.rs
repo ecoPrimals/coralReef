@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "VBIOS parsing; full docs planned")]
 //! VBIOS ROM reading and parsing (BIT table, PMU firmware table).
 
 use crate::vfio::device::MappedBar;

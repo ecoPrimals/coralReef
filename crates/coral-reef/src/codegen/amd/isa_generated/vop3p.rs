@@ -13,18 +13,54 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_VOP3P encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const VDST: BitField = BitField { offset: 0, width: 8 };
-    pub const NEG_HI: BitField = BitField { offset: 8, width: 3 };
-    pub const OP_SEL: BitField = BitField { offset: 11, width: 3 };
-    pub const OP_SEL_HI_2: BitField = BitField { offset: 14, width: 1 };
-    pub const CLAMP: BitField = BitField { offset: 15, width: 1 };
-    pub const OP: BitField = BitField { offset: 16, width: 7 };
-    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
-    pub const SRC0: BitField = BitField { offset: 32, width: 9 };
-    pub const SRC1: BitField = BitField { offset: 41, width: 9 };
-    pub const SRC2: BitField = BitField { offset: 50, width: 9 };
-    pub const OP_SEL_HI: BitField = BitField { offset: 59, width: 2 };
-    pub const NEG: BitField = BitField { offset: 61, width: 3 };
+    pub const VDST: BitField = BitField {
+        offset: 0,
+        width: 8,
+    };
+    pub const NEG_HI: BitField = BitField {
+        offset: 8,
+        width: 3,
+    };
+    pub const OP_SEL: BitField = BitField {
+        offset: 11,
+        width: 3,
+    };
+    pub const OP_SEL_HI_2: BitField = BitField {
+        offset: 14,
+        width: 1,
+    };
+    pub const CLAMP: BitField = BitField {
+        offset: 15,
+        width: 1,
+    };
+    pub const OP: BitField = BitField {
+        offset: 16,
+        width: 7,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 26,
+        width: 6,
+    };
+    pub const SRC0: BitField = BitField {
+        offset: 32,
+        width: 9,
+    };
+    pub const SRC1: BitField = BitField {
+        offset: 41,
+        width: 9,
+    };
+    pub const SRC2: BitField = BitField {
+        offset: 50,
+        width: 9,
+    };
+    pub const OP_SEL_HI: BitField = BitField {
+        offset: 59,
+        width: 2,
+    };
+    pub const NEG: BitField = BitField {
+        offset: 61,
+        width: 3,
+    };
 }
 
 /// Multiply two packed signed 16-bit integer inputs component-wise, add a packed signed 16-bit integer value from a thir...
@@ -88,35 +124,180 @@ pub const V_FMA_MIXHI_F16: u16 = 34;
 
 /// All ENC_VOP3P instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry { name: "V_PK_MAD_I16", opcode: 0, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MUL_LO_U16", opcode: 1, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_ADD_I16", opcode: 2, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_SUB_I16", opcode: 3, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_LSHLREV_B16", opcode: 4, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_LSHRREV_B16", opcode: 5, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_ASHRREV_I16", opcode: 6, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MAX_I16", opcode: 7, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MIN_I16", opcode: 8, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MAD_U16", opcode: 9, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_ADD_U16", opcode: 10, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_SUB_U16", opcode: 11, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MAX_U16", opcode: 12, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MIN_U16", opcode: 13, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_FMA_F16", opcode: 14, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_ADD_F16", opcode: 15, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MUL_F16", opcode: 16, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MIN_F16", opcode: 17, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_PK_MAX_F16", opcode: 18, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT2_F32_F16", opcode: 19, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT2_I32_I16", opcode: 20, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT2_U32_U16", opcode: 21, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT4_I32_I8", opcode: 22, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT4_U32_U8", opcode: 23, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT8_I32_I4", opcode: 24, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_DOT8_U32_U4", opcode: 25, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_FMA_MIX_F32", opcode: 32, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_FMA_MIXLO_F16", opcode: 33, is_branch: false, is_terminator: false },
-    InstrEntry { name: "V_FMA_MIXHI_F16", opcode: 34, is_branch: false, is_terminator: false },
+    InstrEntry {
+        name: "V_PK_MAD_I16",
+        opcode: 0,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MUL_LO_U16",
+        opcode: 1,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_ADD_I16",
+        opcode: 2,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_SUB_I16",
+        opcode: 3,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_LSHLREV_B16",
+        opcode: 4,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_LSHRREV_B16",
+        opcode: 5,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_ASHRREV_I16",
+        opcode: 6,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MAX_I16",
+        opcode: 7,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MIN_I16",
+        opcode: 8,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MAD_U16",
+        opcode: 9,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_ADD_U16",
+        opcode: 10,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_SUB_U16",
+        opcode: 11,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MAX_U16",
+        opcode: 12,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MIN_U16",
+        opcode: 13,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_FMA_F16",
+        opcode: 14,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_ADD_F16",
+        opcode: 15,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MUL_F16",
+        opcode: 16,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MIN_F16",
+        opcode: 17,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_PK_MAX_F16",
+        opcode: 18,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT2_F32_F16",
+        opcode: 19,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT2_I32_I16",
+        opcode: 20,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT2_U32_U16",
+        opcode: 21,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT4_I32_I8",
+        opcode: 22,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT4_U32_U8",
+        opcode: 23,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT8_I32_I4",
+        opcode: 24,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_DOT8_U32_U4",
+        opcode: 25,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_FMA_MIX_F32",
+        opcode: 32,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_FMA_MIXLO_F16",
+        opcode: 33,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "V_FMA_MIXHI_F16",
+        opcode: 34,
+        is_branch: false,
+        is_terminator: false,
+    },
 ];
 
 /// Look up an instruction by opcode.
@@ -124,4 +305,3 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
-

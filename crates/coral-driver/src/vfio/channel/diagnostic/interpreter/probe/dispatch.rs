@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 //! Dispatch capability — Layer 6 probing.
 
 use super::super::layers::*;

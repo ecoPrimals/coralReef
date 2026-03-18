@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![expect(missing_docs, reason = "FBPA snapshot; full docs planned")]
 //! FBPA partition snapshot for training diagnostics.
 
 use crate::vfio::device::MappedBar;

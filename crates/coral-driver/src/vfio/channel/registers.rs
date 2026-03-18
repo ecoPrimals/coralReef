@@ -29,30 +29,25 @@ pub(crate) mod pfifo {
     pub const INTR_BIT8: u32 = 0x0000_0100;
     /// PFIFO_INTR bit 16 — channel switch error.
     pub const INTR_CHSW_ERROR: u32 = 0x0001_0000;
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "hardware register definition — used by future targets"
+    )]
     /// PFIFO_INTR bit 29 — aggregate "any PBDMA has an interrupt pending".
     pub const INTR_PBDMA: u32 = 0x2000_0000;
     /// PFIFO_INTR bit 30 — runlist update completion event.
     pub const INTR_RL_COMPLETE: u32 = 0x4000_0000;
     /// PBDMA active map — bit N = 1 means PBDMA N exists.
     pub const PBDMA_MAP: usize = 0x0000_2004;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// PBDMA-to-runlist mapping table. Entry at `+seq*4` for each active PBDMA.
     pub const PBDMA_RUNL_MAP: usize = 0x0000_2390;
     /// GK104 runlist base address (global pair — gk104 only, NOT Volta).
     ///
     /// **GV100+ uses per-runlist registers** at stride 0x10; prefer
     /// [`runlist_base`] and [`runlist_submit`] for Volta.
-    #[allow(
-        dead_code,
-        reason = "kept for hardware documentation and pre-Volta support"
-    )]
     pub const RUNLIST_BASE: usize = 0x0000_2270;
     /// GK104 runlist submit trigger (global — gk104 only).
-    #[allow(
-        dead_code,
-        reason = "kept for hardware documentation and pre-Volta support"
-    )]
     pub const RUNLIST_SUBMIT: usize = 0x0000_2274;
 
     /// GV100 per-runlist base register (stride 0x10).
@@ -83,28 +78,26 @@ pub(crate) mod pfifo {
     pub const fn gv100_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
         ((iova >> 44) as u32) | (entry_count << 16)
     }
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Runlist pending status. Per-runlist at stride 8.
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Preempt trigger (channel or runlist).
     pub const PREEMPT: usize = 0x0000_2634;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// GV100 runlist-level preempt — write bitmask of runlist IDs.
     pub const GV100_PREEMPT: usize = 0x0000_2638;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Runlist interrupt acknowledge mask.
     pub const RUNLIST_ACK: usize = 0x0000_2A00;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// BIND_ERROR status.
     pub const BIND_ERROR: usize = 0x0000_252C;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// FB timeout counter.
     pub const FB_TIMEOUT: usize = 0x0000_2254;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Engine status, per-engine at stride 4.
     pub const ENGN_STATUS: usize = 0x0000_2640;
-    #[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Engine topology table at stride 4 (GV100).
     pub const ENGN_TABLE: usize = 0x0002_2700;
 }
@@ -115,10 +108,10 @@ pub(crate) mod pmc {
     /// After readback, bits that remained 1 correspond to present engines.
     pub const ENABLE: usize = 0x0000_0200;
     /// PBDMA master enable — set bit N to enable PBDMA N.
-    #[allow(dead_code, reason = "kept for hardware documentation completeness")]
+    #[expect(dead_code, reason = "kept for hardware documentation completeness")]
     pub const PBDMA_ENABLE: usize = 0x0000_0204;
     /// PBDMA interrupt routing.
-    #[allow(dead_code, reason = "kept for hardware documentation completeness")]
+    #[expect(dead_code, reason = "kept for hardware documentation completeness")]
     pub const PBDMA_INTR_EN: usize = 0x0000_2A04;
 }
 
@@ -128,7 +121,7 @@ pub(crate) mod pbdma {
     pub const STRIDE: usize = 0x2000;
 
     /// Base address for a specific PBDMA in BAR0.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "will be used when diagnostic migrates from inline computation"
     )]
@@ -170,7 +163,10 @@ pub(crate) mod pbdma {
     pub const CTX_ACQUIRE: usize = 0x030;
     pub const CTX_GP_BASE_LO: usize = 0x048;
     pub const CTX_GP_BASE_HI: usize = 0x04C;
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "hardware register definition — used by future targets"
+    )]
     /// RAMFC GP_FETCH (byte-granular fetch pointer) mapped to PBDMA[0x050].
     pub const CTX_GP_FETCH_BYTE: usize = 0x050;
     /// RAMFC GP_PUT (entry index) mapped to PBDMA[0x054].
@@ -197,7 +193,6 @@ pub(crate) mod pbdma {
 /// These control HBM2/GDDR memory initialization and are the key to
 /// sovereign VRAM access after D3cold. Register values vary by GPU model;
 /// the differential probe discovers which writes unlock VRAM.
-#[allow(dead_code, reason = "used by glowplug FB init probe")]
 pub(crate) mod pfb {
     /// NV_PFB_PRI_MMU_CTRL — MMU control (enable, invalidate config).
     pub const MMU_CTRL: usize = 0x0010_0C80;
@@ -226,7 +221,7 @@ pub(crate) mod pfb {
 }
 
 /// MMU fault buffer registers (BAR0 + 0x10_0E00).
-#[allow(dead_code, reason = "diagnostic matrix migration in progress")]
+#[expect(dead_code, reason = "diagnostic matrix migration in progress")]
 pub(crate) mod mmu {
     pub const FAULT_BUF0_LO: usize = 0x0010_0E24;
     pub const FAULT_BUF0_HI: usize = 0x0010_0E28;
@@ -251,16 +246,17 @@ pub(crate) mod mmu {
 /// target domain didn't respond within the timeout window. This happens
 /// when writing to clock-gated or power-gated domains. Without detection,
 /// subsequent writes pile up and lock the entire bus.
-#[allow(dead_code, missing_docs)]
 pub mod pri {
     /// PMC master interrupt status. Bit 26 = PRIV_RING fault pending.
     pub const PMC_INTR: usize = 0x0000_0100;
+    /// Bitmask for the PRIV_RING fault bit in `PMC_INTR`.
     pub const PMC_INTR_PRIV_RING_BIT: u32 = 1 << 26;
 
     /// PRIV ring interrupt status — reports which hub/GPC/FBP faulted.
     pub const PRIV_RING_INTR_STATUS: usize = 0x0012_0058;
     /// PRIV ring command — write 0x2 to ack/clear faults.
     pub const PRIV_RING_COMMAND: usize = 0x0012_004C;
+    /// Acknowledge/clear command value for `PRIV_RING_COMMAND`.
     pub const PRIV_RING_CMD_ACK: u32 = 0x0000_0002;
 
     /// PRI master IOCTL — controls timeout duration and enable.
@@ -350,7 +346,10 @@ pub mod pri {
 /// `0xBADF1100` (BLCG/SLCG gated) or `0xBADF3000` (hub clock gated).
 ///
 /// Register map derived from nouveau `nvkm/subdev/therm/` and open-gpu-doc.
-#[allow(dead_code, missing_docs)]
+#[expect(
+    dead_code,
+    reason = "clock gating constants reserved for sovereign power management"
+)]
 pub(crate) mod cg {
     /// PTHERM CG control — master clock gating override.
     /// Writing 0x0 disables CG at the top level.
@@ -419,7 +418,10 @@ pub(crate) mod cg {
 ///
 /// From PCLOCK deep probe (March 2026): 283 readable registers found in
 /// the 0x136xxx range on a cold GV100 card.
-#[allow(dead_code, missing_docs)]
+#[expect(
+    missing_docs,
+    reason = "register offsets are self-documenting via constant names"
+)]
 pub mod pclock {
     /// Root PLL domain — always-on, writable from host even when PCLOCK is gated.
     pub const ROOT_PLL_BASE: usize = 0x0013_6000;
@@ -462,7 +464,7 @@ pub mod pclock {
 }
 
 /// Miscellaneous BAR0 registers.
-#[allow(
+#[expect(
     dead_code,
     reason = "used by diagnostic matrix; will migrate inline magic numbers"
 )]

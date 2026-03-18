@@ -47,22 +47,40 @@ fn multi_gpu_enumerates_multiple() {
         nodes.len(),
         nodes.iter().map(|n| n.driver.as_str()).collect::<Vec<_>>()
     );
-    assert!(
-        nodes.len() >= 2,
-        "expected at least 2 render nodes, found {}",
+
+    // VFIO-bound GPUs don't appear as DRM render nodes. Count them
+    // from sysfs so the assertion reflects the true GPU population.
+    let vfio_count = count_vfio_gpus();
+    let total_gpus = nodes.len() + vfio_count;
+    eprintln!(
+        "total GPUs: {total_gpus} ({} DRM + {vfio_count} VFIO)",
         nodes.len()
     );
-    let has_nv = nodes
-        .iter()
-        .any(|n| n.driver == "nvidia-drm" || n.driver == "nouveau");
-    let has_amd = nodes.iter().any(|n| n.driver == "amdgpu");
-    let has_multi_nv = nodes
-        .iter()
-        .filter(|n| n.driver == "nvidia-drm" || n.driver == "nouveau")
-        .count()
-        >= 2;
+
     assert!(
-        (has_nv && has_amd) || has_multi_nv || nodes.len() >= 2,
-        "expected multi-GPU: amd+nv, or 2+ nvidia, or 2+ render nodes"
+        total_gpus >= 2,
+        "expected at least 2 GPUs (DRM + VFIO), found {total_gpus}"
     );
+}
+
+fn count_vfio_gpus() -> usize {
+    let Ok(entries) = std::fs::read_dir("/sys/bus/pci/drivers/vfio-pci") else {
+        return 0;
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let name = e.file_name();
+            let s = name.to_string_lossy();
+            // PCI BDF format: DDDD:BB:DD.F
+            s.contains(':') && s.contains('.')
+        })
+        .filter(|e| {
+            // Only count VGA/3D class devices (GPUs), not audio companions
+            let class_path = e.path().join("class");
+            std::fs::read_to_string(class_path)
+                .map(|c| c.trim().starts_with("0x03"))
+                .unwrap_or(false)
+        })
+        .count()
 }

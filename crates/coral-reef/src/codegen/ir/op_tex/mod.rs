@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Texture and surface instruction op structs.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::*;
 
 mod sample;

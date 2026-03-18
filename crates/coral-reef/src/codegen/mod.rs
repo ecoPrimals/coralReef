@@ -6,14 +6,20 @@
 // ISA domain types intentionally use naming conventions that mirror hardware docs
 // (e.g. OpFAdd, SrcType, UGPR). dead_code covers AMD stub, builder traits, and
 // ISA variants reserved for future use.
+#![allow(
+    clippy::wildcard_imports,
+    clippy::enum_glob_use,
+    clippy::redundant_clone,
+    unreachable_patterns
+)] // op re-exports; builder pattern in f64 lowering
 #![expect(
     non_snake_case,
     dead_code,
     missing_docs,
     reason = "ISA domain types mirror hardware docs; codegen has intentionally unused items"
 )]
-// Domain-required allows (ISA encoding, GPU register naming, compiler pass structure).
-#![allow(
+// Domain-required expects (ISA encoding, GPU register naming, compiler pass structure).
+#![expect(
     // ISA / encoding domain
     clippy::match_same_arms,                    // ISA encoding tables: explicit arms for clarity
     clippy::upper_case_acronyms,               // SSA, GPR, UGPR etc. are domain terms
@@ -32,14 +38,12 @@
     clippy::trivially_copy_pass_by_ref,         // trait compat: &self on small types
     clippy::needless_pass_by_value,             // pass functions take ownership by design
     clippy::too_many_arguments,                 // compiler passes have many parameters
-    clippy::too_many_lines,                     // compiler passes are inherently large
     clippy::struct_excessive_bools,             // option structs
     clippy::wrong_self_convention,              // to_cssa mutates in place by design
     clippy::module_name_repetitions,            // module naming
     clippy::unused_self,                        // trait implementations
     clippy::missing_panics_doc,                 // internal functions
     // Ported code patterns (narrow further as code matures)
-    clippy::struct_field_names,                 // IR: Src.reference, Dst.reference etc.
     clippy::explicit_deref_methods,             // SSAValueArray Deref usage
     clippy::bool_to_int_with_if,                // carry/overflow handling
     clippy::items_after_statements,             // use statements in match arms
@@ -74,7 +78,7 @@
     clippy::missing_const_for_fn,
     clippy::option_if_let_else,
     clippy::derive_partial_eq_without_eq,
-    clippy::fallible_impl_from,
+    reason = "domain-required for ISA encoding, GPU register naming, compiler pass structure"
 )]
 
 /// Internal Compiler Error — use instead of bare `panic!()` in codegen.

@@ -2,7 +2,6 @@
 //! Exponential and logarithmic math operations: exp, exp2, log, log2, pow, sinh, cosh, tanh,
 //! asinh, acosh, atanh.
 
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;

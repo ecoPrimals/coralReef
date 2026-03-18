@@ -383,8 +383,9 @@ All evolution passes must maintain:
 | 10b — UVM code-complete | RM hierarchy + GPFIFO + USERD doorbell | ✅ Done | 9 |
 | 10c — Boot sovereignty | vfio-pci.ids preemption, nvidia guard | ✅ Done (Iter 56) | 9 |
 | 10d — Security hardening | BDF validation, circuit breaker, chaos tests | ✅ Done (Iter 56) | 10c |
-| 10e — GP_PUT last mile | Cache flush, USERD PRAMIN, GPCCS | In progress | 10a |
+| 10e — GP_PUT last mile | H1 cache flush **proven insufficient** — cold silicon. PFIFO/GPCCS/FECS not initialized. Needs GPU warm-up via `device.resurrect` | **Blocked: cold silicon** | 10a |
 | 10f — UVM hardware validation | RTX 5060 on-site validation | Next | 10b |
+| 10g — Twin Titan V experiment | hotSpring Exp 070: warm GPU via nouveau (HBM2 + FECS), rebind vfio-pci, run dispatch. RTX 5060 stays as display GPU | **hotSpring** | 10e |
 
 ---
 
@@ -408,6 +409,41 @@ barraCuda (Phase 9 — full sovereignty):
   → coralDriver → GPU
   (single Rust binary, zero external C at any layer)
 ```
+
+---
+
+## hotSpring Exp 070 — Twin Titan V Dispatch Experiment
+
+**Status**: Ready for hotSpring execution
+**Prerequisite**: GlowPlug `device.lend`/`device.reclaim` working (validated Iter 57)
+
+### Problem
+VFIO dispatch software stack is complete, but GP_GET never advances because the
+Titan V GPUs boot cold under `vfio-pci` preemption (PFIFO=0xbad00200,
+GPCCS=0xbadf3000). The H1 cache flush experiment proved this is not a
+cache coherency issue — the compute engines were never initialized.
+
+### Hardware Layout
+- **RTX 5060** (21:00.0, nvidia-drm) — dedicated display GPU, stays running
+- **Titan V #1** (03:00.0, vfio-pci) — oracle card
+- **Titan V #2** (4a:00.0, vfio-pci) — compute target
+
+### Experiment Steps
+1. Modify `device.resurrect` nvidia guard to check per-device binding (not module presence)
+   — or temporarily `rmmod nvidia` (kills display, use TTY)
+2. `device.resurrect` on Titan V: nouveau binds → HBM2 trains → FECS loads → GPCCS initializes
+3. nouveau unbinds → vfio-pci rebinds (GlowPlug handles transition)
+4. Run dispatch: `CORALREEF_VFIO_BDF=<bdf> CORALREEF_VFIO_SM=70 cargo test --test hw_nv_vfio --features vfio -- --ignored vfio_dispatch_nop_shader --test-threads=1`
+
+### Success Criteria
+- GP_GET advances past GP_PUT → software stack confirmed working
+- Readback of `store_42` returns expected value
+- Full benchmark battery: `bench_sovereign_dispatch`, DF64 physics, multi-buffer dispatch
+
+### If GR Context Lost on Rebind
+coralReef has `gr_context_init` in `pushbuf.rs` that can submit FECS methods
+after VFIO open. If GR context does not survive the nouveau→vfio rebind,
+submit `gr_context_init` before first dispatch.
 
 ---
 

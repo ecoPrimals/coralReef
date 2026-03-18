@@ -32,6 +32,7 @@ touches them. See `scripts/boot/` for deployment configs.
 | `nouveau` | `coral-driver`, `coral-gpu` | Enables nouveau DRM backend for open-source NVIDIA driver |
 | `nvidia-drm` | `coral-driver`, `coral-gpu` | Enables nvidia-drm backend for proprietary NVIDIA driver |
 | `rdna2-buffer-read` | `coral-driver` | Enables blocked E2E tests for RDNA2 buffer-read shader patterns |
+| `vfio` | `coral-driver` | Enables VFIO direct-dispatch backend for sovereign GPU access |
 | `test-utils` | `coral-driver` | Exposes `BufferHandle::from_id()` for mock device construction |
 
 ## Running Tests
@@ -58,6 +59,26 @@ cargo test --test hw_nv_probe -p coral-driver -- --ignored
 
 ```bash
 cargo test --test hw_nv_buffers -p coral-driver --features nvidia-drm -- --ignored
+```
+
+### VFIO tests via glowPlug (Titan V)
+
+When `coral-glowplug` is running and holding the VFIO fds, tests
+automatically borrow devices via `device.lend` / `device.reclaim`.
+No manual fd management needed.
+
+```bash
+# Deploy updated glowPlug (requires root for systemd restart)
+cargo build --release -p coral-glowplug
+sudo cp target/release/coral-glowplug /usr/local/bin/coral-glowplug
+sudo systemctl restart coral-glowplug
+
+# Run VFIO tests — glowPlug lends the device automatically
+CORALREEF_VFIO_BDF=0000:03:00.0 CORALREEF_VFIO_SM=70 \
+  cargo test --test hw_nv_vfio -p coral-driver --features vfio -- --ignored
+
+# Hot-swap integration tests
+cargo test --test hw_hotswap -p coral-glowplug -- --ignored
 ```
 
 ### Parity compilation (no hardware required)

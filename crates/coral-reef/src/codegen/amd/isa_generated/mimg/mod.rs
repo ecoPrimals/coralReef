@@ -15,26 +15,86 @@ pub use table::{TABLE, lookup};
 /// ENC_MIMG encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const OPM: BitField = BitField { offset: 0, width: 1 };
-    pub const NSA: BitField = BitField { offset: 1, width: 2 };
-    pub const DIM: BitField = BitField { offset: 3, width: 3 };
-    pub const DLC: BitField = BitField { offset: 7, width: 1 };
-    pub const DMASK: BitField = BitField { offset: 8, width: 4 };
-    pub const UNORM: BitField = BitField { offset: 12, width: 1 };
-    pub const GLC: BitField = BitField { offset: 13, width: 1 };
-    pub const DA: BitField = BitField { offset: 14, width: 1 };
-    pub const R128: BitField = BitField { offset: 15, width: 1 };
-    pub const TFE: BitField = BitField { offset: 16, width: 1 };
-    pub const LWE: BitField = BitField { offset: 17, width: 1 };
-    pub const OP: BitField = BitField { offset: 18, width: 7 };
-    pub const SLC: BitField = BitField { offset: 25, width: 1 };
-    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
-    pub const VADDR: BitField = BitField { offset: 32, width: 8 };
-    pub const VDATA: BitField = BitField { offset: 40, width: 8 };
-    pub const SRSRC: BitField = BitField { offset: 48, width: 2 };
-    pub const SSAMP: BitField = BitField { offset: 53, width: 2 };
-    pub const A16: BitField = BitField { offset: 62, width: 1 };
-    pub const D16: BitField = BitField { offset: 63, width: 1 };
+    pub const OPM: BitField = BitField {
+        offset: 0,
+        width: 1,
+    };
+    pub const NSA: BitField = BitField {
+        offset: 1,
+        width: 2,
+    };
+    pub const DIM: BitField = BitField {
+        offset: 3,
+        width: 3,
+    };
+    pub const DLC: BitField = BitField {
+        offset: 7,
+        width: 1,
+    };
+    pub const DMASK: BitField = BitField {
+        offset: 8,
+        width: 4,
+    };
+    pub const UNORM: BitField = BitField {
+        offset: 12,
+        width: 1,
+    };
+    pub const GLC: BitField = BitField {
+        offset: 13,
+        width: 1,
+    };
+    pub const DA: BitField = BitField {
+        offset: 14,
+        width: 1,
+    };
+    pub const R128: BitField = BitField {
+        offset: 15,
+        width: 1,
+    };
+    pub const TFE: BitField = BitField {
+        offset: 16,
+        width: 1,
+    };
+    pub const LWE: BitField = BitField {
+        offset: 17,
+        width: 1,
+    };
+    pub const OP: BitField = BitField {
+        offset: 18,
+        width: 7,
+    };
+    pub const SLC: BitField = BitField {
+        offset: 25,
+        width: 1,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 26,
+        width: 6,
+    };
+    pub const VADDR: BitField = BitField {
+        offset: 32,
+        width: 8,
+    };
+    pub const VDATA: BitField = BitField {
+        offset: 40,
+        width: 8,
+    };
+    pub const SRSRC: BitField = BitField {
+        offset: 48,
+        width: 2,
+    };
+    pub const SSAMP: BitField = BitField {
+        offset: 53,
+        width: 2,
+    };
+    pub const A16: BitField = BitField {
+        offset: 62,
+        width: 1,
+    };
+    pub const D16: BitField = BitField {
+        offset: 63,
+        width: 1,
+    };
 }
 
 /// Load a texel from the largest miplevel in an image surface and store the result into a vector register. Perform the f...
@@ -297,4 +357,3 @@ pub const IMAGE_SAMPLE_CD_CL_O_G16: u16 = 237;
 pub const IMAGE_SAMPLE_C_CD_O_G16: u16 = 238;
 /// Sample texels from an image surface using texel coordinates provided by the address input registers and store the res...
 pub const IMAGE_SAMPLE_C_CD_CL_O_G16: u16 = 239;
-

@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Valve Corporation (2024)
 
-#![allow(clippy::wildcard_imports)]
-
 use super::ir::*;
 use super::opt_instr_sched_common::*;
 use super::reg_tracker::RegRefIterable;

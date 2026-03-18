@@ -4,16 +4,15 @@
 //! Follows wateringHole semantic method naming: `shader.compile.{operation}`.
 
 mod compile;
-mod types;
+pub mod types;
 
 pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
-#[allow(unused_imports, reason = "re-exported for IPC transport consumers")]
 pub use types::{
     CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
-    DeviceCompileResult, DeviceTarget, HealthCheckResponse, HealthResponse, LivenessResponse,
-    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse,
+    HealthCheckResponse, HealthResponse, LivenessResponse, MultiDeviceCompileRequest,
+    MultiDeviceCompileResponse, ReadinessResponse,
 };
 
 use crate::config;

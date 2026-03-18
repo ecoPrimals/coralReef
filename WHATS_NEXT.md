@@ -86,7 +86,12 @@
 ### Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline
 - [x] Specs v0.6.0 — all-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned
 - [x] socket.rs smart refactor: 1488→556 lines (tests extracted to socket_tests.rs)
-- [x] GP_PUT cache flush experiment H1: clflush USERD + GPFIFO before doorbell in VFIO submission
+- [x] GP_PUT cache flush experiment H1: `clflush` USERD + GPFIFO before doorbell — **proven insufficient** on live Titan V. Root cause: cold silicon (PFIFO/GPCCS not initialized), not cache coherency
+- [x] GlowPlug `device.lend` / `device.reclaim` — VFIO fd broker for test access, RAII reclaim, 10x stress cycle validated
+- [x] GlowPlug-aware VFIO test harness — `VfioLease` RAII guard, automatic lend/reclaim, transparent fallback
+- [x] 35 VFIO hardware tests passing on live Titan V x2 (open, alloc, upload/readback, BAR0, PFIFO, HBM2, hot-swap)
+- [x] 9 hot-swap integration tests: health, lend/reclaim round-trip, 10x stress, double-lend rejection
+- [x] `multi_gpu_enumerates_multiple` fix — counts VFIO-bound GPUs via sysfs PCI class
 - [x] Production .expect() evolution: signal handlers → or_exit(), GSP observer → Result, SAFETY comments
 - [x] Unsafe code evolution: VolatilePtr consolidation, SAFETY comments on from_raw_parts and Send/Sync impls
 - [x] AMD metal placeholder → real GFX906 register offsets from AMD docs
@@ -95,6 +100,7 @@
 - [x] Coverage expansion: GSP knowledge/parser/applicator, MMIO VolatilePtr, identity, pci_ids, error module
 - [x] Clippy clean: map_or → is_none_or, unfulfilled lint expectations → allow, doc backtick fixes
 - [x] 2527 → 2560 passing (+33 tests), 0 failed, 90 ignored
+- [x] **Handoff to hotSpring** — pipeline 9/11 stages complete, remaining: GPU init via `device.resurrect` → dispatch
 
 ### Iteration 56 — Coverage Expansion + Doc Cleanup + Debt Resolution
 - [x] 40 constant folding tests (`fold.rs`: integer, identity, bitwise, shift, comparison, overflow)

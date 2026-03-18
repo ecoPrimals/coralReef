@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "GlowPlug warm-up engine; full docs planned")]
 //! GlowPlug — sovereign GPU warm-up from cold state.
 //!
 //! A diesel engine glowplug pre-warms the cylinders so ignition can occur.

@@ -12,12 +12,15 @@
 
 mod config;
 mod device;
-mod pci_ids;
 mod error;
 mod health;
+mod pci_ids;
 mod personality;
 mod socket;
-#[allow(clippy::redundant_pub_crate)]
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "pub(crate) required for module visibility"
+)]
 mod sysfs;
 
 use clap::Parser;

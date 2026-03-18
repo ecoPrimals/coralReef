@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use crate::codegen::ir::{ShaderInfo, ShaderIoInfo, ShaderModel, ShaderStageInfo};
 
 use std::ops::Range;

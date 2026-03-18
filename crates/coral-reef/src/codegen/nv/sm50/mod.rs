@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2023)
 //! SM50 instruction encoding and legalization.
 
-#![allow(clippy::wildcard_imports)]
-
 mod encoder;
 pub use self::encoder::*;
 

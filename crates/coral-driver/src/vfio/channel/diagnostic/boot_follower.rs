@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "boot follower types; full docs planned")]
 //! Boot sequence follower — diff driver boot sequences in real-time.
 //!
 //! Parses mmiotrace or oracle BAR0 data and compares it against the diagnostic

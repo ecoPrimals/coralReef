@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![expect(missing_docs, reason = "HBM2 typestate types; full docs planned")]
 //! Typestate phase markers, error types, training log, and backend enum.
 
 use std::fmt;

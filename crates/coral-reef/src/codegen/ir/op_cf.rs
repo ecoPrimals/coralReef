@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Control flow, barrier, and system instruction op structs.
 
-#![allow(clippy::wildcard_imports)]
-
 use super::*;
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]

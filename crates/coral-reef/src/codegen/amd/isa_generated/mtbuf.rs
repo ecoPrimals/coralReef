@@ -13,21 +13,66 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_MTBUF encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const OFFSET: BitField = BitField { offset: 0, width: 12 };
-    pub const OFFEN: BitField = BitField { offset: 12, width: 1 };
-    pub const IDXEN: BitField = BitField { offset: 13, width: 1 };
-    pub const GLC: BitField = BitField { offset: 14, width: 1 };
-    pub const DLC: BitField = BitField { offset: 15, width: 1 };
-    pub const OP: BitField = BitField { offset: 16, width: 3 };
-    pub const FORMAT: BitField = BitField { offset: 19, width: 7 };
-    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
-    pub const VADDR: BitField = BitField { offset: 32, width: 8 };
-    pub const VDATA: BitField = BitField { offset: 40, width: 8 };
-    pub const SRSRC: BitField = BitField { offset: 48, width: 2 };
-    pub const OPM: BitField = BitField { offset: 53, width: 1 };
-    pub const SLC: BitField = BitField { offset: 54, width: 1 };
-    pub const TFE: BitField = BitField { offset: 55, width: 1 };
-    pub const SOFFSET: BitField = BitField { offset: 56, width: 8 };
+    pub const OFFSET: BitField = BitField {
+        offset: 0,
+        width: 12,
+    };
+    pub const OFFEN: BitField = BitField {
+        offset: 12,
+        width: 1,
+    };
+    pub const IDXEN: BitField = BitField {
+        offset: 13,
+        width: 1,
+    };
+    pub const GLC: BitField = BitField {
+        offset: 14,
+        width: 1,
+    };
+    pub const DLC: BitField = BitField {
+        offset: 15,
+        width: 1,
+    };
+    pub const OP: BitField = BitField {
+        offset: 16,
+        width: 3,
+    };
+    pub const FORMAT: BitField = BitField {
+        offset: 19,
+        width: 7,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 26,
+        width: 6,
+    };
+    pub const VADDR: BitField = BitField {
+        offset: 32,
+        width: 8,
+    };
+    pub const VDATA: BitField = BitField {
+        offset: 40,
+        width: 8,
+    };
+    pub const SRSRC: BitField = BitField {
+        offset: 48,
+        width: 2,
+    };
+    pub const OPM: BitField = BitField {
+        offset: 53,
+        width: 1,
+    };
+    pub const SLC: BitField = BitField {
+        offset: 54,
+        width: 1,
+    };
+    pub const TFE: BitField = BitField {
+        offset: 55,
+        width: 1,
+    };
+    pub const SOFFSET: BitField = BitField {
+        offset: 56,
+        width: 8,
+    };
 }
 
 /// Load 1-component formatted data from a buffer surface, convert the data to 32 bit integral or floating point format, ...
@@ -65,22 +110,102 @@ pub const TBUFFER_STORE_FORMAT_D16_XYZW: u16 = 15;
 
 /// All ENC_MTBUF instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_X", opcode: 0, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_XY", opcode: 1, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_XYZ", opcode: 2, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_XYZW", opcode: 3, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_X", opcode: 4, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_XY", opcode: 5, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_XYZ", opcode: 6, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_XYZW", opcode: 7, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_D16_X", opcode: 8, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_D16_XY", opcode: 9, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_D16_XYZ", opcode: 10, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_LOAD_FORMAT_D16_XYZW", opcode: 11, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_D16_X", opcode: 12, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_D16_XY", opcode: 13, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_D16_XYZ", opcode: 14, is_branch: false, is_terminator: false },
-    InstrEntry { name: "TBUFFER_STORE_FORMAT_D16_XYZW", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_X",
+        opcode: 0,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_XY",
+        opcode: 1,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_XYZ",
+        opcode: 2,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_XYZW",
+        opcode: 3,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_X",
+        opcode: 4,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_XY",
+        opcode: 5,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_XYZ",
+        opcode: 6,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_XYZW",
+        opcode: 7,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_D16_X",
+        opcode: 8,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_D16_XY",
+        opcode: 9,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_D16_XYZ",
+        opcode: 10,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_LOAD_FORMAT_D16_XYZW",
+        opcode: 11,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_D16_X",
+        opcode: 12,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_D16_XY",
+        opcode: 13,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_D16_XYZ",
+        opcode: 14,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "TBUFFER_STORE_FORMAT_D16_XYZW",
+        opcode: 15,
+        is_branch: false,
+        is_terminator: false,
+    },
 ];
 
 /// Look up an instruction by opcode.
@@ -88,4 +213,3 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
-

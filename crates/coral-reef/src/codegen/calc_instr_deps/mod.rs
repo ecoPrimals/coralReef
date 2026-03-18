@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::debug::{DEBUG, GetDebugFlags};
 use super::ir::*;
 use super::opt_instr_sched_common::estimate_block_weight;

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 //! DMA validation — Layer 4 probing.
 
 use std::os::fd::RawFd;

@@ -154,11 +154,7 @@ pub async fn start_tarpc_tcp_server(
 ///
 /// Returns an error if the socket cannot be created.
 #[cfg(unix)]
-#[allow(
-    clippy::unused_async,
-    reason = "false positive: tokio::select! contains awaits"
-)]
-pub async fn start_tarpc_unix_server(
+pub fn start_tarpc_unix_server(
     path: &std::path::Path,
     shutdown_rx: watch::Receiver<()>,
 ) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
@@ -223,7 +219,7 @@ pub async fn start_tarpc_server(
 ) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
     #[cfg(unix)]
     if let Some(path) = bind.strip_prefix("unix://") {
-        return start_tarpc_unix_server(std::path::Path::new(path), shutdown_rx).await;
+        return start_tarpc_unix_server(std::path::Path::new(path), shutdown_rx);
     }
     start_tarpc_tcp_server(bind, shutdown_rx).await
 }

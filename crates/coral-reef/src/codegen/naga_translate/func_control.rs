@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Control flow translation: if/else, loops, phi node emission.
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::{FuncTranslator, LoopContext};
 use crate::error::CompileError;

@@ -198,12 +198,12 @@ async fn e2e_ipc_full_integration() {
     let multi_req = service::MultiDeviceCompileRequest {
         wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         targets: vec![
-            service::DeviceTarget {
+            service::types::DeviceTarget {
                 card_index: 0,
                 arch: "sm_70".to_string(),
                 pcie_group: None,
             },
-            service::DeviceTarget {
+            service::types::DeviceTarget {
                 card_index: 1,
                 arch: "sm_89".to_string(),
                 pcie_group: Some(0),

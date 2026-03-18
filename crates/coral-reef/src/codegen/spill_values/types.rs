@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
 
-#![allow(clippy::wildcard_imports)]
-
 use super::*;
 use coral_reef_stubs::fxhash::{FxHashMap, FxHashSet};
 use std::cmp::{Ordering, Reverse, max};

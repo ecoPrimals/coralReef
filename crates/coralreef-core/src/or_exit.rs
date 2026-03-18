@@ -87,5 +87,4 @@ mod tests {
         let opt: Option<String> = Some("hello".into());
         assert_eq!(opt.or_exit_code("test", 2), "hello");
     }
-
 }

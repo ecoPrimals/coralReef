@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! The Op enum and Op trait implementations.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use std::fmt;
 
 use nak_ir_proc::*;

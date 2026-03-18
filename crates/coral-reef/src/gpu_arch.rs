@@ -433,7 +433,6 @@ impl std::fmt::Display for AmdArch {
 /// Xe-HPG (DG2/Alchemist) and Xe2-HPG (Battlemage) — register addresses TBD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-#[allow(dead_code)] // Intel backend planned — register addresses TBD
 pub enum IntelArch {
     /// Xe-HPG (Arc A-series discrete — DG2/Alchemist).
     XeHpg,
@@ -447,13 +446,7 @@ pub enum IntelArch {
 
 impl IntelArch {
     /// All known Intel architectures (for iteration; backend not implemented).
-    #[allow(dead_code)] // Intel backend planned — register addresses TBD
-    pub const ALL: &[Self] = &[
-        Self::XeHpg,
-        Self::Dg2Alchemist,
-        Self::Xe2Hpg,
-        Self::XeLpg,
-    ];
+    pub const ALL: &[Self] = &[Self::XeHpg, Self::Dg2Alchemist, Self::Xe2Hpg, Self::XeLpg];
 
     /// Short architecture identifier (e.g. `"xe_hpg"`, `"dg2_alchemist"`).
     #[must_use]

@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Integer ALU instruction op structs.
 
-#![allow(clippy::wildcard_imports)]
-
 use super::*;
 
 mod bitwise;

@@ -18,10 +18,6 @@ use crate::CompileError;
 use crate::codegen::amd::encoding::{self, Rdna2Encoder};
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
-#[allow(
-    clippy::wildcard_imports,
-    reason = "op module re-exports are intentional for codegen"
-)]
 use crate::codegen::ir::*;
 
 // ---- Ld (FLAT load) ----

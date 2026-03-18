@@ -32,7 +32,7 @@ pub(crate) unsafe fn cache_line_flush(addr: *const u8) {
 /// Same contract as x86_64 variant — address must be valid mapped memory.
 #[cfg(not(target_arch = "x86_64"))]
 #[inline]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "platform-specific stub; not used on non-x86_64")]
 pub(crate) unsafe fn cache_line_flush(_addr: *const u8) {}
 
 /// Full memory fence (store + load barrier).
@@ -48,7 +48,7 @@ pub fn memory_fence() {
 /// No-op on non-x86_64.
 #[cfg(not(target_arch = "x86_64"))]
 #[inline]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "platform-specific stub; not used on non-x86_64")]
 pub fn memory_fence() {}
 
 /// Flush all cache lines covering the given slice.
@@ -79,5 +79,5 @@ pub fn clflush_range(slice: &[u8]) {
 /// No-op on non-x86_64.
 #[cfg(not(target_arch = "x86_64"))]
 #[inline]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "platform-specific stub; not used on non-x86_64")]
 pub fn clflush_range(_slice: &[u8]) {}

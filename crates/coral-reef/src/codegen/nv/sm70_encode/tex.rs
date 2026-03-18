@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! SM70 texture instruction encoders and helpers.
 
-#![allow(clippy::wildcard_imports)]
-
 use super::encoder::*;
 
 impl SM70Encoder<'_> {

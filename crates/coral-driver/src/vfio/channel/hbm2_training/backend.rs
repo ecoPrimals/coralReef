@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![expect(missing_docs, reason = "training backend; full docs planned")]
 //! Training backend selection.
 
 /// Selects which backend drives the HBM2 training register writes.

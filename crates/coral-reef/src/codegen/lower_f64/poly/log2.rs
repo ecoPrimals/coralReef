@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2023)
 //! f64 log2(x) via MUFU.LOG2/EX2/RCP seed + 2 Newton refinement iterations (~52-bit accuracy).
 
-#![allow(clippy::wildcard_imports, clippy::redundant_clone)]
-
 use super::super::*;
 
 /// log2(x) via MUFU.LOG2/EX2/RCP seed + 2 Newton refinement iterations (~52-bit accuracy).

@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2025)
 //! SM20 control flow instruction encoders.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::encoder::*;
 
 impl SM20Op for OpBra {

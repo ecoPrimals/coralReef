@@ -4,9 +4,11 @@
 //! These define the memory-mapped registers and methods for NVIDIA GPU
 //! classes (compute dispatch, DMA copy, shader program headers, etc.).
 
-#![allow(non_upper_case_globals)]
-// Hardware register names must match NVIDIA spec verbatim.
-#![allow(non_snake_case, missing_docs)]
+#![expect(
+    non_snake_case,
+    missing_docs,
+    reason = "NVIDIA hardware constants mirror spec verbatim"
+)]
 
 use std::fmt;
 
@@ -100,7 +102,6 @@ pub mod classes {
 
         /// QMD v0.6 definitions for Kepler.
         pub mod qmd {
-            #![allow(non_upper_case_globals)]
             use std::ops::Range;
 
             pub const QMDV00_06_QMD_MAJOR_VERSION: Range<usize> = 0..4;
@@ -159,7 +160,6 @@ pub mod classes {
 
         /// QMD v2.1 definitions for Pascal.
         pub mod qmd {
-            #![allow(non_upper_case_globals)]
             use std::ops::Range;
 
             pub const QMDV02_01_QMD_MAJOR_VERSION: Range<usize> = 0..4;
@@ -216,7 +216,6 @@ pub mod classes {
 
         /// QMD v2.2 definitions for Volta.
         pub mod qmd {
-            #![allow(non_upper_case_globals)]
             use std::ops::Range;
 
             pub const QMDV02_02_QMD_MAJOR_VERSION: Range<usize> = 0..4;
@@ -277,7 +276,6 @@ pub mod classes {
 
         /// QMD v3.0 definitions for Ampere.
         pub mod qmd {
-            #![allow(non_upper_case_globals)]
             use std::ops::Range;
 
             pub const QMDV03_00_QMD_MAJOR_VERSION: Range<usize> = 0..4;
@@ -334,7 +332,6 @@ pub mod classes {
         pub const HOPPER_COMPUTE_A: u32 = super::super::NvClass::HOPPER_COMPUTE_A.0;
         /// QMD v4.0 definitions for Hopper.
         pub mod qmd {
-            #![allow(non_upper_case_globals)]
             use std::ops::Range;
 
             pub const QMDV04_00_GRID_WIDTH: Range<usize> = 0..32;
@@ -390,7 +387,6 @@ pub mod classes {
     pub mod clcdc0 {
         /// QMD v5.0 definitions for Blackwell.
         pub mod qmd {
-            #![allow(non_upper_case_globals)]
             use std::ops::Range;
 
             pub const QMDV05_00_GRID_WIDTH: Range<usize> = 0..32;

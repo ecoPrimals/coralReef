@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Mel Henning (2023)
 
-#![allow(clippy::wildcard_imports)]
-
 use super::ir::*;
 
 use coral_reef_stubs::cfg::CFGBuilder;

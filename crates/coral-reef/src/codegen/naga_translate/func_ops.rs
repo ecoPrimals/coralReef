@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Componentwise operations, unary, select, cast, type helpers, and function inlining.
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::{FuncTranslator, VarRef};
 use crate::error::CompileError;

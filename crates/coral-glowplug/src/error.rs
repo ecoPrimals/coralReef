@@ -9,10 +9,6 @@ use std::fmt;
 
 /// Errors from device lifecycle operations.
 #[derive(Debug, thiserror::Error)]
-#[allow(
-    dead_code,
-    reason = "variants reserved for upcoming sysfs evolution and swap validation"
-)]
 pub enum DeviceError {
     #[error("unknown personality '{personality}' for {bdf} (known: {known:?})")]
     UnknownPersonality {
@@ -35,6 +31,7 @@ pub enum DeviceError {
     NotManaged { bdf: String },
 
     #[error("sysfs I/O error at {path}: {source}")]
+    #[allow(dead_code)] // reserved for upcoming sysfs evolution; used in tests
     SysfsIo {
         path: String,
         source: std::io::Error,

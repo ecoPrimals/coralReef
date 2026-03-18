@@ -766,3 +766,93 @@ async fn test_unix_jsonrpc_unicode_in_request() {
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
 }
+
+// --- unix_jsonrpc edge cases for 95%+ coverage ---
+
+#[cfg(unix)]
+#[test]
+fn dispatch_params_must_be_array_or_object_number() {
+    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!(42));
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string().to_lowercase();
+    assert!(
+        msg.contains("array") || msg.contains("object") || msg.contains("params"),
+        "number params should produce 'params must be array or object': {msg}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_params_must_be_array_or_object_bool() {
+    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!(true));
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string().to_lowercase();
+    assert!(
+        msg.contains("array") || msg.contains("object") || msg.contains("params"),
+        "bool params should produce error: {msg}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_socket_path_for_base_with_none() {
+    let path = super::unix_jsonrpc::unix_socket_path_for_base(None);
+    assert!(
+        path.to_string_lossy()
+            .ends_with(&crate::config::primal_socket_name()),
+        "path should end with primal socket name: {}",
+        path.display()
+    );
+    assert!(
+        path.to_string_lossy()
+            .contains(crate::config::ECOSYSTEM_NAMESPACE)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_socket_path_for_base_with_some() {
+    let base = std::env::temp_dir().join("coralreef-test-socket-base");
+    let path = super::unix_jsonrpc::unix_socket_path_for_base(Some(base.clone()));
+    assert!(path.starts_with(&base));
+    assert!(
+        path.file_name()
+            .is_some_and(|f| f.to_string_lossy().ends_with(".sock")),
+        "path filename should end with .sock: {}",
+        path.display()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn default_unix_socket_path_format() {
+    let path = super::unix_jsonrpc::default_unix_socket_path();
+    assert!(
+        path.to_string_lossy()
+            .ends_with(&crate::config::primal_socket_name()),
+        "path should end with primal socket name: {}",
+        path.display()
+    );
+    assert!(
+        path.to_string_lossy()
+            .contains(crate::config::ECOSYSTEM_NAMESPACE)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_handler_error_returns_handler_phase() {
+    let params = serde_json::json!({
+        "wgsl_source": "invalid wgsl {{",
+        "arch": "sm_70",
+        "opt_level": 2,
+        "fp64_software": true
+    });
+    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", params);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        !err.to_string().is_empty(),
+        "handler error should have message"
+    );
+}

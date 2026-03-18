@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2025)
 
-#![allow(clippy::wildcard_imports)]
-
 pub(super) use super::super::sm30_instr_latencies::{
     KeplerInstructionEncoder, instr_exec_latency, instr_latency, latency_upper_bound,
 };

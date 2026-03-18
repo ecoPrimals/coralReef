@@ -4,7 +4,7 @@
 use crate::error::DriverResult;
 
 use super::super::structs::{
-    Nv0080AllocParams, Nv2080AllocParams, NvChannelGroupAllocParams, NvChannelAllocParams,
+    Nv0080AllocParams, Nv2080AllocParams, NvChannelAllocParams, NvChannelGroupAllocParams,
     NvMemoryAllocParams, NvMemoryVirtualAllocParams, NvVaspaceAllocParams,
 };
 use super::super::{

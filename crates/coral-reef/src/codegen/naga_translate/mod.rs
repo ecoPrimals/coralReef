@@ -5,7 +5,6 @@
 //! internal SSA-based IR (`Shader`), which then flows through the
 //! optimization / legalization / RA / encoding pipeline.
 
-#![allow(clippy::wildcard_imports)]
 use super::ir::*;
 use crate::FmaPolicy;
 use crate::error::CompileError;

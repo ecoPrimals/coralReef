@@ -7,8 +7,6 @@
 //! These are the building blocks used by architecture-specific legalization
 //! code (SM70, RDNA2, …) via the [`super::LegalizeBuilder`].
 
-#![allow(clippy::wildcard_imports)]
-
 use super::super::debug::{DEBUG, GetDebugFlags};
 use super::super::ir::*;
 

@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
 
-#![allow(clippy::wildcard_imports)]
-
 use super::const_tracker::ConstTracker;
 use super::debug::{DEBUG, GetDebugFlags};
 use super::ir::*;

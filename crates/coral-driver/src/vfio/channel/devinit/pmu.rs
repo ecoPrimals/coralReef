@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(
+    missing_docs,
+    reason = "PMU/FALCON registers mirror hardware; full docs planned"
+)]
 //! PMU FALCON registers, DevinitStatus, FalconDiagnostic, and execution.
 
 use crate::vfio::device::MappedBar;

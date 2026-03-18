@@ -693,6 +693,37 @@ mod tests {
     }
 
     #[test]
+    fn vop3_category_cmp_int_vs_cmp_float() {
+        assert_eq!(generate::vop3_category("V_CMP_F32_E64"), "cmp");
+        assert_eq!(generate::vop3_category("V_CMP_LT_U32"), "cmp");
+        assert_eq!(generate::vop3_category("V_CMPX_GT_I32"), "cmp");
+    }
+
+    #[test]
+    fn vop3_category_math_ops() {
+        assert_eq!(generate::vop3_category("V_SQRT_F32"), "math");
+        assert_eq!(generate::vop3_category("V_RCP_F64"), "math");
+        assert_eq!(generate::vop3_category("V_LOG_F32"), "math");
+        assert_eq!(generate::vop3_category("V_EXP_F16"), "math");
+    }
+
+    #[test]
+    fn generate_types_file_contains_required_fields() {
+        let types = generate::generate_types_file().unwrap();
+        assert!(types.contains("is_branch"));
+        assert!(types.contains("is_terminator"));
+        assert!(types.contains("BitField"));
+        assert!(types.contains("InstrEntry"));
+    }
+
+    #[test]
+    fn file_header_contains_generator_info() {
+        let header = generate::file_header().unwrap();
+        assert!(header.contains("amd-isa-gen"));
+        assert!(header.contains("cargo run -p amd-isa-gen"));
+    }
+
+    #[test]
     fn generate_mod_file() {
         let mut encoding_fields = BTreeMap::new();
         encoding_fields.insert(

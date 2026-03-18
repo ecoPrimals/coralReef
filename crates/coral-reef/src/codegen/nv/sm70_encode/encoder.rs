@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-#![allow(clippy::wildcard_imports)]
-
 pub(super) use crate::codegen::ir::*;
 pub(super) use crate::codegen::legalize::{
     LegalizeBuildHelpers, LegalizeBuilder, src_is_reg, src_is_upred_reg, swap_srcs_if_not_reg,

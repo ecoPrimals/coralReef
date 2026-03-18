@@ -602,14 +602,11 @@ fn parse_cli_error_returns_clap_error() {
 
 #[test]
 fn parse_cli_compile_invalid_opt_level() {
-    let result = parse_cli_from([
-        "coralreef",
-        "compile",
-        "x.wgsl",
-        "--opt-level",
-        "99",
-    ]);
-    assert!(result.is_ok(), "opt-level 99 is valid (clamped by compiler)");
+    let result = parse_cli_from(["coralreef", "compile", "x.wgsl", "--opt-level", "99"]);
+    assert!(
+        result.is_ok(),
+        "opt-level 99 is valid (clamped by compiler)"
+    );
 }
 
 #[test]
@@ -619,4 +616,55 @@ fn parse_cli_compile_with_opt_level_zero() {
         Commands::Compile { opt_level, .. } => assert_eq!(*opt_level, 0),
         _ => panic!("expected Compile command"),
     }
+}
+
+// --- Additional main.rs coverage: CLI edge cases ---
+
+#[test]
+fn parse_cli_empty_args_fails() {
+    let result = parse_cli_from::<Vec<&str>, &str>(vec![]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_cli_single_arg_fails() {
+    let result = parse_cli_from(["coralreef"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_cli_server_tarpc_bind_tcp() {
+    let cli = parse_cli_from(["coralreef", "server", "--tarpc-bind", "127.0.0.1:0"]).unwrap();
+    match &cli.command {
+        Commands::Server { tarpc_bind, .. } => {
+            assert_eq!(tarpc_bind.as_deref(), Some("127.0.0.1:0"));
+        }
+        _ => panic!("expected Server command"),
+    }
+}
+
+#[test]
+fn parse_cli_compile_output_explicit() {
+    let cli = parse_cli_from(["coralreef", "compile", "a.wgsl", "-o", "out.bin"]).unwrap();
+    match &cli.command {
+        Commands::Compile { output, .. } => {
+            assert_eq!(output.as_ref().unwrap().to_string_lossy(), "out.bin");
+        }
+        _ => panic!("expected Compile command"),
+    }
+}
+
+#[test]
+fn parse_cli_version_help_both_flags() {
+    let v_result = parse_cli_from(["coralreef", "--version"]);
+    assert!(v_result.is_err());
+    assert!(
+        v_result
+            .unwrap_err()
+            .to_string()
+            .contains(env!("CARGO_PKG_VERSION"))
+    );
+
+    let h_result = parse_cli_from(["coralreef", "-h"]);
+    assert!(h_result.is_err());
 }

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 
 use std::borrow::Cow;
 use std::os::fd::RawFd;

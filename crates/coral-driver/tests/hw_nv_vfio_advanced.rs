@@ -4,23 +4,45 @@
 //! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio_advanced --features vfio -- --ignored`
 
 #[cfg(feature = "vfio")]
+#[path = "glowplug_client.rs"]
+mod glowplug_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
+    use super::glowplug_client::VfioLease;
+
     fn vfio_bdf() -> String {
         std::env::var("CORALREEF_VFIO_BDF")
             .expect("set CORALREEF_VFIO_BDF=0000:XX:XX.X to run VFIO tests")
     }
 
+    fn try_lease(bdf: &str) -> Option<VfioLease> {
+        match VfioLease::acquire(bdf) {
+            Ok(lease) => Some(lease),
+            Err(e) => {
+                eprintln!("glowplug not available ({e}), opening VFIO directly");
+                None
+            }
+        }
+    }
+
+    fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
+        let bdf = vfio_bdf();
+        let lease = try_lease(&bdf);
+        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        (lease, raw)
+    }
+
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_devinit_pmu_probe() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::devinit;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
 
         let bdf = vfio_bdf();
         let oracle_bdf = std::env::var("CORALREEF_ORACLE_BDF").ok();
-        let raw =
-            RawVfioDevice::open(&bdf).expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        let (_lease, raw) = open_vfio();
 
         // Phase 1: Check devinit status and PMU FALCON state
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
@@ -189,7 +211,6 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware + nouveau-bound oracle card"]
     fn vfio_cross_card_fb_init_oracle() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::ProbeInterpreter;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
         use coral_driver::vfio::channel::memory_probe;
@@ -285,8 +306,7 @@ mod tests {
         }
 
         // ── Phase 2: Open VFIO card and read its NV_PFB (cold state) ────
-        let raw = RawVfioDevice::open(&vfio_bdf)
-            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        let (_lease, raw) = open_vfio();
 
         // Run glowplug to get PFIFO alive
         let gp = GlowPlug::new(&raw.bar0, raw.container_fd);
@@ -514,14 +534,12 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_sovereign_glowplug_full() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::devinit;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
 
         let bdf = vfio_bdf();
         let oracle_bdf = std::env::var("CORALREEF_ORACLE_BDF").ok();
-        let raw =
-            RawVfioDevice::open(&bdf).expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ SOVEREIGN GLOWPLUG — FULL STRATEGY TEST                     ║");
@@ -573,7 +591,6 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_metal_cartography() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::bar_cartography;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
         use coral_driver::vfio::gpu_vendor::GpuMetal;
@@ -581,8 +598,7 @@ mod tests {
         use coral_driver::vfio::pci_discovery::PciDeviceInfo;
 
         let bdf = vfio_bdf();
-        let raw =
-            RawVfioDevice::open(&bdf).expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ METAL CARTOGRAPHY — COLD → WARM → DIFF                     ║");
@@ -757,12 +773,11 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_metal_glowplug() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
         use coral_driver::vfio::nv_metal::NvVoltaMetal;
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         let boot0 = raw.bar0.read_u32(0).unwrap_or(0xDEAD_DEAD);
         let metal = NvVoltaMetal::from_boot0(boot0);
@@ -787,11 +802,10 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_power_bounds() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::glowplug::GlowPlug;
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ POWER BOUNDS — EMPIRICAL TRANSITION MAPPING                ║");

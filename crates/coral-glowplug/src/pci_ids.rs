@@ -50,7 +50,9 @@ mod tests {
 
     #[test]
     fn titan_v_vfio_ids_cmdline_alt_parses_same_values() {
-        let ids_part = TITAN_V_VFIO_IDS_CMDLINE_ALT.strip_prefix("vfio-pci.ids=").unwrap();
+        let ids_part = TITAN_V_VFIO_IDS_CMDLINE_ALT
+            .strip_prefix("vfio-pci.ids=")
+            .unwrap();
         let parts: Vec<&str> = ids_part.split(':').collect();
         let vendor = u16::from_str_radix(parts[0], 16).unwrap();
         let device = u16::from_str_radix(parts[1], 16).unwrap();

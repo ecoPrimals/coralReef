@@ -68,7 +68,10 @@ impl QmdParams {
 ///
 /// `bit_start` is the starting bit (0-indexed from LSB of word 0),
 /// `width` is the field width in bits, `value` is the value to set.
-#[allow(clippy::cast_possible_truncation)] // GPU QMD fields are always ≤32 bits wide; callers guarantee value fits
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "GPU QMD fields are always ≤32 bits"
+)]
 const fn qmd_set_field(q: &mut [u32; QMD_SIZE_WORDS], bit_start: usize, width: usize, value: u64) {
     let word_idx = bit_start / 32;
     let bit_off = bit_start % 32;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "memory abstraction types; full docs planned")]
 //! Unified memory abstraction for GPU/CPU bidirectional topology.
 //!
 //! Models GPU and CPU memory as a graph of regions connected by access paths.
@@ -197,7 +197,9 @@ impl MemoryRegion for DmaRegion {
             });
         }
         Ok(u32::from_le_bytes(
-            slice[offset..offset + 4].try_into().unwrap(),
+            slice[offset..offset + 4]
+                .try_into()
+                .expect("4-byte slice always fits [u8; 4]"),
         ))
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "GlowPlug types; full docs planned")]
 
 use crate::vfio::bar_cartography;
 use crate::vfio::memory::MemoryTopology;

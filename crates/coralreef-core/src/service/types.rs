@@ -212,10 +212,14 @@ pub struct ReadinessResponse {
     pub name: Cow<'static, str>,
 }
 
+/// Default GPU architecture string for serde deserialization.
+#[must_use]
 pub fn default_arch() -> String {
     coral_reef::GpuArch::default().to_string()
 }
 
+/// Default optimization level for compilation requests.
+#[must_use]
 pub const fn default_opt_level() -> u32 {
     2
 }

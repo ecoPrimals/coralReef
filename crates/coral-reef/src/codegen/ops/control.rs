@@ -5,10 +5,6 @@
 use super::{AmdOpEncoder, EncodeOp};
 use crate::CompileError;
 use crate::codegen::amd::encoding::{self, Rdna2Encoder};
-#[allow(
-    clippy::wildcard_imports,
-    reason = "op module re-exports are intentional for codegen"
-)]
 use crate::codegen::ir::*;
 
 // ---- Exit (SOPP: S_ENDPGM) ----

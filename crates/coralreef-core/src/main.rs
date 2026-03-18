@@ -89,14 +89,12 @@ enum UniBinExit {
     Success = 0,
     GeneralError = 1,
     ConfigError = 2,
-    /// Used by the panic hook via `abort()` — the OS maps this to exit code 3.
-    #[allow(
-        dead_code,
-        reason = "abort() sets this implicitly; no Rust code constructs it"
-    )]
+    /// Set by the panic hook via `abort()` — the OS maps this to exit code 3.
     InternalError = 3,
     Signal = 130,
 }
+
+const _: () = assert!(UniBinExit::InternalError as i32 == 3);
 
 impl From<UniBinExit> for ExitCode {
     fn from(code: UniBinExit) -> Self {
@@ -345,7 +343,7 @@ fn discovery_dir() -> io::Result<std::path::PathBuf> {
 async fn wait_for_shutdown_signal() -> &'static str {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
 
         let mut sigterm = signal(SignalKind::terminate()).or_exit("failed to register SIGTERM");
         let mut sigint = signal(SignalKind::interrupt()).or_exit("failed to register SIGINT");

@@ -55,9 +55,6 @@ pub use kernel::{CompiledKernel, KernelCacheEntry};
 pub use pcie::{PcieDeviceInfo, probe_pcie_topology};
 pub use preference::DriverPreference;
 
-#[allow(unused_imports)] // used by tests
-pub(crate) use hash::hash_wgsl;
-
 pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 pub use coral_reef::{AmdArch, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 

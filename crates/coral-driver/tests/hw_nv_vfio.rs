@@ -11,10 +11,21 @@
 //! - User has `/dev/vfio/*` permissions
 //! - Set `CORALREEF_VFIO_BDF` env var to the GPU's PCIe address
 //!
+//! # GlowPlug integration
+//!
+//! If `coral-glowplug` is running and holds the VFIO fd, the test harness
+//! automatically borrows the device via `device.lend` and returns it via
+//! `device.reclaim` on drop. No manual VFIO management needed.
+//!
 //! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio --features vfio -- --ignored`
 
 #[cfg(feature = "vfio")]
+#[path = "glowplug_client.rs"]
+mod glowplug_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
+    use super::glowplug_client::VfioLease;
     use coral_driver::nv::NvVfioComputeDevice;
     use coral_driver::{ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
@@ -38,24 +49,40 @@ mod tests {
         }
     }
 
-    fn open_vfio() -> NvVfioComputeDevice {
+    /// Try to borrow the VFIO device from glowPlug. Returns `None` if
+    /// glowPlug is not running (tests will open the device directly).
+    fn try_lease(bdf: &str) -> Option<VfioLease> {
+        match VfioLease::acquire(bdf) {
+            Ok(lease) => Some(lease),
+            Err(e) => {
+                eprintln!("glowplug not available ({e}), opening VFIO directly");
+                None
+            }
+        }
+    }
+
+    /// Returns (lease, device) — drop order matters: device drops first
+    /// (releases VFIO group fd), then lease drops (reclaims fd for glowPlug).
+    fn open_vfio() -> (Option<VfioLease>, NvVfioComputeDevice) {
         let bdf = vfio_bdf();
         let sm = vfio_sm();
         let cc = sm_to_compute_class(sm);
-        NvVfioComputeDevice::open(&bdf, sm, cc)
-            .expect("NvVfioComputeDevice::open() — is GPU bound to vfio-pci?")
+        let lease = try_lease(&bdf);
+        let dev = NvVfioComputeDevice::open(&bdf, sm, cc)
+            .expect("NvVfioComputeDevice::open() — is GPU bound to vfio-pci?");
+        (lease, dev)
     }
 
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_open_and_bar0_read() {
-        let _dev = open_vfio();
+        let (_lease, _dev) = open_vfio();
     }
 
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_alloc_and_free() {
-        let mut dev = open_vfio();
+        let (_lease, mut dev) = open_vfio();
         let handle = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
         dev.free(handle).expect("free");
     }
@@ -63,7 +90,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_upload_and_readback() {
-        let mut dev = open_vfio();
+        let (_lease, mut dev) = open_vfio();
         let handle = dev.alloc(256, MemoryDomain::Gtt).expect("alloc");
         let data: Vec<u8> = (0..256).map(|i| (i & 0xFF) as u8).collect();
         dev.upload(handle, 0, &data).expect("upload");
@@ -75,7 +102,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_multiple_buffers() {
-        let mut dev = open_vfio();
+        let (_lease, mut dev) = open_vfio();
         let handles: Vec<_> = (0..4)
             .map(|_| dev.alloc(4096, MemoryDomain::Gtt).expect("alloc"))
             .collect();
@@ -87,7 +114,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware + compute shader binary"]
     fn vfio_dispatch_nop_shader() {
-        let mut dev = open_vfio();
+        let (_lease, mut dev) = open_vfio();
         let sm = vfio_sm();
 
         let gr = dev.gr_engine_status();
@@ -138,7 +165,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_free_invalid_handle() {
-        let mut dev = open_vfio();
+        let (_lease, mut dev) = open_vfio();
         let result = dev.free(coral_driver::BufferHandle::from_id(9999));
         assert!(result.is_err());
     }
@@ -147,7 +174,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_readback_invalid_handle() {
-        let dev = open_vfio();
+        let (_lease, dev) = open_vfio();
         let result = dev.readback(coral_driver::BufferHandle::from_id(9999), 0, 16);
         assert!(result.is_err());
     }

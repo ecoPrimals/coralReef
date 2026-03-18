@@ -11,7 +11,6 @@
 //! - [`super::func_math_bitops`]: countOneBits, reverseBits, firstLeadingBit, countLeadingZeros
 //! - [`super::func_math_interp`]: mix, step, smoothstep, sign, fma
 
-#![allow(clippy::wildcard_imports)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use super::{

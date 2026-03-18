@@ -13,7 +13,6 @@ use std::fmt;
 /// Each personality manages its driver-specific bind/unbind logic
 /// and provides metadata for capability advertisement. Consumed as
 /// `dyn GpuPersonality` from [`PersonalityRegistry::create`].
-#[allow(dead_code, reason = "trait methods used via dyn-dispatch and in tests")]
 pub trait GpuPersonality: fmt::Display + fmt::Debug + Send + Sync {
     /// Short name for IPC identification (e.g. `"vfio"`, `"nouveau"`, `"amdgpu"`).
     #[must_use]

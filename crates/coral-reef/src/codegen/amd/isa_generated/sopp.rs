@@ -13,9 +13,18 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_SOPP encoding fields (32 bits).
 pub mod fields {
     use super::BitField;
-    pub const SIMM16: BitField = BitField { offset: 0, width: 16 };
-    pub const OP: BitField = BitField { offset: 16, width: 7 };
-    pub const ENCODING: BitField = BitField { offset: 23, width: 9 };
+    pub const SIMM16: BitField = BitField {
+        offset: 0,
+        width: 16,
+    };
+    pub const OP: BitField = BitField {
+        offset: 16,
+        width: 7,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 23,
+        width: 9,
+    };
 }
 
 /// Do nothing. Delay issue of next instruction by a small, fixed amount.
@@ -93,42 +102,222 @@ pub const S_TTRACEDATA_IMM: u16 = 40;
 
 /// All ENC_SOPP instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry { name: "S_NOP", opcode: 0, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_ENDPGM", opcode: 1, is_branch: false, is_terminator: true },
-    InstrEntry { name: "S_BRANCH", opcode: 2, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_WAKEUP", opcode: 3, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_SCC0", opcode: 4, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_SCC1", opcode: 5, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_VCCZ", opcode: 6, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_VCCNZ", opcode: 7, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_EXECZ", opcode: 8, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_EXECNZ", opcode: 9, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_BARRIER", opcode: 10, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_SETKILL", opcode: 11, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_WAITCNT", opcode: 12, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_SETHALT", opcode: 13, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_SLEEP", opcode: 14, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_SETPRIO", opcode: 15, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_SENDMSG", opcode: 16, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_SENDMSGHALT", opcode: 17, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_TRAP", opcode: 18, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_ICACHE_INV", opcode: 19, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_INCPERFLEVEL", opcode: 20, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_DECPERFLEVEL", opcode: 21, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_TTRACEDATA", opcode: 22, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_CDBGSYS", opcode: 23, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_CDBGUSER", opcode: 24, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_CDBGSYS_OR_USER", opcode: 25, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_CBRANCH_CDBGSYS_AND_USER", opcode: 26, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_ENDPGM_SAVED", opcode: 27, is_branch: false, is_terminator: true },
-    InstrEntry { name: "S_ENDPGM_ORDERED_PS_DONE", opcode: 30, is_branch: false, is_terminator: true },
-    InstrEntry { name: "S_CODE_END", opcode: 31, is_branch: true, is_terminator: false },
-    InstrEntry { name: "S_INST_PREFETCH", opcode: 32, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_CLAUSE", opcode: 33, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_WAITCNT_DEPCTR", opcode: 35, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_ROUND_MODE", opcode: 36, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_DENORM_MODE", opcode: 37, is_branch: false, is_terminator: false },
-    InstrEntry { name: "S_TTRACEDATA_IMM", opcode: 40, is_branch: false, is_terminator: false },
+    InstrEntry {
+        name: "S_NOP",
+        opcode: 0,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_ENDPGM",
+        opcode: 1,
+        is_branch: false,
+        is_terminator: true,
+    },
+    InstrEntry {
+        name: "S_BRANCH",
+        opcode: 2,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_WAKEUP",
+        opcode: 3,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_SCC0",
+        opcode: 4,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_SCC1",
+        opcode: 5,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_VCCZ",
+        opcode: 6,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_VCCNZ",
+        opcode: 7,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_EXECZ",
+        opcode: 8,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_EXECNZ",
+        opcode: 9,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_BARRIER",
+        opcode: 10,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_SETKILL",
+        opcode: 11,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_WAITCNT",
+        opcode: 12,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_SETHALT",
+        opcode: 13,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_SLEEP",
+        opcode: 14,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_SETPRIO",
+        opcode: 15,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_SENDMSG",
+        opcode: 16,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_SENDMSGHALT",
+        opcode: 17,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_TRAP",
+        opcode: 18,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_ICACHE_INV",
+        opcode: 19,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_INCPERFLEVEL",
+        opcode: 20,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_DECPERFLEVEL",
+        opcode: 21,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_TTRACEDATA",
+        opcode: 22,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_CDBGSYS",
+        opcode: 23,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_CDBGUSER",
+        opcode: 24,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_CDBGSYS_OR_USER",
+        opcode: 25,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CBRANCH_CDBGSYS_AND_USER",
+        opcode: 26,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_ENDPGM_SAVED",
+        opcode: 27,
+        is_branch: false,
+        is_terminator: true,
+    },
+    InstrEntry {
+        name: "S_ENDPGM_ORDERED_PS_DONE",
+        opcode: 30,
+        is_branch: false,
+        is_terminator: true,
+    },
+    InstrEntry {
+        name: "S_CODE_END",
+        opcode: 31,
+        is_branch: true,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_INST_PREFETCH",
+        opcode: 32,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_CLAUSE",
+        opcode: 33,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_WAITCNT_DEPCTR",
+        opcode: 35,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_ROUND_MODE",
+        opcode: 36,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_DENORM_MODE",
+        opcode: 37,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "S_TTRACEDATA_IMM",
+        opcode: 40,
+        is_branch: false,
+        is_terminator: false,
+    },
 ];
 
 /// Look up an instruction by opcode.
@@ -136,4 +325,3 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
-

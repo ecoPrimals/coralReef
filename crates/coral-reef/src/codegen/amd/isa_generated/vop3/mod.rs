@@ -9,11 +9,11 @@
 //!   cargo run -p amd-isa-gen
 
 use super::isa_types::{BitField, InstrEntry};
+mod table_arith;
 mod table_cmp_f32_f64;
 mod table_cmp_int;
-mod table_math;
-mod table_arith;
 mod table_logic;
+mod table_math;
 
 use std::sync::OnceLock;
 
@@ -22,9 +22,18 @@ static TABLE_CACHE: OnceLock<Vec<InstrEntry>> = OnceLock::new();
 /// All ENC_VOP3 instructions (combined from sub-tables).
 #[must_use]
 pub fn table() -> &'static [InstrEntry] {
-    TABLE_CACHE.get_or_init(|| {
-        [table_cmp_f32_f64::TABLE, table_cmp_int::TABLE, table_math::TABLE, table_arith::TABLE, table_logic::TABLE].concat()
-    }).as_slice()
+    TABLE_CACHE
+        .get_or_init(|| {
+            [
+                table_cmp_f32_f64::TABLE,
+                table_cmp_int::TABLE,
+                table_math::TABLE,
+                table_arith::TABLE,
+                table_logic::TABLE,
+            ]
+            .concat()
+        })
+        .as_slice()
 }
 
 /// Look up an instruction by opcode.
@@ -40,17 +49,50 @@ pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
 /// ENC_VOP3 encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const VDST: BitField = BitField { offset: 0, width: 8 };
-    pub const ABS: BitField = BitField { offset: 8, width: 3 };
-    pub const OP_SEL: BitField = BitField { offset: 11, width: 4 };
-    pub const CLAMP: BitField = BitField { offset: 15, width: 1 };
-    pub const OP: BitField = BitField { offset: 16, width: 10 };
-    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
-    pub const SRC0: BitField = BitField { offset: 32, width: 9 };
-    pub const SRC1: BitField = BitField { offset: 41, width: 9 };
-    pub const SRC2: BitField = BitField { offset: 50, width: 9 };
-    pub const OMOD: BitField = BitField { offset: 59, width: 2 };
-    pub const NEG: BitField = BitField { offset: 61, width: 3 };
+    pub const VDST: BitField = BitField {
+        offset: 0,
+        width: 8,
+    };
+    pub const ABS: BitField = BitField {
+        offset: 8,
+        width: 3,
+    };
+    pub const OP_SEL: BitField = BitField {
+        offset: 11,
+        width: 4,
+    };
+    pub const CLAMP: BitField = BitField {
+        offset: 15,
+        width: 1,
+    };
+    pub const OP: BitField = BitField {
+        offset: 16,
+        width: 10,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 26,
+        width: 6,
+    };
+    pub const SRC0: BitField = BitField {
+        offset: 32,
+        width: 9,
+    };
+    pub const SRC1: BitField = BitField {
+        offset: 41,
+        width: 9,
+    };
+    pub const SRC2: BitField = BitField {
+        offset: 50,
+        width: 9,
+    };
+    pub const OMOD: BitField = BitField {
+        offset: 59,
+        width: 2,
+    };
+    pub const NEG: BitField = BitField {
+        offset: 61,
+        width: 3,
+    };
 }
 
 /// Set the vector condition code to 0. Store the result into VCC or a scalar register.
@@ -885,4 +927,3 @@ pub const V_PERMLANE16_B32: u16 = 887;
 pub const V_PERMLANEX16_B32: u16 = 888;
 /// Add two signed 32-bit integer inputs and store the result into a vector register. No carry-in or carry-out support.
 pub const V_ADD_NC_I32: u16 = 895;
-

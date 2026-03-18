@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2025-2026 ecoPrimals
 // Derived from BarraCUDA / ecoPrimals contributors (2026)
-#![allow(non_camel_case_types, clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::sm75_instr_latencies::pred;
 use crate::codegen::ir::*;
 use tracing::warn;

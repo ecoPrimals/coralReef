@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
-
 use std::borrow::Cow;
 
 use crate::error::{DriverError, DriverResult};
@@ -77,7 +75,10 @@ impl<'a> ExperimentContext<'a> {
 
     /// Clear PFIFO INTR bit 8 (post-runlist-submit interrupt on GV100).
     /// Returns true if bit 8 was set and cleared.
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "diagnostic experiment helper — used by future tests"
+    )]
     pub fn clear_pfifo_intr_bit8(&self) -> bool {
         use crate::vfio::channel::registers::pfifo;
         let intr = self.r(pfifo::INTR);

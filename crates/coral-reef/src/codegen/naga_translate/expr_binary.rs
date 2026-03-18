@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Binary operator translation for Naga expressions.
-#![allow(clippy::wildcard_imports, unreachable_patterns)]
 use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;

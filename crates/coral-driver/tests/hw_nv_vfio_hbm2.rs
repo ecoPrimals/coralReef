@@ -4,10 +4,34 @@
 //! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio_hbm2 --features vfio -- --ignored`
 
 #[cfg(feature = "vfio")]
+#[path = "glowplug_client.rs"]
+mod glowplug_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
+    use super::glowplug_client::VfioLease;
+
     fn vfio_bdf() -> String {
         std::env::var("CORALREEF_VFIO_BDF")
             .expect("set CORALREEF_VFIO_BDF=0000:XX:XX.X to run VFIO tests")
+    }
+
+    fn try_lease(bdf: &str) -> Option<VfioLease> {
+        match VfioLease::acquire(bdf) {
+            Ok(lease) => Some(lease),
+            Err(e) => {
+                eprintln!("glowplug not available ({e}), opening VFIO directly");
+                None
+            }
+        }
+    }
+
+    fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
+        let bdf = vfio_bdf();
+        let lease = try_lease(&bdf);
+        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
+            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        (lease, raw)
     }
 
     #[test]
@@ -82,11 +106,9 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_hbm2_timing_capture() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::hbm2_training::{self as hbm2, HBM2_CAPTURE_DOMAINS};
 
-        let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ HBM2 TIMING CAPTURE — Record FBPA/LTC/CLK registers       ║");
@@ -154,13 +176,12 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_hbm2_training_attempt() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::hbm2_training::{
             Hbm2Controller, TrainingAction, Untrained, volta_hbm2,
         };
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ HBM2 TRAINING ATTEMPT — Typestate Sequence                 ║");
@@ -245,11 +266,10 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_hbm2_falcon_diagnostic() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::devinit::FalconDiagnostic;
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ PMU FALCON DIAGNOSTIC — Security, PROM, VBIOS Sources      ║");
@@ -320,11 +340,9 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_pclock_deep_probe() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::registers::pri;
 
-        let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let (_lease, raw) = open_vfio();
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ PCLOCK DEEP PROBE — Scanning clock domain for live regs     ║");

@@ -32,7 +32,7 @@
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
 | Uniform buffers | A | `var<uniform>` → CBuf reads (scalar/vector/matrix), struct field access |
-| GlowPlug security | A+ | BDF validation, connection limits, idle timeout, circuit breaker, chaos/fault/pen testing (131 tests) |
+| GlowPlug security | A+ | BDF validation, connection limits, idle timeout, circuit breaker, chaos/fault/pen testing (143 tests), `device.lend`/`device.reclaim` VFIO broker |
 | Boot sovereignty | A+ | vfio-pci.ids preemption, softdep nvidia ordering, initramfs, boot safety validation |
 
 ## Phase Status
@@ -48,7 +48,12 @@
 |------|--------|--------|
 | Specs v0.6.0 | ✅ | All-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned |
 | socket.rs smart refactor | ✅ | 1488→556 lines (tests extracted to socket_tests.rs) |
-| GP_PUT cache flush experiment H1 | ✅ | clflush USERD + GPFIFO before doorbell in VFIO submission |
+| GP_PUT cache flush experiment H1 | ⚠️ | `clflush` USERD + GPFIFO before doorbell — **proven insufficient** on live Titan V. Root cause: GPU is cold silicon (PFIFO/GPCCS/FECS not initialized), not cache coherency |
+| GlowPlug `device.lend` / `device.reclaim` | ✅ | VFIO fd broker pattern — glowPlug drops fd so tests can open the VFIO group, RAII reclaim on drop. 10x stress cycle proven. `device.lend`, `device.reclaim` JSON-RPC methods |
+| GlowPlug-aware VFIO test harness | ✅ | `VfioLease` RAII guard in all `hw_nv_vfio*` test files — automatic lend/reclaim, transparent fallback |
+| 35 VFIO hardware tests passing | ✅ | Both Titan Vs: open, alloc, upload/readback, multi-buffer, BAR0, PFIFO diagnostic, HBM2 probing, hot-swap stress. Dispatch FenceTimeout expected (cold GPU) |
+| 9 hot-swap integration tests | ✅ | `hw_hotswap.rs`: health, device list, lend/reclaim round-trip, 10x stress, health-during-lend, double-lend rejection, reclaim no-op |
+| `multi_gpu_enumerates_multiple` fix | ✅ | Counts VFIO-bound GPUs via sysfs PCI class (3 GPUs: 1 DRM + 2 VFIO) |
 | Production .expect() evolution | ✅ | Signal handlers → or_exit(), GSP observer → Result, SAFETY comments |
 | Unsafe code evolution | ✅ | All volatile reads/writes through VolatilePtr, SAFETY comments on from_raw_parts and Send/Sync impls |
 | AMD metal placeholder → real GFX906 | ✅ | Register offsets from AMD docs |
@@ -57,6 +62,7 @@
 | Coverage expansion | ✅ | GSP knowledge/parser/applicator, MMIO VolatilePtr, identity, pci_ids, error module |
 | Clippy clean | ✅ | map_or → is_none_or, unfulfilled lint expectations → allow, doc backtick fixes |
 | Test expansion | ✅ | 2527 → 2560 passing (+33 tests), 0 failed, 90 ignored |
+| **Handoff to hotSpring** | 🔜 | Pipeline complete except GPU initialization. hotSpring Exp 070: warm Titan V via `device.resurrect` (nouveau HBM2 training + FECS firmware), then re-run dispatch |
 
 ### Iteration 56: Coverage Expansion + Doc Cleanup + Debt Resolution (Mar 18 2026)
 

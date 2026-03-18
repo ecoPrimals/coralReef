@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2022)
 //! Shader metadata: stage info structs, `ShaderInfo`, and `Shader`.
 
-#![allow(clippy::wildcard_imports)]
-
 use std::fmt;
 
 use super::*;

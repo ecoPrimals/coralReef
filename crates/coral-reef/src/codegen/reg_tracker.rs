@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-#![allow(clippy::wildcard_imports)]
-
 use coral_reef_stubs::fxhash::FxHashMap;
 
 use super::ir::*;

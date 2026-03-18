@@ -14,7 +14,12 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 - Specs updated to v0.6.0 — all-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned
 - Smart refactor: socket.rs 1488→556 lines (tests extracted to socket_tests.rs)
-- GP_PUT cache flush experiment H1: clflush USERD + GPFIFO before doorbell in VFIO submission
+- GP_PUT cache flush experiment H1: `clflush` USERD + GPFIFO before doorbell — **proven insufficient** on live Titan V. Root cause identified: cold silicon (PFIFO/GPCCS not initialized), not cache coherency
+- **GlowPlug `device.lend` / `device.reclaim`**: VFIO fd broker pattern for test access. GlowPlug drops VFIO fd so tests can open the group, RAII reclaim on drop. 10x stress cycle validated on both Titan Vs
+- **GlowPlug-aware VFIO test harness**: `VfioLease` RAII guard in all `hw_nv_vfio*` tests — automatic lend/reclaim with transparent fallback when glowPlug not running
+- **35 VFIO hardware tests passing** on live Titan V x2: open, alloc, upload/readback, multi-buffer, BAR0 probing, PFIFO diagnostics, HBM2 PHY/timing/FALCON, hot-swap stress, PRI backpressure
+- **9 hot-swap integration tests**: health, device list, lend/reclaim round-trip, lend+open+reclaim, 10x stress cycle, health-during-lend, double-lend rejection, reclaim no-op
+- `multi_gpu_enumerates_multiple` fix: counts VFIO-bound GPUs via sysfs PCI class (3 GPUs: 1 DRM + 2 VFIO)
 - Production .expect() evolution: signal handlers → or_exit(), GSP observer → Result, SAFETY comments
 - Unsafe code evolution: all volatile reads/writes consolidated through VolatilePtr, SAFETY comments on all from_raw_parts and Send/Sync impls
 - AMD metal placeholder → real GFX906 register offsets from AMD docs
@@ -23,6 +28,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - Coverage expansion: GSP knowledge/parser/applicator, MMIO VolatilePtr, identity, pci_ids, error module
 - Clippy clean: fixed map_or → is_none_or, unfulfilled lint expectations → allow, doc backtick fixes
 - Test expansion: 2527 → 2560 passing (+33 tests), 0 failed, 90 ignored
+- **Handoff to hotSpring**: Pipeline 9/11 stages complete. Remaining blocker: GPU initialization (warm via `device.resurrect`). hotSpring Exp 070: twin experiment with both Titan Vs
 
 ### Added
 - GlowPlug security hardening: BDF validation (path traversal, null bytes, shell injection), max 64 concurrent clients via semaphore, 30s idle timeout, 64KiB max request line (iter56)

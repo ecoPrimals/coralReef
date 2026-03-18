@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "VBIOS script interpreter; full docs planned")]
 //! VBIOS init script host-side interpreter — executes opcode stream via BAR0.
 //!
 //! Reference: nouveau nvkm/subdev/bios/init.c (Ben Skeggs, Red Hat)

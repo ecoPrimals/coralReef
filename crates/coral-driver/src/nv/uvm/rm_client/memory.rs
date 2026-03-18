@@ -4,9 +4,7 @@
 use crate::error::{DriverError, DriverResult};
 
 use super::super::rm_helpers::nv_rm_ioctl;
-use super::super::structs::{
-    NvRmMapMemoryDmaParams, NvRmMapMemoryParams, NvRmUnmapMemoryParams,
-};
+use super::super::structs::{NvRmMapMemoryDmaParams, NvRmMapMemoryParams, NvRmUnmapMemoryParams};
 use super::super::{
     NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY, nv_ioctl_rw,
 };

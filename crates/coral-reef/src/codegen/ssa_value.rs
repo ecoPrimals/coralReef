@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2025)
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::ir::{HasRegFile, RegFile};
 use coral_reef_stubs::bitset::IntoBitIndex;
 use std::array;

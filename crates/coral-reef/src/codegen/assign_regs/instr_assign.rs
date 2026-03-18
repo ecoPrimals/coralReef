@@ -2,8 +2,6 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-#![allow(clippy::wildcard_imports)]
-
 use super::*;
 
 fn instr_remap_srcs_file(instr: &mut Instr, ra: &mut VecRegAllocator) {

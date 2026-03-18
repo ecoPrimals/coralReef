@@ -3,8 +3,6 @@
 // Derived from Collabora, Ltd. (2023)
 //! SM50 ALU instruction encoders.
 
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
-
 use super::encoder::*;
 use crate::codegen::ir::RegFile;
 

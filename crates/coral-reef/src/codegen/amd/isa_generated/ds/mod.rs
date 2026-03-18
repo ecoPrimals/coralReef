@@ -15,15 +15,42 @@ pub use table::{TABLE, lookup};
 /// ENC_DS encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const OFFSET0: BitField = BitField { offset: 0, width: 8 };
-    pub const OFFSET1: BitField = BitField { offset: 8, width: 8 };
-    pub const GDS: BitField = BitField { offset: 17, width: 1 };
-    pub const OP: BitField = BitField { offset: 18, width: 8 };
-    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
-    pub const ADDR: BitField = BitField { offset: 32, width: 8 };
-    pub const DATA0: BitField = BitField { offset: 40, width: 8 };
-    pub const DATA1: BitField = BitField { offset: 48, width: 8 };
-    pub const VDST: BitField = BitField { offset: 56, width: 8 };
+    pub const OFFSET0: BitField = BitField {
+        offset: 0,
+        width: 8,
+    };
+    pub const OFFSET1: BitField = BitField {
+        offset: 8,
+        width: 8,
+    };
+    pub const GDS: BitField = BitField {
+        offset: 17,
+        width: 1,
+    };
+    pub const OP: BitField = BitField {
+        offset: 18,
+        width: 8,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 26,
+        width: 6,
+    };
+    pub const ADDR: BitField = BitField {
+        offset: 32,
+        width: 8,
+    };
+    pub const DATA0: BitField = BitField {
+        offset: 40,
+        width: 8,
+    };
+    pub const DATA1: BitField = BitField {
+        offset: 48,
+        width: 8,
+    };
+    pub const VDST: BitField = BitField {
+        offset: 56,
+        width: 8,
+    };
 }
 
 /// Add two unsigned 32-bit integer values stored in the data register and a location in a data share.
@@ -272,4 +299,3 @@ pub const DS_WRITE_B128: u16 = 223;
 pub const DS_READ_B96: u16 = 254;
 /// Load 128 bits of data from a data share into a vector register.
 pub const DS_READ_B128: u16 = 255;
-

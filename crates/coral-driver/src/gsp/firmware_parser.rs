@@ -469,7 +469,7 @@ mod tests {
         data.extend_from_slice(&0u32.to_le_bytes());
         data.extend_from_slice(&1u32.to_le_bytes());
         data.extend_from_slice(&0x05u32.to_le_bytes()); // register type
-        data.extend_from_slice(&8u32.to_le_bytes());   // size
+        data.extend_from_slice(&8u32.to_le_bytes()); // size
         data.extend_from_slice(&1000u32.to_le_bytes()); // offset beyond our 20-byte file
         std::fs::write(&path, &data).unwrap();
         let blobs = GrFirmwareBlobs::parse_from(dir.path(), "ga102").unwrap();
@@ -556,7 +556,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path();
         let mut bundle_data = Vec::new();
-        for &(addr, val) in &[(0x0040_1000u32, 1u32), (0x0040_2000u32, 2u32), (0x0040_1000u32, 3u32)] {
+        for &(addr, val) in &[
+            (0x0040_1000u32, 1u32),
+            (0x0040_2000u32, 2u32),
+            (0x0040_1000u32, 3u32),
+        ] {
             bundle_data.extend_from_slice(&addr.to_le_bytes());
             bundle_data.extend_from_slice(&val.to_le_bytes());
         }

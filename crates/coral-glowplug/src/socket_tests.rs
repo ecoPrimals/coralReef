@@ -21,7 +21,8 @@ fn test_jsonrpc_request_parse_valid() {
 
 #[test]
 fn test_jsonrpc_request_parse_with_params() {
-    let line = r#"{"jsonrpc":"2.0","method":"device.get","params":{"bdf":"0000:01:00.0"},"id":"req-1"}"#;
+    let line =
+        r#"{"jsonrpc":"2.0","method":"device.get","params":{"bdf":"0000:01:00.0"},"id":"req-1"}"#;
     let result: Result<JsonRpcRequest, _> = serde_json::from_str(line);
     let req = match result {
         Ok(r) => r,
@@ -506,6 +507,81 @@ async fn test_daemon_shutdown_via_jsonrpc() {
     handle.abort();
 }
 
+// ── Lend / Reclaim ────────────────────────────────────────────────────
+
+#[test]
+fn test_dispatch_device_lend_missing_bdf() {
+    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch("device.lend", &serde_json::json!({}), &mut devices, started);
+    let err = result.expect_err("device.lend without bdf should fail");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_device_lend_not_managed() {
+    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.lend",
+        &serde_json::json!({"bdf": "0000:01:00.0"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("device.lend for unmanaged device should fail");
+    assert_eq!(i32::from(err.code), -32000);
+}
+
+#[test]
+fn test_dispatch_device_lend_not_vfio() {
+    let config = crate::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![crate::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.lend",
+        &serde_json::json!({"bdf": "0000:99:00.0"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("device.lend on unbound personality should fail");
+    assert_eq!(i32::from(err.code), -32000);
+}
+
+#[test]
+fn test_dispatch_device_reclaim_missing_bdf() {
+    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.reclaim",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("device.reclaim without bdf should fail");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_device_reclaim_not_managed() {
+    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.reclaim",
+        &serde_json::json!({"bdf": "0000:01:00.0"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("device.reclaim for unmanaged device should fail");
+    assert_eq!(i32::from(err.code), -32000);
+}
+
 // ── Chaos / Fault / Penetration Tests ──────────────────────────────────
 
 /// Helper: start a server on TCP loopback and return (addr, abort_handle, _tx_keepalive).
@@ -539,11 +615,10 @@ async fn spawn_test_server() -> (
 async fn send_line(addr: &str, payload: &str) -> String {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpStream;
-    let stream =
-        tokio::time::timeout(std::time::Duration::from_secs(2), TcpStream::connect(addr))
-            .await
-            .expect("connect timeout")
-            .expect("connect");
+    let stream = tokio::time::timeout(std::time::Duration::from_secs(2), TcpStream::connect(addr))
+        .await
+        .expect("connect timeout")
+        .expect("connect");
     let (reader, mut writer) = stream.into_split();
     writer
         .write_all(format!("{payload}\n").as_bytes())
@@ -794,9 +869,7 @@ async fn test_chaos_concurrent_connections() {
         tasks.push(tokio::spawn(async move {
             let resp = send_line(
                 &addr,
-                &format!(
-                    r#"{{"jsonrpc":"2.0","method":"daemon.status","params":{{}},"id":{i}}}"#
-                ),
+                &format!(r#"{{"jsonrpc":"2.0","method":"daemon.status","params":{{}},"id":{i}}}"#),
             )
             .await;
             let v: serde_json::Value = serde_json::from_str(&resp).expect("valid json");

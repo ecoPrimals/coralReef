@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 //! VBIOS init script parsing and host-side interpreter.
 //!
 //! Reference: nouveau nvkm/subdev/bios/init.c (Ben Skeggs, Red Hat)

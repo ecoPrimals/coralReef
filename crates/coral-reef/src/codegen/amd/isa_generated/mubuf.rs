@@ -13,21 +13,66 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_MUBUF encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const OFFSET: BitField = BitField { offset: 0, width: 12 };
-    pub const OFFEN: BitField = BitField { offset: 12, width: 1 };
-    pub const IDXEN: BitField = BitField { offset: 13, width: 1 };
-    pub const GLC: BitField = BitField { offset: 14, width: 1 };
-    pub const DLC: BitField = BitField { offset: 15, width: 1 };
-    pub const LDS: BitField = BitField { offset: 16, width: 1 };
-    pub const OP: BitField = BitField { offset: 18, width: 7 };
-    pub const OPM: BitField = BitField { offset: 25, width: 1 };
-    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
-    pub const VADDR: BitField = BitField { offset: 32, width: 8 };
-    pub const VDATA: BitField = BitField { offset: 40, width: 8 };
-    pub const SRSRC: BitField = BitField { offset: 48, width: 2 };
-    pub const SLC: BitField = BitField { offset: 54, width: 1 };
-    pub const TFE: BitField = BitField { offset: 55, width: 1 };
-    pub const SOFFSET: BitField = BitField { offset: 56, width: 8 };
+    pub const OFFSET: BitField = BitField {
+        offset: 0,
+        width: 12,
+    };
+    pub const OFFEN: BitField = BitField {
+        offset: 12,
+        width: 1,
+    };
+    pub const IDXEN: BitField = BitField {
+        offset: 13,
+        width: 1,
+    };
+    pub const GLC: BitField = BitField {
+        offset: 14,
+        width: 1,
+    };
+    pub const DLC: BitField = BitField {
+        offset: 15,
+        width: 1,
+    };
+    pub const LDS: BitField = BitField {
+        offset: 16,
+        width: 1,
+    };
+    pub const OP: BitField = BitField {
+        offset: 18,
+        width: 7,
+    };
+    pub const OPM: BitField = BitField {
+        offset: 25,
+        width: 1,
+    };
+    pub const ENCODING: BitField = BitField {
+        offset: 26,
+        width: 6,
+    };
+    pub const VADDR: BitField = BitField {
+        offset: 32,
+        width: 8,
+    };
+    pub const VDATA: BitField = BitField {
+        offset: 40,
+        width: 8,
+    };
+    pub const SRSRC: BitField = BitField {
+        offset: 48,
+        width: 2,
+    };
+    pub const SLC: BitField = BitField {
+        offset: 54,
+        width: 1,
+    };
+    pub const TFE: BitField = BitField {
+        offset: 55,
+        width: 1,
+    };
+    pub const SOFFSET: BitField = BitField {
+        offset: 56,
+        width: 8,
+    };
 }
 
 /// Load 1-component formatted data from a buffer surface, convert the data to 32 bit integral or floating point format, ...
@@ -183,81 +228,456 @@ pub const BUFFER_STORE_FORMAT_D16_XYZW: u16 = 135;
 
 /// All ENC_MUBUF instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_X", opcode: 0, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_XY", opcode: 1, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_XYZ", opcode: 2, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_XYZW", opcode: 3, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_X", opcode: 4, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_XY", opcode: 5, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_XYZ", opcode: 6, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_XYZW", opcode: 7, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_UBYTE", opcode: 8, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_SBYTE", opcode: 9, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_USHORT", opcode: 10, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_SSHORT", opcode: 11, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_DWORD", opcode: 12, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_DWORDX2", opcode: 13, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_DWORDX4", opcode: 14, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_DWORDX3", opcode: 15, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_BYTE", opcode: 24, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_BYTE_D16_HI", opcode: 25, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_SHORT", opcode: 26, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_SHORT_D16_HI", opcode: 27, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_DWORD", opcode: 28, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_DWORDX2", opcode: 29, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_DWORDX4", opcode: 30, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_DWORDX3", opcode: 31, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_UBYTE_D16", opcode: 32, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_UBYTE_D16_HI", opcode: 33, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_SBYTE_D16", opcode: 34, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_SBYTE_D16_HI", opcode: 35, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_SHORT_D16", opcode: 36, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_SHORT_D16_HI", opcode: 37, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_D16_HI_X", opcode: 38, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_D16_HI_X", opcode: 39, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SWAP", opcode: 48, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_CMPSWAP", opcode: 49, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_ADD", opcode: 50, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SUB", opcode: 51, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_CSUB", opcode: 52, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SMIN", opcode: 53, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_UMIN", opcode: 54, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SMAX", opcode: 55, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_UMAX", opcode: 56, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_AND", opcode: 57, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_OR", opcode: 58, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_XOR", opcode: 59, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_INC", opcode: 60, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_DEC", opcode: 61, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_FCMPSWAP", opcode: 62, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_FMIN", opcode: 63, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_FMAX", opcode: 64, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SWAP_X2", opcode: 80, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_CMPSWAP_X2", opcode: 81, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_ADD_X2", opcode: 82, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SUB_X2", opcode: 83, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SMIN_X2", opcode: 85, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_UMIN_X2", opcode: 86, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_SMAX_X2", opcode: 87, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_UMAX_X2", opcode: 88, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_AND_X2", opcode: 89, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_OR_X2", opcode: 90, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_XOR_X2", opcode: 91, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_INC_X2", opcode: 92, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_DEC_X2", opcode: 93, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_FCMPSWAP_X2", opcode: 94, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_FMIN_X2", opcode: 95, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_ATOMIC_FMAX_X2", opcode: 96, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_GL0_INV", opcode: 113, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_GL1_INV", opcode: 114, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_D16_X", opcode: 128, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_D16_XY", opcode: 129, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_D16_XYZ", opcode: 130, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_LOAD_FORMAT_D16_XYZW", opcode: 131, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_D16_X", opcode: 132, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_D16_XY", opcode: 133, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_D16_XYZ", opcode: 134, is_branch: false, is_terminator: false },
-    InstrEntry { name: "BUFFER_STORE_FORMAT_D16_XYZW", opcode: 135, is_branch: false, is_terminator: false },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_X",
+        opcode: 0,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_XY",
+        opcode: 1,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_XYZ",
+        opcode: 2,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_XYZW",
+        opcode: 3,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_X",
+        opcode: 4,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_XY",
+        opcode: 5,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_XYZ",
+        opcode: 6,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_XYZW",
+        opcode: 7,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_UBYTE",
+        opcode: 8,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_SBYTE",
+        opcode: 9,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_USHORT",
+        opcode: 10,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_SSHORT",
+        opcode: 11,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_DWORD",
+        opcode: 12,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_DWORDX2",
+        opcode: 13,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_DWORDX4",
+        opcode: 14,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_DWORDX3",
+        opcode: 15,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_BYTE",
+        opcode: 24,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_BYTE_D16_HI",
+        opcode: 25,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_SHORT",
+        opcode: 26,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_SHORT_D16_HI",
+        opcode: 27,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_DWORD",
+        opcode: 28,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_DWORDX2",
+        opcode: 29,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_DWORDX4",
+        opcode: 30,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_DWORDX3",
+        opcode: 31,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_UBYTE_D16",
+        opcode: 32,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_UBYTE_D16_HI",
+        opcode: 33,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_SBYTE_D16",
+        opcode: 34,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_SBYTE_D16_HI",
+        opcode: 35,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_SHORT_D16",
+        opcode: 36,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_SHORT_D16_HI",
+        opcode: 37,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_D16_HI_X",
+        opcode: 38,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_D16_HI_X",
+        opcode: 39,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SWAP",
+        opcode: 48,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_CMPSWAP",
+        opcode: 49,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_ADD",
+        opcode: 50,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SUB",
+        opcode: 51,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_CSUB",
+        opcode: 52,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SMIN",
+        opcode: 53,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_UMIN",
+        opcode: 54,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SMAX",
+        opcode: 55,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_UMAX",
+        opcode: 56,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_AND",
+        opcode: 57,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_OR",
+        opcode: 58,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_XOR",
+        opcode: 59,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_INC",
+        opcode: 60,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_DEC",
+        opcode: 61,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_FCMPSWAP",
+        opcode: 62,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_FMIN",
+        opcode: 63,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_FMAX",
+        opcode: 64,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SWAP_X2",
+        opcode: 80,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_CMPSWAP_X2",
+        opcode: 81,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_ADD_X2",
+        opcode: 82,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SUB_X2",
+        opcode: 83,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SMIN_X2",
+        opcode: 85,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_UMIN_X2",
+        opcode: 86,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_SMAX_X2",
+        opcode: 87,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_UMAX_X2",
+        opcode: 88,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_AND_X2",
+        opcode: 89,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_OR_X2",
+        opcode: 90,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_XOR_X2",
+        opcode: 91,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_INC_X2",
+        opcode: 92,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_DEC_X2",
+        opcode: 93,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_FCMPSWAP_X2",
+        opcode: 94,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_FMIN_X2",
+        opcode: 95,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_ATOMIC_FMAX_X2",
+        opcode: 96,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_GL0_INV",
+        opcode: 113,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_GL1_INV",
+        opcode: 114,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_D16_X",
+        opcode: 128,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_D16_XY",
+        opcode: 129,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_D16_XYZ",
+        opcode: 130,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_LOAD_FORMAT_D16_XYZW",
+        opcode: 131,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_D16_X",
+        opcode: 132,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_D16_XY",
+        opcode: 133,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_D16_XYZ",
+        opcode: 134,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "BUFFER_STORE_FORMAT_D16_XYZW",
+        opcode: 135,
+        is_branch: false,
+        is_terminator: false,
+    },
 ];
 
 /// Look up an instruction by opcode.
@@ -265,4 +685,3 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
-

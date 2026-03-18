@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
+#![expect(missing_docs, reason = "BAR cartography types; full docs planned")]
 //! BAR0 register space cartography — systematic scanning and classification.
 //!
 //! Scans the entire BAR0 MMIO space in 4-byte strides, classifying each
@@ -466,7 +466,7 @@ pub fn diff_bar_maps(before: &BarMap, after: &BarMap) -> BarMapDiff {
                 went_dead.push((offset, before_probe.map_or(0, |bp| bp.read1)));
             }
             (false, false) => {
-                let bp = before_probe.unwrap();
+                let bp = before_probe.expect("before_probe set in preceding branch");
                 if bp.read1 != after_probe.read1 {
                     value_changed.push((offset, bp.read1, after_probe.read1));
                 } else {
