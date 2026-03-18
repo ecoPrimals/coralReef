@@ -710,6 +710,29 @@ mod tests {
     }
 
     #[test]
+    fn drm_device_open_nonexistent_path() {
+        let result = DrmDevice::open("/nonexistent/path/renderD999");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn drm_device_open_empty_path_fails() {
+        let result = DrmDevice::open("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_default_no_devices_returns_device_not_found() {
+        // When no render nodes exist (e.g. headless CI), open_default fails
+        // We can't easily simulate this, but we can verify the error type
+        // by checking that open_by_driver with nonexistent driver fails
+        let result = DrmDevice::open_by_driver("__nonexistent_driver_xyz__");
+        let err = result.err().expect("should be Err");
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("device not found") || err_msg.contains("not found"));
+    }
+
+    #[test]
     fn mapped_region_slice_at_valid_range() {
         let (file, path) = temp_mmap_file(4096);
         let fd = file.as_raw_fd();

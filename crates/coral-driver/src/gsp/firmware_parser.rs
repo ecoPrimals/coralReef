@@ -184,13 +184,13 @@ impl GrFirmwareBlobs {
 
     /// Number of bundle init register writes.
     #[must_use]
-    pub fn bundle_count(&self) -> usize {
+    pub const fn bundle_count(&self) -> usize {
         self.bundle_init.len()
     }
 
     /// Number of method init calls.
     #[must_use]
-    pub fn method_count(&self) -> usize {
+    pub const fn method_count(&self) -> usize {
         self.method_init.len()
     }
 
@@ -202,19 +202,19 @@ impl GrFirmwareBlobs {
 
     /// Context state template size in bytes.
     #[must_use]
-    pub fn ctx_size(&self) -> usize {
+    pub const fn ctx_size(&self) -> usize {
         self.ctx_data.len()
     }
 
     /// Non-context state size in bytes.
     #[must_use]
-    pub fn nonctx_size(&self) -> usize {
+    pub const fn nonctx_size(&self) -> usize {
         self.nonctx_data.len()
     }
 
     /// Whether a context template is available for FECS init.
     #[must_use]
-    pub fn has_ctx_template(&self) -> bool {
+    pub const fn has_ctx_template(&self) -> bool {
         !self.ctx_data.is_empty()
     }
 
@@ -366,6 +366,146 @@ mod tests {
                 eprintln!("GA102 firmware not present: {e}");
             }
         }
+    }
+
+    #[test]
+    fn parse_net_img_synthetic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+
+        // Build synthetic NET_img: header [pad, num_sections=2], then 2 sections
+        // Section 0: type 0x05 (register init), size 8, offset 32
+        // Section 1: type 0x07 (method init), size 8, offset 40
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes()); // pad
+        data.extend_from_slice(&2u32.to_le_bytes()); // num_sections
+
+        // Section 0: type 0x05, size 8, offset 32
+        data.extend_from_slice(&0x05u32.to_le_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes());
+        data.extend_from_slice(&32u32.to_le_bytes());
+
+        // Section 1: type 0x07, size 8, offset 40
+        data.extend_from_slice(&0x07u32.to_le_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes());
+        data.extend_from_slice(&40u32.to_le_bytes());
+
+        // Pad to offset 32, then section 0 data: one register pair in GPU range
+        let reg_addr = 0x0040_1000u32; // in 0x0040_0000..0x0080_0000
+        let reg_val = 0xDEAD_BEEFu32;
+        data.resize(32, 0);
+        data.extend_from_slice(&reg_addr.to_le_bytes());
+        data.extend_from_slice(&reg_val.to_le_bytes());
+
+        // Section 1 data: method pair at offset 40
+        let method_addr = 0x0100u32;
+        let method_val = 0x42u32;
+        data.extend_from_slice(&method_addr.to_le_bytes());
+        data.extend_from_slice(&method_val.to_le_bytes());
+
+        std::fs::write(&path, &data).unwrap();
+
+        let blobs = GrFirmwareBlobs::parse_from(dir.path(), "ga102").unwrap();
+        assert_eq!(blobs.chip, "ga102");
+        assert_eq!(blobs.format, FirmwareFormat::NetImg);
+        assert_eq!(blobs.bundle_init.len(), 1);
+        assert_eq!(blobs.bundle_init[0].addr, reg_addr);
+        assert_eq!(blobs.bundle_init[0].value, reg_val);
+        assert_eq!(blobs.method_init.len(), 1);
+        assert_eq!(blobs.method_init[0].addr, method_addr);
+        assert_eq!(blobs.method_init[0].value, method_val);
+    }
+
+    #[test]
+    fn parse_net_img_too_small() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+        std::fs::write(&path, &[0u8; 4]).unwrap();
+        let result = GrFirmwareBlobs::parse_from(dir.path(), "ga102");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too small"));
+    }
+
+    #[test]
+    fn parse_net_img_ctx_and_nonctx_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NET_img.bin");
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&0x04u32.to_le_bytes()); // 4 sections
+
+        // Section 0: type 0x01 (ctx), size 64, offset 56
+        for v in &[0x01u32, 64u32, 56u32] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        // Section 1: type 0x03 (nonctx), size 32, offset 120
+        for v in &[0x03u32, 32u32, 120u32] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        // Section 2: type 0x05 (register), size 8, offset 152
+        for v in &[0x05u32, 8u32, 152u32] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        // Section 3: type 0x07 (method), size 0, offset 0
+        for v in &[0x07u32, 0u32, 0u32] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+
+        data.resize(56, 0);
+        data.extend_from_slice(&[0xAAu8; 64]); // ctx data
+        data.extend_from_slice(&[0xBBu8; 32]); // nonctx data
+        data.extend_from_slice(&0x0040_2000u32.to_le_bytes());
+        data.extend_from_slice(&0x1234u32.to_le_bytes());
+
+        std::fs::write(&path, &data).unwrap();
+
+        let blobs = GrFirmwareBlobs::parse_from(dir.path(), "ga102").unwrap();
+        assert_eq!(blobs.ctx_data.len(), 64);
+        assert_eq!(blobs.ctx_data[0], 0xAA);
+        assert_eq!(blobs.nonctx_data.len(), 32);
+        assert_eq!(blobs.nonctx_data[0], 0xBB);
+        assert!(blobs.has_ctx_template());
+    }
+
+    #[test]
+    fn parse_u32_pairs_odd_length_ignores_trailing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.bin");
+        // 8 bytes (one pair) + 4 bytes trailing
+        let mut data = Vec::new();
+        data.extend_from_slice(&0x100u32.to_le_bytes());
+        data.extend_from_slice(&0x42u32.to_le_bytes());
+        data.extend_from_slice(&0xFFu32.to_le_bytes());
+        std::fs::write(&path, &data).unwrap();
+
+        let pairs = parse_u32_pairs(&path).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0], (0x100, 0x42));
+    }
+
+    #[test]
+    fn bundle_writes_to_and_unique_addrs() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let mut bundle_data = Vec::new();
+        for &(addr, val) in &[(0x0040_1000u32, 1u32), (0x0040_2000u32, 2u32), (0x0040_1000u32, 3u32)] {
+            bundle_data.extend_from_slice(&addr.to_le_bytes());
+            bundle_data.extend_from_slice(&val.to_le_bytes());
+        }
+        std::fs::write(base.join("sw_bundle_init.bin"), &bundle_data).unwrap();
+        std::fs::write(base.join("sw_method_init.bin"), []).unwrap();
+
+        let blobs = GrFirmwareBlobs::parse_from(base, "test").unwrap();
+        let to_1000 = blobs.bundle_writes_to(0x0040_1000);
+        assert_eq!(to_1000.len(), 2);
+        assert_eq!(to_1000[0].value, 1);
+        assert_eq!(to_1000[1].value, 3);
+
+        let addrs = blobs.unique_bundle_addrs();
+        assert_eq!(addrs.len(), 2);
+        assert_eq!(addrs[0], 0x0040_1000);
+        assert_eq!(addrs[1], 0x0040_2000);
     }
 
     #[test]

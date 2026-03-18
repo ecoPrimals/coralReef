@@ -3,10 +3,10 @@
 //!
 //! Provides direct PCIe device access via Linux VFIO: open container/group/device,
 //! map BAR regions, and allocate IOMMU-mapped DMA buffers. This is coralReef's
-//! own dispatch-focused VFIO implementation — toadStool handles the hardware
+//! own dispatch-focused VFIO implementation — ecosystem handles the hardware
 //! lifecycle (binding GPUs to `vfio-pci`, IOMMU setup, permissions).
 //!
-//! # Prerequisites (provided by toadStool)
+//! # Prerequisites (provided by ecosystem hardware setup)
 //!
 //! - GPU bound to `vfio-pci` (not nouveau/nvidia)
 //! - IOMMU enabled in BIOS and kernel (`intel_iommu=on` or `amd_iommu=on`)

@@ -5,8 +5,10 @@ use coral_reef::{GpuTarget, NvArch};
 
 use crate::preference;
 
-const FALLBACK_NV_SM: u32 = 86;
-const FALLBACK_NV_SM_NOUVEAU: u32 = 70;
+/// Fallback SM when sysfs detection fails and `$CORALREEF_DEFAULT_SM` is unset (Ampere GA102).
+pub const DEFAULT_NV_SM: u32 = 86;
+/// Fallback SM for nouveau path when detection fails and `$CORALREEF_DEFAULT_SM_NOUVEAU` is unset (Volta).
+pub const DEFAULT_NV_SM_NOUVEAU: u32 = 70;
 
 /// Default NVIDIA SM architecture for sysfs-based fallback detection.
 ///
@@ -16,7 +18,7 @@ pub(crate) fn default_nv_sm() -> u32 {
     std::env::var("CORALREEF_DEFAULT_SM")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(FALLBACK_NV_SM)
+        .unwrap_or(DEFAULT_NV_SM)
 }
 
 /// Default NVIDIA SM for the nouveau sovereign path when sysfs detection fails.
@@ -27,7 +29,7 @@ pub(crate) fn default_nv_sm_nouveau() -> u32 {
     std::env::var("CORALREEF_DEFAULT_SM_NOUVEAU")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(FALLBACK_NV_SM_NOUVEAU)
+        .unwrap_or(DEFAULT_NV_SM_NOUVEAU)
 }
 
 /// Map an SM version number to the corresponding `NvArch`.

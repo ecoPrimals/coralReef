@@ -458,3 +458,42 @@ IPC: `shader.compile.*` + `health.*` — JSON-RPC 2.0 + tarpc + Unix socket.
 Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 8 of 9 crates enforce #[deny(unsafe_code)].
 All pure Rust. Sovereignty is a runtime choice.*
+
+---
+
+## Titan V Sovereignty Evolution
+
+### Phase 1: Boot Preemption (COMPLETE — Iteration 56)
+
+nvidia's open kernel module (580.126.18) probes ALL nvidia PCI devices at boot,
+including Titan V (GV100) which has no GSP. The failed probe corrupts hardware
+state, causing kernel panics when vfio-pci subsequently reads registers.
+
+**Fix**: `softdep nvidia pre: vfio-pci` + `options vfio-pci ids=10de:1d81` forces
+vfio-pci to claim both Titan V's before nvidia loads. nvidia sees "already bound
+to vfio-pci" and skips them. RTX 5060 (10de:2d05) is unaffected.
+
+Runtime guards: circuit breaker (halts BAR0 reads after 6 faults), nvidia module
+guard (blocks swap/resurrect), DRM consumer guard (blocks unbind of active displays).
+
+### Phase 2: Custom PMU Falcon Firmware (PLANNED)
+
+GV100 has a programmable PMU (Falcon microcontroller) that accepts unsigned
+firmware. Writing custom Falcon firmware in Rust would replace vendor firmware
+dependency entirely. The PMU handles power management, fan control, and clock
+gating — all currently managed by nouveau or left to hardware defaults.
+
+### Phase 3: Sovereign HBM2 Training (PLANNED)
+
+coral-driver already has the HBM2 training typestate machine
+(`Untrained` -> `PhyUp` -> `LinkTrained` -> `DramReady` -> `Verified`).
+Completing this eliminates the dependency on nouveau for HBM2 resurrection.
+Direct FBPA, LTC, PFB, and PCLOCK register programming via VFIO BAR0.
+
+### Phase 4: Vendor-Agnostic GPU Abstraction (VISION)
+
+Build a unified Rust abstraction over AMD and NVIDIA register interfaces.
+coral-driver already abstracts over both via the `ShaderModel` trait and
+vendor-specific BAR0 backends. Extending this to cover initialization,
+memory training, and power management creates a truly sovereign stack
+where vendor kernel modules are never needed.

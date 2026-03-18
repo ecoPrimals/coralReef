@@ -75,6 +75,19 @@ pub fn generate_types_file() -> Result<String> {
     Ok(out)
 }
 
+/// Sub-categorize VOP3 comparison instructions for table split (float vs int).
+fn cmp_sub_category(name: &str) -> &'static str {
+    if name.ends_with("_F32")
+        || name.ends_with("_F64")
+        || name.ends_with("_F16")
+        || name.contains("CLASS_F")
+    {
+        "cmp_f32_f64"
+    } else {
+        "cmp_int"
+    }
+}
+
 /// Categorize VOP3 instruction for sub-table split.
 pub fn vop3_category(name: &str) -> &'static str {
     if name.starts_with("V_CMP_") || name.starts_with("V_CMPX_") {
@@ -203,18 +216,51 @@ pub fn generate_encoding_file(
             .into_iter()
             .filter(|c| by_cat.contains_key(*c))
             .collect();
+        // Effective table names: cmp splits into cmp_f32_f64 and cmp_int
+        let effective_tables: Vec<String> = vop3_cats
+            .iter()
+            .flat_map(|cat| {
+                if *cat == "cmp" {
+                    vec!["cmp_f32_f64".to_string(), "cmp_int".to_string()]
+                } else {
+                    vec![(*cat).to_string()]
+                }
+            })
+            .collect();
         for cat in &vop3_cats {
             let cat_instrs = by_cat
                 .get(*cat)
                 .ok_or_else(|| anyhow::anyhow!("VOP3 category {cat} missing from by_cat"))?;
-            let mut tbl = file_header()?;
-            writeln!(tbl, "use super::super::isa_types::InstrEntry;")?;
-            writeln!(tbl)?;
-            write_table_part(&mut tbl, cat_instrs)?;
-            table_sub_files.push((format!("table_{cat}.rs"), tbl));
+            if *cat == "cmp" {
+                let mut cmp_float: Vec<&InstrInfo> = Vec::new();
+                let mut cmp_int: Vec<&InstrInfo> = Vec::new();
+                for i in cat_instrs {
+                    if cmp_sub_category(&i.name) == "cmp_f32_f64" {
+                        cmp_float.push(i);
+                    } else {
+                        cmp_int.push(i);
+                    }
+                }
+                let mut tbl_f = file_header()?;
+                writeln!(tbl_f, "use super::super::isa_types::InstrEntry;")?;
+                writeln!(tbl_f)?;
+                write_table_part(&mut tbl_f, &cmp_float)?;
+                table_sub_files.push(("table_cmp_f32_f64.rs".to_string(), tbl_f));
+                let mut tbl_i = file_header()?;
+                writeln!(tbl_i, "use super::super::isa_types::InstrEntry;")?;
+                writeln!(tbl_i)?;
+                write_table_part(&mut tbl_i, &cmp_int)?;
+                table_sub_files.push(("table_cmp_int.rs".to_string(), tbl_i));
+            } else {
+                let mut tbl = file_header()?;
+                writeln!(tbl, "use super::super::isa_types::InstrEntry;")?;
+                writeln!(tbl)?;
+                write_table_part(&mut tbl, cat_instrs)?;
+                table_sub_files.push((format!("table_{cat}.rs"), tbl));
+            }
         }
-        for cat in &vop3_cats {
-            writeln!(out, "mod table_{cat};")?;
+        for t in &effective_tables {
+            writeln!(out, "mod table_{t};")?;
         }
         writeln!(out)?;
         writeln!(out, "use std::sync::OnceLock;")?;
@@ -232,11 +278,11 @@ pub fn generate_encoding_file(
         writeln!(out, "pub fn table() -> &'static [InstrEntry] {{")?;
         writeln!(out, "    TABLE_CACHE.get_or_init(|| {{")?;
         write!(out, "        [")?;
-        for (i, cat) in vop3_cats.iter().enumerate() {
+        for (i, t) in effective_tables.iter().enumerate() {
             if i > 0 {
                 write!(out, ", ")?;
             }
-            write!(out, "table_{cat}::TABLE")?;
+            write!(out, "table_{t}::TABLE")?;
         }
         writeln!(out, "].concat()")?;
         writeln!(out, "    }}).as_slice()")?;
@@ -248,11 +294,11 @@ pub fn generate_encoding_file(
             out,
             "pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {{"
         )?;
-        for (i, cat) in vop3_cats.iter().enumerate() {
+        for (i, t) in effective_tables.iter().enumerate() {
             if i == 0 {
-                write!(out, "    table_{cat}::lookup(opcode)")?;
+                write!(out, "    table_{t}::lookup(opcode)")?;
             } else {
-                write!(out, "\n        .or_else(|| table_{cat}::lookup(opcode))")?;
+                write!(out, "\n        .or_else(|| table_{t}::lookup(opcode))")?;
             }
         }
         writeln!(out)?;

@@ -75,6 +75,7 @@ mod tests {
     use bytes::Bytes;
     use compile::parse_target;
     use coral_reef::{FmaPolicy, GpuArch, GpuTarget};
+    use std::sync::Arc;
     use types::{
         CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
         DeviceCompileResult, DeviceTarget, HealthResponse, MultiDeviceCompileRequest,
@@ -219,7 +220,7 @@ mod tests {
     #[test]
     fn test_compile_wgsl_empty() {
         let req = CompileWgslRequest {
-            wgsl_source: String::new(),
+            wgsl_source: Arc::from(""),
             arch: "sm_70".to_owned(),
             opt_level: 2,
             fp64_software: true,
@@ -259,7 +260,7 @@ mod tests {
     #[test]
     fn test_handle_compile_wgsl_unsupported_arch() {
         let req = CompileWgslRequest {
-            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
             arch: "unknown_gpu".to_owned(),
             opt_level: 2,
             fp64_software: true,
@@ -292,7 +293,7 @@ mod tests {
     #[test]
     fn test_compile_wgsl_with_fma_separate() {
         let req = CompileWgslRequest {
-            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
             arch: "sm_70".to_owned(),
             opt_level: 2,
             fp64_software: false,
@@ -306,7 +307,7 @@ mod tests {
     #[test]
     fn test_multi_device_compile_basic() {
         let req = MultiDeviceCompileRequest {
-            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
             targets: vec![
                 DeviceTarget {
                     card_index: 0,
@@ -341,7 +342,7 @@ mod tests {
     #[test]
     fn test_multi_device_compile_mixed_success_failure() {
         let req = MultiDeviceCompileRequest {
-            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
             targets: vec![
                 DeviceTarget {
                     card_index: 0,
@@ -371,7 +372,7 @@ mod tests {
     #[test]
     fn test_multi_device_compile_empty_source() {
         let req = MultiDeviceCompileRequest {
-            wgsl_source: String::new(),
+            wgsl_source: Arc::from(""),
             targets: vec![DeviceTarget {
                 card_index: 0,
                 arch: "sm_70".to_owned(),
@@ -388,7 +389,7 @@ mod tests {
     #[test]
     fn test_multi_device_compile_no_targets() {
         let req = MultiDeviceCompileRequest {
-            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
             targets: vec![],
             opt_level: 2,
             fp64_software: false,
@@ -401,7 +402,7 @@ mod tests {
     #[test]
     fn test_multi_device_compile_cross_vendor() {
         let req = MultiDeviceCompileRequest {
-            wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_owned(),
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
             targets: vec![
                 DeviceTarget {
                     card_index: 0,
@@ -428,7 +429,7 @@ mod tests {
     #[test]
     fn test_multi_device_request_serde_roundtrip() {
         let req = MultiDeviceCompileRequest {
-            wgsl_source: "fn main() {}".to_owned(),
+            wgsl_source: Arc::from("fn main() {}"),
             targets: vec![DeviceTarget {
                 card_index: 0,
                 arch: "sm_70".to_owned(),
@@ -441,7 +442,7 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         let roundtrip: MultiDeviceCompileRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip.wgsl_source, req.wgsl_source);
+        assert_eq!(roundtrip.wgsl_source.as_ref(), req.wgsl_source.as_ref());
         assert_eq!(roundtrip.targets.len(), 1);
         assert_eq!(roundtrip.targets[0].arch, "sm_70");
         assert_eq!(roundtrip.targets[0].pcie_group, Some(1));
@@ -478,7 +479,7 @@ mod tests {
     #[test]
     fn test_compile_wgsl_request_serde_roundtrip() {
         let req = CompileWgslRequest {
-            wgsl_source: "fn main() {}".to_owned(),
+            wgsl_source: Arc::from("fn main() {}"),
             arch: "sm_80".to_owned(),
             opt_level: 3,
             fp64_software: false,
@@ -487,7 +488,7 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         let roundtrip: CompileWgslRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip.wgsl_source, req.wgsl_source);
+        assert_eq!(roundtrip.wgsl_source.as_ref(), req.wgsl_source.as_ref());
         assert_eq!(roundtrip.arch, req.arch);
         assert_eq!(roundtrip.fp64_strategy.as_deref(), Some("native"));
         assert_eq!(roundtrip.fma_policy.as_deref(), Some("fused"));

@@ -2,21 +2,28 @@
 
 # Hardware Testing Guide — coralReef GPU Parity
 
-**Last updated**: March 12, 2026 (Phase 10 — Iteration 37)
+**Last updated**: March 18, 2026 (Phase 10 — Iteration 56)
 
 ## Hardware Inventory
 
 | Node | GPU | Architecture | Driver | Status |
 |------|-----|-------------|--------|--------|
-| `renderD128` | AMD RX 6950 XT | RDNA2 (GFX1030) | `amdgpu` | Full pipeline: compile + dispatch + readback |
-| `renderD129` | NVIDIA RTX 3090 | SM86 (Ampere) | `nvidia-drm` | UVM dispatch pipeline code-complete (pending hardware validation) |
+| — | NVIDIA Titan V #1 | GV100 SM70 (Volta) | `vfio-pci` | VFIO sovereign — VRAM healthy, boot preemption active |
+| — | NVIDIA Titan V #2 | GV100 SM70 (Volta) | `vfio-pci` | VFIO sovereign — VRAM healthy, boot preemption active |
+| `renderD128` | NVIDIA RTX 5060 | SM89 (Ada) | `nvidia-drm` | Desktop display + UVM dispatch |
 
-### hotSpring Test Rig (remote)
+### Boot Sovereignty (Iteration 56)
 
-| GPU | Architecture | Driver Available | Needed Tests |
-|-----|-------------|-----------------|-------------|
-| NVIDIA Titan V | GV100 SM70 (Volta) | nouveau (open) | **Blocked**: PMU firmware missing (Exp 057). VM_INIT succeeds, CHANNEL_ALLOC fails. |
-| NVIDIA RTX 3090 | GA102 SM86 (Ampere) | nvidia-drm (proprietary) | UVM RM client, buffer mapping, compute dispatch |
+Both Titan V GPUs are claimed by `vfio-pci` at boot via `softdep nvidia pre: vfio-pci`
+and `vfio-pci.ids=10de:1d81` in kernel cmdline. nvidia's open kernel module never
+touches them. See `scripts/boot/` for deployment configs.
+
+### Historical Test Rig (decommissioned)
+
+| GPU | Architecture | Driver | Notes |
+|-----|-------------|--------|-------|
+| AMD RX 6950 XT | RDNA2 (GFX1030) | `amdgpu` | Full pipeline verified — no longer on-site |
+| NVIDIA RTX 3090 | GA102 SM86 (Ampere) | `nvidia-drm` | UVM dispatch code-complete — no longer on-site |
 
 ## Feature Flags
 
@@ -126,7 +133,7 @@ targets:
 git clone git@github.com:ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace  # 2241 passing, should complete in ~60s
+cargo test --workspace  # 2527 passing, should complete in ~60s
 ```
 
 ### Step 1: Nouveau EINVAL Diagnostics (Titan V)

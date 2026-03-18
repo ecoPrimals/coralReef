@@ -13,54 +13,18 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_FLAT_SCRATCH encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const OFFSET: BitField = BitField {
-        offset: 0,
-        width: 12,
-    };
-    pub const DLC: BitField = BitField {
-        offset: 12,
-        width: 1,
-    };
-    pub const LDS: BitField = BitField {
-        offset: 13,
-        width: 1,
-    };
-    pub const SEG: BitField = BitField {
-        offset: 14,
-        width: 2,
-    };
-    pub const GLC: BitField = BitField {
-        offset: 16,
-        width: 1,
-    };
-    pub const SLC: BitField = BitField {
-        offset: 17,
-        width: 1,
-    };
-    pub const OP: BitField = BitField {
-        offset: 18,
-        width: 7,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 26,
-        width: 6,
-    };
-    pub const ADDR: BitField = BitField {
-        offset: 32,
-        width: 8,
-    };
-    pub const DATA: BitField = BitField {
-        offset: 40,
-        width: 8,
-    };
-    pub const SADDR: BitField = BitField {
-        offset: 48,
-        width: 7,
-    };
-    pub const VDST: BitField = BitField {
-        offset: 56,
-        width: 8,
-    };
+    pub const OFFSET: BitField = BitField { offset: 0, width: 12 };
+    pub const DLC: BitField = BitField { offset: 12, width: 1 };
+    pub const LDS: BitField = BitField { offset: 13, width: 1 };
+    pub const SEG: BitField = BitField { offset: 14, width: 2 };
+    pub const GLC: BitField = BitField { offset: 16, width: 1 };
+    pub const SLC: BitField = BitField { offset: 17, width: 1 };
+    pub const OP: BitField = BitField { offset: 18, width: 7 };
+    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
+    pub const ADDR: BitField = BitField { offset: 32, width: 8 };
+    pub const DATA: BitField = BitField { offset: 40, width: 8 };
+    pub const SADDR: BitField = BitField { offset: 48, width: 7 };
+    pub const VDST: BitField = BitField { offset: 56, width: 8 };
 }
 
 /// Load 8 bits of unsigned data from the scratch aperture, zero extend to 32 bits and store the result into a vector reg...
@@ -110,138 +74,28 @@ pub const SCRATCH_LOAD_SHORT_D16_HI: u16 = 37;
 
 /// All ENC_FLAT_SCRATCH instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "SCRATCH_LOAD_UBYTE",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_SBYTE",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_USHORT",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_SSHORT",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_DWORD",
-        opcode: 12,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_DWORDX2",
-        opcode: 13,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_DWORDX4",
-        opcode: 14,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_DWORDX3",
-        opcode: 15,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_BYTE",
-        opcode: 24,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_BYTE_D16_HI",
-        opcode: 25,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_SHORT",
-        opcode: 26,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_SHORT_D16_HI",
-        opcode: 27,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_DWORD",
-        opcode: 28,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_DWORDX2",
-        opcode: 29,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_DWORDX4",
-        opcode: 30,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_STORE_DWORDX3",
-        opcode: 31,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_UBYTE_D16",
-        opcode: 32,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_UBYTE_D16_HI",
-        opcode: 33,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_SBYTE_D16",
-        opcode: 34,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_SBYTE_D16_HI",
-        opcode: 35,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_SHORT_D16",
-        opcode: 36,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "SCRATCH_LOAD_SHORT_D16_HI",
-        opcode: 37,
-        is_branch: false,
-        is_terminator: false,
-    },
+    InstrEntry { name: "SCRATCH_LOAD_UBYTE", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_SBYTE", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_USHORT", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_SSHORT", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_DWORD", opcode: 12, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_DWORDX2", opcode: 13, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_DWORDX4", opcode: 14, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_DWORDX3", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_BYTE", opcode: 24, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_BYTE_D16_HI", opcode: 25, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_SHORT", opcode: 26, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_SHORT_D16_HI", opcode: 27, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_DWORD", opcode: 28, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_DWORDX2", opcode: 29, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_DWORDX4", opcode: 30, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_STORE_DWORDX3", opcode: 31, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_UBYTE_D16", opcode: 32, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_UBYTE_D16_HI", opcode: 33, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_SBYTE_D16", opcode: 34, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_SBYTE_D16_HI", opcode: 35, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_SHORT_D16", opcode: 36, is_branch: false, is_terminator: false },
+    InstrEntry { name: "SCRATCH_LOAD_SHORT_D16_HI", opcode: 37, is_branch: false, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -249,3 +103,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

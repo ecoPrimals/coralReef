@@ -46,9 +46,9 @@ use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo}
 
 use std::collections::HashMap;
 
-/// Kernel-managed VA region base passed to VM_INIT.
+/// Kernel-managed VA region base passed to `VM_INIT`.
 ///
-/// VM_INIT reserves `[kernel_managed_addr, kernel_managed_addr + size)` for
+/// `VM_INIT` reserves `[kernel_managed_addr, kernel_managed_addr + size)` for
 /// kernel use (page tables, internal objects). Userspace must allocate VA
 /// addresses OUTSIDE this range.
 pub const NV_KERNEL_MANAGED_ADDR: u64 = 0x80_0000_0000;
@@ -90,7 +90,7 @@ pub struct NvDevice {
     compute_class: u32,
     /// Detected SM architecture version (e.g. 70 for Volta, 86 for Ampere).
     sm_version: u32,
-    /// Whether the new UAPI (VM_INIT/VM_BIND/EXEC) is active.
+    /// Whether the new UAPI (`VM_INIT`/`VM_BIND`/`EXEC`) is active.
     new_uapi: bool,
     /// Next GPU virtual address to allocate (new UAPI only).
     /// Starts at `NV_KERNEL_MANAGED_ADDR` and grows upward.
@@ -268,7 +268,7 @@ impl NvDevice {
         h
     }
 
-    /// Whether this device uses the new UAPI (VM_INIT/VM_BIND/EXEC).
+    /// Whether this device uses the new UAPI (`VM_INIT`/`VM_BIND`/`EXEC`).
     #[must_use]
     pub const fn uses_new_uapi(&self) -> bool {
         self.new_uapi
@@ -314,12 +314,9 @@ impl NvDevice {
         let pb = pushbuf::PushBuf::gr_context_init(self.compute_class, &channel_methods);
         let pb_bytes = pb.as_bytes();
 
-        let pb_size = match u64::try_from(pb_bytes.len()) {
-            Ok(s) => s,
-            Err(_) => {
-                tracing::warn!("GR init pushbuf too large — skipping");
-                return;
-            }
+        let Ok(pb_size) = u64::try_from(pb_bytes.len()) else {
+            tracing::warn!("GR init pushbuf too large — skipping");
+            return;
         };
 
         let pb_handle = match self.alloc(pb_size, MemoryDomain::Gtt) {
@@ -344,7 +341,11 @@ impl NvDevice {
 
         let submit_result = if self.new_uapi {
             let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
-            let push_len = pb_size as u32;
+            let Ok(push_len) = u32::try_from(pb_size) else {
+                tracing::warn!("GR init pushbuf size exceeds u32 — skipping");
+                let _ = self.free(pb_handle);
+                return;
+            };
             if let Some(syncobj) = self.exec_syncobj {
                 ioctl::exec_submit_with_signal(
                     self.drm.fd(),
@@ -578,14 +579,18 @@ impl NvDevice {
         let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
         temps.push(desc_handle);
 
-        let mut desc_data = vec![0u8; desc_buf_size as usize];
+        let desc_len = usize::try_from(desc_buf_size)
+            .map_err(|_| DriverError::platform_overflow("descriptor buffer size exceeds usize"))?;
+        let mut desc_data = vec![0u8; desc_len];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
                 let off = i * 8;
                 let va = buf.gpu_va;
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
-                desc_data[off..off + 4].copy_from_slice(&(va as u32).to_le_bytes());
-                desc_data[off + 4..off + 8].copy_from_slice(&((va >> 32) as u32).to_le_bytes());
+                let va_lo = u32::try_from(va & 0xFFFF_FFFF).unwrap_or(u32::MAX);
+                let va_hi = u32::try_from(va >> 32).unwrap_or(u32::MAX);
+                desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
+                desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
                 let sz_off = off + 8;
                 if sz_off + 4 <= desc_data.len() {
                     desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());

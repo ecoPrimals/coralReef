@@ -35,6 +35,9 @@
 pub mod error;
 
 #[cfg(target_os = "linux")]
+pub(crate) mod mmio;
+
+#[cfg(target_os = "linux")]
 pub mod drm;
 
 #[cfg(target_os = "linux")]

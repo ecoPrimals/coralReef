@@ -3,7 +3,10 @@
 
 use crate::error::DriverResult;
 
-use super::super::structs::*;
+use super::super::structs::{
+    Nv0080AllocParams, Nv2080AllocParams, NvChannelGroupAllocParams, NvChannelAllocParams,
+    NvMemoryAllocParams, NvMemoryVirtualAllocParams, NvVaspaceAllocParams,
+};
 use super::super::{
     AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B, FERMI_VASPACE_A,
     KEPLER_CHANNEL_GROUP_A, NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING, NV01_DEVICE_0,

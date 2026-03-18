@@ -1,7 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! TOML configuration for the GlowPlug daemon.
+//! TOML configuration for the `GlowPlug` daemon.
 
 use serde::Deserialize;
+
+/// XDG config subdirectory for coralReef ecosystem.
+const CONFIG_SUBDIR: &str = "coralreef";
+/// Default config filename.
+const CONFIG_FILENAME: &str = "glowplug.toml";
+/// System-wide config path (fallback after XDG).
+pub const FALLBACK_SYSTEM_CONFIG: &str = "/etc/coralreef/glowplug.toml";
+
+/// Config resolution order: CLI `--config` > `$CORALREEF_CONFIG` > `XDG_CONFIG_HOME` config > system fallback.
+///
+/// Returns candidate paths in search order. Callers try loading each until one succeeds.
+#[must_use]
+pub fn config_search_paths() -> Vec<String> {
+    if let Ok(path) = std::env::var("CORALREEF_CONFIG")
+        && !path.is_empty()
+    {
+        return vec![path];
+    }
+    let xdg_config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        format!(
+            "{}/.config",
+            std::env::var("HOME").unwrap_or_else(|_| "/root".into()),
+        )
+    });
+    vec![
+        format!("{xdg_config}/{CONFIG_SUBDIR}/{CONFIG_FILENAME}"),
+        FALLBACK_SYSTEM_CONFIG.into(),
+    ]
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -55,7 +84,7 @@ pub struct DeviceConfig {
     #[serde(default)]
     pub role: Option<String>,
     /// Path to write oracle register dumps (state vault persistence).
-    /// Loaded from TOML config, used by device.rs snapshot_registers.
+    /// Loaded from TOML config, used by `device.rs` `snapshot_registers`.
     #[serde(default)]
     pub oracle_dump: Option<String>,
 }
@@ -74,19 +103,30 @@ pub fn default_tcp_fallback() -> String {
     std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
 
-/// Platform-aware default socket address (ecoBin compliance).
+/// Ecosystem namespace per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
+const ECOSYSTEM_NAMESPACE: &str = "biomeos";
+
+/// Family ID for multi-instance isolation (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
+fn family_id() -> String {
+    std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+}
+
+/// Platform-aware default socket address (ecoBin / wateringHole compliance).
 ///
-/// On Unix: primary transport is Unix domain socket under `$XDG_RUNTIME_DIR`
-/// (or `/run/coralreef/` as fallback).
+/// On Unix: `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
+/// (or `$TMPDIR/biomeos/` if `XDG_RUNTIME_DIR` unset).
 /// On non-Unix: TCP fallback to `127.0.0.1:0` (OS-assigned port).
 #[must_use]
 fn default_socket() -> String {
     #[cfg(unix)]
     {
-        if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-            return format!("{xdg}/coralreef/glowplug.sock");
-        }
-        "/run/coralreef/glowplug.sock".into()
+        let base = std::env::var("XDG_RUNTIME_DIR")
+            .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
+        let sock_name = format!("{}-{}.sock", env!("CARGO_PKG_NAME"), family_id());
+        base.join(ECOSYSTEM_NAMESPACE)
+            .join(sock_name)
+            .display()
+            .to_string()
     }
     #[cfg(not(unix))]
     {
@@ -96,7 +136,7 @@ fn default_socket() -> String {
 fn default_log_level() -> String {
     "info".into()
 }
-fn default_health_interval() -> u64 {
+const fn default_health_interval() -> u64 {
     5000
 }
 fn default_personality() -> String {
@@ -107,10 +147,22 @@ fn default_power_policy() -> String {
 }
 
 impl Config {
-    pub fn load(path: &str) -> Result<Self, String> {
+    /// Load and parse a TOML config file.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::ReadFailed` if the file can't be read, or
+    /// `ConfigError::ParseFailed` if the TOML is malformed.
+    pub fn load(path: &str) -> Result<Self, crate::error::ConfigError> {
         let content =
-            std::fs::read_to_string(path).map_err(|e| format!("read config {path}: {e}"))?;
-        toml::from_str(&content).map_err(|e| format!("parse config {path}: {e}"))
+            std::fs::read_to_string(path).map_err(|e| crate::error::ConfigError::ReadFailed {
+                path: path.to_owned(),
+                source: e,
+            })?;
+        toml::from_str(&content).map_err(|e| crate::error::ConfigError::ParseFailed {
+            path: path.to_owned(),
+            source: e,
+        })
     }
 
     /// Build a config by scanning the PCI bus for discrete GPUs.
@@ -143,7 +195,7 @@ impl Config {
             // Only known GPU vendors
             let vendor_name = GPU_VENDORS
                 .iter()
-                .find(|(vid, _)| *vid == vendor as u16)
+                .find(|(vid, _)| u16::try_from(vendor).is_ok_and(|v| v == *vid))
                 .map(|(_, name)| *name);
             if vendor_name.is_none() {
                 continue;
@@ -160,12 +212,10 @@ impl Config {
                 continue;
             }
 
-            let personality =
-                if driver.as_deref() == Some("nouveau") || driver.as_deref() == Some("amdgpu") {
-                    driver.clone().expect("driver checked in condition")
-                } else {
-                    DEFAULT_PERSONALITY.into()
-                };
+            let personality = match &driver {
+                Some(s) if s == "nouveau" || s == "amdgpu" => s.clone(),
+                _ => DEFAULT_PERSONALITY.into(),
+            };
 
             tracing::info!(
                 bdf = %bdf,
@@ -326,8 +376,9 @@ bdf = "0000:03:00.0"
             Ok(_) => panic!("expected load to fail"),
             Err(e) => e,
         };
-        assert!(err.contains("read config"));
-        assert!(err.contains("/nonexistent/path/glowplug.toml"));
+        let msg = err.to_string();
+        assert!(msg.contains("read config") || msg.contains("failed to read"));
+        assert!(msg.contains("/nonexistent/path/glowplug.toml"));
     }
 
     #[test]
@@ -340,7 +391,8 @@ bdf = "0000:03:00.0"
             Ok(_) => panic!("expected parse to fail"),
             Err(e) => e,
         };
-        assert!(err.contains("parse config"));
+        let msg = err.to_string();
+        assert!(msg.contains("parse config") || msg.contains("failed to parse"));
     }
 
     #[test]
@@ -363,7 +415,7 @@ bdf = 12345
         assert_eq!(default.log_level, "info");
         assert_eq!(default.health_interval_ms, 5000);
         #[cfg(unix)]
-        assert!(default.socket.contains("glowplug.sock"));
+        assert!(default.socket.contains("coral-glowplug") && default.socket.ends_with(".sock"));
         #[cfg(not(unix))]
         assert!(default.socket.contains("127.0.0.1"));
     }

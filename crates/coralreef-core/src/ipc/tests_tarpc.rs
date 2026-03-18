@@ -334,7 +334,7 @@ async fn test_tarpc_compile_wgsl() {
     let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
     let req = service::CompileWgslRequest {
-        wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_string(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
         arch: coral_reef::GpuArch::default().to_string(),
         opt_level: 2,
         fp64_software: true,
@@ -361,7 +361,7 @@ async fn test_tarpc_wgsl_multi() {
     let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
     let req = service::MultiDeviceCompileRequest {
-        wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_string(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
         targets: vec![
             service::DeviceTarget {
                 card_index: 0,
@@ -413,7 +413,7 @@ async fn test_tarpc_wgsl_multi_partial_failure() {
     let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
 
     let req = service::MultiDeviceCompileRequest {
-        wgsl_source: "@compute @workgroup_size(1) fn main() {}".to_string(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
         targets: vec![
             service::DeviceTarget {
                 card_index: 0,
@@ -469,4 +469,37 @@ fn test_bound_addr_unix_protocol_and_display() {
     assert_eq!(bound.protocol(), "unix");
     assert!(bound.to_string().contains("unix://"));
     assert!(bound.to_string().contains("test.sock"));
+}
+
+// --- IpcError and tarpc error path coverage ---
+
+#[test]
+fn test_ipc_error_invalid_address_display() {
+    let err: IpcError = "not-a-valid-address"
+        .parse::<std::net::SocketAddr>()
+        .unwrap_err()
+        .into();
+    let s = err.to_string();
+    assert!(
+        s.to_lowercase().contains("invalid") || s.to_lowercase().contains("address"),
+        "IpcError should describe address parse failure: {s}"
+    );
+}
+
+#[test]
+fn test_ipc_error_from_addr_parse_error() {
+    use std::net::AddrParseError;
+    let parse_err: AddrParseError = "garbage".parse::<std::net::SocketAddr>().unwrap_err();
+    let ipc_err: IpcError = parse_err.into();
+    assert!(!ipc_err.to_string().is_empty());
+}
+
+#[tokio::test]
+async fn test_tarpc_tcp_bind_port_zero() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server("127.0.0.1:0", rx).await.unwrap();
+    let BoundAddr::Tcp(sock_addr) = addr else {
+        panic!("expected TCP address");
+    };
+    assert_ne!(sock_addr.port(), 0, "OS should assign a port");
 }

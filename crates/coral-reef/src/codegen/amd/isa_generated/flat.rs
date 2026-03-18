@@ -13,54 +13,18 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_FLAT encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const OFFSET: BitField = BitField {
-        offset: 0,
-        width: 12,
-    };
-    pub const DLC: BitField = BitField {
-        offset: 12,
-        width: 1,
-    };
-    pub const LDS: BitField = BitField {
-        offset: 13,
-        width: 1,
-    };
-    pub const SEG: BitField = BitField {
-        offset: 14,
-        width: 2,
-    };
-    pub const GLC: BitField = BitField {
-        offset: 16,
-        width: 1,
-    };
-    pub const SLC: BitField = BitField {
-        offset: 17,
-        width: 1,
-    };
-    pub const OP: BitField = BitField {
-        offset: 18,
-        width: 7,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 26,
-        width: 6,
-    };
-    pub const ADDR: BitField = BitField {
-        offset: 32,
-        width: 8,
-    };
-    pub const DATA: BitField = BitField {
-        offset: 40,
-        width: 8,
-    };
-    pub const SADDR: BitField = BitField {
-        offset: 48,
-        width: 7,
-    };
-    pub const VDST: BitField = BitField {
-        offset: 56,
-        width: 8,
-    };
+    pub const OFFSET: BitField = BitField { offset: 0, width: 12 };
+    pub const DLC: BitField = BitField { offset: 12, width: 1 };
+    pub const LDS: BitField = BitField { offset: 13, width: 1 };
+    pub const SEG: BitField = BitField { offset: 14, width: 2 };
+    pub const GLC: BitField = BitField { offset: 16, width: 1 };
+    pub const SLC: BitField = BitField { offset: 17, width: 1 };
+    pub const OP: BitField = BitField { offset: 18, width: 7 };
+    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
+    pub const ADDR: BitField = BitField { offset: 32, width: 8 };
+    pub const DATA: BitField = BitField { offset: 40, width: 8 };
+    pub const SADDR: BitField = BitField { offset: 48, width: 7 };
+    pub const VDST: BitField = BitField { offset: 56, width: 8 };
 }
 
 /// Load 8 bits of unsigned data from the flat aperture, zero extend to 32 bits and store the result into a vector register.
@@ -174,330 +138,60 @@ pub const FLAT_ATOMIC_FMAX_X2: u16 = 96;
 
 /// All ENC_FLAT instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "FLAT_LOAD_UBYTE",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_SBYTE",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_USHORT",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_SSHORT",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_DWORD",
-        opcode: 12,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_DWORDX2",
-        opcode: 13,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_DWORDX4",
-        opcode: 14,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_DWORDX3",
-        opcode: 15,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_BYTE",
-        opcode: 24,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_BYTE_D16_HI",
-        opcode: 25,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_SHORT",
-        opcode: 26,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_SHORT_D16_HI",
-        opcode: 27,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_DWORD",
-        opcode: 28,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_DWORDX2",
-        opcode: 29,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_DWORDX4",
-        opcode: 30,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_STORE_DWORDX3",
-        opcode: 31,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_UBYTE_D16",
-        opcode: 32,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_UBYTE_D16_HI",
-        opcode: 33,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_SBYTE_D16",
-        opcode: 34,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_SBYTE_D16_HI",
-        opcode: 35,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_SHORT_D16",
-        opcode: 36,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_SHORT_D16_HI",
-        opcode: 37,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SWAP",
-        opcode: 48,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_CMPSWAP",
-        opcode: 49,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_ADD",
-        opcode: 50,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SUB",
-        opcode: 51,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SMIN",
-        opcode: 53,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_UMIN",
-        opcode: 54,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SMAX",
-        opcode: 55,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_UMAX",
-        opcode: 56,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_AND",
-        opcode: 57,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_OR",
-        opcode: 58,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_XOR",
-        opcode: 59,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_INC",
-        opcode: 60,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_DEC",
-        opcode: 61,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_FCMPSWAP",
-        opcode: 62,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_FMIN",
-        opcode: 63,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_FMAX",
-        opcode: 64,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SWAP_X2",
-        opcode: 80,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_CMPSWAP_X2",
-        opcode: 81,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_ADD_X2",
-        opcode: 82,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SUB_X2",
-        opcode: 83,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SMIN_X2",
-        opcode: 85,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_UMIN_X2",
-        opcode: 86,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_SMAX_X2",
-        opcode: 87,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_UMAX_X2",
-        opcode: 88,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_AND_X2",
-        opcode: 89,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_OR_X2",
-        opcode: 90,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_XOR_X2",
-        opcode: 91,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_INC_X2",
-        opcode: 92,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_DEC_X2",
-        opcode: 93,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_FCMPSWAP_X2",
-        opcode: 94,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_FMIN_X2",
-        opcode: 95,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_ATOMIC_FMAX_X2",
-        opcode: 96,
-        is_branch: false,
-        is_terminator: false,
-    },
+    InstrEntry { name: "FLAT_LOAD_UBYTE", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_SBYTE", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_USHORT", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_SSHORT", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_DWORD", opcode: 12, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_DWORDX2", opcode: 13, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_DWORDX4", opcode: 14, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_DWORDX3", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_BYTE", opcode: 24, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_BYTE_D16_HI", opcode: 25, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_SHORT", opcode: 26, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_SHORT_D16_HI", opcode: 27, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_DWORD", opcode: 28, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_DWORDX2", opcode: 29, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_DWORDX4", opcode: 30, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_STORE_DWORDX3", opcode: 31, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_UBYTE_D16", opcode: 32, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_UBYTE_D16_HI", opcode: 33, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_SBYTE_D16", opcode: 34, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_SBYTE_D16_HI", opcode: 35, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_SHORT_D16", opcode: 36, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_LOAD_SHORT_D16_HI", opcode: 37, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SWAP", opcode: 48, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_CMPSWAP", opcode: 49, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_ADD", opcode: 50, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SUB", opcode: 51, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SMIN", opcode: 53, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_UMIN", opcode: 54, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SMAX", opcode: 55, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_UMAX", opcode: 56, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_AND", opcode: 57, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_OR", opcode: 58, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_XOR", opcode: 59, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_INC", opcode: 60, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_DEC", opcode: 61, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_FCMPSWAP", opcode: 62, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_FMIN", opcode: 63, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_FMAX", opcode: 64, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SWAP_X2", opcode: 80, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_CMPSWAP_X2", opcode: 81, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_ADD_X2", opcode: 82, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SUB_X2", opcode: 83, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SMIN_X2", opcode: 85, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_UMIN_X2", opcode: 86, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_SMAX_X2", opcode: 87, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_UMAX_X2", opcode: 88, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_AND_X2", opcode: 89, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_OR_X2", opcode: 90, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_XOR_X2", opcode: 91, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_INC_X2", opcode: 92, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_DEC_X2", opcode: 93, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_FCMPSWAP_X2", opcode: 94, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_FMIN_X2", opcode: 95, is_branch: false, is_terminator: false },
+    InstrEntry { name: "FLAT_ATOMIC_FMAX_X2", opcode: 96, is_branch: false, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -505,3 +199,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

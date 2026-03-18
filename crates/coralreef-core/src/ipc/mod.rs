@@ -3,7 +3,7 @@
 //!
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
 //! - JSON-RPC 2.0 as primary protocol (TCP/HTTP — external, debuggable)
-//! - JSON-RPC 2.0 over Unix socket (newline-delimited — toadStool compatible)
+//! - JSON-RPC 2.0 over Unix socket (newline-delimited — ecosystem-compatible)
 //! - tarpc as optional high-performance channel (TCP or Unix socket — internal)
 //! - Semantic method names: `shader.compile.{spirv,wgsl,status,capabilities}`
 //!

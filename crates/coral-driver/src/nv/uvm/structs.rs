@@ -39,7 +39,7 @@ pub struct UvmInitializeParams {
 pub struct UvmRegisterGpuParams {
     /// GPU UUID (16 bytes).
     pub gpu_uuid: [u8; 16],
-    /// Output: NUMA enabled flag (NvBool = u8).
+    /// Output: NUMA enabled flag (`NvBool` = u8).
     pub numa_enabled: u8,
     _pad0: [u8; 3],
     /// Output: NUMA node ID (-1 if NUMA not enabled).
@@ -145,7 +145,7 @@ pub struct NvRmFreeParams {
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct NvRmControlParams {
-    /// Client handle (h_root from alloc).
+    /// Client handle (`h_root` from alloc).
     pub h_client: u32,
     /// Object handle to control.
     pub h_object: u32,
@@ -216,7 +216,7 @@ pub struct NvVaspaceAllocParams {
 /// 0x04  hObjectEccError                u32
 /// 0x08  hVASpace                       u32
 /// 0x0C  engineType                     u32
-/// 0x10  bIsCallingContextVgpuPlugin    u8 (NvBool)
+/// 0x10  bIsCallingContextVgpuPlugin    u8 (`NvBool`)
 /// 0x11  (pad)                          7 bytes
 /// 0x18  pGpuGrpInfo                    u64 (NvP64, aligned to 8)
 /// ```
@@ -406,7 +406,7 @@ pub struct NvRmMapMemoryParams {
     /// Memory object handle.
     pub h_memory: u32,
     /// Alignment padding (between hMemory and offset).
-    pub _pad: u32,
+    pub pad: u32,
     /// Offset within the memory object.
     pub offset: u64,
     /// Length to map (0 = entire allocation).
@@ -420,7 +420,7 @@ pub struct NvRmMapMemoryParams {
     /// Target file descriptor for `rm_create_mmap_context`.
     pub fd: i32,
     /// Struct alignment padding to 56 bytes.
-    pub _pad2: u32,
+    pub pad2: u32,
 }
 
 /// Parameters for `NV_ESC_RM_UNMAP_MEMORY` (`NVOS34_PARAMETERS`).
@@ -434,7 +434,7 @@ pub struct NvRmUnmapMemoryParams {
     /// Memory object handle.
     pub h_memory: u32,
     /// Alignment padding.
-    pub _pad: u32,
+    pub pad: u32,
     /// User-space virtual address to unmap.
     pub p_linear_address: u64,
     /// RM status code.
@@ -469,14 +469,14 @@ pub struct NvRmMapMemoryDmaParams {
     /// Page kind override.
     pub kind_override: u32,
     /// Padding for 8-byte alignment of `dma_offset`.
-    pub _pad: u32,
+    pub pad: u32,
     /// Output: GPU virtual address of the mapping.
     /// Input if `NVOS46_FLAGS_DMA_OFFSET_FIXED` or `hDma` is not a CTXDMA.
     pub dma_offset: u64,
     /// RM status code.
     pub status: u32,
     /// Trailing padding.
-    pub _pad2: u32,
+    pub pad2: u32,
 }
 
 /// `UVM_REGISTER_GPU_VASPACE` parameters.
@@ -512,7 +512,7 @@ pub struct UvmCreateExternalRangeParams {
     /// RM status code returned by kernel.
     pub rm_status: u32,
     /// Padding.
-    pub _pad: u32,
+    pub pad: u32,
 }
 
 /// Per-GPU mapping attributes for `UVM_MAP_EXTERNAL_ALLOCATION`.
@@ -521,15 +521,15 @@ pub struct UvmCreateExternalRangeParams {
 pub struct UvmGpuMappingAttributes {
     /// GPU UUID (16 bytes).
     pub gpu_uuid: [u8; 16],
-    /// Mapping type (UvmGpuMappingType).
+    /// Mapping type (`UvmGpuMappingType`).
     pub gpu_mapping_type: u32,
-    /// Caching type (UvmGpuCachingType).
+    /// Caching type (`UvmGpuCachingType`).
     pub gpu_caching_type: u32,
-    /// Format type (UvmGpuFormatType).
+    /// Format type (`UvmGpuFormatType`).
     pub gpu_format_type: u32,
-    /// Element bits (UvmGpuFormatElementBits).
+    /// Element bits (`UvmGpuFormatElementBits`).
     pub gpu_element_bits: u32,
-    /// Compression type (UvmGpuCompressionType).
+    /// Compression type (`UvmGpuCompressionType`).
     pub gpu_compression_type: u32,
 }
 
@@ -555,7 +555,7 @@ pub struct NvMemoryVirtualAllocParams {
     pub h_vaspace: u32,
 }
 
-/// UVM_MAX_GPUS = NV_MAX_DEVICES (32) * UVM_PARENT_ID_MAX_SUB_PROCESSORS (8).
+/// `UVM_MAX_GPUS` = `NV_MAX_DEVICES` (32) * `UVM_PARENT_ID_MAX_SUB_PROCESSORS` (8).
 pub const UVM_MAX_GPUS: usize = 256;
 
 /// `UVM_MAP_EXTERNAL_ALLOCATION` parameters.

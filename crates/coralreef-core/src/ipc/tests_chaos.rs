@@ -42,7 +42,7 @@ async fn test_concurrent_jsonrpc_requests() {
     let client = RpcClient::tcp(addr);
 
     let req = service::CompileWgslRequest {
-        wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         arch: coral_reef::GpuArch::default().to_string(),
         opt_level: 2,
         fp64_software: true,
@@ -156,7 +156,7 @@ async fn test_concurrent_tarpc_requests() {
     };
 
     let req = service::CompileWgslRequest {
-        wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         arch: coral_reef::GpuArch::default().to_string(),
         opt_level: 2,
         fp64_software: true,

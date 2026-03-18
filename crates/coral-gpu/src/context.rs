@@ -241,7 +241,7 @@ impl GpuContext {
 
     /// Create a GPU context from a vendor/arch/driver descriptor.
     ///
-    /// Used by the toadStool discovery integration: the primal layer
+    /// Used by ecosystem discovery integration: the primal layer
     /// discovers GPU devices via ecosystem IPC and passes descriptors
     /// to coral-gpu for context creation.
     ///

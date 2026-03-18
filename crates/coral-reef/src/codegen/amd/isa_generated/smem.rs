@@ -13,38 +13,14 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_SMEM encoding fields (64 bits).
 pub mod fields {
     use super::BitField;
-    pub const SBASE: BitField = BitField {
-        offset: 0,
-        width: 1,
-    };
-    pub const SDATA: BitField = BitField {
-        offset: 6,
-        width: 7,
-    };
-    pub const DLC: BitField = BitField {
-        offset: 14,
-        width: 1,
-    };
-    pub const GLC: BitField = BitField {
-        offset: 16,
-        width: 1,
-    };
-    pub const OP: BitField = BitField {
-        offset: 18,
-        width: 8,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 26,
-        width: 6,
-    };
-    pub const OFFSET: BitField = BitField {
-        offset: 32,
-        width: 21,
-    };
-    pub const SOFFSET: BitField = BitField {
-        offset: 57,
-        width: 7,
-    };
+    pub const SBASE: BitField = BitField { offset: 0, width: 1 };
+    pub const SDATA: BitField = BitField { offset: 6, width: 7 };
+    pub const DLC: BitField = BitField { offset: 14, width: 1 };
+    pub const GLC: BitField = BitField { offset: 16, width: 1 };
+    pub const OP: BitField = BitField { offset: 18, width: 8 };
+    pub const ENCODING: BitField = BitField { offset: 26, width: 6 };
+    pub const OFFSET: BitField = BitField { offset: 32, width: 21 };
+    pub const SOFFSET: BitField = BitField { offset: 57, width: 7 };
 }
 
 /// Load 32 bits of data from the scalar memory into a scalar register.
@@ -78,90 +54,20 @@ pub const S_MEMREALTIME: u16 = 37;
 
 /// All ENC_SMEM instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "S_LOAD_DWORD",
-        opcode: 0,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LOAD_DWORDX2",
-        opcode: 1,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LOAD_DWORDX4",
-        opcode: 2,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LOAD_DWORDX8",
-        opcode: 3,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LOAD_DWORDX16",
-        opcode: 4,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BUFFER_LOAD_DWORD",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BUFFER_LOAD_DWORDX2",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BUFFER_LOAD_DWORDX4",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BUFFER_LOAD_DWORDX8",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BUFFER_LOAD_DWORDX16",
-        opcode: 12,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_GL1_INV",
-        opcode: 31,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_DCACHE_INV",
-        opcode: 32,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MEMTIME",
-        opcode: 36,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MEMREALTIME",
-        opcode: 37,
-        is_branch: false,
-        is_terminator: false,
-    },
+    InstrEntry { name: "S_LOAD_DWORD", opcode: 0, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LOAD_DWORDX2", opcode: 1, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LOAD_DWORDX4", opcode: 2, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LOAD_DWORDX8", opcode: 3, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LOAD_DWORDX16", opcode: 4, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BUFFER_LOAD_DWORD", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BUFFER_LOAD_DWORDX2", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BUFFER_LOAD_DWORDX4", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BUFFER_LOAD_DWORDX8", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BUFFER_LOAD_DWORDX16", opcode: 12, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_GL1_INV", opcode: 31, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_DCACHE_INV", opcode: 32, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MEMTIME", opcode: 36, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MEMREALTIME", opcode: 37, is_branch: false, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -169,3 +75,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

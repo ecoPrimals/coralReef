@@ -3,6 +3,15 @@
 // Derived from Collabora, Ltd. (2023) — upstream NAK.
 
 // Codegen module — derived from upstream compiler, evolving to idiomatic Rust.
+// ISA domain types intentionally use naming conventions that mirror hardware docs
+// (e.g. OpFAdd, SrcType, UGPR). dead_code covers AMD stub, builder traits, and
+// ISA variants reserved for future use.
+#![expect(
+    non_snake_case,
+    dead_code,
+    missing_docs,
+    reason = "ISA domain types mirror hardware docs; codegen has intentionally unused items"
+)]
 // Domain-required allows (ISA encoding, GPU register naming, compiler pass structure).
 #![allow(
     // ISA / encoding domain

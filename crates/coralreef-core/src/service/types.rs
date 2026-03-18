@@ -3,10 +3,23 @@
 //!
 //! Separated from handler logic for clarity. All types are `Serialize` +
 //! `Deserialize` so they work over both JSON-RPC and tarpc transports.
+//!
+//! Shader source strings use `Arc<str>` for zero-copy sharing across pipeline
+//! stages per wateringHole standards.
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::borrow::Cow;
+use std::sync::Arc;
+
+/// Deserialize a string from JSON into `Arc<str>` for zero-copy sharing.
+fn deserialize_arc_str<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = String::deserialize(deserializer)?;
+    Ok(Arc::from(s.into_boxed_str()))
+}
 
 /// tarpc-only SPIR-V compile request (zero-copy via `Bytes`).
 ///
@@ -43,8 +56,9 @@ pub struct CompileRequest {
 /// Request to compile WGSL source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWgslRequest {
-    /// WGSL source code.
-    pub wgsl_source: String,
+    /// WGSL source code (shared via `Arc<str>` across pipeline stages).
+    #[serde(deserialize_with = "deserialize_arc_str")]
+    pub wgsl_source: Arc<str>,
     /// Target GPU architecture name (e.g. `sm70`, `sm86`, `rdna2`). Optional; defaults to sm70.
     #[serde(default = "default_arch")]
     pub arch: String,
@@ -113,13 +127,14 @@ pub struct DeviceTarget {
 
 /// Request to compile a single WGSL shader for multiple GPU targets at once.
 ///
-/// Implements the `shader.compile.wgsl.multi` endpoint from the toadStool S144
+/// Implements the `shader.compile.wgsl.multi` endpoint (ecosystem protocol S144)
 /// handoff. Compiles the same shader source to native binaries for each
 /// target device in a single request, enabling multi-GPU dispatch preparation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiDeviceCompileRequest {
-    /// WGSL source code (shared across all targets).
-    pub wgsl_source: String,
+    /// WGSL source code (shared via `Arc<str>` across all targets).
+    #[serde(deserialize_with = "deserialize_arc_str")]
+    pub wgsl_source: Arc<str>,
     /// Target devices to compile for.
     pub targets: Vec<DeviceTarget>,
     /// Optimization level (0-3).

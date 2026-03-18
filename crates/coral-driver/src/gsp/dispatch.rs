@@ -10,7 +10,7 @@
 //! - Register pressure estimates from firmware register counts
 //!
 //! This module does NOT touch hardware — it purely analyzes the knowledge
-//! base and produces advisory hints that `barraCuda` can use for routing.
+//! base and produces advisory hints for compute routing.
 
 use super::knowledge::{AddressSpace, GpuKnowledge};
 
@@ -78,7 +78,7 @@ pub fn build_hint_for(kb: &GpuKnowledge, chip: &str) -> Option<DispatchHints> {
 /// Recommended workgroup size based on SM architecture.
 ///
 /// Based on warp size (32) and observed optimal occupancy patterns.
-fn workgroup_size_for_sm(sm: u32) -> u32 {
+const fn workgroup_size_for_sm(sm: u32) -> u32 {
     match sm {
         // Maxwell/Volta: 128 (independent thread scheduling benefits smaller groups)
         50..=53 | 70..=72 => 128,
@@ -88,7 +88,7 @@ fn workgroup_size_for_sm(sm: u32) -> u32 {
 }
 
 /// Maximum concurrent workgroups per SM.
-fn max_workgroups_for_sm(sm: u32) -> u32 {
+const fn max_workgroups_for_sm(sm: u32) -> u32 {
     match sm {
         // Maxwell/Pascal/Volta: 32 CTA per SM
         50..=72 => 32,
@@ -103,7 +103,7 @@ fn max_workgroups_for_sm(sm: u32) -> u32 {
 /// GP100 (SM 6.0, Tesla P100) also has 1:2 FP64 but shares SM version with
 /// consumer Pascal which is 1:32. We use chip-level detection here, so SM 6.0
 /// gets "maybe" — the caller should refine with actual chip ID.
-fn has_full_rate_fp64(sm: u32) -> bool {
+const fn has_full_rate_fp64(sm: u32) -> bool {
     sm == 70
 }
 

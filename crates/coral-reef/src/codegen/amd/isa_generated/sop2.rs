@@ -13,26 +13,11 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_SOP2 encoding fields (32 bits).
 pub mod fields {
     use super::BitField;
-    pub const SSRC0: BitField = BitField {
-        offset: 0,
-        width: 8,
-    };
-    pub const SSRC1: BitField = BitField {
-        offset: 8,
-        width: 8,
-    };
-    pub const SDST: BitField = BitField {
-        offset: 16,
-        width: 7,
-    };
-    pub const OP: BitField = BitField {
-        offset: 23,
-        width: 7,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 30,
-        width: 2,
-    };
+    pub const SSRC0: BitField = BitField { offset: 0, width: 8 };
+    pub const SSRC1: BitField = BitField { offset: 8, width: 8 };
+    pub const SDST: BitField = BitField { offset: 16, width: 7 };
+    pub const OP: BitField = BitField { offset: 23, width: 7 };
+    pub const ENCODING: BitField = BitField { offset: 30, width: 2 };
 }
 
 /// Add two unsigned inputs, store the result into a scalar register and store the carry-out bit into SCC.
@@ -140,312 +125,57 @@ pub const S_MUL_HI_I32: u16 = 54;
 
 /// All ENC_SOP2 instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "S_ADD_U32",
-        opcode: 0,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_SUB_U32",
-        opcode: 1,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ADD_I32",
-        opcode: 2,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_SUB_I32",
-        opcode: 3,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ADDC_U32",
-        opcode: 4,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_SUBB_U32",
-        opcode: 5,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MIN_I32",
-        opcode: 6,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MIN_U32",
-        opcode: 7,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MAX_I32",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MAX_U32",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CSELECT_B32",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CSELECT_B64",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_AND_B32",
-        opcode: 14,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_AND_B64",
-        opcode: 15,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_OR_B32",
-        opcode: 16,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_OR_B64",
-        opcode: 17,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_XOR_B32",
-        opcode: 18,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_XOR_B64",
-        opcode: 19,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ANDN2_B32",
-        opcode: 20,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ANDN2_B64",
-        opcode: 21,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ORN2_B32",
-        opcode: 22,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ORN2_B64",
-        opcode: 23,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_NAND_B32",
-        opcode: 24,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_NAND_B64",
-        opcode: 25,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_NOR_B32",
-        opcode: 26,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_NOR_B64",
-        opcode: 27,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_XNOR_B32",
-        opcode: 28,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_XNOR_B64",
-        opcode: 29,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHL_B32",
-        opcode: 30,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHL_B64",
-        opcode: 31,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHR_B32",
-        opcode: 32,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHR_B64",
-        opcode: 33,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ASHR_I32",
-        opcode: 34,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ASHR_I64",
-        opcode: 35,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BFM_B32",
-        opcode: 36,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BFM_B64",
-        opcode: 37,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MUL_I32",
-        opcode: 38,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BFE_U32",
-        opcode: 39,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BFE_I32",
-        opcode: 40,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BFE_U64",
-        opcode: 41,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BFE_I64",
-        opcode: 42,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ABSDIFF_I32",
-        opcode: 44,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHL1_ADD_U32",
-        opcode: 46,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHL2_ADD_U32",
-        opcode: 47,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHL3_ADD_U32",
-        opcode: 48,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_LSHL4_ADD_U32",
-        opcode: 49,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_PACK_LL_B32_B16",
-        opcode: 50,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_PACK_LH_B32_B16",
-        opcode: 51,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_PACK_HH_B32_B16",
-        opcode: 52,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MUL_HI_U32",
-        opcode: 53,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MUL_HI_I32",
-        opcode: 54,
-        is_branch: false,
-        is_terminator: false,
-    },
+    InstrEntry { name: "S_ADD_U32", opcode: 0, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_SUB_U32", opcode: 1, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ADD_I32", opcode: 2, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_SUB_I32", opcode: 3, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ADDC_U32", opcode: 4, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_SUBB_U32", opcode: 5, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MIN_I32", opcode: 6, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MIN_U32", opcode: 7, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MAX_I32", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MAX_U32", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CSELECT_B32", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CSELECT_B64", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_AND_B32", opcode: 14, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_AND_B64", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_OR_B32", opcode: 16, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_OR_B64", opcode: 17, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_XOR_B32", opcode: 18, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_XOR_B64", opcode: 19, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ANDN2_B32", opcode: 20, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ANDN2_B64", opcode: 21, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ORN2_B32", opcode: 22, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ORN2_B64", opcode: 23, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_NAND_B32", opcode: 24, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_NAND_B64", opcode: 25, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_NOR_B32", opcode: 26, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_NOR_B64", opcode: 27, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_XNOR_B32", opcode: 28, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_XNOR_B64", opcode: 29, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHL_B32", opcode: 30, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHL_B64", opcode: 31, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHR_B32", opcode: 32, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHR_B64", opcode: 33, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ASHR_I32", opcode: 34, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ASHR_I64", opcode: 35, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BFM_B32", opcode: 36, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BFM_B64", opcode: 37, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MUL_I32", opcode: 38, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BFE_U32", opcode: 39, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BFE_I32", opcode: 40, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BFE_U64", opcode: 41, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BFE_I64", opcode: 42, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ABSDIFF_I32", opcode: 44, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHL1_ADD_U32", opcode: 46, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHL2_ADD_U32", opcode: 47, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHL3_ADD_U32", opcode: 48, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_LSHL4_ADD_U32", opcode: 49, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_PACK_LL_B32_B16", opcode: 50, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_PACK_LH_B32_B16", opcode: 51, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_PACK_HH_B32_B16", opcode: 52, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MUL_HI_U32", opcode: 53, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MUL_HI_I32", opcode: 54, is_branch: false, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -453,3 +183,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

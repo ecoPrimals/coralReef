@@ -21,7 +21,7 @@ pub(super) fn parse_gid_to_uuid(gid: &[u8]) -> DriverResult<[u8; 16]> {
         .trim_start_matches("GPU-")
         .trim_end_matches('\0')
         .chars()
-        .filter(|c| c.is_ascii_hexdigit())
+        .filter(char::is_ascii_hexdigit)
         .collect();
 
     if hex.len() < 32 {
@@ -39,7 +39,7 @@ pub(super) fn parse_gid_to_uuid(gid: &[u8]) -> DriverResult<[u8; 16]> {
     Ok(uuid)
 }
 
-fn hex_nibble(b: u8) -> u8 {
+const fn hex_nibble(b: u8) -> u8 {
     match b {
         b'0'..=b'9' => b - b'0',
         b'a'..=b'f' => 10 + b - b'a',

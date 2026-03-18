@@ -89,7 +89,7 @@ enum UniBinExit {
     GeneralError = 1,
     ConfigError = 2,
     /// Used by the panic hook via `abort()` — the OS maps this to exit code 3.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "abort() sets this implicitly; no Rust code constructs it"
     )]

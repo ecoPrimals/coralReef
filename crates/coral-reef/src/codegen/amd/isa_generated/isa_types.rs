@@ -29,3 +29,4 @@ pub struct InstrEntry {
     /// Whether this instruction terminates the program.
     pub is_terminator: bool,
 }
+

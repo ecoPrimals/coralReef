@@ -153,10 +153,15 @@ pub use super::super::identity::{
     probe_gpu_identity,
 };
 
-/// Try the new UAPI (VM_INIT) to detect kernel support.
+/// Try the new UAPI (`VM_INIT`) to detect kernel support.
 ///
-/// Returns `Ok(())` if VM_INIT is accepted, `Err` otherwise.
+/// Returns `Ok(())` if `VM_INIT` is accepted, `Err` otherwise.
 /// Used as a probe to decide between new and legacy dispatch paths.
+///
+/// # Errors
+///
+/// Returns [`DriverResult`] error if the kernel rejects the request
+/// (e.g. old kernel without new UAPI).
 pub fn probe_new_uapi_support(fd: RawFd) -> DriverResult<()> {
     super::new_uapi::vm_init(fd)
 }

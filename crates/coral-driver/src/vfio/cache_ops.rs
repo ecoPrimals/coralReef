@@ -13,13 +13,15 @@
 
 /// Flush a single cache line containing the given address.
 ///
+/// Prefer [`clflush_range`] which takes `&[u8]` and is safe.
+///
 /// # Safety
 ///
 /// The address must point to valid mapped memory. Callers must ensure this;
 /// in practice we only call from DMA/BAR0 contexts with valid mappings.
 #[cfg(target_arch = "x86_64")]
 #[inline]
-pub unsafe fn cache_line_flush(addr: *const u8) {
+pub(crate) unsafe fn cache_line_flush(addr: *const u8) {
     unsafe { core::arch::x86_64::_mm_clflush(addr) }
 }
 
@@ -31,7 +33,7 @@ pub unsafe fn cache_line_flush(addr: *const u8) {
 #[cfg(not(target_arch = "x86_64"))]
 #[inline]
 #[allow(dead_code)]
-pub unsafe fn cache_line_flush(_addr: *const u8) {}
+pub(crate) unsafe fn cache_line_flush(_addr: *const u8) {}
 
 /// Full memory fence (store + load barrier).
 ///

@@ -105,7 +105,7 @@ async fn e2e_ipc_full_integration() {
 
     // shader.compile.wgsl
     let wgsl_req = service::CompileWgslRequest {
-        wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         arch: coral_reef::GpuArch::default().to_string(),
         opt_level: 2,
         fp64_software: true,
@@ -196,7 +196,7 @@ async fn e2e_ipc_full_integration() {
 
     // 5. Test shader.compile.wgsl.multi with multiple targets
     let multi_req = service::MultiDeviceCompileRequest {
-        wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         targets: vec![
             service::DeviceTarget {
                 card_index: 0,

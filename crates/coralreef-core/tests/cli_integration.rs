@@ -83,6 +83,32 @@ fn compile_missing_input_exit_code_error() {
 }
 
 #[test]
+fn invalid_args_exit_code_config_error() {
+    let output = coralreef_bin()
+        .args(["invalid-subcommand"])
+        .output()
+        .expect("failed to run coralreef");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "invalid subcommand should exit 2 (ConfigError): stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn missing_subcommand_exit_code_config_error() {
+    let output = coralreef_bin().output().expect("failed to run coralreef");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing subcommand should exit 2 (ConfigError)"
+    );
+}
+
+#[test]
 fn compile_valid_wgsl_produces_output() {
     let tmp = std::env::temp_dir().join("coralreef_cli_test_compile.wgsl");
     std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();

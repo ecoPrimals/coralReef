@@ -13,26 +13,11 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_VOP2 encoding fields (32 bits).
 pub mod fields {
     use super::BitField;
-    pub const SRC0: BitField = BitField {
-        offset: 0,
-        width: 9,
-    };
-    pub const VSRC1: BitField = BitField {
-        offset: 9,
-        width: 8,
-    };
-    pub const VDST: BitField = BitField {
-        offset: 17,
-        width: 8,
-    };
-    pub const OP: BitField = BitField {
-        offset: 25,
-        width: 6,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 31,
-        width: 1,
-    };
+    pub const SRC0: BitField = BitField { offset: 0, width: 9 };
+    pub const VSRC1: BitField = BitField { offset: 9, width: 8 };
+    pub const VDST: BitField = BitField { offset: 17, width: 8 };
+    pub const OP: BitField = BitField { offset: 25, width: 6 };
+    pub const ENCODING: BitField = BitField { offset: 31, width: 1 };
 }
 
 /// Copy data from one of two inputs based on the vector condition code and store the result into a vector register.
@@ -124,264 +109,49 @@ pub const V_PK_FMAC_F16: u16 = 60;
 
 /// All ENC_VOP2 instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "V_CNDMASK_B32",
-        opcode: 1,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_DOT2C_F32_F16",
-        opcode: 2,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_ADD_F32",
-        opcode: 3,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUB_F32",
-        opcode: 4,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUBREV_F32",
-        opcode: 5,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_FMAC_LEGACY_F32",
-        opcode: 6,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_LEGACY_F32",
-        opcode: 7,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_F32",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_I32_I24",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_HI_I32_I24",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_U32_U24",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_HI_U32_U24",
-        opcode: 12,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_DOT4C_I32_I8",
-        opcode: 13,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MIN_F32",
-        opcode: 15,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MAX_F32",
-        opcode: 16,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MIN_I32",
-        opcode: 17,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MAX_I32",
-        opcode: 18,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MIN_U32",
-        opcode: 19,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MAX_U32",
-        opcode: 20,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_LSHRREV_B32",
-        opcode: 22,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_ASHRREV_I32",
-        opcode: 24,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_LSHLREV_B32",
-        opcode: 26,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_AND_B32",
-        opcode: 27,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_OR_B32",
-        opcode: 28,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_XOR_B32",
-        opcode: 29,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_XNOR_B32",
-        opcode: 30,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_ADD_NC_U32",
-        opcode: 37,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUB_NC_U32",
-        opcode: 38,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUBREV_NC_U32",
-        opcode: 39,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_ADD_CO_CI_U32",
-        opcode: 40,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUB_CO_CI_U32",
-        opcode: 41,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUBREV_CO_CI_U32",
-        opcode: 42,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_FMAC_F32",
-        opcode: 43,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_CVT_PKRTZ_F16_F32",
-        opcode: 47,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_ADD_F16",
-        opcode: 50,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUB_F16",
-        opcode: 51,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_SUBREV_F16",
-        opcode: 52,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MUL_F16",
-        opcode: 53,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_FMAC_F16",
-        opcode: 54,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MAX_F16",
-        opcode: 57,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_MIN_F16",
-        opcode: 58,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_LDEXP_F16",
-        opcode: 59,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "V_PK_FMAC_F16",
-        opcode: 60,
-        is_branch: false,
-        is_terminator: false,
-    },
+    InstrEntry { name: "V_CNDMASK_B32", opcode: 1, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_DOT2C_F32_F16", opcode: 2, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_ADD_F32", opcode: 3, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUB_F32", opcode: 4, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUBREV_F32", opcode: 5, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_FMAC_LEGACY_F32", opcode: 6, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_LEGACY_F32", opcode: 7, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_F32", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_I32_I24", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_HI_I32_I24", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_U32_U24", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_HI_U32_U24", opcode: 12, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_DOT4C_I32_I8", opcode: 13, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MIN_F32", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MAX_F32", opcode: 16, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MIN_I32", opcode: 17, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MAX_I32", opcode: 18, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MIN_U32", opcode: 19, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MAX_U32", opcode: 20, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_LSHRREV_B32", opcode: 22, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_ASHRREV_I32", opcode: 24, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_LSHLREV_B32", opcode: 26, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_AND_B32", opcode: 27, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_OR_B32", opcode: 28, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_XOR_B32", opcode: 29, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_XNOR_B32", opcode: 30, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_ADD_NC_U32", opcode: 37, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUB_NC_U32", opcode: 38, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUBREV_NC_U32", opcode: 39, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_ADD_CO_CI_U32", opcode: 40, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUB_CO_CI_U32", opcode: 41, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUBREV_CO_CI_U32", opcode: 42, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_FMAC_F32", opcode: 43, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_CVT_PKRTZ_F16_F32", opcode: 47, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_ADD_F16", opcode: 50, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUB_F16", opcode: 51, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_SUBREV_F16", opcode: 52, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MUL_F16", opcode: 53, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_FMAC_F16", opcode: 54, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MAX_F16", opcode: 57, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_MIN_F16", opcode: 58, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_LDEXP_F16", opcode: 59, is_branch: false, is_terminator: false },
+    InstrEntry { name: "V_PK_FMAC_F16", opcode: 60, is_branch: false, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -389,3 +159,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

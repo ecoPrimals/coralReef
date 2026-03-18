@@ -6,7 +6,7 @@
 //! - DMA buffers for shader code, QMD, push buffers, and user data
 //! - Direct GPFIFO submission via BAR0 USERD write
 //!
-//! # Prerequisites (provided by toadStool)
+//! # Prerequisites (provided by ecosystem hardware setup)
 //!
 //! - GPU bound to `vfio-pci`
 //! - IOMMU enabled and configured

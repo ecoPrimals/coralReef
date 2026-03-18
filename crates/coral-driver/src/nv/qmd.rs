@@ -68,7 +68,8 @@ impl QmdParams {
 ///
 /// `bit_start` is the starting bit (0-indexed from LSB of word 0),
 /// `width` is the field width in bits, `value` is the value to set.
-fn qmd_set_field(q: &mut [u32; QMD_SIZE_WORDS], bit_start: usize, width: usize, value: u64) {
+#[allow(clippy::cast_possible_truncation)] // GPU QMD fields are always ≤32 bits wide; callers guarantee value fits
+const fn qmd_set_field(q: &mut [u32; QMD_SIZE_WORDS], bit_start: usize, width: usize, value: u64) {
     let word_idx = bit_start / 32;
     let bit_off = bit_start % 32;
 
@@ -193,6 +194,7 @@ pub fn build_qmd_v30(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
 }
 
 /// Select the appropriate QMD builder for a given SM architecture.
+#[must_use]
 pub fn build_qmd_for_sm(sm: u32, params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     match sm {
         0..=69 => build_qmd_v21(params),
@@ -501,5 +503,51 @@ mod tests {
     fn qmd_simple_gpr_minimum() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 0);
         assert_eq!(params.gpr_count, 4, "simple() clamps gpr_count to min 4");
+    }
+
+    #[test]
+    fn qmd_shared_memory_zero() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.shared_mem_bytes = 0;
+        let q = build_qmd_v21(&params);
+        assert_eq!(get_field(&q, 640, 18), 0, "zero shared mem stays 0");
+    }
+
+    #[test]
+    fn qmd_shared_memory_exact_256_aligned() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.shared_mem_bytes = 256;
+        let q = build_qmd_v21(&params);
+        assert_eq!(get_field(&q, 640, 18), 256);
+    }
+
+    #[test]
+    fn qmd_build_for_sm_boundary_70() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q_69 = build_qmd_for_sm(69, &params);
+        let q_70 = build_qmd_for_sm(70, &params);
+        assert_ne!(
+            get_field(&q_69, 4, 4),
+            get_field(&q_70, 4, 4),
+            "SM 69 vs 70 should differ in minor version"
+        );
+    }
+
+    #[test]
+    fn qmd_build_for_sm_boundary_80() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q_79 = build_qmd_for_sm(79, &params);
+        let q_80 = build_qmd_for_sm(80, &params);
+        assert_eq!(get_field(&q_79, 0, 4), 2, "SM 79 = v2.x");
+        assert_eq!(get_field(&q_80, 0, 4), 3, "SM 80+ = v3.0");
+    }
+
+    #[test]
+    fn qmd_grid_linear_single() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_v21(&params);
+        assert_eq!(get_field(&q, 224, 32), 1);
+        assert_eq!(get_field(&q, 256, 16), 1);
+        assert_eq!(get_field(&q, 272, 16), 1);
     }
 }

@@ -5,7 +5,7 @@
 //!
 //! Provenance: Horner coefficients from Cephes/FDLIBM; Cody-Waite range reduction
 //! for sin/cos from Payne-Hanek literature. ULP budgets: exp2/log2 ≤2, sin/cos ≤4
-//! (per barraCuda `df64_transcendentals.wgsl` and groundSpring validation targets).
+//! (per ecosystem `df64_transcendentals.wgsl` and groundSpring validation targets).
 
 #![allow(clippy::wildcard_imports, clippy::redundant_clone)]
 

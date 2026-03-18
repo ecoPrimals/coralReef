@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 17, Iter 54)  
+**Generated:** March 10, 2026 (metrics updated March 18, Iter 56)  
 **Workspace:** coralReef
 
 ---
@@ -10,6 +10,7 @@
 ## 1. Test Summary
 
 ```
+test result: ok. 131 passed; 0 failed; 0 ignored (coral-glowplug)
 test result: ok. 127 passed; 0 failed; 5 ignored (coral-driver)
 test result: ok. 0 passed; 0 failed; 6 ignored (hw_amd_buffers)
 test result: ok. 0 passed; 0 failed; 2 ignored (hw_amd_dispatch)
@@ -26,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. ? passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Total ignored:** 61 tests across workspace (hardware-gated + diagnostic).
+**Total ignored:** 90 tests across workspace (hardware-gated + diagnostic + VFIO HW).
 
 ---
 
@@ -201,34 +202,39 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 55) |
+| Metric | Value (as of Iter 56) |
 |--------|-------|
-| Tests passing | 2394 default + 48 VFIO |
+| Tests passing | 2527 default + 48 VFIO |
 | Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
-| TODO markers | 0 (amd_metal.rs stubs filled with MI50/GFX906 registers, Iter 52) |
-| Production unwraps | 0 (all evolved to expect/error; glowplug socket.rs → match + tracing, Iter 55) |
+| TODO markers | 0 |
+| Production unwraps | 0 |
+| Production expect() | 0 (glowplug config.rs evolved to match/Result, Iter 56) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
-| panic! in production | ~150+ (codegen ICE guards — intentional; ~80 standardized to ice!() macro, Iter 53) |
-| #[allow] to tighten | Reviewed Iter 55: nv_metal.rs → `#[expect]`, ipc `redundant_pub_crate` resolved structurally |
+| panic! in production | ~150+ (codegen ICE guards — intentional; ~80 standardized to ice!() macro) |
+| #[allow] narrowing | lib.rs → codegen/mod.rs scoped; `#[expect]` for wildcard_imports, dead_code (Iter 56) |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (Iter 54: pci_discovery.rs test extraction; excl. generated ISA tables) |
-| Clippy warnings | 0 (pedantic + nursery + all) |
-| Doc warnings | 0 (Iter 54: 10 DriverError links fixed) |
-| Region coverage (llvm-cov) | 60.32% (target 90%; was 59.39% Iter 54) |
-| Line coverage (llvm-cov) | 60.89% (target 90%; was 59.92% Iter 54) |
-| Function coverage | 69.72% (target 90%; was 69.45% Iter 54) |
+| Files over 1000 LOC | 0 (table_cmp.rs split to table_cmp_f32_f64.rs + table_cmp_int.rs, Iter 56) |
+| Clippy warnings | 0 (coral-driver: 114 pedantic/nursery errors fixed, Iter 56) |
+| Doc warnings | 0 |
+| Region coverage (llvm-cov) | ~63% (target 90%; +82 new tests across 3 crates, Iter 56) |
+| Line coverage (llvm-cov) | ~64% (target 90%; was 60.89% Iter 55) |
+| Function coverage | ~72% (target 90%; was 69.72% Iter 55) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
-| IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) |
-| eprintln! in production | 0 (migrated to tracing, Iter 45; diagnostic eprintln retained for HW debug) |
-| Zero-copy | KernelCacheEntry.binary: Bytes, RPC transport: buf.drain() → Bytes |
+| IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
+| eprintln! in production | 0 (migrated to tracing, Iter 45) |
+| Zero-copy | `Arc<str>` for shader source; `bytes::Bytes` for binary payloads (Iter 56) |
 | Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |
-| Driver constants | DRIVER_VFIO/NOUVEAU/AMDGPU/NVIDIA_DRM in preference.rs (Iter 47); DEFAULT_NV_SM → env var fallback (Iter 55) |
-| RM ioctl sovereignty | nv_rm_ioctl via rustix (Iter 48: zero extern "C") |
-| SAFETY documentation | All `unsafe impl Send/Sync` blocks documented (Iter 51) |
-| Unsafe evolution | `clflush_range` evolved to safe `&[u8]` API (Iter 55); 6 call sites migrated |
-| Hardcoding evolution | PCI class codes, personality/policy defaults → named constants (Iter 55) |
-| scyBorg license | NAK MIT exception documented in LICENSE with symbiotic exception note (Iter 55) |
+| Config discovery | CLI > env `$CORALREEF_CONFIG` > XDG config > system fallback (Iter 56) |
+| Driver constants | Named constants for PCI vendor IDs, class codes; env var fallbacks (Iter 56) |
+| RM ioctl sovereignty | nv_rm_ioctl via rustix (zero extern "C") |
+| SAFETY documentation | All `unsafe impl Send/Sync` documented; VolatilePtr wrapper (Iter 56) |
+| Unsafe evolution | VolatilePtr for safe MMIO reads; cache_line_flush demoted to pub(crate) (Iter 56) |
+| Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based (Iter 56) |
+| Primal self-knowledge | Zero hardcoded primal names in production; capability-based discovery (Iter 56) |
+| SPDX headers | 425/425 .rs files have SPDX (pci_discovery_tests.rs fixed, Iter 56) |
+| scyBorg license | AGPL-3.0-only; NAK MIT exception documented |
+| Shutdown safety | coral-glowplug: cancellation token + mutex timeout; no spawn_blocking deadlock (Iter 56) |

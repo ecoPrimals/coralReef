@@ -21,9 +21,9 @@ use super::uvm::{
 enum GpuGen {
     Volta,
     Turing,
-    /// GA100 (A100, SM 8.0) — uses AMPERE_COMPUTE_A.
+    /// GA100 (A100, SM 8.0) — uses `AMPERE_COMPUTE_A`.
     AmpereA,
-    /// GA10x (RTX 30xx, SM 8.6+) — uses AMPERE_COMPUTE_B.
+    /// `GA10x` (RTX 30xx, SM 8.6+) — uses `AMPERE_COMPUTE_B`.
     AmpereB,
 }
 
@@ -74,8 +74,11 @@ const fn gpfifo_entry(push_buf_va: u64, length_dwords: u32) -> u64 {
     ((push_buf_va >> 2) & 0x00_0000_003F_FFFF_FFFF) | ((length_dwords as u64) << 42)
 }
 
-/// USERD GP_PUT doorbell offset (bytes).
+/// USERD `GP_PUT` doorbell offset (bytes).
 const USERD_GP_PUT_OFFSET: usize = 0x0C;
+
+/// USERD `GP_GET` offset (bytes).
+const USERD_GP_GET_OFFSET: usize = 0x08;
 
 /// Compute device backed by the NVIDIA proprietary driver (RM + UVM).
 ///
@@ -115,15 +118,15 @@ pub struct NvUvmComputeDevice {
     buffers: HashMap<u32, UvmBuffer>,
     next_handle: u32,
     next_mem_handle: u32,
-    /// Inflight temporary buffers that survive until sync().
+    /// Inflight temporary buffers that survive until `sync()`.
     inflight: Vec<BufferHandle>,
-    /// CPU-mapped pointer to the USERD page (for GP_PUT doorbell writes).
+    /// CPU-mapped pointer to the USERD page (for `GP_PUT` doorbell writes).
     userd_cpu_addr: u64,
     /// CPU-mapped pointer to the GPFIFO ring (for writing GPFIFO entries).
     gpfifo_cpu_addr: u64,
-    /// Current GP_PUT index (next slot to write in the GPFIFO ring).
+    /// Current `GP_PUT` index (next slot to write in the GPFIFO ring).
     gp_put: u32,
-    /// Handle of the NV01_MEMORY_VIRTUAL for DMA mapping.
+    /// Handle of the `NV01_MEMORY_VIRTUAL` for DMA mapping.
     h_virt_mem: u32,
 }
 
@@ -140,8 +143,8 @@ impl NvUvmComputeDevice {
     /// Open a UVM compute device for the specified GPU index and SM version.
     ///
     /// Performs the full RM object chain:
-    /// ROOT → DEVICE → SUBDEVICE → UUID query → UVM_REGISTER_GPU →
-    /// VA_SPACE → CHANNEL_GROUP → GPFIFO → COMPUTE
+    /// ROOT → DEVICE → SUBDEVICE → UUID query → `UVM_REGISTER_GPU` →
+    /// `VA_SPACE` → `CHANNEL_GROUP` → GPFIFO → COMPUTE
     ///
     /// # Errors
     ///
@@ -221,12 +224,14 @@ impl NvUvmComputeDevice {
         })
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     fn alloc_handle(&mut self) -> u32 {
         let h = self.next_handle;
         self.next_handle += 1;
         h
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     fn alloc_mem_handle(&mut self) -> u32 {
         let h = self.next_mem_handle;
         self.next_mem_handle += 1;
@@ -235,7 +240,7 @@ impl NvUvmComputeDevice {
 
     /// The SM version this device targets.
     #[must_use]
-    pub fn sm_version(&self) -> u32 {
+    pub const fn sm_version(&self) -> u32 {
         match self.gpu_gen {
             GpuGen::Volta => 70,
             GpuGen::Turing => 75,
@@ -293,13 +298,12 @@ impl NvUvmComputeDevice {
         Ok(())
     }
 
-    /// Poll for GPFIFO completion by checking GP_GET in the USERD page.
+    /// Poll for GPFIFO completion by checking `GP_GET` in the USERD page.
     fn poll_gpfifo_completion(&self) -> DriverResult<()> {
         if self.userd_cpu_addr == 0 || self.gp_put == 0 {
             return Ok(());
         }
 
-        const USERD_GP_GET_OFFSET: usize = 0x08;
         let gp_get_ptr = (self.userd_cpu_addr + USERD_GP_GET_OFFSET as u64) as *const u32;
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -464,7 +468,8 @@ impl ComputeDevice for NvUvmComputeDevice {
                 .map_err(|_| DriverError::platform_overflow("buffer count fits in u64"))?;
         let desc_handle = self.alloc(desc_buf_size, MemoryDomain::Gtt)?;
 
-        let mut desc_data = vec![0u8; desc_buf_size as usize];
+        let mut desc_data = vec![0u8; usize::try_from(desc_buf_size)
+            .map_err(|_| DriverError::platform_overflow("desc_buf_size fits in usize"))?];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
                 let off = i * 8;
@@ -501,7 +506,11 @@ impl ComputeDevice for NvUvmComputeDevice {
         let qmd_words = qmd::build_qmd_for_sm(self.sm_version(), &qmd_params);
         let qmd_bytes = u32_slice_as_bytes(&qmd_words);
 
-        let qmd_handle = self.alloc(qmd_bytes.len() as u64, MemoryDomain::Gtt)?;
+        let qmd_handle = self.alloc(
+            u64::try_from(qmd_bytes.len())
+                .map_err(|_| DriverError::platform_overflow("qmd size fits in u64"))?,
+            MemoryDomain::Gtt,
+        )?;
         self.upload(qmd_handle, 0, qmd_bytes)?;
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
@@ -509,7 +518,11 @@ impl ComputeDevice for NvUvmComputeDevice {
         let pb = PushBuf::compute_dispatch(compute_class, qmd_va, 0xFF00_0000_0000_0000);
         let pb_bytes = pb.as_bytes();
 
-        let pb_handle = self.alloc(pb_bytes.len() as u64, MemoryDomain::Gtt)?;
+        let pb_handle = self.alloc(
+            u64::try_from(pb_bytes.len())
+                .map_err(|_| DriverError::platform_overflow("push buffer size fits in u64"))?,
+            MemoryDomain::Gtt,
+        )?;
         self.upload(pb_handle, 0, pb_bytes)?;
         let pb_va = self.buffers.get(&pb_handle.0).map_or(0, |b| b.gpu_va);
 

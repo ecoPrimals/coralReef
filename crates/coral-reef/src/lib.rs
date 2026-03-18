@@ -58,12 +58,6 @@ pub mod tolerances;
 // ISA domain types intentionally use naming conventions that mirror
 // hardware documentation (e.g. OpFAdd, SrcType, UGPR). dead_code covers
 // AMD stub, builder traits, and ISA variants reserved for future use.
-#[expect(
-    non_snake_case,
-    dead_code,
-    missing_docs,
-    reason = "ISA domain types mirror hardware docs; codegen has intentionally unused items"
-)]
 mod codegen;
 
 pub use backend::{AmdBackend, Backend, CompiledBinary, NvidiaBackend};
@@ -113,7 +107,7 @@ pub enum FmaPolicy {
 
 /// Three-tier f64 precision strategy.
 ///
-/// barraCuda decides WHICH tier based on accuracy requirements and hardware.
+/// The compute dispatcher decides WHICH tier based on accuracy requirements and hardware.
 /// coralReef decides HOW to implement the tier on the target GPU.
 ///
 /// | Strategy     | Mantissa | Throughput vs f32 | Use case |

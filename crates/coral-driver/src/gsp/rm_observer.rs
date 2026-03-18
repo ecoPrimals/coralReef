@@ -28,7 +28,7 @@ pub struct RmRecord {
     pub class_or_cmd: u32,
     /// Allocation parameter size (0 = kernel-inferred).
     pub params_size: u32,
-    /// RM status code returned by kernel (0 = NV_OK).
+    /// RM status code returned by kernel (0 = `NV_OK`).
     pub status: u32,
     /// Elapsed microseconds for the ioctl round-trip.
     pub elapsed_us: u64,
@@ -91,7 +91,7 @@ pub struct RmProtocolLog {
 impl RmProtocolLog {
     /// Create a new empty log.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             chip: None,
             sm: None,
@@ -126,13 +126,13 @@ impl RmProtocolLog {
 
     /// Number of recorded operations.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.records.len()
     }
 
     /// Whether the log is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
 
@@ -241,7 +241,7 @@ impl LoggingObserver {
         }
     }
 
-    fn next_seq(&mut self) -> u32 {
+    const fn next_seq(&mut self) -> u32 {
         let s = self.next_seq;
         self.next_seq += 1;
         s
@@ -255,7 +255,7 @@ impl LoggingObserver {
 
     /// Borrow the accumulated log.
     #[must_use]
-    pub fn log(&self) -> &RmProtocolLog {
+    pub const fn log(&self) -> &RmProtocolLog {
         &self.log
     }
 }
@@ -283,7 +283,7 @@ impl RmObserver for LoggingObserver {
             class_or_cmd: event.h_class,
             params_size: event.params_size,
             status: event.status,
-            elapsed_us: event.elapsed.as_micros() as u64,
+            elapsed_us: u64::try_from(event.elapsed.as_micros()).unwrap_or(u64::MAX),
             sm: self.log.sm,
         });
     }
@@ -306,7 +306,7 @@ impl RmObserver for LoggingObserver {
             class_or_cmd: cmd,
             params_size: 0,
             status,
-            elapsed_us: elapsed.as_micros() as u64,
+            elapsed_us: u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX),
             sm: self.log.sm,
         });
     }
@@ -377,6 +377,85 @@ mod tests {
         assert!(!recipe[0].has_params);
         assert_eq!(recipe[1].class, 0x0080);
         assert!(recipe[1].has_params);
+    }
+
+    #[test]
+    fn logging_observer_failed_allocs_excluded_from_recipe() {
+        let mut obs = LoggingObserver::new();
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 0,
+            h_new: 1,
+            h_class: 0x0041,
+            params_size: 0,
+            status: 0,
+            elapsed: std::time::Duration::from_micros(10),
+        });
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 1,
+            h_new: 2,
+            h_class: 0x0080,
+            params_size: 56,
+            status: 0x103, // NV_ERR_* failure
+            elapsed: std::time::Duration::from_micros(5),
+        });
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 1,
+            h_new: 3,
+            h_class: 0x2080,
+            params_size: 0,
+            status: 0,
+            elapsed: std::time::Duration::from_micros(20),
+        });
+
+        let log = obs.into_log();
+        assert_eq!(log.len(), 3);
+        let recipe = log.allocation_recipe();
+        assert_eq!(recipe.len(), 2, "failed alloc should be excluded");
+        assert_eq!(recipe[0].class, 0x0041);
+        assert_eq!(recipe[1].class, 0x2080);
+        let classes = log.successful_classes();
+        assert_eq!(classes, vec![0x0041, 0x2080]);
+    }
+
+    #[test]
+    fn logging_observer_on_free_records() {
+        let mut obs = LoggingObserver::for_gpu("ga102", 86);
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 0,
+            h_new: 1,
+            h_class: 0x0041,
+            params_size: 0,
+            status: 0,
+            elapsed: std::time::Duration::ZERO,
+        });
+        obs.on_free(1, 1, 0);
+
+        let log = obs.into_log();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log.records[1].op, RmOp::Free);
+        assert_eq!(log.records[1].h_object, 1);
+        assert_eq!(log.records[1].status, 0);
+    }
+
+    #[test]
+    fn rm_protocol_log_empty_default() {
+        let log = RmProtocolLog::new();
+        assert!(log.is_empty());
+        assert_eq!(log.len(), 0);
+        assert!(log.successful_classes().is_empty());
+        assert!(log.allocation_recipe().is_empty());
+    }
+
+    #[test]
+    fn rm_protocol_log_for_gpu_sets_metadata() {
+        let log = RmProtocolLog::for_gpu("gv100", 70);
+        assert_eq!(log.chip.as_deref(), Some("gv100"));
+        assert_eq!(log.sm, Some(70));
+        assert!(log.records.is_empty());
     }
 
     #[test]

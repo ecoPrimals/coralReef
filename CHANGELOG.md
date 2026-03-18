@@ -11,7 +11,25 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 ## [Unreleased]
 
 ### Added
-- (Current work in progress)
+- GlowPlug security hardening: BDF validation (path traversal, null bytes, shell injection), max 64 concurrent clients via semaphore, 30s idle timeout, 64KiB max request line (iter56)
+- 27 chaos/fault/penetration tests: JSON fuzzing, connection chaos, BDF injection, method probing, repeated shutdown (iter56)
+- Circuit breaker in health loop: stops BAR0 reads after 6 consecutive faults, prevents kernel instability (iter56)
+- nvidia module guard: blocks swap/resurrect/auto-resurrection when nvidia.ko loaded (iter56)
+- DRM consumer guard: refuses driver unbind when active display clients detected — prevents kernel panic (iter56)
+- Boot sovereignty: `softdep nvidia pre: vfio-pci`, `vfio-pci.ids=10de:1d81` in kernel cmdline, initramfs rebuild (iter56)
+- Boot safety validation in coral-glowplug startup: checks /proc/cmdline, warns if nvidia probed managed devices (iter56)
+- `scripts/boot/` deployment scripts: `deploy-boot.sh`, canonical modprobe and udev configs (iter56)
+- `ActiveDrmConsumers` error variant in DeviceError (iter56)
+- thiserror error hierarchy: DeviceError, ConfigError, RpcError with JSON-RPC 2.0 codes (iter55)
+- clap CLI evolution: replaced manual std::env::args with derive Parser (iter55)
+- sysfs module extraction: device.rs refactored 886→703 lines, sysfs.rs 268 lines (iter55)
+- 131 coral-glowplug tests (was 72 at iter54)
+
+### Fixed
+- Deadlock in socket.rs: spawn_blocking + block_on on async mutex replaced with direct .lock().await (iter55)
+- Graceful shutdown: watch channel coordination, accept loop abort, 5s mutex timeout (iter55)
+- Kernel panic on driver unbind: DRM consumer check prevents unbinding GPUs with active display (iter56)
+- Kernel crash loop: circuit breaker + nvidia guard prevent repeated BAR0 reads on faulted hardware (iter56)
 
 ---
 

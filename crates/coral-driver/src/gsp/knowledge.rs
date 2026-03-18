@@ -272,6 +272,12 @@ impl GpuKnowledge {
         stats
     }
 
+    /// Insert architecture knowledge for testing (no firmware required).
+    #[cfg(test)]
+    pub fn insert_for_test(&mut self, arch: ArchKnowledge) {
+        self.architectures.insert(arch.chip.clone(), arch);
+    }
+
     /// Summary of the knowledge base.
     #[must_use]
     pub fn summary(&self) -> KnowledgeSummary {

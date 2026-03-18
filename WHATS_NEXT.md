@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 17, 2026 (Phase 10 — Iteration 54)
+**Last updated**: March 18, 2026 (Phase 10 — Iteration 56)
 
 ---
 
@@ -81,9 +81,9 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 54)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 56)
 
-### Iteration 54 — Coverage Expansion + Doc Cleanup + Debt Resolution
+### Iteration 56 — Coverage Expansion + Doc Cleanup + Debt Resolution
 - [x] 40 constant folding tests (`fold.rs`: integer, identity, bitwise, shift, comparison, overflow)
 - [x] 30+ coral-glowplug tests (config, device, personality, JSON-RPC dispatch, TCP bind, BDF parsing)
 - [x] 30+ coral-driver tests (PCI config parsing, vendor detection, PM state, BAR/capability, PM4, GEM, RM params)
@@ -93,6 +93,16 @@
 - [x] 10 doc link warnings fixed (`DriverError` in rm_client/alloc.rs → full crate path)
 - [x] 10 EVOLUTION markers catalogued and audited for feasibility
 - [x] 2241 → 2364 passing (+123 tests), 58.16% → 59.92% line coverage, 0 doc warnings
+- [x] GlowPlug security hardening — BDF validation, connection limits, chaos/fault/pen testing (131 tests)
+- [x] Boot sovereignty — vfio-pci.ids preemption, softdep nvidia ordering, initramfs, kernel cmdline
+- [x] Circuit breaker + nvidia module guard + DRM consumer guard
+- [x] thiserror error hierarchy, clap CLI, sysfs module extraction
+
+### Sovereignty Roadmap
+- [ ] Custom PMU Falcon firmware for GV100 in Rust (replace vendor firmware dependency)
+- [ ] Sovereign HBM2 training via coral-driver typestate machine (eliminate nouveau dependency)
+- [ ] Vendor-agnostic GPU abstraction layer in coral-driver (unified AMD/NVIDIA backend)
+- [ ] Devinit via VBIOS boot script execution from Rust
 
 ### Iteration 53 — Deep Audit Execution + Safe Rust Evolution + Test Coverage
 - [x] `clippy::nursery` lints enabled workspace-wide (`nursery = "warn"` in `[workspace.lints.clippy]`)

@@ -3,7 +3,7 @@
 //!
 //! Maps `/sys/class/drm/{node}/device/resource0` (or an explicit PCI sysfs
 //! path) to perform volatile 32-bit register operations. This is the same
-//! physical BAR0 window that toadStool's `nvpmu::Bar0Access` uses.
+//! physical BAR0 window used by ecosystem PMU/init tooling.
 //!
 //! Requires root or appropriate PCI sysfs permissions.
 //!
@@ -19,6 +19,7 @@ use std::os::unix::io::AsRawFd;
 use std::ptr::NonNull;
 
 use crate::gsp::{ApplyError, RegisterAccess};
+use crate::mmio::VolatilePtr;
 
 /// GPU BAR0 MMIO mapping for direct register access.
 ///
@@ -35,7 +36,7 @@ impl std::fmt::Debug for Bar0Access {
         f.debug_struct("Bar0Access")
             .field("size", &self.size)
             .field("ptr", &self.ptr)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -43,11 +44,16 @@ impl Bar0Access {
     /// Open BAR0 from a DRM render node path (e.g. `/dev/dri/renderD128`).
     ///
     /// Resolves the sysfs device directory and maps `resource0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApplyError::MmioFailed` if the render node path cannot be parsed
+    /// or if opening/mapping the BAR0 resource fails.
     pub fn from_render_node(render_node_path: &str) -> Result<Self, ApplyError> {
         let node_name = render_node_path
             .rsplit('/')
             .next()
-            .ok_or(ApplyError::MmioFailed {
+            .ok_or_else(|| ApplyError::MmioFailed {
                 offset: 0,
                 detail: format!("cannot parse render node from '{render_node_path}'"),
             })?;
@@ -56,6 +62,10 @@ impl Bar0Access {
     }
 
     /// Open BAR0 from a sysfs device directory (e.g. `/sys/class/drm/renderD128/device`).
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApplyError::MmioFailed` if opening/mapping the BAR0 resource fails.
     pub fn from_sysfs_device(sysfs_device: &str) -> Result<Self, ApplyError> {
         let path = format!("{sysfs_device}/resource0");
         Self::open_resource(&path)
@@ -72,13 +82,18 @@ impl Bar0Access {
                 detail: format!("open {path}: {e}"),
             })?;
 
-        let size = file
-            .metadata()
-            .map_err(|e| ApplyError::MmioFailed {
-                offset: 0,
-                detail: format!("stat {path}: {e}"),
-            })?
-            .len() as usize;
+        let size = usize::try_from(
+            file.metadata()
+                .map_err(|e| ApplyError::MmioFailed {
+                    offset: 0,
+                    detail: format!("stat {path}: {e}"),
+                })?
+                .len(),
+        )
+        .map_err(|_| ApplyError::MmioFailed {
+            offset: 0,
+            detail: format!("{path}: BAR0 size exceeds usize"),
+        })?;
 
         if size == 0 {
             return Err(ApplyError::MmioFailed {
@@ -105,7 +120,7 @@ impl Bar0Access {
             detail: format!("mmap {path} ({size} bytes): {e}"),
         })?;
 
-        let ptr = NonNull::new(raw_ptr.cast::<u8>()).ok_or(ApplyError::MmioFailed {
+        let ptr = NonNull::new(raw_ptr.cast::<u8>()).ok_or_else(|| ApplyError::MmioFailed {
             offset: 0,
             detail: format!("mmap {path}: returned null"),
         })?;
@@ -129,15 +144,20 @@ impl Bar0Access {
         self.size
     }
 
-    /// Read a GPU identification register (NV_PMC_BOOT_0 at offset 0x0).
+    /// Read a GPU identification register (`NV_PMC_BOOT_0` at offset 0x0).
     ///
     /// Returns the chip ID word. Useful for verifying BAR0 access works.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApplyError::MmioFailed` if the read fails.
     pub fn read_boot_id(&self) -> Result<u32, ApplyError> {
         self.read_u32(0)
     }
 }
 
 impl RegisterAccess for Bar0Access {
+    #[allow(clippy::cast_ptr_alignment)] // MMIO register reads at known-aligned offsets
     fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
         let off = offset as usize;
         if off + 4 > self.size {
@@ -148,13 +168,11 @@ impl RegisterAccess for Bar0Access {
         }
         // SAFETY: ptr is a valid mmap of BAR0. Offset is bounds-checked.
         // Volatile read is required for MMIO semantics.
-        let val = unsafe {
-            let p = self.ptr.as_ptr().add(off).cast::<u32>();
-            std::ptr::read_volatile(p)
-        };
-        Ok(val)
+        let vol = unsafe { VolatilePtr::new(self.ptr.as_ptr().add(off).cast::<u32>()) };
+        Ok(vol.read())
     }
 
+    #[allow(clippy::cast_ptr_alignment)] // MMIO register writes at known-aligned offsets
     fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {
         let off = offset as usize;
         if off + 4 > self.size {
@@ -165,10 +183,8 @@ impl RegisterAccess for Bar0Access {
         }
         // SAFETY: ptr is a valid mmap of BAR0. Offset is bounds-checked.
         // Volatile write is required for MMIO semantics.
-        unsafe {
-            let p = self.ptr.as_ptr().add(off).cast::<u32>();
-            std::ptr::write_volatile(p, value);
-        }
+        let vol = unsafe { VolatilePtr::new(self.ptr.as_ptr().add(off).cast::<u32>()) };
+        vol.write(value);
         Ok(())
     }
 }

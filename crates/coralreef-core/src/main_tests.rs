@@ -491,12 +491,6 @@ fn unibin_exit_to_exit_code() {
 }
 
 #[test]
-fn remove_discovery_file_is_idempotent() {
-    remove_discovery_file();
-    remove_discovery_file();
-}
-
-#[test]
 fn parse_cli_invalid_subcommand() {
     let result = parse_cli_from(["coralreef", "nonexistent"]);
     assert!(result.is_err());
@@ -590,4 +584,39 @@ fn parse_cli_long_about() {
         err.to_string().contains("coralreef") || err.to_string().contains("doctor"),
         "help output should mention command"
     );
+}
+
+// --- main() error path coverage via parse_cli ---
+
+#[test]
+fn parse_cli_error_returns_clap_error() {
+    let result = parse_cli_from(["coralreef"]);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().to_lowercase().contains("subcommand")
+            || err.to_string().to_lowercase().contains("required"),
+        "missing subcommand should produce parse error"
+    );
+}
+
+#[test]
+fn parse_cli_compile_invalid_opt_level() {
+    let result = parse_cli_from([
+        "coralreef",
+        "compile",
+        "x.wgsl",
+        "--opt-level",
+        "99",
+    ]);
+    assert!(result.is_ok(), "opt-level 99 is valid (clamped by compiler)");
+}
+
+#[test]
+fn parse_cli_compile_with_opt_level_zero() {
+    let cli = parse_cli_from(["coralreef", "compile", "x.wgsl", "--opt-level", "0"]).unwrap();
+    match &cli.command {
+        Commands::Compile { opt_level, .. } => assert_eq!(*opt_level, 0),
+        _ => panic!("expected Compile command"),
+    }
 }

@@ -608,11 +608,12 @@ mod tests {
             },
         ];
         let out = generate::generate_encoding_file("ENC_VOP3", &info, Some(&instrs)).unwrap();
-        assert!(out.main_file.contains("mod table_cmp"));
+        assert!(out.main_file.contains("mod table_cmp_f32_f64"));
+        assert!(out.main_file.contains("mod table_cmp_int"));
         assert!(out.main_file.contains("mod table_arith"));
         assert!(out.main_file.contains("mod table_math"));
         assert!(out.main_file.contains("mod table_logic"));
-        assert_eq!(out.table_sub_files.len(), 4);
+        assert_eq!(out.table_sub_files.len(), 5);
         assert!(out.table_file.is_none());
     }
 

@@ -11,7 +11,7 @@
 //!
 //! Algorithms and ULP targets derive from:
 //! - **hotSpring**: DF64 precision requirements for Yukawa force / molecular dynamics
-//! - **barraCuda**: `math_f64.wgsl`, `df64_transcendentals.wgsl` reference coefficients
+//! - Ecosystem reference: `math_f64.wgsl`, `df64_transcendentals.wgsl` coefficients
 //! - **groundSpring**: 13-tier tolerance architecture (`tol::ANALYTICAL` ≈ 1e-10 for
 //!   single-transcendental paths), validation pipeline (34 binaries, 395 checks)
 //! - **F64_LOWERING_THEORY.md**: MUFU seed + Newton-Raphson + Horner + Cody-Waite theory

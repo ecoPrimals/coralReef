@@ -13,22 +13,10 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_SOPC encoding fields (32 bits).
 pub mod fields {
     use super::BitField;
-    pub const SSRC0: BitField = BitField {
-        offset: 0,
-        width: 8,
-    };
-    pub const SSRC1: BitField = BitField {
-        offset: 8,
-        width: 8,
-    };
-    pub const OP: BitField = BitField {
-        offset: 16,
-        width: 7,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 23,
-        width: 9,
-    };
+    pub const SSRC0: BitField = BitField { offset: 0, width: 8 };
+    pub const SSRC1: BitField = BitField { offset: 8, width: 8 };
+    pub const OP: BitField = BitField { offset: 16, width: 7 };
+    pub const ENCODING: BitField = BitField { offset: 23, width: 9 };
 }
 
 /// Set SCC to 1 iff the first scalar input is equal to the second scalar input.
@@ -70,114 +58,24 @@ pub const S_CMP_LG_U64: u16 = 19;
 
 /// All ENC_SOPC instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "S_CMP_EQ_I32",
-        opcode: 0,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LG_I32",
-        opcode: 1,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_GT_I32",
-        opcode: 2,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_GE_I32",
-        opcode: 3,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LT_I32",
-        opcode: 4,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LE_I32",
-        opcode: 5,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_EQ_U32",
-        opcode: 6,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LG_U32",
-        opcode: 7,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_GT_U32",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_GE_U32",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LT_U32",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LE_U32",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BITCMP0_B32",
-        opcode: 12,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BITCMP1_B32",
-        opcode: 13,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BITCMP0_B64",
-        opcode: 14,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_BITCMP1_B64",
-        opcode: 15,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_EQ_U64",
-        opcode: 18,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMP_LG_U64",
-        opcode: 19,
-        is_branch: false,
-        is_terminator: false,
-    },
+    InstrEntry { name: "S_CMP_EQ_I32", opcode: 0, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LG_I32", opcode: 1, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_GT_I32", opcode: 2, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_GE_I32", opcode: 3, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LT_I32", opcode: 4, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LE_I32", opcode: 5, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_EQ_U32", opcode: 6, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LG_U32", opcode: 7, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_GT_U32", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_GE_U32", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LT_U32", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LE_U32", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BITCMP0_B32", opcode: 12, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BITCMP1_B32", opcode: 13, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BITCMP0_B64", opcode: 14, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_BITCMP1_B64", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_EQ_U64", opcode: 18, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMP_LG_U64", opcode: 19, is_branch: false, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -185,3 +83,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

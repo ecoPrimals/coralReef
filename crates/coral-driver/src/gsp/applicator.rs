@@ -89,7 +89,7 @@ pub struct ApplyResult {
 impl ApplyResult {
     /// Whether all BAR0 writes succeeded with no errors.
     #[must_use]
-    pub fn success(&self) -> bool {
+    pub const fn success(&self) -> bool {
         self.errors.is_empty()
     }
 }
@@ -320,6 +320,124 @@ mod tests {
             }
             Err(e) => eprintln!("GV100 firmware not present: {e}"),
         }
+    }
+
+    #[test]
+    fn apply_error_display() {
+        let e = ApplyError::MmioFailed {
+            offset: 0x0000_0200,
+            detail: "permission denied".to_string(),
+        };
+        let msg = e.to_string();
+        assert!(msg.contains("0x00000200"));
+        assert!(msg.contains("permission denied"));
+
+        let e2 = ApplyError::VerifyFailed {
+            offset: 0x2504,
+            actual: 0,
+            expected: 1,
+        };
+        let msg2 = e2.to_string();
+        assert!(msg2.contains("0x00002504"));
+        assert!(msg2.contains("got"));
+        assert!(msg2.contains("expected"));
+
+        let e3 = ApplyError::ThermalLimit {
+            temp_c: 95.0,
+            limit_c: 90.0,
+        };
+        let msg3 = e3.to_string();
+        assert!(msg3.contains("95"));
+        assert!(msg3.contains("90"));
+    }
+
+    #[test]
+    fn split_for_application_bar0_vs_fecs_by_offset() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "test".to_string(),
+            writes: vec![
+                GrRegWrite {
+                    offset: 0x0000_0200,
+                    value: 1,
+                    category: RegCategory::MasterControl,
+                    delay_us: 0,
+                },
+                GrRegWrite {
+                    offset: 0x1000, // <= 0x7FFC, goes to FECS
+                    value: 0x42,
+                    category: RegCategory::MethodInit,
+                    delay_us: 0,
+                },
+                GrRegWrite {
+                    offset: 0x0080_0000, // > 0x7FFC, BAR0
+                    value: 0xDEAD,
+                    category: RegCategory::BundleInit,
+                    delay_us: 0,
+                },
+            ],
+        };
+        let (bar0, fecs) = split_for_application(&seq);
+        assert_eq!(bar0.len(), 2, "MasterControl + high-offset BundleInit");
+        assert_eq!(fecs.len(), 1, "low-offset MethodInit");
+    }
+
+    #[test]
+    fn apply_bar0_mock_failure_propagates() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+
+        struct FailingMock;
+        impl RegisterAccess for FailingMock {
+            fn read_u32(&self, _: u32) -> Result<u32, ApplyError> {
+                Err(ApplyError::MmioFailed {
+                    offset: 0,
+                    detail: "read failed".to_string(),
+                })
+            }
+            fn write_u32(&mut self, offset: u32, _: u32) -> Result<(), ApplyError> {
+                Err(ApplyError::MmioFailed {
+                    offset,
+                    detail: "write failed".to_string(),
+                })
+            }
+        }
+
+        let seq = GrInitSequence {
+            chip: "test".to_string(),
+            writes: vec![GrRegWrite {
+                offset: 0x0000_0200,
+                value: 1,
+                category: RegCategory::MasterControl,
+                delay_us: 0,
+            }],
+        };
+        let mut regs = FailingMock;
+        let result = apply_bar0(&seq, &mut regs);
+        assert!(!result.success());
+        assert_eq!(result.errors.len(), 1);
+        assert!(result.bar0_writes == 0);
+    }
+
+    #[test]
+    fn verify_pre_init_fails_on_mismatch() {
+        struct MockRegsReadWrong;
+        impl RegisterAccess for MockRegsReadWrong {
+            fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
+                Ok(match offset {
+                    0x0000_0200 => 0, // expected bit 0 set
+                    0x0000_2504 => 0, // expected bit 0 set
+                    _ => 0,
+                })
+            }
+            fn write_u32(&mut self, _: u32, _: u32) -> Result<(), ApplyError> {
+                Ok(())
+            }
+        }
+
+        let regs = MockRegsReadWrong;
+        let errs = verify_pre_init(&regs);
+        assert_eq!(errs.len(), 2);
+        assert!(errs.iter().all(|e| matches!(e, ApplyError::VerifyFailed { .. })));
     }
 
     #[test]

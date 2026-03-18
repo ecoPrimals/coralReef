@@ -6,7 +6,10 @@ mod memory;
 
 use crate::error::{DriverError, DriverResult};
 
-use super::structs::*;
+use super::structs::{
+    Nv2080GpuGetGidInfoParams, NvRmAllocParams, NvRmControlParams, NvRmFreeParams,
+    UvmRegisterGpuParams,
+};
 use super::{
     NV_ESC_RM_ALLOC, NV_ESC_RM_CONTROL, NV_ESC_RM_FREE, NV_OK, NV01_ROOT_CLIENT,
     NV2080_CTRL_CMD_GPU_GET_GID_INFO, NvCtlDevice, NvUvmDevice, UVM_REGISTER_GPU, nv_ioctl_rw,
@@ -296,7 +299,8 @@ impl RmClient {
             "RM_CONTROL(GPU_GET_GID_INFO)",
         )?;
 
-        let len = gid.length as usize;
+        let len = usize::try_from(gid.length)
+            .map_err(|_| DriverError::platform_overflow("GID length fits in usize"))?;
         let uuid = parse_gid_to_uuid(&gid.data[..len])?;
 
         tracing::info!(
@@ -358,6 +362,10 @@ impl RmClient {
     }
 
     /// Free an RM object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the `NV_ESC_RM_FREE` ioctl fails.
     pub fn free_object(&mut self, h_parent: u32, h_object: u32) -> DriverResult<()> {
         let mut params = NvRmFreeParams {
             h_root: self.h_client,

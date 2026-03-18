@@ -314,9 +314,11 @@ dependencies = [
 name = "coral-glowplug"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "coral-driver",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "toml",
  "tracing",

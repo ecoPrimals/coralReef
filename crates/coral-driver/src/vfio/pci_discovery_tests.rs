@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright © 2026 ecoPrimals
+
 use super::*;
 
 fn make_config_bytes(vendor_id: u16, device_id: u16, class_code: u32) -> Vec<u8> {

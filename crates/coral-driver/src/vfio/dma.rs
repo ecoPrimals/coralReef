@@ -3,6 +3,16 @@
 //!
 //! Provides page-aligned, mlock'd, IOMMU-mapped memory buffers for
 //! zero-copy data transfer between host and GPU via VFIO.
+//!
+//! # Unsafe blocks — why they must remain
+//!
+//! - **alloc/dealloc**: VFIO DMA map requires page-aligned (4096-byte) virtual
+//!   addresses. `Vec` and `Box` do not guarantee alignment; `alloc_zeroed` with
+//!   `Layout::from_size_align(_, 4096)` is required.
+//! - **mlock/munlock**: rustix exposes these as `unsafe` (raw pointer + length).
+//!   No safe wrapper exists; invariants are documented at each call site.
+//! - **BorrowedFd::borrow_raw**: Requires fd valid for the borrow duration;
+//!   container_fd is from VFIO open and outlives the ioctl.
 
 use crate::error::DriverError;
 use rustix::mm::{mlock, munlock};

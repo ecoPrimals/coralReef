@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! New nouveau UAPI (kernel 6.6+) — VM_INIT / VM_BIND / EXEC pipeline.
+//! New nouveau UAPI (kernel 6.6+) — `VM_INIT` / `VM_BIND` / `EXEC` pipeline.
 //!
 //! hotSpring Exp 051 confirmed: on kernel 6.17+ with Volta (GV100),
 //! legacy `CHANNEL_ALLOC` returns EINVAL unless `VM_INIT` is called first.
@@ -19,7 +19,7 @@ const NV_KERNEL_MANAGED_SIZE: u64 = 0x80_0000_0000;
 // Ioctl structures (must match kernel `nouveau_drm.h` layout, kernel 6.6+)
 // ---------------------------------------------------------------------------
 
-/// Initialize kernel-managed VA space. Must be called before VM_BIND.
+/// Initialize kernel-managed VA space. Must be called before `VM_BIND`.
 /// NVK uses `kernel_managed_addr = 0x80_0000_0000`, `kernel_managed_size = 0x80_0000_0000`.
 ///
 /// Must match `struct drm_nouveau_vm_init` from kernel UAPI (16 bytes, 2 fields).
@@ -32,7 +32,7 @@ struct NouveauVmInit {
     kernel_managed_size: u64,
 }
 
-/// Bind operation type for VM_BIND.
+/// Bind operation type for `VM_BIND`.
 #[repr(u32)]
 #[derive(Clone, Copy, Debug)]
 enum NouveauVmBindOp {
@@ -40,7 +40,7 @@ enum NouveauVmBindOp {
     Unmap = 1,
 }
 
-/// Single bind operation within a VM_BIND request.
+/// Single bind operation within a `VM_BIND` request.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct NouveauVmBindEntry {
@@ -53,10 +53,10 @@ struct NouveauVmBindEntry {
     range: u64,
 }
 
-/// VM_BIND request — maps/unmaps GEM objects to GPU virtual addresses.
+/// `VM_BIND` request — maps/unmaps GEM objects to GPU virtual addresses.
 ///
 /// Field order must match kernel `drm_nouveau_vm_bind`:
-/// op_count, flags, wait_count, sig_count, wait_ptr, sig_ptr, op_ptr.
+/// `op_count`, `flags`, `wait_count`, `sig_count`, `wait_ptr`, `sig_ptr`, `op_ptr`.
 #[repr(C)]
 #[derive(Default)]
 struct NouveauVmBind {
@@ -69,7 +69,7 @@ struct NouveauVmBind {
     op_ptr: u64,
 }
 
-/// Async VM_BIND flag.
+/// Async `VM_BIND` flag.
 #[expect(dead_code, reason = "available for async VM_BIND operations")]
 const NOUVEAU_VM_BIND_RUN_ASYNC: u32 = 1;
 
@@ -82,9 +82,9 @@ struct NouveauExecPush {
     flags: u32,
 }
 
-/// EXEC request — submits push buffer for GPU execution.
+/// `EXEC` request — submits push buffer for GPU execution.
 ///
-/// Field order must match kernel `drm_nouveau_exec`: wait_ptr, sig_ptr, push_ptr.
+/// Field order must match kernel `drm_nouveau_exec`: `wait_ptr`, `sig_ptr`, `push_ptr`.
 #[repr(C)]
 #[derive(Default)]
 struct NouveauExec {
@@ -97,7 +97,7 @@ struct NouveauExec {
     push_ptr: u64,
 }
 
-/// EXEC push buffer flag: no wait (fire-and-forget).
+/// `EXEC` push buffer flag: no wait (fire-and-forget).
 #[expect(dead_code, reason = "available for fire-and-forget dispatch")]
 const NOUVEAU_EXEC_PUSH_NO_WAIT: u32 = 1;
 
@@ -264,7 +264,7 @@ pub fn syncobj_destroy(fd: RawFd, handle: u32) -> DriverResult<()> {
 
 /// Wait on a DRM syncobj with a timeout.
 ///
-/// `timeout_nsec` is an absolute timeout in nanoseconds (CLOCK_MONOTONIC).
+/// `timeout_nsec` is an absolute timeout in nanoseconds (`CLOCK_MONOTONIC`).
 ///
 /// # Errors
 ///

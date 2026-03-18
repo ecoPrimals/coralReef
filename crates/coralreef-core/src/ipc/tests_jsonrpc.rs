@@ -99,7 +99,7 @@ async fn test_jsonrpc_compile_wgsl_shader() {
     let client = RpcClient::tcp(addr);
 
     let req = service::CompileWgslRequest {
-        wgsl_source: "@compute @workgroup_size(1)\nfn main() {}".to_owned(),
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         arch: "sm_70".to_owned(),
         opt_level: 2,
         fp64_software: true,

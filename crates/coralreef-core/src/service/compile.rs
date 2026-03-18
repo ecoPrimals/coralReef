@@ -128,7 +128,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         .map_or(req.fp64_software, |s| s == "software");
     let fma = parse_fma_policy(req.fma_policy.as_deref());
     let options = build_options(&req.arch, req.opt_level, fp64_sw, fma)?;
-    let binary = coral_reef::compile_wgsl(&req.wgsl_source, &options)?;
+    let binary = coral_reef::compile_wgsl(req.wgsl_source.as_ref(), &options)?;
     let size = binary.len();
     Ok(CompileResponse {
         binary: Bytes::from(binary),
@@ -152,7 +152,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
 pub fn handle_compile_wgsl_multi(
     req: MultiDeviceCompileRequest,
 ) -> Result<MultiDeviceCompileResponse, CompileError> {
-    if req.wgsl_source.is_empty() {
+    if req.wgsl_source.as_ref().is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));
     }
     if req.targets.is_empty() {
@@ -182,7 +182,7 @@ pub fn handle_compile_wgsl_multi(
                 fma_policy: fma,
                 ..CompileOptions::default()
             };
-            let binary = coral_reef::compile_wgsl(&req.wgsl_source, &options)?;
+            let binary = coral_reef::compile_wgsl(req.wgsl_source.as_ref(), &options)?;
             let size = binary.len();
             Ok((Bytes::from(binary), size))
         })();

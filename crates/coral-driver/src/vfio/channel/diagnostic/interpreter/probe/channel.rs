@@ -182,9 +182,7 @@ pub fn probe_channel(
         us[ramuserd::GP_GET..ramuserd::GP_GET + 4].copy_from_slice(&0xDEADu32.to_le_bytes());
         #[cfg(target_arch = "x86_64")]
         {
-            let ptr = us[ramuserd::GP_GET..].as_ptr();
-            // SAFETY: ptr points into a valid DMA-mapped USERD page.
-            unsafe { crate::vfio::cache_ops::cache_line_flush(ptr) };
+            crate::vfio::cache_ops::clflush_range(&us[ramuserd::GP_GET..]);
             crate::vfio::cache_ops::memory_fence();
         }
 
@@ -245,10 +243,7 @@ pub fn probe_channel(
 
         #[cfg(target_arch = "x86_64")]
         {
-            let userd_slice = userd.as_slice();
-            let ptr = userd_slice[ramuserd::GP_GET..].as_ptr();
-            // SAFETY: ptr points into a valid DMA-mapped USERD page.
-            unsafe { crate::vfio::cache_ops::cache_line_flush(ptr) };
+            crate::vfio::cache_ops::clflush_range(&userd.as_slice()[ramuserd::GP_GET..]);
             crate::vfio::cache_ops::memory_fence();
         }
         let userd_gp_get = u32::from_le_bytes(

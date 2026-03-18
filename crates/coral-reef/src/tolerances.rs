@@ -15,17 +15,17 @@
 /// DF64 uses Dekker/Knuth pair arithmetic with ~48-bit effective mantissa.
 /// Operations should stay within this many ULPs of the true f64 result.
 ///
-/// Provenance: groundSpring `tol::ANALYTICAL` (≈1e-10), barraCuda df64
+/// Provenance: groundSpring `tol::ANALYTICAL` (≈1e-10), ecosystem df64
 /// reference, hotSpring molecular dynamics requirements.
 pub const DF64_ULP_TOLERANCE: u32 = 4;
 
 /// Maximum ULP error for f64 transcendental lowering (exp2, log2, sin, cos).
 ///
 /// Polynomial and Newton-Raphson lowering targets this bound. exp2/log2 ≤2,
-/// sin/cos ≤4 per barraCuda `df64_transcendentals.wgsl` and groundSpring
+/// sin/cos ≤4 per ecosystem `df64_transcendentals.wgsl` and groundSpring
 /// validation.
 ///
-/// Provenance: barraCuda `df64_transcendentals.wgsl`, groundSpring validation.
+/// Provenance: ecosystem `df64_transcendentals.wgsl`, groundSpring validation.
 pub const F64_TRANSCENDENTAL_ULP: u32 = 4;
 
 /// Maximum ULP error for f64 sqrt/rcp Newton-Raphson lowering.

@@ -75,4 +75,17 @@ mod tests {
         let opt: Option<i32> = Some(42);
         assert_eq!(opt.or_exit("test"), 42);
     }
+
+    #[test]
+    fn test_result_or_exit_code_ok_returns_value() {
+        let result: Result<i32, &str> = Ok(99);
+        assert_eq!(result.or_exit_code("test", 42), 99);
+    }
+
+    #[test]
+    fn test_option_or_exit_code_some_returns_value() {
+        let opt: Option<String> = Some("hello".into());
+        assert_eq!(opt.or_exit_code("test", 2), "hello");
+    }
+
 }

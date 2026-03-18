@@ -14,6 +14,7 @@ use super::ioctl;
 use super::types::ioctls;
 use super::types::{VfioDeviceInfo, VfioGroupStatus, VfioRegionInfo};
 use crate::gsp::{ApplyError, RegisterAccess};
+use crate::mmio::VolatilePtr;
 
 /// A mapped BAR region from a VFIO device.
 pub struct MappedBar {
@@ -45,8 +46,8 @@ impl MappedBar {
         }
         // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
         // bounds checked above; volatile for MMIO.
-        let val = unsafe { std::ptr::read_volatile(self.base_ptr.add(offset).cast::<u32>()) };
-        Ok(val)
+        let vol = unsafe { VolatilePtr::new(self.base_ptr.add(offset).cast::<u32>()) };
+        Ok(vol.read())
     }
 
     /// Write a 32-bit register at the given byte offset.
@@ -72,9 +73,8 @@ impl MappedBar {
         }
         // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
         // bounds checked above; volatile for MMIO.
-        unsafe {
-            std::ptr::write_volatile(self.base_ptr.add(offset).cast::<u32>(), value);
-        }
+        let vol = unsafe { VolatilePtr::new(self.base_ptr.add(offset).cast::<u32>()) };
+        vol.write(value);
         Ok(())
     }
 
@@ -168,7 +168,7 @@ impl VfioDevice {
     /// 4. Set IOMMU type
     /// 5. Get device fd from group
     ///
-    /// # Prerequisites (provided by toadStool)
+    /// # Prerequisites (provided by ecosystem hardware setup)
     ///
     /// - GPU bound to `vfio-pci`
     /// - IOMMU enabled

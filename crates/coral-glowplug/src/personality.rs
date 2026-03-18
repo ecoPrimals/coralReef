@@ -13,25 +13,27 @@ use std::fmt;
 /// Each personality manages its driver-specific bind/unbind logic
 /// and provides metadata for capability advertisement. Consumed as
 /// `dyn GpuPersonality` from [`PersonalityRegistry::create`].
-#[allow(
-    dead_code,
-    reason = "dyn-dispatch API exercised via PersonalityRegistry"
-)]
+#[allow(dead_code, reason = "trait methods used via dyn-dispatch and in tests")]
 pub trait GpuPersonality: fmt::Display + fmt::Debug + Send + Sync {
     /// Short name for IPC identification (e.g. `"vfio"`, `"nouveau"`, `"amdgpu"`).
-    fn name(&self) -> &str;
+    #[must_use]
+    fn name(&self) -> &'static str;
 
     /// Whether this personality provides direct hardware access (VFIO fd).
+    #[must_use]
     fn provides_vfio(&self) -> bool;
 
     /// DRM card path, if applicable (e.g. `/dev/dri/card0`).
+    #[must_use]
     fn drm_card(&self) -> Option<&str>;
 
     /// Whether this personality is suitable for HBM2 training.
+    #[must_use]
     fn supports_hbm2_training(&self) -> bool;
 
     /// The kernel driver module name for sysfs bind/unbind.
-    fn driver_module(&self) -> &str;
+    #[must_use]
+    fn driver_module(&self) -> &'static str;
 }
 
 /// VFIO-PCI personality — direct hardware access for sovereign GPU control.
@@ -48,7 +50,7 @@ impl fmt::Display for VfioPersonality {
 }
 
 impl GpuPersonality for VfioPersonality {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "vfio"
     }
     fn provides_vfio(&self) -> bool {
@@ -60,7 +62,7 @@ impl GpuPersonality for VfioPersonality {
     fn supports_hbm2_training(&self) -> bool {
         false
     }
-    fn driver_module(&self) -> &str {
+    fn driver_module(&self) -> &'static str {
         "vfio-pci"
     }
 }
@@ -83,7 +85,7 @@ impl fmt::Display for NouveauPersonality {
 }
 
 impl GpuPersonality for NouveauPersonality {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "nouveau"
     }
     fn provides_vfio(&self) -> bool {
@@ -95,7 +97,7 @@ impl GpuPersonality for NouveauPersonality {
     fn supports_hbm2_training(&self) -> bool {
         true
     }
-    fn driver_module(&self) -> &str {
+    fn driver_module(&self) -> &'static str {
         "nouveau"
     }
 }
@@ -118,7 +120,7 @@ impl fmt::Display for AmdgpuPersonality {
 }
 
 impl GpuPersonality for AmdgpuPersonality {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "amdgpu"
     }
     fn provides_vfio(&self) -> bool {
@@ -130,7 +132,7 @@ impl GpuPersonality for AmdgpuPersonality {
     fn supports_hbm2_training(&self) -> bool {
         false
     }
-    fn driver_module(&self) -> &str {
+    fn driver_module(&self) -> &'static str {
         "amdgpu"
     }
 }
@@ -146,7 +148,7 @@ impl fmt::Display for UnboundPersonality {
 }
 
 impl GpuPersonality for UnboundPersonality {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "unbound"
     }
     fn provides_vfio(&self) -> bool {
@@ -158,7 +160,7 @@ impl GpuPersonality for UnboundPersonality {
     fn supports_hbm2_training(&self) -> bool {
         false
     }
-    fn driver_module(&self) -> &str {
+    fn driver_module(&self) -> &'static str {
         ""
     }
 }
@@ -196,6 +198,10 @@ impl PersonalityRegistry {
     ///
     /// Returns `None` for unknown personality names.
     #[must_use]
+    #[expect(
+        clippy::unused_self,
+        reason = "API consistency with supports/list; future extensibility"
+    )]
     pub fn create(&self, name: &str) -> Option<Box<dyn GpuPersonality>> {
         match name {
             "vfio" | "vfio-pci" => Some(Box::new(VfioPersonality { group_id: 0 })),
@@ -215,7 +221,7 @@ impl PersonalityRegistry {
 ///
 /// Wraps the trait implementations for zero-allocation state transitions.
 /// This is the runtime value; the trait is used for polymorphic dispatch.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Personality {
     Vfio { group_id: u32 },
     Nouveau { drm_card: Option<String> },
@@ -226,7 +232,7 @@ pub enum Personality {
 impl Personality {
     /// Short name for IPC/config interchange.
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub const fn name(&self) -> &'static str {
         match self {
             Self::Vfio { .. } => "vfio",
             Self::Nouveau { .. } => "nouveau",

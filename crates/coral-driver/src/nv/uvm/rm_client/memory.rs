@@ -4,7 +4,9 @@
 use crate::error::{DriverError, DriverResult};
 
 use super::super::rm_helpers::nv_rm_ioctl;
-use super::super::structs::*;
+use super::super::structs::{
+    NvRmMapMemoryDmaParams, NvRmMapMemoryParams, NvRmUnmapMemoryParams,
+};
 use super::super::{
     NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY, nv_ioctl_rw,
 };
@@ -40,6 +42,10 @@ impl RmClient {
     ///
     /// After the ioctl, we `mmap()` on `mmap_target_fd` at the address the RM
     /// chose to populate the physical pages via `nvidia_mmap_helper`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the ioctl fails or the subsequent `mmap` fails.
     pub fn rm_map_memory_on_fd(
         &mut self,
         mmap_target_fd: i32,
@@ -52,14 +58,14 @@ impl RmClient {
             h_client: self.h_client,
             h_device,
             h_memory,
-            _pad: 0,
+            pad: 0,
             offset,
             length,
             p_linear_address: 0,
             status: 0,
             flags: 0,
             fd: mmap_target_fd,
-            _pad2: 0,
+            pad2: 0,
         };
 
         let ioctl_nr = nv_ioctl_rw(
@@ -75,6 +81,8 @@ impl RmClient {
         // Now call mmap(MAP_FIXED) at that address to trigger nvidia_mmap_helper
         // which populates the physical pages.
         let rm_addr = params.p_linear_address;
+        let length_usize = usize::try_from(length)
+            .map_err(|_| DriverError::platform_overflow("length fits in usize"))?;
         // SAFETY:
         // 1. mmap_target_fd: valid open nvidia device fd (BorrowedFd::borrow_raw).
         // 2. rm_addr, length: validated by RM_MAP_MEMORY ioctl above.
@@ -82,7 +90,7 @@ impl RmClient {
         let mapped = unsafe {
             rustix::mm::mmap(
                 rm_addr as *mut std::ffi::c_void,
-                length as usize,
+                length_usize,
                 rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
                 rustix::mm::MapFlags::SHARED | rustix::mm::MapFlags::FIXED,
                 std::os::unix::io::BorrowedFd::borrow_raw(mmap_target_fd),
@@ -126,7 +134,7 @@ impl RmClient {
             p_linear_address: linear_address,
             status: 0,
             flags: 0,
-            _pad: 0,
+            pad: 0,
         };
 
         let ioctl_nr = nv_ioctl_rw(

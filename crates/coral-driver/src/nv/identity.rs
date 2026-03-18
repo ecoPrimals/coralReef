@@ -156,7 +156,7 @@ impl FirmwareInventory {
     /// Requires either PMU firmware (Volta/Turing) or GSP firmware (Ampere+).
     /// GR firmware is always required for compute.
     #[must_use]
-    pub fn compute_viable(&self) -> bool {
+    pub const fn compute_viable(&self) -> bool {
         self.gr.is_present() && (self.pmu.is_present() || self.gsp.is_present())
     }
 

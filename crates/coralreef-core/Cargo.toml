@@ -13,6 +13,11 @@ rust-version.workspace = true
 name = "coralreef"
 path = "src/main.rs"
 
+[[bin]]
+name = "or_exit_err"
+path = "tests/bin/or_exit_err.rs"
+required-features = []
+
 [lints]
 workspace = true
 

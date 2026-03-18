@@ -13,22 +13,10 @@ use super::isa_types::{BitField, InstrEntry};
 /// ENC_SOPK encoding fields (32 bits).
 pub mod fields {
     use super::BitField;
-    pub const SIMM16: BitField = BitField {
-        offset: 0,
-        width: 16,
-    };
-    pub const SDST: BitField = BitField {
-        offset: 16,
-        width: 7,
-    };
-    pub const OP: BitField = BitField {
-        offset: 23,
-        width: 5,
-    };
-    pub const ENCODING: BitField = BitField {
-        offset: 28,
-        width: 4,
-    };
+    pub const SIMM16: BitField = BitField { offset: 0, width: 16 };
+    pub const SDST: BitField = BitField { offset: 16, width: 7 };
+    pub const OP: BitField = BitField { offset: 23, width: 5 };
+    pub const ENCODING: BitField = BitField { offset: 28, width: 4 };
 }
 
 /// Sign extend a literal 16-bit constant and store the result into a scalar register.
@@ -86,162 +74,32 @@ pub const S_SUBVECTOR_LOOP_END: u16 = 28;
 
 /// All ENC_SOPK instructions.
 pub const TABLE: &[InstrEntry] = &[
-    InstrEntry {
-        name: "S_MOVK_I32",
-        opcode: 0,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_VERSION",
-        opcode: 1,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMOVK_I32",
-        opcode: 2,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_EQ_I32",
-        opcode: 3,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_LG_I32",
-        opcode: 4,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_GT_I32",
-        opcode: 5,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_GE_I32",
-        opcode: 6,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_LT_I32",
-        opcode: 7,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_LE_I32",
-        opcode: 8,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_EQ_U32",
-        opcode: 9,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_LG_U32",
-        opcode: 10,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_GT_U32",
-        opcode: 11,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_GE_U32",
-        opcode: 12,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_LT_U32",
-        opcode: 13,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CMPK_LE_U32",
-        opcode: 14,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_ADDK_I32",
-        opcode: 15,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_MULK_I32",
-        opcode: 16,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_GETREG_B32",
-        opcode: 18,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_SETREG_B32",
-        opcode: 19,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_CALL_B64",
-        opcode: 22,
-        is_branch: true,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_WAITCNT_VSCNT",
-        opcode: 23,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_WAITCNT_VMCNT",
-        opcode: 24,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_WAITCNT_EXPCNT",
-        opcode: 25,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_WAITCNT_LGKMCNT",
-        opcode: 26,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_SUBVECTOR_LOOP_BEGIN",
-        opcode: 27,
-        is_branch: true,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "S_SUBVECTOR_LOOP_END",
-        opcode: 28,
-        is_branch: true,
-        is_terminator: false,
-    },
+    InstrEntry { name: "S_MOVK_I32", opcode: 0, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_VERSION", opcode: 1, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMOVK_I32", opcode: 2, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_EQ_I32", opcode: 3, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_LG_I32", opcode: 4, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_GT_I32", opcode: 5, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_GE_I32", opcode: 6, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_LT_I32", opcode: 7, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_LE_I32", opcode: 8, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_EQ_U32", opcode: 9, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_LG_U32", opcode: 10, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_GT_U32", opcode: 11, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_GE_U32", opcode: 12, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_LT_U32", opcode: 13, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CMPK_LE_U32", opcode: 14, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_ADDK_I32", opcode: 15, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_MULK_I32", opcode: 16, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_GETREG_B32", opcode: 18, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_SETREG_B32", opcode: 19, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_CALL_B64", opcode: 22, is_branch: true, is_terminator: false },
+    InstrEntry { name: "S_WAITCNT_VSCNT", opcode: 23, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_WAITCNT_VMCNT", opcode: 24, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_WAITCNT_EXPCNT", opcode: 25, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_WAITCNT_LGKMCNT", opcode: 26, is_branch: false, is_terminator: false },
+    InstrEntry { name: "S_SUBVECTOR_LOOP_BEGIN", opcode: 27, is_branch: true, is_terminator: false },
+    InstrEntry { name: "S_SUBVECTOR_LOOP_END", opcode: 28, is_branch: true, is_terminator: false },
 ];
 
 /// Look up an instruction by opcode.
@@ -249,3 +107,4 @@ pub const TABLE: &[InstrEntry] = &[
 pub fn lookup(opcode: u16) -> Option<&'static InstrEntry> {
     TABLE.iter().find(|e| e.opcode == opcode)
 }
+

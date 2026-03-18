@@ -19,7 +19,7 @@ pub const DRIVER_NVIDIA_DRM: &str = "nvidia-drm";
 /// Default preference: `vfio` > `nouveau` > `amdgpu` > `nvidia-drm`
 ///
 /// - **vfio**: Direct BAR0/DMA dispatch via VFIO-IOMMU. No kernel GPU driver
-///   needed — maximum sovereignty. Requires toadStool hardware setup.
+///   needed — maximum sovereignty. Requires ecosystem hardware setup (e.g. glowplug).
 /// - **nouveau**: Open-source NVIDIA DRM driver. Forces us to solve deep
 ///   (our own channel management, QMD, pushbuf). Full sovereignty.
 /// - **amdgpu**: Open-source AMD DRM driver. Native Linux citizen. Full

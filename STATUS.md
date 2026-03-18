@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 17, 2026  
-**Phase**: 10 — Iteration 54 (Coverage Expansion + Doc Cleanup + Debt Resolution)
+**Last updated**: March 18, 2026  
+**Phase**: 10 — Iteration 56 (Coverage Expansion + Doc Cleanup + Debt Resolution)
 
 ---
 
@@ -32,20 +32,23 @@
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
 | Uniform buffers | A | `var<uniform>` → CBuf reads (scalar/vector/matrix), struct field access |
+| GlowPlug security | A+ | BDF validation, connection limits, idle timeout, circuit breaker, chaos/fault/pen testing (131 tests) |
+| Boot sovereignty | A+ | vfio-pci.ids preemption, softdep nvidia ordering, initramfs, boot safety validation |
 
 ## Phase Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 54** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 56** |
 
-### Iteration 54: Coverage Expansion + Doc Cleanup + Debt Resolution (Mar 17 2026)
+### Iteration 56: Coverage Expansion + Doc Cleanup + Debt Resolution (Mar 18 2026)
 
 | Item | Status | Detail |
 |------|--------|--------|
 | Constant folding tests | ✅ | 40 new fold.rs tests: integer add/abs, identity elimination, bitwise/logic, shift, comparison, predicate, overflow, PrmtSel, FoldData |
-| coral-glowplug test expansion | ✅ | 30+ tests: config sysfs parsing, device slots, personality trait/registry, JSON-RPC dispatch (device.list/get/health/swap, health.check/liveness, daemon.status/shutdown, unknown method), TCP bind, BDF arg parsing |
+| coral-glowplug test expansion | ✅ | 131 tests: config sysfs parsing, device slots, personality trait/registry, JSON-RPC dispatch (device.list/get/health/swap, health.check/liveness, daemon.status/shutdown, unknown method), TCP bind, BDF arg parsing |
+| coral-glowplug security + boot | ✅ | Security hardening (BDF validation, max concurrent clients, idle timeout, line length limits), nvidia module guard, DRM consumer guard, circuit breaker in health loop, boot sovereignty via kernel cmdline and initramfs |
 | coral-driver test expansion | ✅ | 30+ tests: PCI config parsing (NVIDIA/AMD/too-short), vendor detection/display, PM state, BAR/capability construction, PM capability, PCIe link, PM4 packets, GEM buffers, RM alloc params |
 | coral-reef codegen tests | ✅ | 12 tests: opt_prmt (src_idx1, imm source, nested), naga_translate (all/any vector, f64 add, array length), lower_f64 (exp2→DFMA, sqrt→Newton), builder (prmt identity, lop2 pred, predicated, uniform), assign_regs block-level RA |
 | api.rs + spiller.rs coverage | ✅ | 7 tests: eprint_hex, debug re-export, two-block CFG spill, very-low-limit spill stress, no-spill-needed, UPred spilling, pinned value skip |

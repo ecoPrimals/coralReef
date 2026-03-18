@@ -13,7 +13,7 @@ use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
 use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
-#[allow(
+#[expect(
     clippy::wildcard_imports,
     reason = "op module re-exports are intentional for codegen"
 )]

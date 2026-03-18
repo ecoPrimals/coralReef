@@ -153,11 +153,7 @@ impl ComputeDevice for NvDrmDevice {
     }
 
     fn sync(&mut self) -> DriverResult<()> {
-        if let Some(compute) = self.compute.as_mut() {
-            compute.sync()
-        } else {
-            Ok(())
-        }
+        self.compute.as_mut().map_or(Ok(()), NvUvmComputeDevice::sync)
     }
 }
 

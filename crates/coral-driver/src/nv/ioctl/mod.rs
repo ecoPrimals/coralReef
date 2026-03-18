@@ -8,7 +8,7 @@
 //! ## Module structure
 //!
 //! - `mod.rs` — Legacy UAPI: channel alloc, GEM, pushbuf (pre-kernel 6.6)
-//! - `new_uapi.rs` — New UAPI: VM_INIT, VM_BIND, EXEC (kernel 6.6+)
+//! - `new_uapi.rs` — New UAPI: `VM_INIT`, `VM_BIND`, `EXEC` (kernel 6.6+)
 //! - `diag.rs` — Channel allocation diagnostics
 
 pub mod diag;

@@ -168,7 +168,7 @@ pub mod nv_status {
 
     /// Human-readable suffix for common RM status codes.
     #[must_use]
-    pub fn status_name(status: u32) -> &'static str {
+    pub const fn status_name(status: u32) -> &'static str {
         match status {
             NV_ERR_INSUFFICIENT_PERMISSIONS => " (INSUFFICIENT_PERMISSIONS)",
             NV_ERR_INVALID_ACCESS_TYPE => " (INVALID_ACCESS_TYPE)",
@@ -235,7 +235,7 @@ pub const TURING_COMPUTE_A: u32 = 0x0000_C5C0;
 /// `AMPERE_COMPUTE_A` — Ampere compute class (GA100 / SM 8.0).
 pub const AMPERE_COMPUTE_A: u32 = 0x0000_C6C0;
 
-/// `AMPERE_COMPUTE_B` — Ampere compute class (GA10x / SM 8.6+).
+/// `AMPERE_COMPUTE_B` — Ampere compute class (`GA10x` / SM 8.6+).
 pub const AMPERE_COMPUTE_B: u32 = 0x0000_C7C0;
 
 /// `NV01_MEMORY_SYSTEM` — System memory allocation via RM.
@@ -456,7 +456,7 @@ impl NvUvmDevice {
             base,
             length,
             rm_status: 0,
-            _pad: 0,
+            pad: 0,
         };
         self.raw_ioctl(
             UVM_CREATE_EXTERNAL_RANGE,

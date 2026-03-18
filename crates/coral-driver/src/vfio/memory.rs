@@ -548,7 +548,7 @@ impl MemoryTopology {
 ///
 /// Used by the FB init investigation: write a register, re-probe memory,
 /// and record what changed. Each delta that gains paths becomes an
-/// `InitStep::RegisterWrite` in a toadStool `InitRecipe`.
+/// `InitStep::RegisterWrite` in an ecosystem init recipe.
 #[derive(Debug, Clone)]
 pub struct MemoryDelta {
     /// The register write that was applied (offset, value).

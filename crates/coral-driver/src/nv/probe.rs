@@ -14,7 +14,7 @@ use super::pushbuf;
 const SYNCOBJ_TIMEOUT_NS: i64 = 5_000_000_000;
 
 /// Compute a monotonic deadline `SYNCOBJ_TIMEOUT_NS` from now.
-pub(crate) fn syncobj_deadline() -> i64 {
+pub fn syncobj_deadline() -> i64 {
     let tp = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     tp.tv_sec * 1_000_000_000 + tp.tv_nsec as i64 + SYNCOBJ_TIMEOUT_NS
 }
@@ -39,7 +39,6 @@ pub const fn sm_to_chip(sm: u32) -> &'static str {
     match sm {
         50..=52 => "gm200",
         60..=62 => "gp100",
-        70 => "gv100",
         75 => "tu102",
         80 => "ga100",
         86..=87 => "ga102",
@@ -59,7 +58,7 @@ pub const fn sm_to_chip(sm: u32) -> &'static str {
 /// When it succeeds, subsequent channel creation should find a valid GR
 /// context, resolving the CTXNOTVALID error.
 #[cfg(feature = "nouveau")]
-pub(crate) fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
+pub fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
     let chip = sm_to_chip(sm);
     let blobs = match GrFirmwareBlobs::parse(chip) {
         Ok(b) => b,
@@ -138,7 +137,7 @@ pub(crate) fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
 
 /// Run diagnostic probes when channel creation fails.
 #[cfg(feature = "nouveau")]
-pub(crate) fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
+pub fn run_open_diagnostics(drm: &DrmDevice, sm: u32, compute_class: u32) {
     let diags = ioctl::diagnose_channel_alloc(drm.fd(), compute_class);
     for diag in &diags {
         match &diag.result {

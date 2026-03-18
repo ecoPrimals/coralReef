@@ -71,6 +71,8 @@ impl fmt::Display for PciPmState {
 
 // ── GPU Vendor ──────────────────────────────────────────────────────────
 
+use crate::nv::identity::{PCI_VENDOR_AMD, PCI_VENDOR_INTEL, PCI_VENDOR_NVIDIA};
+
 /// GPU vendor identified from PCI vendor ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuVendor {
@@ -88,9 +90,9 @@ impl GpuVendor {
     /// Identify vendor from PCI vendor ID.
     pub fn from_vendor_id(id: u16) -> Self {
         match id {
-            0x10DE => Self::Nvidia,
-            0x1002 => Self::Amd,
-            0x8086 => Self::Intel,
+            PCI_VENDOR_NVIDIA => Self::Nvidia,
+            PCI_VENDOR_AMD => Self::Amd,
+            PCI_VENDOR_INTEL => Self::Intel,
             other => Self::Unknown(other),
         }
     }
@@ -128,6 +130,13 @@ pub struct PciBar {
 
 // ── PCI Capability ──────────────────────────────────────────────────────
 
+/// PCI capability ID: Power Management.
+pub const PCI_CAP_ID_PM: u8 = 0x01;
+/// PCI capability ID: PCI Express.
+pub const PCI_CAP_ID_PCIE: u8 = 0x10;
+/// PCI status register: capability list present (bit 4).
+pub const PCI_STATUS_CAP_LIST: u16 = 0x10;
+
 /// A PCI capability from the capability chain.
 #[derive(Debug, Clone)]
 pub struct PciCapability {
@@ -142,7 +151,7 @@ pub struct PciCapability {
 impl PciCapability {
     fn name_for_id(id: u8) -> &'static str {
         match id {
-            0x01 => "Power Management",
+            PCI_CAP_ID_PM => "Power Management",
             0x02 => "AGP",
             0x03 => "VPD",
             0x04 => "Slot ID",
@@ -157,7 +166,7 @@ impl PciCapability {
             0x0D => "PCI Bridge Subsystem VID",
             0x0E => "AGP 8x",
             0x0F => "Secure Device",
-            0x10 => "PCI Express",
+            PCI_CAP_ID_PCIE => "PCI Express",
             0x11 => "MSI-X",
             0x12 => "SATA",
             0x13 => "Advanced Features",
@@ -311,7 +320,7 @@ impl PciDeviceInfo {
         let mut pm_cap_offset = None;
         let mut pcie_cap_offset = None;
 
-        let has_cap_list = status & 0x10 != 0;
+        let has_cap_list = status & PCI_STATUS_CAP_LIST != 0;
         if has_cap_list && config.len() >= 0x40 {
             let mut cap_ptr = (config[0x34] & 0xFC) as usize;
             let mut visited = HashSet::new();
@@ -326,10 +335,10 @@ impl PciDeviceInfo {
                     name,
                 });
 
-                if cap_id == 0x01 {
+                if cap_id == PCI_CAP_ID_PM {
                     pm_cap_offset = Some(cap_ptr as u8);
                 }
-                if cap_id == 0x10 {
+                if cap_id == PCI_CAP_ID_PCIE {
                     pcie_cap_offset = Some(cap_ptr as u8);
                 }
 
@@ -439,7 +448,7 @@ impl PciDeviceInfo {
         let mut pm_cap_offset = None;
         let mut pcie_cap_offset = None;
 
-        let has_cap_list = status & 0x10 != 0;
+        let has_cap_list = status & PCI_STATUS_CAP_LIST != 0;
         if has_cap_list && config.len() >= 0x40 {
             let mut cap_ptr = (config[0x34] & 0xFC) as usize;
             let mut visited = HashSet::new();
@@ -454,10 +463,10 @@ impl PciDeviceInfo {
                     name,
                 });
 
-                if cap_id == 0x01 {
+                if cap_id == PCI_CAP_ID_PM {
                     pm_cap_offset = Some(cap_ptr as u8);
                 }
-                if cap_id == 0x10 {
+                if cap_id == PCI_CAP_ID_PCIE {
                     pcie_cap_offset = Some(cap_ptr as u8);
                 }
 
@@ -471,7 +480,7 @@ impl PciDeviceInfo {
             // PCIe link info from sysfs as evidence of PCIe capability
             if std::path::Path::new(&format!("{dev_path}/current_link_speed")).exists() {
                 capabilities.push(PciCapability {
-                    id: 0x10,
+                    id: PCI_CAP_ID_PCIE,
                     offset: 0,
                     name: "PCI Express (from sysfs)",
                 });
@@ -479,7 +488,7 @@ impl PciDeviceInfo {
             // Power state from sysfs as evidence of PM capability
             if std::path::Path::new(&format!("{dev_path}/power_state")).exists() {
                 capabilities.push(PciCapability {
-                    id: 0x01,
+                    id: PCI_CAP_ID_PM,
                     offset: 0,
                     name: "Power Management (from sysfs)",
                 });
@@ -700,7 +709,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     }
 
     let status = u16::from_le_bytes([config[0x06], config[0x07]]);
-    if status & 0x10 == 0 {
+    if status & PCI_STATUS_CAP_LIST == 0 {
         return Err("No PCI capabilities list".into());
     }
 
@@ -709,7 +718,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     let mut visited = HashSet::new();
     while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
         visited.insert(cap_ptr);
-        if config[cap_ptr] == 0x01 {
+        if config[cap_ptr] == PCI_CAP_ID_PM {
             pm_offset = Some(cap_ptr);
             break;
         }
@@ -774,7 +783,7 @@ pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, 
     }
 
     let status = u16::from_le_bytes([config[0x06], config[0x07]]);
-    if status & 0x10 == 0 {
+    if status & PCI_STATUS_CAP_LIST == 0 {
         return Err("No PCI capabilities list".into());
     }
 
@@ -783,7 +792,7 @@ pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, 
     let mut visited = HashSet::new();
     while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
         visited.insert(cap_ptr);
-        if config[cap_ptr] == 0x01 {
+        if config[cap_ptr] == PCI_CAP_ID_PM {
             pm_offset = Some(cap_ptr);
             break;
         }

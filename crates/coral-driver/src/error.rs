@@ -73,6 +73,7 @@ impl DriverError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn error_display_device_not_found() {
@@ -171,5 +172,26 @@ mod tests {
         let msg = format!("custom error: {}", 42);
         let e = DriverError::MmapFailed(msg.into());
         assert!(e.to_string().contains("custom error: 42"));
+    }
+
+    #[test]
+    fn error_display_device_not_found_static() {
+        let e = DriverError::DeviceNotFound(Cow::Borrowed("static message"));
+        assert_eq!(e.to_string(), "device not found: static message");
+    }
+
+    #[test]
+    fn error_source_chain() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "root required");
+        let e: DriverError = io_err.into();
+        let source = e.source();
+        assert!(source.is_some());
+        assert!(source.unwrap().to_string().contains("root required"));
+    }
+
+    #[test]
+    fn error_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<DriverError>();
     }
 }

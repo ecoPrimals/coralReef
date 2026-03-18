@@ -7,7 +7,7 @@
 //! Sovereign GPU compute abstraction: compile WGSL → native binary →
 //! dispatch on hardware, all in pure Rust.
 //!
-//! Replaces `wgpu` for compute workloads in barraCuda and the wider
+//! Replaces `wgpu` for compute workloads in the ecosystem and the wider
 //! ecoPrimals ecosystem.
 //!
 //! ## Architecture

@@ -422,4 +422,48 @@ mod tests {
         let count = (hdr >> 16) & 0x1FFF;
         assert_eq!(count, 5);
     }
+
+    #[test]
+    fn mthd_incr_method_shifted_right_by_2() {
+        // Method 0x0100 -> method field = 0x40 (0x100 >> 2)
+        let hdr = mthd_incr(0, 0x0100, 1);
+        assert_eq!(hdr & 0x1FFF, 0x40);
+    }
+
+    #[test]
+    fn pushbuf_push_ninc_multiple_words() {
+        let mut pb = PushBuf::new();
+        pb.push_ninc(0, 0x200, &[0x1111, 0x2222, 0x3333]);
+        let words = pb.as_words();
+        assert_eq!(words.len(), 4);
+        assert_eq!(words[0] >> 29, 3);
+        assert_eq!((words[0] >> 16) & 0x1FFF, 3);
+        assert_eq!(words[1], 0x1111);
+        assert_eq!(words[2], 0x2222);
+        assert_eq!(words[3], 0x3333);
+    }
+
+    #[test]
+    fn pushbuf_as_bytes_little_endian() {
+        let mut pb = PushBuf::new();
+        pb.push_1(0, 0, 0x1234_5678);
+        let bytes = pb.as_bytes();
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(bytes[4], 0x78);
+        assert_eq!(bytes[5], 0x56);
+        assert_eq!(bytes[6], 0x34);
+        assert_eq!(bytes[7], 0x12);
+    }
+
+    #[test]
+    fn pushbuf_gr_context_init_method_addrs_encoded() {
+        let methods = [(0x0004, 0x11), (0x0100, 0x22)]; // 0x0004 and 0x0100 fit in 13 bits
+        let pb = PushBuf::gr_context_init(class::VOLTA_COMPUTE_A, &methods);
+        let words = pb.as_words();
+        assert_eq!(words.len(), 6); // SET_OBJECT + 2 method pairs
+        assert_eq!(words[2], mthd_incr(0, 0x0004, 1));
+        assert_eq!(words[3], 0x11);
+        assert_eq!(words[4], mthd_incr(0, 0x0100, 1));
+        assert_eq!(words[5], 0x22);
+    }
 }
