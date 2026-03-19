@@ -55,6 +55,7 @@ pub fn identify_chip(vendor: u16, device: u16) -> String {
         (pci_ids::NVIDIA_VENDOR_ID, 0x2d05) => "GB206 (RTX 5060)".into(),
         (pci_ids::AMD_VENDOR_ID, pci_ids::MI50_DEVICE_ID) => "Vega 20 (MI50)".into(),
         (pci_ids::AMD_VENDOR_ID, pci_ids::MI60_DEVICE_ID) => "Vega 20 (MI60)".into(),
+        (pci_ids::AMD_VENDOR_ID, pci_ids::RADEON_VII_DEVICE_ID) => "Vega 20 (Radeon VII)".into(),
         (v, d) => format!("{v:#06x}:{d:#06x}"),
     }
 }

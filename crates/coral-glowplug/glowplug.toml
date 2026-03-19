@@ -1,4 +1,4 @@
-# coral-glowplug configuration — biomeGate dual Titan V + RTX 5060
+# coral-glowplug configuration — biomeGate: Titan V + Radeon VII + RTX 5060
 #
 # This file is the reference config. Install to:
 #   ~/.config/coralreef/glowplug.toml  (user service)
@@ -9,20 +9,22 @@ socket = "$XDG_RUNTIME_DIR/coralreef/glowplug.sock"
 log_level = "info"
 health_interval_ms = 5000
 
-# Titan V #1 — oracle card (VFIO at boot, nouveau only for HBM2 resurrection)
+# Titan V — NVIDIA GV100, 12 GB HBM2, VFIO at boot
 # CRITICAL: do NOT boot on nouveau — desktop apps (Cursor/Xorg) will grab
-# renderD129 and block during shutdown, causing kernel oops on GV100.
+# renderD* and block during shutdown, causing kernel oops on GV100.
 [[device]]
 bdf = "0000:03:00.0"
-name = "titan-oracle"
+name = "titan-v"
 boot_personality = "vfio"
 power_policy = "always_on"
 role = "oracle"
 
-# Titan V #2 — primary compute target (VFIO sovereign dispatch)
+# Radeon VII — AMD Vega 20 (GFX906), 16 GB HBM2
+# Solo IOMMU group (no companion audio device).
+# Boots on amdgpu — switch to vfio for sovereign experiments.
 [[device]]
-bdf = "0000:4a:00.0"
-name = "titan-target"
-boot_personality = "vfio"
+bdf = "0000:4c:00.0"
+name = "radeon-vii"
+boot_personality = "amdgpu"
 power_policy = "always_on"
 role = "compute"

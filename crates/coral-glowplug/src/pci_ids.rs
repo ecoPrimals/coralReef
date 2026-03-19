@@ -30,11 +30,23 @@ pub const MI50_DEVICE_ID: u16 = 0x66a0;
 /// PCI device ID: Vega 20 (Radeon Instinct MI60 — 32 GB HBM2).
 pub const MI60_DEVICE_ID: u16 = 0x66a1;
 
+/// PCI device ID: Vega 20 (Radeon VII — 16 GB HBM2, consumer variant of MI50).
+pub const RADEON_VII_DEVICE_ID: u16 = 0x66af;
+
 /// vfio-pci.ids string for MI50 (vendor:device).
 pub const MI50_VFIO_IDS: &str = "1002:66a0";
 
 /// vfio-pci.ids string for MI60 (vendor:device).
 pub const MI60_VFIO_IDS: &str = "1002:66a1";
+
+/// vfio-pci.ids string for Radeon VII (vendor:device).
+pub const RADEON_VII_VFIO_IDS: &str = "1002:66af";
+
+/// Returns true if the device ID is any Vega 20 variant (MI50, MI60, Radeon VII).
+#[must_use]
+pub const fn is_vega20(device_id: u16) -> bool {
+    matches!(device_id, MI50_DEVICE_ID | MI60_DEVICE_ID | RADEON_VII_DEVICE_ID)
+}
 
 // ---- Helpers ----
 
