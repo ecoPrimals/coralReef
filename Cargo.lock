@@ -302,6 +302,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "coral-reef",
+ "libc",
  "rustix",
  "serde",
  "serde_json",
@@ -311,11 +312,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "coral-ember"
+version = "0.1.0"
+dependencies = [
+ "coral-driver",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "coral-glowplug"
 version = "0.1.0"
 dependencies = [
  "clap",
  "coral-driver",
+ "libc",
  "serde",
  "serde_json",
  "thiserror",

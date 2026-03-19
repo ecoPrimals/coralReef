@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# coralReef: Full DRM isolation for compute GPUs (Titan V)
+#
+# Runs at 61 — BEFORE systemd logind (70-uaccess.rules, 73-seat-late.rules)
+# so seat tags are never assigned in the first place.
+#
+# Without this, any DRM device created on a Titan V (via nouveau or nvidia
+# bind) gets assigned to seat0, triggering logind session reconfiguration.
+#
+# Install:
+#   sudo cp scripts/boot/61-coralreef-drm-ignore.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+
+# Oracle Titan V (0000:03:00.0)
+SUBSYSTEM=="drm", KERNELS=="0000:03:00.0", ENV{ID_SEAT}="", ENV{ID_FOR_SEAT}="", TAG-="seat", TAG-="master-of-seat", TAG-="uaccess"
+
+# Target Titan V (0000:4a:00.0)
+SUBSYSTEM=="drm", KERNELS=="0000:4a:00.0", ENV{ID_SEAT}="", ENV{ID_FOR_SEAT}="", TAG-="seat", TAG-="master-of-seat", TAG-="uaccess"

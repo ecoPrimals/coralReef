@@ -6,13 +6,26 @@ license.workspace = true
 publish.workspace = true
 description = "Sovereign PCIe device lifecycle broker — persistent GPU management daemon"
 
+[lib]
+name = "coral_glowplug"
+path = "src/lib.rs"
+
 [[bin]]
 name = "coral-glowplug"
 path = "src/main.rs"
 
+[[bin]]
+name = "coralctl"
+path = "src/bin/coralctl.rs"
+
+[features]
+default = []
+no-ember = []
+
 [dependencies]
 clap.workspace = true
 coral-driver = { path = "../coral-driver", features = ["vfio"] }
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror.workspace = true

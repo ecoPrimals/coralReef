@@ -135,7 +135,7 @@ fn test_health_check_response_format() {
 
 #[test]
 fn test_dispatch_device_list_empty() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch("device.list", &serde_json::json!({}), &mut devices, started);
     let val = result.expect("device.list should succeed");
@@ -145,7 +145,7 @@ fn test_dispatch_device_list_empty() {
 
 #[test]
 fn test_dispatch_device_list_with_devices() {
-    let config = crate::config::DeviceConfig {
+    let config = coral_glowplug::config::DeviceConfig {
         bdf: "0000:99:00.0".into(),
         name: Some("Test GPU".into()),
         boot_personality: "vfio".into(),
@@ -153,7 +153,7 @@ fn test_dispatch_device_list_with_devices() {
         role: Some("compute".into()),
         oracle_dump: None,
     };
-    let mut devices = vec![crate::device::DeviceSlot::new(config)];
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
     let result = dispatch("device.list", &serde_json::json!({}), &mut devices, started);
     let val = result.expect("device.list should succeed");
@@ -165,7 +165,7 @@ fn test_dispatch_device_list_with_devices() {
 
 #[test]
 fn test_dispatch_device_get_found() {
-    let config = crate::config::DeviceConfig {
+    let config = coral_glowplug::config::DeviceConfig {
         bdf: "0000:99:00.0".into(),
         name: Some("Test".into()),
         boot_personality: "vfio".into(),
@@ -173,7 +173,7 @@ fn test_dispatch_device_get_found() {
         role: None,
         oracle_dump: None,
     };
-    let mut devices = vec![crate::device::DeviceSlot::new(config)];
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.get",
@@ -187,7 +187,7 @@ fn test_dispatch_device_get_found() {
 
 #[test]
 fn test_dispatch_device_get_missing_bdf() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch("device.get", &serde_json::json!({}), &mut devices, started);
     let err = result.expect_err("device.get without bdf should fail");
@@ -197,7 +197,7 @@ fn test_dispatch_device_get_missing_bdf() {
 
 #[test]
 fn test_dispatch_device_get_not_managed() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.get",
@@ -212,7 +212,7 @@ fn test_dispatch_device_get_not_managed() {
 
 #[test]
 fn test_dispatch_health_check() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "health.check",
@@ -228,7 +228,7 @@ fn test_dispatch_health_check() {
 
 #[test]
 fn test_dispatch_health_liveness() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "health.liveness",
@@ -242,7 +242,7 @@ fn test_dispatch_health_liveness() {
 
 #[test]
 fn test_dispatch_daemon_status() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "daemon.status",
@@ -257,7 +257,7 @@ fn test_dispatch_daemon_status() {
 
 #[test]
 fn test_dispatch_daemon_shutdown_returns_error() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "daemon.shutdown",
@@ -272,7 +272,7 @@ fn test_dispatch_daemon_shutdown_returns_error() {
 
 #[test]
 fn test_dispatch_unknown_method() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "nonexistent.method",
@@ -287,7 +287,7 @@ fn test_dispatch_unknown_method() {
 
 #[test]
 fn test_dispatch_device_swap_missing_params() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch("device.swap", &serde_json::json!({}), &mut devices, started);
     let err = result.expect_err("device.swap without params should fail");
@@ -296,7 +296,7 @@ fn test_dispatch_device_swap_missing_params() {
 
 #[test]
 fn test_dispatch_device_health() {
-    let config = crate::config::DeviceConfig {
+    let config = coral_glowplug::config::DeviceConfig {
         bdf: "0000:99:00.0".into(),
         name: None,
         boot_personality: "vfio".into(),
@@ -304,7 +304,7 @@ fn test_dispatch_device_health() {
         role: None,
         oracle_dump: None,
     };
-    let mut devices = vec![crate::device::DeviceSlot::new(config)];
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.health",
@@ -331,7 +331,7 @@ fn test_make_response_success() {
 fn test_make_response_error() {
     let resp = make_response(
         serde_json::json!("req-1"),
-        Err(crate::error::RpcError::invalid_params("missing parameter")),
+        Err(coral_glowplug::error::RpcError::invalid_params("missing parameter")),
     );
     let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
     assert_eq!(parsed["jsonrpc"], "2.0");
@@ -361,7 +361,7 @@ async fn test_tcp_client_health_check() {
 
     let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
     let addr = server.bound_addr();
-    let devices = Arc::new(Mutex::new(Vec::<crate::device::DeviceSlot>::new()));
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
     let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let devices_clone = devices.clone();
 
@@ -399,7 +399,7 @@ async fn test_invalid_jsonrpc_version() {
 
     let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
     let addr = server.bound_addr();
-    let devices = Arc::new(Mutex::new(Vec::<crate::device::DeviceSlot>::new()));
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
     let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let devices_clone = devices.clone();
 
@@ -436,7 +436,7 @@ async fn test_parse_error() {
 
     let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
     let addr = server.bound_addr();
-    let devices = Arc::new(Mutex::new(Vec::<crate::device::DeviceSlot>::new()));
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
     let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let devices_clone = devices.clone();
 
@@ -469,7 +469,7 @@ async fn test_daemon_shutdown_via_jsonrpc() {
 
     let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
     let addr = server.bound_addr();
-    let devices = Arc::new(Mutex::new(Vec::<crate::device::DeviceSlot>::new()));
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
     let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let devices_clone = devices.clone();
 
@@ -511,7 +511,7 @@ async fn test_daemon_shutdown_via_jsonrpc() {
 
 #[test]
 fn test_dispatch_device_lend_missing_bdf() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch("device.lend", &serde_json::json!({}), &mut devices, started);
     let err = result.expect_err("device.lend without bdf should fail");
@@ -520,7 +520,7 @@ fn test_dispatch_device_lend_missing_bdf() {
 
 #[test]
 fn test_dispatch_device_lend_not_managed() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.lend",
@@ -534,7 +534,7 @@ fn test_dispatch_device_lend_not_managed() {
 
 #[test]
 fn test_dispatch_device_lend_not_vfio() {
-    let config = crate::config::DeviceConfig {
+    let config = coral_glowplug::config::DeviceConfig {
         bdf: "0000:99:00.0".into(),
         name: None,
         boot_personality: "vfio".into(),
@@ -542,7 +542,7 @@ fn test_dispatch_device_lend_not_vfio() {
         role: None,
         oracle_dump: None,
     };
-    let mut devices = vec![crate::device::DeviceSlot::new(config)];
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.lend",
@@ -556,7 +556,7 @@ fn test_dispatch_device_lend_not_vfio() {
 
 #[test]
 fn test_dispatch_device_reclaim_missing_bdf() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.reclaim",
@@ -570,7 +570,7 @@ fn test_dispatch_device_reclaim_missing_bdf() {
 
 #[test]
 fn test_dispatch_device_reclaim_not_managed() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.reclaim",
@@ -584,7 +584,7 @@ fn test_dispatch_device_reclaim_not_managed() {
 
 // ── Chaos / Fault / Penetration Tests ──────────────────────────────────
 
-/// Helper: start a server on TCP loopback and return (addr, abort_handle, _tx_keepalive).
+/// Helper: start a server on TCP loopback and return (addr, `abort_handle`, _`tx_keepalive`).
 ///
 /// The returned `watch::Sender` must be held alive for the server to
 /// keep accepting — dropping it signals shutdown via the watch channel.
@@ -597,7 +597,7 @@ async fn spawn_test_server() -> (
         .await
         .expect("bind should succeed");
     let addr = server.bound_addr();
-    let devices = Arc::new(Mutex::new(Vec::<crate::device::DeviceSlot>::new()));
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
     let (tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut rx = shutdown_rx.clone();
     let handle = tokio::spawn(async move {
@@ -677,7 +677,7 @@ fn test_validate_bdf_rejects_unicode() {
 
 #[tokio::test]
 async fn test_dispatch_bdf_traversal_rejected() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.get",
@@ -692,7 +692,7 @@ async fn test_dispatch_bdf_traversal_rejected() {
 
 #[tokio::test]
 async fn test_dispatch_bdf_null_byte_rejected() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.health",
@@ -747,10 +747,7 @@ async fn test_fuzz_deeply_nested_json() {
 async fn test_fuzz_huge_string_value() {
     let (addr, handle, _tx) = spawn_test_server().await;
     let big_method = "x".repeat(10_000);
-    let payload = format!(
-        r#"{{"jsonrpc":"2.0","method":"{}","params":{{}},"id":1}}"#,
-        big_method
-    );
+    let payload = format!(r#"{{"jsonrpc":"2.0","method":"{big_method}","params":{{}},"id":1}}"#);
     let resp = send_line(&addr, &payload).await;
     let v: serde_json::Value = serde_json::from_str(&resp).expect("valid json");
     assert!(v["error"].is_object());
@@ -914,7 +911,7 @@ async fn test_fault_invalid_method_does_not_crash() {
 
 #[tokio::test]
 async fn test_fault_swap_with_traversal_target() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.swap",
@@ -930,7 +927,7 @@ async fn test_fault_swap_with_traversal_target() {
 
 #[tokio::test]
 async fn test_fault_device_get_with_empty_bdf() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.get",
@@ -944,7 +941,7 @@ async fn test_fault_device_get_with_empty_bdf() {
 
 #[tokio::test]
 async fn test_fault_params_wrong_type() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "device.get",
@@ -958,7 +955,7 @@ async fn test_fault_params_wrong_type() {
 
 #[tokio::test]
 async fn test_fault_extra_params_ignored() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let result = dispatch(
         "health.check",
@@ -973,7 +970,7 @@ async fn test_fault_extra_params_ignored() {
 
 #[test]
 fn test_pen_repeated_shutdown_does_not_panic() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     for _ in 0..10 {
         let result = dispatch(
@@ -988,7 +985,7 @@ fn test_pen_repeated_shutdown_does_not_panic() {
 
 #[test]
 fn test_pen_method_not_found_does_not_leak_internals() {
-    let mut devices: Vec<crate::device::DeviceSlot> = Vec::new();
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
     let started = std::time::Instant::now();
     let probes = [
         "__proto__",

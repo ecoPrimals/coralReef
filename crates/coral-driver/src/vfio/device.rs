@@ -153,7 +153,6 @@ pub struct VfioDevice {
     bdf: String,
     device: OwnedFd,
     num_regions: u32,
-    #[expect(dead_code, reason = "kept alive for fd lifecycle")]
     group: std::fs::File,
     container: std::fs::File,
 }
@@ -509,6 +508,55 @@ impl VfioDevice {
     /// the process exits, at which point the kernel will reset the device.
     pub fn leak(self) {
         std::mem::forget(self);
+    }
+
+    /// Raw fd of the VFIO device (for SCM\_RIGHTS fd passing to/from coral-ember).
+    #[must_use]
+    pub fn device_fd(&self) -> RawFd {
+        self.device.as_raw_fd()
+    }
+
+    /// Raw fd of the VFIO group (for SCM\_RIGHTS fd passing to/from coral-ember).
+    #[must_use]
+    pub fn group_fd(&self) -> RawFd {
+        self.group.as_raw_fd()
+    }
+
+    /// Construct from pre-opened fds received via SCM\_RIGHTS from coral-ember.
+    ///
+    /// The ember holds the original fds; these are dup'd copies. When this
+    /// `VfioDevice` is dropped, the dup'd fds close but the ember's originals
+    /// keep the VFIO binding alive (no PM reset on GV100).
+    pub fn from_received_fds(
+        bdf: &str,
+        container: OwnedFd,
+        group: OwnedFd,
+        device: OwnedFd,
+    ) -> Result<Self, DriverError> {
+        let mut dev_info = VfioDeviceInfo {
+            argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,
+            ..Default::default()
+        };
+        ioctl::device_info(device.as_fd(), &mut dev_info)?;
+
+        tracing::info!(
+            bdf,
+            num_regions = dev_info.num_regions,
+            num_irqs = dev_info.num_irqs,
+            "VFIO device reconstructed from ember fds"
+        );
+
+        let dev = Self {
+            bdf: bdf.to_string(),
+            device,
+            num_regions: dev_info.num_regions,
+            group: std::fs::File::from(group),
+            container: std::fs::File::from(container),
+        };
+
+        dev.enable_bus_master()?;
+
+        Ok(dev)
     }
 }
 

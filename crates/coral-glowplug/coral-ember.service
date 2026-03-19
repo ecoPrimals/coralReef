@@ -1,0 +1,52 @@
+[Unit]
+Description=coral-ember — Immortal VFIO fd Holder
+Documentation=https://github.com/ecoPrimals/coralReef
+After=local-fs.target systemd-modules-load.service
+Wants=systemd-modules-load.service
+Before=coral-glowplug.service display-manager.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStartPre=/bin/sh -c 'echo Y > /sys/module/vfio_pci/parameters/disable_idle_d3 2>/dev/null || true'
+ExecStart=/usr/local/bin/coral-ember /etc/coralreef/glowplug.toml
+# CRITICAL: Restart=no — if the ember dies, VFIO fds are lost and PM reset
+# will occur. Only a cold reboot can recover. The ember must never crash.
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=3
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+Environment=RUST_LOG=info
+SupplementaryGroups=coralreef
+UMask=0117
+RuntimeDirectory=coralreef
+RuntimeDirectoryMode=0750
+
+# Privilege hardening: drop all capabilities except the minimum required set.
+# CAP_SYS_ADMIN  — VFIO container/group ioctls, sysfs driver bind/unbind
+# CAP_SYS_RAWIO  — VFIO device BAR mapping (mmap on device fd)
+# CAP_DAC_OVERRIDE — write to sysfs paths not owned by process UID
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
+NoNewPrivileges=true
+
+# Filesystem isolation
+ProtectSystem=strict
+ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc
+PrivateTmp=true
+ProtectHome=true
+
+# Seccomp syscall filter: allow only syscalls needed by a VFIO fd holder.
+# @system-service covers basics (read, write, open, close, mmap, socket, etc.).
+# ioctl is required for VFIO container/group/device operations.
+# sendmsg is required for SCM_RIGHTS fd passing to glowplug.
+SystemCallFilter=@system-service ioctl sendmsg
+SystemCallErrorNumber=EPERM
+
+# Memory hardening
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

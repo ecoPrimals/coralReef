@@ -401,10 +401,10 @@ bdf = "0000:03:00.0"
     #[test]
     fn test_load_invalid_structure() {
         let path = write_temp_config(
-            r#"
+            r"
 [[device]]
 bdf = 12345
-"#,
+",
             "invalid_structure",
         );
         let result = Config::load(path.to_str().expect("path has str"));

@@ -12,6 +12,7 @@ members = [
     "crates/coral-driver",
     "crates/coral-gpu",
     "crates/coral-glowplug",
+    "crates/coral-ember",
 ]
 exclude = [
     "showcase",

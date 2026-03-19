@@ -10,6 +10,79 @@ use crate::error::DeviceError;
 use crate::personality::{Personality, PersonalityRegistry};
 use crate::sysfs;
 use std::collections::BTreeMap;
+use std::os::fd::OwnedFd;
+
+/// Holds a `VfioDevice` and its BAR0 mapping for register access.
+///
+/// Replaces direct `RawVfioDevice` usage — glowplug only needs BAR0
+/// register reads, not DMA buffers or compute dispatch.
+pub(crate) struct VfioHolder {
+    #[expect(dead_code, reason = "kept alive for VFIO fd lifecycle")]
+    device: coral_driver::vfio::VfioDevice,
+    bar0: coral_driver::vfio::device::MappedBar,
+}
+
+/// Comprehensive BAR0 register offsets for NVIDIA GV100 (Titan V / V100).
+///
+/// Covers PMC, PBUS, PFIFO, PBDMA, PFB, FBHUB, PMU, PCLOCK, GR/FECS/GPCCS,
+/// LTC, FBPA, PRAMIN, and thermal domains.
+pub const DEFAULT_REGISTER_DUMP_OFFSETS: &[usize] = &[
+    // PMC
+    0x00_0000, 0x00_0004, 0x00_0200, 0x00_0204,
+    // PBUS
+    0x00_1C00, 0x00_1C04,
+    // PFIFO
+    0x00_2004, 0x00_2100, 0x00_2140, 0x00_2200, 0x00_2254,
+    0x00_2270, 0x00_2274, 0x00_2280, 0x00_2284, 0x00_228C,
+    0x00_2390, 0x00_2394, 0x00_2398, 0x00_239C, 0x00_2504,
+    0x00_2508, 0x00_252C, 0x00_2630, 0x00_2634, 0x00_2638,
+    0x00_2640, 0x00_2A00, 0x00_2A04,
+    // PBDMA idle + PBDMA0
+    0x00_3080, 0x00_3084, 0x00_3088, 0x00_308C,
+    0x04_0040, 0x04_0044, 0x04_0048, 0x04_004C,
+    0x04_0054, 0x04_0060, 0x04_0068, 0x04_0080,
+    0x04_0084, 0x04_00A4, 0x04_0100, 0x04_0104,
+    0x04_0108, 0x04_010C, 0x04_0110, 0x04_0114, 0x04_0118,
+    // PFB / FBHUB
+    0x10_0000, 0x10_0200, 0x10_0204, 0x10_0C80, 0x10_0C84,
+    0x10_0800, 0x10_0804, 0x10_0808, 0x10_080C, 0x10_0810,
+    // BAR1 / BAR2 PRAMIN
+    0x10_1000, 0x10_1004, 0x10_1008, 0x10_1714,
+    // PMU Falcon
+    0x10_A000, 0x10_A040, 0x10_A044, 0x10_A04C,
+    0x10_A100, 0x10_A104, 0x10_A108, 0x10_A110,
+    0x10_A114, 0x10_A118,
+    // PCLOCK
+    0x13_7000, 0x13_7050, 0x13_7100,
+    // GR (graphics engine)
+    0x40_0100, 0x40_0108, 0x40_0110,
+    // FECS Falcon
+    0x40_9028, 0x40_9030, 0x40_9034, 0x40_9038,
+    0x40_9040, 0x40_9044, 0x40_904C, 0x40_9080,
+    0x40_9084, 0x40_9100, 0x40_9104, 0x40_9108,
+    0x40_9110, 0x40_9210, 0x40_9380,
+    // GPCCS Falcon
+    0x41_A028, 0x41_A030, 0x41_A034, 0x41_A038,
+    0x41_A040, 0x41_A044, 0x41_A04C, 0x41_A080,
+    0x41_A084, 0x41_A100, 0x41_A108,
+    // MMU Fault buffer
+    0x10_0E24, 0x10_0E28, 0x10_0E2C, 0x10_0E30,
+    // LTC (L2 cache)
+    0x17_E200, 0x17_E204, 0x17_E210,
+    // FBPA0
+    0x9A_0000, 0x9A_0004, 0x9A_0200,
+    // THERM
+    0x02_0400, 0x02_0460,
+    // NV_PRAMIN window
+    0x70_0000, 0x70_0004,
+    // PROM
+    0x30_0000, 0x30_0004,
+];
+
+/// GPU quiescence timeout for pre-swap drain.
+const QUIESCENCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// Polling interval during quiescence wait.
+const QUIESCENCE_POLL_MS: u64 = 50;
 
 const PCI_READ_DEAD: u32 = 0xDEAD_DEAD;
 const PCI_READ_ALL_ONES: u32 = 0xFFFF_FFFF;
@@ -64,7 +137,7 @@ pub struct DeviceSlot {
     pub vendor_id: u16,
     pub device_id: u16,
     pub chip_name: String,
-    vfio_device: Option<coral_driver::nv::RawVfioDevice>,
+    vfio_holder: Option<VfioHolder>,
     register_snapshot: BTreeMap<usize, u32>,
 }
 
@@ -90,14 +163,14 @@ impl DeviceSlot {
             vendor_id,
             device_id,
             chip_name,
-            vfio_device: None,
+            vfio_holder: None,
             register_snapshot: BTreeMap::new(),
         }
     }
 
     #[must_use]
     pub const fn has_vfio(&self) -> bool {
-        self.vfio_device.is_some()
+        self.vfio_holder.is_some()
     }
 
     /// Bind device to the configured boot personality and take ownership.
@@ -155,43 +228,70 @@ impl DeviceSlot {
                 });
             }
 
-            if current_driver.is_some() {
+            // Delegate driver swap to ember — all sysfs unbind/bind happens there
+            let client = crate::ember::EmberClient::connect();
+
+            #[cfg(not(feature = "no-ember"))]
+            let client = client.ok_or_else(|| DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: target.clone(),
+                reason: "ember not available — driver swap requires ember (enable 'no-ember' feature for legacy sysfs fallback)".into(),
+            })?;
+
+            #[cfg(not(feature = "no-ember"))]
+            {
                 tracing::info!(
                     bdf = %self.bdf,
                     current = current_driver.as_deref().unwrap_or("<none>"),
                     target = %target,
-                    "unbinding current driver before activation"
+                    "delegating activation rebind to ember"
                 );
-                sysfs::sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf),
-                    &self.bdf,
+                client.swap_device(&self.bdf, &target).map_err(|e| {
+                    DeviceError::DriverBind {
+                        bdf: self.bdf.clone(),
+                        driver: target.clone(),
+                        reason: format!("ember swap during activation: {e}"),
+                    }
+                })?;
+            }
+
+            #[cfg(feature = "no-ember")]
+            if let Some(client) = client {
+                tracing::info!(
+                    bdf = %self.bdf,
+                    current = current_driver.as_deref().unwrap_or("<none>"),
+                    target = %target,
+                    "delegating activation rebind to ember"
                 );
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                sysfs::sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-                    "on",
+                client.swap_device(&self.bdf, &target).map_err(|e| {
+                    DeviceError::DriverBind {
+                        bdf: self.bdf.clone(),
+                        driver: target.clone(),
+                        reason: format!("ember swap during activation: {e}"),
+                    }
+                })?;
+            } else {
+                tracing::warn!(
+                    bdf = %self.bdf,
+                    "ember not available — using legacy direct sysfs activation (no-ember mode)"
                 );
+                if current_driver.is_some() {
+                    let _ = sysfs::sysfs_write(
+                        &format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf),
+                        &self.bdf,
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = sysfs::sysfs_write(
+                        &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                        "on",
+                    );
+                }
             }
         }
 
         match target.as_str() {
             "vfio" => self.bind_vfio()?,
-            "nouveau" => {
-                if needs_rebind {
-                    self.bind_driver("nouveau")?;
-                } else {
-                    let drm = sysfs::find_drm_card(&self.bdf);
-                    self.personality = Personality::Nouveau { drm_card: drm };
-                }
-            }
-            "amdgpu" => {
-                if needs_rebind {
-                    self.bind_driver("amdgpu")?;
-                } else {
-                    let drm = sysfs::find_drm_card(&self.bdf);
-                    self.personality = Personality::Amdgpu { drm_card: drm };
-                }
-            }
+            "nouveau" | "nvidia" | "amdgpu" => self.bind_driver(&target)?,
             other => {
                 return Err(DeviceError::UnknownPersonality {
                     bdf: self.bdf.clone(),
@@ -214,44 +314,111 @@ impl DeviceSlot {
         Ok(())
     }
 
-    /// Hot-swap to a new driver personality.
+    /// Hot-swap to a new driver personality via ember.
+    ///
+    /// Delegates all sysfs `driver/unbind` and `drivers/*/bind` operations to
+    /// the immortal ember process. Glowplug only drops its local VFIO fds and
+    /// updates personality state after ember confirms the swap.
     ///
     /// # Errors
     ///
-    /// Returns `DeviceError::UnknownPersonality` if the target personality is not
-    /// supported. Propagates `DeviceError::VfioOpen` or driver bind errors when
-    /// binding fails.
+    /// Returns `DeviceError::DriverBind` if ember is not available or the swap
+    /// fails. Returns `DeviceError::VfioOpen` if post-swap fd acquisition fails.
     pub fn swap(&mut self, target: &str) -> Result<(), DeviceError> {
-        if std::path::Path::new("/sys/module/nvidia").exists() {
+        if crate::sysfs::read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
             tracing::error!(
                 bdf = %self.bdf,
-                "REFUSING swap — nvidia kernel modules are loaded. \
-                 Driver swaps with nvidia loaded corrupt device state and panic the kernel."
+                "REFUSING swap — nvidia is bound to this device. \
+                 Unbind nvidia from this BDF before swapping."
             );
             return Err(DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: target.into(),
-                reason: "nvidia kernel modules loaded — driver swap would panic the kernel".into(),
+                reason: "nvidia is bound to this device — unbind before swapping".into(),
             });
         }
 
         let registry = PersonalityRegistry::default_linux();
         tracing::info!(bdf = %self.bdf, from = %self.personality, to = %target, "swapping personality");
 
-        // Step 1: snapshot current state
+        if self.has_vfio() && !self.wait_quiescence(QUIESCENCE_TIMEOUT) {
+            tracing::warn!(
+                bdf = %self.bdf,
+                "proceeding with swap despite quiescence timeout — GPU may have in-flight work"
+            );
+        }
+
         if self.has_vfio() {
             self.snapshot_registers();
         }
 
-        // Step 2: release current personality
-        self.release()?;
+        // Drop local VFIO holder before asking ember to swap
+        drop(self.vfio_holder.take());
 
-        // Step 3: bind new personality
+        // Delegate the entire driver swap to ember
+        let client = crate::ember::EmberClient::connect().ok_or_else(|| {
+            DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: target.into(),
+                reason: "ember not available — driver swap requires ember for safe transition"
+                    .into(),
+            }
+        })?;
+
+        client
+            .swap_device(&self.bdf, target)
+            .map_err(|e| DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: target.into(),
+                reason: format!("ember swap_device: {e}"),
+            })?;
+
+        // Update local personality state after successful ember swap
         match target {
-            "vfio" | "vfio-pci" => self.bind_vfio()?,
-            "nouveau" => self.bind_driver("nouveau")?,
-            "amdgpu" => self.bind_driver("amdgpu")?,
-            "unbound" => { /* already unbound from release() */ }
+            "vfio" | "vfio-pci" => {
+                let group_id = sysfs::read_iommu_group(&self.bdf);
+                match client.request_fds(&self.bdf) {
+                    Ok(fds) => {
+                        let device = coral_driver::vfio::VfioDevice::from_received_fds(
+                            &self.bdf,
+                            fds.container,
+                            fds.group,
+                            fds.device,
+                        )
+                        .map_err(|e| DeviceError::VfioOpen {
+                            bdf: self.bdf.clone(),
+                            reason: format!("ember fds after swap: {e}"),
+                        })?;
+                        let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+                            bdf: self.bdf.clone(),
+                            reason: format!("BAR0 map after swap: {e}"),
+                        })?;
+                        self.vfio_holder = Some(VfioHolder { device, bar0 });
+                        self.personality = Personality::Vfio { group_id };
+                    }
+                    Err(e) => {
+                        return Err(DeviceError::VfioOpen {
+                            bdf: self.bdf.clone(),
+                            reason: format!("ember fds after swap: {e}"),
+                        });
+                    }
+                }
+            }
+            "nouveau" => {
+                let drm = sysfs::find_drm_card(&self.bdf);
+                self.personality = Personality::Nouveau { drm_card: drm };
+            }
+            "nvidia" => {
+                let drm = sysfs::find_drm_card(&self.bdf);
+                self.personality = Personality::Nvidia { drm_card: drm };
+            }
+            "amdgpu" => {
+                let drm = sysfs::find_drm_card(&self.bdf);
+                self.personality = Personality::Amdgpu { drm_card: drm };
+            }
+            "unbound" => {
+                self.personality = Personality::Unbound;
+            }
             other => {
                 return Err(DeviceError::UnknownPersonality {
                     bdf: self.bdf.clone(),
@@ -261,7 +428,6 @@ impl DeviceSlot {
             }
         }
 
-        // Step 4: verify health
         self.check_health();
         tracing::info!(
             bdf = %self.bdf,
@@ -273,13 +439,12 @@ impl DeviceSlot {
         Ok(())
     }
 
-    /// Release current personality (unbind driver, drop VFIO fd).
+    /// Release local VFIO holder only — no sysfs writes.
     ///
-    /// CRITICAL: we must *close* the VFIO fd (not leak it) before unbind.
-    /// Leaking prevents the kernel from releasing the VFIO group, which
-    /// blocks sysfs unbind indefinitely. The PM reset from fd close is
-    /// accepted — the state vault snapshot preserves register state for
-    /// restoration after re-binding.
+    /// All sysfs `driver/unbind` operations are delegated to ember via
+    /// `swap_device` RPC. This method only drops the dup'd VFIO fds held
+    /// locally by glowplug.
+    #[allow(dead_code, reason = "used in tests and available for manual teardown")]
     fn release(&mut self) -> Result<(), DeviceError> {
         if sysfs::has_active_drm_consumers(&self.bdf) {
             tracing::error!(
@@ -293,92 +458,154 @@ impl DeviceSlot {
             });
         }
 
-        // Drop VFIO device — this closes the fd and triggers PM reset,
-        // but frees the VFIO group so unbind can proceed.
-        drop(self.vfio_device.take());
-
-        // Pin power before unbind to prevent D3 transition
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
-        );
-
-        // Unbind from current driver
-        let drv_path = format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf);
-        sysfs::sysfs_write(&drv_path, &self.bdf);
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        // Keep power pinned
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
-        );
+        drop(self.vfio_holder.take());
         self.personality = Personality::Unbound;
         Ok(())
     }
 
+    /// Acquire VFIO fds for this device.
+    ///
+    /// Primary path: get dup'd fds from ember via `SCM_RIGHTS`.
+    /// With `no-ember` feature: falls back to direct `VfioDevice::open` with legacy sysfs bind.
     fn bind_vfio(&mut self) -> Result<(), DeviceError> {
         let group_id = sysfs::read_iommu_group(&self.bdf);
 
-        // Bind all devices in the same IOMMU group to vfio-pci
-        // (required for group viability — e.g. audio companion device)
-        sysfs::bind_iommu_group_to_vfio(&self.bdf, group_id);
+        if let Some(client) = crate::ember::EmberClient::connect() {
+            match client.request_fds(&self.bdf) {
+                Ok(fds) => {
+                    let device = coral_driver::vfio::VfioDevice::from_received_fds(
+                        &self.bdf,
+                        fds.container,
+                        fds.group,
+                        fds.device,
+                    )
+                    .map_err(|e| DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("ember fds: {e}"),
+                    })?;
+                    let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("BAR0 map from ember: {e}"),
+                    })?;
+                    self.vfio_holder = Some(VfioHolder { device, bar0 });
+                    self.personality = Personality::Vfio { group_id };
+                    tracing::info!(bdf = %self.bdf, "VFIO fds acquired from ember");
+                    return Ok(());
+                }
+                Err(e) => {
+                    #[cfg(not(feature = "no-ember"))]
+                    return Err(DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!(
+                            "ember fds failed: {e} (enable 'no-ember' feature for legacy fallback)"
+                        ),
+                    });
 
-        // Set driver override for the primary device
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
-            "vfio-pci",
-        );
-
-        // Bind
-        sysfs::sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &self.bdf);
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        // Pin D0
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
-        );
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/d3cold_allowed", self.bdf),
-            "0",
-        );
-
-        // Open VFIO device
-        match coral_driver::nv::RawVfioDevice::open(&self.bdf) {
-            Ok(dev) => {
-                self.vfio_device = Some(dev);
-                self.personality = Personality::Vfio { group_id };
-                Ok(())
+                    #[cfg(feature = "no-ember")]
+                    tracing::warn!(
+                        bdf = %self.bdf, error = %e,
+                        "ember fds unavailable, falling back to direct open (no-ember mode)"
+                    );
+                }
             }
-            Err(e) => {
-                self.personality = Personality::Vfio { group_id };
-                Err(DeviceError::VfioOpen {
-                    bdf: self.bdf.clone(),
-                    reason: e.to_string(),
-                })
+        }
+
+        #[cfg(not(feature = "no-ember"))]
+        return Err(DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: "ember not available — VFIO bind requires ember (enable 'no-ember' feature for legacy fallback)".into(),
+        });
+
+        #[cfg(feature = "no-ember")]
+        {
+            tracing::warn!(
+                bdf = %self.bdf,
+                "legacy VFIO bind without ember (no-ember mode)"
+            );
+            sysfs::bind_iommu_group_to_vfio(&self.bdf, group_id);
+            let _ = sysfs::sysfs_write(
+                &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
+                "vfio-pci",
+            );
+            let _ = sysfs::sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &self.bdf);
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let _ = sysfs::sysfs_write(
+                &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                "on",
+            );
+            let _ = sysfs::sysfs_write(
+                &format!("/sys/bus/pci/devices/{}/d3cold_allowed", self.bdf),
+                "0",
+            );
+
+            match coral_driver::vfio::VfioDevice::open(&self.bdf) {
+                Ok(device) => {
+                    let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("BAR0 map: {e}"),
+                    })?;
+                    self.vfio_holder = Some(VfioHolder { device, bar0 });
+                    self.personality = Personality::Vfio { group_id };
+                    Ok(())
+                }
+                Err(e) => {
+                    self.personality = Personality::Vfio { group_id };
+                    Err(DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: e.to_string(),
+                    })
+                }
             }
         }
     }
 
+    /// Update personality state after a driver bind.
+    ///
+    /// Checks if the driver is already bound (ember did it via `swap_device`).
+    /// With `no-ember` feature: falls back to legacy sysfs bind when the driver is not yet active.
+    #[allow(clippy::unnecessary_wraps)]
     fn bind_driver(&mut self, driver: &str) -> Result<(), DeviceError> {
-        // Write newline to clear driver_override (empty string doesn't work via tee)
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
-            "\n",
-        );
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        sysfs::sysfs_write(&format!("/sys/bus/pci/drivers/{driver}/bind"), &self.bdf);
-        std::thread::sleep(std::time::Duration::from_secs(3));
+        let current = sysfs::read_current_driver(&self.bdf);
+        if current.as_deref() != Some(driver) {
+            #[cfg(not(feature = "no-ember"))]
+            {
+                tracing::warn!(
+                    bdf = %self.bdf,
+                    driver,
+                    current = ?current,
+                    "expected ember to have already bound {driver} — driver mismatch"
+                );
+            }
 
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
-        );
+            #[cfg(feature = "no-ember")]
+            {
+                tracing::warn!(
+                    bdf = %self.bdf,
+                    driver,
+                    current = ?current,
+                    "legacy sysfs bind (no-ember mode)"
+                );
+                let _ = sysfs::sysfs_write(
+                    &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
+                    "\n",
+                );
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let _ = sysfs::sysfs_write(
+                    &format!("/sys/bus/pci/drivers/{driver}/bind"),
+                    &self.bdf,
+                );
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let _ = sysfs::sysfs_write(
+                    &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                    "on",
+                );
+            }
+        }
 
         let drm_card = sysfs::find_drm_card(&self.bdf);
         self.personality = match driver {
             "nouveau" => Personality::Nouveau { drm_card },
+            "nvidia" => Personality::Nvidia { drm_card },
             "amdgpu" => Personality::Amdgpu { drm_card },
             _ => Personality::Unbound,
         };
@@ -400,18 +627,15 @@ impl DeviceSlot {
     /// Returns `DeviceError::DriverBind` if the device is not currently in
     /// VFIO personality (nothing to lend).
     pub fn lend(&mut self) -> Result<u32, DeviceError> {
-        let group_id = match self.personality {
-            Personality::Vfio { group_id } => group_id,
-            _ => {
-                return Err(DeviceError::DriverBind {
-                    bdf: self.bdf.clone(),
-                    driver: "vfio-pci".into(),
-                    reason: format!("device is {}, not VFIO — nothing to lend", self.personality),
-                });
-            }
+        let Personality::Vfio { group_id } = self.personality else {
+            return Err(DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: "vfio-pci".into(),
+                reason: format!("device is {}, not VFIO — nothing to lend", self.personality),
+            });
         };
 
-        if self.vfio_device.is_none() {
+        if self.vfio_holder.is_none() {
             return Err(DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: "vfio-pci".into(),
@@ -420,7 +644,7 @@ impl DeviceSlot {
         }
 
         self.snapshot_registers();
-        drop(self.vfio_device.take());
+        drop(self.vfio_holder.take());
         tracing::info!(bdf = %self.bdf, group_id, "VFIO fd lent — group available for external consumer");
 
         Ok(group_id)
@@ -436,34 +660,82 @@ impl DeviceSlot {
     /// Returns `DeviceError::VfioOpen` if the VFIO group fd cannot be
     /// re-opened (e.g. the external consumer still holds it).
     pub fn reclaim(&mut self) -> Result<(), DeviceError> {
-        let group_id = match self.personality {
-            Personality::Vfio { group_id } => group_id,
-            _ => {
-                return Err(DeviceError::DriverBind {
-                    bdf: self.bdf.clone(),
-                    driver: "vfio-pci".into(),
-                    reason: format!(
-                        "device is {}, not VFIO — nothing to reclaim",
-                        self.personality
-                    ),
-                });
-            }
+        let Personality::Vfio { group_id } = self.personality else {
+            return Err(DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: "vfio-pci".into(),
+                reason: format!(
+                    "device is {}, not VFIO — nothing to reclaim",
+                    self.personality
+                ),
+            });
         };
 
-        if self.vfio_device.is_some() {
+        if self.vfio_holder.is_some() {
             tracing::warn!(bdf = %self.bdf, "VFIO fd already held — reclaim is a no-op");
             return Ok(());
         }
 
-        match coral_driver::nv::RawVfioDevice::open(&self.bdf) {
-            Ok(dev) => {
-                self.vfio_device = Some(dev);
+        if let Some(client) = crate::ember::EmberClient::connect() {
+            match client.request_fds(&self.bdf) {
+                Ok(fds) => {
+                    let device = coral_driver::vfio::VfioDevice::from_received_fds(
+                        &self.bdf,
+                        fds.container,
+                        fds.group,
+                        fds.device,
+                    )
+                    .map_err(|e| DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("ember fds: {e}"),
+                    })?;
+                    let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("BAR0 map from ember: {e}"),
+                    })?;
+                    self.vfio_holder = Some(VfioHolder { device, bar0 });
+                    self.check_health();
+                    tracing::info!(
+                        bdf = %self.bdf,
+                        group_id,
+                        vram = self.health.vram_alive,
+                        "VFIO fd reclaimed via ember"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    #[cfg(not(feature = "no-ember"))]
+                    return Err(DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("ember fds failed during reclaim: {e}"),
+                    });
+
+                    #[cfg(feature = "no-ember")]
+                    tracing::warn!(bdf = %self.bdf, error = %e, "ember fds unavailable for reclaim, using direct open (no-ember mode)");
+                }
+            }
+        }
+
+        #[cfg(not(feature = "no-ember"))]
+        return Err(DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: "ember not available for reclaim (enable 'no-ember' feature for legacy fallback)".into(),
+        });
+
+        #[cfg(feature = "no-ember")]
+        match coral_driver::vfio::VfioDevice::open(&self.bdf) {
+            Ok(device) => {
+                let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: format!("BAR0 map: {e}"),
+                })?;
+                self.vfio_holder = Some(VfioHolder { device, bar0 });
                 self.check_health();
                 tracing::info!(
                     bdf = %self.bdf,
                     group_id,
                     vram = self.health.vram_alive,
-                    "VFIO fd reclaimed"
+                    "VFIO fd reclaimed (direct open, no-ember mode)"
                 );
                 Ok(())
             }
@@ -474,9 +746,45 @@ impl DeviceSlot {
         }
     }
 
+    /// Read a single BAR0 register via the VFIO holder.
+    ///
+    /// Returns `None` if no VFIO holder is active or if the offset is
+    /// out of the BAR0 mapping range.
+    #[must_use]
+    pub fn read_register(&self, offset: usize) -> Option<u32> {
+        self.vfio_holder.as_ref()?.bar0.read_u32(offset).ok()
+    }
+
+    /// Dump a set of BAR0 registers, returning offset → value pairs.
+    ///
+    /// If `offsets` is empty, uses the default comprehensive register set
+    /// covering PMC, PBUS, PFIFO, PBDMA, PFB, FBHUB, PMU, PCLOCK, GR, FECS,
+    /// GPCCS, LTC, FBPA, PRAMIN, and thermal domains.
+    #[must_use]
+    pub fn dump_registers(&self, offsets: &[usize]) -> BTreeMap<usize, u32> {
+        let offsets = if offsets.is_empty() { DEFAULT_REGISTER_DUMP_OFFSETS } else { offsets };
+        let mut result = BTreeMap::new();
+        if let Some(holder) = &self.vfio_holder {
+            for &off in offsets {
+                if let Ok(val) = holder.bar0.read_u32(off) {
+                    result.insert(off, val);
+                }
+            }
+        }
+        result
+    }
+
+    /// Returns the most recent register snapshot taken during state preservation.
+    #[must_use]
+    pub fn last_snapshot(&self) -> &BTreeMap<usize, u32> {
+        &self.register_snapshot
+    }
+
     /// Take a snapshot of key registers (for state preservation across swaps).
     pub fn snapshot_registers(&mut self) {
-        let Some(dev) = &self.vfio_device else { return };
+        let Some(holder) = &self.vfio_holder else {
+            return;
+        };
         self.register_snapshot.clear();
 
         let offsets: &[usize] = &[
@@ -489,7 +797,7 @@ impl DeviceSlot {
         ];
 
         for &off in offsets {
-            if let Ok(val) = dev.bar0.read_u32(off) {
+            if let Ok(val) = holder.bar0.read_u32(off) {
                 self.register_snapshot.insert(off, val);
             }
         }
@@ -519,13 +827,13 @@ impl DeviceSlot {
             "checking device health"
         );
 
-        let Some(dev) = self.vfio_device.as_ref() else {
+        let Some(holder) = self.vfio_holder.as_ref() else {
             self.health.vram_alive = false;
             self.health.domains_alive = 0;
             self.health.domains_faulted = 0;
             return;
         };
-        let r = |off: usize| dev.bar0.read_u32(off).unwrap_or(PCI_READ_DEAD);
+        let r = |off: usize| holder.bar0.read_u32(off).unwrap_or(PCI_READ_DEAD);
 
         self.health.boot0 = r(0x00_0000);
         self.health.pmc_enable = r(0x00_0200);
@@ -558,134 +866,114 @@ impl DeviceSlot {
         self.health.domains_faulted = faulted;
     }
 
-    /// Resurrect HBM2 by cycling through nouveau.
+    /// Resurrect HBM2 by cycling through nouveau via ember.
     ///
-    /// Sequence: snapshot → close VFIO fd → unbind → nouveau bind (HBM2 training)
-    /// → wait for init → unbind nouveau → rebind VFIO → verify PRAMIN alive.
+    /// Delegates all driver transitions to ember's `swap_device` RPC:
+    /// snapshot → ember swap to nouveau (HBM2 training) → ember swap
+    /// back to vfio → acquire fds → verify PRAMIN alive.
     ///
-    /// Returns Ok(true) if VRAM came back alive, Ok(false) if resurrection
-    /// completed but VRAM is still dead, Err if a step failed.
+    /// Returns `Ok(true)` if VRAM came back alive, `Ok(false)` if resurrection
+    /// completed but VRAM is still dead, `Err` if a step failed.
     ///
     /// # Errors
     ///
-    /// Returns `DeviceError::VfioOpen` if rebinding to VFIO after the nouveau
-    /// HBM2 training cycle fails.
+    /// Returns `DeviceError::DriverBind` if ember is not available or a swap
+    /// fails. Returns `DeviceError::VfioOpen` if post-swap fd acquisition fails.
     pub fn resurrect_hbm2(&mut self) -> Result<bool, DeviceError> {
-        if std::path::Path::new("/sys/module/nvidia").exists() {
+        if crate::sysfs::read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
             tracing::error!(
                 bdf = %self.bdf,
-                "REFUSING HBM2 resurrection — nvidia kernel modules are loaded. \
-                 They corrupt GV100 device state during probe and make driver swaps \
-                 unsafe (kernel panic). Unload nvidia modules first."
+                "REFUSING HBM2 resurrection — nvidia is bound to this device. \
+                 Unbind nvidia from this BDF before resurrection."
             );
             return Err(DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: "nouveau".into(),
-                reason: "nvidia kernel modules loaded — driver swap would panic the kernel".into(),
+                reason: "nvidia is bound to this device — unbind before resurrection".into(),
             });
         }
 
-        tracing::info!(bdf = %self.bdf, "HBM2 resurrection starting");
+        let warm_driver = crate::pci_ids::hbm2_training_driver(self.vendor_id)
+            .ok_or_else(|| DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: "unknown".into(),
+                reason: format!(
+                    "no HBM2 training driver known for vendor {:#06x}",
+                    self.vendor_id
+                ),
+            })?;
 
-        // Step 1: snapshot current state (even if partially dead)
+        tracing::info!(bdf = %self.bdf, warm_driver, "HBM2 resurrection starting via ember");
+
         self.snapshot_registers();
-        let snapshot_count = self.register_snapshot.len();
-        tracing::info!(bdf = %self.bdf, regs = snapshot_count, "state vault snapshot saved");
-
-        // Step 2: close VFIO fd (triggers PM reset, but frees the group for unbind)
-        drop(self.vfio_device.take());
-
-        // Step 3: pin power to prevent D3 during transition
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
+        tracing::info!(
+            bdf = %self.bdf,
+            regs = self.register_snapshot.len(),
+            "state vault snapshot saved"
         );
 
-        // Step 4: unbind from current driver
-        let unbind = format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf);
-        sysfs::sysfs_write(&unbind, &self.bdf);
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
-        );
+        // Drop local VFIO holder
+        drop(self.vfio_holder.take());
 
-        // Step 5a: DRM consumer fence check — verify no active DRM consumers
-        // before nouveau bind. Active consumers (from a prior DRM session)
-        // would race with nouveau's HBM2 training init.
-        if sysfs::has_active_drm_consumers(&self.bdf) {
-            tracing::warn!(
-                bdf = %self.bdf,
-                "active DRM consumers detected — waiting for fence drain"
-            );
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            if sysfs::has_active_drm_consumers(&self.bdf) {
-                tracing::error!(
-                    bdf = %self.bdf,
-                    "DRM consumers still active — resurrection may conflict"
-                );
+        // Ember required for resurrection
+        let client =
+            crate::ember::EmberClient::connect().ok_or_else(|| DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: warm_driver.into(),
+                reason: "ember not available — resurrection requires ember for safe transition"
+                    .into(),
+            })?;
+
+        // Step 1: swap to warm driver (ember handles unbind + bind + HBM2 training wait)
+        client
+            .swap_device(&self.bdf, warm_driver)
+            .map_err(|e| DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: warm_driver.into(),
+                reason: format!("ember swap to {warm_driver}: {e}"),
+            })?;
+        tracing::info!(bdf = %self.bdf, warm_driver, "HBM2 warm complete via ember");
+
+        // Step 2: swap back to VFIO (ember handles unbind warm driver + bind vfio + reacquire)
+        client
+            .swap_device(&self.bdf, "vfio")
+            .map_err(|e| DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: "vfio".into(),
+                reason: format!("ember swap back to vfio after {warm_driver}: {e}"),
+            })?;
+
+        // Step 3: acquire VFIO fds from ember
+        let group_id = sysfs::read_iommu_group(&self.bdf);
+        match client.request_fds(&self.bdf) {
+            Ok(fds) => {
+                let device = coral_driver::vfio::VfioDevice::from_received_fds(
+                    &self.bdf,
+                    fds.container,
+                    fds.group,
+                    fds.device,
+                )
+                .map_err(|e| DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: format!("ember fds after resurrection: {e}"),
+                })?;
+                let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: format!("BAR0 map after resurrection: {e}"),
+                })?;
+                self.vfio_holder = Some(VfioHolder { device, bar0 });
+                self.personality = Personality::Vfio { group_id };
+            }
+            Err(e) => {
+                return Err(DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: format!("ember fds after resurrection: {e}"),
+                });
             }
         }
 
-        // Step 5b: bind to nouveau — this triggers full HBM2 training
-        // CRITICAL: clear driver_override BEFORE bind, otherwise the kernel
-        // won't match nouveau because override says "vfio-pci"
-        tracing::info!(bdf = %self.bdf, "clearing driver_override and binding nouveau...");
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
-            "\n",
-        );
-        std::thread::sleep(std::time::Duration::from_millis(200));
-
-        // Verify override was cleared
-        let override_val =
-            std::fs::read_to_string(format!("/sys/bus/pci/devices/{}/driver_override", self.bdf))
-                .unwrap_or_default();
-        tracing::info!(bdf = %self.bdf, driver_override = ?override_val.trim(), "override after clear");
-
-        sysfs::sysfs_write("/sys/bus/pci/drivers/nouveau/bind", &self.bdf);
-
-        // Step 6: wait for nouveau to complete init
-        // nouveau does: VBIOS parse → PMU → FBPA init → HBM2 PHY training → DRM
-        // typically takes 2-5 seconds on GV100
-        for attempt in 0..10 {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let drv = sysfs::read_current_driver(&self.bdf);
-
-            if drv.as_deref() == Some("nouveau") {
-                // Check if DRM is up (indicates full init including HBM2)
-                if sysfs::find_drm_card(&self.bdf).is_some() {
-                    tracing::info!(
-                        bdf = %self.bdf,
-                        attempt,
-                        "nouveau init complete (DRM card found)"
-                    );
-                    break;
-                }
-            }
-            tracing::debug!(bdf = %self.bdf, attempt, driver = ?drv, "waiting for nouveau init...");
-        }
-
-        let nouveau_drv = sysfs::read_current_driver(&self.bdf);
-
-        if nouveau_drv.as_deref() != Some("nouveau") {
-            tracing::warn!(bdf = %self.bdf, driver = ?nouveau_drv, "nouveau did not bind — resurrection may fail");
-        }
-
-        // Step 7: swap back to VFIO
-        tracing::info!(bdf = %self.bdf, "nouveau warm complete, swapping back to vfio-pci...");
-        sysfs::sysfs_write(&unbind, &self.bdf);
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
-            "on",
-        );
-
-        self.bind_vfio()?;
-
-        // Step 8: verify PRAMIN is alive
+        // Step 4: verify PRAMIN is alive
         self.check_health();
-
         let alive = self.health.vram_alive;
         if alive {
             tracing::info!(
@@ -693,18 +981,127 @@ impl DeviceSlot {
                 domains_alive = self.health.domains_alive,
                 boot0 = format_args!("{:#010x}", self.health.boot0),
                 pmc = format_args!("{:#010x}", self.health.pmc_enable),
-                "HBM2 RESURRECTED — VRAM alive"
+                "HBM2 RESURRECTED via ember — VRAM alive"
             );
         } else {
             tracing::warn!(
                 bdf = %self.bdf,
                 domains_alive = self.health.domains_alive,
                 domains_faulted = self.health.domains_faulted,
-                "HBM2 resurrection failed — VRAM still dead"
+                "HBM2 resurrection via ember failed — VRAM still dead"
             );
         }
 
         Ok(alive)
+    }
+
+    /// Bind VFIO using fds received from the coral-ember process.
+    ///
+    /// The ember holds the original fds; these are dup'd copies received
+    /// via `SCM_RIGHTS`. Dropping this `DeviceSlot` closes the dup'd fds
+    /// but the ember's originals keep the VFIO binding alive.
+    pub fn activate_from_ember(
+        &mut self,
+        container: OwnedFd,
+        group: OwnedFd,
+        device_fd: OwnedFd,
+    ) -> Result<(), DeviceError> {
+        let group_id = sysfs::read_iommu_group(&self.bdf);
+
+        tracing::info!(
+            bdf = %self.bdf,
+            group_id,
+            "activating device from ember fds"
+        );
+
+        let device = coral_driver::vfio::VfioDevice::from_received_fds(
+            &self.bdf,
+            container,
+            group,
+            device_fd,
+        )
+        .map_err(|e| DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: format!("ember fds: {e}"),
+        })?;
+
+        let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: format!("BAR0 map from ember fds: {e}"),
+        })?;
+
+        self.vfio_holder = Some(VfioHolder { device, bar0 });
+        self.personality = Personality::Vfio { group_id };
+        self.check_health();
+
+        tracing::info!(
+            bdf = %self.bdf,
+            personality = %self.personality,
+            chip = %self.chip_name,
+            vram = self.health.vram_alive,
+            power = %self.health.power,
+            "device activated from ember"
+        );
+
+        Ok(())
+    }
+
+    /// Check if the GPU is quiescent (no in-flight work on PFIFO/PBDMA).
+    ///
+    /// Reads GV100 status registers to detect pending work. Conservative:
+    /// returns false if any register indicates possible activity.
+    fn check_quiescence(&self) -> bool {
+        let Some(holder) = &self.vfio_holder else {
+            return true;
+        };
+        let r = |off: usize| holder.bar0.read_u32(off).unwrap_or(0xFFFF_FFFF);
+
+        // PFIFO_INTR_0 (0x002100): non-zero means pending interrupts
+        let pfifo_intr = r(0x00_2100);
+        // PFIFO (0x002504): scheduler/engine status
+        let pfifo_sched = r(0x00_2504);
+        // PBDMA0 (0x040108): channel status
+        let pbdma0 = r(0x04_0108);
+
+        // Cold silicon: uninitialized registers contain 0xbadf**** or 0xbad0****
+        // patterns. These are NOT in-flight work — the GPU has never been initialized.
+        let is_cold_pattern =
+            |v: u32| (v & 0xFFFF_0000) == 0xBADF_0000 || (v & 0xFFF0_0000) == 0xBAD0_0000;
+
+        let cold_silicon =
+            is_cold_pattern(pfifo_sched) || is_cold_pattern(pbdma0);
+
+        let quiescent = cold_silicon || (pfifo_intr == 0 && pfifo_sched == 0 && pbdma0 == 0);
+
+        tracing::debug!(
+            bdf = %self.bdf,
+            pfifo_intr = format_args!("{pfifo_intr:#010x}"),
+            pfifo_sched = format_args!("{pfifo_sched:#010x}"),
+            pbdma0 = format_args!("{pbdma0:#010x}"),
+            cold_silicon,
+            quiescent,
+            "GPU quiescence check"
+        );
+
+        quiescent
+    }
+
+    /// Wait for GPU quiescence with timeout. Returns true if quiescent.
+    fn wait_quiescence(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut attempt = 0u32;
+
+        while std::time::Instant::now() < deadline {
+            if self.check_quiescence() {
+                tracing::info!(bdf = %self.bdf, attempt, "GPU quiescent");
+                return true;
+            }
+            attempt += 1;
+            std::thread::sleep(std::time::Duration::from_millis(QUIESCENCE_POLL_MS));
+        }
+
+        tracing::warn!(bdf = %self.bdf, attempts = attempt, "GPU quiescence timeout");
+        false
     }
 
     pub(crate) fn refresh_power_state(&mut self) {

@@ -134,6 +134,25 @@ impl fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
+/// Errors from the `EmberClient` IPC layer.
+#[derive(Debug, thiserror::Error)]
+pub enum EmberError {
+    #[error("ember socket connect failed: {0}")]
+    Connect(std::io::Error),
+
+    #[error("ember I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("ember JSON-RPC parse error: {0}")]
+    Parse(#[from] serde_json::Error),
+
+    #[error("ember RPC error ({code}): {message}")]
+    Rpc { code: i32, message: String },
+
+    #[error("SCM_RIGHTS: expected {expected} fds, got {received}")]
+    FdCount { expected: usize, received: usize },
+}
+
 impl From<DeviceError> for RpcError {
     fn from(err: DeviceError) -> Self {
         Self {

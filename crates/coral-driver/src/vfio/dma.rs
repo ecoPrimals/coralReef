@@ -104,13 +104,37 @@ impl DmaBuffer {
         // SAFETY: container_fd is valid from VFIO open; borrow_raw requires valid fd.
         let container_borrowed = unsafe { BorrowedFd::borrow_raw(container_fd) };
         if let Err(e) = ioctl::dma_map(container_borrowed, &dma_map_arg) {
-            tracing::warn!("VFIO DMA map failed: {e}");
-            // SAFETY: Cleanup — vaddr allocated and mlock'd above.
-            unsafe {
-                let _ = munlock(vaddr.cast(), aligned_size);
-                std::alloc::dealloc(vaddr, layout);
-            };
-            return Err(e);
+            // EEXIST: stale mapping from a previous consumer on a shared container
+            // (common with ember fd sharing). Unmap first, then retry.
+            if e.to_string().contains("File exists") {
+                tracing::info!(
+                    iova = format_args!("{iova:#x}"),
+                    "VFIO IOVA already mapped — unmapping stale entry and retrying"
+                );
+                let dma_unmap = VfioDmaUnmap {
+                    argsz: std::mem::size_of::<VfioDmaUnmap>() as u32,
+                    flags: 0,
+                    iova,
+                    size: aligned_size as u64,
+                };
+                let _ = ioctl::dma_unmap(container_borrowed, &dma_unmap);
+                if let Err(e2) = ioctl::dma_map(container_borrowed, &dma_map_arg) {
+                    tracing::warn!("VFIO DMA map retry failed: {e2}");
+                    unsafe {
+                        let _ = munlock(vaddr.cast(), aligned_size);
+                        std::alloc::dealloc(vaddr, layout);
+                    };
+                    return Err(e2);
+                }
+            } else {
+                tracing::warn!("VFIO DMA map failed: {e}");
+                // SAFETY: Cleanup — vaddr allocated and mlock'd above.
+                unsafe {
+                    let _ = munlock(vaddr.cast(), aligned_size);
+                    std::alloc::dealloc(vaddr, layout);
+                };
+                return Err(e);
+            }
         }
 
         tracing::debug!(

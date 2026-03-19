@@ -152,7 +152,7 @@ impl SocketServer {
 
                 let _ = std::fs::set_permissions(
                     addr,
-                    std::os::unix::fs::PermissionsExt::from_mode(0o666),
+                    std::os::unix::fs::PermissionsExt::from_mode(0o660),
                 );
 
                 tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
@@ -165,7 +165,7 @@ impl SocketServer {
             {
                 Err(format!(
                     "Unix socket path not supported on this platform; use TCP address (e.g. {})",
-                    crate::config::FALLBACK_TCP_BIND
+                    coral_glowplug::config::FALLBACK_TCP_BIND
                 ))
             }
         }
@@ -192,7 +192,7 @@ impl SocketServer {
 
     pub async fn accept_loop(
         &self,
-        devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
+        devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
         shutdown: &mut tokio::sync::watch::Receiver<bool>,
     ) {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CLIENTS));
@@ -223,12 +223,9 @@ impl SocketServer {
             tokio::select! {
                 accepted = accept_fut => {
                     if let Some(stream) = accepted {
-                        let permit = match semaphore.clone().try_acquire_owned() {
-                            Ok(p) => p,
-                            Err(_) => {
-                                tracing::warn!("max concurrent clients reached ({MAX_CONCURRENT_CLIENTS}), rejecting");
-                                continue;
-                            }
+                        let Ok(permit) = semaphore.clone().try_acquire_owned() else {
+                            tracing::warn!("max concurrent clients reached ({MAX_CONCURRENT_CLIENTS}), rejecting");
+                            continue;
                         };
                         let devices = devices.clone();
                         let started_at = self.started_at;
@@ -263,7 +260,7 @@ enum ClientStream {
 
 fn make_response(
     id: serde_json::Value,
-    result: Result<serde_json::Value, crate::error::RpcError>,
+    result: Result<serde_json::Value, coral_glowplug::error::RpcError>,
 ) -> String {
     let resp = match result {
         Ok(val) => JsonRpcResponse {
@@ -296,7 +293,7 @@ fn make_response(
 ///
 /// Rejects path traversal attempts, null bytes, and malformed addresses
 /// that could be interpolated into sysfs paths by device operations.
-fn validate_bdf(bdf: &str) -> Result<&str, crate::error::RpcError> {
+fn validate_bdf(bdf: &str) -> Result<&str, coral_glowplug::error::RpcError> {
     let is_valid = !bdf.is_empty()
         && bdf.len() <= 16
         && !bdf.contains('/')
@@ -308,7 +305,7 @@ fn validate_bdf(bdf: &str) -> Result<&str, crate::error::RpcError> {
     if is_valid {
         Ok(bdf)
     } else {
-        Err(crate::error::RpcError::invalid_params(format!(
+        Err(coral_glowplug::error::RpcError::invalid_params(format!(
             "invalid BDF address: {bdf:?}"
         )))
     }
@@ -317,10 +314,10 @@ fn validate_bdf(bdf: &str) -> Result<&str, crate::error::RpcError> {
 fn dispatch(
     method: &str,
     params: &serde_json::Value,
-    devices: &mut [crate::device::DeviceSlot],
+    devices: &mut [coral_glowplug::device::DeviceSlot],
     started_at: std::time::Instant,
-) -> Result<serde_json::Value, crate::error::RpcError> {
-    use crate::error::RpcError;
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
 
     match method {
         "device.list" => {
@@ -336,7 +333,7 @@ fn dispatch(
             let slot = devices
                 .iter()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| crate::error::DeviceError::NotManaged {
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
                     bdf: bdf.to_string(),
                 })
                 .map_err(RpcError::from)?;
@@ -357,7 +354,7 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
                 .map_err(RpcError::from)?;
             slot.swap(&target)
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
@@ -376,7 +373,7 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| crate::error::DeviceError::NotManaged {
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
                     bdf: bdf.to_string(),
                 })
                 .map_err(RpcError::from)?;
@@ -392,6 +389,56 @@ fn dispatch(
             })
             .map_err(|e| RpcError::internal(e.to_string()))
         }
+        "device.register_dump" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(bdf)?;
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: bdf.to_string(),
+                })
+                .map_err(RpcError::from)?;
+            if !slot.has_vfio() {
+                return Err(RpcError::device_error(format!(
+                    "device {bdf} has no VFIO fd — register reads require VFIO personality"
+                )));
+            }
+            let custom_offsets: Vec<usize> = params
+                .get("offsets")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as usize)).collect())
+                .unwrap_or_default();
+            let regs = slot.dump_registers(&custom_offsets);
+            let entries: Vec<serde_json::Value> = regs
+                .iter()
+                .map(|(off, val)| serde_json::json!({"offset": format!("{off:#010x}"), "value": format!("{val:#010x}"), "raw_offset": off, "raw_value": val}))
+                .collect();
+            Ok(serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}))
+        }
+        "device.register_snapshot" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(bdf)?;
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: bdf.to_string(),
+                })
+                .map_err(RpcError::from)?;
+            let snap = slot.last_snapshot();
+            let entries: Vec<serde_json::Value> = snap
+                .iter()
+                .map(|(off, val)| serde_json::json!({"offset": format!("{off:#010x}"), "value": format!("{val:#010x}"), "raw_offset": off, "raw_value": val}))
+                .collect();
+            Ok(serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}))
+        }
         "device.lend" => {
             let raw_bdf = params
                 .get("bdf")
@@ -401,7 +448,7 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
                 .map_err(RpcError::from)?;
             let group_id = slot
                 .lend()
@@ -421,7 +468,7 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
                 .map_err(RpcError::from)?;
             slot.reclaim()
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
@@ -441,7 +488,7 @@ fn dispatch(
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf == bdf)
-                .ok_or_else(|| crate::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
                 .map_err(RpcError::from)?;
             let alive = slot
                 .resurrect_hbm2()
@@ -471,7 +518,7 @@ fn dispatch(
     }
 }
 
-fn device_to_info(d: &crate::device::DeviceSlot) -> DeviceInfo {
+fn device_to_info(d: &coral_glowplug::device::DeviceSlot) -> DeviceInfo {
     DeviceInfo {
         bdf: d.bdf.clone(),
         name: d.config.name.clone(),
@@ -491,7 +538,7 @@ fn device_to_info(d: &crate::device::DeviceSlot) -> DeviceInfo {
 
 async fn handle_client(
     stream: ClientStream,
-    devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
+    devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
     started_at: std::time::Instant,
 ) -> Result<(), String> {
     match stream {
@@ -509,7 +556,7 @@ async fn handle_client(
 /// - Rapid request flooding (bounded by line-buffered I/O)
 async fn handle_client_stream<S>(
     stream: S,
-    devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
+    devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
     started_at: std::time::Instant,
 ) -> Result<(), String>
 where
@@ -557,8 +604,8 @@ where
                 if req.jsonrpc != "2.0" {
                     make_response(
                         req.id,
-                        Err(crate::error::RpcError {
-                            code: crate::error::RpcErrorCode::INVALID_REQUEST,
+                        Err(coral_glowplug::error::RpcError {
+                            code: coral_glowplug::error::RpcErrorCode::INVALID_REQUEST,
                             message: format!("invalid jsonrpc version: {}", req.jsonrpc),
                         }),
                     )
@@ -587,8 +634,8 @@ where
             }
             Err(e) => make_response(
                 serde_json::Value::Null,
-                Err(crate::error::RpcError {
-                    code: crate::error::RpcErrorCode::PARSE_ERROR,
+                Err(coral_glowplug::error::RpcError {
+                    code: coral_glowplug::error::RpcErrorCode::PARSE_ERROR,
                     message: format!("parse error: {e}"),
                 }),
             ),

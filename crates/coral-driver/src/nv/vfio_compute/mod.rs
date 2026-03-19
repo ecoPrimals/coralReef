@@ -91,9 +91,11 @@ struct VfioBuffer {
 }
 
 /// NVIDIA compute device via VFIO — direct BAR0 + DMA dispatch.
+///
+/// Field order matters: DMA buffers and channel must drop (and unmap)
+/// BEFORE `device` drops (which closes the container fd). Rust drops
+/// fields in declaration order, so `device` is last.
 pub struct NvVfioComputeDevice {
-    #[expect(dead_code, reason = "kept alive for fd lifecycle; used by DmaBuffer")]
-    device: VfioDevice,
     bar0: MappedBar,
     sm_version: u32,
     compute_class: u32,
@@ -106,6 +108,8 @@ pub struct NvVfioComputeDevice {
     container_fd: std::os::fd::RawFd,
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
+    #[expect(dead_code, reason = "kept alive for fd lifecycle; used by DmaBuffer drop")]
+    device: VfioDevice,
 }
 
 /// GR engine diagnostic status from BAR0 registers.
@@ -163,9 +167,9 @@ impl std::fmt::Display for GrEngineStatus {
 }
 
 /// Raw VFIO device handle for diagnostic/experimental access to BAR0.
+///
+/// Drop order: DMA buffers drop before `device` (which closes the container fd).
 pub struct RawVfioDevice {
-    #[expect(dead_code, reason = "kept alive for fd lifecycle")]
-    device: VfioDevice,
     /// MMIO-mapped BAR0 region for register access.
     pub bar0: MappedBar,
     /// VFIO container file descriptor for DMA mapping.
@@ -174,6 +178,8 @@ pub struct RawVfioDevice {
     pub gpfifo_ring: DmaBuffer,
     /// DMA buffer for the USERD (user data) doorbell page.
     pub userd: DmaBuffer,
+    #[expect(dead_code, reason = "kept alive for fd lifecycle")]
+    device: VfioDevice,
 }
 
 impl RawVfioDevice {
@@ -268,6 +274,65 @@ impl NvVfioComputeDevice {
 
         dev.apply_fecs_channel_init();
 
+        Ok(dev)
+    }
+
+    /// Opens from pre-existing VFIO fds (received from coral-ember via SCM_RIGHTS).
+    pub fn open_from_fds(
+        bdf: &str,
+        container: std::os::fd::OwnedFd,
+        group: std::os::fd::OwnedFd,
+        device_fd: std::os::fd::OwnedFd,
+        sm_version: u32,
+        compute_class: u32,
+    ) -> DriverResult<Self> {
+        let device = VfioDevice::from_received_fds(bdf, container, group, device_fd)?;
+        let container_fd = device.container_fd();
+        let bar0 = device.map_bar(0)?;
+
+        let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
+        tracing::info!(
+            bdf,
+            chip_id = format_args!("{chip_id:#010x}"),
+            sm_version,
+            "VFIO GPU opened from ember fds"
+        );
+
+        NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
+
+        let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "GPFIFO entries constant always fits u32"
+        )]
+        let channel = VfioChannel::create(
+            container_fd,
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+            0,
+        )?;
+
+        let mut dev = Self {
+            device,
+            bar0,
+            sm_version,
+            compute_class,
+            gpfifo_ring,
+            gpfifo_put: 0,
+            userd,
+            channel,
+            next_handle: 1,
+            next_iova: USER_IOVA_BASE,
+            container_fd,
+            buffers: HashMap::new(),
+            inflight: Vec::new(),
+        };
+
+        dev.apply_fecs_channel_init();
         Ok(dev)
     }
 

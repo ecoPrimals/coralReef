@@ -1,8 +1,8 @@
 [Unit]
 Description=coral-glowplug — Sovereign PCIe Device Lifecycle Broker
 Documentation=https://github.com/ecoPrimals/coralReef
-After=local-fs.target systemd-modules-load.service
-Wants=systemd-modules-load.service
+After=local-fs.target systemd-modules-load.service coral-ember.service
+Wants=systemd-modules-load.service coral-ember.service
 Before=display-manager.service
 
 [Service]
@@ -17,10 +17,37 @@ TimeoutStopSec=8
 KillMode=mixed
 KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
-WatchdogSec=60
+WatchdogSec=120
 Environment=RUST_LOG=info
-RuntimeDirectory=coralreef
-RuntimeDirectoryMode=0755
+SupplementaryGroups=coralreef
+UMask=0117
+# RuntimeDirectory owned by coral-ember.service (ember starts first, never stops).
+# Glowplug must NOT declare RuntimeDirectory — systemd would wipe /run/coralreef/
+# on glowplug restart, destroying ember.sock and breaking SCM_RIGHTS fd passing.
+
+# Privilege hardening: drop all capabilities except the minimum required set.
+# CAP_SYS_ADMIN  — VFIO ioctl on received fds, /proc scanning for DRM consumers
+# CAP_SYS_RAWIO  — VFIO BAR0 mmap on device fds received from ember
+# CAP_DAC_OVERRIDE — read sysfs paths (vendor, device, power_state, link_width)
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
+NoNewPrivileges=true
+
+# Filesystem isolation
+ProtectSystem=strict
+ReadWritePaths=/sys/bus/pci /run/coralreef /proc
+ReadOnlyPaths=/etc/coralreef /sys/kernel/iommu_groups
+PrivateTmp=true
+ProtectHome=true
+
+# Seccomp syscall filter: allow only syscalls needed by glowplug.
+# @system-service covers basics. ioctl for VFIO BAR mapping.
+# recvmsg for SCM_RIGHTS fd reception from ember.
+SystemCallFilter=@system-service ioctl recvmsg
+SystemCallErrorNumber=EPERM
+
+# Memory hardening
+MemoryDenyWriteExecute=true
 
 [Install]
 WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! coral-glowplug — Sovereign `PCIe` device lifecycle broker.
 //!
 //! Starts at boot, binds GPUs, holds VFIO fds open forever,
@@ -10,20 +10,10 @@
 //!   coral-glowplug --bdf 0000:4a:00.0              # single device, defaults
 //!   coral-glowplug --bdf 0000:4a:00.0 --bdf 0000:03:00.0:nouveau
 
-mod config;
-mod device;
-mod error;
-mod health;
-mod pci_ids;
-mod personality;
 mod socket;
-#[expect(
-    clippy::redundant_pub_crate,
-    reason = "pub(crate) required for module visibility"
-)]
-mod sysfs;
 
 use clap::Parser;
+use coral_glowplug::{config, device, ember, health, pci_ids, sysfs};
 use config::Config;
 use device::DeviceSlot;
 use std::sync::Arc;
@@ -75,7 +65,10 @@ fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
 /// the nvidia module probed any of our managed devices (which corrupts
 /// GV100 hardware state).
 fn validate_boot_safety(config: &Config) {
-    let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to read /proc/cmdline — boot safety checks may be incomplete");
+        String::new()
+    });
 
     if !cmdline.contains("vfio-pci.ids") {
         tracing::warn!(
@@ -208,20 +201,83 @@ async fn main() {
         .map(|dc| DeviceSlot::new(dc.clone()))
         .collect();
 
+    // Try to connect to coral-ember for safe fd keepalive
+    let ember_client = ember::EmberClient::connect();
+    if let Some(ref client) = ember_client {
+        match client.list_devices() {
+            Ok(ember_devices) => {
+                tracing::info!(
+                    devices = ?ember_devices,
+                    "ember is holding VFIO fds — daemon restarts are safe"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "ember reachable but list failed");
+            }
+        }
+    } else {
+        tracing::info!(
+            "ember not available — VFIO fds will be opened directly \
+             (daemon restart may trigger PM reset on GV100)"
+        );
+    }
+
     for slot in &mut slots {
-        match slot.activate() {
-            Ok(()) => tracing::info!(
-                bdf = %slot.bdf,
-                chip = %slot.chip_name,
-                personality = %slot.personality,
-                vram = slot.health.vram_alive,
-                "device ready"
-            ),
-            Err(e) => tracing::error!(
-                bdf = %slot.bdf,
-                error = %e,
-                "device activation failed"
-            ),
+        // Try ember first for safe fd management
+        let ember_ok = if let Some(ref client) = ember_client {
+            if slot.config.boot_personality == "vfio" {
+                match client.request_fds(&slot.bdf) {
+                    Ok(fds) => {
+                        match slot.activate_from_ember(fds.container, fds.group, fds.device) {
+                            Ok(()) => {
+                                tracing::info!(
+                                    bdf = %slot.bdf,
+                                    chip = %slot.chip_name,
+                                    "device ready (ember fds)"
+                                );
+                                true
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    bdf = %slot.bdf,
+                                    error = %e,
+                                    "ember fd activation failed — falling back to direct open"
+                                );
+                                false
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            bdf = %slot.bdf,
+                            error = %e,
+                            "ember fd request failed — falling back to direct open"
+                        );
+                        false
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !ember_ok {
+            match slot.activate() {
+                Ok(()) => tracing::info!(
+                    bdf = %slot.bdf,
+                    chip = %slot.chip_name,
+                    personality = %slot.personality,
+                    vram = slot.health.vram_alive,
+                    "device ready"
+                ),
+                Err(e) => tracing::error!(
+                    bdf = %slot.bdf,
+                    error = %e,
+                    "device activation failed"
+                ),
+            }
         }
     }
 
@@ -281,12 +337,9 @@ async fn main() {
     }
 
     #[cfg(target_os = "linux")]
-    {
-        if std::env::var("NOTIFY_SOCKET").is_ok() {
-            let _ = std::process::Command::new("systemd-notify")
-                .arg("--ready")
-                .status();
-        }
+    if let Ok(ref path) = std::env::var("NOTIFY_SOCKET") {
+        let _ = std::os::unix::net::UnixDatagram::unbound()
+            .and_then(|sock| sock.send_to(b"READY=1", path));
     }
 
     let accept_devices = devices.clone();
@@ -325,21 +378,21 @@ async fn main() {
         Ok(mut devs) => {
             tracing::info!("disabling PCI resets and releasing devices");
             for slot in devs.iter_mut() {
-                sysfs::sysfs_write(
+                let _ = sysfs::sysfs_write(
                     &format!("/sys/bus/pci/devices/{}/reset_method", slot.bdf),
                     "",
                 );
                 let audio_bdf = format!("{}.1", &slot.bdf[..slot.bdf.len() - 1]);
-                sysfs::sysfs_write(
+                let _ = sysfs::sysfs_write(
                     &format!("/sys/bus/pci/devices/{audio_bdf}/reset_method"),
                     "",
                 );
 
-                sysfs::sysfs_write(
+                let _ = sysfs::sysfs_write(
                     &format!("/sys/bus/pci/devices/{}/power/control", slot.bdf),
                     "on",
                 );
-                sysfs::sysfs_write(
+                let _ = sysfs::sysfs_write(
                     &format!("/sys/bus/pci/devices/{}/d3cold_allowed", slot.bdf),
                     "0",
                 );

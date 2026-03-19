@@ -11,8 +11,18 @@ use tokio::sync::Mutex;
 /// stop probing BAR0 registers entirely to avoid kernel instability.
 const CIRCUIT_BREAKER_THRESHOLD: u32 = 6;
 
-/// Maximum auto-resurrection attempts before giving up permanently.
-const MAX_RESURRECT_ATTEMPTS: u32 = 2;
+/// Ping the systemd watchdog via `NOTIFY_SOCKET` (datagram).
+///
+/// Called every health tick so systemd knows the daemon is alive.
+/// No-op if `NOTIFY_SOCKET` is not set (non-systemd environments).
+fn notify_watchdog() {
+    static SOCKET_PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let path = SOCKET_PATH.get_or_init(|| std::env::var("NOTIFY_SOCKET").ok());
+    if let Some(p) = path {
+        let _ = std::os::unix::net::UnixDatagram::unbound()
+            .and_then(|sock| sock.send_to(b"WATCHDOG=1", p));
+    }
+}
 
 pub async fn health_loop(
     devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
@@ -23,8 +33,6 @@ pub async fn health_loop(
     let mut consecutive_dead: std::collections::HashMap<String, u32> =
         std::collections::HashMap::new();
     let mut tripped: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
-    let mut resurrect_attempts: std::collections::HashMap<String, u32> =
-        std::collections::HashMap::new();
 
     loop {
         tokio::select! {
@@ -34,6 +42,8 @@ pub async fn health_loop(
                 return;
             }
         }
+
+        notify_watchdog();
 
         let mut devs = devices.lock().await;
         for slot in devs.iter_mut() {
@@ -96,82 +106,41 @@ pub async fn health_loop(
                     && slot.config.power_policy == "always_on"
                 {
                     tracing::info!(bdf = %slot.bdf, "auto-recovering D0 (policy=always_on)");
-                    crate::sysfs::sysfs_write(
+                    let _ = crate::sysfs::sysfs_write(
                         &format!("/sys/bus/pci/devices/{}/power/control", slot.bdf),
                         "on",
                     );
                 }
             }
 
-            let attempts = resurrect_attempts.get(&bdf).copied().unwrap_or(0);
-
-            // Auto-resurrect: only if VRAM dead for 3+ checks, we have VFIO,
-            // nvidia modules are NOT loaded (they corrupt GV100 state), and
-            // we haven't exceeded our attempt limit.
+            // Auto-resurrection DISABLED: sysfs driver/unbind from glowplug is
+            // unsafe while ember holds VFIO fds. Use `swap_device` RPC via ember
+            // for manual resurrection instead.
             if *dead_count >= 3
                 && slot.has_vfio()
                 && slot.config.power_policy == "always_on"
-                && attempts < MAX_RESURRECT_ATTEMPTS
-                && !nvidia_modules_loaded()
+                && crate::sysfs::read_current_driver(&slot.bdf).as_deref() != Some("nvidia")
             {
                 tracing::warn!(
                     bdf = %slot.bdf,
                     consecutive_dead = *dead_count,
-                    attempt = attempts + 1,
-                    max_attempts = MAX_RESURRECT_ATTEMPTS,
-                    "VRAM dead for 3+ checks — attempting auto-resurrection via nouveau"
-                );
-                *resurrect_attempts.entry(bdf.clone()).or_insert(0) += 1;
-                match slot.resurrect_hbm2() {
-                    Ok(true) => {
-                        *dead_count = 0;
-                        tracing::info!(
-                            bdf = %slot.bdf,
-                            domains = slot.health.domains_alive,
-                            "AUTO-RESURRECTION SUCCEEDED — VRAM alive"
-                        );
-                    }
-                    Ok(false) => {
-                        tracing::error!(
-                            bdf = %slot.bdf,
-                            "auto-resurrection completed but VRAM still dead"
-                        );
-                        *dead_count = 0;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            bdf = %slot.bdf,
-                            error = %e,
-                            "auto-resurrection failed"
-                        );
-                        *dead_count = 0;
-                    }
-                }
-            } else if *dead_count >= 3 && slot.has_vfio() && attempts >= MAX_RESURRECT_ATTEMPTS {
-                tracing::error!(
-                    bdf = %slot.bdf,
-                    attempts,
-                    "auto-resurrection exhausted — GPU requires manual intervention or cold reboot"
+                    "VRAM dead for 3+ checks — auto-resurrection DISABLED. \
+                     Use ember swap_device RPC to manually resurrect: \
+                     swap to nouveau then back to vfio."
                 );
                 *dead_count = 0;
-            } else if *dead_count >= 3 && nvidia_modules_loaded() {
+            } else if *dead_count >= 3
+                && crate::sysfs::read_current_driver(&slot.bdf).as_deref() == Some("nvidia")
+            {
                 tracing::warn!(
                     bdf = %slot.bdf,
                     consecutive_dead = *dead_count,
-                    "REFUSING auto-resurrection — nvidia kernel modules are loaded. \
-                     These corrupt GV100 init state and cause kernel panics during \
-                     driver swaps. Unload nvidia modules first: rmmod nvidia_drm nvidia_modeset nvidia"
+                    "REFUSING auto-resurrection — nvidia is bound to this device. \
+                     Unbind nvidia from this BDF before resurrection."
                 );
-                // Do NOT reset dead_count — let it climb to trip the circuit breaker
             }
         }
     }
-}
-
-/// Check if nvidia kernel modules are loaded — they corrupt GV100 device
-/// state during probe (even when probe fails) and make driver swaps unsafe.
-fn nvidia_modules_loaded() -> bool {
-    std::path::Path::new("/sys/module/nvidia").exists()
 }
 
 #[cfg(test)]

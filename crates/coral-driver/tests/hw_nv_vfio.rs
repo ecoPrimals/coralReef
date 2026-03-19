@@ -24,8 +24,12 @@
 mod glowplug_client;
 
 #[cfg(feature = "vfio")]
+#[path = "ember_client.rs"]
+mod ember_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
-    use super::glowplug_client::VfioLease;
+    use super::ember_client;
     use coral_driver::nv::NvVfioComputeDevice;
     use coral_driver::{ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
@@ -49,40 +53,44 @@ mod tests {
         }
     }
 
-    /// Try to borrow the VFIO device from glowPlug. Returns `None` if
-    /// glowPlug is not running (tests will open the device directly).
-    fn try_lease(bdf: &str) -> Option<VfioLease> {
-        match VfioLease::acquire(bdf) {
-            Ok(lease) => Some(lease),
-            Err(e) => {
-                eprintln!("glowplug not available ({e}), opening VFIO directly");
-                None
-            }
-        }
-    }
-
-    /// Returns (lease, device) — drop order matters: device drops first
-    /// (releases VFIO group fd), then lease drops (reclaims fd for glowPlug).
-    fn open_vfio() -> (Option<VfioLease>, NvVfioComputeDevice) {
+    /// Open VFIO device — primary path: get fds from ember via SCM_RIGHTS.
+    /// Fallback: open /dev/vfio/* directly (only works without ember).
+    fn open_vfio() -> NvVfioComputeDevice {
         let bdf = vfio_bdf();
         let sm = vfio_sm();
         let cc = sm_to_compute_class(sm);
-        let lease = try_lease(&bdf);
-        let dev = NvVfioComputeDevice::open(&bdf, sm, cc)
-            .expect("NvVfioComputeDevice::open() — is GPU bound to vfio-pci?");
-        (lease, dev)
+
+        match ember_client::request_fds(&bdf) {
+            Ok(fds) => {
+                eprintln!("ember: received VFIO fds for {bdf}");
+                NvVfioComputeDevice::open_from_fds(
+                    &bdf,
+                    fds.container,
+                    fds.group,
+                    fds.device,
+                    sm,
+                    cc,
+                )
+                .expect("NvVfioComputeDevice::open_from_fds()")
+            }
+            Err(e) => {
+                eprintln!("ember unavailable ({e}), opening VFIO directly");
+                NvVfioComputeDevice::open(&bdf, sm, cc)
+                    .expect("NvVfioComputeDevice::open() — is GPU bound to vfio-pci?")
+            }
+        }
     }
 
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_open_and_bar0_read() {
-        let (_lease, _dev) = open_vfio();
+        let _dev = open_vfio();
     }
 
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_alloc_and_free() {
-        let (_lease, mut dev) = open_vfio();
+        let mut dev = open_vfio();
         let handle = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
         dev.free(handle).expect("free");
     }
@@ -90,7 +98,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_upload_and_readback() {
-        let (_lease, mut dev) = open_vfio();
+        let mut dev = open_vfio();
         let handle = dev.alloc(256, MemoryDomain::Gtt).expect("alloc");
         let data: Vec<u8> = (0..256).map(|i| (i & 0xFF) as u8).collect();
         dev.upload(handle, 0, &data).expect("upload");
@@ -102,7 +110,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_multiple_buffers() {
-        let (_lease, mut dev) = open_vfio();
+        let mut dev = open_vfio();
         let handles: Vec<_> = (0..4)
             .map(|_| dev.alloc(4096, MemoryDomain::Gtt).expect("alloc"))
             .collect();
@@ -114,7 +122,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware + compute shader binary"]
     fn vfio_dispatch_nop_shader() {
-        let (_lease, mut dev) = open_vfio();
+        let mut dev = open_vfio();
         let sm = vfio_sm();
 
         let gr = dev.gr_engine_status();
@@ -165,7 +173,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_free_invalid_handle() {
-        let (_lease, mut dev) = open_vfio();
+        let mut dev = open_vfio();
         let result = dev.free(coral_driver::BufferHandle::from_id(9999));
         assert!(result.is_err());
     }
@@ -174,7 +182,7 @@ mod tests {
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_readback_invalid_handle() {
-        let (_lease, dev) = open_vfio();
+        let dev = open_vfio();
         let result = dev.readback(coral_driver::BufferHandle::from_id(9999), 0, 16);
         assert!(result.is_err());
     }

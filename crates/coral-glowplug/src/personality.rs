@@ -129,10 +129,45 @@ impl GpuPersonality for AmdgpuPersonality {
         self.drm_card_path.as_deref()
     }
     fn supports_hbm2_training(&self) -> bool {
-        false
+        true
     }
     fn driver_module(&self) -> &'static str {
         "amdgpu"
+    }
+}
+
+/// NVIDIA proprietary personality — closed-source kernel driver.
+#[derive(Debug, Clone)]
+pub struct NvidiaPersonality {
+    /// DRM card device path (e.g. `/dev/dri/card1`).
+    pub drm_card_path: Option<String>,
+}
+
+impl fmt::Display for NvidiaPersonality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "nvidia")?;
+        if let Some(card) = &self.drm_card_path {
+            write!(f, " ({card})")?;
+        }
+        Ok(())
+    }
+}
+
+impl GpuPersonality for NvidiaPersonality {
+    fn name(&self) -> &'static str {
+        "nvidia"
+    }
+    fn provides_vfio(&self) -> bool {
+        false
+    }
+    fn drm_card(&self) -> Option<&str> {
+        self.drm_card_path.as_deref()
+    }
+    fn supports_hbm2_training(&self) -> bool {
+        false
+    }
+    fn driver_module(&self) -> &'static str {
+        "nvidia"
     }
 }
 
@@ -177,7 +212,7 @@ impl PersonalityRegistry {
     #[must_use]
     pub fn default_linux() -> Self {
         Self {
-            known: vec!["vfio", "nouveau", "amdgpu", "unbound"],
+            known: vec!["vfio", "nouveau", "nvidia", "amdgpu", "unbound"],
         }
     }
 
@@ -207,6 +242,9 @@ impl PersonalityRegistry {
             "nouveau" => Some(Box::new(NouveauPersonality {
                 drm_card_path: None,
             })),
+            "nvidia" => Some(Box::new(NvidiaPersonality {
+                drm_card_path: None,
+            })),
             "amdgpu" => Some(Box::new(AmdgpuPersonality {
                 drm_card_path: None,
             })),
@@ -224,6 +262,7 @@ impl PersonalityRegistry {
 pub enum Personality {
     Vfio { group_id: u32 },
     Nouveau { drm_card: Option<String> },
+    Nvidia { drm_card: Option<String> },
     Amdgpu { drm_card: Option<String> },
     Unbound,
 }
@@ -235,6 +274,7 @@ impl Personality {
         match self {
             Self::Vfio { .. } => "vfio",
             Self::Nouveau { .. } => "nouveau",
+            Self::Nvidia { .. } => "nvidia",
             Self::Amdgpu { .. } => "amdgpu",
             Self::Unbound => "unbound",
         }
@@ -249,7 +289,7 @@ impl Personality {
     /// Whether this personality supports HBM2 training.
     #[must_use]
     pub const fn supports_hbm2_training(&self) -> bool {
-        matches!(self, Self::Nouveau { .. })
+        matches!(self, Self::Nouveau { .. } | Self::Nvidia { .. } | Self::Amdgpu { .. })
     }
 }
 
@@ -259,6 +299,13 @@ impl fmt::Display for Personality {
             Self::Vfio { group_id } => write!(f, "vfio (group {group_id})"),
             Self::Nouveau { drm_card } => {
                 write!(f, "nouveau")?;
+                if let Some(card) = drm_card {
+                    write!(f, " ({card})")?;
+                }
+                Ok(())
+            }
+            Self::Nvidia { drm_card } => {
+                write!(f, "nvidia")?;
                 if let Some(card) = drm_card {
                     write!(f, " ({card})")?;
                 }
@@ -298,7 +345,7 @@ mod tests {
     fn test_hbm2_training() {
         assert!(Personality::Nouveau { drm_card: None }.supports_hbm2_training());
         assert!(!Personality::Vfio { group_id: 0 }.supports_hbm2_training());
-        assert!(!Personality::Amdgpu { drm_card: None }.supports_hbm2_training());
+        assert!(Personality::Amdgpu { drm_card: None }.supports_hbm2_training());
     }
 
     #[test]
@@ -370,7 +417,7 @@ mod tests {
         assert_eq!(amdgpu.name(), "amdgpu");
         assert!(!amdgpu.provides_vfio());
         assert_eq!(amdgpu.drm_card(), Some("/dev/dri/card1"));
-        assert!(!amdgpu.supports_hbm2_training());
+        assert!(amdgpu.supports_hbm2_training());
         assert_eq!(amdgpu.driver_module(), "amdgpu");
     }
 
@@ -391,8 +438,9 @@ mod tests {
         assert!(list.contains(&"vfio"));
         assert!(list.contains(&"nouveau"));
         assert!(list.contains(&"amdgpu"));
+        assert!(list.contains(&"nvidia"));
         assert!(list.contains(&"unbound"));
-        assert_eq!(list.len(), 4);
+        assert_eq!(list.len(), 5);
     }
 
     #[test]

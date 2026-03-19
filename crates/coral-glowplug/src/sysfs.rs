@@ -12,18 +12,20 @@ use crate::pci_ids;
 /// Requires `CAP_SYS_ADMIN` or udev rules for the target path.
 /// Does NOT fall back to `sudo` — the binary should be deployed with
 /// the correct capabilities via systemd `AmbientCapabilities=CAP_SYS_ADMIN`.
-pub(crate) fn sysfs_write(path: &str, value: &str) {
-    if let Err(e) = std::fs::write(path, value) {
+///
+/// Returns the I/O result so callers can decide whether to log or propagate.
+pub fn sysfs_write(path: &str, value: &str) -> Result<(), std::io::Error> {
+    std::fs::write(path, value).inspect_err(|e| {
         tracing::warn!(
             path,
             error = %e,
             "sysfs write failed — ensure CAP_SYS_ADMIN or udev rules grant access"
         );
-    }
+    })
 }
 
 /// Read PCI vendor and device IDs from sysfs.
-pub(crate) fn read_pci_ids(bdf: &str) -> (u16, u16) {
+pub fn read_pci_ids(bdf: &str) -> (u16, u16) {
     let vendor = std::fs::read_to_string(format!("/sys/bus/pci/devices/{bdf}/vendor"))
         .ok()
         .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
@@ -36,7 +38,7 @@ pub(crate) fn read_pci_ids(bdf: &str) -> (u16, u16) {
 }
 
 /// Read the IOMMU group number for a PCI device.
-pub(crate) fn read_iommu_group(bdf: &str) -> u32 {
+pub fn read_iommu_group(bdf: &str) -> u32 {
     std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/iommu_group"))
         .ok()
         .and_then(|p| p.file_name()?.to_str()?.parse().ok())
@@ -45,20 +47,20 @@ pub(crate) fn read_iommu_group(bdf: &str) -> u32 {
 
 /// Identify a GPU chip from PCI vendor/device IDs.
 #[must_use]
-pub(crate) fn identify_chip(vendor: u16, device: u16) -> String {
+pub fn identify_chip(vendor: u16, device: u16) -> String {
     match (vendor, device) {
         (pci_ids::NVIDIA_VENDOR_ID, pci_ids::TITAN_V_DEVICE_ID) => "GV100 (Titan V)".into(),
-        (0x10de, 0x1db1) => "GV100GL (V100)".into(),
-        (0x10de, 0x2204) => "GA102 (RTX 3090)".into(),
-        (0x10de, 0x2d05) => "GB206 (RTX 5060)".into(),
-        (0x1002, 0x66a0) => "Vega 20 (MI50)".into(),
-        (0x1002, 0x66a1) => "Vega 20 (MI60)".into(),
+        (pci_ids::NVIDIA_VENDOR_ID, 0x1db1) => "GV100GL (V100)".into(),
+        (pci_ids::NVIDIA_VENDOR_ID, 0x2204) => "GA102 (RTX 3090)".into(),
+        (pci_ids::NVIDIA_VENDOR_ID, 0x2d05) => "GB206 (RTX 5060)".into(),
+        (pci_ids::AMD_VENDOR_ID, pci_ids::MI50_DEVICE_ID) => "Vega 20 (MI50)".into(),
+        (pci_ids::AMD_VENDOR_ID, pci_ids::MI60_DEVICE_ID) => "Vega 20 (MI60)".into(),
         (v, d) => format!("{v:#06x}:{d:#06x}"),
     }
 }
 
 /// Read the current kernel driver bound to a PCI device.
-pub(crate) fn read_current_driver(bdf: &str) -> Option<String> {
+pub fn read_current_driver(bdf: &str) -> Option<String> {
     std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/driver"))
         .ok()
         .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
@@ -67,7 +69,7 @@ pub(crate) fn read_current_driver(bdf: &str) -> Option<String> {
 /// Ensure all devices in the same IOMMU group are bound to `vfio-pci`.
 ///
 /// VFIO requires group viability: every device in the group must use `vfio-pci`.
-pub(crate) fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
+pub fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
     let group_path = format!("/sys/kernel/iommu_groups/{group_id}/devices");
     let Ok(entries) = std::fs::read_dir(&group_path) else {
         return;
@@ -92,18 +94,18 @@ pub(crate) fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
         );
 
         if driver.is_some() {
-            sysfs_write(
+            let _ = sysfs_write(
                 &format!("/sys/bus/pci/devices/{peer_bdf}/driver/unbind"),
                 &peer_bdf,
             );
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
 
-        sysfs_write(
+        let _ = sysfs_write(
             &format!("/sys/bus/pci/devices/{peer_bdf}/driver_override"),
             "vfio-pci",
         );
-        sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
+        let _ = sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 }
@@ -112,7 +114,7 @@ pub(crate) fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
 ///
 /// Scans `/proc/*/fd` for symlinks pointing to the device's DRM render node.
 /// Returns `true` if any non-self process holds a DRM fd open.
-pub(crate) fn has_active_drm_consumers(bdf: &str) -> bool {
+pub fn has_active_drm_consumers(bdf: &str) -> bool {
     let drm_dir = format!("/sys/bus/pci/devices/{bdf}/drm");
     let Ok(entries) = std::fs::read_dir(&drm_dir) else {
         return false;
@@ -173,7 +175,7 @@ pub(crate) fn has_active_drm_consumers(bdf: &str) -> bool {
 }
 
 /// Find the DRM card device path for a PCI device.
-pub(crate) fn find_drm_card(bdf: &str) -> Option<String> {
+pub fn find_drm_card(bdf: &str) -> Option<String> {
     let drm_dir = format!("/sys/bus/pci/devices/{bdf}/drm");
     let entries = std::fs::read_dir(&drm_dir).ok()?;
     for entry in entries.flatten() {
@@ -186,7 +188,7 @@ pub(crate) fn find_drm_card(bdf: &str) -> Option<String> {
 }
 
 /// Read a PCI power state from sysfs.
-pub(crate) fn read_power_state(bdf: &str) -> super::device::PowerState {
+pub fn read_power_state(bdf: &str) -> super::device::PowerState {
     use super::device::PowerState;
     let path = format!("/sys/bus/pci/devices/{bdf}/power_state");
     std::fs::read_to_string(&path).map_or(PowerState::Unknown, |s| match s.trim() {
@@ -198,7 +200,7 @@ pub(crate) fn read_power_state(bdf: &str) -> super::device::PowerState {
 }
 
 /// Read PCI link width from sysfs.
-pub(crate) fn read_link_width(bdf: &str) -> Option<u8> {
+pub fn read_link_width(bdf: &str) -> Option<u8> {
     let path = format!("/sys/bus/pci/devices/{bdf}/current_link_width");
     std::fs::read_to_string(&path)
         .ok()
