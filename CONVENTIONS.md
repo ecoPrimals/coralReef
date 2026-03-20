@@ -8,7 +8,7 @@ This primal follows the ecoPrimals coding conventions (modeled on wateringHole s
 
 - **Edition**: 2024
 - **MSRV**: 1.85
-- **Linting**: `#![warn(clippy::all, clippy::pedantic)]`
+- **Linting**: `#![warn(clippy::all, clippy::pedantic, clippy::nursery)]` with `-D warnings` in CI
 - **Docs**: `#![warn(missing_docs)]`
 - **Max file size**: 1000 LOC
 - **Test coverage**: 90%+ target (structural floor from encoder match arms)
@@ -82,6 +82,8 @@ The `Backend` trait in `backend.rs` and `GpuTarget` enum in
 - **Inputs**: Prefer `impl AsRef<[u8]>` for byte inputs so callers can pass `Bytes`, `Vec<u8>`, or `&[u8]`.
 - **String literals**: Prefer `&'static str` or `Cow<str>` over `String::from` / `.to_owned()` where struct types allow.
 - **Avoid**: `.to_vec()` on byte slices when a reference is sufficient; `.to_owned()` on static strings when borrowing is possible.
+- **Shared identity**: Use `Arc<str>` for frequently-cloned identity strings (e.g. `DeviceSlot.bdf`) — cheap refcount vs heap allocation on every clone.
+- **Estimation functions**: Take `&Src` / `&[&Src]` (references) not owned values when the function only reads — avoids clone waste on hot paths.
 
 ## Configuration Conventions
 

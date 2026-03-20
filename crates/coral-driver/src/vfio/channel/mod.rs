@@ -34,7 +34,8 @@ pub use diagnostic::{
 pub use registers::ramuserd;
 
 use std::borrow::Cow;
-use std::os::fd::RawFd;
+use std::os::fd::OwnedFd;
+use std::sync::Arc;
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::device::MappedBar;
@@ -74,20 +75,20 @@ impl VfioChannel {
     ///
     /// Returns error if any DMA allocation or BAR0 write fails.
     pub fn create(
-        container_fd: RawFd,
+        container: Arc<OwnedFd>,
         bar0: &MappedBar,
         gpfifo_iova: u64,
         gpfifo_entries: u32,
         userd_iova: u64,
         channel_id: u32,
     ) -> DriverResult<Self> {
-        let instance = DmaBuffer::new(container_fd, 4096, INSTANCE_IOVA)?;
-        let runlist = DmaBuffer::new(container_fd, 4096, RUNLIST_IOVA)?;
-        let pd3 = DmaBuffer::new(container_fd, 4096, PD3_IOVA)?;
-        let pd2 = DmaBuffer::new(container_fd, 4096, PD2_IOVA)?;
-        let pd1 = DmaBuffer::new(container_fd, 4096, PD1_IOVA)?;
-        let pd0 = DmaBuffer::new(container_fd, 4096, PD0_IOVA)?;
-        let pt0 = DmaBuffer::new(container_fd, 4096, PT0_IOVA)?;
+        let instance = DmaBuffer::new(Arc::clone(&container), 4096, INSTANCE_IOVA)?;
+        let runlist = DmaBuffer::new(Arc::clone(&container), 4096, RUNLIST_IOVA)?;
+        let pd3 = DmaBuffer::new(Arc::clone(&container), 4096, PD3_IOVA)?;
+        let pd2 = DmaBuffer::new(Arc::clone(&container), 4096, PD2_IOVA)?;
+        let pd1 = DmaBuffer::new(Arc::clone(&container), 4096, PD1_IOVA)?;
+        let pd0 = DmaBuffer::new(Arc::clone(&container), 4096, PD0_IOVA)?;
+        let pt0 = DmaBuffer::new(Arc::clone(&container), 4096, PT0_IOVA)?;
 
         let mut chan = Self {
             instance,

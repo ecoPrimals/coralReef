@@ -117,6 +117,70 @@ fn chip_has_full_fp64(chip: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gsp::knowledge::{AddressSpace, ArchKnowledge, GpuKnowledge, GpuVendor};
+
+    fn arch_stub(chip: &str, sm: u32, has_firmware: bool, register_count: usize) -> ArchKnowledge {
+        ArchKnowledge {
+            chip: chip.to_string(),
+            sm: Some(sm),
+            vendor: GpuVendor::Nvidia,
+            has_firmware,
+            format: None,
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: None,
+            gr_init: None,
+            register_count,
+        }
+    }
+
+    #[test]
+    fn build_hint_for_synthetic_sm_workgroup_and_fp64() {
+        let mut kb = GpuKnowledge::new();
+        kb.insert_for_test(arch_stub("gv100", 70, false, 12));
+        kb.insert_for_test(arch_stub("tu104", 75, false, 8));
+        kb.insert_for_test(arch_stub("ga102", 86, false, 20));
+        kb.insert_for_test(arch_stub("ad102", 89, false, 24));
+        kb.insert_for_test(arch_stub("gp100", 60, false, 5));
+
+        let h70 = build_hint_for(&kb, "gv100").expect("gv100");
+        assert_eq!(h70.sm, 70);
+        assert_eq!(h70.recommended_workgroup_size, 128);
+        assert_eq!(h70.max_workgroups_per_sm, 32);
+        assert!(h70.native_fp64_full_rate);
+        assert!(h70.needs_sovereign_init);
+
+        let h75 = build_hint_for(&kb, "tu104").expect("tu104");
+        assert_eq!(h75.recommended_workgroup_size, 256);
+        assert_eq!(h75.max_workgroups_per_sm, 16);
+        assert!(!h75.native_fp64_full_rate);
+
+        let h86 = build_hint_for(&kb, "ga102").expect("ga102");
+        assert_eq!(h86.recommended_workgroup_size, 256);
+        assert!(!h86.native_fp64_full_rate);
+
+        let gp = build_hint_for(&kb, "gp100").expect("gp100");
+        assert_eq!(gp.sm, 60);
+        assert!(gp.native_fp64_full_rate);
+    }
+
+    #[test]
+    fn build_dispatch_hints_multi_chip_synthetic() {
+        let mut kb = GpuKnowledge::new();
+        kb.insert_for_test(arch_stub("gv100", 70, false, 1));
+        kb.insert_for_test(arch_stub("ga102", 86, false, 2));
+        kb.insert_for_test(arch_stub("ad102", 89, false, 3));
+
+        let hints = build_dispatch_hints(&kb);
+        assert_eq!(hints.len(), 3);
+
+        let by_chip: std::collections::HashMap<_, _> =
+            hints.iter().map(|h| (h.chip.as_str(), h)).collect();
+        assert_eq!(by_chip["gv100"].recommended_workgroup_size, 128);
+        assert_eq!(by_chip["ga102"].recommended_workgroup_size, 256);
+        assert_eq!(by_chip["ad102"].max_workgroups_per_sm, 16);
+        assert!(hints.iter().all(|h| h.needs_sovereign_init));
+        assert!(hints.iter().all(|h| h.best_teacher.is_none()));
+    }
 
     #[test]
     fn dispatch_hints_for_all() {

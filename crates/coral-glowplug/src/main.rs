@@ -13,8 +13,8 @@
 mod socket;
 
 use clap::Parser;
-use coral_glowplug::{config, device, ember, health, pci_ids, sysfs};
 use config::Config;
+use coral_glowplug::{config, device, ember, health, pci_ids, sysfs};
 use device::DeviceSlot;
 use std::sync::Arc;
 use tokio::sync::{Mutex, watch};

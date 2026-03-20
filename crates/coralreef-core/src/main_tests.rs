@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 use super::*;
 use coralreef_core::capability::{Capability, SelfDescription, Transport};
+use tempfile::tempdir;
 
 #[test]
 fn parse_cli_doctor() {
@@ -487,6 +488,7 @@ fn unibin_exit_to_exit_code() {
     let _: ExitCode = UniBinExit::Success.into();
     let _: ExitCode = UniBinExit::GeneralError.into();
     let _: ExitCode = UniBinExit::ConfigError.into();
+    let _: ExitCode = UniBinExit::InternalError.into();
     let _: ExitCode = UniBinExit::Signal.into();
 }
 
@@ -667,4 +669,112 @@ fn parse_cli_version_help_both_flags() {
 
     let h_result = parse_cli_from(["coralreef", "-h"]);
     assert!(h_result.is_err());
+}
+
+// --- Additional coverage: tempfile-isolated compile paths ---
+
+#[test]
+fn discovery_dir_leaf_is_ecosystem_namespace() {
+    let dir = discovery_dir().expect("discovery_dir");
+    assert_eq!(
+        dir.file_name().and_then(|n| n.to_str()),
+        Some(crate::config::ECOSYSTEM_NAMESPACE),
+        "expected .../<namespace> with final segment biomeos"
+    );
+}
+
+#[test]
+fn cmd_compile_success_with_tempfile_wgsl() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("shader.wgsl");
+    std::fs::write(&input, "@compute @workgroup_size(1)\nfn main() {}").expect("write wgsl");
+    let output = dir.path().join("out.bin");
+
+    let result = cmd_compile(&input, Some(output.as_path()), GpuArch::Sm75, 1, true);
+
+    assert!(matches!(result, UniBinExit::Success));
+    assert!(output.exists(), "output written");
+}
+
+#[test]
+fn cmd_compile_nonexistent_input_is_config_error() {
+    let dir = tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.wgsl");
+    let result = cmd_compile(&missing, None, GpuArch::Sm70, 2, true);
+    assert!(
+        matches!(result, UniBinExit::ConfigError),
+        "missing file should map to ConfigError (not GeneralError)"
+    );
+}
+
+#[test]
+fn cmd_compile_opt_levels_above_documented_range() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("opt.wgsl");
+    std::fs::write(&input, "@compute @workgroup_size(1)\nfn main() {}").expect("write wgsl");
+
+    for opt in [4_u32, 10, u32::MAX] {
+        let out = dir.path().join(format!("out_{opt}.bin"));
+        let result = cmd_compile(&input, Some(out.as_path()), GpuArch::Sm70, opt, true);
+        assert!(
+            matches!(result, UniBinExit::Success | UniBinExit::GeneralError),
+            "opt_level {opt} should not panic; exit code {}",
+            result as i32
+        );
+    }
+}
+
+#[test]
+fn parse_cli_compile_all_options_explicit() {
+    let cli = parse_cli_from([
+        "coralreef",
+        "compile",
+        "in.wgsl",
+        "-o",
+        "custom.bin",
+        "--arch",
+        "sm89",
+        "--opt-level",
+        "3",
+        "--fp64-software",
+    ])
+    .expect("parse full compile");
+
+    match &cli.command {
+        Commands::Compile {
+            input,
+            output,
+            arch,
+            opt_level,
+            fp64_software,
+        } => {
+            assert_eq!(input.to_string_lossy(), "in.wgsl");
+            assert_eq!(output.as_ref().unwrap().to_string_lossy(), "custom.bin");
+            assert_eq!(*arch, GpuArch::Sm89);
+            assert_eq!(*opt_level, 3);
+            assert!(*fp64_software);
+        }
+        _ => panic!("expected Compile"),
+    }
+}
+
+#[test]
+fn parse_cli_rejects_non_numeric_opt_level() {
+    let result = parse_cli_from([
+        "coralreef",
+        "compile",
+        "x.wgsl",
+        "--opt-level",
+        "not-a-number",
+    ]);
+    assert!(result.is_err(), "non-numeric opt-level must fail parse");
+}
+
+#[test]
+fn parse_cli_rejects_negative_style_opt_level() {
+    let result = parse_cli_from(["coralreef", "compile", "x.wgsl", "--opt-level", "-1"]);
+    assert!(
+        result.is_err(),
+        "negative opt-level is not a valid u32 for clap"
+    );
 }

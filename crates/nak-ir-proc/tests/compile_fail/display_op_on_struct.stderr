@@ -1,0 +1,7 @@
+error: DisplayOp can only be derived for enums
+ --> tests/compile_fail/display_op_on_struct.rs:8:10
+  |
+8 | #[derive(DisplayOp)]
+  |          ^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `DisplayOp` (in Nightly builds, run with -Z macro-backtrace for more info)

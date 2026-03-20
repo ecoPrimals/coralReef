@@ -302,8 +302,9 @@ fn src_is_vgpr(src: &Src) -> bool {
         || matches!(&src.reference, SrcRef::Zero)
 }
 
-fn literal_materialization_overhead(srcs: &[Src]) -> usize {
+fn literal_materialization_overhead(srcs: &[&Src]) -> usize {
     srcs.iter()
+        .copied()
         .filter(|s| src_needs_materialization(s))
         .take(2)
         .count()
@@ -312,36 +313,24 @@ fn literal_materialization_overhead(srcs: &[Src]) -> usize {
 
 fn estimate_instr_size(op: &Op) -> usize {
     match op {
-        Op::DAdd(op) => {
-            2 + literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
-        }
+        Op::DAdd(op) => 2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]]),
         Op::DFma(op) => {
-            2 + literal_materialization_overhead(&[
-                op.srcs[0].clone(),
-                op.srcs[1].clone(),
-                op.srcs[2].clone(),
-            ])
+            2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1], &op.srcs[2]])
         }
-        Op::DMul(op) => {
-            2 + literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
-        }
-        Op::DMnMx(op) => {
-            2 + literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
-        }
-        Op::DSetP(op) => {
-            2 + literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
-        }
-        Op::F64Sqrt(op) => 2 + literal_materialization_overhead(std::slice::from_ref(&op.src)),
-        Op::F64Rcp(op) => 2 + literal_materialization_overhead(std::slice::from_ref(&op.src)),
-        Op::F64Exp2(op) => 3 + literal_materialization_overhead(std::slice::from_ref(&op.src)),
-        Op::F64Log2(op) => 3 + literal_materialization_overhead(std::slice::from_ref(&op.src)),
-        Op::F64Sin(op) => 3 + literal_materialization_overhead(std::slice::from_ref(&op.src)),
-        Op::F64Cos(op) => 3 + literal_materialization_overhead(std::slice::from_ref(&op.src)),
+        Op::DMul(op) => 2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]]),
+        Op::DMnMx(op) => 2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]]),
+        Op::DSetP(op) => 2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]]),
+        Op::F64Sqrt(op) => 2 + literal_materialization_overhead(&[&op.src]),
+        Op::F64Rcp(op) => 2 + literal_materialization_overhead(&[&op.src]),
+        Op::F64Exp2(op) => 3 + literal_materialization_overhead(&[&op.src]),
+        Op::F64Log2(op) => 3 + literal_materialization_overhead(&[&op.src]),
+        Op::F64Sin(op) => 3 + literal_materialization_overhead(&[&op.src]),
+        Op::F64Cos(op) => 3 + literal_materialization_overhead(&[&op.src]),
         Op::FAdd(op) => {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
@@ -349,22 +338,18 @@ fn estimate_instr_size(op: &Op) -> usize {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
         Op::FFma(op) => {
-            2 + literal_materialization_overhead(&[
-                op.srcs[0].clone(),
-                op.srcs[1].clone(),
-                op.srcs[2].clone(),
-            ])
+            2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1], &op.srcs[2]])
         }
         Op::FMnMx(op) => {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
@@ -386,22 +371,18 @@ fn estimate_instr_size(op: &Op) -> usize {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
         Op::IMad(op) => {
-            2 + literal_materialization_overhead(&[
-                op.srcs[0].clone(),
-                op.srcs[1].clone(),
-                op.srcs[2].clone(),
-            ])
+            2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1], &op.srcs[2]])
         }
         Op::IMnMx(op) => {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
@@ -409,22 +390,18 @@ fn estimate_instr_size(op: &Op) -> usize {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
         Op::Lop3(op) => {
-            2 + literal_materialization_overhead(&[
-                op.srcs[0].clone(),
-                op.srcs[1].clone(),
-                op.srcs[2].clone(),
-            ])
+            2 + literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1], &op.srcs[2]])
         }
         Op::FSetP(op) => {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
@@ -432,7 +409,7 @@ fn estimate_instr_size(op: &Op) -> usize {
             let overhead = if src_is_vgpr(&op.srcs[0]) || src_is_vgpr(&op.srcs[1]) {
                 0
             } else {
-                literal_materialization_overhead(&[op.srcs[0].clone(), op.srcs[1].clone()])
+                literal_materialization_overhead(&[&op.srcs[0], &op.srcs[1]])
             };
             1 + overhead
         }
@@ -452,13 +429,7 @@ fn estimate_instr_size(op: &Op) -> usize {
             };
             1 + overhead
         }
-        Op::Shf(op) => {
-            2 + literal_materialization_overhead(&[
-                op.high().clone(),
-                op.low().clone(),
-                op.shift().clone(),
-            ])
-        }
+        Op::Shf(op) => 2 + literal_materialization_overhead(&[op.high(), op.low(), op.shift()]),
         Op::Sel(op) => {
             let overhead = if src_needs_materialization(&op.srcs[0]) {
                 2
@@ -475,12 +446,8 @@ fn estimate_instr_size(op: &Op) -> usize {
             };
             1 + overhead
         }
-        Op::Bfe(op) => {
-            2 + literal_materialization_overhead(&[op.base().clone(), op.range().clone()])
-        }
-        Op::BMsk(op) => {
-            2 + literal_materialization_overhead(&[op.pos().clone(), op.width().clone()])
-        }
+        Op::Bfe(op) => 2 + literal_materialization_overhead(&[op.base(), op.range()]),
+        Op::BMsk(op) => 2 + literal_materialization_overhead(&[op.pos(), op.width()]),
         Op::FRnd(op) => {
             let overhead = if src_needs_materialization(&op.src) {
                 2

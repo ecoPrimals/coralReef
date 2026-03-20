@@ -28,6 +28,10 @@ pub use tarpc_transport::start_tarpc_server;
 #[cfg(all(test, unix))]
 pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(any(test, feature = "e2e"))]
+#[allow(
+    unused_imports,
+    reason = "re-exported for integration tests via e2e feature"
+)]
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 #[cfg(unix)]

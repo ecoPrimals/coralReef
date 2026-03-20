@@ -9,7 +9,8 @@
 //! which register writes change the memory landscape — the core of the
 //! FB/HBM2 init reverse-engineering tool.
 
-use std::os::fd::RawFd;
+use std::os::fd::OwnedFd;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::vfio::device::MappedBar;
@@ -51,7 +52,7 @@ const SENTINEL: u32 = 0xCAFE_B0BA;
 /// 3. Cross-path: write via DMA, read via PRAMIN (if both work) — validates
 ///    that sysmem and VRAM represent coherent views
 /// 4. BAR2 status: check if BAR2_BLOCK is configured for GPU internal access
-pub fn discover_memory_topology(bar0: &MappedBar, container_fd: RawFd) -> MemoryTopology {
+pub fn discover_memory_topology(bar0: &MappedBar, container: Arc<OwnedFd>) -> MemoryTopology {
     let mut paths = Vec::new();
     let mut evidence = Vec::new();
     let mut vram_accessible = false;
@@ -89,7 +90,7 @@ pub fn discover_memory_topology(bar0: &MappedBar, container_fd: RawFd) -> Memory
 
     // ── Phase 2: DMA sysmem probing ─────────────────────────────────────
     // Use a high IOVA (0xF0_0000) to avoid conflicts with interpreter L4/L5.
-    let sysmem_dma_ok = probe_dma_sysmem(container_fd, &mut paths, &mut evidence);
+    let sysmem_dma_ok = probe_dma_sysmem(Arc::clone(&container), &mut paths, &mut evidence);
 
     // ── Phase 3: BAR2 status ────────────────────────────────────────────
     let bar2_block = bar0.read_u32(misc::PBUS_BAR2_BLOCK).unwrap_or(0);
@@ -150,14 +151,14 @@ fn probe_pramin(bar0: &MappedBar, vram_addr: u32, sentinel: u32) -> PathStatus {
 
 /// Probe DMA system memory allocation and accessibility.
 fn probe_dma_sysmem(
-    container_fd: RawFd,
+    container: Arc<OwnedFd>,
     paths: &mut Vec<AccessPath>,
     evidence: &mut Vec<(String, u32)>,
 ) -> bool {
     const PROBE_IOVA: u64 = 0xF0_0000;
     let mut ok = false;
 
-    match DmaBuffer::new(container_fd, 4096, PROBE_IOVA) {
+    match DmaBuffer::new(Arc::clone(&container), 4096, PROBE_IOVA) {
         Ok(buf) => {
             let mut region = DmaRegion::new(buf, true);
 
@@ -287,7 +288,7 @@ pub fn dump_pfb_registers(bar0: &MappedBar) {
 /// Returns the topology after the attempt, plus any significant deltas.
 pub fn attempt_fb_init(
     bar0: &MappedBar,
-    container_fd: RawFd,
+    container: Arc<OwnedFd>,
 ) -> (MemoryTopology, Vec<MemoryDelta>) {
     let mut significant_deltas = Vec::new();
 
@@ -298,13 +299,13 @@ pub fn attempt_fb_init(
     // Step 2: Try NISO flush address configuration.
     // nouveau's ramgv100.c sets NV_PFB_NISO_FLUSH_SYSMEM_ADDR to a known
     // DMA-mapped page. Without this, VRAM flush operations may stall.
-    let before_niso = discover_memory_topology(bar0, container_fd);
+    let before_niso = discover_memory_topology(bar0, Arc::clone(&container));
     if !before_niso.vram_accessible {
         let _ = bar0.write_u32(pfb::NISO_FLUSH_ADDR_LO, 0);
         let _ = bar0.write_u32(pfb::NISO_FLUSH_ADDR_HI, 0);
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        let after_niso = discover_memory_topology(bar0, container_fd);
+        let after_niso = discover_memory_topology(bar0, Arc::clone(&container));
         let delta = MemoryDelta::compute(
             (pfb::NISO_FLUSH_ADDR_LO, 0),
             before_niso.clone(),
@@ -318,7 +319,7 @@ pub fn attempt_fb_init(
     }
 
     // Step 3: Try MMU/TLB invalidation (may unblock stale TLB state).
-    let before_tlb = discover_memory_topology(bar0, container_fd);
+    let before_tlb = discover_memory_topology(bar0, Arc::clone(&container));
     if !before_tlb.vram_accessible {
         // Wait for flush slot
         for _ in 0..200 {
@@ -333,7 +334,7 @@ pub fn attempt_fb_init(
         let _ = bar0.write_u32(pfb::MMU_INVALIDATE, 0x8000_0005); // PAGE_ALL | HUB_ONLY | trigger
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        let after_tlb = discover_memory_topology(bar0, container_fd);
+        let after_tlb = discover_memory_topology(bar0, Arc::clone(&container));
         let delta = MemoryDelta::compute(
             (pfb::MMU_INVALIDATE, 0x8000_0005),
             before_tlb,
@@ -350,7 +351,7 @@ pub fn attempt_fb_init(
     // This is the systematic reverse-engineering probe: try writing each
     // non-zero register value we read from the oracle (or 0xFFFFFFFF as a
     // "enable everything" heuristic) and see what changes.
-    let current_topo = discover_memory_topology(bar0, container_fd);
+    let current_topo = discover_memory_topology(bar0, Arc::clone(&container));
     if !current_topo.vram_accessible {
         eprintln!("║ FB init: VRAM still cold after quick attempts — scanning NV_PFB range");
 
@@ -375,7 +376,7 @@ pub fn attempt_fb_init(
         }
     }
 
-    let final_topo = discover_memory_topology(bar0, container_fd);
+    let final_topo = discover_memory_topology(bar0, container);
     (final_topo, significant_deltas)
 }
 
@@ -389,16 +390,16 @@ pub fn attempt_fb_init(
 /// discover which writes unlock VRAM or enable new memory paths.
 pub fn differential_probe(
     bar0: &MappedBar,
-    container_fd: RawFd,
+    container: Arc<OwnedFd>,
     register_offset: usize,
     value: u32,
 ) -> MemoryDelta {
-    let before = discover_memory_topology(bar0, container_fd);
+    let before = discover_memory_topology(bar0, Arc::clone(&container));
 
     let _ = bar0.write_u32(register_offset, value);
     std::thread::sleep(std::time::Duration::from_millis(5));
 
-    let after = discover_memory_topology(bar0, container_fd);
+    let after = discover_memory_topology(bar0, container);
 
     MemoryDelta::compute((register_offset, value), before, after)
 }
@@ -407,7 +408,7 @@ pub fn differential_probe(
 /// landscape. Returns only deltas that gained or lost paths.
 pub fn scan_register_range(
     bar0: &MappedBar,
-    container_fd: RawFd,
+    container: Arc<OwnedFd>,
     start_offset: usize,
     end_offset: usize,
     stride: usize,
@@ -417,7 +418,7 @@ pub fn scan_register_range(
     let mut offset = start_offset;
     while offset < end_offset {
         let original = bar0.read_u32(offset).unwrap_or(0);
-        let delta = differential_probe(bar0, container_fd, offset, value);
+        let delta = differential_probe(bar0, Arc::clone(&container), offset, value);
         // Restore the register to avoid side effects on subsequent probes.
         let _ = bar0.write_u32(offset, original);
 

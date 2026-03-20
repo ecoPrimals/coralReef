@@ -2,7 +2,8 @@
 #![allow(missing_docs)]
 //! Channel config — Layer 5 probing.
 
-use std::os::fd::RawFd;
+use std::os::fd::OwnedFd;
+use std::sync::Arc;
 
 use crate::vfio::channel::registers::{
     PBDMA_TARGET_SYS_MEM_COHERENT, TARGET_SYS_MEM_COHERENT, TARGET_SYS_MEM_NONCOHERENT, mmu, pbdma,
@@ -24,7 +25,7 @@ fn w(bar0: &MappedBar, reg: usize, val: u32) {
 /// Layer 5: Channel config — scheduler + doorbell + GP_GET.
 pub fn probe_channel(
     bar0: &MappedBar,
-    container_fd: RawFd,
+    container: Arc<OwnedFd>,
     dma: &DmaCapability,
 ) -> Result<ChannelConfig, ProbeFailure> {
     eprintln!("╠══ L5: Channel — scheduler + doorbell + GP_GET ═════════╣");
@@ -45,32 +46,32 @@ pub fn probe_channel(
     let l5_runlist_iova: u64 = 0x10_4000;
 
     let mut instance =
-        DmaBuffer::new(container_fd, 4096, l5_inst_iova).map_err(|e| ProbeFailure {
+        DmaBuffer::new(Arc::clone(&container), 4096, l5_inst_iova).map_err(|e| ProbeFailure {
             layer: "L5_CHANNEL",
             step: "alloc_instance",
             evidence: vec![],
             message: format!("DMA alloc instance: {e}"),
         })?;
     let mut gpfifo =
-        DmaBuffer::new(container_fd, 4096, l5_gpfifo_iova).map_err(|e| ProbeFailure {
+        DmaBuffer::new(Arc::clone(&container), 4096, l5_gpfifo_iova).map_err(|e| ProbeFailure {
             layer: "L5_CHANNEL",
             step: "alloc_gpfifo",
             evidence: vec![],
             message: format!("DMA alloc gpfifo: {e}"),
         })?;
     let mut userd =
-        DmaBuffer::new(container_fd, 4096, l5_userd_iova).map_err(|e| ProbeFailure {
+        DmaBuffer::new(Arc::clone(&container), 4096, l5_userd_iova).map_err(|e| ProbeFailure {
             layer: "L5_CHANNEL",
             step: "alloc_userd",
             evidence: vec![],
             message: format!("DMA alloc userd: {e}"),
         })?;
 
-    let mut pd3 = DmaBuffer::new(container_fd, 4096, l5_pd3_iova).ok();
-    let mut pd2 = DmaBuffer::new(container_fd, 4096, l5_pd2_iova).ok();
-    let mut pd1 = DmaBuffer::new(container_fd, 4096, l5_pd1_iova).ok();
-    let mut pd0 = DmaBuffer::new(container_fd, 4096, l5_pd0_iova).ok();
-    let mut pt0 = DmaBuffer::new(container_fd, 4096, l5_pt0_iova).ok();
+    let mut pd3 = DmaBuffer::new(Arc::clone(&container), 4096, l5_pd3_iova).ok();
+    let mut pd2 = DmaBuffer::new(Arc::clone(&container), 4096, l5_pd2_iova).ok();
+    let mut pd1 = DmaBuffer::new(Arc::clone(&container), 4096, l5_pd1_iova).ok();
+    let mut pd0 = DmaBuffer::new(Arc::clone(&container), 4096, l5_pd0_iova).ok();
+    let mut pt0 = DmaBuffer::new(Arc::clone(&container), 4096, l5_pt0_iova).ok();
 
     let pt_ok = pd3.is_some() && pd2.is_some() && pd1.is_some() && pd0.is_some() && pt0.is_some();
 
@@ -205,7 +206,7 @@ pub fn probe_channel(
         std::thread::sleep(std::time::Duration::from_millis(5));
 
         if attempt.submit_runlist {
-            let mut runlist = DmaBuffer::new(container_fd, 4096, l5_runlist_iova).ok();
+            let mut runlist = DmaBuffer::new(Arc::clone(&container), 4096, l5_runlist_iova).ok();
             if let Some(ref mut rl) = runlist {
                 let rl_data = rl.as_mut_slice();
                 let tsg_id: u32 = 0;

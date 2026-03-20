@@ -117,7 +117,12 @@ fn set_socket_group(path: &str, group_name: &str) {
 
     match std::os::unix::fs::chown(path, None, Some(gid)) {
         Ok(()) => {
-            tracing::info!(path, group = group_name, gid, "socket group set — unprivileged RPC enabled");
+            tracing::info!(
+                path,
+                group = group_name,
+                gid,
+                "socket group set — unprivileged RPC enabled"
+            );
         }
         Err(e) => {
             tracing::warn!(path, group = group_name, gid, error = %e, "failed to chown socket");
@@ -377,9 +382,9 @@ fn dispatch(
             let bdf = validate_bdf(bdf)?;
             let slot = devices
                 .iter()
-                .find(|d| d.bdf == bdf)
+                .find(|d| d.bdf.as_ref() == bdf)
                 .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                    bdf: bdf.to_string(),
+                    bdf: Arc::from(bdf),
                 })
                 .map_err(RpcError::from)?;
             serde_json::to_value(device_to_info(slot))
@@ -398,8 +403,10 @@ fn dispatch(
                 .to_owned();
             let slot = devices
                 .iter_mut()
-                .find(|d| d.bdf == bdf)
-                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf.as_str()),
+                })
                 .map_err(RpcError::from)?;
             slot.swap(&target)
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
@@ -417,9 +424,9 @@ fn dispatch(
             let bdf = validate_bdf(bdf)?;
             let slot = devices
                 .iter_mut()
-                .find(|d| d.bdf == bdf)
+                .find(|d| d.bdf.as_ref() == bdf)
                 .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                    bdf: bdf.to_string(),
+                    bdf: Arc::from(bdf),
                 })
                 .map_err(RpcError::from)?;
             slot.check_health();
@@ -442,9 +449,9 @@ fn dispatch(
             let bdf = validate_bdf(bdf)?;
             let slot = devices
                 .iter()
-                .find(|d| d.bdf == bdf)
+                .find(|d| d.bdf.as_ref() == bdf)
                 .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                    bdf: bdf.to_string(),
+                    bdf: Arc::from(bdf),
                 })
                 .map_err(RpcError::from)?;
             if !slot.has_vfio() {
@@ -455,14 +462,20 @@ fn dispatch(
             let custom_offsets: Vec<usize> = params
                 .get("offsets")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as usize)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_u64().map(|n| n as usize))
+                        .collect()
+                })
                 .unwrap_or_default();
             let regs = slot.dump_registers(&custom_offsets);
             let entries: Vec<serde_json::Value> = regs
                 .iter()
                 .map(|(off, val)| serde_json::json!({"offset": format!("{off:#010x}"), "value": format!("{val:#010x}"), "raw_offset": off, "raw_value": val}))
                 .collect();
-            Ok(serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}))
+            Ok(
+                serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}),
+            )
         }
         "device.register_snapshot" => {
             let bdf = params
@@ -472,9 +485,9 @@ fn dispatch(
             let bdf = validate_bdf(bdf)?;
             let slot = devices
                 .iter()
-                .find(|d| d.bdf == bdf)
+                .find(|d| d.bdf.as_ref() == bdf)
                 .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                    bdf: bdf.to_string(),
+                    bdf: Arc::from(bdf),
                 })
                 .map_err(RpcError::from)?;
             let snap = slot.last_snapshot();
@@ -482,7 +495,9 @@ fn dispatch(
                 .iter()
                 .map(|(off, val)| serde_json::json!({"offset": format!("{off:#010x}"), "value": format!("{val:#010x}"), "raw_offset": off, "raw_value": val}))
                 .collect();
-            Ok(serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}))
+            Ok(
+                serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}),
+            )
         }
         "device.lend" => {
             let raw_bdf = params
@@ -492,8 +507,10 @@ fn dispatch(
             let bdf = validate_bdf(raw_bdf)?.to_owned();
             let slot = devices
                 .iter_mut()
-                .find(|d| d.bdf == bdf)
-                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf.as_str()),
+                })
                 .map_err(RpcError::from)?;
             let group_id = slot
                 .lend()
@@ -512,8 +529,10 @@ fn dispatch(
             let bdf = validate_bdf(raw_bdf)?.to_owned();
             let slot = devices
                 .iter_mut()
-                .find(|d| d.bdf == bdf)
-                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf.as_str()),
+                })
                 .map_err(RpcError::from)?;
             slot.reclaim()
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
@@ -532,8 +551,10 @@ fn dispatch(
             let bdf = validate_bdf(raw_bdf)?.to_owned();
             let slot = devices
                 .iter_mut()
-                .find(|d| d.bdf == bdf)
-                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged { bdf: bdf.clone() })
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf.as_str()),
+                })
                 .map_err(RpcError::from)?;
             let alive = slot
                 .resurrect_hbm2()
@@ -565,7 +586,7 @@ fn dispatch(
 
 fn device_to_info(d: &coral_glowplug::device::DeviceSlot) -> DeviceInfo {
     DeviceInfo {
-        bdf: d.bdf.clone(),
+        bdf: d.bdf.to_string(),
         name: d.config.name.clone(),
         chip: d.chip_name.clone(),
         vendor_id: d.vendor_id,
@@ -696,5 +717,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "socket_tests.rs"]
+#[path = "socket_tests/mod.rs"]
 mod socket_tests;

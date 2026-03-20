@@ -45,7 +45,10 @@ pub const RADEON_VII_VFIO_IDS: &str = "1002:66af";
 /// Returns true if the device ID is any Vega 20 variant (MI50, MI60, Radeon VII).
 #[must_use]
 pub const fn is_vega20(device_id: u16) -> bool {
-    matches!(device_id, MI50_DEVICE_ID | MI60_DEVICE_ID | RADEON_VII_DEVICE_ID)
+    matches!(
+        device_id,
+        MI50_DEVICE_ID | MI60_DEVICE_ID | RADEON_VII_DEVICE_ID
+    )
 }
 
 // ---- Intel ----

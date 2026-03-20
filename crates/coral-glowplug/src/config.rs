@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(
+    missing_docs,
+    reason = "config schema fields mirror TOML keys; crate-level lib.rs documents the public surface."
+)]
 //! TOML configuration for the `GlowPlug` daemon.
 
 use serde::Deserialize;

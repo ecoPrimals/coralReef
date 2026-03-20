@@ -2,8 +2,9 @@
 //! Nouveau DRM ioctl definitions — pure Rust, no `*-sys` crates.
 //!
 //! Ioctl numbers and structures are derived from the Linux kernel
-//! nouveau driver headers (`nouveau_drm.h`). Ioctl syscalls use
-//! inline assembly (see `drm.rs`) — zero libc dependency.
+//! nouveau driver headers (`nouveau_drm.h`). Ioctl syscalls go through
+//! [`crate::drm`] helpers built on `rustix::ioctl` — no inline assembly,
+//! no libc dependency.
 //!
 //! ## Module structure
 //!

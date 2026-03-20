@@ -63,14 +63,8 @@ pub fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
 
 /// Pin power state to prevent D3 transitions during driver swaps.
 pub fn pin_power(bdf: &str) {
-    let _ = sysfs_write(
-        &format!("/sys/bus/pci/devices/{bdf}/power/control"),
-        "on",
-    );
-    let _ = sysfs_write(
-        &format!("/sys/bus/pci/devices/{bdf}/d3cold_allowed"),
-        "0",
-    );
+    let _ = sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
+    let _ = sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/d3cold_allowed"), "0");
 }
 
 /// Read a PCI ID field (vendor, device, subsystem_vendor, subsystem_device).
@@ -110,7 +104,10 @@ pub fn pin_bridge_power(bdf: &str) {
             let _ = std::fs::write(&d3cold, "0");
         }
 
-        if parent.file_name().is_some_and(|n| n.to_string_lossy().starts_with("pci")) {
+        if parent
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("pci"))
+        {
             break;
         }
         current = parent.parent();
@@ -144,10 +141,7 @@ pub fn pm_power_cycle(bdf: &str) -> Result<(), String> {
     pin_power(bdf);
     pin_bridge_power(bdf);
 
-    sysfs_write(
-        &format!("/sys/bus/pci/devices/{bdf}/power/control"),
-        "on",
-    )?;
+    sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on")?;
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 

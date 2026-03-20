@@ -11,13 +11,14 @@
 //!   `Layout::from_size_align(_, 4096)` is required.
 //! - **mlock/munlock**: rustix exposes these as `unsafe` (raw pointer + length).
 //!   No safe wrapper exists; invariants are documented at each call site.
-//! - **BorrowedFd::borrow_raw**: Requires fd valid for the borrow duration;
-//!   container_fd is from VFIO open and outlives the ioctl.
+//! - **Container fd**: Each buffer holds an [`Arc`] clone of the VFIO container
+//!   [`OwnedFd`]; ioctls use [`AsFd::as_fd`] (no `borrow_raw`).
 
 use crate::error::DriverError;
 use rustix::mm::{mlock, munlock};
 use std::borrow::Cow;
-use std::os::fd::{BorrowedFd, RawFd};
+use std::os::fd::{AsFd, OwnedFd};
+use std::sync::Arc;
 
 use super::ioctl;
 use super::types::ioctls;
@@ -30,18 +31,19 @@ const PAGE_SIZE: usize = 4096;
 /// Allocated page-aligned, mlock'd to prevent swapping, and mapped through the
 /// IOMMU so the GPU can read/write via the assigned IOVA. Automatically
 /// unmapped and freed on drop.
-#[derive(Debug)]
 pub struct DmaBuffer {
     vaddr: *mut u8,
     iova: u64,
     size: usize,
-    container_fd: RawFd,
+    /// Shared handle to the VFIO container fd (`VfioDevice` holds the primary `Arc`).
+    container: Arc<OwnedFd>,
 }
 
 impl DmaBuffer {
     /// Allocate a new DMA buffer mapped for device access.
     ///
-    /// `container_fd` must be an open VFIO container fd with an IOMMU attached.
+    /// `container` must be a shared handle to an open VFIO container fd with an
+    /// IOMMU attached (same `Arc` as [`crate::vfio::device::VfioDevice::container_shared`]).
     /// `size` is rounded up to page alignment internally.
     ///
     /// # Errors
@@ -52,7 +54,11 @@ impl DmaBuffer {
         clippy::cast_possible_truncation,
         reason = "struct sizes and page-aligned sizes always fit u32/u64"
     )]
-    pub(crate) fn new(container_fd: RawFd, size: usize, iova: u64) -> Result<Self, DriverError> {
+    pub(crate) fn new(
+        container: Arc<OwnedFd>,
+        size: usize,
+        iova: u64,
+    ) -> Result<Self, DriverError> {
         if size == 0 {
             return Err(DriverError::MmapFailed(
                 "DMA buffer size must be > 0".into(),
@@ -101,8 +107,7 @@ impl DmaBuffer {
             "VFIO DMA map attempt"
         );
 
-        // SAFETY: container_fd is valid from VFIO open; borrow_raw requires valid fd.
-        let container_borrowed = unsafe { BorrowedFd::borrow_raw(container_fd) };
+        let container_borrowed = container.as_fd();
         if let Err(e) = ioctl::dma_map(container_borrowed, &dma_map_arg) {
             // EEXIST: stale mapping from a previous consumer on a shared container
             // (common with ember fd sharing). Unmap first, then retry.
@@ -148,7 +153,7 @@ impl DmaBuffer {
             vaddr,
             iova,
             size: aligned_size,
-            container_fd,
+            container,
         })
     }
 
@@ -213,9 +218,8 @@ impl Drop for DmaBuffer {
             size: self.size as u64,
         };
 
-        // SAFETY: container_fd still valid — DmaBuffer is dropped before the
-        // VfioDevice (field order in VfioDevice ensures this).
-        let container_borrowed = unsafe { BorrowedFd::borrow_raw(self.container_fd) };
+        // `Arc` keeps the container fd open until the last buffer and `VfioDevice` drop.
+        let container_borrowed = self.container.as_fd();
         let _ = ioctl::dma_unmap(container_borrowed, &dma_unmap);
 
         // SAFETY: self.size and PAGE_SIZE are identical to those used in new().
@@ -235,12 +239,12 @@ impl Drop for DmaBuffer {
 
 // SAFETY: The raw pointer (`vaddr`) is obtained from a dedicated allocation, is only
 // accessed through `&self`/`&mut self` (Rust borrow rules apply), and is freed in
-// Drop. The container_fd is an OS file descriptor that is thread-safe.
+// Drop. The shared container handle is thread-safe.
 unsafe impl Send for DmaBuffer {}
 
 // SAFETY: The raw pointer (`vaddr`) is obtained from a dedicated allocation, is only
 // accessed through `&self`/`&mut self` (Rust borrow rules apply), and is freed in
-// Drop. The container_fd is an OS file descriptor that is thread-safe.
+// Drop. The shared container handle is thread-safe.
 unsafe impl Sync for DmaBuffer {}
 
 #[cfg(test)]
@@ -249,9 +253,13 @@ mod tests {
 
     #[test]
     fn new_size_zero_returns_error() {
-        let result = DmaBuffer::new(-1, 0, 0);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
+        let file = std::fs::File::open("/dev/null").expect("open /dev/null");
+        let container = Arc::new(OwnedFd::from(file));
+        let result = DmaBuffer::new(container, 0, 0);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected size-zero error"),
+        };
         assert!(err.to_string().contains("size must be > 0"));
     }
 
@@ -259,7 +267,7 @@ mod tests {
     fn layout_alignment_4096() {
         let layout = std::alloc::Layout::from_size_align(4096, PAGE_SIZE);
         assert!(layout.is_ok());
-        let layout = layout.unwrap();
+        let layout = layout.expect("4096-byte page-aligned layout is valid");
         assert_eq!(layout.size(), 4096);
         assert_eq!(layout.align(), 4096);
     }

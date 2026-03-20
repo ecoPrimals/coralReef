@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(
+    missing_docs,
+    reason = "PersonalityTrait implementations are numerous; trait and registry docs are the primary reference."
+)]
 //! Trait-based GPU personality system.
 //!
 //! Evolved from enum Personality per hotSpring P3 request. Each driver
@@ -310,7 +314,16 @@ impl PersonalityRegistry {
     #[must_use]
     pub fn default_linux() -> Self {
         Self {
-            known: vec!["vfio", "nouveau", "nvidia", "amdgpu", "xe", "i915", "akida-pcie", "unbound"],
+            known: vec![
+                "vfio",
+                "nouveau",
+                "nvidia",
+                "amdgpu",
+                "xe",
+                "i915",
+                "akida-pcie",
+                "unbound",
+            ],
         }
     }
 
@@ -330,10 +343,6 @@ impl PersonalityRegistry {
     ///
     /// Returns `None` for unknown personality names.
     #[must_use]
-    #[expect(
-        clippy::unused_self,
-        reason = "API consistency with supports/list; future extensibility"
-    )]
     pub fn create(&self, name: &str) -> Option<Box<dyn GpuPersonality>> {
         match name {
             "vfio" | "vfio-pci" => Some(Box::new(VfioPersonality { group_id: 0 })),
@@ -400,7 +409,10 @@ impl Personality {
     /// Whether this personality supports HBM2 training.
     #[must_use]
     pub const fn supports_hbm2_training(&self) -> bool {
-        matches!(self, Self::Nouveau { .. } | Self::Nvidia { .. } | Self::Amdgpu { .. })
+        matches!(
+            self,
+            Self::Nouveau { .. } | Self::Nvidia { .. } | Self::Amdgpu { .. }
+        )
     }
 }
 

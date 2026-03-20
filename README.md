@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 57 (Deep Debt Evolution + All-Silicon Pipeline)
+**Status**: Phase 10 — Iteration 58 (Deep Debt Evolution + Coverage + Unsafe Evolution)
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -11,7 +11,7 @@
 
 coralReef is a pure-Rust GPU shader compiler. It compiles WGSL,
 SPIR-V, and GLSL 450 compute shaders to native GPU binaries, with
-full f64 transcendental support. Zero C dependencies, zero libc (inline asm syscalls), FxHashMap internalized, zero vendor lock-in.
+full f64 transcendental support. Zero C dependencies, zero libc, FxHashMap internalized, zero vendor lock-in.
 
 NVIDIA backend complete (SM70–SM89). AMD backend operational
 (RDNA2/GFX1030 — RX 6950 XT on-site). Both share the same IR,
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 2560 passing, 0 failed (+48 VFIO with --features vfio)
+cargo test --workspace     # 2643 passing, 0 failed (+48 VFIO with --features vfio)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -118,6 +118,8 @@ coralReef/
 │   ├── coral-gpu/                 # Unified GPU compute + driver preference
 │   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/            # ISA tables, latency model
+│   ├── coral-glowplug/            # GPU device broker (VFIO, health, hot-swap)
+│   ├── coral-ember/               # VFIO device swap daemon (SCM_RIGHTS)
 │   ├── coral-reef-stubs/          # Pure-Rust dependency replacements
 │   └── nak-ir-proc/              # Proc-macro derives for IR types
 ├── tools/
@@ -141,6 +143,8 @@ coralReef/
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal communication (tests + production) |
+| `coral-glowplug` | GPU device broker — VFIO device management, JSON-RPC socket, health monitoring, hot-swap, circuit breaker, boot sovereignty. `bdf: Arc<str>` for zero-alloc device identity |
+| `coral-ember` | VFIO device swap daemon — `SCM_RIGHTS` fd passing (fully safe via `rustix` `AsFd`), vendor lifecycle hooks, Xorg/udev isolation |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
@@ -171,8 +175,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2560 passing, 0 failed) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | ~63% region / ~64% line / ~72% function (target 90%) |
+| `cargo test --workspace` | PASS (2643 passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | ~65% region / ~66% line / ~74% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
@@ -233,7 +237,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline, 131 chaos/fault/pen tests, 2560 workspace tests, ~64% line coverage** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 58 — Deep Debt + Unsafe Evolution + Coverage, 131 chaos/fault/pen tests, 2643 workspace tests, ~66% line coverage** |
 
 ---
 

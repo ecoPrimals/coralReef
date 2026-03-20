@@ -7,8 +7,10 @@
 
 use crate::error::DriverError;
 use std::borrow::Cow;
+use std::ffi::CStr;
 use std::fs::OpenOptions;
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::Arc;
 
 use super::ioctl;
 use super::types::ioctls;
@@ -154,7 +156,8 @@ pub struct VfioDevice {
     device: OwnedFd,
     num_regions: u32,
     group: std::fs::File,
-    container: std::fs::File,
+    /// Shared so [`crate::vfio::dma::DmaBuffer`] and diagnostics hold the same IOMMU domain.
+    container: Arc<OwnedFd>,
 }
 
 impl VfioDevice {
@@ -227,11 +230,7 @@ impl VfioDevice {
 
         let bdf_cstr = std::ffi::CString::new(bdf)
             .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("Invalid BDF: {e}"))))?;
-        let device_fd = ioctl::group_get_device_fd(group.as_fd(), bdf_cstr.as_ptr().cast())?;
-        // SAFETY: VFIO_GROUP_GET_DEVICE_FD returns a new fd on success; we take
-        // ownership. No rustix API exists for ioctl-returned fds — from_raw_fd
-        // is the standard way. Caller must not use device_fd after this.
-        let device = unsafe { OwnedFd::from_raw_fd(device_fd) };
+        let device = vfio_group_open_device_fd(group.as_fd(), bdf_cstr.as_c_str())?;
 
         let mut dev_info = VfioDeviceInfo {
             argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,
@@ -251,7 +250,7 @@ impl VfioDevice {
             device,
             num_regions: dev_info.num_regions,
             group,
-            container,
+            container: Arc::new(OwnedFd::from(container)),
         };
 
         dev.enable_bus_master()?;
@@ -486,6 +485,18 @@ impl VfioDevice {
         self.container.as_raw_fd()
     }
 
+    /// Shared handle to the VFIO container fd for IOMMU DMA map/unmap.
+    #[must_use]
+    pub fn container_shared(&self) -> Arc<OwnedFd> {
+        Arc::clone(&self.container)
+    }
+
+    /// Borrowed handle to the VFIO container fd (for `SCM_RIGHTS` / [`AsFd`] APIs).
+    #[must_use]
+    pub fn container_as_fd(&self) -> BorrowedFd<'_> {
+        self.container.as_fd()
+    }
+
     /// PCIe BDF address.
     #[must_use]
     pub fn bdf(&self) -> &str {
@@ -516,10 +527,22 @@ impl VfioDevice {
         self.device.as_raw_fd()
     }
 
+    /// Borrowed handle to the VFIO device fd (for `SCM_RIGHTS` / [`AsFd`] APIs).
+    #[must_use]
+    pub fn device_as_fd(&self) -> BorrowedFd<'_> {
+        self.device.as_fd()
+    }
+
     /// Raw fd of the VFIO group (for SCM\_RIGHTS fd passing to/from coral-ember).
     #[must_use]
     pub fn group_fd(&self) -> RawFd {
         self.group.as_raw_fd()
+    }
+
+    /// Borrowed handle to the VFIO group fd (for `SCM_RIGHTS` / [`AsFd`] APIs).
+    #[must_use]
+    pub fn group_as_fd(&self) -> BorrowedFd<'_> {
+        self.group.as_fd()
     }
 
     /// Construct from pre-opened fds received via SCM\_RIGHTS from coral-ember.
@@ -551,7 +574,7 @@ impl VfioDevice {
             device,
             num_regions: dev_info.num_regions,
             group: std::fs::File::from(group),
-            container: std::fs::File::from(container),
+            container: Arc::new(container),
         };
 
         dev.enable_bus_master()?;
@@ -567,6 +590,19 @@ impl std::fmt::Debug for VfioDevice {
             .field("num_regions", &self.num_regions)
             .finish_non_exhaustive()
     }
+}
+
+/// `VFIO_GROUP_GET_DEVICE_FD` returns a new owning fd; centralizes the only
+/// `OwnedFd::from_raw_fd` needed for this path.
+fn vfio_group_open_device_fd(group: BorrowedFd<'_>, bdf: &CStr) -> Result<OwnedFd, DriverError> {
+    let raw_fd = ioctl::group_get_device_fd(group, bdf.as_ptr().cast())?;
+    if raw_fd < 0 {
+        return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
+            "VFIO GROUP_GET_DEVICE_FD: invalid fd {raw_fd}"
+        ))));
+    }
+    // SAFETY: On success the kernel returns a new owning device fd.
+    Ok(unsafe { OwnedFd::from_raw_fd(raw_fd) })
 }
 
 fn find_iommu_group(bdf: &str) -> Result<u32, DriverError> {

@@ -481,7 +481,7 @@ mod tests {
         let labels = FxHashMap::default();
         let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
         assert!(result.is_ok());
-        let words = result.unwrap();
+        let words = result.expect("IAdd3 encode should succeed");
         assert!(!words.is_empty());
     }
 
@@ -531,7 +531,7 @@ mod tests {
         let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
-        let words = result.unwrap();
+        let words = result.expect("PopC encode should succeed");
         assert!(words.len() >= 3);
     }
 

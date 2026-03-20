@@ -18,6 +18,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         let is_f64 = self.is_f64_expr(left_handle);
         let comps = l.comps().max(1);
 
+        #[expect(
+            unreachable_patterns,
+            reason = "naga::BinaryOperator arms are exhaustive for current naga; `_` kept for forward-compat if upstream adds operators."
+        )]
         match op {
             naga::BinaryOperator::Add if is_f64 => {
                 self.emit_f64_componentwise(l, r, |s, lp, rp| {

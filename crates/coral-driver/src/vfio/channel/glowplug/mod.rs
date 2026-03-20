@@ -22,7 +22,8 @@ mod state;
 mod types;
 mod warm;
 
-use std::os::fd::RawFd;
+use std::os::fd::OwnedFd;
+use std::sync::Arc;
 
 use crate::vfio::bar_cartography;
 use crate::vfio::device::MappedBar;
@@ -42,7 +43,7 @@ pub use types::{GpuThermalState, HealthSnapshot, StepSnapshot, WarmResult};
 /// defaults when no metal is set (backward compatibility).
 pub struct GlowPlug<'a> {
     pub(crate) bar0: &'a MappedBar,
-    pub(crate) container_fd: RawFd,
+    pub(crate) container: Arc<OwnedFd>,
     /// PCI BDF string for sysfs access (e.g., "0000:4a:00.0").
     pub(crate) bdf: Option<String>,
     /// BDF of an oracle card (same GPU model, running nouveau) for register cloning.
@@ -54,10 +55,10 @@ pub struct GlowPlug<'a> {
 }
 
 impl<'a> GlowPlug<'a> {
-    pub fn new(bar0: &'a MappedBar, container_fd: RawFd) -> Self {
+    pub fn new(bar0: &'a MappedBar, container: Arc<OwnedFd>) -> Self {
         Self {
             bar0,
-            container_fd,
+            container,
             bdf: None,
             oracle_bdf: None,
             metal: None,
@@ -66,10 +67,10 @@ impl<'a> GlowPlug<'a> {
     }
 
     /// Create a GlowPlug with BDF for VBIOS access.
-    pub fn with_bdf(bar0: &'a MappedBar, container_fd: RawFd, bdf: &str) -> Self {
+    pub fn with_bdf(bar0: &'a MappedBar, container: Arc<OwnedFd>, bdf: &str) -> Self {
         Self {
             bar0,
-            container_fd,
+            container,
             bdf: Some(bdf.to_string()),
             oracle_bdf: None,
             metal: None,
@@ -80,13 +81,13 @@ impl<'a> GlowPlug<'a> {
     /// Create a GlowPlug with both BDF and an oracle card for register cloning.
     pub fn with_oracle(
         bar0: &'a MappedBar,
-        container_fd: RawFd,
+        container: Arc<OwnedFd>,
         bdf: &str,
         oracle_bdf: &str,
     ) -> Self {
         Self {
             bar0,
-            container_fd,
+            container,
             bdf: Some(bdf.to_string()),
             oracle_bdf: Some(oracle_bdf.to_string()),
             metal: None,

@@ -9,9 +9,8 @@
 #![allow(
     clippy::wildcard_imports,
     clippy::enum_glob_use,
-    clippy::redundant_clone,
-    unreachable_patterns
-)] // op re-exports; builder pattern in f64 lowering
+    reason = "Ported NAK codegen relies on `use crate::codegen::ir::*` and `use SomeEnum::*` across many modules; explicit imports would be large churn without readability gain."
+)]
 #![expect(
     non_snake_case,
     dead_code,

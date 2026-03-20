@@ -114,15 +114,11 @@ async fn e2e_ipc_full_integration() {
     };
     let wgsl_result: Result<service::CompileResponse, _> =
         client.request("shader.compile.wgsl", [wgsl_req]).await;
-    match &wgsl_result {
-        Ok(resp) => {
-            assert!(!resp.binary.is_empty());
-            assert_eq!(resp.size, resp.binary.len());
-        }
-        Err(_) => {
-            // May fail with -32000 if NVVM not available
-        }
+    if let Ok(resp) = &wgsl_result {
+        assert!(!resp.binary.is_empty());
+        assert_eq!(resp.size, resp.binary.len());
     }
+    // wgsl_result may be Err if NVVM not available — that is acceptable
 
     // shader.compile.status
     let status: service::HealthResponse = client
@@ -164,7 +160,7 @@ async fn e2e_ipc_full_integration() {
     assert_eq!(readiness.name, env!("CARGO_PKG_NAME"));
 
     // 4. Test health methods via tarpc
-    let transport = tarpc::serde_transport::tcp::connect(tarpc_tcp_addr, || Bincode::default())
+    let transport = tarpc::serde_transport::tcp::connect(tarpc_tcp_addr, Bincode::default)
         .await
         .unwrap();
     let tarpc_client =
@@ -217,15 +213,11 @@ async fn e2e_ipc_full_integration() {
     let multi_result: Result<service::MultiDeviceCompileResponse, _> = client
         .request("shader.compile.wgsl.multi", [multi_req])
         .await;
-    match multi_result {
-        Ok(resp) => {
-            assert_eq!(resp.total_count, 2);
-            assert!(resp.results.len() == 2);
-        }
-        Err(_) => {
-            // May fail if NVVM not available
-        }
+    if let Ok(resp) = multi_result {
+        assert_eq!(resp.total_count, 2);
+        assert!(resp.results.len() == 2);
     }
+    // multi_result may be Err if NVVM not available — that is acceptable
 
     // 6. Verify responses are correct JSON-RPC 2.0 format
     let raw_status =

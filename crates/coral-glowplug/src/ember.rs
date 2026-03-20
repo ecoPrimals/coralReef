@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(
+    missing_docs,
+    reason = "SCM_RIGHTS plumbing types mirror libc usage; module-level docs describe behavior."
+)]
 //! Ember client — connects to coral-ember and receives VFIO fds via `SCM_RIGHTS`.
 //!
 //! When coral-ember is running, the daemon receives duplicate VFIO fds
 //! from it instead of opening them directly. This allows the daemon to
 //! be restarted without triggering PM reset on GV100 (no FLR support).
 
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::mem::MaybeUninit;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::net::UnixStream;
+
+use rustix::io::IoSliceMut;
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
 
 use serde::Deserialize;
 
@@ -53,13 +61,17 @@ fn make_rpc_request(method: &str, params: serde_json::Value) -> String {
         "method": method,
         "params": params,
         "id": next_request_id(),
-    }).to_string()
+    })
+    .to_string()
 }
 
 fn parse_rpc_response(buf: &[u8]) -> Result<serde_json::Value, EmberError> {
     let resp: JsonRpcResponse = serde_json::from_slice(buf)?;
     if let Some(err) = resp.error {
-        return Err(EmberError::Rpc { code: err.code, message: err.message });
+        return Err(EmberError::Rpc {
+            code: err.code,
+            message: err.message,
+        });
     }
     Ok(resp.result.unwrap_or(serde_json::Value::Null))
 }
@@ -95,8 +107,7 @@ impl EmberClient {
 
     /// List devices held by the ember.
     pub fn list_devices(&self) -> Result<Vec<String>, EmberError> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .map_err(EmberError::Connect)?;
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
         let req = make_rpc_request("ember.list", serde_json::json!({}));
@@ -105,9 +116,14 @@ impl EmberClient {
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let n = std::io::Read::read(&mut &stream, &mut buf)?;
         let result = parse_rpc_response(&buf[..n])?;
-        let devices = result.get("devices")
+        let devices = result
+            .get("devices")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         Ok(devices)
     }
@@ -118,8 +134,7 @@ impl EmberClient {
     /// debugging via socat or targeted fd release.
     #[allow(dead_code, reason = "retained for manual debugging via socat")]
     pub fn release_device(&self, bdf: &str) -> Result<(), EmberError> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .map_err(EmberError::Connect)?;
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
         let req = make_rpc_request("ember.release", serde_json::json!({"bdf": bdf}));
@@ -137,8 +152,7 @@ impl EmberClient {
     /// retained for manual debugging.
     #[allow(dead_code, reason = "retained for manual debugging via socat")]
     pub fn reacquire_device(&self, bdf: &str) -> Result<(), EmberError> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .map_err(EmberError::Connect)?;
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
 
         let req = make_rpc_request("ember.reacquire", serde_json::json!({"bdf": bdf}));
@@ -155,17 +169,20 @@ impl EmberClient {
     /// Ember handles all sysfs writes and VFIO fd lifecycle. Returns the
     /// resulting personality name on success.
     pub fn swap_device(&self, bdf: &str, target: &str) -> Result<String, EmberError> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .map_err(EmberError::Connect)?;
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
 
-        let req = make_rpc_request("ember.swap", serde_json::json!({"bdf": bdf, "target": target}));
+        let req = make_rpc_request(
+            "ember.swap",
+            serde_json::json!({"bdf": bdf, "target": target}),
+        );
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let n = std::io::Read::read(&mut &stream, &mut buf)?;
         let result = parse_rpc_response(&buf[..n])?;
-        Ok(result.get("personality")
+        Ok(result
+            .get("personality")
             .and_then(|v| v.as_str())
             .unwrap_or(target)
             .to_string())
@@ -173,30 +190,38 @@ impl EmberClient {
 
     /// Request VFIO fds for a specific BDF from the ember.
     pub fn request_fds(&self, bdf: &str) -> Result<EmberFds, EmberError> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .map_err(EmberError::Connect)?;
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
         let req = make_rpc_request("ember.vfio_fds", serde_json::json!({"bdf": bdf}));
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
-        let (n, fds) = recv_with_fds(stream.as_raw_fd(), &mut buf, 3)?;
+        let (n, fds) = recv_with_fds(&stream, &mut buf)?;
 
         let resp: JsonRpcResponse = serde_json::from_slice(&buf[..n])?;
 
         if let Some(err) = resp.error {
-            return Err(EmberError::Rpc { code: err.code, message: err.message });
+            return Err(EmberError::Rpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let result = resp.result.unwrap_or(serde_json::Value::Null);
         let expected = result.get("num_fds").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
         if fds.len() < expected {
-            return Err(EmberError::FdCount { expected, received: fds.len() });
+            return Err(EmberError::FdCount {
+                expected,
+                received: fds.len(),
+            });
         }
 
         if fds.len() < 3 {
-            return Err(EmberError::FdCount { expected: 3, received: fds.len() });
+            return Err(EmberError::FdCount {
+                expected: 3,
+                received: fds.len(),
+            });
         }
 
         let mut fd_iter = fds.into_iter();
@@ -208,65 +233,26 @@ impl EmberClient {
     }
 }
 
-/// Receive data with ancillary `SCM_RIGHTS` file descriptors.
-#[allow(
-    unsafe_code,
-    clippy::cast_possible_truncation,
-    clippy::cast_ptr_alignment,
-    clippy::cast_sign_loss
-)]
-fn recv_with_fds(
-    sock_fd: RawFd,
-    buf: &mut [u8],
-    max_fds: usize,
-) -> std::io::Result<(usize, Vec<OwnedFd>)> {
-    let mut iov = libc::iovec {
-        iov_base: buf.as_mut_ptr().cast(),
-        iov_len: buf.len(),
-    };
+/// Receive data with ancillary `SCM_RIGHTS` file descriptors (`rustix::net::recvmsg`).
+///
+/// Buffer is sized for up to three fds (ember VFIO triple: container, group, device).
+fn recv_with_fds(sock: impl AsFd, buf: &mut [u8]) -> std::io::Result<(usize, Vec<OwnedFd>)> {
+    const MAX_SCM_FDS: usize = 3;
 
-    let fd_payload_size = max_fds * std::mem::size_of::<RawFd>();
-    // SAFETY: CMSG_SPACE computes the correct alignment-safe buffer size.
-    let cmsg_space = unsafe { libc::CMSG_SPACE(fd_payload_size as libc::c_uint) } as usize;
-    let mut cmsg_buf = vec![0u8; cmsg_space];
+    let mut iov = [IoSliceMut::new(buf)];
+    let mut recv_space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(MAX_SCM_FDS))];
+    let mut control = RecvAncillaryBuffer::new(&mut recv_space);
 
-    // SAFETY: zeroed msghdr is valid; we fill required fields below.
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &raw mut iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = cmsg_buf.as_mut_ptr().cast();
-    msg.msg_controllen = cmsg_space as libc::size_t;
-
-    // SAFETY: sock_fd is a valid Unix socket; msg is properly initialized;
-    // recvmsg populates cmsg_buf with ancillary data.
-    let n = unsafe { libc::recvmsg(sock_fd, &raw mut msg, 0) };
-    if n < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
+    let msg = recvmsg(sock, &mut iov, &mut control, RecvFlags::empty())?;
 
     let mut fds = Vec::new();
-    // SAFETY: after successful recvmsg, CMSG_FIRSTHDR returns a valid pointer
-    // (or null if no control messages). CMSG_NXTHDR iterates safely.
-    let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&raw const msg) };
-    while !cmsg.is_null() {
-        unsafe {
-            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
-                let fd_ptr = libc::CMSG_DATA(cmsg).cast::<RawFd>();
-                let cmsg_len_header = libc::CMSG_LEN(0) as usize;
-                let payload_len = (*cmsg).cmsg_len as usize - cmsg_len_header;
-                let num_fds = payload_len / std::mem::size_of::<RawFd>();
-                for i in 0..num_fds {
-                    let raw_fd = *fd_ptr.add(i);
-                    // SAFETY: fds received via SCM_RIGHTS are new fds in our
-                    // process; we take ownership via OwnedFd.
-                    fds.push(OwnedFd::from_raw_fd(raw_fd));
-                }
-            }
-            cmsg = libc::CMSG_NXTHDR(&raw const msg, cmsg);
+    for ancillary in control.drain() {
+        if let RecvAncillaryMessage::ScmRights(iter) = ancillary {
+            fds.extend(iter);
         }
     }
 
-    Ok((n as usize, fds))
+    Ok((msg.bytes, fds))
 }
 
 #[cfg(test)]

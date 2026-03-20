@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![forbid(unsafe_code)]
 //! coralReef — sovereign Rust NVIDIA shader compiler.
 //!
 //! `UniBin` entry point: single binary, multiple modes via subcommands.

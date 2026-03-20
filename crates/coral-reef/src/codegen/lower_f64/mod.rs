@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
+#![allow(
+    clippy::redundant_clone,
+    reason = "f64 lowering follows uniform Src/SSA builder patterns; clippy flags clones that match upstream style and keep ref usage consistent."
+)]
 //! f64 transcendental software lowering.
 //!
 //! NVIDIA MUFU only supports f32 transcendentals. For f64 sqrt and rcp,

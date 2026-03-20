@@ -9,6 +9,8 @@ mod glowplug_client;
 
 #[cfg(feature = "vfio")]
 mod tests {
+    use std::sync::Arc;
+
     use super::glowplug_client::VfioLease;
 
     fn vfio_bdf() -> String {
@@ -141,7 +143,7 @@ mod tests {
 
                                             let gp = GlowPlug::with_bdf(
                                                 &raw.bar0,
-                                                raw.container_fd,
+                                                Arc::clone(&raw.container),
                                                 &bdf,
                                             );
                                             let vram_ok = gp.check_vram();
@@ -193,9 +195,9 @@ mod tests {
         eprintln!("╠══ FULL GLOWPLUG WITH DEVINIT + ORACLE ═════════════════════╣");
         let gp = if let Some(ref oracle) = oracle_bdf {
             eprintln!("║ Oracle card: {oracle}");
-            GlowPlug::with_oracle(&raw.bar0, raw.container_fd, &bdf, oracle)
+            GlowPlug::with_oracle(&raw.bar0, Arc::clone(&raw.container), &bdf, oracle)
         } else {
-            GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf)
+            GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf)
         };
         let result = gp.full_init();
         for msg in &result.log {
@@ -309,7 +311,7 @@ mod tests {
         let (_lease, raw) = open_vfio();
 
         // Run glowplug to get PFIFO alive
-        let gp = GlowPlug::new(&raw.bar0, raw.container_fd);
+        let gp = GlowPlug::new(&raw.bar0, Arc::clone(&raw.container));
         let warm_result = gp.full_init();
         eprintln!("╠══ VFIO CARD ({vfio_bdf}, vfio-pci) ════════════════════════╣");
         for msg in &warm_result.log {
@@ -347,7 +349,8 @@ mod tests {
         }
 
         // ── Phase 4: Memory topology before any changes ─────────────────
-        let topo_before = memory_probe::discover_memory_topology(&raw.bar0, raw.container_fd);
+        let topo_before =
+            memory_probe::discover_memory_topology(&raw.bar0, Arc::clone(&raw.container));
         eprintln!("╠══ MEMORY TOPOLOGY BEFORE FB INIT ══════════════════════════╣");
         topo_before.print_summary();
 
@@ -387,7 +390,8 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         // ── Phase 6: Re-probe memory topology after applying oracle regs ─
-        let topo_after = memory_probe::discover_memory_topology(&raw.bar0, raw.container_fd);
+        let topo_after =
+            memory_probe::discover_memory_topology(&raw.bar0, Arc::clone(&raw.container));
         eprintln!("╠══ MEMORY TOPOLOGY AFTER FB INIT ═══════════════════════════╣");
         topo_after.print_summary();
 
@@ -416,7 +420,7 @@ mod tests {
         memory_probe::dump_pfb_registers(&raw.bar0);
 
         // Run the full interpreter now with the (possibly warm) state
-        let interpreter = ProbeInterpreter::new(&raw.bar0, raw.container_fd);
+        let interpreter = ProbeInterpreter::new(&raw.bar0, Arc::clone(&raw.container));
         let report = interpreter.run();
         report.print_summary();
 
@@ -433,10 +437,15 @@ mod tests {
     fn vbios_script_scanner() {
         use coral_driver::vfio::channel::devinit;
 
-        let vbios_path = std::env::var("CORALREEF_VBIOS_PATH").unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_default();
-            format!("{home}/Development/ecoPrimals/hotSpring/data/vbios_0000_03_00_0.bin")
-        });
+        let vbios_path = match std::env::var("CORALREEF_VBIOS_PATH") {
+            Ok(p) => p,
+            Err(_) => {
+                eprintln!(
+                    "skipping vbios_script_scanner: set CORALREEF_VBIOS_PATH to a VBIOS dump (.bin); no default path (portable builds must not assume a developer home directory)"
+                );
+                return;
+            }
+        };
 
         let rom = devinit::read_vbios_file(&vbios_path).expect("Cannot read VBIOS file");
         eprintln!("VBIOS: {} bytes from {vbios_path}", rom.len());
@@ -550,7 +559,7 @@ mod tests {
         status.print_summary();
 
         // Run GlowPlug with all strategies — load oracle from best available source
-        let mut gp = GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf);
+        let mut gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf);
         if let Some(ref oracle) = oracle_bdf {
             eprintln!("║ Oracle (live): {oracle}");
             gp.load_oracle_live(oracle)
@@ -634,7 +643,7 @@ mod tests {
 
         // ── Phase 3: GlowPlug warm-up ───────────────────────────────────
         eprintln!("╠══ PHASE 3: GLOWPLUG WARM-UP ══════════════════════════════╣");
-        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf)
+        let gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf)
             .with_metal(Box::new(NvVoltaMetal::from_boot0(boot0)));
         let warm_result = gp.warm();
         for msg in &warm_result.log {
@@ -786,7 +795,8 @@ mod tests {
         eprintln!("║ METAL GLOWPLUG — TRAIT-BASED WARM-UP                       ║");
         eprintln!("╠══════════════════════════════════════════════════════════════╣");
 
-        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf).with_metal(Box::new(metal));
+        let gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf)
+            .with_metal(Box::new(metal));
 
         let result = gp.warm();
         for msg in &result.log {
@@ -811,7 +821,7 @@ mod tests {
         eprintln!("║ POWER BOUNDS — EMPIRICAL TRANSITION MAPPING                ║");
         eprintln!("╠══════════════════════════════════════════════════════════════╣");
 
-        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container_fd, &bdf);
+        let gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf);
 
         // Ensure GPU is warm first
         let warm = gp.warm();

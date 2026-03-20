@@ -1,0 +1,7 @@
+error: src_type can only be derived for structs with named fields
+  --> tests/compile_fail/srcs_tuple_struct.rs:11:10
+   |
+11 | #[derive(SrcsAsSlice)]
+   |          ^^^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `SrcsAsSlice` (in Nightly builds, run with -Z macro-backtrace for more info)

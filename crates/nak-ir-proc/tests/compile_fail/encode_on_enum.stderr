@@ -1,0 +1,7 @@
+error: Encode only supports structs with named fields
+ --> tests/compile_fail/encode_on_enum.rs:8:10
+  |
+8 | #[derive(Encode)]
+  |          ^^^^^^
+  |
+  = note: this error originates in the derive macro `Encode` (in Nightly builds, run with -Z macro-backtrace for more info)

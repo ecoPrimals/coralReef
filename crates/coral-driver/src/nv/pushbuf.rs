@@ -351,12 +351,12 @@ mod tests {
         let send_pcas_a_idx = words
             .iter()
             .position(|&w| w == mthd_incr(0, method::SEND_PCAS_A, 1))
-            .unwrap();
+            .expect("compute_dispatch must emit SEND_PCAS_A");
         assert_eq!(words[send_pcas_a_idx + 1], (qmd_addr >> 32) as u32);
         let send_pcas_b_idx = words
             .iter()
             .position(|&w| w == mthd_incr(0, method::SEND_SIGNALING_PCAS_B, 1))
-            .unwrap();
+            .expect("compute_dispatch must emit SEND_SIGNALING_PCAS_B");
         assert_eq!(words[send_pcas_b_idx + 1], qmd_addr as u32);
     }
 

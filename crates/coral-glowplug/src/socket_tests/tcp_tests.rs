@@ -1,0 +1,170 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+use super::super::*;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[tokio::test]
+async fn test_tcp_bind_127_0_0_1_0() {
+    let server = SocketServer::bind("127.0.0.1:0")
+        .await
+        .expect("TCP bind should succeed");
+    let addr = server.bound_addr();
+    assert!(addr.contains("127.0.0.1"));
+    assert!(addr.contains(':'));
+    let port_part: &str = addr.rsplit(':').next().unwrap_or("");
+    let port: u16 = port_part.parse().expect("port should parse");
+    assert!(port > 0, "OS should assign non-zero port");
+}
+
+#[tokio::test]
+async fn test_tcp_client_health_check() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    let req = r#"{"jsonrpc":"2.0","method":"health.check","params":{},"id":1}"#;
+    writer
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .expect("write");
+
+    let mut lines = BufReader::new(reader).lines();
+    let resp_line = lines.next_line().await.expect("read").expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["result"]["alive"], true);
+    assert_eq!(resp["result"]["name"], "coral-glowplug");
+    assert_eq!(resp["id"], 1);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_invalid_jsonrpc_version() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    let req = r#"{"jsonrpc":"1.0","method":"health.check","params":{},"id":1}"#;
+    writer
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .expect("write");
+
+    let mut lines = BufReader::new(reader).lines();
+    let resp_line = lines.next_line().await.expect("read").expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["error"]["code"], -32600);
+    assert_eq!(resp["id"], 1);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_parse_error() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    writer.write_all(b"not valid json\n").await.expect("write");
+
+    let mut lines = BufReader::new(reader).lines();
+    let resp_line = lines.next_line().await.expect("read").expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["error"]["code"], -32700);
+    assert_eq!(resp["id"], serde_json::Value::Null);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_daemon_shutdown_via_jsonrpc() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    let req = r#"{"jsonrpc":"2.0","method":"daemon.shutdown","params":{},"id":1}"#;
+    writer
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .expect("write");
+    writer.flush().await.expect("flush");
+
+    let mut lines = BufReader::new(reader).lines();
+    let resp_line = lines.next_line().await.expect("read").expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["result"]["ok"], true);
+    assert_eq!(resp["id"], 1);
+
+    let next = lines.next_line().await.expect("read");
+    assert!(
+        next.is_none(),
+        "connection should close after shutdown response"
+    );
+
+    handle.abort();
+}

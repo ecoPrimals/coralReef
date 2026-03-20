@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 18, Iter 57)  
+**Generated:** March 10, 2026 (metrics updated March 20, Iter 58)  
 **Workspace:** coralReef
 
 ---
@@ -202,9 +202,9 @@ Current attributes have documented `reason` strings where appropriate.
 
 ## Summary
 
-| Metric | Value (as of Iter 57) |
+| Metric | Value (as of Iter 58) |
 |--------|-------|
-| Tests passing | 2560 default + 48 VFIO |
+| Tests passing | 2643 default + 48 VFIO |
 | Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
@@ -217,24 +217,24 @@ Current attributes have documented `reason` strings where appropriate.
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (table_cmp.rs split to table_cmp_f32_f64.rs + table_cmp_int.rs, Iter 56) |
-| Clippy warnings | 0 (coral-driver: 114 pedantic/nursery errors fixed, Iter 56) |
+| Files over 1000 LOC | 0 (device.rs→device/ module, socket_tests→socket_tests/ dir, Iter 57–58) |
+| Clippy warnings | 0 (pedantic + nursery, -D warnings) |
 | Doc warnings | 0 |
-| Region coverage (llvm-cov) | ~63% (target 90%; +82 new tests across 3 crates, Iter 56) |
-| Line coverage (llvm-cov) | ~64% (target 90%; was 60.89% Iter 55) |
-| Function coverage | ~72% (target 90%; was 69.72% Iter 55) |
+| Region coverage (llvm-cov) | ~65% (target 90%; +83 tests Iter 58) |
+| Line coverage (llvm-cov) | ~66% (target 90%; was ~64% Iter 57) |
+| Function coverage | ~74% (target 90%; was ~72% Iter 57) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45) |
-| Zero-copy | `Arc<str>` for shader source; `bytes::Bytes` for binary payloads (Iter 56) |
+| Zero-copy | `Arc<str>` for shader source + device bdf (Iter 58); `bytes::Bytes` for binary payloads; shader_model refs not clones (Iter 58) |
 | Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |
 | Config discovery | CLI > env `$CORALREEF_CONFIG` > XDG config > system fallback (Iter 56) |
 | Driver constants | Named constants for PCI vendor IDs, class codes; env var fallbacks (Iter 56) |
 | RM ioctl sovereignty | nv_rm_ioctl via rustix (zero extern "C") |
 | SAFETY documentation | All `unsafe impl Send/Sync` documented; VolatilePtr wrapper (Iter 56) |
-| Unsafe evolution | VolatilePtr for safe MMIO reads; cache_line_flush demoted to pub(crate) (Iter 56) |
+| Unsafe evolution | VolatilePtr safe MMIO; DmaBuffer Arc\<OwnedFd\> (Iter 58); SCM_RIGHTS fully safe via AsFd (Iter 58); from_raw_fd consolidated (Iter 58) |
 | Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based (Iter 56) |
 | Primal self-knowledge | Zero hardcoded primal names in production; capability-based discovery (Iter 56) |
-| SPDX headers | 425/425 .rs files have SPDX (pci_discovery_tests.rs fixed, Iter 56) |
+| SPDX headers | 455/455 .rs files have SPDX |
 | scyBorg license | AGPL-3.0-only; NAK MIT exception documented |
 | Shutdown safety | coral-glowplug: cancellation token + mutex timeout; no spawn_blocking deadlock (Iter 56) |

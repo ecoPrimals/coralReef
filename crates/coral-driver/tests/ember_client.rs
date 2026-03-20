@@ -5,9 +5,9 @@
 //! NvVfioComputeDevice without competing with ember for /dev/vfio/*.
 #![allow(dead_code, unsafe_code)]
 
+use std::io::Write;
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::io::Write;
 
 const EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
 
@@ -18,8 +18,7 @@ pub struct EmberFds {
 }
 
 pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
-    let stream =
-        UnixStream::connect(EMBER_SOCKET).map_err(|e| format!("connect to ember: {e}"))?;
+    let stream = UnixStream::connect(EMBER_SOCKET).map_err(|e| format!("connect to ember: {e}"))?;
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
         .map_err(|e| format!("set timeout: {e}"))?;
@@ -36,12 +35,8 @@ pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
         .map_err(|e| format!("write: {e}"))?;
 
     let mut buf = [0u8; 4096];
-    let (n, fds) = recv_with_fds(
-        std::os::fd::AsRawFd::as_raw_fd(&stream),
-        &mut buf,
-        3,
-    )
-    .map_err(|e| format!("recvmsg: {e}"))?;
+    let (n, fds) = recv_with_fds(std::os::fd::AsRawFd::as_raw_fd(&stream), &mut buf, 3)
+        .map_err(|e| format!("recvmsg: {e}"))?;
 
     let resp: serde_json::Value =
         serde_json::from_slice(&buf[..n]).map_err(|e| format!("parse: {e}"))?;

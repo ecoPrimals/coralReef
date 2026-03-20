@@ -1,0 +1,43 @@
+---
+description: coralReef project standards from wateringHole ecosystem conventions
+alwaysApply: true
+---
+
+# coralReef Standards
+
+## Language & Toolchain
+- Rust 2024 edition, `rust-version = "1.85"`. No C/C++/Python in production.
+- `clippy::pedantic` + `clippy::nursery` — ZERO warnings. `cargo clippy --all-features -- -D warnings`.
+- `#![forbid(unsafe_code)]` on all crate roots except `coral-driver` (hardware ioctl).
+- `#![warn(missing_docs)]` on library crates. Doctests count as tests.
+
+## License
+- `AGPL-3.0-only` everywhere. First line of every `.rs` file: `// SPDX-License-Identifier: AGPL-3.0-only`
+
+## Code Size & Style
+- No file > 1000 lines. Split into cohesive submodules.
+- No TODO/FIXME/HACK in committed `.rs` code. Track in handoffs.
+- No `.unwrap()` in library code. Use `Result<T, E>` + `thiserror`. `.expect()` with reason is acceptable.
+- No commented-out code. Git remembers.
+- Semantic naming: functions say what they do, variables say what they hold.
+
+## IPC (JSON-RPC + tarpc)
+- JSON-RPC 2.0 primary (TCP/HTTP external, Unix socket local). tarpc optional high-perf.
+- Semantic method names: `{domain}.{operation}[.{variant}]` (e.g. `shader.compile.wgsl`).
+- Primals never import each other's code. All coordination via JSON-RPC.
+- Discover by capability, not by primal name. No hardcoded primal names in production.
+
+## Binary Architecture (UniBin → ecoBin)
+- Single binary per primal with clap subcommands, `--help`, `--version`.
+- Pure Rust dependencies. Prefer `rustix` over `libc`. No openssl/ring/vendor SDKs.
+- Platform-agnostic IPC: Unix socket primary, TCP fallback for non-Unix.
+- Hardcoded paths use env var override with sane default.
+
+## Zero-Copy & Performance
+- `bytes::Bytes` for IPC payloads. Minimize `.clone()`.
+- `unsafe` only in `coral-driver` with SAFETY comments on every block.
+
+## Testing
+- `cargo test --all-features` — zero failures.
+- Named tolerances for numerical comparisons (no magic numbers).
+- Target 90% coverage (llvm-cov). Hardware tests gated behind `#[ignore]`.

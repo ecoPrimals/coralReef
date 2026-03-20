@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(
+    missing_docs,
+    reason = "health_loop signature is covered by module docs; missing_docs kept at crate level."
+)]
 //! Periodic health monitor for managed devices.
 //!
 //! Runs a background loop that checks each device's VRAM, power state,
@@ -30,9 +34,9 @@ pub async fn health_loop(
     shutdown: &mut tokio::sync::watch::Receiver<bool>,
 ) {
     let interval = std::time::Duration::from_millis(interval_ms);
-    let mut consecutive_dead: std::collections::HashMap<String, u32> =
+    let mut consecutive_dead: std::collections::HashMap<Arc<str>, u32> =
         std::collections::HashMap::new();
-    let mut tripped: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut tripped: std::collections::HashMap<Arc<str>, bool> = std::collections::HashMap::new();
 
     loop {
         tokio::select! {

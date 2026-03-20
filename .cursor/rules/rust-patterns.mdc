@@ -1,0 +1,45 @@
+---
+description: Rust idiom enforcement for coralReef source files
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Rust Patterns
+
+## Error Handling
+```rust
+// BAD: panics in library code
+let val = map.get(&key).unwrap();
+
+// GOOD: propagate errors
+let val = map.get(&key).ok_or(MyError::KeyNotFound { key })?;
+```
+
+## Avoid Unnecessary Cloning
+```rust
+// BAD: clone when borrow suffices
+fn process(data: &Config) {
+    let name = data.name.clone();
+    log::info!("{name}");
+}
+
+// GOOD: borrow
+fn process(data: &Config) {
+    log::info!("{}", data.name);
+}
+```
+
+## Feature Gates
+- Optional functionality behind Cargo features
+- Test-only exports: `#[cfg(any(test, feature = "e2e"))]`
+- Hardware tests: `#[ignore]` with descriptive reason
+
+## Lint Expectations
+- Prefer `#[expect(lint, reason = "...")]` over `#[allow(lint)]`
+- Never suppress lints at file level without `reason` parameter
+- `dead_code` on struct fields reserved for future use: `#[allow(dead_code, reason = "...")]`
+
+## Unsafe Code
+- Only in `coral-driver` (hardware ioctl, MMIO, DMA)
+- Every `unsafe` block has `// SAFETY: ...` comment
+- Wrap unsafe in safe abstractions at module boundary

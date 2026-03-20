@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![allow(
+    missing_docs,
+    reason = "error variants are self-describing in Display/JSON-RPC; exhaustive per-variant docs deferred."
+)]
 //! Typed error hierarchy for `coral-glowplug`.
 //!
 //! Replaces `String` errors with structured variants that carry context
@@ -6,29 +10,30 @@
 //! consumption via JSON-RPC error responses.
 
 use std::fmt;
+use std::sync::Arc;
 
 /// Errors from device lifecycle operations.
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceError {
     #[error("unknown personality '{personality}' for {bdf} (known: {known:?})")]
     UnknownPersonality {
-        bdf: String,
+        bdf: Arc<str>,
         personality: String,
         known: Vec<&'static str>,
     },
 
     #[error("VFIO open failed for {bdf}: {reason}")]
-    VfioOpen { bdf: String, reason: String },
+    VfioOpen { bdf: Arc<str>, reason: String },
 
     #[error("driver bind failed for {bdf} → {driver}: {reason}")]
     DriverBind {
-        bdf: String,
+        bdf: Arc<str>,
         driver: String,
         reason: String,
     },
 
     #[error("device {bdf} not managed")]
-    NotManaged { bdf: String },
+    NotManaged { bdf: Arc<str> },
 
     #[error("sysfs I/O error at {path}: {source}")]
     #[allow(dead_code)] // reserved for upcoming sysfs evolution; used in tests
@@ -41,7 +46,7 @@ pub enum DeviceError {
         "device {bdf} has active DRM consumers — unbinding would crash the kernel. \
          Close all GPU-using applications on this card first."
     )]
-    ActiveDrmConsumers { bdf: String },
+    ActiveDrmConsumers { bdf: Arc<str> },
 }
 
 /// Errors from configuration loading and parsing.
@@ -165,11 +170,12 @@ impl From<DeviceError> for RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn device_error_display_unknown_personality() {
         let err = DeviceError::UnknownPersonality {
-            bdf: "0000:01:00.0".into(),
+            bdf: Arc::from("0000:01:00.0"),
             personality: "vfio-pci".into(),
             known: vec!["nvidia", "amdgpu"],
         };
@@ -182,7 +188,7 @@ mod tests {
     #[test]
     fn device_error_display_vfio_open() {
         let err = DeviceError::VfioOpen {
-            bdf: "0000:02:00.0".into(),
+            bdf: Arc::from("0000:02:00.0"),
             reason: "permission denied".into(),
         };
         assert_eq!(
@@ -194,7 +200,7 @@ mod tests {
     #[test]
     fn device_error_display_driver_bind() {
         let err = DeviceError::DriverBind {
-            bdf: "0000:03:00.0".into(),
+            bdf: Arc::from("0000:03:00.0"),
             driver: "vfio-pci".into(),
             reason: "device busy".into(),
         };
@@ -207,7 +213,7 @@ mod tests {
     #[test]
     fn device_error_display_not_managed() {
         let err = DeviceError::NotManaged {
-            bdf: "0000:04:00.0".into(),
+            bdf: Arc::from("0000:04:00.0"),
         };
         assert_eq!(err.to_string(), "device 0000:04:00.0 not managed");
     }
@@ -312,7 +318,7 @@ mod tests {
     #[test]
     fn from_device_error_to_rpc_error() {
         let dev_err = DeviceError::NotManaged {
-            bdf: "0000:01:00.0".into(),
+            bdf: Arc::from("0000:01:00.0"),
         };
         let rpc_err: RpcError = dev_err.into();
         assert_eq!(rpc_err.code, RpcErrorCode::DEVICE_ERROR);

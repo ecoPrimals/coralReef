@@ -1,0 +1,7 @@
+error: FromVariants: variant `Pair` must have exactly one field
+ --> tests/compile_fail/from_variants_two_unnamed.rs:8:10
+  |
+8 | #[derive(FromVariants)]
+  |          ^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `FromVariants` (in Nightly builds, run with -Z macro-backtrace for more info)

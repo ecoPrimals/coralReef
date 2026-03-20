@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![warn(missing_docs)]
 //! coral-ember — Immortal VFIO fd holder for safe daemon restarts.
 //!
 //! Holds VFIO container/group/device fds open forever and passes
@@ -32,7 +33,10 @@ struct EmberConfig {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code, reason = "fields parsed from glowplug.toml but only bdf is used")]
+#[allow(
+    dead_code,
+    reason = "fields parsed from glowplug.toml but only bdf is used"
+)]
 struct EmberDeviceConfig {
     bdf: String,
     #[serde(default)]
@@ -168,24 +172,14 @@ fn main() {
         <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o660),
     );
 
-    tracing::info!(
-        "╔══════════════════════════════════════════════════════════╗"
-    );
-    tracing::info!(
-        "║ coral-ember — Immortal VFIO fd Holder                   ║"
-    );
-    tracing::info!(
-        "╠══════════════════════════════════════════════════════════╣"
-    );
+    tracing::info!("╔══════════════════════════════════════════════════════════╗");
+    tracing::info!("║ coral-ember — Immortal VFIO fd Holder                   ║");
+    tracing::info!("╠══════════════════════════════════════════════════════════╣");
     for dev in held.values() {
         tracing::info!("║ {} (fd={})", dev.bdf, dev.device.device_fd());
     }
-    tracing::info!(
-        "║ Socket: {EMBER_SOCKET}"
-    );
-    tracing::info!(
-        "╚══════════════════════════════════════════════════════════╝"
-    );
+    tracing::info!("║ Socket: {EMBER_SOCKET}");
+    tracing::info!("╚══════════════════════════════════════════════════════════╝");
 
     if let Ok(ref path) = std::env::var("NOTIFY_SOCKET") {
         let _ = std::os::unix::net::UnixDatagram::unbound()

@@ -19,7 +19,10 @@ use coral_glowplug::sysfs;
 const DEFAULT_SOCKET: &str = "/run/coralreef/glowplug.sock";
 
 #[derive(Parser)]
-#[command(name = "coralctl", about = "CLI companion for the coralReef GPU lifecycle system")]
+#[command(
+    name = "coralctl",
+    about = "CLI companion for the coralReef GPU lifecycle system"
+)]
 struct Cli {
     /// Path to glowplug socket.
     #[arg(long, default_value = DEFAULT_SOCKET, global = true)]
@@ -49,7 +52,11 @@ enum Command {
     DeployUdev {
         #[arg(short, long)]
         config: Option<String>,
-        #[arg(short, long, default_value = "/etc/udev/rules.d/70-coralreef-vfio.rules")]
+        #[arg(
+            short,
+            long,
+            default_value = "/etc/udev/rules.d/70-coralreef-vfio.rules"
+        )]
         output: String,
         #[arg(long)]
         dry_run: bool,
@@ -65,7 +72,12 @@ fn main() {
         Command::Status => rpc_status(&cli.socket),
         Command::Swap { bdf, target } => rpc_swap(&cli.socket, &bdf, &target),
         Command::Health => rpc_health(&cli.socket),
-        Command::DeployUdev { config: config_path, output, dry_run, group } => {
+        Command::DeployUdev {
+            config: config_path,
+            output,
+            dry_run,
+            group,
+        } => {
             deploy_udev(config_path, &output, dry_run, &group);
         }
     }
@@ -133,7 +145,10 @@ fn rpc_call(socket_path: &str, method: &str, params: serde_json::Value) -> serde
 fn check_rpc_error(response: &serde_json::Value) {
     if let Some(error) = response.get("error") {
         let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
-        let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+        let message = error
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
         eprintln!("error [{code}]: {message}");
         std::process::exit(1);
     }
@@ -163,13 +178,23 @@ fn rpc_status(socket: &str) {
 
     match devices {
         Some(devs) if !devs.is_empty() => {
-            println!("{:<16} {:<22} {:<6} {:<6} {}", "BDF", "PERSONALITY", "POWER", "VRAM", "NAME");
+            println!(
+                "{:<16} {:<22} {:<6} {:<6} NAME",
+                "BDF", "PERSONALITY", "POWER", "VRAM",
+            );
             println!("{}", "-".repeat(70));
             for dev in devs {
                 let bdf = dev.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
-                let personality = dev.get("personality").and_then(|v| v.as_str()).unwrap_or("?");
+                let personality = dev
+                    .get("personality")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
                 let power = dev.get("power").and_then(|v| v.as_str()).unwrap_or("?");
-                let vram = if dev.get("vram_alive").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let vram = if dev
+                    .get("vram_alive")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     "ok"
                 } else {
                     "-"
@@ -187,15 +212,25 @@ fn rpc_status(socket: &str) {
 fn rpc_swap(socket: &str, bdf: &str, target: &str) {
     println!("swapping {bdf} -> {target}...");
 
-    let response = rpc_call(socket, "device.swap", serde_json::json!({
-        "bdf": bdf,
-        "target": target,
-    }));
+    let response = rpc_call(
+        socket,
+        "device.swap",
+        serde_json::json!({
+            "bdf": bdf,
+            "target": target,
+        }),
+    );
     check_rpc_error(&response);
 
     if let Some(result) = response.get("result") {
-        let personality = result.get("personality").and_then(|v| v.as_str()).unwrap_or("?");
-        let vram = result.get("vram_alive").and_then(|v| v.as_bool()).unwrap_or(false);
+        let personality = result
+            .get("personality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let vram = result
+            .get("vram_alive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         println!("ok: {bdf} now on {personality} (vram_alive={vram})");
     }
 }
@@ -205,7 +240,10 @@ fn rpc_health(socket: &str) {
     check_rpc_error(&response);
 
     if let Some(result) = response.get("result") {
-        let healthy = result.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false);
+        let healthy = result
+            .get("healthy")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let status = if healthy { "HEALTHY" } else { "DEGRADED" };
         println!("system: {status}");
 
@@ -218,13 +256,28 @@ fn rpc_health(socket: &str) {
         if let Some(devs) = devices {
             for dev in devs {
                 let bdf = dev.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
-                let vram = dev.get("vram_alive").and_then(|v| v.as_bool()).unwrap_or(false);
+                let vram = dev
+                    .get("vram_alive")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let power = dev.get("power").and_then(|v| v.as_str()).unwrap_or("?");
-                let domains_alive = dev.get("domains_alive").and_then(|v| v.as_u64()).unwrap_or(0);
-                let domains_faulted = dev.get("domains_faulted").and_then(|v| v.as_u64()).unwrap_or(0);
+                let domains_alive = dev
+                    .get("domains_alive")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let domains_faulted = dev
+                    .get("domains_faulted")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let total = domains_alive + domains_faulted;
-                let dev_status = if vram && domains_faulted == 0 { "ok" } else { "degraded" };
-                println!("  {bdf}: {dev_status} (power={power}, vram={vram}, domains={domains_alive}/{total})");
+                let dev_status = if vram && domains_faulted == 0 {
+                    "ok"
+                } else {
+                    "degraded"
+                };
+                println!(
+                    "  {bdf}: {dev_status} (power={power}, vram={vram}, domains={domains_alive}/{total})"
+                );
             }
         }
     }
@@ -271,7 +324,10 @@ fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bool, group: 
         let chip = sysfs::identify_chip(vendor_id, device_id);
         let name = dev.name.as_deref().unwrap_or(&chip);
 
-        rules.push_str(&format!("# {name} ({}) — IOMMU group {group_id}\n", dev.bdf));
+        rules.push_str(&format!(
+            "# {name} ({}) — IOMMU group {group_id}\n",
+            dev.bdf
+        ));
         rules.push_str(&format!(
             "SUBSYSTEM==\"vfio\", KERNEL==\"{group_id}\", GROUP=\"{group}\", MODE=\"0660\"\n\n"
         ));
@@ -285,16 +341,25 @@ fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bool, group: 
     if dry_run {
         print!("{rules}");
     } else {
-        if let Some(parent) = std::path::Path::new(output).parent() {
-            if !parent.exists() {
-                eprintln!("error: parent directory {} does not exist", parent.display());
-                std::process::exit(1);
-            }
+        if let Some(parent) = std::path::Path::new(output).parent()
+            && !parent.exists()
+        {
+            eprintln!(
+                "error: parent directory {} does not exist",
+                parent.display()
+            );
+            std::process::exit(1);
         }
         match std::fs::write(output, &rules) {
             Ok(()) => {
-                eprintln!("wrote {} rules for {} IOMMU group(s) to {output}", seen_groups.len(), seen_groups.len());
-                eprintln!("reload udev: sudo udevadm control --reload-rules && sudo udevadm trigger");
+                eprintln!(
+                    "wrote {} rules for {} IOMMU group(s) to {output}",
+                    seen_groups.len(),
+                    seen_groups.len()
+                );
+                eprintln!(
+                    "reload udev: sudo udevadm control --reload-rules && sudo udevadm trigger"
+                );
             }
             Err(e) => {
                 eprintln!("error: failed to write {output}: {e}");

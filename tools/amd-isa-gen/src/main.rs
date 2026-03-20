@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 //! Pure Rust AMD ISA table generator — replaces `gen_rdna2_opcodes.py`.
 //!

@@ -11,6 +11,8 @@ mod glowplug_client;
 
 #[cfg(feature = "vfio")]
 mod tests {
+    use std::sync::Arc;
+
     use super::glowplug_client::VfioLease;
 
     fn vfio_bdf() -> String {
@@ -63,7 +65,7 @@ mod tests {
         );
 
         let results = diagnostic_matrix(
-            raw.container_fd,
+            Arc::clone(&raw.container),
             &raw.bar0,
             RawVfioDevice::gpfifo_iova(),
             RawVfioDevice::gpfifo_entries(),
@@ -135,7 +137,7 @@ mod tests {
 
         let (_lease, raw) = open_vfio();
 
-        let interpreter = ProbeInterpreter::new(&raw.bar0, raw.container_fd);
+        let interpreter = ProbeInterpreter::new(&raw.bar0, Arc::clone(&raw.container));
         let report = interpreter.run();
         report.print_summary();
 

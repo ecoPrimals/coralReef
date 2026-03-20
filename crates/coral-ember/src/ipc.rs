@@ -3,8 +3,12 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::os::fd::{AsRawFd, RawFd};
+use std::mem::MaybeUninit;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
+
+use rustix::io::IoSlice;
+use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg};
 
 use serde::{Deserialize, Serialize};
 
@@ -39,10 +43,19 @@ pub struct JsonRpcError {
 }
 
 fn make_jsonrpc_ok(id: serde_json::Value, result: serde_json::Value) -> JsonRpcResponse {
-    JsonRpcResponse { jsonrpc: "2.0", result: Some(result), error: None, id }
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        result: Some(result),
+        error: None,
+        id,
+    }
 }
 
-fn write_jsonrpc_ok(stream: &UnixStream, id: serde_json::Value, result: serde_json::Value) -> Result<(), String> {
+fn write_jsonrpc_ok(
+    stream: &UnixStream,
+    id: serde_json::Value,
+    result: serde_json::Value,
+) -> Result<(), String> {
     let resp = make_jsonrpc_ok(id, result);
     let json = serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?;
     let mut w: &UnixStream = stream;
@@ -50,11 +63,19 @@ fn write_jsonrpc_ok(stream: &UnixStream, id: serde_json::Value, result: serde_js
         .map_err(|e| format!("write: {e}"))
 }
 
-fn write_jsonrpc_error(stream: &UnixStream, id: serde_json::Value, code: i32, message: &str) -> Result<(), String> {
+fn write_jsonrpc_error(
+    stream: &UnixStream,
+    id: serde_json::Value,
+    code: i32,
+    message: &str,
+) -> Result<(), String> {
     let resp = JsonRpcResponse {
         jsonrpc: "2.0",
         result: None,
-        error: Some(JsonRpcError { code, message: message.to_string() }),
+        error: Some(JsonRpcError {
+            code,
+            message: message.to_string(),
+        }),
         id,
     };
     let json = serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?;
@@ -84,13 +105,23 @@ pub fn handle_client(
     let req: JsonRpcRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
-            write_jsonrpc_error(stream, serde_json::Value::Null, -32700, &format!("parse error: {e}"))?;
+            write_jsonrpc_error(
+                stream,
+                serde_json::Value::Null,
+                -32700,
+                &format!("parse error: {e}"),
+            )?;
             return Ok(());
         }
     };
 
     if req.jsonrpc != "2.0" {
-        write_jsonrpc_error(stream, req.id, -32600, &format!("invalid jsonrpc version: {}", req.jsonrpc))?;
+        write_jsonrpc_error(
+            stream,
+            req.id,
+            -32600,
+            &format!("invalid jsonrpc version: {}", req.jsonrpc),
+        )?;
         return Ok(());
     }
 
@@ -99,26 +130,36 @@ pub fn handle_client(
 
     match req.method.as_str() {
         "ember.vfio_fds" => {
-            let bdf = params.get("bdf").and_then(|v| v.as_str())
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
             let dev = match held.get(bdf) {
                 Some(d) => d,
                 None => {
-                    write_jsonrpc_error(stream, id, -32000, &format!("device {bdf} not held by ember"))?;
+                    write_jsonrpc_error(
+                        stream,
+                        id,
+                        -32000,
+                        &format!("device {bdf} not held by ember"),
+                    )?;
                     return Ok(());
                 }
             };
 
             let fds = [
-                dev.device.container_fd(),
-                dev.device.group_fd(),
-                dev.device.device_fd(),
+                dev.device.container_as_fd(),
+                dev.device.group_as_fd(),
+                dev.device.device_as_fd(),
             ];
 
             let resp = make_jsonrpc_ok(id, serde_json::json!({"bdf": bdf, "num_fds": 3}));
-            let resp_bytes = format!("{}\n", serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?);
+            let resp_bytes = format!(
+                "{}\n",
+                serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?
+            );
 
-            send_with_fds(stream.as_raw_fd(), resp_bytes.as_bytes(), &fds)
+            send_with_fds(stream, resp_bytes.as_bytes(), &fds)
                 .map_err(|e| format!("sendmsg: {e}"))?;
             tracing::debug!(bdf, "sent VFIO fds to client");
         }
@@ -127,7 +168,9 @@ pub fn handle_client(
             write_jsonrpc_ok(stream, id, serde_json::json!({"devices": devices}))?;
         }
         "ember.release" => {
-            let bdf = params.get("bdf").and_then(|v| v.as_str())
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
             match held.remove(bdf) {
                 Some(device) => {
@@ -136,12 +179,19 @@ pub fn handle_client(
                     write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
                 }
                 None => {
-                    write_jsonrpc_error(stream, id, -32000, &format!("device {bdf} not held by ember"))?;
+                    write_jsonrpc_error(
+                        stream,
+                        id,
+                        -32000,
+                        &format!("device {bdf} not held by ember"),
+                    )?;
                 }
             }
         }
         "ember.reacquire" => {
-            let bdf = params.get("bdf").and_then(|v| v.as_str())
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
             if held.contains_key(bdf) {
                 tracing::warn!(bdf, "device already held — skipping reacquire");
@@ -156,7 +206,13 @@ pub fn handle_client(
                             device_fd = device.device_fd(),
                             "VFIO device reacquired by ember after swap"
                         );
-                        held.insert(bdf.to_string(), HeldDevice { bdf: bdf.to_string(), device });
+                        held.insert(
+                            bdf.to_string(),
+                            HeldDevice {
+                                bdf: bdf.to_string(),
+                                device,
+                            },
+                        );
                         write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
                     }
                     Err(e) => {
@@ -167,13 +223,21 @@ pub fn handle_client(
             }
         }
         "ember.swap" => {
-            let bdf = params.get("bdf").and_then(|v| v.as_str())
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
-            let target = params.get("target").and_then(|v| v.as_str())
+            let target = params
+                .get("target")
+                .and_then(|v| v.as_str())
                 .ok_or("missing 'target' parameter")?;
             match swap::handle_swap_device(bdf, target, held) {
                 Ok(personality) => {
-                    write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf, "personality": personality}))?;
+                    write_jsonrpc_ok(
+                        stream,
+                        id,
+                        serde_json::json!({"bdf": bdf, "personality": personality}),
+                    )?;
                 }
                 Err(e) => {
                     write_jsonrpc_error(stream, id, -32000, &e)?;
@@ -181,10 +245,14 @@ pub fn handle_client(
             }
         }
         "ember.status" => {
-            write_jsonrpc_ok(stream, id, serde_json::json!({
-                "devices": held.keys().cloned().collect::<Vec<_>>(),
-                "uptime_secs": started_at.elapsed().as_secs(),
-            }))?;
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({
+                    "devices": held.keys().cloned().collect::<Vec<_>>(),
+                    "uptime_secs": started_at.elapsed().as_secs(),
+                }),
+            )?;
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))?;
@@ -194,53 +262,21 @@ pub fn handle_client(
     Ok(())
 }
 
-/// Send data with ancillary `SCM_RIGHTS` file descriptors.
-#[allow(
-    unsafe_code,
-    clippy::cast_possible_truncation,
-    clippy::cast_ptr_alignment,
-    clippy::borrow_as_ptr
-)]
-pub fn send_with_fds(sock_fd: RawFd, data: &[u8], fds: &[RawFd]) -> std::io::Result<()> {
-    // SAFETY: all pointers are stack-local; sendmsg is called with valid fd;
-    // cmsg buffer is correctly sized via CMSG_SPACE; fds are valid raw fds
-    // from VfioDevice (not closed before sendmsg returns).
-
-    let iov = libc::iovec {
-        iov_base: data.as_ptr() as *mut libc::c_void,
-        iov_len: data.len(),
-    };
-
-    let fd_payload_size = std::mem::size_of_val(fds);
-    let cmsg_space = unsafe { libc::CMSG_SPACE(fd_payload_size as libc::c_uint) } as usize;
-    let mut cmsg_buf = vec![0u8; cmsg_space];
-
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = std::ptr::addr_of!(iov).cast_mut();
-    msg.msg_iovlen = 1;
-    msg.msg_control = cmsg_buf.as_mut_ptr().cast();
-    msg.msg_controllen = cmsg_space as libc::size_t;
-
-    let cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(&msg) };
-    if cmsg.is_null() {
-        return Err(std::io::Error::other("CMSG_FIRSTHDR returned null"));
+/// Send data with ancillary `SCM_RIGHTS` file descriptors (`rustix::net::sendmsg`).
+pub fn send_with_fds(
+    stream: impl AsFd,
+    data: &[u8],
+    fds: &[BorrowedFd<'_>],
+) -> std::io::Result<()> {
+    let iov = [IoSlice::new(data)];
+    let mut space = vec![MaybeUninit::uninit(); SendAncillaryMessage::ScmRights(fds).size()];
+    let mut control = SendAncillaryBuffer::new(&mut space);
+    if !control.push(SendAncillaryMessage::ScmRights(fds)) {
+        return Err(std::io::Error::other(
+            "ancillary buffer too small for SCM_RIGHTS",
+        ));
     }
 
-    unsafe {
-        (*cmsg).cmsg_level = libc::SOL_SOCKET;
-        (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-        (*cmsg).cmsg_len = libc::CMSG_LEN(fd_payload_size as libc::c_uint) as _;
-        std::ptr::copy_nonoverlapping(
-            fds.as_ptr(),
-            libc::CMSG_DATA(cmsg).cast::<RawFd>(),
-            fds.len(),
-        );
-    }
-
-    let sent = unsafe { libc::sendmsg(sock_fd, &msg, 0) };
-    if sent < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    sendmsg(stream, &iov, &mut control, SendFlags::empty())?;
+    Ok(())
 }

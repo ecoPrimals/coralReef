@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Full warm-up sequence — bring the GPU from any state to Warm.
 
+use std::sync::Arc;
+
 use super::super::devinit;
 use super::super::diagnostic::interpreter::memory_probe;
 use super::super::hbm2_training;
@@ -91,7 +93,7 @@ impl GlowPlug<'_> {
         let final_state = self.check_state();
         let memory = Some(memory_probe::discover_memory_topology(
             self.bar0,
-            self.container_fd,
+            Arc::clone(&self.container),
         ));
 
         let success = final_state == GpuThermalState::Warm;
@@ -649,7 +651,7 @@ fn run_step_vram_strategies(
     // Strategy 5: Register-level FB init probe
     if !gp.check_vram() {
         log.push("step 3e: Attempting register-level FB init probe...".into());
-        let (topo, deltas) = memory_probe::attempt_fb_init(gp.bar0, gp.container_fd);
+        let (topo, deltas) = memory_probe::attempt_fb_init(gp.bar0, Arc::clone(&gp.container));
         if topo.vram_accessible {
             log.push("  FB init probe succeeded! VRAM is accessible.".into());
         } else {

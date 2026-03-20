@@ -36,6 +36,8 @@ use crate::vfio::dma::DmaBuffer;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use std::collections::HashMap;
+use std::os::fd::{AsRawFd, OwnedFd};
+use std::sync::Arc;
 
 /// BAR0 register offsets for NVIDIA GPU.
 mod bar0_reg {
@@ -105,10 +107,13 @@ pub struct NvVfioComputeDevice {
     channel: VfioChannel,
     next_handle: u32,
     next_iova: u64,
-    container_fd: std::os::fd::RawFd,
+    container: Arc<OwnedFd>,
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
-    #[expect(dead_code, reason = "kept alive for fd lifecycle; used by DmaBuffer drop")]
+    #[expect(
+        dead_code,
+        reason = "kept alive for fd lifecycle; used by DmaBuffer drop"
+    )]
     device: VfioDevice,
 }
 
@@ -172,8 +177,8 @@ impl std::fmt::Display for GrEngineStatus {
 pub struct RawVfioDevice {
     /// MMIO-mapped BAR0 region for register access.
     pub bar0: MappedBar,
-    /// VFIO container file descriptor for DMA mapping.
-    pub container_fd: std::os::fd::RawFd,
+    /// Shared VFIO container handle for DMA mapping and diagnostics.
+    pub container: Arc<OwnedFd>,
     /// DMA buffer holding the GPFIFO command ring.
     pub gpfifo_ring: DmaBuffer,
     /// DMA buffer for the USERD (user data) doorbell page.
@@ -183,20 +188,26 @@ pub struct RawVfioDevice {
 }
 
 impl RawVfioDevice {
+    /// Raw numeric VFIO container fd (same open file as [`Self::container`]).
+    #[must_use]
+    pub fn container_fd(&self) -> std::os::fd::RawFd {
+        self.container.as_raw_fd()
+    }
+
     /// Open a raw VFIO device by PCI BDF address (e.g. `"0000:06:00.0"`).
     pub fn open(bdf: &str) -> DriverResult<Self> {
         if let Err(e) = crate::vfio::channel::devinit::force_pci_d0(bdf) {
             tracing::warn!(bdf, error = %e, "force_pci_d0 failed (may already be in D0)");
         }
         let device = VfioDevice::open(bdf)?;
-        let container_fd = device.container_fd();
+        let container = device.container_shared();
         let bar0 = device.map_bar(0)?;
-        let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
+        let gpfifo_ring = DmaBuffer::new(Arc::clone(&container), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(Arc::clone(&container), 4096, USERD_IOVA)?;
         Ok(Self {
             device,
             bar0,
-            container_fd,
+            container,
             gpfifo_ring,
             userd,
         })
@@ -227,7 +238,7 @@ impl NvVfioComputeDevice {
     /// Opens an NVIDIA VFIO compute device by PCI BDF, SM version, and compute class.
     pub fn open(bdf: &str, sm_version: u32, compute_class: u32) -> DriverResult<Self> {
         let device = VfioDevice::open(bdf)?;
-        let container_fd = device.container_fd();
+        let container = device.container_shared();
         let bar0 = device.map_bar(0)?;
 
         let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
@@ -240,15 +251,15 @@ impl NvVfioComputeDevice {
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
-        let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
+        let gpfifo_ring = DmaBuffer::new(Arc::clone(&container), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(Arc::clone(&container), 4096, USERD_IOVA)?;
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
         let channel = VfioChannel::create(
-            container_fd,
+            Arc::clone(&container),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
@@ -267,7 +278,7 @@ impl NvVfioComputeDevice {
             channel,
             next_handle: 1,
             next_iova: USER_IOVA_BASE,
-            container_fd,
+            container,
             buffers: HashMap::new(),
             inflight: Vec::new(),
         };
@@ -287,7 +298,7 @@ impl NvVfioComputeDevice {
         compute_class: u32,
     ) -> DriverResult<Self> {
         let device = VfioDevice::from_received_fds(bdf, container, group, device_fd)?;
-        let container_fd = device.container_fd();
+        let container = device.container_shared();
         let bar0 = device.map_bar(0)?;
 
         let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
@@ -300,15 +311,15 @@ impl NvVfioComputeDevice {
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
-        let gpfifo_ring = DmaBuffer::new(container_fd, gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container_fd, 4096, USERD_IOVA)?;
+        let gpfifo_ring = DmaBuffer::new(Arc::clone(&container), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(Arc::clone(&container), 4096, USERD_IOVA)?;
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
         let channel = VfioChannel::create(
-            container_fd,
+            Arc::clone(&container),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
@@ -327,7 +338,7 @@ impl NvVfioComputeDevice {
             channel,
             next_handle: 1,
             next_iova: USER_IOVA_BASE,
-            container_fd,
+            container,
             buffers: HashMap::new(),
             inflight: Vec::new(),
         };
@@ -357,7 +368,7 @@ impl NvVfioComputeDevice {
         let iova = self.next_iova;
         self.next_iova += aligned as u64;
 
-        let dma = DmaBuffer::new(self.container_fd, size, iova)?;
+        let dma = DmaBuffer::new(Arc::clone(&self.container), size, iova)?;
         let handle_id = self.next_handle;
         self.next_handle += 1;
 
@@ -536,5 +547,117 @@ mod tests {
     #[test]
     fn local_mem_window_legacy() {
         assert_eq!(LOCAL_MEM_WINDOW_LEGACY, 0xFF00_0000);
+    }
+
+    #[test]
+    fn gr_engine_status_fecs_halted_bit5() {
+        let s = GrEngineStatus {
+            pgraph_status: 0,
+            fecs_cpuctl: 0x20,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            gpccs_cpuctl: 0,
+            pmc_enable: 0,
+            pfifo_enable: 0,
+        };
+        assert!(s.fecs_halted());
+    }
+
+    #[test]
+    fn gr_engine_status_fecs_halted_dead_pattern() {
+        let s = GrEngineStatus {
+            pgraph_status: 0,
+            fecs_cpuctl: 0xDEAD_DEAD,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            gpccs_cpuctl: 0,
+            pmc_enable: 0,
+            pfifo_enable: 0,
+        };
+        assert!(s.fecs_halted());
+    }
+
+    #[test]
+    fn gr_engine_status_fecs_not_halted() {
+        let s = GrEngineStatus {
+            pgraph_status: 0,
+            fecs_cpuctl: 0x10,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            gpccs_cpuctl: 0,
+            pmc_enable: 0,
+            pfifo_enable: 0,
+        };
+        assert!(!s.fecs_halted());
+    }
+
+    #[test]
+    fn gr_engine_status_gr_enabled_pmc_bit12() {
+        let off = GrEngineStatus {
+            pgraph_status: 0,
+            fecs_cpuctl: 0,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            gpccs_cpuctl: 0,
+            pmc_enable: 0,
+            pfifo_enable: 0,
+        };
+        let on = GrEngineStatus {
+            pmc_enable: 1 << 12,
+            ..off
+        };
+        assert!(!off.gr_enabled());
+        assert!(on.gr_enabled());
+    }
+
+    #[test]
+    fn gr_engine_status_display_substrings() {
+        let s = GrEngineStatus {
+            pgraph_status: 0xA,
+            fecs_cpuctl: 0x20,
+            fecs_mailbox0: 0xB,
+            fecs_mailbox1: 0xC,
+            fecs_hwcfg: 0xD,
+            gpccs_cpuctl: 0xE,
+            pmc_enable: 0x1000,
+            pfifo_enable: 0xF,
+        };
+        let text = s.to_string();
+        assert!(text.contains("pmc=0x00001000"));
+        assert!(text.contains("fecs_halted=true"));
+        assert!(text.contains("gr_en=true"));
+    }
+
+    #[test]
+    fn gr_engine_status_cold_silicon_badf_bad0() {
+        let badf = GrEngineStatus {
+            pgraph_status: 0xBADF_CAFE,
+            fecs_cpuctl: 0x10,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            gpccs_cpuctl: 0,
+            pmc_enable: 1 << 12,
+            pfifo_enable: 0,
+        };
+        let bad0 = GrEngineStatus {
+            pgraph_status: 0xBAD0_1234,
+            fecs_cpuctl: 0x10,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            gpccs_cpuctl: 0,
+            pmc_enable: 1 << 12,
+            pfifo_enable: 0,
+        };
+        let t_badf = badf.to_string();
+        let t_bad0 = bad0.to_string();
+        assert!(t_badf.contains("pgraph=0xbadfcafe"));
+        assert!(t_bad0.contains("pgraph=0xbad01234"));
+        assert!(t_badf.contains("gr_en=true"));
     }
 }

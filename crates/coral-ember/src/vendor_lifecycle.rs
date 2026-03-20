@@ -35,6 +35,10 @@ pub enum RebindStrategy {
 
     /// Go straight to PCI remove + bus rescan, skipping simple bind entirely.
     /// WARNING: does NOT work for AMD Vega 20 — bridge powers off slot on remove.
+    #[expect(
+        dead_code,
+        reason = "valid rebind strategy for future vendor lifecycle profiles (e.g. Intel Xe FLR)"
+    )]
     PciRescan,
 
     /// PM power cycle (D3hot→D0) then simple bind. The PM cycle reinitializes
@@ -85,7 +89,10 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
 
 #[derive(Debug)]
 pub struct NvidiaLifecycle {
-    #[allow(dead_code, reason = "reserved for per-chip lifecycle refinement (Volta vs Turing vs Ada)")]
+    #[allow(
+        dead_code,
+        reason = "reserved for per-chip lifecycle refinement (Volta vs Turing vs Ada)"
+    )]
     pub device_id: u16,
 }
 
@@ -129,7 +136,10 @@ impl VendorLifecycle for NvidiaLifecycle {
 
 #[derive(Debug)]
 pub struct AmdVega20Lifecycle {
-    #[allow(dead_code, reason = "reserved for MI50 vs MI60 vs Radeon VII differences")]
+    #[allow(
+        dead_code,
+        reason = "reserved for MI50 vs MI60 vs Radeon VII differences"
+    )]
     pub device_id: u16,
 }
 
@@ -142,11 +152,11 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        tracing::info!(bdf, "AMD Vega 20: disabling reset_method (prevents D3cold on any transition)");
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{bdf}/reset_method"),
-            "",
-        )?;
+        tracing::info!(
+            bdf,
+            "AMD Vega 20: disabling reset_method (prevents D3cold on any transition)"
+        );
+        sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "")?;
 
         Ok(())
     }
@@ -169,23 +179,21 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{bdf}/reset_method"),
-            "",
-        );
+        let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
 
         if target_driver == "amdgpu" {
             let _ = sysfs::sysfs_write(
                 &format!("/sys/bus/pci/devices/{bdf}/power/autosuspend_delay_ms"),
                 "-1",
             );
-            let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{bdf}/power/control"),
-                "on",
-            );
+            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
         }
 
-        tracing::info!(bdf, target_driver, "AMD Vega 20: post-bind stabilized (power pinned, reset_method cleared)");
+        tracing::info!(
+            bdf,
+            target_driver,
+            "AMD Vega 20: post-bind stabilized (power pinned, reset_method cleared)"
+        );
     }
 
     fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String> {
@@ -200,17 +208,19 @@ impl VendorLifecycle for AmdVega20Lifecycle {
             for attempt in 0..5 {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 let temp_path = format!("/sys/bus/pci/devices/{bdf}/hwmon");
-                if let Ok(entries) = std::fs::read_dir(&temp_path) {
-                    if entries
+                if let Ok(entries) = std::fs::read_dir(&temp_path)
+                    && entries
                         .flatten()
                         .any(|e| e.file_name().to_string_lossy().starts_with("hwmon"))
-                    {
-                        return Ok(());
-                    }
+                {
+                    return Ok(());
                 }
                 tracing::debug!(bdf, attempt, "waiting for hwmon to appear");
             }
-            tracing::warn!(bdf, "amdgpu hwmon not found after 5 attempts — SMU may be slow");
+            tracing::warn!(
+                bdf,
+                "amdgpu hwmon not found after 5 attempts — SMU may be slow"
+            );
         }
 
         Ok(())
@@ -238,10 +248,7 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_bridge_power(bdf);
 
         tracing::info!(bdf, "AMD RDNA: disabling reset_method (conservative)");
-        sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{bdf}/reset_method"),
-            "",
-        )?;
+        sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "")?;
 
         Ok(())
     }
@@ -261,20 +268,14 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write(
-            &format!("/sys/bus/pci/devices/{bdf}/reset_method"),
-            "",
-        );
+        let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
 
         if target_driver == "amdgpu" {
             let _ = sysfs::sysfs_write(
                 &format!("/sys/bus/pci/devices/{bdf}/power/autosuspend_delay_ms"),
                 "-1",
             );
-            let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{bdf}/power/control"),
-                "on",
-            );
+            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
         }
     }
 
@@ -396,10 +397,7 @@ impl VendorLifecycle for GenericLifecycle {
                 vendor_id = format!("0x{:04x}", self.vendor_id),
                 "unknown vendor: disabling reset_method as precaution"
             );
-            let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{bdf}/reset_method"),
-                "",
-            );
+            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
         }
 
         Ok(())
@@ -484,7 +482,10 @@ pub fn detect_lifecycle(bdf: &str) -> Box<dyn VendorLifecycle> {
                 vendor = format!("0x{vendor_id:04x}"),
                 "lifecycle: unknown vendor, using conservative defaults"
             );
-            Box::new(GenericLifecycle { vendor_id, device_id })
+            Box::new(GenericLifecycle {
+                vendor_id,
+                device_id,
+            })
         }
     }
 }
@@ -532,8 +533,14 @@ mod tests {
 
     #[test]
     fn generic_conservative_fallback_for_native() {
-        let lc = GenericLifecycle { vendor_id: 0xdead, device_id: 0xbeef };
-        assert_eq!(lc.rebind_strategy("some-driver"), RebindStrategy::SimpleWithRescanFallback);
+        let lc = GenericLifecycle {
+            vendor_id: 0xdead,
+            device_id: 0xbeef,
+        };
+        assert_eq!(
+            lc.rebind_strategy("some-driver"),
+            RebindStrategy::SimpleWithRescanFallback
+        );
         assert_eq!(lc.rebind_strategy("vfio-pci"), RebindStrategy::SimpleBind);
     }
 }
