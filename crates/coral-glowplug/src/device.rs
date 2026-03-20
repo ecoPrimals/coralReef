@@ -291,7 +291,7 @@ impl DeviceSlot {
 
         match target.as_str() {
             "vfio" => self.bind_vfio()?,
-            "nouveau" | "nvidia" | "amdgpu" => self.bind_driver(&target)?,
+            "nouveau" | "nvidia" | "amdgpu" | "akida-pcie" => self.bind_driver(&target)?,
             other => {
                 return Err(DeviceError::UnknownPersonality {
                     bdf: self.bdf.clone(),
@@ -415,6 +415,17 @@ impl DeviceSlot {
             "amdgpu" => {
                 let drm = sysfs::find_drm_card(&self.bdf);
                 self.personality = Personality::Amdgpu { drm_card: drm };
+            }
+            "akida-pcie" | "akida" => {
+                self.personality = Personality::Akida;
+            }
+            "xe" => {
+                let drm = sysfs::find_drm_card(&self.bdf);
+                self.personality = Personality::Xe { drm_card: drm };
+            }
+            "i915" => {
+                let drm = sysfs::find_drm_card(&self.bdf);
+                self.personality = Personality::I915 { drm_card: drm };
             }
             "unbound" => {
                 self.personality = Personality::Unbound;
@@ -607,6 +618,7 @@ impl DeviceSlot {
             "nouveau" => Personality::Nouveau { drm_card },
             "nvidia" => Personality::Nvidia { drm_card },
             "amdgpu" => Personality::Amdgpu { drm_card },
+            "akida-pcie" | "akida" => Personality::Akida,
             _ => Personality::Unbound,
         };
         Ok(())

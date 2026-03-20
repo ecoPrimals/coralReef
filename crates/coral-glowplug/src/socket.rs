@@ -94,6 +94,49 @@ pub struct HealthInfo {
     pub domains_faulted: usize,
 }
 
+/// Set socket group ownership for unprivileged user access.
+///
+/// Resolves `group_name` from `/etc/group` and chowns the socket.
+/// The glowplug socket should be `root:coralreef 0660` so users in the
+/// `coralreef` group can send RPC commands without privilege escalation.
+/// Ember's socket stays `root:root 0660` (service-to-service only).
+#[cfg(unix)]
+fn set_socket_group(path: &str, group_name: &str) {
+    let gid = match resolve_group_gid(group_name) {
+        Some(gid) => gid,
+        None => {
+            tracing::warn!(
+                group = group_name,
+                path,
+                "group not found — socket remains root:root. \
+                 Create with: sudo groupadd -r {group_name} && sudo usermod -aG {group_name} $USER"
+            );
+            return;
+        }
+    };
+
+    match std::os::unix::fs::chown(path, None, Some(gid)) {
+        Ok(()) => {
+            tracing::info!(path, group = group_name, gid, "socket group set — unprivileged RPC enabled");
+        }
+        Err(e) => {
+            tracing::warn!(path, group = group_name, gid, error = %e, "failed to chown socket");
+        }
+    }
+}
+
+#[cfg(unix)]
+fn resolve_group_gid(group_name: &str) -> Option<u32> {
+    let content = std::fs::read_to_string("/etc/group").ok()?;
+    for line in content.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() >= 3 && fields[0] == group_name {
+            return fields[2].parse().ok();
+        }
+    }
+    None
+}
+
 /// Platform-agnostic JSON-RPC socket server (`ecoBin` compliant).
 ///
 /// Binds to either a Unix domain socket path or a TCP address.
@@ -154,6 +197,8 @@ impl SocketServer {
                     addr,
                     std::os::unix::fs::PermissionsExt::from_mode(0o660),
                 );
+
+                set_socket_group(addr, "coralreef");
 
                 tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
                 Ok(Self {

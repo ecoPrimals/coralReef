@@ -1,0 +1,16 @@
+[Unit]
+Description=coralReef AMD Shutdown Guard — park AMD GPUs on vfio-pci before kernel shutdown
+Documentation=https://github.com/ecoPrimals/coralReef
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target poweroff.target kexec.target
+After=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/bin/coralreef-amd-shutdown-guard
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

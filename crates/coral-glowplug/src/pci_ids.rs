@@ -48,6 +48,19 @@ pub const fn is_vega20(device_id: u16) -> bool {
     matches!(device_id, MI50_DEVICE_ID | MI60_DEVICE_ID | RADEON_VII_DEVICE_ID)
 }
 
+// ---- Intel ----
+
+/// PCI vendor ID: Intel Corporation.
+pub const INTEL_VENDOR_ID: u16 = 0x8086;
+
+// ---- BrainChip ----
+
+/// PCI vendor ID: BrainChip Inc.
+pub const BRAINCHIP_VENDOR_ID: u16 = 0x1e7c;
+
+/// PCI device ID: AKD1000 Neural Network Coprocessor (Akida).
+pub const AKD1000_DEVICE_ID: u16 = 0xbca1;
+
 // ---- Helpers ----
 
 /// Returns the HBM2-training driver name for a given PCI vendor.
@@ -59,6 +72,18 @@ pub const fn hbm2_training_driver(vendor_id: u16) -> Option<&'static str> {
     match vendor_id {
         NVIDIA_VENDOR_ID => Some("nouveau"),
         AMD_VENDOR_ID => Some("amdgpu"),
+        INTEL_VENDOR_ID => Some("xe"),
+        _ => None,
+    }
+}
+
+/// Returns the native compute driver name for a given PCI vendor.
+pub const fn native_compute_driver(vendor_id: u16) -> Option<&'static str> {
+    match vendor_id {
+        NVIDIA_VENDOR_ID => Some("nouveau"),
+        AMD_VENDOR_ID => Some("amdgpu"),
+        INTEL_VENDOR_ID => Some("xe"),
+        BRAINCHIP_VENDOR_ID => Some("akida-pcie"),
         _ => None,
     }
 }
@@ -140,7 +165,12 @@ mod tests {
     }
 
     #[test]
+    fn hbm2_training_driver_intel() {
+        assert_eq!(hbm2_training_driver(INTEL_VENDOR_ID), Some("xe"));
+    }
+
+    #[test]
     fn hbm2_training_driver_unknown() {
-        assert_eq!(hbm2_training_driver(0x8086), None);
+        assert_eq!(hbm2_training_driver(0xdead), None);
     }
 }

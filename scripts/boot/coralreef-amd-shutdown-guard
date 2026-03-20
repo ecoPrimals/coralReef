@@ -1,0 +1,52 @@
+#!/bin/sh
+# coralReef AMD Shutdown Guard
+# Preemptively unbind AMD devices from amdgpu before kernel shutdown hooks.
+# vfio-pci shutdown is silent — no SMU communication, no hang.
+
+AMD_VENDOR="0x1002"
+TIMEOUT_SECS=8
+
+for dev in /sys/bus/pci/devices/*/vendor; do
+    dir=$(dirname "$dev")
+    bdf=$(basename "$dir")
+    vendor=$(cat "$dev" 2>/dev/null)
+    [ "$vendor" = "$AMD_VENDOR" ] || continue
+
+    power=$(cat "$dir/power_state" 2>/dev/null)
+    driver_link=$(readlink "$dir/driver" 2>/dev/null)
+    driver=$(basename "$driver_link" 2>/dev/null)
+
+    echo "coralreef-shutdown: $bdf power=$power driver=$driver"
+
+    if [ "$power" = "D3cold" ]; then
+        echo "coralreef-shutdown: $bdf in D3cold — cannot safely unbind, skipping"
+        continue
+    fi
+
+    if [ "$driver" = "amdgpu" ]; then
+        echo "coralreef-shutdown: $bdf unbinding from amdgpu"
+        # Pin power before unbind to prevent bridge power-down
+        echo on > "$dir/power/control" 2>/dev/null
+        echo 0  > "$dir/d3cold_allowed" 2>/dev/null
+
+        # Clear reset_method to prevent bus reset on unbind
+        echo > "$dir/reset_method" 2>/dev/null
+
+        # Unbind from amdgpu (calls .remove — may talk to SMU briefly)
+        timeout $TIMEOUT_SECS sh -c "echo '$bdf' > /sys/bus/pci/drivers/amdgpu/unbind" 2>/dev/null
+        result=$?
+
+        if [ $result -eq 0 ]; then
+            echo "coralreef-shutdown: $bdf unbound from amdgpu OK"
+            # Bind to vfio-pci for silent shutdown
+            echo vfio-pci > "$dir/driver_override" 2>/dev/null
+            echo "$bdf" > /sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null
+            echo "coralreef-shutdown: $bdf parked on vfio-pci"
+        else
+            echo "coralreef-shutdown: $bdf unbind timed out ($TIMEOUT_SECS s) — SMU likely dead"
+            # Attempt PCI remove as last resort
+            timeout 3 sh -c "echo 1 > '$dir/remove'" 2>/dev/null
+        fi
+    fi
+done
+echo "coralreef-shutdown: guard complete"

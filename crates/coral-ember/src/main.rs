@@ -14,6 +14,7 @@ mod hold;
 mod ipc;
 mod swap;
 mod sysfs;
+pub(crate) mod vendor_lifecycle;
 
 use std::collections::HashMap;
 use std::os::unix::net::UnixListener;
@@ -86,6 +87,26 @@ fn main() {
 
     let started_at = std::time::Instant::now();
     let mut held: HashMap<String, HeldDevice> = HashMap::new();
+
+    // Pre-flight: disable dangerous reset methods for ALL managed devices.
+    // This must happen at startup before any VFIO fds are opened, because
+    // vfio-pci triggers a PCI reset when its last fd closes. If ember is
+    // restarted (systemctl restart), the old process drops fds → reset.
+    // Clearing reset_method now protects against that.
+    for dev_config in &config.device {
+        let lifecycle = vendor_lifecycle::detect_lifecycle(&dev_config.bdf);
+        let current = sysfs::read_current_driver(&dev_config.bdf);
+        if let Some(ref drv) = current {
+            if let Err(e) = lifecycle.prepare_for_unbind(&dev_config.bdf, drv) {
+                tracing::warn!(
+                    bdf = %dev_config.bdf, error = %e,
+                    "startup: prepare_for_unbind failed (non-fatal)"
+                );
+            }
+        } else {
+            sysfs::pin_power(&dev_config.bdf);
+        }
+    }
 
     for dev_config in &config.device {
         tracing::info!(bdf = %dev_config.bdf, "opening VFIO device for ember hold");

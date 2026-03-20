@@ -72,3 +72,109 @@ pub fn pin_power(bdf: &str) {
         "0",
     );
 }
+
+/// Read a PCI ID field (vendor, device, subsystem_vendor, subsystem_device).
+/// Returns 0 on failure. The sysfs files contain hex values like "0x10de\n".
+pub fn read_pci_id(bdf: &str, field: &str) -> u16 {
+    let path = format!("/sys/bus/pci/devices/{bdf}/{field}");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
+        .unwrap_or(0)
+}
+
+/// Read the current PCIe power state (D0, D3hot, D3cold, unknown).
+pub fn read_power_state(bdf: &str) -> Option<String> {
+    let path = format!("/sys/bus/pci/devices/{bdf}/power_state");
+    std::fs::read_to_string(&path)
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+/// Pin power on all upstream PCI bridges to prevent them from
+/// powering down after a device remove. Walks the sysfs topology
+/// from the device up to the root port.
+pub fn pin_bridge_power(bdf: &str) {
+    let device_path = format!("/sys/bus/pci/devices/{bdf}");
+    let Ok(real_path) = std::fs::canonicalize(&device_path) else {
+        return;
+    };
+
+    let mut current = real_path.parent();
+    while let Some(parent) = current {
+        let power_control = parent.join("power/control");
+        let d3cold = parent.join("d3cold_allowed");
+
+        if power_control.exists() {
+            let _ = std::fs::write(&power_control, "on");
+            let _ = std::fs::write(&d3cold, "0");
+        }
+
+        if parent.file_name().is_some_and(|n| n.to_string_lossy().starts_with("pci")) {
+            break;
+        }
+        current = parent.parent();
+    }
+}
+
+/// Remove a PCI device from the kernel's device tree.
+/// This forces full cleanup of sysfs entries, DRM nodes, hwmon, etc.
+pub fn pci_remove(bdf: &str) -> Result<(), String> {
+    let path = format!("/sys/bus/pci/devices/{bdf}/remove");
+    sysfs_write(&path, "1")
+}
+
+/// Trigger a PCI bus rescan, causing the kernel to re-enumerate
+/// all devices and probe matching drivers.
+pub fn pci_rescan() -> Result<(), String> {
+    sysfs_write("/sys/bus/pci/rescan", "1")
+}
+
+/// PM power cycle: transition through D3hot → D0 to reinitialize the
+/// function without a bus reset. The PCIe spec requires D3hot→D0 to
+/// reset function-level state while preserving PCI topology.
+pub fn pm_power_cycle(bdf: &str) -> Result<(), String> {
+    let power_state_path = format!("/sys/bus/pci/devices/{bdf}/power_state");
+
+    let current = std::fs::read_to_string(&power_state_path)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    tracing::info!(bdf, current_state = %current, "PM power cycle: entering D3hot");
+
+    pin_power(bdf);
+    pin_bridge_power(bdf);
+
+    sysfs_write(
+        &format!("/sys/bus/pci/devices/{bdf}/power/control"),
+        "on",
+    )?;
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+    let saved_config = std::fs::read(&config_path).ok();
+
+    sysfs_write(&power_state_path, "D3hot")?;
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    sysfs_write(&power_state_path, "D0")?;
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    if let Some(config) = saved_config {
+        let _ = std::fs::write(&config_path, &config);
+    }
+
+    pin_power(bdf);
+    pin_bridge_power(bdf);
+
+    let after = std::fs::read_to_string(&power_state_path)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    tracing::info!(bdf, power_state = %after, "PM power cycle complete");
+
+    if after == "D3cold" {
+        return Err(format!("{bdf}: PM power cycle resulted in D3cold"));
+    }
+
+    Ok(())
+}

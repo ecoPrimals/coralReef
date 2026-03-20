@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! coralctl — CLI companion for coral-glowplug and coral-ember.
 //!
+//! All device management commands go through glowplug's JSON-RPC socket.
+//! No privilege escalation needed — the user just needs to be in the
+//! `coralreef` group (socket is `root:coralreef 0660`).
+//!
 //! Subcommands:
+//!   status        List all managed devices
+//!   swap          Hot-swap a device to a new driver personality
+//!   health        Query device health registers
 //!   deploy-udev   Generate /dev/vfio/* udev rules from glowplug.toml
 #![deny(unsafe_code)]
 
@@ -9,34 +16,43 @@ use clap::{Parser, Subcommand};
 use coral_glowplug::config;
 use coral_glowplug::sysfs;
 
+const DEFAULT_SOCKET: &str = "/run/coralreef/glowplug.sock";
+
 #[derive(Parser)]
 #[command(name = "coralctl", about = "CLI companion for the coralReef GPU lifecycle system")]
 struct Cli {
+    /// Path to glowplug socket.
+    #[arg(long, default_value = DEFAULT_SOCKET, global = true)]
+    socket: String,
+
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
+    /// List all managed devices and their current personalities.
+    Status,
+
+    /// Hot-swap a device to a new driver personality.
+    Swap {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Target driver (vfio, nouveau, amdgpu, nvidia, xe, i915, unbound).
+        target: String,
+    },
+
+    /// Query health registers for all managed devices.
+    Health,
+
     /// Generate udev rules for /dev/vfio/* from glowplug.toml.
-    ///
-    /// Reads device BDFs from the configuration, resolves their IOMMU groups,
-    /// and writes rules granting the `coralreef` group read/write access to
-    /// the corresponding /dev/vfio/{group} character devices.
     DeployUdev {
-        /// Path to glowplug.toml. Auto-discovers if omitted.
         #[arg(short, long)]
         config: Option<String>,
-
-        /// Output file path for the generated udev rules.
         #[arg(short, long, default_value = "/etc/udev/rules.d/70-coralreef-vfio.rules")]
         output: String,
-
-        /// Print rules to stdout instead of writing to file.
         #[arg(long)]
         dry_run: bool,
-
-        /// System group that should own /dev/vfio/* devices.
         #[arg(long, default_value = "coralreef")]
         group: String,
     },
@@ -46,11 +62,177 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Status => rpc_status(&cli.socket),
+        Command::Swap { bdf, target } => rpc_swap(&cli.socket, &bdf, &target),
+        Command::Health => rpc_health(&cli.socket),
         Command::DeployUdev { config: config_path, output, dry_run, group } => {
             deploy_udev(config_path, &output, dry_run, &group);
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// JSON-RPC client (pure std, no dependencies)
+// ---------------------------------------------------------------------------
+
+fn rpc_call(socket_path: &str, method: &str, params: serde_json::Value) -> serde_json::Value {
+    use std::io::{BufRead, Write};
+    use std::os::unix::net::UnixStream;
+
+    let mut stream = match UnixStream::connect(socket_path) {
+        Ok(s) => s,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                eprintln!("error: permission denied connecting to {socket_path}");
+                eprintln!("hint: add yourself to the coralreef group:");
+                eprintln!("  sudo groupadd -r coralreef");
+                eprintln!("  sudo usermod -aG coralreef $USER");
+                eprintln!("  newgrp coralreef  # or log out and back in");
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+                eprintln!("error: socket not found at {socket_path}");
+                eprintln!("hint: is coral-glowplug running?  systemctl status coral-glowplug");
+            } else {
+                eprintln!("error: failed to connect to {socket_path}: {e}");
+            }
+            std::process::exit(1);
+        }
+    };
+
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params,
+    });
+
+    let mut payload = serde_json::to_string(&request).unwrap();
+    payload.push('\n');
+
+    if let Err(e) = stream.write_all(payload.as_bytes()) {
+        eprintln!("error: failed to send RPC: {e}");
+        std::process::exit(1);
+    }
+
+    let mut reader = std::io::BufReader::new(&stream);
+    let mut response_line = String::new();
+    if let Err(e) = reader.read_line(&mut response_line) {
+        eprintln!("error: failed to read RPC response: {e}");
+        std::process::exit(1);
+    }
+
+    match serde_json::from_str::<serde_json::Value>(&response_line) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: invalid JSON response: {e}");
+            eprintln!("raw: {response_line}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn check_rpc_error(response: &serde_json::Value) {
+    if let Some(error) = response.get("error") {
+        let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+        let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+        eprintln!("error [{code}]: {message}");
+        std::process::exit(1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand implementations
+// ---------------------------------------------------------------------------
+
+fn rpc_status(socket: &str) {
+    let response = rpc_call(socket, "device.list", serde_json::json!({}));
+    check_rpc_error(&response);
+
+    let result = match response.get("result") {
+        Some(r) => r,
+        None => {
+            eprintln!("error: no result in response");
+            std::process::exit(1);
+        }
+    };
+
+    let devices = if result.is_array() {
+        result.as_array()
+    } else {
+        result.get("devices").and_then(|d| d.as_array())
+    };
+
+    match devices {
+        Some(devs) if !devs.is_empty() => {
+            println!("{:<16} {:<22} {:<6} {:<6} {}", "BDF", "PERSONALITY", "POWER", "VRAM", "NAME");
+            println!("{}", "-".repeat(70));
+            for dev in devs {
+                let bdf = dev.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
+                let personality = dev.get("personality").and_then(|v| v.as_str()).unwrap_or("?");
+                let power = dev.get("power").and_then(|v| v.as_str()).unwrap_or("?");
+                let vram = if dev.get("vram_alive").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    "ok"
+                } else {
+                    "-"
+                };
+                let name = dev.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                println!("{bdf:<16} {personality:<22} {power:<6} {vram:<6} {name}");
+            }
+        }
+        _ => {
+            println!("no devices managed");
+        }
+    }
+}
+
+fn rpc_swap(socket: &str, bdf: &str, target: &str) {
+    println!("swapping {bdf} -> {target}...");
+
+    let response = rpc_call(socket, "device.swap", serde_json::json!({
+        "bdf": bdf,
+        "target": target,
+    }));
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let personality = result.get("personality").and_then(|v| v.as_str()).unwrap_or("?");
+        let vram = result.get("vram_alive").and_then(|v| v.as_bool()).unwrap_or(false);
+        println!("ok: {bdf} now on {personality} (vram_alive={vram})");
+    }
+}
+
+fn rpc_health(socket: &str) {
+    let response = rpc_call(socket, "health.check", serde_json::json!({}));
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let healthy = result.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false);
+        let status = if healthy { "HEALTHY" } else { "DEGRADED" };
+        println!("system: {status}");
+
+        let devices = if result.is_array() {
+            result.as_array()
+        } else {
+            result.get("devices").and_then(|d| d.as_array())
+        };
+
+        if let Some(devs) = devices {
+            for dev in devs {
+                let bdf = dev.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
+                let vram = dev.get("vram_alive").and_then(|v| v.as_bool()).unwrap_or(false);
+                let power = dev.get("power").and_then(|v| v.as_str()).unwrap_or("?");
+                let domains_alive = dev.get("domains_alive").and_then(|v| v.as_u64()).unwrap_or(0);
+                let domains_faulted = dev.get("domains_faulted").and_then(|v| v.as_u64()).unwrap_or(0);
+                let total = domains_alive + domains_faulted;
+                let dev_status = if vram && domains_faulted == 0 { "ok" } else { "degraded" };
+                println!("  {bdf}: {dev_status} (power={power}, vram={vram}, domains={domains_alive}/{total})");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// deploy-udev (existing)
+// ---------------------------------------------------------------------------
 
 fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bool, group: &str) {
     let cfg = load_config(config_path);
