@@ -149,7 +149,7 @@ impl LopPass {
                 RegFile::GPR | RegFile::UGPR => SrcRef::Zero.into(),
                 RegFile::Pred | RegFile::UPred => SrcRef::True.into(),
                 RegFile::Carry | RegFile::Bar | RegFile::Mem => {
-                    panic!("Not a normal register");
+                    crate::codegen::ice!("Not a normal register");
                 }
             };
 

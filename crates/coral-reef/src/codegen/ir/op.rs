@@ -340,7 +340,7 @@ impl Op {
             | Self::ParCopy(_)
             | Self::RegOut(_)
             | Self::Annotate(_) => {
-                panic!("Not a hardware opcode")
+                crate::codegen::ice!("Not a hardware opcode")
             }
         }
     }

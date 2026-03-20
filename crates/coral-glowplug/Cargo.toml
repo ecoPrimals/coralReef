@@ -36,3 +36,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-
 
 [dev-dependencies]
 coral-driver = { path = "../coral-driver", features = ["vfio"] }
+tempfile = "3"

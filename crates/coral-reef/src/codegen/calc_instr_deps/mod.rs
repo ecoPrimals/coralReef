@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_reg_use_deps() {
         let mut u = RegUse::<usize>::None;
-        assert_eq!(u.deps(), &[]);
+        assert_eq!(u.deps(), &[] as &[usize]);
         u.add_read(1);
         assert_eq!(u.deps(), &[1]);
         u.set_write(2);

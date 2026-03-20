@@ -36,7 +36,11 @@ pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 #[cfg(unix)]
 mod unix_jsonrpc;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
+#[allow(
+    unused_imports,
+    reason = "re-exported for embedders; not referenced by the coralreef binary"
+)]
 pub use unix_jsonrpc::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use unix_jsonrpc::{default_unix_socket_path, start_unix_jsonrpc_server};
@@ -142,5 +146,7 @@ mod tests_jsonrpc;
 mod tests_tarpc;
 #[cfg(test)]
 mod tests_unix;
+#[cfg(test)]
+mod tests_unix_advanced;
 #[cfg(test)]
 mod tests_unix_edge;

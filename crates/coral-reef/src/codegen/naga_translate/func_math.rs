@@ -30,37 +30,37 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         arg_handle: Handle<naga::Expression>,
     ) -> Result<SSARef, CompileError> {
         if let Some(dst) =
-            func_math_trig::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_trig::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }
         if let Some(dst) =
-            func_math_exp_log::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_exp_log::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }
         if let Some(dst) =
-            func_math_rounding::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_rounding::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }
         if let Some(dst) =
-            func_math_extrema::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_extrema::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }
         if let Some(dst) =
-            func_math_sqrt::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_sqrt::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }
         if let Some(dst) =
-            func_math_vector::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_vector::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }
         if let Some(dst) =
-            func_math_bitops::translate(self, fun, a.clone(), b.clone(), c.clone(), arg_handle)?
+            func_math_bitops::translate(self, fun, &a, b.as_ref(), c.as_ref(), arg_handle)?
         {
             return Ok(dst);
         }

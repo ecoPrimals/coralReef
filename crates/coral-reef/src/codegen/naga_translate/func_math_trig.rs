@@ -9,22 +9,22 @@ use naga::Handle;
 pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
-    a: SSARef,
-    b: Option<SSARef>,
-    _c: Option<SSARef>,
+    a: &SSARef,
+    b: Option<&SSARef>,
+    _c: Option<&SSARef>,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
         naga::MathFunction::Sin => Some(ft.emit_f32_trig_scaled(a[0], TranscendentalOp::Sin)?),
         naga::MathFunction::Cos => Some(ft.emit_f32_trig_scaled(a[0], TranscendentalOp::Cos)?),
-        naga::MathFunction::Tan => Some(translate_tan(ft, a, arg_handle)?),
+        naga::MathFunction::Tan => Some(translate_tan(ft, a.clone(), arg_handle)?),
         naga::MathFunction::Atan => Some(ft.emit_f32_atan(a[0])?),
         naga::MathFunction::Atan2 => {
             let b = b.ok_or_else(|| CompileError::InvalidInput("atan2 requires 2 args".into()))?;
             Some(ft.emit_f32_atan2(a[0], b[0])?)
         }
-        naga::MathFunction::Asin => Some(translate_asin(ft, a)?),
-        naga::MathFunction::Acos => Some(translate_acos(ft, a)?),
+        naga::MathFunction::Asin => Some(translate_asin(ft, a.clone())?),
+        naga::MathFunction::Acos => Some(translate_acos(ft, a.clone())?),
         _ => None,
     };
     Ok(result)

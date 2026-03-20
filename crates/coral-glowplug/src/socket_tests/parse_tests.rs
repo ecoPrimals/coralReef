@@ -50,6 +50,27 @@ fn test_jsonrpc_request_parse_invalid() {
 }
 
 #[test]
+fn test_jsonrpc_request_parse_missing_method_field() {
+    let line = r#"{"jsonrpc":"2.0","params":{},"id":1}"#;
+    let result: Result<JsonRpcRequest, _> = serde_json::from_str(line);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_jsonrpc_request_parse_missing_jsonrpc_field() {
+    let line = r#"{"method":"health.check","params":{},"id":1}"#;
+    let result: Result<JsonRpcRequest, _> = serde_json::from_str(line);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_jsonrpc_request_parse_invalid_json() {
+    let line = r#"{"jsonrpc":"2.0","method":"#;
+    let result: Result<JsonRpcRequest, _> = serde_json::from_str(line);
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_device_info_serialization_roundtrip() {
     let info = DeviceInfo {
         bdf: "0000:01:00.0".into(),

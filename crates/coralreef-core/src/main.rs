@@ -175,6 +175,35 @@ fn install_panic_hook() {
     }));
 }
 
+#[cfg(test)]
+static TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE: std::sync::Mutex<Option<u64>> =
+    std::sync::Mutex::new(None);
+
+/// Shutdown join timeout for `cmd_server` graceful teardown.
+///
+/// Unit tests use `TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE`. Subprocess server tests (which run the
+/// debug `coralreef` binary without `cfg(test)`) use `CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS`,
+/// honored only in `cfg(test)` or `cfg(debug_assertions)` builds so release binaries ignore it.
+fn shutdown_join_timeout() -> std::time::Duration {
+    #[cfg(test)]
+    if let Ok(g) = TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE.lock() {
+        if let Some(ms) = *g {
+            return std::time::Duration::from_millis(ms);
+        }
+    }
+    #[cfg(any(test, debug_assertions))]
+    if let Ok(ms) = std::env::var("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS") {
+        if let Ok(ms) = ms.parse::<u64>() {
+            return std::time::Duration::from_millis(ms);
+        }
+    }
+    config::DEFAULT_SHUTDOWN_TIMEOUT
+}
+
+fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> String {
+    format!("shutdown timed out after {join_timeout:?}")
+}
+
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
     tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
@@ -250,7 +279,8 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     let _ = rpc_handle.stop();
 
     let rpc_stopped = rpc_handle.clone().stopped();
-    let shutdown_result = tokio::time::timeout(config::DEFAULT_SHUTDOWN_TIMEOUT, async move {
+    let join_timeout = shutdown_join_timeout();
+    let shutdown_result = tokio::time::timeout(join_timeout, async move {
         rpc_stopped.await;
         tarpc_handle.await.ok();
         #[cfg(unix)]
@@ -261,10 +291,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     .await;
 
     if shutdown_result.is_err() {
-        tracing::warn!(
-            "shutdown timed out after {:?}",
-            config::DEFAULT_SHUTDOWN_TIMEOUT
-        );
+        tracing::warn!("{}", shutdown_join_timeout_elapsed_message(join_timeout));
     }
 
     remove_discovery_file();

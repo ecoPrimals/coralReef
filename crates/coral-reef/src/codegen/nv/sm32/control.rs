@@ -379,3 +379,7 @@ impl SM32Op for OpOut {
 // - 0x1b8 quadon (enable all threads in quad)
 // - 0x1c0 quadpop (redisable them)
 // - 0x190 ret
+
+#[cfg(test)]
+#[path = "control_sm32_tests.rs"]
+mod tests;

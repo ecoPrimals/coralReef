@@ -329,7 +329,7 @@ pub fn estimate_variable_latency(sm: &dyn ShaderModel, op: &Op) -> u32 {
 
         Op::Hmma(_) | Op::Imma(_) => 22,
 
-        _ => panic!("Unknown variable latency op {op}"),
+        _ => crate::codegen::ice!("Unknown variable latency op {op}"),
     }
 }
 

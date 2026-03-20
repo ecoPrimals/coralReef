@@ -9,17 +9,17 @@ use naga::Handle;
 pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
-    a: SSARef,
-    _b: Option<SSARef>,
-    _c: Option<SSARef>,
+    a: &SSARef,
+    _b: Option<&SSARef>,
+    _c: Option<&SSARef>,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
-        naga::MathFunction::Floor => Some(translate_floor(ft, a, arg_handle)?),
-        naga::MathFunction::Ceil => Some(translate_ceil(ft, a, arg_handle)?),
-        naga::MathFunction::Round => Some(translate_round(ft, a, arg_handle)?),
-        naga::MathFunction::Trunc => Some(translate_trunc(ft, a, arg_handle)?),
-        naga::MathFunction::Fract => Some(translate_fract(ft, a, arg_handle)?),
+        naga::MathFunction::Floor => Some(translate_floor(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Ceil => Some(translate_ceil(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Round => Some(translate_round(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Trunc => Some(translate_trunc(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Fract => Some(translate_fract(ft, a.clone(), arg_handle)?),
         _ => None,
     };
     Ok(result)

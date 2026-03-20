@@ -211,7 +211,7 @@ impl SM20Op for OpTranscendental {
                 TranscendentalOp::Rsq => 5_u8,
                 TranscendentalOp::Rcp64H => 6_u8,
                 TranscendentalOp::Rsq64H => 7_u8,
-                _ => panic!("transcendental {} not supported on SM20", self.op),
+                _ => crate::codegen::ice!("transcendental {} not supported on SM20", self.op),
             },
         );
     }

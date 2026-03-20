@@ -175,7 +175,7 @@ fn generate_order(g: &mut DepGraph, init_ready_list: Vec<usize>) -> (Vec<usize>,
             Some(ReadyInstr { index, .. }) => index,
         };
 
-        // Schedule the instuction
+        // Schedule the instruction
         instr_order.push(next_idx);
         current_cycle += g.nodes[next_idx].label.exec_latency;
 

@@ -32,7 +32,7 @@ impl AssignRegsBlock {
         let ra = &self.ra[ssa.file()];
         let reg = ra.try_get_reg(ssa).unwrap_or_else(|| {
             let known: Vec<_> = ra.ssa_reg.keys().collect();
-            panic!(
+            crate::codegen::ice!(
                 "Unknown SSA value {ssa:?} (file={:?}) in block {}. Allocated SSAs: {known:?}",
                 ssa.file(),
                 self.block_idx,
@@ -260,7 +260,9 @@ impl AssignRegsBlock {
                 let dst_vec = dst.as_ssa().expect("Pin/Unpin dst must be SSA value");
                 assert!(src_vec.comps() == dst_vec.comps());
 
-                if srcs_killed.len() == src_vec.comps().into() && src_vec.file() == dst_vec.file() {
+                if srcs_killed.len() == usize::from(src_vec.comps())
+                    && src_vec.file() == dst_vec.file()
+                {
                     let ra = &mut self.ra[src_vec.file()];
                     let mut vra = VecRegAllocator::new(ra);
                     let reg = vra.collect_vector(src_vec);

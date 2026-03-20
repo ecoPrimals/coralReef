@@ -44,7 +44,7 @@ impl RegLatencySM75 {
                         0 | 1 => IMADWideAB,
                         2 => IMADWideLower, // vs upper C operand - work it out
                         _ => {
-                            panic!("Illegal field in imadwide")
+                            crate::codegen::ice!("Illegal field in imadwide")
                         }
                     }
                 } else {
@@ -129,14 +129,14 @@ impl RegLatencySM75 {
             Op::Hmma(h) => match (h.mat_size, h.dst_type) {
                 (HmmaSize::M16N8K8, _) => RedirectedHMMA_1688,
                 (HmmaSize::M16N8K16, _) => RedirectedHMMA_16816,
-                _ => panic!("Illegal HMMA in reg category {h}"),
+                _ => crate::codegen::ice!("Illegal HMMA in reg category {h}"),
             },
             // S2UR  => Decoupled,
             Op::R2UR(_) => {
                 if reader {
                     Decoupled
                 } else {
-                    panic!("Illegal R2UR");
+                    crate::codegen::ice!("Illegal R2UR");
                 }
             }
             Op::CS2R(cs2r) => {
@@ -162,7 +162,7 @@ impl RegLatencySM75 {
             Op::CCtl(_) => DecoupledOther,
             Op::Imma(_) => IMMA(op_reg_idx),
             x => {
-                panic!("Illegal instuction in reg category {x}");
+                crate::codegen::ice!("Illegal instruction in reg category {x}");
             }
         }
     }
@@ -171,7 +171,7 @@ impl RegLatencySM75 {
         use RegLatencySM75::*;
         match writer {
             IMADWideAB | DecoupledOther => {
-                panic!("Illegal IMADWideAB for writer");
+                crate::codegen::ice!("Illegal IMADWideAB for writer");
             }
             _ => {}
         }
@@ -254,7 +254,7 @@ impl RegLatencySM75 {
                     _ => 1,
                 },
                 _ => {
-                    panic!("Illegal IMAD field");
+                    crate::codegen::ice!("Illegal IMAD field");
                 }
             },
             RedirectedFP64 => match writer {
@@ -366,7 +366,7 @@ impl RegLatencySM75 {
                 _ => 1,
             },
             BMov | GuardPredicate => {
-                panic!("Not a RAW category")
+                crate::codegen::ice!("Not a RAW category")
             }
         }
     }
@@ -375,7 +375,7 @@ impl RegLatencySM75 {
         use RegLatencySM75::*;
         match writer1 {
             IMADWideAB | DecoupledOther => {
-                panic!("Illegal reg latency for writer");
+                crate::codegen::ice!("Illegal reg latency for writer");
             }
             _ => {}
         }
@@ -562,7 +562,7 @@ impl RegLatencySM75 {
                 }
             }
             IMADWideAB | DecoupledOther | GuardPredicate => {
-                panic!("Not a WAW category")
+                crate::codegen::ice!("Not a WAW category")
             }
         }
     }
@@ -636,7 +636,7 @@ impl RegLatencySM75 {
                 _ => 9,
             },
             IMADWideAB | DecoupledOther | GuardPredicate => {
-                panic!("Illegal in WAR");
+                crate::codegen::ice!("Illegal in WAR");
             }
         }
     }
@@ -652,7 +652,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 14,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             CoupledAlu => match writer {
@@ -662,7 +662,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 8,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             CoupledFMA | IMADLo => match writer {
@@ -672,7 +672,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 8,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             IMADWideUpper | IMADWideLower => match writer {
@@ -683,7 +683,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 8,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             RedirectedFP64 => match writer {
@@ -694,7 +694,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 14,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             RedirectedFP16 => match writer {
@@ -705,7 +705,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 6,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             Decoupled | GuardPredicate => match writer {
@@ -716,11 +716,11 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 14,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             _ => {
-                panic!("Illegal reader in reg predicate");
+                crate::codegen::ice!("Illegal reader in reg predicate");
             }
         }
     }
@@ -734,7 +734,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => pred(has_pred, 3, 1),
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             IMADWideUpper | IMADWideLower => match writer1 {
@@ -745,7 +745,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => pred(has_pred, 3, 3),
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             RedirectedFP64 => match writer1 {
@@ -756,7 +756,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => pred(has_pred, 2, 4),
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             RedirectedFP16 => match writer1 {
@@ -767,7 +767,7 @@ impl RegLatencySM75 {
                 RedirectedFP16 => 1,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             Decoupled => match writer1 {
@@ -775,11 +775,11 @@ impl RegLatencySM75 {
                 | RedirectedFP64 | RedirectedFP16 => 2,
                 Decoupled => 1,
                 _ => {
-                    panic!("Illegal RAW in Predicate");
+                    crate::codegen::ice!("Illegal RAW in Predicate");
                 }
             },
             _ => {
-                panic!("Illegal WAR category in Predicates");
+                crate::codegen::ice!("Illegal WAR category in Predicates");
             }
         }
     }
@@ -804,7 +804,7 @@ impl RegLatencySM75 {
                 _ => 1,
             },
             _ => {
-                panic!("Illegal WAR category in Predicates");
+                crate::codegen::ice!("Illegal WAR category in Predicates");
             }
         }
     }

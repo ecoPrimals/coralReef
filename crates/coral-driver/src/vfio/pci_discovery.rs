@@ -254,6 +254,134 @@ impl fmt::Display for PcieLinkSpeed {
     }
 }
 
+fn pci_config_read_u16(config: &[u8], off: usize) -> u16 {
+    u16::from_le_bytes([config[off], config[off + 1]])
+}
+
+fn pci_config_read_u32(config: &[u8], off: usize) -> u32 {
+    u32::from_le_bytes([
+        config[off],
+        config[off + 1],
+        config[off + 2],
+        config[off + 3],
+    ])
+}
+
+/// Walk the PCI capability list in config space.
+///
+/// Returns discovered capabilities plus the first PM and PCIe capability offsets.
+fn walk_pci_capability_chain(config: &[u8]) -> (Vec<PciCapability>, Option<u8>, Option<u8>) {
+    let mut capabilities = Vec::new();
+    let mut pm_cap_offset = None;
+    let mut pcie_cap_offset = None;
+
+    let status = pci_config_read_u16(config, 0x06);
+    let has_cap_list = status & PCI_STATUS_CAP_LIST != 0;
+    if !has_cap_list || config.len() < 0x40 {
+        return (capabilities, pm_cap_offset, pcie_cap_offset);
+    }
+
+    let mut cap_ptr = (config[0x34] & 0xFC) as usize;
+    let mut visited = HashSet::new();
+    while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
+        visited.insert(cap_ptr);
+        let cap_id = config[cap_ptr];
+        let name = PciCapability::name_for_id(cap_id);
+
+        capabilities.push(PciCapability {
+            id: cap_id,
+            offset: cap_ptr as u8,
+            name,
+        });
+
+        if cap_id == PCI_CAP_ID_PM {
+            pm_cap_offset = Some(cap_ptr as u8);
+        }
+        if cap_id == PCI_CAP_ID_PCIE {
+            pcie_cap_offset = Some(cap_ptr as u8);
+        }
+
+        cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
+    }
+
+    (capabilities, pm_cap_offset, pcie_cap_offset)
+}
+
+fn pci_power_info_without_pm_capability() -> PciPowerInfo {
+    PciPowerInfo {
+        pm_cap_offset: None,
+        current_state: PciPmState::Unknown(0xFF),
+        d1_support: false,
+        d2_support: false,
+        pme_support: 0,
+        pmcsr_raw: 0,
+    }
+}
+
+fn parse_pci_power_info_from_config(config: &[u8], pm_cap_offset: u8) -> PciPowerInfo {
+    let pm_off = pm_cap_offset as usize;
+    if pm_off + 6 <= config.len() {
+        let pmc = pci_config_read_u16(config, pm_off + 2);
+        let pmcsr = pci_config_read_u16(config, pm_off + 4);
+        PciPowerInfo {
+            pm_cap_offset: Some(pm_cap_offset),
+            current_state: PciPmState::from_pmcsr_bits((pmcsr & 0x03) as u8),
+            d1_support: pmc & (1 << 9) != 0,
+            d2_support: pmc & (1 << 10) != 0,
+            pme_support: ((pmc >> 11) & 0x1F) as u8,
+            pmcsr_raw: pmcsr,
+        }
+    } else {
+        PciPowerInfo {
+            pm_cap_offset: Some(pm_cap_offset),
+            current_state: PciPmState::Unknown(0xFF),
+            d1_support: false,
+            d2_support: false,
+            pme_support: 0,
+            pmcsr_raw: 0,
+        }
+    }
+}
+
+fn parse_pcie_link_from_config(config: &[u8], pcie_cap_offset: u8) -> Option<PcieLinkInfo> {
+    let off = pcie_cap_offset as usize;
+    if off + 0x14 > config.len() {
+        return None;
+    }
+    let link_cap = pci_config_read_u32(config, off + 0x0C);
+    let link_sta = pci_config_read_u16(config, off + 0x12);
+    Some(PcieLinkInfo {
+        max_speed: PcieLinkSpeed::from_encoding((link_cap & 0x0F) as u8),
+        current_speed: PcieLinkSpeed::from_encoding((link_sta & 0x0F) as u8),
+        max_width: ((link_cap >> 4) & 0x3F) as u8,
+        current_width: ((link_sta >> 4) & 0x3F) as u8,
+    })
+}
+
+/// Locate the PM capability offset in config space (first PM cap in the chain).
+fn find_pm_capability_offset(config: &[u8]) -> Result<usize, String> {
+    if config.len() < 0x40 {
+        return Err("PCI config too short".into());
+    }
+
+    let status = pci_config_read_u16(config, 0x06);
+    if status & PCI_STATUS_CAP_LIST == 0 {
+        return Err("No PCI capabilities list".into());
+    }
+
+    let mut cap_ptr = (config[0x34] & 0xFC) as usize;
+    let mut visited = HashSet::new();
+    while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
+        visited.insert(cap_ptr);
+        if config[cap_ptr] == PCI_CAP_ID_PM {
+            return Ok(cap_ptr);
+        }
+        cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
+    }
+
+    Err("PM capability not found".into())
+}
+
 // ── PCI Device Info (top-level) ─────────────────────────────────────────
 
 /// Complete PCI device information parsed from sysfs config space.
@@ -300,101 +428,24 @@ impl PciDeviceInfo {
             return Err(format!("PCI config too short: {} bytes", config.len()));
         }
 
-        let r16 = |off: usize| u16::from_le_bytes([config[off], config[off + 1]]);
-        let r32 = |off: usize| {
-            u32::from_le_bytes([
-                config[off],
-                config[off + 1],
-                config[off + 2],
-                config[off + 3],
-            ])
-        };
+        let vendor_id = pci_config_read_u16(config, 0x00);
+        let device_id = pci_config_read_u16(config, 0x02);
+        let class_code = pci_config_read_u32(config, 0x08) >> 8;
+        let subsystem = (
+            pci_config_read_u16(config, 0x2C),
+            pci_config_read_u16(config, 0x2E),
+        );
 
-        let vendor_id = r16(0x00);
-        let device_id = r16(0x02);
-        let class_code = r32(0x08) >> 8;
-        let subsystem = (r16(0x2C), r16(0x2E));
-
-        let status = r16(0x06);
-        let mut capabilities = Vec::new();
-        let mut pm_cap_offset = None;
-        let mut pcie_cap_offset = None;
-
-        let has_cap_list = status & PCI_STATUS_CAP_LIST != 0;
-        if has_cap_list && config.len() >= 0x40 {
-            let mut cap_ptr = (config[0x34] & 0xFC) as usize;
-            let mut visited = HashSet::new();
-            while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
-                visited.insert(cap_ptr);
-                let cap_id = config[cap_ptr];
-                let name = PciCapability::name_for_id(cap_id);
-
-                capabilities.push(PciCapability {
-                    id: cap_id,
-                    offset: cap_ptr as u8,
-                    name,
-                });
-
-                if cap_id == PCI_CAP_ID_PM {
-                    pm_cap_offset = Some(cap_ptr as u8);
-                }
-                if cap_id == PCI_CAP_ID_PCIE {
-                    pcie_cap_offset = Some(cap_ptr as u8);
-                }
-
-                cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
-            }
-        }
+        let (capabilities, pm_cap_offset, pcie_cap_offset) = walk_pci_capability_chain(config);
 
         let power = if let Some(pm_off) = pm_cap_offset {
-            let pm_off = pm_off as usize;
-            if pm_off + 6 <= config.len() {
-                let pmc = r16(pm_off + 2);
-                let pmcsr = r16(pm_off + 4);
-                PciPowerInfo {
-                    pm_cap_offset: Some(pm_off as u8),
-                    current_state: PciPmState::from_pmcsr_bits((pmcsr & 0x03) as u8),
-                    d1_support: pmc & (1 << 9) != 0,
-                    d2_support: pmc & (1 << 10) != 0,
-                    pme_support: ((pmc >> 11) & 0x1F) as u8,
-                    pmcsr_raw: pmcsr,
-                }
-            } else {
-                PciPowerInfo {
-                    pm_cap_offset: Some(pm_off as u8),
-                    current_state: PciPmState::Unknown(0xFF),
-                    d1_support: false,
-                    d2_support: false,
-                    pme_support: 0,
-                    pmcsr_raw: 0,
-                }
-            }
+            parse_pci_power_info_from_config(config, pm_off)
         } else {
-            PciPowerInfo {
-                pm_cap_offset: None,
-                current_state: PciPmState::Unknown(0xFF),
-                d1_support: false,
-                d2_support: false,
-                pme_support: 0,
-                pmcsr_raw: 0,
-            }
+            pci_power_info_without_pm_capability()
         };
 
-        let pcie_link_parsed = pcie_cap_offset.and_then(|off| {
-            let off = off as usize;
-            if off + 0x14 <= config.len() {
-                let link_cap = r32(off + 0x0C);
-                let link_sta = r16(off + 0x12);
-                Some(PcieLinkInfo {
-                    max_speed: PcieLinkSpeed::from_encoding((link_cap & 0x0F) as u8),
-                    current_speed: PcieLinkSpeed::from_encoding((link_sta & 0x0F) as u8),
-                    max_width: ((link_cap >> 4) & 0x3F) as u8,
-                    current_width: ((link_sta >> 4) & 0x3F) as u8,
-                })
-            } else {
-                None
-            }
-        });
+        let pcie_link_parsed =
+            pcie_cap_offset.and_then(|off| parse_pcie_link_from_config(config, off));
         let pcie_link_final = pcie_link_parsed.or(pcie_link);
 
         Ok(Self {
@@ -420,20 +471,13 @@ impl PciDeviceInfo {
             return Err(format!("PCI config too short: {} bytes", config.len()));
         }
 
-        let r16 = |off: usize| u16::from_le_bytes([config[off], config[off + 1]]);
-        let r32 = |off: usize| {
-            u32::from_le_bytes([
-                config[off],
-                config[off + 1],
-                config[off + 2],
-                config[off + 3],
-            ])
-        };
-
-        let vendor_id = r16(0x00);
-        let device_id = r16(0x02);
-        let class_code = r32(0x08) >> 8;
-        let subsystem = (r16(0x2C), r16(0x2E));
+        let vendor_id = pci_config_read_u16(&config, 0x00);
+        let device_id = pci_config_read_u16(&config, 0x02);
+        let class_code = pci_config_read_u32(&config, 0x08) >> 8;
+        let subsystem = (
+            pci_config_read_u16(&config, 0x2C),
+            pci_config_read_u16(&config, 0x2E),
+        );
 
         // Parse BARs from sysfs resource file (more reliable than config space)
         let bars = Self::parse_bars_sysfs(bdf);
@@ -443,36 +487,9 @@ impl PciDeviceInfo {
         // so the capability pointer (0x34) may reference offsets beyond
         // what we have. We try the full config first, then fall back to
         // inferring common capabilities from the vendor ID.
-        let status = r16(0x06);
-        let mut capabilities = Vec::new();
-        let mut pm_cap_offset = None;
-        let mut pcie_cap_offset = None;
-
+        let status = pci_config_read_u16(&config, 0x06);
         let has_cap_list = status & PCI_STATUS_CAP_LIST != 0;
-        if has_cap_list && config.len() >= 0x40 {
-            let mut cap_ptr = (config[0x34] & 0xFC) as usize;
-            let mut visited = HashSet::new();
-            while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
-                visited.insert(cap_ptr);
-                let cap_id = config[cap_ptr];
-                let name = PciCapability::name_for_id(cap_id);
-
-                capabilities.push(PciCapability {
-                    id: cap_id,
-                    offset: cap_ptr as u8,
-                    name,
-                });
-
-                if cap_id == PCI_CAP_ID_PM {
-                    pm_cap_offset = Some(cap_ptr as u8);
-                }
-                if cap_id == PCI_CAP_ID_PCIE {
-                    pcie_cap_offset = Some(cap_ptr as u8);
-                }
-
-                cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
-            }
-        }
+        let (mut capabilities, pm_cap_offset, pcie_cap_offset) = walk_pci_capability_chain(&config);
 
         // If vfio-pci truncated config space, populate from sysfs attributes
         if capabilities.is_empty() && has_cap_list {
@@ -497,28 +514,7 @@ impl PciDeviceInfo {
 
         // Parse PM capability — try config space first, then sysfs fallback
         let power = if let Some(pm_off) = pm_cap_offset {
-            let pm_off = pm_off as usize;
-            if pm_off + 6 <= config.len() {
-                let pmc = r16(pm_off + 2);
-                let pmcsr = r16(pm_off + 4);
-                PciPowerInfo {
-                    pm_cap_offset: Some(pm_off as u8),
-                    current_state: PciPmState::from_pmcsr_bits((pmcsr & 0x03) as u8),
-                    d1_support: pmc & (1 << 9) != 0,
-                    d2_support: pmc & (1 << 10) != 0,
-                    pme_support: ((pmc >> 11) & 0x1F) as u8,
-                    pmcsr_raw: pmcsr,
-                }
-            } else {
-                PciPowerInfo {
-                    pm_cap_offset: Some(pm_off as u8),
-                    current_state: PciPmState::Unknown(0xFF),
-                    d1_support: false,
-                    d2_support: false,
-                    pme_support: 0,
-                    pmcsr_raw: 0,
-                }
-            }
+            parse_pci_power_info_from_config(&config, pm_off)
         } else {
             // sysfs fallback: read power_state if config space was truncated
             let dev_path = format!("/sys/bus/pci/devices/{bdf}");
@@ -544,21 +540,7 @@ impl PciDeviceInfo {
 
         // Parse PCIe link info — config space or sysfs fallback
         let pcie_link = pcie_cap_offset
-            .and_then(|off| {
-                let off = off as usize;
-                if off + 0x14 <= config.len() {
-                    let link_cap = r32(off + 0x0C);
-                    let link_sta = r16(off + 0x12);
-                    Some(PcieLinkInfo {
-                        max_speed: PcieLinkSpeed::from_encoding((link_cap & 0x0F) as u8),
-                        current_speed: PcieLinkSpeed::from_encoding((link_sta & 0x0F) as u8),
-                        max_width: ((link_cap >> 4) & 0x3F) as u8,
-                        current_width: ((link_sta >> 4) & 0x3F) as u8,
-                    })
-                } else {
-                    None
-                }
-            })
+            .and_then(|off| parse_pcie_link_from_config(&config, off))
             .or_else(|| Self::parse_link_sysfs(bdf));
 
         Ok(Self {
@@ -704,28 +686,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
-    if config.len() < 0x40 {
-        return Err("PCI config too short".into());
-    }
-
-    let status = u16::from_le_bytes([config[0x06], config[0x07]]);
-    if status & PCI_STATUS_CAP_LIST == 0 {
-        return Err("No PCI capabilities list".into());
-    }
-
-    let mut cap_ptr = (config[0x34] & 0xFC) as usize;
-    let mut pm_offset = None;
-    let mut visited = HashSet::new();
-    while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
-        visited.insert(cap_ptr);
-        if config[cap_ptr] == PCI_CAP_ID_PM {
-            pm_offset = Some(cap_ptr);
-            break;
-        }
-        cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
-    }
-
-    let pm_off = pm_offset.ok_or("PM capability not found")?;
+    let pm_off = find_pm_capability_offset(&config)?;
     let pmcsr_off = pm_off + 4;
 
     if pmcsr_off + 2 > config.len() {
@@ -778,28 +739,7 @@ pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, 
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
-    if config.len() < 0x40 {
-        return Err("PCI config too short".into());
-    }
-
-    let status = u16::from_le_bytes([config[0x06], config[0x07]]);
-    if status & PCI_STATUS_CAP_LIST == 0 {
-        return Err("No PCI capabilities list".into());
-    }
-
-    let mut cap_ptr = (config[0x34] & 0xFC) as usize;
-    let mut pm_offset = None;
-    let mut visited = HashSet::new();
-    while cap_ptr != 0 && !visited.contains(&cap_ptr) && cap_ptr + 2 <= config.len() {
-        visited.insert(cap_ptr);
-        if config[cap_ptr] == PCI_CAP_ID_PM {
-            pm_offset = Some(cap_ptr);
-            break;
-        }
-        cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
-    }
-
-    let pm_off = pm_offset.ok_or("PM capability not found")?;
+    let pm_off = find_pm_capability_offset(&config)?;
     let pmcsr_off = pm_off + 4;
     if pmcsr_off + 2 > config.len() {
         return Err("PMCSR beyond config".into());

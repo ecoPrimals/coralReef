@@ -283,3 +283,199 @@ fn test_dispatch_device_reclaim_not_managed() {
     let err = result.expect_err("device.reclaim for unmanaged device should fail");
     assert_eq!(i32::from(err.code), -32000);
 }
+
+#[test]
+fn test_dispatch_device_health_missing_bdf() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.health",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("device.health without bdf should fail");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_device_register_dump_missing_bdf() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.register_dump",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("register_dump without bdf should fail");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_device_register_dump_no_vfio() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.register_dump",
+        &serde_json::json!({"bdf": "0000:99:00.0"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("register_dump without VFIO should fail");
+    assert_eq!(i32::from(err.code), -32000);
+    assert!(err.message.contains("VFIO"));
+}
+
+#[test]
+fn test_dispatch_device_register_snapshot_missing_bdf() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.register_snapshot",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("register_snapshot without bdf should fail");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_device_register_snapshot_empty() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.register_snapshot",
+        &serde_json::json!({"bdf": "0000:99:00.0"}),
+        &mut devices,
+        started,
+    );
+    let val = result.expect("register_snapshot should succeed");
+    assert_eq!(val["bdf"], "0000:99:00.0");
+    assert_eq!(val["register_count"], 0);
+    let regs = val["registers"].as_array().expect("registers array");
+    assert!(regs.is_empty());
+}
+
+#[test]
+fn test_dispatch_device_resurrect_missing_bdf() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.resurrect",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("resurrect without bdf should fail");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_device_resurrect_unknown_vendor() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.resurrect",
+        &serde_json::json!({"bdf": "0000:99:00.0"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("resurrect without HBM2 driver mapping should fail");
+    assert_eq!(i32::from(err.code), -32000);
+    assert!(
+        err.message.contains("HBM2") || err.message.contains("vendor"),
+        "unexpected message: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_dispatch_device_swap_missing_target() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.swap",
+        &serde_json::json!({"bdf": "0000:99:00.0"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("device.swap without target should fail");
+    assert_eq!(i32::from(err.code), -32602);
+    assert!(err.message.contains("target"));
+}
+
+#[test]
+fn test_dispatch_health_check_counts_devices() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "health.check",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let val = result.expect("health.check should succeed");
+    assert_eq!(val["device_count"], 1);
+    assert_eq!(val["healthy_count"], 0);
+}
+
+#[test]
+fn test_make_response_preserves_null_id() {
+    let resp = make_response(serde_json::Value::Null, Ok(serde_json::json!({"ok": true})));
+    let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert!(parsed["id"].is_null());
+}
+
+#[test]
+fn test_make_response_device_error_round_trip() {
+    let resp = make_response(
+        serde_json::json!(42),
+        Err(coral_glowplug::error::RpcError::device_error("boom")),
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(parsed["error"]["code"], -32000);
+    assert_eq!(parsed["error"]["message"], "boom");
+    assert_eq!(parsed["id"], 42);
+}

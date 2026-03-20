@@ -405,3 +405,7 @@ impl Shader<'_> {
         self.info.shared_local_mem_size = pass.shared_local_mem_size;
     }
 }
+
+#[cfg(test)]
+#[path = "lower_copy_swap_tests.rs"]
+mod tests;

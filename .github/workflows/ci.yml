@@ -19,12 +19,12 @@ jobs:
         with:
           components: clippy, rustfmt
       - name: Check
-        run: cargo check --workspace
+        run: cargo check --workspace --all-features
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
       - name: Doc
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --all-features

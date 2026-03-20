@@ -49,8 +49,8 @@ pub fn lower_f64_sqrt(
     let rnd = FRndMode::NearestEven;
 
     let x = ensure_f64_ssa(&op.src, alloc, &mut out);
-    let x_src = Src::from(x.clone());
     let x_hi = Src::from(x[1]);
+    let x_src = Src::from(x);
 
     // y₀ = MUFU.RSQ64H(x_hi) — seed is f32
     let y0_f32 = alloc.alloc(RegFile::GPR);
@@ -137,7 +137,7 @@ pub fn lower_f64_sqrt(
         }),
         pred,
     ));
-    let one_half_src = Src::from(one_half.clone());
+    let one_half_src = Src::from(one_half);
 
     // factor₁ = 1.5 - 0.5·t = DFMA(-0.5, t, 1.5)
     let factor1 = alloc.alloc_vec(RegFile::GPR, 2);
@@ -161,7 +161,7 @@ pub fn lower_f64_sqrt(
         }),
         pred,
     ));
-    let y1_src = Src::from(y1.clone());
+    let y1_src = Src::from(y1);
 
     // y₂: t₂ = x·y₁², factor₂ = DFMA(-0.5, t₂, 1.5), y₂ = y₁·factor₂
     let y1_sq = alloc.alloc_vec(RegFile::GPR, 2);
@@ -177,7 +177,7 @@ pub fn lower_f64_sqrt(
     out.push(with_pred(
         Instr::new(OpDMul {
             dst: t2.clone().into(),
-            srcs: [x_src.clone(), Src::from(y1_sq.clone())],
+            srcs: [x_src.clone(), Src::from(y1_sq)],
             rnd_mode: rnd,
         }),
         pred,
@@ -261,8 +261,8 @@ pub fn lower_f64_rcp(
     let rnd = FRndMode::NearestEven;
 
     let x = ensure_f64_ssa(&op.src, alloc, &mut out);
-    let x_src = Src::from(x.clone());
     let x_hi = Src::from(x[1]);
+    let x_src = Src::from(x);
 
     // y₀ = MUFU.RCP64H(x_hi)
     let y0_f32 = alloc.alloc(RegFile::GPR);
@@ -439,7 +439,7 @@ mod tests {
 
         let op = OpF64Sqrt {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::lower_instr(instr, &mut alloc, &sm);
@@ -462,7 +462,7 @@ mod tests {
 
         let op = OpF64Rcp {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::lower_instr(instr, &mut alloc, &sm);
@@ -485,7 +485,7 @@ mod tests {
 
         let op = OpF64Sqrt {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::lower_instr(instr, &mut alloc, &sm);
@@ -509,7 +509,7 @@ mod tests {
 
         let op = OpF64Sqrt {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::lower_instr(instr, &mut alloc, &sm);
@@ -535,7 +535,7 @@ mod tests {
 
         let op = OpF64Rcp {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::lower_instr(instr, &mut alloc, &sm);
@@ -558,7 +558,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Sqrt {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let seq = lower_f64_sqrt(&op, Pred::from(true), &mut alloc, &sm);
         assert!(
@@ -579,7 +579,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Rcp {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let seq = lower_f64_rcp(&op, Pred::from(true), &mut alloc, &sm);
         assert!(
@@ -600,7 +600,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Rcp {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let seq = lower_f64_rcp(&op, Pred::from(true), &mut alloc, &sm);
         let dadd_count = seq.iter().filter(|i| matches!(i.op, Op::DAdd(_))).count();

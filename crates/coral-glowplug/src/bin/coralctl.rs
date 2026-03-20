@@ -10,13 +10,25 @@
 //!   swap          Hot-swap a device to a new driver personality
 //!   health        Query device health registers
 //!   deploy-udev   Generate /dev/vfio/* udev rules from glowplug.toml
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 
 use clap::{Parser, Subcommand};
 use coral_glowplug::config;
 use coral_glowplug::sysfs;
 
-const DEFAULT_SOCKET: &str = "/run/coralreef/glowplug.sock";
+/// Resolve the glowplug socket path from an optional env value.
+///
+/// `default_socket` passes `std::env::var("CORALREEF_GLOWPLUG_SOCKET").ok().as_deref()`.
+fn resolve_glowplug_socket_path(env_value: Option<&str>) -> String {
+    env_value
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "/run/coralreef/glowplug.sock".into())
+}
+
+/// Default socket path, overridable via `$CORALREEF_GLOWPLUG_SOCKET`.
+fn default_socket() -> String {
+    resolve_glowplug_socket_path(std::env::var("CORALREEF_GLOWPLUG_SOCKET").ok().as_deref())
+}
 
 #[derive(Parser)]
 #[command(
@@ -24,8 +36,8 @@ const DEFAULT_SOCKET: &str = "/run/coralreef/glowplug.sock";
     about = "CLI companion for the coralReef GPU lifecycle system"
 )]
 struct Cli {
-    /// Path to glowplug socket.
-    #[arg(long, default_value = DEFAULT_SOCKET, global = true)]
+    /// Path to glowplug socket (override: `$CORALREEF_GLOWPLUG_SOCKET`).
+    #[arg(long, default_value_t = default_socket(), global = true)]
     socket: String,
 
     #[command(subcommand)]
@@ -370,7 +382,7 @@ fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bool, group: 
     }
 }
 
-fn load_config(config_path: Option<String>) -> config::Config {
+fn try_load_config(config_path: Option<String>) -> Result<config::Config, Vec<String>> {
     let paths = if let Some(path) = config_path {
         vec![path]
     } else {
@@ -379,17 +391,64 @@ fn load_config(config_path: Option<String>) -> config::Config {
 
     for path in &paths {
         match config::Config::load(path) {
-            Ok(cfg) => return cfg,
+            Ok(cfg) => return Ok(cfg),
             Err(e) => {
                 eprintln!("note: skipping {path}: {e}");
             }
         }
     }
 
-    eprintln!("error: no valid config found. Tried:");
-    for path in &paths {
-        eprintln!("  - {path}");
+    Err(paths)
+}
+
+fn load_config(config_path: Option<String>) -> config::Config {
+    match try_load_config(config_path) {
+        Ok(cfg) => cfg,
+        Err(paths) => {
+            eprintln!("error: no valid config found. Tried:");
+            for path in &paths {
+                eprintln!("  - {path}");
+            }
+            eprintln!("hint: pass --config <path> or create /etc/coralreef/glowplug.toml");
+            std::process::exit(1);
+        }
     }
-    eprintln!("hint: pass --config <path> or create /etc/coralreef/glowplug.toml");
-    std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_glowplug_socket_path_matches_env_set_semantics() {
+        const CUSTOM_SOCKET: &str = "/tmp/coralctl-test-glowplug.sock";
+        assert_eq!(
+            resolve_glowplug_socket_path(Some(CUSTOM_SOCKET)),
+            CUSTOM_SOCKET
+        );
+    }
+
+    #[test]
+    fn resolve_glowplug_socket_path_matches_env_unset_semantics() {
+        const FALLBACK_SOCKET: &str = "/run/coralreef/glowplug.sock";
+        assert_eq!(resolve_glowplug_socket_path(None), FALLBACK_SOCKET);
+    }
+
+    #[test]
+    fn cli_parses_custom_socket_for_status() {
+        let cli = Cli::try_parse_from(["coralctl", "--socket", "/custom/glowplug.sock", "status"])
+            .unwrap();
+        assert_eq!(cli.socket, "/custom/glowplug.sock");
+    }
+
+    #[test]
+    fn try_load_config_nonexistent_path_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("definitely-missing-glowplug.toml");
+        let err = try_load_config(Some(missing.to_string_lossy().into_owned())).unwrap_err();
+        assert!(
+            err.iter().any(|p| p.contains("definitely-missing")),
+            "expected missing path in error list: {err:?}"
+        );
+    }
 }

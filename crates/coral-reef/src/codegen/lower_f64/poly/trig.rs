@@ -29,7 +29,7 @@ fn emit_sin_poly(
         }),
         pred,
     ));
-    let r_sq_src = Src::from(r_sq.clone());
+    let r_sq_src = Src::from(r_sq);
     let s1 = emit_f64_const(out, alloc, pred, S1);
     let s2 = emit_f64_const(out, alloc, pred, S2);
     let s3 = emit_f64_const(out, alloc, pred, S3);
@@ -170,7 +170,7 @@ fn emit_cos_poly(
         }),
         pred,
     ));
-    let r_sq_src = Src::from(r_sq.clone());
+    let r_sq_src = Src::from(r_sq);
     let c1 = emit_f64_const(out, alloc, pred, COS_C1);
     let c2 = emit_f64_const(out, alloc, pred, COS_C2);
     let c3 = emit_f64_const(out, alloc, pred, COS_C3);
@@ -214,10 +214,10 @@ pub fn lower_f64_cos(
 
     let x = op.src.reference.clone().to_ssa();
     assert!(x.comps() == 2, "f64 cos src must have 2 components");
-    let x_src = Src::from(x.clone());
+    let x_src = Src::from(x);
 
     let (r, n_i32) = emit_cody_waite_reduction(&mut out, alloc, pred, x_src.clone());
-    let r_src = Src::from(r.clone());
+    let r_src = Src::from(r);
 
     let sin_r = emit_sin_poly(&mut out, alloc, pred, r_src.clone());
     let cos_r = emit_cos_poly(&mut out, alloc, pred, r_src);
@@ -417,7 +417,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Sin {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::super::lower_instr(instr, &mut alloc, &sm);
@@ -443,7 +443,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Sin {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::super::lower_instr(instr, &mut alloc, &sm);
@@ -468,7 +468,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Sin {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::super::lower_instr(instr, &mut alloc, &sm);
@@ -493,7 +493,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Cos {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::super::lower_instr(instr, &mut alloc, &sm);
@@ -515,7 +515,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Cos {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::super::lower_instr(instr, &mut alloc, &sm);
@@ -540,7 +540,7 @@ mod tests {
         let dst = alloc.alloc_vec(RegFile::GPR, 2);
         let op = OpF64Cos {
             dst: dst.into(),
-            src: Src::from(x.clone()),
+            src: Src::from(x),
         };
         let instr = Instr::new(op);
         let result = super::super::super::lower_instr(instr, &mut alloc, &sm);

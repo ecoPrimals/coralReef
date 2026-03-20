@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 20, Iter 58)  
+**Generated:** March 10, 2026 (metrics updated March 20, Iter 59)  
 **Workspace:** coralReef
 
 ---
@@ -24,10 +24,10 @@ test result: ok. 11 passed; 0 failed; 1 ignored (parity_harness)
 test result: ok. 10 passed; 0 failed; 0 ignored (spirv_roundtrip)
 test result: ok. 17 passed; 0 failed; 7 ignored (spring_absorption)
 test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
-test result: ok. ? passed; 0 failed; 5 ignored (spring_absorption_wave3)
+test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Total ignored:** 90 tests across workspace (hardware-gated + diagnostic + VFIO HW).
+**Total ignored:** 102 tests across workspace (hardware-gated + diagnostic + VFIO HW).
 
 ---
 
@@ -230,9 +230,9 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | Files over 1000 LOC | 0 (device.rs→device/ module, socket_tests→socket_tests/ dir, Iter 57–58) |
 | Clippy warnings | 0 (pedantic + nursery, -D warnings) |
 | Doc warnings | 0 |
-| Region coverage (llvm-cov) | 60.62% (target 90%; was 60.44% Iter 57) |
-| Line coverage (llvm-cov) | 60.16% (target 90%; was 59.98% Iter 57) |
-| Function coverage | 69.03% (target 90%; was 68.73% Iter 57) |
+| Region coverage (llvm-cov) | 66.1% (target 90%; was 60.62% Iter 58) |
+| Line coverage (llvm-cov) | 65.8% (target 90%; was 60.16% Iter 58; non-hardware 79.6%) |
+| Function coverage | 72.9% (target 90%; was 69.03% Iter 58) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45) |

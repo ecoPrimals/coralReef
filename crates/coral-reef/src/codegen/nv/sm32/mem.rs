@@ -436,3 +436,7 @@ impl SM32Op for OpIpa {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "mem_tests.rs"]
+mod tests;

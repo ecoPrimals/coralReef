@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 58
+**Current status**: Phase 10 — Iteration 59
 
 ---
 
 ## [Unreleased]
+
+### Iteration 59 — Deep Coverage Expansion + Clone Reduction (Mar 20 2026)
+
+- **+358 tests** (2680 → 3038 passing, 0 failed, 102 ignored hardware-gated)
+- **Line coverage 60.16% → 65.8%** (region 60.62% → 66.1%, function 69.03% → 72.9%)
+- **Non-hardware coverage: 79.6%** (coral-reef 78.3%, coralreef-core 95.8%, bitview 91.3%)
+- SM20/SM32/SM50 texture encoder tests: all older backends tested (bound, bindless, dims, LOD, ICE paths)
+- SM20–SM70 memory encoder tests: OpLd/OpSt/OpAtom/OpLdc/OpCCtl/OpMemBar across all generations
+- SM32+SM70 control flow + misc encoder tests: OpBra/OpExit/OpBar/OpVote/OpShf/OpPrmt
+- SM20–SM70 integer ALU encoder tests: OpIAdd/OpIMul/OpIMad/OpISetP/OpFlo
+- SM50 float64 encoder tests: OpDAdd/OpDMul/OpDFma/OpDSetP/OpDMnMx (0% → covered)
+- SM70 float16 encoder tests: OpHAdd2/OpHMul2/OpHFma2/OpHSet2/OpHSetP2/OpHMnMx2 (0% → covered)
+- Lower copy/swap pass tests (GPR, Pred, UGPR, CBuf, Mem, Swap XOR chain)
+- Glowplug socket.rs + personality.rs coverage expanded (dispatch, parsing, traits, registry)
+- Unix JSON-RPC advanced coverage: socket failures, stale removal, 256KiB payloads, 16 concurrent, env paths
+- Clone reduction: lower_f64 SSARef clones eliminated, naga_translate delegates take `&SSARef`
+- `panic!` → `ice!` evolution: all latency table panics converted to structured ICE reporting
+- Typo fix: "instuction" → "instruction" across latency files
+- `tests_unix_edge.rs` split → `tests_unix_advanced.rs` (1000-line compliance)
+- All quality gates green: fmt, clippy, test, doc, all files <1000 LOC
 
 ### Iteration 58 — Audit Hardening + Coverage Expansion (Mar 20 2026)
 

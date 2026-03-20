@@ -137,7 +137,7 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
         Op::Nop(_) => Disp64,
         Op::Imma(_) => Imma,
         x => {
-            crate::codegen::ice!("Illegal instuction in reg category {x}");
+            crate::codegen::ice!("Illegal instruction in reg category {x}");
         }
     }
 }
@@ -287,7 +287,7 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
         | Op::HSetP2(_) => coupled,
         Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => decoupled,
         _ => {
-            crate::codegen::ice!("Illegal instuction in ureg category {op}");
+            crate::codegen::ice!("Illegal instruction in ureg category {op}");
         }
     }
 }
@@ -338,7 +338,7 @@ fn op_upred_latency(op: &Op) -> UpredLatencySM100 {
             }
         }
         _ => {
-            crate::codegen::ice!("Illegal instuction in upred category {op}");
+            crate::codegen::ice!("Illegal instruction in upred category {op}");
         }
     }
 }

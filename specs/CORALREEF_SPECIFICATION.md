@@ -182,7 +182,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
-| 10 | Security hardening, boot sovereignty, all-silicon pipeline, deep debt evolution | **Iteration 58 — 2680+ tests, 131 glowplug tests** |
+| 10 | Security hardening, boot sovereignty, all-silicon pipeline, deep debt evolution | **Iteration 59 — 3038+ tests, 65.8% line coverage (79.6% non-hardware)** |
 
 ## Evolution Policy
 

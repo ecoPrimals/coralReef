@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 20, 2026 (Phase 10 — Iteration 58)
+**Last updated**: March 20, 2026 (Phase 10 — Iteration 59)
 
 ---
 
@@ -81,7 +81,7 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 58)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 59)
 
 ### Iteration 58 — Audit Hardening + Coverage Expansion
 - [x] Full codebase audit: debt, mocks, hardcoding, patterns, standards compliance
@@ -94,6 +94,21 @@
 - [x] Coverage: 59.98% → 60.16% line, 68.73% → 69.03% function
 - [x] Debris cleanup: stale analysis output files removed
 - [x] Quality gates: fmt ✅, clippy ✅, test ✅, doc ✅
+
+### Iteration 59 — Deep Coverage Expansion + Clone Reduction
+- [x] SM20/SM32/SM50 texture encoder tests (bound, bindless, dims, LOD modes, ICE paths)
+- [x] SM20–SM70 memory encoder tests (OpLd/OpSt/OpAtom/OpLdc/OpCCtl/OpMemBar)
+- [x] SM32+SM70 control flow + misc encoder tests (OpBra/OpExit/OpBar/OpVote/OpShf/OpPrmt)
+- [x] SM20–SM70 integer ALU encoder tests (OpIAdd/OpIMul/OpIMad/OpISetP/OpFlo)
+- [x] SM50 float64 encoder tests (OpDAdd/OpDMul/OpDFma/OpDSetP/OpDMnMx — 0% → covered)
+- [x] SM70 float16 encoder tests (OpHAdd2/OpHMul2/OpHFma2/OpHSet2 — 0% → covered)
+- [x] Lower copy/swap pass tests (GPR, Pred, UGPR, CBuf, Mem, Swap XOR)
+- [x] Glowplug socket.rs + personality.rs coverage expanded
+- [x] Unix JSON-RPC advanced coverage (socket failures, 256KiB payloads, 16 concurrent, env paths)
+- [x] Clone reduction: lower_f64 SSARef clones, naga_translate delegates take `&SSARef`
+- [x] `panic!` → `ice!` for all latency table panics
+- [x] Coverage: 60.16% → 65.8% line (79.6% non-hardware), +358 tests (2680 → 3038)
+- [x] Quality gates: fmt ✅, clippy ✅, test ✅, doc ✅, all files <1000 LOC
 
 ### Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline
 - [x] Specs v0.6.0 — all-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned
@@ -441,12 +456,12 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 5060 on-site testing (RTX 3090 decommissioned)
-- [ ] Coverage 60.16% → 90% (60.16% line reflects full workspace including hardware-gated VFIO code)
+- [ ] Coverage 65.8% → 90% (65.8% line; 79.6% non-hardware — ceiling ~81% without GPU hardware test infrastructure)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-2680+ tests passing, 0 failed, 60.16% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+3038+ tests passing, 0 failed, 65.8% line coverage (79.6% non-hardware). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.

@@ -598,3 +598,8 @@ impl SM32Op for OpSuStGa {
         e.set_reg_src(42..50, self.data());
     }
 }
+
+// Tests live in `tex_sm32_tests.rs` so this encoder module stays under the 1000-line cap.
+#[cfg(test)]
+#[path = "tex_sm32_tests.rs"]
+mod tests;

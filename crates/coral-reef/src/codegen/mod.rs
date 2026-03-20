@@ -71,7 +71,6 @@
     clippy::useless_conversion,
     clippy::partialeq_to_none,
     clippy::question_mark,
-    clippy::manual_assert,
     clippy::borrow_deref_ref,
     // Pedantic/nursery: fix incrementally
     clippy::missing_const_for_fn,

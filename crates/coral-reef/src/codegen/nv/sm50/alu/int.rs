@@ -599,3 +599,7 @@ impl SM50Op for OpShr {
         e.set_bit(48, self.signed);
     }
 }
+
+#[cfg(test)]
+#[path = "int_tests.rs"]
+mod tests;

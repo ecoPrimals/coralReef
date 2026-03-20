@@ -407,3 +407,7 @@ impl SM70Op for OpRedux {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "misc_tests.rs"]
+mod tests;

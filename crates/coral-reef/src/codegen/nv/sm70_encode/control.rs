@@ -631,3 +631,7 @@ impl SM70Op for Op {
         sm70_op_match!(self, |op| op.encode(e));
     }
 }
+
+#[cfg(test)]
+#[path = "control_tests.rs"]
+mod tests;

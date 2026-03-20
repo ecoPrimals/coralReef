@@ -223,7 +223,7 @@ impl HasRegFile for &[SSAValue] {
         let file = self[0].file();
         for i in 1..comps {
             if self[i].file() != file {
-                panic!("Illegal mix of RegFiles")
+                crate::codegen::ice!("Illegal mix of RegFiles")
             }
         }
         file

@@ -94,14 +94,14 @@ impl URegLatencySM75 {
                 if !reader {
                     R2UR
                 } else {
-                    panic!("Illegal R2UR in ureg");
+                    crate::codegen::ice!("Illegal R2UR in ureg");
                 }
             }
             Op::S2R(_) => {
                 if !reader {
                     R2UR
                 } else {
-                    panic!("Illegal S2UR in ureg");
+                    crate::codegen::ice!("Illegal S2UR in ureg");
                 }
             }
             Op::Vote(_) => VoteU,
@@ -120,7 +120,7 @@ impl URegLatencySM75 {
             | Op::HSetP2(_) => vcoupled,
             Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => vdecoupled,
             _ => {
-                panic!("Illegal instuction in ureg category {op}");
+                crate::codegen::ice!("Illegal instruction in ureg category {op}");
             }
         }
     }
@@ -133,7 +133,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {writer:?}")
+                    crate::codegen::ice!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             VectorCoupled => match writer {
@@ -141,7 +141,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {writer:?}")
+                    crate::codegen::ice!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             VectorDecoupled => match writer {
@@ -149,7 +149,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {writer:?}")
+                    crate::codegen::ice!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Uldc | VectorCoupledBindless | VectorDecoupledBindless => match writer {
@@ -157,7 +157,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 5,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency {writer:?}")
+                    crate::codegen::ice!("Illegal writer in raw ureg latency {writer:?}")
                 }
             },
             Umov => match writer {
@@ -165,11 +165,11 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 2,
                 _ => {
-                    panic!("Illegal writer in raw ureg latency")
+                    crate::codegen::ice!("Illegal writer in raw ureg latency")
                 }
             },
             _ => {
-                panic!("Illegal read in ureg raw latency")
+                crate::codegen::ice!("Illegal read in ureg raw latency")
             }
         }
     }
@@ -182,7 +182,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 1,
                 _ => {
-                    panic!("Illegal writer in ureg waw latency")
+                    crate::codegen::ice!("Illegal writer in ureg waw latency")
                 }
             },
             R2UR => match writer1 {
@@ -190,7 +190,7 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 4,
                 _ => {
-                    panic!("Illegal writer in ureg waw latency")
+                    crate::codegen::ice!("Illegal writer in ureg waw latency")
                 }
             },
             Uldc | VoteU | Umov => match writer1 {
@@ -198,11 +198,11 @@ impl URegLatencySM75 {
                 R2UR => 2,
                 Uldc | VoteU | Umov => 1,
                 _ => {
-                    panic!("Illegal writer in ureg waw latency")
+                    crate::codegen::ice!("Illegal writer in ureg waw latency")
                 }
             },
             _ => {
-                panic!("Illegal writer in ureg waw latency")
+                crate::codegen::ice!("Illegal writer in ureg waw latency")
             }
         }
     }
@@ -217,7 +217,7 @@ impl URegLatencySM75 {
                 _ => 1,
             },
             _ => {
-                panic!("Illegal writer in ureg war latency")
+                crate::codegen::ice!("Illegal writer in ureg war latency")
             }
         }
     }
@@ -229,25 +229,25 @@ impl URegLatencySM75 {
                 Udp => 4,
                 VoteU => 1,
                 _ => {
-                    panic!("Illegal writer in upred raw latency")
+                    crate::codegen::ice!("Illegal writer in upred raw latency")
                 }
             },
             VectorCoupled => match writer {
                 Udp => 6,
                 VoteU => 1,
                 _ => {
-                    panic!("Illegal writer in upred raw latency")
+                    crate::codegen::ice!("Illegal writer in upred raw latency")
                 }
             },
             GuardPredicate => match writer {
                 Udp => 11,
                 VoteU => 5,
                 _ => {
-                    panic!("Illegal writer in upred raw latency")
+                    crate::codegen::ice!("Illegal writer in upred raw latency")
                 }
             },
             _ => {
-                panic!("Illegal reader in upred raw latency")
+                crate::codegen::ice!("Illegal reader in upred raw latency")
             }
         }
     }
@@ -260,11 +260,11 @@ impl URegLatencySM75 {
                 Udp => 7,
                 VoteU => 1,
                 _ => {
-                    panic!("Illegal writer1 in upred raw latency")
+                    crate::codegen::ice!("Illegal writer1 in upred raw latency")
                 }
             },
             _ => {
-                panic!("Illegal writer2 in upred raw latency")
+                crate::codegen::ice!("Illegal writer2 in upred raw latency")
             }
         }
     }
@@ -278,8 +278,55 @@ impl URegLatencySM75 {
                 _ => 1,
             },
             _ => {
-                panic!("Illegal writer2 in upred raw latency")
+                crate::codegen::ice!("Illegal writer2 in upred raw latency")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::URegLatencySM75;
+
+    #[test]
+    fn upred_pred_read_after_write_table() {
+        use URegLatencySM75::*;
+        assert_eq!(URegLatencySM75::pred_read_after_write(Udp, Udp), 4);
+        assert_eq!(URegLatencySM75::pred_read_after_write(VoteU, Udp), 1);
+        assert_eq!(
+            URegLatencySM75::pred_read_after_write(Udp, VectorCoupled),
+            6
+        );
+        assert_eq!(
+            URegLatencySM75::pred_read_after_write(VoteU, VectorCoupled),
+            1
+        );
+        assert_eq!(
+            URegLatencySM75::pred_read_after_write(Udp, GuardPredicate),
+            11
+        );
+        assert_eq!(
+            URegLatencySM75::pred_read_after_write(VoteU, GuardPredicate),
+            5
+        );
+    }
+
+    #[test]
+    fn upred_pred_write_after_write_table() {
+        use URegLatencySM75::*;
+        assert_eq!(URegLatencySM75::pred_write_after_write(Udp, Udp), 1);
+        assert_eq!(URegLatencySM75::pred_write_after_write(Udp, VoteU), 7);
+        assert_eq!(URegLatencySM75::pred_write_after_write(VoteU, VoteU), 1);
+    }
+
+    #[test]
+    fn upred_pred_write_after_read_table() {
+        use URegLatencySM75::*;
+        assert_eq!(URegLatencySM75::pred_write_after_read(Udp, Udp), 1);
+        assert_eq!(URegLatencySM75::pred_write_after_read(Udp, VoteU), 2);
+        assert_eq!(
+            URegLatencySM75::pred_write_after_read(VectorCoupled, VoteU),
+            1
+        );
     }
 }

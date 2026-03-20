@@ -10,19 +10,21 @@ use naga::Handle;
 pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
-    a: SSARef,
-    _b: Option<SSARef>,
-    _c: Option<SSARef>,
+    a: &SSARef,
+    _b: Option<&SSARef>,
+    _c: Option<&SSARef>,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
-        naga::MathFunction::CountOneBits => Some(translate_count_one_bits(ft, a)?),
-        naga::MathFunction::ReverseBits => Some(translate_reverse_bits(ft, a)?),
+        naga::MathFunction::CountOneBits => Some(translate_count_one_bits(ft, a.clone())?),
+        naga::MathFunction::ReverseBits => Some(translate_reverse_bits(ft, a.clone())?),
         naga::MathFunction::FirstLeadingBit => {
-            Some(translate_first_leading_bit(ft, a, arg_handle)?)
+            Some(translate_first_leading_bit(ft, a.clone(), arg_handle)?)
         }
-        naga::MathFunction::CountLeadingZeros => Some(translate_count_leading_zeros(ft, a)?),
-        naga::MathFunction::FirstTrailingBit => Some(translate_first_trailing_bit(ft, a)?),
+        naga::MathFunction::CountLeadingZeros => {
+            Some(translate_count_leading_zeros(ft, a.clone())?)
+        }
+        naga::MathFunction::FirstTrailingBit => Some(translate_first_trailing_bit(ft, a.clone())?),
         _ => None,
     };
     Ok(result)

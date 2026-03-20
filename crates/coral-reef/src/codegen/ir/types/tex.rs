@@ -30,7 +30,7 @@ impl fmt::Display for TexRef {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TexDim {
     _1D,
     Array1D,
@@ -55,7 +55,7 @@ impl fmt::Display for TexDim {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TexLodMode {
     Auto,
     Zero,
@@ -166,7 +166,7 @@ impl fmt::Display for ChannelMask {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TexOffsetMode {
     None,
     AddOffI,

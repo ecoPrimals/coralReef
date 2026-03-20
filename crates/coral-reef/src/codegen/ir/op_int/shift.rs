@@ -453,7 +453,7 @@ mod tests {
         if let SrcRef::Imm32(v) = op.shift().reference {
             assert_eq!(v, 32, "clamp should cap at 32 for u32");
         } else {
-            panic!("shift should remain Imm32 after reduce");
+            crate::codegen::ice!("shift should remain Imm32 after reduce");
         }
     }
 
@@ -471,7 +471,7 @@ mod tests {
         if let SrcRef::Imm32(v) = op.shift().reference {
             assert_eq!(v, 5, "wrap 37 & 31 = 5");
         } else {
-            panic!("shift should remain Imm32 after reduce");
+            crate::codegen::ice!("shift should remain Imm32 after reduce");
         }
     }
 

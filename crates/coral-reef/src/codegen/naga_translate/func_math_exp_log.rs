@@ -10,27 +10,27 @@ use naga::Handle;
 pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
-    a: SSARef,
-    b: Option<SSARef>,
-    _c: Option<SSARef>,
+    a: &SSARef,
+    b: Option<&SSARef>,
+    _c: Option<&SSARef>,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
-        naga::MathFunction::Exp2 => Some(translate_exp2(ft, a, arg_handle)?),
-        naga::MathFunction::Log2 => Some(translate_log2(ft, a, arg_handle)?),
-        naga::MathFunction::Exp => Some(translate_exp(ft, a, arg_handle)?),
-        naga::MathFunction::Log => Some(translate_log(ft, a, arg_handle)?),
+        naga::MathFunction::Exp2 => Some(translate_exp2(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Log2 => Some(translate_log2(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Exp => Some(translate_exp(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Log => Some(translate_log(ft, a.clone(), arg_handle)?),
         naga::MathFunction::Pow => {
             let b =
                 b.ok_or_else(|| CompileError::InvalidInput("Pow requires two arguments".into()))?;
-            Some(translate_pow(ft, a, b, arg_handle)?)
+            Some(translate_pow(ft, a.clone(), b.clone(), arg_handle)?)
         }
-        naga::MathFunction::Tanh => Some(translate_tanh(ft, a, arg_handle)?),
-        naga::MathFunction::Asinh => Some(translate_asinh(ft, a)?),
-        naga::MathFunction::Acosh => Some(translate_acosh(ft, a)?),
-        naga::MathFunction::Atanh => Some(translate_atanh(ft, a)?),
-        naga::MathFunction::Sinh => Some(translate_sinh(ft, a)?),
-        naga::MathFunction::Cosh => Some(translate_cosh(ft, a)?),
+        naga::MathFunction::Tanh => Some(translate_tanh(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Asinh => Some(translate_asinh(ft, a.clone())?),
+        naga::MathFunction::Acosh => Some(translate_acosh(ft, a.clone())?),
+        naga::MathFunction::Atanh => Some(translate_atanh(ft, a.clone())?),
+        naga::MathFunction::Sinh => Some(translate_sinh(ft, a.clone())?),
+        naga::MathFunction::Cosh => Some(translate_cosh(ft, a.clone())?),
         _ => None,
     };
     Ok(result)

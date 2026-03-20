@@ -281,7 +281,7 @@ pub trait SSABuilder: Builder {
                         [Src::from(ssa[0]), Src::from(ssa[1])]
                     }
                 }
-                _ => panic!("Unsupported iadd64 source"),
+                _ => crate::codegen::ice!("Unsupported iadd64 source"),
             }
         }
 
@@ -426,7 +426,7 @@ pub trait SSABuilder: Builder {
         let dst = self.alloc_ssa(RegFile::Pred);
         match cmp_op {
             IntCmpOp::False | IntCmpOp::True => {
-                panic!("These don't make sense for the builder helper");
+                crate::codegen::ice!("These don't make sense for the builder helper");
             }
             IntCmpOp::Eq | IntCmpOp::Ne => {
                 self.push_op(OpISetP {
@@ -434,7 +434,7 @@ pub trait SSABuilder: Builder {
                     set_op: match cmp_op {
                         IntCmpOp::Eq => PredSetOp::And,
                         IntCmpOp::Ne => PredSetOp::Or,
-                        _ => panic!("Not an integer equality"),
+                        _ => crate::codegen::ice!("Not an integer equality"),
                     },
                     cmp_op,
                     cmp_type: IntCmpType::U32,
@@ -475,7 +475,7 @@ pub trait SSABuilder: Builder {
                         cmp_op: match cmp_op {
                             IntCmpOp::Lt | IntCmpOp::Le => IntCmpOp::Lt,
                             IntCmpOp::Gt | IntCmpOp::Ge => IntCmpOp::Gt,
-                            _ => panic!("Not an integer inequality"),
+                            _ => crate::codegen::ice!("Not an integer inequality"),
                         },
                         cmp_type,
                         ex: false,
@@ -680,7 +680,7 @@ pub trait SSABuilder: Builder {
             let b = self.prmt(src2, src3, sel_b);
             self.prmt(a.into(), b.into(), sel_c)
         } else {
-            panic!("Invalid permute value: {max_sel}");
+            crate::codegen::ice!("Invalid permute value: {max_sel}");
         }
     }
 

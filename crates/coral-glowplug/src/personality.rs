@@ -583,4 +583,92 @@ mod tests {
     fn test_personality_amdgpu_display_without_card() {
         assert_eq!(Personality::Amdgpu { drm_card: None }.to_string(), "amdgpu");
     }
+
+    #[test]
+    fn test_personality_partial_eq() {
+        assert_eq!(
+            Personality::Vfio { group_id: 1 },
+            Personality::Vfio { group_id: 1 }
+        );
+        assert_ne!(
+            Personality::Vfio { group_id: 1 },
+            Personality::Vfio { group_id: 2 }
+        );
+    }
+
+    #[test]
+    fn test_personality_enum_names_cover_variants() {
+        assert_eq!(Personality::Nvidia { drm_card: None }.name(), "nvidia");
+        assert_eq!(Personality::Xe { drm_card: None }.name(), "xe");
+        assert_eq!(Personality::I915 { drm_card: None }.name(), "i915");
+        assert_eq!(Personality::Akida.name(), "akida-pcie");
+    }
+
+    #[test]
+    fn test_personality_hbm2_flags_intel_and_akida() {
+        assert!(!Personality::Xe { drm_card: None }.supports_hbm2_training());
+        assert!(!Personality::I915 { drm_card: None }.supports_hbm2_training());
+        assert!(Personality::Nvidia { drm_card: None }.supports_hbm2_training());
+        assert!(!Personality::Akida.supports_hbm2_training());
+    }
+
+    #[test]
+    fn test_personality_display_nvidia_xe_i915_akida() {
+        assert_eq!(Personality::Nvidia { drm_card: None }.to_string(), "nvidia");
+        assert_eq!(
+            Personality::Xe {
+                drm_card: Some("/dev/dri/card2".into())
+            }
+            .to_string(),
+            "xe (/dev/dri/card2)"
+        );
+        assert_eq!(
+            Personality::I915 {
+                drm_card: Some("/dev/dri/card0".into())
+            }
+            .to_string(),
+            "i915 (/dev/dri/card0)"
+        );
+        assert_eq!(Personality::Akida.to_string(), "akida-pcie");
+    }
+
+    #[test]
+    fn test_registry_create_aliases_and_intel() {
+        let reg = PersonalityRegistry::default_linux();
+        assert_eq!(reg.create("akida").unwrap().name(), "akida-pcie");
+        let nvidia = reg.create("nvidia").unwrap();
+        assert_eq!(nvidia.name(), "nvidia");
+        assert!(!nvidia.supports_hbm2_training());
+        let xe = reg.create("xe").unwrap();
+        assert_eq!(xe.driver_module(), "xe");
+        let i915 = reg.create("i915").unwrap();
+        assert_eq!(i915.drm_card(), None);
+    }
+
+    #[test]
+    fn test_nvidia_xe_i915_akida_traits() {
+        let nvidia = NvidiaPersonality {
+            drm_card_path: Some("/dev/dri/card1".into()),
+        };
+        assert_eq!(nvidia.name(), "nvidia");
+        assert!(!nvidia.supports_hbm2_training());
+        assert_eq!(nvidia.drm_card(), Some("/dev/dri/card1"));
+
+        let xe = XePersonality {
+            drm_card_path: None,
+        };
+        assert_eq!(xe.name(), "xe");
+        assert!(!xe.provides_vfio());
+        assert!(!xe.supports_hbm2_training());
+
+        let i915 = I915Personality {
+            drm_card_path: Some("/dev/dri/card0".into()),
+        };
+        assert_eq!(i915.driver_module(), "i915");
+
+        let akida = AkidaPersonality;
+        assert_eq!(akida.name(), "akida-pcie");
+        assert_eq!(akida.drm_card(), None);
+        assert_eq!(akida.driver_module(), "akida-pcie");
+    }
 }

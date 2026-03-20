@@ -22,7 +22,7 @@ fn new_array_with<T, const N: usize>(f: &impl Fn() -> T) -> [T; N] {
         v.push(f());
     }
     v.try_into()
-        .unwrap_or_else(|_| panic!("Array size mismatch"))
+        .unwrap_or_else(|_| crate::codegen::ice!("Array size mismatch"))
 }
 
 impl<T> RegTracker<T> {
@@ -54,7 +54,7 @@ impl<T> Index<RegRef> for RegTracker<T> {
             RegFile::UPred => &self.upred[range],
             RegFile::Carry => &self.carry[range],
             RegFile::Bar => &[], // Barriers have a HW scoreboard
-            RegFile::Mem => panic!("Not a register"),
+            RegFile::Mem => crate::codegen::ice!("Not a register"),
         }
     }
 }
@@ -74,7 +74,7 @@ impl<T> IndexMut<RegRef> for RegTracker<T> {
             RegFile::UPred => &mut self.upred[range],
             RegFile::Carry => &mut self.carry[range],
             RegFile::Bar => &mut [], // Barriers have a HW scoreboard
-            RegFile::Mem => panic!("Not a register"),
+            RegFile::Mem => crate::codegen::ice!("Not a register"),
         }
     }
 }
@@ -156,7 +156,7 @@ impl<T: Default> RegRefIterable<T> for SparseRegTracker<T> {
     fn for_each_ref_mut(&mut self, reg: RegRef, mut f: impl FnMut(&mut T)) {
         match reg.file() {
             RegFile::Bar => return, // Barriers have a HW scoreboard
-            RegFile::Mem => panic!("Not a register"),
+            RegFile::Mem => crate::codegen::ice!("Not a register"),
             _ => {}
         }
 

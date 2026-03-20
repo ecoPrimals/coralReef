@@ -215,3 +215,7 @@ impl SM50Op for OpDSetP {
         e.set_reg_fmod_src(8..16, 7, 43, &self.srcs[0]);
     }
 }
+
+#[cfg(test)]
+#[path = "float64_tests.rs"]
+mod tests;

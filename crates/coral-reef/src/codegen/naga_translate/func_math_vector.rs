@@ -9,27 +9,27 @@ use naga::Handle;
 pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
-    a: SSARef,
-    b: Option<SSARef>,
-    _c: Option<SSARef>,
+    a: &SSARef,
+    b: Option<&SSARef>,
+    _c: Option<&SSARef>,
     _arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
         naga::MathFunction::Dot => {
             let b = b.ok_or_else(|| CompileError::InvalidInput("dot requires 2 args".into()))?;
-            Some(translate_dot(ft, a, b)?)
+            Some(translate_dot(ft, a.clone(), b.clone())?)
         }
         naga::MathFunction::Cross => {
             let b = b.ok_or_else(|| CompileError::InvalidInput("cross requires 2 args".into()))?;
-            Some(translate_cross(ft, a, b)?)
+            Some(translate_cross(ft, a.clone(), b.clone())?)
         }
-        naga::MathFunction::Length => Some(translate_length(ft, a)?),
+        naga::MathFunction::Length => Some(translate_length(ft, a.clone())?),
         naga::MathFunction::Distance => {
             let b =
                 b.ok_or_else(|| CompileError::InvalidInput("distance requires 2 args".into()))?;
-            Some(translate_distance(ft, a, b)?)
+            Some(translate_distance(ft, a.clone(), b.clone())?)
         }
-        naga::MathFunction::Normalize => Some(translate_normalize(ft, a)?),
+        naga::MathFunction::Normalize => Some(translate_normalize(ft, a.clone())?),
         _ => None,
     };
     Ok(result)

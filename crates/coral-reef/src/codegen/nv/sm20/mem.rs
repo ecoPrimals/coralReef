@@ -454,3 +454,7 @@ impl SM20Op for OpMemBar {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "mem_tests.rs"]
+mod tests;

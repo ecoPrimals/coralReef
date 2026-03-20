@@ -492,3 +492,7 @@ impl SM20Op for OpIMadSp {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "int_tests.rs"]
+mod tests;

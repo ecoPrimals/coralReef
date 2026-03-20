@@ -9,25 +9,31 @@ use naga::Handle;
 pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
-    a: SSARef,
-    b: Option<SSARef>,
-    c: Option<SSARef>,
+    a: &SSARef,
+    b: Option<&SSARef>,
+    c: Option<&SSARef>,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
-        naga::MathFunction::Abs => Some(translate_abs(ft, a, arg_handle)?),
+        naga::MathFunction::Abs => Some(translate_abs(ft, a.clone(), arg_handle)?),
         naga::MathFunction::Min => {
             let b = b.ok_or_else(|| CompileError::InvalidInput("min requires 2 args".into()))?;
-            Some(translate_min(ft, a, b, arg_handle)?)
+            Some(translate_min(ft, a.clone(), b.clone(), arg_handle)?)
         }
         naga::MathFunction::Max => {
             let b = b.ok_or_else(|| CompileError::InvalidInput("max requires 2 args".into()))?;
-            Some(translate_max(ft, a, b, arg_handle)?)
+            Some(translate_max(ft, a.clone(), b.clone(), arg_handle)?)
         }
         naga::MathFunction::Clamp => {
             let b = b.ok_or_else(|| CompileError::InvalidInput("clamp requires 3 args".into()))?;
             let c = c.ok_or_else(|| CompileError::InvalidInput("clamp requires 3 args".into()))?;
-            Some(translate_clamp(ft, a, b, c, arg_handle)?)
+            Some(translate_clamp(
+                ft,
+                a.clone(),
+                b.clone(),
+                c.clone(),
+                arg_handle,
+            )?)
         }
         _ => None,
     };

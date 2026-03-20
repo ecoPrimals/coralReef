@@ -5,6 +5,9 @@
 //! concurrent connections, and protocol edge cases.
 
 #[cfg(unix)]
+use std::path::PathBuf;
+
+#[cfg(unix)]
 use super::*;
 
 #[cfg(unix)]

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 //! coral-glowplug — Sovereign `PCIe` device lifecycle broker.
 //!
 //! Starts at boot, binds GPUs, holds VFIO fds open forever,

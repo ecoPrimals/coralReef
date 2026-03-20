@@ -126,6 +126,81 @@ async fn test_parse_error() {
 }
 
 #[tokio::test]
+async fn test_unknown_method_over_tcp() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    let req = r#"{"jsonrpc":"2.0","method":"gpu.magic","params":{},"id":99}"#;
+    writer
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .expect("write");
+
+    let mut lines = BufReader::new(reader).lines();
+    let resp_line = lines.next_line().await.expect("read").expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["error"]["code"], -32601);
+    assert_eq!(resp["id"], 99);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_empty_and_whitespace_lines_skipped_before_request() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let devices = Arc::new(Mutex::new(Vec::<coral_glowplug::device::DeviceSlot>::new()));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    writer.write_all(b"\n   \n").await.expect("write blanks");
+    let req = r#"{"jsonrpc":"2.0","method":"daemon.status","params":{},"id":7}"#;
+    writer
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .expect("write");
+
+    let mut lines = BufReader::new(reader).lines();
+    let resp_line = lines.next_line().await.expect("read").expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 7);
+    assert!(resp["result"]["uptime_secs"].is_number());
+
+    handle.abort();
+}
+
+#[tokio::test]
 async fn test_daemon_shutdown_via_jsonrpc() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpStream;

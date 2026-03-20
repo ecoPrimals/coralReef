@@ -487,3 +487,7 @@ impl SM32Op for OpShr {
         e.set_bit(51, self.signed);
     }
 }
+
+#[cfg(test)]
+#[path = "int_tests.rs"]
+mod tests;

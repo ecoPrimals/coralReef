@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 20, 2026  
-**Phase**: 10 — Iteration 58 (Audit Hardening + Coverage Expansion)
+**Phase**: 10 — Iteration 59 (Deep Coverage Expansion + Clone Reduction)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 2580+ passing, 0 failed, 60.16% line coverage (target 90%), tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 3038+ passing, 0 failed, 65.8% line coverage (79.6% non-hardware), tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -40,7 +40,29 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 58** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 59** |
+
+### Iteration 59: Deep Coverage Expansion + Clone Reduction (Mar 20 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| SM20/SM32/SM50 tex encoder tests | ✅ | All older texture encoder backends now tested (bound/bindless, dims, LOD modes, ICE paths) |
+| Memory encoder tests (SM20–SM70) | ✅ | OpLd/OpSt/OpAtom/OpLdc/OpCCtl/OpMemBar covered across all four shader model generations |
+| Control flow + misc encoder tests | ✅ | OpBra/OpExit/OpBar/OpVote/OpShf/OpPrmt for SM32 and SM70 |
+| Integer ALU encoder tests | ✅ | OpIAdd/OpIMul/OpIMad/OpISetP/OpFlo across SM20–SM70 |
+| Float64 encoder tests (SM50) | ✅ | 0% → covered: OpDAdd/OpDMul/OpDFma/OpDSetP/OpDMnMx all rounding modes |
+| Float16 encoder tests (SM70) | ✅ | 0% → covered: OpHAdd2/OpHMul2/OpHFma2/OpHSet2/OpHSetP2/OpHMnMx2 |
+| Lower copy/swap tests | ✅ | Copy lowering pass tested (GPR, Pred, UGPR, CBuf, Mem, Swap XOR chain) |
+| Glowplug socket.rs coverage | ✅ | Protocol parsing, dispatch, TCP edge cases, concurrent connections |
+| Glowplug personality.rs coverage | ✅ | All personality traits, registry, aliases, HBM2, driver modules |
+| Unix JSON-RPC advanced coverage | ✅ | Socket failures, stale removal, mid-line disconnect, 256KiB payloads, 16 concurrent, drop semantics, env paths |
+| Clone reduction (lower_f64) | ✅ | Unnecessary SSARef clones eliminated in newton.rs, trig.rs; delegates take `&SSARef` |
+| Clone reduction (naga_translate) | ✅ | `translate_math` passes `&SSARef` / `Option<&SSARef>` — 3 clones per attempt → 0 for non-matching arms |
+| `panic!` → `ice!` evolution | ✅ | All latency table panics converted to `ice!` macro for structured ICE reporting |
+| Typo fix (instuction → instruction) | ✅ | Fixed across all latency files |
+| File size compliance | ✅ | tests_unix_edge.rs split → tests_unix_advanced.rs; all files under 1000 lines |
+| Coverage: 60.16% → 65.8% line | ✅ | +358 tests (2680 → 3038), coral-reef 73.4% → 78.3%, non-hardware 75.8% → 79.6% |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅, `doc` ✅ |
 
 ### Iteration 58: Audit Hardening + Coverage Expansion (Mar 20 2026)
 
@@ -893,8 +915,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2680+ passing, 0 failed) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 60.62% region / 60.16% line / 69.03% function (target 90%) |
+| `cargo test --workspace` | PASS (3038+ passing, 0 failed, 102 ignored hardware-gated) |
+| `cargo llvm-cov` | 66.1% region / 65.8% line / 72.9% function (79.6% non-hardware) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

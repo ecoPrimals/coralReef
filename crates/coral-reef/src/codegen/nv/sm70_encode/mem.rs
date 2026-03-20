@@ -678,3 +678,7 @@ impl SM70Op for OpMemBar {
         e.set_bit(80, false); // .SC
     }
 }
+
+#[cfg(test)]
+#[path = "mem_tests.rs"]
+mod tests;

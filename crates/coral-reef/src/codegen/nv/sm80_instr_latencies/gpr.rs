@@ -46,7 +46,7 @@ impl RegLatencySM80 {
                         0 | 1 => IMADWideReadAB,
                         2 => IMADWideReadCL, // vs upper C operand - work it out
                         _ => {
-                            panic!("Illegal field in imadwide")
+                            crate::codegen::ice!("Illegal field in imadwide")
                         }
                     }
                 } else {
@@ -123,7 +123,7 @@ impl RegLatencySM80 {
                 (HmmaSize::M16N8K8, FloatType::F32, FloatType::F16)
                 | (HmmaSize::M16N8K8, FloatType::F16, _) => MMA_1x_collect,
                 (HmmaSize::M16N8K16, _, _) => MMA_2x_collect,
-                _ => panic!("Illegal HMMA in reg category {h}"),
+                _ => crate::codegen::ice!("Illegal HMMA in reg category {h}"),
             },
             Op::Ipa(_)
             | Op::Movm(_)
@@ -146,7 +146,7 @@ impl RegLatencySM80 {
                 if reader {
                     Decoupled
                 } else {
-                    panic!("Illegal R2UR");
+                    crate::codegen::ice!("Illegal R2UR");
                 }
             }
             Op::CS2R(cs2r) => {
@@ -166,10 +166,10 @@ impl RegLatencySM80 {
                 }
                 (ImmaSize::M16N8K16, _) => MMA_1x_collect,
                 (ImmaSize::M8N8K32 | ImmaSize::M8N8K16, _) => IMMA_88,
-                _ => panic!("Illegal IMMA in reg category {i}"),
+                _ => crate::codegen::ice!("Illegal IMMA in reg category {i}"),
             },
             x => {
-                panic!("Illegal instuction in reg category {x}");
+                crate::codegen::ice!("Illegal instruction in reg category {x}");
             }
         }
     }
@@ -197,7 +197,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             CoupledFMA | IMADWideReadCL => match writer {
@@ -220,7 +220,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             IMADWideReadAB => match writer {
@@ -243,7 +243,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             IMADWideReadCH => match writer {
@@ -266,7 +266,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             FP16 => match writer {
@@ -289,7 +289,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             FP16_Alu => match writer {
@@ -312,7 +312,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             FP16_F32 => match writer {
@@ -335,7 +335,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             HFMA2_MMA | RedirectedFP64 => match writer {
@@ -358,7 +358,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             Clmad => match writer {
@@ -381,7 +381,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             IMMA_88 | MMA_1x_collect => {
@@ -405,7 +405,7 @@ impl RegLatencySM80 {
                     Decoupled => 1,
                     DecoupledAgu => 1,
                     _ => {
-                        panic!("Illegal writer in sm80 raw");
+                        crate::codegen::ice!("Illegal writer in sm80 raw");
                     }
                 }
             }
@@ -430,7 +430,7 @@ impl RegLatencySM80 {
                     Decoupled => 1,
                     DecoupledAgu => 1,
                     _ => {
-                        panic!("Illegal writer in sm80 raw");
+                        crate::codegen::ice!("Illegal writer in sm80 raw");
                     }
                 }
             }
@@ -455,7 +455,7 @@ impl RegLatencySM80 {
                     Decoupled => 1,
                     DecoupledAgu => 1,
                     _ => {
-                        panic!("Illegal writer in sm80 raw");
+                        crate::codegen::ice!("Illegal writer in sm80 raw");
                     }
                 }
             }
@@ -479,7 +479,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             DecoupledAgu => match writer {
@@ -502,11 +502,11 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 raw");
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
             CoupledDisp64 | IMADWideWriteDL | IMADWideWriteDH => {
-                panic!("Illegal reader in sm80 raw");
+                crate::codegen::ice!("Illegal reader in sm80 raw");
             }
         }
     }
@@ -528,7 +528,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             CoupledDisp64 => match writer1 {
@@ -544,7 +544,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             CoupledFMA => match writer1 {
@@ -561,7 +561,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             IMADWideWriteDL => match writer1 {
@@ -581,7 +581,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             IMADWideWriteDH => match writer1 {
@@ -599,7 +599,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             FP16 | FP16_Alu => match writer1 {
@@ -617,7 +617,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             FP16_F32 => match writer1 {
@@ -633,7 +633,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             HFMA2_MMA => match writer1 {
@@ -650,7 +650,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             RedirectedFP64 => match writer1 {
@@ -667,7 +667,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             Clmad => match writer1 {
@@ -681,7 +681,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             IMMA_88 | MMA_1x_collect => match writer1 {
@@ -695,7 +695,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             MMA_2x_collect | DMMA => match writer1 {
@@ -709,7 +709,7 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             Cbu | Decoupled | DecoupledAgu => match writer1 {
@@ -725,11 +725,11 @@ impl RegLatencySM80 {
                 Decoupled => 1,
                 DecoupledAgu => 1,
                 _ => {
-                    panic!("Illegal writer in sm80 waw");
+                    crate::codegen::ice!("Illegal writer in sm80 waw");
                 }
             },
             _ => {
-                panic!("Illegal writer in sm80 waw");
+                crate::codegen::ice!("Illegal writer in sm80 waw");
             }
         }
     }
@@ -757,7 +757,7 @@ impl RegLatencySM80 {
                 _ => 1,
             },
             _ => {
-                panic!("Illegal writer in sm80 war");
+                crate::codegen::ice!("Illegal writer in sm80 war");
             }
         }
     }

@@ -174,8 +174,8 @@ impl SM75Latency {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        Dst, IntCmpOp, IntCmpType, Op, OpIAdd3, OpISetP, OpMov, OpS2R, PredSetOp, RegFile, RegRef,
-        Src,
+        Dst, FloatType, HmmaSize, ImmaSize, IntCmpOp, IntCmpType, IntType, Op, OpDFma, OpHmma,
+        OpIAdd3, OpISetP, OpImma, OpMov, OpS2R, PredSetOp, RegFile, RegRef, Src,
     };
 
     fn ugpr_dst(idx: u32) -> Dst {
@@ -243,5 +243,132 @@ mod tests {
         }));
         let lat = SM75Latency::raw(&write, 0, Some(&read), 0);
         assert!(lat > 0);
+    }
+
+    fn gpr_dst() -> Dst {
+        Dst::Reg(RegRef::new(RegFile::GPR, 0, 1))
+    }
+
+    #[test]
+    fn test_needs_scoreboards_uniform_s2r_is_r2ur_category() {
+        let op = Op::S2R(Box::new(OpS2R {
+            dst: ugpr_dst(0),
+            idx: 0,
+        }));
+        assert!(op.is_uniform());
+        assert!(SM75Latency::needs_scoreboards(&op));
+    }
+
+    #[test]
+    fn test_needs_scoreboards_uniform_mov_not_scoreboarded() {
+        let op = Op::Mov(Box::new(OpMov {
+            dst: ugpr_dst(0),
+            src: Src::ZERO,
+            quad_lanes: 0xf,
+        }));
+        assert!(op.is_uniform());
+        assert!(!SM75Latency::needs_scoreboards(&op));
+    }
+
+    #[test]
+    fn test_needs_scoreboards_gpr_dfma() {
+        let op = Op::DFma(Box::new(OpDFma {
+            dst: gpr_dst(),
+            srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
+            rnd_mode: crate::codegen::ir::FRndMode::NearestEven,
+        }));
+        assert!(!op.is_uniform());
+        assert!(SM75Latency::needs_scoreboards(&op));
+    }
+
+    #[test]
+    fn test_needs_scoreboards_gpr_mov() {
+        let op = Op::Mov(Box::new(OpMov {
+            dst: gpr_dst(),
+            src: Src::ZERO,
+            quad_lanes: 0xf,
+        }));
+        assert!(!SM75Latency::needs_scoreboards(&op));
+    }
+
+    #[test]
+    fn test_needs_scoreboards_hmma_redirected() {
+        let op = Op::Hmma(Box::new(OpHmma {
+            dst: gpr_dst(),
+            mat_size: HmmaSize::M16N8K8,
+            src_type: FloatType::F16,
+            dst_type: FloatType::F32,
+            srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
+        }));
+        assert!(SM75Latency::needs_scoreboards(&op));
+    }
+
+    #[test]
+    fn test_needs_scoreboards_imma() {
+        let op = Op::Imma(Box::new(OpImma {
+            dst: gpr_dst(),
+            mat_size: ImmaSize::M16N8K16,
+            src_types: [IntType::I8, IntType::I8],
+            saturate: false,
+            srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
+        }));
+        assert!(SM75Latency::needs_scoreboards(&op));
+    }
+
+    #[test]
+    fn test_uniform_raw_none_worst_case_uses_uldc_reader() {
+        let write = Op::S2R(Box::new(OpS2R {
+            dst: ugpr_dst(0),
+            idx: 0,
+        }));
+        let lat = SM75Latency::raw(&write, 0, None, 0);
+        assert!(lat >= 1);
+    }
+
+    #[test]
+    fn test_uniform_waw_latency() {
+        let a = Op::S2R(Box::new(OpS2R {
+            dst: ugpr_dst(0),
+            idx: 0,
+        }));
+        let b = Op::Mov(Box::new(OpMov {
+            dst: ugpr_dst(1),
+            src: Src::ZERO,
+            quad_lanes: 0xf,
+        }));
+        let lat = SM75Latency::waw(&a, 0, &b, 0, false);
+        assert!(lat >= 1);
+    }
+
+    #[test]
+    fn test_pred_war_latency() {
+        let read = Op::ISetP(Box::new(OpISetP {
+            dst: Dst::Reg(RegRef::new(RegFile::Pred, 0, 1)),
+            set_op: PredSetOp::And,
+            cmp_op: IntCmpOp::Eq,
+            cmp_type: IntCmpType::U32,
+            ex: false,
+            srcs: [
+                Src::ZERO,
+                Src::ZERO,
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
+        }));
+        let write = Op::ISetP(Box::new(OpISetP {
+            dst: Dst::Reg(RegRef::new(RegFile::Pred, 1, 1)),
+            set_op: PredSetOp::And,
+            cmp_op: IntCmpOp::Eq,
+            cmp_type: IntCmpType::U32,
+            ex: false,
+            srcs: [
+                Src::ZERO,
+                Src::ZERO,
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
+        }));
+        let lat = SM75Latency::war(&read, 0, &write, 0);
+        assert!(lat >= 1);
     }
 }

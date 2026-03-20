@@ -194,3 +194,7 @@ impl SM70Op for OpHMnMx2 {
         e.set_pred_src(87..90, 90, self.min());
     }
 }
+
+#[cfg(test)]
+#[path = "float16_tests.rs"]
+mod tests;
