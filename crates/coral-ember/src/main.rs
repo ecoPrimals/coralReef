@@ -9,7 +9,7 @@
 //! Usage:
 //!   coral-ember /etc/coralreef/glowplug.toml
 //!   coral-ember  (auto-discovers config from XDG/system paths)
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 
 mod hold;
 mod ipc;
@@ -24,7 +24,11 @@ use serde::Deserialize;
 
 use hold::HeldDevice;
 
-const EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
+/// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
+fn ember_socket_path() -> String {
+    std::env::var("CORALREEF_EMBER_SOCKET")
+        .unwrap_or_else(|_| "/run/coralreef/ember.sock".to_string())
+}
 
 #[derive(Deserialize)]
 struct EmberConfig {
@@ -33,7 +37,7 @@ struct EmberConfig {
 }
 
 #[derive(Deserialize)]
-#[allow(
+#[expect(
     dead_code,
     reason = "fields parsed from glowplug.toml but only bdf is used"
 )]
@@ -154,21 +158,23 @@ fn main() {
         std::process::exit(1);
     }
 
-    if let Some(parent) = std::path::Path::new(EMBER_SOCKET).parent() {
+    let socket_path = ember_socket_path();
+
+    if let Some(parent) = std::path::Path::new(&socket_path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::remove_file(EMBER_SOCKET);
+    let _ = std::fs::remove_file(&socket_path);
 
-    let listener = match UnixListener::bind(EMBER_SOCKET) {
+    let listener = match UnixListener::bind(&socket_path) {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!(path = EMBER_SOCKET, error = %e, "failed to bind ember socket");
+            tracing::error!(path = %socket_path, error = %e, "failed to bind ember socket");
             std::process::exit(1);
         }
     };
 
     let _ = std::fs::set_permissions(
-        EMBER_SOCKET,
+        &socket_path,
         <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o660),
     );
 
@@ -178,7 +184,7 @@ fn main() {
     for dev in held.values() {
         tracing::info!("║ {} (fd={})", dev.bdf, dev.device.device_fd());
     }
-    tracing::info!("║ Socket: {EMBER_SOCKET}");
+    tracing::info!("║ Socket: {socket_path}");
     tracing::info!("╚══════════════════════════════════════════════════════════╝");
 
     if let Ok(ref path) = std::env::var("NOTIFY_SOCKET") {

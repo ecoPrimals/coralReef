@@ -2,14 +2,23 @@
 //! Lightweight ember client for hardware tests.
 //!
 //! Requests VFIO fds from coral-ember via SCM_RIGHTS so tests can construct
-//! NvVfioComputeDevice without competing with ember for /dev/vfio/*.
-#![allow(dead_code, unsafe_code)]
+//! `NvVfioComputeDevice` without competing with ember for `/dev/vfio/*`.
+//!
+//! Evolved from `libc` raw `recvmsg` to `rustix::net` — zero libc, zero unsafe.
+#![allow(dead_code)]
 
 use std::io::Write;
-use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+use std::mem::MaybeUninit;
+use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 
-const EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
+
+const DEFAULT_EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
+
+fn ember_socket_path() -> String {
+    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| DEFAULT_EMBER_SOCKET.to_string())
+}
 
 pub struct EmberFds {
     pub container: OwnedFd,
@@ -18,7 +27,8 @@ pub struct EmberFds {
 }
 
 pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
-    let stream = UnixStream::connect(EMBER_SOCKET).map_err(|e| format!("connect to ember: {e}"))?;
+    let socket_path = ember_socket_path();
+    let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
         .map_err(|e| format!("set timeout: {e}"))?;
@@ -35,8 +45,18 @@ pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
         .map_err(|e| format!("write: {e}"))?;
 
     let mut buf = [0u8; 4096];
-    let (n, fds) = recv_with_fds(std::os::fd::AsRawFd::as_raw_fd(&stream), &mut buf, 3)
-        .map_err(|e| format!("recvmsg: {e}"))?;
+    let mut cmsg_space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(3))];
+    let mut cmsg_buffer = RecvAncillaryBuffer::new(&mut cmsg_space);
+
+    let result = recvmsg(
+        &stream,
+        &mut [rustix::io::IoSliceMut::new(&mut buf)],
+        &mut cmsg_buffer,
+        RecvFlags::empty(),
+    )
+    .map_err(|e| format!("recvmsg: {e}"))?;
+
+    let n = result.bytes;
 
     let resp: serde_json::Value =
         serde_json::from_slice(&buf[..n]).map_err(|e| format!("parse: {e}"))?;
@@ -46,60 +66,23 @@ pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
         return Err(format!("ember: {err}"));
     }
 
+    let mut fds: Vec<OwnedFd> = Vec::new();
+    for msg in cmsg_buffer.drain() {
+        if let RecvAncillaryMessage::ScmRights(rights) = msg {
+            fds.extend(rights);
+        }
+    }
+
     if fds.len() < 3 {
         return Err(format!("need 3 fds, got {}", fds.len()));
     }
 
     let mut it = fds.into_iter();
     Ok(EmberFds {
-        container: it.next().unwrap(),
-        group: it.next().unwrap(),
-        device: it.next().unwrap(),
+        container: it
+            .next()
+            .expect("container fd present — length checked above"),
+        group: it.next().expect("group fd present — length checked above"),
+        device: it.next().expect("device fd present — length checked above"),
     })
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn recv_with_fds(
-    sock_fd: RawFd,
-    buf: &mut [u8],
-    max_fds: usize,
-) -> std::io::Result<(usize, Vec<OwnedFd>)> {
-    let mut iov = libc::iovec {
-        iov_base: buf.as_mut_ptr().cast(),
-        iov_len: buf.len(),
-    };
-
-    let fd_payload_size = max_fds * std::mem::size_of::<RawFd>();
-    let cmsg_space = unsafe { libc::CMSG_SPACE(fd_payload_size as libc::c_uint) } as usize;
-    let mut cmsg_buf = vec![0u8; cmsg_space];
-
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &raw mut iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = cmsg_buf.as_mut_ptr().cast();
-    msg.msg_controllen = cmsg_space as libc::size_t;
-
-    let n = unsafe { libc::recvmsg(sock_fd, &raw mut msg, 0) };
-    if n < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-
-    let mut fds = Vec::new();
-    let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&raw const msg) };
-    while !cmsg.is_null() {
-        unsafe {
-            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
-                let fd_ptr = libc::CMSG_DATA(cmsg).cast::<RawFd>();
-                let cmsg_len_header = libc::CMSG_LEN(0) as usize;
-                let payload_len = (*cmsg).cmsg_len as usize - cmsg_len_header;
-                let num_fds = payload_len / std::mem::size_of::<RawFd>();
-                for i in 0..num_fds {
-                    fds.push(OwnedFd::from_raw_fd(*fd_ptr.add(i)));
-                }
-            }
-            cmsg = libc::CMSG_NXTHDR(&raw const msg, cmsg);
-        }
-    }
-
-    Ok((n as usize, fds))
 }

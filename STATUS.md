@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 18, 2026  
-**Phase**: 10 — Iteration 57 (Deep Debt Evolution + All-Silicon Pipeline)
+**Last updated**: March 20, 2026  
+**Phase**: 10 — Iteration 58 (Audit Hardening + Coverage Expansion)
 
 ---
 
@@ -22,10 +22,10 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 2560 passing (+48 VFIO), 0 failed, 59.92% line coverage (target 90%), IPC chaos/fault tests |
+| Tests | A+ | 2580+ passing, 0 failed, 60.16% line coverage (target 90%), tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[deny(unsafe_code)]` on 8/9 crates + `#[forbid(unsafe_code)]` on coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix` |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
@@ -40,7 +40,23 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 57** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 58** |
+
+### Iteration 58: Audit Hardening + Coverage Expansion (Mar 20 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Full codebase audit | ✅ | Comprehensive review of debt, mocks, hardcoding, patterns, standards compliance |
+| `#[forbid(unsafe_code)]` hardened | ✅ | coral-ember + coral-glowplug upgraded from `#[deny]` to `#[forbid]` |
+| `libc` eliminated from direct deps | ✅ | `ember_client.rs` SCM_RIGHTS migrated to `rustix::net`, `libc` removed from dev-deps |
+| Hardcoded socket paths evolved | ✅ | `EMBER_SOCKET` → `ember_socket_path()` with `$CORALREEF_EMBER_SOCKET` env override |
+| Stale placeholder comments fixed | ✅ | AMD GPU arch "placeholder" → "RDNA2/3/4 backend", Intel → "planned — register addresses TBD" |
+| `#[allow]` → `#[expect]` tightening | ✅ | 14 attributes evolved across 8 files; stale suppressions will now warn at compile time |
+| tarpc Unix transport coverage | ✅ | 5 roundtrip tests (status, health_check, capabilities, wgsl compile, liveness+readiness) over Unix socket; tarpc coverage 80.84% → 94.88% |
+| vendor_lifecycle test expansion | ✅ | 9 new tests: description(), settle_secs(), rebind_strategy() for all 6 vendor types + RebindStrategy Debug/Clone/Eq |
+| IPC Unix error path coverage | ✅ | 11 new tests in tests_unix.rs: dispatch errors, invalid params, blank lines, malformed JSON, invalid JSON-RPC version |
+| Coverage improvement | ✅ | 59.98% → 60.16% line, 68.73% → 69.03% function, 60.44% → 60.62% region |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅, `doc` ✅ |
 
 ### Iteration 57: Deep Debt Evolution + All-Silicon Pipeline (Mar 18 2026)
 
@@ -877,8 +893,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (2560 passing, 0 failed) (+48 VFIO with `--features vfio`) |
-| `cargo llvm-cov` | 59.39% region / 59.92% line / 69.45% function (target 90%) |
+| `cargo test --workspace` | PASS (2680+ passing, 0 failed) (+48 VFIO with `--features vfio`) |
+| `cargo llvm-cov` | 60.62% region / 60.16% line / 69.03% function (target 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

@@ -35,7 +35,7 @@ pub enum RebindStrategy {
 
     /// Go straight to PCI remove + bus rescan, skipping simple bind entirely.
     /// WARNING: does NOT work for AMD Vega 20 — bridge powers off slot on remove.
-    #[expect(
+    #[allow(
         dead_code,
         reason = "valid rebind strategy for future vendor lifecycle profiles (e.g. Intel Xe FLR)"
     )]
@@ -89,7 +89,7 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
 
 #[derive(Debug)]
 pub struct NvidiaLifecycle {
-    #[allow(
+    #[expect(
         dead_code,
         reason = "reserved for per-chip lifecycle refinement (Volta vs Turing vs Ada)"
     )]
@@ -136,7 +136,7 @@ impl VendorLifecycle for NvidiaLifecycle {
 
 #[derive(Debug)]
 pub struct AmdVega20Lifecycle {
-    #[allow(
+    #[expect(
         dead_code,
         reason = "reserved for MI50 vs MI60 vs Radeon VII differences"
     )]
@@ -234,7 +234,7 @@ impl VendorLifecycle for AmdVega20Lifecycle {
 
 #[derive(Debug)]
 pub struct AmdRdnaLifecycle {
-    #[allow(dead_code, reason = "reserved for RDNA1/2/3 differences")]
+    #[expect(dead_code, reason = "reserved for RDNA1/2/3 differences")]
     pub device_id: u16,
 }
 
@@ -295,7 +295,7 @@ impl VendorLifecycle for AmdRdnaLifecycle {
 
 #[derive(Debug)]
 pub struct IntelXeLifecycle {
-    #[allow(dead_code, reason = "reserved for Arc vs Battlemage differences")]
+    #[expect(dead_code, reason = "reserved for Arc vs Battlemage differences")]
     pub device_id: u16,
 }
 
@@ -337,7 +337,7 @@ impl VendorLifecycle for IntelXeLifecycle {
 
 #[derive(Debug)]
 pub struct BrainChipLifecycle {
-    #[allow(dead_code, reason = "reserved for AKD1000 vs future Akida variants")]
+    #[expect(dead_code, reason = "reserved for AKD1000 vs future Akida variants")]
     pub device_id: u16,
 }
 
@@ -379,7 +379,7 @@ impl VendorLifecycle for BrainChipLifecycle {
 #[derive(Debug)]
 pub struct GenericLifecycle {
     pub vendor_id: u16,
-    #[allow(dead_code, reason = "reserved for future vendor-specific refinement")]
+    #[expect(dead_code, reason = "reserved for future vendor-specific refinement")]
     pub device_id: u16,
 }
 
@@ -542,5 +542,74 @@ mod tests {
             RebindStrategy::SimpleWithRescanFallback
         );
         assert_eq!(lc.rebind_strategy("vfio-pci"), RebindStrategy::SimpleBind);
+    }
+
+    #[test]
+    fn nvidia_description() {
+        let lc = NvidiaLifecycle { device_id: 0x1D81 };
+        assert!(lc.description().contains("NVIDIA"));
+    }
+
+    #[test]
+    fn amd_vega20_description_and_settle() {
+        let lc = AmdVega20Lifecycle { device_id: 0x66af };
+        assert!(lc.description().contains("Vega 20"));
+        assert_eq!(lc.settle_secs("vfio-pci"), 3);
+        assert_eq!(lc.settle_secs("amdgpu"), 15);
+        assert_eq!(lc.settle_secs("some-other"), 15);
+    }
+
+    #[test]
+    fn amd_rdna_lifecycle_basics() {
+        let lc = AmdRdnaLifecycle { device_id: 0x73BF };
+        assert!(lc.description().contains("RDNA"));
+        assert_eq!(lc.rebind_strategy("vfio-pci"), RebindStrategy::SimpleBind);
+        assert_eq!(lc.rebind_strategy("amdgpu"), RebindStrategy::PmResetAndBind);
+        assert_eq!(lc.settle_secs("any"), 12);
+    }
+
+    #[test]
+    fn intel_xe_description_and_settle() {
+        let lc = IntelXeLifecycle { device_id: 0x56a0 };
+        assert!(lc.description().contains("Intel"));
+        assert_eq!(lc.settle_secs("i915"), 5);
+        assert_eq!(lc.settle_secs("xe"), 5);
+    }
+
+    #[test]
+    fn brainchip_lifecycle_basics() {
+        let lc = BrainChipLifecycle { device_id: 0x0001 };
+        assert!(lc.description().contains("BrainChip"));
+        assert_eq!(lc.rebind_strategy("akida"), RebindStrategy::SimpleBind);
+        assert_eq!(lc.settle_secs("akida"), 3);
+    }
+
+    #[test]
+    fn generic_description_and_settle() {
+        let lc = GenericLifecycle {
+            vendor_id: 0xdead,
+            device_id: 0xbeef,
+        };
+        assert!(lc.description().contains("Unknown vendor"));
+        assert_eq!(lc.settle_secs("any"), 10);
+        assert_eq!(lc.rebind_strategy("vfio"), RebindStrategy::SimpleBind);
+    }
+
+    #[test]
+    fn rebind_strategy_debug_format() {
+        assert!(format!("{:?}", RebindStrategy::SimpleBind).contains("SimpleBind"));
+        assert!(format!("{:?}", RebindStrategy::PmResetAndBind).contains("PmResetAndBind"));
+        assert!(format!("{:?}", RebindStrategy::PciRescan).contains("PciRescan"));
+        assert!(
+            format!("{:?}", RebindStrategy::SimpleWithRescanFallback)
+                .contains("SimpleWithRescanFallback")
+        );
+    }
+
+    #[test]
+    fn rebind_strategy_clone_eq() {
+        let a = RebindStrategy::SimpleBind;
+        let b = a;
+        assert_eq!(a, b);
     }
 }

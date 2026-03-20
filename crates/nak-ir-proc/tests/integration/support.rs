@@ -21,7 +21,10 @@ pub struct Dst(pub u8);
 
 /// Attributes for `SrcsAsSlice` tests — includes `DEFAULT` for omitted `#[src_type]`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(clippy::upper_case_acronyms)] // Matches generated `SrcType::DEFAULT` / `DstType::DEFAULT`.
+#[expect(
+    clippy::upper_case_acronyms,
+    reason = "matches generated SrcType::DEFAULT / DstType::DEFAULT"
+)]
 pub enum SrcType {
     /// Fallback when no attribute is present.
     DEFAULT,
@@ -32,9 +35,12 @@ pub enum SrcType {
 
 /// Attributes for `DstsAsSlice` tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(clippy::upper_case_acronyms)]
+#[expect(
+    clippy::upper_case_acronyms,
+    reason = "matches generated DstType::DEFAULT"
+)]
 pub enum DstType {
-    #[allow(dead_code)] // Used when `#[dst_type]` is omitted in other tests.
+    #[expect(dead_code, reason = "used when #[dst_type] is omitted in other tests")]
     /// Fallback when no attribute is present.
     DEFAULT,
     Out,

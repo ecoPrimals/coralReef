@@ -4,8 +4,8 @@
 
 // Codegen module — derived from upstream compiler, evolving to idiomatic Rust.
 // ISA domain types intentionally use naming conventions that mirror hardware docs
-// (e.g. OpFAdd, SrcType, UGPR). dead_code covers AMD stub, builder traits, and
-// ISA variants reserved for future use.
+// (e.g. OpFAdd, SrcType, UGPR). dead_code covers builder traits and ISA variants
+// reserved for future use.
 #![allow(
     clippy::wildcard_imports,
     clippy::enum_glob_use,

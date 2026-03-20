@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "size_of::<T>() as u32 will never overflow for VFIO structs"
     )]
@@ -175,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "size_of::<T>() as u32 will never overflow for VFIO structs"
     )]
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "size_of::<T>() as u32 will never overflow for VFIO structs"
     )]

@@ -693,3 +693,197 @@ async fn test_unix_jsonrpc_health_readiness() {
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
 }
+
+// --- Coverage expansion: handler error paths, blank lines, invalid version ---
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_wgsl_invalid_source_returns_handler_error() {
+    let params = serde_json::json!({
+        "wgsl_source": "THIS IS NOT VALID WGSL AT ALL!!!\n{{{",
+        "arch": "sm_70"
+    });
+    let result = dispatch("shader.compile.wgsl", params);
+    assert!(result.is_err(), "invalid WGSL should produce handler error");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().len() > 5,
+        "error message should describe the failure: {err}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_spirv_invalid_params_returns_dispatch_error() {
+    let params = serde_json::json!({"wrong": "shape"});
+    let result = dispatch("shader.compile.spirv", params);
+    assert!(
+        result.is_err(),
+        "invalid spirv params should produce dispatch error"
+    );
+    let err_msg = result.unwrap_err().to_string().to_lowercase();
+    assert!(
+        err_msg.contains("invalid") || err_msg.contains("missing"),
+        "should describe params issue: {err_msg}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dispatch_wgsl_multi_invalid_params_returns_error() {
+    let params = serde_json::json!({"completely": "wrong"});
+    let result = dispatch("shader.compile.wgsl.multi", params);
+    assert!(result.is_err(), "invalid multi params should produce error");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_make_response_transport_error() {
+    use super::error::IpcServiceError;
+    let id = serde_json::json!(99);
+    let result = Err(IpcServiceError::transport("connection reset"));
+    let resp = make_response(id, result);
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("valid JSON");
+    assert_eq!(parsed["jsonrpc"], "2.0");
+    assert_eq!(parsed["id"], 99);
+    assert!(parsed["error"]["code"].is_number());
+    assert!(
+        parsed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("connection reset")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_blank_lines_ignored() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("blank-lines-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let stream = tokio::net::UnixStream::connect(&sock_path)
+        .await
+        .expect("connect");
+    let (reader, mut writer) = stream.into_split();
+    let mut lines = tokio::io::BufReader::new(reader).lines();
+
+    use tokio::io::AsyncWriteExt;
+    writer.write_all(b"\n\n   \n").await.unwrap();
+    let real_req = r#"{"jsonrpc":"2.0","method":"health.liveness","params":{},"id":42}"#;
+    writer
+        .write_all(format!("{real_req}\n").as_bytes())
+        .await
+        .unwrap();
+
+    use tokio::io::AsyncBufReadExt;
+    let resp_line = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
+        .await
+        .expect("timeout")
+        .expect("io")
+        .expect("line");
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+    assert_eq!(resp["id"], 42);
+    assert_eq!(resp["result"]["alive"], true);
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_invalid_version_returns_error() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("bad-version-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"1.0","method":"health.check","params":{},"id":7}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 7);
+    assert!(
+        resp["error"].is_object(),
+        "invalid version should produce error"
+    );
+    assert!(
+        resp["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("version")
+    );
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_malformed_json_returns_parse_error() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("malformed-json-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{this is not valid json at all}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert!(resp["id"].is_null(), "malformed JSON should have null id");
+    assert!(resp["error"].is_object());
+    assert!(
+        resp["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("parse error")
+    );
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_compile_invalid_wgsl_returns_error_response() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("bad-wgsl-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"2.0","method":"shader.compile.wgsl","params":{"wgsl_source":"INVALID{{{","arch":"sm_70"},"id":99}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 99);
+    assert!(
+        resp["error"].is_object(),
+        "invalid WGSL should produce error response"
+    );
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}

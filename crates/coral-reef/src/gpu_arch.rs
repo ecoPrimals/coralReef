@@ -18,9 +18,9 @@
 pub enum GpuTarget {
     /// NVIDIA GPU architecture (SM70+).
     Nvidia(NvArch),
-    /// AMD GPU architecture (placeholder for future backend).
+    /// AMD GPU architecture (RDNA2/3/4 backend).
     Amd(AmdArch),
-    /// Intel GPU architecture (placeholder for future backend).
+    /// Intel GPU architecture (planned — register addresses TBD).
     Intel(IntelArch),
 }
 
@@ -297,7 +297,7 @@ impl std::fmt::Display for NvArch {
 pub type GpuArch = NvArch;
 
 // ---------------------------------------------------------------------------
-// AMD architectures (placeholder)
+// AMD architectures
 // ---------------------------------------------------------------------------
 
 /// AMD GPU architecture.

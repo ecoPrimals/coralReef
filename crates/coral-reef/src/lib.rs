@@ -57,7 +57,7 @@ pub mod tolerances;
 // Codegen module — evolved from upstream NAK into idiomatic Rust.
 // ISA domain types intentionally use naming conventions that mirror
 // hardware documentation (e.g. OpFAdd, SrcType, UGPR). dead_code covers
-// AMD stub, builder traits, and ISA variants reserved for future use.
+// builder traits and ISA variants reserved for future use.
 mod codegen;
 
 pub use backend::{AmdBackend, Backend, CompiledBinary, NvidiaBackend};

@@ -503,3 +503,172 @@ async fn test_tarpc_tcp_bind_port_zero() {
     };
     assert_ne!(sock_addr.port(), 0, "OS should assign a port");
 }
+
+// --- Unix tarpc client roundtrip tests ---
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tarpc_unix_status_roundtrip() {
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("tarpc-status-{}.sock", std::process::id()));
+
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (_addr, _handle) = start_tarpc_unix_server(&sock_path, rx).unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = tokio::net::UnixStream::connect(&sock_path)
+        .await
+        .expect("connect to tarpc unix");
+    let framed = LengthDelimitedBuilder::new().new_framed(stream);
+    let transport = tarpc::serde_transport::new(framed, Bincode::default());
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client.status(tarpc::context::current()).await.unwrap();
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
+    assert!(!response.supported_archs.is_empty());
+
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tarpc_unix_health_check_roundtrip() {
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("tarpc-health-{}.sock", std::process::id()));
+
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (_addr, _handle) = start_tarpc_unix_server(&sock_path, rx).unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = tokio::net::UnixStream::connect(&sock_path)
+        .await
+        .expect("connect to tarpc unix");
+    let framed = LengthDelimitedBuilder::new().new_framed(stream);
+    let transport = tarpc::serde_transport::new(framed, Bincode::default());
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client
+        .health_check(tarpc::context::current())
+        .await
+        .unwrap();
+    assert!(response.healthy);
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
+    assert!(!response.version.is_empty());
+    assert!(!response.family_id.is_empty());
+
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tarpc_unix_capabilities_roundtrip() {
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("tarpc-caps-{}.sock", std::process::id()));
+
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (_addr, _handle) = start_tarpc_unix_server(&sock_path, rx).unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = tokio::net::UnixStream::connect(&sock_path)
+        .await
+        .expect("connect to tarpc unix");
+    let framed = LengthDelimitedBuilder::new().new_framed(stream);
+    let transport = tarpc::serde_transport::new(framed, Bincode::default());
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let caps = client
+        .capabilities(tarpc::context::current())
+        .await
+        .unwrap();
+    assert!(!caps.is_empty(), "should list at least one architecture");
+
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tarpc_unix_wgsl_compile_roundtrip() {
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("tarpc-wgsl-{}.sock", std::process::id()));
+
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (_addr, _handle) = start_tarpc_unix_server(&sock_path, rx).unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = tokio::net::UnixStream::connect(&sock_path)
+        .await
+        .expect("connect to tarpc unix");
+    let framed = LengthDelimitedBuilder::new().new_framed(stream);
+    let transport = tarpc::serde_transport::new(framed, Bincode::default());
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let request = service::CompileWgslRequest {
+        wgsl_source: "@compute @workgroup_size(1) fn main() {}".into(),
+        arch: "sm_70".into(),
+        opt_level: 2,
+        fp64_software: true,
+        fp64_strategy: None,
+        fma_policy: None,
+    };
+    let response = client
+        .wgsl(tarpc::context::current(), request)
+        .await
+        .unwrap()
+        .expect("compile should succeed");
+    assert!(response.size > 0);
+
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tarpc_unix_liveness_and_readiness_roundtrip() {
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("tarpc-live-{}.sock", std::process::id()));
+
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (_addr, _handle) = start_tarpc_unix_server(&sock_path, rx).unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = tokio::net::UnixStream::connect(&sock_path)
+        .await
+        .expect("connect to tarpc unix");
+    let framed = LengthDelimitedBuilder::new().new_framed(stream);
+    let transport = tarpc::serde_transport::new(framed, Bincode::default());
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let liveness = client
+        .health_liveness(tarpc::context::current())
+        .await
+        .unwrap();
+    assert!(liveness.alive);
+
+    let readiness = client
+        .health_readiness(tarpc::context::current())
+        .await
+        .unwrap();
+    assert!(readiness.ready);
+    assert!(!readiness.name.is_empty());
+
+    let _ = std::fs::remove_file(&sock_path);
+}

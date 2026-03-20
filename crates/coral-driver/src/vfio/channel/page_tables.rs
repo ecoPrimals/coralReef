@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "IOVA addresses are intentionally truncated to 32-bit hardware register fields"
     )]
@@ -443,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "IOVA addresses truncated to 32-bit registers"
     )]

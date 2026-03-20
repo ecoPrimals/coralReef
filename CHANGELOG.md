@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 57
+**Current status**: Phase 10 — Iteration 58
 
 ---
 
 ## [Unreleased]
+
+### Iteration 58 — Audit Hardening + Coverage Expansion (Mar 20 2026)
+
+- Full codebase audit: debt, mocks, hardcoding, patterns, standards compliance
+- `#[forbid(unsafe_code)]` hardened on coral-ember + coral-glowplug (upgraded from `#[deny]`)
+- `libc` eliminated from direct deps: `ember_client.rs` SCM_RIGHTS migrated to `rustix::net`
+- Hardcoded socket paths evolved: `EMBER_SOCKET` → `ember_socket_path()` with `$CORALREEF_EMBER_SOCKET` env override
+- Stale placeholder comments fixed: AMD GPU arch "placeholder" → "RDNA2/3/4 backend"
+- 14 `#[allow]` → `#[expect]` tightening across 8 files (stale suppressions now warn at compile time)
+- 5 tarpc Unix socket roundtrip tests (status, health_check, capabilities, wgsl compile, liveness+readiness); tarpc coverage 80.84% → 94.88%
+- 9 vendor_lifecycle tests for all 6 vendor types
+- 11 IPC Unix error path tests: dispatch errors, blank lines, malformed JSON, invalid JSON-RPC version
+- Coverage: 59.98% → 60.16% line, 68.73% → 69.03% function, 60.44% → 60.62% region
+- Debris cleanup: stale `.analysis-*` files removed
+- All quality gates green: fmt, clippy, test, doc
 
 ### Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline (Mar 18 2026)
 

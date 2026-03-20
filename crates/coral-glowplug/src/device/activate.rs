@@ -298,7 +298,10 @@ impl DeviceSlot {
     ///
     /// Checks if the driver is already bound (ember did it via `swap_device`).
     /// With `no-ember` feature: falls back to legacy sysfs bind when the driver is not yet active.
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "returns Result for consistency with fallible bind path"
+    )]
     fn bind_driver(&mut self, driver: &str) -> Result<(), DeviceError> {
         let current = sysfs::read_current_driver(&self.bdf);
         if current.as_deref() != Some(driver) {

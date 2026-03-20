@@ -19,6 +19,9 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Analysis output (cursor/agent generated)
+.analysis-*.txt
+
 # Coverage
 lcov.info
 *.profraw

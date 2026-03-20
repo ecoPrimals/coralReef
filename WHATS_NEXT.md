@@ -81,7 +81,19 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 57)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 58)
+
+### Iteration 58 — Audit Hardening + Coverage Expansion
+- [x] Full codebase audit: debt, mocks, hardcoding, patterns, standards compliance
+- [x] `#[forbid(unsafe_code)]` hardened on coral-ember + coral-glowplug
+- [x] `libc` eliminated from direct deps (ember_client.rs SCM_RIGHTS → `rustix::net`)
+- [x] Hardcoded socket paths evolved (`ember_socket_path()` + env override)
+- [x] 14 `#[allow]` → `#[expect]` tightening across 8 files
+- [x] 5 tarpc Unix roundtrip tests + 9 vendor_lifecycle tests + 11 IPC Unix error tests
+- [x] Stale placeholder comments fixed (AMD, Intel arch status)
+- [x] Coverage: 59.98% → 60.16% line, 68.73% → 69.03% function
+- [x] Debris cleanup: stale analysis output files removed
+- [x] Quality gates: fmt ✅, clippy ✅, test ✅, doc ✅
 
 ### Iteration 57 — Deep Debt Evolution + All-Silicon Pipeline
 - [x] Specs v0.6.0 — all-silicon pipeline, sovereignty roadmap, Titan V x2 + RTX 5060 + MI50 planned
@@ -429,19 +441,20 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 5060 on-site testing (RTX 3090 decommissioned)
-- [ ] Coverage 59.92% → 90% (59.92% line reflects full workspace including hardware-gated VFIO code; testable code at 72.7%)
+- [ ] Coverage 60.16% → 90% (60.16% line reflects full workspace including hardware-gated VFIO code)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-2560+48 tests passing, 0 failed, 59.92% line coverage (72.7% testable). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+2680+ tests passing, 0 failed, 60.16% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 IPC: `shader.compile.*` + `health.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
 Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero doc warnings. Zero fmt drift.
-`SysfsBar0` safe wrapper for BAR0 reads. `#![forbid(unsafe_code)]` on coral-glowplug. XDG config paths.
+`SysfsBar0` safe wrapper for BAR0 reads. `#![forbid(unsafe_code)]` on coral-ember + coral-glowplug. XDG config paths.
 OrExit\<T\> for zero-panic binary entry. IpcServiceError for structured IPC errors.
 coral-glowplug JSON-RPC 2.0 with trait-based GpuPersonality system.
+libc eliminated from direct deps. 14 `#[allow]` → `#[expect]` for stale lint detection.
 All pure Rust. Sovereignty is a runtime choice.*

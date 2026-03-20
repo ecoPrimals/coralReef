@@ -191,12 +191,22 @@ Most are ICE / illegal-path guards in codegen; some are assertion-style panics.
 | coral-reef/src/lib.rs | `#[allow(non_camel_case_types, non_snake_case, dead_code, missing_docs)]` | Broad; consider per-module or per-type overrides |
 | coral-reef/src/codegen/amd/isa_generated/mod.rs | Multiple `#[allow(dead_code)]` | Generated code; acceptable |
 
-### Status (Iter 32)
+### Status (Iter 58)
 
-All reviewed. `#[allow]` is preferred over `#[expect]` for configuration-dependent lints
-(dead_code, unused_async, wildcard_imports) that may not fire in all build configurations.
-`#[expect]` causes "unfulfilled lint expectation" warnings across test vs lib builds.
-Current attributes have documented `reason` strings where appropriate.
+Reviewed and tightened. 14 `#[allow]` → `#[expect]` conversions across 8 files where the
+lint is guaranteed to fire in all configurations:
+
+- vendor_lifecycle.rs: 6 `dead_code` on reserved device_id fields
+- ember.rs: 2 `dead_code` on JSON-RPC protocol fields
+- types.rs: 3 `cast_possible_truncation` in test-only VFIO struct assertions
+- page_tables.rs: 2 `cast_possible_truncation` in test-only register encoding
+- support.rs: 2 `upper_case_acronyms` + 1 `dead_code` matching proc-macro conventions
+- activate.rs: 1 `unnecessary_wraps` with reason
+- main.rs: 1 `dead_code` on config struct
+
+`#[allow]` is retained for configuration-dependent lints (dead_code on pub methods called
+only by tests, unused_imports under feature gates, SysfsIo variant used in tests) that
+would cause "unfulfilled lint expectation" warnings in some build configurations.
 
 ---
 
@@ -213,16 +223,16 @@ Current attributes have documented `reason` strings where appropriate.
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
 | panic! in production | ~150+ (codegen ICE guards — intentional; ~80 standardized to ice!() macro) |
-| #[allow] narrowing | lib.rs → codegen/mod.rs scoped; `#[expect]` for wildcard_imports, dead_code (Iter 56) |
+| #[allow] narrowing | 14 tightened to `#[expect]` (Iter 58); lib.rs → codegen/mod.rs scoped |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
 | Files over 1000 LOC | 0 (device.rs→device/ module, socket_tests→socket_tests/ dir, Iter 57–58) |
 | Clippy warnings | 0 (pedantic + nursery, -D warnings) |
 | Doc warnings | 0 |
-| Region coverage (llvm-cov) | ~65% (target 90%; +83 tests Iter 58) |
-| Line coverage (llvm-cov) | ~66% (target 90%; was ~64% Iter 57) |
-| Function coverage | ~74% (target 90%; was ~72% Iter 57) |
+| Region coverage (llvm-cov) | 60.62% (target 90%; was 60.44% Iter 57) |
+| Line coverage (llvm-cov) | 60.16% (target 90%; was 59.98% Iter 57) |
+| Function coverage | 69.03% (target 90%; was 68.73% Iter 57) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45) |
@@ -235,6 +245,6 @@ Current attributes have documented `reason` strings where appropriate.
 | Unsafe evolution | VolatilePtr safe MMIO; DmaBuffer Arc\<OwnedFd\> (Iter 58); SCM_RIGHTS fully safe via AsFd (Iter 58); from_raw_fd consolidated (Iter 58) |
 | Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based (Iter 56) |
 | Primal self-knowledge | Zero hardcoded primal names in production; capability-based discovery (Iter 56) |
-| SPDX headers | 455/455 .rs files have SPDX |
+| SPDX headers | 476/476 .rs files have SPDX |
 | scyBorg license | AGPL-3.0-only; NAK MIT exception documented |
 | Shutdown safety | coral-glowplug: cancellation token + mutex timeout; no spawn_blocking deadlock (Iter 56) |

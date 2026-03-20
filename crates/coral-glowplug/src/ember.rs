@@ -32,13 +32,19 @@ pub struct EmberFds {
 
 #[derive(Deserialize)]
 struct JsonRpcResponse {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "parsed for protocol validation but not used directly"
+    )]
     jsonrpc: String,
     #[serde(default)]
     result: Option<serde_json::Value>,
     #[serde(default)]
     error: Option<JsonRpcError>,
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "parsed for protocol validation but not used directly"
+    )]
     id: serde_json::Value,
 }
 
