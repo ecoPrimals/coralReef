@@ -168,9 +168,10 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShl {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let shift_enc = src_to_encoding(self.shift())?;
 
+        let hw_op = e.vop2(isa::vop2::V_LSHLREV_B32);
         if let Ok(src_vgpr) = src_to_vgpr_index(self.src()) {
             let mut words = Rdna2Encoder::encode_vop2(
-                isa::vop2::V_LSHLREV_B32,
+                hw_op,
                 AmdRegRef::vgpr(dst_reg),
                 shift_enc.src0,
                 AmdRegRef::vgpr(src_vgpr),
@@ -189,7 +190,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShl {
                 mat_src.src0
             };
             let words = Rdna2Encoder::encode_vop2(
-                isa::vop2::V_LSHLREV_B32,
+                hw_op,
                 AmdRegRef::vgpr(dst_reg),
                 mat_shift.src0,
                 AmdRegRef::vgpr(src_vgpr_idx),
@@ -208,15 +209,15 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShr {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let shift_enc = src_to_encoding(self.shift())?;
-        let opcode = if self.signed {
+        let hw_op = e.vop2(if self.signed {
             isa::vop2::V_ASHRREV_I32
         } else {
             isa::vop2::V_LSHRREV_B32
-        };
+        });
 
         if let Ok(src_vgpr) = src_to_vgpr_index(self.src()) {
             let mut words = Rdna2Encoder::encode_vop2(
-                opcode,
+                hw_op,
                 AmdRegRef::vgpr(dst_reg),
                 shift_enc.src0,
                 AmdRegRef::vgpr(src_vgpr),
@@ -235,7 +236,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpShr {
                 mat_src.src0
             };
             let words = Rdna2Encoder::encode_vop2(
-                opcode,
+                hw_op,
                 AmdRegRef::vgpr(dst_reg),
                 mat_shift.src0,
                 AmdRegRef::vgpr(src_vgpr_idx),
@@ -270,10 +271,11 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpSel {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src0_enc = src_to_encoding(&self.srcs[1])?;
+        let hw_op = e.vop2(isa::vop2::V_CNDMASK_B32);
 
         if let Ok(src1_vgpr) = src_to_vgpr_index(&self.srcs[2]) {
             let mut words = Rdna2Encoder::encode_vop2(
-                isa::vop2::V_CNDMASK_B32,
+                hw_op,
                 AmdRegRef::vgpr(dst_reg),
                 src0_enc.src0,
                 AmdRegRef::vgpr(src1_vgpr),
@@ -292,7 +294,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpSel {
                 mat_src1.src0
             };
             let words = Rdna2Encoder::encode_vop2(
-                isa::vop2::V_CNDMASK_B32,
+                hw_op,
                 AmdRegRef::vgpr(dst_reg),
                 mat_src0.src0,
                 AmdRegRef::vgpr(src1_vgpr_idx),
@@ -382,9 +384,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpFlo {
             prefix.extend(words);
 
             // dst = 31 - scratch (bit position from LSB)
-            // V_SUB_NC_U32: dst = src0 - vsrc1
             prefix.extend(Rdna2Encoder::encode_vop2(
-                isa::vop2::V_SUB_NC_U32,
+                e.vop2(isa::vop2::V_SUB_NC_U32),
                 AmdRegRef::vgpr(dst_reg),
                 128 + 31, // inline constant 31
                 AmdRegRef::vgpr(scratch),
@@ -397,9 +398,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpFlo {
                 193, // inline constant -1 (0xFFFFFFFF)
                 scratch,
             ));
-            // VCC=0 (scratch was ~0, input zero) → src0 = -1; VCC=1 → vsrc1 = dst
             prefix.extend(Rdna2Encoder::encode_vop2(
-                isa::vop2::V_CNDMASK_B32,
+                e.vop2(isa::vop2::V_CNDMASK_B32),
                 AmdRegRef::vgpr(dst_reg),
                 193, // inline constant -1 (0xFFFFFFFF)
                 AmdRegRef::vgpr(dst_reg),
@@ -479,7 +479,7 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), vgpr(3)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
         let words = result.expect("IAdd3 encode should succeed");
         assert!(!words.is_empty());
@@ -493,7 +493,7 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(true)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -505,7 +505,7 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(false)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -517,7 +517,7 @@ mod tests {
             op: LogicOp2::PassB,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::Lop2(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::Lop2(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -528,7 +528,7 @@ mod tests {
             dst: dst_reg(0),
             src: Src::new_imm_u32(0x1234_5678),
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.expect("PopC encode should succeed");
@@ -544,7 +544,7 @@ mod tests {
             signed: true,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::Shr(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::Shr(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -557,7 +557,7 @@ mod tests {
             signed: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::Shr(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::Shr(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -570,7 +570,7 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), vgpr(3)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_err());
     }
 }

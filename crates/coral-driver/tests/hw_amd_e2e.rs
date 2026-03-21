@@ -86,6 +86,7 @@ fn nop_shader_dispatches_and_syncs() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [1, 1, 1],
+        wave_size: 32,
     };
     dev.dispatch(&shader_bytes, &[], DispatchDims::linear(1), &info)
         .expect("dispatch nop shader");
@@ -132,6 +133,7 @@ fn handcrafted_store_42_shader() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [1, 1, 1],
+        wave_size: 32,
     };
 
     dev.dispatch(&binary, &[out_buf], DispatchDims::linear(1), &info)
@@ -189,6 +191,7 @@ fn hardcoded_va_store_42_shader() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [1, 1, 1],
+        wave_size: 32,
     };
     dev.dispatch(&binary, &[out_buf], DispatchDims::linear(1), &info)
         .expect("dispatch");
@@ -230,6 +233,7 @@ fn dispatch_writes_42_and_readback_verifies() {
         shared_mem_bytes: compiled.info.shared_mem_bytes,
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
+        wave_size: 32,
     };
 
     dev.dispatch(&compiled.binary, &[out_buf], DispatchDims::linear(1), &info)
@@ -283,6 +287,7 @@ fn compute_double_readback_verifies() {
         shared_mem_bytes: compiled.info.shared_mem_bytes,
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
+        wave_size: 32,
     };
 
     dev.dispatch(
@@ -341,6 +346,7 @@ fn compute_add_dual_buffer_verifies() {
         shared_mem_bytes: compiled.info.shared_mem_bytes,
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
+        wave_size: 32,
     };
 
     dev.dispatch(

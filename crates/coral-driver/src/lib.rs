@@ -99,7 +99,7 @@ pub struct DispatchDims {
 ///
 /// Without this, the driver must guess register counts and shared memory
 /// sizing, leading to incorrect hardware configuration.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct ShaderInfo {
     /// General-purpose register count (from compiler RA).
     pub gpr_count: u32,
@@ -109,6 +109,21 @@ pub struct ShaderInfo {
     pub barrier_count: u32,
     /// Workgroup size (threads per CTA), from `@workgroup_size`.
     pub workgroup: [u32; 3],
+    /// Wave/warp size: 32 for RDNA wave32 / NVIDIA, 64 for GCN wave64.
+    /// Controls VGPR granularity and dispatch initiator flags.
+    pub wave_size: u32,
+}
+
+impl Default for ShaderInfo {
+    fn default() -> Self {
+        Self {
+            gpr_count: 0,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup: [1, 1, 1],
+            wave_size: 32,
+        }
+    }
 }
 
 impl DispatchDims {
@@ -260,7 +275,8 @@ mod tests {
         assert_eq!(info.gpr_count, 0);
         assert_eq!(info.shared_mem_bytes, 0);
         assert_eq!(info.barrier_count, 0);
-        assert_eq!(info.workgroup, [0, 0, 0]);
+        assert_eq!(info.workgroup, [1, 1, 1]);
+        assert_eq!(info.wave_size, 32);
     }
 
     #[test]
@@ -270,6 +286,7 @@ mod tests {
             shared_mem_bytes: 256,
             barrier_count: 2,
             workgroup: [64, 1, 1],
+            wave_size: 32,
         };
         let debug = format!("{info:?}");
         assert!(debug.contains("ShaderInfo"));
@@ -284,6 +301,7 @@ mod tests {
             shared_mem_bytes: 128,
             barrier_count: 1,
             workgroup: [32, 2, 1],
+            wave_size: 32,
         };
         let b = a;
         assert_eq!(a.gpr_count, b.gpr_count);

@@ -295,11 +295,16 @@ pub fn encode_v_mul_f64(dst: AmdRegRef, src0: u16, src1: u16) -> Vec<u32> {
 //   [39:32] = ADDR (8-bit VGPR 64-bit address)
 
 impl Rdna2Encoder {
-    /// Encode a FLAT load instruction.
+    /// Encode a FLAT/GLOBAL load instruction.
+    ///
+    /// Uses GLOBAL segment (SEG=10) to bypass flat aperture lookup
+    /// and access global memory directly — required for DRM compute dispatch
+    /// where the flat aperture may not be configured.
     pub fn encode_flat_load(opcode: u16, addr_vgpr: u16, dst_vgpr: u16, offset: i16) -> Vec<u32> {
         let mut e = Self::new_64();
         e.set_field_w0(26, 6, 0b11_0111);
         e.set_field_w0(18, 7, u32::from(opcode));
+        e.set_field_w0(14, 2, 2); // SEG = GLOBAL
         e.set_field_w0(0, 12, (offset as u16 as u32) & 0xFFF);
         // Word 1
         e.set_field_w1(0, 8, u32::from(addr_vgpr));
@@ -308,11 +313,14 @@ impl Rdna2Encoder {
         e.into_words()
     }
 
-    /// Encode a FLAT store instruction.
+    /// Encode a FLAT/GLOBAL store instruction.
+    ///
+    /// Uses GLOBAL segment (SEG=10) — see `encode_flat_load` rationale.
     pub fn encode_flat_store(opcode: u16, addr_vgpr: u16, data_vgpr: u16, offset: i16) -> Vec<u32> {
         let mut e = Self::new_64();
         e.set_field_w0(26, 6, 0b11_0111);
         e.set_field_w0(18, 7, u32::from(opcode));
+        e.set_field_w0(14, 2, 2); // SEG = GLOBAL
         e.set_field_w0(0, 12, (offset as u16 as u32) & 0xFFF);
         // Word 1
         e.set_field_w1(0, 8, u32::from(addr_vgpr));
@@ -321,7 +329,9 @@ impl Rdna2Encoder {
         e.into_words()
     }
 
-    /// Encode a FLAT atomic instruction (returns original value to VDST).
+    /// Encode a FLAT/GLOBAL atomic instruction (returns original value to VDST).
+    ///
+    /// Uses GLOBAL segment (SEG=10) — see `encode_flat_load` rationale.
     pub fn encode_flat_atomic(
         opcode: u16,
         addr_vgpr: u16,
@@ -333,6 +343,7 @@ impl Rdna2Encoder {
         e.set_field_w0(26, 6, 0b11_0111);
         e.set_field_w0(18, 7, u32::from(opcode));
         e.set_field_w0(16, 1, 1); // GLC=1 for return value
+        e.set_field_w0(14, 2, 2); // SEG = GLOBAL
         e.set_field_w0(0, 12, (offset as u16 as u32) & 0xFFF);
         // Word 1
         e.set_field_w1(0, 8, u32::from(addr_vgpr));
@@ -724,6 +735,8 @@ mod tests {
         assert_eq!(prefix, 0b11_0111, "FLAT encoding prefix");
         let opcode = (words[0] >> 18) & 0x7F;
         assert_eq!(opcode, u32::from(isa::flat::FLAT_LOAD_DWORD));
+        let seg = (words[0] >> 14) & 3;
+        assert_eq!(seg, 2, "SEG must be GLOBAL (10)");
     }
 
     #[test]
@@ -732,6 +745,8 @@ mod tests {
         assert_eq!(words.len(), 2);
         let opcode = (words[0] >> 18) & 0x7F;
         assert_eq!(opcode, u32::from(isa::flat::FLAT_STORE_DWORD));
+        let seg = (words[0] >> 14) & 3;
+        assert_eq!(seg, 2, "SEG must be GLOBAL (10)");
     }
 
     #[test]
@@ -740,6 +755,8 @@ mod tests {
         assert_eq!(words.len(), 2);
         let glc = (words[0] >> 16) & 1;
         assert_eq!(glc, 1, "GLC must be set for atomic return");
+        let seg = (words[0] >> 14) & 3;
+        assert_eq!(seg, 2, "SEG must be GLOBAL (10)");
     }
 
     #[test]

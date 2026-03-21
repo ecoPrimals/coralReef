@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
-//! AMD shader model — implements `ShaderModel` for RDNA2 (GFX1030).
+//! AMD shader model — implements `ShaderModel` for GCN5 (GFX9) through RDNA4.
 //!
 //! Maps the vendor-agnostic `ShaderModel` trait onto AMD's architecture:
 //!
 //! | ShaderModel concept | AMD equivalent |
 //! |---------------------|---------------|
-//! | sm() | GFX version (e.g. 103 for GFX1030) |
+//! | sm() | GFX version (e.g. 93 for GFX906, 103 for GFX1030) |
 //! | GPR | VGPR |
 //! | UGPR | SGPR |
 //! | Pred | Exec mask bits / SCC |
-//! | warp (32 threads) | wave (32 or 64 lanes) |
+//! | warp (32/64 threads) | wave (32 or 64 lanes) |
 
 use super::super::ir::*;
 use super::super::legalize::{LegalizeBuildHelpers, LegalizeBuilder};
@@ -18,10 +18,10 @@ use crate::CompileError;
 
 use coral_reef_stubs::fxhash::FxHashMap;
 
-/// AMD RDNA2 shader model — direct `ShaderModel` impl (no intermediary vtable).
+/// AMD shader model — direct `ShaderModel` impl (no intermediary vtable).
 ///
-/// Version encoding: GFX major*10 + minor, e.g. GFX1030 → 103.
-/// RDNA2 supports wave32 (default for compute) and wave64.
+/// Version encoding: GFX major*10 + minor, e.g. GFX1030 → 103, GFX906 → 93.
+/// Used for GCN5 (wave64 default) through RDNA4 (wave32 default).
 pub struct ShaderModelRdna2 {
     gfx_version: u8,
     wave_size: u8,
@@ -55,7 +55,7 @@ impl ShaderModel for ShaderModelRdna2 {
     fn reg_count(&self, file: RegFile) -> u32 {
         match file {
             RegFile::GPR => 256,
-            RegFile::UGPR => 106,
+            RegFile::UGPR => if self.gfx_version / 10 <= 9 { 102 } else { 106 },
             RegFile::Pred => 1,
             RegFile::UPred => 1,
             RegFile::Carry => 1,
@@ -124,9 +124,13 @@ impl ShaderModel for ShaderModelRdna2 {
     }
 
     fn max_warps(&self) -> u32 {
-        // RDNA2 CU: up to 32 waves/SIMD × 2 SIMDs = 64 waves/CU (wave32)
-        // Conservative: 32 waves per SIMD
-        32
+        if self.gfx_version / 10 <= 9 {
+            // GCN5: 10 waves/SIMD × 4 SIMDs (wave64)
+            10
+        } else {
+            // RDNA2+: 32 waves/SIMD × 2 SIMDs (wave32)
+            32
+        }
     }
 
     fn wave_size(&self) -> u32 {
@@ -134,9 +138,13 @@ impl ShaderModel for ShaderModelRdna2 {
     }
 
     fn total_reg_file(&self) -> u32 {
-        // RDNA2: 1024 VGPRs per SIMD in wave32 mode (each 32-bit)
-        // 2 SIMDs per CU → 2048 VGPRs total per CU
-        1024 * 2
+        if self.gfx_version / 10 <= 9 {
+            // GCN5: 256 VGPRs per SIMD × 4 SIMDs = 1024 total
+            256 * 4
+        } else {
+            // RDNA2+: 1024 VGPRs per SIMD × 2 SIMDs = 2048 total
+            1024 * 2
+        }
     }
 }
 
@@ -241,13 +249,15 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
 /// Encode an AMD RDNA2 shader to instruction words.
 ///
 /// Compute shaders have no header (unlike NVIDIA's SPH).
-fn encode_rdna2_shader(_sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>, CompileError> {
+fn encode_rdna2_shader(sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>, CompileError> {
     if s.functions.is_empty() {
         return Err(CompileError::InvalidInput("empty shader".into()));
     }
     let func = &s.functions[0];
     let scratch_vgpr_0 = u16::from(s.info.gpr_count);
     let scratch_vgpr_1 = scratch_vgpr_0 + 1;
+
+    let user_sgpr_count = compute_user_sgpr_count(s);
 
     let mut ip = 0_usize;
     let mut labels: FxHashMap<Label, usize> = FxHashMap::default();
@@ -273,16 +283,48 @@ fn encode_rdna2_shader(_sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32
                 encoded.len(),
                 scratch_vgpr_0,
                 scratch_vgpr_1,
+                sm.gfx_version / 10,
+                user_sgpr_count,
             )?;
             encoded.extend_from_slice(&words);
         }
     }
 
     if encoded.is_empty() || !ends_with_endpgm(&encoded) {
+        encoded.extend_from_slice(&super::encoding::encode_s_waitcnt(0, 0, 0));
         encoded.extend_from_slice(&super::encoding::encode_s_endpgm());
+    } else {
+        let n = encoded.len();
+        if n < 2 || encoded[n - 2] != 0xBF8C_0000 {
+            let endpgm = encoded.pop().unwrap();
+            encoded.extend_from_slice(&super::encoding::encode_s_waitcnt(0, 0, 0));
+            encoded.push(endpgm);
+        }
     }
 
     Ok(encoded)
+}
+
+/// Scan the shader IR to determine how many user data SGPRs are consumed
+/// by constant buffer references (buffer VAs). Workgroup ID SGPRs follow
+/// immediately after these in the AMD compute dispatch SGPR layout.
+fn compute_user_sgpr_count(s: &Shader<'_>) -> u16 {
+    let mut max_sgpr: Option<u16> = None;
+    for func in &s.functions {
+        for block in &func.blocks {
+            for instr in &block.instrs {
+                for src in instr.srcs() {
+                    if let SrcRef::CBuf(cb) = &src.reference {
+                        if let CBuf::Binding(_) = &cb.buf {
+                            let sgpr_idx = cb.offset / 4;
+                            max_sgpr = Some(max_sgpr.map_or(sgpr_idx, |m| m.max(sgpr_idx)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    max_sgpr.map_or(0, |m| m + 1)
 }
 
 fn ends_with_endpgm(words: &[u32]) -> bool {
@@ -544,5 +586,36 @@ mod tests {
         assert!(!sm.is_turing());
         assert!(!sm.is_ampere());
         assert!(!sm.is_ada());
+    }
+
+    #[test]
+    fn shader_model_gcn5_version() {
+        let sm = ShaderModelRdna2::new(93).with_wave_size(64);
+        assert_eq!(sm.sm(), 93);
+    }
+
+    #[test]
+    fn shader_model_gcn5_wave64() {
+        let sm = ShaderModelRdna2::new(93).with_wave_size(64);
+        assert_eq!(sm.wave_size(), 64);
+    }
+
+    #[test]
+    fn shader_model_gcn5_reg_counts() {
+        let sm = ShaderModelRdna2::new(93).with_wave_size(64);
+        assert_eq!(sm.reg_count(RegFile::GPR), 256);
+        assert_eq!(sm.reg_count(RegFile::UGPR), 102);
+    }
+
+    #[test]
+    fn shader_model_gcn5_max_warps() {
+        let sm = ShaderModelRdna2::new(93).with_wave_size(64);
+        assert_eq!(sm.max_warps(), 10);
+    }
+
+    #[test]
+    fn shader_model_gcn5_total_reg_file() {
+        let sm = ShaderModelRdna2::new(93).with_wave_size(64);
+        assert_eq!(sm.total_reg_file(), 256 * 4);
     }
 }

@@ -177,6 +177,7 @@ mod tests {
     #[test]
     fn amd_backend_supports_amd() {
         let be = AmdBackend;
+        assert!(be.supports(GpuTarget::Amd(AmdArch::Gcn5)));
         assert!(be.supports(GpuTarget::Amd(AmdArch::Rdna2)));
         assert!(be.supports(GpuTarget::Amd(AmdArch::Rdna3)));
     }
@@ -196,6 +197,12 @@ mod tests {
     #[test]
     fn backend_for_amd_resolves() {
         let be = backend_for(GpuTarget::Amd(AmdArch::Rdna2));
+        assert!(be.is_ok());
+    }
+
+    #[test]
+    fn backend_for_gcn5_resolves() {
+        let be = backend_for(GpuTarget::Amd(AmdArch::Gcn5));
         assert!(be.is_ok());
     }
 

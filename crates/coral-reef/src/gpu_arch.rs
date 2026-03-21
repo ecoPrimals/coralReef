@@ -304,6 +304,8 @@ pub type GpuArch = NvArch;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum AmdArch {
+    /// GCN 5th gen / Vega (Radeon VII / MI50 — GFX900/GFX906).
+    Gcn5,
     /// RDNA 2 (RX 6000 series — GFX1030+).
     Rdna2,
     /// RDNA 3 (RX 7000 series — GFX1100+).
@@ -314,12 +316,13 @@ pub enum AmdArch {
 
 impl AmdArch {
     /// All supported AMD architectures, ordered by generation.
-    pub const ALL: &[Self] = &[Self::Rdna2, Self::Rdna3, Self::Rdna4];
+    pub const ALL: &[Self] = &[Self::Gcn5, Self::Rdna2, Self::Rdna3, Self::Rdna4];
 
-    /// Short architecture identifier (e.g. `"rdna2"`, `"rdna3"`).
+    /// Short architecture identifier (e.g. `"gcn5"`, `"rdna2"`).
     #[must_use]
     pub const fn short_name(self) -> &'static str {
         match self {
+            Self::Gcn5 => "gcn5",
             Self::Rdna2 => "rdna2",
             Self::Rdna3 => "rdna3",
             Self::Rdna4 => "rdna4",
@@ -330,6 +333,7 @@ impl AmdArch {
     #[must_use]
     pub const fn gfx_major(self) -> u8 {
         match self {
+            Self::Gcn5 => 9,
             Self::Rdna2 => 10,
             Self::Rdna3 => 11,
             Self::Rdna4 => 12,
@@ -339,7 +343,10 @@ impl AmdArch {
     /// Default wave size for this architecture.
     #[must_use]
     pub const fn default_wave_size(self) -> u8 {
-        32
+        match self {
+            Self::Gcn5 => 64,
+            Self::Rdna2 | Self::Rdna3 | Self::Rdna4 => 32,
+        }
     }
 
     /// Whether this architecture supports wave64 execution.
@@ -357,7 +364,10 @@ impl AmdArch {
     /// Native f64 rate relative to f32 (denominator: 1/N of f32 rate).
     #[must_use]
     pub const fn f64_rate_divisor(self) -> u32 {
-        16
+        match self {
+            Self::Gcn5 => 4,
+            Self::Rdna2 | Self::Rdna3 | Self::Rdna4 => 16,
+        }
     }
 
     /// Maximum VGPRs per wave.
@@ -369,7 +379,10 @@ impl AmdArch {
     /// Maximum SGPRs per wave.
     #[must_use]
     pub const fn max_sgprs(self) -> u32 {
-        106
+        match self {
+            Self::Gcn5 => 102,
+            Self::Rdna2 | Self::Rdna3 | Self::Rdna4 => 106,
+        }
     }
 
     /// Maximum shared memory (LDS) per workgroup in bytes.
@@ -378,10 +391,21 @@ impl AmdArch {
         65_536
     }
 
-    /// Parse an architecture string (`"rdna2"`, `"gfx1030"`, etc.).
+    /// Whether FLAT instructions support an inline offset field.
+    /// GFX9 (GCN5) has no FLAT offset; GFX10+ (RDNA) has 12-bit signed offset.
+    #[must_use]
+    pub const fn has_flat_offset(self) -> bool {
+        match self {
+            Self::Gcn5 => false,
+            Self::Rdna2 | Self::Rdna3 | Self::Rdna4 => true,
+        }
+    }
+
+    /// Parse an architecture string (`"gcn5"`, `"rdna2"`, `"gfx906"`, etc.).
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
+            "gcn5" | "vega" | "vega20" | "gfx900" | "gfx906" | "gfx908" => Some(Self::Gcn5),
             "rdna2" | "gfx1030" | "gfx1031" | "gfx1032" => Some(Self::Rdna2),
             "rdna3" | "gfx1100" | "gfx1101" | "gfx1102" => Some(Self::Rdna3),
             "rdna4" | "gfx1200" => Some(Self::Rdna4),
@@ -395,14 +419,7 @@ impl std::str::FromStr for AmdArch {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s).ok_or_else(|| {
-            let valid: Vec<&str> = Self::ALL
-                .iter()
-                .map(|a| match a {
-                    Self::Rdna2 => "rdna2",
-                    Self::Rdna3 => "rdna3",
-                    Self::Rdna4 => "rdna4",
-                })
-                .collect();
+            let valid: Vec<&str> = Self::ALL.iter().map(|a| a.short_name()).collect();
             format!(
                 "unknown AMD architecture '{s}', valid: {}",
                 valid.join(", ")
@@ -413,11 +430,7 @@ impl std::str::FromStr for AmdArch {
 
 impl std::fmt::Display for AmdArch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Rdna2 => write!(f, "rdna2"),
-            Self::Rdna3 => write!(f, "rdna3"),
-            Self::Rdna4 => write!(f, "rdna4"),
-        }
+        f.write_str(self.short_name())
     }
 }
 
@@ -569,6 +582,9 @@ mod tests {
 
     #[test]
     fn test_amd_arch_parse() {
+        assert_eq!(AmdArch::parse("gcn5"), Some(AmdArch::Gcn5));
+        assert_eq!(AmdArch::parse("vega"), Some(AmdArch::Gcn5));
+        assert_eq!(AmdArch::parse("gfx906"), Some(AmdArch::Gcn5));
         assert_eq!(AmdArch::parse("rdna2"), Some(AmdArch::Rdna2));
         assert_eq!(AmdArch::parse("gfx1030"), Some(AmdArch::Rdna2));
         assert_eq!(AmdArch::parse("rdna3"), Some(AmdArch::Rdna3));
@@ -587,16 +603,25 @@ mod tests {
 
     #[test]
     fn test_amd_arch_properties() {
+        assert_eq!(AmdArch::Gcn5.gfx_major(), 9);
         assert_eq!(AmdArch::Rdna2.gfx_major(), 10);
         assert_eq!(AmdArch::Rdna3.gfx_major(), 11);
         assert_eq!(AmdArch::Rdna4.gfx_major(), 12);
         assert!(AmdArch::Rdna2.has_native_f64());
+        assert!(AmdArch::Gcn5.has_native_f64());
+        assert_eq!(AmdArch::Gcn5.f64_rate_divisor(), 4);
         assert_eq!(AmdArch::Rdna2.f64_rate_divisor(), 16);
+        assert_eq!(AmdArch::Gcn5.max_vgprs(), 256);
         assert_eq!(AmdArch::Rdna2.max_vgprs(), 256);
+        assert_eq!(AmdArch::Gcn5.max_sgprs(), 102);
         assert_eq!(AmdArch::Rdna2.max_sgprs(), 106);
+        assert_eq!(AmdArch::Gcn5.default_wave_size(), 64);
         assert_eq!(AmdArch::Rdna2.default_wave_size(), 32);
+        assert!(AmdArch::Gcn5.supports_wave64());
         assert!(AmdArch::Rdna2.supports_wave64());
-        assert_eq!(AmdArch::Rdna2.max_lds(), 65_536);
+        assert_eq!(AmdArch::Gcn5.max_lds(), 65_536);
+        assert!(!AmdArch::Gcn5.has_flat_offset());
+        assert!(AmdArch::Rdna2.has_flat_offset());
     }
 
     #[test]

@@ -103,6 +103,7 @@ fn main() {
             shared_mem_bytes: compiled.info.shared_mem_bytes,
             barrier_count: compiled.info.barrier_count,
             workgroup: compiled.info.local_size,
+            wave_size: 32,
         };
 
         dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)
@@ -129,6 +130,7 @@ fn main() {
             shared_mem_bytes: compiled.info.shared_mem_bytes,
             barrier_count: compiled.info.barrier_count,
             workgroup: compiled.info.local_size,
+            wave_size: 32,
         };
 
         for i in 0..5 {
@@ -196,6 +198,7 @@ fn main() {
             shared_mem_bytes: compiled.info.shared_mem_bytes,
             barrier_count: compiled.info.barrier_count,
             workgroup: compiled.info.local_size,
+            wave_size: 32,
         };
 
         dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)

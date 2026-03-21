@@ -194,3 +194,60 @@ fn gap_legacy_sm50_rotate_and_abs() {
     let r = coral_reef::compile_wgsl_raw_sm(wgsl, 50);
     assert!(r.is_ok(), "{}", r.unwrap_err());
 }
+
+// ---------------------------------------------------------------------------
+// GCN5 (Vega / MI50 / GFX906) — validate full compile pipeline
+// ---------------------------------------------------------------------------
+
+fn opts_gcn5() -> CompileOptions {
+    CompileOptions {
+        target: GpuTarget::Amd(AmdArch::Gcn5),
+        opt_level: 2,
+        debug_info: false,
+        fp64_software: false,
+        ..CompileOptions::default()
+    }
+}
+
+#[test]
+fn gap_gcn5_minimal_store() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = 42.0;
+}
+";
+    let r = coral_reef::compile_wgsl(wgsl, &opts_gcn5());
+    assert!(r.is_ok(), "GCN5 minimal store: {}", r.unwrap_err());
+}
+
+#[test]
+fn gap_gcn5_f64_fma() {
+    let wgsl = r"
+enable f64;
+@group(0) @binding(0) var<storage, read_write> out: array<f64>;
+@group(0) @binding(1) var<storage, read> a: array<f64>;
+@group(0) @binding(2) var<storage, read> b: array<f64>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    out[i] = fma(a[i], b[i], out[i]);
+}
+";
+    let r = coral_reef::compile_wgsl(wgsl, &opts_gcn5());
+    assert!(r.is_ok(), "GCN5 f64 fma: {}", r.unwrap_err());
+}
+
+#[test]
+fn gap_gcn5_integer_alu() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+@group(0) @binding(1) var<storage, read> inp: array<u32>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    let x = inp[i];
+    out[i] = (x * 3u + 7u) ^ (x >> 2u);
+}
+";
+    let r = coral_reef::compile_wgsl(wgsl, &opts_gcn5());
+    assert!(r.is_ok(), "GCN5 integer ALU: {}", r.unwrap_err());
+}

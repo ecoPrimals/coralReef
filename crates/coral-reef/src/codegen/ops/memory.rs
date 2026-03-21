@@ -23,11 +23,11 @@ use crate::codegen::ir::*;
 // ---- Ld (FLAT load) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpLd {
-    fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
+    fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let addr_reg = src_to_vgpr_index(&self.addr)?;
         let flat_opcode = mem_type_to_flat_load(self.access.mem_type)?;
-        let offset = checked_flat_offset(self.offset)?;
+        let offset = e.flat_offset(checked_flat_offset(self.offset)?);
         Ok(Rdna2Encoder::encode_flat_load(
             flat_opcode,
             addr_reg,
@@ -40,11 +40,11 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpLd {
 // ---- St (FLAT store) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpSt {
-    fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
+    fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let addr_reg = src_to_vgpr_index(self.addr())?;
         let data_reg = src_to_vgpr_index(self.data())?;
         let flat_opcode = mem_type_to_flat_store(self.access.mem_type)?;
-        let offset = checked_flat_offset(self.offset)?;
+        let offset = e.flat_offset(checked_flat_offset(self.offset)?);
         Ok(Rdna2Encoder::encode_flat_store(
             flat_opcode,
             addr_reg,
@@ -57,12 +57,12 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpSt {
 // ---- Atom (FLAT atomic) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpAtom {
-    fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
+    fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let addr_reg = src_to_vgpr_index(self.addr())?;
         let data_reg = src_to_vgpr_index(self.data())?;
         let flat_opcode = atom_op_to_flat(self.atom_op)?;
-        let offset = checked_flat_offset(self.addr_offset)?;
+        let offset = e.flat_offset(checked_flat_offset(self.addr_offset)?);
         Ok(Rdna2Encoder::encode_flat_atomic(
             flat_opcode,
             addr_reg,

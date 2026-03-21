@@ -528,7 +528,7 @@ mod tests {
             dst: dst_reg(0),
             src: Src::new_imm_u32(0x1234_5678),
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.unwrap();
@@ -542,7 +542,7 @@ mod tests {
             dst: dst_reg(0),
             src: Src::new_imm_u32(0x1234_5678),
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.unwrap();
@@ -562,7 +562,7 @@ mod tests {
                 Src::new_imm_bool(true),
             ],
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.unwrap();
@@ -579,7 +579,7 @@ mod tests {
             ftz: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::FAdd(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::FAdd(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -591,7 +591,7 @@ mod tests {
             ftz: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::FMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::FMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 
@@ -603,7 +603,7 @@ mod tests {
             ftz: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::FMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255);
+        let result = encode_amd_op(&Op::FMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
         assert!(result.is_ok());
     }
 }
