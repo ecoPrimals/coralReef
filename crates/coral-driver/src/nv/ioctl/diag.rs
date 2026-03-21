@@ -44,17 +44,15 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
             size_of_u32::<NouveauChannelAlloc>(),
         );
         #[expect(clippy::cast_sign_loss, reason = "diagnostic only")]
-        // SAFETY: NouveauChannelAlloc is #[repr(C)] matching kernel struct;
-        // stack-allocated, synchronous ioctl, &mut alloc is sole reference
-        let result =
-            match unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "diag_channel_alloc") } {
-                Ok(()) => {
-                    let ch = alloc.channel as u32;
-                    let _ = destroy_channel(fd, ch);
-                    Ok(ch)
-                }
-                Err(e) => Err(format!("{e}")),
-            };
+        // ioctl contract: `NouveauChannelAlloc` matches this DRM ioctl; fd is a nouveau fd.
+        let result = match drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "diag_channel_alloc") {
+            Ok(()) => {
+                let ch = alloc.channel as u32;
+                let _ = destroy_channel(fd, ch);
+                Ok(ch)
+            }
+            Err(e) => Err(format!("{e}")),
+        };
         results.push(ChannelAllocDiag {
             description: desc,
             result,

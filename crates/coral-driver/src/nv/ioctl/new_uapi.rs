@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! New nouveau UAPI (kernel 6.6+) — `VM_INIT` / `VM_BIND` / `EXEC` pipeline.
 //!
-//! hotSpring Exp 051 confirmed: on kernel 6.17+ with Volta (GV100),
+//! Ecosystem experiment Exp-051 confirmed: on kernel 6.17+ with Volta (GV100),
 //! legacy `CHANNEL_ALLOC` returns EINVAL unless `VM_INIT` is called first.
 //! NVK (Mesa 25.1+) uses this path: `VM_INIT` → `CHANNEL_ALLOC` → `VM_BIND` → `EXEC`.
 
@@ -164,12 +164,7 @@ pub fn vm_init(fd: RawFd) -> DriverResult<()> {
         kernel_managed_size: NV_KERNEL_MANAGED_SIZE,
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_VM_INIT, size_of_u32::<NouveauVmInit>());
-    // SAFETY:
-    // 1. Validity:   NouveauVmInit is #[repr(C)] matching kernel drm_nouveau_vm_init
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req outlives the call
-    // 4. Exclusivity: &mut req — sole reference
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_init") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_init")
 }
 
 /// Bind a GEM buffer object into the GPU virtual address space.
@@ -200,12 +195,7 @@ pub fn vm_bind_map(
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_VM_BIND, size_of_u32::<NouveauVmBind>());
-    // SAFETY:
-    // 1. Validity:   NouveauVmBind + NouveauVmBindEntry are #[repr(C)] matching kernel structs
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req + entry outlive the call
-    // 4. Exclusivity: &mut req — sole reference; entry pointer valid for ioctl duration
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_bind_map") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_bind_map")
 }
 
 /// Unmap a GPU virtual address range.
@@ -226,12 +216,7 @@ pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_VM_BIND, size_of_u32::<NouveauVmBind>());
-    // SAFETY:
-    // 1. Validity:   NouveauVmBind + NouveauVmBindEntry are #[repr(C)] matching kernel structs
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req + entry outlive the call
-    // 4. Exclusivity: &mut req — sole reference; entry pointer valid for ioctl duration
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_bind_unmap") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_vm_bind_unmap")
 }
 
 /// Create a DRM syncobj for GPU completion signaling.
@@ -243,8 +228,7 @@ pub fn vm_bind_unmap(fd: RawFd, va: u64, range: u64) -> DriverResult<()> {
 /// Returns [`crate::error::DriverError`] on kernel failure.
 pub fn syncobj_create(fd: RawFd) -> DriverResult<u32> {
     let mut req = DrmSyncobjCreate::default();
-    // SAFETY: DrmSyncobjCreate is #[repr(C)] matching kernel struct; fd valid; sole ref.
-    unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_CREATE, &mut req, "syncobj_create")? };
+    drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_CREATE, &mut req, "syncobj_create")?;
     Ok(req.handle)
 }
 
@@ -258,8 +242,7 @@ pub fn syncobj_destroy(fd: RawFd, handle: u32) -> DriverResult<()> {
         handle,
         ..Default::default()
     };
-    // SAFETY: DrmSyncobjDestroy is #[repr(C)] matching kernel struct; fd valid; sole ref.
-    unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_DESTROY, &mut req, "syncobj_destroy") }
+    drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_DESTROY, &mut req, "syncobj_destroy")
 }
 
 /// Wait on a DRM syncobj with a timeout.
@@ -278,8 +261,7 @@ pub fn syncobj_wait(fd: RawFd, handle: u32, timeout_nsec: i64) -> DriverResult<(
         flags: DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL,
         ..Default::default()
     };
-    // SAFETY: DrmSyncobjWait is #[repr(C)]; handles points to valid stack array; fd valid.
-    unsafe { drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_WAIT, &mut req, "syncobj_wait") }
+    drm::drm_ioctl_named(fd, DRM_IOCTL_SYNCOBJ_WAIT, &mut req, "syncobj_wait")
 }
 
 /// Submit a push buffer for GPU execution via the new UAPI.
@@ -303,12 +285,7 @@ pub fn exec_submit(fd: RawFd, channel: u32, push_va: u64, push_len: u32) -> Driv
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_EXEC, size_of_u32::<NouveauExec>());
-    // SAFETY:
-    // 1. Validity:   NouveauExec + NouveauExecPush are #[repr(C)] matching kernel structs
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req + push outlive the call
-    // 4. Exclusivity: &mut req — sole reference; push pointer valid for ioctl duration
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec")
 }
 
 /// Submit a push buffer with a signaling syncobj for completion tracking.
@@ -345,8 +322,7 @@ pub fn exec_submit_with_signal(
         ..Default::default()
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_EXEC, size_of_u32::<NouveauExec>());
-    // SAFETY: NouveauExec + NouveauExecPush + NouveauSync are #[repr(C)]; push/sig valid for call.
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec_signal") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_exec_signal")
 }
 
 #[cfg(test)]

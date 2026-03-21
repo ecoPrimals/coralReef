@@ -64,6 +64,12 @@ mod inner {
         }
     }
 
+    /// Route a JSON-RPC method call to the appropriate handler.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IpcServiceError` if the method is unknown, params are
+    /// invalid, or the handler itself fails.
     pub fn dispatch(
         method: &str,
         params: serde_json::Value,
@@ -120,6 +126,7 @@ mod inner {
         }
     }
 
+    /// Serialize a JSON-RPC 2.0 response from a handler result.
     pub fn make_response(
         id: serde_json::Value,
         result: Result<serde_json::Value, IpcServiceError>,
@@ -253,9 +260,11 @@ mod inner {
     }
 }
 
+#[cfg(all(unix, any(test, feature = "e2e")))]
+pub use inner::dispatch;
+#[cfg(all(unix, test))]
+pub use inner::make_response;
 #[cfg(unix)]
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};
-#[cfg(all(test, unix))]
-pub use inner::{dispatch, make_response};

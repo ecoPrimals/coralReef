@@ -42,9 +42,12 @@ tokio-util = { workspace = true }
 default = []
 e2e = []
 
+[[test]]
+name = "unix_jsonrpc_default_socket_path_env"
+required-features = ["e2e"]
+
 [dev-dependencies]
 naga = { version = "28", features = ["wgsl-in", "spv-out"] }
-proptest = { workspace = true }
 primal-rpc-client = { path = "../primal-rpc-client" }
 tempfile = "3"
 jsonrpsee-http-client = { version = "0.26", default-features = false }

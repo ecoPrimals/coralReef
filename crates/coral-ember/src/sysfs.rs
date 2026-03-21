@@ -2,6 +2,18 @@
 //! Sysfs helpers — self-contained in ember to avoid cross-crate dependency
 //! on glowplug internals. Ember is the sole writer of driver/unbind and bind.
 
+/// Parses the body of a sysfs PCI id file (e.g. `"0x10de\n"`).
+#[must_use]
+pub(crate) fn parse_pci_id_hex(content: &str) -> u16 {
+    u16::from_str_radix(content.trim().trim_start_matches("0x"), 16).unwrap_or(0)
+}
+
+/// Parses an IOMMU group id from the last segment of a sysfs symlink target.
+#[must_use]
+pub(crate) fn parse_iommu_group_file_name(name: &str) -> u32 {
+    name.parse().unwrap_or(0)
+}
+
 pub fn sysfs_write(path: &str, value: &str) -> Result<(), String> {
     std::fs::write(path, value).map_err(|e| format!("sysfs write {path}: {e}"))
 }
@@ -15,7 +27,11 @@ pub fn read_current_driver(bdf: &str) -> Option<String> {
 pub fn read_iommu_group(bdf: &str) -> u32 {
     std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/iommu_group"))
         .ok()
-        .and_then(|p| p.file_name()?.to_str()?.parse().ok())
+        .and_then(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(parse_iommu_group_file_name)
+        })
         .unwrap_or(0)
 }
 
@@ -67,13 +83,21 @@ pub fn pin_power(bdf: &str) {
     let _ = sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/d3cold_allowed"), "0");
 }
 
+/// Error when a PM power cycle leaves the device in `D3cold`.
+pub(crate) fn err_if_pm_cycle_d3cold(bdf: &str, after_power_state: &str) -> Result<(), String> {
+    if after_power_state == "D3cold" {
+        return Err(format!("{bdf}: PM power cycle resulted in D3cold"));
+    }
+    Ok(())
+}
+
 /// Read a PCI ID field (vendor, device, subsystem_vendor, subsystem_device).
 /// Returns 0 on failure. The sysfs files contain hex values like "0x10de\n".
 pub fn read_pci_id(bdf: &str, field: &str) -> u16 {
     let path = format!("/sys/bus/pci/devices/{bdf}/{field}");
     std::fs::read_to_string(&path)
         .ok()
-        .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
+        .map(|s| parse_pci_id_hex(&s))
         .unwrap_or(0)
 }
 
@@ -166,9 +190,73 @@ pub fn pm_power_cycle(bdf: &str) -> Result<(), String> {
         .unwrap_or_default();
     tracing::info!(bdf, power_state = %after, "PM power cycle complete");
 
-    if after == "D3cold" {
-        return Err(format!("{bdf}: PM power cycle resulted in D3cold"));
+    err_if_pm_cycle_d3cold(bdf, &after)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXPECTED_NVIDIA_VENDOR: u16 = 0x10de;
+
+    #[test]
+    fn parse_pci_id_hex_accepts_0x_prefix_and_whitespace() {
+        assert_eq!(parse_pci_id_hex("0x10de\n"), EXPECTED_NVIDIA_VENDOR);
+        assert_eq!(parse_pci_id_hex("  0xABCD  "), 0xabcd);
     }
 
-    Ok(())
+    #[test]
+    fn parse_pci_id_hex_invalid_returns_zero() {
+        assert_eq!(parse_pci_id_hex("not-hex"), 0);
+        assert_eq!(parse_pci_id_hex(""), 0);
+    }
+
+    #[test]
+    fn parse_iommu_group_file_name_numeric() {
+        const EXPECTED_GROUP: u32 = 42;
+        assert_eq!(parse_iommu_group_file_name("42"), EXPECTED_GROUP);
+        assert_eq!(parse_iommu_group_file_name("0"), 0);
+    }
+
+    #[test]
+    fn parse_iommu_group_file_name_invalid_returns_zero() {
+        assert_eq!(parse_iommu_group_file_name("not-a-number"), 0);
+    }
+
+    #[test]
+    fn sysfs_write_round_trip_tmpfile() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("coral_ember_sysfs_write_test");
+        let payload = "on";
+        sysfs_write(path.to_str().unwrap(), payload).unwrap();
+        let read_back = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(read_back, payload);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn err_if_pm_cycle_d3cold_rejects_d3cold() {
+        let bdf = "0000:01:00.0";
+        let err = err_if_pm_cycle_d3cold(bdf, "D3cold").unwrap_err();
+        assert!(err.contains(bdf));
+        assert!(err.contains("D3cold"));
+    }
+
+    #[test]
+    fn err_if_pm_cycle_d3cold_accepts_other_states() {
+        err_if_pm_cycle_d3cold("0000:01:00.0", "D0").unwrap();
+        err_if_pm_cycle_d3cold("0000:01:00.0", "D3hot").unwrap();
+    }
+
+    #[test]
+    fn pci_remove_invalid_bdf_is_error() {
+        let remove_err = pci_remove("ff:ff:ff.f");
+        assert!(remove_err.is_err());
+    }
+
+    #[test]
+    fn sysfs_write_missing_parent_is_error() {
+        let err = sysfs_write("/nonexistent-coral-ember-path/nope", "1").unwrap_err();
+        assert!(err.contains("sysfs write"));
+    }
 }

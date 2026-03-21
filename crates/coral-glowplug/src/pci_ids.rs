@@ -176,4 +176,42 @@ mod tests {
     fn hbm2_training_driver_unknown() {
         assert_eq!(hbm2_training_driver(0xdead), None);
     }
+
+    #[test]
+    fn is_vega20_covers_all_mi_and_radeon_vii() {
+        assert!(is_vega20(MI50_DEVICE_ID));
+        assert!(is_vega20(MI60_DEVICE_ID));
+        assert!(is_vega20(RADEON_VII_DEVICE_ID));
+        assert!(!is_vega20(0x1234));
+    }
+
+    #[test]
+    fn native_compute_driver_brainchip() {
+        assert_eq!(
+            native_compute_driver(BRAINCHIP_VENDOR_ID),
+            Some("akida-pcie")
+        );
+    }
+
+    #[test]
+    fn native_compute_driver_unknown_vendor() {
+        assert_eq!(native_compute_driver(0xffff), None);
+    }
+
+    #[test]
+    fn native_compute_driver_nvidia_amd_intel() {
+        assert_eq!(native_compute_driver(NVIDIA_VENDOR_ID), Some("nouveau"));
+        assert_eq!(native_compute_driver(AMD_VENDOR_ID), Some("amdgpu"));
+        assert_eq!(native_compute_driver(INTEL_VENDOR_ID), Some("xe"));
+    }
+
+    #[test]
+    fn radeon_vii_vfio_ids_format() {
+        let parts: Vec<&str> = RADEON_VII_VFIO_IDS.split(':').collect();
+        assert_eq!(parts.len(), 2);
+        let vendor = u16::from_str_radix(parts[0], 16).unwrap();
+        let device = u16::from_str_radix(parts[1], 16).unwrap();
+        assert_eq!(vendor, AMD_VENDOR_ID);
+        assert_eq!(device, RADEON_VII_DEVICE_ID);
+    }
 }

@@ -36,6 +36,8 @@ unsafe impl<const OP: Opcode> Ioctl for VfioIoctlReturn<OP> {
         out: IoctlOutput,
         _extract_output: *mut std::ffi::c_void,
     ) -> IoResult<Self::Output> {
+        // SAFETY: Integer-return VFIO ioctls encode the result in `IoctlOutput`; no
+        // structured output at `_extract_output` for this adapter.
         Ok(out)
     }
 }
@@ -63,6 +65,8 @@ unsafe impl<const OP: Opcode, T> Ioctl for VfioIoctlPtr<OP, T> {
         _out: IoctlOutput,
         _extract_output: *mut std::ffi::c_void,
     ) -> IoResult<Self::Output> {
+        // SAFETY: Struct-pointer VFIO ioctls mutate `T` in place; kernel result is
+        // not passed separately via `IoctlOutput` for this adapter.
         Ok(())
     }
 }

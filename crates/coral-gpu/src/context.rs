@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
+use std::collections::HashMap;
+
 use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 use coral_reef::{AmdArch, CompileOptions, GpuTarget, NvArch};
 
@@ -19,6 +21,8 @@ pub struct GpuContext {
     pub(super) target: GpuTarget,
     pub(super) options: CompileOptions,
     pub(super) device: Option<Box<dyn ComputeDevice>>,
+    /// Session-local memoization for [`Self::compile_wgsl_cached`].
+    wgsl_cache: HashMap<u64, CompiledKernel>,
 }
 
 impl GpuContext {
@@ -39,6 +43,7 @@ impl GpuContext {
             target,
             options,
             device: None,
+            wgsl_cache: HashMap::new(),
         })
     }
 
@@ -56,6 +61,27 @@ impl GpuContext {
             target,
             options,
             device: Some(device),
+            wgsl_cache: HashMap::new(),
+        })
+    }
+
+    /// Assemble a context from a target, a pre-built device, and explicit compiler options.
+    ///
+    /// Skips DRM/VFIO/sysfs probing — intended for tests and callers that already
+    /// resolved hardware or inject a [`ComputeDevice`] mock.
+    ///
+    /// `options.target` is overwritten with `target` so the context stays consistent.
+    pub fn from_parts(
+        target: GpuTarget,
+        device: Box<dyn ComputeDevice>,
+        mut options: CompileOptions,
+    ) -> GpuResult<Self> {
+        options.target = target;
+        Ok(Self {
+            target,
+            options,
+            device: Some(device),
+            wgsl_cache: HashMap::new(),
         })
     }
 
@@ -127,7 +153,7 @@ impl GpuContext {
 
     /// Open a specific driver backend by name (first matching render node).
     #[cfg(target_os = "linux")]
-    fn open_driver(driver: &str) -> GpuResult<Self> {
+    pub(crate) fn open_driver(driver: &str) -> GpuResult<Self> {
         match driver {
             #[cfg(feature = "vfio")]
             preference::DRIVER_VFIO => {
@@ -181,7 +207,7 @@ impl GpuContext {
 
     /// Open a driver backend by name, targeting a specific render node path.
     #[cfg(target_os = "linux")]
-    fn open_driver_at_path(driver: &str, path: &str) -> GpuResult<Self> {
+    pub(crate) fn open_driver_at_path(driver: &str, path: &str) -> GpuResult<Self> {
         match driver {
             preference::DRIVER_AMDGPU => {
                 let dev =
@@ -420,6 +446,25 @@ impl GpuContext {
         })
     }
 
+    /// Compile WGSL with session-local memoization keyed by FNV-1a hash of the source.
+    ///
+    /// The first call for a given source string compiles and stores the
+    /// [`CompiledKernel`]; subsequent calls with the same source return a clone
+    /// of the cached entry without invoking the compiler again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::Compile`] if the first compile fails.
+    pub fn compile_wgsl_cached(&mut self, wgsl: &str) -> GpuResult<CompiledKernel> {
+        let key = hash::hash_wgsl(wgsl);
+        if let Some(hit) = self.wgsl_cache.get(&key) {
+            return Ok(hit.clone());
+        }
+        let kernel = self.compile_wgsl(wgsl)?;
+        self.wgsl_cache.insert(key, kernel.clone());
+        Ok(kernel)
+    }
+
     /// Compile SPIR-V to a native GPU kernel.
     ///
     /// # Errors
@@ -443,6 +488,12 @@ impl GpuContext {
     #[must_use]
     pub const fn target(&self) -> GpuTarget {
         self.target
+    }
+
+    /// Compiler options (optimization level, FMA policy, target).
+    #[must_use]
+    pub const fn compile_options(&self) -> &CompileOptions {
+        &self.options
     }
 
     /// Whether a hardware device is attached.

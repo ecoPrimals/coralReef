@@ -72,8 +72,8 @@ impl RmClient {
         );
         let ctl_fd = self.ctl.fd();
 
-        // SAFETY: NvRmMapMemoryParams is #[repr(C)], ctl_fd is a valid nvidiactl fd.
-        unsafe { nv_rm_ioctl(ctl_fd, ioctl_nr, &mut params, "RM_MAP_MEMORY", |p| p.status) }?;
+        // ioctl contract: NvRmMapMemoryParams for `NV_ESC_RM_MAP_MEMORY`.
+        nv_rm_ioctl(ctl_fd, ioctl_nr, &mut params, "RM_MAP_MEMORY", |p| p.status)?;
 
         // The RM reserved a VA range and created an mmap context on mmap_target_fd.
         // Now call mmap(MAP_FIXED) at that address to trigger nvidia_mmap_helper
@@ -139,16 +139,14 @@ impl RmClient {
             NV_ESC_RM_UNMAP_MEMORY,
             std::mem::size_of::<NvRmUnmapMemoryParams>(),
         );
-        // SAFETY: NvRmUnmapMemoryParams is #[repr(C)], ctl fd is a valid nvidiactl fd.
-        unsafe {
-            nv_rm_ioctl(
-                self.ctl.fd(),
-                ioctl_nr,
-                &mut params,
-                "RM_UNMAP_MEMORY",
-                |p| p.status,
-            )
-        }
+        // ioctl contract: NvRmUnmapMemoryParams for `NV_ESC_RM_UNMAP_MEMORY`.
+        nv_rm_ioctl(
+            self.ctl.fd(),
+            ioctl_nr,
+            &mut params,
+            "RM_UNMAP_MEMORY",
+            |p| p.status,
+        )
     }
 
     /// Map an RM memory object into a GPU virtual address space.
@@ -186,16 +184,14 @@ impl RmClient {
             NV_ESC_RM_MAP_MEMORY_DMA,
             std::mem::size_of::<NvRmMapMemoryDmaParams>(),
         );
-        // SAFETY: NvRmMapMemoryDmaParams is #[repr(C)], ctl fd is a valid nvidiactl fd.
-        unsafe {
-            nv_rm_ioctl(
-                self.ctl.fd(),
-                ioctl_nr,
-                &mut params,
-                "RM_MAP_MEMORY_DMA",
-                |p| p.status,
-            )
-        }?;
+        // ioctl contract: NvRmMapMemoryDmaParams for `NV_ESC_RM_MAP_MEMORY_DMA`.
+        nv_rm_ioctl(
+            self.ctl.fd(),
+            ioctl_nr,
+            &mut params,
+            "RM_MAP_MEMORY_DMA",
+            |p| p.status,
+        )?;
 
         tracing::debug!(
             h_memory = format_args!("0x{h_memory:08X}"),

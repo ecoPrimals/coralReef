@@ -309,12 +309,13 @@ impl NvUvmComputeDevice {
             return Ok(());
         }
 
-        let gp_get_ptr = (self.userd_cpu_addr + USERD_GP_GET_OFFSET as u64) as *const u32;
+        let gp_get_ptr = (self.userd_cpu_addr + USERD_GP_GET_OFFSET as u64) as *mut u32;
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            // SAFETY: userd_cpu_addr is a valid kernel mmap'd address.
-            let gp_get = unsafe { std::ptr::read_volatile(gp_get_ptr) };
+            // SAFETY: userd_cpu_addr is a valid kernel mmap'd address; GP_GET lies
+            // within the USERD page; volatile read matches GPU DMA updates.
+            let gp_get = unsafe { VolatilePtr::new(gp_get_ptr).read() };
             if gp_get >= self.gp_put {
                 return Ok(());
             }

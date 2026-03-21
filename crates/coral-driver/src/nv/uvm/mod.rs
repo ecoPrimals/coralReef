@@ -372,14 +372,7 @@ impl NvUvmDevice {
     ///
     /// Returns [`DriverError`] if the ioctl syscall fails.
     pub fn raw_ioctl<T>(&self, cmd: u32, data: &mut T, label: &'static str) -> DriverResult<()> {
-        // SAFETY:
-        // 1. Validity:   T is #[repr(C)] matching the kernel struct
-        // 2. Alignment:  caller-provided &mut T, naturally aligned
-        // 3. Lifetime:   synchronous ioctl; data outlives the call
-        // 4. Exclusivity: &mut data — sole reference
-        unsafe {
-            crate::drm::drm_ioctl_named(self.fd(), u64::from(cmd), data, label)?;
-        }
+        crate::drm::drm_ioctl_named(self.fd(), u64::from(cmd), data, label)?;
         Ok(())
     }
 
@@ -568,14 +561,8 @@ impl NvGpuDevice {
             NV_ESC_REGISTER_FD,
             std::mem::size_of::<NvRegisterFdParams>(),
         );
-        // SAFETY:
-        // 1. Validity:   NvRegisterFdParams is #[repr(C)] matching nv_ioctl_register_fd_t
-        // 2. Alignment:  stack-allocated, naturally aligned
-        // 3. Lifetime:   synchronous ioctl; params outlives the call
-        // 4. Exclusivity: sole mutable reference
-        unsafe {
-            crate::drm::drm_ioctl_named(self.fd(), ioctl_nr, &mut params, "NV_ESC_REGISTER_FD")?;
-        }
+        // ioctl contract: `NvRegisterFdParams` is `#[repr(C)]` for `NV_ESC_REGISTER_FD`.
+        crate::drm::drm_ioctl_named(self.fd(), ioctl_nr, &mut params, "NV_ESC_REGISTER_FD")?;
         tracing::debug!(
             gpu_index = self.index,
             ctl_fd,

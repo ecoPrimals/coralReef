@@ -667,6 +667,55 @@ mod tests {
         assert!(branch.is_branch);
     }
 
+    /// Exercise every generated `TABLE` + `lookup` (llvm-cov: isa_generated tables
+    /// are otherwise unused dead data).
+    #[test]
+    fn generated_isa_tables_lookup_all_encodings() {
+        use super::super::isa;
+        use super::super::isa_generated;
+
+        assert_eq!(isa_generated::TOTAL_INSTRUCTIONS, 1446);
+        assert_eq!(isa_generated::encoding_bits("ENC_DS"), Some(64));
+        assert_eq!(isa_generated::encoding_bits("ENC_VOP3"), Some(64));
+        assert_eq!(isa_generated::encoding_bits("ENC_VOP3P"), Some(64));
+        assert!(isa_generated::encoding_bits("ENC_UNKNOWN").is_none());
+
+        assert!(isa_generated::ds::lookup(0).is_some());
+        assert!(isa_generated::flat::lookup(12).is_some());
+        assert!(isa_generated::flat_glbl::lookup(12).is_some());
+        assert!(isa_generated::flat_scratch::lookup(12).is_some());
+        assert!(isa_generated::mimg::lookup(0).is_some());
+        assert!(isa_generated::mtbuf::lookup(0).is_some());
+        assert!(isa_generated::mubuf::lookup(0).is_some());
+        assert!(isa_generated::smem::lookup(0).is_some());
+        assert!(isa_generated::sop1::lookup(3).is_some());
+        assert!(isa_generated::sop2::lookup(0).is_some());
+        assert!(isa_generated::sopc::lookup(0).is_some());
+        assert!(isa_generated::sopk::lookup(0).is_some());
+        assert!(isa_generated::vop1::lookup(1).is_some());
+        assert!(isa_generated::vop2::lookup(3).is_some());
+        assert!(isa_generated::vop3::lookup(356).is_some());
+        assert!(isa_generated::vop3p::lookup(0).is_some());
+        assert!(isa_generated::vopc::lookup(0).is_some());
+
+        let _vop3_full = isa_generated::vop3::table();
+        assert!(!_vop3_full.is_empty());
+        let _vopc_full = isa_generated::vopc::table();
+        assert!(!_vopc_full.is_empty());
+
+        assert_eq!(
+            isa_generated::flat::lookup(12)
+                .expect("FLAT_LOAD_DWORD")
+                .name,
+            "FLAT_LOAD_DWORD"
+        );
+        assert_eq!(
+            isa_generated::ds::lookup(0).expect("DS_ADD_U32").name,
+            "DS_ADD_U32"
+        );
+        assert_eq!(isa::flat::FLAT_LOAD_DWORD, 12);
+    }
+
     #[test]
     fn flat_load_encoding_structure() {
         let words = Rdna2Encoder::encode_flat_load(isa::flat::FLAT_LOAD_DWORD, 0, 5, 0);

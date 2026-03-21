@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use std::fmt::Write as FmtWrite;
+
 use super::super::super::page_tables::{populate_runlist_static, write_u32_le};
 use super::super::super::registers::*;
 use super::context::ExperimentContext;
@@ -28,7 +30,11 @@ pub(super) fn vram_instance_bind(ctx: &mut ExperimentContext<'_>) -> DriverResul
 
     let vram_sig = ctx.r(PRAMIN_BASE + VRAM_INST_OFF + ramfc::SIGNATURE);
     let vram_gpb = ctx.r(PRAMIN_BASE + VRAM_INST_OFF + ramfc::GP_BASE_LO);
-    eprintln!("║   VRAM verify: SIG={vram_sig:#010x} GP_BASE={vram_gpb:#010x}");
+    tracing::trace!(
+        vram_sig = format!("{vram_sig:#010x}"),
+        vram_gpb = format!("{vram_gpb:#010x}"),
+        "VRAM verify"
+    );
 
     let _ = ctx.w(pb + 0x40, 0xBEEF_0040);
     let _ = ctx.w(pb + 0x44, 0xBEEF_0044);
@@ -63,7 +69,10 @@ pub(super) fn vram_instance_bind(ctx: &mut ExperimentContext<'_>) -> DriverResul
     std::thread::sleep(std::time::Duration::from_millis(5));
 
     let post_inst = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!("║   post-INST(noBind): {post_inst:#010x}");
+    tracing::trace!(
+        post_inst = format!("{post_inst:#010x}"),
+        "post-INST(noBind)"
+    );
 
     let _ = ctx.w(pccsr::channel(ctx.channel_id), pccsr::CHANNEL_ENABLE_SET);
     std::thread::sleep(std::time::Duration::from_millis(5));
@@ -75,8 +84,12 @@ pub(super) fn vram_instance_bind(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let sched_userd = ctx.r(pb + 0xD0);
     let sched_sig = ctx.r(pb + 0xC0);
     let sched_state = ctx.r(pb + 0xB0);
-    eprintln!(
-        "║   post-sched PBDMA: GP_BASE={sched_gpb:#010x} USERD={sched_userd:#010x} SIG={sched_sig:#010x} STATE={sched_state:#010x}"
+    tracing::trace!(
+        sched_gpb = format!("{sched_gpb:#010x}"),
+        sched_userd = format!("{sched_userd:#010x}"),
+        sched_sig = format!("{sched_sig:#010x}"),
+        sched_state = format!("{sched_state:#010x}"),
+        "post-sched PBDMA"
     );
 
     let gp_entry: u64 = (NOP_PB_IOVA & 0xFFFF_FFFC) | ((2_u64) << (32 + 10));
@@ -166,8 +179,12 @@ pub(super) fn all_vram(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     let v_gpb = ctx.r(PM + inst_base + ramfc::GP_BASE_LO);
     let v_pdb = ctx.r(PM + inst_base + ramin::PAGE_DIR_BASE_LO);
     let v_usr = ctx.r(PM + inst_base + ramfc::USERD_LO);
-    eprintln!(
-        "║   VRAM inst: SIG={v_sig:#010x} GP={v_gpb:#010x} PDB={v_pdb:#010x} USR={v_usr:#010x}"
+    tracing::trace!(
+        v_sig = format!("{v_sig:#010x}"),
+        v_gpb = format!("{v_gpb:#010x}"),
+        v_pdb = format!("{v_pdb:#010x}"),
+        v_usr = format!("{v_usr:#010x}"),
+        "VRAM inst"
     );
 
     let gp_entry: u64 = (0xB000_u64 & 0xFFFF_FFFC) | ((1_u64) << (32 + 10));
@@ -209,7 +226,10 @@ pub(super) fn all_vram(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let post_bind = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!("║   post-BIND(allVram): {post_bind:#010x}");
+    tracing::trace!(
+        post_bind = format!("{post_bind:#010x}"),
+        "post-BIND(allVram)"
+    );
 
     if post_bind & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0 {
         let _ = ctx.w(
@@ -239,11 +259,18 @@ pub(super) fn all_vram(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     let sched_usr = ctx.r(pb + 0xD0);
     let sched_sig = ctx.r(pb + 0xC0);
     let sched_state = ctx.r(pb + 0xB0);
-    eprintln!(
-        "║   post-submit: PCCSR={post_rl:#010x} ENG_RL_BASE={eng_rl_base:#010x} ENG_RL={eng_rl:#010x}"
+    tracing::trace!(
+        post_rl = format!("{post_rl:#010x}"),
+        eng_rl_base = format!("{eng_rl_base:#010x}"),
+        eng_rl = format!("{eng_rl:#010x}"),
+        "post-submit"
     );
-    eprintln!(
-        "║   PBDMA: GP_BASE={sched_gpb:#010x} USERD={sched_usr:#010x} SIG={sched_sig:#010x} STATE={sched_state:#010x}"
+    tracing::trace!(
+        sched_gpb = format!("{sched_gpb:#010x}"),
+        sched_usr = format!("{sched_usr:#010x}"),
+        sched_sig = format!("{sched_sig:#010x}"),
+        sched_state = format!("{sched_state:#010x}"),
+        "PBDMA after submit"
     );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
@@ -255,8 +282,14 @@ pub(super) fn all_vram(ctx: &mut ExperimentContext<'_>) -> DriverResult<()> {
     let sig_post = ctx.r(pb + 0xC0);
     let gp_put_post = ctx.r(pb + 0x54);
     let gp_fetch_post = ctx.r(pb + 0x48);
-    eprintln!(
-        "║   post-doorbell: PCCSR={post_db:#010x} GP_BASE={gpb_post:#010x} USERD={usr_post:#010x} SIG={sig_post:#010x} GP_PUT={gp_put_post} GP_FETCH={gp_fetch_post}"
+    tracing::trace!(
+        post_db = format!("{post_db:#010x}"),
+        gpb_post = format!("{gpb_post:#010x}"),
+        usr_post = format!("{usr_post:#010x}"),
+        sig_post = format!("{sig_post:#010x}"),
+        gp_put_post,
+        gp_fetch_post,
+        "post-doorbell"
     );
     Ok(())
 }
@@ -384,8 +417,14 @@ pub(super) fn all_vram_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> DriverRe
     let userd_lo = ctx.r(pb + 0xD0);
     let sig = ctx.r(pb + 0xC0);
     let state = ctx.r(pb + 0xB0);
-    eprintln!(
-        "║   L result: PCCSR={post:#010x} GP_PUT={gp_put} GP_FETCH={gp_fetch} USERD={userd_lo:#010x} SIG={sig:#010x} STATE={state:#010x}"
+    tracing::trace!(
+        post = format!("{post:#010x}"),
+        gp_put,
+        gp_fetch,
+        userd_lo = format!("{userd_lo:#010x}"),
+        sig = format!("{sig:#010x}"),
+        state = format!("{state:#010x}"),
+        "L result all_vram_direct_pbdma"
     );
     Ok(())
 }
@@ -422,16 +461,21 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let v_gpb = ctx.r(PM + VI + ramfc::GP_BASE_LO);
     let v_usr = ctx.r(PM + VI + ramfc::USERD_LO);
     let v_pdb = ctx.r(PM + VI + ramin::PAGE_DIR_BASE_LO);
-    eprintln!(
-        "║   Q VRAM inst: SIG={v_sig:#010x} GP_BASE={v_gpb:#010x} USERD={v_usr:#010x} PDB={v_pdb:#010x}"
+    tracing::trace!(
+        v_sig = format!("{v_sig:#010x}"),
+        v_gpb = format!("{v_gpb:#010x}"),
+        v_usr = format!("{v_usr:#010x}"),
+        v_pdb = format!("{v_pdb:#010x}"),
+        "Q VRAM inst"
     );
 
     let _ = ctx.w(PM + VRAM_USERD + ramuserd::GP_PUT, 1);
     let _ = ctx.w(PM + VRAM_USERD + ramuserd::GP_GET, 0);
     let vram_gp_put = ctx.r(PM + VRAM_USERD + ramuserd::GP_PUT);
-    eprintln!(
-        "║   Q VRAM USERD: GP_PUT={vram_gp_put} (at 0x{:04x})",
-        VRAM_USERD + ramuserd::GP_PUT
+    tracing::trace!(
+        vram_gp_put,
+        userd_gp_put_off = format!("{:#04x}", VRAM_USERD + ramuserd::GP_PUT),
+        "Q VRAM USERD"
     );
 
     let _ = ctx.w(PM + VI + ramfc::USERD_LO, VRAM_USERD as u32 & 0xFFFF_FE00);
@@ -446,11 +490,16 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let _ = ctx.w(0x002638, 1 << ctx.target_runlist);
     std::thread::sleep(std::time::Duration::from_millis(50));
     let preempt_pending = ctx.r(0x002284 + (ctx.target_runlist as usize) * 8);
-    eprintln!("║   Q pre-preempt: pending={preempt_pending:#010x}");
+    tracing::trace!(
+        preempt_pending = format!("{preempt_pending:#010x}"),
+        "Q pre-preempt"
+    );
 
-    eprintln!(
-        "║   Q pccsr_inst_val={:#010x} rl_base={:#010x} rl_submit={:#010x}",
-        ctx.pccsr_inst_val, ctx.rl_base, ctx.rl_submit
+    tracing::trace!(
+        pccsr_inst_val = format!("{:#010x}", ctx.pccsr_inst_val),
+        rl_base = format!("{:#010x}", ctx.rl_base),
+        rl_submit = format!("{:#010x}", ctx.rl_submit),
+        "Q runlist params"
     );
     let _ = ctx.w(pccsr::inst(ctx.channel_id), ctx.pccsr_inst_val);
     std::thread::sleep(std::time::Duration::from_millis(5));
@@ -461,21 +510,28 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let rl_pending = ctx.r(0x002284 + (ctx.target_runlist as usize) * 8);
-    eprintln!(
-        "║   Q runlist_pending={rl_pending:#010x} (bit20={})",
-        rl_pending & 0x00100000 != 0
+    tracing::trace!(
+        rl_pending = format!("{rl_pending:#010x}"),
+        bit20 = rl_pending & 0x00100000 != 0,
+        "Q runlist_pending"
     );
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!(
-        "║   Q bind={post_bind:#010x} sched={post_rl:#010x} ok={}",
-        post_rl & 2 != 0
+    tracing::trace!(
+        post_bind = format!("{post_bind:#010x}"),
+        post_rl = format!("{post_rl:#010x}"),
+        sched_ok = post_rl & 2 != 0,
+        "Q bind vs sched"
     );
 
     let pfifo_intr = ctx.r(pfifo::INTR);
     let rl_mask = ctx.r(0x002A00);
-    eprintln!("║   Q ack: PFIFO_INTR={pfifo_intr:#010x} RL_MASK={rl_mask:#010x}");
+    tracing::trace!(
+        pfifo_intr = format!("{pfifo_intr:#010x}"),
+        rl_mask = format!("{rl_mask:#010x}"),
+        "Q ack"
+    );
     if rl_mask != 0 {
         let _ = ctx.w(0x002A00, rl_mask);
     }
@@ -492,21 +548,26 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let p2_userd = ctx.r(PB2 + 0x008);
     let p2_gpbase = ctx.r(PB2 + 0x048);
     let p2_chid = ctx.r(PB2 + 0x0E8);
-    eprintln!(
-        "║   Q ctx: SIG={p2_sig:#010x} USERD={p2_userd:#010x} GP_BASE={p2_gpbase:#010x} CHID={p2_chid:#010x}"
+    tracing::trace!(
+        p2_sig = format!("{p2_sig:#010x}"),
+        p2_userd = format!("{p2_userd:#010x}"),
+        p2_gpbase = format!("{p2_gpbase:#010x}"),
+        p2_chid = format!("{p2_chid:#010x}"),
+        "Q ctx"
     );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
     std::thread::sleep(std::time::Duration::from_millis(100));
 
-    eprint!("║   Q pb2-post-db:");
+    let mut pb2_post_db = String::from("║   Q pb2-post-db:");
     for off in (0x000..=0x0FF_usize).step_by(4) {
         let val = ctx.r(PB2 + off);
         if val != 0 {
-            eprint!(" [{off:#05x}]={val:#010x}");
+            write!(&mut pb2_post_db, " [{off:#05x}]={val:#010x}")
+                .expect("writing to String is infallible");
         }
     }
-    eprintln!();
+    tracing::trace!(dump = %pb2_post_db, "Q pb2-post-db");
 
     let pccsr_post = ctx.r(pccsr::channel(ctx.channel_id));
     let intr_post = ctx.r(pfifo::INTR);
@@ -514,13 +575,19 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
     let p2_hce = ctx.r(pbdma::hce_intr(2));
     let p2_method = ctx.r(PB2 + pbdma::METHOD0);
     let p2_data = ctx.r(PB2 + pbdma::DATA0);
-    eprintln!(
-        "║   Q post-db: PCCSR={pccsr_post:#010x} PFIFO_INTR={intr_post:#010x} PBDMA2_INTR={p2_intr:#010x} HCE={p2_hce:#010x}"
+    tracing::trace!(
+        pccsr_post = format!("{pccsr_post:#010x}"),
+        intr_post = format!("{intr_post:#010x}"),
+        p2_intr = format!("{p2_intr:#010x}"),
+        p2_hce = format!("{p2_hce:#010x}"),
+        "Q post-db"
     );
     if p2_intr != 0 {
-        eprintln!(
-            "║   Q PBDMA2 fault: METHOD={p2_method:#010x} DATA={p2_data:#010x} (method_addr={:#06x})",
-            (p2_method & 0xFFF) << 2
+        tracing::trace!(
+            p2_method = format!("{p2_method:#010x}"),
+            p2_data = format!("{p2_data:#010x}"),
+            method_addr = format!("{:#06x}", (p2_method & 0xFFF) << 2),
+            "Q PBDMA2 fault"
         );
     }
 
@@ -537,25 +604,33 @@ pub(super) fn vram_full_dispatch(ctx: &mut ExperimentContext<'_>) -> DriverResul
         let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        eprint!("║   Q pb2-retry:");
+        let mut pb2_retry = String::from("║   Q pb2-retry:");
         for off in (0x000..=0x0FF_usize).step_by(4) {
             let val = ctx.r(PB2 + off);
             if val != 0 {
-                eprint!(" [{off:#05x}]={val:#010x}");
+                write!(&mut pb2_retry, " [{off:#05x}]={val:#010x}")
+                    .expect("writing to String is infallible");
             }
         }
-        eprintln!();
+        tracing::trace!(dump = %pb2_retry, "Q pb2-retry");
 
         let retry_intr = ctx.r(pbdma::intr(2));
         let retry_hce = ctx.r(pbdma::hce_intr(2));
         let retry_pccsr = ctx.r(pccsr::channel(ctx.channel_id));
-        eprintln!(
-            "║   Q retry: PCCSR={retry_pccsr:#010x} PBDMA2_INTR={retry_intr:#010x} HCE={retry_hce:#010x}"
+        tracing::trace!(
+            retry_pccsr = format!("{retry_pccsr:#010x}"),
+            retry_intr = format!("{retry_intr:#010x}"),
+            retry_hce = format!("{retry_hce:#010x}"),
+            "Q retry"
         );
     }
 
     let final_pccsr = ctx.r(pccsr::channel(ctx.channel_id));
     let final_intr = ctx.r(pfifo::INTR);
-    eprintln!("║   Q final: PCCSR={final_pccsr:#010x} PFIFO_INTR={final_intr:#010x}");
+    tracing::trace!(
+        final_pccsr = format!("{final_pccsr:#010x}"),
+        final_intr = format!("{final_intr:#010x}"),
+        "Q final"
+    );
     Ok(())
 }

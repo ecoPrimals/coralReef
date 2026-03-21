@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Transport implementations: TCP, Unix socket, Songbird proxy.
+//! Transport implementations: TCP, Unix socket, delegated TLS via local edge proxy.
 
 use crate::error::RpcError;
 use bytes::Bytes;
@@ -14,11 +14,11 @@ pub enum Transport {
     Tcp(SocketAddr),
     /// HTTP over a Unix domain socket (primal-to-primal IPC).
     Unix(PathBuf),
-    /// HTTPS via local Songbird proxy (Tower Atomic pattern).
-    SongbirdProxy {
-        /// Songbird's local HTTP proxy address.
+    /// HTTPS via a local edge proxy that performs TLS on behalf of this client (Tower Atomic pattern).
+    DelegatedTlsProxy {
+        /// Local HTTP address of the TLS edge (plain HTTP from this process).
         proxy_addr: SocketAddr,
-        /// The external hostname Songbird will connect to via TLS 1.3.
+        /// Upstream hostname the edge uses for the TLS 1.3 connection.
         target_host: String,
     },
 }
@@ -29,7 +29,7 @@ impl Transport {
         match self {
             Self::Tcp(addr) => tcp_roundtrip(*addr, "localhost", "/", body).await,
             Self::Unix(path) => unix_roundtrip(path, body).await,
-            Self::SongbirdProxy {
+            Self::DelegatedTlsProxy {
                 proxy_addr,
                 target_host,
             } => {

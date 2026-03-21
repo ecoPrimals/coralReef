@@ -205,7 +205,7 @@ pub fn generate_encoding_file(
     let vopc_split = enc_name == "ENC_VOPC" && instrs.is_some();
 
     if vop3_sub_split {
-        let instrs = instrs.unwrap();
+        let instrs = instrs.expect("vop3_sub_split is only true when instrs is Some");
         let mut by_cat: std::collections::BTreeMap<&str, Vec<&InstrInfo>> =
             std::collections::BTreeMap::new();
         for i in instrs {

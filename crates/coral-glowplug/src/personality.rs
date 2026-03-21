@@ -5,7 +5,7 @@
 )]
 //! Trait-based GPU personality system.
 //!
-//! Evolved from enum Personality per hotSpring P3 request. Each driver
+//! Evolved from enum Personality per ecosystem P3 review. Each driver
 //! personality is a trait implementation allowing extensibility without
 //! modifying the core enum. The [`PersonalityRegistry`] enables runtime
 //! discovery of supported personalities.

@@ -28,7 +28,7 @@ pub fn probe_channel(
     container: Arc<OwnedFd>,
     dma: &DmaCapability,
 ) -> Result<ChannelConfig, ProbeFailure> {
-    eprintln!("╠══ L5: Channel — scheduler + doorbell + GP_GET ═════════╣");
+    tracing::info!("L5: Channel — scheduler + doorbell + GP_GET");
 
     let engines = &dma.engines;
     let channel_id: u32 = 1;
@@ -266,37 +266,52 @@ pub fn probe_channel(
         let context_loaded = sig != 0xBEEF_0010 && gpbase != 0xBEEF_0048;
         let sig_correct = sig == 0x0000_FACE;
 
-        eprintln!(
-            "║ L5 {}: st={status}({status_name}) SIG={sig:#x} GP_BASE={gpbase:#x}",
-            attempt.label
+        tracing::debug!(
+            label = attempt.label,
+            status,
+            status_name,
+            sig = format!("{sig:#x}"),
+            gpbase = format!("{gpbase:#x}"),
+            "L5 attempt"
         );
-        eprintln!(
-            "║   GP_GET={gp_get:#x} GP_PUT={gp_put:#x} CHSW={chsw:#x} INTR={intr:#x} \
-             PBDMA_INTR={pbdma_intr_val:#x} USERD_GP_GET={userd_gp_get:#x}"
+        tracing::debug!(
+            gp_get = format!("{gp_get:#x}"),
+            gp_put = format!("{gp_put:#x}"),
+            chsw = format!("{chsw:#x}"),
+            intr = format!("{intr:#x}"),
+            pbdma_intr = format!("{pbdma_intr_val:#x}"),
+            userd_gp_get = format!("{userd_gp_get:#x}"),
+            "L5 PBDMA registers"
         );
 
         if context_loaded && sig_correct {
-            eprintln!("║   ✓ Context loaded via scheduler!");
+            tracing::info!("context loaded via scheduler");
             working_target = attempt.inst_target;
             scheduling_method = SchedulingMethod::HardwareScheduler;
             if gp_get != 0 {
-                eprintln!("║   ✓ GP_GET advanced to {gp_get}!");
+                tracing::info!(gp_get, "GP_GET advanced");
             }
             if userd_gp_get != 0xDEAD && userd_gp_get != 0 {
-                eprintln!("║   ✓ USERD GP_GET written back: {userd_gp_get:#x}!");
+                tracing::info!(
+                    userd_gp_get = format!("{userd_gp_get:#x}"),
+                    "USERD GP_GET written back"
+                );
             }
             runlist_ack = (intr & pfifo::INTR_RL_COMPLETE) != 0;
             break;
         } else if context_loaded {
-            eprintln!("║   ~ Context loaded but SIG={sig:#x} (expected 0xFACE)");
+            tracing::debug!(
+                sig = format!("{sig:#x}"),
+                "context loaded but unexpected SIG"
+            );
             working_target = attempt.inst_target;
             scheduling_method = SchedulingMethod::HardwareScheduler;
             break;
         } else {
-            eprintln!(
-                "║   ✗ Context not loaded (sentinels={} dead={})",
-                (sig >> 16) == 0xBEEF,
-                (sig >> 16) == 0xDEAD
+            tracing::debug!(
+                sentinels = (sig >> 16) == 0xBEEF,
+                dead = (sig >> 16) == 0xDEAD,
+                "context not loaded"
             );
         }
     }
@@ -306,9 +321,11 @@ pub fn probe_channel(
         let fault_addr_lo = r(bar0, mmu::FAULT_ADDR_LO);
         let fault_addr_hi = r(bar0, mmu::FAULT_ADDR_HI);
         let fault_inst_lo = r(bar0, mmu::FAULT_INST_LO);
-        eprintln!(
-            "║ L5 MMU_FAULT: status={fault_status:#x} addr={fault_addr_hi:#x}_{fault_addr_lo:#x} \
-             inst={fault_inst_lo:#x}"
+        tracing::warn!(
+            fault_status = format!("{fault_status:#x}"),
+            fault_addr = format!("{fault_addr_hi:#x}_{fault_addr_lo:#x}"),
+            fault_inst = format!("{fault_inst_lo:#x}"),
+            "L5 MMU fault"
         );
     }
 

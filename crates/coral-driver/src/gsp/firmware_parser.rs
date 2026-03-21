@@ -94,26 +94,44 @@ impl GrFirmwareBlobs {
 
     /// Parse legacy format (separate files).
     fn parse_legacy(base: &Path, chip: &str) -> Result<Self, std::io::Error> {
-        let bundle_init = parse_u32_pairs(&base.join("sw_bundle_init.bin"))?;
-        let method_init = parse_u32_pairs(&base.join("sw_method_init.bin"))?;
-
+        let bundle_init = std::fs::read(base.join("sw_bundle_init.bin"))?;
+        let method_init = std::fs::read(base.join("sw_method_init.bin"))?;
         let ctx_data = std::fs::read(base.join("sw_ctx.bin")).unwrap_or_else(|_| Vec::new());
         let nonctx_data = std::fs::read(base.join("sw_nonctx.bin")).unwrap_or_else(|_| Vec::new());
+        Ok(Self::from_legacy_bytes(
+            &bundle_init,
+            &method_init,
+            &ctx_data,
+            &nonctx_data,
+            chip,
+        ))
+    }
 
-        Ok(Self {
+    /// Parse legacy GR blobs from in-memory file contents (no filesystem I/O).
+    #[must_use]
+    pub(crate) fn from_legacy_bytes(
+        bundle_init: &[u8],
+        method_init: &[u8],
+        ctx_data: &[u8],
+        nonctx_data: &[u8],
+        chip: &str,
+    ) -> Self {
+        let bundle_pairs = parse_u32_pairs_from_bytes(bundle_init);
+        let method_pairs = parse_u32_pairs_from_bytes(method_init);
+        Self {
             chip: chip.to_string(),
             format: FirmwareFormat::Legacy,
-            bundle_init: bundle_init
+            bundle_init: bundle_pairs
                 .into_iter()
                 .map(|(a, v)| BundleEntry { addr: a, value: v })
                 .collect(),
-            method_init: method_init
+            method_init: method_pairs
                 .into_iter()
                 .map(|(a, v)| MethodEntry { addr: a, value: v })
                 .collect(),
-            ctx_data,
-            nonctx_data,
-        })
+            ctx_data: ctx_data.to_vec(),
+            nonctx_data: nonctx_data.to_vec(),
+        }
     }
 
     /// Parse Ampere+ `NET_img.bin` container format.
@@ -124,11 +142,20 @@ impl GrFirmwareBlobs {
     /// GPU register space (`0x0040_0000..0x0080_0000`) are register init.
     fn parse_net_img(path: &Path, chip: &str) -> Result<Self, std::io::Error> {
         let data = std::fs::read(path)?;
+        Self::parse_net_img_bytes(&data, chip)
+    }
+
+    /// Parse `NET_img.bin` from raw bytes (same layout as [`Self::parse_net_img`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the header is invalid or truncated.
+    pub(crate) fn parse_net_img_bytes(data: &[u8], chip: &str) -> Result<Self, std::io::Error> {
         if data.len() < 8 {
             return Err(std::io::Error::other("NET_img.bin too small"));
         }
 
-        let num_sections = read_u32_le(&data, 4) as usize;
+        let num_sections = read_u32_le(data, 4) as usize;
         let header_size = 8 + num_sections * 12;
         if data.len() < header_size {
             return Err(std::io::Error::other("NET_img.bin header truncated"));
@@ -141,9 +168,9 @@ impl GrFirmwareBlobs {
 
         for i in 0..num_sections {
             let entry_off = 8 + i * 12;
-            let sec_type = read_u32_le(&data, entry_off);
-            let sec_size = read_u32_le(&data, entry_off + 4) as usize;
-            let sec_offset = read_u32_le(&data, entry_off + 8) as usize;
+            let sec_type = read_u32_le(data, entry_off);
+            let sec_size = read_u32_le(data, entry_off + 4) as usize;
+            let sec_offset = read_u32_le(data, entry_off + 8) as usize;
 
             if sec_size < 8 || sec_offset + sec_size > data.len() {
                 continue;
@@ -229,7 +256,7 @@ impl GrFirmwareBlobs {
 }
 
 /// Read a little-endian u32 at byte offset.
-fn read_u32_le(data: &[u8], off: usize) -> u32 {
+pub(crate) fn read_u32_le(data: &[u8], off: usize) -> u32 {
     u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
 }
 
@@ -247,20 +274,27 @@ fn parse_register_pairs(chunk: &[u8], out: &mut Vec<BundleEntry>) {
     }
 }
 
-/// Parse a binary file as packed `[u32, u32]` pairs (little-endian).
-fn parse_u32_pairs(path: &Path) -> Result<Vec<(u32, u32)>, std::io::Error> {
-    let data = std::fs::read(path)?;
+/// Parse packed `[u32, u32]` pairs (little-endian). Trailing bytes shorter than 8 are ignored.
+#[must_use]
+pub(crate) fn parse_u32_pairs_from_bytes(data: &[u8]) -> Vec<(u32, u32)> {
     let mut pairs = Vec::with_capacity(data.len() / 8);
 
     let mut offset = 0;
     while offset + 8 <= data.len() {
-        let addr = read_u32_le(&data, offset);
-        let value = read_u32_le(&data, offset + 4);
+        let addr = read_u32_le(data, offset);
+        let value = read_u32_le(data, offset + 4);
         pairs.push((addr, value));
         offset += 8;
     }
 
-    Ok(pairs)
+    pairs
+}
+
+/// Parse a binary file as packed `[u32, u32]` pairs (little-endian).
+#[cfg(test)]
+fn parse_u32_pairs(path: &Path) -> Result<Vec<(u32, u32)>, std::io::Error> {
+    let data = std::fs::read(path)?;
+    Ok(parse_u32_pairs_from_bytes(&data))
 }
 
 #[cfg(test)]
@@ -366,6 +400,26 @@ mod tests {
                 eprintln!("GA102 firmware not present: {e}");
             }
         }
+    }
+
+    #[test]
+    fn parse_net_img_bytes_without_filesystem() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        let blobs = GrFirmwareBlobs::parse_net_img_bytes(&data, "test").expect("parse");
+        assert_eq!(blobs.format, FirmwareFormat::NetImg);
+        assert!(blobs.bundle_init.is_empty());
+    }
+
+    #[test]
+    fn from_legacy_bytes_smoke() {
+        let mut bundle = Vec::new();
+        bundle.extend_from_slice(&0x0040_1000u32.to_le_bytes());
+        bundle.extend_from_slice(&1u32.to_le_bytes());
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(&bundle, &[], &[], &[], "chip");
+        assert_eq!(blobs.bundle_init.len(), 1);
+        assert_eq!(blobs.bundle_init[0].addr, 0x0040_1000);
     }
 
     #[test]

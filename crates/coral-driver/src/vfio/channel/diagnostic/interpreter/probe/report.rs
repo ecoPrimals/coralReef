@@ -2,6 +2,8 @@
 #![expect(missing_docs, reason = "probe report types; full docs planned")]
 //! Probe report — result container and analysis.
 
+use std::fmt::Write as FmtWrite;
+
 use crate::vfio::memory::MemoryTopology;
 
 use super::super::layers::*;
@@ -46,91 +48,129 @@ impl ProbeReport {
         }
     }
 
-    /// Print human-readable summary to stderr.
+    /// Emit a human-readable probe report via `tracing`.
     pub fn print_summary(&self) {
-        eprintln!("╔══ INTERPRETER PROBE REPORT ════════════════════════════════╗");
-        eprintln!("║ Depth: Layer {}/8 in {}ms", self.depth(), self.elapsed_ms);
+        let mut s = String::new();
+        writeln!(
+            &mut s,
+            "╔══ INTERPRETER PROBE REPORT ════════════════════════════════╗"
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
+            "║ Depth: Layer {}/8 in {}ms",
+            self.depth(),
+            self.elapsed_ms
+        )
+        .expect("writing to String is infallible");
 
         if let Some(bar) = &self.bar {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L0 BAR:     read={} write={} d3hot={} BOOT0={:#010x}",
                 bar.bar0_readable, bar.bar0_writable, bar.in_d3hot, bar.boot0_raw
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(id) = &self.identity {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L1 ID:      {} impl={} rev={} BOOT0={:#010x}",
                 id.architecture, id.implementation, id.revision, id.boot0
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(pwr) = &self.power {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L2 POWER:   {:?} pfifo={} ptimer={} PMC={:#010x}",
                 pwr.method, pwr.pfifo_enabled, pwr.ptimer_ticking, pwr.pmc_enable_final
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(eng) = &self.engines {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L3 ENGINES: pbdma_map={:#010x} gr_rl={:?} gr_pbdma={:?}",
                 eng.pbdma_map, eng.gr_runlist, eng.gr_pbdma
-            );
-            eprintln!(
+            )
+            .expect("writing to String is infallible");
+            writeln!(
+                &mut s,
                 "║             BAR1={:#010x} BAR2={:#010x} bar2_setup={}",
                 eng.bar1_block, eng.bar2_block, eng.bar2_setup_needed
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(mem) = &self.memory {
             let pramin_ok = mem.pramin_works();
             let dma_ok = mem.dma_works();
             let working = mem.paths.iter().filter(|p| p.status.is_working()).count();
             let total = mem.paths.len();
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L3.5 MEM:   vram={} pramin={pramin_ok} dma={dma_ok} bar2={} paths={working}/{total}",
                 mem.vram_accessible, mem.bar2_configured
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(dma) = &self.dma {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L4 DMA:     read={} write={} iommu={} pt={} inst={}",
                 dma.gpu_can_read_sysmem,
                 dma.gpu_can_write_sysmem,
                 dma.iommu_mapping_ok,
                 dma.page_tables_ok,
                 dma.instance_block_accessible
-            );
+            )
+            .expect("writing to String is infallible");
             if !dma.ctx_evidence.is_empty() {
-                eprint!("║             CTX:");
+                write!(&mut s, "║             CTX:").expect("writing to String is infallible");
                 for (name, val) in &dma.ctx_evidence {
-                    eprint!(" {name}={val:#010x}");
+                    write!(&mut s, " {name}={val:#010x}").expect("writing to String is infallible");
                 }
-                eprintln!();
+                writeln!(&mut s).expect("writing to String is infallible");
             }
         }
         if let Some(ch) = &self.channel {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L5 CHANNEL: inst_tgt={} userd_tgt={} vram_inst={} method={:?}",
                 ch.working_inst_target,
                 ch.working_userd_target,
                 ch.instance_requires_vram,
                 ch.scheduling_method
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(disp) = &self.dispatch {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ L6 DISPATCH: consumed={} nop={} ready={}",
                 disp.gpfifo_consumed, disp.nop_executed, disp.dispatch_ready
-            );
+            )
+            .expect("writing to String is infallible");
             for b in &disp.blockers {
-                eprintln!("║   BLOCKER: {b}");
+                writeln!(&mut s, "║   BLOCKER: {b}").expect("writing to String is infallible");
             }
         }
 
         if !self.failures.is_empty() {
-            eprintln!("╠══ FAILURES ═══════════════════════════════════════════════╣");
+            writeln!(
+                &mut s,
+                "╠══ FAILURES ═══════════════════════════════════════════════╣"
+            )
+            .expect("writing to String is infallible");
             for f in &self.failures {
-                eprintln!("║ {f}");
+                writeln!(&mut s, "║ {f}").expect("writing to String is infallible");
             }
         }
-        eprintln!("╚═══════════════════════════════════════════════════════════╝");
+        writeln!(
+            &mut s,
+            "╚═══════════════════════════════════════════════════════════╝"
+        )
+        .expect("writing to String is infallible");
+        tracing::info!(summary = %s, "interpreter probe report");
     }
 }

@@ -12,15 +12,22 @@ use crate::hold::HeldDevice;
 use crate::sysfs;
 use crate::vendor_lifecycle::{self, RebindStrategy};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Default Xorg drop-in path when `CORALREEF_XORG_ISOLATION_CONF` is unset.
 const DEFAULT_XORG_ISOLATION_CONF: &str = "/etc/X11/xorg.conf.d/11-coralreef-gpu-isolation.conf";
 /// Default udev rules path when `CORALREEF_UDEV_ISOLATION_RULES` is unset.
 const DEFAULT_UDEV_ISOLATION_RULES: &str = "/etc/udev/rules.d/61-coralreef-drm-ignore.rules";
 
-fn xorg_isolation_conf_path() -> String {
-    std::env::var("CORALREEF_XORG_ISOLATION_CONF")
-        .unwrap_or_else(|_| DEFAULT_XORG_ISOLATION_CONF.to_string())
+fn xorg_isolation_conf_path() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_XORG_ISOLATION_CONF")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_XORG_ISOLATION_CONF.to_string())
+    })
+    .as_str()
 }
 
 fn udev_isolation_rules_path() -> String {
@@ -29,12 +36,23 @@ fn udev_isolation_rules_path() -> String {
 }
 
 fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
+    verify_drm_isolation_with_paths(
+        bdf,
+        xorg_isolation_conf_path(),
+        &udev_isolation_rules_path(),
+    )
+}
+
+/// Same checks as [`verify_drm_isolation`], but with explicit paths (unit tests and non-default
+/// config layouts).
+pub fn verify_drm_isolation_with_paths(
+    bdf: &str,
+    xorg_path: &str,
+    udev_path: &str,
+) -> Result<(), String> {
     let mut failures = Vec::new();
 
-    let xorg_path = xorg_isolation_conf_path();
-    let udev_path = udev_isolation_rules_path();
-
-    match std::fs::read_to_string(&xorg_path) {
+    match std::fs::read_to_string(xorg_path) {
         Ok(content) => {
             if !content.contains("AutoAddGPU") || !content.contains("false") {
                 failures.push(format!("{xorg_path} exists but missing 'AutoAddGPU false'"));
@@ -47,7 +65,7 @@ fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
         }
     }
 
-    match std::fs::read_to_string(&udev_path) {
+    match std::fs::read_to_string(udev_path) {
         Ok(content) => {
             if !content.contains(bdf) {
                 failures.push(format!("{udev_path} exists but does not cover BDF {bdf}"));
@@ -119,6 +137,12 @@ fn count_external_vfio_group_holders(bdf: &str) -> usize {
     count
 }
 
+/// Unbind/rebind the device to `target` (e.g. `vfio-pci`, `amdgpu`, `unbound`), updating `held`.
+///
+/// # Errors
+///
+/// Returns an error string when sysfs/VFIO operations fail, external VFIO holders are detected, or
+/// DRM isolation checks fail for DRM targets.
 pub fn handle_swap_device(
     bdf: &str,
     target: &str,
@@ -391,4 +415,145 @@ fn bind_native(
     lifecycle.verify_health(bdf, target)?;
 
     Ok(target.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static SWAP_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    const NONEXISTENT_BDF: &str = "9999:99:99.9";
+
+    #[test]
+    fn count_external_vfio_group_holders_zero_without_iommu_group() {
+        assert_eq!(count_external_vfio_group_holders(NONEXISTENT_BDF), 0);
+    }
+
+    #[test]
+    fn is_drm_driver_matches_drm_targets() {
+        assert!(is_drm_driver("nouveau"));
+        assert!(is_drm_driver("nvidia"));
+        assert!(is_drm_driver("amdgpu"));
+        assert!(is_drm_driver("xe"));
+        assert!(is_drm_driver("i915"));
+    }
+
+    #[test]
+    fn is_drm_driver_rejects_non_drm() {
+        assert!(!is_drm_driver("vfio-pci"));
+        assert!(!is_drm_driver("akida-pcie"));
+        assert!(!is_drm_driver("unbound"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_ok_when_files_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("udev.rules");
+        let bdf = "0000:03:00.0";
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").unwrap();
+        std::fs::write(
+            &udev,
+            format!("KERNEL==\"card*\", ATTR{{address}}==\"{bdf}\""),
+        )
+        .unwrap();
+        verify_drm_isolation_with_paths(bdf, xorg.to_str().unwrap(), udev.to_str().unwrap())
+            .unwrap();
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_xorg_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let xorg = dir.path().join("missing-xorg");
+        let udev = dir.path().join("udev.rules");
+        std::fs::write(&udev, "0000:03:00.0").unwrap();
+        let err = verify_drm_isolation_with_paths(
+            "0000:03:00.0",
+            xorg.to_str().unwrap(),
+            udev.to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("BLOCKED"));
+        assert!(err.contains("missing — Xorg"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_xorg_missing_autoaddgpu_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("udev.rules");
+        std::fs::write(&xorg, "not the droids you are looking for\n").unwrap();
+        std::fs::write(&udev, "0000:03:00.0").unwrap();
+        let err = verify_drm_isolation_with_paths(
+            "0000:03:00.0",
+            xorg.to_str().unwrap(),
+            udev.to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("AutoAddGPU"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_udev_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("missing-udev");
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").unwrap();
+        let err = verify_drm_isolation_with_paths(
+            "0000:03:00.0",
+            xorg.to_str().unwrap(),
+            udev.to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("logind"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_udev_missing_bdf_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("udev.rules");
+        let bdf = "0000:03:00.0";
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").unwrap();
+        std::fs::write(&udev, "some other pci address").unwrap();
+        let err =
+            verify_drm_isolation_with_paths(bdf, xorg.to_str().unwrap(), udev.to_str().unwrap())
+                .unwrap_err();
+        assert!(err.contains("does not cover BDF"));
+    }
+
+    #[test]
+    fn handle_swap_unbound_without_sysfs_device_succeeds() {
+        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let mut held: HashMap<String, HeldDevice> = HashMap::new();
+        let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held).unwrap();
+        assert_eq!(out, "unbound");
+    }
+
+    #[test]
+    fn handle_swap_unknown_target_errors() {
+        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let mut held: HashMap<String, HeldDevice> = HashMap::new();
+        let err = handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held).unwrap_err();
+        assert!(err.contains("unknown target driver"));
+    }
+
+    #[test]
+    fn handle_swap_vfio_targets_fail_without_sysfs_and_vfio() {
+        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let mut held_vfio = HashMap::new();
+        let err_vfio = handle_swap_device(NONEXISTENT_BDF, "vfio", &mut held_vfio);
+        let mut held_pci = HashMap::new();
+        let err_vfio_pci = handle_swap_device(NONEXISTENT_BDF, "vfio-pci", &mut held_pci);
+        assert!(err_vfio.is_err());
+        assert!(err_vfio_pci.is_err());
+        let msg = err_vfio.unwrap_err();
+        assert!(
+            msg.contains("VFIO") || msg.contains("sysfs") || msg.contains("swap_device"),
+            "unexpected error message: {msg}"
+        );
+    }
 }

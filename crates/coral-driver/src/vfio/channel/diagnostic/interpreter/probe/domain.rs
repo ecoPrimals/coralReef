@@ -115,7 +115,11 @@ pub fn probe_power(bar0: &MappedBar, identity: GpuIdentity) -> Result<PowerState
     }
 
     // Step 1: PMC_ENABLE — clock all engines
-    eprintln!("║ L2: PMC_ENABLE={pmc_initial:#010x} PBDMA_MAP={pbdma_map:#010x} — warming");
+    tracing::debug!(
+        pmc_initial = format!("{pmc_initial:#010x}"),
+        pbdma_map = format!("{pbdma_map:#010x}"),
+        "L2 warming"
+    );
     w(bar0, pmc::ENABLE, 0xFFFF_FFFF);
     std::thread::sleep(std::time::Duration::from_millis(50));
     let _pmc_after = r(bar0, pmc::ENABLE);
@@ -147,8 +151,12 @@ pub fn probe_power(bar0: &MappedBar, identity: GpuIdentity) -> Result<PowerState
     let pfifo_ok = if is_volta_plus {
         let has_bit8 = pmc_final & pfifo_bit != 0;
         let has_pbdma = pbdma_after != 0 && pbdma_after != 0xBAD0_DA00;
-        eprintln!(
-            "║ L2: PMC={pmc_final:#010x} bit8={has_bit8} PBDMA_MAP={pbdma_after:#010x} ptimer={ptimer}"
+        tracing::debug!(
+            pmc_final = format!("{pmc_final:#010x}"),
+            has_bit8,
+            pbdma_after = format!("{pbdma_after:#010x}"),
+            ptimer,
+            "L2 after PMC cycle"
         );
         has_bit8 && has_pbdma
     } else {
@@ -267,9 +275,12 @@ pub fn probe_engines(
 
     let bar2_setup_needed = bar2_invalid;
     if bar2_setup_needed {
-        eprintln!("║ L3: BAR2_BLOCK={bar2_block:#010x} (invalid) — will need page table setup");
+        tracing::debug!(
+            bar2_block = format!("{bar2_block:#010x}"),
+            "L3 BAR2 invalid — page table setup needed"
+        );
         if let Err(e) = crate::vfio::channel::pfifo::setup_bar2_page_table(bar0) {
-            eprintln!("║ L3: BAR2 setup failed: {e}");
+            tracing::warn!(error = %e, "L3 BAR2 setup failed");
         }
     }
 
@@ -304,10 +315,11 @@ pub fn probe_engines(
         w(bar0, mmu::FAULT_BUF1_HI, 0);
         w(bar0, mmu::FAULT_BUF1_SIZE, fb_entries);
         w(bar0, mmu::FAULT_BUF1_PUT, 0x8000_0000);
-        eprintln!(
-            "║ L3: MMU fault buffers (DMA): BUF0_LO={:#x} BUF1_LO={:#x} (IOVA={FAULT_BUF_IOVA:#x})",
-            r(bar0, mmu::FAULT_BUF0_LO),
-            r(bar0, mmu::FAULT_BUF1_LO),
+        tracing::trace!(
+            buf0_lo = format!("{:#x}", r(bar0, mmu::FAULT_BUF0_LO)),
+            buf1_lo = format!("{:#x}", r(bar0, mmu::FAULT_BUF1_LO)),
+            iova = format!("{FAULT_BUF_IOVA:#x}"),
+            "L3 MMU fault buffers"
         );
         std::mem::drop(fb);
     }

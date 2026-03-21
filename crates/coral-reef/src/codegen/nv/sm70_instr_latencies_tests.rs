@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+//! Unit tests for SM70 instruction latency tables.
+
 use super::*;
 use crate::codegen::ir::{
-    AtomOp, AtomType, ChannelMask, Dst, FRndMode, FloatCmpOp, FloatType, HmmaSize, ImageAccess,
-    ImageDim, ImmaSize, IntCmpOp, IntCmpType, IntType, MemAccess, MemAddrType, MemEvictionPriority,
-    MemOrder, MemScope, MemSpace, MemType, OffsetStride, Op, OpAtom, OpBMov, OpBRev, OpCS2R,
-    OpDAdd, OpDFma, OpDMnMx, OpDMul, OpDSetP, OpExit, OpF2F, OpFFma, OpFlo, OpHAdd2, OpHFma2,
-    OpHMul2, OpHmma, OpIMad, OpISetP, OpImma, OpLd, OpMov, OpNop, OpPopC, OpSuLd, OpSuSt, OpTex,
-    OpTld, OpTld4, OpTmml, OpTranscendental, OpTxd, OpTxq, PredSetOp, RegFile, RegRef, Src,
-    TexDerivMode, TexDim, TexLodMode, TexOffsetMode, TexQuery, TexRef, TranscendentalOp,
+    AtomOp, AtomType, CCtlOp, ChannelMask, Dst, FRndMode, FloatCmpOp, FloatType, HmmaSize,
+    ImageAccess, ImageDim, ImmaSize, IntCmpOp, IntCmpType, IntType, MemAccess, MemAddrType,
+    MemEvictionPriority, MemOrder, MemScope, MemSpace, MemType, OffsetStride, Op, OpAtom, OpBMov,
+    OpBRev, OpCCtl, OpCS2R, OpDAdd, OpDFma, OpDMnMx, OpDMul, OpDSetP, OpExit, OpF2F, OpFFma, OpFlo,
+    OpHAdd2, OpHFma2, OpHMul2, OpHmma, OpIAdd2, OpIMad, OpIMad64, OpISetP, OpImma, OpLd, OpMov,
+    OpNop, OpPopC, OpSuLd, OpSuSt, OpTex, OpTld, OpTld4, OpTmml, OpTranscendental, OpTxd, OpTxq,
+    PredSetOp, RegFile, RegRef, Src, TexDerivMode, TexDim, TexLodMode, TexOffsetMode, TexQuery,
+    TexRef, TranscendentalOp,
 };
+
+/// Same value as `DEFAULT_LATENCY` in `sm70_instr_latencies.rs` for unexpected register paths.
+const EXPECT_DEFAULT_LATENCY: u32 = 15;
 
 fn gpr_dst() -> Dst {
     Dst::Reg(RegRef::new(RegFile::GPR, 0, 1))
@@ -351,6 +357,30 @@ fn make_imma() -> Op {
     }))
 }
 
+fn make_imad64() -> Op {
+    Op::IMad64(Box::new(OpIMad64 {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 0, 2)),
+        srcs: [Src::ZERO, Src::ZERO, Src::ZERO],
+        signed: false,
+    }))
+}
+
+fn make_cctl() -> Op {
+    Op::CCtl(Box::new(OpCCtl {
+        op: CCtlOp::WB,
+        mem_space: MemSpace::Global(MemAddrType::A32),
+        addr: Src::ZERO,
+        addr_offset: 0,
+    }))
+}
+
+fn make_iadd2_carry_dst() -> Op {
+    Op::IAdd2(Box::new(OpIAdd2 {
+        dsts: [gpr_dst(), Dst::Reg(RegRef::new(RegFile::Carry, 0, 1))],
+        srcs: [Src::ZERO, Src::ZERO],
+    }))
+}
+
 #[test]
 fn test_needs_scoreboards_decoupled_ops() {
     // Ld is decoupled (variable latency) - needs scoreboards
@@ -560,4 +590,57 @@ fn test_needs_scoreboards_control_flow_ops() {
     assert!(!SM70Latency::needs_scoreboards(&make_nop()));
     // Exit is Decoupled - needs scoreboards
     assert!(SM70Latency::needs_scoreboards(&make_exit()));
+}
+
+#[test]
+fn test_needs_scoreboards_cctl_decoupled_other() {
+    assert!(!SM70Latency::needs_scoreboards(&make_cctl()));
+}
+
+#[test]
+fn test_raw_imad64_reader_indices() {
+    let w = make_imad64();
+    // Writer dst is IMADWideUpper; IMad64 readers: src0/src1 → IMADWideAB, src2 → IMADWideLower
+    assert_eq!(SM70Latency::raw(&w, 0, Some(&make_imad64()), 0), 6);
+    assert_eq!(SM70Latency::raw(&w, 0, Some(&make_imad64()), 1), 6);
+    assert_eq!(SM70Latency::raw(&w, 0, Some(&make_imad64()), 2), 2);
+}
+
+#[test]
+fn test_raw_carry_destination_falls_through_default() {
+    let op = make_iadd2_carry_dst();
+    assert_eq!(
+        SM70Latency::raw(&op, 1, Some(&make_mov()), 0),
+        EXPECT_DEFAULT_LATENCY
+    );
+}
+
+#[test]
+fn test_war_carry_write_destination_default() {
+    assert_eq!(
+        SM70Latency::war(&make_mov(), 0, &make_iadd2_carry_dst(), 1),
+        EXPECT_DEFAULT_LATENCY
+    );
+}
+
+#[test]
+fn test_waw_carry_destination_default() {
+    let a = make_iadd2_carry_dst();
+    let b = make_iadd2_carry_dst();
+    assert_eq!(
+        SM70Latency::waw(&a, 1, &b, 1, false),
+        EXPECT_DEFAULT_LATENCY
+    );
+}
+
+#[test]
+fn test_pred_waw_dsetp_to_dsetp() {
+    let a = make_dsetp();
+    let b = make_dsetp();
+    assert_eq!(SM70Latency::waw(&a, 0, &b, 0, false), 1);
+}
+
+#[test]
+fn test_pred_war_dsetp_to_isetp() {
+    assert_eq!(SM70Latency::war(&make_dsetp(), 0, &make_isetp(), 0), 1);
 }

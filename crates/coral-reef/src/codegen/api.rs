@@ -9,16 +9,18 @@
 
 pub use super::debug::{DEBUG, GetDebugFlags};
 
-pub(super) fn eprint_hex(label: &str, data: &[u32]) {
-    eprint!("{label}:");
+pub(super) fn debug_hex(label: &str, data: &[u32]) {
+    use std::fmt::Write;
+    let mut buf = String::with_capacity(data.len() * 10 + label.len() + 8);
+    let _ = write!(buf, "{label}:");
     for (i, word) in data.iter().enumerate() {
         if (i % 8) == 0 {
-            eprintln!();
-            eprint!(" ");
+            buf.push('\n');
+            buf.push(' ');
         }
-        eprint!(" {word:08x}");
+        let _ = write!(buf, " {word:08x}");
     }
-    eprintln!();
+    tracing::debug!("{buf}");
 }
 
 #[cfg(test)]
@@ -26,11 +28,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_eprint_hex_no_panic() {
-        // eprint_hex prints to stderr; verify it doesn't panic
-        eprint_hex("test", &[0x1234_5678, 0xabcd_ef00]);
-        eprint_hex("empty", &[]);
-        eprint_hex("single", &[0xdead_beef]);
+    fn test_debug_hex_no_panic() {
+        debug_hex("test", &[0x1234_5678, 0xabcd_ef00]);
+        debug_hex("empty", &[]);
+        debug_hex("single", &[0xdead_beef]);
     }
 
     #[test]

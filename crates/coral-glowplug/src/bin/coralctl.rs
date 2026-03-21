@@ -30,6 +30,14 @@ fn default_socket() -> String {
     resolve_glowplug_socket_path(std::env::var("CORALREEF_GLOWPLUG_SOCKET").ok().as_deref())
 }
 
+/// Default path for generated VFIO udev rules (`$CORALREEF_UDEV_RULES_PATH` overrides).
+fn default_udev_rules_path() -> String {
+    std::env::var("CORALREEF_UDEV_RULES_PATH")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/etc/udev/rules.d/70-coralreef-vfio.rules".to_string())
+}
+
 #[derive(Parser)]
 #[command(
     name = "coralctl",
@@ -64,11 +72,7 @@ enum Command {
     DeployUdev {
         #[arg(short, long)]
         config: Option<String>,
-        #[arg(
-            short,
-            long,
-            default_value = "/etc/udev/rules.d/70-coralreef-vfio.rules"
-        )]
+        #[arg(short, long, default_value_t = default_udev_rules_path())]
         output: String,
         #[arg(long)]
         dry_run: bool,
@@ -410,7 +414,10 @@ fn load_config(config_path: Option<String>) -> config::Config {
             for path in &paths {
                 eprintln!("  - {path}");
             }
-            eprintln!("hint: pass --config <path> or create /etc/coralreef/glowplug.toml");
+            eprintln!(
+                "hint: pass --config <path> or create {}",
+                config::system_config_path()
+            );
             std::process::exit(1);
         }
     }
@@ -451,5 +458,61 @@ mod tests {
             err.iter().any(|p| p.contains("definitely-missing")),
             "expected missing path in error list: {err:?}"
         );
+    }
+
+    #[test]
+    fn try_load_config_reads_minimal_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("glowplug.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[device]]
+bdf = "0000:01:00.0"
+"#,
+        )
+        .expect("write");
+        let cfg = try_load_config(Some(path.to_string_lossy().into_owned())).expect("load");
+        assert_eq!(cfg.device.len(), 1);
+        assert_eq!(cfg.device[0].bdf, "0000:01:00.0");
+    }
+
+    #[test]
+    fn deploy_udev_cli_accepts_config_and_dry_run() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("gp.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[device]]
+bdf = "0000:ff:00.0"
+"#,
+        )
+        .expect("write");
+        let path_str = path.to_str().expect("utf8 path");
+        let cli = Cli::try_parse_from([
+            "coralctl",
+            "--socket",
+            "/tmp/x.sock",
+            "deploy-udev",
+            "--config",
+            path_str,
+            "--dry-run",
+            "--group",
+            "coralreef",
+        ])
+        .expect("parse");
+        let Command::DeployUdev {
+            config,
+            dry_run,
+            group,
+            ..
+        } = cli.command
+        else {
+            panic!("expected DeployUdev");
+        };
+        assert!(dry_run);
+        assert_eq!(group, "coralreef");
+        assert_eq!(config.as_deref(), Some(path_str));
     }
 }

@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn mthd_incr_field_order() {
-        // groundSpring V95: SET_OBJECT (method=0, count=1)
+        // Ecosystem validation V95: SET_OBJECT (method=0, count=1)
         // Correct: 0x20010000 = (1<<29) | (1<<16) | (0<<13) | (0>>2)
         let hdr = mthd_incr(0, 0, 1);
         assert_eq!(hdr, 0x2001_0000, "SET_OBJECT header must be 0x20010000");

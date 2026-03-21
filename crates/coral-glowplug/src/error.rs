@@ -333,4 +333,76 @@ mod tests {
         fn assert_error<E: std::error::Error>() {}
         assert_error::<RpcError>();
     }
+
+    #[test]
+    fn device_error_display_active_drm_consumers() {
+        let err = DeviceError::ActiveDrmConsumers {
+            bdf: Arc::from("0000:05:00.0"),
+        };
+        let s = err.to_string();
+        assert!(s.contains("0000:05:00.0"));
+        assert!(s.contains("DRM"));
+    }
+
+    #[test]
+    fn rpc_error_code_parse_and_invalid_request_display() {
+        assert_eq!(RpcErrorCode::PARSE_ERROR.to_string(), "-32700");
+        assert_eq!(RpcErrorCode::INVALID_REQUEST.to_string(), "-32600");
+    }
+
+    #[test]
+    fn ember_error_display_connect() {
+        let io = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        let err = EmberError::Connect(io);
+        assert!(err.to_string().contains("ember socket connect"));
+        assert!(err.to_string().contains("refused"));
+    }
+
+    #[test]
+    fn ember_error_display_io() {
+        let err = EmberError::Io(std::io::Error::other("disk full"));
+        assert!(err.to_string().contains("ember I/O"));
+    }
+
+    #[test]
+    fn ember_error_display_parse() {
+        let json_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        let err = EmberError::Parse(json_err);
+        assert!(err.to_string().contains("ember JSON-RPC parse"));
+    }
+
+    #[test]
+    fn ember_error_display_rpc() {
+        let err = EmberError::Rpc {
+            code: -32000,
+            message: "boom".into(),
+        };
+        assert!(err.to_string().contains("-32000"));
+        assert!(err.to_string().contains("boom"));
+    }
+
+    #[test]
+    fn ember_error_display_fd_count() {
+        let err = EmberError::FdCount {
+            expected: 3,
+            received: 1,
+        };
+        assert!(err.to_string().contains("SCM_RIGHTS"));
+        assert!(err.to_string().contains('3'));
+        assert!(err.to_string().contains('1'));
+    }
+
+    #[test]
+    fn ember_error_from_io() {
+        let io_err = std::io::Error::other("test");
+        let err: EmberError = io_err.into();
+        assert!(matches!(err, EmberError::Io(_)));
+    }
+
+    #[test]
+    fn ember_error_from_json() {
+        let json_err = serde_json::from_str::<serde_json::Value>("x").unwrap_err();
+        let err: EmberError = json_err.into();
+        assert!(matches!(err, EmberError::Parse(_)));
+    }
 }

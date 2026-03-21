@@ -416,6 +416,48 @@ fn test_dispatch_device_resurrect_unknown_vendor() {
 }
 
 #[test]
+fn test_dispatch_device_swap_ember_unavailable() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:98:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.swap",
+        &serde_json::json!({"bdf": "0000:98:00.0", "target": "nouveau"}),
+        &mut devices,
+        started,
+    );
+    match result {
+        Ok(val) => {
+            assert_eq!(val["bdf"], "0000:98:00.0");
+        }
+        Err(e) => {
+            assert_eq!(i32::from(e.code), -32000);
+        }
+    }
+}
+
+#[test]
+fn test_dispatch_device_get_invalid_bdf_rejected() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.get",
+        &serde_json::json!({"bdf": "../etc/passwd"}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("invalid bdf");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
 fn test_dispatch_device_swap_missing_target() {
     let config = coral_glowplug::config::DeviceConfig {
         bdf: "0000:99:00.0".into(),

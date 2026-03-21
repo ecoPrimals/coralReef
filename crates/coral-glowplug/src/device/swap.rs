@@ -2,12 +2,12 @@
 
 use crate::error::DeviceError;
 use crate::personality::{Personality, PersonalityRegistry};
-use crate::sysfs;
+use crate::sysfs_ops::SysfsOps;
 
 use super::DeviceSlot;
 use super::types::{QUIESCENCE_TIMEOUT, VfioHolder};
 
-impl DeviceSlot {
+impl<S: SysfsOps> DeviceSlot<S> {
     /// Hot-swap to a new driver personality via ember.
     ///
     /// Delegates all sysfs `driver/unbind` and `drivers/*/bind` operations to
@@ -19,7 +19,7 @@ impl DeviceSlot {
     /// Returns `DeviceError::DriverBind` if ember is not available or the swap
     /// fails. Returns `DeviceError::VfioOpen` if post-swap fd acquisition fails.
     pub fn swap(&mut self, target: &str) -> Result<(), DeviceError> {
-        if crate::sysfs::read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
+        if self.sysfs.read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
             tracing::error!(
                 bdf = %self.bdf,
                 "REFUSING swap — nvidia is bound to this device. \
@@ -69,7 +69,7 @@ impl DeviceSlot {
         // Update local personality state after successful ember swap
         match target {
             "vfio" | "vfio-pci" => {
-                let group_id = sysfs::read_iommu_group(&self.bdf);
+                let group_id = self.sysfs.read_iommu_group(&self.bdf);
                 match client.request_fds(&self.bdf) {
                     Ok(fds) => {
                         let device = coral_driver::vfio::VfioDevice::from_received_fds(
@@ -98,26 +98,26 @@ impl DeviceSlot {
                 }
             }
             "nouveau" => {
-                let drm = sysfs::find_drm_card(&self.bdf);
+                let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::Nouveau { drm_card: drm };
             }
             "nvidia" => {
-                let drm = sysfs::find_drm_card(&self.bdf);
+                let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::Nvidia { drm_card: drm };
             }
             "amdgpu" => {
-                let drm = sysfs::find_drm_card(&self.bdf);
+                let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::Amdgpu { drm_card: drm };
             }
             "akida-pcie" | "akida" => {
                 self.personality = Personality::Akida;
             }
             "xe" => {
-                let drm = sysfs::find_drm_card(&self.bdf);
+                let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::Xe { drm_card: drm };
             }
             "i915" => {
-                let drm = sysfs::find_drm_card(&self.bdf);
+                let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::I915 { drm_card: drm };
             }
             "unbound" => {
@@ -148,9 +148,15 @@ impl DeviceSlot {
     /// All sysfs `driver/unbind` operations are delegated to ember via
     /// `swap_device` RPC. This method only drops the dup'd VFIO fds held
     /// locally by glowplug.
-    #[expect(dead_code, reason = "used in tests and available for manual teardown")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "available for manual teardown outside test builds"
+        )
+    )]
     pub(super) fn release(&mut self) -> Result<(), DeviceError> {
-        if sysfs::has_active_drm_consumers(&self.bdf) {
+        if self.sysfs.has_active_drm_consumers(&self.bdf) {
             tracing::error!(
                 bdf = %self.bdf,
                 personality = %self.personality,

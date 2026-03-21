@@ -118,10 +118,13 @@ pub fn probe_dma(
             bar2_pdb_lo = 0xDEAD_DEAD;
         }
         let is_bad = (bar2_inst_0 >> 16) == 0xBAD0 || bar2_inst_0 == 0xBAD0_AC00;
-        eprintln!(
-            "║ L4: VRAM readback @ 0x{:x}: [0]={bar2_inst_0:#x} [4]={bar2_inst_4:#x} \
-             [PDB]={bar2_pdb_lo:#x} bad={}",
-            BAR2_VRAM_BASE, is_bad
+        tracing::trace!(
+            base = format!("{:#x}", BAR2_VRAM_BASE),
+            word0 = format!("{bar2_inst_0:#x}"),
+            word4 = format!("{bar2_inst_4:#x}"),
+            pdb = format!("{bar2_pdb_lo:#x}"),
+            is_bad,
+            "L4 VRAM readback"
         );
 
         let vram0_status = if let Ok(mut region) = PraminRegion::new(bar0, 0, 8) {
@@ -136,7 +139,7 @@ pub fn probe_dma(
             PathStatus::ErrorPattern { pattern } => *pattern,
             PathStatus::Untested => 0,
         };
-        eprintln!("║ L4: VRAM@0x00000: {vram0_status:?}");
+        tracing::trace!(?vram0_status, "L4 VRAM@0x00000");
 
         let vram2_addr = BAR2_VRAM_BASE + 0x6000;
         let vram2_status = if let Ok(mut region) = PraminRegion::new(bar0, vram2_addr, 8) {
@@ -151,7 +154,11 @@ pub fn probe_dma(
             PathStatus::ErrorPattern { pattern } => *pattern,
             PathStatus::Untested => 0,
         };
-        eprintln!("║ L4: VRAM@{vram2_addr:#x}: {vram2_status:?}");
+        tracing::trace!(
+            addr = format!("{vram2_addr:#x}"),
+            ?vram2_status,
+            "L4 VRAM probe"
+        );
 
         pramin_ok = vram0_ok || vram2_ok;
         vram_inst_addr = if vram2_ok {
@@ -176,9 +183,11 @@ pub fn probe_dma(
             let verify_sig = vram_region.read_u32(ramfc::SIGNATURE).unwrap_or(0);
             let verify_gpbase = vram_region.read_u32(ramfc::GP_BASE_LO).unwrap_or(0);
             let verify_userd = vram_region.read_u32(ramfc::USERD_LO).unwrap_or(0);
-            eprintln!(
-                "║ L4: VRAM inst verify: SIG={verify_sig:#x} GP_BASE={verify_gpbase:#x} \
-                 USERD={verify_userd:#x}"
+            tracing::trace!(
+                verify_sig = format!("{verify_sig:#x}"),
+                verify_gpbase = format!("{verify_gpbase:#x}"),
+                verify_userd = format!("{verify_userd:#x}"),
+                "L4 VRAM inst verify"
             );
         }
     }
@@ -248,19 +257,21 @@ pub fn probe_dma(
     let rl0_after = r(bar0, 0x2270);
     w(bar0, 0x2270, rl0_before);
 
-    eprintln!(
-        "║ L4: RL{gr_rl_id} write test: before={rl_before:#x} after_write={rl_after:#x} (expected 0xcafe0001)"
+    tracing::trace!(
+        gr_rl_id,
+        rl_before = format!("{rl_before:#x}"),
+        rl_after = format!("{rl_after:#x}"),
+        "L4 RL write test"
     );
-    eprintln!(
-        "║ L4: RL0 write test: before={rl0_before:#x} after_write={rl0_after:#x} (expected 0xcafe0002)"
+    tracing::trace!(
+        rl0_before = format!("{rl0_before:#x}"),
+        rl0_after = format!("{rl0_after:#x}"),
+        "L4 RL0 write test"
     );
     ctx_evidence.push(("RL_WRITE_TEST".into(), rl_after));
     ctx_evidence.push(("RL0_WRITE_TEST".into(), rl0_after));
 
-    eprintln!(
-        "║ L4: Progressive INST_BIND sequence ({} attempts)",
-        attempts.len()
-    );
+    tracing::trace!(attempts = attempts.len(), "L4 progressive INST_BIND");
 
     let try_direct_pbdma = true;
 
@@ -338,24 +349,29 @@ pub fn probe_dma(
         let loaded = !sentinels && !dead;
         let status = (pccsr_ctrl >> 24) & 0xF;
 
-        eprintln!(
-            "║   {}: SIG={ctx_sig:#010x} USERD={ctx_userd:#010x} GP={ctx_gpbase:#010x} \
-             CHSW={chsw:#x} CTRL={pccsr_ctrl:#x}(st={status}) {}",
-            attempt.label,
-            if loaded {
-                if sig_ok {
-                    "✓ LOADED+CORRECT"
-                } else {
-                    "~ LOADED"
-                }
-            } else if sentinels {
-                "✗ sentinels"
-            } else {
-                "✗ dead"
-            }
+        let load_note = if loaded {
+            if sig_ok { "LOADED+CORRECT" } else { "LOADED" }
+        } else if sentinels {
+            "sentinels"
+        } else {
+            "dead"
+        };
+        tracing::trace!(
+            label = attempt.label,
+            ctx_sig = format!("{ctx_sig:#010x}"),
+            ctx_userd = format!("{ctx_userd:#010x}"),
+            ctx_gpbase = format!("{ctx_gpbase:#010x}"),
+            chsw = format!("{chsw:#x}"),
+            pccsr_ctrl = format!("{pccsr_ctrl:#x}"),
+            status,
+            load_note,
+            "L4 bind attempt"
         );
-        eprintln!(
-            "║     PCCSR_INST={pccsr_inst_rb:#010x} PBDMA_ST={pbdma_status:#x} SCHED_DIS={sched_dis:#x}"
+        tracing::trace!(
+            pccsr_inst = format!("{pccsr_inst_rb:#010x}"),
+            pbdma_st = format!("{pbdma_status:#x}"),
+            sched_dis = format!("{sched_dis:#x}"),
+            "L4 bind attempt regs"
         );
 
         ctx_evidence.push((format!("{}_SIG", attempt.label), ctx_sig));
@@ -377,7 +393,7 @@ pub fn probe_dma(
     }
 
     if try_direct_pbdma && !instance_accessible {
-        eprintln!("║ L4: Attempt F — direct PBDMA context programming (bypass scheduler)");
+        tracing::trace!("L4 attempt F — direct PBDMA context programming");
 
         w(bar0, pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_CLR);
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -414,9 +430,14 @@ pub fn probe_dma(
             (0, 0, 0, 0, 0, 0)
         };
 
-        eprintln!(
-            "║   RAMFC: GP_BASE={ramfc_gp_base_lo:#x}/{ramfc_gp_base_hi:#x} \
-             USERD={ramfc_userd_lo:#x}/{ramfc_userd_hi:#x} SIG={ramfc_sig:#x} GP_PUT={ramfc_gp_put:#x}"
+        tracing::trace!(
+            gp_lo = format!("{ramfc_gp_base_lo:#x}"),
+            gp_hi = format!("{ramfc_gp_base_hi:#x}"),
+            userd_lo = format!("{ramfc_userd_lo:#x}"),
+            userd_hi = format!("{ramfc_userd_hi:#x}"),
+            sig = format!("{ramfc_sig:#x}"),
+            gp_put = format!("{ramfc_gp_put:#x}"),
+            "RAMFC snapshot"
         );
 
         w(bar0, pb + pbdma::CTX_GP_BASE_LO, ramfc_gp_base_lo);
@@ -447,11 +468,22 @@ pub fn probe_dma(
         let f_loaded = f_userd == (ramfc_userd_lo & 0xFFFF_FF00) || f_gpbase == ramfc_gp_base_lo;
         let f_fetching = f_gp_get != 0 || f_gp_put != 1;
 
-        eprintln!("║   F_direct: USERD={f_userd:#010x} SIG={f_sig:#010x} GP_BASE={f_gpbase:#010x}");
-        eprintln!(
-            "║     GP_GET={f_gp_get:#x} GP_PUT={f_gp_put:#x} CTRL={f_ctrl:#x}(st={f_status}) \
-             CHSW={f_chsw:#x} INTR={f_intr:#x} PBDMA_INTR={f_pbdma_intr:#x} \
-             PBDMA_ST={f_pbdma_status:#x}"
+        tracing::trace!(
+            f_userd = format!("{f_userd:#010x}"),
+            f_sig = format!("{f_sig:#010x}"),
+            f_gpbase = format!("{f_gpbase:#010x}"),
+            "F_direct ctx"
+        );
+        tracing::trace!(
+            f_gp_get = format!("{f_gp_get:#x}"),
+            f_gp_put = format!("{f_gp_put:#x}"),
+            f_ctrl = format!("{f_ctrl:#x}"),
+            f_status,
+            f_chsw = format!("{f_chsw:#x}"),
+            f_intr = format!("{f_intr:#x}"),
+            f_pbdma_intr = format!("{f_pbdma_intr:#x}"),
+            f_pbdma_status = format!("{f_pbdma_status:#x}"),
+            "F_direct regs"
         );
 
         ctx_evidence.push(("F_USERD".into(), f_userd));
@@ -465,7 +497,7 @@ pub fn probe_dma(
 
         if f_loaded || f_fetching {
             gpu_can_read = true;
-            eprintln!("║   ✓ Direct PBDMA programming loaded context!");
+            tracing::info!("direct PBDMA programming loaded context");
             if f_sig == 0x0000_FACE || f_gpbase == ramfc_gp_base_lo {
                 instance_accessible = true;
             }

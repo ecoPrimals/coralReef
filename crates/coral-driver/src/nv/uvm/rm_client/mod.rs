@@ -96,19 +96,13 @@ impl RmClient {
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
-        // SAFETY:
-        // 1. Validity:   NvRmAllocParams is #[repr(C)] matching kernel NVOS21_PARAMETERS
-        // 2. Alignment:  stack-allocated, naturally aligned
-        // 3. Lifetime:   synchronous ioctl; params outlives the call
-        // 4. Exclusivity: &mut params — sole reference
-        unsafe {
-            crate::drm::drm_ioctl_named(
-                ctl.fd(),
-                ioctl_nr,
-                &mut params,
-                "NV_ESC_RM_ALLOC(NV01_ROOT)",
-            )?;
-        }
+        // ioctl contract: `NvRmAllocParams` is `#[repr(C)]` matching NVOS21; opcode matches.
+        crate::drm::drm_ioctl_named(
+            ctl.fd(),
+            ioctl_nr,
+            &mut params,
+            "NV_ESC_RM_ALLOC(NV01_ROOT)",
+        )?;
 
         if params.status != NV_OK {
             return Err(DriverError::SubmitFailed(
@@ -145,14 +139,8 @@ impl RmClient {
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
         let t0 = std::time::Instant::now();
-        // SAFETY:
-        // 1. Validity:   NvRmAllocParams + T are #[repr(C)]
-        // 2. Alignment:  stack-allocated, naturally aligned
-        // 3. Lifetime:   synchronous ioctl; params + alloc_params outlive the call
-        // 4. Exclusivity: sole mutable references
-        unsafe {
-            crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, label)?;
-        }
+        // ioctl contract: `NvRmAllocParams` + `T` match this RM escape; opcode matches.
+        crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, label)?;
         let elapsed = t0.elapsed();
 
         if let Some(obs) = self.observer.as_mut() {
@@ -200,10 +188,8 @@ impl RmClient {
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
         let t0 = std::time::Instant::now();
-        // SAFETY: same contract as rm_alloc_typed, with no alloc params pointer
-        unsafe {
-            crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, label)?;
-        }
+        // ioctl contract: same as `rm_alloc_typed`, with `p_alloc_parms == 0`.
+        crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, label)?;
         let elapsed = t0.elapsed();
 
         if let Some(obs) = self.observer.as_mut() {
@@ -254,14 +240,8 @@ impl RmClient {
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_CONTROL, std::mem::size_of::<NvRmControlParams>());
         let t0 = std::time::Instant::now();
-        // SAFETY:
-        // 1. Validity:   NvRmControlParams + T are #[repr(C)]
-        // 2. Alignment:  stack-allocated, naturally aligned
-        // 3. Lifetime:   synchronous ioctl; params + data outlive the call
-        // 4. Exclusivity: sole mutable references
-        unsafe {
-            crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, label)?;
-        }
+        // ioctl contract: `NvRmControlParams` + `T` match this RM escape; opcode matches.
+        crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, label)?;
         let elapsed = t0.elapsed();
 
         if let Some(obs) = self.observer.as_mut() {
@@ -375,10 +355,8 @@ impl RmClient {
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_FREE, std::mem::size_of::<NvRmFreeParams>());
-        // SAFETY: same contract as alloc_root_client
-        unsafe {
-            crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, "NV_ESC_RM_FREE")?;
-        }
+        // ioctl contract: `NvRmFreeParams` is `#[repr(C)]` for this escape; opcode matches.
+        crate::drm::drm_ioctl_named(self.ctl.fd(), ioctl_nr, &mut params, "NV_ESC_RM_FREE")?;
 
         if let Some(obs) = self.observer.as_mut() {
             obs.on_free(self.h_client, h_object, params.status);

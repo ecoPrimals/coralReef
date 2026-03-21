@@ -254,14 +254,11 @@ fn uvm_external_memory_mapping() {
         .expect("RM_MAP_MEMORY");
 
     let ptr = cpu_addr as *mut u32;
-    // SAFETY: `cpu_addr` is a valid CPU mapping returned by `rm_map_memory`
-    // for a 4096-byte system memory allocation. Writing and reading a u32
-    // at offset 0 is within bounds and properly aligned.
-    unsafe {
-        std::ptr::write_volatile(ptr, 0xDEAD_BEEF);
-        let readback = std::ptr::read_volatile(ptr);
-        assert_eq!(readback, 0xDEAD_BEEF);
-    }
+    // SAFETY: `cpu_addr` is a valid CPU mapping from `rm_map_memory` for 4096 bytes;
+    // offset 0 is in bounds and aligned for `u32`.
+    let vol = unsafe { crate::mmio::VolatilePtr::new(ptr) };
+    vol.write(0xDEAD_BEEF);
+    assert_eq!(vol.read(), 0xDEAD_BEEF);
 
     client
         .rm_unmap_memory(h_device, h_mem, cpu_addr)

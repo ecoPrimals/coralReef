@@ -149,7 +149,11 @@ pub async fn health_loop(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::device::{DeviceHealth, PowerState};
+
+    use super::health_loop;
 
     #[test]
     fn test_power_state_display() {
@@ -195,5 +199,21 @@ mod tests {
         assert_eq!(health.pci_link_width, Some(16));
         assert_eq!(health.domains_alive, 8);
         assert_eq!(health.domains_faulted, 1);
+    }
+
+    #[tokio::test]
+    async fn health_loop_exits_when_shutdown_watch_true() {
+        let devices = Arc::new(tokio::sync::Mutex::new(vec![]));
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        let d = devices.clone();
+        let j = tokio::spawn(async move {
+            health_loop(d, 10_000, &mut rx).await;
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        tx.send(true).expect("signal");
+        tokio::time::timeout(std::time::Duration::from_secs(5), j)
+            .await
+            .expect("health_loop should finish")
+            .expect("join");
     }
 }

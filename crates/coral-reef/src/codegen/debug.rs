@@ -43,7 +43,7 @@ impl Debug {
                 "annotate" => flags |= 1 << DebugFlag::Annotate as u8,
                 "nougpr" => flags |= 1 << DebugFlag::NoUgpr as u8,
                 "cycles" => flags |= 1 << DebugFlag::Cycles as u8,
-                unk => eprintln!("Unknown CORAL_REEF_DEBUG flag \"{unk}\""),
+                unk => tracing::warn!("Unknown CORAL_REEF_DEBUG flag \"{unk}\""),
             }
         }
         Self { flags }

@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 60
+**Current status**: Phase 10 — Iteration 61
 
 ---
 
 ## [Unreleased]
+
+### Iteration 61 — DI Architecture + Coverage Evolution (Mar 21 2026)
+
+- **coral-ember lib/binary split**: Monolithic binary → `lib.rs` + thin `main.rs`. Library exports config parsing, IPC dispatch, swap logic, vendor lifecycle for integration testing. `coral_ember::run()` entry point
+- **coral-glowplug `SysfsOps` trait**: Dependency injection for sysfs operations — `RealSysfs` (production), `MockSysfs` (tests). `DeviceSlot<S: SysfsOps = RealSysfs>` generic. Activate/swap/health/release paths now testable without hardware
+- **coral-gpu `GpuContext::from_parts`**: Assembles context from pre-built target + device + options, bypassing DRM/VFIO probing. `compile_wgsl_cached` for session-local caching. `compile_options()` accessor
+- **coral-driver parsing extraction**: Pure parsing functions extracted from I/O: GSP firmware `from_legacy_bytes`/`parse_net_img_bytes`, PCI BDF/class/resource/speed/width parsing, VBIOS `validate_vbios`, devinit script scanning, `pramin_window_layout`
+- **Stale primal name cleanup**: Remaining Songbird/BearDog/hotSpring/groundSpring references evolved to capability-based descriptions in doc comments and provenance citations
+- **Coverage: 65.8% → 67.6% line** (+244 tests: 3062 → 3306 passing, 0 failed, 108 ignored hardware-gated)
+- **Per-crate coverage**: coralreef-core 95.9%, primal-rpc-client 98.4%, coral-reef-stubs 95.2%, coral-reef-bitview 91.3%, coral-reef-isa 100%, amd-isa-gen 91.3% (6 crates above 90% target)
+- **Root docs updated**: README, CHANGELOG, STATUS refreshed with current metrics
+- **wateringHole handoff**: Iter 61 handoff with DI architecture decisions and coverage data
+- All quality gates green: fmt, clippy (pedantic + nursery), test (3306+), doc, all files <1000 LOC
 
 ### Iteration 60 — Deep Audit Execution + Code Quality Evolution (Mar 21 2026)
 

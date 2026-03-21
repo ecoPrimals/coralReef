@@ -138,3 +138,51 @@ fn pcie_link_speed_display() {
     assert!(PcieLinkSpeed::Gen1.to_string().contains("2.5"));
     assert!(PcieLinkSpeed::Gen4.to_string().contains("16"));
 }
+
+#[test]
+fn parse_pci_bdf_roundtrip() {
+    assert_eq!(parse_pci_bdf("0000:4a:00.0"), Some((0, 0x4a, 0, 0)));
+    assert_eq!(parse_pci_bdf("bad"), None);
+}
+
+#[test]
+fn pci_class_base_display_controller() {
+    assert_eq!(pci_class_base(0x03_00_00), 0x03);
+}
+
+#[test]
+fn parse_pci_sysfs_hex_id_variants() {
+    assert_eq!(parse_pci_sysfs_hex_id("0x10de\n"), Some(0x10DE));
+    assert_eq!(parse_pci_sysfs_hex_id("1002"), Some(0x1002));
+}
+
+#[test]
+fn parse_pci_resource_file_two_bars() {
+    let content = "0x00000000f0000000 0x00000000f01fffff 0x000000000014220c\n\
+                   0x0000000000000000 0x0000000000000000 0x0000000000000000\n";
+    let bars = parse_pci_resource_file(content);
+    assert_eq!(bars.len(), 1);
+    assert_eq!(bars[0].index, 0);
+    assert_eq!(bars[0].base, 0xF000_0000);
+    assert!(bars[0].is_mmio);
+}
+
+#[test]
+fn parse_sysfs_pcie_speed_and_width() {
+    assert!(matches!(
+        parse_sysfs_pcie_speed("16.0 GT/s"),
+        PcieLinkSpeed::Gen4
+    ));
+    assert_eq!(parse_sysfs_pcie_width("x8\n"), 8);
+}
+
+#[test]
+fn parse_sysfs_power_state_trimmed() {
+    assert_eq!(parse_sysfs_power_state(" D0 \n"), Some(PciPmState::D0));
+}
+
+#[test]
+fn gpu_vendor_matches_vendor_id() {
+    assert!(GpuVendor::Nvidia.matches_vendor_id(0x10DE));
+    assert!(!GpuVendor::Unknown(0x10DE).matches_vendor_id(0x10DE));
+}

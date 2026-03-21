@@ -758,6 +758,8 @@ fn test_make_response_transport_error() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_unix_jsonrpc_blank_lines_ignored() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
     let dir = std::env::temp_dir().join("coralreef-test");
     let _ = std::fs::create_dir_all(&dir);
     let sock_path = dir.join(format!("blank-lines-{}.sock", std::process::id()));
@@ -774,7 +776,6 @@ async fn test_unix_jsonrpc_blank_lines_ignored() {
     let (reader, mut writer) = stream.into_split();
     let mut lines = tokio::io::BufReader::new(reader).lines();
 
-    use tokio::io::AsyncWriteExt;
     writer.write_all(b"\n\n   \n").await.unwrap();
     let real_req = r#"{"jsonrpc":"2.0","method":"health.liveness","params":{},"id":42}"#;
     writer
@@ -782,7 +783,6 @@ async fn test_unix_jsonrpc_blank_lines_ignored() {
         .await
         .unwrap();
 
-    use tokio::io::AsyncBufReadExt;
     let resp_line = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
         .await
         .expect("timeout")
@@ -842,7 +842,7 @@ async fn test_unix_jsonrpc_malformed_json_returns_parse_error() {
         .await
         .unwrap();
 
-    let req = r#"{this is not valid json at all}"#;
+    let req = r"{this is not valid json at all}";
     let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
     let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
 

@@ -56,6 +56,61 @@ async fn test_tcp_client_health_check() {
 }
 
 #[tokio::test]
+async fn test_tcp_device_list_and_get() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let server = SocketServer::bind("127.0.0.1:0").await.expect("bind");
+    let addr = server.bound_addr();
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:aa:00.0".into(),
+        name: Some("RPC GPU".into()),
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: Some("compute".into()),
+        oracle_dump: None,
+    };
+    let devices = Arc::new(Mutex::new(vec![coral_glowplug::device::DeviceSlot::new(
+        config,
+    )]));
+    let (_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let devices_clone = devices.clone();
+
+    let handle = tokio::spawn(async move {
+        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let stream = TcpStream::connect(&addr).await.expect("connect");
+    let (reader, mut writer) = stream.into_split();
+
+    let list_req = r#"{"jsonrpc":"2.0","method":"device.list","params":{},"id":1}"#;
+    writer
+        .write_all(format!("{list_req}\n").as_bytes())
+        .await
+        .expect("write");
+    let mut lines = BufReader::new(reader).lines();
+    let line1 = lines.next_line().await.expect("read").expect("line1");
+    let v1: serde_json::Value = serde_json::from_str(&line1).expect("parse");
+    assert_eq!(v1["result"][0]["bdf"], "0000:aa:00.0");
+    assert_eq!(v1["result"][0]["name"], "RPC GPU");
+
+    let get_req =
+        r#"{"jsonrpc":"2.0","method":"device.get","params":{"bdf":"0000:aa:00.0"},"id":2}"#;
+    writer
+        .write_all(format!("{get_req}\n").as_bytes())
+        .await
+        .expect("write");
+    let line2 = lines.next_line().await.expect("read").expect("line2");
+    let v2: serde_json::Value = serde_json::from_str(&line2).expect("parse");
+    assert_eq!(v2["result"]["bdf"], "0000:aa:00.0");
+    assert_eq!(v2["result"]["chip"].as_str().is_some(), true);
+
+    handle.abort();
+}
+
+#[tokio::test]
 async fn test_invalid_jsonrpc_version() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpStream;

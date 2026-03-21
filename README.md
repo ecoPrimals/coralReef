@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 60 (Deep Audit Execution + Code Quality Evolution)  
+**Status**: Phase 10 — Iteration 61 (DI Architecture + Coverage Evolution)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3062+ passing, 0 failed (+102 ignored VFIO/hardware)
+cargo test --workspace     # 3306+ passing, 0 failed (+108 ignored VFIO/hardware)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -135,7 +135,7 @@ coralReef/
 | Crate | Purpose |
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control, multi-device compile API |
-| `coral-reef` | Shader compiler — 24 spring absorption tests passing (14 original + 4 FMA + 6 neuralSpring), f64 lowering, optimizers, RA, vendor encoding |
+| `coral-reef` | Shader compiler — spring absorption tests, f64 lowering, optimizers, RA, vendor encoding (78.6% coverage) |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
 | `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: vfio > nouveau > amdgpu > nvidia-drm), `from_vfio()` convenience API, FMA capability reporting, `PCIe` topology discovery |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
@@ -175,8 +175,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3062+ passing, 0 failed, 102 ignored hardware-gated) |
-| `cargo llvm-cov` | 66.1% region / 65.8% line / 72.9% function (non-hardware: 79.6%) |
+| `cargo test --workspace` | PASS (3306+ passing, 0 failed, 108 ignored hardware-gated) |
+| `cargo llvm-cov` | 67.6% line (coralreef-core 95.9%, coral-reef 78.6%, 6 crates above 90%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

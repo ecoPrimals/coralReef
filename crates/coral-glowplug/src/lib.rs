@@ -5,8 +5,8 @@
 //!
 //! Re-exports [`DeviceSlot`](device::DeviceSlot), [`Personality`](personality::Personality),
 //! [`DeviceError`](error::DeviceError), [`Config`](config::Config),
-//! [`EmberClient`](ember::EmberClient), and sysfs helpers for consumption
-//! by ecosystem crates.
+//! [`EmberClient`](ember::EmberClient), [`SysfsOps`](sysfs_ops::SysfsOps),
+//! and sysfs helpers for consumption by ecosystem crates.
 
 pub mod config;
 pub mod device;
@@ -16,3 +16,9 @@ pub mod health;
 pub mod pci_ids;
 pub mod personality;
 pub mod sysfs;
+pub mod sysfs_ops;
+
+pub use sysfs_ops::{RealSysfs, SysfsOps};
+
+#[cfg(test)]
+pub use sysfs_ops::MockSysfs;

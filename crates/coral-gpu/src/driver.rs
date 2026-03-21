@@ -115,14 +115,11 @@ pub(crate) fn discover_vfio_nvidia_bdf() -> Option<String> {
     None
 }
 
-/// Detect SM version for a VFIO-bound GPU from sysfs device ID.
+/// Map a PCI device ID (from sysfs) to an SM major version for VFIO paths.
+///
+/// Used by [`vfio_detect_sm`] and unit-tested without sysfs I/O.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
-pub(crate) fn vfio_detect_sm(bdf: &str) -> u32 {
-    let device_path = format!("/sys/bus/pci/devices/{bdf}/device");
-    let device_id = std::fs::read_to_string(&device_path)
-        .ok()
-        .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok());
-
+pub(crate) fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
     match device_id {
         Some(0x1D81) => 70,                            // Titan V
         Some(0x1E00..=0x1E8F) => 75,                   // Turing (TU10x)
@@ -132,4 +129,15 @@ pub(crate) fn vfio_detect_sm(bdf: &str) -> u32 {
         Some(0x2400..=0x26FF) => 89,                   // Ada Lovelace
         _ => default_nv_sm(),
     }
+}
+
+/// Detect SM version for a VFIO-bound GPU from sysfs device ID.
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+pub(crate) fn vfio_detect_sm(bdf: &str) -> u32 {
+    let device_path = format!("/sys/bus/pci/devices/{bdf}/device");
+    let device_id = std::fs::read_to_string(&device_path)
+        .ok()
+        .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok());
+
+    vfio_sm_from_device_id(device_id)
 }

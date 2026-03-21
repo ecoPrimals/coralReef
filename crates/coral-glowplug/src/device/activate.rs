@@ -3,12 +3,13 @@
 use crate::error::DeviceError;
 use crate::personality::{Personality, PersonalityRegistry};
 use crate::sysfs;
+use crate::sysfs_ops::SysfsOps;
 use std::os::fd::OwnedFd;
 
 use super::DeviceSlot;
 use super::types::VfioHolder;
 
-impl DeviceSlot {
+impl<S: SysfsOps> DeviceSlot<S> {
     /// Bind device to the configured boot personality and take ownership.
     ///
     /// # Errors
@@ -31,7 +32,7 @@ impl DeviceSlot {
         self.refresh_power_state();
 
         // Check current driver — if already correct, skip rebind
-        let current_driver = sysfs::read_current_driver(&self.bdf);
+        let current_driver = self.sysfs.read_current_driver(&self.bdf);
 
         let trait_personality = registry.create(&target);
         let expected_module = trait_personality
@@ -51,7 +52,7 @@ impl DeviceSlot {
         }
 
         if needs_rebind {
-            if sysfs::has_active_drm_consumers(&self.bdf) {
+            if self.sysfs.has_active_drm_consumers(&self.bdf) {
                 tracing::error!(
                     bdf = %self.bdf,
                     current = current_driver.as_deref().unwrap_or("<none>"),
@@ -112,12 +113,12 @@ impl DeviceSlot {
                     "ember not available — using legacy direct sysfs activation (no-ember mode)"
                 );
                 if current_driver.is_some() {
-                    let _ = sysfs::sysfs_write(
+                    let _ = self.sysfs.sysfs_write(
                         &format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf),
                         &self.bdf,
                     );
                     std::thread::sleep(std::time::Duration::from_millis(500));
-                    let _ = sysfs::sysfs_write(
+                    let _ = self.sysfs.sysfs_write(
                         &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
                         "on",
                     );
@@ -161,7 +162,7 @@ impl DeviceSlot {
         group: OwnedFd,
         device_fd: OwnedFd,
     ) -> Result<(), DeviceError> {
-        let group_id = sysfs::read_iommu_group(&self.bdf);
+        let group_id = self.sysfs.read_iommu_group(&self.bdf);
 
         tracing::info!(
             bdf = %self.bdf,
@@ -203,7 +204,7 @@ impl DeviceSlot {
     /// Primary path: get dup'd fds from ember via `SCM_RIGHTS`.
     /// With `no-ember` feature: falls back to direct `VfioDevice::open` with legacy sysfs bind.
     fn bind_vfio(&mut self) -> Result<(), DeviceError> {
-        let group_id = sysfs::read_iommu_group(&self.bdf);
+        let group_id = self.sysfs.read_iommu_group(&self.bdf);
 
         if let Some(client) = crate::ember::EmberClient::connect() {
             match client.request_fds(&self.bdf) {
@@ -303,7 +304,7 @@ impl DeviceSlot {
         reason = "returns Result for consistency with fallible bind path"
     )]
     fn bind_driver(&mut self, driver: &str) -> Result<(), DeviceError> {
-        let current = sysfs::read_current_driver(&self.bdf);
+        let current = self.sysfs.read_current_driver(&self.bdf);
         if current.as_deref() != Some(driver) {
             #[cfg(not(feature = "no-ember"))]
             {
@@ -323,22 +324,23 @@ impl DeviceSlot {
                     current = ?current,
                     "legacy sysfs bind (no-ember mode)"
                 );
-                let _ = sysfs::sysfs_write(
+                let _ = self.sysfs.sysfs_write(
                     &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
                     "\n",
                 );
                 std::thread::sleep(std::time::Duration::from_millis(200));
-                let _ =
-                    sysfs::sysfs_write(&format!("/sys/bus/pci/drivers/{driver}/bind"), &self.bdf);
+                let _ = self
+                    .sysfs
+                    .sysfs_write(&format!("/sys/bus/pci/drivers/{driver}/bind"), &self.bdf);
                 std::thread::sleep(std::time::Duration::from_secs(3));
-                let _ = sysfs::sysfs_write(
+                let _ = self.sysfs.sysfs_write(
                     &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
                     "on",
                 );
             }
         }
 
-        let drm_card = sysfs::find_drm_card(&self.bdf);
+        let drm_card = self.sysfs.find_drm_card(&self.bdf);
         self.personality = match driver {
             "nouveau" => Personality::Nouveau { drm_card },
             "nvidia" => Personality::Nvidia { drm_card },

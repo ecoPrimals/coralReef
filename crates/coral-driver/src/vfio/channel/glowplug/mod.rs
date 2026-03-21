@@ -263,12 +263,12 @@ impl<'a> GlowPlug<'a> {
                 && current.thermal_state != GpuThermalState::Warm);
 
         if cooled {
-            eprintln!(
-                "GlowPlug: GPU cooled! was {:?}/{} alive, now {:?}/{} alive",
-                previous.thermal_state,
-                previous.domains_alive,
-                current.thermal_state,
-                current.domains_alive,
+            tracing::info!(
+                prev_thermal = ?previous.thermal_state,
+                prev_alive = previous.domains_alive,
+                now_thermal = ?current.thermal_state,
+                now_alive = current.domains_alive,
+                "GlowPlug: GPU cooled, re-warming"
             );
             self.recover_pri_bus();
 

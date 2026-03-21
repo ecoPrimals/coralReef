@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+[package]
+name = "coralreef-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "AGPL-3.0-only"
+rust-version = "1.85"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+coral-reef = { path = "../crates/coral-reef" }
+coralreef-core = { path = "../crates/coralreef-core", features = ["e2e"] }
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+[[bin]]
+name = "fuzz_wgsl"
+path = "fuzz_targets/fuzz_wgsl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_spirv"
+path = "fuzz_targets/fuzz_spirv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_jsonrpc"
+path = "fuzz_targets/fuzz_jsonrpc.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
+resolver = "2"

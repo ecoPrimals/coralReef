@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
+use std::fmt::Write as FmtWrite;
 
 // ── PCI Power States ────────────────────────────────────────────────────
 
@@ -95,6 +96,17 @@ impl GpuVendor {
             PCI_VENDOR_INTEL => Self::Intel,
             other => Self::Unknown(other),
         }
+    }
+
+    /// True if this vendor matches the given PCI vendor ID.
+    #[must_use]
+    pub fn matches_vendor_id(self, id: u16) -> bool {
+        matches!(
+            (self, id),
+            (Self::Nvidia, PCI_VENDOR_NVIDIA)
+                | (Self::Amd, PCI_VENDOR_AMD)
+                | (Self::Intel, PCI_VENDOR_INTEL)
+        )
     }
 }
 
@@ -252,6 +264,134 @@ impl fmt::Display for PcieLinkSpeed {
             Self::Unknown(v) => write!(f, "Unknown({v:#x})"),
         }
     }
+}
+
+/// Parse a PCI Bus/Device/Function string (`DDDD:BB:DD.F`) from sysfs paths.
+///
+/// Returns `(domain, bus, device, function)` or `None` if the string is malformed.
+#[must_use]
+pub(crate) fn parse_pci_bdf(bdf: &str) -> Option<(u32, u8, u8, u8)> {
+    let mut colon = bdf.split(':');
+    let domain = u32::from_str_radix(colon.next()?, 16).ok()?;
+    let bus = u8::from_str_radix(colon.next()?, 16).ok()?;
+    let dev_func = colon.next()?;
+    if colon.next().is_some() {
+        return None;
+    }
+    let mut dot = dev_func.split('.');
+    let dev = u8::from_str_radix(dot.next()?, 16).ok()?;
+    let func = u8::from_str_radix(dot.next()?, 16).ok()?;
+    if dot.next().is_some() {
+        return None;
+    }
+    Some((domain, bus, dev, func))
+}
+
+/// PCI base class code (byte 2 of the 3-byte class tuple: class, subclass, prog-if).
+#[must_use]
+#[allow(dead_code, reason = "Reserved for upcoming sysfs topology wiring")]
+pub(crate) fn pci_class_base(class_code_24: u32) -> u8 {
+    ((class_code_24 >> 16) & 0xFF) as u8
+}
+
+/// Parse a hex ID from sysfs files such as `vendor`, `device` (`0x10de` or `10de`).
+#[must_use]
+pub(crate) fn parse_pci_sysfs_hex_id(contents: &str) -> Option<u16> {
+    let s = contents.trim();
+    let digits = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    u16::from_str_radix(digits, 16).ok()
+}
+
+/// Parse one line of `/sys/bus/pci/devices/.../resource` (start end flags).
+#[must_use]
+pub(crate) fn parse_pci_resource_line(line: &str, index: u8) -> Option<PciBar> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let start = u64::from_str_radix(parts[0].trim_start_matches("0x"), 16).unwrap_or(0);
+    let end = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16).unwrap_or(0);
+    let flags = u64::from_str_radix(parts[2].trim_start_matches("0x"), 16).unwrap_or(0);
+
+    if start == 0 && end == 0 {
+        return None;
+    }
+
+    let size = if end > start { end - start + 1 } else { 0 };
+    let is_mmio = flags & 0x01 == 0;
+    let is_64bit = flags & 0x04 != 0;
+    let is_prefetchable = flags & 0x08 != 0;
+
+    Some(PciBar {
+        index,
+        base: start,
+        size,
+        is_mmio,
+        is_64bit,
+        is_prefetchable,
+    })
+}
+
+/// Parse the full `resource` file (BAR0–BAR5) into [`PciBar`] entries.
+#[must_use]
+pub(crate) fn parse_pci_resource_file(content: &str) -> Vec<PciBar> {
+    let mut bars = Vec::new();
+    for (index, line) in content.lines().enumerate() {
+        if index > 5 {
+            break;
+        }
+        if let Some(bar) = parse_pci_resource_line(line, index as u8) {
+            bars.push(bar);
+        }
+    }
+    bars
+}
+
+/// Map sysfs `current_link_speed` / `max_link_speed` text to a [`PcieLinkSpeed`].
+#[must_use]
+pub(crate) fn parse_sysfs_pcie_speed(s: &str) -> PcieLinkSpeed {
+    if s.contains("32") || s.contains("Gen5") {
+        PcieLinkSpeed::Gen5
+    } else if s.contains("16") || s.contains("Gen4") {
+        PcieLinkSpeed::Gen4
+    } else if s.contains('8') || s.contains("Gen3") {
+        PcieLinkSpeed::Gen3
+    } else if s.contains('5') || s.contains("Gen2") {
+        PcieLinkSpeed::Gen2
+    } else if s.contains("2.5") || s.contains("Gen1") {
+        PcieLinkSpeed::Gen1
+    } else {
+        PcieLinkSpeed::Unknown(0)
+    }
+}
+
+/// Parse `x16` / `16` style width strings from sysfs.
+#[must_use]
+pub(crate) fn parse_sysfs_pcie_width(s: &str) -> u8 {
+    s.trim().trim_start_matches('x').parse().unwrap_or(0)
+}
+
+/// Parse `power_state` sysfs contents (`D0`, `D3hot`, ...).
+#[must_use]
+pub(crate) fn parse_sysfs_power_state(s: &str) -> Option<PciPmState> {
+    match s.trim() {
+        "D0" => Some(PciPmState::D0),
+        "D1" => Some(PciPmState::D1),
+        "D2" => Some(PciPmState::D2),
+        "D3hot" => Some(PciPmState::D3Hot),
+        "D3cold" => Some(PciPmState::D3Cold),
+        _ => None,
+    }
+}
+
+fn read_sysfs_pci_hex_id(bdf: &str, name: &str) -> Option<u16> {
+    let path = format!("/sys/bus/pci/devices/{bdf}/{name}");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| parse_pci_sysfs_hex_id(&s))
 }
 
 fn pci_config_read_u16(config: &[u8], off: usize) -> u16 {
@@ -464,6 +604,8 @@ impl PciDeviceInfo {
 
     /// Parse PCI device info from sysfs config space.
     pub fn from_sysfs(bdf: &str) -> Result<Self, String> {
+        parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
+
         let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
         let config = std::fs::read(&config_path).map_err(|e| format!("read {config_path}: {e}"))?;
 
@@ -473,6 +615,16 @@ impl PciDeviceInfo {
 
         let vendor_id = pci_config_read_u16(&config, 0x00);
         let device_id = pci_config_read_u16(&config, 0x02);
+        if let Some(sys_vendor) = read_sysfs_pci_hex_id(bdf, "vendor")
+            && sys_vendor != vendor_id
+        {
+            tracing::warn!(
+                bdf,
+                config_vendor = vendor_id,
+                sysfs_vendor = sys_vendor,
+                "PCI vendor ID mismatch (config vs sysfs)"
+            );
+        }
         let class_code = pci_config_read_u32(&config, 0x08) >> 8;
         let subsystem = (
             pci_config_read_u16(&config, 0x2C),
@@ -520,14 +672,7 @@ impl PciDeviceInfo {
             let dev_path = format!("/sys/bus/pci/devices/{bdf}");
             let sysfs_state = std::fs::read_to_string(format!("{dev_path}/power_state"))
                 .ok()
-                .and_then(|s| match s.trim() {
-                    "D0" => Some(PciPmState::D0),
-                    "D1" => Some(PciPmState::D1),
-                    "D2" => Some(PciPmState::D2),
-                    "D3hot" => Some(PciPmState::D3Hot),
-                    "D3cold" => Some(PciPmState::D3Cold),
-                    _ => None,
-                });
+                .and_then(|s| parse_sysfs_power_state(&s));
             PciPowerInfo {
                 pm_cap_offset: None,
                 current_state: sysfs_state.unwrap_or(PciPmState::Unknown(0xFF)),
@@ -559,22 +704,6 @@ impl PciDeviceInfo {
 
     fn parse_link_sysfs(bdf: &str) -> Option<PcieLinkInfo> {
         let dev = format!("/sys/bus/pci/devices/{bdf}");
-        let parse_speed = |s: &str| -> PcieLinkSpeed {
-            if s.contains("32") || s.contains("Gen5") {
-                PcieLinkSpeed::Gen5
-            } else if s.contains("16") || s.contains("Gen4") {
-                PcieLinkSpeed::Gen4
-            } else if s.contains("8") || s.contains("Gen3") {
-                PcieLinkSpeed::Gen3
-            } else if s.contains("5") || s.contains("Gen2") {
-                PcieLinkSpeed::Gen2
-            } else if s.contains("2.5") || s.contains("Gen1") {
-                PcieLinkSpeed::Gen1
-            } else {
-                PcieLinkSpeed::Unknown(0)
-            }
-        };
-        let parse_width = |s: &str| -> u8 { s.trim().trim_start_matches('x').parse().unwrap_or(0) };
         let cur_speed = std::fs::read_to_string(format!("{dev}/current_link_speed")).ok()?;
         let max_speed =
             std::fs::read_to_string(format!("{dev}/max_link_speed")).unwrap_or_default();
@@ -583,10 +712,10 @@ impl PciDeviceInfo {
         let max_width =
             std::fs::read_to_string(format!("{dev}/max_link_width")).unwrap_or_default();
         Some(PcieLinkInfo {
-            current_speed: parse_speed(&cur_speed),
-            max_speed: parse_speed(&max_speed),
-            current_width: parse_width(&cur_width),
-            max_width: parse_width(&max_width),
+            current_speed: parse_sysfs_pcie_speed(&cur_speed),
+            max_speed: parse_sysfs_pcie_speed(&max_speed),
+            current_width: parse_sysfs_pcie_width(&cur_width),
+            max_width: parse_sysfs_pcie_width(&max_width),
         })
     }
 
@@ -596,57 +725,40 @@ impl PciDeviceInfo {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
-
-        let mut bars = Vec::new();
-        for (index, line) in content.lines().enumerate() {
-            if index > 5 {
-                break;
-            }
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 3 {
-                continue;
-            }
-            let start = u64::from_str_radix(parts[0].trim_start_matches("0x"), 16).unwrap_or(0);
-            let end = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16).unwrap_or(0);
-            let flags = u64::from_str_radix(parts[2].trim_start_matches("0x"), 16).unwrap_or(0);
-
-            if start == 0 && end == 0 {
-                continue;
-            }
-
-            let size = if end > start { end - start + 1 } else { 0 };
-            let is_mmio = flags & 0x01 == 0;
-            let is_64bit = flags & 0x04 != 0;
-            let is_prefetchable = flags & 0x08 != 0;
-
-            bars.push(PciBar {
-                index: index as u8,
-                base: start,
-                size,
-                is_mmio,
-                is_64bit,
-                is_prefetchable,
-            });
-        }
-
-        bars
+        parse_pci_resource_file(&content)
     }
 
     /// Print a human-readable summary of the device.
     pub fn print_summary(&self) {
-        eprintln!("╠══ PCI DEVICE INFO ═════════════════════════════════════════╣");
-        eprintln!("║ BDF:     {}", self.bdf);
-        eprintln!(
+        let mut s = String::new();
+        writeln!(
+            &mut s,
+            "╠══ PCI DEVICE INFO ═════════════════════════════════════════╣"
+        )
+        .expect("writing to String is infallible");
+        writeln!(&mut s, "║ BDF:     {}", self.bdf).expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ ID:      {:04x}:{:04x} ({})",
             self.vendor_id, self.device_id, self.vendor
-        );
-        eprintln!("║ Class:   {:#08x}", self.class_code);
-        eprintln!(
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
+            "║ Class:   {:#08x} (base {:#04x})",
+            self.class_code,
+            pci_class_base(self.class_code)
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ Power:   {} (PMCSR={:#06x})",
             self.power.current_state, self.power.pmcsr_raw
-        );
+        )
+        .expect("writing to String is infallible");
         for bar in &self.bars {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ BAR{}:    {:#014x} ({} KB) {}{}{}",
                 bar.index,
                 bar.base,
@@ -654,20 +766,26 @@ impl PciDeviceInfo {
                 if bar.is_mmio { "MMIO" } else { "IO" },
                 if bar.is_64bit { " 64bit" } else { "" },
                 if bar.is_prefetchable { " prefetch" } else { "" },
-            );
+            )
+            .expect("writing to String is infallible");
         }
         for cap in &self.capabilities {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ Cap:     [{:#04x}] {} @ {:#04x}",
                 cap.id, cap.name, cap.offset
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(ref link) = self.pcie_link {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║ PCIe:    x{} @ {} (max x{} @ {})",
                 link.current_width, link.current_speed, link.max_width, link.max_speed,
-            );
+            )
+            .expect("writing to String is infallible");
         }
+        tracing::info!(summary = %s, "PCI device info");
     }
 }
 
@@ -683,6 +801,7 @@ impl PciDeviceInfo {
 ///
 /// This is vendor-agnostic — works for any PCI device with PM capability.
 pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
+    parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
@@ -701,10 +820,13 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     }
 
     let pm_states = ["D0", "D1", "D2", "D3hot"];
-    eprintln!(
-        "  PCI PM: {} → D0 (PMCSR {pmcsr:#06x} → {:#06x}) at config+{pmcsr_off:#04x}",
-        pm_states[current_state as usize],
-        pmcsr & !0x03
+    let new_pmcsr_masked = pmcsr & !0x03;
+    tracing::info!(
+        from_state = pm_states[current_state as usize],
+        pmcsr = format!("{pmcsr:#06x}"),
+        new_pmcsr = format!("{new_pmcsr_masked:#06x}"),
+        pmcsr_off = format!("{pmcsr_off:#04x}"),
+        "PCI PM transition to D0"
     );
 
     let new_pmcsr = (pmcsr & !0x03).to_le_bytes();
@@ -725,7 +847,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     // Pin runtime PM to "on" so the kernel doesn't put the device back to D3hot
     let power_control = format!("/sys/bus/pci/devices/{bdf}/power/control");
     if let Err(e) = std::fs::write(&power_control, "on") {
-        eprintln!("  warning: could not pin power/control=on: {e}");
+        tracing::warn!(error = %e, path = %power_control, "could not pin power/control=on");
     }
 
     Ok(())
@@ -736,6 +858,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
 /// Writes the target state to PMCSR bits \[1:0\]. Observe PCI spec recovery
 /// delays: D3hot→D0 requires 10ms, D2→D0 requires 200µs, etc.
 pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, String> {
+    parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
@@ -779,6 +902,7 @@ pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, 
 /// re-execute devinit (including HBM2 training). The device must NOT be
 /// bound to any driver. Vendor-agnostic.
 pub fn pci_power_cycle(bdf: &str) -> Result<bool, String> {
+    parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
     let dev_path = format!("/sys/bus/pci/devices/{bdf}");
 
     let driver_link = format!("{dev_path}/driver");
@@ -815,6 +939,7 @@ pub fn snapshot_config_space(
     start: usize,
     end: usize,
 ) -> Result<Vec<(usize, u32)>, String> {
+    parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
     let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read config: {e}"))?;
 

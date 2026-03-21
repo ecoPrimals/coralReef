@@ -6,6 +6,10 @@ license.workspace = true
 publish.workspace = true
 description = "Immortal VFIO fd holder for safe daemon restarts — keeps GPU bindings alive across coral-glowplug restarts"
 
+[lib]
+name = "coral_ember"
+path = "src/lib.rs"
+
 [[bin]]
 name = "coral-ember"
 path = "src/main.rs"
@@ -18,3 +22,6 @@ serde_json = "1"
 toml = "0.8"
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

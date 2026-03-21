@@ -152,7 +152,7 @@ async fn test_error_display_formats() {
 }
 
 #[tokio::test]
-async fn test_songbird_proxy_path() {
+async fn test_delegated_tls_proxy_path() {
     let resp = r#"{"jsonrpc":"2.0","result":"proxied","id":1}"#;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -172,14 +172,14 @@ async fn test_songbird_proxy_path() {
         request
     });
 
-    let client = RpcClient::songbird_proxy(addr, "api.example.com");
+    let client = RpcClient::delegated_tls_proxy(addr, "api.example.com");
     let result: String = client.request("rpc.call", no_params()).await.unwrap();
     assert_eq!(result, "proxied");
 
     let request = handle.await.unwrap();
     assert!(
         request.contains("POST /https/api.example.com"),
-        "expected Songbird proxy path, got: {request}"
+        "expected delegated-TLS edge path, got: {request}"
     );
     assert!(request.contains("Host: api.example.com"));
 }
@@ -192,19 +192,19 @@ fn test_transport_debug() {
     let unix = crate::Transport::Unix("/primal/coralreef".into());
     assert!(format!("{unix:?}").contains("Unix"));
 
-    let proxy = crate::Transport::SongbirdProxy {
+    let proxy = crate::Transport::DelegatedTlsProxy {
         proxy_addr: "127.0.0.1:8080".parse().unwrap(),
         target_host: "example.com".into(),
     };
-    assert!(format!("{proxy:?}").contains("SongbirdProxy"));
+    assert!(format!("{proxy:?}").contains("DelegatedTlsProxy"));
 }
 
 #[test]
-fn test_rpc_client_songbird_proxy_construction() {
+fn test_rpc_client_delegated_tls_proxy_construction() {
     let addr = "127.0.0.1:8443".parse().unwrap();
-    let client = RpcClient::songbird_proxy(addr, "api.example.com");
+    let client = RpcClient::delegated_tls_proxy(addr, "api.example.com");
     let debug_str = format!("{client:?}");
-    assert!(debug_str.contains("SongbirdProxy"));
+    assert!(debug_str.contains("DelegatedTlsProxy"));
 }
 
 #[test]
@@ -356,8 +356,8 @@ async fn test_unix_socket_connection_refused() {
 }
 
 #[tokio::test]
-async fn test_songbird_proxy_custom_path() {
-    // Songbird proxy uses /https/{target_host} path format
+async fn test_delegated_tls_proxy_custom_path() {
+    // Local TLS edge uses /https/{target_host} path format
     let resp = r#"{"jsonrpc":"2.0","result":"ok","id":1}"#;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -377,14 +377,14 @@ async fn test_songbird_proxy_custom_path() {
         request
     });
 
-    let client = RpcClient::songbird_proxy(addr, "rpc.internal.example.org");
+    let client = RpcClient::delegated_tls_proxy(addr, "rpc.internal.example.org");
     let result: String = client.request("method", no_params()).await.unwrap();
     assert_eq!(result, "ok");
 
     let request = handle.await.unwrap();
     assert!(
         request.contains("POST /https/rpc.internal.example.org"),
-        "Songbird path should be /https/{{host}}: {request}"
+        "delegated-TLS path should be /https/{{host}}: {request}"
     );
 }
 

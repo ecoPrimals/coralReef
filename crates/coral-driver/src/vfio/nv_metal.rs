@@ -6,6 +6,8 @@
 //! This is the reference implementation — AMD Vega will follow the same
 //! trait structure with its own register offsets.
 
+use std::fmt::Write as FmtWrite;
+
 use super::bar_cartography::DomainHint;
 use super::device::MappedBar;
 use super::gpu_vendor::*;
@@ -533,33 +535,56 @@ pub struct NvVoltaProbe {
 impl NvVoltaProbe {
     /// Print human-readable summary.
     pub fn print_summary(&self) {
-        eprintln!("╠══ LIVE HARDWARE PROBE ═════════════════════════════════════╣");
-        eprintln!("║ PMC_ENABLE = {:#010x}", self.pmc_enable);
+        let mut s = String::new();
+        writeln!(
+            &mut s,
+            "╠══ LIVE HARDWARE PROBE ═════════════════════════════════════╣"
+        )
+        .expect("writing to String is infallible");
+        writeln!(&mut s, "║ PMC_ENABLE = {:#010x}", self.pmc_enable)
+            .expect("writing to String is infallible");
         for (name, active) in &self.domain_states {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║   {name:<8} → {}",
                 if *active { "ACTIVE" } else { "gated" }
-            );
+            )
+            .expect("writing to String is infallible");
         }
         if let Some(t) = self.temperature_c {
-            eprintln!("║ Temperature: ~{}°C", t);
+            writeln!(&mut s, "║ Temperature: ~{}°C", t).expect("writing to String is infallible");
         }
-        eprintln!(
+        writeln!(
+            &mut s,
             "║ Active: {} GPCs, {} TPCs, {} FBPs",
             self.active_gpcs, self.active_tpcs, self.active_fbps
-        );
+        )
+        .expect("writing to String is infallible");
         for (idx, alive) in &self.fbpa_alive {
-            eprintln!("║   FBPA{idx}: {}", if *alive { "alive" } else { "dead" });
+            writeln!(
+                &mut s,
+                "║   FBPA{idx}: {}",
+                if *alive { "alive" } else { "dead" }
+            )
+            .expect("writing to String is infallible");
         }
         for (idx, alive) in &self.ltc_alive {
-            eprintln!("║   LTC{idx}: {}", if *alive { "alive" } else { "dead" });
+            writeln!(
+                &mut s,
+                "║   LTC{idx}: {}",
+                if *alive { "alive" } else { "dead" }
+            )
+            .expect("writing to String is infallible");
         }
         for (name, base, ctrl, halted) in &self.falcon_states {
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║   {name:6} @ {base:#08x}: CTRL={ctrl:#010x} {}",
                 if *halted { "HALTED" } else { "running?" },
-            );
+            )
+            .expect("writing to String is infallible");
         }
+        tracing::info!(summary = %s, "live hardware probe");
     }
 
     /// Export as JSON.

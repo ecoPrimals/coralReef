@@ -5,6 +5,8 @@
 )]
 //! PMU FALCON registers, DevinitStatus, FalconDiagnostic, and execution.
 
+use std::fmt::Write as FmtWrite;
+
 use crate::vfio::device::MappedBar;
 
 use super::script::interpret_boot_scripts;
@@ -59,19 +61,44 @@ impl DevinitStatus {
         }
     }
 
-    pub fn print_summary(&self) {
-        eprintln!("╠══ DEVINIT STATUS ══════════════════════════════════════════╣");
-        eprintln!("║ devinit_reg[0x2240c]  = {:#010x}", self.devinit_reg);
-        eprintln!("║ needs_post (bit1==0)  = {}", self.needs_post);
-        eprintln!("║ PMU FALCON ID         = {:#010x}", self.pmu_id);
-        eprintln!("║ PMU FALCON HWCFG      = {:#010x}", self.pmu_hwcfg);
-        eprintln!("║ PMU FALCON CTRL       = {:#010x}", self.pmu_ctrl);
-        eprintln!("║ PMU MBOX0             = {:#010x}", self.pmu_mbox0);
+    /// Append devinit status lines (shared with [`FalconDiagnostic::print_report`]).
+    pub(crate) fn write_summary_lines(&self, s: &mut String) {
+        writeln!(
+            s,
+            "╠══ DEVINIT STATUS ══════════════════════════════════════════╣"
+        )
+        .expect("writing to String is infallible");
+        writeln!(s, "║ devinit_reg[0x2240c]  = {:#010x}", self.devinit_reg)
+            .expect("writing to String is infallible");
+        writeln!(s, "║ needs_post (bit1==0)  = {}", self.needs_post)
+            .expect("writing to String is infallible");
+        writeln!(s, "║ PMU FALCON ID         = {:#010x}", self.pmu_id)
+            .expect("writing to String is infallible");
+        writeln!(s, "║ PMU FALCON HWCFG      = {:#010x}", self.pmu_hwcfg)
+            .expect("writing to String is infallible");
+        writeln!(s, "║ PMU FALCON CTRL       = {:#010x}", self.pmu_ctrl)
+            .expect("writing to String is infallible");
+        writeln!(s, "║ PMU MBOX0             = {:#010x}", self.pmu_mbox0)
+            .expect("writing to String is infallible");
         if self.needs_post {
-            eprintln!("║ *** GPU REQUIRES DEVINIT POST (HBM2 training not done) ***");
+            writeln!(
+                s,
+                "║ *** GPU REQUIRES DEVINIT POST (HBM2 training not done) ***"
+            )
+            .expect("writing to String is infallible");
         } else {
-            eprintln!("║ GPU devinit already complete — HBM2 should be trained.");
+            writeln!(
+                s,
+                "║ GPU devinit already complete — HBM2 should be trained."
+            )
+            .expect("writing to String is infallible");
         }
+    }
+
+    pub fn print_summary(&self) {
+        let mut s = String::new();
+        self.write_summary_lines(&mut s);
+        tracing::info!(summary = %s, "devinit status");
     }
 
     /// Check if FALCON security bits indicate signed-only firmware is required.
@@ -188,53 +215,104 @@ impl FalconDiagnostic {
 
     /// Print a human-readable diagnostic report.
     pub fn print_report(&self) {
-        eprintln!("╠══ PMU FALCON DIAGNOSTIC ═══════════════════════════════════╣");
-        self.status.print_summary();
-        eprintln!("║");
-        eprintln!("║ FALCON Security:");
-        eprintln!("║   Secure boot required: {}", self.secure_boot);
-        eprintln!("║   FALCON halted: {}", self.falcon_halted);
-        eprintln!("║   FALCON PC: {:#010x}", self.falcon_pc);
-        eprintln!("║   FALCON MBOX1: {:#010x}", self.falcon_mbox1);
-        eprintln!(
+        let mut s = String::new();
+        writeln!(
+            &mut s,
+            "╠══ PMU FALCON DIAGNOSTIC ═══════════════════════════════════╣"
+        )
+        .expect("writing to String is infallible");
+        self.status.write_summary_lines(&mut s);
+        writeln!(&mut s, "║").expect("writing to String is infallible");
+        writeln!(&mut s, "║ FALCON Security:").expect("writing to String is infallible");
+        writeln!(&mut s, "║   Secure boot required: {}", self.secure_boot)
+            .expect("writing to String is infallible");
+        writeln!(&mut s, "║   FALCON halted: {}", self.falcon_halted)
+            .expect("writing to String is infallible");
+        writeln!(&mut s, "║   FALCON PC: {:#010x}", self.falcon_pc)
+            .expect("writing to String is infallible");
+        writeln!(&mut s, "║   FALCON MBOX1: {:#010x}", self.falcon_mbox1)
+            .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║   IMEM: {} KB, DMEM: {} KB",
             self.imem_size_kb, self.dmem_size_kb
-        );
-        eprintln!("║");
-        eprintln!("║ PROM Access:");
-        eprintln!("║   Enable reg (0x1854): {:#010x}", self.prom_enable_reg);
-        eprintln!(
+        )
+        .expect("writing to String is infallible");
+        writeln!(&mut s, "║").expect("writing to String is infallible");
+        writeln!(&mut s, "║ PROM Access:").expect("writing to String is infallible");
+        writeln!(
+            &mut s,
+            "║   Enable reg (0x1854): {:#010x}",
+            self.prom_enable_reg
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║   PROM signature: {:#010x} ({})",
             self.prom_signature,
             if self.prom_accessible { "OK" } else { "FAIL" }
-        );
-        eprintln!("║");
-        eprintln!("║ VBIOS Sources:");
+        )
+        .expect("writing to String is infallible");
+        writeln!(&mut s, "║").expect("writing to String is infallible");
+        writeln!(&mut s, "║ VBIOS Sources:").expect("writing to String is infallible");
         for (name, ok, detail) in &self.vbios_sources {
-            eprintln!("║   {} {} — {}", if *ok { "✓" } else { "✗" }, name, detail);
+            writeln!(
+                &mut s,
+                "║   {} {} — {}",
+                if *ok { "✓" } else { "✗" },
+                name,
+                detail
+            )
+            .expect("writing to String is infallible");
         }
-        eprintln!("║");
+        writeln!(&mut s, "║").expect("writing to String is infallible");
 
         if self.status.needs_post {
             if self.secure_boot {
-                eprintln!("║ RECOMMENDATION: PMU requires signed firmware.");
-                eprintln!("║   → Use host-side VBIOS interpreter (interpret_boot_scripts)");
-                eprintln!("║   → Or use differential replay from oracle card");
+                writeln!(&mut s, "║ RECOMMENDATION: PMU requires signed firmware.")
+                    .expect("writing to String is infallible");
+                writeln!(
+                    &mut s,
+                    "║   → Use host-side VBIOS interpreter (interpret_boot_scripts)"
+                )
+                .expect("writing to String is infallible");
+                writeln!(&mut s, "║   → Or use differential replay from oracle card")
+                    .expect("writing to String is infallible");
             } else if self.prom_accessible {
-                eprintln!("║ RECOMMENDATION: FALCON upload should work.");
-                eprintln!("║   → Try execute_devinit() with PROM-read VBIOS");
+                writeln!(&mut s, "║ RECOMMENDATION: FALCON upload should work.")
+                    .expect("writing to String is infallible");
+                writeln!(&mut s, "║   → Try execute_devinit() with PROM-read VBIOS")
+                    .expect("writing to String is infallible");
             } else {
-                eprintln!("║ RECOMMENDATION: PROM inaccessible, FALCON unsigned.");
+                writeln!(
+                    &mut s,
+                    "║ RECOMMENDATION: PROM inaccessible, FALCON unsigned."
+                )
+                .expect("writing to String is infallible");
                 if self.vbios_sources.iter().any(|(_, ok, _)| *ok) {
-                    eprintln!("║   → Try execute_devinit() with file-based VBIOS");
+                    writeln!(&mut s, "║   → Try execute_devinit() with file-based VBIOS")
+                        .expect("writing to String is infallible");
                 } else {
-                    eprintln!("║   → No VBIOS source available — try oracle replay");
+                    writeln!(
+                        &mut s,
+                        "║   → No VBIOS source available — try oracle replay"
+                    )
+                    .expect("writing to String is infallible");
                 }
             }
         } else {
-            eprintln!("║ RECOMMENDATION: Devinit already complete, no action needed.");
+            writeln!(
+                &mut s,
+                "║ RECOMMENDATION: Devinit already complete, no action needed."
+            )
+            .expect("writing to String is infallible");
         }
-        eprintln!("╚═══════════════════════════════════════════════════════════╝");
+        writeln!(
+            &mut s,
+            "╚═══════════════════════════════════════════════════════════╝"
+        )
+        .expect("writing to String is infallible");
+        tracing::info!(summary = %s, "PMU FALCON diagnostic");
     }
 
     /// Find the best available VBIOS ROM, trying all sources.
@@ -293,43 +371,43 @@ pub fn execute_devinit_with_diagnostics(
     let rom = diag.best_vbios(bar0, bdf)?;
 
     if diag.secure_boot {
-        eprintln!("  Secure boot detected — using host-side VBIOS interpreter");
+        tracing::info!("secure boot detected — using host-side VBIOS interpreter");
         let stats = interpret_boot_scripts(bar0, &rom)?;
         let vram_ok = check_vram_via_pramin(bar0);
-        eprintln!(
-            "  Interpreter: {} writes, VRAM {}",
-            stats.writes_applied,
-            if vram_ok { "ALIVE" } else { "still dead" },
+        tracing::info!(
+            writes = stats.writes_applied,
+            vram = if vram_ok { "ALIVE" } else { "still dead" },
+            "VBIOS interpreter result"
         );
         return Ok(vram_ok);
     }
 
-    eprintln!("  Attempting PMU FALCON devinit...");
+    tracing::info!("attempting PMU FALCON devinit");
     match execute_devinit(bar0, &rom) {
         Ok(true) => {
             let vram_ok = check_vram_via_pramin(bar0);
             if vram_ok {
-                eprintln!("  FALCON devinit succeeded + VRAM alive!");
+                tracing::info!("FALCON devinit succeeded + VRAM alive");
                 return Ok(true);
             }
-            eprintln!("  FALCON devinit completed but VRAM still dead");
+            tracing::warn!("FALCON devinit completed but VRAM still dead");
         }
         Ok(false) => {
-            eprintln!("  FALCON reports devinit not needed");
+            tracing::info!("FALCON reports devinit not needed");
             return Ok(false);
         }
         Err(e) => {
-            eprintln!("  FALCON devinit failed: {e}");
+            tracing::error!(error = %e, "FALCON devinit failed");
         }
     }
 
-    eprintln!("  Falling back to host-side VBIOS interpreter...");
+    tracing::info!("falling back to host-side VBIOS interpreter");
     let stats = interpret_boot_scripts(bar0, &rom)?;
     let vram_ok = check_vram_via_pramin(bar0);
-    eprintln!(
-        "  Interpreter fallback: {} writes, VRAM {}",
-        stats.writes_applied,
-        if vram_ok { "ALIVE" } else { "still dead" },
+    tracing::info!(
+        writes = stats.writes_applied,
+        vram = if vram_ok { "ALIVE" } else { "still dead" },
+        "VBIOS interpreter fallback result"
     );
     Ok(vram_ok)
 }
@@ -347,7 +425,7 @@ pub fn pmu_falcon_reset(bar0: &MappedBar) {
     std::thread::sleep(std::time::Duration::from_millis(5));
 
     let ctrl = r(pmu_reg::FALCON_CTRL);
-    eprintln!("  PMU FALCON CTRL after halt: {ctrl:#010x}");
+    tracing::debug!(ctrl = format!("{ctrl:#010x}"), "PMU FALCON CTRL after halt");
 }
 
 /// Upload code to PMU FALCON IMEM.
@@ -448,16 +526,19 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
     status.print_summary();
 
     if !status.needs_post {
-        eprintln!("║ Devinit already complete — skipping PMU upload.");
+        tracing::info!("devinit already complete — skipping PMU upload");
         return Ok(false);
     }
 
     let bit = BitTable::parse(rom)?;
-    eprintln!("║ BIT table: {} entries", bit.entries.len());
+    tracing::debug!(entries = bit.entries.len(), "BIT table");
     for entry in &bit.entries {
-        eprintln!(
-            "║   BIT '{}'  ver={} offset={:#06x} size={}",
-            entry.id as char, entry.version, entry.data_offset, entry.data_size
+        tracing::trace!(
+            bit_id = entry.id,
+            version = entry.version,
+            data_offset = format!("{:#06x}", entry.data_offset),
+            data_size = entry.data_size,
+            "BIT entry"
         );
     }
 
@@ -473,22 +554,25 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
     }
 
     let pmu_fws = parse_pmu_table(rom, &bit)?;
-    eprintln!("║ PMU firmware entries: {}", pmu_fws.len());
+    tracing::debug!(count = pmu_fws.len(), "PMU firmware entries");
     for fw in &pmu_fws {
-        eprintln!(
-            "║   type={:#04x} boot={:#x}+{:#x}({}) code={:#x}+{:#x}({}) data={:#x}+{:#x}({}) init={:#x} args={:#x}",
-            fw.app_type,
-            fw.boot_addr_pmu,
-            fw.boot_addr,
-            fw.boot_size,
-            fw.code_addr_pmu,
-            fw.code_addr,
-            fw.code_size,
-            fw.data_addr_pmu,
-            fw.data_addr,
-            fw.data_size,
-            fw.init_addr_pmu,
-            fw.args_addr_pmu,
+        tracing::trace!(
+            app_type = format!("{:#04x}", fw.app_type),
+            boot = format!(
+                "{:#x}+{:#x}({})",
+                fw.boot_addr_pmu, fw.boot_addr, fw.boot_size
+            ),
+            code = format!(
+                "{:#x}+{:#x}({})",
+                fw.code_addr_pmu, fw.code_addr, fw.code_size
+            ),
+            data = format!(
+                "{:#x}+{:#x}({})",
+                fw.data_addr_pmu, fw.data_addr, fw.data_size
+            ),
+            init = format!("{:#x}", fw.init_addr_pmu),
+            args = format!("{:#x}", fw.args_addr_pmu),
+            "PMU firmware section"
         );
     }
 
@@ -505,13 +589,14 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
         return Err("DEVINIT firmware sections extend beyond ROM".into());
     }
 
-    eprintln!("╠══ PMU FALCON DEVINIT UPLOAD ═══════════════════════════════╣");
+    tracing::info!("PMU FALCON devinit upload starting");
 
     pmu_falcon_reset(bar0);
 
-    eprintln!(
-        "║ Uploading boot code: {} bytes to PMU IMEM {:#x}",
-        devinit_fw.boot_size, devinit_fw.boot_addr_pmu
+    tracing::debug!(
+        bytes = devinit_fw.boot_size,
+        addr = format!("{:#x}", devinit_fw.boot_addr_pmu),
+        "uploading boot code to PMU IMEM"
     );
     pmu_upload_code(
         bar0,
@@ -522,9 +607,10 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
         false,
     );
 
-    eprintln!(
-        "║ Uploading main code: {} bytes to PMU IMEM {:#x}",
-        devinit_fw.code_size, devinit_fw.code_addr_pmu
+    tracing::debug!(
+        bytes = devinit_fw.code_size,
+        addr = format!("{:#x}", devinit_fw.code_addr_pmu),
+        "uploading main code to PMU IMEM"
     );
     pmu_upload_code(
         bar0,
@@ -535,9 +621,10 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
         true,
     );
 
-    eprintln!(
-        "║ Uploading data: {} bytes to PMU DMEM {:#x}",
-        devinit_fw.data_size, devinit_fw.data_addr_pmu
+    tracing::debug!(
+        bytes = devinit_fw.data_size,
+        addr = format!("{:#x}", devinit_fw.data_addr_pmu),
+        "uploading data to PMU DMEM"
     );
     pmu_upload_data(
         bar0,
@@ -559,13 +646,19 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
 
     if opcode_len > 0 && opcode_img + opcode_len <= rom_len {
         let pmu_opcode_addr = pmu_read_args(bar0, devinit_fw.args_addr_pmu + 0x08, 0x08);
-        eprintln!(
-            "║ Uploading opcode tables: {} bytes from ROM {:#x} to PMU DMEM {:#x}",
-            opcode_len, opcode_img, pmu_opcode_addr
+        tracing::trace!(
+            bytes = opcode_len,
+            rom_offset = format!("{:#x}", opcode_img),
+            dmem = format!("{:#x}", pmu_opcode_addr),
+            "uploading opcode tables"
         );
         pmu_upload_data(bar0, rom, pmu_opcode_addr, opcode_img, opcode_len);
     } else {
-        eprintln!("║ No opcode table found (img={opcode_img:#x} len={opcode_len})");
+        tracing::debug!(
+            img = format!("{opcode_img:#x}"),
+            len = opcode_len,
+            "no opcode table found"
+        );
     }
 
     let script_img = u16::from_le_bytes([
@@ -579,16 +672,22 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
 
     if script_len > 0 && script_img + script_len <= rom_len {
         let pmu_script_addr = pmu_read_args(bar0, devinit_fw.args_addr_pmu + 0x08, 0x10);
-        eprintln!(
-            "║ Uploading boot scripts: {} bytes from ROM {:#x} to PMU DMEM {:#x}",
-            script_len, script_img, pmu_script_addr
+        tracing::trace!(
+            bytes = script_len,
+            rom_offset = format!("{:#x}", script_img),
+            dmem = format!("{:#x}", pmu_script_addr),
+            "uploading boot scripts"
         );
         pmu_upload_data(bar0, rom, pmu_script_addr, script_img, script_len);
     } else {
-        eprintln!("║ No boot script found (img={script_img:#x} len={script_len})");
+        tracing::debug!(
+            img = format!("{script_img:#x}"),
+            len = script_len,
+            "no boot script found"
+        );
     }
 
-    eprintln!("╠══ PMU DEVINIT EXECUTION ═══════════════════════════════════╣");
+    tracing::info!("PMU devinit execution");
     let w = |reg, val: u32| {
         let _ = bar0.write_u32(reg, val);
     };
@@ -605,9 +704,10 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
         let mbox = r(pmu_reg::FALCON_MBOX0);
         if mbox & 0x2000 != 0 {
             completed = true;
-            eprintln!(
-                "║ DEVINIT COMPLETE! MBOX0={mbox:#010x} (elapsed: {}ms)",
-                start.elapsed().as_millis()
+            tracing::info!(
+                mbox0 = format!("{mbox:#010x}"),
+                elapsed_ms = start.elapsed().as_millis(),
+                "DEVINIT complete"
             );
             break;
         }
@@ -617,7 +717,11 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
     if !completed {
         let mbox = r(pmu_reg::FALCON_MBOX0);
         let ctrl = r(pmu_reg::FALCON_CTRL);
-        eprintln!("║ DEVINIT TIMEOUT! MBOX0={mbox:#010x} CTRL={ctrl:#010x}");
+        tracing::error!(
+            mbox0 = format!("{mbox:#010x}"),
+            ctrl = format!("{ctrl:#010x}"),
+            "DEVINIT timeout"
+        );
         return Err(format!(
             "PMU DEVINIT timed out after 2s (MBOX0={mbox:#010x})"
         ));
@@ -625,7 +729,7 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
 
     // Run PRE_OS app (type 0x01) — for fan control
     if let Some(preos_fw) = pmu_fws.iter().find(|fw| fw.app_type == 0x01) {
-        eprintln!("║ Loading PRE_OS app (fan control)...");
+        tracing::info!("loading PRE_OS app (fan control)");
         if preos_fw.boot_addr + preos_fw.boot_size <= rom_len
             && preos_fw.code_addr + preos_fw.code_size <= rom_len
             && preos_fw.data_addr + preos_fw.data_size <= rom_len
@@ -655,15 +759,15 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
                 preos_fw.data_size,
             );
             pmu_exec(bar0, preos_fw.init_addr_pmu);
-            eprintln!("║ PRE_OS app launched on PMU.");
+            tracing::info!("PRE_OS app launched on PMU");
         }
     }
 
     let post_status = DevinitStatus::probe(bar0);
     if !post_status.needs_post {
-        eprintln!("║ CONFIRMED: devinit status register now shows COMPLETE.");
+        tracing::info!("devinit status register shows COMPLETE");
     } else {
-        eprintln!("║ WARNING: devinit status register still shows needs_post!");
+        tracing::warn!("devinit status register still shows needs_post");
     }
 
     Ok(true)

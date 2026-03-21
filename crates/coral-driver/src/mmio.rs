@@ -3,8 +3,9 @@
 //!
 //! Encapsulates `ptr::read_volatile` / `ptr::write_volatile` behind a type that
 //! takes ownership of the alignment and validity invariants at construction.
-//! Call sites that construct a `VolatilePtr` after bounds/alignment checks
-//! can then use `read()` and `write()` without additional `unsafe`.
+//! Stack-local tests can use [`VolatilePtr::from_mut`]. MMIO call sites that
+//! hold a validated raw pointer use [`VolatilePtr::new`] after bounds/alignment
+//! checks, then call `read()` / `write()` without additional `unsafe`.
 
 /// A pointer to volatile MMIO memory, validated for alignment and bounds at construction.
 ///
@@ -15,6 +16,17 @@ pub(crate) struct VolatilePtr<T> {
 }
 
 impl<T: Copy> VolatilePtr<T> {
+    /// Create a `VolatilePtr` from a unique mutable reference (stack tests, etc.).
+    ///
+    /// For MMIO from mmap'd raw pointers, use [`Self::new`].
+    #[cfg(test)]
+    #[inline]
+    pub(crate) fn from_mut(r: &mut T) -> Self {
+        Self {
+            ptr: std::ptr::from_mut(r),
+        }
+    }
+
     /// Create a `VolatilePtr` from a raw pointer.
     ///
     /// # Safety
@@ -49,16 +61,14 @@ mod tests {
     #[test]
     fn volatile_ptr_construction_from_aligned_u32() {
         let mut value: u32 = 0xDEAD_BEEF;
-        // SAFETY: `value` is a live, aligned `u32` on the stack; pointer is valid for the test.
-        let ptr = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        let ptr = VolatilePtr::from_mut(&mut value);
         assert_eq!(ptr.read(), 0xDEAD_BEEF);
     }
 
     #[test]
     fn volatile_ptr_read_write_roundtrip() {
         let mut value: u32 = 0;
-        // SAFETY: `value` is a live, aligned `u32` on the stack; pointer is valid for the test.
-        let ptr = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        let ptr = VolatilePtr::from_mut(&mut value);
         ptr.write(0x1234_5678);
         assert_eq!(ptr.read(), 0x1234_5678);
         assert_eq!(value, 0x1234_5678);
@@ -67,8 +77,7 @@ mod tests {
     #[test]
     fn volatile_ptr_multiple_writes_persist() {
         let mut value: u32 = 0;
-        // SAFETY: `value` is a live, aligned `u32` on the stack; pointer is valid for the test.
-        let ptr = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        let ptr = VolatilePtr::from_mut(&mut value);
         ptr.write(1);
         ptr.write(2);
         ptr.write(3);
@@ -78,8 +87,7 @@ mod tests {
     #[test]
     fn volatile_ptr_clone_copy_independent_access() {
         let mut value: u32 = 0x42;
-        // SAFETY: `value` is a live, aligned `u32` on the stack; pointer is valid for the test.
-        let ptr1 = unsafe { VolatilePtr::new(&mut value as *mut u32) };
+        let ptr1 = VolatilePtr::from_mut(&mut value);
         let ptr2 = ptr1;
         ptr1.write(0x100);
         assert_eq!(ptr2.read(), 0x100);

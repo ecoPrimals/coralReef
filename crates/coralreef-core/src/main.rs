@@ -432,5 +432,5 @@ async fn cmd_doctor() -> UniBinExit {
 }
 
 #[cfg(test)]
-#[path = "main_tests.rs"]
+#[path = "main_tests/mod.rs"]
 mod tests;

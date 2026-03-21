@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Named tolerance tiers for precision validation.
 //!
-//! Adopted from groundSpring's 13-tier tolerance architecture.
+//! Adopted from ecosystem numerical validation's 13-tier tolerance architecture.
 //! Each tier represents a distinct mathematical regime with an associated
 //! epsilon value.  Using named constants instead of raw floats makes
 //! precision requirements explicit and self-documenting across the

@@ -640,7 +640,7 @@ impl<'a> VbiosInterpreter<'a> {
 }
 
 /// Number of RAM-restrict groups from VBIOS strap info.
-fn ram_restrict_group_count(rom: &[u8]) -> usize {
+pub(crate) fn ram_restrict_group_count(rom: &[u8]) -> usize {
     if let Ok(bit) = BitTable::parse(rom)
         && let Some(m) = bit.find(b'M')
     {
@@ -682,8 +682,10 @@ pub fn interpret_boot_scripts(bar0: &MappedBar, rom: &[u8]) -> Result<Interprete
         return Err("Init script table pointer is null or invalid".into());
     }
 
-    eprintln!(
-        "  VBIOS interpreter: init_tables_base={init_tables_base:#06x}, script_table={script_table_ptr:#06x}",
+    tracing::debug!(
+        init_tables_base = format!("{init_tables_base:#06x}"),
+        script_table = format!("{script_table_ptr:#06x}"),
+        "VBIOS interpreter entry points"
     );
 
     let mut combined_stats = InterpreterStats::default();
@@ -699,29 +701,33 @@ pub fn interpret_boot_scripts(bar0: &MappedBar, rom: &[u8]) -> Result<Interprete
             break;
         }
 
-        eprintln!(
-            "  VBIOS interpreter: running init script {} at {script_off:#06x}",
+        tracing::debug!(
             script_idx,
+            script_off = format!("{script_off:#06x}"),
+            "VBIOS interpreter running init script"
         );
 
         let mut interp = VbiosInterpreter::new(bar0, rom, script_off);
         match interp.run() {
             Ok(()) => {
-                eprintln!(
-                    "    script {}: {} ops, {} writes ({} PRI-skipped), {} unknown, {} PRI faults ({} recoveries)",
+                tracing::info!(
                     script_idx,
-                    interp.stats.ops_executed,
-                    interp.stats.writes_applied,
-                    interp.stats.writes_skipped_pri,
-                    interp.stats.unknown_opcodes.len(),
-                    interp.stats.pri_faults,
-                    interp.stats.pri_recoveries,
+                    ops = interp.stats.ops_executed,
+                    writes = interp.stats.writes_applied,
+                    pri_skipped = interp.stats.writes_skipped_pri,
+                    unknown = interp.stats.unknown_opcodes.len(),
+                    pri_faults = interp.stats.pri_faults,
+                    pri_recoveries = interp.stats.pri_recoveries,
+                    "VBIOS init script completed"
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "    script {}: error: {e} ({} PRI faults, {} recoveries)",
-                    script_idx, interp.stats.pri_faults, interp.stats.pri_recoveries,
+                tracing::error!(
+                    script_idx,
+                    error = %e,
+                    pri_faults = interp.stats.pri_faults,
+                    pri_recoveries = interp.stats.pri_recoveries,
+                    "VBIOS init script failed"
                 );
             }
         }
@@ -748,30 +754,64 @@ pub fn interpret_boot_scripts(bar0: &MappedBar, rom: &[u8]) -> Result<Interprete
         }
     }
 
-    eprintln!(
-        "  VBIOS interpreter total: {} scripts, {} ops, {} writes ({} PRI-skipped), {:.1}ms delays, {} unknown",
-        script_idx,
-        combined_stats.ops_executed,
-        combined_stats.writes_applied,
-        combined_stats.writes_skipped_pri,
-        combined_stats.delays_total_us as f64 / 1000.0,
-        combined_stats.unknown_opcodes.len(),
+    tracing::info!(
+        scripts = script_idx,
+        ops = combined_stats.ops_executed,
+        writes = combined_stats.writes_applied,
+        pri_skipped = combined_stats.writes_skipped_pri,
+        delays_ms = combined_stats.delays_total_us as f64 / 1000.0,
+        unknown = combined_stats.unknown_opcodes.len(),
+        "VBIOS interpreter total"
     );
 
     if combined_stats.pri_faults > 0 {
-        eprintln!(
-            "  PRI backpressure: {} faults, {} recoveries, {} faulted domains: {:?}",
-            combined_stats.pri_faults,
-            combined_stats.pri_recoveries,
-            combined_stats.faulted_domains.len(),
-            combined_stats.faulted_domains,
+        tracing::warn!(
+            faults = combined_stats.pri_faults,
+            recoveries = combined_stats.pri_recoveries,
+            faulted_domains = combined_stats.faulted_domains.len(),
+            domains = ?combined_stats.faulted_domains,
+            "PRI backpressure"
         );
     }
 
     if !combined_stats.unknown_opcodes.is_empty() {
         let first_few: Vec<_> = combined_stats.unknown_opcodes.iter().take(10).collect();
-        eprintln!("  Unknown opcodes: {:?}", first_few);
+        tracing::debug!(opcodes = ?first_few, "unknown VBIOS opcodes");
     }
 
     Ok(combined_stats)
+}
+
+#[cfg(test)]
+mod ram_restrict_tests {
+    use super::ram_restrict_group_count;
+    use crate::vfio::channel::devinit::vbios::BitTable;
+
+    fn rom_with_bit_m(m_data_off: usize, count: u8) -> Vec<u8> {
+        let bit_off = 0x100;
+        let mut rom = vec![0u8; m_data_off + 16];
+        rom[bit_off..bit_off + 5].copy_from_slice(&[0xFF, 0xB8, b'B', b'I', b'T']);
+        rom[bit_off + 9] = 6;
+        rom[bit_off + 10] = 1;
+        let e0 = bit_off + 12;
+        rom[e0] = b'M';
+        rom[e0 + 1] = 1;
+        rom[e0 + 2..e0 + 4].copy_from_slice(&0x10u16.to_le_bytes());
+        rom[e0 + 4..e0 + 6].copy_from_slice(&(m_data_off as u16).to_le_bytes());
+        rom[m_data_off + 2] = count;
+        rom
+    }
+
+    #[test]
+    fn ram_restrict_default_without_m() {
+        let rom = vec![0u8; 4096];
+        assert_eq!(ram_restrict_group_count(&rom), 4);
+    }
+
+    #[test]
+    fn ram_restrict_from_bit_m_table() {
+        let rom = rom_with_bit_m(0x400, 8);
+        assert!(BitTable::parse(&rom).is_ok());
+        assert_eq!(ram_restrict_group_count(&rom), 8);
+    }
 }

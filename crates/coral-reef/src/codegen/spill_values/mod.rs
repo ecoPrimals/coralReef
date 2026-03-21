@@ -97,7 +97,7 @@ impl Function {
         self.opt_dce();
 
         if DEBUG.print() {
-            eprintln!("IR after spilling {file}:\n{self}");
+            tracing::debug!("IR after spilling {file}:\n{self}");
         }
         Ok(())
     }

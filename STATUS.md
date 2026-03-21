@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 21, 2026  
-**Phase**: 10 — Iteration 60 (Deep Audit Execution + Code Quality Evolution)
+**Phase**: 10 — Iteration 61 (DI Architecture + Coverage Evolution)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60) |
-| Tests | A+ | 3062+ passing, 0 failed, 65.8% line coverage (79.6% non-hardware), tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 3306+ passing, 0 failed, 67.6% line coverage (82%+ non-hardware, 6 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -40,7 +40,22 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 60** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 61** |
+
+### Iteration 61: DI Architecture + Coverage Evolution (Mar 21 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| coral-ember lib/binary split | ✅ | Monolithic binary → `lib.rs` + thin `main.rs`; library exports config parsing, IPC dispatch, swap logic, vendor lifecycle. `coral_ember::run()` entry point |
+| coral-glowplug `SysfsOps` trait | ✅ | `SysfsOps` trait with `RealSysfs` (production) + `MockSysfs` (tests). `DeviceSlot<S: SysfsOps = RealSysfs>` generic. Activate/swap/health/release testable without hardware |
+| coral-gpu `GpuContext::from_parts` | ✅ | Assembles context from pre-built target + device + options, bypasses DRM/VFIO probing. `compile_wgsl_cached` session cache. `compile_options()` read accessor |
+| coral-driver parsing extraction | ✅ | Pure parsing extracted from I/O: GSP firmware bytes, PCI BDF/class/resource/speed/width, VBIOS validation, devinit script scanning, PRAMIN window layout |
+| Stale primal name cleanup | ✅ | Songbird/BearDog → "delegated TLS"/"ecosystem crypto"; hotSpring/groundSpring → "ecosystem experiment"/"numerical validation" in doc comments |
+| Deadlock test verified | ✅ | `shutdown_join_timeout_with_test_override` passes without `--skip` flag (deadlock fix from Iter 60 confirmed solid) |
+| Coverage: 65.8% → 67.6% line | ✅ | +244 tests (3062 → 3306 passing, 0 failed, 108 ignored hardware-gated) |
+| Per-crate coverage | ✅ | coralreef-core 95.9%, primal-rpc-client 98.4%, coral-reef-stubs 95.2%, coral-reef-bitview 91.3%, coral-reef-isa 100%, amd-isa-gen 91.3%, nak-ir-proc 88.6%, coral-reef 78.6%, coral-gpu 65.8%, coral-ember 65.2%, coral-glowplug 62.3%, coral-driver 29.9% |
+| Root docs updated | ✅ | README, CHANGELOG, STATUS refreshed with current metrics and iteration |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (3306+ pass, 0 fail), `doc` ✅, all files <1000 LOC |
 
 ### Iteration 60: Deep Audit Execution + Code Quality Evolution (Mar 21 2026)
 
@@ -932,8 +947,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3062+ passing, 0 failed, 102 ignored hardware-gated) |
-| `cargo llvm-cov` | 66.1% region / 65.8% line / 72.9% function (79.6% non-hardware) |
+| `cargo test --workspace` | PASS (3306+ passing, 0 failed, 108 ignored hardware-gated) |
+| `cargo llvm-cov` | 67.6% line (6 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

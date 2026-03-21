@@ -15,6 +15,7 @@ members = [
     "crates/coral-ember",
 ]
 exclude = [
+    "fuzz",
     "showcase",
 ]
 

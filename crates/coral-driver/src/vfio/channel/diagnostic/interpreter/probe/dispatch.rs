@@ -5,7 +5,7 @@ use super::super::layers::*;
 
 /// Layer 6: Dispatch capability — GPFIFO consumption + NOP execution.
 pub fn probe_dispatch(ch: &ChannelConfig) -> Result<DispatchCapability, ProbeFailure> {
-    eprintln!("╠══ L6: Dispatch — GPFIFO consumption + NOP execution ══╣");
+    tracing::info!("L6: Dispatch — GPFIFO consumption + NOP execution");
 
     let mut blockers = Vec::new();
 

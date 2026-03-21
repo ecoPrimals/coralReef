@@ -57,8 +57,11 @@ impl BitTable {
         let entry_count = rom[bit_offset + 10] as usize;
         let entries_start = bit_offset + 12;
 
-        eprintln!(
-            "  BIT found at 0x{bit_offset:04x}: entry_size={entry_size}, count={entry_count}"
+        tracing::debug!(
+            bit_offset = format!("0x{bit_offset:04x}"),
+            entry_size,
+            entry_count,
+            "BIT table located in VBIOS"
         );
 
         if !(6..=16).contains(&entry_size) || entry_count > 64 {
@@ -304,10 +307,10 @@ pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, String> {
         return Err(format!("PROM too small: {} bytes", rom.len()));
     }
 
-    eprintln!(
-        "  PROM: read {} bytes ({} KB) from BAR0+0x300000",
-        rom.len(),
-        rom.len() / 1024
+    tracing::info!(
+        bytes = rom.len(),
+        kb = rom.len() / 1024,
+        "PROM read from BAR0+0x300000"
     );
 
     Ok(rom)
@@ -342,7 +345,7 @@ pub fn read_vbios_file(path: &str) -> Result<Vec<u8>, String> {
     validate_vbios(&data)
 }
 
-fn validate_vbios(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn validate_vbios(data: &[u8]) -> Result<Vec<u8>, String> {
     if data.len() < 512 {
         return Err(format!("ROM too small: {} bytes", data.len()));
     }
@@ -356,4 +359,62 @@ fn validate_vbios(data: &[u8]) -> Result<Vec<u8>, String> {
     }
 
     Ok(data.to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rom_with_bit_at(bit_offset: usize) -> Vec<u8> {
+        let mut rom = vec![0u8; bit_offset + 64];
+        rom[bit_offset..bit_offset + 5].copy_from_slice(&[0xFF, 0xB8, b'B', b'I', b'T']);
+        rom[bit_offset + 9] = 6;
+        rom[bit_offset + 10] = 2;
+        let e0 = bit_offset + 12;
+        rom[e0] = b'I';
+        rom[e0 + 1] = 1;
+        rom[e0 + 2..e0 + 4].copy_from_slice(&0x0400u16.to_le_bytes());
+        rom[e0 + 4..e0 + 6].copy_from_slice(&0x0800u16.to_le_bytes());
+        let e1 = e0 + 6;
+        rom[e1] = b'p';
+        rom[e1 + 1] = 1;
+        rom[e1 + 2..e1 + 4].copy_from_slice(&0u16.to_le_bytes());
+        rom[e1 + 4..e1 + 6].copy_from_slice(&0u16.to_le_bytes());
+        rom
+    }
+
+    #[test]
+    fn validate_vbios_ok() {
+        let mut rom = vec![0u8; 512];
+        rom[0] = 0x55;
+        rom[1] = 0xAA;
+        let out = validate_vbios(&rom).expect("valid");
+        assert_eq!(out.len(), 512);
+    }
+
+    #[test]
+    fn validate_vbios_too_small() {
+        assert!(validate_vbios(&[0u8; 4]).is_err());
+    }
+
+    #[test]
+    fn validate_vbios_bad_sig() {
+        let rom = vec![0u8; 512];
+        assert!(validate_vbios(&rom).is_err());
+    }
+
+    #[test]
+    fn bit_table_parse_finds_entries() {
+        let rom = rom_with_bit_at(0x200);
+        let bit = BitTable::parse(&rom).expect("bit");
+        assert_eq!(bit.entries.len(), 2);
+        assert!(bit.find(b'I').is_some());
+        assert!(bit.find(b'p').is_some());
+    }
+
+    #[test]
+    fn bit_table_parse_missing_sig() {
+        let rom = vec![0u8; 4096];
+        assert!(BitTable::parse(&rom).is_err());
+    }
 }

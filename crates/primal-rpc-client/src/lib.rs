@@ -11,8 +11,8 @@
 //! - **TCP** — Direct JSON-RPC over HTTP/1.1 to a local or remote host.
 //! - **Unix socket** — JSON-RPC over HTTP/1.1 to a local Unix domain socket
 //!   (the standard ecoPrimals primal-to-primal transport).
-//! - **Songbird proxy** — HTTPS via the Tower Atomic pattern: plain HTTP to
-//!   Songbird's local proxy port, which handles TLS 1.3 externally via `BearDog`
+//! - **Delegated TLS** — HTTPS via the Tower Atomic pattern: plain HTTP to
+//!   a local TLS edge proxy, which handles TLS 1.3 externally via ecosystem
 //!   crypto delegation. Zero `ring`, zero `rustls`, zero C.
 //!
 //! # Example
@@ -43,7 +43,7 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// JSON-RPC 2.0 HTTP client.
 ///
-/// Supports TCP, Unix socket, and Songbird proxy transports — all pure Rust.
+/// Supports TCP, Unix socket, and delegated-TLS (local edge proxy) transports — all pure Rust.
 #[derive(Debug, Clone)]
 pub struct RpcClient {
     transport: Transport,
@@ -84,17 +84,17 @@ impl RpcClient {
         }
     }
 
-    /// Create a client that routes HTTPS through a local Songbird proxy.
+    /// Create a client that routes HTTPS through a local edge proxy (delegated TLS).
     ///
-    /// `proxy_addr` is Songbird's local HTTP port. The `target_host` is the
-    /// external hostname Songbird will connect to via TLS 1.3.
+    /// `proxy_addr` is the local HTTP listen address of the TLS edge. `target_host`
+    /// is the upstream hostname the edge uses for the TLS 1.3 connection.
     #[must_use]
-    pub fn songbird_proxy(
+    pub fn delegated_tls_proxy(
         proxy_addr: std::net::SocketAddr,
         target_host: impl Into<String>,
     ) -> Self {
         Self {
-            transport: Transport::SongbirdProxy {
+            transport: Transport::DelegatedTlsProxy {
                 proxy_addr,
                 target_host: target_host.into(),
             },

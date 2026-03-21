@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Compiler precision thresholds and heuristic limits.
 //!
-//! Named constants for compiler precision, inspired by groundSpring's tolerance
-//! pattern. Each constant documents what it controls, its provenance, and the
+//! Named constants for compiler precision, inspired by ecosystem numerical
+//! validation tolerance patterns. Each constant documents what it controls, its provenance, and the
 //! actual numeric value. Using named constants instead of magic numbers makes
 //! precision requirements explicit and self-documenting across the codebase.
 
@@ -15,24 +15,24 @@
 /// DF64 uses Dekker/Knuth pair arithmetic with ~48-bit effective mantissa.
 /// Operations should stay within this many ULPs of the true f64 result.
 ///
-/// Provenance: groundSpring `tol::ANALYTICAL` (≈1e-10), ecosystem df64
-/// reference, hotSpring molecular dynamics requirements.
+/// Provenance: ecosystem numerical validation `tol::ANALYTICAL` (≈1e-10), df64
+/// reference, molecular dynamics primal requirements.
 pub const DF64_ULP_TOLERANCE: u32 = 4;
 
 /// Maximum ULP error for f64 transcendental lowering (exp2, log2, sin, cos).
 ///
 /// Polynomial and Newton-Raphson lowering targets this bound. exp2/log2 ≤2,
-/// sin/cos ≤4 per ecosystem `df64_transcendentals.wgsl` and groundSpring
-/// validation.
+/// sin/cos ≤4 per ecosystem `df64_transcendentals.wgsl` and numerical
+/// validation service.
 ///
-/// Provenance: ecosystem `df64_transcendentals.wgsl`, groundSpring validation.
+/// Provenance: ecosystem `df64_transcendentals.wgsl`, numerical validation service.
 pub const F64_TRANSCENDENTAL_ULP: u32 = 4;
 
 /// Maximum ULP error for f64 sqrt/rcp Newton-Raphson lowering.
 ///
 /// MUFU.RSQ64H/RCP64H seeds + 2-iteration refinement targets ≤1 ULP.
 ///
-/// Provenance: hotSpring DF64 requirements, groundSpring `tol::ANALYTICAL`.
+/// Provenance: ecosystem DF64 requirements, numerical validation `tol::ANALYTICAL`.
 pub const F64_SQRT_RCP_ULP: u32 = 1;
 
 // ---------------------------------------------------------------------------
@@ -42,9 +42,9 @@ pub const F64_SQRT_RCP_ULP: u32 = 1;
 /// Relative error tolerance for f32 power/log/exp polyfill implementations.
 ///
 /// Used when validating or tuning f32 transcendental workarounds (e.g.
-/// `power_f32`, `log_f32_safe`, `exp_f32_safe` in the healthSpring preamble).
+/// `power_f32`, `log_f32_safe`, `exp_f32_safe` in the ecosystem health preamble).
 ///
-/// Provenance: healthSpring f32 transcendental workaround, IEEE 754 f32
+/// Provenance: ecosystem health monitoring f32 transcendental workaround, IEEE 754 f32
 /// precision (~7 decimal digits).
 pub const F32_TRANSCENDENTAL_REL_TOL: f32 = 1e-5;
 
@@ -52,7 +52,7 @@ pub const F32_TRANSCENDENTAL_REL_TOL: f32 = 1e-5;
 ///
 /// Target accuracy for software f32 pow/log/exp when hardware is unreliable.
 ///
-/// Provenance: healthSpring, WGSL precision requirements.
+/// Provenance: ecosystem health monitoring, WGSL precision requirements.
 pub const F32_TRANSCENDENTAL_ULP: u32 = 8;
 
 // ---------------------------------------------------------------------------

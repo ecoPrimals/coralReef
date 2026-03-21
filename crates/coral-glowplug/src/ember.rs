@@ -281,4 +281,46 @@ mod tests {
         // This may or may not return None depending on test environment
         drop(client);
     }
+
+    #[test]
+    fn parse_rpc_response_ok_with_null_result() {
+        let line = br#"{"jsonrpc":"2.0","id":1,"result":null}"#;
+        let v = parse_rpc_response(line).expect("parse");
+        assert!(v.is_null());
+    }
+
+    #[test]
+    fn parse_rpc_response_err_returns_rpc_variant() {
+        let line = br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"fail"}}"#;
+        let err = parse_rpc_response(line).expect_err("rpc error");
+        match err {
+            EmberError::Rpc { code, message } => {
+                assert_eq!(code, -32000);
+                assert_eq!(message, "fail");
+            }
+            other => panic!("expected Rpc, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_rpc_response_invalid_json_returns_parse_error() {
+        let line = b"{ not json";
+        let err = parse_rpc_response(line).expect_err("parse error");
+        assert!(matches!(err, EmberError::Parse(_)));
+    }
+
+    #[test]
+    fn make_rpc_request_includes_method_and_jsonrpc() {
+        let req = make_rpc_request("ember.list", serde_json::json!({}));
+        assert!(req.contains("ember.list"));
+        assert!(req.contains("\"jsonrpc\":\"2.0\""));
+        assert!(req.contains("\"id\":"));
+    }
+
+    #[test]
+    fn next_request_id_increments() {
+        let a = next_request_id();
+        let b = next_request_id();
+        assert_eq!(b, a + 1);
+    }
 }

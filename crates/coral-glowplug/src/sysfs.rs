@@ -71,44 +71,11 @@ pub fn read_current_driver(bdf: &str) -> Option<String> {
 ///
 /// VFIO requires group viability: every device in the group must use `vfio-pci`.
 pub fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
-    let group_path = format!("/sys/kernel/iommu_groups/{group_id}/devices");
-    let Ok(entries) = std::fs::read_dir(&group_path) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let peer_bdf = entry.file_name().to_string_lossy().to_string();
-        if peer_bdf == primary_bdf {
-            continue;
-        }
-
-        let driver = read_current_driver(&peer_bdf);
-        if driver.as_deref() == Some("vfio-pci") {
-            continue;
-        }
-
-        tracing::info!(
-            peer = %peer_bdf,
-            driver = driver.as_deref().unwrap_or("none"),
-            group = group_id,
-            "binding IOMMU group peer to vfio-pci"
-        );
-
-        if driver.is_some() {
-            let _ = sysfs_write(
-                &format!("/sys/bus/pci/devices/{peer_bdf}/driver/unbind"),
-                &peer_bdf,
-            );
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-
-        let _ = sysfs_write(
-            &format!("/sys/bus/pci/devices/{peer_bdf}/driver_override"),
-            "vfio-pci",
-        );
-        let _ = sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    }
+    crate::sysfs_ops::bind_iommu_group_to_vfio_with(
+        &crate::sysfs_ops::RealSysfs,
+        primary_bdf,
+        group_id,
+    );
 }
 
 /// Check whether a DRM device has active consumer fds (open file handles).
@@ -188,15 +155,21 @@ pub fn find_drm_card(bdf: &str) -> Option<String> {
     None
 }
 
-/// Read a PCI power state from sysfs.
-pub fn read_power_state(bdf: &str) -> super::device::PowerState {
+fn power_state_from_sysfs_line(trimmed: &str) -> super::device::PowerState {
     use super::device::PowerState;
-    let path = format!("/sys/bus/pci/devices/{bdf}/power_state");
-    std::fs::read_to_string(&path).map_or(PowerState::Unknown, |s| match s.trim() {
+    match trimmed {
         "D0" => PowerState::D0,
         "D3hot" => PowerState::D3Hot,
         "D3cold" => PowerState::D3Cold,
         _ => PowerState::Unknown,
+    }
+}
+
+/// Read a PCI power state from sysfs.
+pub fn read_power_state(bdf: &str) -> super::device::PowerState {
+    let path = format!("/sys/bus/pci/devices/{bdf}/power_state");
+    std::fs::read_to_string(&path).map_or(super::device::PowerState::Unknown, |s| {
+        power_state_from_sysfs_line(s.trim())
     })
 }
 
@@ -269,5 +242,42 @@ mod tests {
     #[test]
     fn test_read_link_width_nonexistent() {
         assert!(read_link_width("9999:99:99.9").is_none());
+    }
+
+    #[test]
+    fn sysfs_write_temp_file_roundtrip() {
+        let path =
+            std::env::temp_dir().join(format!("glowplug_sysfs_write_{}.txt", std::process::id()));
+        let path_str = path.to_str().expect("utf8 path");
+        let result = sysfs_write(path_str, "bind\n");
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn identify_chip_radeon_vii() {
+        assert_eq!(
+            identify_chip(0x1002, crate::pci_ids::RADEON_VII_DEVICE_ID),
+            "Vega 20 (Radeon VII)"
+        );
+    }
+
+    #[test]
+    fn power_state_from_sysfs_line_maps_known_states() {
+        use crate::device::PowerState;
+        assert_eq!(super::power_state_from_sysfs_line("D0"), PowerState::D0);
+        assert_eq!(
+            super::power_state_from_sysfs_line("D3hot"),
+            PowerState::D3Hot
+        );
+        assert_eq!(
+            super::power_state_from_sysfs_line("D3cold"),
+            PowerState::D3Cold
+        );
+        assert_eq!(
+            super::power_state_from_sysfs_line("Dx"),
+            PowerState::Unknown
+        );
+        assert_eq!(super::power_state_from_sysfs_line(""), PowerState::Unknown);
     }
 }

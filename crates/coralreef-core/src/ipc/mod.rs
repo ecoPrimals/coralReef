@@ -36,6 +36,16 @@ pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
 #[cfg(unix)]
 mod unix_jsonrpc;
+/// JSON-RPC method dispatch — same routing as the Unix newline-delimited server.
+///
+/// Exposed for integration tests and coverage-guided fuzzing when the `e2e`
+/// feature is enabled. Unix-only (matches the transport that uses this helper).
+#[cfg(all(unix, feature = "e2e"))]
+#[allow(
+    unused_imports,
+    reason = "re-exported for fuzzing and integration tests, not the coralreef binary"
+)]
+pub use unix_jsonrpc::dispatch;
 #[cfg(unix)]
 #[allow(
     unused_imports,

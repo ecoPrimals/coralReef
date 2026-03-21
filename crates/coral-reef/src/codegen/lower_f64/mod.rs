@@ -11,12 +11,12 @@
 //! we expand to Newton-Raphson sequences using MUFU.RSQ64H/RCP64H seeds + DFMA.
 //! For exp2, log2, sin, cos we use polynomial approximation.
 //!
-//! ## Cross-spring provenance
+//! ## Cross-service provenance
 //!
 //! Algorithms and ULP targets derive from:
-//! - **hotSpring**: DF64 precision requirements for Yukawa force / molecular dynamics
+//! - **Numerical physics stack**: DF64 precision requirements for Yukawa force / molecular dynamics
 //! - Ecosystem reference: `math_f64.wgsl`, `df64_transcendentals.wgsl` coefficients
-//! - **groundSpring**: 13-tier tolerance architecture (`tol::ANALYTICAL` ≈ 1e-10 for
+//! - **Numerical validation service**: tiered tolerance architecture (`tol::ANALYTICAL` ≈ 1e-10 for
 //!   single-transcendental paths), validation pipeline (34 binaries, 395 checks)
 //! - **F64_LOWERING_THEORY.md**: MUFU seed + Newton-Raphson + Horner + Cody-Waite theory
 

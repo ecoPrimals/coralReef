@@ -137,16 +137,10 @@ fn read_ioctl_output<T: bytemuck::Pod, R: bytemuck::Pod>(arg: &T) -> R {
 
 /// Perform a named DRM ioctl on a `#[repr(C)]` struct.
 ///
-/// Encapsulates the single unsafe ioctl syscall. All AMD ioctl functions
-/// route through here, keeping `unsafe` confined to one call site.
+/// Encapsulates `drm_ioctl_named`. All AMD ioctl functions route through here.
 fn amd_ioctl<T>(fd: RawFd, request: u64, arg: &mut T, name: &'static str) -> DriverResult<()> {
-    // SAFETY:
-    // 1. Validity:   all callers pass #[repr(C)] kernel ABI structs (verified
-    //                by layout tests in this module)
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; arg outlives the call
-    // 4. Exclusivity: &mut arg — sole reference
-    unsafe { crate::drm::drm_ioctl_named(fd, request, arg, name) }
+    // ioctl contract: `request`/`name` match `T` (see `drm_ioctl_named`).
+    crate::drm::drm_ioctl_named(fd, request, arg, name)
 }
 
 /// Perform a DRM ioctl and read a scalar output from the union overlay.

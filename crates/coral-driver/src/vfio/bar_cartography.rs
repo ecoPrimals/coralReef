@@ -10,6 +10,7 @@
 //! optionally labels regions using a vendor-specific domain map.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as FmtWrite;
 
 use crate::vfio::device::MappedBar;
 
@@ -331,20 +332,27 @@ impl BarMap {
         } else {
             0.0
         };
-        eprintln!(
+        let mut s = String::new();
+        writeln!(
+            &mut s,
             "╠══ BAR{} CARTOGRAPHY ═══════════════════════════════════════╣",
             self.bar_index
-        );
-        eprintln!(
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ Scanned: {} KB | Responsive: {} KB ({pct:.1}%) | Dead: {} KB",
             total / 1024,
             self.responsive_bytes / 1024,
             self.error_bytes / 1024,
-        );
-        eprintln!("║ Regions: {}", self.regions.len());
+        )
+        .expect("writing to String is infallible");
+        writeln!(&mut s, "║ Regions: {}", self.regions.len())
+            .expect("writing to String is infallible");
         for region in &self.regions {
             let name = region.name.as_deref().unwrap_or("???");
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║   {name:<16} {:#08x}–{:#08x} ({} regs) alive={} dead={} {:?}",
                 region.start,
                 region.end,
@@ -352,8 +360,10 @@ impl BarMap {
                 region.responsive_count,
                 region.dead_count,
                 region.access,
-            );
+            )
+            .expect("writing to String is infallible");
         }
+        tracing::info!(summary = %s, bar_index = self.bar_index, "BAR cartography");
     }
 
     /// Export as a serializable map for JSON persistence.
@@ -400,29 +410,49 @@ pub struct BarMapDiff {
 impl BarMapDiff {
     /// Print a human-readable summary.
     pub fn print_summary(&self) {
-        eprintln!("╠══ BAR MAP DIFF ════════════════════════════════════════════╣");
-        eprintln!(
+        let mut s = String::new();
+        writeln!(
+            &mut s,
+            "╠══ BAR MAP DIFF ════════════════════════════════════════════╣"
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ Woke up:       {} registers (dead → alive)",
             self.woke_up.len()
-        );
-        eprintln!(
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ Went dead:     {} registers (alive → dead)",
             self.went_dead.len()
-        );
-        eprintln!("║ Value changed: {} registers", self.value_changed.len());
-        eprintln!("║ Unchanged:     {} registers", self.unchanged);
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
+            "║ Value changed: {} registers",
+            self.value_changed.len()
+        )
+        .expect("writing to String is infallible");
+        writeln!(&mut s, "║ Unchanged:     {} registers", self.unchanged)
+            .expect("writing to String is infallible");
         if !self.woke_up.is_empty() {
-            eprintln!("║ ─── Woke up (first 20) ───");
+            writeln!(&mut s, "║ ─── Woke up (first 20) ───")
+                .expect("writing to String is infallible");
             for &(off, val) in self.woke_up.iter().take(20) {
-                eprintln!("║   [{off:#08x}] → {val:#010x}");
+                writeln!(&mut s, "║   [{off:#08x}] → {val:#010x}")
+                    .expect("writing to String is infallible");
             }
         }
         if !self.value_changed.is_empty() {
-            eprintln!("║ ─── Changed (first 20) ───");
+            writeln!(&mut s, "║ ─── Changed (first 20) ───")
+                .expect("writing to String is infallible");
             for &(off, before, after) in self.value_changed.iter().take(20) {
-                eprintln!("║   [{off:#08x}] {before:#010x} → {after:#010x}");
+                writeln!(&mut s, "║   [{off:#08x}] {before:#010x} → {after:#010x}")
+                    .expect("writing to String is infallible");
             }
         }
+        tracing::info!(summary = %s, "BAR map diff");
     }
 
     /// Export as JSON.

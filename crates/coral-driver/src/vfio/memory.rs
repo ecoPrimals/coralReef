@@ -12,6 +12,7 @@
 //! - [`MmioRegion`] — BAR0 register space (volatile MMIO)
 
 use std::fmt;
+use std::fmt::Write as FmtWrite;
 use std::time::Instant;
 
 use super::device::MappedBar;
@@ -247,6 +248,30 @@ const PRAMIN_BASE: usize = 0x0070_0000;
 const BAR0_WINDOW: usize = 0x0000_1700;
 const PRAMIN_WINDOW_SIZE: usize = 0x1_0000; // 64KB
 
+/// Compute 64KB PRAMIN window base and offset for a VRAM range (pure, no MMIO).
+///
+/// Returns `(window_aligned_base, offset_within_window)` or an error if the
+/// region crosses a 64KB boundary.
+#[must_use = "PRAMIN window placement must be checked before MMIO access"]
+pub(crate) fn pramin_window_layout(
+    vram_base: u32,
+    size: usize,
+) -> Result<(u32, usize), MemoryError> {
+    let window_base = vram_base & !0xFFFF;
+    let offset_in_window = (vram_base & 0xFFFF) as usize;
+
+    if offset_in_window + size > PRAMIN_WINDOW_SIZE {
+        return Err(MemoryError::NotAccessible {
+            reason: format!(
+                "PRAMIN region {vram_base:#x}+{size:#x} spans window boundary \
+                 (window={window_base:#x}, offset={offset_in_window:#x})"
+            ),
+        });
+    }
+
+    Ok((window_base, offset_in_window))
+}
+
 impl<'a> PraminRegion<'a> {
     /// Create a PRAMIN region for the given VRAM address range.
     ///
@@ -257,17 +282,7 @@ impl<'a> PraminRegion<'a> {
     ///
     /// Returns error if the requested region spans more than one 64KB window.
     pub fn new(bar0: &'a MappedBar, vram_base: u32, size: usize) -> Result<Self, MemoryError> {
-        let window_base = vram_base & !0xFFFF;
-        let offset_in_window = (vram_base & 0xFFFF) as usize;
-
-        if offset_in_window + size > PRAMIN_WINDOW_SIZE {
-            return Err(MemoryError::NotAccessible {
-                reason: format!(
-                    "PRAMIN region {vram_base:#x}+{size:#x} spans window boundary \
-                     (window={window_base:#x}, offset={offset_in_window:#x})"
-                ),
-            });
-        }
+        let (window_base, offset_in_window) = pramin_window_layout(vram_base, size)?;
 
         let saved_window = bar0.read_u32(BAR0_WINDOW).unwrap_or(0);
         let _ = bar0.write_u32(BAR0_WINDOW, window_base >> 16);
@@ -516,17 +531,26 @@ impl MemoryTopology {
             || !self.working_paths(PathMethod::DmaNonCoherent).is_empty()
     }
 
-    /// Print a human-readable summary to stderr.
+    /// Emit a human-readable memory topology summary via `tracing`.
     pub fn print_summary(&self) {
-        eprintln!("╠══ Memory Topology ═══════════════════════════════╣");
-        eprintln!(
+        let mut s = String::new();
+        writeln!(
+            &mut s,
+            "╠══ Memory Topology ═══════════════════════════════╣"
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ VRAM: accessible={} probed_size={:#x}",
             self.vram_accessible, self.vram_size_probed
-        );
-        eprintln!(
+        )
+        .expect("writing to String is infallible");
+        writeln!(
+            &mut s,
             "║ SysMem: dma_ok={}  BAR2: configured={}",
             self.sysmem_dma_ok, self.bar2_configured
-        );
+        )
+        .expect("writing to String is infallible");
         for path in &self.paths {
             let status_str = match &path.status {
                 PathStatus::Working { latency_us } => format!("OK ({latency_us}us)"),
@@ -536,11 +560,14 @@ impl MemoryTopology {
                 PathStatus::ErrorPattern { pattern } => format!("ERROR ({pattern:#010x})"),
                 PathStatus::Untested => "UNTESTED".to_string(),
             };
-            eprintln!(
+            writeln!(
+                &mut s,
                 "║   {} → {} via {}: {}",
                 path.from, path.to, path.method, status_str
-            );
+            )
+            .expect("writing to String is infallible");
         }
+        tracing::info!(summary = %s, "memory topology");
     }
 }
 
@@ -738,5 +765,110 @@ mod tests {
         assert!(!delta.broke_memory());
         assert_eq!(delta.paths_gained.len(), 1);
         assert_eq!(delta.paths_gained[0].method, PathMethod::Pramin);
+    }
+
+    #[test]
+    fn pramin_window_layout_ok() {
+        let (base, off) = pramin_window_layout(0x12_3456, 0x100).expect("layout");
+        assert_eq!(base, 0x12_0000);
+        assert_eq!(off, 0x3456);
+    }
+
+    #[test]
+    fn pramin_window_layout_spans_boundary_err() {
+        let err = pramin_window_layout(0xFFFF_0000, 0x2_0000).expect_err("expected boundary error");
+        let msg = format!("{err}");
+        assert!(msg.contains("window boundary"), "{msg}");
+    }
+
+    #[test]
+    fn memory_error_not_accessible_display() {
+        let e = MemoryError::NotAccessible {
+            reason: "test".to_string(),
+        };
+        assert!(format!("{e}").contains("not accessible"));
+
+        let io = MemoryError::IoError {
+            detail: "e".to_string(),
+        };
+        assert!(format!("{io}").contains("I/O"));
+    }
+
+    #[test]
+    fn path_status_methods() {
+        assert!(PathStatus::Untested.is_working() == false);
+        assert!(!PathStatus::Untested.is_error_pattern());
+    }
+
+    #[test]
+    fn memory_topology_helpers() {
+        let topo = MemoryTopology {
+            vram_accessible: true,
+            vram_size_probed: 0x1000,
+            sysmem_dma_ok: true,
+            bar2_configured: false,
+            paths: vec![
+                AccessPath {
+                    from: "cpu",
+                    to: Aperture::SystemMemory {
+                        iova: 0x1000,
+                        coherent: true,
+                    },
+                    method: PathMethod::DmaCoherent,
+                    status: PathStatus::Working { latency_us: 1 },
+                    prerequisites: vec![],
+                },
+                AccessPath {
+                    from: "cpu",
+                    to: Aperture::SystemMemory {
+                        iova: 0x2000,
+                        coherent: false,
+                    },
+                    method: PathMethod::DmaNonCoherent,
+                    status: PathStatus::Working { latency_us: 2 },
+                    prerequisites: vec![],
+                },
+            ],
+            evidence: vec![],
+        };
+        assert!(topo.dma_works());
+        assert_eq!(topo.working_paths(PathMethod::DmaCoherent).len(), 1);
+    }
+
+    #[test]
+    fn memory_delta_lost_paths() {
+        let before = MemoryTopology {
+            vram_accessible: true,
+            vram_size_probed: 0,
+            sysmem_dma_ok: false,
+            bar2_configured: false,
+            paths: vec![AccessPath {
+                from: "cpu",
+                to: Aperture::VideoMemory { vram_offset: 0 },
+                method: PathMethod::Pramin,
+                status: PathStatus::Working { latency_us: 1 },
+                prerequisites: vec![],
+            }],
+            evidence: vec![],
+        };
+        let after = MemoryTopology {
+            vram_accessible: false,
+            vram_size_probed: 0,
+            sysmem_dma_ok: false,
+            bar2_configured: false,
+            paths: vec![AccessPath {
+                from: "cpu",
+                to: Aperture::VideoMemory { vram_offset: 0 },
+                method: PathMethod::Pramin,
+                status: PathStatus::ErrorPattern {
+                    pattern: 0xFFFF_FFFF,
+                },
+                prerequisites: vec![],
+            }],
+            evidence: vec![],
+        };
+        let d = MemoryDelta::compute((0, 0), before, after);
+        assert!(d.broke_memory());
+        assert_eq!(d.paths_lost.len(), 1);
     }
 }

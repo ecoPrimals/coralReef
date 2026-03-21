@@ -56,20 +56,18 @@ const fn hex_nibble(b: u8) -> u8 {
 /// from the response struct so we can produce informative errors even when
 /// the ioctl syscall itself succeeds but RM reports failure.
 ///
-/// # Safety
+/// # Correctness
 ///
-/// `fd` must be a valid nvidia control device file descriptor. `params` must
-/// be the correct `#[repr(C)]` struct for `ioctl_nr`.
-pub(super) unsafe fn nv_rm_ioctl<T>(
+/// `fd` must be a valid NVIDIA control device descriptor. `params` must be the
+/// correct `#[repr(C)]` struct for `ioctl_nr` (see [`crate::drm::drm_ioctl_named`]).
+pub(super) fn nv_rm_ioctl<T>(
     fd: i32,
     ioctl_nr: u64,
     params: &mut T,
     name: &'static str,
     extract_status: impl FnOnce(&T) -> u32,
 ) -> DriverResult<()> {
-    // SAFETY: `fd` and `params` satisfy the invariants documented on this function and match
-    // `drm_ioctl_named`'s requirements for the given `ioctl_nr`.
-    let ioctl_result = unsafe { crate::drm::drm_ioctl_named(fd, ioctl_nr, params, name) };
+    let ioctl_result = crate::drm::drm_ioctl_named(fd, ioctl_nr, params, name);
 
     let rm_status = extract_status(params);
 

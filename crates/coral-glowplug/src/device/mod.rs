@@ -19,10 +19,11 @@ pub use types::*;
 use crate::config::DeviceConfig;
 use crate::personality::Personality;
 use crate::sysfs;
+use crate::sysfs_ops::{RealSysfs, SysfsOps};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub struct DeviceSlot {
+pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     pub config: DeviceConfig,
     pub bdf: Arc<str>,
     pub personality: Personality,
@@ -32,12 +33,14 @@ pub struct DeviceSlot {
     pub chip_name: String,
     vfio_holder: Option<types::VfioHolder>,
     register_snapshot: BTreeMap<usize, u32>,
+    sysfs: S,
 }
 
-impl DeviceSlot {
-    pub fn new(config: DeviceConfig) -> Self {
+impl<S: SysfsOps> DeviceSlot<S> {
+    /// Construct a slot with an explicit [`SysfsOps`](crate::sysfs_ops::SysfsOps) backend.
+    pub fn with_sysfs(config: DeviceConfig, ops: S) -> Self {
         let bdf: Arc<str> = Arc::from(config.bdf.as_str());
-        let (vendor_id, device_id) = sysfs::read_pci_ids(&bdf);
+        let (vendor_id, device_id) = ops.read_pci_ids(&bdf);
         let chip_name = sysfs::identify_chip(vendor_id, device_id);
 
         Self {
@@ -58,6 +61,7 @@ impl DeviceSlot {
             chip_name,
             vfio_holder: None,
             register_snapshot: BTreeMap::new(),
+            sysfs: ops,
         }
     }
 
@@ -66,6 +70,16 @@ impl DeviceSlot {
         self.vfio_holder.is_some()
     }
 }
+
+impl DeviceSlot<RealSysfs> {
+    /// Discover the device from sysfs and construct a slot using real `/sys` access.
+    pub fn new(config: DeviceConfig) -> Self {
+        Self::with_sysfs(config, RealSysfs)
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests;
 
 #[cfg(test)]
 mod tests;

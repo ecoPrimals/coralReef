@@ -191,12 +191,75 @@ pub fn extract_boot_script_writes(rom: &[u8]) -> Result<Vec<ScriptRegWrite>, Str
         return Err("No boot scripts in BIT 'I'".into());
     }
 
-    eprintln!(
-        "  Scanning boot scripts at {script_off:#06x} ({script_len} bytes) for register writes..."
+    tracing::debug!(
+        script_off = format!("{script_off:#06x}"),
+        script_len,
+        "scanning boot scripts for register writes"
     );
 
     let writes = scan_init_script_writes(rom, script_off, script_len);
-    eprintln!("  Found {} register writes in boot scripts", writes.len());
+    tracing::debug!(
+        count = writes.len(),
+        "register writes found in boot scripts"
+    );
 
     Ok(writes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_zm_reg_opcode() {
+        let mut rom = vec![0u8; 32];
+        rom[0] = 0x7A;
+        rom[1..5].copy_from_slice(&0x0010_2000u32.to_le_bytes());
+        rom[5..9].copy_from_slice(&0xCAFE_BEEFu32.to_le_bytes());
+        let w = scan_init_script_writes(&rom, 0, rom.len());
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].opcode, 0x7A);
+        assert_eq!(w[0].reg, 0x0010_2000);
+        assert_eq!(w[0].value, 0xCAFE_BEEF);
+        assert!(w[0].mask.is_none());
+    }
+
+    #[test]
+    fn scan_nv_reg_opcode_with_mask() {
+        let mut rom = vec![0u8; 32];
+        rom[0] = 0x6E;
+        rom[1..5].copy_from_slice(&0x0000_1000u32.to_le_bytes());
+        rom[5..9].copy_from_slice(&0x0000_FFFFu32.to_le_bytes());
+        rom[9..13].copy_from_slice(&0x0000_00ABu32.to_le_bytes());
+        let w = scan_init_script_writes(&rom, 0, rom.len());
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].mask, Some(0xFFFF));
+        assert_eq!(w[0].value, 0xAB);
+    }
+
+    #[test]
+    fn scan_zm_reg_sequence() {
+        let mut rom = vec![0u8; 32];
+        rom[0] = 0x58;
+        rom[1..5].copy_from_slice(&0x1000u32.to_le_bytes());
+        rom[5] = 2;
+        rom[6..10].copy_from_slice(&0x1111u32.to_le_bytes());
+        rom[10..14].copy_from_slice(&0x2222u32.to_le_bytes());
+        let w = scan_init_script_writes(&rom, 0, rom.len());
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0].reg, 0x1000);
+        assert_eq!(w[0].value, 0x1111);
+        assert_eq!(w[1].reg, 0x1004);
+        assert_eq!(w[1].value, 0x2222);
+    }
+
+    #[test]
+    fn scan_skips_bar0_addresses_above_limit() {
+        let mut rom = vec![0u8; 16];
+        rom[0] = 0x7A;
+        rom[1..5].copy_from_slice(&0x0200_0000u32.to_le_bytes());
+        rom[5..9].copy_from_slice(&1u32.to_le_bytes());
+        let w = scan_init_script_writes(&rom, 0, rom.len());
+        assert!(w.is_empty());
+    }
 }

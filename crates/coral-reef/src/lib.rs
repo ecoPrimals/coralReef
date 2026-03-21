@@ -76,7 +76,7 @@ const DF64_PREAMBLE: &str = include_str!("df64_preamble.wgsl");
 /// Prepended automatically when source uses Complex64 or c64_ functions.
 const COMPLEX64_PREAMBLE: &str = include_str!("complex_f64_preamble.wgsl");
 
-/// f32 transcendental workaround preamble — healthSpring-inspired polyfills.
+/// f32 transcendental workaround preamble — ecosystem health monitoring polyfills.
 /// Prepended automatically when source uses `power_f32`, `log_f32_safe`, or `exp_f32_safe`.
 const F32_TRANSCENDENTAL_PREAMBLE: &str = include_str!("f32_transcendental_preamble.wgsl");
 

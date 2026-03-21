@@ -35,10 +35,6 @@ pub enum RebindStrategy {
 
     /// Go straight to PCI remove + bus rescan, skipping simple bind entirely.
     /// WARNING: does NOT work for AMD Vega 20 — bridge powers off slot on remove.
-    #[expect(
-        dead_code,
-        reason = "valid rebind strategy for future vendor lifecycle profiles (e.g. Intel Xe FLR)"
-    )]
     PciRescan,
 
     /// PM power cycle (D3hot→D0) then simple bind. The PM cycle reinitializes
@@ -87,8 +83,10 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
 // NVIDIA lifecycle (Volta, Turing, Ampere, Ada)
 // ---------------------------------------------------------------------------
 
+/// NVIDIA GPUs — bus reset treated as safe; conservative power pinning.
 #[derive(Debug)]
 pub struct NvidiaLifecycle {
+    /// PCI device ID from config space.
     #[expect(
         dead_code,
         reason = "reserved for per-chip lifecycle refinement (Volta vs Turing vs Ada)"
@@ -134,8 +132,10 @@ impl VendorLifecycle for NvidiaLifecycle {
 // AMD lifecycle (Vega 20 / GFX906 — MI50, MI60, Radeon VII)
 // ---------------------------------------------------------------------------
 
+/// AMD Vega 20 (GFX906) — reset-sensitive; disables `reset_method` before unbind.
 #[derive(Debug)]
 pub struct AmdVega20Lifecycle {
+    /// PCI device ID from config space.
     #[expect(
         dead_code,
         reason = "reserved for MI50 vs MI60 vs Radeon VII differences"
@@ -232,8 +232,10 @@ impl VendorLifecycle for AmdVega20Lifecycle {
 // Conservative defaults — needs empirical validation.
 // ---------------------------------------------------------------------------
 
+/// AMD RDNA discrete GPUs — conservative reset and PM handling.
 #[derive(Debug)]
 pub struct AmdRdnaLifecycle {
+    /// PCI device ID from config space.
     #[expect(dead_code, reason = "reserved for RDNA1/2/3 differences")]
     pub device_id: u16,
 }
@@ -293,8 +295,10 @@ impl VendorLifecycle for AmdRdnaLifecycle {
 // Stubbed with conservative FLR-aware defaults.
 // ---------------------------------------------------------------------------
 
+/// Intel discrete Xe / Arc — FLR-oriented defaults (stubbed).
 #[derive(Debug)]
 pub struct IntelXeLifecycle {
+    /// PCI device ID from config space.
     #[expect(dead_code, reason = "reserved for Arc vs Battlemage differences")]
     pub device_id: u16,
 }
@@ -335,8 +339,10 @@ impl VendorLifecycle for IntelXeLifecycle {
 // Simple PCIe accelerator — no GPU, no DRM, no SMU complexity.
 // ---------------------------------------------------------------------------
 
+/// BrainChip Akida NPU — simple PCIe accelerator profile.
 #[derive(Debug)]
 pub struct BrainChipLifecycle {
+    /// PCI device ID from config space.
     #[expect(dead_code, reason = "reserved for AKD1000 vs future Akida variants")]
     pub device_id: u16,
 }
@@ -376,9 +382,12 @@ impl VendorLifecycle for BrainChipLifecycle {
 // Generic / unknown vendor
 // ---------------------------------------------------------------------------
 
+/// Fallback lifecycle for unknown PCI vendor IDs.
 #[derive(Debug)]
 pub struct GenericLifecycle {
+    /// PCI vendor ID from config space.
     pub vendor_id: u16,
+    /// PCI device ID from config space.
     #[expect(dead_code, reason = "reserved for future vendor-specific refinement")]
     pub device_id: u16,
 }
@@ -611,5 +620,82 @@ mod tests {
         let a = RebindStrategy::SimpleBind;
         let b = a;
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn detect_lifecycle_unknown_vendor_is_generic() {
+        let lc = detect_lifecycle("9999:99:99.9");
+        assert!(lc.description().contains("Unknown"));
+    }
+
+    #[test]
+    fn generic_prepare_vfio_pci_clears_reset_method_path_best_effort() {
+        let lc = GenericLifecycle {
+            vendor_id: 0xdead,
+            device_id: 0xbeef,
+        };
+        lc.prepare_for_unbind("9999:99:99.9", "vfio-pci").unwrap();
+    }
+
+    #[test]
+    fn generic_prepare_non_vfio_skips_reset_override() {
+        let lc = GenericLifecycle {
+            vendor_id: 0xdead,
+            device_id: 0xbeef,
+        };
+        lc.prepare_for_unbind("9999:99:99.9", "amdgpu").unwrap();
+    }
+
+    #[test]
+    fn nvidia_verify_health_ok_when_sysfs_missing_or_not_d3cold() {
+        let lc = NvidiaLifecycle { device_id: 0x1d81 };
+        lc.verify_health("9999:99:99.9", "nouveau").unwrap();
+    }
+
+    #[test]
+    fn intel_amd_rdna_brainchip_verify_health_ok_without_d3cold_sysfs() {
+        let intel = IntelXeLifecycle { device_id: 0x56a0 };
+        let rdna = AmdRdnaLifecycle { device_id: 0x73bf };
+        let brain = BrainChipLifecycle { device_id: 1 };
+        intel.verify_health("9999:99:99.9", "xe").unwrap();
+        rdna.verify_health("9999:99:99.9", "amdgpu").unwrap();
+        brain.verify_health("9999:99:99.9", "akida-pcie").unwrap();
+    }
+
+    #[test]
+    fn generic_verify_health_ok_when_power_unknown() {
+        let lc = GenericLifecycle {
+            vendor_id: 0xdead,
+            device_id: 0xbeef,
+        };
+        lc.verify_health("9999:99:99.9", "vfio-pci").unwrap();
+    }
+
+    #[test]
+    fn amd_vega20_stabilize_amdgpu_writes_autosuspend_paths_best_effort() {
+        let lc = AmdVega20Lifecycle { device_id: 0x66af };
+        lc.stabilize_after_bind("9999:99:99.9", "amdgpu");
+    }
+
+    #[test]
+    fn amd_vega20_stabilize_non_amdgpu_skips_autosuspend() {
+        let lc = AmdVega20Lifecycle { device_id: 0x66af };
+        lc.stabilize_after_bind("9999:99:99.9", "vfio-pci");
+    }
+
+    #[test]
+    fn nvidia_settle_secs_branches() {
+        let lc = NvidiaLifecycle { device_id: 1 };
+        assert_eq!(lc.settle_secs("vfio-pci"), 5);
+        assert_eq!(lc.settle_secs("other"), 5);
+    }
+
+    #[test]
+    fn generic_rebind_vfio_alias() {
+        let lc = GenericLifecycle {
+            vendor_id: 1,
+            device_id: 2,
+        };
+        assert_eq!(lc.rebind_strategy("vfio"), RebindStrategy::SimpleBind);
     }
 }

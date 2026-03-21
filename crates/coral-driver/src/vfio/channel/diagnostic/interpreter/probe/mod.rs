@@ -95,14 +95,14 @@ impl<'a> ProbeInterpreter<'a> {
                 }
 
                 let power = if matches!(power.method, PowerMethod::GlowPlug | PowerMethod::Failed) {
-                    eprintln!(
-                        "║ L2.5: Power method {:?} — invoking GlowPlug.full_init()",
-                        power.method
+                    tracing::debug!(
+                        method = ?power.method,
+                        "L2.5: invoking GlowPlug.full_init"
                     );
                     let gp = GlowPlug::new(self.bar0, Arc::clone(&self.container));
                     let warm_result = gp.full_init();
                     for msg in &warm_result.log {
-                        eprintln!("║   GP: {msg}");
+                        tracing::debug!(%msg, "GlowPlug");
                     }
                     if let Some(mem) = &warm_result.memory {
                         mem.print_summary();

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use crate::MockSysfs;
 use crate::config::DeviceConfig;
+use crate::error::DeviceError;
 use crate::personality::Personality;
 use std::sync::Arc;
 
@@ -250,4 +252,206 @@ fn test_active_drm_consumers_error_display() {
     assert!(msg.contains("active DRM consumers"));
     assert!(msg.contains("0000:03:00.0"));
     assert!(msg.contains("crash the kernel"));
+}
+
+#[test]
+fn read_register_returns_none_without_vfio() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let slot = DeviceSlot::new(config);
+    assert!(slot.read_register(0x00_0000).is_none());
+}
+
+#[test]
+fn dump_registers_empty_without_vfio() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let slot = DeviceSlot::new(config);
+    assert!(slot.dump_registers(&[0x00_0000]).is_empty());
+}
+
+#[test]
+fn last_snapshot_empty_until_snapshot() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let slot = DeviceSlot::new(config);
+    assert!(slot.last_snapshot().is_empty());
+}
+
+#[test]
+fn snapshot_registers_no_vfio_is_noop() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut slot = DeviceSlot::new(config);
+    slot.snapshot_registers();
+    assert!(slot.last_snapshot().is_empty());
+}
+
+#[test]
+fn refresh_power_state_does_not_panic() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut slot = DeviceSlot::new(config);
+    slot.refresh_power_state();
+    assert_eq!(slot.health.power, PowerState::Unknown);
+}
+
+#[test]
+fn wait_quiescence_without_vfio_is_trivially_true() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let slot = DeviceSlot::new(config);
+    assert!(slot.wait_quiescence(std::time::Duration::from_millis(1)));
+}
+
+#[test]
+fn check_health_without_vfio_clears_domain_counts() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut slot = DeviceSlot::new(config);
+    slot.check_health();
+    assert!(!slot.health.vram_alive);
+    assert_eq!(slot.health.domains_alive, 0);
+    assert_eq!(slot.health.domains_faulted, 0);
+}
+
+#[test]
+fn resurrect_hbm2_fails_without_ember_for_unknown_vendor() {
+    let config = DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut slot = DeviceSlot::new(config);
+    // sysfs read_pci_ids returns 0,0 for fake BDF — not a known HBM2 vendor
+    let err = slot
+        .resurrect_hbm2()
+        .expect_err("expected driver bind error");
+    assert!(err.to_string().contains("HBM2") || err.to_string().contains("vendor"));
+}
+
+#[test]
+fn mock_refresh_power_state_updates_health_from_sysfs_ops() {
+    let bdf = "0000:01:00.0";
+    let config = DeviceConfig {
+        bdf: bdf.into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.power_state.insert(bdf.to_string(), PowerState::D0);
+    mock.link_width.insert(bdf.to_string(), Some(16));
+    let mut slot = DeviceSlot::with_sysfs(config, mock);
+    slot.refresh_power_state();
+    assert_eq!(slot.health.power, PowerState::D0);
+    assert_eq!(slot.health.pci_link_width, Some(16));
+}
+
+#[test]
+fn mock_check_health_refreshes_power_and_link_from_sysfs_ops() {
+    let bdf = "0000:02:00.0";
+    let config = DeviceConfig {
+        bdf: bdf.into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.power_state.insert(bdf.to_string(), PowerState::D3Hot);
+    mock.link_width.insert(bdf.to_string(), Some(8));
+    let mut slot = DeviceSlot::with_sysfs(config, mock);
+    slot.check_health();
+    assert_eq!(slot.health.power, PowerState::D3Hot);
+    assert_eq!(slot.health.pci_link_width, Some(8));
+}
+
+#[test]
+fn mock_swap_refuses_when_nvidia_driver_reported() {
+    let bdf = "0000:03:00.0";
+    let config = DeviceConfig {
+        bdf: bdf.into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.current_driver
+        .insert(bdf.to_string(), Some("nvidia".into()));
+    let mut slot = DeviceSlot::with_sysfs(config, mock);
+    let err = slot.swap("nouveau").unwrap_err();
+    assert!(matches!(err, DeviceError::DriverBind { .. }));
+}
+
+#[test]
+fn mock_release_errors_when_drm_consumers_reported() {
+    let bdf = "0000:04:00.0";
+    let config = DeviceConfig {
+        bdf: bdf.into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.drm_consumers.insert(bdf.to_string(), true);
+    let mut slot = DeviceSlot::with_sysfs(config, mock);
+    let err = slot.release().unwrap_err();
+    assert!(matches!(err, DeviceError::ActiveDrmConsumers { .. }));
 }

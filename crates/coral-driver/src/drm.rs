@@ -371,12 +371,8 @@ pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
 /// Returns [`DriverError::IoctlFailed`] if the kernel rejects the close.
 pub fn gem_close(fd: RawFd, handle: u32) -> DriverResult<()> {
     let mut args = DrmGemClose { handle, pad: 0 };
-    // SAFETY:
-    // 1. Validity:   DrmGemClose is #[repr(C)] matching kernel drm_gem_close (8 bytes)
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; struct outlives the call
-    // 4. Exclusivity: &mut args — sole reference
-    unsafe { drm_ioctl_named(fd, DRM_IOCTL_GEM_CLOSE, &mut args, "gem_close") }
+    // ioctl contract: DrmGemClose matches `DRM_IOCTL_GEM_CLOSE`.
+    drm_ioctl_named(fd, DRM_IOCTL_GEM_CLOSE, &mut args, "gem_close")
 }
 
 /// Query the DRM driver version. Safe wrapper around `DRM_IOCTL_VERSION`.
@@ -387,12 +383,8 @@ pub(crate) fn drm_version(fd: RawFd) -> DriverResult<(DrmVersion, String)> {
         name: name_buf.as_mut_ptr() as u64,
         ..Default::default()
     };
-    // SAFETY:
-    // 1. Validity:   DrmVersion is #[repr(C)] matching kernel drm_version (64 bytes)
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; ver and name_buf outlive the call
-    // 4. Exclusivity: &mut ver — sole reference
-    unsafe { drm_ioctl_named(fd, DRM_IOCTL_VERSION, &mut ver, "drm_version")? };
+    // ioctl contract: DrmVersion matches `DRM_IOCTL_VERSION`; name_buf tied to ver.name.
+    drm_ioctl_named(fd, DRM_IOCTL_VERSION, &mut ver, "drm_version")?;
     let len = usize::try_from(ver.name_len)
         .unwrap_or(name_buf.len())
         .min(name_buf.len());
@@ -406,10 +398,14 @@ pub(crate) fn drm_version(fd: RawFd) -> DriverResult<(DrmVersion, String)> {
 ///
 /// Uses `rustix::ioctl` for the syscall — no inline asm, cross-platform.
 ///
-/// # Safety
+/// # Correctness
 ///
-/// The caller must ensure `T` is the correct `#[repr(C)]` struct for `request`.
-pub(crate) unsafe fn drm_ioctl_named<T>(
+/// `request` must be the ioctl opcode for `T`, and `T` must be `#[repr(C)]`
+/// matching the kernel ABI. `fd` must be an open DRM/NV device descriptor
+/// appropriate for that ioctl. Incorrect pairing can cause undefined behavior
+/// (including memory corruption from kernel writes). All `coral-driver` call
+/// sites pair opcodes with structs verified against the kernel UAPI.
+pub(crate) fn drm_ioctl_named<T>(
     fd: RawFd,
     request: u64,
     arg: &mut T,
@@ -422,17 +418,12 @@ pub(crate) unsafe fn drm_ioctl_named<T>(
         reason = "Linux ioctl request codes are u32; our u64 constants fit"
     )]
     let opcode = request as rustix::ioctl::Opcode;
+    let ioctl_cmd = DrmIoctlCmd::new(opcode, arg);
     // SAFETY:
-    // 1. Validity:   opcode is a valid DRM ioctl request code (from drm_iowr/drm_iow)
-    // 2. Alignment:  arg is a valid mutable reference (non-null, aligned, initialized)
-    // 3. Lifetime:   synchronous ioctl; arg outlives the call
-    // 4. Exclusivity: &mut arg — caller guarantees sole access
-    let ioctl_cmd = unsafe { DrmIoctlCmd::new(opcode, arg) };
-    // SAFETY:
-    // 1. Validity:   fd is a valid open DRM device file descriptor
-    // 2. Alignment:  ioctl_cmd wraps a properly aligned &mut T
-    // 3. Lifetime:   synchronous ioctl; all data outlives the call
-    // 4. Exclusivity: ioctl_cmd holds sole &mut to the argument struct
+    // 1. Validity:   fd is a valid open DRM device file descriptor (caller).
+    // 2. Alignment:  ioctl_cmd wraps a properly aligned &mut T.
+    // 3. Lifetime:   synchronous ioctl; all data outlives the call.
+    // 4. Exclusivity: ioctl_cmd holds sole &mut to the argument struct.
     unsafe { rustix::ioctl::ioctl(BorrowedFd::borrow_raw(fd), ioctl_cmd) }.map_err(|e| {
         DriverError::IoctlFailed {
             name,
@@ -451,18 +442,14 @@ struct DrmIoctlCmd<'a, T> {
 }
 
 impl<'a, T> DrmIoctlCmd<'a, T> {
-    /// # Safety
-    ///
-    /// `opcode` must be a valid DRM ioctl request code, and `arg` must be the
-    /// correct `#[repr(C)]` struct for that ioctl.
-    const unsafe fn new(opcode: rustix::ioctl::Opcode, arg: &'a mut T) -> Self {
+    #[inline]
+    fn new(opcode: rustix::ioctl::Opcode, arg: &'a mut T) -> Self {
         Self { opcode, arg }
     }
 }
 
-// SAFETY: This trait implementation delegates the ioctl contract to our
-// callers via `drm_ioctl_named`'s safety requirements: T is the correct
-// #[repr(C)] struct for the opcode, the fd is a valid DRM device.
+// SAFETY: `opcode`/`arg` are paired by `drm_ioctl_named` call sites; `as_ptr`
+// exposes `arg` to the kernel per `rustix::ioctl::Ioctl` for DRM ioctls.
 unsafe impl<T> rustix::ioctl::Ioctl for DrmIoctlCmd<'_, T> {
     type Output = ();
     const IS_MUTATING: bool = true;
@@ -479,6 +466,9 @@ unsafe impl<T> rustix::ioctl::Ioctl for DrmIoctlCmd<'_, T> {
         _output: rustix::ioctl::IoctlOutput,
         _ptr: *mut std::ffi::c_void,
     ) -> rustix::io::Result<Self::Output> {
+        // SAFETY: `rustix` invokes this after the kernel ioctl; DRM ioctls that use
+        // `DrmIoctlCmd` mutate `arg` in-place via `as_ptr`, so there is no separate
+        // output extraction. `_ptr` matches the pointer we passed; nothing to read.
         Ok(())
     }
 }

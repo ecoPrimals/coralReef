@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 
 use crate::error::DeviceError;
 use crate::personality::Personality;
-use crate::sysfs;
+use crate::sysfs_ops::SysfsOps;
 
 use super::DeviceSlot;
 use super::types::{
     DEFAULT_REGISTER_DUMP_OFFSETS, PCI_READ_DEAD, QUIESCENCE_POLL_MS, VfioHolder, is_faulted_read,
 };
 
-impl DeviceSlot {
+impl<S: SysfsOps> DeviceSlot<S> {
     /// Read a single BAR0 register via the VFIO holder.
     ///
     /// Returns `None` if no VFIO holder is active or if the offset is
@@ -150,7 +150,7 @@ impl DeviceSlot {
     /// Returns `DeviceError::DriverBind` if ember is not available or a swap
     /// fails. Returns `DeviceError::VfioOpen` if post-swap fd acquisition fails.
     pub fn resurrect_hbm2(&mut self) -> Result<bool, DeviceError> {
-        if crate::sysfs::read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
+        if self.sysfs.read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
             tracing::error!(
                 bdf = %self.bdf,
                 "REFUSING HBM2 resurrection — nvidia is bound to this device. \
@@ -216,7 +216,7 @@ impl DeviceSlot {
             })?;
 
         // Step 3: acquire VFIO fds from ember
-        let group_id = sysfs::read_iommu_group(&self.bdf);
+        let group_id = self.sysfs.read_iommu_group(&self.bdf);
         match client.request_fds(&self.bdf) {
             Ok(fds) => {
                 let device = coral_driver::vfio::VfioDevice::from_received_fds(
@@ -325,7 +325,7 @@ impl DeviceSlot {
     }
 
     pub(crate) fn refresh_power_state(&mut self) {
-        self.health.power = sysfs::read_power_state(&self.bdf);
-        self.health.pci_link_width = sysfs::read_link_width(&self.bdf);
+        self.health.power = self.sysfs.read_power_state(&self.bdf);
+        self.health.pci_link_width = self.sysfs.read_link_width(&self.bdf);
     }
 }

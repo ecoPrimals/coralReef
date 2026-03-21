@@ -54,7 +54,7 @@ const _DRM_NOUVEAU_GEM_CPU_FINI: u32 = DRM_COMMAND_BASE + 0x43;
 
 // New UAPI (kernel 6.6+) — required for Volta+ dispatch on modern kernels.
 // NVK (Mesa 25.1+) uses this path: VM_INIT → GEM_NEW → VM_BIND → EXEC.
-// hotSpring Exp 051 confirmed: legacy CHANNEL_ALLOC → EINVAL on GV100 kernel 6.17.
+// Ecosystem Exp-051 confirmed: legacy CHANNEL_ALLOC → EINVAL on GV100 kernel 6.17.
 // See: /usr/include/drm/nouveau_drm.h (drm_nouveau_vm_init, vm_bind, exec)
 const DRM_NOUVEAU_VM_INIT: u32 = DRM_COMMAND_BASE + 0x10;
 const DRM_NOUVEAU_VM_BIND: u32 = DRM_COMMAND_BASE + 0x11;
@@ -281,12 +281,7 @@ pub fn create_channel_with_subchannels(fd: RawFd, subchans: &[SubchanSpec]) -> D
         DRM_NOUVEAU_CHANNEL_ALLOC,
         size_of_u32::<NouveauChannelAlloc>(),
     );
-    // SAFETY:
-    // 1. Validity:   NouveauChannelAlloc is #[repr(C)] matching kernel drm_nouveau_channel_alloc
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; alloc outlives the call
-    // 4. Exclusivity: &mut alloc — sole reference
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "nouveau_channel_alloc")? };
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "nouveau_channel_alloc")?;
     #[expect(
         clippy::cast_sign_loss,
         reason = "kernel returns non-negative channel id on success"
@@ -343,12 +338,7 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
         DRM_NOUVEAU_CHANNEL_FREE,
         size_of_u32::<NouveauChannelFree>(),
     );
-    // SAFETY:
-    // 1. Validity:   NouveauChannelFree is #[repr(C)] matching kernel struct (4 bytes)
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; free outlives the call
-    // 4. Exclusivity: &mut free — sole reference
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut free, "nouveau_channel_free") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut free, "nouveau_channel_free")
 }
 
 /// Result of a GEM buffer creation.
@@ -390,12 +380,7 @@ pub fn gem_new(fd: RawFd, size: u64, domain: MemoryDomain) -> DriverResult<GemNe
     };
 
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_NEW, size_of_u32::<NouveauGemNew>());
-    // SAFETY:
-    // 1. Validity:   NouveauGemNew is #[repr(C)] matching kernel drm_nouveau_gem_new
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl; req outlives the call
-    // 4. Exclusivity: &mut req — sole reference
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_gem_new")? };
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_gem_new")?;
     Ok(GemNewResult {
         handle: req.info.handle,
         offset: req.info.offset,
@@ -472,13 +457,7 @@ pub fn pushbuf_submit(
     };
 
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_PUSHBUF, size_of_u32::<NouveauGemPushbuf>());
-    // SAFETY:
-    // 1. Validity:   NouveauGemPushbuf is #[repr(C)] matching kernel struct; all pointer
-    //                fields (buffers, push) point to valid stack/heap #[repr(C)] structures
-    // 2. Alignment:  all structures are naturally aligned
-    // 3. Lifetime:   synchronous ioctl; pb, buffers, push all outlive the call
-    // 4. Exclusivity: &mut pb — sole reference to the ioctl struct
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut pb, "nouveau_gem_pushbuf") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut pb, "nouveau_gem_pushbuf")
 }
 
 /// Wait for GPU operations on a GEM buffer to complete.
@@ -495,12 +474,7 @@ pub fn gem_cpu_prep(fd: RawFd, gem_handle: u32) -> DriverResult<()> {
         flags: NOUVEAU_GEM_CPU_PREP_WRITE,
     };
     let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_GEM_CPU_PREP, size_of_u32::<NouveauGemCpuPrep>());
-    // SAFETY:
-    // 1. Validity:   NouveauGemCpuPrep is #[repr(C)] matching kernel struct (8 bytes)
-    // 2. Alignment:  stack-allocated, naturally aligned
-    // 3. Lifetime:   synchronous ioctl (blocks until buffer idle); prep outlives the call
-    // 4. Exclusivity: &mut prep — sole reference
-    unsafe { drm::drm_ioctl_named(fd, ioctl_nr, &mut prep, "nouveau_gem_cpu_prep") }
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut prep, "nouveau_gem_cpu_prep")
 }
 
 /// Map a nouveau GEM buffer into CPU address space with RAII lifetime.

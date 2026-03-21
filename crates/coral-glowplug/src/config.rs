@@ -6,13 +6,29 @@
 //! TOML configuration for the `GlowPlug` daemon.
 
 use serde::Deserialize;
+use std::sync::OnceLock;
 
 /// XDG config subdirectory for coralReef ecosystem.
 const CONFIG_SUBDIR: &str = "coralreef";
 /// Default config filename.
 const CONFIG_FILENAME: &str = "glowplug.toml";
-/// System-wide config path (fallback after XDG).
-pub const FALLBACK_SYSTEM_CONFIG: &str = "/etc/coralreef/glowplug.toml";
+/// System-wide glowplug config path when `$CORALREEF_GLOWPLUG_CONFIG` is unset.
+const DEFAULT_SYSTEM_GLOWPLUG_CONFIG: &str = "/etc/coralreef/glowplug.toml";
+
+/// System-wide glowplug config path (fallback after XDG).
+///
+/// Override with `$CORALREEF_GLOWPLUG_CONFIG`; defaults to `/etc/coralreef/glowplug.toml`.
+#[must_use]
+pub fn system_config_path() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_GLOWPLUG_CONFIG")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_SYSTEM_GLOWPLUG_CONFIG.to_string())
+    })
+    .as_str()
+}
 
 /// Config resolution order: CLI `--config` > `$CORALREEF_CONFIG` > `XDG_CONFIG_HOME` config > system fallback.
 ///
@@ -32,7 +48,7 @@ pub fn config_search_paths() -> Vec<String> {
     });
     vec![
         format!("{xdg_config}/{CONFIG_SUBDIR}/{CONFIG_FILENAME}"),
-        FALLBACK_SYSTEM_CONFIG.into(),
+        system_config_path().to_owned(),
     ]
 }
 
@@ -110,18 +126,20 @@ pub fn default_tcp_fallback() -> String {
     std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
 
-/// Ecosystem namespace per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
+/// Runtime filesystem segment for IPC socket layout per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
+///
+/// This is a protocol-defined path component, not a capability registry or primal lookup key.
 const ECOSYSTEM_NAMESPACE: &str = "biomeos";
 
-/// Family ID for multi-instance isolation (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
+/// Instance isolation id for socket filenames (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
 fn family_id() -> String {
     std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
 }
 
 /// Platform-aware default socket address (ecoBin / wateringHole compliance).
 ///
-/// On Unix: `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
-/// (or `$TMPDIR/biomeos/` if `XDG_RUNTIME_DIR` unset).
+/// On Unix: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/<crate>-<family_id>.sock`
+/// (or `$TMPDIR/{ECOSYSTEM_NAMESPACE}/` if `XDG_RUNTIME_DIR` unset).
 /// On non-Unix: TCP fallback to `127.0.0.1:0` (OS-assigned port).
 #[must_use]
 fn default_socket() -> String {
@@ -486,5 +504,56 @@ boot_personality = "amdgpu"
         assert_eq!(config.device[0].boot_personality, "vfio");
         assert_eq!(config.device[1].bdf, "0000:02:00.0");
         assert_eq!(config.device[1].boot_personality, "amdgpu");
+    }
+
+    #[test]
+    fn auto_discover_returns_daemon_defaults() {
+        let cfg = Config::auto_discover();
+        assert_eq!(cfg.daemon.log_level, "info");
+        assert_eq!(cfg.daemon.health_interval_ms, 5000);
+        assert!(cfg.device.len() <= 256);
+    }
+
+    #[test]
+    fn test_load_daemon_defaults_merge_with_devices() {
+        let path = write_temp_config(
+            r#"
+[daemon]
+socket = "/run/custom/glowplug.sock"
+
+[[device]]
+bdf = "0000:01:00.0"
+name = "GPU A"
+boot_personality = "vfio"
+power_policy = "always_on"
+role = "render"
+
+[[device]]
+bdf = "0000:02:00.0"
+boot_personality = "nouveau"
+power_policy = "power_save"
+oracle_dump = "/tmp/oracle-a.txt"
+
+[[device]]
+bdf = "0000:03:00.0"
+name = "Akida"
+boot_personality = "akida-pcie"
+role = "npu"
+"#,
+            "daemon_merge",
+        );
+        let path_str = path.to_str().expect("path has str");
+        let config = Config::load(path_str).expect("load");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config.daemon.socket, "/run/custom/glowplug.sock");
+        assert_eq!(config.daemon.log_level, "info");
+        assert_eq!(config.device.len(), 3);
+        assert_eq!(config.device[0].name.as_deref(), Some("GPU A"));
+        assert_eq!(
+            config.device[1].oracle_dump.as_deref(),
+            Some("/tmp/oracle-a.txt")
+        );
+        assert_eq!(config.device[2].boot_personality, "akida-pcie");
+        assert_eq!(config.device[2].role.as_deref(), Some("npu"));
     }
 }
