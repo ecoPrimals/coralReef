@@ -19,8 +19,13 @@ pub struct CompiledShader {
 /// Run the full optimization and encoding pipeline on a shader.
 pub fn compile_shader(
     shader: &mut Shader<'_>,
-    _debug: bool,
+    debug: bool,
 ) -> Result<CompiledShader, crate::CompileError> {
+    if debug {
+        eprintln!("=== IR after naga_translate (before opts) ===");
+        eprintln!("{shader}");
+    }
+
     // Optimization passes
     shader.opt_copy_prop();
     shader.opt_dce();
@@ -51,6 +56,11 @@ pub fn compile_shader(
     // f64 transcendental software lowering
     shader.lower_f64_transcendentals();
 
+    if debug {
+        eprintln!("=== IR after opts + f64 lowering (before legalize) ===");
+        eprintln!("{shader}");
+    }
+
     // Legalize for target arch
     shader.legalize()?;
 
@@ -72,6 +82,11 @@ pub fn compile_shader(
 
     // Gather info for header encoding (uses gpr_count from RA)
     shader.gather_info()?;
+
+    if debug {
+        eprintln!("=== IR after RA + post-RA (before encoding) ===");
+        eprintln!("{shader}");
+    }
 
     // Encode to binary
     let code = shader.sm.encode_shader(shader)?;

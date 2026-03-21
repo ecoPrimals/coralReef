@@ -100,6 +100,11 @@ pub fn build_compute_dispatch(
     // SET_SH_REG: COMPUTE_NUM_THREAD_X/Y/Z from compiler workgroup size
     emit_set_sh_reg(&mut pm4, COMPUTE_NUM_THREAD_X, &info.workgroup);
 
+    // Invalidate GPU L1+L2 caches before dispatch so GLOBAL_LOAD sees
+    // CPU-uploaded data. Without this, stale L1/L2 entries can cause
+    // loads to return garbage or hang the wave on GFX9.
+    emit_cache_invalidate(&mut pm4);
+
     // DISPATCH_DIRECT with COMPUTE_SHADER_EN | FORCE_START_AT_000
     emit_dispatch_direct(&mut pm4, dims, info.wave_size);
 
@@ -141,6 +146,25 @@ fn emit_dispatch_direct(pm4: &mut Vec<u32>, dims: DispatchDims, wave_size: u32) 
         initiator |= 1 << 15;
     }
     pm4.push(initiator);
+}
+
+/// Emit a PM4 `ACQUIRE_MEM` packet to invalidate L1 (TCP) and L2 (TCC) caches.
+///
+/// Before compute dispatch, CPU-uploaded data may not be visible to the GPU
+/// because stale entries in L1/L2 shadow the new content. This packet
+/// invalidates both cache levels so GLOBAL_LOAD reads fresh data.
+fn emit_cache_invalidate(pm4: &mut Vec<u32>) {
+    let header = pm4_type3_header(PM4_ACQUIRE_MEM, 6);
+    pm4.push(header);
+    // COHER_CNTL:
+    //   TC_ACTION_ENA (bit 23) — invalidate L2 (TCC)
+    //   TCL1_ACTION_ENA (bit 24) — invalidate L1 (TCP)
+    pm4.push((1 << 23) | (1 << 24));
+    pm4.push(0xFFFF_FFFF); // COHER_SIZE (entire range)
+    pm4.push(0x0000_00FF); // COHER_SIZE_HI
+    pm4.push(0);           // COHER_BASE_LO
+    pm4.push(0);           // COHER_BASE_HI
+    pm4.push(10);          // POLL_INTERVAL
 }
 
 /// Emit a PM4 `ACQUIRE_MEM` packet to flush the GPU L2 cache.

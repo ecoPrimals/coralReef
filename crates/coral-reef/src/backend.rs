@@ -113,7 +113,8 @@ impl Backend for AmdBackend {
     }
 
     fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError> {
-        let compiled = crate::codegen::pipeline::compile_shader(shader, false)?;
+        let debug = std::env::var("CORAL_DEBUG_IR").is_ok();
+        let compiled = crate::codegen::pipeline::compile_shader(shader, debug)?;
 
         let mut binary = Vec::with_capacity(compiled.code.len() * 4);
         for word in &compiled.code {

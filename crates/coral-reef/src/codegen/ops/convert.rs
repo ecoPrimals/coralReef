@@ -9,14 +9,25 @@ use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
 use crate::codegen::ir::*;
 
-// ---- F2F (VOP1: V_MOV_B32 — same-size pass-through for now) ----
+// ---- F2F (float width conversion) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpF2F {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&self.src)?;
-        let mut words =
-            Rdna2Encoder::encode_vop1(isa::vop1::V_MOV_B32, AmdRegRef::vgpr(dst_reg), src_enc.src0);
+
+        let opcode = match (self.src_type, self.dst_type) {
+            (FloatType::F32, FloatType::F64) => isa::vop1::V_CVT_F64_F32,
+            (FloatType::F64, FloatType::F32) => isa::vop1::V_CVT_F32_F64,
+            _ => isa::vop1::V_MOV_B32,
+        };
+
+        let dst_ref = match self.dst_type {
+            FloatType::F64 => AmdRegRef::vgpr_pair(dst_reg),
+            _ => AmdRegRef::vgpr(dst_reg),
+        };
+
+        let mut words = Rdna2Encoder::encode_vop1(opcode, dst_ref, src_enc.src0);
         src_enc.extend_with_literal(&mut words);
         Ok(words)
     }

@@ -7,7 +7,8 @@
 
 use super::{
     AmdOpEncoder, EncodeOp, SrcEncoding, dst_to_vgpr_index, encode_vop2_from_srcs,
-    encode_vop3_from_srcs, encode_vopc_legalized, materialize_if_literal, src_to_encoding,
+    encode_vop3_f64_from_srcs, encode_vop3_from_srcs, encode_vopc_legalized,
+    materialize_if_literal, src_to_encoding,
 };
 use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
@@ -172,7 +173,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpFMnMx {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpDAdd {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        encode_vop3_from_srcs(
+        encode_vop3_f64_from_srcs(
             isa::vop3::V_ADD_F64,
             &self.dst,
             &self.srcs[0],
@@ -187,7 +188,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpDAdd {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpDMul {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        encode_vop3_from_srcs(
+        encode_vop3_f64_from_srcs(
             isa::vop3::V_MUL_F64,
             &self.dst,
             &self.srcs[0],
@@ -202,7 +203,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpDMul {
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpDFma {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        encode_vop3_from_srcs(
+        encode_vop3_f64_from_srcs(
             isa::vop3::V_FMA_F64,
             &self.dst,
             &self.srcs[0],
@@ -223,7 +224,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpDMnMx {
         } else {
             isa::vop3::V_MAX_F64
         };
-        encode_vop3_from_srcs(
+        encode_vop3_f64_from_srcs(
             opcode,
             &self.dst,
             &self.srcs[0],

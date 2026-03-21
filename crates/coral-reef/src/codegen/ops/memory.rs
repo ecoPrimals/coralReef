@@ -28,12 +28,19 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpLd {
         let addr_reg = src_to_vgpr_index(&self.addr)?;
         let flat_opcode = mem_type_to_flat_load(self.access.mem_type)?;
         let offset = e.flat_offset(checked_flat_offset(self.offset)?);
-        Ok(Rdna2Encoder::encode_flat_load(
+        let mut words = Rdna2Encoder::encode_flat_load(
             flat_opcode,
             addr_reg,
             dst_reg,
             offset,
-        ))
+        );
+        // GCN5 has no hardware interlock between VMEM loads and ALU.
+        // Without S_WAITCNT, the destination VGPR is undefined until the
+        // load completes — writing to it from ALU before then is a WAW
+        // hazard that can hang the wave. Insert vmcnt(0) after every load
+        // until the scheduler learns to place waits optimally.
+        words.extend(encoding::encode_s_waitcnt(0, 0, 0));
+        Ok(words)
     }
 }
 

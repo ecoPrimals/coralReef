@@ -76,9 +76,13 @@ impl<'a> AmdOpEncoder<'a> {
         }
     }
 
-    /// GFX9 (GCN5/Vega) does not support FLAT offset; clamp to 0.
-    pub fn flat_offset(&self, offset: i16) -> i16 {
-        if self.gfx_major < 10 { 0 } else { offset }
+    /// FLAT offset handling per GFX generation.
+    ///
+    /// FLAT (SEG=00) on GFX9 does not support offset, but GLOBAL (SEG=10)
+    /// and SCRATCH (SEG=01) do. Since all coral-reef memory ops encode with
+    /// SEG=GLOBAL, the offset is always passed through.
+    pub fn flat_offset(&self, _offset: i16) -> i16 {
+        _offset
     }
 
     /// Remap an RDNA2 VOP2 opcode to the correct hardware opcode for this GFX version.
@@ -327,6 +331,34 @@ pub fn materialize_if_literal(scratch_vgpr: u16, enc: &SrcEncoding) -> (Vec<u32>
     }
 }
 
+/// Materialize a literal as an f64 VGPR pair for 64-bit operations.
+///
+/// When the optimizer collapses an f64 pair `{lo=0, hi=imm}` into a scalar
+/// immediate, the encoder must reconstruct the full pair: lo VGPR = 0,
+/// hi VGPR = the literal. The scratch pair must be adjacent (N, N+1).
+pub fn materialize_f64_if_literal(
+    scratch_pair_base: u16,
+    enc: &SrcEncoding,
+) -> (Vec<u32>, SrcEncoding) {
+    if let Some(literal_val) = enc.literal {
+        let mut prefix = Rdna2Encoder::encode_vop1(
+            isa::vop1::V_MOV_B32,
+            AmdRegRef::vgpr(scratch_pair_base),
+            128, // inline constant 0
+        );
+        let mut mov_hi = Rdna2Encoder::encode_vop1(
+            isa::vop1::V_MOV_B32,
+            AmdRegRef::vgpr(scratch_pair_base + 1),
+            255, // literal follows
+        );
+        mov_hi.push(literal_val);
+        prefix.extend(mov_hi);
+        (prefix, SrcEncoding::inline(256 + scratch_pair_base))
+    } else {
+        (Vec::new(), SrcEncoding::inline(enc.src0))
+    }
+}
+
 pub fn dst_to_vgpr_index(dst: &Dst) -> Result<u16, CompileError> {
     match dst {
         Dst::None => Err(CompileError::InvalidInput("destination is None".into())),
@@ -559,6 +591,30 @@ pub fn encode_vop3_from_srcs(
     src2: &Src,
     enc: &AmdOpEncoder<'_>,
 ) -> Result<Vec<u32>, CompileError> {
+    encode_vop3_from_srcs_inner(opcode, dst, src0, src1, src2, enc, false)
+}
+
+/// VOP3 encoder for f64 operations — materializes literals as VGPR pairs.
+pub fn encode_vop3_f64_from_srcs(
+    opcode: u16,
+    dst: &Dst,
+    src0: &Src,
+    src1: &Src,
+    src2: &Src,
+    enc: &AmdOpEncoder<'_>,
+) -> Result<Vec<u32>, CompileError> {
+    encode_vop3_from_srcs_inner(opcode, dst, src0, src1, src2, enc, true)
+}
+
+fn encode_vop3_from_srcs_inner(
+    opcode: u16,
+    dst: &Dst,
+    src0: &Src,
+    src1: &Src,
+    src2: &Src,
+    enc: &AmdOpEncoder<'_>,
+    f64_mode: bool,
+) -> Result<Vec<u32>, CompileError> {
     let dst_reg = dst_to_vgpr_index(dst)?;
     let src0_enc = src_to_encoding(src0)?;
     let src1_enc = src_to_encoding(src1)?;
@@ -567,28 +623,38 @@ pub fn encode_vop3_from_srcs(
         .iter()
         .filter(|e| e.literal.is_some())
         .count();
-    if literal_count > 2 {
+    if !f64_mode && literal_count > 2 {
         return Err(CompileError::NotImplemented(
             "VOP3: third literal would require additional scratch VGPR".into(),
         ));
     }
+    if f64_mode && literal_count > 1 {
+        return Err(CompileError::NotImplemented(
+            "VOP3 f64: two literals would require 4 scratch VGPRs".into(),
+        ));
+    }
+    let materialize = if f64_mode {
+        materialize_f64_if_literal
+    } else {
+        materialize_if_literal
+    };
     let mut next_scratch = enc.scratch_vgpr_0;
     let (mut prefix0, mat0) = if src0_enc.literal.is_some() {
-        let (p, m) = materialize_if_literal(next_scratch, &src0_enc);
+        let (p, m) = materialize(next_scratch, &src0_enc);
         next_scratch = enc.scratch_vgpr_1;
         (p, m)
     } else {
         (Vec::new(), SrcEncoding::inline(src0_enc.src0))
     };
     let (prefix1, mat1) = if src1_enc.literal.is_some() {
-        let (p, m) = materialize_if_literal(next_scratch, &src1_enc);
+        let (p, m) = materialize(next_scratch, &src1_enc);
         next_scratch = enc.scratch_vgpr_1;
         (p, m)
     } else {
         (Vec::new(), SrcEncoding::inline(src1_enc.src0))
     };
     let (prefix2, mat2) = if src2_enc.literal.is_some() {
-        materialize_if_literal(next_scratch, &src2_enc)
+        materialize(next_scratch, &src2_enc)
     } else {
         (Vec::new(), SrcEncoding::inline(src2_enc.src0))
     };
