@@ -77,12 +77,6 @@ pub trait DstsAsSlice: AsSlice<Dst, Attr = DstType> {
         self.as_mut_slice()
     }
 
-    // Currently only used by test code
-    #[expect(dead_code, reason = "used in test code")]
-    fn dst_types(&self) -> DstTypeList {
-        self.attrs()
-    }
-
     fn dst_idx(&self, dst: &Dst) -> usize {
         let slice = self.dsts_as_slice();
         let base = slice.as_ptr() as usize;

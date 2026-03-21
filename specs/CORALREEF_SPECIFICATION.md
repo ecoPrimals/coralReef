@@ -3,8 +3,8 @@
 # coralReef — Specification
 
 **Version**: 0.6.0
-**Date**: March 18, 2026
-**Status**: Phase 10 — Iteration 57 (Deep Debt Evolution + All-Silicon Pipeline)
+**Date**: March 21, 2026
+**Status**: Phase 10 — Iteration 62 (Deep Audit + Coverage + Hardcoding Evolution)
 
 ---
 
@@ -182,7 +182,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
-| 10 | Security hardening, boot sovereignty, all-silicon pipeline, deep debt evolution | **Iteration 60 — 3062+ tests, 65.8% line coverage (79.6% non-hardware)** |
+| 10 | Security hardening, boot sovereignty, all-silicon pipeline, deep debt evolution | **Iteration 62 — 3460+ tests, 68.7% line coverage** |
 
 ## Evolution Policy
 
@@ -195,5 +195,5 @@ plan, pass definitions, and dependency tracking.
 
 ---
 
-**Date**: March 18, 2026
+**Date**: March 21, 2026
 **Version**: 0.6.0

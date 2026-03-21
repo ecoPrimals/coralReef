@@ -364,6 +364,19 @@ mod tests {
     }
 
     #[test]
+    fn test_bar_prop_no_bmov_is_noop() {
+        let ssa_alloc = SSAValueAllocator::new();
+        let mut shader = make_shader_with_function(vec![Instr::new(OpExit {})], ssa_alloc);
+        let n = shader.functions[0].blocks[0].instrs.len();
+        shader.opt_bar_prop();
+        assert_eq!(
+            shader.functions[0].blocks[0].instrs.len(),
+            n,
+            "pass must not insert instructions without barrier copies"
+        );
+    }
+
+    #[test]
     fn test_bar_prop_multiple_bsync_same_bar() {
         let mut ssa_alloc = SSAValueAllocator::new();
         let bar_ssa = ssa_alloc.alloc(RegFile::Bar);

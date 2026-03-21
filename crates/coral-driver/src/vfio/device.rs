@@ -606,7 +606,7 @@ fn vfio_group_open_device_fd(group: BorrowedFd<'_>, bdf: &CStr) -> Result<OwnedF
 }
 
 fn find_iommu_group(bdf: &str) -> Result<u32, DriverError> {
-    let path = format!("/sys/bus/pci/devices/{bdf}/iommu_group");
+    let path = crate::linux_paths::sysfs_pci_device_file(bdf, "iommu_group");
     let link = std::fs::read_link(&path).map_err(|e| {
         DriverError::DeviceNotFound(Cow::Owned(format!(
             "Cannot read IOMMU group for {bdf}: {e}. \

@@ -87,3 +87,29 @@ fn fma_capability_nvidia_sm89_dfma() {
     let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm89));
     assert!(cap.f64_fma);
 }
+
+#[test]
+fn fma_capability_nvidia_sm86_matches_dfma_model() {
+    let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm86));
+    assert!(cap.f32_fma);
+    assert!(cap.f64_fma);
+    assert_eq!(cap.f32_fma_throughput_ratio, 2.0);
+}
+
+#[test]
+fn fma_capability_all_nvidia_archs_report_dfma() {
+    for &nv in NvArch::ALL {
+        let cap = FmaCapability::for_target(GpuTarget::Nvidia(nv));
+        assert!(cap.f64_fma, "{nv:?} should report DFMA");
+    }
+}
+
+#[test]
+fn fma_capability_amd_rdna3_rdna4_throughput() {
+    let rdna3 = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Rdna3));
+    let rdna4 = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Rdna4));
+    const EPS: f32 = 1e-6;
+    assert!((rdna3.f32_fma_throughput_ratio - 2.0).abs() < EPS);
+    assert!((rdna4.f32_fma_throughput_ratio - 2.0).abs() < EPS);
+    assert!(rdna3.f64_fma && rdna4.f64_fma);
+}

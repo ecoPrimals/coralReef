@@ -24,6 +24,12 @@ use crate::error::EmberError;
 fn default_ember_socket() -> String {
     std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
 }
+
+/// Returns the resolved ember socket path (for integration tests that set `CORALREEF_EMBER_SOCKET`).
+#[doc(hidden)]
+pub fn test_support_default_ember_socket() -> String {
+    default_ember_socket()
+}
 const MAX_RESPONSE_SIZE: usize = 4096;
 
 /// VFIO fds received from the ember for a single device.
@@ -35,20 +41,14 @@ pub struct EmberFds {
 
 #[derive(Deserialize)]
 struct JsonRpcResponse {
-    #[expect(
-        dead_code,
-        reason = "parsed for protocol validation but not used directly"
-    )]
-    jsonrpc: String,
+    #[serde(rename = "jsonrpc")]
+    _jsonrpc: String,
     #[serde(default)]
     result: Option<serde_json::Value>,
     #[serde(default)]
     error: Option<JsonRpcError>,
-    #[expect(
-        dead_code,
-        reason = "parsed for protocol validation but not used directly"
-    )]
-    id: serde_json::Value,
+    #[serde(rename = "id")]
+    _id: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -322,5 +322,25 @@ mod tests {
         let a = next_request_id();
         let b = next_request_id();
         assert_eq!(b, a + 1);
+    }
+
+    #[test]
+    fn parse_rpc_response_ok_when_result_key_omitted() {
+        let line = br#"{"jsonrpc":"2.0","id":1}"#;
+        let v = super::parse_rpc_response(line).expect("parse");
+        assert!(v.is_null());
+    }
+
+    #[test]
+    fn parse_rpc_response_error_with_extra_null_data_field() {
+        let line = br#"{"jsonrpc":"2.0","id":1,"error":{"code":-5,"message":"nope","data":null}}"#;
+        let err = super::parse_rpc_response(line).expect_err("rpc");
+        match err {
+            EmberError::Rpc { code, message } => {
+                assert_eq!(code, -5);
+                assert_eq!(message, "nope");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

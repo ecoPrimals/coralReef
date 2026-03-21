@@ -251,6 +251,40 @@ fn op_ldc_segmented() {
 }
 
 #[test]
+fn op_atom_global_add_and_cmpswap_subops() {
+    let mut e = sm50_encoder();
+    OpAtom {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(2), Src::ZERO, gpr_src(3)],
+        atom_op: AtomOp::Add,
+        atom_type: AtomType::U32,
+        addr_offset: 0x10,
+        addr_stride: OffsetStride::X1,
+        mem_space: MemSpace::Global(MemAddrType::A64),
+        mem_order: MemOrder::Constant,
+        mem_eviction_priority: crate::codegen::ir::MemEvictionPriority::Normal,
+    }
+    .encode(&mut e);
+    assert_eq!(e.get_field(52..56), 0, "global add rmw");
+
+    let mut e = sm50_encoder();
+    OpAtom {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(4), Src::ZERO, gpr_src(5)],
+        atom_op: AtomOp::CmpExch(AtomCmpSrc::Packed),
+        atom_type: AtomType::U32,
+        addr_offset: 0,
+        addr_stride: OffsetStride::X1,
+        mem_space: MemSpace::Global(MemAddrType::A64),
+        mem_order: MemOrder::Constant,
+        mem_eviction_priority: crate::codegen::ir::MemEvictionPriority::Normal,
+    }
+    .encode(&mut e);
+    assert_eq!(e.get_field(49..52), 0, "U32 cmpexch type");
+    assert_eq!(e.get_field(50..52), 0, "packed layout");
+}
+
+#[test]
 fn op_atom_global_paths() {
     let mut e = sm50_encoder();
     OpAtom {
@@ -383,6 +417,36 @@ fn op_al2p_ald_ast_ipa() {
 }
 
 #[test]
+fn op_ldc_linear_mode_and_membar_system() {
+    let mut e = sm50_encoder();
+    OpLdc {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [
+            Src {
+                reference: SrcRef::CBuf(CBufRef {
+                    buf: CBuf::Binding(1),
+                    offset: 0,
+                }),
+                modifier: SrcMod::None,
+                swizzle: SrcSwizzle::None,
+            },
+            gpr_src(2),
+        ],
+        mode: LdcMode::IndexedLinear,
+        mem_type: MemType::B32,
+    }
+    .encode(&mut e);
+    assert_eq!(e.get_field(44..46), 1, "indexed linear");
+
+    let mut e = sm50_encoder();
+    OpMemBar {
+        scope: MemScope::System,
+    }
+    .encode(&mut e);
+    assert_eq!(e.get_field(8..10), 2, "system scope");
+}
+
+#[test]
 fn op_cctl_and_membar() {
     let mut e = sm50_encoder();
     OpCCtl {
@@ -411,6 +475,20 @@ fn op_cctl_and_membar() {
     .encode(&mut e);
     assert_eq!(e.get_field(48..64), 0xef98);
     assert_eq!(e.get_field(8..10), 1);
+}
+
+#[test]
+fn op_cctl_global_a64_and_qry1() {
+    let mut e = sm50_encoder();
+    OpCCtl {
+        mem_space: MemSpace::Global(MemAddrType::A64),
+        op: CCtlOp::Qry1,
+        addr: gpr_src(3),
+        addr_offset: 0x40,
+    }
+    .encode(&mut e);
+    assert_eq!(e.get_field(0..4), 0, "Qry1");
+    assert_eq!(e.get_field(52..53), 1, "A64");
 }
 
 #[test]

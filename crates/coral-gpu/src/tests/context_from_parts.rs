@@ -10,9 +10,11 @@ use super::common::MockDevice;
 
 #[test]
 fn from_parts_runs_compile_and_dispatch_with_mock() {
-    let mut opts = CompileOptions::default();
-    opts.opt_level = 3;
-    opts.fma_policy = FmaPolicy::Separate;
+    let opts = CompileOptions {
+        opt_level: 3,
+        fma_policy: FmaPolicy::Separate,
+        ..CompileOptions::default()
+    };
     let mut ctx = GpuContext::from_parts(
         GpuTarget::Nvidia(NvArch::Sm86),
         Box::new(MockDevice::new()),

@@ -272,6 +272,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
     /// Reads GV100 status registers to detect pending work. Conservative:
     /// returns false if any register indicates possible activity.
     fn check_quiescence(&self) -> bool {
+        #[cfg(test)]
+        if let Some(q) = self.test_quiescence_override {
+            return q;
+        }
         let Some(holder) = &self.vfio_holder else {
             return true;
         };

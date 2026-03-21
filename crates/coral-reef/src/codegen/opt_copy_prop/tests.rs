@@ -5,7 +5,7 @@
 use crate::codegen::ir::LogicOp3;
 use crate::codegen::ir::{
     BasicBlock, ComputeShaderInfo, Dst, FRndMode, Function, Instr, LabelAllocator, Op, OpCopy,
-    OpExit, OpFAdd, OpHAdd2, OpIAdd2, OpIAdd3, OpLop3, OpPLop3, OpParCopy, OpPrmt, OpRegOut,
+    OpExit, OpFAdd, OpHAdd2, OpIAdd2, OpIAdd3, OpLop3, OpPLop3, OpParCopy, OpPrmt, OpRegOut, OpSel,
     PhiAllocator, PrmtMode, RegFile, SSAValueAllocator, Shader, ShaderInfo, ShaderIoInfo,
     ShaderModelInfo, ShaderStageInfo, Src, SrcRef, SrcType,
 };
@@ -875,6 +875,37 @@ fn test_copy_prop_lop3_src2_pass_through() {
     assert!(
         matches!(op.srcs[0].reference, SrcRef::Imm32(0x1234_ABCD)),
         "Lop3 pass-through src2 should propagate to imm"
+    );
+}
+
+#[test]
+fn test_copy_prop_sel_b2i_zero_on_left() {
+    let mut ssa_alloc = SSAValueAllocator::new();
+    let pred = ssa_alloc.alloc(RegFile::Pred);
+    let dst = ssa_alloc.alloc(RegFile::GPR);
+    let mut shader = make_shader_with_function(
+        vec![
+            Instr::new(OpSel {
+                dst: dst.into(),
+                srcs: [pred.into(), Src::ZERO, Src::new_imm_u32(7)],
+            }),
+            Instr::new(OpRegOut {
+                srcs: vec![dst.into()],
+            }),
+            Instr::new(OpExit {}),
+        ],
+        ssa_alloc,
+    );
+
+    shader.opt_copy_prop();
+
+    let sel = &shader.functions[0].blocks[0].instrs[0];
+    let Op::Sel(op) = &sel.op else {
+        panic!("expected Sel");
+    };
+    assert!(
+        op.srcs[1].is_zero() && op.srcs[2].is_nonzero(),
+        "sel pattern for b2i must stay recognizable"
     );
 }
 

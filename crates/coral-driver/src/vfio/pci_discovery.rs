@@ -15,6 +15,8 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
 
+use crate::linux_paths;
+
 // ── PCI Power States ────────────────────────────────────────────────────
 
 /// PCI PM power state (from PCI Power Management spec).
@@ -388,7 +390,7 @@ pub(crate) fn parse_sysfs_power_state(s: &str) -> Option<PciPmState> {
 }
 
 fn read_sysfs_pci_hex_id(bdf: &str, name: &str) -> Option<u16> {
-    let path = format!("/sys/bus/pci/devices/{bdf}/{name}");
+    let path = linux_paths::sysfs_pci_device_file(bdf, name);
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| parse_pci_sysfs_hex_id(&s))
@@ -606,7 +608,7 @@ impl PciDeviceInfo {
     pub fn from_sysfs(bdf: &str) -> Result<Self, String> {
         parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
 
-        let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+        let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
         let config = std::fs::read(&config_path).map_err(|e| format!("read {config_path}: {e}"))?;
 
         if config.len() < 64 {
@@ -645,7 +647,7 @@ impl PciDeviceInfo {
 
         // If vfio-pci truncated config space, populate from sysfs attributes
         if capabilities.is_empty() && has_cap_list {
-            let dev_path = format!("/sys/bus/pci/devices/{bdf}");
+            let dev_path = linux_paths::sysfs_pci_device_path(bdf);
             // PCIe link info from sysfs as evidence of PCIe capability
             if std::path::Path::new(&format!("{dev_path}/current_link_speed")).exists() {
                 capabilities.push(PciCapability {
@@ -669,7 +671,7 @@ impl PciDeviceInfo {
             parse_pci_power_info_from_config(&config, pm_off)
         } else {
             // sysfs fallback: read power_state if config space was truncated
-            let dev_path = format!("/sys/bus/pci/devices/{bdf}");
+            let dev_path = linux_paths::sysfs_pci_device_path(bdf);
             let sysfs_state = std::fs::read_to_string(format!("{dev_path}/power_state"))
                 .ok()
                 .and_then(|s| parse_sysfs_power_state(&s));
@@ -703,7 +705,7 @@ impl PciDeviceInfo {
     }
 
     fn parse_link_sysfs(bdf: &str) -> Option<PcieLinkInfo> {
-        let dev = format!("/sys/bus/pci/devices/{bdf}");
+        let dev = linux_paths::sysfs_pci_device_path(bdf);
         let cur_speed = std::fs::read_to_string(format!("{dev}/current_link_speed")).ok()?;
         let max_speed =
             std::fs::read_to_string(format!("{dev}/max_link_speed")).unwrap_or_default();
@@ -720,7 +722,7 @@ impl PciDeviceInfo {
     }
 
     fn parse_bars_sysfs(bdf: &str) -> Vec<PciBar> {
-        let resource_path = format!("/sys/bus/pci/devices/{bdf}/resource");
+        let resource_path = linux_paths::sysfs_pci_device_file(bdf, "resource");
         let content = match std::fs::read_to_string(&resource_path) {
             Ok(c) => c,
             Err(_) => return Vec::new(),
@@ -802,7 +804,7 @@ impl PciDeviceInfo {
 /// This is vendor-agnostic — works for any PCI device with PM capability.
 pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
-    let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+    let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
     let pm_off = find_pm_capability_offset(&config)?;
@@ -845,7 +847,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
     std::thread::sleep(std::time::Duration::from_millis(20));
 
     // Pin runtime PM to "on" so the kernel doesn't put the device back to D3hot
-    let power_control = format!("/sys/bus/pci/devices/{bdf}/power/control");
+    let power_control = linux_paths::sysfs_pci_device_file(bdf, "power/control");
     if let Err(e) = std::fs::write(&power_control, "on") {
         tracing::warn!(error = %e, path = %power_control, "could not pin power/control=on");
     }
@@ -859,7 +861,7 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
 /// delays: D3hot→D0 requires 10ms, D2→D0 requires 200µs, etc.
 pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, String> {
     parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
-    let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+    let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read PCI config: {e}"))?;
 
     let pm_off = find_pm_capability_offset(&config)?;
@@ -903,7 +905,7 @@ pub fn set_pci_power_state(bdf: &str, target: PciPmState) -> Result<PciPmState, 
 /// bound to any driver. Vendor-agnostic.
 pub fn pci_power_cycle(bdf: &str) -> Result<bool, String> {
     parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
-    let dev_path = format!("/sys/bus/pci/devices/{bdf}");
+    let dev_path = linux_paths::sysfs_pci_device_path(bdf);
 
     let driver_link = format!("{dev_path}/driver");
     if std::fs::read_link(&driver_link).is_ok() {
@@ -917,7 +919,8 @@ pub fn pci_power_cycle(bdf: &str) -> Result<bool, String> {
 
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    std::fs::write("/sys/bus/pci/rescan", "1").map_err(|e| format!("rescan failed: {e}"))?;
+    std::fs::write(linux_paths::sysfs_pci_bus_rescan(), "1")
+        .map_err(|e| format!("rescan failed: {e}"))?;
 
     std::thread::sleep(std::time::Duration::from_secs(3));
 
@@ -940,7 +943,7 @@ pub fn snapshot_config_space(
     end: usize,
 ) -> Result<Vec<(usize, u32)>, String> {
     parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
-    let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+    let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
     let config = std::fs::read(&config_path).map_err(|e| format!("read config: {e}"))?;
 
     let mut regs = Vec::new();

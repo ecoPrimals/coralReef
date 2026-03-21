@@ -157,3 +157,15 @@ fn pragmatic_order_full_list() {
     assert_eq!(pref.order()[1], preference::DRIVER_NVIDIA_DRM);
     assert_eq!(pref.order()[2], preference::DRIVER_NOUVEAU);
 }
+
+#[test]
+fn select_empty_candidates_returns_none() {
+    let pref = DriverPreference::sovereign();
+    assert_eq!(pref.select(&[]), None);
+}
+
+#[test]
+fn select_only_unknown_drivers_returns_none() {
+    let pref = DriverPreference::sovereign();
+    assert_eq!(pref.select(&["i915", "xe", "panfrost"]), None);
+}

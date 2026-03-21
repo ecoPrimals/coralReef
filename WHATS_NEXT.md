@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 21, 2026 (Phase 10 — Iteration 60)
+**Last updated**: March 21, 2026 (Phase 10 — Iteration 62 — 3460+ tests passing, 0 failed, 108 ignored hardware-gated, 68.7% line coverage, 8 crates above 90%)
 
 ---
 
@@ -469,12 +469,12 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 5060 on-site testing (RTX 3090 decommissioned)
-- [ ] Coverage 65.8% → 90% (65.8% line; 79.6% non-hardware — ceiling ~81% without GPU hardware test infrastructure)
+- [ ] Coverage 68.7% → 90% (68.7% line — ceiling ~81% non-hardware without GPU hardware test infrastructure)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-3062+ tests passing, 0 failed, 65.8% line coverage (79.6% non-hardware). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+3460+ tests passing, 0 failed, 108 ignored hardware-gated, 68.7% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.

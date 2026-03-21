@@ -230,6 +230,53 @@ mod tests {
         }
 
         let stats = monitor.into_report();
+        eprintln!("╠══ Raw PFB/MMU Register Dump ════════════════════════════════╣");
+        {
+            let r = |off: usize| raw.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+            eprintln!("║ BOOT0:           {:#010x}", r(0x000));
+            eprintln!("║ PMC_ENABLE:      {:#010x}", r(0x200));
+            eprintln!("║ PFIFO_ENABLE:    {:#010x}", r(0x2200));
+            eprintln!("║ PBDMA_MAP:       {:#010x}", r(0x2004));
+            eprintln!("║ SCHED_DISABLE:   {:#010x}", r(0x2630));
+            eprintln!("║ PFB[0x100000]:   {:#010x}", r(0x100000));
+            eprintln!("║ PFB[0x100004]:   {:#010x}", r(0x100004));
+            eprintln!("║ MMU_CTRL:        {:#010x}", r(0x100C80));
+            eprintln!("║ FAULT_BUF0_LO:   {:#010x}", r(0x100E24));
+            eprintln!("║ FAULT_BUF0_PUT:  {:#010x}", r(0x100E34));
+            eprintln!("║ FAULT_BUF1_LO:   {:#010x}", r(0x100E44));
+            eprintln!("║ BAR1_BLOCK:      {:#010x}", r(0x1704));
+            eprintln!("║ BAR2_BLOCK:      {:#010x}", r(0x1714));
+            eprintln!("║ BIND_STATUS:     {:#010x}", r(0x1710));
+            eprintln!("║ ── PBDMA regs (all engines, 0x040-0x060) ──");
+            for pid in 0..4_usize {
+                let b = 0x40000 + pid * 0x2000;
+                let test = r(b);
+                if test == 0xBAD0_0100 || test == 0xDEAD_DEAD {
+                    continue;
+                }
+                eprintln!(
+                    "║  PBDMA{pid}: @040={:#010x} @044={:#010x} @048={:#010x} @04C={:#010x}",
+                    r(b + 0x40),
+                    r(b + 0x44),
+                    r(b + 0x48),
+                    r(b + 0x4C)
+                );
+                eprintln!(
+                    "║  PBDMA{pid}: @050={:#010x} @054={:#010x} @058={:#010x} @0B0={:#010x}",
+                    r(b + 0x50),
+                    r(b + 0x54),
+                    r(b + 0x58),
+                    r(b + 0xB0)
+                );
+                eprintln!(
+                    "║  PBDMA{pid}: @0D0={:#010x} @0D4={:#010x} @0C0={:#010x} INTR={:#010x}",
+                    r(b + 0xD0),
+                    r(b + 0xD4),
+                    r(b + 0xC0),
+                    r(b + 0x108)
+                );
+            }
+        }
         eprintln!("╠══ Final PRI Statistics ════════════════════════════════════╣");
         eprintln!(
             "║ Reads: {} total, {} faulted",

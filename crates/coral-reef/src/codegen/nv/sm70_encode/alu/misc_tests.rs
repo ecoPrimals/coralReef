@@ -116,7 +116,7 @@ fn op_mov_gpr_and_uniform_umov() {
     let mut e = encoder(73);
     OpMov {
         dst: Dst::Reg(RegRef::new(RegFile::UGPR, 2, 1)),
-        src: Src::new_imm_u32(0xfeedbeef),
+        src: Src::new_imm_u32(0xfeed_beef),
         quad_lanes: 0xf,
     }
     .encode(&mut e);
@@ -126,7 +126,7 @@ fn op_mov_gpr_and_uniform_umov() {
         0x882,
         "umov opcode after form overwrite"
     );
-    assert_eq!(e.get_field(32..64), 0xfeedbeef);
+    assert_eq!(e.get_field(32..64), 0xfeed_beef);
 }
 
 #[test]

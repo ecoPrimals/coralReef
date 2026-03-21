@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 21, 2026  
-**Phase**: 10 — Iteration 61 (DI Architecture + Coverage Evolution)
+**Phase**: 10 — Iteration 62 (Deep Audit + Coverage + Hardcoding Evolution)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60) |
-| Tests | A+ | 3306+ passing, 0 failed, 67.6% line coverage (82%+ non-hardware, 6 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 3460+ passing, 0 failed, 68.7% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -40,7 +40,23 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 61** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 62** |
+
+### Iteration 62: Deep Audit + Coverage Expansion + Hardcoding Evolution (Mar 21 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Comprehensive codebase audit | ✅ | Full review of specs, wateringHole standards (IPC v3, UniBin, ecoBin, genomeBin, semantic naming, sovereignty, AGPL3), debt, mocks, hardcoding, unsafe, patterns |
+| Rustdoc warnings eliminated | ✅ | 4 warnings → 0: MockSysfs link scope, redundant SysfsOps links, private verify_drm_isolation link, health.rs SysfsOps scope |
+| coral-glowplug coverage expansion | ✅ | sysfs_ops 92.2%, health 91.0%, config 93.4%, ember 68.5%, error 99.2%, pci_ids 100%, personality 86.4% — MockSysfs testing, health loop circuit breaker, IPC dispatch, env paths |
+| coral-ember coverage expansion | ✅ | vendor_lifecycle 83.7%, ipc 85.3%, swap 61.3% — all vendor lifecycle arms, IPC success paths, swap unbound, env overrides |
+| coral-gpu coverage expansion | ✅ | fma 100%, hash 100%, kernel 100%, pcie 97.8%, preference 100% — driver env defaults, cache error paths, SPIR-V paths, FMA per-arch |
+| coral-reef codegen coverage | ✅ | SM32 float64: 0%→52%, SM32 misc: 40%→74%, SM50 misc: 40%→70%, SM50 control: 23%→47% — new encoder test suites |
+| Hardcoding evolution | ✅ | `CORALREEF_SYSFS_ROOT` (default `/sys`), `CORALREEF_PROC_ROOT` (default `/proc`), `CORALREEF_NVIDIA_FIRMWARE_ROOT`, `CORALREEF_HOME_FALLBACK` — all sysfs/proc paths now rooted via env-overridable helpers in `coral_driver::linux_paths` |
+| `#[expect]` cleanup | ✅ | Removed dead code, replaced JSON-RPC field suppressions with serde renames, cleaned stale suppressions |
+| Dependency analysis | ✅ | 227 production deps (all pure Rust); `libc` transitive via tokio→mio→signal-hook-registry (tracked mio#1735); `opentelemetry` unconditional in tarpc 0.37 (upstream tracked) |
+| Coverage: 67.6% → 68.7% line | ✅ | +154 tests (3306 → 3460 passing, 0 failed, 108 ignored hardware-gated) |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (3460+ pass, 0 fail), `doc` ✅ (0 warnings), all files <1000 LOC |
 
 ### Iteration 61: DI Architecture + Coverage Evolution (Mar 21 2026)
 
@@ -947,11 +963,12 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3306+ passing, 0 failed, 108 ignored hardware-gated) |
-| `cargo llvm-cov` | 67.6% line (6 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
+| `cargo test --workspace` | PASS (3460+ passing, 0 failed, 108 ignored hardware-gated) |
+| `cargo llvm-cov` | 68.7% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
+| Hardcoded paths | Evolved — all sysfs/proc via `CORALREEF_SYSFS_ROOT` / `CORALREEF_PROC_ROOT` env overrides |
 
 ## Hardware — On-Site
 

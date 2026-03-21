@@ -5,6 +5,7 @@
 )]
 //! TOML configuration for the `GlowPlug` daemon.
 
+use coral_driver::linux_paths;
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -14,6 +15,8 @@ const CONFIG_SUBDIR: &str = "coralreef";
 const CONFIG_FILENAME: &str = "glowplug.toml";
 /// System-wide glowplug config path when `$CORALREEF_GLOWPLUG_CONFIG` is unset.
 const DEFAULT_SYSTEM_GLOWPLUG_CONFIG: &str = "/etc/coralreef/glowplug.toml";
+/// Fallback home directory when `HOME` and `$CORALREEF_HOME_FALLBACK` are unset (container-style).
+const DEFAULT_HOME_FALLBACK: &str = "/root";
 
 /// System-wide glowplug config path (fallback after XDG).
 ///
@@ -30,6 +33,17 @@ pub fn system_config_path() -> &'static str {
     .as_str()
 }
 
+fn home_fallback_dir() -> String {
+    static H: OnceLock<String> = OnceLock::new();
+    H.get_or_init(|| {
+        std::env::var("CORALREEF_HOME_FALLBACK")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_HOME_FALLBACK.to_string())
+    })
+    .clone()
+}
+
 /// Config resolution order: CLI `--config` > `$CORALREEF_CONFIG` > `XDG_CONFIG_HOME` config > system fallback.
 ///
 /// Returns candidate paths in search order. Callers try loading each until one succeeds.
@@ -43,7 +57,7 @@ pub fn config_search_paths() -> Vec<String> {
     let xdg_config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
         format!(
             "{}/.config",
-            std::env::var("HOME").unwrap_or_else(|_| "/root".into()),
+            std::env::var("HOME").unwrap_or_else(|_| home_fallback_dir()),
         )
     });
     vec![
@@ -197,7 +211,7 @@ impl Config {
     pub fn auto_discover() -> Self {
         let mut devices = Vec::new();
 
-        let Ok(entries) = std::fs::read_dir("/sys/bus/pci/devices") else {
+        let Ok(entries) = std::fs::read_dir(linux_paths::sysfs_pci_devices()) else {
             return Self {
                 daemon: DaemonConfig::default(),
                 device: devices,

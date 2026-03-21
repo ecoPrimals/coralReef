@@ -105,7 +105,7 @@ async fn test_tcp_device_list_and_get() {
     let line2 = lines.next_line().await.expect("read").expect("line2");
     let v2: serde_json::Value = serde_json::from_str(&line2).expect("parse");
     assert_eq!(v2["result"]["bdf"], "0000:aa:00.0");
-    assert_eq!(v2["result"]["chip"].as_str().is_some(), true);
+    assert!(v2["result"]["chip"].as_str().is_some());
 
     handle.abort();
 }

@@ -41,6 +41,24 @@ fn activate_rejects_unknown_boot_personality_early() {
 }
 
 #[test]
+fn activate_xe_already_bound_errors_at_final_bind_match() {
+    let bdf = "0000:31:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.current_driver
+        .insert(bdf.to_string(), Some("xe".into()));
+    let mut slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            boot_personality: "xe".into(),
+            ..base_config(bdf, "xe")
+        },
+        mock,
+    );
+    let err = slot.activate().unwrap_err();
+    assert!(matches!(err, DeviceError::UnknownPersonality { .. }));
+}
+
+#[test]
 fn activate_supported_but_non_bindable_personality_errors() {
     let bdf = "0000:11:00.0";
     let mut mock = MockSysfs::default();
@@ -280,4 +298,86 @@ fn activate_from_ember_invalid_fds_does_not_apply_vfio_personality() {
         Personality::Vfio { group_id: 4242 },
         "personality must not update on failed activation"
     );
+}
+
+#[test]
+fn swap_vfio_pci_alias_requires_ember_like_vfio() {
+    let bdf = "0000:25:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.current_driver
+        .insert(bdf.to_string(), Some("vfio-pci".into()));
+    let mut slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    slot.personality = Personality::Vfio { group_id: 2 };
+    let err = slot.swap("vfio-pci").unwrap_err();
+    match err {
+        DeviceError::DriverBind { reason, .. } => assert!(reason.contains("ember"), "{reason}"),
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn reclaim_rejects_non_vfio_personality() {
+    let bdf = "0000:26:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(base_config(bdf, "nouveau"), mock);
+    slot.personality = Personality::Nouveau { drm_card: None };
+    let err = slot.reclaim().unwrap_err();
+    assert!(matches!(err, DeviceError::DriverBind { .. }));
+}
+
+#[test]
+fn reclaim_vfio_without_holder_fails_without_ember() {
+    let bdf = "0000:28:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    slot.personality = Personality::Vfio { group_id: 3 };
+    slot.test_set_vfio_override(Some(false));
+    let err = slot.reclaim().unwrap_err();
+    assert!(
+        matches!(err, DeviceError::VfioOpen { .. }),
+        "expected ember missing / fds error, got {err:?}"
+    );
+}
+
+#[test]
+fn lend_rejects_non_vfio_personality() {
+    let bdf = "0000:29:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(base_config(bdf, "amdgpu"), mock);
+    slot.personality = Personality::Amdgpu { drm_card: None };
+    let err = slot.lend().unwrap_err();
+    assert!(matches!(err, DeviceError::DriverBind { .. }));
+}
+
+#[test]
+fn lend_vfio_personality_without_open_fd_errors() {
+    let bdf = "0000:2b:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    slot.personality = Personality::Vfio { group_id: 11 };
+    let err = slot.lend().unwrap_err();
+    assert!(matches!(err, DeviceError::DriverBind { .. }));
+}
+
+#[test]
+fn activate_intel_xe_supported_but_bind_match_errors_like_xe() {
+    let bdf = "0000:2a:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.current_driver
+        .insert(bdf.to_string(), Some("xe".into()));
+    let mut slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            boot_personality: "xe".into(),
+            ..base_config(bdf, "xe")
+        },
+        mock,
+    );
+    let err = slot.activate().unwrap_err();
+    assert!(matches!(err, DeviceError::UnknownPersonality { .. }));
 }

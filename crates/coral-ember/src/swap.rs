@@ -11,23 +11,19 @@
 use crate::hold::HeldDevice;
 use crate::sysfs;
 use crate::vendor_lifecycle::{self, RebindStrategy};
+use coral_driver::linux_paths;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 /// Default Xorg drop-in path when `CORALREEF_XORG_ISOLATION_CONF` is unset.
 const DEFAULT_XORG_ISOLATION_CONF: &str = "/etc/X11/xorg.conf.d/11-coralreef-gpu-isolation.conf";
 /// Default udev rules path when `CORALREEF_UDEV_ISOLATION_RULES` is unset.
 const DEFAULT_UDEV_ISOLATION_RULES: &str = "/etc/udev/rules.d/61-coralreef-drm-ignore.rules";
 
-fn xorg_isolation_conf_path() -> &'static str {
-    static PATH: OnceLock<String> = OnceLock::new();
-    PATH.get_or_init(|| {
-        std::env::var("CORALREEF_XORG_ISOLATION_CONF")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| DEFAULT_XORG_ISOLATION_CONF.to_string())
-    })
-    .as_str()
+fn xorg_isolation_conf_path() -> String {
+    std::env::var("CORALREEF_XORG_ISOLATION_CONF")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_XORG_ISOLATION_CONF.to_string())
 }
 
 fn udev_isolation_rules_path() -> String {
@@ -38,12 +34,12 @@ fn udev_isolation_rules_path() -> String {
 fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
     verify_drm_isolation_with_paths(
         bdf,
-        xorg_isolation_conf_path(),
+        &xorg_isolation_conf_path(),
         &udev_isolation_rules_path(),
     )
 }
 
-/// Same checks as [`verify_drm_isolation`], but with explicit paths (unit tests and non-default
+/// Same checks as `verify_drm_isolation`, but with explicit paths (unit tests and non-default
 /// config layouts).
 pub fn verify_drm_isolation_with_paths(
     bdf: &str,
@@ -101,7 +97,7 @@ fn count_external_vfio_group_holders(bdf: &str) -> usize {
     let self_pid = std::process::id();
     let mut count = 0;
 
-    let Ok(proc_entries) = std::fs::read_dir("/proc") else {
+    let Ok(proc_entries) = std::fs::read_dir(linux_paths::proc_root()) else {
         return 0;
     };
 
@@ -114,7 +110,7 @@ fn count_external_vfio_group_holders(bdf: &str) -> usize {
             continue;
         }
 
-        let fd_dir = format!("/proc/{pid}/fd");
+        let fd_dir = linux_paths::proc_pid_fd_dir(pid);
         let Ok(fds) = std::fs::read_dir(&fd_dir) else {
             continue;
         };
@@ -188,12 +184,12 @@ pub fn handle_swap_device(
         let dev_fd = device.device.device_fd();
         tracing::info!(bdf, device_fd = dev_fd, "swap_device: dropping VFIO fds");
         drop(device);
-        let fd_path = format!("/proc/self/fd/{dev_fd}");
+        let fd_path = linux_paths::proc_self_fd(dev_fd);
         if std::path::Path::new(&fd_path).exists() {
             tracing::warn!(
                 bdf,
                 fd = dev_fd,
-                "swap_device: fd still in /proc/self/fd after drop!"
+                "swap_device: fd still in proc self fd table after drop!"
             );
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -207,7 +203,10 @@ pub fn handle_swap_device(
     // Step 3: unbind current driver
     if let Some(ref drv) = current {
         tracing::info!(bdf, driver = %drv, "swap_device: unbinding current driver");
-        sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/driver/unbind"), bdf)?;
+        sysfs::sysfs_write(
+            &linux_paths::sysfs_pci_device_file(bdf, "driver/unbind"),
+            bdf,
+        )?;
         std::thread::sleep(std::time::Duration::from_millis(500));
         sysfs::pin_power(bdf);
     }
@@ -231,13 +230,13 @@ fn bind_vfio(
     let group_id = sysfs::read_iommu_group(bdf);
 
     sysfs::sysfs_write(
-        &format!("/sys/bus/pci/devices/{bdf}/driver_override"),
+        &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
         "vfio-pci",
     )?;
 
     sysfs::bind_iommu_group_to_vfio(bdf, group_id);
 
-    let _ = sysfs::sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", bdf);
+    let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), bdf);
     let settle = lifecycle.settle_secs("vfio-pci");
     std::thread::sleep(std::time::Duration::from_secs(settle.min(2)));
 
@@ -273,14 +272,14 @@ fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
     sysfs::pin_bridge_power(bdf);
     sysfs::pin_power(bdf);
 
-    let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
+    let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
     tracing::info!(bdf, "PCI remove + rescan: removing device");
     sysfs::pci_remove(bdf)?;
 
     for i in 0..6 {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        if !std::path::Path::new(&format!("/sys/bus/pci/devices/{bdf}")).exists() {
+        if !std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists() {
             tracing::info!(bdf, seconds = i + 1, "device removed from sysfs");
             break;
         }
@@ -293,12 +292,13 @@ fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
 
     for i in 0..10 {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        if std::path::Path::new(&format!("/sys/bus/pci/devices/{bdf}")).exists() {
+        if std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists() {
             tracing::info!(bdf, seconds = i + 1, "device re-appeared after rescan");
 
             sysfs::pin_power(bdf);
             sysfs::pin_bridge_power(bdf);
-            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
+            let _ =
+                sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
             return Ok(());
         }
     }
@@ -327,16 +327,18 @@ fn bind_native(
         "swap_device: rebind strategy selected"
     );
 
-    sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/driver_override"), "\n")?;
+    sysfs::sysfs_write(
+        &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
+        "\n",
+    )?;
     std::thread::sleep(std::time::Duration::from_millis(200));
 
     match strategy {
         RebindStrategy::SimpleBind => {
-            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/drivers/{target}/bind"), bdf);
+            let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
         }
         RebindStrategy::SimpleWithRescanFallback => {
-            let bind_result =
-                sysfs::sysfs_write(&format!("/sys/bus/pci/drivers/{target}/bind"), bdf);
+            let bind_result = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
 
             if bind_result.is_err() {
                 tracing::warn!(
@@ -360,16 +362,17 @@ fn bind_native(
             match sysfs::pm_power_cycle(bdf) {
                 Ok(()) => {
                     tracing::info!(bdf, "PM cycle OK, attempting bind");
-                    let _ =
-                        sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
+                    let _ = sysfs::sysfs_write(
+                        &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+                        "",
+                    );
                 }
                 Err(e) => {
                     tracing::warn!(bdf, error = %e, "PM power cycle failed, attempting bind anyway");
                 }
             }
 
-            let bind_result =
-                sysfs::sysfs_write(&format!("/sys/bus/pci/drivers/{target}/bind"), bdf);
+            let bind_result = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
 
             if bind_result.is_err() {
                 tracing::warn!(
@@ -539,6 +542,31 @@ mod tests {
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
         let err = handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held).unwrap_err();
         assert!(err.contains("unknown target driver"));
+    }
+
+    #[test]
+    fn xorg_isolation_conf_path_contains_default_marker() {
+        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let p = super::xorg_isolation_conf_path();
+        assert!(
+            p.contains("coralreef-gpu-isolation"),
+            "unexpected xorg path: {p}"
+        );
+    }
+
+    #[test]
+    fn udev_isolation_rules_path_contains_default_marker() {
+        let p = super::udev_isolation_rules_path();
+        assert!(
+            p.contains("coralreef-drm-ignore"),
+            "unexpected udev path: {p}"
+        );
+    }
+
+    #[test]
+    fn count_external_vfio_skips_proc_when_iommu_group_is_zero() {
+        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        assert_eq!(count_external_vfio_group_holders("9999:99:99.9"), 0);
     }
 
     #[test]

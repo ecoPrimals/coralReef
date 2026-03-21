@@ -7,6 +7,7 @@ use crate::GpuContext;
 
 #[cfg(target_os = "linux")]
 mod linux_tests {
+    use crate::GpuContext;
     use crate::driver::{self, sm_to_nvarch};
     use crate::pcie::{PcieDeviceInfo, assign_switch_groups};
     use coral_reef::{AmdArch, GpuTarget, NvArch};
@@ -18,6 +19,31 @@ mod linux_tests {
         assert_eq!(sm_to_nvarch(86), NvArch::Sm86);
         assert_eq!(sm_to_nvarch(89), NvArch::Sm89);
         assert_eq!(sm_to_nvarch(99), NvArch::Sm70, "unknown SM maps to Sm70");
+    }
+
+    #[test]
+    fn sm_to_nvarch_round_trips_nvarch_sm() {
+        for sm in [70_u32, 75, 80, 86, 89] {
+            let arch = sm_to_nvarch(sm);
+            assert_eq!(arch.sm(), sm, "roundtrip for SM {sm}");
+        }
+        assert_eq!(sm_to_nvarch(71).sm(), 70);
+    }
+
+    #[test]
+    fn auto_with_empty_preference_errors_without_matching_driver() {
+        let pref = crate::preference::DriverPreference::from_str_list("");
+        match GpuContext::auto_with_preference(&pref) {
+            Err(crate::GpuError::NoDevice(msg)) => {
+                assert!(
+                    msg.contains("no GPU devices found")
+                        || msg.contains("no preferred driver found"),
+                    "unexpected message: {msg}"
+                );
+            }
+            Ok(_) => panic!("expected error when preference list is empty"),
+            Err(e) => panic!("expected NoDevice, got {e:?}"),
+        }
     }
 
     #[test]

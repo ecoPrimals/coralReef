@@ -165,3 +165,7 @@ impl SM32Op for OpDSetP {
         e.set_float_cmp_op(51..55, self.cmp_op);
     }
 }
+
+#[cfg(test)]
+#[path = "float64_tests.rs"]
+mod tests;

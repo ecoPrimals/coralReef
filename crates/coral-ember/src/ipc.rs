@@ -471,6 +471,40 @@ mod tests {
     }
 
     #[test]
+    fn handle_client_ember_swap_unbound_success() {
+        let _guard = IPC_TEST_LOCK.lock().unwrap();
+        let (server, mut client) = UnixStream::pair().unwrap();
+        let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"9999:99:99.9","target":"unbound"},"id":42}"#;
+        client.write_all(req.as_bytes()).unwrap();
+        client.write_all(b"\n").unwrap();
+        let mut held = HashMap::new();
+        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let v = drain_json_line(&mut client);
+        assert_eq!(v["result"]["personality"], "unbound");
+        assert_eq!(v["id"], serde_json::json!(42));
+    }
+
+    #[test]
+    fn handle_client_non_utf8_request_errors() {
+        let _guard = IPC_TEST_LOCK.lock().unwrap();
+        let (server, mut client) = UnixStream::pair().unwrap();
+        client.write_all(&[0xff, 0xfe, b'\n']).unwrap();
+        let mut held = HashMap::new();
+        let err = handle_client(&server, &mut held, Instant::now()).unwrap_err();
+        assert!(err.contains("utf8"), "{err}");
+    }
+
+    #[test]
+    fn send_with_fds_fails_when_peer_closed() {
+        let (a, b) = UnixStream::pair().unwrap();
+        drop(b);
+        let file = std::fs::File::open("/dev/null").unwrap();
+        let fds = [file.as_fd()];
+        let err = send_with_fds(&a, b"{}", &fds).expect_err("broken pipe");
+        assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
     fn handle_client_ember_swap_reports_error_from_swap() {
         let _guard = IPC_TEST_LOCK.lock().unwrap();
         let (server, mut client) = UnixStream::pair().unwrap();

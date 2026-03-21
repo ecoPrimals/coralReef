@@ -7,9 +7,9 @@ use bitview::BitViewable;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 use crate::codegen::ir::{
-    Dst, Label, LabelAllocator, MatchOp, OpBClear, OpBMov, OpBSSy, OpBSync, OpBar, OpBra, OpBreak,
-    OpExit, OpKill, OpMatch, OpNop, OpPixLd, OpVote, OpWarpSync, PixVal, Pred, PredRef, RegFile,
-    RegRef, Src, SrcMod, SrcSwizzle, VoteOp,
+    Dst, Label, LabelAllocator, MatchOp, MemScope, OpBClear, OpBMov, OpBSSy, OpBSync, OpBar, OpBra,
+    OpBreak, OpExit, OpKill, OpMatch, OpMemBar, OpNop, OpOut, OpOutFinal, OpPixLd, OpVote,
+    OpWarpSync, OutType, PixVal, Pred, PredRef, RegFile, RegRef, Src, SrcMod, SrcSwizzle, VoteOp,
 };
 
 fn gpr_src(idx: u32) -> Src {
@@ -90,9 +90,9 @@ fn op_nop_opcode() {
 fn op_warpsync_mask_encodes_as_alu_src() {
     let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
     let mut e = encoder(70, 0, labels);
-    OpWarpSync { mask: 0xabcddcba }.encode(&mut e);
+    OpWarpSync { mask: 0xabcd_dcba }.encode(&mut e);
     assert_eq!(e.get_field(0..9), 0x148);
-    assert_eq!(e.get_field(32..64), 0xabcddcba);
+    assert_eq!(e.get_field(32..64), 0xabcd_dcba);
 }
 
 #[test]
@@ -317,4 +317,76 @@ fn op_pix_ld_ms_count_encoding() {
     .encode(&mut e);
     assert_eq!(opcode(&e), 0x925);
     assert_eq!(e.get_field(78..81), 0);
+}
+
+#[test]
+fn op_pix_ld_all_encodable_variants() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    for (val, enc) in [
+        (PixVal::MsCount, 0_u64),
+        (PixVal::CovMask, 1),
+        (PixVal::CentroidOffset, 2),
+        (PixVal::MyIndex, 3),
+        (PixVal::InnerCoverage, 4),
+    ] {
+        let mut e = encoder(70, 0, labels);
+        OpPixLd {
+            dst: Dst::Reg(RegRef::new(RegFile::GPR, 2, 1)),
+            val,
+        }
+        .encode(&mut e);
+        assert_eq!(e.get_field(78..81), enc);
+    }
+}
+
+#[test]
+fn op_out_types_and_streams() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    for (out_ty, enc) in [
+        (OutType::Emit, 1_u64),
+        (OutType::Cut, 2),
+        (OutType::EmitThenCut, 3),
+    ] {
+        let mut e = encoder(70, 0, labels);
+        OpOut {
+            dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+            srcs: [gpr_src(4), gpr_src(5)],
+            out_type: out_ty,
+        }
+        .encode(&mut e);
+        assert_eq!(e.get_field(78..80), enc);
+        assert_eq!(e.get_field(0..9), 0x124);
+    }
+
+    let mut e = encoder(70, 0, labels);
+    OpOut {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(9), Src::new_imm_u32(3)],
+        out_type: OutType::Emit,
+    }
+    .encode(&mut e);
+    assert_eq!(e.get_field(78..80), 1);
+}
+
+#[test]
+fn op_out_final_encodes() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    let mut e = encoder(70, 0, labels);
+    OpOutFinal { handle: gpr_src(6) }.encode(&mut e);
+    assert_eq!(e.get_field(0..9), 0x124);
+}
+
+#[test]
+fn op_membar_scopes_sm70() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    for (scope, enc) in [
+        (MemScope::CTA, 0_u64),
+        (MemScope::GPU, 2),
+        (MemScope::System, 3),
+    ] {
+        let mut e = encoder(70, 0, labels);
+        OpMemBar { scope }.encode(&mut e);
+        assert_eq!(e.get_field(76..79), enc);
+        assert_eq!(opcode(&e), 0x992);
+    }
 }

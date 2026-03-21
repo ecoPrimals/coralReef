@@ -85,6 +85,24 @@ fn op_flo_reg_and_cbuf() {
 }
 
 #[test]
+fn op_iadd2_src1_ineg() {
+    let mut e = sm32_encoder();
+    let op = OpIAdd2 {
+        dsts: [Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)), Dst::None],
+        srcs: [
+            gpr_src(2),
+            Src {
+                reference: gpr_src(3).reference,
+                modifier: SrcMod::INeg,
+                swizzle: SrcSwizzle::None,
+            },
+        ],
+    };
+    op.encode(&mut e);
+    assert!(e.get_bit(51), "src1 ineg");
+}
+
+#[test]
 fn op_iadd2_reg_and_imm32_wide() {
     let mut e = sm32_encoder();
     let op = OpIAdd2 {
@@ -126,6 +144,18 @@ fn op_iadd2x_imm32() {
     op.encode(&mut e);
     assert_eq!(opcode_sm32(&e), 0x410);
     assert!(e.get_bit(56), ".X");
+}
+
+#[test]
+fn op_imad_src1_imm20() {
+    let mut e = sm32_encoder();
+    let op = OpIMad {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(2), Src::new_imm_u32(0x20), gpr_src(5)],
+        signed: true,
+    };
+    op.encode(&mut e);
+    assert_eq!(opcode_sm32(&e), 0xa10);
 }
 
 #[test]
@@ -179,6 +209,43 @@ fn op_imnmx_signed() {
     op.encode(&mut e);
     assert_eq!(opcode_sm32(&e), 0xe10);
     assert!(e.get_bit(51), "signed");
+}
+
+#[test]
+fn op_isetp_signed_cmp_and_false_true() {
+    let mut e = sm32_encoder();
+    let op = OpISetP {
+        dst: Dst::Reg(RegRef::new(RegFile::Pred, 2, 1)),
+        set_op: PredSetOp::Xor,
+        cmp_op: IntCmpOp::False,
+        cmp_type: IntCmpType::I32,
+        ex: false,
+        srcs: [
+            gpr_src(2),
+            gpr_src(3),
+            Src::new_imm_bool(false),
+            Src::new_imm_bool(false),
+        ],
+    };
+    op.encode(&mut e);
+    assert_eq!(e.get_field(52..55), 0, "false cmp");
+
+    let mut e = sm32_encoder();
+    let op = OpISetP {
+        dst: Dst::Reg(RegRef::new(RegFile::Pred, 3, 1)),
+        set_op: PredSetOp::Or,
+        cmp_op: IntCmpOp::True,
+        cmp_type: IntCmpType::U32,
+        ex: false,
+        srcs: [
+            gpr_src(2),
+            gpr_src(3),
+            Src::new_imm_bool(false),
+            Src::new_imm_bool(false),
+        ],
+    };
+    op.encode(&mut e);
+    assert_eq!(e.get_field(52..55), 7, "true cmp");
 }
 
 #[test]

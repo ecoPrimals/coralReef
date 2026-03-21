@@ -11,3 +11,7 @@ mod float16;
 mod float64;
 mod int;
 mod misc;
+
+#[cfg(test)]
+#[path = "conv_tests.rs"]
+mod conv_tests;

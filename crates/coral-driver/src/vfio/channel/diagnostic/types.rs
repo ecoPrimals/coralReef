@@ -181,8 +181,11 @@ pub struct ExperimentResult {
     pub pbdma_gp_base_hi: u32,
     /// PBDMA GP_PUT register.
     pub pbdma_gp_put: u32,
-    /// PBDMA GP_FETCH register — if this changes after we write, the PBDMA is alive.
+    /// PBDMA context save GP_BASE_LO (offset 0x048, mislabeled as GP_FETCH historically).
     pub pbdma_gp_fetch: u32,
+    /// PBDMA real GP_FETCH (offset 0x050) — byte-granular fetch pointer. Advances when
+    /// the PBDMA actually reads GPFIFO entries.
+    pub pbdma_gp_fetch_050: u32,
     /// PBDMA CHANNEL_STATE register.
     pub pbdma_channel_state: u32,
     /// PBDMA SIGNATURE register.
@@ -249,7 +252,7 @@ impl ExperimentResult {
             self.pbdma_ramfc_userd_lo,
             pbdma_tag,
             self.pbdma_gp_put,
-            self.pbdma_gp_fetch,
+            self.pbdma_gp_fetch_050,
             self.userd_gp_get,
             self.engn0_status,
             chsw_tag,

@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 21, 2026 (Phase 10 — Iteration 60: Deep Audit Execution + Code Quality Evolution)
+**Last updated**: March 21, 2026 (Phase 10 — Iteration 62: Deep Audit + Coverage + Hardcoding Evolution — 3460+ tests, 68.7% line coverage, 108 ignored hardware-gated)
 
 ---
 
@@ -289,9 +289,9 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 2185+48 tests passing, 90 ignored, 57.71% line coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 3460+ tests passing, 108 ignored, 68.7% line coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass (resolved Iteration 31).
 VFIO sovereign dispatch with PFIFO channel init, V2 MMU page tables, RAMUSERD correction.
-Iteration 52: OrExit\<T\>, IpcServiceError, coral-glowplug JSON-RPC 2.0, GpuPersonality traits, AMD Vega metal registers.
-Next: Titan V hardware validation with PFIFO channel, coverage 57.71%→90%, RDNA3/RDNA4 backend.*
+Iteration 62: quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC).
+Next: Titan V hardware validation with PFIFO channel, coverage 68.7%→90%, RDNA3/RDNA4 backend.*

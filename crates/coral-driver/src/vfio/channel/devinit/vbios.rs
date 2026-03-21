@@ -322,7 +322,7 @@ pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, String> {
 /// NVIDIA internal BIOS. It typically lacks the BIT table and PMU firmware.
 /// Prefer `read_vbios_prom()` for the full VBIOS.
 pub fn read_vbios_sysfs(bdf: &str) -> Result<Vec<u8>, String> {
-    let rom_path = format!("/sys/bus/pci/devices/{bdf}/rom");
+    let rom_path = crate::linux_paths::sysfs_pci_device_file(bdf, "rom");
 
     // Enable ROM readback
     std::fs::write(&rom_path, "1").map_err(|e| format!("enable ROM: {e}"))?;

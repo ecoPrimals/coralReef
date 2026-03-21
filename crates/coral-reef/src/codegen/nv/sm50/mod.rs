@@ -11,6 +11,10 @@ mod control;
 mod mem;
 mod tex;
 
+#[cfg(test)]
+#[path = "control_tests.rs"]
+mod control_tests;
+
 use coral_reef_stubs::fxhash::FxHashMap;
 
 fn encode_instr(

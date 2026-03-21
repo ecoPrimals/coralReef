@@ -167,7 +167,7 @@ impl FalconDiagnostic {
         ));
 
         if let Some(bdf) = bdf {
-            let rom_path = format!("/sys/bus/pci/devices/{bdf}/rom");
+            let rom_path = crate::linux_paths::sysfs_pci_device_file(bdf, "rom");
             let sysfs_ok = std::fs::metadata(&rom_path).is_ok();
             vbios_sources.push((
                 format!("sysfs ({rom_path})"),

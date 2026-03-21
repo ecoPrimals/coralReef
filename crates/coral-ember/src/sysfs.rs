@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Sysfs helpers — self-contained in ember to avoid cross-crate dependency
-//! on glowplug internals. Ember is the sole writer of driver/unbind and bind.
+//! Sysfs helpers — Ember is the sole writer of driver/unbind and bind.
+//! Paths respect [`coral_driver::linux_paths`] (`CORALREEF_SYSFS_ROOT`).
+
+use coral_driver::linux_paths;
 
 /// Parses the body of a sysfs PCI id file (e.g. `"0x10de\n"`).
 #[must_use]
@@ -19,13 +21,13 @@ pub fn sysfs_write(path: &str, value: &str) -> Result<(), String> {
 }
 
 pub fn read_current_driver(bdf: &str) -> Option<String> {
-    std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/driver"))
+    std::fs::read_link(linux_paths::sysfs_pci_device_file(bdf, "driver"))
         .ok()
         .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
 }
 
 pub fn read_iommu_group(bdf: &str) -> u32 {
-    std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/iommu_group"))
+    std::fs::read_link(linux_paths::sysfs_pci_device_file(bdf, "iommu_group"))
         .ok()
         .and_then(|p| {
             p.file_name()
@@ -36,7 +38,7 @@ pub fn read_iommu_group(bdf: &str) -> u32 {
 }
 
 pub fn find_drm_card(bdf: &str) -> Option<String> {
-    let drm_dir = format!("/sys/bus/pci/devices/{bdf}/drm");
+    let drm_dir = linux_paths::sysfs_pci_device_file(bdf, "drm");
     for entry in std::fs::read_dir(&drm_dir).ok()?.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with("card") {
@@ -47,7 +49,7 @@ pub fn find_drm_card(bdf: &str) -> Option<String> {
 }
 
 pub fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
-    let group_path = format!("/sys/kernel/iommu_groups/{group_id}/devices");
+    let group_path = linux_paths::sysfs_kernel_iommu_group_devices(group_id);
     let Ok(entries) = std::fs::read_dir(&group_path) else {
         return;
     };
@@ -63,24 +65,30 @@ pub fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
         tracing::info!(peer = %peer_bdf, group = group_id, "binding IOMMU group peer to vfio-pci");
         if driver.is_some() {
             let _ = sysfs_write(
-                &format!("/sys/bus/pci/devices/{peer_bdf}/driver/unbind"),
+                &linux_paths::sysfs_pci_device_file(&peer_bdf, "driver/unbind"),
                 &peer_bdf,
             );
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
         let _ = sysfs_write(
-            &format!("/sys/bus/pci/devices/{peer_bdf}/driver_override"),
+            &linux_paths::sysfs_pci_device_file(&peer_bdf, "driver_override"),
             "vfio-pci",
         );
-        let _ = sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
+        let _ = sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), &peer_bdf);
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 }
 
 /// Pin power state to prevent D3 transitions during driver swaps.
 pub fn pin_power(bdf: &str) {
-    let _ = sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
-    let _ = sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/d3cold_allowed"), "0");
+    let _ = sysfs_write(
+        &linux_paths::sysfs_pci_device_file(bdf, "power/control"),
+        "on",
+    );
+    let _ = sysfs_write(
+        &linux_paths::sysfs_pci_device_file(bdf, "d3cold_allowed"),
+        "0",
+    );
 }
 
 /// Error when a PM power cycle leaves the device in `D3cold`.
@@ -94,7 +102,7 @@ pub(crate) fn err_if_pm_cycle_d3cold(bdf: &str, after_power_state: &str) -> Resu
 /// Read a PCI ID field (vendor, device, subsystem_vendor, subsystem_device).
 /// Returns 0 on failure. The sysfs files contain hex values like "0x10de\n".
 pub fn read_pci_id(bdf: &str, field: &str) -> u16 {
-    let path = format!("/sys/bus/pci/devices/{bdf}/{field}");
+    let path = linux_paths::sysfs_pci_device_file(bdf, field);
     std::fs::read_to_string(&path)
         .ok()
         .map(|s| parse_pci_id_hex(&s))
@@ -103,7 +111,7 @@ pub fn read_pci_id(bdf: &str, field: &str) -> u16 {
 
 /// Read the current PCIe power state (D0, D3hot, D3cold, unknown).
 pub fn read_power_state(bdf: &str) -> Option<String> {
-    let path = format!("/sys/bus/pci/devices/{bdf}/power_state");
+    let path = linux_paths::sysfs_pci_device_file(bdf, "power_state");
     std::fs::read_to_string(&path)
         .ok()
         .map(|s| s.trim().to_string())
@@ -113,7 +121,7 @@ pub fn read_power_state(bdf: &str) -> Option<String> {
 /// powering down after a device remove. Walks the sysfs topology
 /// from the device up to the root port.
 pub fn pin_bridge_power(bdf: &str) {
-    let device_path = format!("/sys/bus/pci/devices/{bdf}");
+    let device_path = linux_paths::sysfs_pci_device_path(bdf);
     let Ok(real_path) = std::fs::canonicalize(&device_path) else {
         return;
     };
@@ -141,21 +149,21 @@ pub fn pin_bridge_power(bdf: &str) {
 /// Remove a PCI device from the kernel's device tree.
 /// This forces full cleanup of sysfs entries, DRM nodes, hwmon, etc.
 pub fn pci_remove(bdf: &str) -> Result<(), String> {
-    let path = format!("/sys/bus/pci/devices/{bdf}/remove");
+    let path = linux_paths::sysfs_pci_device_file(bdf, "remove");
     sysfs_write(&path, "1")
 }
 
 /// Trigger a PCI bus rescan, causing the kernel to re-enumerate
 /// all devices and probe matching drivers.
 pub fn pci_rescan() -> Result<(), String> {
-    sysfs_write("/sys/bus/pci/rescan", "1")
+    sysfs_write(&linux_paths::sysfs_pci_bus_rescan(), "1")
 }
 
 /// PM power cycle: transition through D3hot → D0 to reinitialize the
 /// function without a bus reset. The PCIe spec requires D3hot→D0 to
 /// reset function-level state while preserving PCI topology.
 pub fn pm_power_cycle(bdf: &str) -> Result<(), String> {
-    let power_state_path = format!("/sys/bus/pci/devices/{bdf}/power_state");
+    let power_state_path = linux_paths::sysfs_pci_device_file(bdf, "power_state");
 
     let current = std::fs::read_to_string(&power_state_path)
         .map(|s| s.trim().to_string())
@@ -165,11 +173,14 @@ pub fn pm_power_cycle(bdf: &str) -> Result<(), String> {
     pin_power(bdf);
     pin_bridge_power(bdf);
 
-    sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on")?;
+    sysfs_write(
+        &linux_paths::sysfs_pci_device_file(bdf, "power/control"),
+        "on",
+    )?;
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    let config_path = format!("/sys/bus/pci/devices/{bdf}/config");
+    let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
     let saved_config = std::fs::read(&config_path).ok();
 
     sysfs_write(&power_state_path, "D3hot")?;
@@ -257,6 +268,17 @@ mod tests {
     #[test]
     fn sysfs_write_missing_parent_is_error() {
         let err = sysfs_write("/nonexistent-coral-ember-path/nope", "1").unwrap_err();
+        assert!(err.contains("sysfs write"));
+    }
+
+    #[test]
+    fn read_power_state_nonexistent_device_returns_none() {
+        assert_eq!(read_power_state("9999:99:99.9"), None);
+    }
+
+    #[test]
+    fn pci_rescan_write_failure_is_propagated_when_rescan_missing() {
+        let err = sysfs_write("/nonexistent-coral-ember-pci/rescan", "1").unwrap_err();
         assert!(err.contains("sysfs write"));
     }
 }

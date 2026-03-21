@@ -59,12 +59,12 @@ struct JsonRpcRequest<'a, P> {
 
 #[derive(Deserialize)]
 struct JsonRpcResponse<R> {
-    #[expect(dead_code, reason = "JSON-RPC 2.0 wire field; parsed but not read")]
-    jsonrpc: String,
+    #[serde(rename = "jsonrpc")]
+    _jsonrpc: String,
     result: Option<R>,
     error: Option<RpcErrorData>,
-    #[expect(dead_code, reason = "JSON-RPC 2.0 wire field; parsed but not read")]
-    id: u64,
+    #[serde(rename = "id")]
+    _id: u64,
 }
 
 impl RpcClient {

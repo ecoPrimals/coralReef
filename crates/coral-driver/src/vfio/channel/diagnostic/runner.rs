@@ -118,39 +118,169 @@ pub fn diagnostic_matrix(
         r(0x100A38)
     );
 
-    // ── GlowPlug: warm GPU + BAR2 + fault buffers ─────────────────────
-    let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, Arc::clone(&container));
-    let state = gp.check_state();
-    tracing::debug!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
-    match state {
-        crate::vfio::channel::glowplug::GpuThermalState::D3Hot => {
-            return Err(DriverError::SubmitFailed(Cow::Borrowed(
-                "BAR0 returns 0xFFFFFFFF — GPU in D3hot (PCIe sleep). \
-                 Set power/control=on: echo on > /sys/bus/pci/devices/<BDF>/power/control",
-            )));
-        }
-        crate::vfio::channel::glowplug::GpuThermalState::Warm => {
-            tracing::debug!("║ GPU already warm — skipping glow plug");
-        }
-        _ => {
-            let result = gp.full_init();
-            for msg in &result.log {
-                tracing::debug!("║ {msg}");
-            }
-            if !result.success {
-                tracing::warn!("glow plug did not fully succeed");
-            }
-        }
-    }
-    let gpu_warm = !matches!(
-        gp.check_state(),
-        crate::vfio::channel::glowplug::GpuThermalState::D3Hot
-            | crate::vfio::channel::glowplug::GpuThermalState::ColdGated
+    // ── Warm-state detection: if PFB is alive, preserve nouveau's config ──
+    let pfb_probe = r(0x10_0000);
+    let pfb_alive = !pri::is_pri_error(pfb_probe) && pfb_probe != 0xDEAD_DEAD;
+    let mmu_ctrl = r(pfb::MMU_CTRL);
+    let bar2_block = r(misc::PBUS_BAR2_BLOCK);
+    eprintln!(
+        "║ WARM-STATE: PFB={pfb_probe:#010x} alive={pfb_alive} MMU_CTRL={mmu_ctrl:#010x} BAR2={bar2_block:#010x}"
     );
 
-    // DMA fault buffer — kept alive for the entire matrix run.
-    let fault_buf = DmaBuffer::new(Arc::clone(&container), 4096, FAULT_BUF_IOVA)?;
-    fault_buf.as_slice();
+    let gpu_warm;
+    if pfb_alive {
+        eprintln!("║ GPU warm from nouveau — preserving PFB/MMU/BAR2 state");
+        gpu_warm = true;
+    } else {
+        eprintln!("║ PFB gated — running GlowPlug cold-start path");
+        let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, Arc::clone(&container));
+        let state = gp.check_state();
+        tracing::debug!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
+        match state {
+            crate::vfio::channel::glowplug::GpuThermalState::D3Hot => {
+                return Err(DriverError::SubmitFailed(Cow::Borrowed(
+                    "BAR0 returns 0xFFFFFFFF — GPU in D3hot (PCIe sleep). \
+                     Set power/control=on: echo on > /sys/bus/pci/devices/<BDF>/power/control",
+                )));
+            }
+            crate::vfio::channel::glowplug::GpuThermalState::Warm => {
+                tracing::debug!("║ GPU already warm — skipping glow plug");
+            }
+            _ => {
+                let result = gp.full_init();
+                for msg in &result.log {
+                    tracing::debug!("║ {msg}");
+                }
+                if !result.success {
+                    tracing::warn!("glow plug did not fully succeed");
+                }
+            }
+        }
+        gpu_warm = !matches!(
+            gp.check_state(),
+            crate::vfio::channel::glowplug::GpuThermalState::D3Hot
+                | crate::vfio::channel::glowplug::GpuThermalState::ColdGated
+        );
+
+        // Only reprogram fault buffers + BAR2 on the cold path.
+        let _fault_buf = DmaBuffer::new(Arc::clone(&container), 4096, FAULT_BUF_IOVA)?;
+        {
+            let fb_lo = (FAULT_BUF_IOVA >> 12) as u32;
+            let fb_entries: u32 = 64;
+            w(mmu::FAULT_BUF0_LO, fb_lo)?;
+            w(mmu::FAULT_BUF0_HI, 0)?;
+            w(mmu::FAULT_BUF0_SIZE, fb_entries)?;
+            w(mmu::FAULT_BUF0_GET, 0)?;
+            w(mmu::FAULT_BUF0_PUT, 0x8000_0000)?;
+            w(mmu::FAULT_BUF1_LO, fb_lo)?;
+            w(mmu::FAULT_BUF1_HI, 0)?;
+            w(mmu::FAULT_BUF1_SIZE, fb_entries)?;
+            w(mmu::FAULT_BUF1_GET, 0)?;
+            w(mmu::FAULT_BUF1_PUT, 0x8000_0000)?;
+        }
+        std::mem::forget(_fault_buf);
+    }
+
+    // ── Full PFIFO initialization: PMC reset → enable → preempt → flush ──
+    // nouveau disables PFIFO (0x2200=0) and leaves PBDMAs with stale channel
+    // contexts. The scheduler's internal state is also stale. We need:
+    //   1. PMC-level PFIFO reset (bit 8) to clear hardware state
+    //   2. PFIFO enable (0x2200 = 1)
+    //   3. Preempt ALL runlists to clear scheduler's internal channel table
+    //   4. Empty flush ALL runlists so scheduler knows they're clean
+    //   5. Clear PBDMA registers to remove stale context
+    {
+        let pmc_val = r(pmc::ENABLE);
+        let pfifo_en = r(pfifo::ENABLE);
+        eprintln!(
+            "║ PRE-INIT: PMC={pmc_val:#010x} PFIFO_EN={pfifo_en:#010x} PBDMA_MAP={:#010x}",
+            r(pfifo::PBDMA_MAP)
+        );
+
+        for pid in [1_usize, 2, 3] {
+            let b = 0x40000 + pid * 0x2000;
+            eprintln!("║ PRE-INIT PBDMA{pid}: STATE={:#010x}", r(b + 0xB0));
+        }
+
+        // Phase 1: PMC-level PFIFO reset (bit 8 per gk104_mc_reset)
+        let pfifo_bit: u32 = 1 << 8;
+        w(pmc::ENABLE, pmc_val & !pfifo_bit)?;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        w(pmc::ENABLE, pmc_val | pfifo_bit)?;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        eprintln!("║ PMC PFIFO reset done: PMC={:#010x}", r(pmc::ENABLE));
+
+        // Phase 2: PFIFO enable
+        w(pfifo::ENABLE, 0)?;
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        w(pfifo::ENABLE, 1)?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        eprintln!("║ PFIFO enabled: PBDMA_MAP={:#010x}", r(pfifo::PBDMA_MAP));
+
+        // Phase 3: Preempt ALL active runlists
+        let mut rl_mask: u32 = 0;
+        {
+            let cur_map = r(pfifo::PBDMA_MAP);
+            let mut seq = 0_usize;
+            for pid in 0..32_usize {
+                if cur_map & (1 << pid) == 0 {
+                    continue;
+                }
+                let rl = r(0x2390 + seq * 4);
+                if rl < 32 {
+                    rl_mask |= 1 << rl;
+                }
+                seq += 1;
+            }
+        }
+
+        if rl_mask != 0 {
+            eprintln!("║ Preempting ALL runlists: mask={rl_mask:#010x}");
+            w(pfifo::INTR, 0xFFFF_FFFF)?;
+            w(pfifo::GV100_PREEMPT, rl_mask)?;
+
+            let mut got_ack = false;
+            for _poll in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+                let intr = r(pfifo::INTR);
+                if intr & pfifo::INTR_RL_COMPLETE != 0 {
+                    w(pfifo::INTR, pfifo::INTR_RL_COMPLETE)?;
+                    got_ack = true;
+                    eprintln!("║ Preempt ACK'd (INTR={intr:#010x})");
+                    break;
+                }
+            }
+            if !got_ack {
+                eprintln!("║ WARN: Preempt no ACK — INTR={:#010x}", r(pfifo::INTR));
+            }
+        }
+
+        // Phase 4: Force-clear PBDMA registers
+        for pid in [1_usize, 2, 3] {
+            let b = 0x40000 + pid * 0x2000;
+            for off in (0x000..=0x1FC).step_by(4) {
+                let _ = w(b + off, 0);
+            }
+            let _ = w(b + 0x040, 0);
+            let _ = w(b + 0x044, 0);
+            let _ = w(b + 0x050, 0);
+            let _ = w(b + 0x054, 0);
+            let _ = w(b + 0x058, 0);
+            let _ = w(b + 0x0B0, 0);
+            let _ = w(b + 0x0D0, 0);
+            let _ = w(b + 0x0D4, 0);
+            let _ = w(b + 0x0C0, 0);
+            let _ = w(b + 0x108, 0xFFFF_FFFF);
+            let _ = w(b + 0x110, 0);
+            let _ = w(b + 0x13C, 0);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        for pid in [1_usize, 2, 3] {
+            let b = 0x40000 + pid * 0x2000;
+            eprintln!("║ POST-CLEAR PBDMA{pid}: STATE={:#010x}", r(b + 0xB0));
+        }
+    }
 
     // Oracle-compared register snapshot.
     tracing::debug!("║ ── Post-warm Oracle Compare ──");
@@ -215,7 +345,7 @@ pub fn diagnostic_matrix(
         }
     }
     let target_runlist = gr_runlist.unwrap_or(0);
-    tracing::debug!("║ Target runlist: {target_runlist}");
+    eprintln!("║ Target runlist: {target_runlist}");
 
     // Dump ALL PBDMA → runlist mappings and engine info
     {
@@ -225,7 +355,7 @@ pub fn diagnostic_matrix(
                 continue;
             }
             let rl = r(0x2390 + seq * 4);
-            tracing::debug!("║ PBDMA_RUNL_MAP[{seq}]: PBDMA {pid} → runlist {rl}");
+            eprintln!("║ PBDMA_RUNL_MAP[{seq}]: PBDMA {pid} → runlist {rl}");
             seq += 1;
         }
         // Also dump engine table at 0x22700
@@ -287,9 +417,9 @@ pub fn diagnostic_matrix(
     }
     let pb = 0x040000 + target_pbdma * 0x2000;
     let pb2 = alt_pbdma.map(|id| 0x040000 + id * 0x2000);
-    tracing::debug!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
+    eprintln!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
     if let Some((alt, alt_base)) = alt_pbdma.zip(pb2) {
-        tracing::debug!("║ Alt PBDMA: {alt} (base={alt_base:#x})");
+        eprintln!("║ Alt PBDMA: {alt} (base={alt_base:#x})");
     }
 
     for id in 0..32_usize {
@@ -307,10 +437,8 @@ pub fn diagnostic_matrix(
 
     w(pfifo::INTR, 0xFFFF_FFFF)?;
     w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
-    w(pfifo::SCHED_DISABLE, 0)?; // ensure scheduler is NOT disabled
-    // NB: SCHED_EN (0x2504) does NOT exist on GV100 — writes cause MMIO fault (0xbad00200).
-    // The oracle value at 0x2634 is actually NV_PFIFO_PREEMPT, not SCHED_EN.
-    tracing::debug!(
+    w(pfifo::SCHED_DISABLE, 0)?;
+    eprintln!(
         "║ SCHED_DISABLE={:#010x} (0=scheduler runs)",
         r(pfifo::SCHED_DISABLE)
     );
@@ -318,6 +446,7 @@ pub fn diagnostic_matrix(
     {
         let rl_base_val = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
         let rl_submit_val = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0);
+        eprintln!("║ Empty flush: RL_BASE={rl_base_val:#010x} RL_SUBMIT={rl_submit_val:#010x}");
         let mut flushed = std::collections::HashSet::new();
         let mut seq = 0_usize;
         for pid in 0..32_usize {
@@ -337,16 +466,71 @@ pub fn diagnostic_matrix(
             if intr & pfifo::INTR_RL_COMPLETE != 0 {
                 let _ = w(pfifo::RUNLIST_ACK, 1u32 << rl);
                 let _ = w(pfifo::INTR, pfifo::INTR_RL_COMPLETE);
-                tracing::debug!("║ Flush RL{rl}: BIT30 ACK'd ✓ CHSW={chsw:#x}");
+                eprintln!("║ Flush RL{rl}: BIT30 ACK'd ✓ CHSW={chsw:#x}");
             } else {
                 let chsw_bit = intr & pfifo::INTR_CHSW_ERROR != 0;
-                tracing::debug!(
+                eprintln!(
                     "║ Flush RL{rl}: no BIT30 (INTR={intr:#010x}) CHSW_ERR={chsw:#x} bit16={chsw_bit}"
                 );
                 if chsw_bit {
                     let _ = w(pfifo::INTR, pfifo::INTR_CHSW_ERROR);
                 }
             }
+        }
+    }
+
+    // ── Force-clear stale PBDMA contexts ──────────────────────────────
+    // After the empty flush, the scheduler knows all runlists are empty.
+    // But PBDMAs still hold hardware state from nouveau channels.
+    // Zero-out the operational and context-save registers for PBDMAs
+    // serving our target runlist to make them available for new channels.
+    {
+        let rl1_pbdmas: Vec<usize> = {
+            let mut v = Vec::new();
+            let mut seq = 0_usize;
+            for pid in 0..32_usize {
+                if pbdma_map & (1 << pid) == 0 {
+                    continue;
+                }
+                let rl = r(0x2390 + seq * 4);
+                seq += 1;
+                if rl == target_runlist {
+                    v.push(pid);
+                }
+            }
+            v
+        };
+
+        for &pid in &rl1_pbdmas {
+            let b = 0x40000 + pid * 0x2000;
+            let pre_state = r(b + 0xB0);
+            eprintln!("║ CLEARING PBDMA{pid}: STATE={pre_state:#010x}");
+
+            // Zero all context save registers (offsets 0x000-0x1FC)
+            for off in (0x000..=0x1FC).step_by(4) {
+                let _ = w(b + off, 0);
+            }
+            // Zero operational registers
+            let _ = w(b + 0x040, 0); // GP_BASE_LO
+            let _ = w(b + 0x044, 0); // GP_BASE_HI
+            let _ = w(b + 0x048, 0); // GP_STATE
+            let _ = w(b + 0x04C, 0); // GP_FETCH (?)
+            let _ = w(b + 0x050, 0); // GP_FETCH (alt)
+            let _ = w(b + 0x054, 0); // GP_PUT
+            let _ = w(b + 0x058, 0); // GP_GET
+            let _ = w(b + 0x0B0, 0); // STATUS
+            let _ = w(b + 0x0D0, 0); // USERD_LO
+            let _ = w(b + 0x0D4, 0); // USERD_HI
+            let _ = w(b + 0x0C0, 0); // SIGNATURE
+            let _ = w(b + 0x13C, 0); // METHOD_CONFIG
+            // Clear interrupts
+            let _ = w(b + 0x108, 0xFFFF_FFFF); // INTR
+            let _ = w(b + 0x110, 0); // INTR_EN
+
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            let post_state = r(b + 0xB0);
+            let post_gp = r(b + 0x050);
+            eprintln!("║ CLEARED PBDMA{pid}: STATE={post_state:#010x} GP_FETCH={post_gp:#010x}");
         }
     }
 
@@ -595,6 +779,7 @@ pub fn diagnostic_matrix(
             pbdma_gp_base_hi: r(pb + 0x44),
             pbdma_gp_put: r(pb + 0x54),
             pbdma_gp_fetch: r(pb + 0x48),
+            pbdma_gp_fetch_050: r(pb + 0x50),
             pbdma_channel_state: r(pb + 0xB0),
             pbdma_signature: r(pb + 0xC0),
             pfifo_intr: r(pfifo::INTR),
@@ -691,10 +876,7 @@ pub fn diagnostic_matrix(
     let num_faulted = results.iter().filter(|r| r.faulted).count();
     let num_on_pbdma = results.iter().filter(|r| r.status >= 5).count();
     let num_chsw = results.iter().filter(|r| r.chsw_error != 0).count();
-    let num_gp_fetch = results
-        .iter()
-        .filter(|r| r.pbdma_gp_fetch > 0 && r.pbdma_gp_fetch != r.pbdma_gp_base_lo)
-        .count();
+    let num_gp_fetch = results.iter().filter(|r| r.pbdma_gp_fetch_050 > 0).count();
     let num_gp_get = results.iter().filter(|r| r.userd_gp_get > 0).count();
     tracing::debug!("╠══ SUMMARY ═══════════════════════════════════════════════════╣");
     tracing::debug!(

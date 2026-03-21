@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 61
+**Current status**: Phase 10 — Iteration 62
 
 ---
 
 ## [Unreleased]
+
+### Iteration 62 — Deep Audit + Coverage Expansion + Hardcoding Evolution (Mar 21 2026)
+
+- **Comprehensive audit**: Full review against wateringHole standards (IPC v3, UniBin, ecoBin, genomeBin, semantic naming, sovereignty, AGPL3). All quality gates verified: fmt, clippy (pedantic+nursery), test, doc (0 warnings)
+- **Rustdoc: 4 warnings → 0**: Fixed MockSysfs link scope, redundant SysfsOps explicit targets, private verify_drm_isolation link, health.rs SysfsOps scope
+- **coral-glowplug coverage**: sysfs_ops 92.2%, health 91.0%, config 93.4%, error 99.2%, pci_ids 100%, personality 86.4%. MockSysfs testing, health loop circuit breaker, env path overrides
+- **coral-ember coverage**: vendor_lifecycle 83.7%, ipc 85.3%. All vendor lifecycle match arms tested, IPC success paths, swap "unbound" success path
+- **coral-gpu coverage**: fma 100%, hash 100%, kernel 100%, pcie 97.8%, preference 100%. Driver env defaults, cache error paths, SM arch mapping
+- **coral-reef codegen zero-coverage eliminated**: SM32 float64 0%→52%, SM32 misc 40%→74%, SM50 misc 40%→70%, SM50 control 23%→47%. New encoder test suites for all four backends
+- **Hardcoding evolution**: New `coral_driver::linux_paths` module with `CORALREEF_SYSFS_ROOT` (default `/sys`), `CORALREEF_PROC_ROOT` (default `/proc`), `CORALREEF_NVIDIA_FIRMWARE_ROOT`, `CORALREEF_HOME_FALLBACK` env overrides. All sysfs/proc paths rooted via env-overridable helpers
+- **`#[expect]` cleanup**: Removed dead code suppressions, replaced JSON-RPC field dead_code with serde renames, cleaned stale suppressions
+- **Dependency analysis**: 227 production deps, all pure Rust. Transitive `libc` via tokio→mio tracked (mio#1735). OpenTelemetry unconditional in tarpc 0.37 (upstream tracked). Zero `*-sys`, zero `ring`, zero `openssl`
+- **SM50/SM32 encoder test suites**: int ALU (IMad, ISetP, Flo), float ALU (FAdd imm/CBuf/neg/abs, FMul, FFma all combos, all FloatCmpOp variants), conv (F2F/F2I/I2F/I2I), mem (Atom, Ldc, MemBar, CCtl)
+- **SM70 encoder expansion**: control (PixLd all PixVal, Out all OutType, MemBar scopes), conv (F2F rounding/ftz, F2I, I2F, FRnd)
+- **Optimization pass coverage**: opt_bar_prop barrier propagation, opt_copy_prop sel/b2i patterns
+- **linux_paths.rs**: 58% → **100%** — all env-overridable sysfs/proc path helpers fully tested
+- **Coverage: 67.6% → 68.7% line** (+154 tests: 3306 → 3460 passing, 0 failed, 108 ignored hardware-gated; 8 crates above 90% target)
+- All quality gates green: fmt, clippy (pedantic + nursery), test (3460+), doc (0 warnings), all files <1000 LOC
 
 ### Iteration 61 — DI Architecture + Coverage Evolution (Mar 21 2026)
 

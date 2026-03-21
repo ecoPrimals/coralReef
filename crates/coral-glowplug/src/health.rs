@@ -1,19 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![expect(
-    missing_docs,
-    reason = "health_loop signature is covered by module docs; missing_docs kept at crate level."
-)]
 //! Periodic health monitor for managed devices.
 //!
 //! Runs a background loop that checks each device's VRAM, power state,
 //! and PRI bus health at a configurable interval.
 
+use coral_driver::linux_paths;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Circuit breaker threshold: after this many consecutive faulted reads,
 /// stop probing BAR0 registers entirely to avoid kernel instability.
 const CIRCUIT_BREAKER_THRESHOLD: u32 = 6;
+
+/// Incremented when the health loop trips the BAR0 circuit breaker (unit tests only).
+#[cfg(test)]
+pub(crate) static HEALTH_LOOP_TRIP_COUNT_FOR_TESTS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+#[must_use]
+fn d3hot_always_on_recovery_applies(power: crate::device::PowerState, power_policy: &str) -> bool {
+    power == crate::device::PowerState::D3Hot && power_policy == "always_on"
+}
 
 /// Ping the systemd watchdog via `NOTIFY_SOCKET` (datagram).
 ///
@@ -28,8 +35,15 @@ fn notify_watchdog() {
     }
 }
 
-pub async fn health_loop(
-    devices: Arc<Mutex<Vec<crate::device::DeviceSlot>>>,
+/// Invokes [`notify_watchdog`] (for integration tests that adjust `NOTIFY_SOCKET` via `unsafe` env).
+#[doc(hidden)]
+pub fn test_support_notify_watchdog() {
+    notify_watchdog();
+}
+
+/// Background health monitor for [`crate::device::DeviceSlot`] instances sharing a [`crate::sysfs_ops::SysfsOps`] backend.
+pub async fn health_loop<S: crate::sysfs_ops::SysfsOps>(
+    devices: Arc<Mutex<Vec<crate::device::DeviceSlot<S>>>>,
     interval_ms: u64,
     shutdown: &mut tokio::sync::watch::Receiver<bool>,
 ) {
@@ -94,6 +108,8 @@ pub async fn health_loop(
                      GPU hardware is persistently faulted. Manual intervention or \
                      reboot required to reset."
                 );
+                #[cfg(test)]
+                HEALTH_LOOP_TRIP_COUNT_FOR_TESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 tripped.insert(bdf.clone(), true);
                 continue;
             }
@@ -106,12 +122,13 @@ pub async fn health_loop(
                     "power state changed"
                 );
 
-                if slot.health.power == crate::device::PowerState::D3Hot
-                    && slot.config.power_policy == "always_on"
-                {
+                if d3hot_always_on_recovery_applies(
+                    slot.health.power,
+                    slot.config.power_policy.as_str(),
+                ) {
                     tracing::info!(bdf = %slot.bdf, "auto-recovering D0 (policy=always_on)");
                     let _ = crate::sysfs::sysfs_write(
-                        &format!("/sys/bus/pci/devices/{}/power/control", slot.bdf),
+                        &linux_paths::sysfs_pci_device_file(&slot.bdf, "power/control"),
                         "on",
                     );
                 }
@@ -150,10 +167,33 @@ pub async fn health_loop(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
 
-    use crate::device::{DeviceHealth, PowerState};
+    use crate::MockSysfs;
+    use crate::config::DeviceConfig;
+    use crate::device::{DeviceHealth, DeviceSlot, PowerState};
 
+    use crate::sysfs_ops::RealSysfs;
+
+    use super::HEALTH_LOOP_TRIP_COUNT_FOR_TESTS;
+    use super::d3hot_always_on_recovery_applies;
     use super::health_loop;
+
+    #[test]
+    fn d3hot_always_on_recovery_only_for_matching_policy() {
+        assert!(d3hot_always_on_recovery_applies(
+            PowerState::D3Hot,
+            "always_on"
+        ));
+        assert!(!d3hot_always_on_recovery_applies(
+            PowerState::D3Hot,
+            "power_save"
+        ));
+        assert!(!d3hot_always_on_recovery_applies(
+            PowerState::D0,
+            "always_on"
+        ));
+    }
 
     #[test]
     fn test_power_state_display() {
@@ -207,13 +247,48 @@ mod tests {
         let (tx, mut rx) = tokio::sync::watch::channel(false);
         let d = devices.clone();
         let j = tokio::spawn(async move {
-            health_loop(d, 10_000, &mut rx).await;
+            health_loop::<RealSysfs>(d, 10_000, &mut rx).await;
         });
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         tx.send(true).expect("signal");
         tokio::time::timeout(std::time::Duration::from_secs(5), j)
             .await
             .expect("health_loop should finish")
+            .expect("join");
+    }
+
+    #[tokio::test]
+    async fn health_loop_trips_circuit_breaker_with_mock_slot() {
+        HEALTH_LOOP_TRIP_COUNT_FOR_TESTS.store(0, Ordering::Relaxed);
+        let bdf = "0000:aa:00.0";
+        let config = DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "power_save".into(),
+            role: None,
+            oracle_dump: None,
+        };
+        let mut mock = MockSysfs::default();
+        mock.seed_bdf(bdf);
+        let mut slot = DeviceSlot::with_sysfs(config, mock);
+        slot.test_set_vfio_override(Some(true));
+
+        let devices = Arc::new(tokio::sync::Mutex::new(vec![slot]));
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        let d = devices.clone();
+        let j = tokio::spawn(async move {
+            health_loop::<MockSysfs>(d, 5, &mut rx).await;
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        assert!(
+            HEALTH_LOOP_TRIP_COUNT_FOR_TESTS.load(Ordering::Relaxed) >= 1,
+            "expected circuit breaker to trip"
+        );
+        tx.send(true).expect("shutdown");
+        tokio::time::timeout(std::time::Duration::from_secs(5), j)
+            .await
+            .expect("join timeout")
             .expect("join");
     }
 }

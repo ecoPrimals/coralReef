@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
+//! sysfs fallbacks and helpers shared by [`crate::GpuContext`] and integration tests.
+
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+use coral_driver::linux_paths;
 use coral_reef::{GpuTarget, NvArch};
 
 use crate::preference;
@@ -14,7 +18,8 @@ pub const DEFAULT_NV_SM_NOUVEAU: u32 = 70;
 ///
 /// Checks `$CORALREEF_DEFAULT_SM` environment variable first (e.g. "70", "86"),
 /// falling back to SM 86 (Ampere GA102, RTX 3090/3080/3070).
-pub(crate) fn default_nv_sm() -> u32 {
+#[must_use]
+pub fn default_nv_sm() -> u32 {
     std::env::var("CORALREEF_DEFAULT_SM")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -25,7 +30,8 @@ pub(crate) fn default_nv_sm() -> u32 {
 ///
 /// Checks `$CORALREEF_DEFAULT_SM_NOUVEAU` environment variable first,
 /// falling back to SM 70 (Volta).
-pub(crate) fn default_nv_sm_nouveau() -> u32 {
+#[must_use]
+pub fn default_nv_sm_nouveau() -> u32 {
     std::env::var("CORALREEF_DEFAULT_SM_NOUVEAU")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -91,7 +97,8 @@ pub(crate) const fn sm_to_compute_class(sm: u32) -> u32 {
 /// Returns the first BDF address of an NVIDIA GPU bound to `vfio-pci`, or `None`.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
 pub(crate) fn discover_vfio_nvidia_bdf() -> Option<String> {
-    let vfio_dir = std::path::Path::new("/sys/bus/pci/drivers/vfio-pci");
+    let vfio_dir_path = linux_paths::sysfs_join(&["bus", "pci", "drivers", "vfio-pci"]);
+    let vfio_dir = std::path::Path::new(&vfio_dir_path);
     let entries = std::fs::read_dir(vfio_dir).ok()?;
 
     for entry in entries.flatten() {
@@ -101,7 +108,7 @@ pub(crate) fn discover_vfio_nvidia_bdf() -> Option<String> {
             continue;
         }
 
-        let vendor_path = format!("/sys/bus/pci/devices/{bdf}/vendor");
+        let vendor_path = linux_paths::sysfs_pci_device_file(&bdf, "vendor");
         if let Ok(vendor_str) = std::fs::read_to_string(&vendor_path) {
             let vendor_str = vendor_str.trim().trim_start_matches("0x");
             if let Ok(vendor) = u16::from_str_radix(vendor_str, 16)
@@ -134,7 +141,7 @@ pub(crate) fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
 /// Detect SM version for a VFIO-bound GPU from sysfs device ID.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
 pub(crate) fn vfio_detect_sm(bdf: &str) -> u32 {
-    let device_path = format!("/sys/bus/pci/devices/{bdf}/device");
+    let device_path = linux_paths::sysfs_pci_device_file(bdf, "device");
     let device_id = std::fs::read_to_string(&device_path)
         .ok()
         .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok());

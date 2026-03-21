@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Trait-based abstraction over sysfs and related kernel interfaces for testability.
 //!
-//! Production code uses [`RealSysfs`]; unit tests can inject [`MockSysfs`] via
+//! Production code uses [`RealSysfs`]; unit tests can inject `MockSysfs` via
 //! [`crate::device::DeviceSlot::with_sysfs`].
 
 use crate::device::PowerState;
+use coral_driver::linux_paths;
 
 /// Operations that mirror [`crate::sysfs`] free functions for dependency injection.
 pub trait SysfsOps: Send + Sync + 'static {
@@ -85,7 +86,7 @@ pub(crate) fn bind_iommu_group_to_vfio_with<S: SysfsOps>(
     primary_bdf: &str,
     group_id: u32,
 ) {
-    let group_path = format!("/sys/kernel/iommu_groups/{group_id}/devices");
+    let group_path = linux_paths::sysfs_kernel_iommu_group_devices(group_id);
     let Ok(entries) = std::fs::read_dir(&group_path) else {
         return;
     };
@@ -110,17 +111,17 @@ pub(crate) fn bind_iommu_group_to_vfio_with<S: SysfsOps>(
 
         if driver.is_some() {
             let _ = ops.sysfs_write(
-                &format!("/sys/bus/pci/devices/{peer_bdf}/driver/unbind"),
+                &linux_paths::sysfs_pci_device_file(&peer_bdf, "driver/unbind"),
                 &peer_bdf,
             );
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
 
         let _ = ops.sysfs_write(
-            &format!("/sys/bus/pci/devices/{peer_bdf}/driver_override"),
+            &linux_paths::sysfs_pci_device_file(&peer_bdf, "driver_override"),
             "vfio-pci",
         );
-        let _ = ops.sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &peer_bdf);
+        let _ = ops.sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), &peer_bdf);
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 }
@@ -239,3 +240,51 @@ mod mock {
 
 #[cfg(test)]
 pub use mock::MockSysfs;
+
+#[cfg(test)]
+mod sysfs_ops_tests {
+    use std::sync::atomic::Ordering;
+
+    use crate::device::PowerState;
+
+    use super::MockSysfs;
+    use super::SysfsOps;
+    use super::bind_iommu_group_to_vfio_with;
+
+    #[test]
+    fn mock_bind_iommu_group_to_vfio_increments_counter() {
+        let m = MockSysfs::default();
+        m.bind_iommu_group_to_vfio("0000:01:00.0", 42);
+        assert_eq!(m.bind_iommu_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn bind_iommu_group_to_vfio_with_mock_no_sysfs_group_is_noop() {
+        let m = MockSysfs::default();
+        bind_iommu_group_to_vfio_with(&m, "0000:01:00.0", 999_999);
+        assert_eq!(m.bind_iommu_calls.load(Ordering::Relaxed), 0);
+        assert!(m.writes.lock().expect("writes").is_empty());
+    }
+
+    #[test]
+    fn mock_sysfs_write_records_paths() {
+        let m = MockSysfs::default();
+        m.sysfs_write("/tmp/coral-mock-test", "x").expect("write");
+        let w = m.writes.lock().expect("writes");
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].0, "/tmp/coral-mock-test");
+        assert_eq!(w[0].1, "x");
+    }
+
+    #[test]
+    fn mock_bogus_bdf_returns_pci_id_defaults() {
+        let m = MockSysfs::default();
+        assert_eq!(m.read_pci_ids("not-a-bdf"), (0, 0));
+        assert_eq!(m.read_iommu_group("bogus"), 0);
+        assert_eq!(m.read_current_driver("bogus"), None);
+        assert_eq!(m.read_power_state("bogus"), PowerState::Unknown);
+        assert_eq!(m.read_link_width("bogus"), None);
+        assert_eq!(m.find_drm_card("bogus"), None);
+        assert!(!m.has_active_drm_consumers("bogus"));
+    }
+}

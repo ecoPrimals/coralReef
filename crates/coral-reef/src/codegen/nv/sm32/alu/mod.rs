@@ -11,3 +11,15 @@ mod float;
 mod float64;
 mod int;
 mod misc;
+
+#[cfg(test)]
+#[path = "misc_tests.rs"]
+mod misc_tests;
+
+#[cfg(test)]
+#[path = "conv_tests.rs"]
+mod conv_tests;
+
+#[cfg(test)]
+#[path = "float_alu_tests.rs"]
+mod float_alu_tests;

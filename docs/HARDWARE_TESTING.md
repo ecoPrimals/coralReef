@@ -2,7 +2,7 @@
 
 # Hardware Testing Guide — coralReef GPU Parity
 
-**Last updated**: March 18, 2026 (Phase 10 — Iteration 57)
+**Last updated**: March 21, 2026 (Phase 10 — Iteration 62)
 
 ## Hardware Inventory
 
@@ -154,7 +154,7 @@ targets:
 git clone git@github.com:ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace  # 2527 passing, should complete in ~60s
+cargo test --workspace  # 3460+ passing, should complete in ~60s
 ```
 
 ### Step 1: Nouveau EINVAL Diagnostics (Titan V)

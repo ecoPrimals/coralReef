@@ -438,6 +438,68 @@ fn mock_swap_refuses_when_nvidia_driver_reported() {
 }
 
 #[test]
+fn mock_wait_quiescence_respects_test_override_quiescent() {
+    let bdf = "0000:50:00.0";
+    let config = DeviceConfig {
+        bdf: bdf.into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(config, mock);
+    slot.test_set_quiescence_override(Some(true));
+    assert!(slot.wait_quiescence(std::time::Duration::from_millis(1)));
+}
+
+#[test]
+fn mock_snapshot_registers_no_vfio_leaves_empty_snapshot() {
+    let bdf = "0000:51:00.0";
+    let config = DeviceConfig {
+        bdf: bdf.into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+    };
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(config, mock);
+    slot.snapshot_registers();
+    assert!(slot.last_snapshot().is_empty());
+}
+
+#[test]
+fn resurrect_hbm2_amd_warm_driver_is_amdgpu_without_ember() {
+    let bdf = "0000:52:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.pci_ids
+        .insert(bdf.to_string(), (crate::pci_ids::AMD_VENDOR_ID, 0x66a0));
+    let mut slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+        },
+        mock,
+    );
+    let err = slot.resurrect_hbm2().expect_err("ember required");
+    let s = err.to_string();
+    assert!(
+        s.contains("ember") || s.contains("amdgpu"),
+        "unexpected message: {s}"
+    );
+}
+
+#[test]
 fn mock_release_errors_when_drm_consumers_reported() {
     let bdf = "0000:04:00.0";
     let config = DeviceConfig {

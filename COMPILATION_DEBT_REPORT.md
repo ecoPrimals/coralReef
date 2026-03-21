@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 21, Iter 60)  
+**Generated:** March 10, 2026 (metrics updated March 21, Iter 62)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Total ignored:** 102 tests across workspace (hardware-gated + diagnostic + VFIO HW).
+**Workspace totals (Iter 62):** 3460+ tests passing, 108 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -191,7 +191,7 @@ Most are ICE / illegal-path guards in codegen; some are assertion-style panics.
 | coral-reef/src/lib.rs | `#[allow(non_camel_case_types, non_snake_case, dead_code, missing_docs)]` | Broad; consider per-module or per-type overrides |
 | coral-reef/src/codegen/amd/isa_generated/mod.rs | Multiple `#[allow(dead_code)]` | Generated code; acceptable |
 
-### Status (Iter 60)
+### Status (Iter 62)
 
 Two rounds of tightening:
 
@@ -212,10 +212,10 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 60) |
+| Metric | Value (as of Iter 62) |
 |--------|-------|
-| Tests passing | 3062+ default + 48 VFIO |
-| Ignored tests | 102 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 3460+ default + 48 VFIO |
+| Ignored tests | 108 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
 | Production unwraps | 0 |
@@ -231,7 +231,7 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | Clippy warnings | 0 (pedantic + nursery, -D warnings) |
 | Doc warnings | 0 |
 | Region coverage (llvm-cov) | 66.1% (target 90%; was 60.62% Iter 58) |
-| Line coverage (llvm-cov) | 65.8% (target 90%; was 60.16% Iter 58; non-hardware 79.6%) |
+| Line coverage (llvm-cov) | 68.7% (target 90%; Iter 62) |
 | Function coverage | 72.9% (target 90%; was 69.03% Iter 58) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |

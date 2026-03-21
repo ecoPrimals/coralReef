@@ -4,14 +4,17 @@
 //! Unit tests for `coral-gpu`, split by theme (mocks, context, drivers, FMA, PCIe, Linux-only).
 
 mod common;
+mod context_accessors_and_errors;
 mod context_compile;
 mod context_compile_dispatch;
 mod context_from_parts;
 mod driver_errors;
 mod driver_preference;
+mod driver_sm_arch;
 mod error_display;
 mod fma;
 mod hash_wgsl;
+mod kernel_cache_roundtrip;
 mod kernel_metadata_cache;
 #[cfg(target_os = "linux")]
 mod linux;

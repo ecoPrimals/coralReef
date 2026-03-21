@@ -15,6 +15,7 @@ mod socket;
 
 use clap::Parser;
 use config::Config;
+use coral_driver::linux_paths;
 use coral_glowplug::{config, device, ember, health, pci_ids, sysfs};
 use device::DeviceSlot;
 use std::sync::Arc;
@@ -66,8 +67,8 @@ fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
 /// the nvidia module probed any of our managed devices (which corrupts
 /// GV100 hardware state).
 fn validate_boot_safety(config: &Config) {
-    let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "failed to read /proc/cmdline — boot safety checks may be incomplete");
+    let cmdline = std::fs::read_to_string(linux_paths::proc_cmdline()).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to read proc cmdline — boot safety checks may be incomplete");
         String::new()
     });
 
@@ -81,9 +82,9 @@ fn validate_boot_safety(config: &Config) {
         );
     }
 
-    if std::path::Path::new("/sys/module/nvidia").exists() {
+    if std::path::Path::new(&linux_paths::sysfs_module_path("nvidia")).exists() {
         for dev in &config.device {
-            let driver_path = format!("/sys/bus/pci/devices/{}/driver", dev.bdf);
+            let driver_path = linux_paths::sysfs_pci_device_file(&dev.bdf, "driver");
             if let Ok(link) = std::fs::read_link(&driver_path) {
                 let driver_name = link.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if driver_name == "nvidia" {
@@ -98,7 +99,7 @@ fn validate_boot_safety(config: &Config) {
         }
 
         let nvidia_probed_managed = config.device.iter().any(|dev| {
-            let override_path = format!("/sys/bus/pci/devices/{}/driver_override", dev.bdf);
+            let override_path = linux_paths::sysfs_pci_device_file(&dev.bdf, "driver_override");
             let current_override = std::fs::read_to_string(&override_path).unwrap_or_default();
             current_override.trim() != "vfio-pci"
         });
@@ -115,9 +116,9 @@ fn validate_boot_safety(config: &Config) {
 
     let vfio_ids_in_cmdline = cmdline.contains(pci_ids::TITAN_V_VFIO_IDS_CMDLINE)
         || cmdline.contains(pci_ids::TITAN_V_VFIO_IDS_CMDLINE_ALT);
-    let nvidia_loaded = std::path::Path::new("/sys/module/nvidia").exists();
+    let nvidia_loaded = std::path::Path::new(&linux_paths::sysfs_module_path("nvidia")).exists();
     let all_on_vfio = config.device.iter().all(|dev| {
-        let driver_path = format!("/sys/bus/pci/devices/{}/driver", dev.bdf);
+        let driver_path = linux_paths::sysfs_pci_device_file(&dev.bdf, "driver");
         std::fs::read_link(&driver_path)
             .ok()
             .and_then(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -380,21 +381,21 @@ async fn main() {
             tracing::info!("disabling PCI resets and releasing devices");
             for slot in devs.iter_mut() {
                 let _ = sysfs::sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/reset_method", slot.bdf),
+                    &linux_paths::sysfs_pci_device_file(&slot.bdf, "reset_method"),
                     "",
                 );
                 let audio_bdf = format!("{}.1", &slot.bdf[..slot.bdf.len() - 1]);
                 let _ = sysfs::sysfs_write(
-                    &format!("/sys/bus/pci/devices/{audio_bdf}/reset_method"),
+                    &linux_paths::sysfs_pci_device_file(&audio_bdf, "reset_method"),
                     "",
                 );
 
                 let _ = sysfs::sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/power/control", slot.bdf),
+                    &linux_paths::sysfs_pci_device_file(&slot.bdf, "power/control"),
                     "on",
                 );
                 let _ = sysfs::sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/d3cold_allowed", slot.bdf),
+                    &linux_paths::sysfs_pci_device_file(&slot.bdf, "d3cold_allowed"),
                     "0",
                 );
 

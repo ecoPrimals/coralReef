@@ -232,7 +232,7 @@ fn op_imnmx_sm70_and_sm120() {
         srcs: [gpr_src(2), gpr_src(3), Src::new_imm_bool(true)],
     };
     let mut e70 = encoder(70);
-    op.clone().encode(&mut e70);
+    op.encode(&mut e70);
     assert_eq!(opcode(&e70), 0x017);
     assert!(e70.get_bit(73), "signed min/max");
 

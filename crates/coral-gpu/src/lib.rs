@@ -58,5 +58,9 @@ pub use preference::DriverPreference;
 pub use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 pub use coral_reef::{AmdArch, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
+pub use driver::default_nv_sm;
+pub use driver::default_nv_sm_nouveau;
+pub use driver::{DEFAULT_NV_SM, DEFAULT_NV_SM_NOUVEAU};
+
 #[cfg(test)]
 mod tests;

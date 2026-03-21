@@ -796,7 +796,7 @@ mod tests {
 
     #[test]
     fn path_status_methods() {
-        assert!(PathStatus::Untested.is_working() == false);
+        assert!(!PathStatus::Untested.is_working());
         assert!(!PathStatus::Untested.is_error_pattern());
     }
 

@@ -94,6 +94,23 @@ fn op_bfe_imm_range() {
 }
 
 #[test]
+fn op_flo_bnot_on_reg() {
+    let mut e = sm50_encoder();
+    let op = OpFlo {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        src: Src {
+            reference: gpr_src(4).reference,
+            modifier: SrcMod::BNot,
+            swizzle: SrcSwizzle::None,
+        },
+        signed: false,
+        return_shift_amount: false,
+    };
+    op.encode(&mut e);
+    assert!(e.get_bit(40), "bnot");
+}
+
+#[test]
 fn op_flo_src_modes() {
     let mut e = sm50_encoder();
     let op = OpFlo {
@@ -128,6 +145,26 @@ fn op_flo_src_modes() {
     };
     op.encode(&mut e);
     assert_eq!(opcode_hi(&e), 0x4c30);
+}
+
+#[test]
+fn op_iadd2_src1_ineg_bits() {
+    let mut e = sm50_encoder();
+    let op = OpIAdd2 {
+        dsts: [Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)), Dst::None],
+        srcs: [
+            gpr_src(2),
+            Src {
+                reference: gpr_src(3).reference,
+                modifier: SrcMod::INeg,
+                swizzle: SrcSwizzle::None,
+            },
+        ],
+    };
+    op.encode(&mut e);
+    assert_eq!(opcode_hi(&e), 0x5c11, "0x5c10 | src1 ineg bit 48");
+    assert!(e.get_bit(48), "src1 ineg");
+    assert!(!e.get_bit(49), "src0 unmodified");
 }
 
 #[test]
@@ -217,6 +254,43 @@ fn op_imad_reg_reg_reg() {
 }
 
 #[test]
+fn op_imad_src1_imm_and_src2_reg() {
+    let mut e = sm50_encoder();
+    let op = OpIMad {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(2), Src::new_imm_u32(0x10), gpr_src(5)],
+        signed: false,
+    };
+    op.encode(&mut e);
+    assert_eq!(opcode_hi(&e), 0x3400);
+}
+
+#[test]
+fn op_imad_ineg_flags() {
+    let mut e = sm50_encoder();
+    let op = OpIMad {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [
+            gpr_src(2),
+            Src {
+                reference: gpr_src(3).reference,
+                modifier: SrcMod::INeg,
+                swizzle: SrcSwizzle::None,
+            },
+            Src {
+                reference: gpr_src(4).reference,
+                modifier: SrcMod::INeg,
+                swizzle: SrcSwizzle::None,
+            },
+        ],
+        signed: false,
+    };
+    op.encode(&mut e);
+    assert!(e.get_bit(51), "ineg imul (src1 neg)");
+    assert!(e.get_bit(52), "ineg src2");
+}
+
+#[test]
 fn op_imad_src2_cbuf() {
     let mut e = sm50_encoder();
     let op = OpIMad {
@@ -226,6 +300,29 @@ fn op_imad_src2_cbuf() {
     };
     op.encode(&mut e);
     assert_eq!(opcode_hi(&e), 0x5200);
+}
+
+#[test]
+fn op_imul_imm20_path_and_cbuf() {
+    let mut e = sm50_encoder();
+    let op = OpIMul {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(2), Src::new_imm_u32(0x3_ffff)],
+        signed: [true, true],
+        high: false,
+    };
+    op.encode(&mut e);
+    assert_eq!(opcode_hi(&e), 0x3838);
+
+    let mut e = sm50_encoder();
+    let op = OpIMul {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 1, 1)),
+        srcs: [gpr_src(2), cbuf_src(3, 8)],
+        signed: [false, false],
+        high: false,
+    };
+    op.encode(&mut e);
+    assert_eq!(opcode_hi(&e), 0x4c38);
 }
 
 #[test]
@@ -271,6 +368,28 @@ fn op_imnmx_signed_cmp_and_pred() {
     op.encode(&mut e);
     assert_eq!(opcode_hi(&e), 0x5c21, "0x5c20 | signed compare bit 48");
     assert!(e.get_bit(48), "signed compare");
+}
+
+#[test]
+fn op_isetp_int_cmp_false_true() {
+    for (cmp_op, enc) in [(IntCmpOp::False, 0_u64), (IntCmpOp::True, 7)] {
+        let mut e = sm50_encoder();
+        let op = OpISetP {
+            dst: Dst::Reg(RegRef::new(RegFile::Pred, 0, 1)),
+            set_op: PredSetOp::Xor,
+            cmp_op,
+            cmp_type: IntCmpType::U32,
+            ex: false,
+            srcs: [
+                gpr_src(2),
+                gpr_src(3),
+                Src::new_imm_bool(false),
+                Src::new_imm_bool(false),
+            ],
+        };
+        op.encode(&mut e);
+        assert_eq!(e.get_field(49..52), enc, "{cmp_op:?}");
+    }
 }
 
 #[test]

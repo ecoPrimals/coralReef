@@ -58,7 +58,7 @@ impl Bar0Access {
                     offset: 0,
                     detail: format!("cannot parse render node from '{render_node_path}'"),
                 })?;
-        let sysfs_device = format!("/sys/class/drm/{node_name}/device");
+        let sysfs_device = crate::linux_paths::sysfs_class_drm_device(node_name);
         Self::from_sysfs_device(&sysfs_device)
     }
 

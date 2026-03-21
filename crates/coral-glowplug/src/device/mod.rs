@@ -34,10 +34,16 @@ pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     vfio_holder: Option<types::VfioHolder>,
     register_snapshot: BTreeMap<usize, u32>,
     sysfs: S,
+    /// When `Some`, overrides [`Self::has_vfio`] for unit tests (circuit breaker, etc.).
+    #[cfg(test)]
+    test_vfio_override: Option<bool>,
+    /// When `Some`, overrides the GPU quiescence probe in tests (see `device::health`).
+    #[cfg(test)]
+    test_quiescence_override: Option<bool>,
 }
 
 impl<S: SysfsOps> DeviceSlot<S> {
-    /// Construct a slot with an explicit [`SysfsOps`](crate::sysfs_ops::SysfsOps) backend.
+    /// Construct a slot with an explicit [`SysfsOps`] backend.
     pub fn with_sysfs(config: DeviceConfig, ops: S) -> Self {
         let bdf: Arc<str> = Arc::from(config.bdf.as_str());
         let (vendor_id, device_id) = ops.read_pci_ids(&bdf);
@@ -62,12 +68,33 @@ impl<S: SysfsOps> DeviceSlot<S> {
             vfio_holder: None,
             register_snapshot: BTreeMap::new(),
             sysfs: ops,
+            #[cfg(test)]
+            test_vfio_override: None,
+            #[cfg(test)]
+            test_quiescence_override: None,
         }
     }
 
     #[must_use]
-    pub const fn has_vfio(&self) -> bool {
+    pub fn has_vfio(&self) -> bool {
+        #[cfg(test)]
+        if let Some(v) = self.test_vfio_override {
+            return v;
+        }
         self.vfio_holder.is_some()
+    }
+}
+
+#[cfg(test)]
+impl<S: SysfsOps> DeviceSlot<S> {
+    /// Override whether [`Self::has_vfio`] reports true (`None` = use real `vfio_holder`).
+    pub fn test_set_vfio_override(&mut self, vfio: Option<bool>) {
+        self.test_vfio_override = vfio;
+    }
+
+    /// Override quiescence probe (`None` = real BAR0 reads).
+    pub fn test_set_quiescence_override(&mut self, quiescent: Option<bool>) {
+        self.test_quiescence_override = quiescent;
     }
 }
 
@@ -80,6 +107,9 @@ impl DeviceSlot<RealSysfs> {
 
 #[cfg(test)]
 mod coverage_tests;
+
+#[cfg(test)]
+mod health_tests;
 
 #[cfg(test)]
 mod tests;

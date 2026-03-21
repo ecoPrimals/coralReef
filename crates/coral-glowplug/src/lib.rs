@@ -5,7 +5,7 @@
 //!
 //! Re-exports [`DeviceSlot`](device::DeviceSlot), [`Personality`](personality::Personality),
 //! [`DeviceError`](error::DeviceError), [`Config`](config::Config),
-//! [`EmberClient`](ember::EmberClient), [`SysfsOps`](sysfs_ops::SysfsOps),
+//! [`EmberClient`](ember::EmberClient), [`SysfsOps`],
 //! and sysfs helpers for consumption by ecosystem crates.
 
 pub mod config;
@@ -22,3 +22,9 @@ pub use sysfs_ops::{RealSysfs, SysfsOps};
 
 #[cfg(test)]
 pub use sysfs_ops::MockSysfs;
+
+#[doc(hidden)]
+pub use ember::test_support_default_ember_socket;
+
+#[doc(hidden)]
+pub use health::test_support_notify_watchdog;

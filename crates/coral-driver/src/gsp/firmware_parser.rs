@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Parse NVIDIA GR firmware blobs shipped in `/lib/firmware/nvidia/{chip}/gr/`.
+//! Parse NVIDIA GR firmware blobs shipped under `CORALREEF_NVIDIA_FIRMWARE_ROOT` (default
+//! `/lib/firmware/nvidia`), in `{chip}/gr/`.
 //!
 //! These blobs contain the register init sequences that nouveau loads into
 //! the GPU's FECS/GPCCS falcon engines. The key files are:
@@ -15,6 +16,19 @@
 //! where it can accept them.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+fn nvidia_firmware_root() -> String {
+    static ROOT: OnceLock<String> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        std::env::var("CORALREEF_NVIDIA_FIRMWARE_ROOT")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| "/lib/firmware/nvidia".to_string())
+    })
+    .clone()
+}
 
 /// Firmware format variant discovered for a chip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +90,9 @@ impl GrFirmwareBlobs {
     /// # Errors
     /// Returns error if files cannot be read.
     pub fn parse(chip: &str) -> Result<Self, std::io::Error> {
-        let base = PathBuf::from(format!("/lib/firmware/nvidia/{chip}/gr"));
+        let mut base = PathBuf::from(nvidia_firmware_root());
+        base.push(chip);
+        base.push("gr");
         Self::parse_from(&base, chip)
     }
 
@@ -635,7 +651,8 @@ mod tests {
 
     #[test]
     fn parse_all_available_firmware() {
-        let base = std::path::Path::new("/lib/firmware/nvidia");
+        let root = nvidia_firmware_root();
+        let base = std::path::Path::new(&root);
         let Ok(entries) = std::fs::read_dir(base) else {
             eprintln!("No NVIDIA firmware directory");
             return;

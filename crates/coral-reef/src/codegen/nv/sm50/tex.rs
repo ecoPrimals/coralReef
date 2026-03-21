@@ -562,6 +562,21 @@ mod tests {
         assert_eq!(sm50_opcode_clean(&e), 0xdf60);
 
         let (channel_mask, srcs) = base_tex_fields();
+        let op_mb = OpTmml {
+            dsts: [Dst::None, Dst::None],
+            tex: TexRef::Bound(0x12),
+            srcs,
+            dim: TexDim::_2D,
+            deriv_mode: TexDerivMode::Auto,
+            nodep: false,
+            channel_mask,
+        };
+        let mut e = encoder_sm50();
+        op_mb.encode(&mut e);
+        assert_eq!(sm50_opcode_clean(&e), 0xdf58);
+        assert_eq!(e.get_field(36..49), 0x12);
+
+        let (channel_mask, srcs) = base_tex_fields();
         let op_x = OpTxd {
             dsts: [Dst::None, Dst::None, Dst::None],
             tex: TexRef::Bound(0),

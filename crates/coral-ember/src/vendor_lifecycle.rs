@@ -20,6 +20,7 @@
 //!   Stubbed with conservative defaults until empirically validated.
 
 use crate::sysfs;
+use coral_driver::linux_paths;
 use std::fmt;
 
 /// How to transition a device from unbound to a new driver.
@@ -156,7 +157,7 @@ impl VendorLifecycle for AmdVega20Lifecycle {
             bdf,
             "AMD Vega 20: disabling reset_method (prevents D3cold on any transition)"
         );
-        sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "")?;
+        sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
 
         Ok(())
     }
@@ -179,14 +180,17 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
+        let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
         if target_driver == "amdgpu" {
             let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{bdf}/power/autosuspend_delay_ms"),
+                &linux_paths::sysfs_pci_device_file(bdf, "power/autosuspend_delay_ms"),
                 "-1",
             );
-            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
+            let _ = sysfs::sysfs_write(
+                &linux_paths::sysfs_pci_device_file(bdf, "power/control"),
+                "on",
+            );
         }
 
         tracing::info!(
@@ -207,7 +211,7 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         if target_driver == "amdgpu" {
             for attempt in 0..5 {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                let temp_path = format!("/sys/bus/pci/devices/{bdf}/hwmon");
+                let temp_path = linux_paths::sysfs_pci_device_file(bdf, "hwmon");
                 if let Ok(entries) = std::fs::read_dir(&temp_path)
                     && entries
                         .flatten()
@@ -250,7 +254,7 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_bridge_power(bdf);
 
         tracing::info!(bdf, "AMD RDNA: disabling reset_method (conservative)");
-        sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "")?;
+        sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
 
         Ok(())
     }
@@ -270,14 +274,17 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
+        let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
         if target_driver == "amdgpu" {
             let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{bdf}/power/autosuspend_delay_ms"),
+                &linux_paths::sysfs_pci_device_file(bdf, "power/autosuspend_delay_ms"),
                 "-1",
             );
-            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/power/control"), "on");
+            let _ = sysfs::sysfs_write(
+                &linux_paths::sysfs_pci_device_file(bdf, "power/control"),
+                "on",
+            );
         }
     }
 
@@ -406,7 +413,8 @@ impl VendorLifecycle for GenericLifecycle {
                 vendor_id = format!("0x{:04x}", self.vendor_id),
                 "unknown vendor: disabling reset_method as precaution"
             );
-            let _ = sysfs::sysfs_write(&format!("/sys/bus/pci/devices/{bdf}/reset_method"), "");
+            let _ =
+                sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
         }
 
         Ok(())
@@ -451,6 +459,26 @@ fn is_amd_vega20(device_id: u16) -> bool {
     AMD_VEGA20_IDS.contains(&device_id)
 }
 
+/// Build a [`VendorLifecycle`] from PCI config-space IDs (used by [`detect_lifecycle`] and unit tests).
+pub(crate) fn lifecycle_from_pci_ids(vendor_id: u16, device_id: u16) -> Box<dyn VendorLifecycle> {
+    match vendor_id {
+        NVIDIA_VENDOR => Box::new(NvidiaLifecycle { device_id }),
+        AMD_VENDOR => {
+            if is_amd_vega20(device_id) {
+                Box::new(AmdVega20Lifecycle { device_id })
+            } else {
+                Box::new(AmdRdnaLifecycle { device_id })
+            }
+        }
+        INTEL_VENDOR => Box::new(IntelXeLifecycle { device_id }),
+        BRAINCHIP_VENDOR => Box::new(BrainChipLifecycle { device_id }),
+        _ => Box::new(GenericLifecycle {
+            vendor_id,
+            device_id,
+        }),
+    }
+}
+
 /// Auto-detect the appropriate VendorLifecycle for a PCI device.
 pub fn detect_lifecycle(bdf: &str) -> Box<dyn VendorLifecycle> {
     let vendor_id = sysfs::read_pci_id(bdf, "vendor");
@@ -463,40 +491,25 @@ pub fn detect_lifecycle(bdf: &str) -> Box<dyn VendorLifecycle> {
         "detecting vendor lifecycle"
     );
 
+    let lc = lifecycle_from_pci_ids(vendor_id, device_id);
     match vendor_id {
-        NVIDIA_VENDOR => {
-            tracing::info!(bdf, "lifecycle: NVIDIA");
-            Box::new(NvidiaLifecycle { device_id })
-        }
+        NVIDIA_VENDOR => tracing::info!(bdf, "lifecycle: NVIDIA"),
         AMD_VENDOR => {
             if is_amd_vega20(device_id) {
                 tracing::info!(bdf, "lifecycle: AMD Vega 20 (D3cold-sensitive)");
-                Box::new(AmdVega20Lifecycle { device_id })
             } else {
                 tracing::info!(bdf, "lifecycle: AMD RDNA (conservative)");
-                Box::new(AmdRdnaLifecycle { device_id })
             }
         }
-        INTEL_VENDOR => {
-            tracing::info!(bdf, "lifecycle: Intel Xe");
-            Box::new(IntelXeLifecycle { device_id })
-        }
-        BRAINCHIP_VENDOR => {
-            tracing::info!(bdf, "lifecycle: BrainChip Akida");
-            Box::new(BrainChipLifecycle { device_id })
-        }
-        _ => {
-            tracing::warn!(
-                bdf,
-                vendor = format!("0x{vendor_id:04x}"),
-                "lifecycle: unknown vendor, using conservative defaults"
-            );
-            Box::new(GenericLifecycle {
-                vendor_id,
-                device_id,
-            })
-        }
+        INTEL_VENDOR => tracing::info!(bdf, "lifecycle: Intel Xe"),
+        BRAINCHIP_VENDOR => tracing::info!(bdf, "lifecycle: BrainChip Akida"),
+        _ => tracing::warn!(
+            bdf,
+            vendor = format!("0x{vendor_id:04x}"),
+            "lifecycle: unknown vendor, using conservative defaults"
+        ),
     }
+    lc
 }
 
 #[cfg(test)]
@@ -697,5 +710,41 @@ mod tests {
             device_id: 2,
         };
         assert_eq!(lc.rebind_strategy("vfio"), RebindStrategy::SimpleBind);
+    }
+
+    #[test]
+    fn lifecycle_from_pci_ids_matches_each_vendor_arm() {
+        let nvidia = lifecycle_from_pci_ids(0x10de, 0x1d81);
+        assert!(nvidia.description().contains("NVIDIA"));
+
+        let vega = lifecycle_from_pci_ids(0x1002, 0x66a0);
+        assert!(vega.description().contains("Vega 20"));
+
+        let rdna = lifecycle_from_pci_ids(0x1002, 0x73bf);
+        assert!(rdna.description().contains("RDNA"));
+
+        let intel = lifecycle_from_pci_ids(0x8086, 0x56a0);
+        assert!(intel.description().contains("Intel"));
+
+        let akida = lifecycle_from_pci_ids(0x1e7c, 0xbca1);
+        assert!(akida.description().contains("BrainChip"));
+
+        let generic = lifecycle_from_pci_ids(0xabcd, 0x1234);
+        assert!(generic.description().contains("Unknown"));
+    }
+
+    #[test]
+    fn is_amd_vega20_excludes_adjacent_device_ids() {
+        assert!(!is_amd_vega20(0x669f));
+        assert!(!is_amd_vega20(0x66b0));
+    }
+
+    #[test]
+    fn amd_vega20_prepare_for_unbind_errors_on_garbage_bdf() {
+        let lc = AmdVega20Lifecycle { device_id: 0x66a0 };
+        let err = lc
+            .prepare_for_unbind("not-a-bdf", "vfio-pci")
+            .expect_err("reset_method sysfs");
+        assert!(!err.is_empty());
     }
 }

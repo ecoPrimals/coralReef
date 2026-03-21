@@ -34,6 +34,9 @@
 
 pub mod error;
 
+/// Linux sysfs/procfs path roots (`CORALREEF_SYSFS_ROOT`, `CORALREEF_PROC_ROOT`).
+pub mod linux_paths;
+
 #[cfg(target_os = "linux")]
 pub(crate) mod mmio;
 

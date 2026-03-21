@@ -2,7 +2,6 @@
 
 use crate::error::DeviceError;
 use crate::personality::{Personality, PersonalityRegistry};
-use crate::sysfs;
 use crate::sysfs_ops::SysfsOps;
 use std::os::fd::OwnedFd;
 
@@ -114,12 +113,12 @@ impl<S: SysfsOps> DeviceSlot<S> {
                 );
                 if current_driver.is_some() {
                     let _ = self.sysfs.sysfs_write(
-                        &format!("/sys/bus/pci/devices/{}/driver/unbind", self.bdf),
+                        &linux_paths::sysfs_pci_device_file(&self.bdf, "driver/unbind"),
                         &self.bdf,
                     );
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     let _ = self.sysfs.sysfs_write(
-                        &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                        &linux_paths::sysfs_pci_device_file(&self.bdf, "power/control"),
                         "on",
                     );
                 }
@@ -260,17 +259,17 @@ impl<S: SysfsOps> DeviceSlot<S> {
             );
             sysfs::bind_iommu_group_to_vfio(&self.bdf, group_id);
             let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
+                &linux_paths::sysfs_pci_device_file(&self.bdf, "driver_override"),
                 "vfio-pci",
             );
-            let _ = sysfs::sysfs_write("/sys/bus/pci/drivers/vfio-pci/bind", &self.bdf);
+            let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), &self.bdf);
             std::thread::sleep(std::time::Duration::from_millis(500));
             let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                &linux_paths::sysfs_pci_device_file(&self.bdf, "power/control"),
                 "on",
             );
             let _ = sysfs::sysfs_write(
-                &format!("/sys/bus/pci/devices/{}/d3cold_allowed", self.bdf),
+                &linux_paths::sysfs_pci_device_file(&self.bdf, "d3cold_allowed"),
                 "0",
             );
 
@@ -325,16 +324,16 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     "legacy sysfs bind (no-ember mode)"
                 );
                 let _ = self.sysfs.sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/driver_override", self.bdf),
+                    &linux_paths::sysfs_pci_device_file(&self.bdf, "driver_override"),
                     "\n",
                 );
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 let _ = self
                     .sysfs
-                    .sysfs_write(&format!("/sys/bus/pci/drivers/{driver}/bind"), &self.bdf);
+                    .sysfs_write(&linux_paths::sysfs_pci_driver_bind(driver), &self.bdf);
                 std::thread::sleep(std::time::Duration::from_secs(3));
                 let _ = self.sysfs.sysfs_write(
-                    &format!("/sys/bus/pci/devices/{}/power/control", self.bdf),
+                    &linux_paths::sysfs_pci_device_file(&self.bdf, "power/control"),
                     "on",
                 );
             }

@@ -2,6 +2,7 @@
 use std::borrow::Cow;
 
 use crate::error::{DriverError, DriverResult};
+use crate::vfio::channel::registers::pfifo;
 use crate::vfio::device::MappedBar;
 use crate::vfio::dma::DmaBuffer;
 
@@ -60,7 +61,19 @@ impl<'a> ExperimentContext<'a> {
     /// Submit the runlist using GV100 per-runlist registers.
     pub fn submit_runlist(&self) -> DriverResult<()> {
         self.w(self.rl_base_reg, self.rl_base)?;
-        self.w(self.rl_submit_reg, self.rl_submit)
+        self.w(self.rl_submit_reg, self.rl_submit)?;
+
+        // Wait for BIT30 (runlist completion) and ACK it.
+        // Without ACK, the scheduler may stall on subsequent dispatches.
+        for _poll in 0..25 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            let intr = self.r(pfifo::INTR);
+            if intr & pfifo::INTR_RL_COMPLETE != 0 {
+                let _ = self.w(pfifo::INTR, pfifo::INTR_RL_COMPLETE);
+                return Ok(());
+            }
+        }
+        Ok(())
     }
 
     /// Clear all pending PFIFO interrupts and return the value that was cleared.

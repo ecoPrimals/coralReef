@@ -6,6 +6,7 @@
 //! driver bind/unbind, and power state queries.
 
 use crate::pci_ids;
+use coral_driver::linux_paths;
 
 /// Write to a sysfs path using direct filesystem access.
 ///
@@ -26,11 +27,11 @@ pub fn sysfs_write(path: &str, value: &str) -> Result<(), std::io::Error> {
 
 /// Read PCI vendor and device IDs from sysfs.
 pub fn read_pci_ids(bdf: &str) -> (u16, u16) {
-    let vendor = std::fs::read_to_string(format!("/sys/bus/pci/devices/{bdf}/vendor"))
+    let vendor = std::fs::read_to_string(linux_paths::sysfs_pci_device_file(bdf, "vendor"))
         .ok()
         .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
         .unwrap_or(0);
-    let device = std::fs::read_to_string(format!("/sys/bus/pci/devices/{bdf}/device"))
+    let device = std::fs::read_to_string(linux_paths::sysfs_pci_device_file(bdf, "device"))
         .ok()
         .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
         .unwrap_or(0);
@@ -39,7 +40,7 @@ pub fn read_pci_ids(bdf: &str) -> (u16, u16) {
 
 /// Read the IOMMU group number for a PCI device.
 pub fn read_iommu_group(bdf: &str) -> u32 {
-    std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/iommu_group"))
+    std::fs::read_link(linux_paths::sysfs_pci_device_file(bdf, "iommu_group"))
         .ok()
         .and_then(|p| p.file_name()?.to_str()?.parse().ok())
         .unwrap_or(0)
@@ -62,7 +63,7 @@ pub fn identify_chip(vendor: u16, device: u16) -> String {
 
 /// Read the current kernel driver bound to a PCI device.
 pub fn read_current_driver(bdf: &str) -> Option<String> {
-    std::fs::read_link(format!("/sys/bus/pci/devices/{bdf}/driver"))
+    std::fs::read_link(linux_paths::sysfs_pci_device_file(bdf, "driver"))
         .ok()
         .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
 }
@@ -83,7 +84,7 @@ pub fn bind_iommu_group_to_vfio(primary_bdf: &str, group_id: u32) {
 /// Scans `/proc/*/fd` for symlinks pointing to the device's DRM render node.
 /// Returns `true` if any non-self process holds a DRM fd open.
 pub fn has_active_drm_consumers(bdf: &str) -> bool {
-    let drm_dir = format!("/sys/bus/pci/devices/{bdf}/drm");
+    let drm_dir = linux_paths::sysfs_pci_device_file(bdf, "drm");
     let Ok(entries) = std::fs::read_dir(&drm_dir) else {
         return false;
     };
@@ -105,7 +106,7 @@ pub fn has_active_drm_consumers(bdf: &str) -> bool {
     }
 
     let self_pid = std::process::id();
-    let Ok(proc_entries) = std::fs::read_dir("/proc") else {
+    let Ok(proc_entries) = std::fs::read_dir(linux_paths::proc_root()) else {
         return false;
     };
 
@@ -118,7 +119,7 @@ pub fn has_active_drm_consumers(bdf: &str) -> bool {
             continue;
         }
 
-        let fd_dir = format!("/proc/{pid}/fd");
+        let fd_dir = linux_paths::proc_pid_fd_dir(pid);
         let Ok(fds) = std::fs::read_dir(&fd_dir) else {
             continue;
         };
@@ -144,7 +145,7 @@ pub fn has_active_drm_consumers(bdf: &str) -> bool {
 
 /// Find the DRM card device path for a PCI device.
 pub fn find_drm_card(bdf: &str) -> Option<String> {
-    let drm_dir = format!("/sys/bus/pci/devices/{bdf}/drm");
+    let drm_dir = linux_paths::sysfs_pci_device_file(bdf, "drm");
     let entries = std::fs::read_dir(&drm_dir).ok()?;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
@@ -167,7 +168,7 @@ fn power_state_from_sysfs_line(trimmed: &str) -> super::device::PowerState {
 
 /// Read a PCI power state from sysfs.
 pub fn read_power_state(bdf: &str) -> super::device::PowerState {
-    let path = format!("/sys/bus/pci/devices/{bdf}/power_state");
+    let path = linux_paths::sysfs_pci_device_file(bdf, "power_state");
     std::fs::read_to_string(&path).map_or(super::device::PowerState::Unknown, |s| {
         power_state_from_sysfs_line(s.trim())
     })
@@ -175,7 +176,7 @@ pub fn read_power_state(bdf: &str) -> super::device::PowerState {
 
 /// Read PCI link width from sysfs.
 pub fn read_link_width(bdf: &str) -> Option<u8> {
-    let path = format!("/sys/bus/pci/devices/{bdf}/current_link_width");
+    let path = linux_paths::sysfs_pci_device_file(bdf, "current_link_width");
     std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| s.trim().parse().ok())
