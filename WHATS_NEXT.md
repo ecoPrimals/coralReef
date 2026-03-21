@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 20, 2026 (Phase 10 — Iteration 59)
+**Last updated**: March 21, 2026 (Phase 10 — Iteration 60)
 
 ---
 
@@ -81,7 +81,20 @@
 
 ---
 
-## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 59)
+## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 60)
+
+### Iteration 60 — Deep Audit Execution + Code Quality Evolution
+- [x] `unwrap()` → `expect()` with infallibility reasons (coralctl.rs JSON serialization, main.rs JSON serialization)
+- [x] 14+ `#[allow]` → `#[expect]` across 11 files (coral-glowplug, coral-ember, coral-reef, amd-isa-gen templates)
+- [x] Smart refactor: tex.rs 986 → 505 production + 484 tests in tex_tests.rs
+- [x] +20 coral-reef lib tests (Fp64Strategy, prepare_wgsl preambles, strip_enable_directives, emit_binary, compile_wgsl_full, compile_glsl_full, Intel unsupported)
+- [x] +4 coralreef-core tests (shutdown_join_timeout variants, UniBinExit)
+- [x] 8 `// SAFETY:` comments on unsafe blocks in coral-driver (dma.rs, cache_ops.rs, rm_helpers.rs, mmio.rs)
+- [x] 9 `unreachable!()` → `ice!()` migrations in encoder.rs, opt_jump_thread.rs, control.rs (SSA lowering invariant guards)
+- [x] Hardcoding evolution: EmberClient socket path + socket group → env-var-backed with sane defaults
+- [x] amd-isa-gen template evolution: generated ISA code now emits `#[expect]` instead of `#[allow]`
+- [x] Dependency analysis: tarpc 0.37 OpenTelemetry unconditional — documented for upstream tracking
+- [x] Quality gates: fmt ✅, clippy ✅, test ✅ (3062+ pass, 0 fail), doc ✅
 
 ### Iteration 58 — Audit Hardening + Coverage Expansion
 - [x] Full codebase audit: debt, mocks, hardcoding, patterns, standards compliance
@@ -461,7 +474,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-3038+ tests passing, 0 failed, 65.8% line coverage (79.6% non-hardware). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+3062+ tests passing, 0 failed, 65.8% line coverage (79.6% non-hardware). Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.

@@ -410,7 +410,7 @@ pub fn generate_mod_file(
 
     writeln!(
         out,
-        "#[allow(dead_code, missing_docs, reason = \"generated ISA tables from amd-isa-gen\")]"
+        "#[expect(dead_code, missing_docs, reason = \"generated ISA tables from amd-isa-gen\")]"
     )?;
     writeln!(out, "pub mod isa_types;")?;
     writeln!(out)?;
@@ -419,7 +419,7 @@ pub fn generate_mod_file(
         let mod_name = encoding_to_rust_mod(enc_name);
         writeln!(
             out,
-            "#[allow(dead_code, missing_docs, unused_imports, reason = \"generated ISA tables from amd-isa-gen\")]"
+            "#[expect(dead_code, missing_docs, unused_imports, reason = \"generated ISA tables from amd-isa-gen\")]"
         )?;
         writeln!(out, "pub mod {mod_name};")?;
     }

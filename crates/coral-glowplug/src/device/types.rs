@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "internal device state types; glowplug crate docs cover lifecycle semantics."
 )]

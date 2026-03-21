@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 20, Iter 59)  
+**Generated:** March 10, 2026 (metrics updated March 21, Iter 60)  
 **Workspace:** coralReef
 
 ---
@@ -191,18 +191,18 @@ Most are ICE / illegal-path guards in codegen; some are assertion-style panics.
 | coral-reef/src/lib.rs | `#[allow(non_camel_case_types, non_snake_case, dead_code, missing_docs)]` | Broad; consider per-module or per-type overrides |
 | coral-reef/src/codegen/amd/isa_generated/mod.rs | Multiple `#[allow(dead_code)]` | Generated code; acceptable |
 
-### Status (Iter 58)
+### Status (Iter 60)
 
-Reviewed and tightened. 14 `#[allow]` → `#[expect]` conversions across 8 files where the
-lint is guaranteed to fire in all configurations:
+Two rounds of tightening:
 
-- vendor_lifecycle.rs: 6 `dead_code` on reserved device_id fields
-- ember.rs: 2 `dead_code` on JSON-RPC protocol fields
-- types.rs: 3 `cast_possible_truncation` in test-only VFIO struct assertions
-- page_tables.rs: 2 `cast_possible_truncation` in test-only register encoding
-- support.rs: 2 `upper_case_acronyms` + 1 `dead_code` matching proc-macro conventions
-- activate.rs: 1 `unnecessary_wraps` with reason
-- main.rs: 1 `dead_code` on config struct
+**Iter 58**: 14 `#[allow]` → `#[expect]` across 8 files (vendor_lifecycle, ember, types,
+page_tables, support, activate, main.rs).
+
+**Iter 60**: 14+ additional `#[allow]` → `#[expect]` across 11 files:
+- coral-glowplug: personality.rs, error.rs, ember.rs, health.rs, device/mod.rs, device/types.rs, config.rs, device/swap.rs
+- coral-ember: vendor_lifecycle.rs
+- coral-reef: codegen/mod.rs, codegen/lower_f64/mod.rs
+- amd-isa-gen: generate.rs (generated template strings now emit `#[expect]`)
 
 `#[allow]` is retained for configuration-dependent lints (dead_code on pub methods called
 only by tests, unused_imports under feature gates, SysfsIo variant used in tests) that
@@ -212,10 +212,10 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 58) |
+| Metric | Value (as of Iter 60) |
 |--------|-------|
-| Tests passing | 2643 default + 48 VFIO |
-| Ignored tests | 90 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 3062+ default + 48 VFIO |
+| Ignored tests | 102 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
 | Production unwraps | 0 |

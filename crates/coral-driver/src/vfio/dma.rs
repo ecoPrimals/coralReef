@@ -125,6 +125,7 @@ impl DmaBuffer {
                 let _ = ioctl::dma_unmap(container_borrowed, &dma_unmap);
                 if let Err(e2) = ioctl::dma_map(container_borrowed, &dma_map_arg) {
                     tracing::warn!("VFIO DMA map retry failed: {e2}");
+                    // SAFETY: Cleanup — vaddr was allocated via alloc_zeroed and mlock'd above.
                     unsafe {
                         let _ = munlock(vaddr.cast(), aligned_size);
                         std::alloc::dealloc(vaddr, layout);

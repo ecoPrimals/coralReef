@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "DeviceSlot and submodule re-exports are described in this file's module docs; per-field rustdoc deferred."
 )]

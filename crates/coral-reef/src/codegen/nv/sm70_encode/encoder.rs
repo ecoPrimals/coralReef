@@ -91,8 +91,7 @@ impl SM70Encoder<'_> {
             SrcRef::Zero => self.set_reg(range, self.zero_reg(RegFile::GPR)),
             SrcRef::Reg(reg) => self.set_reg(range, reg),
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         }
     }
@@ -103,8 +102,7 @@ impl SM70Encoder<'_> {
             SrcRef::Zero => self.set_ureg(range, self.zero_reg(RegFile::UGPR)),
             SrcRef::Reg(reg) => self.set_ureg(range, reg),
             SrcRef::SSA(_) | SrcRef::True | SrcRef::False | SrcRef::Imm32(_) | SrcRef::CBuf(_) => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         }
     }
@@ -114,8 +112,7 @@ impl SM70Encoder<'_> {
             Dst::None => self.set_pred_reg(range, self.true_reg(RegFile::Pred)),
             Dst::Reg(reg) => self.set_pred_reg(range, *reg),
             Dst::SSA(_) => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         }
     }
@@ -135,8 +132,7 @@ impl SM70Encoder<'_> {
                 (false, reg)
             }
             _ => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         };
         self.set_pred_reg(range, reg);
@@ -161,8 +157,7 @@ impl SM70Encoder<'_> {
                 (false, reg)
             }
             _ => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         };
 
@@ -191,8 +186,7 @@ impl SM70Encoder<'_> {
                 self.set_bit(cx_bit, true);
             }
             CBuf::BindlessSSA(_) => {
-                debug_assert!(false, "SSA values must be lowered before encode");
-                unreachable!("SSA values must be lowered")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         }
     }
@@ -205,8 +199,7 @@ impl SM70Encoder<'_> {
                 PredRef::None => self.true_reg(RegFile::Pred),
                 PredRef::Reg(reg) => reg,
                 PredRef::SSA(_) => {
-                    debug_assert!(false, "SSA values must be lowered before encode");
-                    unreachable!("SSA values must be lowered")
+                    crate::codegen::ice!("SSA values must be lowered to registers before encoding")
                 }
             },
         );
@@ -218,8 +211,7 @@ impl SM70Encoder<'_> {
             Dst::None => self.set_reg(16..24, self.zero_reg(RegFile::GPR)),
             Dst::Reg(reg) => self.set_reg(16..24, *reg),
             Dst::SSA(_) => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         }
     }
@@ -229,8 +221,7 @@ impl SM70Encoder<'_> {
             Dst::None => self.set_ureg(16..24, self.zero_reg(RegFile::UGPR)),
             Dst::Reg(reg) => self.set_ureg(16..24, *reg),
             Dst::SSA(_) => {
-                debug_assert!(false, "Not a register - SSA must be lowered before encode");
-                unreachable!("Not a register")
+                crate::codegen::ice!("SSA values must be lowered to registers before encoding")
             }
         }
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "config schema fields mirror TOML keys; crate-level lib.rs documents the public surface."
 )]

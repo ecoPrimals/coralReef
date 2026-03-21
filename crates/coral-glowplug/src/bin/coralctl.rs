@@ -129,7 +129,8 @@ fn rpc_call(socket_path: &str, method: &str, params: serde_json::Value) -> serde
         "params": params,
     });
 
-    let mut payload = serde_json::to_string(&request).unwrap();
+    let mut payload =
+        serde_json::to_string(&request).expect("JSON Value serialization is infallible");
     payload.push('\n');
 
     if let Err(e) = stream.write_all(payload.as_bytes()) {

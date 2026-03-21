@@ -957,3 +957,40 @@ mod cmd_server_process {
         );
     }
 }
+
+#[test]
+fn shutdown_join_timeout_elapsed_message_contains_duration() {
+    let dur = std::time::Duration::from_millis(500);
+    let msg = shutdown_join_timeout_elapsed_message(dur);
+    assert!(
+        msg.contains("500ms"),
+        "message should contain duration: {msg}"
+    );
+    assert!(
+        msg.contains("shutdown"),
+        "message should mention shutdown: {msg}"
+    );
+}
+
+#[test]
+fn shutdown_join_timeout_with_test_override() {
+    let _guard = TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE.lock().unwrap();
+    *TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE.lock().unwrap() = Some(42);
+    let dur = shutdown_join_timeout();
+    assert_eq!(dur, std::time::Duration::from_millis(42));
+    *TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE.lock().unwrap() = None;
+}
+
+#[test]
+fn shutdown_join_timeout_default_without_override() {
+    *TEST_SHUTDOWN_JOIN_TIMEOUT_MS_OVERRIDE.lock().unwrap() = None;
+    let dur = shutdown_join_timeout();
+    assert_eq!(dur, config::DEFAULT_SHUTDOWN_TIMEOUT);
+}
+
+#[test]
+fn unibin_exit_clone_and_copy() {
+    let a = UniBinExit::Success;
+    let b = a;
+    assert_eq!(a as i32, b as i32);
+}

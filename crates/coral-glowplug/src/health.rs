@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "health_loop signature is covered by module docs; missing_docs kept at crate level."
 )]

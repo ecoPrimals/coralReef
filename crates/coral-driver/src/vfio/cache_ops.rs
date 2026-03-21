@@ -22,6 +22,8 @@
 #[cfg(target_arch = "x86_64")]
 #[inline]
 pub(crate) unsafe fn cache_line_flush(addr: *const u8) {
+    // SAFETY: Caller guarantees `addr` points to valid mapped memory; `_mm_clflush` only
+    // flushes the cache line containing that address.
     unsafe { core::arch::x86_64::_mm_clflush(addr) }
 }
 
@@ -42,6 +44,7 @@ pub(crate) unsafe fn cache_line_flush(_addr: *const u8) {}
 #[cfg(target_arch = "x86_64")]
 #[inline]
 pub fn memory_fence() {
+    // SAFETY: `_mm_mfence` is a full memory barrier with no memory operands; safe on x86_64.
     unsafe { core::arch::x86_64::_mm_mfence() }
 }
 

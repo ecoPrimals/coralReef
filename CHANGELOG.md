@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 59
+**Current status**: Phase 10 — Iteration 60
 
 ---
 
 ## [Unreleased]
+
+### Iteration 60 — Deep Audit Execution + Code Quality Evolution (Mar 21 2026)
+
+- `unwrap()` → `expect()` with infallibility reasons: coralctl.rs JSON serialization, main.rs JSON serialization
+- 14+ `#[allow]` → `#[expect]` tightened across 11 files (coral-glowplug, coral-ember, coral-reef codegen, amd-isa-gen generated templates)
+- Smart refactor: `tex.rs` 986 LOC → 505 production + 484 tests in `tex_tests.rs` via `#[path]` pattern
+- +20 coral-reef lib tests: Fp64Strategy variants, `prepare_wgsl` preamble injection (df64, complex64, f32 transcendental, PRNG, SU3 auto-chaining), `strip_enable_directives`, `emit_binary` NV/AMD, `compile_wgsl_full`, `compile_glsl_full`, `compile_wgsl_raw_sm`, Intel GLSL unsupported
+- +4 coralreef-core tests: `shutdown_join_timeout` (elapsed message, test override, default), `UniBinExit` clone/copy
+- 8 `// SAFETY:` comments added to unsafe blocks in coral-driver (dma.rs, cache_ops.rs, rm_helpers.rs, mmio.rs)
+- 9 `unreachable!()` → `ice!()` migrations in SM70 encoder (set_reg_src, set_ureg_src, set_pred_dst, set_pred_src_file, set_rev_upred_src, set_src_cb, set_pred, set_dst, set_udst), opt_jump_thread (clone_branch ×2), SM70 control (PixVal, src type)
+- Hardcoding evolution: EmberClient socket path → `default_ember_socket()` with `$CORALREEF_EMBER_SOCKET` env override
+- Hardcoding evolution: socket group → `$CORALREEF_SOCKET_GROUP` env override with `"coralreef"` default
+- amd-isa-gen template evolution: generated ISA code emits `#[expect(dead_code, missing_docs)]` instead of `#[allow]`
+- Dependency analysis: tarpc 0.37 OpenTelemetry unconditional — documented for upstream tracking
+- All quality gates green: fmt, clippy (pedantic + nursery), test (3062+), doc, all files <1000 LOC
 
 ### Iteration 59 — Deep Coverage Expansion + Clone Reduction (Mar 20 2026)
 

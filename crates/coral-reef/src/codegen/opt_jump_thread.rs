@@ -14,7 +14,7 @@ fn clone_branch(op: &Op) -> Op {
             Op::Bra(b.clone())
         }
         Op::Exit(e) => Op::Exit(e.clone()),
-        _ => unreachable!(),
+        _ => crate::codegen::ice!("clone_branch: expected Bra or Exit, got unexpected op"),
     }
 }
 
@@ -135,7 +135,7 @@ fn rewrite_cfg(func: &mut Function) {
                     }
                 }
                 Op::Exit(_) => (),
-                _ => unreachable!(),
+                _ => crate::codegen::ice!("CFG branch must be Bra or Exit"),
             }
         }
     }

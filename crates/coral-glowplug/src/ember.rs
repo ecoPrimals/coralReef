@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "SCM_RIGHTS plumbing types mirror libc usage; module-level docs describe behavior."
 )]
@@ -20,7 +20,10 @@ use serde::Deserialize;
 
 use crate::error::EmberError;
 
-const EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
+/// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
+fn default_ember_socket() -> String {
+    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+}
 const MAX_RESPONSE_SIZE: usize = 4096;
 
 /// VFIO fds received from the ember for a single device.
@@ -89,20 +92,20 @@ pub struct EmberClient {
 
 impl EmberClient {
     /// Try to connect to the ember. Returns None if the ember is not running.
+    ///
+    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
     pub fn connect() -> Option<Self> {
-        let path = EMBER_SOCKET;
-        if !std::path::Path::new(path).exists() {
+        let path = default_ember_socket();
+        if !std::path::Path::new(&path).exists() {
             tracing::debug!("ember socket not found at {path}");
             return None;
         }
 
-        match UnixStream::connect(path) {
+        match UnixStream::connect(&path) {
             Ok(stream) => {
                 drop(stream);
-                tracing::info!(path, "ember is available");
-                Some(Self {
-                    socket_path: path.to_string(),
-                })
+                tracing::info!(path = %path, "ember is available");
+                Some(Self { socket_path: path })
             }
             Err(e) => {
                 tracing::debug!(path, error = %e, "ember not reachable");
@@ -138,7 +141,10 @@ impl EmberClient {
     ///
     /// Superseded by `swap_device` for normal swaps; retained for manual
     /// debugging via socat or targeted fd release.
-    #[allow(dead_code, reason = "retained for manual debugging via socat")]
+    #[allow(
+        dead_code,
+        reason = "retained for manual debugging via socat — used via test harness"
+    )]
     pub fn release_device(&self, bdf: &str) -> Result<(), EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
@@ -156,7 +162,10 @@ impl EmberClient {
     ///
     /// Superseded by `swap_device` which handles reacquisition internally;
     /// retained for manual debugging.
-    #[allow(dead_code, reason = "retained for manual debugging via socat")]
+    #[allow(
+        dead_code,
+        reason = "retained for manual debugging via socat — used via test harness"
+    )]
     pub fn reacquire_device(&self, bdf: &str) -> Result<(), EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;

@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 20, 2026  
-**Phase**: 10 — Iteration 59 (Deep Coverage Expansion + Clone Reduction)
+**Last updated**: March 21, 2026  
+**Phase**: 10 — Iteration 60 (Deep Audit Execution + Code Quality Evolution)
 
 ---
 
@@ -21,12 +21,12 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc} |
-| Tests | A+ | 3038+ passing, 0 failed, 65.8% line coverage (79.6% non-hardware), tarpc Unix roundtrip, IPC chaos/fault tests |
+| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60) |
+| Tests | A+ | 3062+ passing, 0 failed, 65.8% line coverage (79.6% non-hardware), tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
-| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()` |
+| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
@@ -40,7 +40,24 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 59** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 60** |
+
+### Iteration 60: Deep Audit Execution + Code Quality Evolution (Mar 21 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `unwrap()` → `expect()` | ✅ | coralctl.rs JSON serialization, main.rs JSON serialization — both with infallibility reason |
+| `#[allow]` → `#[expect]` tightening | ✅ | 14+ attributes across 11 files: coral-glowplug (personality, error, ember, health, device/mod, device/types, config, device/swap), coral-ember (vendor_lifecycle), coral-reef (codegen/mod, lower_f64/mod) |
+| Smart refactor: tex.rs | ✅ | 986 LOC → 505 production + 484 tests in tex_tests.rs via `#[path]` pattern |
+| Coverage expansion: coral-reef lib | ✅ | +20 tests: Fp64Strategy variants, prepare_wgsl preamble injection (df64, complex64, f32 transcendental, PRNG, SU3), strip_enable_directives, emit_binary NV/AMD, compile_wgsl_full, compile_glsl_full, compile_wgsl_raw_sm, Intel GLSL unsupported |
+| Coverage expansion: coralreef-core | ✅ | +4 tests: shutdown_join_timeout (elapsed message, test override, default), UniBinExit clone/copy |
+| `// SAFETY:` documentation | ✅ | 8 unsafe blocks in coral-driver: dma.rs (alloc cleanup), cache_ops.rs (clflush, mfence), rm_helpers.rs (drm_ioctl_named), mmio.rs (4× VolatilePtr::new in tests) |
+| `unreachable!()` → `ice!()` | ✅ | 9 migrations: encoder.rs (set_reg_src, set_ureg_src, set_pred_dst, set_pred_src_file, set_rev_upred_src, set_src_cb, set_pred, set_dst, set_udst), opt_jump_thread.rs (clone_branch ×2), control.rs (PixVal, src type) |
+| Hardcoding evolution: ember socket | ✅ | `EMBER_SOCKET` const → `default_ember_socket()` fn with `$CORALREEF_EMBER_SOCKET` env override |
+| Hardcoding evolution: socket group | ✅ | Hardcoded `"coralreef"` group → `$CORALREEF_SOCKET_GROUP` env override with `"coralreef"` default |
+| amd-isa-gen template evolution | ✅ | Generated ISA code now emits `#[expect(dead_code, missing_docs)]` instead of `#[allow]` |
+| Dependency analysis: tarpc | ✅ | OpenTelemetry unconditional in tarpc 0.37 — cannot trim via features; documented for upstream tracking |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test` ✅ (3062+ pass, 0 fail), `doc` ✅ |
 
 ### Iteration 59: Deep Coverage Expansion + Clone Reduction (Mar 20 2026)
 
@@ -915,7 +932,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3038+ passing, 0 failed, 102 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (3062+ passing, 0 failed, 102 ignored hardware-gated) |
 | `cargo llvm-cov` | 66.1% region / 65.8% line / 72.9% function (79.6% non-hardware) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

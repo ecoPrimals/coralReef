@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "error variants are self-describing in Display/JSON-RPC; exhaustive per-variant docs deferred."
 )]
@@ -38,7 +38,7 @@ pub enum DeviceError {
     #[error("sysfs I/O error at {path}: {source}")]
     #[allow(
         dead_code,
-        reason = "reserved for upcoming sysfs evolution; used in tests"
+        reason = "reserved for upcoming sysfs evolution; used in tests — lint suppressed in test cfgs"
     )]
     SysfsIo {
         path: String,

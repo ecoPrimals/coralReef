@@ -203,7 +203,9 @@ impl SocketServer {
                     std::os::unix::fs::PermissionsExt::from_mode(0o660),
                 );
 
-                set_socket_group(addr, "coralreef");
+                let group =
+                    std::env::var("CORALREEF_SOCKET_GROUP").unwrap_or_else(|_| "coralreef".into());
+                set_socket_group(addr, &group);
 
                 tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
                 Ok(Self {

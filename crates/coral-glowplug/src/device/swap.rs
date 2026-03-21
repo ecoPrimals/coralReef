@@ -148,7 +148,7 @@ impl DeviceSlot {
     /// All sysfs `driver/unbind` operations are delegated to ember via
     /// `swap_device` RPC. This method only drops the dup'd VFIO fds held
     /// locally by glowplug.
-    #[allow(dead_code, reason = "used in tests and available for manual teardown")]
+    #[expect(dead_code, reason = "used in tests and available for manual teardown")]
     pub(super) fn release(&mut self) -> Result<(), DeviceError> {
         if sysfs::has_active_drm_consumers(&self.bdf) {
             tracing::error!(

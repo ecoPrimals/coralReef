@@ -253,7 +253,9 @@ impl SM70Op for OpPixLd {
                 PixVal::InnerCoverage => 4_u8,
                 // Covered and Offset are rejected by legalization
                 PixVal::Covered | PixVal::Offset => {
-                    unreachable!("SM70 legalization rejects PixLd Covered/Offset")
+                    crate::codegen::ice!(
+                        "SM70 legalization should have rejected PixLd Covered/Offset"
+                    )
                 }
             },
         );
@@ -469,7 +471,7 @@ impl SM70Op for OpHmma {
                 FloatType::F16 => 0u8,
                 // FloatType::BF16 => 1u8,
                 // FloatType::TF32 => 2u8,
-                _ => unreachable!("unsupported src type!"),
+                _ => crate::codegen::ice!("HMMA src_type must be F16; unsupported variant reached"),
             },
         );
     }

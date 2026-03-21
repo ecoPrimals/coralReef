@@ -67,6 +67,8 @@ pub(super) unsafe fn nv_rm_ioctl<T>(
     name: &'static str,
     extract_status: impl FnOnce(&T) -> u32,
 ) -> DriverResult<()> {
+    // SAFETY: `fd` and `params` satisfy the invariants documented on this function and match
+    // `drm_ioctl_named`'s requirements for the given `ioctl_nr`.
     let ioctl_result = unsafe { crate::drm::drm_ioctl_named(fd, ioctl_nr, params, name) };
 
     let rm_status = extract_status(params);

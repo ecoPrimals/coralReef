@@ -340,7 +340,7 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
 
     std::fs::write(
         &path,
-        serde_json::to_string_pretty(&discovery).unwrap_or_default(),
+        serde_json::to_string_pretty(&discovery).expect("JSON Value serialization is infallible"),
     )?;
     tracing::info!(path = %path.display(), "wrote discovery file");
     Ok(())

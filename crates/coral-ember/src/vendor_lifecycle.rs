@@ -35,7 +35,7 @@ pub enum RebindStrategy {
 
     /// Go straight to PCI remove + bus rescan, skipping simple bind entirely.
     /// WARNING: does NOT work for AMD Vega 20 — bridge powers off slot on remove.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "valid rebind strategy for future vendor lifecycle profiles (e.g. Intel Xe FLR)"
     )]

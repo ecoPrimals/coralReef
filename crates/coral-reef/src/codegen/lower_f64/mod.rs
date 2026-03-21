@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
-#![allow(
+#![expect(
     clippy::redundant_clone,
     reason = "f64 lowering follows uniform Src/SSA builder patterns; clippy flags clones that match upstream style and keep ref usage consistent."
 )]

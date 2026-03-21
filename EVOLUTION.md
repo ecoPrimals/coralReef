@@ -2,7 +2,7 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 20, 2026 (Phase 10 — Iteration 59)
+**Last updated**: March 21, 2026 (Phase 10 — Iteration 60)
 **Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
 
 ---
@@ -11,7 +11,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-3038+ tests (102 ignored), 65.8% line coverage (79.6% non-hardware),
+3062+ tests (102 ignored), 65.8% line coverage (79.6% non-hardware),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -442,14 +442,15 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 51 | Deep audit compliance: wateringHole IPC health methods, socket path standard, config self-knowledge, zero-copy transport, coral-gpu smart refactor (977→65 LOC), SAFETY documentation, genomeBin manifest, E2E IPC test, clippy pedantic | **2157** (2157 passing, 89 ignored), 57.71% coverage |
 | 10 iter 57 | Deep Debt Evolution + All-Silicon Pipeline: specs v0.6.0, socket.rs 1488→556 LOC, GP_PUT cache flush H1 (**proven insufficient** — cold silicon, not cache coherency), GlowPlug `device.lend`/`device.reclaim` VFIO broker (10x stress validated), `VfioLease` RAII harness, 35 VFIO HW tests passing, 9 hot-swap tests, or_exit()/Result evolution, VolatilePtr consolidation, AMD GFX906, Intel Dg2/XeLpg, pci_ids/chip_name(), coverage expansion, Clippy clean. **Handoff to hotSpring**: GPU init via `device.resurrect` → dispatch | **2560** (2560 passing, 90 ignored), 59.92% coverage |
 | 10 iter 58 | Audit Hardening + Coverage: full codebase audit, `#[forbid(unsafe_code)]` on ember+glowplug, libc eliminated from direct deps, hardcoded paths → env vars, 14 `#[allow]`→`#[expect]`, tarpc Unix roundtrip tests (80→95% coverage), vendor_lifecycle tests, IPC error path tests, debris cleanup | **2680+** (90 ignored), 60.16% coverage |
-| 10 iter 59 (current) | Deep Coverage + Clone Reduction: +358 encoder tests (tex/mem/control/int/f64/f16 across SM20–SM70), glowplug socket+personality, unix_jsonrpc advanced, lower_f64/naga_translate clone reduction, panic→ice evolution, file splits | **3038+** (102 ignored), 65.8% line / 79.6% non-hw |
+| 10 iter 59 | Deep Coverage + Clone Reduction: +358 encoder tests (tex/mem/control/int/f64/f16 across SM20–SM70), glowplug socket+personality, unix_jsonrpc advanced, lower_f64/naga_translate clone reduction, panic→ice evolution, file splits | **3038+** (102 ignored), 65.8% line / 79.6% non-hw |
+| 10 iter 60 (current) | Deep Audit Execution + Code Quality: unwrap→expect, 14+ #[allow]→#[expect] across 11 files, tex.rs smart refactor (986→505+484), +24 tests (lib preambles/emit/compile, main shutdown_timeout), 8 SAFETY comments on unsafe, 9 unreachable→ice in encoder, hardcoding evolution (ember socket + socket group → env vars), amd-isa-gen template evolution | **3062+** (102 ignored), 65.8% line / 79.6% non-hw |
 | 10 iter 52 | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 59: 3038+ tests passing, 102 ignored. 65.8% line coverage (79.6% non-hardware).
+Iteration 60: 3062+ tests passing, 102 ignored. 65.8% line coverage (79.6% non-hardware).
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).

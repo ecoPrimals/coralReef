@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(
+#![expect(
     missing_docs,
     reason = "PersonalityTrait implementations are numerous; trait and registry docs are the primary reference."
 )]
