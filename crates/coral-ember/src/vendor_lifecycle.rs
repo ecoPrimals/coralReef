@@ -8,8 +8,10 @@
 //!
 //! The key insight from empirical testing:
 //!
-//! - **NVIDIA GV100 (Volta)**: Bus reset is safe. HBM2 state persists.
-//!   Simple unbind/bind round-trips work.
+//! - **NVIDIA GV100 (Volta)**: Bus reset **destroys HBM2 training state**
+//!   (VRAM reads return `0xbad0acXX`, memory fabric dead, PBDMA cannot DMA).
+//!   The `reset_method` must be cleared before vfio-pci unbind/bind to
+//!   preserve HBM2 across driver transitions.
 //!
 //! - **AMD Vega 20 (GFX906)**: Bus reset triggers D3cold, killing SMU
 //!   firmware state. The reset_method must be disabled before vfio-pci
@@ -84,7 +86,7 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
 // NVIDIA lifecycle (Volta, Turing, Ampere, Ada)
 // ---------------------------------------------------------------------------
 
-/// NVIDIA GPUs — bus reset treated as safe; conservative power pinning.
+/// NVIDIA GPUs — bus reset kills HBM2 training; `reset_method` must be disabled.
 #[derive(Debug)]
 pub struct NvidiaLifecycle {
     /// PCI device ID from config space.
@@ -97,11 +99,21 @@ pub struct NvidiaLifecycle {
 
 impl VendorLifecycle for NvidiaLifecycle {
     fn description(&self) -> &str {
-        "NVIDIA (bus reset safe, HBM2 state preserved)"
+        "NVIDIA (bus reset kills HBM2 — reset_method disabled)"
     }
 
     fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
         sysfs::pin_power(bdf);
+
+        tracing::info!(
+            bdf,
+            "NVIDIA: disabling reset_method (bus reset destroys HBM2 training)"
+        );
+        sysfs::sysfs_write_direct(
+            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+            "",
+        )?;
+
         Ok(())
     }
 
@@ -118,6 +130,11 @@ impl VendorLifecycle for NvidiaLifecycle {
 
     fn stabilize_after_bind(&self, bdf: &str, _target_driver: &str) {
         sysfs::pin_power(bdf);
+
+        let _ = sysfs::sysfs_write_direct(
+            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+            "",
+        );
     }
 
     fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
@@ -578,6 +595,25 @@ mod tests {
     fn nvidia_description() {
         let lc = NvidiaLifecycle { device_id: 0x1D81 };
         assert!(lc.description().contains("NVIDIA"));
+        assert!(
+            lc.description().contains("reset_method"),
+            "description should mention reset_method is disabled"
+        );
+    }
+
+    #[test]
+    fn nvidia_prepare_for_unbind_clears_reset_method() {
+        let lc = NvidiaLifecycle { device_id: 0x1d81 };
+        let err = lc
+            .prepare_for_unbind("not-a-bdf", "nouveau")
+            .expect_err("should fail on fake BDF (sysfs path absent)");
+        assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn nvidia_stabilize_after_bind_clears_reset_method_best_effort() {
+        let lc = NvidiaLifecycle { device_id: 0x1d81 };
+        lc.stabilize_after_bind("9999:99:99.9", "vfio-pci");
     }
 
     #[test]

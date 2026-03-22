@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! JSON-RPC 2.0 IPC handler and SCM_RIGHTS fd passing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd};
@@ -99,6 +99,25 @@ fn write_jsonrpc_error(
         .map_err(|e| format!("write: {e}"))
 }
 
+/// Reject a BDF that is not in the managed set from `glowplug.toml`.
+fn require_managed_bdf(
+    bdf: &str,
+    managed: &HashSet<String>,
+    stream: &UnixStream,
+    id: serde_json::Value,
+) -> Result<(), Result<(), String>> {
+    if managed.contains(bdf) {
+        return Ok(());
+    }
+    tracing::warn!(bdf, "BDF not in managed allowlist — rejecting RPC");
+    let msg = format!(
+        "BDF {bdf} is not managed by ember (not listed in glowplug.toml). \
+         Only configured devices are accepted."
+    );
+    write_jsonrpc_error(stream, id, -32001, &msg).map_err(Err)?;
+    Err(Ok(()))
+}
+
 /// Handle one JSON-RPC request on `stream` (read one line, dispatch, write response).
 ///
 /// For `ember.vfio_fds`, sends the JSON line first, then passes fds via `SCM_RIGHTS`.
@@ -110,6 +129,7 @@ fn write_jsonrpc_error(
 pub fn handle_client(
     stream: &UnixStream,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    managed_bdfs: &HashSet<String>,
     started_at: std::time::Instant,
 ) -> Result<(), String> {
     stream
@@ -157,6 +177,10 @@ pub fn handle_client(
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
+            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
+                Ok(()) => {}
+                Err(early) => return early,
+            }
             let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
             let dev = match map.get(bdf) {
                 Some(d) => d,
@@ -210,6 +234,10 @@ pub fn handle_client(
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
+            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
+                Ok(()) => {}
+                Err(early) => return early,
+            }
             let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
             match map.remove(bdf) {
                 Some(device) => {
@@ -234,6 +262,10 @@ pub fn handle_client(
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
+            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
+                Ok(()) => {}
+                Err(early) => return early,
+            }
             if sysfs::is_d3cold(bdf) {
                 write_jsonrpc_error(
                     stream,
@@ -284,6 +316,10 @@ pub fn handle_client(
                 .get("target")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'target' parameter")?;
+            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
+                Ok(()) => {}
+                Err(early) => return early,
+            }
             if sysfs::is_d3cold(bdf) {
                 write_jsonrpc_error(
                     stream,
@@ -365,6 +401,13 @@ mod tests {
         Arc::new(RwLock::new(HashMap::new()))
     }
 
+    fn managed(bdfs: &[&str]) -> HashSet<String> {
+        bdfs.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    const TEST_BDF: &str = "0000:01:00.0";
+    const BOGUS_BDF: &str = "9999:99:99.9";
+
     fn drain_json_line(stream: &mut UnixStream) -> serde_json::Value {
         let mut buf = Vec::new();
         let mut byte = [0u8; 1];
@@ -384,7 +427,8 @@ mod tests {
         let (a, b) = UnixStream::pair().unwrap();
         drop(b);
         let held = empty_held();
-        handle_client(&a, &held, Instant::now()).unwrap();
+        let m = managed(&[]);
+        handle_client(&a, &held, &m, Instant::now()).unwrap();
         drop(a);
     }
 
@@ -394,7 +438,8 @@ mod tests {
         let (server, mut client) = UnixStream::pair().unwrap();
         client.write_all(b"not json\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32700);
     }
@@ -407,7 +452,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32600);
     }
@@ -420,7 +466,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["result"]["devices"], serde_json::json!([]));
     }
@@ -434,7 +481,8 @@ mod tests {
         client.write_all(b"\n").unwrap();
         let started = Instant::now() - Duration::from_secs(10);
         let held = empty_held();
-        handle_client(&server, &held, started).unwrap();
+        let m = managed(&[]);
+        handle_client(&server, &held, &m, started).unwrap();
         let v = drain_json_line(&mut client);
         let uptime = v["result"]["uptime_secs"].as_u64().unwrap();
         assert!(uptime >= 10);
@@ -448,7 +496,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32601);
     }
@@ -462,7 +511,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[TEST_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
     }
@@ -475,7 +525,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        let err = handle_client(&server, &held, Instant::now()).unwrap_err();
+        let m = managed(&[]);
+        let err = handle_client(&server, &held, &m, Instant::now()).unwrap_err();
         assert!(err.contains("bdf"));
     }
 
@@ -488,7 +539,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[TEST_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
     }
@@ -502,7 +554,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        let err = handle_client(&server, &held, Instant::now()).unwrap_err();
+        let m = managed(&[TEST_BDF]);
+        let err = handle_client(&server, &held, &m, Instant::now()).unwrap_err();
         assert!(err.contains("target"));
     }
 
@@ -514,7 +567,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[BOGUS_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
         let msg = v["error"]["message"].as_str().unwrap();
@@ -529,7 +583,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[BOGUS_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["result"]["personality"], "unbound");
         assert_eq!(v["id"], serde_json::json!(42));
@@ -541,7 +596,8 @@ mod tests {
         let (server, mut client) = UnixStream::pair().unwrap();
         client.write_all(&[0xff, 0xfe, b'\n']).unwrap();
         let held = empty_held();
-        let err = handle_client(&server, &held, Instant::now()).unwrap_err();
+        let m = managed(&[]);
+        let err = handle_client(&server, &held, &m, Instant::now()).unwrap_err();
         assert!(err.contains("utf8"), "{err}");
     }
 
@@ -563,11 +619,45 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let held = empty_held();
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[BOGUS_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
         let msg = v["error"]["message"].as_str().unwrap();
-        assert!(msg.contains("unknown target"));
+        assert!(
+            msg.contains("preflight") || msg.contains("unknown target"),
+            "expected preflight or unknown target error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn handle_client_swap_rejects_unmanaged_bdf() {
+        let _guard = IPC_TEST_LOCK.lock().unwrap();
+        let (server, mut client) = UnixStream::pair().unwrap();
+        let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"0000:ff:00.0","target":"vfio"},"id":99}"#;
+        client.write_all(req.as_bytes()).unwrap();
+        client.write_all(b"\n").unwrap();
+        let held = empty_held();
+        let m = managed(&[TEST_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
+        let v = drain_json_line(&mut client);
+        assert_eq!(v["error"]["code"].as_i64().unwrap(), -32001);
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(msg.contains("not managed"), "{msg}");
+    }
+
+    #[test]
+    fn handle_client_reacquire_rejects_unmanaged_bdf() {
+        let _guard = IPC_TEST_LOCK.lock().unwrap();
+        let (server, mut client) = UnixStream::pair().unwrap();
+        let req = r#"{"jsonrpc":"2.0","method":"ember.reacquire","params":{"bdf":"0000:ff:00.0"},"id":100}"#;
+        client.write_all(req.as_bytes()).unwrap();
+        client.write_all(b"\n").unwrap();
+        let held = empty_held();
+        let m = managed(&[TEST_BDF]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
+        let v = drain_json_line(&mut client);
+        assert_eq!(v["error"]["code"].as_i64().unwrap(), -32001);
     }
 
     #[test]
@@ -598,8 +688,9 @@ mod tests {
         client.write_all(b"\n").unwrap();
         let device = coral_driver::vfio::VfioDevice::open(&bdf).unwrap();
         let mut map = HashMap::new();
-        map.insert(bdf.clone(), crate::hold::HeldDevice { bdf, device });
+        map.insert(bdf.clone(), crate::hold::HeldDevice { bdf: bdf.clone(), device });
         let held = Arc::new(RwLock::new(map));
-        handle_client(&server, &held, Instant::now()).unwrap();
+        let m = managed(&[&bdf]);
+        handle_client(&server, &held, &m, Instant::now()).unwrap();
     }
 }

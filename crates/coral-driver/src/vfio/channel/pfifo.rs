@@ -37,6 +37,28 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         )));
     }
 
+    // Clear any stale PRIV_RING faults before touching engine registers.
+    // After driver swap (nouveau → vfio), the PRI bus may be in a faulted
+    // state where all subsequent register accesses timeout.
+    {
+        let priv_intr = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
+        if priv_intr != 0 {
+            w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let pmc_intr = bar0.read_u32(pri::PMC_INTR).unwrap_or(0);
+        if pmc_intr & pri::PMC_INTR_PRIV_RING_BIT != 0 {
+            w(pri::PMC_INTR, pri::PMC_INTR_PRIV_RING_BIT)?;
+        }
+        let priv_after = bar0.read_u32(misc::PRIV_RING).unwrap_or(0);
+        tracing::info!(
+            priv_before = format_args!("{priv_intr:#010x}"),
+            priv_after = format_args!("{priv_after:#010x}"),
+            pmc_intr = format_args!("{pmc_intr:#010x}"),
+            "PRIV_RING fault clear"
+        );
+    }
+
     // Glow plug — enable all engines in PMC.
     let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
     w(pmc::ENABLE, 0xFFFF_FFFF)?;
@@ -49,23 +71,34 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         "PMC glow plug"
     );
 
-    // Initialize PFIFO.
-    let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
-    if pfifo_en == 0 || pfifo_en == 0xBAD0_DA00 {
-        w(pfifo::ENABLE, 0)?;
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        w(pfifo::ENABLE, 1)?;
+    // Reset PFIFO engine via PMC: clear bit 1, wait, then set bit 1.
+    // On Volta+, PFIFO requires a PMC engine reset cycle to accept ENABLE writes.
+    // Writing PFIFO_ENABLE directly doesn't work when the engine is in a stale state.
+    {
+        let pmc_cur = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
+        w(pmc::ENABLE, pmc_cur & !2)?; // Clear PFIFO bit (bit 1)
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        w(pmc::ENABLE, pmc_cur | 2)?; // Set PFIFO bit
         std::thread::sleep(std::time::Duration::from_millis(50));
+        let readback = bar0.read_u32(pmc::ENABLE).unwrap_or(0xDEAD);
         tracing::debug!(
-            pfifo_en = format_args!("{pfifo_en:#010x}"),
-            "PFIFO was disabled, toggled 0→1"
-        );
-    } else {
-        tracing::debug!(
-            pfifo_en = format_args!("{pfifo_en:#010x}"),
-            "PFIFO already enabled"
+            readback = format_args!("{readback:#010x}"),
+            "PMC PFIFO reset cycle"
         );
     }
+
+    // Initialize PFIFO.
+    let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
+    w(pfifo::ENABLE, 0)?;
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    w(pfifo::ENABLE, 1)?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+    tracing::debug!(
+        pfifo_en = format_args!("{pfifo_en:#010x}"),
+        readback = format_args!("{readback:#010x}"),
+        "PFIFO toggled 0→1"
+    );
 
     // Discover PBDMAs and their runlist assignments.
     let pbdma_map = bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
@@ -133,10 +166,25 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         w(b + 0x164, 0xFFFF_FFFF)?;
     }
 
+    {
+        let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+        tracing::debug!(pfifo_en = format_args!("{ck:#010x}"), "after PBDMA init");
+    }
+
     // Clear + enable PFIFO interrupts and scheduler.
     w(pfifo::INTR, 0xFFFF_FFFF)?;
     w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
     w(pfifo::SCHED_EN, 1)?;
+
+    {
+        let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+        let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0xDEAD);
+        tracing::debug!(
+            pfifo_en = format_args!("{ck:#010x}"),
+            intr = format_args!("{intr:#010x}"),
+            "after scheduler enable"
+        );
+    }
 
     // GV100 per-runlist registers at stride 0x10 — flush with count=0.
     let mut flushed_runlists = std::collections::HashSet::new();

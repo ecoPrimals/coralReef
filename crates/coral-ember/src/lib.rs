@@ -19,7 +19,7 @@ mod swap;
 mod sysfs;
 pub(crate) mod vendor_lifecycle;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::net::UnixListener;
 use std::sync::{Arc, RwLock};
 
@@ -231,6 +231,9 @@ pub fn run() -> Result<(), i32> {
     }
 
     let held: Arc<RwLock<HashMap<String, HeldDevice>>> = Arc::new(RwLock::new(held_init));
+    let managed_bdfs: Arc<HashSet<String>> = Arc::new(
+        config.device.iter().map(|d| d.bdf.clone()).collect(),
+    );
 
     let socket_path = ember_socket_path();
 
@@ -273,8 +276,9 @@ pub fn run() -> Result<(), i32> {
         match stream {
             Ok(stream) => {
                 let held = Arc::clone(&held);
+                let managed = Arc::clone(&managed_bdfs);
                 std::thread::spawn(move || {
-                    if let Err(e) = ipc::handle_client(&stream, &held, started_at) {
+                    if let Err(e) = ipc::handle_client(&stream, &held, &managed, started_at) {
                         tracing::warn!(error = %e, "client handler error");
                     }
                 });

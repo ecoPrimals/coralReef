@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::MockSysfs;
 use crate::config::DeviceConfig;
+use crate::ember::EmberClient;
 use crate::error::DeviceError;
 use crate::pci_ids::{AMD_VENDOR_ID, BRAINCHIP_VENDOR_ID, NVIDIA_VENDOR_ID};
 
@@ -154,6 +155,7 @@ fn resurrect_hbm2_unknown_vendor_returns_driver_bind() {
 
 #[test]
 fn resurrect_hbm2_amd_vendor_requires_ember() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:4b:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -176,6 +178,7 @@ fn resurrect_hbm2_amd_vendor_requires_ember() {
 
 #[test]
 fn resurrect_hbm2_nvidia_vendor_non_nvidia_driver_still_needs_ember() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:4c:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);

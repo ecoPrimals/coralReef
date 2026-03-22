@@ -9,6 +9,10 @@
 //!   status        List all managed devices
 //!   swap          Hot-swap a device to a new driver personality
 //!   health        Query device health registers
+//!   probe         Dump all BAR0 registers for a device
+//!   vram-probe    Check HBM2/VRAM accessibility via PRAMIN
+//!   mmio          Read or write a single BAR0 register
+//!   snapshot      Save or diff register snapshots
 //!   deploy-udev   Generate /dev/vfio/* udev rules from glowplug.toml
 #![forbid(unsafe_code)]
 
@@ -68,6 +72,30 @@ enum Command {
     /// Query health registers for all managed devices.
     Health,
 
+    /// Dump all BAR0 registers for a device (comprehensive register probe).
+    Probe {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+    },
+
+    /// Check HBM2/VRAM accessibility via the PRAMIN window.
+    VramProbe {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+    },
+
+    /// Read or write a single BAR0 register.
+    Mmio {
+        #[command(subcommand)]
+        action: MmioAction,
+    },
+
+    /// Save or diff register snapshots.
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotAction,
+    },
+
     /// Generate udev rules for /dev/vfio/* from glowplug.toml.
     DeployUdev {
         #[arg(short, long)]
@@ -81,6 +109,55 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum MmioAction {
+    /// Read a single BAR0 register.
+    Read {
+        /// PCI BDF address.
+        bdf: String,
+        /// Register offset (hex: 0x1234 or decimal).
+        offset: String,
+    },
+    /// Write a single BAR0 register.
+    Write {
+        /// PCI BDF address.
+        bdf: String,
+        /// Register offset (hex: 0x1234 or decimal).
+        offset: String,
+        /// Value to write (hex: 0xDEADBEEF or decimal).
+        value: String,
+        /// Allow writes to dangerous registers (e.g. PMC_ENABLE).
+        #[arg(long)]
+        allow_dangerous: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SnapshotAction {
+    /// Save a register snapshot to a JSON file.
+    Save {
+        /// PCI BDF address.
+        bdf: String,
+        /// Output file path (default: <BDF>_snapshot_<timestamp>.json).
+        file: Option<String>,
+    },
+    /// Compare current registers against a saved snapshot.
+    Diff {
+        /// PCI BDF address.
+        bdf: String,
+        /// Path to a previously saved snapshot JSON file.
+        file: String,
+    },
+}
+
+fn parse_hex_or_dec(s: &str) -> Result<u64, String> {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).map_err(|e| format!("invalid hex '{s}': {e}"))
+    } else {
+        s.parse::<u64>().map_err(|e| format!("invalid number '{s}': {e}"))
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -88,6 +165,46 @@ fn main() {
         Command::Status => rpc_status(&cli.socket),
         Command::Swap { bdf, target } => rpc_swap(&cli.socket, &bdf, &target),
         Command::Health => rpc_health(&cli.socket),
+        Command::Probe { bdf } => rpc_probe(&cli.socket, &bdf),
+        Command::VramProbe { bdf } => rpc_vram_probe(&cli.socket, &bdf),
+        Command::Mmio { action } => match action {
+            MmioAction::Read { bdf, offset } => {
+                let off = match parse_hex_or_dec(&offset) {
+                    Ok(v) => v as usize,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                rpc_mmio_read(&cli.socket, &bdf, off);
+            }
+            MmioAction::Write {
+                bdf,
+                offset,
+                value,
+                allow_dangerous,
+            } => {
+                let off = match parse_hex_or_dec(&offset) {
+                    Ok(v) => v as usize,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                let val = match parse_hex_or_dec(&value) {
+                    Ok(v) => v as u32,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                rpc_mmio_write(&cli.socket, &bdf, off, val, allow_dangerous);
+            }
+        },
+        Command::Snapshot { action } => match action {
+            SnapshotAction::Save { bdf, file } => rpc_snapshot_save(&cli.socket, &bdf, file),
+            SnapshotAction::Diff { bdf, file } => rpc_snapshot_diff(&cli.socket, &bdf, &file),
+        },
         Command::DeployUdev {
             config: config_path,
             output,
@@ -298,6 +415,329 @@ fn rpc_health(socket: &str) {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic subcommand implementations
+// ---------------------------------------------------------------------------
+
+fn rpc_probe(socket: &str, bdf: &str) {
+    let response = rpc_call(
+        socket,
+        "device.register_dump",
+        serde_json::json!({ "bdf": bdf }),
+    );
+    check_rpc_error(&response);
+
+    let result = match response.get("result") {
+        Some(r) => r,
+        None => {
+            eprintln!("error: no result in response");
+            std::process::exit(1);
+        }
+    };
+
+    let regs = result
+        .get("registers")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let count = result
+        .get("register_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    println!("=== Register Probe: {bdf} ({count} registers) ===");
+    for reg in &regs {
+        let offset = reg
+            .get("offset")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let value = reg.get("value").and_then(|v| v.as_str()).unwrap_or("?");
+        println!("  {offset} = {value}");
+    }
+}
+
+fn rpc_vram_probe(socket: &str, bdf: &str) {
+    println!("=== VRAM Probe: {bdf} ===");
+
+    let regions: &[(u64, &str)] = &[
+        (0x0000, "VRAM base"),
+        (0x0100, "VRAM +0x100"),
+        (0x1_0000, "VRAM +64K"),
+    ];
+
+    let mut alive = true;
+    for &(offset, label) in regions {
+        let response = rpc_call(
+            socket,
+            "device.pramin_read",
+            serde_json::json!({
+                "bdf": bdf,
+                "vram_offset": offset,
+                "count": 8,
+            }),
+        );
+        check_rpc_error(&response);
+
+        let result = response.get("result").unwrap_or(&serde_json::Value::Null);
+        let values: Vec<u32> = result
+            .get("values")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u32))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let bad_count = values
+            .iter()
+            .filter(|&&v| (v >> 16) == 0xBAD0 || v == 0xDEAD_DEAD || v == 0xFFFF_FFFF)
+            .count();
+
+        if bad_count > values.len() / 2 {
+            alive = false;
+            print!("  {label} ({offset:#06x}): DEAD");
+        } else {
+            print!("  {label} ({offset:#06x}): ok  ");
+        }
+        for (i, val) in values.iter().enumerate() {
+            if i < 4 {
+                print!(" {val:#010x}");
+            }
+        }
+        println!();
+    }
+
+    // Write-readback test at VRAM +0x100
+    let test_val: u64 = 0xDEAD_BEEF;
+    let read_before = rpc_call(
+        socket,
+        "device.pramin_read",
+        serde_json::json!({ "bdf": bdf, "vram_offset": 0x100_u64, "count": 1 }),
+    );
+    check_rpc_error(&read_before);
+    let before_val = read_before
+        .get("result")
+        .and_then(|r| r.get("values"))
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let write_resp = rpc_call(
+        socket,
+        "device.pramin_write",
+        serde_json::json!({ "bdf": bdf, "vram_offset": 0x100_u64, "values": [test_val] }),
+    );
+    check_rpc_error(&write_resp);
+
+    let read_after = rpc_call(
+        socket,
+        "device.pramin_read",
+        serde_json::json!({ "bdf": bdf, "vram_offset": 0x100_u64, "count": 1 }),
+    );
+    check_rpc_error(&read_after);
+    let after_val = read_after
+        .get("result")
+        .and_then(|r| r.get("values"))
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let readback_ok = after_val == test_val as u32;
+    println!(
+        "\n  Write-readback: before={before_val:#010x} wrote={test_val:#010x} read={after_val:#010x} {}",
+        if readback_ok { "OK" } else { "FAILED" }
+    );
+    if !readback_ok {
+        alive = false;
+    }
+
+    let status = if alive { "ALIVE" } else { "DEAD (0xbad0acXX)" };
+    println!("\n=== HBM2: {status} ===");
+}
+
+fn rpc_mmio_read(socket: &str, bdf: &str, offset: usize) {
+    let response = rpc_call(
+        socket,
+        "device.register_dump",
+        serde_json::json!({ "bdf": bdf, "offsets": [offset] }),
+    );
+    check_rpc_error(&response);
+
+    let result = response.get("result").unwrap_or(&serde_json::Value::Null);
+    let regs = result
+        .get("registers")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if let Some(reg) = regs.first() {
+        let off_str = reg
+            .get("offset")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let val_str = reg.get("value").and_then(|v| v.as_str()).unwrap_or("?");
+        println!("{off_str} = {val_str}");
+    } else {
+        eprintln!("error: no value returned for offset {offset:#010x}");
+        std::process::exit(1);
+    }
+}
+
+fn rpc_mmio_write(socket: &str, bdf: &str, offset: usize, value: u32, allow_dangerous: bool) {
+    let response = rpc_call(
+        socket,
+        "device.write_register",
+        serde_json::json!({
+            "bdf": bdf,
+            "offset": offset,
+            "value": value as u64,
+            "allow_dangerous": allow_dangerous,
+        }),
+    );
+    check_rpc_error(&response);
+    println!(
+        "{:#010x} <- {:#010x}  ok",
+        offset, value
+    );
+}
+
+fn rpc_snapshot_save(socket: &str, bdf: &str, file: Option<String>) {
+    let response = rpc_call(
+        socket,
+        "device.register_dump",
+        serde_json::json!({ "bdf": bdf }),
+    );
+    check_rpc_error(&response);
+
+    let result = match response.get("result") {
+        Some(r) => r,
+        None => {
+            eprintln!("error: no result in response");
+            std::process::exit(1);
+        }
+    };
+
+    let filename = file.unwrap_or_else(|| {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let safe_bdf = bdf.replace(':', "-");
+        format!("{safe_bdf}_snapshot_{ts}.json")
+    });
+
+    let snapshot = serde_json::json!({
+        "bdf": bdf,
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        "registers": result.get("registers"),
+    });
+
+    let json = serde_json::to_string_pretty(&snapshot).expect("serialization");
+    match std::fs::write(&filename, &json) {
+        Ok(()) => {
+            let count = result
+                .get("register_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            println!("saved {count} registers to {filename}");
+        }
+        Err(e) => {
+            eprintln!("error: failed to write {filename}: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn rpc_snapshot_diff(socket: &str, bdf: &str, file: &str) {
+    let saved_json = match std::fs::read_to_string(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: failed to read {file}: {e}");
+            std::process::exit(1);
+        }
+    };
+    let saved: serde_json::Value = match serde_json::from_str(&saved_json) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: invalid JSON in {file}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let saved_regs = saved
+        .get("registers")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let offsets: Vec<u64> = saved_regs
+        .iter()
+        .filter_map(|r| r.get("raw_offset").and_then(|v| v.as_u64()))
+        .collect();
+
+    let response = rpc_call(
+        socket,
+        "device.register_dump",
+        serde_json::json!({ "bdf": bdf, "offsets": offsets }),
+    );
+    check_rpc_error(&response);
+
+    let current_regs = response
+        .get("result")
+        .and_then(|r| r.get("registers"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let current_map: std::collections::HashMap<u64, u64> = current_regs
+        .iter()
+        .filter_map(|r| {
+            let off = r.get("raw_offset").and_then(|v| v.as_u64())?;
+            let val = r.get("raw_value").and_then(|v| v.as_u64())?;
+            Some((off, val))
+        })
+        .collect();
+
+    let mut changed = 0;
+    let mut total = 0;
+    println!("=== Snapshot Diff: {bdf} vs {file} ===");
+    println!(
+        "{:<14} {:<14} {:<14} {}",
+        "OFFSET", "SAVED", "CURRENT", "STATUS"
+    );
+    println!("{}", "-".repeat(56));
+
+    for reg in &saved_regs {
+        let off = match reg.get("raw_offset").and_then(|v| v.as_u64()) {
+            Some(o) => o,
+            None => continue,
+        };
+        let saved_val = reg.get("raw_value").and_then(|v| v.as_u64()).unwrap_or(0);
+        let current_val = current_map.get(&off).copied().unwrap_or(0xDEAD_DEAD);
+
+        total += 1;
+        let status = if saved_val == current_val {
+            "="
+        } else {
+            changed += 1;
+            "CHANGED"
+        };
+        if saved_val != current_val {
+            println!(
+                "{:#012x}   {:#012x}   {:#012x}   {status}",
+                off, saved_val, current_val
+            );
+        }
+    }
+    println!("\n{changed}/{total} registers changed");
 }
 
 // ---------------------------------------------------------------------------
@@ -514,5 +954,131 @@ bdf = "0000:ff:00.0"
         assert!(dry_run);
         assert_eq!(group, "coralreef");
         assert_eq!(config.as_deref(), Some(path_str));
+    }
+
+    #[test]
+    fn cli_parses_probe_subcommand() {
+        let cli =
+            Cli::try_parse_from(["coralctl", "probe", "0000:03:00.0"]).expect("parse probe");
+        let Command::Probe { bdf } = cli.command else {
+            panic!("expected Probe");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+    }
+
+    #[test]
+    fn cli_parses_vram_probe_subcommand() {
+        let cli = Cli::try_parse_from(["coralctl", "vram-probe", "0000:4b:00.0"])
+            .expect("parse vram-probe");
+        let Command::VramProbe { bdf } = cli.command else {
+            panic!("expected VramProbe");
+        };
+        assert_eq!(bdf, "0000:4b:00.0");
+    }
+
+    #[test]
+    fn cli_parses_mmio_read_subcommand() {
+        let cli = Cli::try_parse_from(["coralctl", "mmio", "read", "0000:03:00.0", "0x200"])
+            .expect("parse mmio read");
+        let Command::Mmio {
+            action: MmioAction::Read { bdf, offset },
+        } = cli.command
+        else {
+            panic!("expected Mmio Read");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+        assert_eq!(offset, "0x200");
+    }
+
+    #[test]
+    fn cli_parses_mmio_write_with_dangerous_flag() {
+        let cli = Cli::try_parse_from([
+            "coralctl",
+            "mmio",
+            "write",
+            "0000:03:00.0",
+            "0x200",
+            "0xFFFFFFFF",
+            "--allow-dangerous",
+        ])
+        .expect("parse mmio write");
+        let Command::Mmio {
+            action:
+                MmioAction::Write {
+                    bdf,
+                    offset,
+                    value,
+                    allow_dangerous,
+                },
+        } = cli.command
+        else {
+            panic!("expected Mmio Write");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+        assert_eq!(offset, "0x200");
+        assert_eq!(value, "0xFFFFFFFF");
+        assert!(allow_dangerous);
+    }
+
+    #[test]
+    fn cli_parses_snapshot_save_subcommand() {
+        let cli = Cli::try_parse_from([
+            "coralctl",
+            "snapshot",
+            "save",
+            "0000:03:00.0",
+            "out.json",
+        ])
+        .expect("parse snapshot save");
+        let Command::Snapshot {
+            action: SnapshotAction::Save { bdf, file },
+        } = cli.command
+        else {
+            panic!("expected Snapshot Save");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+        assert_eq!(file.as_deref(), Some("out.json"));
+    }
+
+    #[test]
+    fn cli_parses_snapshot_diff_subcommand() {
+        let cli = Cli::try_parse_from([
+            "coralctl",
+            "snapshot",
+            "diff",
+            "0000:03:00.0",
+            "saved.json",
+        ])
+        .expect("parse snapshot diff");
+        let Command::Snapshot {
+            action: SnapshotAction::Diff { bdf, file },
+        } = cli.command
+        else {
+            panic!("expected Snapshot Diff");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+        assert_eq!(file, "saved.json");
+    }
+
+    #[test]
+    fn parse_hex_or_dec_works() {
+        assert_eq!(parse_hex_or_dec("0x200").unwrap(), 0x200);
+        assert_eq!(parse_hex_or_dec("0XDEAD").unwrap(), 0xDEAD);
+        assert_eq!(parse_hex_or_dec("512").unwrap(), 512);
+        assert!(parse_hex_or_dec("garbage").is_err());
+    }
+
+    #[test]
+    fn snapshot_save_default_file_omits_optional() {
+        let cli = Cli::try_parse_from(["coralctl", "snapshot", "save", "0000:03:00.0"])
+            .expect("parse snapshot save no file");
+        let Command::Snapshot {
+            action: SnapshotAction::Save { bdf, file },
+        } = cli.command
+        else {
+            panic!("expected Snapshot Save");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+        assert!(file.is_none());
     }
 }

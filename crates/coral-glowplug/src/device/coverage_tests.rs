@@ -13,6 +13,8 @@ use std::sync::atomic::Ordering;
 use super::DeviceSlot;
 use super::PowerState;
 
+use crate::ember::EmberClient;
+
 fn base_config(bdf: &str, boot: &str) -> DeviceConfig {
     DeviceConfig {
         bdf: bdf.into(),
@@ -148,6 +150,7 @@ fn activate_akida_pcie_no_rebind_sets_akida() {
 
 #[test]
 fn activate_vfio_skip_rebind_still_requires_ember_for_bind_vfio() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:17:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -164,6 +167,7 @@ fn activate_vfio_skip_rebind_still_requires_ember_for_bind_vfio() {
 
 #[test]
 fn activate_needs_rebind_without_ember_errors_driver_bind() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:18:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -216,6 +220,7 @@ fn sysfs_mock_bind_iommu_increments_counter() {
 
 #[test]
 fn swap_ember_unavailable_all_targets_fail() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:20:00.0";
     let targets = [
         "nouveau",
@@ -246,6 +251,7 @@ fn swap_ember_unavailable_all_targets_fail() {
 
 #[test]
 fn swap_unknown_personality_returns_error() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:21:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -262,6 +268,7 @@ fn swap_unknown_personality_returns_error() {
 
 #[test]
 fn swap_refuses_nvidia_when_sysfs_reports_nvidia() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:22:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -307,6 +314,7 @@ fn activate_from_ember_invalid_fds_does_not_apply_vfio_personality() {
 
 #[test]
 fn swap_vfio_pci_alias_requires_ember_like_vfio() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:25:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -334,6 +342,7 @@ fn reclaim_rejects_non_vfio_personality() {
 
 #[test]
 fn reclaim_vfio_without_holder_fails_without_ember() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:28:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);

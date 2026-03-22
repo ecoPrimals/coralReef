@@ -275,7 +275,7 @@ pub(super) fn populate_runlist(
     write_u32_le(
         rl,
         0x18,
-        (instance_iova as u32 & 0xFFFF_F000) | (TARGET_SYS_MEM_NONCOHERENT << 20) | channel_id,
+        (instance_iova as u32 & 0xFFFF_F000) | (TARGET_SYS_MEM_COHERENT << 20) | channel_id,
     );
     write_u32_le(rl, 0x1C, (instance_iova >> 32) as u32);
 }

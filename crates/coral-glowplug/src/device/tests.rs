@@ -2,6 +2,7 @@
 
 use crate::MockSysfs;
 use crate::config::DeviceConfig;
+use crate::ember::EmberClient;
 use crate::error::DeviceError;
 use crate::personality::Personality;
 use std::sync::Arc;
@@ -140,6 +141,7 @@ fn test_power_state_equality() {
 
 #[test]
 fn test_activate_nonexistent_bdf_with_drm_check_does_not_panic() {
+    let _guard = EmberClient::disable_for_test();
     let config = DeviceConfig {
         bdf: "0000:ff:00.0".into(),
         name: None,
@@ -149,10 +151,7 @@ fn test_activate_nonexistent_bdf_with_drm_check_does_not_panic() {
         oracle_dump: None,
     };
     let mut slot = DeviceSlot::new(config);
-    // activate on a nonexistent device won't have DRM consumers,
-    // so it should proceed (and fail at the bind stage, not the guard)
     let result = slot.activate();
-    // Either succeeds (unlikely) or fails at bind — but must NOT panic
     drop(result);
 }
 
@@ -177,6 +176,7 @@ fn test_release_nonexistent_bdf_does_not_panic() {
 
 #[test]
 fn test_swap_nonexistent_bdf_does_not_panic() {
+    let _guard = EmberClient::disable_for_test();
     let config = DeviceConfig {
         bdf: "0000:ff:00.0".into(),
         name: None,
@@ -419,6 +419,7 @@ fn mock_check_health_refreshes_power_and_link_from_sysfs_ops() {
 
 #[test]
 fn mock_swap_refuses_when_nvidia_driver_reported() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:03:00.0";
     let config = DeviceConfig {
         bdf: bdf.into(),
@@ -475,6 +476,7 @@ fn mock_snapshot_registers_no_vfio_leaves_empty_snapshot() {
 
 #[test]
 fn resurrect_hbm2_amd_warm_driver_is_amdgpu_without_ember() {
+    let _guard = EmberClient::disable_for_test();
     let bdf = "0000:52:00.0";
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);

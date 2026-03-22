@@ -44,6 +44,189 @@ impl<S: SysfsOps> DeviceSlot<S> {
         result
     }
 
+    /// Write a single BAR0 register via the VFIO holder.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeviceError::VfioOpen` if no VFIO holder is active.
+    /// Refuses writes to `PMC_ENABLE` (0x200) unless `allow_dangerous` is set.
+    pub fn write_register(
+        &self,
+        offset: usize,
+        value: u32,
+        allow_dangerous: bool,
+    ) -> Result<(), DeviceError> {
+        const PMC_ENABLE: usize = 0x00_0200;
+        if offset == PMC_ENABLE && !allow_dangerous {
+            return Err(DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "write to PMC_ENABLE (0x200) blocked — set allow_dangerous to override"
+                    .into(),
+            });
+        }
+        let holder = self.vfio_holder.as_ref().ok_or_else(|| DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: "no VFIO holder — register writes require VFIO personality".into(),
+        })?;
+        holder
+            .bar0
+            .write_u32(offset, value)
+            .map_err(|e| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: format!("BAR0 write at {offset:#010x}: {e}"),
+            })
+    }
+
+    /// Read a contiguous range of BAR0 registers.
+    ///
+    /// Returns up to `count` u32 values starting at `offset` (4-byte aligned).
+    /// Stops early if an offset falls outside the BAR0 mapping.
+    #[must_use]
+    pub fn read_bar0_range(&self, offset: usize, count: usize) -> Vec<u32> {
+        let count = count.min(4096);
+        let Some(holder) = &self.vfio_holder else {
+            return Vec::new();
+        };
+        let mut values = Vec::with_capacity(count);
+        for i in 0..count {
+            match holder.bar0.read_u32(offset + i * 4) {
+                Ok(val) => values.push(val),
+                Err(_) => break,
+            }
+        }
+        values
+    }
+
+    /// Write-readback test on VRAM via the PRAMIN window.
+    ///
+    /// Writes a canary value to a scratch VRAM location, reads it back, and
+    /// restores the original value. Returns `true` only if the readback matches.
+    /// This catches the post-cold-boot false positive where VRAM contains stale
+    /// data that passes the `is_faulted_read` check despite HBM2 not being trained.
+    fn pramin_write_readback(holder: &VfioHolder) -> bool {
+        const BAR0_WINDOW: usize = 0x0000_1700;
+        const PRAMIN_BASE: usize = 0x0070_0000;
+        const TEST_OFFSET: usize = PRAMIN_BASE + 0x100;
+        const CANARY: u32 = 0xC0A1_BEEF;
+
+        let Ok(()) = holder.bar0.write_u32(BAR0_WINDOW, 0) else {
+            return false;
+        };
+
+        let original = holder.bar0.read_u32(TEST_OFFSET).unwrap_or(0xDEAD_DEAD);
+        if is_faulted_read(original) {
+            return false;
+        }
+
+        if holder.bar0.write_u32(TEST_OFFSET, CANARY).is_err() {
+            return false;
+        }
+
+        let readback = holder.bar0.read_u32(TEST_OFFSET).unwrap_or(0);
+        let _ = holder.bar0.write_u32(TEST_OFFSET, original);
+
+        readback == CANARY
+    }
+
+    /// Read VRAM through the PRAMIN window (BAR0 + 0x700000).
+    ///
+    /// Sets the BAR0_WINDOW register (0x1700) to target the requested VRAM
+    /// region, reads `count` u32 values, then restores the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeviceError::VfioOpen` if no VFIO holder is active.
+    pub fn pramin_read(&self, vram_offset: u64, count: usize) -> Result<Vec<u32>, DeviceError> {
+        const BAR0_WINDOW: usize = 0x0000_1700;
+        const PRAMIN_BASE: usize = 0x0070_0000;
+        const PRAMIN_SIZE: usize = 0x0001_0000;
+
+        let count = count.min(4096);
+        let holder = self.vfio_holder.as_ref().ok_or_else(|| DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: "no VFIO holder — PRAMIN access requires VFIO personality".into(),
+        })?;
+
+        let saved_window = holder.bar0.read_u32(BAR0_WINDOW).unwrap_or(0);
+        let window_base = (vram_offset >> 16) as u32;
+        let local_offset = (vram_offset & 0xFFFF) as usize;
+
+        let mut values = Vec::with_capacity(count);
+        let mut current_window = u32::MAX;
+
+        for i in 0..count {
+            let byte_off = local_offset + i * 4;
+            let needed_window = window_base + (byte_off / PRAMIN_SIZE) as u32;
+            let pramin_off = PRAMIN_BASE + (byte_off % PRAMIN_SIZE);
+
+            if needed_window != current_window {
+                holder.bar0.write_u32(BAR0_WINDOW, needed_window).map_err(|e| {
+                    DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("BAR0_WINDOW write: {e}"),
+                    }
+                })?;
+                current_window = needed_window;
+            }
+
+            match holder.bar0.read_u32(pramin_off) {
+                Ok(val) => values.push(val),
+                Err(_) => break,
+            }
+        }
+
+        let _ = holder.bar0.write_u32(BAR0_WINDOW, saved_window);
+        Ok(values)
+    }
+
+    /// Write VRAM through the PRAMIN window (BAR0 + 0x700000).
+    ///
+    /// Sets the BAR0_WINDOW register (0x1700) to target the requested VRAM
+    /// region, writes the provided values, then restores the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeviceError::VfioOpen` if no VFIO holder is active.
+    pub fn pramin_write(&self, vram_offset: u64, values: &[u32]) -> Result<(), DeviceError> {
+        const BAR0_WINDOW: usize = 0x0000_1700;
+        const PRAMIN_BASE: usize = 0x0070_0000;
+        const PRAMIN_SIZE: usize = 0x0001_0000;
+
+        let holder = self.vfio_holder.as_ref().ok_or_else(|| DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: "no VFIO holder — PRAMIN access requires VFIO personality".into(),
+        })?;
+
+        let saved_window = holder.bar0.read_u32(BAR0_WINDOW).unwrap_or(0);
+        let window_base = (vram_offset >> 16) as u32;
+        let local_offset = (vram_offset & 0xFFFF) as usize;
+        let mut current_window = u32::MAX;
+
+        for (i, &val) in values.iter().enumerate() {
+            let byte_off = local_offset + i * 4;
+            let needed_window = window_base + (byte_off / PRAMIN_SIZE) as u32;
+            let pramin_off = PRAMIN_BASE + (byte_off % PRAMIN_SIZE);
+
+            if needed_window != current_window {
+                holder.bar0.write_u32(BAR0_WINDOW, needed_window).map_err(|e| {
+                    DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("BAR0_WINDOW write: {e}"),
+                    }
+                })?;
+                current_window = needed_window;
+            }
+
+            holder.bar0.write_u32(pramin_off, val).map_err(|e| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: format!("PRAMIN write at vram {:#010x}: {e}", vram_offset + (i * 4) as u64),
+            })?;
+        }
+
+        let _ = holder.bar0.write_u32(BAR0_WINDOW, saved_window);
+        Ok(())
+    }
+
     /// Returns the most recent register snapshot taken during state preservation.
     #[must_use]
     pub fn last_snapshot(&self) -> &BTreeMap<usize, u32> {
@@ -108,8 +291,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
         self.health.boot0 = r(0x00_0000);
         self.health.pmc_enable = r(0x00_0200);
 
-        let pramin_val = r(0x70_0000);
-        self.health.vram_alive = !is_faulted_read(pramin_val);
+        self.health.vram_alive = Self::pramin_write_readback(holder);
 
         let domains: &[(usize, &str)] = &[
             (0x00_0200, "PMC"),

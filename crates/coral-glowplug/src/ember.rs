@@ -82,11 +82,31 @@ pub struct EmberClient {
     socket_path: String,
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static EMBER_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl EmberClient {
+    /// Disable ember connections for the current thread (test isolation).
+    ///
+    /// Returns a guard that re-enables on drop.
+    #[cfg(test)]
+    pub fn disable_for_test() -> EmberTestGuard {
+        EMBER_DISABLED.with(|c| c.set(true));
+        EmberTestGuard(())
+    }
+
     /// Try to connect to the ember. Returns None if the ember is not running.
     ///
     /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
     pub fn connect() -> Option<Self> {
+        #[cfg(test)]
+        if EMBER_DISABLED.with(|c| c.get()) {
+            tracing::debug!("ember disabled for test");
+            return None;
+        }
+
         let path = default_ember_socket();
         if !std::path::Path::new(&path).exists() {
             tracing::debug!("ember socket not found at {path}");
@@ -370,6 +390,17 @@ fn read_full_response(stream: &UnixStream, buf: &mut [u8]) -> std::io::Result<us
         ));
     }
     Ok(total)
+}
+
+/// RAII guard that re-enables ember connections when dropped.
+#[cfg(test)]
+pub struct EmberTestGuard(());
+
+#[cfg(test)]
+impl Drop for EmberTestGuard {
+    fn drop(&mut self) {
+        EMBER_DISABLED.with(|c| c.set(false));
+    }
 }
 
 #[cfg(test)]

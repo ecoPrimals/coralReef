@@ -17,6 +17,10 @@
 //! | `device.swap`      | Hot-swap driver personality                 |
 //! | `device.health`    | Query device health registers               |
 //! | `device.resurrect` | Attempt HBM2 resurrection via nouveau       |
+//! | `device.write_register` | Write a single BAR0 register            |
+//! | `device.read_bar0_range` | Read contiguous BAR0 register range    |
+//! | `device.pramin_read` | Read VRAM via PRAMIN window                |
+//! | `device.pramin_write` | Write VRAM via PRAMIN window              |
 //! | `device.lend`      | Lend VFIO fd to an external consumer        |
 //! | `device.reclaim`   | Reclaim a previously lent VFIO fd           |
 //! | `health.check`     | Daemon health check                         |
@@ -501,6 +505,145 @@ fn dispatch(
                 serde_json::json!({"bdf": bdf, "register_count": entries.len(), "registers": entries}),
             )
         }
+        "device.write_register" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(bdf)?;
+            let offset = params
+                .get("offset")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'offset' parameter"))?
+                as usize;
+            let value = params
+                .get("value")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'value' parameter"))?
+                as u32;
+            let allow_dangerous = params
+                .get("allow_dangerous")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf),
+                })
+                .map_err(RpcError::from)?;
+            slot.write_register(offset, value, allow_dangerous)
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "offset": format!("{offset:#010x}"),
+                "value": format!("{value:#010x}"),
+            }))
+        }
+        "device.read_bar0_range" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(bdf)?;
+            let offset = params
+                .get("offset")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'offset' parameter"))?
+                as usize;
+            let count = params
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'count' parameter"))?
+                as usize;
+            if count > 4096 {
+                return Err(RpcError::invalid_params("count exceeds 4096 maximum"));
+            }
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf),
+                })
+                .map_err(RpcError::from)?;
+            let values = slot.read_bar0_range(offset, count);
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "offset": format!("{offset:#010x}"),
+                "count": values.len(),
+                "values": values,
+            }))
+        }
+        "device.pramin_read" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(bdf)?;
+            let vram_offset = params
+                .get("vram_offset")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'vram_offset' parameter"))?;
+            let count = params
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'count' parameter"))?
+                as usize;
+            if count > 4096 {
+                return Err(RpcError::invalid_params("count exceeds 4096 maximum"));
+            }
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf),
+                })
+                .map_err(RpcError::from)?;
+            let values = slot
+                .pramin_read(vram_offset, count)
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "vram_offset": format!("{vram_offset:#010x}"),
+                "count": values.len(),
+                "values": values,
+            }))
+        }
+        "device.pramin_write" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(bdf)?;
+            let vram_offset = params
+                .get("vram_offset")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| RpcError::invalid_params("missing 'vram_offset' parameter"))?;
+            let values: Vec<u32> = params
+                .get("values")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| RpcError::invalid_params("missing 'values' array parameter"))?
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u32))
+                .collect();
+            if values.len() > 4096 {
+                return Err(RpcError::invalid_params("values array exceeds 4096 maximum"));
+            }
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf),
+                })
+                .map_err(RpcError::from)?;
+            slot.pramin_write(vram_offset, &values)
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "vram_offset": format!("{vram_offset:#010x}"),
+                "count": values.len(),
+            }))
+        }
         "device.lend" => {
             let raw_bdf = params
                 .get("bdf")
@@ -679,7 +822,12 @@ where
                     )
                 } else if matches!(
                     req.method.as_str(),
-                    "device.swap" | "device.resurrect" | "device.lend" | "device.reclaim"
+                    "device.swap"
+                        | "device.resurrect"
+                        | "device.lend"
+                        | "device.reclaim"
+                        | "device.write_register"
+                        | "device.pramin_write"
                 ) {
                     let result = {
                         let mut devs = devices.lock().await;

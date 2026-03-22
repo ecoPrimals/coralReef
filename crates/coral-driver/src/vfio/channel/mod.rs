@@ -18,6 +18,7 @@
 pub mod devinit;
 pub mod glowplug;
 pub mod hbm2_training;
+pub mod nouveau_oracle;
 pub mod oracle;
 pub mod pri_monitor;
 pub mod registers;
@@ -101,8 +102,36 @@ impl VfioChannel {
             runlist_id: 0,
         };
 
+        let pfifo_ck = |bar0: &MappedBar, label: &str| {
+            let en = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0xDEAD);
+            let intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0xDEAD);
+            tracing::debug!(en = format_args!("{en:#010x}"), intr = format_args!("{intr:#010x}"), "{label}");
+            if en == 0 && intr != 0xDEAD {
+                tracing::warn!(intr = format_args!("{intr:#010x}"), "PFIFO disabled at {label}");
+            }
+        };
+
         let (runq, runlist_id) = pfifo::init_pfifo_engine(bar0)?;
         chan.runlist_id = runlist_id;
+        pfifo_ck(bar0, "after-pfifo-init");
+
+        // Configure BAR2 in PHYSICAL mode targeting system memory.
+        // The VRAM-based BAR2 setup (VIRTUAL mode) fails on cold VFIO cards
+        // because VRAM is not initialized. PHYSICAL mode bypasses page tables
+        // and gives PFIFO a direct path to system memory via PCIe+IOMMU.
+        {
+            let bar2_val: u32 = 2 << 28; // target=COH, mode=PHYSICAL, ptr=0
+            bar0.write_u32(registers::misc::PBUS_BAR2_BLOCK, bar2_val)
+                .map_err(|e| DriverError::SubmitFailed(
+                    Cow::Owned(format!("BAR2_BLOCK: {e}"))
+                ))?;
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            tracing::info!(
+                bar2_block = format_args!("{bar2_val:#010x}"),
+                "BAR2 set to PHYSICAL mode (SYS_MEM_COH)"
+            );
+        }
+        pfifo_ck(bar0, "after-bar2-setup");
 
         page_tables::populate_page_tables(
             chan.pd3.as_mut_slice(),
@@ -126,19 +155,31 @@ impl VfioChannel {
             runq,
         );
 
+        Self::invalidate_tlb(bar0, PD3_IOVA)?;
+        pfifo_ck(bar0, "after-tlb-invalidate");
+
         // Clear stale PCCSR state from prior driver (nouveau residue).
         let stale = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
         if stale != 0 {
             Self::clear_stale_pccsr(bar0, channel_id, stale)?;
         }
+        pfifo_ck(bar0, "after-clear-pccsr");
 
         chan.bind_channel(bar0)?;
+        pfifo_ck(bar0, "after-bind-channel");
+
         std::thread::sleep(std::time::Duration::from_millis(5));
         chan.clear_channel_faults(bar0)?;
+        pfifo_ck(bar0, "after-clear-faults");
+
         chan.enable_channel(bar0)?;
+        pfifo_ck(bar0, "after-enable-channel");
+
         chan.submit_runlist(bar0)?;
+        pfifo_ck(bar0, "after-submit-runlist");
 
         std::thread::sleep(std::time::Duration::from_millis(50));
+        pfifo_ck(bar0, "after-50ms-settle");
         pfifo::log_pfifo_diagnostics(bar0);
 
         tracing::info!(
@@ -162,6 +203,48 @@ impl VfioChannel {
     #[must_use]
     pub const fn doorbell_offset() -> usize {
         usermode::NOTIFY_CHANNEL_PENDING
+    }
+
+    /// Invalidate the GPU MMU TLB for our page directory base.
+    ///
+    /// Matches nouveau's `gf100_vmm_invalidate`: write the PDB address to
+    /// `MMU_INVALIDATE_PDB`, then trigger with `PAGE_ALL | HUB_ONLY`.
+    /// For system memory targets, PDB addr uses the IOVA with target=SYS_COH.
+    fn invalidate_tlb(bar0: &MappedBar, pd3_iova: u64) -> DriverResult<()> {
+        use registers::pfb;
+
+        // Wait for flush slot availability.
+        for _ in 0..200 {
+            let ctrl = bar0.read_u32(pfb::MMU_CTRL).unwrap_or(0);
+            if ctrl & 0x00FF_0000 != 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+
+        // PDB address for invalidation: (iova >> 12) << 4 | target.
+        // target=2 (SYS_MEM_COH) to match our page table aperture.
+        let pdb_inv = ((pd3_iova >> 12) << 4) | 2; // SYS_MEM_COH target
+        bar0.write_u32(pfb::MMU_INVALIDATE_PDB, pdb_inv as u32)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB: {e}"))))?;
+        bar0.write_u32(pfb::MMU_INVALIDATE_PDB_HI, (pd3_iova >> 32) as u32)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB_HI: {e}"))))?;
+
+        // Trigger: PAGE_ALL (bit 0) | HUB_ONLY (bit 2) | trigger (bit 31).
+        bar0.write_u32(pfb::MMU_INVALIDATE, 0x8000_0005)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE trigger: {e}"))))?;
+
+        // Wait for flush acknowledgement.
+        for _ in 0..200 {
+            let ctrl = bar0.read_u32(pfb::MMU_CTRL).unwrap_or(0);
+            if ctrl & 0x0000_8000 != 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+
+        tracing::info!(pd3_iova = format_args!("{pd3_iova:#x}"), "GPU MMU TLB invalidated");
+        Ok(())
     }
 
     /// Clear stale PCCSR state inherited from a previous driver.
@@ -193,7 +276,13 @@ impl VfioChannel {
             clippy::cast_possible_truncation,
             reason = "INSTANCE_IOVA >> 12 fits u32 for our allocation range"
         )]
-        let value = (INSTANCE_IOVA >> 12) as u32 | pccsr::INST_TARGET_SYS_MEM_NCOH;
+        let value = (INSTANCE_IOVA >> 12) as u32
+            | (TARGET_SYS_MEM_COHERENT << 28)
+            | pccsr::INST_BIND_TRUE;
+        tracing::debug!(
+            value = format_args!("{value:#010x}"),
+            "PCCSR inst (BIND | SYS_MEM_COH)"
+        );
         bar0.write_u32(pccsr::inst(self.channel_id), value)
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR bind: {e}"))))
     }
@@ -226,27 +315,28 @@ impl VfioChannel {
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("channel enable: {e}"))))
     }
 
-    /// Submit runlist to PFIFO using the GK104/GV100 register format.
+    /// Submit runlist to PFIFO using GV100 per-runlist registers.
     ///
-    /// Two global registers (no stride): BASE (0x2270) then SUBMIT (0x2274).
-    /// BASE = `(target << 28) | (addr >> 12)`.
-    /// SUBMIT = `(runlist_id << 20) | count` — writing triggers the scheduler.
-    /// Source: nouveau `gk104_runl_commit()`.
+    /// GV100 uses per-runlist registers at stride 0x10:
+    ///   BASE(rl) = 0x2270 + rl*0x10   → lower_32(iova >> 12)
+    ///   SUBMIT(rl) = 0x2274 + rl*0x10 → upper_32(iova >> 12) | (count << 16)
+    /// Writing SUBMIT triggers the scheduler.
+    /// Source: nouveau `gv100_runl_commit()`.
     fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
-        #[expect(clippy::cast_possible_truncation)]
-        let rl_base = (RUNLIST_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28);
-        let rl_submit = (self.runlist_id << 20) | 2_u32; // 2 entries: TSG header + channel
+        let rl_base = registers::pfifo::gv100_runlist_base_value(RUNLIST_IOVA)
+            | (TARGET_SYS_MEM_COHERENT << 28);
+        let rl_submit = registers::pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 2);
 
         tracing::debug!(
             runlist_id = self.runlist_id,
             rl_base = format_args!("{rl_base:#010x}"),
             rl_submit = format_args!("{rl_submit:#010x}"),
-            "submitting runlist (gk104 format)"
+            "submitting runlist (gv100 per-RL)"
         );
 
-        bar0.write_u32(registers::pfifo::RUNLIST_BASE, rl_base)
+        bar0.write_u32(registers::pfifo::runlist_base(self.runlist_id), rl_base)
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base: {e}"))))?;
-        bar0.write_u32(registers::pfifo::RUNLIST_SUBMIT, rl_submit)
+        bar0.write_u32(registers::pfifo::runlist_submit(self.runlist_id), rl_submit)
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist submit: {e}"))))
     }
 }
