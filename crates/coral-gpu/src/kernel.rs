@@ -27,6 +27,8 @@ pub struct CompiledKernel {
     pub barrier_count: u32,
     /// Workgroup dimensions from `@workgroup_size(x, y, z)`.
     pub workgroup: [u32; 3],
+    /// Wave/warp size: 32 for NVIDIA / RDNA wave32, 64 for GCN wave64.
+    pub wave_size: u32,
 }
 
 /// Serializable kernel cache entry for `dispatch_binary` / cached dispatch.
@@ -51,6 +53,8 @@ pub struct KernelCacheEntry {
     pub barrier_count: u32,
     /// Workgroup size `[x, y, z]`.
     pub workgroup: [u32; 3],
+    /// Wave/warp size.
+    pub wave_size: u32,
     /// Hash of the source WGSL.
     pub source_hash: u64,
 }
@@ -67,6 +71,7 @@ impl CompiledKernel {
             shared_mem_bytes: self.shared_mem_bytes,
             barrier_count: self.barrier_count,
             workgroup: self.workgroup,
+            wave_size: self.wave_size,
             source_hash: self.source_hash,
         }
     }
@@ -84,6 +89,7 @@ impl CompiledKernel {
             shared_mem_bytes: entry.shared_mem_bytes,
             barrier_count: entry.barrier_count,
             workgroup: entry.workgroup,
+            wave_size: entry.wave_size,
         }
     }
 }

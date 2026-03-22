@@ -6,6 +6,7 @@ use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
+use std::sync::{Arc, RwLock};
 
 use rustix::io::IoSlice;
 use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg};
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::hold::HeldDevice;
 use crate::swap;
+use crate::sysfs;
 
 const MAX_REQUEST_SIZE: usize = 4096;
 
@@ -99,7 +101,7 @@ fn write_jsonrpc_error(
 
 /// Handle one JSON-RPC request on `stream` (read one line, dispatch, write response).
 ///
-/// For `ember.vfio_fds`, sends the JSON line first, then passes three fds via `SCM_RIGHTS`.
+/// For `ember.vfio_fds`, sends the JSON line first, then passes fds via `SCM_RIGHTS`.
 ///
 /// # Errors
 ///
@@ -107,7 +109,7 @@ fn write_jsonrpc_error(
 /// without `target`); socket write/serialize errors are returned as `Err` strings.
 pub fn handle_client(
     stream: &UnixStream,
-    held: &mut HashMap<String, HeldDevice>,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
     started_at: std::time::Instant,
 ) -> Result<(), String> {
     stream
@@ -155,9 +157,11 @@ pub fn handle_client(
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
-            let dev = match held.get(bdf) {
+            let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
+            let dev = match map.get(bdf) {
                 Some(d) => d,
                 None => {
+                    drop(map);
                     write_jsonrpc_error(
                         stream,
                         id,
@@ -196,7 +200,9 @@ pub fn handle_client(
             tracing::debug!(bdf, backend = ?kind, "sent VFIO fds to client");
         }
         "ember.list" => {
-            let devices: Vec<String> = held.keys().cloned().collect();
+            let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
+            let devices: Vec<String> = map.keys().cloned().collect();
+            drop(map);
             write_jsonrpc_ok(stream, id, serde_json::json!({"devices": devices}))?;
         }
         "ember.release" => {
@@ -204,13 +210,16 @@ pub fn handle_client(
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
-            match held.remove(bdf) {
+            let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
+            match map.remove(bdf) {
                 Some(device) => {
                     drop(device);
                     tracing::info!(bdf, "ember released VFIO fds for swap");
+                    drop(map);
                     write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
                 }
                 None => {
+                    drop(map);
                     write_jsonrpc_error(
                         stream,
                         id,
@@ -225,8 +234,19 @@ pub fn handle_client(
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
-            if held.contains_key(bdf) {
+            if sysfs::is_d3cold(bdf) {
+                write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("{bdf} is D3cold — cannot reacquire"),
+                )?;
+                return Ok(());
+            }
+            let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
+            if map.contains_key(bdf) {
                 tracing::warn!(bdf, "device already held — skipping reacquire");
+                drop(map);
                 write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
             } else {
                 match coral_driver::vfio::VfioDevice::open(bdf) {
@@ -237,16 +257,18 @@ pub fn handle_client(
                             device_fd = device.device_fd(),
                             "VFIO device reacquired by ember after swap"
                         );
-                        held.insert(
+                        map.insert(
                             bdf.to_string(),
                             HeldDevice {
                                 bdf: bdf.to_string(),
                                 device,
                             },
                         );
+                        drop(map);
                         write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
                     }
                     Err(e) => {
+                        drop(map);
                         tracing::error!(bdf, error = %e, "failed to reacquire VFIO device");
                         write_jsonrpc_error(stream, id, -32000, &format!("reacquire failed: {e}"))?;
                     }
@@ -262,8 +284,19 @@ pub fn handle_client(
                 .get("target")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'target' parameter")?;
-            match swap::handle_swap_device(bdf, target, held) {
+            if sysfs::is_d3cold(bdf) {
+                write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("{bdf} is D3cold — cannot swap"),
+                )?;
+                return Ok(());
+            }
+            let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
+            match swap::handle_swap_device(bdf, target, &mut map) {
                 Ok(personality) => {
+                    drop(map);
                     write_jsonrpc_ok(
                         stream,
                         id,
@@ -271,16 +304,20 @@ pub fn handle_client(
                     )?;
                 }
                 Err(e) => {
+                    drop(map);
                     write_jsonrpc_error(stream, id, -32000, &e)?;
                 }
             }
         }
         "ember.status" => {
+            let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
+            let devices: Vec<String> = map.keys().cloned().collect();
+            drop(map);
             write_jsonrpc_ok(
                 stream,
                 id,
                 serde_json::json!({
-                    "devices": held.keys().cloned().collect::<Vec<_>>(),
+                    "devices": devices,
                     "uptime_secs": started_at.elapsed().as_secs(),
                 }),
             )?;
@@ -324,6 +361,10 @@ mod tests {
 
     static IPC_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    fn empty_held() -> Arc<RwLock<HashMap<String, HeldDevice>>> {
+        Arc::new(RwLock::new(HashMap::new()))
+    }
+
     fn drain_json_line(stream: &mut UnixStream) -> serde_json::Value {
         let mut buf = Vec::new();
         let mut byte = [0u8; 1];
@@ -342,8 +383,8 @@ mod tests {
     fn handle_client_empty_read_returns_ok() {
         let (a, b) = UnixStream::pair().unwrap();
         drop(b);
-        let mut held = HashMap::new();
-        handle_client(&a, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&a, &held, Instant::now()).unwrap();
         drop(a);
     }
 
@@ -352,8 +393,8 @@ mod tests {
         let _guard = IPC_TEST_LOCK.lock().unwrap();
         let (server, mut client) = UnixStream::pair().unwrap();
         client.write_all(b"not json\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32700);
     }
@@ -365,8 +406,8 @@ mod tests {
         let req = r#"{"jsonrpc":"1.0","method":"ember.list","id":1}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32600);
     }
@@ -378,8 +419,8 @@ mod tests {
         let req = r#"{"jsonrpc":"2.0","method":"ember.list","id":7}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["result"]["devices"], serde_json::json!([]));
     }
@@ -392,8 +433,8 @@ mod tests {
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
         let started = Instant::now() - Duration::from_secs(10);
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, started).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, started).unwrap();
         let v = drain_json_line(&mut client);
         let uptime = v["result"]["uptime_secs"].as_u64().unwrap();
         assert!(uptime >= 10);
@@ -406,8 +447,8 @@ mod tests {
         let req = r#"{"jsonrpc":"2.0","method":"nope.not_found","id":3}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32601);
     }
@@ -420,8 +461,8 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"ember.vfio_fds","params":{"bdf":"0000:01:00.0"},"id":4}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
     }
@@ -433,8 +474,8 @@ mod tests {
         let req = r#"{"jsonrpc":"2.0","method":"ember.release","params":{},"id":5}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        let err = handle_client(&server, &mut held, Instant::now()).unwrap_err();
+        let held = empty_held();
+        let err = handle_client(&server, &held, Instant::now()).unwrap_err();
         assert!(err.contains("bdf"));
     }
 
@@ -446,8 +487,8 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"ember.release","params":{"bdf":"0000:01:00.0"},"id":6}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
     }
@@ -460,8 +501,8 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"0000:01:00.0"},"id":8}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        let err = handle_client(&server, &mut held, Instant::now()).unwrap_err();
+        let held = empty_held();
+        let err = handle_client(&server, &held, Instant::now()).unwrap_err();
         assert!(err.contains("target"));
     }
 
@@ -472,8 +513,8 @@ mod tests {
         let req = r#"{"jsonrpc":"2.0","method":"ember.reacquire","params":{"bdf":"9999:99:99.9"},"id":11}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
         let msg = v["error"]["message"].as_str().unwrap();
@@ -487,8 +528,8 @@ mod tests {
         let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"9999:99:99.9","target":"unbound"},"id":42}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["result"]["personality"], "unbound");
         assert_eq!(v["id"], serde_json::json!(42));
@@ -499,8 +540,8 @@ mod tests {
         let _guard = IPC_TEST_LOCK.lock().unwrap();
         let (server, mut client) = UnixStream::pair().unwrap();
         client.write_all(&[0xff, 0xfe, b'\n']).unwrap();
-        let mut held = HashMap::new();
-        let err = handle_client(&server, &mut held, Instant::now()).unwrap_err();
+        let held = empty_held();
+        let err = handle_client(&server, &held, Instant::now()).unwrap_err();
         assert!(err.contains("utf8"), "{err}");
     }
 
@@ -521,8 +562,8 @@ mod tests {
         let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"9999:99:99.9","target":"bogus-target"},"id":9}"#;
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let held = empty_held();
+        handle_client(&server, &held, Instant::now()).unwrap();
         let v = drain_json_line(&mut client);
         assert_eq!(v["error"]["code"].as_i64().unwrap(), -32000);
         let msg = v["error"]["message"].as_str().unwrap();
@@ -555,9 +596,10 @@ mod tests {
         );
         client.write_all(req.as_bytes()).unwrap();
         client.write_all(b"\n").unwrap();
-        let mut held = HashMap::new();
         let device = coral_driver::vfio::VfioDevice::open(&bdf).unwrap();
-        held.insert(bdf.clone(), crate::hold::HeldDevice { bdf, device });
-        handle_client(&server, &mut held, Instant::now()).unwrap();
+        let mut map = HashMap::new();
+        map.insert(bdf.clone(), crate::hold::HeldDevice { bdf, device });
+        let held = Arc::new(RwLock::new(map));
+        handle_client(&server, &held, Instant::now()).unwrap();
     }
 }

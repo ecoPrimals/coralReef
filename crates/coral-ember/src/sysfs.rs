@@ -117,6 +117,14 @@ pub fn read_power_state(bdf: &str) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+/// Returns `true` when the device is in D3cold (powered off by the platform).
+///
+/// D3cold devices must NOT have VFIO operations attempted against them.
+/// Ember checks this before reacquire and swap to prevent cascade failures.
+pub fn is_d3cold(bdf: &str) -> bool {
+    read_power_state(bdf).as_deref() == Some("D3cold")
+}
+
 /// Pin power on all upstream PCI bridges to prevent them from
 /// powering down after a device remove. Walks the sysfs topology
 /// from the device up to the root port.

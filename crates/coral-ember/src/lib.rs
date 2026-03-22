@@ -20,6 +20,7 @@ pub(crate) mod vendor_lifecycle;
 
 use std::collections::HashMap;
 use std::os::unix::net::UnixListener;
+use std::sync::{Arc, RwLock};
 
 use serde::Deserialize;
 
@@ -147,7 +148,7 @@ pub fn run() -> Result<(), i32> {
     }
 
     let started_at = std::time::Instant::now();
-    let mut held: HashMap<String, HeldDevice> = HashMap::new();
+    let mut held_init: HashMap<String, HeldDevice> = HashMap::new();
 
     for dev_config in &config.device {
         let lifecycle = vendor_lifecycle::detect_lifecycle(&dev_config.bdf);
@@ -183,7 +184,7 @@ pub fn run() -> Result<(), i32> {
                     num_fds = device.sendable_fds().len(),
                     "VFIO device held by ember"
                 );
-                held.insert(
+                held_init.insert(
                     dev_config.bdf.clone(),
                     HeldDevice {
                         bdf: dev_config.bdf.clone(),
@@ -201,10 +202,12 @@ pub fn run() -> Result<(), i32> {
         }
     }
 
-    if held.is_empty() {
+    if held_init.is_empty() {
         tracing::error!("no devices held — ember cannot provide fd keepalive");
         return Err(1);
     }
+
+    let held: Arc<RwLock<HashMap<String, HeldDevice>>> = Arc::new(RwLock::new(held_init));
 
     let socket_path = ember_socket_path();
 
@@ -227,10 +230,12 @@ pub fn run() -> Result<(), i32> {
     );
 
     tracing::info!("╔══════════════════════════════════════════════════════════╗");
-    tracing::info!("║ coral-ember — Immortal VFIO fd Holder                   ║");
+    tracing::info!("║ coral-ember — Immortal VFIO fd Holder (threaded)        ║");
     tracing::info!("╠══════════════════════════════════════════════════════════╣");
-    for dev in held.values() {
-        tracing::info!("║ {} (fd={})", dev.bdf, dev.device.device_fd());
+    if let Ok(map) = held.read() {
+        for dev in map.values() {
+            tracing::info!("║ {} (fd={})", dev.bdf, dev.device.device_fd());
+        }
     }
     tracing::info!("║ Socket: {socket_path}");
     tracing::info!("╚══════════════════════════════════════════════════════════╝");
@@ -242,10 +247,13 @@ pub fn run() -> Result<(), i32> {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(ref stream) => {
-                if let Err(e) = ipc::handle_client(stream, &mut held, started_at) {
-                    tracing::warn!(error = %e, "client handler error");
-                }
+            Ok(stream) => {
+                let held = Arc::clone(&held);
+                std::thread::spawn(move || {
+                    if let Err(e) = ipc::handle_client(&stream, &held, started_at) {
+                        tracing::warn!(error = %e, "client handler error");
+                    }
+                });
             }
             Err(e) => {
                 tracing::warn!(error = %e, "accept error");

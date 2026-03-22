@@ -323,10 +323,12 @@ impl GpuContext {
             #[cfg(feature = "nvidia-drm")]
             ("nvidia", Some(preference::DRIVER_NVIDIA_DRM)) => {
                 let target = match arch {
+                    Some("sm120") => GpuTarget::Nvidia(NvArch::Sm120),
                     Some("sm89") => GpuTarget::Nvidia(NvArch::Sm89),
                     Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
                     Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
                     Some("sm70") => GpuTarget::Nvidia(NvArch::Sm70),
+                    Some("sm35") => GpuTarget::Nvidia(NvArch::Sm35),
                     _ => GpuTarget::Nvidia(NvArch::Sm86),
                 };
                 let dev = render_node
@@ -340,9 +342,12 @@ impl GpuContext {
             #[cfg(feature = "nouveau")]
             ("nvidia", Some(preference::DRIVER_NOUVEAU) | None) => {
                 let target = match arch {
+                    Some("sm120") => GpuTarget::Nvidia(NvArch::Sm120),
+                    Some("sm89") => GpuTarget::Nvidia(NvArch::Sm89),
                     Some("sm86") => GpuTarget::Nvidia(NvArch::Sm86),
                     Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
                     Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
+                    Some("sm35") => GpuTarget::Nvidia(NvArch::Sm35),
                     _ => GpuTarget::Nvidia(NvArch::Sm70),
                 };
                 let sm = match target {
@@ -363,9 +368,12 @@ impl GpuContext {
                     GpuError::NoDevice("VFIO requires a BDF address as render_node".into())
                 })?;
                 let target = match arch {
+                    Some("sm120") => GpuTarget::Nvidia(NvArch::Sm120),
+                    Some("sm89") => GpuTarget::Nvidia(NvArch::Sm89),
                     Some("sm86") => GpuTarget::Nvidia(NvArch::Sm86),
                     Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
                     Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
+                    Some("sm35") => GpuTarget::Nvidia(NvArch::Sm35),
                     _ => GpuTarget::Nvidia(NvArch::Sm70),
                 };
                 let sm = match target {
@@ -443,6 +451,7 @@ impl GpuContext {
             shared_mem_bytes: compiled.info.shared_mem_bytes,
             barrier_count: compiled.info.barrier_count,
             workgroup: compiled.info.local_size,
+            wave_size: self.wave_size(),
         })
     }
 
@@ -481,6 +490,7 @@ impl GpuContext {
             shared_mem_bytes: 0,
             barrier_count: 0,
             workgroup: [1, 1, 1],
+            wave_size: self.wave_size(),
         })
     }
 
@@ -488,6 +498,15 @@ impl GpuContext {
     #[must_use]
     pub const fn target(&self) -> GpuTarget {
         self.target
+    }
+
+    /// Wave/warp size for the current target (32 for NVIDIA/RDNA wave32, 64 for GCN wave64).
+    #[must_use]
+    pub const fn wave_size(&self) -> u32 {
+        match self.target {
+            GpuTarget::Amd(amd) => amd.default_wave_size() as u32,
+            _ => 32,
+        }
     }
 
     /// Compiler options (optimization level, FMA policy, target).
@@ -585,6 +604,7 @@ impl GpuContext {
             shared_mem_bytes: kernel.shared_mem_bytes,
             barrier_count: kernel.barrier_count,
             workgroup: kernel.workgroup,
+            wave_size: kernel.wave_size,
         };
         Ok(self
             .device_mut()?
@@ -612,6 +632,7 @@ impl GpuContext {
             shared_mem_bytes: entry.shared_mem_bytes,
             barrier_count: entry.barrier_count,
             workgroup: entry.workgroup,
+            wave_size: entry.wave_size,
         };
         Ok(self
             .device_mut()?

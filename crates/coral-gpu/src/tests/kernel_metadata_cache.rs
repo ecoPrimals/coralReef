@@ -69,6 +69,7 @@ fn cache_entry_roundtrip_preserves_binary() {
         shared_mem_bytes: 4096,
         barrier_count: 2,
         workgroup: [64, 1, 1],
+        wave_size: 32,
     };
     let entry = kernel.to_cache_entry();
     assert_eq!(&entry.binary[..], &[0xDE, 0xAD, 0xBE, 0xEF]);
@@ -96,6 +97,7 @@ fn cache_entry_serde_roundtrip() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [32, 2, 1],
+        wave_size: 32,
         source_hash: 42,
     };
     let json = serde_json::to_string(&entry).expect("serialize");
@@ -115,6 +117,7 @@ fn cache_entry_zero_copy_clone() {
         shared_mem_bytes: 256,
         barrier_count: 1,
         workgroup: [1, 1, 1],
+        wave_size: 32,
         source_hash: 99,
     };
     let cloned = entry.clone();
@@ -131,6 +134,7 @@ fn kernel_cache_entry_debug_format() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [1, 1, 1],
+        wave_size: 32,
         source_hash: 3,
     };
     let s = format!("{entry:?}");
@@ -149,6 +153,7 @@ fn cache_entry_target_id_amd_rdna3() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [16, 1, 1],
+        wave_size: 32,
     };
     assert_eq!(kernel.to_cache_entry().target_id, "amd:rdna3");
 }
@@ -156,11 +161,13 @@ fn cache_entry_target_id_amd_rdna3() {
 #[test]
 fn cache_entry_target_id_nv_sm_variants() {
     for (target, id) in [
+        (GpuTarget::Nvidia(NvArch::Sm35), "nvidia:sm35"),
         (GpuTarget::Nvidia(NvArch::Sm70), "nvidia:sm70"),
         (GpuTarget::Nvidia(NvArch::Sm75), "nvidia:sm75"),
         (GpuTarget::Nvidia(NvArch::Sm80), "nvidia:sm80"),
         (GpuTarget::Nvidia(NvArch::Sm86), "nvidia:sm86"),
         (GpuTarget::Nvidia(NvArch::Sm89), "nvidia:sm89"),
+        (GpuTarget::Nvidia(NvArch::Sm120), "nvidia:sm120"),
     ] {
         let kernel = CompiledKernel {
             binary: Bytes::from_static(b"\0"),
@@ -171,6 +178,7 @@ fn cache_entry_target_id_nv_sm_variants() {
             shared_mem_bytes: 0,
             barrier_count: 0,
             workgroup: [1, 1, 1],
+            wave_size: 32,
         };
         assert_eq!(kernel.to_cache_entry().target_id, id);
     }
@@ -187,6 +195,7 @@ fn cache_entry_target_id_amd_rdna4() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [1, 1, 1],
+        wave_size: 32,
     };
     assert_eq!(kernel.to_cache_entry().target_id, "amd:rdna4");
 }

@@ -32,6 +32,7 @@ fn from_cache_entry_empty_binary_roundtrip() {
         shared_mem_bytes: 0,
         barrier_count: 0,
         workgroup: [1, 1, 1],
+        wave_size: 32,
         source_hash: 0,
     };
     let k = CompiledKernel::from_cache_entry(&entry, GpuTarget::Nvidia(NvArch::Sm86));
@@ -49,6 +50,7 @@ fn cache_entry_roundtrip_all_fields_populated() {
         shared_mem_bytes: 4096,
         barrier_count: 3,
         workgroup: [64, 2, 1],
+        wave_size: 32,
         source_hash: 0xfeed_beef,
     };
     let k = CompiledKernel::from_cache_entry(&entry, GpuTarget::Nvidia(NvArch::Sm75));

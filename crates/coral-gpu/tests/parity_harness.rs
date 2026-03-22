@@ -269,6 +269,7 @@ fn parity_hw_amd_store42_dispatch() {
         shared_mem_bytes: compiled.info.shared_mem_bytes,
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
+        wave_size: 64,
     };
 
     dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)
