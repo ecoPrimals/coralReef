@@ -271,7 +271,8 @@ fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
     sysfs::pin_bridge_power(bdf);
     sysfs::pin_power(bdf);
 
-    let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+    let _ =
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
     tracing::info!(bdf, "PCI remove + rescan: removing device");
     sysfs::pci_remove(bdf)?;
@@ -296,8 +297,10 @@ fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
 
             sysfs::pin_power(bdf);
             sysfs::pin_bridge_power(bdf);
-            let _ =
-                sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+            let _ = sysfs::sysfs_write_direct(
+                &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+                "",
+            );
             return Ok(());
         }
     }
@@ -316,6 +319,13 @@ fn bind_native(
 ) -> Result<String, String> {
     if is_drm_driver(target) {
         verify_drm_isolation(bdf)?;
+    }
+
+    // Release IOMMU group peers from vfio-pci so the group is no longer
+    // held when we bind the primary device to a native driver.
+    let group_id = sysfs::read_iommu_group(bdf);
+    if group_id != 0 {
+        sysfs::release_iommu_group_from_vfio(bdf, group_id);
     }
 
     let strategy = lifecycle.rebind_strategy(target);
@@ -361,7 +371,7 @@ fn bind_native(
             match sysfs::pm_power_cycle(bdf) {
                 Ok(()) => {
                     tracing::info!(bdf, "PM cycle OK, attempting bind");
-                    let _ = sysfs::sysfs_write(
+                    let _ = sysfs::sysfs_write_direct(
                         &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
                         "",
                     );

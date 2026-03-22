@@ -12,6 +12,7 @@
 //!   coral-ember /etc/coralreef/glowplug.toml
 //!   coral-ember  (auto-discovers config from XDG/system paths; override system path with `$CORALREEF_GLOWPLUG_CONFIG`)
 
+pub mod drm_isolation;
 mod hold;
 mod ipc;
 mod swap;
@@ -101,6 +102,26 @@ pub fn find_config() -> Option<String> {
     None
 }
 
+/// Try to `chgrp <group> <path>` so members of the group can connect
+/// without sudo. Falls back silently if the group doesn't exist.
+fn set_socket_group(path: &str, group_name: &str) {
+    match std::process::Command::new("chgrp")
+        .args([group_name, path])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            tracing::info!(path, group = group_name, "socket group set");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::debug!(path, group = group_name, %stderr, "chgrp failed (group may not exist)");
+        }
+        Err(e) => {
+            tracing::debug!(path, group = group_name, error = %e, "chgrp command failed");
+        }
+    }
+}
+
 /// Entry point for the coral-ember daemon: load config, hold VFIO fds, serve JSON-RPC on the Unix socket.
 ///
 /// On startup failure, returns `Err(exit_code)` (typically `1`). On success, blocks in the accept
@@ -146,6 +167,8 @@ pub fn run() -> Result<(), i32> {
         tracing::error!("no devices configured — nothing to hold");
         return Err(1);
     }
+
+    drm_isolation::ensure_drm_isolation(&config.device);
 
     let started_at = std::time::Instant::now();
     let mut held_init: HashMap<String, HeldDevice> = HashMap::new();
@@ -228,6 +251,7 @@ pub fn run() -> Result<(), i32> {
         &socket_path,
         <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o660),
     );
+    set_socket_group(&socket_path, "coralreef");
 
     tracing::info!("╔══════════════════════════════════════════════════════════╗");
     tracing::info!("║ coral-ember — Immortal VFIO fd Holder (threaded)        ║");

@@ -157,7 +157,7 @@ impl VendorLifecycle for AmdVega20Lifecycle {
             bdf,
             "AMD Vega 20: disabling reset_method (prevents D3cold on any transition)"
         );
-        sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
 
         Ok(())
     }
@@ -180,14 +180,17 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+        let _ = sysfs::sysfs_write_direct(
+            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+            "",
+        );
 
         if target_driver == "amdgpu" {
-            let _ = sysfs::sysfs_write(
+            let _ = sysfs::sysfs_write_direct(
                 &linux_paths::sysfs_pci_device_file(bdf, "power/autosuspend_delay_ms"),
                 "-1",
             );
-            let _ = sysfs::sysfs_write(
+            let _ = sysfs::sysfs_write_direct(
                 &linux_paths::sysfs_pci_device_file(bdf, "power/control"),
                 "on",
             );
@@ -254,7 +257,7 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_bridge_power(bdf);
 
         tracing::info!(bdf, "AMD RDNA: disabling reset_method (conservative)");
-        sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
 
         Ok(())
     }
@@ -274,14 +277,17 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+        let _ = sysfs::sysfs_write_direct(
+            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+            "",
+        );
 
         if target_driver == "amdgpu" {
-            let _ = sysfs::sysfs_write(
+            let _ = sysfs::sysfs_write_direct(
                 &linux_paths::sysfs_pci_device_file(bdf, "power/autosuspend_delay_ms"),
                 "-1",
             );
-            let _ = sysfs::sysfs_write(
+            let _ = sysfs::sysfs_write_direct(
                 &linux_paths::sysfs_pci_device_file(bdf, "power/control"),
                 "on",
             );
@@ -413,8 +419,10 @@ impl VendorLifecycle for GenericLifecycle {
                 vendor_id = format!("0x{:04x}", self.vendor_id),
                 "unknown vendor: disabling reset_method as precaution"
             );
-            let _ =
-                sysfs::sysfs_write(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+            let _ = sysfs::sysfs_write_direct(
+                &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+                "",
+            );
         }
 
         Ok(())

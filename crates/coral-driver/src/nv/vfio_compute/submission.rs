@@ -4,6 +4,7 @@
 use crate::error::{DriverError, DriverResult};
 use crate::mmio::VolatilePtr;
 use crate::vfio::cache_ops::{clflush_range, memory_fence};
+use crate::vfio::channel::mmu_fault;
 use crate::vfio::channel::{VfioChannel, ramuserd};
 
 use std::borrow::Cow;
@@ -103,52 +104,29 @@ impl NvVfioComputeDevice {
                 };
                 let gp_put_val = vol.read();
                 let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
+
+                let mmu_info = mmu_fault::read_mmu_faults(&self.bar0);
+                mmu_fault::log_mmu_faults(&mmu_info);
+
                 let pfifo_intr = r(0x2100);
-                let pccsr_chan0 = r(0x80_0004);
-                let pbdma_intr: [u32; 4] = [
-                    r(0x40108),
-                    r(0x40108 + 0x2000),
-                    r(0x40108 + 0x4000),
-                    r(0x40108 + 0x6000),
-                ];
-                let pbdma_hce: [u32; 4] = [
-                    r(0x40148),
-                    r(0x40148 + 0x2000),
-                    r(0x40148 + 0x4000),
-                    r(0x40148 + 0x6000),
-                ];
-                let pbdma_idle: [u32; 4] = [r(0x3080), r(0x3084), r(0x3088), r(0x308C)];
-                let pbdma_runl_map: [u32; 4] = [r(0x2390), r(0x2394), r(0x2398), r(0x239C)];
-                let mmu_fault_status = r(0x0010_0A2C);
-                let mmu_hubtlb_err = r(0x0010_4A20);
+                let pccsr_chan = r(0x80_0004);
                 let priv_ring_intr = r(0x0001_2070);
+                let pbdma_intr: [u32; 2] = [r(0x40108), r(0x40108 + 0x2000)];
+                let pbdma_state: [u32; 2] = [r(0x400B0), r(0x400B0 + 0x2000)];
+
                 tracing::error!(
                     gp_get,
                     gp_put = gp_put_val,
                     expected = self.gpfifo_put,
                     channel_id = self.channel.id(),
                     pfifo_intr = format!("{pfifo_intr:#010x}"),
-                    pccsr_chan0 = format!("{pccsr_chan0:#010x}"),
-                    pbdma_0_intr = format!("{:#010x}", pbdma_intr[0]),
-                    pbdma_0_hce = format!("{:#010x}", pbdma_hce[0]),
-                    pbdma_0_idle = format!("{:#010x}", pbdma_idle[0]),
-                    pbdma_1_intr = format!("{:#010x}", pbdma_intr[1]),
-                    pbdma_1_hce = format!("{:#010x}", pbdma_hce[1]),
-                    pbdma_1_idle = format!("{:#010x}", pbdma_idle[1]),
-                    pbdma_2_intr = format!("{:#010x}", pbdma_intr[2]),
-                    pbdma_2_hce = format!("{:#010x}", pbdma_hce[2]),
-                    pbdma_2_idle = format!("{:#010x}", pbdma_idle[2]),
-                    pbdma_3_intr = format!("{:#010x}", pbdma_intr[3]),
-                    pbdma_3_hce = format!("{:#010x}", pbdma_hce[3]),
-                    pbdma_3_idle = format!("{:#010x}", pbdma_idle[3]),
-                    pbdma_runl_map_0 = format!("{:#010x}", pbdma_runl_map[0]),
-                    pbdma_runl_map_1 = format!("{:#010x}", pbdma_runl_map[1]),
-                    pbdma_runl_map_2 = format!("{:#010x}", pbdma_runl_map[2]),
-                    pbdma_runl_map_3 = format!("{:#010x}", pbdma_runl_map[3]),
-                    mmu_fault_status = format!("{mmu_fault_status:#010x}"),
-                    mmu_hubtlb_err = format!("{mmu_hubtlb_err:#010x}"),
+                    pccsr_chan = format!("{pccsr_chan:#010x}"),
                     priv_ring_intr = format!("{priv_ring_intr:#010x}"),
-                    "Fence timeout: GPFIFO completion did not complete within timeout"
+                    pbdma_0_intr = format!("{:#010x}", pbdma_intr[0]),
+                    pbdma_0_state = format!("{:#010x}", pbdma_state[0]),
+                    pbdma_1_intr = format!("{:#010x}", pbdma_intr[1]),
+                    pbdma_1_state = format!("{:#010x}", pbdma_state[1]),
+                    "Fence timeout: GPFIFO completion stalled — see MMU fault above"
                 );
                 return Err(DriverError::FenceTimeout {
                     ms: SYNC_TIMEOUT.as_millis() as u64,

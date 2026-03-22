@@ -221,7 +221,6 @@ pub(crate) mod pfb {
 }
 
 /// MMU fault buffer registers (BAR0 + 0x10_0E00).
-#[expect(dead_code, reason = "diagnostic matrix migration in progress")]
 pub(crate) mod mmu {
     pub const FAULT_BUF0_LO: usize = 0x0010_0E24;
     pub const FAULT_BUF0_HI: usize = 0x0010_0E28;

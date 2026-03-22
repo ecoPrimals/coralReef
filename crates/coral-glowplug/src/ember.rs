@@ -175,9 +175,51 @@ impl EmberClient {
     ///
     /// Ember handles all sysfs writes and VFIO fd lifecycle. Returns the
     /// resulting personality name on success.
+    ///
+    /// Retries transient I/O errors (EAGAIN, EWOULDBLOCK, EINTR) up to 3
+    /// times with backoff. Driver swaps can stall briefly while the kernel
+    /// settles sysfs state after unbind.
     pub fn swap_device(&self, bdf: &str, target: &str) -> Result<String, EmberError> {
+        const MAX_RETRIES: u32 = 3;
+        const SWAP_TIMEOUT_SECS: u64 = 60;
+
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let backoff = std::time::Duration::from_millis(500 * u64::from(attempt));
+                tracing::debug!(
+                    bdf, target, attempt,
+                    backoff_ms = backoff.as_millis(),
+                    "ember swap_device: retrying after transient I/O error"
+                );
+                std::thread::sleep(backoff);
+            }
+
+            match self.try_swap_device(bdf, target, SWAP_TIMEOUT_SECS) {
+                Ok(personality) => return Ok(personality),
+                Err(EmberError::Io(ref e)) if is_transient_io(e) && attempt < MAX_RETRIES => {
+                    tracing::warn!(
+                        bdf, target, attempt, error = %e,
+                        "ember swap_device: transient I/O error, will retry"
+                    );
+                    last_err = Some(EmberError::Io(std::io::Error::new(e.kind(), e.to_string())));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            EmberError::Io(std::io::Error::other("swap_device: exhausted retries"))
+        }))
+    }
+
+    fn try_swap_device(
+        &self,
+        bdf: &str,
+        target: &str,
+        timeout_secs: u64,
+    ) -> Result<String, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
-        stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(timeout_secs)))?;
 
         let req = make_rpc_request(
             "ember.swap",
@@ -186,7 +228,7 @@ impl EmberClient {
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
-        let n = std::io::Read::read(&mut &stream, &mut buf)?;
+        let n = read_full_response(&stream, &mut buf)?;
         let result = parse_rpc_response(&buf[..n])?;
         Ok(result
             .get("personality")
@@ -292,6 +334,42 @@ fn recv_with_fds(sock: impl AsFd, buf: &mut [u8]) -> std::io::Result<(usize, Vec
     }
 
     Ok((msg.bytes, fds))
+}
+
+fn is_transient_io(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+    )
+}
+
+/// Read until we get a complete JSON line or hit the buffer limit.
+///
+/// A single `read()` can return a partial response if the kernel hasn't
+/// flushed the ember reply yet. Loop until we see a `\n` or the stream
+/// returns 0 (EOF) or errors non-transiently.
+fn read_full_response(stream: &UnixStream, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut total = 0;
+    loop {
+        match std::io::Read::read(&mut &*stream, &mut buf[total..]) {
+            Ok(0) => break,
+            Ok(n) => {
+                total += n;
+                if buf[..total].contains(&b'\n') || total >= buf.len() {
+                    break;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    if total == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "ember closed connection before sending response",
+        ));
+    }
+    Ok(total)
 }
 
 #[cfg(test)]

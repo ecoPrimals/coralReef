@@ -23,6 +23,7 @@ pub mod pri_monitor;
 pub mod registers;
 
 pub mod diagnostic;
+pub mod mmu_fault;
 mod page_tables;
 mod pfifo;
 
