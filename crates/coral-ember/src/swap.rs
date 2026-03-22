@@ -247,8 +247,7 @@ fn bind_vfio(
         Ok(device) => {
             tracing::info!(
                 bdf,
-                container_fd = device.container_fd(),
-                group_fd = device.group_fd(),
+                backend = ?device.backend_kind(),
                 device_fd = device.device_fd(),
                 "swap_device: VFIO fds reacquired"
             );

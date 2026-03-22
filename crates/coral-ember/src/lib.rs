@@ -3,9 +3,10 @@
 #![warn(missing_docs)]
 //! coral-ember — Immortal VFIO fd holder for safe daemon restarts.
 //!
-//! Holds VFIO container/group/device fds open forever and passes
-//! duplicates to coral-glowplug via `SCM_RIGHTS`. When glowplug dies,
-//! ember's fds prevent the kernel from performing a PM reset on GV100.
+//! Holds VFIO fds open and passes duplicates to coral-glowplug via
+//! `SCM_RIGHTS`. Backend-agnostic: supports both legacy container/group
+//! (kernel < 6.2) and iommufd/cdev (kernel 6.2+) paths. When glowplug
+//! dies, ember's fds prevent the kernel from performing a PM reset.
 //!
 //! Usage:
 //!   coral-ember /etc/coralreef/glowplug.toml
@@ -177,9 +178,9 @@ pub fn run() -> Result<(), i32> {
             Ok(device) => {
                 tracing::info!(
                     bdf = %dev_config.bdf,
-                    container_fd = device.container_fd(),
-                    group_fd = device.group_fd(),
+                    backend = ?device.backend_kind(),
                     device_fd = device.device_fd(),
+                    num_fds = device.sendable_fds().len(),
                     "VFIO device held by ember"
                 );
                 held.insert(

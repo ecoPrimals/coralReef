@@ -168,13 +168,24 @@ pub fn handle_client(
                 }
             };
 
-            let fds = [
-                dev.device.container_as_fd(),
-                dev.device.group_as_fd(),
-                dev.device.device_as_fd(),
-            ];
+            let fds = dev.device.sendable_fds();
+            let kind = dev.device.backend_kind();
 
-            let resp = make_jsonrpc_ok(id, serde_json::json!({"bdf": bdf, "num_fds": 3}));
+            let mut result = serde_json::json!({
+                "bdf": bdf,
+                "num_fds": fds.len(),
+            });
+            match kind {
+                coral_driver::vfio::VfioBackendKind::Legacy => {
+                    result["backend"] = serde_json::json!("legacy");
+                }
+                coral_driver::vfio::VfioBackendKind::Iommufd { ioas_id } => {
+                    result["backend"] = serde_json::json!("iommufd");
+                    result["ioas_id"] = serde_json::json!(ioas_id);
+                }
+            }
+
+            let resp = make_jsonrpc_ok(id, result);
             let resp_bytes = format!(
                 "{}\n",
                 serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?
@@ -182,7 +193,7 @@ pub fn handle_client(
 
             send_with_fds(stream, resp_bytes.as_bytes(), &fds)
                 .map_err(|e| format!("sendmsg: {e}"))?;
-            tracing::debug!(bdf, "sent VFIO fds to client");
+            tracing::debug!(bdf, backend = ?kind, "sent VFIO fds to client");
         }
         "ember.list" => {
             let devices: Vec<String> = held.keys().cloned().collect();
@@ -222,8 +233,7 @@ pub fn handle_client(
                     Ok(device) => {
                         tracing::info!(
                             bdf,
-                            container_fd = device.container_fd(),
-                            group_fd = device.group_fd(),
+                            backend = ?device.backend_kind(),
                             device_fd = device.device_fd(),
                             "VFIO device reacquired by ember after swap"
                         );

@@ -230,7 +230,7 @@ async fn main() {
             if slot.config.boot_personality == "vfio" {
                 match client.request_fds(&slot.bdf) {
                     Ok(fds) => {
-                        match slot.activate_from_ember(fds.container, fds.group, fds.device) {
+                        match slot.activate_from_ember(fds) {
                             Ok(()) => {
                                 tracing::info!(
                                     bdf = %slot.bdf,

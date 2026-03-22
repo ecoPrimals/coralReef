@@ -41,6 +41,97 @@ pub(crate) mod ioctls {
 
     #[expect(dead_code, reason = "used by NvVfioComputeDevice in step 2")]
     pub const BAR0_REGION_INDEX: u32 = 0;
+
+    // --- VFIO device-level ioctls for iommufd binding (kernel 6.2+) ---
+
+    /// `VFIO_DEVICE_BIND_IOMMUFD` — bind a cdev device fd to an iommufd.
+    pub const OP_DEVICE_BIND_IOMMUFD: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 18);
+    /// `VFIO_DEVICE_ATTACH_IOMMUFD_PT` — attach device to an IOAS or hwpt.
+    pub const OP_DEVICE_ATTACH_IOMMUFD_PT: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 19);
+    /// `VFIO_DEVICE_DETACH_IOMMUFD_PT` — detach device from IOAS.
+    #[expect(dead_code, reason = "reserved for explicit detach; fd close also detaches")]
+    pub const OP_DEVICE_DETACH_IOMMUFD_PT: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 20);
+}
+
+/// Opcodes and constants for the iommufd subsystem (`/dev/iommu`, kernel 6.2+).
+///
+/// These mirror `<linux/iommufd.h>`. The iommufd type byte is `';'` (same as
+/// VFIO) but command numbers live in the `0x80+` range.
+pub(crate) mod iommufd {
+    use rustix::ioctl::{Opcode, opcode};
+
+    const IOMMUFD_TYPE: u8 = b';';
+
+    pub const OP_DESTROY: Opcode = opcode::none(IOMMUFD_TYPE, 0x80);
+    pub const OP_IOAS_ALLOC: Opcode = opcode::none(IOMMUFD_TYPE, 0x81);
+    pub const OP_IOAS_MAP: Opcode = opcode::none(IOMMUFD_TYPE, 0x85);
+    pub const OP_IOAS_UNMAP: Opcode = opcode::none(IOMMUFD_TYPE, 0x86);
+
+    pub const IOAS_MAP_FIXED_IOVA: u32 = 1 << 0;
+    pub const IOAS_MAP_WRITEABLE: u32 = 1 << 1;
+    pub const IOAS_MAP_READABLE: u32 = 1 << 2;
+}
+
+// ---------------------------------------------------------------------------
+// VFIO device-level structs for iommufd binding (kernel 6.2+, `<linux/vfio.h>`)
+// ---------------------------------------------------------------------------
+
+/// `struct vfio_device_bind_iommufd` — bind a cdev device fd to an iommufd.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub(crate) struct VfioDeviceBindIommufd {
+    pub argsz: u32,
+    pub flags: u32,
+    /// Input: raw fd of the opened `/dev/iommu`.
+    pub iommufd: i32,
+    /// Output: device id within the iommufd.
+    pub out_devid: u32,
+}
+
+/// `struct vfio_device_attach_iommufd_pt` — attach device to an IOAS.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub(crate) struct VfioDeviceAttachIommufdPt {
+    pub argsz: u32,
+    pub flags: u32,
+    /// Input: IOAS id (from `IOMMU_IOAS_ALLOC`).
+    pub pt_id: u32,
+}
+
+// ---------------------------------------------------------------------------
+// iommufd structs (`<linux/iommufd.h>`, kernel 6.2+)
+// ---------------------------------------------------------------------------
+
+/// `struct iommu_ioas_alloc` — allocate an IO Address Space.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub(crate) struct IommuIoasAlloc {
+    pub size: u32,
+    pub flags: u32,
+    pub out_ioas_id: u32,
+}
+
+/// `struct iommu_ioas_map` — map user VA into an IOAS at a fixed IOVA.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub(crate) struct IommuIoasMap {
+    pub size: u32,
+    pub flags: u32,
+    pub ioas_id: u32,
+    pub __reserved: u32,
+    pub user_va: u64,
+    pub length: u64,
+    pub iova: u64,
+}
+
+/// `struct iommu_ioas_unmap` — unmap an IOVA range from an IOAS.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub(crate) struct IommuIoasUnmap {
+    pub size: u32,
+    pub ioas_id: u32,
+    pub iova: u64,
+    pub length: u64,
 }
 
 /// VFIO device info (kernel ABI).
@@ -251,5 +342,38 @@ mod tests {
     fn aligned_size_4097() {
         let aligned = 4097usize.div_ceil(4096) * 4096;
         assert_eq!(aligned, 8192);
+    }
+
+    #[test]
+    fn iommufd_bind_struct_layout() {
+        assert!(std::mem::size_of::<VfioDeviceBindIommufd>() >= 16);
+    }
+
+    #[test]
+    fn iommufd_attach_struct_layout() {
+        assert!(std::mem::size_of::<VfioDeviceAttachIommufdPt>() >= 12);
+    }
+
+    #[test]
+    fn iommu_ioas_alloc_layout() {
+        assert!(std::mem::size_of::<IommuIoasAlloc>() >= 12);
+    }
+
+    #[test]
+    fn iommu_ioas_map_layout() {
+        assert!(std::mem::size_of::<IommuIoasMap>() >= 40);
+    }
+
+    #[test]
+    fn iommu_ioas_unmap_layout() {
+        assert!(std::mem::size_of::<IommuIoasUnmap>() >= 24);
+    }
+
+    #[test]
+    fn iommufd_map_flags() {
+        let flags = iommufd::IOAS_MAP_FIXED_IOVA
+            | iommufd::IOAS_MAP_WRITEABLE
+            | iommufd::IOAS_MAP_READABLE;
+        assert_eq!(flags, 7);
     }
 }

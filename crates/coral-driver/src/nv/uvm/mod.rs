@@ -238,6 +238,24 @@ pub const AMPERE_COMPUTE_A: u32 = 0x0000_C6C0;
 /// `AMPERE_COMPUTE_B` — Ampere compute class (`GA10x` / SM 8.6+).
 pub const AMPERE_COMPUTE_B: u32 = 0x0000_C7C0;
 
+/// `ADA_COMPUTE_A` — Ada Lovelace compute class (AD10x / SM 8.9).
+pub const ADA_COMPUTE_A: u32 = 0x0000_C9C0;
+
+/// `HOPPER_COMPUTE_A` — Hopper compute class (GH100 / SM 9.0).
+pub const HOPPER_COMPUTE_A: u32 = 0x0000_CBC0;
+
+/// `BLACKWELL_COMPUTE_A` — Blackwell compute class (GB100/200 data center, SM 10.0).
+pub const BLACKWELL_COMPUTE_A: u32 = 0x0000_CDC0;
+
+/// `BLACKWELL_COMPUTE_B` — Blackwell compute class (GB20x consumer, SM 12.0).
+pub const BLACKWELL_COMPUTE_B: u32 = 0x0000_CEC0;
+
+/// `BLACKWELL_CHANNEL_GPFIFO_A` — GPFIFO channel for Blackwell (data center).
+pub const BLACKWELL_CHANNEL_GPFIFO_A: u32 = 0x0000_C96F;
+
+/// `BLACKWELL_CHANNEL_GPFIFO_B` — GPFIFO channel for Blackwell (consumer).
+pub const BLACKWELL_CHANNEL_GPFIFO_B: u32 = 0x0000_CA6F;
+
 /// `NV01_MEMORY_SYSTEM` — System memory allocation via RM.
 pub const NV01_MEMORY_SYSTEM: u32 = 0x0000_003E;
 
@@ -618,6 +636,12 @@ mod tests {
         assert_eq!(TURING_COMPUTE_A, 0xC5C0);
         assert_eq!(AMPERE_COMPUTE_A, 0xC6C0);
         assert_eq!(AMPERE_COMPUTE_B, 0xC7C0);
+        assert_eq!(ADA_COMPUTE_A, 0xC9C0);
+        assert_eq!(HOPPER_COMPUTE_A, 0xCBC0);
+        assert_eq!(BLACKWELL_COMPUTE_A, 0xCDC0);
+        assert_eq!(BLACKWELL_COMPUTE_B, 0xCEC0);
+        assert_eq!(BLACKWELL_CHANNEL_GPFIFO_A, 0xC96F);
+        assert_eq!(BLACKWELL_CHANNEL_GPFIFO_B, 0xCA6F);
         assert_eq!(NV01_MEMORY_SYSTEM, 0x3E);
         assert_eq!(NV01_MEMORY_LOCAL_USER, 0x40);
     }

@@ -14,7 +14,10 @@ use std::sync::Arc;
 
 use super::ioctl;
 use super::types::ioctls;
-use super::types::{VfioDeviceInfo, VfioGroupStatus, VfioRegionInfo};
+use super::types::{
+    IommuIoasAlloc, VfioDeviceAttachIommufdPt, VfioDeviceBindIommufd, VfioDeviceInfo,
+    VfioGroupStatus, VfioRegionInfo,
+};
 use crate::gsp::{ApplyError, RegisterAccess};
 use crate::mmio::VolatilePtr;
 
@@ -146,42 +149,223 @@ unsafe impl Send for MappedBar {}
 // x86_64. The mmap lifetime is tied to the struct.
 unsafe impl Sync for MappedBar {}
 
+/// Which VFIO backend is in use — allows callers (ember, glowplug) to
+/// branch on the backend without accessing raw fds or panicking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VfioBackendKind {
+    /// Legacy VFIO container/group (kernel < 6.2).
+    /// SCM_RIGHTS sends 3 fds: container, group, device.
+    Legacy,
+    /// Modern iommufd/cdev (kernel 6.2+).
+    /// SCM_RIGHTS sends 2 fds: iommufd, device.
+    /// `ioas_id` must be transmitted out-of-band (JSON metadata).
+    Iommufd {
+        /// IOAS id from `IOMMU_IOAS_ALLOC`, needed by the receiver for DMA.
+        ioas_id: u32,
+    },
+}
+
+/// DMA mapping backend — abstracts the difference between the legacy VFIO
+/// container and the modern iommufd IOAS. Both variants are cheap to clone
+/// (`Arc`-wrapped) so they can be passed to [`super::DmaBuffer`] and channel
+/// code that needs to create IOMMU mappings.
+#[derive(Clone)]
+pub enum DmaBackend {
+    /// Legacy VFIO container fd (kernel < 6.2). DMA maps via
+    /// `VFIO_IOMMU_MAP_DMA` / `VFIO_IOMMU_UNMAP_DMA` on this fd.
+    LegacyContainer(Arc<OwnedFd>),
+    /// Modern iommufd IOAS (kernel 6.2+). DMA maps via `IOMMU_IOAS_MAP` /
+    /// `IOMMU_IOAS_UNMAP` on the iommufd, referencing the IOAS by id.
+    Iommufd {
+        /// Open `/dev/iommu` file descriptor.
+        fd: Arc<OwnedFd>,
+        /// IOAS id from `IOMMU_IOAS_ALLOC`.
+        ioas_id: u32,
+    },
+}
+
+/// VFIO file descriptors received via `SCM_RIGHTS` — backend-aware.
+///
+/// Ember sends these to glowplug; glowplug passes them to
+/// [`VfioDevice::from_received`] to reconstruct a device handle.
+pub enum ReceivedVfioFds {
+    /// Legacy path: container, group, device (3 fds).
+    Legacy {
+        /// VFIO container fd.
+        container: OwnedFd,
+        /// VFIO IOMMU group fd.
+        group: OwnedFd,
+        /// VFIO device fd.
+        device: OwnedFd,
+    },
+    /// Modern iommufd path: iommufd, device (2 fds + ioas_id metadata).
+    Iommufd {
+        /// `/dev/iommu` fd with IOAS already allocated and device attached.
+        iommufd: OwnedFd,
+        /// VFIO cdev device fd.
+        device: OwnedFd,
+        /// IOAS id (from JSON metadata, not an fd).
+        ioas_id: u32,
+    },
+}
+
+/// Internal backend state for the VFIO open path. Legacy carries the group
+/// and container fds; iommufd carries the iommufd and IOAS id.
+enum VfioBackend {
+    LegacyGroup {
+        container: Arc<OwnedFd>,
+        group: std::fs::File,
+    },
+    Iommufd {
+        iommufd: Arc<OwnedFd>,
+        ioas_id: u32,
+    },
+}
+
 /// A VFIO-managed PCIe device.
 ///
-/// Holds the container/group/device fd lifecycle. Drop order: fields are
-/// dropped in declaration order, so `device` closes before `group` before
-/// `container`, matching VFIO's required teardown sequence.
+/// Holds the device fd lifecycle and the backend-specific state for DMA.
+/// Drop order: `device` closes before `backend` fields, matching VFIO's
+/// required teardown sequence.
 pub struct VfioDevice {
     bdf: String,
     device: OwnedFd,
     num_regions: u32,
-    group: std::fs::File,
-    /// Shared so [`crate::vfio::dma::DmaBuffer`] and diagnostics hold the same IOMMU domain.
-    container: Arc<OwnedFd>,
+    backend: VfioBackend,
 }
 
 impl VfioDevice {
     /// Open a VFIO-bound PCIe device by BDF address (e.g. `"0000:01:00.0"`).
     ///
-    /// Performs the full VFIO container/group/device setup:
-    /// 1. Open `/dev/vfio/vfio` (container)
-    /// 2. Verify API version and IOMMU support
-    /// 3. Open `/dev/vfio/{group}` and attach to container
-    /// 4. Set IOMMU type
-    /// 5. Get device fd from group
+    /// Automatically selects the best available backend:
+    /// 1. **iommufd/cdev** (kernel 6.2+) — opens `/dev/iommu` and the device's
+    ///    cdev node under `/dev/vfio/devices/`. No IOMMU group dance needed.
+    /// 2. **Legacy container/group** — falls back to the traditional
+    ///    `/dev/vfio/vfio` + `/dev/vfio/{group}` path for older kernels.
     ///
     /// # Prerequisites (provided by ecosystem hardware setup)
     ///
     /// - GPU bound to `vfio-pci`
     /// - IOMMU enabled
-    /// - User has permission on `/dev/vfio/*`
+    /// - User has permission on `/dev/vfio/*` (and `/dev/iommu` for cdev path)
     ///
     /// # Errors
     ///
-    /// Returns error if any VFIO setup step fails.
+    /// Returns error if both backends fail.
     pub fn open(bdf: &str) -> Result<Self, DriverError> {
+        match Self::open_iommufd(bdf) {
+            Ok(dev) => {
+                tracing::info!(bdf, "VFIO device opened via iommufd/cdev");
+                return Ok(dev);
+            }
+            Err(e) => {
+                tracing::debug!(bdf, err = %e, "iommufd/cdev unavailable, trying legacy group");
+            }
+        }
+        Self::open_legacy_group(bdf)
+    }
+
+    /// Modern iommufd/cdev open path (kernel 6.2+).
+    ///
+    /// 1. Open `/dev/iommu`
+    /// 2. Discover cdev via `{sysfs}/bus/pci/devices/{bdf}/vfio-dev/`
+    /// 3. Open `/dev/vfio/devices/{cdev}`
+    /// 4. `VFIO_DEVICE_BIND_IOMMUFD`
+    /// 5. `IOMMU_IOAS_ALLOC`
+    /// 6. `VFIO_DEVICE_ATTACH_IOMMUFD_PT`
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "struct argsz always fits u32"
+    )]
+    fn open_iommufd(bdf: &str) -> Result<Self, DriverError> {
+        let iommufd = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/iommu")
+            .map_err(|e| {
+                DriverError::DeviceNotFound(Cow::Owned(format!("/dev/iommu: {e}")))
+            })?;
+
+        let cdev_name = crate::linux_paths::sysfs_vfio_cdev_name(bdf).ok_or_else(|| {
+            DriverError::DeviceNotFound(Cow::Owned(format!(
+                "No VFIO cdev for {bdf} (vfio-dev/ not found in sysfs)"
+            )))
+        })?;
+
+        let cdev_path = format!("/dev/vfio/devices/{cdev_name}");
+        let device_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&cdev_path)
+            .map_err(|e| {
+                DriverError::DeviceNotFound(Cow::Owned(format!("{cdev_path}: {e}")))
+            })?;
+        let device = OwnedFd::from(device_file);
+
+        let mut bind = VfioDeviceBindIommufd {
+            argsz: std::mem::size_of::<VfioDeviceBindIommufd>() as u32,
+            flags: 0,
+            iommufd: iommufd.as_raw_fd(),
+            out_devid: 0,
+        };
+        ioctl::device_bind_iommufd(device.as_fd(), &mut bind)?;
+        tracing::debug!(bdf, devid = bind.out_devid, "bound device to iommufd");
+
+        let iommufd_fd = OwnedFd::from(iommufd);
+        let mut ioas_alloc = IommuIoasAlloc {
+            size: std::mem::size_of::<IommuIoasAlloc>() as u32,
+            flags: 0,
+            out_ioas_id: 0,
+        };
+        ioctl::iommufd_ioas_alloc(iommufd_fd.as_fd(), &mut ioas_alloc)?;
+        let ioas_id = ioas_alloc.out_ioas_id;
+        tracing::debug!(bdf, ioas_id, "allocated IOAS");
+
+        let mut attach = VfioDeviceAttachIommufdPt {
+            argsz: std::mem::size_of::<VfioDeviceAttachIommufdPt>() as u32,
+            flags: 0,
+            pt_id: ioas_id,
+        };
+        ioctl::device_attach_iommufd_pt(device.as_fd(), &mut attach)?;
+        tracing::debug!(bdf, ioas_id, "attached device to IOAS");
+
+        let mut dev_info = VfioDeviceInfo {
+            argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,
+            ..Default::default()
+        };
+        ioctl::device_info(device.as_fd(), &mut dev_info)?;
+
+        tracing::info!(
+            bdf,
+            num_regions = dev_info.num_regions,
+            num_irqs = dev_info.num_irqs,
+            cdev = %cdev_name,
+            "VFIO device opened (iommufd)"
+        );
+
+        let dev = Self {
+            bdf: bdf.to_string(),
+            device,
+            num_regions: dev_info.num_regions,
+            backend: VfioBackend::Iommufd {
+                iommufd: Arc::new(iommufd_fd),
+                ioas_id,
+            },
+        };
+
+        dev.enable_bus_master()?;
+
+        Ok(dev)
+    }
+
+    /// Legacy container/group open path (kernel < 6.2).
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "struct argsz always fits u32"
+    )]
+    fn open_legacy_group(bdf: &str) -> Result<Self, DriverError> {
         let iommu_group = find_iommu_group(bdf)?;
-        tracing::info!(bdf, iommu_group, "opening VFIO device");
+        tracing::info!(bdf, iommu_group, "opening VFIO device (legacy group)");
 
         let container = OpenOptions::new()
             .read(true)
@@ -223,8 +407,11 @@ impl VfioDevice {
             ));
         }
 
-        let container_fd = container.as_raw_fd();
-        ioctl::group_set_container(group.as_fd(), std::ptr::from_ref(&container_fd).cast())?;
+        let container_raw_fd = container.as_raw_fd();
+        ioctl::group_set_container(
+            group.as_fd(),
+            std::ptr::from_ref(&container_raw_fd).cast(),
+        )?;
 
         ioctl::set_iommu(container.as_fd(), ioctls::VFIO_TYPE1V2_IOMMU)?;
 
@@ -242,15 +429,17 @@ impl VfioDevice {
             bdf,
             num_regions = dev_info.num_regions,
             num_irqs = dev_info.num_irqs,
-            "VFIO device opened"
+            "VFIO device opened (legacy group)"
         );
 
         let dev = Self {
             bdf: bdf.to_string(),
             device,
             num_regions: dev_info.num_regions,
-            group,
-            container: Arc::new(OwnedFd::from(container)),
+            backend: VfioBackend::LegacyGroup {
+                container: Arc::new(OwnedFd::from(container)),
+                group,
+            },
         };
 
         dev.enable_bus_master()?;
@@ -479,22 +668,84 @@ impl VfioDevice {
         Ok(())
     }
 
-    /// Raw fd of the VFIO container (for DMA buffer allocation).
+    /// DMA mapping backend for this device. Pass this to [`super::DmaBuffer`],
+    /// [`super::VfioChannel`], and other code that needs to create IOMMU mappings.
+    #[must_use]
+    pub fn dma_backend(&self) -> DmaBackend {
+        match &self.backend {
+            VfioBackend::LegacyGroup { container, .. } => {
+                DmaBackend::LegacyContainer(Arc::clone(container))
+            }
+            VfioBackend::Iommufd { iommufd, ioas_id } => DmaBackend::Iommufd {
+                fd: Arc::clone(iommufd),
+                ioas_id: *ioas_id,
+            },
+        }
+    }
+
+    /// Which backend this device is using. Callers (ember, glowplug) use this
+    /// to select the right IPC fd-passing strategy without panicking.
+    #[must_use]
+    pub fn backend_kind(&self) -> VfioBackendKind {
+        match &self.backend {
+            VfioBackend::LegacyGroup { .. } => VfioBackendKind::Legacy,
+            VfioBackend::Iommufd { ioas_id, .. } => VfioBackendKind::Iommufd {
+                ioas_id: *ioas_id,
+            },
+        }
+    }
+
+    /// File descriptors to pass via `SCM_RIGHTS` for this device.
+    ///
+    /// - **Legacy**: `[container, group, device]` (3 fds)
+    /// - **Iommufd**: `[iommufd, device]` (2 fds)
+    ///
+    /// The receiver must also know the [`backend_kind`](Self::backend_kind) to
+    /// reconstruct the device on the other side.
+    #[must_use]
+    pub fn sendable_fds(&self) -> Vec<BorrowedFd<'_>> {
+        match &self.backend {
+            VfioBackend::LegacyGroup {
+                container, group, ..
+            } => vec![container.as_fd(), group.as_fd(), self.device.as_fd()],
+            VfioBackend::Iommufd { iommufd, .. } => {
+                vec![iommufd.as_fd(), self.device.as_fd()]
+            }
+        }
+    }
+
+    /// Raw fd of the VFIO container (legacy path only, for ember `SCM_RIGHTS`).
+    ///
+    /// Prefer [`sendable_fds`](Self::sendable_fds) for backend-agnostic fd passing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on an iommufd-backed device.
     #[must_use]
     pub fn container_fd(&self) -> RawFd {
-        self.container.as_raw_fd()
+        match &self.backend {
+            VfioBackend::LegacyGroup { container, .. } => container.as_raw_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("container_fd() not available on iommufd backend")
+            }
+        }
     }
 
-    /// Shared handle to the VFIO container fd for IOMMU DMA map/unmap.
-    #[must_use]
-    pub fn container_shared(&self) -> Arc<OwnedFd> {
-        Arc::clone(&self.container)
-    }
-
-    /// Borrowed handle to the VFIO container fd (for `SCM_RIGHTS` / [`AsFd`] APIs).
+    /// Borrowed handle to the VFIO container fd (legacy path only).
+    ///
+    /// Prefer [`sendable_fds`](Self::sendable_fds) for backend-agnostic fd passing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on an iommufd-backed device.
     #[must_use]
     pub fn container_as_fd(&self) -> BorrowedFd<'_> {
-        self.container.as_fd()
+        match &self.backend {
+            VfioBackend::LegacyGroup { container, .. } => container.as_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("container_as_fd() not available on iommufd backend")
+            }
+        }
     }
 
     /// PCIe BDF address.
@@ -533,29 +784,80 @@ impl VfioDevice {
         self.device.as_fd()
     }
 
-    /// Raw fd of the VFIO group (for SCM\_RIGHTS fd passing to/from coral-ember).
+    /// Raw fd of the VFIO group (legacy path only, for ember `SCM_RIGHTS`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on an iommufd-backed device.
     #[must_use]
     pub fn group_fd(&self) -> RawFd {
-        self.group.as_raw_fd()
+        match &self.backend {
+            VfioBackend::LegacyGroup { group, .. } => group.as_raw_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("group_fd() not available on iommufd backend")
+            }
+        }
     }
 
-    /// Borrowed handle to the VFIO group fd (for `SCM_RIGHTS` / [`AsFd`] APIs).
+    /// Borrowed handle to the VFIO group fd (legacy path only).
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on an iommufd-backed device.
     #[must_use]
     pub fn group_as_fd(&self) -> BorrowedFd<'_> {
-        self.group.as_fd()
+        match &self.backend {
+            VfioBackend::LegacyGroup { group, .. } => group.as_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("group_as_fd() not available on iommufd backend")
+            }
+        }
     }
 
-    /// Construct from pre-opened fds received via SCM\_RIGHTS from coral-ember.
+    /// Reconstruct from fds received via `SCM_RIGHTS` from coral-ember.
+    ///
+    /// Handles both backend shapes:
+    /// - **Legacy**: container + group + device (3 fds) — older kernels
+    /// - **Iommufd**: iommufd + device (2 fds) + ioas_id metadata — kernel 6.2+
     ///
     /// The ember holds the original fds; these are dup'd copies. When this
     /// `VfioDevice` is dropped, the dup'd fds close but the ember's originals
     /// keep the VFIO binding alive (no PM reset on GV100).
-    pub fn from_received_fds(
-        bdf: &str,
-        container: OwnedFd,
-        group: OwnedFd,
-        device: OwnedFd,
-    ) -> Result<Self, DriverError> {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "struct argsz always fits u32"
+    )]
+    pub fn from_received(bdf: &str, fds: ReceivedVfioFds) -> Result<Self, DriverError> {
+        let (device, backend) = match fds {
+            ReceivedVfioFds::Legacy {
+                container,
+                group,
+                device,
+            } => (
+                device,
+                VfioBackend::LegacyGroup {
+                    container: Arc::new(container),
+                    group: std::fs::File::from(group),
+                },
+            ),
+            ReceivedVfioFds::Iommufd {
+                iommufd,
+                device,
+                ioas_id,
+            } => (
+                device,
+                VfioBackend::Iommufd {
+                    iommufd: Arc::new(iommufd),
+                    ioas_id,
+                },
+            ),
+        };
+
+        let backend_label = match &backend {
+            VfioBackend::LegacyGroup { .. } => "legacy",
+            VfioBackend::Iommufd { .. } => "iommufd",
+        };
+
         let mut dev_info = VfioDeviceInfo {
             argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,
             ..Default::default()
@@ -564,6 +866,7 @@ impl VfioDevice {
 
         tracing::info!(
             bdf,
+            backend = backend_label,
             num_regions = dev_info.num_regions,
             num_irqs = dev_info.num_irqs,
             "VFIO device reconstructed from ember fds"
@@ -573,8 +876,7 @@ impl VfioDevice {
             bdf: bdf.to_string(),
             device,
             num_regions: dev_info.num_regions,
-            group: std::fs::File::from(group),
-            container: Arc::new(container),
+            backend,
         };
 
         dev.enable_bus_master()?;

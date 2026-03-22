@@ -3,7 +3,6 @@
 use crate::error::DeviceError;
 use crate::personality::{Personality, PersonalityRegistry};
 use crate::sysfs_ops::SysfsOps;
-use std::os::fd::OwnedFd;
 
 use super::DeviceSlot;
 use super::types::VfioHolder;
@@ -152,14 +151,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
 
     /// Bind VFIO using fds received from the coral-ember process.
     ///
+    /// Backend-agnostic: accepts either legacy (3 fds) or iommufd (2 fds + ioas_id).
     /// The ember holds the original fds; these are dup'd copies received
     /// via `SCM_RIGHTS`. Dropping this `DeviceSlot` closes the dup'd fds
     /// but the ember's originals keep the VFIO binding alive.
     pub fn activate_from_ember(
         &mut self,
-        container: OwnedFd,
-        group: OwnedFd,
-        device_fd: OwnedFd,
+        fds: coral_driver::vfio::ReceivedVfioFds,
     ) -> Result<(), DeviceError> {
         let group_id = self.sysfs.read_iommu_group(&self.bdf);
 
@@ -169,13 +167,11 @@ impl<S: SysfsOps> DeviceSlot<S> {
             "activating device from ember fds"
         );
 
-        let device = coral_driver::vfio::VfioDevice::from_received_fds(
-            &self.bdf, container, group, device_fd,
-        )
-        .map_err(|e| DeviceError::VfioOpen {
-            bdf: self.bdf.clone(),
-            reason: format!("ember fds: {e}"),
-        })?;
+        let device = coral_driver::vfio::VfioDevice::from_received(&self.bdf, fds)
+            .map_err(|e| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: format!("ember fds: {e}"),
+            })?;
 
         let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
             bdf: self.bdf.clone(),
@@ -208,16 +204,11 @@ impl<S: SysfsOps> DeviceSlot<S> {
         if let Some(client) = crate::ember::EmberClient::connect() {
             match client.request_fds(&self.bdf) {
                 Ok(fds) => {
-                    let device = coral_driver::vfio::VfioDevice::from_received_fds(
-                        &self.bdf,
-                        fds.container,
-                        fds.group,
-                        fds.device,
-                    )
-                    .map_err(|e| DeviceError::VfioOpen {
-                        bdf: self.bdf.clone(),
-                        reason: format!("ember fds: {e}"),
-                    })?;
+                    let device = coral_driver::vfio::VfioDevice::from_received(&self.bdf, fds)
+                        .map_err(|e| DeviceError::VfioOpen {
+                            bdf: self.bdf.clone(),
+                            reason: format!("ember fds: {e}"),
+                        })?;
                     let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
                         bdf: self.bdf.clone(),
                         reason: format!("BAR0 map from ember: {e}"),

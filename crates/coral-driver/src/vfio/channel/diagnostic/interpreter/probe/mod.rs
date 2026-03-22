@@ -8,12 +8,10 @@ mod dma;
 mod domain;
 mod report;
 
-use std::os::fd::OwnedFd;
-use std::sync::Arc;
 use std::time::Instant;
 
 use crate::vfio::channel::glowplug::GlowPlug;
-use crate::vfio::device::MappedBar;
+use crate::vfio::device::{DmaBackend, MappedBar};
 
 use super::layers::*;
 use super::memory_probe;
@@ -28,11 +26,11 @@ pub use report::ProbeReport;
 /// The probe interpreter — runs layered discovery on a VFIO GPU.
 pub struct ProbeInterpreter<'a> {
     bar0: &'a MappedBar,
-    container: Arc<OwnedFd>,
+    container: DmaBackend,
 }
 
 impl<'a> ProbeInterpreter<'a> {
-    pub fn new(bar0: &'a MappedBar, container: Arc<OwnedFd>) -> Self {
+    pub fn new(bar0: &'a MappedBar, container: DmaBackend) -> Self {
         Self { bar0, container }
     }
 
@@ -99,7 +97,7 @@ impl<'a> ProbeInterpreter<'a> {
                         method = ?power.method,
                         "L2.5: invoking GlowPlug.full_init"
                     );
-                    let gp = GlowPlug::new(self.bar0, Arc::clone(&self.container));
+                    let gp = GlowPlug::new(self.bar0, self.container.clone());
                     let warm_result = gp.full_init();
                     for msg in &warm_result.log {
                         tracing::debug!(%msg, "GlowPlug");
@@ -145,18 +143,18 @@ impl<'a> ProbeInterpreter<'a> {
                 report.power = Some(power.clone());
 
                 // Layer 3: Engines
-                match probe_engines(self.bar0, Arc::clone(&self.container), power) {
+                match probe_engines(self.bar0, self.container.clone(), power) {
                     Ok(engines) => {
                         report.engines = Some(engines.clone());
 
                         let mem_topo = memory_probe::discover_memory_topology(
                             self.bar0,
-                            Arc::clone(&self.container),
+                            self.container.clone(),
                         );
                         mem_topo.print_summary();
                         report.memory = Some(mem_topo);
 
-                        match probe_dma(self.bar0, Arc::clone(&self.container), engines.clone()) {
+                        match probe_dma(self.bar0, self.container.clone(), engines.clone()) {
                             Ok(dma) => {
                                 if !dma.instance_block_accessible {
                                     report.failures.push(ProbeFailure {
@@ -174,7 +172,7 @@ impl<'a> ProbeInterpreter<'a> {
                                 if dma.instance_block_accessible {
                                     match probe_channel(
                                         self.bar0,
-                                        Arc::clone(&self.container),
+                                        self.container.clone(),
                                         &dma,
                                     ) {
                                         Ok(ch) => {

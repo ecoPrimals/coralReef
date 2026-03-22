@@ -14,13 +14,19 @@
 //!
 //! # Architecture
 //!
+//! `VfioDevice::open()` auto-detects the best available backend:
+//!
 //! ```text
-//! VfioDevice
-//!   ├─ /dev/vfio/vfio          (container — IOMMU domain)
-//!   ├─ /dev/vfio/{group}       (IOMMU group)
-//!   ├─ device fd               (PCIe function)
-//!   ├─ BAR mappings            (mmap'd register/memory regions)
-//!   └─ DMA buffers             (IOMMU-mapped host memory)
+//! VfioDevice::open(bdf)
+//!   ├─ Modern path (kernel 6.2+, iommufd/cdev):
+//!   │   ├─ /dev/iommu                (iommufd — IOAS management)
+//!   │   └─ /dev/vfio/devices/vfioN   (cdev — device directly, no group)
+//!   ├─ Legacy path (kernel < 6.2, container/group):
+//!   │   ├─ /dev/vfio/vfio            (container — IOMMU domain)
+//!   │   └─ /dev/vfio/{group}         (IOMMU group)
+//!   ├─ device fd                      (PCIe function — same on both paths)
+//!   ├─ BAR mappings                   (mmap'd register/memory regions)
+//!   └─ DMA buffers via DmaBackend    (IOMMU-mapped host memory)
 //! ```
 
 pub mod amd_metal;
@@ -38,7 +44,7 @@ pub mod sysfs_bar0;
 pub mod types;
 
 pub use channel::VfioChannel;
-pub use device::VfioDevice;
+pub use device::{DmaBackend, ReceivedVfioFds, VfioBackendKind, VfioDevice};
 pub use dma::DmaBuffer;
 pub use gpu_vendor::GpuMetal;
 pub use nv_metal::detect_gpu_metal;

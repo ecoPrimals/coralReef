@@ -9,8 +9,6 @@ mod glowplug_client;
 
 #[cfg(feature = "vfio")]
 mod tests {
-    use std::sync::Arc;
-
     use super::glowplug_client::VfioLease;
 
     fn vfio_bdf() -> String {
@@ -143,7 +141,7 @@ mod tests {
 
                                             let gp = GlowPlug::with_bdf(
                                                 &raw.bar0,
-                                                Arc::clone(&raw.container),
+                                                raw.container.clone(),
                                                 &bdf,
                                             );
                                             let vram_ok = gp.check_vram();
@@ -195,9 +193,9 @@ mod tests {
         eprintln!("╠══ FULL GLOWPLUG WITH DEVINIT + ORACLE ═════════════════════╣");
         let gp = if let Some(ref oracle) = oracle_bdf {
             eprintln!("║ Oracle card: {oracle}");
-            GlowPlug::with_oracle(&raw.bar0, Arc::clone(&raw.container), &bdf, oracle)
+            GlowPlug::with_oracle(&raw.bar0, raw.container.clone(), &bdf, oracle)
         } else {
-            GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf)
+            GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf)
         };
         let result = gp.full_init();
         for msg in &result.log {
@@ -311,7 +309,7 @@ mod tests {
         let (_lease, raw) = open_vfio();
 
         // Run glowplug to get PFIFO alive
-        let gp = GlowPlug::new(&raw.bar0, Arc::clone(&raw.container));
+        let gp = GlowPlug::new(&raw.bar0, raw.container.clone());
         let warm_result = gp.full_init();
         eprintln!("╠══ VFIO CARD ({vfio_bdf}, vfio-pci) ════════════════════════╣");
         for msg in &warm_result.log {
@@ -350,7 +348,7 @@ mod tests {
 
         // ── Phase 4: Memory topology before any changes ─────────────────
         let topo_before =
-            memory_probe::discover_memory_topology(&raw.bar0, Arc::clone(&raw.container));
+            memory_probe::discover_memory_topology(&raw.bar0, raw.container.clone());
         eprintln!("╠══ MEMORY TOPOLOGY BEFORE FB INIT ══════════════════════════╣");
         topo_before.print_summary();
 
@@ -391,7 +389,7 @@ mod tests {
 
         // ── Phase 6: Re-probe memory topology after applying oracle regs ─
         let topo_after =
-            memory_probe::discover_memory_topology(&raw.bar0, Arc::clone(&raw.container));
+            memory_probe::discover_memory_topology(&raw.bar0, raw.container.clone());
         eprintln!("╠══ MEMORY TOPOLOGY AFTER FB INIT ═══════════════════════════╣");
         topo_after.print_summary();
 
@@ -420,7 +418,7 @@ mod tests {
         memory_probe::dump_pfb_registers(&raw.bar0);
 
         // Run the full interpreter now with the (possibly warm) state
-        let interpreter = ProbeInterpreter::new(&raw.bar0, Arc::clone(&raw.container));
+        let interpreter = ProbeInterpreter::new(&raw.bar0, raw.container.clone());
         let report = interpreter.run();
         report.print_summary();
 
@@ -559,7 +557,7 @@ mod tests {
         status.print_summary();
 
         // Run GlowPlug with all strategies — load oracle from best available source
-        let mut gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf);
+        let mut gp = GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf);
         if let Some(ref oracle) = oracle_bdf {
             eprintln!("║ Oracle (live): {oracle}");
             gp.load_oracle_live(oracle)
@@ -643,7 +641,7 @@ mod tests {
 
         // ── Phase 3: GlowPlug warm-up ───────────────────────────────────
         eprintln!("╠══ PHASE 3: GLOWPLUG WARM-UP ══════════════════════════════╣");
-        let gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf)
+        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf)
             .with_metal(Box::new(NvVoltaMetal::from_boot0(boot0)));
         let warm_result = gp.warm();
         for msg in &warm_result.log {
@@ -795,7 +793,7 @@ mod tests {
         eprintln!("║ METAL GLOWPLUG — TRAIT-BASED WARM-UP                       ║");
         eprintln!("╠══════════════════════════════════════════════════════════════╣");
 
-        let gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf)
+        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf)
             .with_metal(Box::new(metal));
 
         let result = gp.warm();
@@ -821,7 +819,7 @@ mod tests {
         eprintln!("║ POWER BOUNDS — EMPIRICAL TRANSITION MAPPING                ║");
         eprintln!("╠══════════════════════════════════════════════════════════════╣");
 
-        let gp = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf);
+        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf);
 
         // Ensure GPU is warm first
         let warm = gp.warm();

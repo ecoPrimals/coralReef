@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use std::borrow::Cow;
-use std::os::fd::OwnedFd;
-use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::{DriverError, DriverResult};
 use crate::mmio::VolatilePtr;
-use crate::vfio::device::MappedBar;
+use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::dma::DmaBuffer;
 
 use super::super::page_tables::{
@@ -31,7 +29,7 @@ use super::types::{ExperimentConfig, ExperimentOrdering, ExperimentResult};
     reason = "diagnostic matrix needs all buffers and configs"
 )]
 pub fn diagnostic_matrix(
-    container: Arc<OwnedFd>,
+    container: DmaBackend,
     bar0: &MappedBar,
     gpfifo_iova: u64,
     gpfifo_entries: u32,
@@ -41,14 +39,14 @@ pub fn diagnostic_matrix(
     gpfifo_ring: &mut [u8],
     userd_page: &mut [u8],
 ) -> DriverResult<Vec<ExperimentResult>> {
-    let mut instance = DmaBuffer::new(Arc::clone(&container), 4096, INSTANCE_IOVA)?;
-    let mut runlist = DmaBuffer::new(Arc::clone(&container), 4096, RUNLIST_IOVA)?;
-    let mut pd3 = DmaBuffer::new(Arc::clone(&container), 4096, PD3_IOVA)?;
-    let mut pd2 = DmaBuffer::new(Arc::clone(&container), 4096, PD2_IOVA)?;
-    let mut pd1 = DmaBuffer::new(Arc::clone(&container), 4096, PD1_IOVA)?;
-    let mut pd0 = DmaBuffer::new(Arc::clone(&container), 4096, PD0_IOVA)?;
-    let mut pt0 = DmaBuffer::new(Arc::clone(&container), 4096, PT0_IOVA)?;
-    let mut nop_pb = DmaBuffer::new(Arc::clone(&container), 4096, NOP_PB_IOVA)?;
+    let mut instance = DmaBuffer::new(container.clone(), 4096, INSTANCE_IOVA)?;
+    let mut runlist = DmaBuffer::new(container.clone(), 4096, RUNLIST_IOVA)?;
+    let mut pd3 = DmaBuffer::new(container.clone(), 4096, PD3_IOVA)?;
+    let mut pd2 = DmaBuffer::new(container.clone(), 4096, PD2_IOVA)?;
+    let mut pd1 = DmaBuffer::new(container.clone(), 4096, PD1_IOVA)?;
+    let mut pd0 = DmaBuffer::new(container.clone(), 4096, PD0_IOVA)?;
+    let mut pt0 = DmaBuffer::new(container.clone(), 4096, PT0_IOVA)?;
+    let mut nop_pb = DmaBuffer::new(container.clone(), 4096, NOP_PB_IOVA)?;
     {
         let pb_mut = nop_pb.as_mut_slice();
         let nop_hdr: u32 = (1 << 29) | (1 << 16) | 0x40;
@@ -133,7 +131,7 @@ pub fn diagnostic_matrix(
         gpu_warm = true;
     } else {
         eprintln!("║ PFB gated — running GlowPlug cold-start path");
-        let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, Arc::clone(&container));
+        let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, container.clone());
         let state = gp.check_state();
         tracing::debug!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
         match state {
@@ -163,7 +161,7 @@ pub fn diagnostic_matrix(
         );
 
         // Only reprogram fault buffers + BAR2 on the cold path.
-        let _fault_buf = DmaBuffer::new(Arc::clone(&container), 4096, FAULT_BUF_IOVA)?;
+        let _fault_buf = DmaBuffer::new(container.clone(), 4096, FAULT_BUF_IOVA)?;
         {
             let fb_lo = (FAULT_BUF_IOVA >> 12) as u32;
             let fb_entries: u32 = 64;

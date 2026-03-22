@@ -4,7 +4,8 @@
 //! Requests VFIO fds from coral-ember via SCM_RIGHTS so tests can construct
 //! `NvVfioComputeDevice` without competing with ember for `/dev/vfio/*`.
 //!
-//! Evolved from `libc` raw `recvmsg` to `rustix::net` — zero libc, zero unsafe.
+//! Backend-aware: handles both legacy (3 fds) and iommufd (2 fds + ioas_id)
+//! responses from ember.
 #![allow(dead_code)]
 
 use std::io::Write;
@@ -12,6 +13,7 @@ use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 
+use coral_driver::vfio::ReceivedVfioFds;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
 
 const DEFAULT_EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
@@ -20,13 +22,7 @@ fn ember_socket_path() -> String {
     std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| DEFAULT_EMBER_SOCKET.to_string())
 }
 
-pub struct EmberFds {
-    pub container: OwnedFd,
-    pub group: OwnedFd,
-    pub device: OwnedFd,
-}
-
-pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
+pub fn request_fds(bdf: &str) -> Result<ReceivedVfioFds, String> {
     let socket_path = ember_socket_path();
     let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
     stream
@@ -73,16 +69,40 @@ pub fn request_fds(bdf: &str) -> Result<EmberFds, String> {
         }
     }
 
-    if fds.len() < 3 {
-        return Err(format!("need 3 fds, got {}", fds.len()));
-    }
+    let backend = resp
+        .get("result")
+        .and_then(|r| r.get("backend"))
+        .and_then(|b| b.as_str())
+        .unwrap_or("legacy");
 
-    let mut it = fds.into_iter();
-    Ok(EmberFds {
-        container: it
-            .next()
-            .expect("container fd present — length checked above"),
-        group: it.next().expect("group fd present — length checked above"),
-        device: it.next().expect("device fd present — length checked above"),
-    })
+    match backend {
+        "iommufd" => {
+            if fds.len() < 2 {
+                return Err(format!("iommufd: need 2 fds, got {}", fds.len()));
+            }
+            let ioas_id = resp
+                .get("result")
+                .and_then(|r| r.get("ioas_id"))
+                .and_then(|v| v.as_u64())
+                .ok_or("iommufd response missing ioas_id")?
+                as u32;
+            let mut it = fds.into_iter();
+            Ok(ReceivedVfioFds::Iommufd {
+                iommufd: it.next().expect("checked len >= 2"),
+                device: it.next().expect("checked len >= 2"),
+                ioas_id,
+            })
+        }
+        _ => {
+            if fds.len() < 3 {
+                return Err(format!("legacy: need 3 fds, got {}", fds.len()));
+            }
+            let mut it = fds.into_iter();
+            Ok(ReceivedVfioFds::Legacy {
+                container: it.next().expect("checked len >= 3"),
+                group: it.next().expect("checked len >= 3"),
+                device: it.next().expect("checked len >= 3"),
+            })
+        }
+    }
 }

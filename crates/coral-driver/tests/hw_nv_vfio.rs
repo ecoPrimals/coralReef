@@ -63,15 +63,8 @@ mod tests {
         match ember_client::request_fds(&bdf) {
             Ok(fds) => {
                 eprintln!("ember: received VFIO fds for {bdf}");
-                NvVfioComputeDevice::open_from_fds(
-                    &bdf,
-                    fds.container,
-                    fds.group,
-                    fds.device,
-                    sm,
-                    cc,
-                )
-                .expect("NvVfioComputeDevice::open_from_fds()")
+                NvVfioComputeDevice::open_from_fds(&bdf, fds, sm, cc)
+                    .expect("NvVfioComputeDevice::open_from_fds()")
             }
             Err(e) => {
                 eprintln!("ember unavailable ({e}), opening VFIO directly");

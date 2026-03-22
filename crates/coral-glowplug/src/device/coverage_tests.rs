@@ -288,7 +288,12 @@ fn activate_from_ember_invalid_fds_does_not_apply_vfio_personality() {
     let device_fd: OwnedFd = std::fs::File::open("/dev/null")
         .expect("open /dev/null")
         .into();
-    let result = slot.activate_from_ember(container, group, device_fd);
+    let fds = coral_driver::vfio::ReceivedVfioFds::Legacy {
+        container,
+        group,
+        device: device_fd,
+    };
+    let result = slot.activate_from_ember(fds);
     assert!(
         result.is_err(),
         "/dev/null fds are not a valid VFIO device triple"

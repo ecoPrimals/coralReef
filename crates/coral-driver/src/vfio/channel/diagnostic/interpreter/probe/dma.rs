@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! DMA validation — Layer 4 probing.
 
-use std::os::fd::OwnedFd;
-use std::sync::Arc;
-
 use crate::vfio::channel::registers::{
     BAR2_VRAM_BASE, INSTANCE_IOVA, PD0_IOVA, PD1_IOVA, PD2_IOVA, PD3_IOVA, PT0_IOVA,
     TARGET_SYS_MEM_COHERENT, pbdma, pccsr, pfifo, ramfc, usermode,
 };
-use crate::vfio::device::MappedBar;
+use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::dma::DmaBuffer;
 use crate::vfio::memory::{MemoryRegion, PathStatus, PraminRegion};
 
@@ -26,14 +23,14 @@ fn w(bar0: &MappedBar, reg: usize, val: u32) {
 #[expect(clippy::cast_possible_truncation)]
 pub fn probe_dma(
     bar0: &MappedBar,
-    container: Arc<OwnedFd>,
+    container: DmaBackend,
     engines: EngineTopology,
 ) -> Result<DmaCapability, ProbeFailure> {
     let channel_id: u32 = 0;
     let gpfifo_iova: u64 = 0x1000;
     let userd_iova: u64 = 0x2000;
 
-    let mut instance = match DmaBuffer::new(Arc::clone(&container), 4096, INSTANCE_IOVA) {
+    let mut instance = match DmaBuffer::new(container.clone(), 4096, INSTANCE_IOVA) {
         Ok(b) => b,
         Err(e) => {
             return Err(ProbeFailure {
@@ -44,11 +41,11 @@ pub fn probe_dma(
             });
         }
     };
-    let mut pd3 = DmaBuffer::new(Arc::clone(&container), 4096, PD3_IOVA).ok();
-    let mut pd2 = DmaBuffer::new(Arc::clone(&container), 4096, PD2_IOVA).ok();
-    let mut pd1 = DmaBuffer::new(Arc::clone(&container), 4096, PD1_IOVA).ok();
-    let mut pd0 = DmaBuffer::new(Arc::clone(&container), 4096, PD0_IOVA).ok();
-    let mut pt0 = DmaBuffer::new(Arc::clone(&container), 4096, PT0_IOVA).ok();
+    let mut pd3 = DmaBuffer::new(container.clone(), 4096, PD3_IOVA).ok();
+    let mut pd2 = DmaBuffer::new(container.clone(), 4096, PD2_IOVA).ok();
+    let mut pd1 = DmaBuffer::new(container.clone(), 4096, PD1_IOVA).ok();
+    let mut pd0 = DmaBuffer::new(container.clone(), 4096, PD0_IOVA).ok();
+    let mut pt0 = DmaBuffer::new(container.clone(), 4096, PT0_IOVA).ok();
 
     let iommu_ok = pd3.is_some() && pd2.is_some() && pd1.is_some();
 

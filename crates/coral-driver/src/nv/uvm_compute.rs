@@ -6,6 +6,7 @@
 //! Reuses the identical QMD and push buffer formats from the nouveau path.
 
 use std::collections::HashMap;
+use std::os::fd::AsRawFd;
 
 use crate::error::{DriverError, DriverResult};
 use crate::mmio::VolatilePtr;
@@ -13,8 +14,9 @@ use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo}
 
 use super::qmd;
 use super::uvm::{
-    AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B, NvGpuDevice, NvUvmDevice,
-    RmClient, VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
+    ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
+    BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A,
+    NvGpuDevice, NvUvmDevice, RmClient, VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
 };
 
 /// GPU generation derived from SM version, used for class selection.
@@ -26,6 +28,14 @@ enum GpuGen {
     AmpereA,
     /// `GA10x` (RTX 30xx, SM 8.6+) — uses `AMPERE_COMPUTE_B`.
     AmpereB,
+    /// AD10x (RTX 40xx, SM 8.9) — uses `ADA_COMPUTE_A`.
+    Ada,
+    /// GH100 (H100, SM 9.0) — uses `HOPPER_COMPUTE_A`.
+    Hopper,
+    /// GB100/200 (B200, SM 10.0) — data center Blackwell, `BLACKWELL_COMPUTE_A`.
+    BlackwellA,
+    /// GB20x (RTX 50xx, SM 12.0) — consumer Blackwell, `BLACKWELL_COMPUTE_B`.
+    BlackwellB,
 }
 
 impl GpuGen {
@@ -33,20 +43,29 @@ impl GpuGen {
         match sm {
             75 => Self::Turing,
             80 => Self::AmpereA,
-            81..=89 => Self::AmpereB,
+            81..=88 => Self::AmpereB,
+            89 => Self::Ada,
+            90 => Self::Hopper,
+            100 => Self::BlackwellA,
+            120.. => Self::BlackwellB,
             _ => Self::Volta,
         }
     }
 
     const fn channel_class(self) -> u32 {
         match self {
-            Self::AmpereA | Self::AmpereB => AMPERE_CHANNEL_GPFIFO_A,
+            Self::BlackwellA | Self::BlackwellB => BLACKWELL_CHANNEL_GPFIFO_B,
+            Self::AmpereA | Self::AmpereB | Self::Ada | Self::Hopper => AMPERE_CHANNEL_GPFIFO_A,
             Self::Volta | Self::Turing => VOLTA_CHANNEL_GPFIFO_A,
         }
     }
 
     const fn compute_class(self) -> u32 {
         match self {
+            Self::BlackwellA => BLACKWELL_COMPUTE_A,
+            Self::BlackwellB => BLACKWELL_COMPUTE_B,
+            Self::Hopper => HOPPER_COMPUTE_A,
+            Self::Ada => ADA_COMPUTE_A,
             Self::AmpereA => AMPERE_COMPUTE_A,
             Self::AmpereB => AMPERE_COMPUTE_B,
             Self::Volta | Self::Turing => VOLTA_COMPUTE_A,
@@ -61,6 +80,11 @@ struct UvmBuffer {
     gpu_va: u64,
     /// CPU linear address from `NV_ESC_RM_MAP_MEMORY` (0 = not mapped).
     cpu_addr: u64,
+    /// Dedicated nvidiactl fd that holds this buffer's mmap context. On
+    /// Blackwell (580.x), each nvidiactl fd supports only one active
+    /// mmap context, so each buffer needs its own fd.
+    #[expect(dead_code, reason = "kept alive for mmap lifetime")]
+    mmap_fd: Option<std::fs::File>,
 }
 
 /// GPFIFO entry in the ring buffer (8 bytes).
@@ -165,31 +189,41 @@ impl NvUvmComputeDevice {
 
         let gpu_uuid = client.register_gpu_with_uvm(h_subdevice, &uvm)?;
 
+        // On Blackwell (580.x), the nvidiactl fd supports only ONE active
+        // rm_map_memory context. Combine USERD + GPFIFO into a single
+        // allocation mapped once, then subdivide via offsets.
+        let ctrl_mem_size = USERD_SIZE + GPFIFO_SIZE; // 4K userd + 4K gpfifo = 8K
+        let h_ctrl_mem = h_device + 0x5000;
+        let h_virt_mem = h_device + 0x5002;
+        client.alloc_system_memory(h_device, h_ctrl_mem, ctrl_mem_size)?;
+        let ctrl_cpu_addr = client.rm_map_memory(h_device, h_ctrl_mem, 0, ctrl_mem_size)?;
+
+        let userd_cpu_addr = ctrl_cpu_addr;
+        let gpfifo_cpu_addr = ctrl_cpu_addr + USERD_SIZE;
+
         let h_vaspace = client.alloc_vaspace(h_device)?;
         let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
 
-        let h_gpfifo_mem = h_device + 0x5000;
-        let h_userd_mem = h_device + 0x5001;
-        let h_virt_mem = h_device + 0x5002;
-        client.alloc_system_memory(h_device, h_gpfifo_mem, GPFIFO_SIZE)?;
-        client.alloc_system_memory(h_device, h_userd_mem, USERD_SIZE)?;
         client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
 
-        let gpfifo_gpu_va =
-            client.rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, GPFIFO_SIZE)?;
+        // DMA-map the GPFIFO region (at offset USERD_SIZE within ctrl_mem)
+        let gpfifo_gpu_va = client.rm_map_memory_dma(
+            h_device,
+            h_virt_mem,
+            h_ctrl_mem,
+            USERD_SIZE,
+            GPFIFO_SIZE,
+        )?;
 
         let h_channel = client.alloc_gpfifo_channel(
             h_changrp,
-            h_userd_mem,
+            h_ctrl_mem, // channel uses the same memory (USERD at offset 0)
             gpfifo_gpu_va,
             GPFIFO_ENTRIES,
             gpu_gen.channel_class(),
         )?;
 
         let h_compute = client.alloc_compute_engine(h_channel, gpu_gen.compute_class())?;
-
-        let userd_cpu_addr = client.rm_map_memory(h_device, h_userd_mem, 0, USERD_SIZE)?;
-        let gpfifo_cpu_addr = client.rm_map_memory(h_device, h_gpfifo_mem, 0, GPFIFO_SIZE)?;
 
         tracing::info!(
             gpu_index,
@@ -253,6 +287,10 @@ impl NvUvmComputeDevice {
             GpuGen::Turing => 75,
             GpuGen::AmpereA => 80,
             GpuGen::AmpereB => 86,
+            GpuGen::Ada => 89,
+            GpuGen::Hopper => 90,
+            GpuGen::BlackwellA => 100,
+            GpuGen::BlackwellB => 120,
         }
     }
 
@@ -360,9 +398,20 @@ impl ComputeDevice for NvUvmComputeDevice {
 
         let gpu_va = self.gpu_map_buffer(h_mem, aligned)?;
 
-        let cpu_addr = self
-            .client
-            .rm_map_memory(self.h_device, h_mem, 0, aligned)?;
+        // On Blackwell (580.x), each nvidiactl fd supports only one mmap
+        // context. Open a dedicated fd per buffer for the CPU mapping.
+        let mmap_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/nvidiactl")
+            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))?;
+        let cpu_addr = self.client.rm_map_memory_on_fd(
+            mmap_file.as_raw_fd(),
+            self.h_device,
+            h_mem,
+            0,
+            aligned,
+        )?;
 
         let handle_id = self.alloc_handle();
         self.buffers.insert(
@@ -372,6 +421,7 @@ impl ComputeDevice for NvUvmComputeDevice {
                 size: aligned,
                 gpu_va,
                 cpu_addr,
+                mmap_fd: Some(mmap_file),
             },
         );
         Ok(BufferHandle(handle_id))
@@ -598,6 +648,14 @@ mod tests {
         assert_eq!(GpuGen::from_sm(80).compute_class(), AMPERE_COMPUTE_A);
         assert_eq!(GpuGen::from_sm(86).channel_class(), AMPERE_CHANNEL_GPFIFO_A);
         assert_eq!(GpuGen::from_sm(86).compute_class(), AMPERE_COMPUTE_B);
+        assert_eq!(GpuGen::from_sm(89).compute_class(), ADA_COMPUTE_A);
+        assert_eq!(GpuGen::from_sm(90).compute_class(), HOPPER_COMPUTE_A);
+        assert_eq!(GpuGen::from_sm(100).compute_class(), BLACKWELL_COMPUTE_A);
+        assert_eq!(GpuGen::from_sm(120).compute_class(), BLACKWELL_COMPUTE_B);
+        assert_eq!(
+            GpuGen::from_sm(120).channel_class(),
+            BLACKWELL_CHANNEL_GPFIFO_B
+        );
     }
 
     #[test]
@@ -632,12 +690,37 @@ mod tests {
         assert_eq!(GpuGen::Turing, GpuGen::from_sm(75));
         assert_eq!(GpuGen::AmpereA, GpuGen::from_sm(80));
         assert_eq!(GpuGen::AmpereB, GpuGen::from_sm(86));
+        assert_eq!(GpuGen::Ada, GpuGen::from_sm(89));
+        assert_eq!(GpuGen::Hopper, GpuGen::from_sm(90));
+        assert_eq!(GpuGen::BlackwellA, GpuGen::from_sm(100));
+        assert_eq!(GpuGen::BlackwellB, GpuGen::from_sm(120));
+    }
+
+    fn detect_sm_version() -> u32 {
+        std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
+            .output()
+            .ok()
+            .and_then(|out| {
+                let s = String::from_utf8_lossy(&out.stdout);
+                let parts: Vec<&str> = s.trim().split('.').collect();
+                if parts.len() == 2 {
+                    let major: u32 = parts[0].parse().ok()?;
+                    let minor: u32 = parts[1].parse().ok()?;
+                    Some(major * 10 + minor)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(86)
     }
 
     #[test]
     #[ignore = "requires proprietary nvidia driver loaded"]
     fn uvm_compute_device_open() {
-        let device = NvUvmComputeDevice::open(0, 86).expect("UVM compute device");
+        let sm = detect_sm_version();
+        eprintln!("Detected SM version: {sm}");
+        let device = NvUvmComputeDevice::open(0, sm).expect("UVM compute device");
         assert!(device.is_open());
         eprintln!("UVM compute device opened, SM{}", device.sm_version());
     }
@@ -645,8 +728,50 @@ mod tests {
     #[test]
     #[ignore = "requires proprietary nvidia driver loaded"]
     fn uvm_compute_alloc_free() {
-        let mut device = NvUvmComputeDevice::open(0, 86).expect("UVM compute device");
+        let sm = detect_sm_version();
+        let mut device = NvUvmComputeDevice::open(0, sm).expect("UVM compute device");
         let handle = device.alloc(4096, MemoryDomain::Gtt).expect("buffer alloc");
         device.free(handle).expect("buffer free");
+    }
+
+    #[test]
+    #[ignore = "requires proprietary nvidia driver loaded"]
+    fn uvm_map_memory_single_context() {
+        use crate::nv::uvm::{NvGpuDevice, NvUvmDevice, RmClient};
+
+        let mut client = RmClient::new().expect("RM root client");
+        let uvm = NvUvmDevice::open().expect("open UVM");
+        let gpu = NvGpuDevice::open(0).expect("open GPU");
+        gpu.register_fd(client.ctl_fd()).expect("register GPU fd");
+        uvm.initialize().expect("UVM_INITIALIZE");
+
+        let h_device = client.alloc_device(gpu.index()).expect("RM device");
+        let h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
+        let _uuid = client.register_gpu_with_uvm(h_subdevice, &uvm).expect("register UVM");
+
+        // On Blackwell (580.x), only one rm_map_memory context per nvidiactl fd.
+        // Verify the combined-allocation strategy from open() works.
+        let h_mem = h_device + 0x5000;
+        let combined_size = USERD_SIZE + GPFIFO_SIZE;
+        client
+            .alloc_system_memory(h_device, h_mem, combined_size)
+            .expect("alloc combined");
+        let addr = client
+            .rm_map_memory(h_device, h_mem, 0, combined_size)
+            .expect("rm_map_memory combined");
+        assert!(addr != 0);
+
+        let userd_ptr = addr as *mut u32;
+        let gpfifo_ptr = (addr + USERD_SIZE) as *mut u32;
+        unsafe {
+            crate::mmio::VolatilePtr::new(userd_ptr).write(0xDEAD_BEEF);
+            crate::mmio::VolatilePtr::new(gpfifo_ptr).write(0xCAFE_BABE);
+            assert_eq!(crate::mmio::VolatilePtr::new(userd_ptr).read(), 0xDEAD_BEEF);
+            assert_eq!(crate::mmio::VolatilePtr::new(gpfifo_ptr).read(), 0xCAFE_BABE);
+        }
+
+        client
+            .rm_unmap_memory(h_device, h_mem, addr)
+            .expect("unmap");
     }
 }

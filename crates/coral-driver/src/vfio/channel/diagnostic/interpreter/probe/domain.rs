@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Domain probing — BAR, identity, power, engine topology.
 
-use std::os::fd::OwnedFd;
-use std::sync::Arc;
-
 use crate::vfio::channel::registers::{misc, mmu, pbdma, pfifo, pmc};
-use crate::vfio::device::MappedBar;
+use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::dma::DmaBuffer;
 
 use super::super::layers::*;
@@ -187,7 +184,7 @@ pub fn probe_power(bar0: &MappedBar, identity: GpuIdentity) -> Result<PowerState
 #[expect(clippy::cast_possible_truncation)]
 pub fn probe_engines(
     bar0: &MappedBar,
-    container: Arc<OwnedFd>,
+    container: DmaBackend,
     power: PowerState,
 ) -> Result<EngineTopology, ProbeFailure> {
     use crate::vfio::channel::registers::FAULT_BUF_IOVA;
@@ -301,7 +298,7 @@ pub fn probe_engines(
 
     // MMU fault buffers — allocate in system memory DMA (not VRAM).
     {
-        let fb = DmaBuffer::new(Arc::clone(&container), 4096, FAULT_BUF_IOVA);
+        let fb = DmaBuffer::new(container.clone(), 4096, FAULT_BUF_IOVA);
         if let Ok(fault_buf) = &fb {
             fault_buf.as_slice(); // ensure mlock'd
         }

@@ -31,13 +31,12 @@ mod submission;
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::VfioChannel;
-use crate::vfio::device::{MappedBar, VfioDevice};
+use crate::vfio::device::{DmaBackend, MappedBar, VfioDevice};
 use crate::vfio::dma::DmaBuffer;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use std::collections::HashMap;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::sync::Arc;
+use std::os::fd::AsRawFd;
 
 /// BAR0 register offsets for NVIDIA GPU.
 mod bar0_reg {
@@ -107,7 +106,7 @@ pub struct NvVfioComputeDevice {
     channel: VfioChannel,
     next_handle: u32,
     next_iova: u64,
-    container: Arc<OwnedFd>,
+    container: DmaBackend,
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
     #[expect(
@@ -178,7 +177,7 @@ pub struct RawVfioDevice {
     /// MMIO-mapped BAR0 region for register access.
     pub bar0: MappedBar,
     /// Shared VFIO container handle for DMA mapping and diagnostics.
-    pub container: Arc<OwnedFd>,
+    pub container: DmaBackend,
     /// DMA buffer holding the GPFIFO command ring.
     pub gpfifo_ring: DmaBuffer,
     /// DMA buffer for the USERD (user data) doorbell page.
@@ -191,7 +190,10 @@ impl RawVfioDevice {
     /// Raw numeric VFIO container fd (same open file as [`Self::container`]).
     #[must_use]
     pub fn container_fd(&self) -> std::os::fd::RawFd {
-        self.container.as_raw_fd()
+        match &self.container {
+            DmaBackend::LegacyContainer(fd) => fd.as_raw_fd(),
+            DmaBackend::Iommufd { fd, .. } => fd.as_raw_fd(),
+        }
     }
 
     /// Open a raw VFIO device by PCI BDF address (e.g. `"0000:06:00.0"`).
@@ -200,10 +202,10 @@ impl RawVfioDevice {
             tracing::warn!(bdf, error = %e, "force_pci_d0 failed (may already be in D0)");
         }
         let device = VfioDevice::open(bdf)?;
-        let container = device.container_shared();
+        let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
-        let gpfifo_ring = DmaBuffer::new(Arc::clone(&container), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(Arc::clone(&container), 4096, USERD_IOVA)?;
+        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
         Ok(Self {
             device,
             bar0,
@@ -238,7 +240,7 @@ impl NvVfioComputeDevice {
     /// Opens an NVIDIA VFIO compute device by PCI BDF, SM version, and compute class.
     pub fn open(bdf: &str, sm_version: u32, compute_class: u32) -> DriverResult<Self> {
         let device = VfioDevice::open(bdf)?;
-        let container = device.container_shared();
+        let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
         let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
@@ -251,15 +253,15 @@ impl NvVfioComputeDevice {
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
-        let gpfifo_ring = DmaBuffer::new(Arc::clone(&container), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(Arc::clone(&container), 4096, USERD_IOVA)?;
+        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
         let channel = VfioChannel::create(
-            Arc::clone(&container),
+            container.clone(),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
@@ -288,17 +290,15 @@ impl NvVfioComputeDevice {
         Ok(dev)
     }
 
-    /// Opens from pre-existing VFIO fds (received from coral-ember via SCM_RIGHTS).
+    /// Opens from pre-existing VFIO fds (received from coral-ember via `SCM_RIGHTS`).
     pub fn open_from_fds(
         bdf: &str,
-        container: std::os::fd::OwnedFd,
-        group: std::os::fd::OwnedFd,
-        device_fd: std::os::fd::OwnedFd,
+        fds: crate::vfio::ReceivedVfioFds,
         sm_version: u32,
         compute_class: u32,
     ) -> DriverResult<Self> {
-        let device = VfioDevice::from_received_fds(bdf, container, group, device_fd)?;
-        let container = device.container_shared();
+        let device = VfioDevice::from_received(bdf, fds)?;
+        let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
         let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
@@ -311,15 +311,15 @@ impl NvVfioComputeDevice {
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
-        let gpfifo_ring = DmaBuffer::new(Arc::clone(&container), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(Arc::clone(&container), 4096, USERD_IOVA)?;
+        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
         let channel = VfioChannel::create(
-            Arc::clone(&container),
+            container.clone(),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
@@ -368,7 +368,7 @@ impl NvVfioComputeDevice {
         let iova = self.next_iova;
         self.next_iova += aligned as u64;
 
-        let dma = DmaBuffer::new(Arc::clone(&self.container), size, iova)?;
+        let dma = DmaBuffer::new(self.container.clone(), size, iova)?;
         let handle_id = self.next_handle;
         self.next_handle += 1;
 

@@ -10,7 +10,6 @@ mod glowplug_client;
 #[cfg(feature = "vfio")]
 mod tests {
     use super::glowplug_client::VfioLease;
-    use std::sync::Arc;
 
     fn vfio_bdf() -> String {
         std::env::var("CORALREEF_VFIO_BDF")
@@ -223,7 +222,7 @@ mod tests {
         );
 
         // Check pre-state
-        let plug = GlowPlug::with_bdf(&raw.bar0, Arc::clone(&raw.container), &bdf);
+        let plug = GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf);
         let pre_state = plug.check_state();
         eprintln!("║ Pre-state: {pre_state:?}");
 

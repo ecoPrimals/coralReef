@@ -102,6 +102,15 @@ fn uvm_compute_bind() {
         .alloc_channel_group(h_device, h_vaspace)
         .expect("Channel group");
 
+    // Auto-detect SM version to select correct channel/compute class
+    let sm = detect_sm_from_smi();
+    let (channel_class, compute_class) = match sm {
+        120.. => (BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_B),
+        100.. => (BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_A),
+        _ => (AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_B),
+    };
+    eprintln!("SM {sm}: channel=0x{channel_class:04X} compute=0x{compute_class:04X}");
+
     let gpfifo_entries: u32 = 512;
     let gpfifo_size = u64::from(gpfifo_entries) * 8;
     let h_gpfifo_mem = h_device + 0x5000;
@@ -127,13 +136,32 @@ fn uvm_compute_bind() {
             h_userd_mem,
             gpfifo_gpu_va,
             gpfifo_entries,
-            AMPERE_CHANNEL_GPFIFO_A,
+            channel_class,
         )
         .expect("GPFIFO channel");
 
     let _h_compute = client
-        .alloc_compute_engine(h_channel, AMPERE_COMPUTE_B)
+        .alloc_compute_engine(h_channel, compute_class)
         .expect("Compute engine bind");
+}
+
+fn detect_sm_from_smi() -> u32 {
+    std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
+        .output()
+        .ok()
+        .and_then(|out| {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = s.trim().split('.').collect();
+            if parts.len() == 2 {
+                let major: u32 = parts[0].parse().ok()?;
+                let minor: u32 = parts[1].parse().ok()?;
+                Some(major * 10 + minor)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(86)
 }
 
 #[test]

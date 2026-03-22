@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![expect(
-    missing_docs,
-    reason = "SCM_RIGHTS plumbing types mirror libc usage; module-level docs describe behavior."
-)]
+#![warn(missing_docs)]
 //! Ember client — connects to coral-ember and receives VFIO fds via `SCM_RIGHTS`.
 //!
 //! When coral-ember is running, the daemon receives duplicate VFIO fds
@@ -18,6 +15,8 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg}
 
 use serde::Deserialize;
 
+use coral_driver::vfio::ReceivedVfioFds;
+
 use crate::error::EmberError;
 
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
@@ -31,13 +30,6 @@ pub fn test_support_default_ember_socket() -> String {
     default_ember_socket()
 }
 const MAX_RESPONSE_SIZE: usize = 4096;
-
-/// VFIO fds received from the ember for a single device.
-pub struct EmberFds {
-    pub container: OwnedFd,
-    pub group: OwnedFd,
-    pub device: OwnedFd,
-}
 
 #[derive(Deserialize)]
 struct JsonRpcResponse {
@@ -204,7 +196,10 @@ impl EmberClient {
     }
 
     /// Request VFIO fds for a specific BDF from the ember.
-    pub fn request_fds(&self, bdf: &str) -> Result<EmberFds, EmberError> {
+    ///
+    /// Backend-aware: the response includes a `"backend"` field (`"legacy"` or
+    /// `"iommufd"`) and the appropriate number of SCM_RIGHTS fds.
+    pub fn request_fds(&self, bdf: &str) -> Result<ReceivedVfioFds, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
@@ -232,19 +227,48 @@ impl EmberClient {
             });
         }
 
-        if fds.len() < 3 {
-            return Err(EmberError::FdCount {
-                expected: 3,
-                received: fds.len(),
-            });
-        }
+        let backend = result
+            .get("backend")
+            .and_then(|b| b.as_str())
+            .unwrap_or("legacy");
 
-        let mut fd_iter = fds.into_iter();
-        Ok(EmberFds {
-            container: fd_iter.next().expect("checked fds.len() >= 3"),
-            group: fd_iter.next().expect("checked fds.len() >= 3"),
-            device: fd_iter.next().expect("checked fds.len() >= 3"),
-        })
+        match backend {
+            "iommufd" => {
+                if fds.len() < 2 {
+                    return Err(EmberError::FdCount {
+                        expected: 2,
+                        received: fds.len(),
+                    });
+                }
+                let ioas_id = result
+                    .get("ioas_id")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| EmberError::Rpc {
+                        code: -32000,
+                        message: "iommufd response missing ioas_id".into(),
+                    })? as u32;
+                let mut it = fds.into_iter();
+                Ok(ReceivedVfioFds::Iommufd {
+                    iommufd: it.next().expect("checked len >= 2"),
+                    device: it.next().expect("checked len >= 2"),
+                    ioas_id,
+                })
+            }
+            _ => {
+                if fds.len() < 3 {
+                    return Err(EmberError::FdCount {
+                        expected: 3,
+                        received: fds.len(),
+                    });
+                }
+                let mut it = fds.into_iter();
+                Ok(ReceivedVfioFds::Legacy {
+                    container: it.next().expect("checked len >= 3"),
+                    group: it.next().expect("checked len >= 3"),
+                    device: it.next().expect("checked len >= 3"),
+                })
+            }
+        }
     }
 }
 

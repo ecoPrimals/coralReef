@@ -219,16 +219,11 @@ impl<S: SysfsOps> DeviceSlot<S> {
         let group_id = self.sysfs.read_iommu_group(&self.bdf);
         match client.request_fds(&self.bdf) {
             Ok(fds) => {
-                let device = coral_driver::vfio::VfioDevice::from_received_fds(
-                    &self.bdf,
-                    fds.container,
-                    fds.group,
-                    fds.device,
-                )
-                .map_err(|e| DeviceError::VfioOpen {
-                    bdf: self.bdf.clone(),
-                    reason: format!("ember fds after resurrection: {e}"),
-                })?;
+                let device = coral_driver::vfio::VfioDevice::from_received(&self.bdf, fds)
+                    .map_err(|e| DeviceError::VfioOpen {
+                        bdf: self.bdf.clone(),
+                        reason: format!("ember fds after resurrection: {e}"),
+                    })?;
                 let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
                     bdf: self.bdf.clone(),
                     reason: format!("BAR0 map after resurrection: {e}"),

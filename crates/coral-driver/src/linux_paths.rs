@@ -132,3 +132,21 @@ pub fn proc_self_fd(fd: i32) -> String {
 pub fn proc_cmdline() -> String {
     format!("{}/cmdline", proc_root())
 }
+
+/// Discover the VFIO cdev name for a PCI device (kernel 6.2+).
+///
+/// Reads the first entry under `/sys/bus/pci/devices/{bdf}/vfio-dev/`, which
+/// the kernel populates when vfio-pci binds via the cdev path (e.g. `"vfio0"`).
+/// Returns `None` if the directory doesn't exist or is empty (older kernels or
+/// device not bound to vfio-pci).
+#[must_use]
+pub fn sysfs_vfio_cdev_name(bdf: &str) -> Option<String> {
+    let dir = sysfs_pci_device_file(bdf, "vfio-dev");
+    std::fs::read_dir(dir)
+        .ok()?
+        .next()?
+        .ok()?
+        .file_name()
+        .into_string()
+        .ok()
+}
