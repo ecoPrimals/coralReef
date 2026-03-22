@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 62 (Deep Audit + Coverage + Hardcoding Evolution)  
+**Status**: Phase 10+ — Kepler/Blackwell ISA + Ember Per-Client Threading + iommufd/cdev  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -13,8 +13,8 @@ coralReef is a pure-Rust GPU shader compiler. It compiles WGSL,
 SPIR-V, and GLSL 450 compute shaders to native GPU binaries, with
 full f64 transcendental support. Zero C dependencies, zero libc, FxHashMap internalized, zero vendor lock-in.
 
-NVIDIA backend complete (SM70–SM89). AMD backend operational
-(RDNA2/GFX1030 — RX 6950 XT on-site). Both share the same IR,
+NVIDIA backend complete (SM35–SM120: Kepler through Blackwell). AMD backend operational
+(RDNA2/GFX1030 — RX 6950 XT on-site, GCN5/GFX906 — MI50 E2E verified). Both share the same IR,
 optimization passes, and `ShaderModel` trait — Rust's trait dispatch
 drives vendor-specific legalization, register allocation, and encoding.
 No manual vtables, no C-era dispatch macros.
@@ -64,7 +64,7 @@ WGSL / SPIR-V / GLSL input
     ▼                  ▼
 ┌────────────┐  ┌────────────┐
 │ nv/ backend │  │ amd/       │
-│ SM20–SM89   │  │ GFX1030+   │
+│ SM35–SM120  │  │ GFX906+    │
 │ SASS binary │  │ GFX binary │
 └────────────┘  └────────────┘
          │             │
@@ -139,12 +139,12 @@ coralReef/
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
 | `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: vfio > nouveau > amdgpu > nvidia-drm), `from_vfio()` convenience API, FMA capability reporting, `PCIe` topology discovery |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
-| `coral-reef-isa` | ISA encoding tables, instruction latencies (SM30–SM120, AMD RDNA2) |
+| `coral-reef-isa` | ISA encoding tables, instruction latencies (SM35–SM120, AMD GCN5+RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal communication (tests + production) |
 | `coral-glowplug` | GPU device broker — VFIO device management, JSON-RPC socket, health monitoring, hot-swap, circuit breaker, boot sovereignty. `bdf: Arc<str>` for zero-alloc device identity |
-| `coral-ember` | VFIO device swap daemon — `SCM_RIGHTS` fd passing (fully safe via `rustix` `AsFd`), vendor lifecycle hooks, Xorg/udev isolation |
+| `coral-ember` | VFIO device swap daemon — per-client threading (`Arc<RwLock<HashMap>>`), `SCM_RIGHTS` fd passing (fully safe via `rustix` `AsFd`), vendor lifecycle hooks, D3cold pre-checks, Xorg/udev isolation |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
@@ -210,7 +210,7 @@ cd showcase/00-local-primal/01-hello-compiler && ./demo.sh
 |-----|-------------|---------------|-----|------|
 | NVIDIA Titan V #1 | Volta SM70 (GV100) | vfio-pci | 1/2 | Oracle card (VFIO sovereign) |
 | NVIDIA Titan V #2 | Volta SM70 (GV100) | vfio-pci | 1/2 | Compute target (VFIO sovereign) |
-| NVIDIA RTX 5060 | Ada SM89 | nvidia-drm | 1/64 | Desktop + UVM dispatch |
+| NVIDIA RTX 5060 | Blackwell SM120 (GB206) | nvidia-drm | 1/64 | Desktop + UVM dispatch |
 
 ## vs CUDA / Kokkos
 
@@ -218,7 +218,7 @@ cd showcase/00-local-primal/01-hello-compiler && ./demo.sh
 |---|---|---|---|
 | Vendor lock-in | NVIDIA only | Abstracts (needs SDK underneath) | None — generates native ISA directly |
 | C/C++ dependency | CUDA toolkit | Host compiler + vendor SDK | Zero — pure Rust |
-| GPU ISAs | PTX → SASS (NVIDIA only) | Delegates to vendor | SASS (SM70–89) + GCN/RDNA (AMD) |
+| GPU ISAs | PTX → SASS (NVIDIA only) | Delegates to vendor | SASS (SM35–SM120) + GCN5/RDNA (AMD) |
 | Runtime library | libcuda.so | kokkos runtime | None — DRM ioctl dispatch |
 | Cross-vendor | No | Yes (via SDKs) | Yes (native, no SDK) |
 | Open source | No (ptxas proprietary) | Yes | Yes (AGPL-3.0-only) |
@@ -237,7 +237,8 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, E2E verified | **Iteration 62 — Deep Audit + Coverage + Hardcoding Evolution, 3460+ workspace tests, 68.7% line coverage** |
+| 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
+| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, 3460+ tests, 68.7% line coverage |
 
 ---
 
