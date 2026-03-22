@@ -8,7 +8,7 @@
 use super::{
     AmdOpEncoder, EncodeOp, SrcEncoding, dst_to_vgpr_index, encode_vop2_from_srcs,
     encode_vop3_f64_from_srcs, encode_vop3_from_srcs, encode_vopc_legalized,
-    materialize_if_literal, src_to_encoding,
+    materialize_f64_if_literal, materialize_if_literal, src_to_encoding,
 };
 use crate::CompileError;
 use crate::codegen::amd::encoding::Rdna2Encoder;
@@ -76,7 +76,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpTranscendental {
             TranscendentalOp::Rsq => isa::vop1::V_RSQ_F32,
             TranscendentalOp::Sqrt => isa::vop1::V_SQRT_F32,
             TranscendentalOp::Rcp64H => {
-                let (mut prefix, materialized) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
+                let (mut prefix, materialized) =
+                    materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
                 let words = Rdna2Encoder::encode_vop3(
                     isa::vop3::V_RCP_F64,
                     AmdRegRef::vgpr_pair(dst_reg),
@@ -88,7 +89,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpTranscendental {
                 return Ok(prefix);
             }
             TranscendentalOp::Rsq64H => {
-                let (mut prefix, materialized) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
+                let (mut prefix, materialized) =
+                    materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
                 let words = Rdna2Encoder::encode_vop3(
                     isa::vop3::V_RSQ_F64,
                     AmdRegRef::vgpr_pair(dst_reg),
@@ -241,7 +243,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpF64Sqrt {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&Src::from(self.src.reference.clone()))?;
-        let (mut prefix, materialized) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
+        let (mut prefix, materialized) =
+            materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
         let words = Rdna2Encoder::encode_vop3(
             isa::vop3::V_SQRT_F64,
             AmdRegRef::vgpr_pair(dst_reg),
@@ -260,7 +263,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpF64Rcp {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&Src::from(self.src.reference.clone()))?;
-        let (mut prefix, materialized) = materialize_if_literal(e.scratch_vgpr_0, &src_enc);
+        let (mut prefix, materialized) =
+            materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
         let words = Rdna2Encoder::encode_vop3(
             isa::vop3::V_RCP_F64,
             AmdRegRef::vgpr_pair(dst_reg),

@@ -33,6 +33,8 @@ pub struct AmdDevice {
     last_fence: u64,
     /// Buffers allocated during dispatch that must survive until sync.
     inflight: Vec<BufferHandle>,
+    /// HW IP ring to submit on (default: COMPUTE).
+    ip_type: u32,
 }
 
 impl AmdDevice {
@@ -75,6 +77,7 @@ impl AmdDevice {
             next_handle: 1,
             last_fence: 0,
             inflight: Vec::new(),
+            ip_type: ioctl::AMDGPU_HW_IP_COMPUTE,
         })
     }
 
@@ -88,6 +91,12 @@ impl AmdDevice {
     #[must_use]
     pub fn buffer_gpu_va(&self, handle: BufferHandle) -> Option<u64> {
         self.buffers.get(&handle.0).map(|g| g.gpu_va)
+    }
+
+    /// Switch submission ring. Use `ioctl::AMDGPU_HW_IP_GFX` or
+    /// `ioctl::AMDGPU_HW_IP_COMPUTE`.
+    pub fn set_ip_type(&mut self, ip_type: u32) {
+        self.ip_type = ip_type;
     }
 }
 
@@ -174,7 +183,7 @@ impl ComputeDevice for AmdDevice {
 
         let bo_list = ioctl::create_bo_list(self.drm.fd(), &gem_handles)?;
         let submit_result =
-            ioctl::submit_command(self.drm.fd(), self.ctx_handle, bo_list, ib_va, ib_bytes);
+            ioctl::submit_command_ip(self.drm.fd(), self.ctx_handle, bo_list, ib_va, ib_bytes, self.ip_type);
         let _ = ioctl::destroy_bo_list(self.drm.fd(), bo_list);
 
         self.last_fence = submit_result?;
@@ -187,11 +196,12 @@ impl ComputeDevice for AmdDevice {
         if self.last_fence == 0 {
             return Ok(());
         }
-        ioctl::sync_fence(
+        ioctl::sync_fence_ip(
             self.drm.fd(),
             self.ctx_handle,
             self.last_fence,
             FENCE_TIMEOUT_NS,
+            self.ip_type,
         )?;
         let inflight = std::mem::take(&mut self.inflight);
         for handle in inflight {

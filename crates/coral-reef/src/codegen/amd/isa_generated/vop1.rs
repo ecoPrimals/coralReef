@@ -83,68 +83,71 @@ pub const V_CEIL_F64: u16 = 24;
 pub const V_RNDNE_F64: u16 = 25;
 /// Round the double-precision float input down to previous integer and store the result in floating point format into a ...
 pub const V_FLOOR_F64: u16 = 26;
-/// Flush the vector ALU pipeline through the destination cache.
+/// Flush the vector ALU pipeline through the destination cache (RDNA2+ only).
 pub const V_PIPEFLUSH: u16 = 27;
+// GFX9 (Vega) VOP1 opcode values. The auto-generated RDNA2 values are shifted
+// because RDNA2 inserted new opcodes (V_PIPEFLUSH, etc.) between the conversion
+// and transcendental blocks. Verified against `llvm-mc -mcpu=gfx906 -show-encoding`.
 /// Compute the fractional portion of a single-precision float input and store the result in floating point format into a...
-pub const V_FRACT_F32: u16 = 32;
+pub const V_FRACT_F32: u16 = 27;
 /// Compute the integer part of a single-precision float input using round toward zero semantics and store the result in ...
-pub const V_TRUNC_F32: u16 = 33;
+pub const V_TRUNC_F32: u16 = 28;
 /// Round the single-precision float input up to next integer and store the result in floating point format into a vector...
-pub const V_CEIL_F32: u16 = 34;
+pub const V_CEIL_F32: u16 = 29;
 /// Round the single-precision float input to the nearest even integer and store the result in floating point format into...
-pub const V_RNDNE_F32: u16 = 35;
+pub const V_RNDNE_F32: u16 = 30;
 /// Round the single-precision float input down to previous integer and store the result in floating point format into a ...
-pub const V_FLOOR_F32: u16 = 36;
+pub const V_FLOOR_F32: u16 = 31;
 /// Calculate 2 raised to the power of the single-precision float input and store the result into a vector register.
-pub const V_EXP_F32: u16 = 37;
+pub const V_EXP_F32: u16 = 32;
 /// Calculate the base 2 logarithm of the single-precision float input and store the result into a vector register.
-pub const V_LOG_F32: u16 = 39;
+pub const V_LOG_F32: u16 = 33;
 /// Calculate the reciprocal of the single-precision float input using IEEE rules and store the result into a vector regi...
-pub const V_RCP_F32: u16 = 42;
+pub const V_RCP_F32: u16 = 34;
 /// Calculate the reciprocal of the vector float input in a manner suitable for integer division and store the result int...
-pub const V_RCP_IFLAG_F32: u16 = 43;
+pub const V_RCP_IFLAG_F32: u16 = 35;
 /// Calculate the reciprocal of the square root of the single-precision float input using IEEE rules and store the result...
-pub const V_RSQ_F32: u16 = 46;
+pub const V_RSQ_F32: u16 = 36;
 /// Calculate the reciprocal of the double-precision float input using IEEE rules and store the result into a vector regi...
-pub const V_RCP_F64: u16 = 47;
+pub const V_RCP_F64: u16 = 37;
 /// Calculate the reciprocal of the square root of the double-precision float input using IEEE rules and store the result...
-pub const V_RSQ_F64: u16 = 49;
+pub const V_RSQ_F64: u16 = 38;
 /// Calculate the square root of the single-precision float input using IEEE rules and store the result into a vector reg...
-pub const V_SQRT_F32: u16 = 51;
+pub const V_SQRT_F32: u16 = 39;
 /// Calculate the square root of the double-precision float input using IEEE rules and store the result into a vector reg...
-pub const V_SQRT_F64: u16 = 52;
+pub const V_SQRT_F64: u16 = 40;
 /// Calculate the trigonometric sine of a single-precision float value using IEEE rules and store the result into a vecto...
-pub const V_SIN_F32: u16 = 53;
+pub const V_SIN_F32: u16 = 41;
 /// Calculate the trigonometric cosine of a single-precision float value using IEEE rules and store the result into a vec...
-pub const V_COS_F32: u16 = 54;
+pub const V_COS_F32: u16 = 42;
 /// Calculate bitwise negation on a vector input and store the result into a vector register.
-pub const V_NOT_B32: u16 = 55;
+pub const V_NOT_B32: u16 = 43;
 /// Reverse the order of bits in a vector input and store the result into a vector register.
-pub const V_BFREV_B32: u16 = 56;
+pub const V_BFREV_B32: u16 = 44;
 /// Count the number of leading \"0\" bits before the first \"1\" in a vector input and store the result into a vector re...
-pub const V_FFBH_U32: u16 = 57;
+pub const V_FFBH_U32: u16 = 45;
 /// Count the number of trailing \"0\" bits before the first \"1\" in a vector input and store the result into a vector r...
-pub const V_FFBL_B32: u16 = 58;
+pub const V_FFBL_B32: u16 = 46;
 /// Count the number of leading bits that are the same as the sign bit of a vector input and store the result into a vect...
-pub const V_FFBH_I32: u16 = 59;
+pub const V_FFBH_I32: u16 = 47;
 /// Extract the exponent of a double-precision float input and store the result as a signed 32-bit integer into a vector ...
-pub const V_FREXP_EXP_I32_F64: u16 = 60;
+pub const V_FREXP_EXP_I32_F64: u16 = 48;
 /// Extract the binary significand, or mantissa, of a double-precision float input and store the result as a double-preci...
-pub const V_FREXP_MANT_F64: u16 = 61;
+pub const V_FREXP_MANT_F64: u16 = 49;
 /// Compute the fractional portion of a double-precision float input and store the result in floating point format into a...
-pub const V_FRACT_F64: u16 = 62;
+pub const V_FRACT_F64: u16 = 50;
 /// Extract the exponent of a single-precision float input and store the result as a signed 32-bit integer into a vector ...
-pub const V_FREXP_EXP_I32_F32: u16 = 63;
+pub const V_FREXP_EXP_I32_F32: u16 = 51;
 /// Extract the binary significand, or mantissa, of a single-precision float input and store the result as a single-preci...
-pub const V_FREXP_MANT_F32: u16 = 64;
+pub const V_FREXP_MANT_F32: u16 = 52;
 /// Clear this wave's exception state in the vector ALU.
-pub const V_CLREXCP: u16 = 65;
+pub const V_CLREXCP: u16 = 53;
 /// Move data from a vector input into a relatively-indexed vector register.
-pub const V_MOVRELD_B32: u16 = 66;
+pub const V_MOVRELD_B32: u16 = 54;
 /// Move data from a relatively-indexed vector register into another vector register.
-pub const V_MOVRELS_B32: u16 = 67;
+pub const V_MOVRELS_B32: u16 = 55;
 /// Move data from a relatively-indexed vector register into another relatively-indexed vector register.
-pub const V_MOVRELSD_B32: u16 = 68;
+pub const V_MOVRELSD_B32: u16 = 56;
 /// Move data from a relatively-indexed vector register into another relatively-indexed vector register, using different ...
 pub const V_MOVRELSD_2_B32: u16 = 72;
 /// Convert from an unsigned 16-bit integer input to a half-precision float value and store the result into a vector regi...
@@ -353,188 +356,182 @@ pub const TABLE: &[InstrEntry] = &[
         is_terminator: false,
     },
     InstrEntry {
-        name: "V_PIPEFLUSH",
+        name: "V_FRACT_F32",
         opcode: 27,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
-        name: "V_FRACT_F32",
-        opcode: 32,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
         name: "V_TRUNC_F32",
-        opcode: 33,
+        opcode: 28,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_CEIL_F32",
-        opcode: 34,
+        opcode: 29,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_RNDNE_F32",
-        opcode: 35,
+        opcode: 30,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FLOOR_F32",
-        opcode: 36,
+        opcode: 31,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_EXP_F32",
-        opcode: 37,
+        opcode: 32,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_LOG_F32",
-        opcode: 39,
+        opcode: 33,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_RCP_F32",
-        opcode: 42,
+        opcode: 34,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_RCP_IFLAG_F32",
-        opcode: 43,
+        opcode: 35,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_RSQ_F32",
-        opcode: 46,
+        opcode: 36,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_RCP_F64",
-        opcode: 47,
+        opcode: 37,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_RSQ_F64",
-        opcode: 49,
+        opcode: 38,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_SQRT_F32",
-        opcode: 51,
+        opcode: 39,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_SQRT_F64",
-        opcode: 52,
+        opcode: 40,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_SIN_F32",
-        opcode: 53,
+        opcode: 41,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_COS_F32",
-        opcode: 54,
+        opcode: 42,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_NOT_B32",
-        opcode: 55,
+        opcode: 43,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_BFREV_B32",
-        opcode: 56,
+        opcode: 44,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FFBH_U32",
-        opcode: 57,
+        opcode: 45,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FFBL_B32",
-        opcode: 58,
+        opcode: 46,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FFBH_I32",
-        opcode: 59,
+        opcode: 47,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FREXP_EXP_I32_F64",
-        opcode: 60,
+        opcode: 48,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FREXP_MANT_F64",
-        opcode: 61,
+        opcode: 49,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FRACT_F64",
-        opcode: 62,
+        opcode: 50,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FREXP_EXP_I32_F32",
-        opcode: 63,
+        opcode: 51,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_FREXP_MANT_F32",
-        opcode: 64,
+        opcode: 52,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_CLREXCP",
-        opcode: 65,
+        opcode: 53,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_MOVRELD_B32",
-        opcode: 66,
+        opcode: 54,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_MOVRELS_B32",
-        opcode: 67,
+        opcode: 55,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "V_MOVRELSD_B32",
-        opcode: 68,
+        opcode: 56,
         is_branch: false,
         is_terminator: false,
     },

@@ -602,6 +602,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 return Ok(handle);
             }
         }
+        // Scalar type not registered standalone in the arena (e.g., u32 only
+        // exists as a vec3<u32> component). Fall back to any_type_handle()
+        // which is imprecise — callers that need exact type classification
+        // (is_f64_expr, is_float_expr) must use element_scalar() instead.
         self.any_type_handle()
     }
 
@@ -642,6 +646,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Binary { left, .. } => self.is_float_expr(left),
             naga::Expression::Unary { expr: inner, .. } => self.is_float_expr(inner),
             naga::Expression::Math { arg, .. } => self.is_float_expr(arg),
+            naga::Expression::AccessIndex { base, .. }
+            | naga::Expression::Access { base, .. } => {
+                self.element_scalar(base)
+                    .is_some_and(|s| s.kind == naga::ScalarKind::Float)
+            }
             _ => {
                 let Ok(ty_handle) = self.resolve_expr_type_handle(handle) else {
                     return false;
@@ -665,23 +674,33 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     }
 
     pub(super) fn is_signed_int_expr(&self, handle: Handle<naga::Expression>) -> bool {
-        let Ok(ty_handle) = self.resolve_expr_type_handle(handle) else {
-            return false;
-        };
-        let inner = &self.module.types[ty_handle].inner;
-        matches!(
-            inner,
-            naga::TypeInner::Scalar(naga::Scalar {
-                kind: naga::ScalarKind::Sint,
-                ..
-            }) | naga::TypeInner::Vector {
-                scalar: naga::Scalar {
-                    kind: naga::ScalarKind::Sint,
-                    ..
-                },
-                ..
+        let expr = &self.func.expressions[handle];
+        match *expr {
+            naga::Expression::AccessIndex { base, .. }
+            | naga::Expression::Access { base, .. } => {
+                self.element_scalar(base)
+                    .is_some_and(|s| s.kind == naga::ScalarKind::Sint)
             }
-        )
+            _ => {
+                let Ok(ty_handle) = self.resolve_expr_type_handle(handle) else {
+                    return false;
+                };
+                let inner = &self.module.types[ty_handle].inner;
+                matches!(
+                    inner,
+                    naga::TypeInner::Scalar(naga::Scalar {
+                        kind: naga::ScalarKind::Sint,
+                        ..
+                    }) | naga::TypeInner::Vector {
+                        scalar: naga::Scalar {
+                            kind: naga::ScalarKind::Sint,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            }
+        }
     }
 
     pub(super) fn is_f64_expr(&self, handle: Handle<naga::Expression>) -> bool {
@@ -691,6 +710,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Binary { left, .. } => self.is_f64_expr(left),
             naga::Expression::Unary { expr: inner, .. } => self.is_f64_expr(inner),
             naga::Expression::Math { arg, .. } => self.is_f64_expr(arg),
+            naga::Expression::AccessIndex { base, .. }
+            | naga::Expression::Access { base, .. } => {
+                self.element_scalar(base)
+                    .is_some_and(|s| s.kind == naga::ScalarKind::Float && s.width == 8)
+            }
             _ => {
                 let Ok(ty_handle) = self.resolve_expr_type_handle(handle) else {
                     return false;
@@ -704,6 +728,35 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     _ => false,
                 }
             }
+        }
+    }
+
+    fn element_scalar(&self, base: Handle<naga::Expression>) -> Option<naga::Scalar> {
+        let base_ty = self.resolve_expr_type_handle(base).ok()?;
+        let base_inner = &self.module.types[base_ty].inner;
+        match *base_inner {
+            naga::TypeInner::Vector { scalar, .. } => Some(scalar),
+            naga::TypeInner::Array { base: elem_ty, .. } => {
+                match self.module.types[elem_ty].inner {
+                    naga::TypeInner::Scalar(s) => Some(s),
+                    naga::TypeInner::Vector { scalar, .. } => Some(scalar),
+                    _ => None,
+                }
+            }
+            naga::TypeInner::Pointer { base: pointee, .. } => {
+                match self.module.types[pointee].inner {
+                    naga::TypeInner::Scalar(s) => Some(s),
+                    naga::TypeInner::Vector { scalar, .. } => Some(scalar),
+                    naga::TypeInner::Array { base: elem_ty, .. } => {
+                        match self.module.types[elem_ty].inner {
+                            naga::TypeInner::Scalar(s) => Some(s),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 }

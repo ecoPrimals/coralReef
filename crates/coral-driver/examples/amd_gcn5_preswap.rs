@@ -54,9 +54,8 @@ const WGSL_F64_LJ: &str = r"
 enable f64;
 @group(0) @binding(0) var<storage, read_write> forces: array<f64>;
 @group(0) @binding(1) var<storage, read> positions: array<f64>;
-@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+@compute @workgroup_size(2) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
-    if (i >= 2u) { return; }
     let j = 1u - i;
 
     let xi = positions[i * 3u];
@@ -396,20 +395,75 @@ fn phase_c(dev: &mut AmdDevice) -> bool {
 // ── Phase D: Multi-buffer ────────────────────────────────────────────
 
 fn phase_d(dev: &mut AmdDevice) -> bool {
-    println!("  ── Phase D: Handcrafted GLOBAL_LOAD diagnostic ──");
+    println!("  ── Phase D: GLOBAL_LOAD diagnostic ──");
 
-    // Handcrafted binary: load buf[0], add 1.0, store to buf[0]
-    // All 64 threads load/modify/store the SAME element (element 0).
-    // After execution, buf[0] should be original + 1.0 (last thread wins, same value).
-    //
-    // Try with GLC=1 (bit 17 of word 0) to force L2 coherence.
+    // NEW: Store-then-load within one shader. Proves GLOBAL_LOAD path
+    // works for GPU-written data (rules out CPU→GPU coherency issues).
+    // Stores 0xDEADBEEF to offset 0, loads it back, stores to offset 4.
+    // If offset 4 == 0xDEADBEEF, GLOBAL_LOAD works.
+    let store_then_load: Vec<u32> = vec![
+        0x7e040200, // v_mov_b32 v2, s0 (buffer VA lo)
+        0x7e060201, // v_mov_b32 v3, s1 (buffer VA hi)
+        0x7e0002ff, // v_mov_b32 v0, literal
+        0xDEAD_BEEF, // literal: 0xDEADBEEF
+        // global_store_dword v[2:3], v0, off (store 0xDEADBEEF to offset 0)
+        0xdc708000,
+        (0x7f << 16) | (0 << 8) | 2,
+        0xbf8c0000, // s_waitcnt vmcnt(0) — flush store to L2
+        // global_load_dword v1, v[2:3], off (load from offset 0 into v1)
+        0xdc508000,
+        (0x7f << 16) | (1 << 24) | 2,
+        0xbf8c0000, // s_waitcnt vmcnt(0) — wait for load
+        // global_store_dword v[2:3], v1, off offset:4 (store loaded value to offset 4)
+        0xdc708004,
+        (0x7f << 16) | (1 << 8) | 2,
+        0xbf8c0000, // s_waitcnt vmcnt(0)
+        0xbf810000, // s_endpgm
+    ];
+    let n = 64_usize;
+    let info = ShaderInfo {
+        gpr_count: 5,
+        shared_mem_bytes: 0,
+        barrier_count: 0,
+        workgroup: [64, 1, 1],
+        wave_size: 64,
+    };
+    {
+        let buf = dev.alloc((n * 4) as u64, MemoryDomain::Gtt).expect("alloc");
+        let zeros = vec![0u8; n * 4];
+        dev.upload(buf, 0, &zeros).expect("zero");
+        let binary: Vec<u8> = store_then_load.iter().flat_map(|w| w.to_le_bytes()).collect();
+        print!("     STORE-then-LOAD (GTT): ");
+        if let Err(e) = dev.dispatch(&binary, &[buf], DispatchDims::new(1, 1, 1), &info) {
+            println!("dispatch FAILED: {e}");
+            dev.free(buf).ok();
+        } else if let Err(e) = dev.sync() {
+            println!("sync FAILED: {e}");
+            dev.free(buf).ok();
+        } else {
+            let data = dev.readback(buf, 0, 8).expect("readback");
+            let w0 = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+            let w1 = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+            println!("offset[0]=0x{w0:08x} offset[4]=0x{w1:08x}");
+            if w0 == 0xDEAD_BEEF && w1 == 0xDEAD_BEEF {
+                println!("     → STORE-then-LOAD PASSED!");
+                dev.free(buf).ok();
+                return true;
+            } else if w0 == 0xDEAD_BEEF {
+                println!("     → Store OK, load returned 0x{w1:08x} (expected 0xDEADBEEF)");
+            }
+            dev.free(buf).ok();
+        }
+    }
+
+    // Original diagnostics follow...
     let handcraft_glc: Vec<u32> = vec![
         // v_mov_b32 v2, s0           → v2 = VA_lo
         0x7e040200,
         // v_mov_b32 v3, s1           → v3 = VA_hi
         0x7e060201,
         // global_load_dword v0, v[2:3], off GLC=1
-        0xdc328000,  // bit17 set for GLC
+        0xdc518000,  // GFX9 opcode=20, GLC at bit16
         (0x7f << 16) | (0 << 8) | 2,
         // s_waitcnt vmcnt(0)
         0xbf8c0000,
@@ -446,7 +500,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         0x7e000280, // v_mov_b32 v0, 0 (inline const 128=0)
         // global_load_dword v1, v0, s[0:1]
         // SADDR = 0 (s0 pair), VADDR = v0 (=0)
-        0xdc308000,
+        0xdc508000,
         (0 << 16) | (1 << 24) | 0,  // SADDR=s0, VDST=v1, VADDR=v0
         0xbf8c0000,
         // v_add_f32 v1, v1, 1.0
@@ -472,7 +526,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         0x7e040200, // v_mov_b32 v2, s0 (VA lo)
         0x7e060201, // v_mov_b32 v3, s1 (VA hi)
         // global_load_dword v0, v[2:3], off
-        0xdc308000,
+        0xdc508000,
         (0x7f << 16) | (0 << 8) | 2,
         0xbf8c0000, // s_waitcnt 0
         0xbf810000, // s_endpgm
@@ -515,7 +569,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         let lms: Vec<u32> = vec![
             0x7e040200, // v_mov_b32 v2, s0
             0x7e060201, // v_mov_b32 v3, s1
-            0xdc328000, // global_load_dword v0, v[2:3], off GLC=1
+            0xdc518000, // global_load_dword v0, v[2:3], off GLC=1
             (0x7f << 16) | (0 << 8) | 2,
             0xbf8c0000, // s_waitcnt 0
             (3 << 25) | (0 << 17) | (0 << 9) | 242, // v_add_f32 v0, 1.0, v0
@@ -549,6 +603,91 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
 
 fn phase_e(dev: &mut AmdDevice) -> bool {
     println!("  ── Phase E: f64 Lennard-Jones Pair Force ──");
+
+    // f64 reciprocal test with pure constants (no u32→f64 conversion needed)
+    {
+        let rcp_src = r"
+enable f64;
+@group(0) @binding(0) var<storage, read_write> out: array<f64>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x: f64 = 2.0;
+    out[gid.x] = f64(1.0) / x;
+}
+";
+        let c = compile_gcn5(rcp_src);
+        println!("     Compiled: {} bytes, {} GPRs, {} instrs",
+            c.binary.len(), c.info.gpr_count, c.info.instr_count);
+        print!("     Binary: ");
+        for chunk in c.binary.chunks(4) {
+            if chunk.len() == 4 {
+                let w = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                print!("{:08x} ", w);
+            }
+        }
+        println!();
+        let n = 64_usize;
+        let out = alloc_zero(dev, (n * 8) as u64);
+        print!("     f64 reciprocal test (1.0/2.0): ");
+        if !dispatch_and_sync(dev, &c, &[out], DispatchDims::new(1, 1, 1)) {
+            println!("FAILED (dispatch hang)");
+            dev.free(out).ok();
+            println!("     Skipping LJ force (requires f64 division)");
+            return false;
+        }
+        let result = read_f64(dev, out, n);
+        let ok = (result[0] - 0.5).abs() < 1e-10;
+        if ok {
+            println!("PASSED (result = {})", result[0]);
+        } else {
+            println!("FAILED: first 4 = {:?}", &result[..4]);
+            dev.free(out).ok();
+            return false;
+        }
+        dev.free(out).ok();
+    }
+
+    // f64 division with u32→f64 conversion
+    {
+        let div_src = r"
+enable f64;
+@group(0) @binding(0) var<storage, read_write> out: array<f64>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = f64(gid.x + 1u);
+    out[gid.x] = f64(1.0) / x;
+}
+";
+        let c = compile_gcn5(div_src);
+        println!("     div binary ({} bytes):", c.binary.len());
+        print!("       ");
+        for chunk in c.binary.chunks(4) {
+            if chunk.len() == 4 {
+                let w = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                print!("{:08x} ", w);
+            }
+        }
+        println!();
+        let n = 64_usize;
+        let out = alloc_zero(dev, (n * 8) as u64);
+        print!("     f64 division test (1.0/f64(gid+1)): ");
+        if !dispatch_and_sync(dev, &c, &[out], DispatchDims::new(1, 1, 1)) {
+            println!("FAILED (dispatch hang)");
+            dev.free(out).ok();
+            println!("     Skipping LJ force (requires f64 division)");
+            return false;
+        }
+        let result = read_f64(dev, out, n);
+        let ok = (result[0] - 1.0).abs() < 1e-10
+            && (result[1] - 0.5).abs() < 1e-10;
+        if ok {
+            println!("PASSED");
+        } else {
+            println!("FAILED: first 4 = {:?}", &result[..4]);
+            dev.free(out).ok();
+            return false;
+        }
+        dev.free(out).ok();
+    }
+
     let compiled = compile_gcn5(WGSL_F64_LJ);
     println!(
         "     Compiled: {} bytes, {} GPRs, {} instrs",
@@ -722,8 +861,8 @@ fn main() {
         ("B: f64 Arithmetic", phase_b),
         ("C: Multi-Workgroup", phase_c),
         ("D: Multi-Buffer", phase_d),
-        ("E: f64 LJ Force", phase_e),
         ("F: HBM2 Bandwidth", phase_f),
+        ("E: f64 LJ Force", phase_e),
     ];
 
     let total = phases.len();

@@ -19,13 +19,19 @@ const PM4_DISPATCH_DIRECT: u32 = 0x15;
 const PM4_NOP: u32 = 0x10;
 const PM4_ACQUIRE_MEM: u32 = 0x58;
 
-// Compute shader register offsets (RDNA2 — from SI_SH_REG_OFFSET)
+// Compute shader register offsets (dword addresses, from SI_SH_REG_OFFSET)
+const COMPUTE_START_X: u32 = 0x2E04;
+const COMPUTE_NUM_THREAD_X: u32 = 0x2E07;
+const COMPUTE_PERFCOUNT_ENABLE: u32 = 0x2E0B;
 const COMPUTE_PGM_LO: u32 = 0x2E0C;
 const COMPUTE_PGM_RSRC1: u32 = 0x2E12;
 const COMPUTE_PGM_RSRC2: u32 = 0x2E13;
 const COMPUTE_RESOURCE_LIMITS: u32 = 0x2E15;
-const COMPUTE_NUM_THREAD_X: u32 = 0x2E07;
+const COMPUTE_STATIC_THREAD_MGMT_SE0: u32 = 0x2E16;
+const COMPUTE_STATIC_THREAD_MGMT_SE1: u32 = 0x2E17;
 const COMPUTE_TMPRING_SIZE: u32 = 0x2E18;
+const COMPUTE_STATIC_THREAD_MGMT_SE2: u32 = 0x2E19;
+const COMPUTE_STATIC_THREAD_MGMT_SE3: u32 = 0x2E1A;
 const COMPUTE_USER_DATA_0: u32 = 0x2E40;
 
 // SI shader register base for SET_SH_REG
@@ -46,9 +52,23 @@ pub fn build_compute_dispatch(
     info: &ShaderInfo,
     buffer_vas: &[u64],
 ) -> Vec<u32> {
-    let mut pm4 = Vec::with_capacity(64);
+    let mut pm4 = Vec::with_capacity(96);
 
-    // SET_SH_REG: COMPUTE_PGM_LO/HI (shader address, 256-byte aligned)
+    // ── Preamble registers (matches Mesa radeonsi / RADV GFX9 preamble) ──
+
+    emit_set_sh_reg(&mut pm4, COMPUTE_PERFCOUNT_ENABLE, &[0]);
+
+    // Enable all CUs on all shader engines (MI50 has 4 SEs)
+    let cu_en = 0xFFFF_FFFFu32;
+    emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE0, &[cu_en]);
+    emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE1, &[cu_en]);
+    emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE2, &[cu_en]);
+    emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE3, &[cu_en]);
+
+    emit_set_sh_reg(&mut pm4, COMPUTE_START_X, &[0, 0, 0]);
+
+    // ── Per-dispatch shader state ──
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "ISA register field is 32-bit wide"
@@ -57,16 +77,12 @@ pub fn build_compute_dispatch(
     let pgm_hi = (shader_va >> 40) as u32;
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_LO, &[pgm_lo, pgm_hi]);
 
-    // VGPR granularity: 4 for GCN5 wave64, 8 for RDNA wave32.
-    // SGPR granularity: 16 for all AMD architectures.
     let vgpr_count = info.gpr_count.max(4);
     let sgpr_count = 16_u32;
     let vgpr_gran = if info.wave_size >= 64 { 4 } else { 8 };
     let rsrc1 = compute_pgm_rsrc1(vgpr_count, sgpr_count, vgpr_gran);
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_RSRC1, &[rsrc1]);
 
-    // USER DATA: pass buffer VAs to shader via user SGPRs.
-    // Each 64-bit VA occupies 2 consecutive COMPUTE_USER_DATA registers.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "buffer count limited to 8 (16 user SGPRs max)"
@@ -91,29 +107,22 @@ pub fn build_compute_dispatch(
     let rsrc2 = compute_pgm_rsrc2(user_sgpr_count);
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_RSRC2, &[rsrc2]);
 
-    // COMPUTE_RESOURCE_LIMITS: allow max waves, no CU restrictions
-    emit_set_sh_reg(&mut pm4, COMPUTE_RESOURCE_LIMITS, &[0]);
+    // GFX9: WAVES_PER_SH must be nonzero (Mesa: "set the limit to max
+    // instead of 0 to fix high priority compute"). MI50 has 60 CUs × 4
+    // SIMDs × 10 waves/SIMD = 2400 max waves, ~600 per shader engine.
+    let resource_limits = compute_resource_limits(info);
+    emit_set_sh_reg(&mut pm4, COMPUTE_RESOURCE_LIMITS, &[resource_limits]);
 
-    // No scratch ring needed for trivial shaders
     emit_set_sh_reg(&mut pm4, COMPUTE_TMPRING_SIZE, &[0]);
 
-    // SET_SH_REG: COMPUTE_NUM_THREAD_X/Y/Z from compiler workgroup size
     emit_set_sh_reg(&mut pm4, COMPUTE_NUM_THREAD_X, &info.workgroup);
 
-    // Invalidate GPU L1+L2 caches before dispatch so GLOBAL_LOAD sees
-    // CPU-uploaded data. Without this, stale L1/L2 entries can cause
-    // loads to return garbage or hang the wave on GFX9.
     emit_cache_invalidate(&mut pm4);
 
-    // DISPATCH_DIRECT with COMPUTE_SHADER_EN | FORCE_START_AT_000
     emit_dispatch_direct(&mut pm4, dims, info.wave_size);
 
-    // Flush GPU L2 cache to ensure stores are visible to CPU.
-    // Without this, GLOBAL stores may remain in L2 and never reach
-    // system memory, causing partial-write symptoms on readback.
     emit_acquire_mem(&mut pm4);
 
-    // Trailing NOP for IB alignment
     emit_nop(&mut pm4);
 
     pm4
@@ -204,7 +213,34 @@ const fn pm4_type3_header(opcode: u32, count: u32) -> u32 {
 const fn compute_pgm_rsrc1(vgpr_count: u32, sgpr_count: u32, vgpr_granularity: u32) -> u32 {
     let vgpr_encoded = (vgpr_count.div_ceil(vgpr_granularity)).saturating_sub(1);
     let sgpr_encoded = (sgpr_count.div_ceil(16)).saturating_sub(1);
-    vgpr_encoded | (sgpr_encoded << 6)
+    // FLOAT_MODE [19:12] = 0xC0 (IEEE f64 denorms enabled, matches Mesa default)
+    // DX10_CLAMP [21] = 1 (clamp NaN to 0, required by Mesa/RADV)
+    // IEEE_MODE  [23] = 1 (IEEE compliance for f64)
+    let float_mode = 0xC0_u32;
+    vgpr_encoded
+        | (sgpr_encoded << 6)
+        | (float_mode << 12)
+        | (1 << 21) // DX10_CLAMP
+        | (1 << 23) // IEEE_MODE
+}
+
+/// Build `COMPUTE_RESOURCE_LIMITS` register value.
+///
+/// On GFX9, WAVES_PER_SH must be set to the max rather than 0
+/// (Mesa: "Gfx9 should set the limit to max instead of 0 to fix
+/// high priority compute").
+const fn compute_resource_limits(info: &ShaderInfo) -> u32 {
+    let threads_per_wg = info.workgroup[0] * info.workgroup[1] * info.workgroup[2];
+    let waves_per_threadgroup = threads_per_wg.div_ceil(info.wave_size);
+
+    // SIMD_DEST_CNTL: round-robin when waves_per_threadgroup is multiple of 4
+    let simd_dest = if waves_per_threadgroup % 4 == 0 { 1_u32 } else { 0 };
+
+    // MI50 (Vega 20): 60 CUs, 4 SEs → 15 CUs/SE, 4 SIMDs/CU, 10 waves/SIMD
+    // max_waves_per_sh = 15 * 4 * 10 = 600
+    let max_waves_per_sh = 600_u32;
+
+    (simd_dest << 4) | (max_waves_per_sh << 12)
 }
 
 /// Build `COMPUTE_PGM_RSRC2` register value.
@@ -269,6 +305,10 @@ mod tests {
         let sgprs = (rsrc1 >> 6) & 0xF;
         assert_eq!(vgprs, 1); // (16/8) - 1
         assert_eq!(sgprs, 0); // (16/16) - 1
+        let float_mode = (rsrc1 >> 12) & 0xFF;
+        assert_eq!(float_mode, 0xC0); // f64 denorms
+        assert_eq!((rsrc1 >> 21) & 1, 1); // DX10_CLAMP
+        assert_eq!((rsrc1 >> 23) & 1, 1); // IEEE_MODE
     }
 
     #[test]
@@ -360,10 +400,10 @@ mod tests {
         };
         let dims = DispatchDims::new(128, 64, 8);
         let pm4 = build_compute_dispatch(0x1000, dims, &info, &[]);
-        // DISPATCH_DIRECT is second-to-last packet: header + 4 dwords (x,y,z,initiator)
-        // NOP is last: header + 1 dword
-        let dispatch_start = pm4.len() - 7;
-        assert_eq!((pm4[dispatch_start] >> 8) & 0xFF, PM4_DISPATCH_DIRECT);
+        let dispatch_start = pm4
+            .iter()
+            .position(|&w| (w >> 8) & 0xFF == PM4_DISPATCH_DIRECT && w >> 30 == 3)
+            .expect("DISPATCH_DIRECT packet not found");
         assert_eq!(pm4[dispatch_start + 1], 128);
         assert_eq!(pm4[dispatch_start + 2], 64);
         assert_eq!(pm4[dispatch_start + 3], 8);
@@ -399,8 +439,8 @@ mod tests {
             workgroup: [1, 1, 1],
         };
         let pm4 = build_compute_dispatch(0, DispatchDims::new(1, 1, 1), &info, &[]);
-        let nop_header = pm4[pm4.len() - 2];
-        assert_eq!((nop_header >> 8) & 0xFF, PM4_NOP);
+        let last_header = pm4[pm4.len() - 2];
+        assert_eq!((last_header >> 8) & 0xFF, PM4_NOP, "IB should end with NOP");
     }
 
     #[test]
@@ -408,6 +448,7 @@ mod tests {
         let rsrc1 = compute_pgm_rsrc1(4, 16, 8);
         let vgprs = rsrc1 & 0x3F;
         assert_eq!(vgprs, 0, "4 VGPRs encodes as 0 (ceil(4/8)-1)");
+        assert_eq!((rsrc1 >> 12) & 0xFF, 0xC0); // FLOAT_MODE
     }
 
     #[test]

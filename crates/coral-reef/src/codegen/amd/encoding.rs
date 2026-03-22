@@ -692,9 +692,9 @@ mod tests {
         assert!(isa_generated::encoding_bits("ENC_UNKNOWN").is_none());
 
         assert!(isa_generated::ds::lookup(0).is_some());
-        assert!(isa_generated::flat::lookup(12).is_some());
-        assert!(isa_generated::flat_glbl::lookup(12).is_some());
-        assert!(isa_generated::flat_scratch::lookup(12).is_some());
+        assert!(isa_generated::flat::lookup(20).is_some());
+        assert!(isa_generated::flat_glbl::lookup(8).is_some());
+        assert!(isa_generated::flat_scratch::lookup(8).is_some());
         assert!(isa_generated::mimg::lookup(0).is_some());
         assert!(isa_generated::mtbuf::lookup(0).is_some());
         assert!(isa_generated::mubuf::lookup(0).is_some());
@@ -715,7 +715,7 @@ mod tests {
         assert!(!_vopc_full.is_empty());
 
         assert_eq!(
-            isa_generated::flat::lookup(12)
+            isa_generated::flat::lookup(20)
                 .expect("FLAT_LOAD_DWORD")
                 .name,
             "FLAT_LOAD_DWORD"
@@ -724,7 +724,7 @@ mod tests {
             isa_generated::ds::lookup(0).expect("DS_ADD_U32").name,
             "DS_ADD_U32"
         );
-        assert_eq!(isa::flat::FLAT_LOAD_DWORD, 12);
+        assert_eq!(isa::flat::FLAT_LOAD_DWORD, 20);
     }
 
     #[test]

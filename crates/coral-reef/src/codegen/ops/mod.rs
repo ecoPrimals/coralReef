@@ -215,6 +215,7 @@ pub fn encode_amd_op(
     let mut words = op_encode_amd!(op, &mut enc)?;
     if gfx_major < 10 {
         patch_vop3_prefix_for_gfx9(&mut words);
+        patch_vopc_for_gfx9(&mut words);
     }
     Ok(words)
 }
@@ -224,11 +225,12 @@ pub fn encode_amd_op(
 /// Both architectures share the same VOP3a word-0 layout:
 ///   [31:26]=prefix  [25:16]=OP(10)  [15]=CLAMP  [10:8]=ABS  [7:0]=VDST
 ///
-/// Only two things differ:
+/// Three things differ:
 ///   1. Prefix: 110101 (RDNA2) → 110100 (GFX9)
 ///   2. VOP3-only opcode values (≥320) are remapped between architectures
+///   3. VOPC opcodes encoded as VOP3 (0-255) are also reshuffled on GFX9
 ///
-/// VOP2-promoted VOP3 opcodes (<64) are already translated before encoding
+/// VOP2-promoted VOP3 opcodes (256-319) are already translated before encoding
 /// via `vop3_promoted_opcode_for_gfx`, so we leave those unchanged.
 fn patch_vop3_prefix_for_gfx9(words: &mut [u32]) {
     for word in words.iter_mut() {
@@ -237,6 +239,8 @@ fn patch_vop3_prefix_for_gfx9(words: &mut [u32]) {
             let rest = *word & 0xFFFF;
             let op_gfx9 = if op_rdna2 >= 320 {
                 vop3_only_opcode_for_gfx9(op_rdna2)
+            } else if op_rdna2 < 256 {
+                vopc_opcode_for_gfx9(op_rdna2)
             } else {
                 op_rdna2
             };
@@ -250,6 +254,9 @@ fn patch_vop3_prefix_for_gfx9(words: &mut [u32]) {
 /// Group A (MAD/BFE/BFI/FMA, RDNA2 320-351) shifts uniformly by +128.
 /// Group B (F64 arith / MUL_HI, RDNA2 352+) requires per-instruction mapping
 /// because the instruction ordering changed between architectures.
+/// Group C (VOP1-promoted VOP3, RDNA2 384+): on RDNA2, VOP3 = VOP1 + 384;
+/// on GFX9, VOP3 = VOP1_gfx9 + 320. RDNA2 inserted new VOP1 opcodes
+/// (V_PIPEFLUSH, etc.) that shifted everything after opcode 26.
 /// LLVM `llvm-mc --mcpu=gfx906` was used to derive every entry.
 fn vop3_only_opcode_for_gfx9(rdna2_op: u16) -> u16 {
     match rdna2_op {
@@ -262,7 +269,81 @@ fn vop3_only_opcode_for_gfx9(rdna2_op: u16) -> u16 {
         359 => 643, // V_MAX_F64
         362 => 646, // V_MUL_HI_U32
         364 => 647, // V_MUL_HI_I32
+        // Group C: VOP1-promoted VOP3 (RDNA2 384+, VOP1 opcodes 0-26 unchanged)
+        384..=410 => rdna2_op - 64,
+        // Group C cont: VOP1 opcodes 27+ shifted on GFX9 (per-instruction)
+        416 => 347, // V_FRACT_F32
+        417 => 348, // V_TRUNC_F32
+        418 => 349, // V_CEIL_F32
+        419 => 350, // V_RNDNE_F32
+        420 => 351, // V_FLOOR_F32
+        421 => 352, // V_EXP_F32
+        423 => 353, // V_LOG_F32
+        426 => 354, // V_RCP_F32
+        427 => 355, // V_RCP_IFLAG_F32
+        430 => 356, // V_RSQ_F32
+        431 => 357, // V_RCP_F64
+        433 => 358, // V_RSQ_F64
+        435 => 359, // V_SQRT_F32
+        436 => 360, // V_SQRT_F64
+        437 => 361, // V_SIN_F32
+        438 => 362, // V_COS_F32
+        439 => 363, // V_NOT_B32
+        440 => 364, // V_BFREV_B32
+        441 => 365, // V_FFBH_U32
+        442 => 366, // V_FFBL_B32
+        443 => 367, // V_FFBH_I32
+        444 => 368, // V_FREXP_EXP_I32_F64
+        445 => 369, // V_FREXP_MANT_F64
+        446 => 370, // V_FRACT_F64
+        447 => 371, // V_FREXP_EXP_I32_F32
+        448 => 372, // V_FREXP_MANT_F32
+        449 => 373, // V_CLREXCP
         _ => rdna2_op,
+    }
+}
+
+/// Remap VOPC opcodes from RDNA2 to GFX9.
+///
+/// RDNA2 reorganised the VOPC opcode space; GFX9 uses a different layout.
+/// Applied to VOPC opcodes that appear inside VOP3 encoding (f64 compares)
+/// and to VOPC e32 encoding (f32/i32/u32 compares).
+/// Verified against `llvm-mc -mcpu=gfx906 -show-encoding`.
+fn vopc_opcode_for_gfx9(rdna2_op: u16) -> u16 {
+    match rdna2_op {
+        // F32 compares: RDNA2 0-15 → GFX9 64-79
+        0..=15 => rdna2_op + 64,
+        // CMPX F32: RDNA2 16-31 → GFX9 80-95
+        16..=31 => rdna2_op + 64,
+        // F64 compares: RDNA2 32-47 → GFX9 96-111
+        32..=47 => rdna2_op + 64,
+        // CMPX F64: RDNA2 48-63 → GFX9 112-127
+        48..=63 => rdna2_op + 64,
+        // I32 compares: RDNA2 128-143 → GFX9 192-207
+        128..=143 => rdna2_op + 64,
+        // CMPX I32: RDNA2 144-159 → GFX9 208-223
+        144..=159 => rdna2_op + 64,
+        // U32 compares: RDNA2 192-207 → GFX9 200-215
+        192..=207 => rdna2_op + 8,
+        // CMPX U32: RDNA2 208-223 → GFX9 216-231
+        208..=223 => rdna2_op + 8,
+        _ => rdna2_op,
+    }
+}
+
+/// Patch VOPC e32 (32-bit) words from RDNA2 to GFX9.
+///
+/// VOPC e32 format: [31:25]=0111110, [24:17]=OP(8), [16:9]=VSRC1, [8:0]=SRC0.
+/// The prefix is the same on both architectures, but opcodes differ.
+fn patch_vopc_for_gfx9(words: &mut [u32]) {
+    for word in words.iter_mut() {
+        if (*word >> 25) & 0x7F == 0b011_1110 {
+            let op_rdna2 = ((*word >> 17) & 0xFF) as u16;
+            let op_gfx9 = vopc_opcode_for_gfx9(op_rdna2);
+            let rest = *word & 0x0001_FFFF;
+            let prefix = *word & 0xFE00_0000;
+            *word = prefix | ((op_gfx9 as u32 & 0xFF) << 17) | rest;
+        }
     }
 }
 
@@ -298,6 +379,7 @@ fn vop2_opcode_for_gfx(rdna2_op: u16, gfx_major: u8) -> u16 {
         29 => 21, // V_XOR_B32
         37 => 25, // V_ADD_NC_U32 → V_ADD_CO_U32
         38 => 26, // V_SUB_NC_U32 → V_SUB_CO_U32
+        39 => 27, // V_SUBREV_NC_U32 → V_SUBREV_CO_U32
         40 => 28, // V_ADD_CO_CI_U32 → V_ADDC_CO_U32
         _ => rdna2_op,
     }
@@ -660,13 +742,38 @@ fn encode_vop3_from_srcs_inner(
     };
     prefix0.extend(prefix1);
     prefix0.extend(prefix2);
-    let words = Rdna2Encoder::encode_vop3(
-        opcode,
-        AmdRegRef::vgpr(dst_reg),
-        mat0.src0,
-        mat1.src0,
-        mat2.src0,
-    );
+
+    let neg = [
+        matches!(src0.modifier, SrcMod::FNeg | SrcMod::FNegAbs),
+        matches!(src1.modifier, SrcMod::FNeg | SrcMod::FNegAbs),
+        matches!(src2.modifier, SrcMod::FNeg | SrcMod::FNegAbs),
+    ];
+    let abs = [
+        matches!(src0.modifier, SrcMod::FAbs | SrcMod::FNegAbs),
+        matches!(src1.modifier, SrcMod::FAbs | SrcMod::FNegAbs),
+        matches!(src2.modifier, SrcMod::FAbs | SrcMod::FNegAbs),
+    ];
+
+    let has_mods = neg.iter().any(|&n| n) || abs.iter().any(|&a| a);
+    let words = if has_mods {
+        Rdna2Encoder::encode_vop3_mod(
+            opcode,
+            AmdRegRef::vgpr(dst_reg),
+            mat0.src0,
+            mat1.src0,
+            mat2.src0,
+            neg,
+            abs,
+        )
+    } else {
+        Rdna2Encoder::encode_vop3(
+            opcode,
+            AmdRegRef::vgpr(dst_reg),
+            mat0.src0,
+            mat1.src0,
+            mat2.src0,
+        )
+    };
     prefix0.extend(words);
     Ok(prefix0)
 }

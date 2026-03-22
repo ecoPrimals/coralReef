@@ -63,22 +63,25 @@ pub mod fields {
     };
 }
 
+// GFX9 (Vega) hardware encoding for FLAT loads.  The auto-generated RDNA2
+// values (8-15) are wrong for GFX9 where loads were renumbered to 16-23.
+// Verified against `llvm-mc -mcpu=gfx906 -show-encoding`.
 /// Load 8 bits of unsigned data from the flat aperture, zero extend to 32 bits and store the result into a vector register.
-pub const FLAT_LOAD_UBYTE: u16 = 8;
+pub const FLAT_LOAD_UBYTE: u16 = 16;
 /// Load 8 bits of signed data from the flat aperture, sign extend to 32 bits and store the result into a vector register.
-pub const FLAT_LOAD_SBYTE: u16 = 9;
+pub const FLAT_LOAD_SBYTE: u16 = 17;
 /// Load 16 bits of unsigned data from the flat aperture, zero extend to 32 bits and store the result into a vector regis...
-pub const FLAT_LOAD_USHORT: u16 = 10;
+pub const FLAT_LOAD_USHORT: u16 = 18;
 /// Load 16 bits of signed data from the flat aperture, sign extend to 32 bits and store the result into a vector register.
-pub const FLAT_LOAD_SSHORT: u16 = 11;
+pub const FLAT_LOAD_SSHORT: u16 = 19;
 /// Load 32 bits of data from the flat aperture into a vector register.
-pub const FLAT_LOAD_DWORD: u16 = 12;
+pub const FLAT_LOAD_DWORD: u16 = 20;
 /// Load 64 bits of data from the flat aperture into a vector register.
-pub const FLAT_LOAD_DWORDX2: u16 = 13;
-/// Load 128 bits of data from the flat aperture into a vector register.
-pub const FLAT_LOAD_DWORDX4: u16 = 14;
+pub const FLAT_LOAD_DWORDX2: u16 = 21;
 /// Load 96 bits of data from the flat aperture into a vector register.
-pub const FLAT_LOAD_DWORDX3: u16 = 15;
+pub const FLAT_LOAD_DWORDX3: u16 = 22;
+/// Load 128 bits of data from the flat aperture into a vector register.
+pub const FLAT_LOAD_DWORDX4: u16 = 23;
 /// Store 8 bits of data from a vector register into the flat aperture.
 pub const FLAT_STORE_BYTE: u16 = 24;
 /// Store 8 bits of data from the high 16 bits of a 32-bit vector register into the flat aperture.
@@ -91,10 +94,11 @@ pub const FLAT_STORE_SHORT_D16_HI: u16 = 27;
 pub const FLAT_STORE_DWORD: u16 = 28;
 /// Store 64 bits of data from vector input registers into the flat aperture.
 pub const FLAT_STORE_DWORDX2: u16 = 29;
-/// Store 128 bits of data from vector input registers into the flat aperture.
-pub const FLAT_STORE_DWORDX4: u16 = 30;
+// GFX9: DWORDX3/X4 order is swapped vs RDNA2 (verified via llvm-mc).
 /// Store 96 bits of data from vector input registers into the flat aperture.
-pub const FLAT_STORE_DWORDX3: u16 = 31;
+pub const FLAT_STORE_DWORDX3: u16 = 30;
+/// Store 128 bits of data from vector input registers into the flat aperture.
+pub const FLAT_STORE_DWORDX4: u16 = 31;
 /// Load 8 bits of unsigned data from the flat aperture, zero extend to 16 bits and store the result into the low 16 bits...
 pub const FLAT_LOAD_UBYTE_D16: u16 = 32;
 /// Load 8 bits of unsigned data from the flat aperture, zero extend to 16 bits and store the result into the high 16 bit...
@@ -176,49 +180,49 @@ pub const FLAT_ATOMIC_FMAX_X2: u16 = 96;
 pub const TABLE: &[InstrEntry] = &[
     InstrEntry {
         name: "FLAT_LOAD_UBYTE",
-        opcode: 8,
+        opcode: 16,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "FLAT_LOAD_SBYTE",
-        opcode: 9,
+        opcode: 17,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "FLAT_LOAD_USHORT",
-        opcode: 10,
+        opcode: 18,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "FLAT_LOAD_SSHORT",
-        opcode: 11,
+        opcode: 19,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "FLAT_LOAD_DWORD",
-        opcode: 12,
+        opcode: 20,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "FLAT_LOAD_DWORDX2",
-        opcode: 13,
-        is_branch: false,
-        is_terminator: false,
-    },
-    InstrEntry {
-        name: "FLAT_LOAD_DWORDX4",
-        opcode: 14,
+        opcode: 21,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
         name: "FLAT_LOAD_DWORDX3",
-        opcode: 15,
+        opcode: 22,
+        is_branch: false,
+        is_terminator: false,
+    },
+    InstrEntry {
+        name: "FLAT_LOAD_DWORDX4",
+        opcode: 23,
         is_branch: false,
         is_terminator: false,
     },
@@ -259,13 +263,13 @@ pub const TABLE: &[InstrEntry] = &[
         is_terminator: false,
     },
     InstrEntry {
-        name: "FLAT_STORE_DWORDX4",
+        name: "FLAT_STORE_DWORDX3",
         opcode: 30,
         is_branch: false,
         is_terminator: false,
     },
     InstrEntry {
-        name: "FLAT_STORE_DWORDX3",
+        name: "FLAT_STORE_DWORDX4",
         opcode: 31,
         is_branch: false,
         is_terminator: false,

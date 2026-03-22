@@ -15,17 +15,42 @@ use crate::codegen::amd::isa;
 use crate::codegen::amd::reg::AmdRegRef;
 use crate::codegen::ir::*;
 
-// ---- IAdd3 (VOP2: V_ADD_NC_U32) ----
+// ---- IAdd3 (VOP2: V_ADD_NC_U32 / V_SUB_NC_U32) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpIAdd3 {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
-        encode_vop2_from_srcs(
-            isa::vop2::V_ADD_NC_U32,
-            self.dst(),
-            &self.srcs[0],
-            &self.srcs[1],
-            e,
-        )
+        let s0_neg = self.srcs[0].modifier == SrcMod::INeg;
+        let s1_neg = self.srcs[1].modifier == SrcMod::INeg;
+
+        if s1_neg && !s0_neg {
+            let mut src1_plain = self.srcs[1].clone();
+            src1_plain.modifier = SrcMod::None;
+            encode_vop2_from_srcs(
+                isa::vop2::V_SUB_NC_U32,
+                self.dst(),
+                &self.srcs[0],
+                &src1_plain,
+                e,
+            )
+        } else if s0_neg && !s1_neg {
+            let mut src0_plain = self.srcs[0].clone();
+            src0_plain.modifier = SrcMod::None;
+            encode_vop2_from_srcs(
+                isa::vop2::V_SUB_NC_U32,
+                self.dst(),
+                &self.srcs[1],
+                &src0_plain,
+                e,
+            )
+        } else {
+            encode_vop2_from_srcs(
+                isa::vop2::V_ADD_NC_U32,
+                self.dst(),
+                &self.srcs[0],
+                &self.srcs[1],
+                e,
+            )
+        }
     }
 }
 

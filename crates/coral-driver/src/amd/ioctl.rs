@@ -25,6 +25,11 @@ pub const AMDGPU_GEM_DOMAIN_VRAM: u32 = 0x4;
 /// GEM domain: host-visible GTT (system memory).
 pub const AMDGPU_GEM_DOMAIN_GTT: u32 = 0x2;
 
+// GEM create flags
+/// Use Write-Combine mapping for GTT buffers. Ensures CPU writes are
+/// visible to the GPU without explicit cache flushes (uncacheable on CPU).
+pub const AMDGPU_GEM_CREATE_CPU_GTT_USWC: u64 = 1 << 2;
+
 // Context operations
 const AMDGPU_CTX_OP_ALLOC_CTX: u32 = 1;
 const AMDGPU_CTX_OP_FREE_CTX: u32 = 2;
@@ -229,11 +234,18 @@ pub fn destroy_context(fd: RawFd, ctx_id: u32) -> DriverResult<()> {
 pub fn gem_create(fd: RawFd, size: u64, domains: u32) -> DriverResult<(u32, u64)> {
     let page_size = 4096_u64;
     let aligned_size = size.next_multiple_of(page_size);
+    // GTT buffers use USWC (Write-Combine) to ensure CPU writes are
+    // immediately visible to the GPU without cache coherency issues.
+    let flags = if (domains & AMDGPU_GEM_DOMAIN_GTT) != 0 {
+        AMDGPU_GEM_CREATE_CPU_GTT_USWC
+    } else {
+        0
+    };
     let mut req = AmdgpuGemCreate {
         bo_size: aligned_size,
         alignment: page_size,
         domains: domains.into(),
-        ..Default::default()
+        domain_flags: flags,
     };
     let handle: u32 = amd_ioctl_read(
         fd,
@@ -312,7 +324,10 @@ struct AmdgpuBoListIn {
 // --- CS submission structs (drm_amdgpu_cs) ---
 
 const AMDGPU_CHUNK_ID_IB: u32 = 0x01;
-const AMDGPU_HW_IP_COMPUTE: u32 = 1;
+/// GFX (graphics + compute) ring.
+pub const AMDGPU_HW_IP_GFX: u32 = 0;
+/// Dedicated COMPUTE (MEC) ring.
+pub const AMDGPU_HW_IP_COMPUTE: u32 = 1;
 
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -428,10 +443,21 @@ pub fn submit_command(
     ib_va: u64,
     ib_bytes: u32,
 ) -> DriverResult<u64> {
+    submit_command_ip(fd, ctx_id, bo_list_handle, ib_va, ib_bytes, AMDGPU_HW_IP_COMPUTE)
+}
+
+pub fn submit_command_ip(
+    fd: RawFd,
+    ctx_id: u32,
+    bo_list_handle: u32,
+    ib_va: u64,
+    ib_bytes: u32,
+    ip_type: u32,
+) -> DriverResult<u64> {
     let ib = AmdgpuCsChunkIb {
         va_start: ib_va,
         ib_bytes,
-        ip_type: AMDGPU_HW_IP_COMPUTE,
+        ip_type,
         ..Default::default()
     };
 
@@ -471,6 +497,16 @@ pub fn submit_command(
 /// Returns [`DriverError::FenceTimeout`] if the fence does not complete
 /// within `timeout_ns`, or [`DriverError`] if the ioctl fails.
 pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) -> DriverResult<()> {
+    sync_fence_ip(fd, ctx_id, fence_handle, timeout_ns, AMDGPU_HW_IP_COMPUTE)
+}
+
+pub fn sync_fence_ip(
+    fd: RawFd,
+    ctx_id: u32,
+    fence_handle: u64,
+    timeout_ns: u64,
+    ip_type: u32,
+) -> DriverResult<()> {
     // Kernel ABI: DRM_AMDGPU_WAIT_CS expects an absolute CLOCK_MONOTONIC
     // timestamp in nanoseconds. std::time::Instant is opaque and cannot
     // provide raw nanoseconds, so clock_gettime is unavoidable here.
@@ -479,7 +515,7 @@ pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) ->
     let mut wait = AmdgpuWaitCsIn {
         handle: fence_handle,
         timeout: abs_timeout,
-        ip_type: AMDGPU_HW_IP_COMPUTE,
+        ip_type,
         ctx_id,
         ..Default::default()
     };

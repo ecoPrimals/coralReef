@@ -397,7 +397,8 @@ fn estimate_instr_size(op: &Op) -> usize {
         }
         Op::Mov(_) => 1,
         Op::Bra(_) | Op::Exit(_) | Op::Nop(_) | Op::Bar(_) => 1,
-        Op::Ld(_) | Op::St(_) | Op::Atom(_) => 2,
+        Op::Ld(_) => 3, // FLAT_LOAD (2) + S_WAITCNT (1)
+        Op::St(_) | Op::Atom(_) => 2,
         Op::Undef(_)
         | Op::PhiSrcs(_)
         | Op::PhiDsts(_)

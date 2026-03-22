@@ -49,19 +49,34 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpF2I {
     }
 }
 
-// ---- I2F (VOP1: V_CVT_F32_I32) ----
+// ---- I2F (VOP1: V_CVT_F32_I32 / V_CVT_F64_I32 / V_CVT_F64_U32) ----
 
 impl EncodeOp<AmdOpEncoder<'_>> for OpI2F {
     fn encode(&self, _e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&self.src)?;
-        let mut words = Rdna2Encoder::encode_vop1(
-            isa::vop1::V_CVT_F32_I32,
-            AmdRegRef::vgpr(dst_reg),
-            src_enc.src0,
-        );
-        src_enc.extend_with_literal(&mut words);
-        Ok(words)
+
+        if self.dst_type == FloatType::F64 {
+            let opcode = match self.src_type {
+                IntType::U32 => isa::vop1::V_CVT_F64_U32,
+                _ => isa::vop1::V_CVT_F64_I32,
+            };
+            let mut words = Rdna2Encoder::encode_vop1(
+                opcode,
+                AmdRegRef::vgpr_pair(dst_reg),
+                src_enc.src0,
+            );
+            src_enc.extend_with_literal(&mut words);
+            Ok(words)
+        } else {
+            let mut words = Rdna2Encoder::encode_vop1(
+                isa::vop1::V_CVT_F32_I32,
+                AmdRegRef::vgpr(dst_reg),
+                src_enc.src0,
+            );
+            src_enc.extend_with_literal(&mut words);
+            Ok(words)
+        }
     }
 }
 
