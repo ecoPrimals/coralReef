@@ -23,18 +23,21 @@ SupplementaryGroups=coralreef
 UMask=0117
 RuntimeDirectory=coralreef
 RuntimeDirectoryMode=0750
+ExecStartPost=/bin/chgrp coralreef /run/coralreef
 
 # Privilege hardening: drop all capabilities except the minimum required set.
-# CAP_SYS_ADMIN  — VFIO container/group ioctls, sysfs driver bind/unbind
-# CAP_SYS_RAWIO  — VFIO device BAR mapping (mmap on device fd)
+# CAP_SYS_ADMIN   — VFIO container/group ioctls, sysfs driver bind/unbind
+# CAP_SYS_RAWIO   — VFIO device BAR mapping (mmap on device fd)
 # CAP_DAC_OVERRIDE — write to sysfs paths not owned by process UID
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
-AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
+# CAP_SYS_MODULE  — modprobe for driver loading during warm-swap (nouveau, nvidia)
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
 NoNewPrivileges=true
 
 # Filesystem isolation
 ProtectSystem=strict
 ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc
+ReadOnlyPaths=/lib/modules /etc/modprobe.d /lib/modprobe.d
 PrivateTmp=true
 ProtectHome=true
 
@@ -42,7 +45,8 @@ ProtectHome=true
 # @system-service covers basics (read, write, open, close, mmap, socket, etc.).
 # ioctl is required for VFIO container/group/device operations.
 # sendmsg is required for SCM_RIGHTS fd passing to glowplug.
-SystemCallFilter=@system-service ioctl sendmsg
+# @module covers init_module/finit_module/delete_module for driver loading.
+SystemCallFilter=@system-service @module ioctl sendmsg
 SystemCallErrorNumber=EPERM
 
 # Memory hardening

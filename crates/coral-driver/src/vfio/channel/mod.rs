@@ -18,6 +18,8 @@
 pub mod devinit;
 pub mod glowplug;
 pub mod hbm2_training;
+#[expect(missing_docs, reason = "diagnostic oracle — struct fields are self-documenting")]
+pub mod mmu_oracle;
 pub mod nouveau_oracle;
 pub mod oracle;
 pub mod pri_monitor;
@@ -56,6 +58,7 @@ pub struct VfioChannel {
     pd1: DmaBuffer,
     pd0: DmaBuffer,
     pt0: DmaBuffer,
+    fault_buf: DmaBuffer,
     channel_id: u32,
     runlist_id: u32,
 }
@@ -89,6 +92,7 @@ impl VfioChannel {
         let pd1 = DmaBuffer::new(container.clone(), 4096, PD1_IOVA)?;
         let pd0 = DmaBuffer::new(container.clone(), 4096, PD0_IOVA)?;
         let pt0 = DmaBuffer::new(container.clone(), 4096, PT0_IOVA)?;
+        let fault_buf = DmaBuffer::new(container.clone(), 4096, FAULT_BUF_IOVA)?;
 
         let mut chan = Self {
             instance,
@@ -98,6 +102,7 @@ impl VfioChannel {
             pd1,
             pd0,
             pt0,
+            fault_buf,
             channel_id,
             runlist_id: 0,
         };
@@ -132,6 +137,42 @@ impl VfioChannel {
             );
         }
         pfifo_ck(bar0, "after-bar2-setup");
+
+        // Volta requires non-replayable fault buffers configured before any
+        // MMU translation can succeed. Without them, FBHUB stalls on the
+        // first fault entry (nowhere to write it) and subsequent PBUS reads
+        // return 0xbad00200. This was the Layer 6 MMU blocker.
+        {
+            use registers::mmu;
+            let fb_lo = (FAULT_BUF_IOVA >> 12) as u32;
+            let fb_entries: u32 = 64;
+            bar0.write_u32(mmu::FAULT_BUF0_LO, fb_lo)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_LO: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_HI, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_HI: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_SIZE, fb_entries)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_SIZE: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_GET, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_GET: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_PUT, 0x8000_0000)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_PUT: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_LO, fb_lo)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_LO: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_HI, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_HI: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_SIZE, fb_entries)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_SIZE: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_GET, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_GET: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_PUT, 0x8000_0000)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_PUT: {e}"))))?;
+            tracing::info!(
+                fault_buf_iova = format_args!("{FAULT_BUF_IOVA:#x}"),
+                entries = fb_entries,
+                "MMU fault buffers configured (non-replayable + replayable)"
+            );
+        }
+        pfifo_ck(bar0, "after-fault-buf-setup");
 
         page_tables::populate_page_tables(
             chan.pd3.as_mut_slice(),
@@ -181,6 +222,9 @@ impl VfioChannel {
         std::thread::sleep(std::time::Duration::from_millis(50));
         pfifo_ck(bar0, "after-50ms-settle");
         pfifo::log_pfifo_diagnostics(bar0);
+
+        let faults = mmu_fault::read_mmu_faults(bar0);
+        mmu_fault::log_mmu_faults(&faults);
 
         tracing::info!(
             channel_id,
