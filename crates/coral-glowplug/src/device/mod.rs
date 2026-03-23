@@ -22,6 +22,7 @@ use crate::sysfs;
 use crate::sysfs_ops::{RealSysfs, SysfsOps};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     pub config: DeviceConfig,
@@ -34,6 +35,11 @@ pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     vfio_holder: Option<types::VfioHolder>,
     register_snapshot: BTreeMap<usize, u32>,
     sysfs: S,
+    /// Set while a long-running `spawn_blocking` task (oracle capture, compute
+    /// dispatch) holds a borrowed reference to this slot's VFIO mapping or GPU
+    /// context.  Mutating operations (`swap`, `reclaim`, `resurrect`) must
+    /// refuse while this flag is set to prevent use-after-unmap.
+    busy: Arc<AtomicBool>,
     /// When `Some`, overrides [`Self::has_vfio`] for unit tests (circuit breaker, etc.).
     #[cfg(test)]
     test_vfio_override: Option<bool>,
@@ -68,6 +74,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
             vfio_holder: None,
             register_snapshot: BTreeMap::new(),
             sysfs: ops,
+            busy: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             test_vfio_override: None,
             #[cfg(test)]
@@ -82,6 +89,47 @@ impl<S: SysfsOps> DeviceSlot<S> {
             return v;
         }
         self.vfio_holder.is_some()
+    }
+
+    /// Create a `Send`-safe BAR0 handle for use in `spawn_blocking` tasks.
+    ///
+    /// The returned handle is valid as long as this slot's `VfioHolder` is alive.
+    #[must_use]
+    pub fn vfio_bar0_handle(
+        &self,
+    ) -> Option<coral_driver::vfio::channel::mmu_oracle::Bar0Handle> {
+        let holder = self.vfio_holder.as_ref()?;
+        Some(coral_driver::vfio::channel::mmu_oracle::Bar0Handle::from_mapped_bar(
+            &holder.bar0,
+        ))
+    }
+
+    /// Returns `true` if a `spawn_blocking` task currently holds a reference
+    /// to this slot's GPU resources (BAR0 mapping, CUDA context, etc.).
+    #[must_use]
+    pub fn is_busy(&self) -> bool {
+        self.busy.load(Ordering::Acquire)
+    }
+
+    /// Acquire a `BusyGuard` that sets the busy flag for the duration of a
+    /// long-running blocking task.  Returns `None` if the slot is already busy.
+    #[must_use]
+    pub fn try_acquire_busy(&self) -> Option<BusyGuard> {
+        if self.busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            Some(BusyGuard(Arc::clone(&self.busy)))
+        } else {
+            None
+        }
+    }
+}
+
+/// RAII guard that clears a `DeviceSlot`'s busy flag on drop.
+/// Safe to send into `spawn_blocking` tasks.
+pub struct BusyGuard(Arc<AtomicBool>);
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 

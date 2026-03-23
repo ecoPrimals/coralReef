@@ -268,6 +268,7 @@ mod tests {
             power_policy: "power_save".into(),
             role: None,
             oracle_dump: None,
+            shared: None,
         };
         let mut mock = MockSysfs::default();
         mock.seed_bdf(bdf);

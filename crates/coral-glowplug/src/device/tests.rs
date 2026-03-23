@@ -67,6 +67,7 @@ fn test_device_health_defaults_in_slot() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let slot = DeviceSlot::new(config);
     assert!(!slot.health.vram_alive);
@@ -87,6 +88,7 @@ fn test_device_slot_new_with_mock_config() {
         power_policy: "power_save".into(),
         role: Some("compute".into()),
         oracle_dump: Some("/tmp/dump.txt".into()),
+        shared: None,
     };
     let slot = DeviceSlot::new(config.clone());
     assert_eq!(slot.bdf.as_ref(), "0000:99:00.0");
@@ -108,6 +110,7 @@ fn test_device_slot_has_vfio_initially_false() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let slot = DeviceSlot::new(config);
     assert!(!slot.has_vfio());
@@ -149,6 +152,7 @@ fn test_activate_nonexistent_bdf_with_drm_check_does_not_panic() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     let result = slot.activate();
@@ -164,6 +168,7 @@ fn test_release_nonexistent_bdf_does_not_panic() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     let result = slot.release();
@@ -184,6 +189,7 @@ fn test_swap_nonexistent_bdf_does_not_panic() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     let result = slot.swap("nouveau");
@@ -200,6 +206,7 @@ fn test_lend_requires_vfio_personality() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     slot.personality = Personality::Nouveau { drm_card: None };
@@ -217,6 +224,7 @@ fn test_lend_returns_error_when_no_fd() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     slot.personality = Personality::Vfio { group_id: 42 };
@@ -235,6 +243,7 @@ fn test_reclaim_requires_vfio_personality() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     slot.personality = Personality::Unbound;
@@ -263,6 +272,7 @@ fn read_register_returns_none_without_vfio() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let slot = DeviceSlot::new(config);
     assert!(slot.read_register(0x00_0000).is_none());
@@ -277,6 +287,7 @@ fn dump_registers_empty_without_vfio() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let slot = DeviceSlot::new(config);
     assert!(slot.dump_registers(&[0x00_0000]).is_empty());
@@ -291,6 +302,7 @@ fn last_snapshot_empty_until_snapshot() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let slot = DeviceSlot::new(config);
     assert!(slot.last_snapshot().is_empty());
@@ -305,6 +317,7 @@ fn snapshot_registers_no_vfio_is_noop() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     slot.snapshot_registers();
@@ -320,6 +333,7 @@ fn refresh_power_state_does_not_panic() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     slot.refresh_power_state();
@@ -335,6 +349,7 @@ fn wait_quiescence_without_vfio_is_trivially_true() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let slot = DeviceSlot::new(config);
     assert!(slot.wait_quiescence(std::time::Duration::from_millis(1)));
@@ -349,6 +364,7 @@ fn check_health_without_vfio_clears_domain_counts() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     slot.check_health();
@@ -366,6 +382,7 @@ fn resurrect_hbm2_fails_without_ember_for_unknown_vendor() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut slot = DeviceSlot::new(config);
     // sysfs read_pci_ids returns 0,0 for fake BDF — not a known HBM2 vendor
@@ -385,6 +402,7 @@ fn mock_refresh_power_state_updates_health_from_sysfs_ops() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -406,6 +424,7 @@ fn mock_check_health_refreshes_power_and_link_from_sysfs_ops() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -428,6 +447,7 @@ fn mock_swap_refuses_when_nvidia_driver_reported() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -448,6 +468,7 @@ fn mock_wait_quiescence_respects_test_override_quiescent() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -466,6 +487,7 @@ fn mock_snapshot_registers_no_vfio_leaves_empty_snapshot() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);
@@ -490,6 +512,7 @@ fn resurrect_hbm2_amd_warm_driver_is_amdgpu_without_ember() {
             power_policy: "always_on".into(),
             role: None,
             oracle_dump: None,
+            shared: None,
         },
         mock,
     );
@@ -511,6 +534,7 @@ fn mock_release_errors_when_drm_consumers_reported() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut mock = MockSysfs::default();
     mock.seed_bdf(bdf);

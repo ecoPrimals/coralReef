@@ -69,6 +69,7 @@ async fn test_tcp_device_list_and_get() {
         power_policy: "always_on".into(),
         role: Some("compute".into()),
         oracle_dump: None,
+        shared: None,
     };
     let devices = Arc::new(Mutex::new(vec![coral_glowplug::device::DeviceSlot::new(
         config,

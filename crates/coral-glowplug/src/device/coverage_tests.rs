@@ -23,6 +23,7 @@ fn base_config(bdf: &str, boot: &str) -> DeviceConfig {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     }
 }
 
@@ -34,6 +35,7 @@ fn activate_rejects_unknown_boot_personality_early() {
     let mut slot = DeviceSlot::with_sysfs(
         DeviceConfig {
             boot_personality: "definitely-unknown-driver".into(),
+            shared: None,
             ..base_config(bdf, "definitely-unknown-driver")
         },
         mock,
@@ -52,6 +54,7 @@ fn activate_xe_already_bound_errors_at_final_bind_match() {
     let mut slot = DeviceSlot::with_sysfs(
         DeviceConfig {
             boot_personality: "xe".into(),
+            shared: None,
             ..base_config(bdf, "xe")
         },
         mock,
@@ -388,6 +391,7 @@ fn activate_intel_xe_supported_but_bind_match_errors_like_xe() {
     let mut slot = DeviceSlot::with_sysfs(
         DeviceConfig {
             boot_personality: "xe".into(),
+            shared: None,
             ..base_config(bdf, "xe")
         },
         mock,

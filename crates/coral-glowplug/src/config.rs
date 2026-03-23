@@ -121,6 +121,72 @@ pub struct DeviceConfig {
     /// Loaded from TOML config, used by `device.rs` `snapshot_registers`.
     #[serde(default)]
     pub oracle_dump: Option<String>,
+    /// Resource budget for `role = "shared"` devices.
+    #[serde(default)]
+    pub shared: Option<SharedQuota>,
+}
+
+/// Resource budget for `role = "shared"` devices: single-GPU machines that must
+/// serve display and compute simultaneously.  Enforced via `nvidia-smi` at runtime.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SharedQuota {
+    /// Maximum power draw (watts) to allocate for compute workloads.
+    /// If unset, the GPU's default power limit applies.
+    #[serde(default)]
+    pub power_limit_w: Option<u32>,
+
+    /// Maximum GPU memory (MiB) that compute workloads should consume.
+    /// Purely advisory — CUDA doesn't enforce this natively, but MPS can approximate it.
+    #[serde(default)]
+    pub vram_budget_mib: Option<u32>,
+
+    /// CUDA compute mode: "default" (multi-process), "exclusive_process" (single owner),
+    /// or "prohibited" (no compute).  Default: "default".
+    #[serde(default = "default_compute_mode")]
+    pub compute_mode: String,
+
+    /// Process priority for compute workloads (0 = normal, 1 = low).
+    /// Maps to CUDA stream priority classes.
+    #[serde(default)]
+    pub compute_priority: u32,
+}
+
+fn default_compute_mode() -> String {
+    "default".into()
+}
+
+impl Default for SharedQuota {
+    fn default() -> Self {
+        Self {
+            power_limit_w: None,
+            vram_budget_mib: None,
+            compute_mode: default_compute_mode(),
+            compute_priority: 0,
+        }
+    }
+}
+
+impl DeviceConfig {
+    /// Returns `true` if this device has `role = "display"` — a protected display GPU
+    /// that glowplug must never swap, unbind, or hand over to VFIO.
+    #[must_use]
+    pub fn is_display(&self) -> bool {
+        self.role.as_deref() == Some("display")
+    }
+
+    /// Returns `true` if this device has `role = "shared"` — a single-GPU machine
+    /// where the card must serve both display and compute with resource budgets.
+    #[must_use]
+    pub fn is_shared(&self) -> bool {
+        self.role.as_deref() == Some("shared")
+    }
+
+    /// Returns `true` if this device is protected from driver swaps
+    /// (either `display` or `shared` role).
+    #[must_use]
+    pub fn is_protected(&self) -> bool {
+        self.is_display() || self.is_shared()
+    }
 }
 
 /// TCP loopback with OS-assigned port (ecoBin fallback on non-Unix platforms).
@@ -272,6 +338,7 @@ impl Config {
                 power_policy: DEFAULT_POWER_POLICY.into(),
                 role: Some(DEFAULT_ROLE.into()),
                 oracle_dump: None,
+                shared: None,
             });
         }
 

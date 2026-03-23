@@ -16,8 +16,9 @@ mod socket;
 use clap::Parser;
 use config::Config;
 use coral_driver::linux_paths;
-use coral_glowplug::{config, device, ember, health, pci_ids, sysfs};
+use coral_glowplug::{config, device, ember, health, pci_ids, personality, sysfs};
 use device::DeviceSlot;
+use personality::Personality;
 use std::sync::Arc;
 use tokio::sync::{Mutex, watch};
 
@@ -58,6 +59,7 @@ fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
         power_policy: "always_on".into(),
         role: Some("compute".into()),
         oracle_dump: None,
+        shared: None,
     }
 }
 
@@ -82,8 +84,11 @@ fn validate_boot_safety(config: &Config) {
         );
     }
 
+    let compute_devices: Vec<&config::DeviceConfig> =
+        config.device.iter().filter(|d| !d.is_protected()).collect();
+
     if std::path::Path::new(&linux_paths::sysfs_module_path("nvidia")).exists() {
-        for dev in &config.device {
+        for dev in &compute_devices {
             let driver_path = linux_paths::sysfs_pci_device_file(&dev.bdf, "driver");
             if let Ok(link) = std::fs::read_link(&driver_path) {
                 let driver_name = link.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -98,7 +103,7 @@ fn validate_boot_safety(config: &Config) {
             }
         }
 
-        let nvidia_probed_managed = config.device.iter().any(|dev| {
+        let nvidia_probed_managed = compute_devices.iter().any(|dev| {
             let override_path = linux_paths::sysfs_pci_device_file(&dev.bdf, "driver_override");
             let current_override = std::fs::read_to_string(&override_path).unwrap_or_default();
             current_override.trim() != "vfio-pci"
@@ -117,7 +122,7 @@ fn validate_boot_safety(config: &Config) {
     let vfio_ids_in_cmdline = cmdline.contains(pci_ids::TITAN_V_VFIO_IDS_CMDLINE)
         || cmdline.contains(pci_ids::TITAN_V_VFIO_IDS_CMDLINE_ALT);
     let nvidia_loaded = std::path::Path::new(&linux_paths::sysfs_module_path("nvidia")).exists();
-    let all_on_vfio = config.device.iter().all(|dev| {
+    let all_on_vfio = compute_devices.iter().all(|dev| {
         let driver_path = linux_paths::sysfs_pci_device_file(&dev.bdf, "driver");
         std::fs::read_link(&driver_path)
             .ok()
@@ -200,7 +205,21 @@ async fn main() {
     let mut slots: Vec<DeviceSlot> = config
         .device
         .iter()
-        .map(|dc| DeviceSlot::new(dc.clone()))
+        .map(|dc| {
+            let mut slot = DeviceSlot::new(dc.clone());
+            if dc.is_protected() {
+                let drm = sysfs::find_drm_card(&dc.bdf);
+                slot.personality = Personality::Nvidia { drm_card: drm };
+                let label = if dc.is_shared() { "shared" } else { "display" };
+                tracing::info!(
+                    bdf = %dc.bdf,
+                    name = dc.name.as_deref().unwrap_or("?"),
+                    role = label,
+                    "{label} GPU — protected, skipping activation"
+                );
+            }
+            slot
+        })
         .collect();
 
     // Try to connect to coral-ember for safe fd keepalive
@@ -225,6 +244,10 @@ async fn main() {
     }
 
     for slot in &mut slots {
+        if slot.config.is_protected() {
+            continue;
+        }
+
         // Try ember first for safe fd management
         let ember_ok = if let Some(ref client) = ember_client {
             if slot.config.boot_personality == "vfio" {
@@ -379,7 +402,7 @@ async fn main() {
     match tokio::time::timeout(shutdown_timeout, devices.lock()).await {
         Ok(mut devs) => {
             tracing::info!("disabling PCI resets and releasing devices");
-            for slot in devs.iter_mut() {
+            for slot in devs.iter_mut().filter(|s| !s.config.is_protected()) {
                 let _ = sysfs::sysfs_write(
                     &linux_paths::sysfs_pci_device_file(&slot.bdf, "reset_method"),
                     "",

@@ -21,6 +21,7 @@ fn test_dispatch_device_list_with_devices() {
         power_policy: "always_on".into(),
         role: Some("compute".into()),
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -41,6 +42,7 @@ fn test_dispatch_device_get_found() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -172,6 +174,7 @@ fn test_dispatch_device_health() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -243,6 +246,7 @@ fn test_dispatch_device_lend_not_vfio() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -321,6 +325,7 @@ fn test_dispatch_device_register_dump_no_vfio() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -358,6 +363,7 @@ fn test_dispatch_device_register_snapshot_empty() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -397,6 +403,7 @@ fn test_dispatch_device_resurrect_unknown_vendor() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -424,6 +431,7 @@ fn test_dispatch_device_swap_ember_unavailable() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -466,6 +474,7 @@ fn test_dispatch_device_swap_missing_target() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();
@@ -489,6 +498,7 @@ fn test_dispatch_health_check_counts_devices() {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     };
     let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
     let started = std::time::Instant::now();

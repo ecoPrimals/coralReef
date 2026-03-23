@@ -19,6 +19,19 @@ impl<S: SysfsOps> DeviceSlot<S> {
     /// Returns `DeviceError::DriverBind` if ember is not available or the swap
     /// fails. Returns `DeviceError::VfioOpen` if post-swap fd acquisition fails.
     pub fn swap(&mut self, target: &str) -> Result<(), DeviceError> {
+        if self.config.is_protected() {
+            tracing::error!(
+                bdf = %self.bdf,
+                "REFUSING swap — device has role=display and is protected. \
+                 Display GPUs cannot be swapped."
+            );
+            return Err(DeviceError::DriverBind {
+                bdf: self.bdf.clone(),
+                driver: target.into(),
+                reason: "display GPU is protected — swaps are forbidden".into(),
+            });
+        }
+
         if self.sysfs.read_current_driver(&self.bdf).as_deref() == Some("nvidia") {
             tracing::error!(
                 bdf = %self.bdf,

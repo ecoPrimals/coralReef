@@ -156,6 +156,19 @@ pub fn find_drm_card(bdf: &str) -> Option<String> {
     None
 }
 
+/// Find the DRM render node path for a PCI device (e.g. `/dev/dri/renderD128`).
+pub fn find_render_node(bdf: &str) -> Option<String> {
+    let drm_dir = linux_paths::sysfs_pci_device_file(bdf, "drm");
+    let entries = std::fs::read_dir(&drm_dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with("renderD") {
+            return Some(format!("/dev/dri/{name}"));
+        }
+    }
+    None
+}
+
 fn power_state_from_sysfs_line(trimmed: &str) -> super::device::PowerState {
     use super::device::PowerState;
     match trimmed {

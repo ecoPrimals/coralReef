@@ -96,6 +96,57 @@ enum Command {
         action: SnapshotAction,
     },
 
+    /// MMU page table oracle — capture full PT chain or diff two captures.
+    Oracle {
+        #[command(subcommand)]
+        action: OracleAction,
+    },
+
+    /// Query compute capabilities for a GPU (NVML telemetry via nvidia-smi).
+    ComputeInfo {
+        /// PCI BDF address (e.g. 0000:21:00.0).
+        bdf: String,
+    },
+
+    /// Query or set compute quota for a shared/display GPU.
+    ComputeQuota {
+        /// PCI BDF address (e.g. 0000:21:00.0).
+        bdf: String,
+        /// Set power limit (watts).
+        #[arg(long)]
+        power_limit: Option<u32>,
+        /// Set compute mode (default, exclusive_process, prohibited).
+        #[arg(long)]
+        compute_mode: Option<String>,
+        /// Set VRAM budget (MiB) — advisory.
+        #[arg(long)]
+        vram_budget: Option<u32>,
+    },
+
+    /// Submit compute work through the daemon pipeline (shader + buffers).
+    Dispatch {
+        /// PCI BDF address of the target GPU (e.g. 0000:21:00.0).
+        bdf: String,
+        /// Path to PTX shader file.
+        #[arg(long)]
+        shader: String,
+        /// Input buffer files (raw binary, order = kernel arg order).
+        #[arg(long)]
+        input: Vec<String>,
+        /// Output buffer sizes in bytes.
+        #[arg(long)]
+        output_size: Vec<u64>,
+        /// Workgroup grid dimensions (X,Y,Z). Default: "256,1,1".
+        #[arg(long, default_value = "256,1,1")]
+        workgroups: String,
+        /// Threads per workgroup (X,Y,Z). Default: "64,1,1".
+        #[arg(long, default_value = "64,1,1")]
+        threads: String,
+        /// Write output buffers to files (output_0.bin, output_1.bin, ...).
+        #[arg(long)]
+        output_dir: Option<String>,
+    },
+
     /// Generate udev rules for /dev/vfio/* from glowplug.toml.
     DeployUdev {
         #[arg(short, long)]
@@ -147,6 +198,31 @@ enum SnapshotAction {
         bdf: String,
         /// Path to a previously saved snapshot JSON file.
         file: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum OracleAction {
+    /// Capture full MMU page table chain + engine registers from a GPU.
+    Capture {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Output JSON file path (default: stdout).
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Maximum channels to walk (0 = all found).
+        #[arg(long, default_value_t = 0)]
+        max_channels: usize,
+        /// Bypass the daemon and capture directly (requires VFIO group access).
+        #[arg(long)]
+        local: bool,
+    },
+    /// Compare two oracle capture JSON files.
+    Diff {
+        /// Left (reference) capture file.
+        left: String,
+        /// Right (comparison) capture file.
+        right: String,
     },
 }
 
@@ -205,6 +281,54 @@ fn main() {
             SnapshotAction::Save { bdf, file } => rpc_snapshot_save(&cli.socket, &bdf, file),
             SnapshotAction::Diff { bdf, file } => rpc_snapshot_diff(&cli.socket, &bdf, &file),
         },
+        Command::Oracle { action } => match action {
+            OracleAction::Capture {
+                bdf,
+                output,
+                max_channels,
+                local,
+            } => {
+                if local {
+                    oracle_capture_local(&bdf, output.as_deref(), max_channels);
+                } else {
+                    oracle_capture_rpc(&cli.socket, &bdf, output.as_deref(), max_channels);
+                }
+            }
+            OracleAction::Diff { left, right } => oracle_diff(&left, &right),
+        },
+        Command::ComputeInfo { bdf } => rpc_compute_info(&cli.socket, &bdf),
+        Command::ComputeQuota {
+            bdf,
+            power_limit,
+            compute_mode,
+            vram_budget,
+        } => {
+            if power_limit.is_some() || compute_mode.is_some() || vram_budget.is_some() {
+                rpc_set_quota(&cli.socket, &bdf, power_limit, compute_mode.as_deref(), vram_budget);
+            } else {
+                rpc_get_quota(&cli.socket, &bdf);
+            }
+        }
+        Command::Dispatch {
+            bdf,
+            shader,
+            input,
+            output_size,
+            workgroups,
+            threads,
+            output_dir,
+        } => {
+            rpc_dispatch(
+                &cli.socket,
+                &bdf,
+                &shader,
+                &input,
+                &output_size,
+                &workgroups,
+                &threads,
+                output_dir.as_deref(),
+            );
+        }
         Command::DeployUdev {
             config: config_path,
             output,
@@ -334,7 +458,16 @@ fn rpc_status(socket: &str) {
                     "-"
                 };
                 let name = dev.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                println!("{bdf:<16} {personality:<22} {power:<6} {vram:<6} {name}");
+                let protected = dev
+                    .get("protected")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let suffix = if protected {
+                    format!("{name} [PROTECTED]")
+                } else {
+                    name.to_string()
+                };
+                println!("{bdf:<16} {personality:<22} {power:<6} {vram:<6} {suffix}");
             }
         }
         _ => {
@@ -369,50 +502,251 @@ fn rpc_swap(socket: &str, bdf: &str, target: &str) {
     }
 }
 
+fn rpc_compute_info(socket: &str, bdf: &str) {
+    let response = rpc_call(
+        socket,
+        "device.compute_info",
+        serde_json::json!({"bdf": bdf}),
+    );
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let chip = result.get("chip").and_then(|v| v.as_str()).unwrap_or("?");
+        let role = result
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let protected = result
+            .get("protected")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let render = result
+            .get("render_node")
+            .and_then(|v| v.as_str())
+            .unwrap_or("none");
+
+        println!("{bdf}  {chip}  role={role}{}", if protected { " [PROTECTED]" } else { "" });
+        println!("  Render Node: {render}");
+
+        if let Some(c) = result.get("compute") {
+            if let Some(err) = c.get("error") {
+                println!("  Compute: unavailable ({})", err.as_str().unwrap_or("?"));
+            } else {
+                let name = c.get("gpu_name").and_then(|v| v.as_str()).unwrap_or("?");
+                let mem_total = c.get("memory_total_mib").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let mem_free = c.get("memory_free_mib").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let mem_used = c.get("memory_used_mib").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let temp = c.get("temperature_c").and_then(|v| v.as_u64()).unwrap_or(0);
+                let power = c.get("power_draw_w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let power_limit = c.get("power_limit_w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let sm = c.get("clock_sm_mhz").and_then(|v| v.as_u64()).unwrap_or(0);
+                let mem_clk = c.get("clock_mem_mhz").and_then(|v| v.as_u64()).unwrap_or(0);
+                let cc = c.get("compute_cap").and_then(|v| v.as_str()).unwrap_or("?");
+                let pcie = c.get("pcie_width").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                println!("  GPU:         {name}");
+                println!("  Compute Cap: {cc}");
+                println!("  Memory:      {mem_used:.0} / {mem_total:.0} MiB ({mem_free:.0} MiB free)");
+                println!("  Temperature: {temp}C");
+                println!("  Power:       {power:.1}W / {power_limit:.0}W");
+                println!("  Clocks:      SM {sm} MHz, Mem {mem_clk} MHz");
+                println!("  PCIe Width:  x{pcie}");
+            }
+        }
+    }
+}
+
+fn rpc_get_quota(socket: &str, bdf: &str) {
+    let response = rpc_call(socket, "device.quota", serde_json::json!({"bdf": bdf}));
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let role = result.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+        let protected = result.get("protected").and_then(|v| v.as_bool()).unwrap_or(false);
+        println!("{bdf}  role={role}{}", if protected { " [PROTECTED]" } else { "" });
+
+        if let Some(q) = result.get("quota") {
+            let pl = q.get("power_limit_w").and_then(|v| v.as_u64());
+            let vb = q.get("vram_budget_mib").and_then(|v| v.as_u64());
+            let cm = q.get("compute_mode").and_then(|v| v.as_str()).unwrap_or("default");
+            let cp = q.get("compute_priority").and_then(|v| v.as_u64()).unwrap_or(0);
+            println!("  Quota:");
+            println!("    Power Limit:  {}", pl.map_or("default".to_string(), |w| format!("{w}W")));
+            println!("    VRAM Budget:  {}", vb.map_or("unlimited".to_string(), |m| format!("{m} MiB")));
+            println!("    Compute Mode: {cm}");
+            println!("    Priority:     {cp}");
+        }
+
+        if let Some(c) = result.get("current") {
+            if c.get("error").is_none() {
+                let mem_used = c.get("memory_used_mib").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let mem_total = c.get("memory_total_mib").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let power = c.get("power_draw_w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let power_limit = c.get("power_limit_w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                println!("  Current:");
+                println!("    Memory:       {mem_used:.0} / {mem_total:.0} MiB");
+                println!("    Power:        {power:.1}W / {power_limit:.0}W");
+            }
+        }
+    }
+}
+
+fn rpc_set_quota(socket: &str, bdf: &str, power_limit: Option<u32>, compute_mode: Option<&str>, vram_budget: Option<u32>) {
+    let mut params = serde_json::json!({"bdf": bdf});
+    if let Some(pl) = power_limit {
+        params["power_limit_w"] = serde_json::json!(pl);
+    }
+    if let Some(cm) = compute_mode {
+        params["compute_mode"] = serde_json::json!(cm);
+    }
+    if let Some(vb) = vram_budget {
+        params["vram_budget_mib"] = serde_json::json!(vb);
+    }
+
+    let response = rpc_call(socket, "device.set_quota", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        println!("Quota updated for {bdf}");
+        if let Some(q) = result.get("quota") {
+            let pl = q.get("power_limit_w").and_then(|v| v.as_u64());
+            let vb = q.get("vram_budget_mib").and_then(|v| v.as_u64());
+            let cm = q.get("compute_mode").and_then(|v| v.as_str()).unwrap_or("default");
+            println!("  Power Limit:  {}", pl.map_or("default".to_string(), |w| format!("{w}W")));
+            println!("  VRAM Budget:  {}", vb.map_or("unlimited".to_string(), |m| format!("{m} MiB")));
+            println!("  Compute Mode: {cm}");
+        }
+        if let Some(applied) = result.get("applied") {
+            for (key, val) in applied.as_object().into_iter().flatten() {
+                let ok = val.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                let msg = val.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                let status = if ok { "OK" } else { "FAILED" };
+                println!("  {key}: [{status}] {msg}");
+            }
+        }
+    }
+}
+
+fn parse_triple(s: &str) -> [u32; 3] {
+    let parts: Vec<u32> = s.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+    [
+        parts.first().copied().unwrap_or(1),
+        parts.get(1).copied().unwrap_or(1),
+        parts.get(2).copied().unwrap_or(1),
+    ]
+}
+
+#[expect(clippy::too_many_arguments)]
+fn rpc_dispatch(
+    socket: &str,
+    bdf: &str,
+    shader_path: &str,
+    input_paths: &[String],
+    output_sizes: &[u64],
+    workgroups: &str,
+    threads: &str,
+    output_dir: Option<&str>,
+) {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+
+    let shader_bytes = std::fs::read(shader_path).unwrap_or_else(|e| {
+        eprintln!("error: cannot read shader {shader_path}: {e}");
+        std::process::exit(1);
+    });
+    let shader_b64 = b64.encode(&shader_bytes);
+
+    let inputs_b64: Vec<String> = input_paths
+        .iter()
+        .map(|p| {
+            let data = std::fs::read(p).unwrap_or_else(|e| {
+                eprintln!("error: cannot read input {p}: {e}");
+                std::process::exit(1);
+            });
+            b64.encode(&data)
+        })
+        .collect();
+
+    let dims = parse_triple(workgroups);
+    let wg = parse_triple(threads);
+
+    let params = serde_json::json!({
+        "bdf": bdf,
+        "shader": shader_b64,
+        "inputs": inputs_b64,
+        "output_sizes": output_sizes,
+        "dims": dims,
+        "workgroup": wg,
+    });
+
+    eprintln!(
+        "dispatching on {bdf}: shader={shader_path} inputs={} outputs={} grid={}x{}x{} block={}x{}x{}",
+        input_paths.len(),
+        output_sizes.len(),
+        dims[0], dims[1], dims[2],
+        wg[0], wg[1], wg[2],
+    );
+
+    let response = rpc_call(socket, "device.dispatch", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let outputs = result
+            .get("outputs")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&Vec::new())
+            .clone();
+        eprintln!("dispatch complete: {} output buffer(s)", outputs.len());
+
+        for (i, out) in outputs.iter().enumerate() {
+            if let Some(encoded) = out.as_str() {
+                let data = b64.decode(encoded).unwrap_or_else(|e| {
+                    eprintln!("error: base64 decode output {i}: {e}");
+                    std::process::exit(1);
+                });
+                eprintln!("  output[{i}]: {} bytes", data.len());
+
+                if let Some(dir) = output_dir {
+                    let path = format!("{dir}/output_{i}.bin");
+                    std::fs::write(&path, &data).unwrap_or_else(|e| {
+                        eprintln!("error: write {path}: {e}");
+                        std::process::exit(1);
+                    });
+                    eprintln!("  written to {path}");
+                }
+            }
+        }
+    }
+}
+
 fn rpc_health(socket: &str) {
     let response = rpc_call(socket, "health.check", serde_json::json!({}));
     check_rpc_error(&response);
 
     if let Some(result) = response.get("result") {
-        let healthy = result
-            .get("healthy")
+        let alive = result
+            .get("alive")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let status = if healthy { "HEALTHY" } else { "DEGRADED" };
-        println!("system: {status}");
-
-        let devices = if result.is_array() {
-            result.as_array()
+        let device_count = result
+            .get("device_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let healthy_count = result
+            .get("healthy_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let status = if alive && healthy_count == device_count {
+            "HEALTHY"
+        } else if alive {
+            "DEGRADED"
         } else {
-            result.get("devices").and_then(|d| d.as_array())
+            "DOWN"
         };
+        println!("system: {status}  ({healthy_count}/{device_count} devices healthy)");
 
-        if let Some(devs) = devices {
-            for dev in devs {
-                let bdf = dev.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
-                let vram = dev
-                    .get("vram_alive")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let power = dev.get("power").and_then(|v| v.as_str()).unwrap_or("?");
-                let domains_alive = dev
-                    .get("domains_alive")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let domains_faulted = dev
-                    .get("domains_faulted")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let total = domains_alive + domains_faulted;
-                let dev_status = if vram && domains_faulted == 0 {
-                    "ok"
-                } else {
-                    "degraded"
-                };
-                println!(
-                    "  {bdf}: {dev_status} (power={power}, vram={vram}, domains={domains_alive}/{total})"
-                );
-            }
+        if !alive {
+            println!("  daemon reports not alive");
         }
     }
 }
@@ -863,6 +1197,106 @@ fn load_config(config_path: Option<String>) -> config::Config {
     }
 }
 
+fn oracle_capture_rpc(socket: &str, bdf: &str, output: Option<&str>, max_channels: usize) {
+    let response = rpc_call(
+        socket,
+        "device.oracle_capture",
+        serde_json::json!({"bdf": bdf, "max_channels": max_channels}),
+    );
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let channel_count = result
+            .get("channels")
+            .and_then(|c| c.as_array())
+            .map_or(0, |a| a.len());
+        let total_pts: usize = result
+            .get("channels")
+            .and_then(|c| c.as_array())
+            .map(|chs| {
+                chs.iter()
+                    .filter_map(|ch| ch.get("page_tables").and_then(|p| p.as_array()))
+                    .map(|pts| pts.len())
+                    .sum()
+            })
+            .unwrap_or(0);
+        let driver = result
+            .get("driver")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        eprintln!("Captured {channel_count} channels, {total_pts} page tables (driver: {driver})");
+
+        let json = serde_json::to_string_pretty(result).expect("serialize");
+        match output {
+            Some(path) => {
+                std::fs::write(path, &json).expect("write output");
+                eprintln!("Written to {path}");
+            }
+            None => println!("{json}"),
+        }
+    }
+}
+
+fn oracle_capture_local(bdf: &str, output: Option<&str>, max_channels: usize) {
+    use coral_driver::vfio::channel::mmu_oracle;
+
+    let driver = mmu_oracle::detect_driver(bdf);
+    eprintln!("Capturing MMU state from {bdf} (driver: {driver})...");
+
+    let dump = match mmu_oracle::capture_page_tables(bdf, max_channels) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Capture failed: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let channel_count = dump.channels.len();
+    let total_pts: usize = dump.channels.iter().map(|c| c.page_tables.len()).sum();
+    let total_ptes: usize = dump
+        .channels
+        .iter()
+        .flat_map(|c| c.page_tables.iter())
+        .map(|pt| pt.entries.len())
+        .sum();
+    eprintln!("Captured {channel_count} channels, {total_pts} page tables, {total_ptes} PTEs");
+
+    let er = &dump.engine_registers;
+    eprintln!(
+        "PMU CPUCTL={:#010x} FECS CPUCTL={:#010x} SEC2 CPUCTL={:#010x}",
+        er.pmu.get("PMU_FALCON_CPUCTL").unwrap_or(&0),
+        er.fecs.get("FECS_FALCON_CPUCTL").unwrap_or(&0),
+        er.sec2.get("SEC2_FALCON_CPUCTL").unwrap_or(&0),
+    );
+
+    let json = serde_json::to_string_pretty(&dump).expect("serialize");
+
+    match output {
+        Some(path) => {
+            std::fs::write(path, &json).expect("write output");
+            eprintln!("Written to {path}");
+        }
+        None => println!("{json}"),
+    }
+}
+
+fn oracle_diff(left_path: &str, right_path: &str) {
+    use coral_driver::vfio::channel::mmu_oracle;
+
+    let left_json = std::fs::read_to_string(left_path).expect("read left");
+    let right_json = std::fs::read_to_string(right_path).expect("read right");
+
+    let left: mmu_oracle::PageTableDump = serde_json::from_str(&left_json).expect("parse left");
+    let right: mmu_oracle::PageTableDump =
+        serde_json::from_str(&right_json).expect("parse right");
+
+    let diff = mmu_oracle::diff_page_tables(&left, &right);
+    mmu_oracle::print_diff_report(&diff);
+
+    let diff_json = serde_json::to_string_pretty(&diff).expect("serialize diff");
+    println!("\n{diff_json}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1080,5 +1514,49 @@ bdf = "0000:ff:00.0"
         };
         assert_eq!(bdf, "0000:03:00.0");
         assert!(file.is_none());
+    }
+
+    #[test]
+    fn cli_parses_oracle_capture_subcommand() {
+        let cli = Cli::try_parse_from([
+            "coralctl",
+            "oracle",
+            "capture",
+            "0000:03:00.0",
+            "--output",
+            "nvidia.json",
+        ])
+        .expect("parse oracle capture");
+        let Command::Oracle {
+            action:
+                OracleAction::Capture {
+                    bdf,
+                    output,
+                    max_channels,
+                    local,
+                },
+        } = cli.command
+        else {
+            panic!("expected Oracle Capture");
+        };
+        assert_eq!(bdf, "0000:03:00.0");
+        assert_eq!(output.as_deref(), Some("nvidia.json"));
+        assert!(!local);
+        assert_eq!(max_channels, 0);
+    }
+
+    #[test]
+    fn cli_parses_oracle_diff_subcommand() {
+        let cli =
+            Cli::try_parse_from(["coralctl", "oracle", "diff", "left.json", "right.json"])
+                .expect("parse oracle diff");
+        let Command::Oracle {
+            action: OracleAction::Diff { left, right },
+        } = cli.command
+        else {
+            panic!("expected Oracle Diff");
+        };
+        assert_eq!(left, "left.json");
+        assert_eq!(right, "right.json");
     }
 }

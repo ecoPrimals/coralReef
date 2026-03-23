@@ -86,6 +86,7 @@ fn test_device_info_serialization_roundtrip() {
         domains_faulted: 0,
         has_vfio_fd: true,
         pci_link_width: Some(16),
+        protected: false,
     };
     let json = match serde_json::to_string(&info) {
         Ok(j) => j,

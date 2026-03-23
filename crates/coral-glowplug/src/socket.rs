@@ -16,15 +16,22 @@
 //! | `device.get`       | Get details for a specific device (by `BDF`)  |
 //! | `device.swap`      | Hot-swap driver personality                 |
 //! | `device.health`    | Query device health registers               |
-//! | `device.resurrect` | Attempt HBM2 resurrection via nouveau       |
+//! | `device.resurrect` | Attempt HBM2 resurrection via nouveau warm swap |
 //! | `device.write_register` | Write a single BAR0 register            |
 //! | `device.read_bar0_range` | Read contiguous BAR0 register range    |
 //! | `device.pramin_read` | Read VRAM via PRAMIN window                |
 //! | `device.pramin_write` | Write VRAM via PRAMIN window              |
+//! | `device.register_dump` | Dump key BAR0 registers for a device    |
+//! | `device.register_snapshot` | Save timestamped register snapshot to JSON |
 //! | `device.lend`      | Lend VFIO fd to an external consumer        |
 //! | `device.reclaim`   | Reclaim a previously lent VFIO fd           |
 //! | `health.check`     | Daemon health check                         |
 //! | `health.liveness`  | Lightweight alive probe                     |
+//! | `device.oracle_capture` | Capture MMU page tables via daemon (no VFIO access needed) |
+//! | `device.dispatch`  | Submit compute work (shader + buffers) through the daemon |
+//! | `device.compute_info` | Query NVML telemetry for a GPU            |
+//! | `device.quota`     | Query compute quota for shared/display GPU   |
+//! | `device.set_quota` | Set compute quota (power limit, mode)        |
 //! | `daemon.status`    | Daemon uptime and device count              |
 //! | `daemon.shutdown`  | Graceful shutdown                           |
 
@@ -35,9 +42,15 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
-/// Maximum line length for a single JSON-RPC request (64 KiB).
-/// Prevents memory exhaustion from malicious unbounded input.
-const MAX_REQUEST_LINE_BYTES: usize = 64 * 1024;
+/// Maximum line length for a single JSON-RPC request (4 MiB).
+/// Sized for compute dispatch payloads (base64-encoded shader + buffers)
+/// while still bounding memory from unbounded input.
+const MAX_REQUEST_LINE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Initial per-connection read buffer (64 KiB).
+/// Tokio's `BufReader` grows on demand up to `MAX_REQUEST_LINE_BYTES` via
+/// `lines()`, so idle connections only use this smaller allocation.
+const INITIAL_BUF_CAPACITY: usize = 64 * 1024;
 
 /// Maximum concurrent client connections.
 const MAX_CONCURRENT_CLIENTS: usize = 64;
@@ -85,6 +98,9 @@ pub struct DeviceInfo {
     pub domains_faulted: usize,
     pub has_vfio_fd: bool,
     pub pci_link_width: Option<u8>,
+    /// True when the device has `role = "display"` and is immune to swaps.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -367,6 +383,235 @@ fn validate_bdf(bdf: &str) -> Result<&str, coral_glowplug::error::RpcError> {
     }
 }
 
+/// Run oracle capture off the async event loop so it doesn't block the
+/// watchdog or other RPC handlers.
+async fn oracle_capture_async(
+    params: &serde_json::Value,
+    devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let raw_bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let bdf = validate_bdf(raw_bdf)?.to_owned();
+    let max_channels = params
+        .get("max_channels")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+
+    let (bar0_handle, _busy_guard) = {
+        let devs = devices.lock().await;
+        let slot = devs
+            .iter()
+            .find(|d| d.bdf.as_ref() == bdf)
+            .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                bdf: Arc::from(bdf.as_str()),
+            })
+            .map_err(RpcError::from)?;
+        let guard = slot.try_acquire_busy().ok_or_else(|| {
+            RpcError::device_error(format!("device {bdf} is busy with another long-running operation"))
+        })?;
+        (slot.vfio_bar0_handle(), guard)
+    };
+
+    let bdf_clone = bdf.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        if let Some(handle) = bar0_handle {
+            handle.capture_page_tables(&bdf_clone, max_channels)
+        } else {
+            coral_driver::vfio::channel::mmu_oracle::capture_page_tables(
+                &bdf_clone,
+                max_channels,
+            )
+        }
+    })
+    .await
+    .map_err(|e| RpcError::internal(format!("oracle task panicked: {e}")))?
+    .map_err(|e| RpcError::device_error(e))?;
+
+    serde_json::to_value(&result).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+/// Run compute dispatch off the async event loop via spawn_blocking.
+///
+/// Params:
+///  - `bdf`:        target device BDF
+///  - `shader`:     base64-encoded PTX (or native binary)
+///  - `inputs`:     array of base64-encoded input buffers
+///  - `output_sizes`: array of output buffer sizes (bytes)
+///  - `dims`:       [x, y, z] workgroup grid dimensions
+///  - `workgroup`:  [x, y, z] threads per workgroup (default [64,1,1])
+///  - `shared_mem`: shared memory bytes (default 0)
+async fn compute_dispatch_async(
+    params: &serde_json::Value,
+    devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+    use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
+
+    let raw_bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf'"))?;
+    let bdf = validate_bdf(raw_bdf)?.to_owned();
+
+    let shader_b64 = params
+        .get("shader")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'shader' (base64 PTX)"))?
+        .to_owned();
+
+    let inputs: Vec<String> = params
+        .get("inputs")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let output_sizes: Vec<u64> = params
+        .get("output_sizes")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default();
+
+    let dims_arr = params
+        .get("dims")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| RpcError::invalid_params("missing 'dims' [x,y,z]"))?;
+    let dims = [
+        dims_arr.first().and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+        dims_arr.get(1).and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+        dims_arr.get(2).and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+    ];
+
+    let workgroup = params
+        .get("workgroup")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            [
+                arr.first().and_then(|v| v.as_u64()).unwrap_or(64) as u32,
+                arr.get(1).and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+                arr.get(2).and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+            ]
+        })
+        .unwrap_or([64, 1, 1]);
+
+    let shared_mem = params
+        .get("shared_mem")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let kernel_name = params
+        .get("kernel_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("main_kernel")
+        .to_owned();
+
+    // Validate device is managed and acquire busy guard
+    let _busy_guard = {
+        let devs = devices.lock().await;
+        let slot = devs
+            .iter()
+            .find(|d| d.bdf.as_ref() == bdf)
+            .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                bdf: Arc::from(bdf.as_str()),
+            })
+            .map_err(RpcError::from)?;
+        slot.try_acquire_busy().ok_or_else(|| {
+            RpcError::device_error(format!("device {bdf} is busy with another long-running operation"))
+        })?
+    };
+
+    let bdf_for_task = bdf.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<u8>>, String> {
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD;
+
+        let shader_bytes = b64
+            .decode(&shader_b64)
+            .map_err(|e| format!("base64 decode shader: {e}"))?;
+
+        let input_data: Vec<Vec<u8>> = inputs
+            .iter()
+            .map(|s| b64.decode(s).map_err(|e| format!("base64 decode input: {e}")))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut dev =
+            coral_driver::cuda::CudaComputeDevice::from_bdf_hint(&bdf_for_task)
+                .map_err(|e| format!("CUDA open for {bdf_for_task}: {e}"))?;
+
+        let mut handles: Vec<BufferHandle> = Vec::new();
+
+        // Allocate and upload input buffers
+        for data in &input_data {
+            let h = dev
+                .alloc(data.len() as u64, MemoryDomain::VramOrGtt)
+                .map_err(|e| format!("alloc input: {e}"))?;
+            dev.upload(h, 0, data)
+                .map_err(|e| format!("upload: {e}"))?;
+            handles.push(h);
+        }
+
+        // Allocate output buffers
+        let output_start = handles.len();
+        for &size in &output_sizes {
+            let h = dev
+                .alloc(size, MemoryDomain::VramOrGtt)
+                .map_err(|e| format!("alloc output: {e}"))?;
+            handles.push(h);
+        }
+
+        let info = ShaderInfo {
+            gpr_count: 0,
+            shared_mem_bytes: shared_mem,
+            barrier_count: 0,
+            workgroup,
+            wave_size: 32,
+        };
+
+        dev.dispatch_named(
+            &shader_bytes,
+            &handles,
+            DispatchDims::new(dims[0], dims[1], dims[2]),
+            &info,
+            &kernel_name,
+        )
+        .map_err(|e| format!("dispatch: {e}"))?;
+
+        dev.sync().map_err(|e| format!("sync: {e}"))?;
+
+        // Readback output buffers
+        let mut outputs = Vec::new();
+        for (i, &size) in output_sizes.iter().enumerate() {
+            let h = handles[output_start + i];
+            let data = dev
+                .readback(h, 0, size as usize)
+                .map_err(|e| format!("readback: {e}"))?;
+            outputs.push(data);
+        }
+
+        Ok(outputs)
+    })
+    .await
+    .map_err(|e| RpcError::internal(format!("dispatch task panicked: {e}")))?
+    .map_err(|e| RpcError::device_error(e))?;
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let output_b64: Vec<String> = result.iter().map(|d| b64.encode(d)).collect();
+
+    Ok(serde_json::json!({
+        "bdf": bdf,
+        "outputs": output_b64,
+        "output_count": output_b64.len(),
+    }))
+}
+
 fn dispatch(
     method: &str,
     params: &serde_json::Value,
@@ -414,6 +659,11 @@ fn dispatch(
                     bdf: Arc::from(bdf.as_str()),
                 })
                 .map_err(RpcError::from)?;
+            if slot.is_busy() {
+                return Err(RpcError::device_error(format!(
+                    "device {bdf} is busy — cannot swap while a long-running operation is in progress"
+                )));
+            }
             slot.swap(&target)
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
             Ok(serde_json::json!({
@@ -679,6 +929,11 @@ fn dispatch(
                     bdf: Arc::from(bdf.as_str()),
                 })
                 .map_err(RpcError::from)?;
+            if slot.is_busy() {
+                return Err(RpcError::device_error(format!(
+                    "device {bdf} is busy — cannot reclaim while a long-running operation is in progress"
+                )));
+            }
             slot.reclaim()
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
             Ok(serde_json::json!({
@@ -701,6 +956,11 @@ fn dispatch(
                     bdf: Arc::from(bdf.as_str()),
                 })
                 .map_err(RpcError::from)?;
+            if slot.is_busy() {
+                return Err(RpcError::device_error(format!(
+                    "device {bdf} is busy — cannot resurrect while a long-running operation is in progress"
+                )));
+            }
             let alive = slot
                 .resurrect_hbm2()
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
@@ -721,11 +981,270 @@ fn dispatch(
             "device_count": devices.len(),
             "healthy_count": devices.iter().filter(|d| d.health.vram_alive).count(),
         })),
+        "device.compute_info" | "device.quota" => {
+            Err(RpcError::internal("routed to async handler"))
+        }
+        "device.set_quota" => {
+            Err(RpcError::internal("routed to async handler"))
+        }
         "daemon.shutdown" => {
             tracing::info!("shutdown requested via JSON-RPC");
             Err(RpcError::device_error("shutdown"))
         }
         other => Err(RpcError::method_not_found(other)),
+    }
+}
+
+/// Query GPU compute info via nvidia-smi, releasing the device lock first.
+async fn compute_info_async(
+    params: &serde_json::Value,
+    devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let raw_bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let bdf = validate_bdf(raw_bdf)?.to_owned();
+
+    let (chip, personality, role, protected) = {
+        let devs = devices.lock().await;
+        let slot = devs
+            .iter()
+            .find(|d| d.bdf.as_ref() == bdf)
+            .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                bdf: Arc::from(bdf.as_str()),
+            })
+            .map_err(RpcError::from)?;
+        (
+            slot.chip_name.clone(),
+            slot.personality.to_string(),
+            slot.config.role.clone(),
+            slot.config.is_protected(),
+        )
+    };
+
+    let bdf2 = bdf.clone();
+    let info = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf2))
+        .await
+        .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
+
+    let render_node = coral_glowplug::sysfs::find_render_node(&bdf);
+    Ok(serde_json::json!({
+        "bdf": bdf,
+        "chip": chip,
+        "personality": personality,
+        "role": role,
+        "protected": protected,
+        "render_node": render_node,
+        "compute": info,
+    }))
+}
+
+/// Query GPU quota info via nvidia-smi, releasing the device lock first.
+async fn quota_info_async(
+    params: &serde_json::Value,
+    devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let raw_bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let bdf = validate_bdf(raw_bdf)?.to_owned();
+
+    let (role, protected, quota) = {
+        let devs = devices.lock().await;
+        let slot = devs
+            .iter()
+            .find(|d| d.bdf.as_ref() == bdf)
+            .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                bdf: Arc::from(bdf.as_str()),
+            })
+            .map_err(RpcError::from)?;
+        (
+            slot.config.role.clone(),
+            slot.config.is_protected(),
+            slot.config.shared.as_ref().cloned().unwrap_or_default(),
+        )
+    };
+
+    let bdf2 = bdf.clone();
+    let current = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf2))
+        .await
+        .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
+
+    Ok(serde_json::json!({
+        "bdf": bdf,
+        "role": role,
+        "protected": protected,
+        "quota": {
+            "power_limit_w": quota.power_limit_w,
+            "vram_budget_mib": quota.vram_budget_mib,
+            "compute_mode": quota.compute_mode,
+            "compute_priority": quota.compute_priority,
+        },
+        "current": current,
+    }))
+}
+
+/// Set GPU quota and apply via nvidia-smi, releasing the device lock for the
+/// blocking nvidia-smi call.
+async fn set_quota_async(
+    params: &serde_json::Value,
+    devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let raw_bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let bdf = validate_bdf(raw_bdf)?.to_owned();
+
+    let quota = {
+        let mut devs = devices.lock().await;
+        let slot = devs
+            .iter_mut()
+            .find(|d| d.bdf.as_ref() == bdf)
+            .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                bdf: Arc::from(bdf.as_str()),
+            })
+            .map_err(RpcError::from)?;
+
+        if !slot.config.is_shared() && !slot.config.is_display() {
+            return Err(RpcError::device_error(
+                "set_quota only applies to role=shared or role=display devices",
+            ));
+        }
+
+        let mut quota = slot.config.shared.clone().unwrap_or_default();
+        if let Some(pl) = params.get("power_limit_w").and_then(|v| v.as_u64()) {
+            quota.power_limit_w = Some(pl as u32);
+        }
+        if let Some(vb) = params.get("vram_budget_mib").and_then(|v| v.as_u64()) {
+            quota.vram_budget_mib = Some(vb as u32);
+        }
+        if let Some(cm) = params.get("compute_mode").and_then(|v| v.as_str()) {
+            quota.compute_mode = cm.to_string();
+        }
+        if let Some(cp) = params.get("compute_priority").and_then(|v| v.as_u64()) {
+            quota.compute_priority = cp as u32;
+        }
+
+        slot.config.shared = Some(quota.clone());
+        quota
+    };
+
+    let bdf2 = bdf.clone();
+    let quota2 = quota.clone();
+    let results = tokio::task::spawn_blocking(move || apply_quota(&bdf2, &quota2))
+        .await
+        .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
+
+    Ok(serde_json::json!({
+        "bdf": bdf,
+        "quota": {
+            "power_limit_w": quota.power_limit_w,
+            "vram_budget_mib": quota.vram_budget_mib,
+            "compute_mode": quota.compute_mode,
+            "compute_priority": quota.compute_priority,
+        },
+        "applied": results,
+    }))
+}
+
+/// Apply quota settings to a GPU via nvidia-smi.
+fn apply_quota(bdf: &str, quota: &coral_glowplug::config::SharedQuota) -> serde_json::Value {
+    let pci_bus_id = bdf.trim_start_matches("0000:");
+    let mut results = serde_json::Map::new();
+
+    if let Some(pl) = quota.power_limit_w {
+        let out = std::process::Command::new("nvidia-smi")
+            .args(["-i", pci_bus_id, &format!("--power-limit={pl}")])
+            .output();
+        let ok = out.as_ref().is_ok_and(|o| o.status.success());
+        let msg = out
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|e| e.to_string());
+        results.insert(
+            "power_limit".into(),
+            serde_json::json!({"ok": ok, "message": msg}),
+        );
+    }
+
+    match quota.compute_mode.as_str() {
+        "default" | "exclusive_process" | "prohibited" => {
+            let mode_id = match quota.compute_mode.as_str() {
+                "default" => "0",
+                "exclusive_process" => "3",
+                "prohibited" => "2",
+                _ => "0",
+            };
+            let out = std::process::Command::new("nvidia-smi")
+                .args(["-i", pci_bus_id, &format!("--compute-mode={mode_id}")])
+                .output();
+            let ok = out.as_ref().is_ok_and(|o| o.status.success());
+            let msg = out
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_else(|e| e.to_string());
+            results.insert(
+                "compute_mode".into(),
+                serde_json::json!({"ok": ok, "message": msg}),
+            );
+        }
+        _ => {
+            results.insert(
+                "compute_mode".into(),
+                serde_json::json!({"ok": false, "message": "unknown mode"}),
+            );
+        }
+    }
+
+    serde_json::Value::Object(results)
+}
+
+/// Query nvidia-smi for GPU compute info. Returns a JSON object with memory, clocks, power, temp.
+/// Returns null fields if nvidia-smi is unavailable or the BDF doesn't match a managed GPU.
+fn query_nvidia_smi(bdf: &str) -> serde_json::Value {
+    let pci_bus_id = bdf.trim_start_matches("0000:");
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=gpu_name,memory.total,memory.free,memory.used,temperature.gpu,power.draw,power.limit,clocks.current.sm,clocks.current.memory,compute_cap,pcie.link.width.current",
+            "--format=csv,noheader,nounits",
+            &format!("--id={pci_bus_id}"),
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let fields: Vec<&str> = text.trim().splitn(11, ", ").collect();
+            if fields.len() >= 11 {
+                serde_json::json!({
+                    "gpu_name": fields[0],
+                    "memory_total_mib": fields[1].trim().parse::<f64>().unwrap_or(0.0),
+                    "memory_free_mib": fields[2].trim().parse::<f64>().unwrap_or(0.0),
+                    "memory_used_mib": fields[3].trim().parse::<f64>().unwrap_or(0.0),
+                    "temperature_c": fields[4].trim().parse::<u32>().unwrap_or(0),
+                    "power_draw_w": fields[5].trim().parse::<f64>().unwrap_or(0.0),
+                    "power_limit_w": fields[6].trim().parse::<f64>().unwrap_or(0.0),
+                    "clock_sm_mhz": fields[7].trim().parse::<u32>().unwrap_or(0),
+                    "clock_mem_mhz": fields[8].trim().parse::<u32>().unwrap_or(0),
+                    "compute_cap": fields[9].trim(),
+                    "pcie_width": fields[10].trim().parse::<u32>().unwrap_or(0),
+                })
+            } else {
+                serde_json::json!({"error": "unexpected nvidia-smi output format"})
+            }
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            serde_json::json!({"error": format!("nvidia-smi failed: {}", stderr.trim())})
+        }
+        Err(e) => serde_json::json!({"error": format!("nvidia-smi not available: {e}")}),
     }
 }
 
@@ -744,6 +1263,7 @@ fn device_to_info(d: &coral_glowplug::device::DeviceSlot) -> DeviceInfo {
         domains_faulted: d.health.domains_faulted,
         has_vfio_fd: d.has_vfio(),
         pci_link_width: d.health.pci_link_width,
+        protected: d.config.is_protected(),
     }
 }
 
@@ -774,7 +1294,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (reader, mut writer) = tokio::io::split(stream);
-    let mut lines = BufReader::with_capacity(MAX_REQUEST_LINE_BYTES, reader).lines();
+    let mut lines = BufReader::with_capacity(INITIAL_BUF_CAPACITY, reader).lines();
 
     loop {
         let line = match tokio::time::timeout(CLIENT_IDLE_TIMEOUT, lines.next_line()).await {
@@ -820,6 +1340,21 @@ where
                             message: format!("invalid jsonrpc version: {}", req.jsonrpc),
                         }),
                     )
+                } else if req.method == "device.oracle_capture" {
+                    let result = oracle_capture_async(&req.params, &devices).await;
+                    make_response(req.id, result)
+                } else if req.method == "device.dispatch" {
+                    let result = compute_dispatch_async(&req.params, &devices).await;
+                    make_response(req.id, result)
+                } else if req.method == "device.compute_info" {
+                    let result = compute_info_async(&req.params, &devices).await;
+                    make_response(req.id, result)
+                } else if req.method == "device.quota" {
+                    let result = quota_info_async(&req.params, &devices).await;
+                    make_response(req.id, result)
+                } else if req.method == "device.set_quota" {
+                    let result = set_quota_async(&req.params, &devices).await;
+                    make_response(req.id, result)
                 } else if matches!(
                     req.method.as_str(),
                     "device.swap"

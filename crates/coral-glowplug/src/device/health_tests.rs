@@ -21,6 +21,7 @@ fn base_config(bdf: &str, boot: &str) -> DeviceConfig {
         power_policy: "always_on".into(),
         role: None,
         oracle_dump: None,
+        shared: None,
     }
 }
 
@@ -68,6 +69,7 @@ fn snapshot_registers_skips_oracle_dump_without_vfio_even_if_configured() {
     let mut slot = DeviceSlot::with_sysfs(
         DeviceConfig {
             oracle_dump: Some(dump_path.to_string_lossy().into_owned()),
+            shared: None,
             ..base_config(bdf, "vfio")
         },
         mock,

@@ -97,6 +97,24 @@ impl<S: SysfsOps> DeviceSlot<S> {
         values
     }
 
+    /// Capture MMU page tables via the VFIO holder's bar0 mapping.
+    ///
+    /// Used by the `device.oracle_capture` RPC to perform captures on
+    /// VFIO-bound devices without opening sysfs resource0 (which hangs).
+    pub fn oracle_capture_via_vfio(
+        &self,
+        max_channels: usize,
+    ) -> Result<coral_driver::vfio::channel::mmu_oracle::PageTableDump, String> {
+        let holder = self.vfio_holder.as_ref().ok_or_else(|| {
+            format!("device {} has no VFIO holder — cannot capture oracle", self.bdf)
+        })?;
+        coral_driver::vfio::channel::mmu_oracle::capture_page_tables_via_mapped_bar(
+            &self.bdf,
+            &holder.bar0,
+            max_channels,
+        )
+    }
+
     /// Write-readback test on VRAM via the PRAMIN window.
     ///
     /// Writes a canary value to a scratch VRAM location, reads it back, and
