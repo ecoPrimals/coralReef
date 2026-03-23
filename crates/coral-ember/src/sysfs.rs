@@ -228,6 +228,16 @@ pub fn pin_power(bdf: &str) {
     );
 }
 
+/// Write `driver_override` sysfs attribute to lock a device to a specific driver.
+/// Used to protect display GPUs from being rebound to vfio-pci or nouveau.
+pub fn set_driver_override(bdf: &str, driver: &str) {
+    let path = linux_paths::sysfs_pci_device_file(bdf, "driver_override");
+    match sysfs_write_direct(&path, driver) {
+        Ok(()) => tracing::info!(bdf = %bdf, driver, "driver_override set"),
+        Err(e) => tracing::warn!(bdf = %bdf, driver, error = %e, "failed to set driver_override"),
+    }
+}
+
 /// Error when a PM power cycle leaves the device in `D3cold`.
 pub(crate) fn err_if_pm_cycle_d3cold(bdf: &str, after_power_state: &str) -> Result<(), String> {
     if after_power_state == "D3cold" {

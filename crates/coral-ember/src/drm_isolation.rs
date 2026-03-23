@@ -52,9 +52,13 @@ pub fn default_xorg_path() -> String {
 }
 
 /// Generate a udev rules file body from the device list.
+/// Display-role devices are excluded — they need their DRM nodes for compositing.
 fn generate_udev_rules(devices: &[EmberDeviceConfig]) -> String {
     let mut out = String::from(UDEV_HEADER);
     for dev in devices {
+        if dev.is_protected() {
+            continue;
+        }
         let name = dev.name.as_deref().unwrap_or("compute GPU");
         out.push_str(&format!(
             "\n# {} ({})\n\

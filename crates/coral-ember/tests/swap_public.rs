@@ -93,6 +93,10 @@ fn handle_swap_non_drm_native_target_skips_drm_gate() {
         !err.contains("DRM isolation"),
         "akida-pcie should not hit DRM isolation: {err}"
     );
+    assert!(
+        err.contains("preflight") || err.contains("swap_device"),
+        "expected preflight or swap error for nonexistent device: {err}"
+    );
 }
 
 #[test]
@@ -102,7 +106,10 @@ fn handle_swap_drm_targets_hit_isolation_or_sysfs() {
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
         let err = handle_swap_device(NONEXISTENT_BDF, target, &mut held).expect_err(target);
         assert!(
-            err.contains("BLOCKED") || err.contains("swap_device") || err.contains("bind"),
+            err.contains("BLOCKED")
+                || err.contains("swap_device")
+                || err.contains("bind")
+                || err.contains("preflight"),
             "{target}: unexpected error: {err}"
         );
     }

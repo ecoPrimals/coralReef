@@ -3,18 +3,20 @@
 #![warn(missing_docs)]
 //! # coral-driver — Sovereign GPU Dispatch
 //!
-//! Pure Rust userspace GPU driver for compute shader dispatch via Linux DRM.
-//! No `*-sys` crates, no FFI — all ioctl structures defined internally.
+//! Userspace GPU driver for compute shader dispatch via Linux DRM.
+//! DRM and VFIO backends use pure Rust ioctl definitions (no `*-sys` crates).
+//! The CUDA backend wraps `cudarc` for NVIDIA proprietary driver access.
 //!
 //! ## Supported backends
 //!
 //! All DRM backends compile by default. VFIO requires `--features vfio`.
-//! Runtime selection via `DriverPreference`.
+//! CUDA requires `--features cuda`. Runtime selection via `DriverPreference`.
 //!
 //! - **AMD**: `amdgpu` DRM driver — GEM buffers, PM4 command streams, CS submit, fence sync
 //! - **NVIDIA (nouveau)**: `nouveau` DRM driver — sovereign path (our channel, QMD, pushbuf)
 //! - **NVIDIA (proprietary)**: `nvidia-drm` — compatibility path (probe + pending UVM dispatch)
 //! - **NVIDIA (VFIO)**: `vfio-pci` — direct BAR0/DMA dispatch, no kernel driver (feature `vfio`)
+//! - **NVIDIA (CUDA)**: `cudarc` — CUDA driver API for PTX dispatch (feature `cuda`)
 //!
 //! ## Architecture
 //!
@@ -25,6 +27,7 @@
 //! │  AmdDevice               │  ← amdgpu DRM backend
 //! │  NvDevice                │  ← nouveau DRM backend
 //! │  NvVfioComputeDevice     │  ← VFIO direct-dispatch backend
+//! │  CudaComputeDevice       │  ← CUDA driver API backend
 //! └──────────────────────────┘
 //!          │                │
 //!     ioctl::drm        vfio/   ← pure Rust ioctl wrappers
@@ -51,6 +54,9 @@ pub mod nv;
 
 #[cfg(all(target_os = "linux", feature = "vfio"))]
 pub mod vfio;
+
+#[cfg(feature = "cuda")]
+pub mod cuda;
 
 pub mod gsp;
 

@@ -60,6 +60,27 @@ pub struct EmberDeviceConfig {
     pub oracle_dump: Option<String>,
 }
 
+impl EmberDeviceConfig {
+    /// Returns `true` if this device has `role = "display"`, meaning it is a
+    /// protected display GPU that ember must never touch, unbind, or manage.
+    #[must_use]
+    pub fn is_display(&self) -> bool {
+        self.role.as_deref() == Some("display")
+    }
+
+    /// Returns `true` if this device has `role = "shared"` — serves both display and compute.
+    #[must_use]
+    pub fn is_shared(&self) -> bool {
+        self.role.as_deref() == Some("shared")
+    }
+
+    /// Returns `true` if this device is protected from driver swaps (display or shared).
+    #[must_use]
+    pub fn is_protected(&self) -> bool {
+        self.is_display() || self.is_shared()
+    }
+}
+
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
 #[must_use]
 pub fn ember_socket_path() -> String {
@@ -168,12 +189,26 @@ pub fn run() -> Result<(), i32> {
         return Err(1);
     }
 
+    let compute_devices: Vec<&EmberDeviceConfig> =
+        config.device.iter().filter(|d| !d.is_protected()).collect();
+    let display_devices: Vec<&EmberDeviceConfig> =
+        config.device.iter().filter(|d| d.is_protected()).collect();
+
+    for dd in &display_devices {
+        tracing::info!(
+            bdf = %dd.bdf,
+            name = dd.name.as_deref().unwrap_or("?"),
+            "display GPU — skipping VFIO hold, setting driver_override"
+        );
+        sysfs::set_driver_override(&dd.bdf, "nvidia");
+    }
+
     drm_isolation::ensure_drm_isolation(&config.device);
 
     let started_at = std::time::Instant::now();
     let mut held_init: HashMap<String, HeldDevice> = HashMap::new();
 
-    for dev_config in &config.device {
+    for dev_config in &compute_devices {
         let lifecycle = vendor_lifecycle::detect_lifecycle(&dev_config.bdf);
         let current = sysfs::read_current_driver(&dev_config.bdf);
         if let Some(ref drv) = current {
@@ -188,7 +223,7 @@ pub fn run() -> Result<(), i32> {
         }
     }
 
-    for dev_config in &config.device {
+    for dev_config in &compute_devices {
         tracing::info!(bdf = %dev_config.bdf, "opening VFIO device for ember hold");
 
         let group_id = sysfs::read_iommu_group(&dev_config.bdf);
@@ -232,7 +267,12 @@ pub fn run() -> Result<(), i32> {
 
     let held: Arc<RwLock<HashMap<String, HeldDevice>>> = Arc::new(RwLock::new(held_init));
     let managed_bdfs: Arc<HashSet<String>> = Arc::new(
-        config.device.iter().map(|d| d.bdf.clone()).collect(),
+        config
+            .device
+            .iter()
+            .filter(|d| !d.is_protected())
+            .map(|d| d.bdf.clone())
+            .collect(),
     );
 
     let socket_path = ember_socket_path();

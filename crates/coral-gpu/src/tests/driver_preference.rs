@@ -16,9 +16,10 @@ fn sovereign_preference_prefers_nouveau() {
 }
 
 #[test]
-fn pragmatic_preference_prefers_amdgpu() {
+fn pragmatic_preference_prefers_cuda() {
     let pref = DriverPreference::pragmatic();
-    assert_eq!(pref.order()[0], "amdgpu");
+    assert_eq!(pref.order()[0], "cuda");
+    assert_eq!(pref.order()[1], "amdgpu");
 }
 
 #[test]
@@ -152,10 +153,11 @@ fn select_returns_first_preference_match_not_first_in_available_order() {
 #[test]
 fn pragmatic_order_full_list() {
     let pref = DriverPreference::pragmatic();
-    assert_eq!(pref.order().len(), 3);
-    assert_eq!(pref.order()[0], preference::DRIVER_AMDGPU);
-    assert_eq!(pref.order()[1], preference::DRIVER_NVIDIA_DRM);
-    assert_eq!(pref.order()[2], preference::DRIVER_NOUVEAU);
+    assert_eq!(pref.order().len(), 4);
+    assert_eq!(pref.order()[0], preference::DRIVER_CUDA);
+    assert_eq!(pref.order()[1], preference::DRIVER_AMDGPU);
+    assert_eq!(pref.order()[2], preference::DRIVER_NVIDIA_DRM);
+    assert_eq!(pref.order()[3], preference::DRIVER_NOUVEAU);
 }
 
 #[test]

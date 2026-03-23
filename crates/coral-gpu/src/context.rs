@@ -116,6 +116,11 @@ impl GpuContext {
             available.push(preference::DRIVER_VFIO.to_string());
         }
 
+        #[cfg(feature = "cuda")]
+        if coral_driver::cuda::CudaComputeDevice::device_count() > 0 {
+            available.push(preference::DRIVER_CUDA.to_string());
+        }
+
         let nodes = enumerate_render_nodes();
         for node in &nodes {
             if !available.iter().any(|a| a == &node.driver) {
@@ -164,6 +169,15 @@ impl GpuContext {
                 let dev = coral_driver::nv::NvVfioComputeDevice::open(&bdf, sm, compute_class)
                     .map_err(GpuError::Driver)?;
                 let target = GpuTarget::Nvidia(driver::sm_to_nvarch(sm));
+                Self::with_device(target, Box::new(dev))
+            }
+            #[cfg(feature = "cuda")]
+            preference::DRIVER_CUDA => {
+                let dev = coral_driver::cuda::CudaComputeDevice::new(0)
+                    .map_err(GpuError::Driver)?;
+                let sm = driver::sm_from_sysfs_or(driver::default_nv_sm());
+                let target = GpuTarget::Nvidia(driver::sm_to_nvarch(sm));
+                tracing::info!(device = dev.device_name(), ordinal = dev.ordinal(), "CUDA device opened");
                 Self::with_device(target, Box::new(dev))
             }
             preference::DRIVER_AMDGPU => {
@@ -306,6 +320,26 @@ impl GpuContext {
         render_node: Option<&str>,
     ) -> GpuResult<Self> {
         match (vendor, driver) {
+            #[cfg(feature = "cuda")]
+            ("nvidia", Some(preference::DRIVER_CUDA)) => {
+                let target = match arch {
+                    Some("sm120") => GpuTarget::Nvidia(NvArch::Sm120),
+                    Some("sm89") => GpuTarget::Nvidia(NvArch::Sm89),
+                    Some("sm86") => GpuTarget::Nvidia(NvArch::Sm86),
+                    Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
+                    Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
+                    Some("sm70") => GpuTarget::Nvidia(NvArch::Sm70),
+                    Some("sm35") => GpuTarget::Nvidia(NvArch::Sm35),
+                    _ => GpuTarget::Nvidia(NvArch::Sm86),
+                };
+                let dev = if let Some(bdf) = render_node {
+                    coral_driver::cuda::CudaComputeDevice::from_bdf_hint(bdf)
+                } else {
+                    coral_driver::cuda::CudaComputeDevice::new(0)
+                }
+                .map_err(GpuError::Driver)?;
+                Self::with_device(target, Box::new(dev))
+            }
             ("amd", Some(preference::DRIVER_AMDGPU) | None) => {
                 let target = match arch {
                     Some("rdna3") => GpuTarget::Amd(AmdArch::Rdna3),

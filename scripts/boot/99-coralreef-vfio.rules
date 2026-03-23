@@ -5,26 +5,37 @@
 # time via modprobe options (ids=10de:1d81). These udev rules handle
 # post-bind setup: power pinning, reset disabling, and permissions.
 #
-# The RTX 5060 (10de:2d05 @ 21:00.0) is unaffected — nvidia binds it.
+# Rules match by PCI device ID (not BDF) so they survive PCIe
+# re-enumeration when cards are physically moved between slots.
 #
 # Install:
 #   sudo cp scripts/boot/99-coralreef-vfio.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 
+# ══════════════════════════════════════════════════════════════
+# RTX 5060 Display GPU — LOCKED TO NVIDIA ONLY
+# ══════════════════════════════════════════════════════════════
+# Prevents nouveau, vfio-pci, or any other driver from ever binding
+# the display GPU, even during Titan V driver-swap experiments.
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x2d05", ATTR{driver_override}="nvidia"
+# Lock audio function to snd_hda_intel
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x22eb", ATTR{driver_override}="snd_hda_intel"
+
+# ══════════════════════════════════════════════════════════════
+# Titan V (10de:1d81) — VFIO SOVEREIGN COMPUTE
+# ══════════════════════════════════════════════════════════════
+
 # ── Power Management ─────────────────────────────────────────
-# Keep both Titan V's in D0 (prevent runtime PM from D3hot transitions)
-ACTION=="add", KERNEL=="0000:03:00.0", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", ATTR{power/control}="on"
-ACTION=="add", KERNEL=="0000:4a:00.0", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", ATTR{power/control}="on"
+# Keep all Titan V's in D0 (prevent runtime PM D3hot transitions)
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", ATTR{power/control}="on"
 
 # ── Reset Method Disabling ───────────────────────────────────
 # Disable destructive bus reset (preserves HBM2 state across rebind)
-ACTION=="add", KERNEL=="0000:03:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'echo > /sys/bus/pci/devices/0000:03:00.0/reset_method 2>/dev/null || true'"
-ACTION=="add", KERNEL=="0000:4a:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'echo > /sys/bus/pci/devices/0000:4a:00.0/reset_method 2>/dev/null || true'"
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", RUN+="/bin/sh -c 'echo > /sys$devpath/reset_method 2>/dev/null || true'"
 
 # ── Audio Function Binding ───────────────────────────────────
-# Audio functions must also be in vfio-pci (same IOMMU group)
-ACTION=="add", KERNEL=="0000:03:00.1", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", RUN+="/bin/sh -c 'echo vfio-pci > /sys/bus/pci/devices/0000:03:00.1/driver_override 2>/dev/null || true'"
-ACTION=="add", KERNEL=="0000:4a:00.1", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", RUN+="/bin/sh -c 'echo vfio-pci > /sys/bus/pci/devices/0000:4a:00.1/driver_override 2>/dev/null || true'"
+# Titan V audio (10de:10f2) must also be in vfio-pci (same IOMMU group)
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x10f2", RUN+="/bin/sh -c 'echo vfio-pci > /sys$devpath/driver_override 2>/dev/null || true'"
 
 # ── Permissions ──────────────────────────────────────────────
 # VFIO container and group devices — allow coralreef service user
@@ -32,12 +43,9 @@ KERNEL=="vfio", MODE="0666"
 SUBSYSTEM=="vfio", MODE="0666"
 
 # Per-device sysfs permissions for coral-glowplug hot-swap operations
-ACTION=="add|change", SUBSYSTEM=="pci", KERNEL=="0000:03:00.0", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", \
-  RUN+="/bin/chmod 0666 /sys/bus/pci/devices/0000:03:00.0/driver_override", \
-  RUN+="/bin/chmod 0666 /sys/bus/pci/devices/0000:03:00.0/config", \
-  RUN+="/bin/chmod 0666 /sys/bus/pci/devices/0000:03:00.0/resource0"
+# Matches any Titan V regardless of BDF
+ACTION=="add|change", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", \
+  RUN+="/bin/sh -c 'chmod 0666 /sys$devpath/driver_override /sys$devpath/config /sys$devpath/resource0 2>/dev/null || true'"
 
-ACTION=="add|change", SUBSYSTEM=="pci", KERNEL=="0000:4a:00.0", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", \
-  RUN+="/bin/chmod 0666 /sys/bus/pci/devices/0000:4a:00.0/driver_override", \
-  RUN+="/bin/chmod 0666 /sys/bus/pci/devices/0000:4a:00.0/config", \
-  RUN+="/bin/chmod 0666 /sys/bus/pci/devices/0000:4a:00.0/resource0"
+ACTION=="add|change", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x10f2", \
+  RUN+="/bin/sh -c 'chmod 0666 /sys$devpath/driver_override 2>/dev/null || true'"

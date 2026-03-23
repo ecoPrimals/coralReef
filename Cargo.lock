@@ -302,6 +302,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "coral-reef",
+ "cudarc",
  "rustix",
  "serde",
  "serde_json",
@@ -329,6 +330,7 @@ dependencies = [
 name = "coral-glowplug"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "clap",
  "coral-driver",
  "rustix",
@@ -492,6 +494,15 @@ checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "cudarc"
+version = "0.19.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6468cb7fa330840f3ebcd8df51edc0e7bf5c18df524792ce6004c6821851cdf3"
+dependencies = [
+ "libloading",
 ]
 
 [[package]]
@@ -1172,6 +1183,16 @@ name = "libc"
 version = "0.2.182"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+
+[[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "libm"

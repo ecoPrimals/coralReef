@@ -177,6 +177,7 @@ impl coral_driver::ComputeDevice for FailingMockDevice {
             return Err(DriverError::AllocFailed {
                 size,
                 domain: coral_driver::MemoryDomain::Vram,
+                detail: "test: fail_alloc=true".into(),
             });
         }
         let h = coral_driver::BufferHandle::from_id(self.next_handle);

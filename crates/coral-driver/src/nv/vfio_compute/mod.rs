@@ -390,6 +390,7 @@ impl ComputeDevice for NvVfioComputeDevice {
         let size_usize = usize::try_from(size).map_err(|_| DriverError::AllocFailed {
             size,
             domain: _domain,
+            detail: "size exceeds usize".into(),
         })?;
         let (handle, _iova) = self.alloc_dma(size_usize)?;
         Ok(handle)

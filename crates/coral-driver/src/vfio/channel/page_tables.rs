@@ -27,6 +27,20 @@ pub(super) fn encode_pde(iova: u64) -> u64 {
     (iova >> 4) | FLAGS
 }
 
+/// Encode a V2 PD0 dual PDE pointing to a small page table at `iova`.
+///
+/// PD0 uses a dual-entry format (16 bytes: small PDE + large PDE). Unlike
+/// PD3/PD2/PD1 PDEs, PD0 entries require bit 4 (`SPT_PRESENT`) to indicate
+/// the small page table pointer is valid. Without it, the GPU MMU ignores
+/// the PT pointer entirely.
+///
+/// Discovered via nouveau oracle diff (March 2026): nouveau's
+/// `gp100_vmm_pd0_pde()` sets `BIT_ULL(4)` on every PD0 entry.
+pub(super) fn encode_pd0_pde(iova: u64) -> u64 {
+    const SPT_PRESENT: u64 = 1 << 4;
+    encode_pde(iova) | SPT_PRESENT
+}
+
 /// Encode a V2 small-page PTE for an identity-mapped physical address.
 ///
 /// GP100 PTE bit layout (from nouveau `gp100_vmm_valid` + `gf100_vmm_aper`):
@@ -61,8 +75,8 @@ pub(super) fn populate_page_tables(
     // PD0 entry 0: dual PDE format — 16 bytes per entry.
     // Bytes [0:7]  = small page PDE (SPT, pt[0]) → PT0
     // Bytes [8:15] = large page PDE (LPT, pt[1]) — unused, leave as 0
-    // Layout matches nouveau's VMM_WO128(pd, ..., data[0]=SPT, data[1]=LPT)
-    let small_pde = encode_pde(PT0_IOVA);
+    // Must use encode_pd0_pde (bit 4 = SPT_PRESENT) — not encode_pde.
+    let small_pde = encode_pd0_pde(PT0_IOVA);
     pd0[0..8].copy_from_slice(&small_pde.to_le_bytes());
 
     // PT0: identity-map 512 small pages (4 KiB each, total 2 MiB).
@@ -98,7 +112,7 @@ pub(super) fn populate_page_tables_custom(
     write_pde(pd2, 0, pd1_iova);
     write_pde(pd1, 0, pd0_iova);
 
-    let small_pde = encode_pde(pt0_iova);
+    let small_pde = encode_pd0_pde(pt0_iova);
     pd0[0..8].copy_from_slice(&small_pde.to_le_bytes());
 
     for i in 1..PT_ENTRIES {
@@ -333,8 +347,28 @@ mod tests {
         assert_eq!(pde, 0x60C);
         assert_eq!((pde >> 1) & 3, 2, "aperture bits[2:1] = COH(2)");
         assert_eq!((pde >> 3) & 1, 1, "VOL bit 3");
+        assert_eq!((pde >> 4) & 1, 0, "bit 4 NOT set for PD3/PD2/PD1");
         let addr = (pde & !0xF) << 4;
         assert_eq!(addr, 0x6000, "GPU decode: (PDE & ~0xF) << 4");
+    }
+
+    #[test]
+    fn pd0_pde_encoding_has_spt_present() {
+        let pd0_pde = encode_pd0_pde(0x9000);
+        // (0x9000 >> 4) | (2 << 1) | (1 << 3) | (1 << 4) = 0x900 | 0x1C = 0x91C
+        assert_eq!(pd0_pde, 0x91C);
+        assert_eq!((pd0_pde >> 1) & 3, 2, "aperture bits[2:1] = COH(2)");
+        assert_eq!((pd0_pde >> 3) & 1, 1, "VOL bit 3");
+        assert_eq!((pd0_pde >> 4) & 1, 1, "SPT_PRESENT bit 4");
+        let addr = (pd0_pde & !0x1F) << 4;
+        assert_eq!(addr, 0x9000, "GPU decode: (PDE & ~0x1F) << 4");
+    }
+
+    #[test]
+    fn pd0_pde_vs_pde_differ_only_in_bit4() {
+        let pde = encode_pde(0x9000);
+        let pd0 = encode_pd0_pde(0x9000);
+        assert_eq!(pd0 ^ pde, 1 << 4, "only bit 4 differs");
     }
 
     #[test]

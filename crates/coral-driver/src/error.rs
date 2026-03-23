@@ -29,12 +29,14 @@ pub enum DriverError {
     },
 
     /// Buffer allocation failed (OOM or invalid domain).
-    #[error("buffer allocation failed: size={size}, domain={domain:?}")]
+    #[error("buffer allocation failed: size={size}, domain={domain:?} — {detail}")]
     AllocFailed {
         /// Requested buffer size in bytes.
         size: u64,
         /// Memory domain that was requested.
         domain: crate::MemoryDomain,
+        /// Additional context.
+        detail: String,
     },
 
     /// The buffer handle is invalid or was already freed.
@@ -56,6 +58,22 @@ pub enum DriverError {
         ms: u64,
     },
 
+    /// Device open / context creation failed.
+    #[error("device open failed: {0}")]
+    OpenFailed(Cow<'static, str>),
+
+    /// Compute dispatch (kernel launch) failed.
+    #[error("dispatch failed: {0}")]
+    DispatchFailed(Cow<'static, str>),
+
+    /// GPU synchronization (fence / stream sync) failed.
+    #[error("sync failed: {0}")]
+    SyncFailed(Cow<'static, str>),
+
+    /// Oracle / BAR0 register operation failed (page table walk, PMU probe, etc.).
+    #[error("oracle error: {0}")]
+    OracleError(Cow<'static, str>),
+
     /// Wrapped I/O error from file operations.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -67,6 +85,12 @@ impl DriverError {
     /// propagate as errors rather than panicking.
     pub(crate) fn platform_overflow(msg: &'static str) -> Self {
         Self::MmapFailed(msg.into())
+    }
+
+    /// Create an oracle error from a dynamic string (bridges `Result<T, String>`
+    /// from the oracle module into `DriverResult`).
+    pub fn oracle(msg: impl Into<Cow<'static, str>>) -> Self {
+        Self::OracleError(msg.into())
     }
 }
 
@@ -97,6 +121,7 @@ mod tests {
         let e = DriverError::AllocFailed {
             size: 4096,
             domain: crate::MemoryDomain::Vram,
+            detail: "oom".into(),
         };
         assert!(e.to_string().contains("4096"));
     }
@@ -152,7 +177,7 @@ mod tests {
             crate::MemoryDomain::Gtt,
             crate::MemoryDomain::VramOrGtt,
         ] {
-            let e = DriverError::AllocFailed { size: 8192, domain };
+            let e = DriverError::AllocFailed { size: 8192, domain, detail: "test".into() };
             let msg = e.to_string();
             assert!(msg.contains("8192"));
             assert!(msg.contains("domain"));

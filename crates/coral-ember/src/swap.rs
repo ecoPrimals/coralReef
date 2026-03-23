@@ -274,6 +274,13 @@ pub fn handle_swap_device(
 ) -> Result<String, String> {
     tracing::info!(bdf, target, "swap_device: starting");
 
+    const KNOWN_TARGETS: &[&str] = &[
+        "vfio", "vfio-pci", "nouveau", "amdgpu", "nvidia", "xe", "i915", "akida-pcie", "unbound",
+    ];
+    if !KNOWN_TARGETS.contains(&target) {
+        return Err(format!("swap_device: unknown target driver '{target}'"));
+    }
+
     if target == "unbound"
         && !std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists()
     {
@@ -459,6 +466,41 @@ fn is_drm_driver(target: &str) -> bool {
     matches!(target, "nouveau" | "nvidia" | "amdgpu" | "xe" | "i915")
 }
 
+/// Ensure the kernel module for `target` is loaded before attempting sysfs bind.
+/// If the module is already loaded or doesn't need loading (e.g. vfio-pci), this is a no-op.
+fn ensure_module_loaded(target: &str) {
+    let module = match target {
+        "vfio" | "vfio-pci" => return,
+        "akida-pcie" => "akida_pcie",
+        other => other,
+    };
+
+    let sysfs_mod = format!("/sys/module/{}", module.replace('-', "_"));
+    if std::path::Path::new(&sysfs_mod).exists() {
+        tracing::debug!(module, "kernel module already loaded");
+        return;
+    }
+
+    tracing::info!(module, "loading kernel module for target driver");
+    match std::process::Command::new("modprobe")
+        .arg(module)
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            tracing::info!(module, "kernel module loaded successfully");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(module, %stderr, "modprobe returned non-zero (may still work via install hook)");
+        }
+        Err(e) => {
+            tracing::warn!(module, error = %e, "modprobe not available — bind may fail if module not loaded");
+        }
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
+
 fn bind_native(
     bdf: &str,
     target: &str,
@@ -488,6 +530,8 @@ fn bind_native(
         "\n",
     )?;
     std::thread::sleep(std::time::Duration::from_millis(200));
+
+    ensure_module_loaded(target);
 
     match strategy {
         RebindStrategy::SimpleBind => {

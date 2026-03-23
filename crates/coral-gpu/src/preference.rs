@@ -9,6 +9,8 @@ pub const DRIVER_NOUVEAU: &str = "nouveau";
 pub const DRIVER_AMDGPU: &str = "amdgpu";
 /// NVIDIA proprietary DRM module — pragmatic compatibility.
 pub const DRIVER_NVIDIA_DRM: &str = "nvidia-drm";
+/// NVIDIA CUDA via cudarc — proprietary runtime, maximum perf on NVIDIA hardware.
+pub const DRIVER_CUDA: &str = "cuda";
 
 /// Driver identifiers in preference order.
 ///
@@ -60,6 +62,7 @@ impl DriverPreference {
     pub fn pragmatic() -> Self {
         Self {
             order: vec![
+                DRIVER_CUDA.to_string(),
                 DRIVER_AMDGPU.to_string(),
                 DRIVER_NVIDIA_DRM.to_string(),
                 DRIVER_NOUVEAU.to_string(),
