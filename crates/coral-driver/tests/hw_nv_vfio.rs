@@ -17,7 +17,11 @@
 //! automatically borrows the device via `device.lend` and returns it via
 //! `device.reclaim` on drop. No manual VFIO management needed.
 //!
-//! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio --features vfio -- --ignored`
+//! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio --features vfio -- --ignored --test-threads=1`
+//!
+//! `--test-threads=1` is required because all tests share ember's single IOMMU
+//! IOAS. Parallel device creation maps the same fixed IOVAs and gets `EEXIST`
+//! from `IOMMU_IOAS_MAP`.
 
 #[cfg(feature = "vfio")]
 #[path = "glowplug_client.rs"]
