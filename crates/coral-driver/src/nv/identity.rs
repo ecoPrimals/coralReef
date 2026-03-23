@@ -29,6 +29,46 @@ pub const fn chip_name(sm: u32) -> &'static str {
     }
 }
 
+/// Decode the NVIDIA `NV_PMC_BOOT_0` (BAR0 offset 0x0) register into an
+/// SM architecture version.
+///
+/// BOOT0 layout (per envytools / nouveau):
+///   - bits\[31:20\] = chipset ID (e.g. 0x140 = GV100, 0x172 = GA102)
+///   - bits\[19:16\] = variant
+///   - bits\[7:0\]   = revision/stepping
+///
+/// Returns `None` for unrecognized chipsets. This is the **authoritative**
+/// hardware identity — callers must not assume an SM version without
+/// consulting BOOT0 first, or they risk applying wrong firmware and
+/// corrupting GPU state.
+#[must_use]
+pub const fn boot0_to_sm(boot0: u32) -> Option<u32> {
+    let chipset = (boot0 >> 20) & 0xFFF;
+    match chipset {
+        0x120..=0x12F => Some(50),  // Maxwell GM200
+        0x130..=0x13F => Some(60),  // Pascal GP100/GP102/GP104/GP106/GP107/GP108
+        0x140          => Some(70), // Volta GV100
+        0x164..=0x168 => Some(75),  // Turing TU102/TU104/TU106
+        0x170          => Some(80), // Ampere GA100
+        0x172..=0x177 => Some(86),  // Ampere GA102/GA104/GA106/GA107
+        0x192..=0x197 => Some(89),  // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+        _ => None,
+    }
+}
+
+/// Map SM version to the NVIDIA compute engine class constant.
+///
+/// Single source of truth — used by VFIO, DRM, and test harnesses.
+/// Returns the DRM/VFIO class ID for the compute engine on this GPU.
+#[must_use]
+pub const fn sm_to_compute_class(sm: u32) -> u32 {
+    match sm {
+        70..=74 => 0xC3C0, // VOLTA_COMPUTE_A
+        75..=79 => 0xC5C0, // TURING_COMPUTE_A
+        _       => 0xC6C0, // AMPERE_COMPUTE_A
+    }
+}
+
 /// PCI identity of a GPU device.
 #[derive(Debug, Clone)]
 pub struct GpuIdentity {
@@ -458,6 +498,46 @@ mod tests {
     fn fw_status_is_present() {
         assert!(FwStatus::Present.is_present());
         assert!(!FwStatus::Missing.is_present());
+    }
+
+    #[test]
+    fn boot0_gv100_titan_v() {
+        assert_eq!(boot0_to_sm(0x1400_00a1), Some(70));
+    }
+
+    #[test]
+    fn boot0_ga102_rtx3090() {
+        assert_eq!(boot0_to_sm(0x1720_00a1), Some(86));
+    }
+
+    #[test]
+    fn boot0_ad102_rtx4090() {
+        assert_eq!(boot0_to_sm(0x1920_00a1), Some(89));
+    }
+
+    #[test]
+    fn boot0_ga100() {
+        assert_eq!(boot0_to_sm(0x1700_00a1), Some(80));
+    }
+
+    #[test]
+    fn boot0_tu102_turing() {
+        assert_eq!(boot0_to_sm(0x1640_00a1), Some(75));
+    }
+
+    #[test]
+    fn boot0_unknown_chipset() {
+        assert_eq!(boot0_to_sm(0x0000_0000), None);
+        assert_eq!(boot0_to_sm(0xFFFF_FFFF), None);
+    }
+
+    #[test]
+    fn sm_to_compute_class_mappings() {
+        assert_eq!(sm_to_compute_class(70), 0xC3C0);
+        assert_eq!(sm_to_compute_class(75), 0xC5C0);
+        assert_eq!(sm_to_compute_class(80), 0xC6C0);
+        assert_eq!(sm_to_compute_class(86), 0xC6C0);
+        assert_eq!(sm_to_compute_class(89), 0xC6C0);
     }
 
     #[test]

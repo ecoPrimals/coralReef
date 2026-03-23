@@ -31,6 +31,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2, // GV100 aperture: 1=SYS_MEM_COH (best guess)
             ordering,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -55,6 +56,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: rl_btgt,
             ordering: ExperimentOrdering::VramFullDispatch,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -77,6 +79,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: rl_btgt,
             ordering: ExperimentOrdering::FullDispatchWithInstBind,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -89,6 +92,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 3,
         ordering: ExperimentOrdering::FullDispatchWithPreempt,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
     configs.push(ExperimentConfig {
         name: "O_dispatch_preempt_ncoh",
@@ -98,6 +102,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::FullDispatchWithPreempt,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── P: Scheduled + direct PBDMA inject + doorbell ────────────────────
@@ -109,6 +114,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 3,
         ordering: ExperimentOrdering::ScheduledPlusDirectPbdma,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── Direct PBDMA experiments (E, F) — register write test ─────────
@@ -122,6 +128,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 3,
             ordering: ExperimentOrdering::DirectPbdmaProgramming,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
         configs.push(ExperimentConfig {
             name: Box::leak(format!("F_direct_{pccsr_name}_instBind").into_boxed_str()),
@@ -131,6 +138,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 3,
             ordering: ExperimentOrdering::DirectPbdmaWithInstBind,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -145,6 +153,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 3,
             ordering: ExperimentOrdering::DirectPbdmaActivate,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
         configs.push(ExperimentConfig {
             name: Box::leak(format!("H_activate_doorbell_{pccsr_name}").into_boxed_str()),
@@ -154,6 +163,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 3,
             ordering: ExperimentOrdering::DirectPbdmaActivateDoorbell,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
         configs.push(ExperimentConfig {
             name: Box::leak(format!("I_activate_sched_{pccsr_name}").into_boxed_str()),
@@ -163,6 +173,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 3,
             ordering: ExperimentOrdering::DirectPbdmaActivateScheduled,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -176,6 +187,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::DirectPbdmaSchedDoorbell,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -189,6 +201,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::RamfcMirrorSchedDoorbell,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -202,6 +215,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::BothPathsSchedDoorbell,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -218,6 +232,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::CleanSchedNoWork,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -233,6 +248,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::SchedWithNopPushbuf,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -246,6 +262,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::SchedulerPathOnly,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -259,6 +276,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::RunlistAckProtocol,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -272,6 +290,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::InstBindWithRunlistAck,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -285,6 +304,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 2,
             ordering: ExperimentOrdering::PreemptInstBindAck,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -297,6 +317,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::FullPfifoReinitDispatch,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
     configs.push(ExperimentConfig {
         name: "Z2_reinit_directPbdma",
@@ -306,6 +327,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::FullPfifoReinitDirectPbdma,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── Z3: No PMC reset, fast poll ───────────────────────────────────
@@ -317,6 +339,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::NoPmcResetFastPoll,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── Z4/Z5/Z6: VID_MEM PCCSR INST_BIND hypothesis ──────────────────
@@ -332,6 +355,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::InstBindWithRunlistAck,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // Z5: Z4 + VID_MEM in runlist entry inst_target (matches Q exactly)
@@ -343,6 +367,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::InstBindWithRunlistAck,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // Z6: Z5 + NCOH runlist base (full Q replication without PRAMIN)
@@ -354,6 +379,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 3,
         ordering: ExperimentOrdering::InstBindWithRunlistAck,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // Z7: VID_MEM bind + full PFIFO reinit (tests if PMC toggle was the Z blocker)
@@ -365,6 +391,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 2,
         ordering: ExperimentOrdering::FullPfifoReinitDispatch,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── VRAM instance block experiments (J) ─────────────────────────────
@@ -378,6 +405,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: rl_base_t,
             ordering: ExperimentOrdering::VramInstanceBind,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -391,6 +419,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 0,
         ordering: ExperimentOrdering::AllVram,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── Hybrid VRAM + direct PBDMA (L) ──────────────────────────────────
@@ -403,6 +432,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
         runlist_base_target: 0,
         ordering: ExperimentOrdering::AllVramDirectPbdma,
         skip_pfifo_toggle: true,
+        requires_sm: None,
     });
 
     // ── M: PFIFO engine reset + re-init ──────────────────────────────────
@@ -421,6 +451,7 @@ pub fn build_experiment_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: rl_btgt,
             ordering: ExperimentOrdering::PfifoResetInit,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         });
     }
 
@@ -442,6 +473,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::PowerStateSweep,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "METAL_RegisterCartography",
@@ -451,6 +483,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::RegisterCartography,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "METAL_MemoryPathMatrix",
@@ -460,6 +493,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::MemoryPathMatrix,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "METAL_ClockDomainSweep",
@@ -469,6 +503,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::ClockDomainSweep,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "METAL_EngineProbe",
@@ -478,6 +513,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::EngineProbe,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "HBM2_PhyProbe",
@@ -487,6 +523,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::Hbm2PhyProbe,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "HBM2_TimingCapture",
@@ -496,6 +533,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::Hbm2TimingCapture,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "HBM2_TrainingAttempt",
@@ -505,6 +543,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::Hbm2TrainingAttempt,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
         ExperimentConfig {
             name: "HBM2_MinimalSet",
@@ -514,6 +553,7 @@ pub fn build_metal_discovery_matrix() -> Vec<ExperimentConfig> {
             runlist_base_target: 0,
             ordering: ExperimentOrdering::Hbm2MinimalSet,
             skip_pfifo_toggle: true,
+            requires_sm: None,
         },
     ]
 }

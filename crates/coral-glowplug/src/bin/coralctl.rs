@@ -69,6 +69,15 @@ enum Command {
         target: String,
     },
 
+    /// Trigger a PCIe Function Level Reset (FLR) on a device via VFIO.
+    ///
+    /// Recovers from corrupted GPU state (e.g. wrong firmware applied)
+    /// without a full system reboot. Requires the device to be VFIO-bound.
+    Reset {
+        /// PCI BDF address (e.g. 0000:4a:00.0).
+        bdf: String,
+    },
+
     /// Query health registers for all managed devices.
     Health,
 
@@ -240,6 +249,7 @@ fn main() {
     match cli.command {
         Command::Status => rpc_status(&cli.socket),
         Command::Swap { bdf, target } => rpc_swap(&cli.socket, &bdf, &target),
+        Command::Reset { bdf } => rpc_reset(&cli.socket, &bdf),
         Command::Health => rpc_health(&cli.socket),
         Command::Probe { bdf } => rpc_probe(&cli.socket, &bdf),
         Command::VramProbe { bdf } => rpc_vram_probe(&cli.socket, &bdf),
@@ -500,6 +510,17 @@ fn rpc_swap(socket: &str, bdf: &str, target: &str) {
             .unwrap_or(false);
         println!("ok: {bdf} now on {personality} (vram_alive={vram})");
     }
+}
+
+fn rpc_reset(socket: &str, bdf: &str) {
+    println!("resetting {bdf} via VFIO FLR...");
+    let response = rpc_call(
+        socket,
+        "device.reset",
+        serde_json::json!({"bdf": bdf}),
+    );
+    check_rpc_error(&response);
+    println!("ok: {bdf} reset complete");
 }
 
 fn rpc_compute_info(socket: &str, bdf: &str) {
@@ -1514,6 +1535,15 @@ bdf = "0000:ff:00.0"
         };
         assert_eq!(bdf, "0000:03:00.0");
         assert!(file.is_none());
+    }
+
+    #[test]
+    fn cli_parses_reset_subcommand() {
+        let cli = Cli::try_parse_from(["coralctl", "reset", "0000:4a:00.0"]).expect("parse reset");
+        let Command::Reset { bdf } = cli.command else {
+            panic!("expected Reset");
+        };
+        assert_eq!(bdf, "0000:4a:00.0");
     }
 
     #[test]

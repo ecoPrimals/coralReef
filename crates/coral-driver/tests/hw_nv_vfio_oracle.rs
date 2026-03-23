@@ -34,11 +34,12 @@ mod tests {
         (lease, raw)
     }
 
+    /// SM hint: 0 = auto-detect from BOOT0 (preferred), nonzero = validate.
     fn vfio_sm() -> u32 {
         std::env::var("CORALREEF_VFIO_SM")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(86)
+            .unwrap_or(0)
     }
 
     /// Oracle-driven root PLL comparison and programming.

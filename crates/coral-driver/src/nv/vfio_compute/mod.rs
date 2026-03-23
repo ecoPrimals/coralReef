@@ -237,19 +237,84 @@ impl RawVfioDevice {
 }
 
 impl NvVfioComputeDevice {
-    /// Opens an NVIDIA VFIO compute device by PCI BDF, SM version, and compute class.
+    /// The SM architecture version of this device (auto-detected or validated).
+    #[must_use]
+    pub fn sm_version(&self) -> u32 {
+        self.sm_version
+    }
+
+    /// Resolve SM version and compute class from BOOT0, validating against
+    /// caller-supplied hints. Pass `sm_version=0` to auto-detect; pass a
+    /// nonzero value to assert it matches hardware.
+    fn resolve_sm(
+        bar0: &MappedBar,
+        bdf: &str,
+        caller_sm: u32,
+        caller_class: u32,
+    ) -> DriverResult<(u32, u32)> {
+        let boot0 = bar0.read_u32(bar0_reg::BOOT0)?;
+        let hw_sm = crate::nv::identity::boot0_to_sm(boot0);
+
+        let sm = if caller_sm == 0 {
+            match hw_sm {
+                Some(sm) => {
+                    tracing::info!(bdf, boot0 = format_args!("{boot0:#010x}"), sm, "SM auto-detected from BOOT0");
+                    sm
+                }
+                None => {
+                    return Err(DriverError::OpenFailed(format!(
+                        "BOOT0 {boot0:#010x} maps to unknown chipset — cannot auto-detect SM. \
+                         Pass an explicit sm_version or add the chipset to boot0_to_sm()."
+                    ).into()));
+                }
+            }
+        } else {
+            if let Some(hw) = hw_sm {
+                if hw != caller_sm {
+                    return Err(DriverError::OpenFailed(format!(
+                        "SM mismatch: caller passed sm={caller_sm} but BOOT0 {boot0:#010x} \
+                         decodes to sm={hw}. Wrong SM corrupts GPU state — aborting."
+                    ).into()));
+                }
+            } else {
+                tracing::warn!(
+                    bdf,
+                    boot0 = format_args!("{boot0:#010x}"),
+                    caller_sm,
+                    "BOOT0 chipset unknown — trusting caller-supplied SM"
+                );
+            }
+            caller_sm
+        };
+
+        let compute_class = if caller_class == 0 {
+            crate::nv::identity::sm_to_compute_class(sm)
+        } else {
+            caller_class
+        };
+
+        tracing::info!(
+            bdf,
+            boot0 = format_args!("{boot0:#010x}"),
+            sm,
+            compute_class = format_args!("{compute_class:#06x}"),
+            "VFIO GPU identity resolved"
+        );
+
+        Ok((sm, compute_class))
+    }
+
+    /// Opens an NVIDIA VFIO compute device by PCI BDF.
+    ///
+    /// Pass `sm_version=0` and `compute_class=0` to auto-detect from BOOT0.
+    /// Nonzero values are validated against the hardware register.
     pub fn open(bdf: &str, sm_version: u32, compute_class: u32) -> DriverResult<Self> {
         let device = VfioDevice::open(bdf)?;
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
-        let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
-        tracing::info!(
-            bdf,
-            chip_id = format_args!("{chip_id:#010x}"),
-            sm_version,
-            "VFIO GPU opened via BAR0"
-        );
+        let (sm_version, compute_class) =
+            Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
@@ -291,6 +356,9 @@ impl NvVfioComputeDevice {
     }
 
     /// Opens from pre-existing VFIO fds (received from coral-ember via `SCM_RIGHTS`).
+    ///
+    /// Pass `sm_version=0` and `compute_class=0` to auto-detect from BOOT0.
+    /// Nonzero values are validated against the hardware register.
     pub fn open_from_fds(
         bdf: &str,
         fds: crate::vfio::ReceivedVfioFds,
@@ -301,13 +369,8 @@ impl NvVfioComputeDevice {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
-        let chip_id = bar0.read_u32(bar0_reg::BOOT0)?;
-        tracing::info!(
-            bdf,
-            chip_id = format_args!("{chip_id:#010x}"),
-            sm_version,
-            "VFIO GPU opened from ember fds"
-        );
+        let (sm_version, compute_class) =
+            Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 

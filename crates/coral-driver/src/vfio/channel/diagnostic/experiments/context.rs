@@ -8,6 +8,18 @@ use crate::vfio::dma::DmaBuffer;
 
 use super::super::types::ExperimentConfig;
 
+/// GPU architecture detected from BOOT0 at matrix start.
+#[derive(Debug, Clone, Copy)]
+pub struct GpuCapabilities {
+    /// BOOT0 register raw value.
+    pub boot0: u32,
+    /// SM version decoded from BOOT0 (e.g. 70 = GV100, 86 = GA102).
+    /// `None` if the chipset is unrecognized.
+    pub sm: Option<u32>,
+    /// Chip codename (e.g. "gv100", "ga102").
+    pub chip: &'static str,
+}
+
 /// Shared context for a single diagnostic experiment.
 /// Holds all state needed by experiment handlers.
 pub(in crate::vfio::channel::diagnostic) struct ExperimentContext<'a> {
@@ -35,6 +47,8 @@ pub(in crate::vfio::channel::diagnostic) struct ExperimentContext<'a> {
     pub limit2: u32,
     pub gpu_warm: bool,
     pub cfg: &'a ExperimentConfig,
+    /// Architecture capabilities detected from BOOT0.
+    pub gpu_caps: GpuCapabilities,
 }
 
 impl<'a> ExperimentContext<'a> {

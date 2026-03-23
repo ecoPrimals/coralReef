@@ -8,6 +8,7 @@ mod matrix;
 mod runner;
 mod types;
 
+pub use experiments::context::GpuCapabilities;
 pub use matrix::{build_experiment_matrix, build_metal_discovery_matrix};
 pub use runner::diagnostic_matrix;
 pub use types::{ExperimentConfig, ExperimentOrdering, ExperimentResult};

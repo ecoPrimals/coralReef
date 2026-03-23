@@ -17,6 +17,7 @@
 //! | `device.swap`      | Hot-swap driver personality                 |
 //! | `device.health`    | Query device health registers               |
 //! | `device.resurrect` | Attempt HBM2 resurrection via nouveau warm swap |
+//! | `device.reset`     | PCIe Function Level Reset via VFIO              |
 //! | `device.write_register` | Write a single BAR0 register            |
 //! | `device.read_bar0_range` | Read contiguous BAR0 register range    |
 //! | `device.pramin_read` | Read VRAM via PRAMIN window                |
@@ -970,6 +971,32 @@ fn dispatch(
                 "domains_alive": slot.health.domains_alive,
             }))
         }
+        "device.reset" => {
+            let raw_bdf = params
+                .get("bdf")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+            let bdf = validate_bdf(raw_bdf)?.to_owned();
+            let slot = devices
+                .iter()
+                .find(|d| d.bdf.as_ref() == bdf)
+                .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+                    bdf: Arc::from(bdf.as_str()),
+                })
+                .map_err(RpcError::from)?;
+            if slot.is_busy() {
+                return Err(RpcError::device_error(format!(
+                    "device {bdf} is busy — cannot reset while a long-running operation is in progress"
+                )));
+            }
+            slot.reset_device()
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            tracing::info!(bdf = %bdf, "PCIe FLR completed via VFIO_DEVICE_RESET");
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "reset": true,
+            }))
+        }
         "health.check" | "health.liveness" => Ok(serde_json::json!({
             "alive": true,
             "name": "coral-glowplug",
@@ -1359,6 +1386,7 @@ where
                     req.method.as_str(),
                     "device.swap"
                         | "device.resurrect"
+                        | "device.reset"
                         | "device.lend"
                         | "device.reclaim"
                         | "device.write_register"

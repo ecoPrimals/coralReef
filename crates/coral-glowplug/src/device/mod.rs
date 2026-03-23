@@ -104,6 +104,22 @@ impl<S: SysfsOps> DeviceSlot<S> {
         ))
     }
 
+    /// Trigger a PCIe Function Level Reset (FLR) via VFIO_DEVICE_RESET.
+    ///
+    /// Returns `Err` if no VFIO holder is attached (device not bound to VFIO).
+    pub fn reset_device(&self) -> Result<(), crate::error::DeviceError> {
+        let holder = self.vfio_holder.as_ref().ok_or_else(|| {
+            crate::error::DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — device not bound to vfio-pci".into(),
+            }
+        })?;
+        holder.reset().map_err(|e| crate::error::DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason: format!("VFIO_DEVICE_RESET ioctl failed: {e}"),
+        })
+    }
+
     /// Returns `true` if a `spawn_blocking` task currently holds a reference
     /// to this slot's GPU resources (BAR0 mapping, CUDA context, etc.).
     #[must_use]

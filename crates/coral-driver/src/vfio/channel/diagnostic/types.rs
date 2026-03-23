@@ -156,6 +156,9 @@ pub struct ExperimentConfig {
     pub ordering: ExperimentOrdering,
     /// Whether to skip the PFIFO_ENABLE toggle (leave as-is from nouveau).
     pub skip_pfifo_toggle: bool,
+    /// If `Some(sm)`, skip this experiment when the detected SM doesn't match.
+    /// `None` means the experiment runs on all architectures.
+    pub requires_sm: Option<u32>,
 }
 
 /// Result snapshot from a single experiment.
@@ -163,6 +166,8 @@ pub struct ExperimentConfig {
 pub struct ExperimentResult {
     /// Experiment name.
     pub name: String,
+    /// SM version detected from BOOT0 at matrix start (`None` if unknown chipset).
+    pub detected_sm: Option<u32>,
     /// PCCSR channel register value.
     pub pccsr_chan: u32,
     /// PCCSR inst register readback.

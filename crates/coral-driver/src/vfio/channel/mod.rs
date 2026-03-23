@@ -31,10 +31,11 @@ mod page_tables;
 mod pfifo;
 
 pub use diagnostic::{
-    ExperimentConfig, ExperimentOrdering, ExperimentResult, build_experiment_matrix,
-    build_metal_discovery_matrix, diagnostic_matrix,
+    ExperimentConfig, ExperimentOrdering, ExperimentResult, GpuCapabilities,
+    build_experiment_matrix, build_metal_discovery_matrix, diagnostic_matrix,
     interpreter::{ProbeInterpreter, ProbeReport, memory_probe},
 };
+pub use pfifo::PfifoInitConfig;
 pub use registers::ramuserd;
 
 use std::borrow::Cow;
@@ -107,18 +108,15 @@ impl VfioChannel {
             runlist_id: 0,
         };
 
-        let pfifo_ck = |bar0: &MappedBar, label: &str| {
+        let pfifo_trace = |bar0: &MappedBar, label: &str| {
             let en = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0xDEAD);
             let intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0xDEAD);
             tracing::debug!(en = format_args!("{en:#010x}"), intr = format_args!("{intr:#010x}"), "{label}");
-            if en == 0 && intr != 0xDEAD {
-                tracing::warn!(intr = format_args!("{intr:#010x}"), "PFIFO disabled at {label}");
-            }
         };
 
         let (runq, runlist_id) = pfifo::init_pfifo_engine(bar0)?;
         chan.runlist_id = runlist_id;
-        pfifo_ck(bar0, "after-pfifo-init");
+        pfifo_trace(bar0, "after-pfifo-init");
 
         // Configure BAR2 in PHYSICAL mode targeting system memory.
         // The VRAM-based BAR2 setup (VIRTUAL mode) fails on cold VFIO cards
@@ -136,7 +134,7 @@ impl VfioChannel {
                 "BAR2 set to PHYSICAL mode (SYS_MEM_COH)"
             );
         }
-        pfifo_ck(bar0, "after-bar2-setup");
+        pfifo_trace(bar0, "after-bar2-setup");
 
         // Volta requires non-replayable fault buffers configured before any
         // MMU translation can succeed. Without them, FBHUB stalls on the
@@ -172,7 +170,7 @@ impl VfioChannel {
                 "MMU fault buffers configured (non-replayable + replayable)"
             );
         }
-        pfifo_ck(bar0, "after-fault-buf-setup");
+        pfifo_trace(bar0, "after-fault-buf-setup");
 
         page_tables::populate_page_tables(
             chan.pd3.as_mut_slice(),
@@ -197,30 +195,58 @@ impl VfioChannel {
         );
 
         Self::invalidate_tlb(bar0, PD3_IOVA)?;
-        pfifo_ck(bar0, "after-tlb-invalidate");
+        pfifo_trace(bar0, "after-tlb-invalidate");
 
         // Clear stale PCCSR state from prior driver (nouveau residue).
         let stale = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
         if stale != 0 {
             Self::clear_stale_pccsr(bar0, channel_id, stale)?;
         }
-        pfifo_ck(bar0, "after-clear-pccsr");
+        pfifo_trace(bar0, "after-clear-pccsr");
 
         chan.bind_channel(bar0)?;
-        pfifo_ck(bar0, "after-bind-channel");
+        pfifo_trace(bar0, "after-bind-channel");
 
         std::thread::sleep(std::time::Duration::from_millis(5));
         chan.clear_channel_faults(bar0)?;
-        pfifo_ck(bar0, "after-clear-faults");
+        pfifo_trace(bar0, "after-clear-faults");
 
         chan.enable_channel(bar0)?;
-        pfifo_ck(bar0, "after-enable-channel");
+        pfifo_trace(bar0, "after-enable-channel");
 
         chan.submit_runlist(bar0)?;
-        pfifo_ck(bar0, "after-submit-runlist");
+        pfifo_trace(bar0, "after-submit-runlist");
 
         std::thread::sleep(std::time::Duration::from_millis(50));
-        pfifo_ck(bar0, "after-50ms-settle");
+        pfifo_trace(bar0, "after-50ms-settle");
+
+        // Post-init liveness probe: issue a runlist preempt and check for ACK.
+        // On GV100, PFIFO_ENABLE (0x2200) reads 0 even when the engine is
+        // functional. The preempt ACK is the authoritative liveness signal.
+        let pfifo_live = {
+            let w = |reg, val| bar0.write_u32(reg, val).ok();
+            w(registers::pfifo::INTR, 0xFFFF_FFFF);
+            w(registers::pfifo::GV100_PREEMPT, 1u32 << chan.runlist_id);
+            let mut ack = false;
+            for _ in 0..25 {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+                let intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0);
+                if intr & registers::pfifo::INTR_RL_COMPLETE != 0 {
+                    w(registers::pfifo::INTR, registers::pfifo::INTR_RL_COMPLETE);
+                    ack = true;
+                    break;
+                }
+            }
+            ack
+        };
+        if pfifo_live {
+            tracing::info!("PFIFO liveness probe: preempt ACK received — engine functional");
+        } else {
+            tracing::warn!(
+                "PFIFO liveness probe: NO preempt ACK — engine may be non-responsive"
+            );
+        }
+
         pfifo::log_pfifo_diagnostics(bar0);
 
         let faults = mmu_fault::read_mmu_faults(bar0);
@@ -231,6 +257,7 @@ impl VfioChannel {
             gpfifo_iova = format_args!("{gpfifo_iova:#x}"),
             userd_iova = format_args!("{userd_iova:#x}"),
             instance_iova = format_args!("{INSTANCE_IOVA:#x}"),
+            pfifo_live,
             "VFIO PFIFO channel created"
         );
 

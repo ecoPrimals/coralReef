@@ -11,6 +11,59 @@ use crate::vfio::device::MappedBar;
 
 use super::registers::*;
 
+/// Behavioral knobs for the PFIFO bring-up sequence.
+///
+/// Differences between the `VfioChannel::create` path and the diagnostic
+/// runner are expressed here rather than as code forks.
+#[derive(Debug, Clone)]
+pub struct PfifoInitConfig {
+    /// Clear PRIV_RING faults (5× ACK retry) before touching engine regs.
+    /// Needed after driver swap (nouveau → vfio); skippable on warm GPU.
+    pub clear_priv_ring: bool,
+    /// Write `0xFFFF_FFFF` to `PMC_ENABLE` to un-gate all engines.
+    /// Diagnostic runner may prefer to preserve nouveau's PMC state.
+    pub pmc_glow_plug: bool,
+    /// Milliseconds to wait after `PFIFO_ENABLE = 1`.
+    pub pfifo_settle_ms: u64,
+    /// Re-clear PRIV_RING and retry if `PFIFO_ENABLE` reads back 0.
+    pub retry_on_priv_fault: bool,
+    /// `true` → write `SCHED_EN (0x2504) = 1`; `false` → write `SCHED_DISABLE (0x2630) = 0`.
+    pub use_sched_en: bool,
+    /// Milliseconds to wait after empty-runlist flush.
+    pub post_flush_settle_ms: u64,
+}
+
+impl Default for PfifoInitConfig {
+    /// Standard init for `VfioChannel::create` — aggressive fault clearing,
+    /// full glow plug, long settle, retry.
+    fn default() -> Self {
+        Self {
+            clear_priv_ring: true,
+            pmc_glow_plug: true,
+            pfifo_settle_ms: 50,
+            retry_on_priv_fault: true,
+            use_sched_en: true,
+            post_flush_settle_ms: 20,
+        }
+    }
+}
+
+impl PfifoInitConfig {
+    /// Config for the diagnostic runner — lighter touch, preserves
+    /// nouveau's warm state, shorter settle.
+    #[must_use]
+    pub fn diagnostic() -> Self {
+        Self {
+            clear_priv_ring: false,
+            pmc_glow_plug: false,
+            pfifo_settle_ms: 10,
+            retry_on_priv_fault: false,
+            use_sched_en: false,
+            post_flush_settle_ms: 0,
+        }
+    }
+}
+
 /// Enable the PFIFO engine in PMC, discover PBDMAs, and initialize.
 ///
 /// Returns the RUNQ selector (0-based index into the PBDMAs serving
@@ -24,6 +77,14 @@ use super::registers::*;
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
+    init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
+}
+
+/// Configurable PFIFO engine initialization.
+///
+/// Same as [`init_pfifo_engine`] but takes a [`PfifoInitConfig`] to
+/// control the bring-up sequence. Use this from the diagnostic runner.
+pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> DriverResult<(u32, u32)> {
     let w = |reg: usize, val: u32| {
         bar0.write_u32(reg, val)
             .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {e}"))))
@@ -38,10 +99,7 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     }
 
     // Clear stale PRIV_RING faults before touching engine registers.
-    // After driver swap (nouveau → vfio), the PRI bus may have a
-    // RESET_TIMEOUT (bit 8) fault where all subsequent register writes
-    // are silently dropped. Must retry ACK until the fault actually clears.
-    {
+    if cfg.clear_priv_ring {
         let priv_intr = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
         if priv_intr != 0 {
             for attempt in 0..5 {
@@ -74,8 +132,10 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     // NB: DEVICE_ENABLE (0x600) is NOT present on GV100 (returns 0xBAD00200
     // PBUS timeout). Do not write it.
     let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-    w(pmc::ENABLE, 0xFFFF_FFFF)?;
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    if cfg.pmc_glow_plug {
+        w(pmc::ENABLE, 0xFFFF_FFFF)?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     let pmc_after = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
     tracing::info!(
         pmc_before = format_args!("{pmc_before:#010x}"),
@@ -103,15 +163,14 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     }
 
     // Initialize PFIFO — verify the enable write takes effect.
-    // If PRIV_RING is still partially faulted, the write may be dropped.
     let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
     w(pfifo::ENABLE, 0)?;
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::thread::sleep(std::time::Duration::from_millis(1));
     w(pfifo::ENABLE, 1)?;
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
     let mut readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
 
-    if readback == 0 {
+    if readback == 0 && cfg.retry_on_priv_fault {
         tracing::warn!("PFIFO_ENABLE=0 after first write — retrying with PRI fault re-clear");
         let priv_st = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
         if priv_st != 0 {
@@ -124,7 +183,7 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
             }
         }
         w(pfifo::ENABLE, 1)?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
         readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
     }
     tracing::info!(
@@ -267,7 +326,11 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     // Clear + enable PFIFO interrupts and scheduler.
     w(pfifo::INTR, 0xFFFF_FFFF)?;
     w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
-    w(pfifo::SCHED_EN, 1)?;
+    if cfg.use_sched_en {
+        w(pfifo::SCHED_EN, 1)?;
+    } else {
+        w(pfifo::SCHED_DISABLE, 0)?;
+    }
 
     {
         let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
@@ -299,7 +362,9 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         }
         tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
     }
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    if cfg.post_flush_settle_ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(cfg.post_flush_settle_ms));
+    }
 
     // Confirm GR runlist via ENGN0_STATUS register.
     let engn0 = bar0.read_u32(0x0000_2640).unwrap_or(0);

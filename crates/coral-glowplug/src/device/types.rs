@@ -12,7 +12,6 @@ use coral_driver::vfio::device::MappedBar;
 /// Replaces direct `RawVfioDevice` usage — glowplug only needs BAR0
 /// register reads, not DMA buffers or compute dispatch.
 pub(crate) struct VfioHolder {
-    #[expect(dead_code, reason = "kept alive for VFIO fd lifecycle")]
     device: VfioDevice,
     pub(crate) bar0: MappedBar,
 }
@@ -20,6 +19,11 @@ pub(crate) struct VfioHolder {
 impl VfioHolder {
     pub(crate) fn new(device: VfioDevice, bar0: MappedBar) -> Self {
         Self { device, bar0 }
+    }
+
+    /// Trigger a PCIe Function Level Reset via VFIO_DEVICE_RESET.
+    pub(crate) fn reset(&self) -> Result<(), coral_driver::error::DriverError> {
+        self.device.reset()
     }
 }
 

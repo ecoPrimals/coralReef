@@ -56,38 +56,33 @@ mod tests {
             .expect("set CORALREEF_VFIO_BDF=0000:XX:XX.X to run VFIO tests")
     }
 
+    /// SM hint: 0 = auto-detect from BOOT0 (preferred), nonzero = validate.
     fn vfio_sm() -> u32 {
         std::env::var("CORALREEF_VFIO_SM")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(86)
-    }
-
-    fn sm_to_compute_class(sm: u32) -> u32 {
-        match sm {
-            70..=74 => coral_driver::nv::pushbuf::class::VOLTA_COMPUTE_A,
-            75..=79 => coral_driver::nv::pushbuf::class::TURING_COMPUTE_A,
-            _ => coral_driver::nv::pushbuf::class::AMPERE_COMPUTE_A,
-        }
+            .unwrap_or(0)
     }
 
     /// Open VFIO device — primary path: get fds from ember via SCM_RIGHTS.
     /// Fallback: open /dev/vfio/* directly (only works without ember).
+    ///
+    /// SM and compute class are auto-detected from BOOT0 by default.
+    /// Set `CORALREEF_VFIO_SM` to a nonzero value to validate instead.
     fn open_vfio() -> NvVfioComputeDevice {
         init_tracing();
         let bdf = vfio_bdf();
         let sm = vfio_sm();
-        let cc = sm_to_compute_class(sm);
 
         match ember_client::request_fds(&bdf) {
             Ok(fds) => {
                 eprintln!("ember: received VFIO fds for {bdf}");
-                NvVfioComputeDevice::open_from_fds(&bdf, fds, sm, cc)
+                NvVfioComputeDevice::open_from_fds(&bdf, fds, sm, 0)
                     .expect("NvVfioComputeDevice::open_from_fds()")
             }
             Err(e) => {
                 eprintln!("ember unavailable ({e}), opening VFIO directly");
-                NvVfioComputeDevice::open(&bdf, sm, cc)
+                NvVfioComputeDevice::open(&bdf, sm, 0)
                     .expect("NvVfioComputeDevice::open() — is GPU bound to vfio-pci?")
             }
         }
@@ -135,7 +130,7 @@ mod tests {
     #[ignore = "requires VFIO-bound GPU hardware + compute shader binary"]
     fn vfio_dispatch_nop_shader() {
         let mut dev = open_vfio();
-        let sm = vfio_sm();
+        let sm = dev.sm_version();
 
         let gr = dev.gr_engine_status();
         eprintln!("Pre-dispatch {gr}");
