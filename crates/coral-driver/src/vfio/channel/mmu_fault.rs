@@ -69,7 +69,10 @@ pub fn read_mmu_faults(bar0: &MappedBar) -> MmuFaultInfo {
 
     let fault_va = (u64::from(fault_addr_hi) << 32) | u64::from(fault_addr_lo);
 
-    let has_fault = fault_status != 0 || fault_buf0_get != fault_buf0_put;
+    // fault_buf0_put bit 31 = ENABLE (our init value); only compare index bits.
+    let buf0_put_idx = fault_buf0_put & 0x7FFF_FFFF;
+    let buf0_get_idx = fault_buf0_get & 0x7FFF_FFFF;
+    let has_fault = fault_status != 0 || buf0_get_idx != buf0_put_idx;
 
     let fault_type = decode_fault_type(fault_status);
     let access_type = decode_access_type(fault_status);

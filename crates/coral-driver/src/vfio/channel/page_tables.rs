@@ -153,7 +153,7 @@ pub(super) fn populate_instance_block_custom(
         ramfc::GP_BASE_HI,
         (gpfifo_iova >> 32) as u32 | (limit2 << 16),
     );
-    write_u32_le(inst, ramfc::GP_PUT, 1);
+    write_u32_le(inst, ramfc::GP_PUT, 0);
     write_u32_le(inst, ramfc::GP_GET, 0);
     write_u32_le(inst, ramfc::GP_FETCH, 0);
 
@@ -217,10 +217,10 @@ pub(super) fn populate_instance_block(
         ramfc::GP_BASE_HI,
         (gpfifo_iova >> 32) as u32 | (limit2 << 16),
     );
-    // GP_PUT=1 so the scheduler loads work immediately; GP_GET=0.
-    // Without this, the PBDMA sees GP_PUT=0=GP_GET and waits for a doorbell
-    // that may never deliver if the USERD DMA path isn't fully working.
-    write_u32_le(inst, ramfc::GP_PUT, 1);
+    // GP_PUT=0=GP_GET: PBDMA sees empty ring and waits for doorbell.
+    // Previously GP_PUT=1 caused the PBDMA to fetch GPFIFO[0] before the
+    // application wrote a valid entry, leaving the PBDMA stuck on a zero entry.
+    write_u32_le(inst, ramfc::GP_PUT, 0);
     write_u32_le(inst, ramfc::GP_GET, 0);
     write_u32_le(inst, ramfc::GP_FETCH, 0);
 
