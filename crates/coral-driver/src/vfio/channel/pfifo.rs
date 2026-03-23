@@ -37,20 +37,31 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         )));
     }
 
-    // Clear any stale PRIV_RING faults before touching engine registers.
-    // After driver swap (nouveau → vfio), the PRI bus may be in a faulted
-    // state where all subsequent register accesses timeout.
+    // Clear stale PRIV_RING faults before touching engine registers.
+    // After driver swap (nouveau → vfio), the PRI bus may have a
+    // RESET_TIMEOUT (bit 8) fault where all subsequent register writes
+    // are silently dropped. Must retry ACK until the fault actually clears.
     {
         let priv_intr = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
         if priv_intr != 0 {
-            w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            for attempt in 0..5 {
+                w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                let status = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
+                if status == 0 {
+                    tracing::info!(attempt, "PRIV_RING fault cleared");
+                    break;
+                }
+                if attempt == 4 {
+                    tracing::warn!(
+                        status = format_args!("{status:#010x}"),
+                        "PRIV_RING fault persists after 5 ACK attempts"
+                    );
+                }
+            }
         }
         let pmc_intr = bar0.read_u32(pri::PMC_INTR).unwrap_or(0);
-        if pmc_intr & pri::PMC_INTR_PRIV_RING_BIT != 0 {
-            w(pri::PMC_INTR, pri::PMC_INTR_PRIV_RING_BIT)?;
-        }
-        let priv_after = bar0.read_u32(misc::PRIV_RING).unwrap_or(0);
+        let priv_after = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
         tracing::info!(
             priv_before = format_args!("{priv_intr:#010x}"),
             priv_after = format_args!("{priv_after:#010x}"),
@@ -60,44 +71,72 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     }
 
     // Glow plug — enable all engines in PMC.
+    // GP100+/Volta uses DEVICE_ENABLE (0x600) in addition to ENABLE (0x200).
+    // Some engines (incl. PFIFO) are gated by 0x600, not 0x200.
     let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
+    let dev_before = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0);
     w(pmc::ENABLE, 0xFFFF_FFFF)?;
+    w(pmc::DEVICE_ENABLE, 0xFFFF_FFFF)?;
     std::thread::sleep(std::time::Duration::from_millis(50));
     let pmc_after = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
+    let dev_after = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0);
 
     tracing::info!(
         pmc_before = format_args!("{pmc_before:#010x}"),
         pmc_after = format_args!("{pmc_after:#010x}"),
-        "PMC glow plug"
+        dev_before = format_args!("{dev_before:#010x}"),
+        dev_after = format_args!("{dev_after:#010x}"),
+        "PMC glow plug (0x200 + 0x600)"
     );
 
-    // Reset PFIFO engine via PMC: clear bit 1, wait, then set bit 1.
-    // On Volta+, PFIFO requires a PMC engine reset cycle to accept ENABLE writes.
-    // Writing PFIFO_ENABLE directly doesn't work when the engine is in a stale state.
+    // Reset PFIFO engine via PMC: cycle the PFIFO bit in BOTH registers.
     {
         let pmc_cur = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-        w(pmc::ENABLE, pmc_cur & !2)?; // Clear PFIFO bit (bit 1)
+        let dev_cur = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0);
+        w(pmc::ENABLE, pmc_cur & !2)?;
+        w(pmc::DEVICE_ENABLE, dev_cur & !2)?;
         std::thread::sleep(std::time::Duration::from_millis(20));
-        w(pmc::ENABLE, pmc_cur | 2)?; // Set PFIFO bit
+        w(pmc::ENABLE, pmc_cur | 2)?;
+        w(pmc::DEVICE_ENABLE, dev_cur | 2)?;
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let readback = bar0.read_u32(pmc::ENABLE).unwrap_or(0xDEAD);
-        tracing::debug!(
-            readback = format_args!("{readback:#010x}"),
+        let rb_200 = bar0.read_u32(pmc::ENABLE).unwrap_or(0xDEAD);
+        let rb_600 = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0xDEAD);
+        tracing::info!(
+            rb_200 = format_args!("{rb_200:#010x}"),
+            rb_600 = format_args!("{rb_600:#010x}"),
             "PMC PFIFO reset cycle"
         );
     }
 
-    // Initialize PFIFO.
+    // Initialize PFIFO — verify the enable write takes effect.
+    // If PRIV_RING is still partially faulted, the write may be dropped.
     let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
     w(pfifo::ENABLE, 0)?;
     std::thread::sleep(std::time::Duration::from_millis(10));
     w(pfifo::ENABLE, 1)?;
     std::thread::sleep(std::time::Duration::from_millis(50));
-    let readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
-    tracing::debug!(
-        pfifo_en = format_args!("{pfifo_en:#010x}"),
-        readback = format_args!("{readback:#010x}"),
-        "PFIFO toggled 0→1"
+    let mut readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+
+    if readback == 0 {
+        tracing::warn!("PFIFO_ENABLE=0 after first write — retrying with PRI fault re-clear");
+        let priv_st = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
+        if priv_st != 0 {
+            for _ in 0..5 {
+                w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                if bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0) == 0 {
+                    break;
+                }
+            }
+        }
+        w(pfifo::ENABLE, 1)?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+    }
+    tracing::info!(
+        pfifo_before = format_args!("{pfifo_en:#010x}"),
+        pfifo_after = format_args!("{readback:#010x}"),
+        "PFIFO enable"
     );
 
     // Discover PBDMAs and their runlist assignments.
@@ -290,8 +329,10 @@ pub(super) fn setup_bar2_page_table(bar0: &MappedBar) -> DriverResult<()> {
     w(pm + BAR2_PD1_OFF as usize + 4, (pd1_pde >> 32) as u32)?;
 
     // ── PD0[0] → SPT (dual entry: lo=small PT, hi=large PT) ────────
+    // PD0 dual PDEs require bit 4 (SPT_PRESENT) — without it the MMU
+    // ignores the page table pointer entirely.
     let spt_abs = BAR2_VRAM_BASE + BAR2_SPT_OFF;
-    let pd0_small_pde = ((spt_abs >> 4) as u64) | (1_u64 << 1);
+    let pd0_small_pde = ((spt_abs >> 4) as u64) | (1_u64 << 1) | (1_u64 << 4);
     // PD0 entry 0, bytes [0:7] = small page PDE
     w(pm + BAR2_PD0_OFF as usize, pd0_small_pde as u32)?;
     w(pm + BAR2_PD0_OFF as usize + 4, (pd0_small_pde >> 32) as u32)?;

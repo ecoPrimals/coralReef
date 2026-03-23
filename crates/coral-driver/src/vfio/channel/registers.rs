@@ -107,6 +107,10 @@ pub(crate) mod pmc {
     /// Master engine enable — write `0xFFFF_FFFF` to un-gate all clock domains.
     /// After readback, bits that remained 1 correspond to present engines.
     pub const ENABLE: usize = 0x0000_0200;
+    /// GP100+ device-level engine enable — some engines (incl. PFIFO on Volta)
+    /// are controlled here instead of at 0x200. nouveau `gp100_mc_init()` writes
+    /// both 0x200 and 0x600 with 0xFFFFFFFF.
+    pub const DEVICE_ENABLE: usize = 0x0000_0600;
     /// PBDMA master enable — set bit N to enable PBDMA N.
     #[expect(dead_code, reason = "kept for hardware documentation completeness")]
     pub const PBDMA_ENABLE: usize = 0x0000_0204;

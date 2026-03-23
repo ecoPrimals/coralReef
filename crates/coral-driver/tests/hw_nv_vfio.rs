@@ -37,6 +37,20 @@ mod tests {
     use coral_driver::nv::NvVfioComputeDevice;
     use coral_driver::{ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
+    fn init_tracing() {
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::from_default_env(),
+                )
+                .with_test_writer()
+                .try_init()
+                .ok();
+        });
+    }
+
     fn vfio_bdf() -> String {
         std::env::var("CORALREEF_VFIO_BDF")
             .expect("set CORALREEF_VFIO_BDF=0000:XX:XX.X to run VFIO tests")
@@ -60,6 +74,7 @@ mod tests {
     /// Open VFIO device — primary path: get fds from ember via SCM_RIGHTS.
     /// Fallback: open /dev/vfio/* directly (only works without ember).
     fn open_vfio() -> NvVfioComputeDevice {
+        init_tracing();
         let bdf = vfio_bdf();
         let sm = vfio_sm();
         let cc = sm_to_compute_class(sm);
