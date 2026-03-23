@@ -70,41 +70,35 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         );
     }
 
-    // Glow plug — enable all engines in PMC.
-    // GP100+/Volta uses DEVICE_ENABLE (0x600) in addition to ENABLE (0x200).
-    // Some engines (incl. PFIFO) are gated by 0x600, not 0x200.
+    // Glow plug — enable all engines in PMC_ENABLE (0x200).
+    // NB: DEVICE_ENABLE (0x600) is NOT present on GV100 (returns 0xBAD00200
+    // PBUS timeout). Do not write it.
     let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-    let dev_before = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0);
     w(pmc::ENABLE, 0xFFFF_FFFF)?;
-    w(pmc::DEVICE_ENABLE, 0xFFFF_FFFF)?;
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(10));
     let pmc_after = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-    let dev_after = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0);
-
     tracing::info!(
         pmc_before = format_args!("{pmc_before:#010x}"),
         pmc_after = format_args!("{pmc_after:#010x}"),
-        dev_before = format_args!("{dev_before:#010x}"),
-        dev_after = format_args!("{dev_after:#010x}"),
-        "PMC glow plug (0x200 + 0x600)"
+        "PMC glow plug"
     );
 
-    // Reset PFIFO engine via PMC: cycle the PFIFO bit in BOTH registers.
+    // PMC-level PFIFO reset: bit 8 per gk104_mc_reset (NOT bit 1).
+    // On GV100, bit 1 of PMC_ENABLE is not the PFIFO engine control.
+    // nouveau's gk104_mc_reset uses device-specific engine→bit mappings;
+    // for PFIFO (NVKM_ENGINE_FIFO) the bit is 8.
     {
         let pmc_cur = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-        let dev_cur = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0);
-        w(pmc::ENABLE, pmc_cur & !2)?;
-        w(pmc::DEVICE_ENABLE, dev_cur & !2)?;
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        w(pmc::ENABLE, pmc_cur | 2)?;
-        w(pmc::DEVICE_ENABLE, dev_cur | 2)?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let rb_200 = bar0.read_u32(pmc::ENABLE).unwrap_or(0xDEAD);
-        let rb_600 = bar0.read_u32(pmc::DEVICE_ENABLE).unwrap_or(0xDEAD);
+        const PFIFO_BIT: u32 = 1 << 8;
+        w(pmc::ENABLE, pmc_cur & !PFIFO_BIT)?;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        w(pmc::ENABLE, pmc_cur | PFIFO_BIT)?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let rb = bar0.read_u32(pmc::ENABLE).unwrap_or(0xDEAD);
         tracing::info!(
-            rb_200 = format_args!("{rb_200:#010x}"),
-            rb_600 = format_args!("{rb_600:#010x}"),
-            "PMC PFIFO reset cycle"
+            pmc_cur = format_args!("{pmc_cur:#010x}"),
+            pmc_after = format_args!("{rb:#010x}"),
+            "PMC PFIFO reset (bit 8)"
         );
     }
 
@@ -138,6 +132,66 @@ pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
         pfifo_after = format_args!("{readback:#010x}"),
         "PFIFO enable"
     );
+
+    let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
+
+    // Preempt ALL active runlists to clear the scheduler's stale channel
+    // table from nouveau's previous session. Without this, the scheduler
+    // may try to context-switch to channels that no longer exist.
+    {
+        let cur_map = r(pfifo::PBDMA_MAP);
+        let mut rl_mask: u32 = 0;
+        let mut seq = 0_usize;
+        for pid in 0..32_usize {
+            if cur_map & (1 << pid) == 0 {
+                continue;
+            }
+            let rl = r(0x2390 + seq * 4);
+            if rl < 32 {
+                rl_mask |= 1 << rl;
+            }
+            seq += 1;
+        }
+        if rl_mask != 0 {
+            w(pfifo::INTR, 0xFFFF_FFFF)?;
+            w(pfifo::GV100_PREEMPT, rl_mask)?;
+            let mut got_ack = false;
+            for _ in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+                let intr = r(pfifo::INTR);
+                if intr & pfifo::INTR_RL_COMPLETE != 0 {
+                    w(pfifo::INTR, pfifo::INTR_RL_COMPLETE)?;
+                    got_ack = true;
+                    break;
+                }
+            }
+            tracing::info!(rl_mask = format_args!("{rl_mask:#010x}"), got_ack, "runlist preempt");
+        }
+    }
+
+    // Force-clear PBDMA registers to remove nouveau's stale channel context.
+    // This mirrors the diagnostic runner's Phase 4 — without it, PBDMAs may
+    // attempt DMA fetches from nouveau's now-unmapped GPFIFO addresses.
+    {
+        let cur_map = r(pfifo::PBDMA_MAP);
+        for pid in 0..32_usize {
+            if cur_map & (1 << pid) == 0 {
+                continue;
+            }
+            let b = 0x0004_0000 + pid * 0x2000;
+            for off in (0x000..=0x1FC).step_by(4) {
+                let _ = w(b + off, 0);
+            }
+            // Explicitly clear key state registers after the bulk zero.
+            for off in [0x040, 0x044, 0x050, 0x054, 0x058, 0x0B0, 0x0D0, 0x0D4, 0x0C0, 0x13C] {
+                let _ = w(b + off, 0);
+            }
+            let _ = w(b + 0x108, 0xFFFF_FFFF); // clear pending interrupts
+            let _ = w(b + 0x110, 0);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        tracing::info!("PBDMA registers force-cleared");
+    }
 
     // Discover PBDMAs and their runlist assignments.
     let pbdma_map = bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
