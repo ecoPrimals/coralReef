@@ -637,4 +637,45 @@ role = "npu"
         assert_eq!(config.device[2].boot_personality, "akida-pcie");
         assert_eq!(config.device[2].role.as_deref(), Some("npu"));
     }
+
+    #[test]
+    fn device_config_role_helpers() {
+        let display = DeviceConfig {
+            bdf: "0000:01:00.0".into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: Some("display".into()),
+            oracle_dump: None,
+            shared: None,
+        };
+        assert!(display.is_display());
+        assert!(!display.is_shared());
+        assert!(display.is_protected());
+
+        let shared = DeviceConfig {
+            role: Some("shared".into()),
+            ..display.clone()
+        };
+        assert!(!shared.is_display());
+        assert!(shared.is_shared());
+        assert!(shared.is_protected());
+
+        let compute = DeviceConfig {
+            role: Some("compute".into()),
+            ..display
+        };
+        assert!(!compute.is_display());
+        assert!(!compute.is_shared());
+        assert!(!compute.is_protected());
+    }
+
+    #[test]
+    fn shared_quota_default_compute_mode() {
+        let q = SharedQuota::default();
+        assert_eq!(q.compute_mode, "default");
+        assert_eq!(q.compute_priority, 0);
+        assert!(q.power_limit_w.is_none());
+        assert!(q.vram_budget_mib.is_none());
+    }
 }

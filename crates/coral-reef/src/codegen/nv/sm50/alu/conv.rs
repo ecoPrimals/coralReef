@@ -48,6 +48,43 @@ impl SM50Op for OpF2F {
     }
 }
 
+impl SM50Op for OpFRnd {
+    fn legalize(&mut self, b: &mut LegalizeBuilder) {
+        use RegFile::GPR;
+        b.copy_alu_src_if_f20_overflow(&mut self.src, GPR, SrcType::ALU);
+    }
+
+    fn encode(&self, e: &mut SM50Encoder<'_>) {
+        let src = self.src.clone().without_swizzle();
+        match &src.reference {
+            SrcRef::Zero | SrcRef::Reg(_) => {
+                e.set_opcode(0x5ca8);
+                e.set_reg_fmod_src(20..28, 49, 45, &src);
+            }
+            SrcRef::Imm32(imm32) => {
+                e.set_opcode(0x38a8);
+                e.set_src_imm_i20(20..39, 56, *imm32);
+                assert!(src.is_unmodified());
+            }
+            SrcRef::CBuf(_) => {
+                e.set_opcode(0x4ca8);
+                e.set_cb_fmod_src(20..39, 49, 45, &src);
+            }
+            src_ref => crate::codegen::ice!("Invalid frnd src: {src_ref}"),
+        }
+
+        e.set_field(8..10, (self.dst_type.bits() / 8).ilog2());
+        e.set_field(10..12, (self.src_type.bits() / 8).ilog2());
+
+        e.set_rnd_mode(39..41, self.rnd_mode);
+        e.set_bit(42, true);
+        e.set_bit(44, self.ftz);
+        e.set_bit(50, false);
+
+        e.set_dst(&self.dst);
+    }
+}
+
 impl SM50Op for OpF2I {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;

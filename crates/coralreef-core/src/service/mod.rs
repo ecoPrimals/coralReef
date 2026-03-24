@@ -633,4 +633,81 @@ mod tests {
         assert_eq!(roundtrip.version.as_ref(), health.version.as_ref());
         assert_eq!(roundtrip.supported_archs, health.supported_archs);
     }
+
+    #[test]
+    fn test_compile_wgsl_fp64_strategy_software_overrides_bool() {
+        let req = CompileWgslRequest {
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
+            arch: "sm_70".to_owned(),
+            opt_level: 2,
+            fp64_software: false,
+            fp64_strategy: Some("software".to_owned()),
+            fma_policy: None,
+        };
+        let result = handle_compile_wgsl(&req);
+        assert!(
+            result.is_ok(),
+            "fp64_strategy=software should force software path: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_fp64_strategy_native_uses_fp64_software_flag() {
+        let req = CompileWgslRequest {
+            wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
+            arch: "sm_70".to_owned(),
+            opt_level: 2,
+            fp64_software: true,
+            fp64_strategy: Some("native".to_owned()),
+            fma_policy: Some("fused".to_owned()),
+        };
+        let result = handle_compile_wgsl(&req);
+        assert!(result.is_ok(), "native strategy should compile: {result:?}");
+    }
+
+    #[test]
+    fn test_handle_compile_spirv_amd_rdna2_valid_module() {
+        let wgsl = "@compute @workgroup_size(1) fn main() {}";
+        let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::default(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .expect("module should validate");
+        let words =
+            naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
+                .expect("SPIR-V write should succeed");
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let result = handle_compile_spirv(bytes.as_slice(), "rdna2", 2, false);
+        assert!(result.is_ok(), "SPIR-V to RDNA2 should succeed: {result:?}");
+        let resp = result.expect("amd compile");
+        assert_eq!(resp.arch.as_deref(), Some("rdna2"));
+    }
+
+    #[test]
+    fn test_handle_compile_request_spirv_words_amd() {
+        let wgsl = "@compute @workgroup_size(1) fn main() {}";
+        let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::default(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .expect("module should validate");
+        let words =
+            naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
+                .expect("SPIR-V write should succeed");
+        let req = CompileRequest {
+            spirv_words: words,
+            arch: "gfx1100".to_owned(),
+            opt_level: 1,
+            fp64_software: false,
+        };
+        let result = handle_compile(&req);
+        assert!(
+            result.is_ok(),
+            "CompileRequest path for AMD arch should work: {result:?}"
+        );
+    }
 }

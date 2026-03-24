@@ -24,16 +24,22 @@ use crate::vfio::device::MappedBar;
 /// FECS firmware blobs loaded from disk.
 #[derive(Debug)]
 pub struct FecsFirmware {
+    /// `fecs_bl.bin`: IMEM bootloader loaded at offset 0 (entry via `BOOTVEC`).
     pub bootloader: Vec<u8>,
+    /// `fecs_inst.bin`: main IMEM image placed after the 256-byte-aligned bootloader block.
     pub inst: Vec<u8>,
+    /// `fecs_data.bin`: DMEM image loaded at DMEM offset 0.
     pub data: Vec<u8>,
 }
 
 /// GPCCS firmware blobs loaded from disk.
 #[derive(Debug)]
 pub struct GpccsFirmware {
+    /// `gpccs_bl.bin`: IMEM bootloader at offset 0.
     pub bootloader: Vec<u8>,
+    /// `gpccs_inst.bin`: main IMEM image after the bootloader block.
     pub inst: Vec<u8>,
+    /// `gpccs_data.bin`: DMEM image at offset 0.
     pub data: Vec<u8>,
 }
 
@@ -63,28 +69,38 @@ impl GpccsFirmware {
 
 fn read_firmware(base_dir: &str, filename: &str) -> DriverResult<Vec<u8>> {
     let path = format!("{base_dir}/{filename}");
-    std::fs::read(&path).map_err(|e| {
-        DriverError::DeviceNotFound(format!("{path}: {e}").into())
-    })
+    std::fs::read(&path).map_err(|e| DriverError::DeviceNotFound(format!("{path}: {e}").into()))
 }
 
 /// Result of a falcon boot attempt.
 #[derive(Debug)]
 pub struct FalconBootResult {
+    /// Falcon label (`FECS` or `GPCCS`).
     pub name: &'static str,
+    /// `CPUCTL` after boot polling (halt/reset/start state).
     pub cpuctl_after: u32,
+    /// `MAILBOX0` at completion (non-zero signals firmware handshake / ready).
     pub mailbox0: u32,
+    /// `MAILBOX1` at completion (extended status from firmware).
     pub mailbox1: u32,
+    /// True if mailbox indicates a running falcon (not halted while holding reset).
     pub running: bool,
+    /// Time from `STARTCPU` to first mailbox response or timeout, in microseconds.
     pub boot_time_us: u64,
 }
 
 impl std::fmt::Display for FalconBootResult {
+    /// Single-line summary of post-boot falcon registers and timing.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
-            f, "{}: cpuctl={:#010x} mb0={:#010x} mb1={:#010x} running={} ({}us)",
-            self.name, self.cpuctl_after, self.mailbox0, self.mailbox1,
-            self.running, self.boot_time_us
+            f,
+            "{}: cpuctl={:#010x} mb0={:#010x} mb1={:#010x} running={} ({}us)",
+            self.name,
+            self.cpuctl_after,
+            self.mailbox0,
+            self.mailbox1,
+            self.running,
+            self.boot_time_us
         )
     }
 }
@@ -95,8 +111,16 @@ impl std::fmt::Display for FalconBootResult {
 /// 1. Write IMEMC with auto-increment and target address
 /// 2. Set IMEMT tag for each 256-byte block
 /// 3. Write IMEMD with 32-bit words of firmware data
-pub(super) fn falcon_upload_imem(bar0: &MappedBar, base: usize, addr: u32, data: &[u8], secure: bool) {
-    let w = |off: usize, val: u32| { let _ = bar0.write_u32(base + off, val); };
+pub(super) fn falcon_upload_imem(
+    bar0: &MappedBar,
+    base: usize,
+    addr: u32,
+    data: &[u8],
+    secure: bool,
+) {
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
 
     let sec_flag: u32 = if secure { 0x1000_0000 } else { 0 };
     w(falcon::IMEMC, 0x0100_0000 | sec_flag | addr);
@@ -122,7 +146,9 @@ pub(super) fn falcon_upload_imem(bar0: &MappedBar, base: usize, addr: u32, data:
 
 /// Upload data to a falcon's DMEM via the DMEMC/DMEMD port registers.
 pub(super) fn falcon_upload_dmem(bar0: &MappedBar, base: usize, addr: u32, data: &[u8]) {
-    let w = |off: usize, val: u32| { let _ = bar0.write_u32(base + off, val); };
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
 
     w(falcon::DMEMC, 0x0100_0000 | addr);
 
@@ -179,7 +205,8 @@ pub fn falcon_boot(
 
     if cpuctl & falcon::CPUCTL_HRESET == 0 && cpuctl != 0xDEAD_DEAD {
         tracing::warn!(
-            name, cpuctl = format!("{cpuctl:#010x}"),
+            name,
+            cpuctl = format!("{cpuctl:#010x}"),
             "falcon not in HRESET — forcing halt before upload"
         );
         w(falcon::CPUCTL, falcon::CPUCTL_HRESET)?;
@@ -187,13 +214,19 @@ pub fn falcon_boot(
     }
 
     // Upload bootloader to IMEM starting at address 0.
-    tracing::debug!(name, bytes = bootloader.len(), "uploading bootloader to IMEM");
+    tracing::debug!(
+        name,
+        bytes = bootloader.len(),
+        "uploading bootloader to IMEM"
+    );
     falcon_upload_imem(bar0, base, 0, bootloader, false);
 
     // Upload main instruction code aligned to 256-byte boundary after bootloader.
     let inst_offset = bootloader.len().div_ceil(256) * 256;
     tracing::debug!(
-        name, bytes = inst.len(), offset = inst_offset,
+        name,
+        bytes = inst.len(),
+        offset = inst_offset,
         "uploading instruction code to IMEM"
     );
     falcon_upload_imem(bar0, base, inst_offset as u32, inst, false);
@@ -244,7 +277,8 @@ pub fn falcon_boot(
         if result.mailbox0 != 0 {
             result.running = !halted && !hreset;
             tracing::info!(
-                name, boot_time_us = result.boot_time_us,
+                name,
+                boot_time_us = result.boot_time_us,
                 mailbox0 = format!("{:#010x}", result.mailbox0),
                 cpuctl = format!("{:#010x}", result.cpuctl_after),
                 "falcon boot: mailbox response received"
@@ -255,7 +289,8 @@ pub fn falcon_boot(
         if halted && !hreset {
             result.running = false;
             tracing::warn!(
-                name, boot_time_us = result.boot_time_us,
+                name,
+                boot_time_us = result.boot_time_us,
                 cpuctl = format!("{:#010x}", result.cpuctl_after),
                 "falcon boot: halted without mailbox response"
             );
@@ -264,7 +299,8 @@ pub fn falcon_boot(
 
         if start.elapsed() > timeout {
             tracing::error!(
-                name, boot_time_us = result.boot_time_us,
+                name,
+                boot_time_us = result.boot_time_us,
                 cpuctl = format!("{:#010x}", result.cpuctl_after),
                 mailbox0 = format!("{:#010x}", result.mailbox0),
                 "falcon boot: timeout waiting for response"
@@ -279,7 +315,9 @@ pub fn falcon_boot(
 /// Boot FECS falcon from firmware files on disk.
 pub fn boot_fecs(bar0: &MappedBar, chip: &str) -> DriverResult<FalconBootResult> {
     let fw = FecsFirmware::load(chip)?;
-    let hwcfg = bar0.read_u32(falcon::FECS_BASE + falcon::HWCFG).unwrap_or(0);
+    let hwcfg = bar0
+        .read_u32(falcon::FECS_BASE + falcon::HWCFG)
+        .unwrap_or(0);
     let secure = hwcfg & falcon::HWCFG_SECURITY_MODE != 0;
 
     if secure {

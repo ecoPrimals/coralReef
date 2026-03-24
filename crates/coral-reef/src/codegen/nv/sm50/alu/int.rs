@@ -41,6 +41,21 @@ impl SM50Op for OpBfe {
     }
 }
 
+impl SM50Op for OpBRev {
+    fn legalize(&mut self, b: &mut LegalizeBuilder) {
+        use RegFile::GPR;
+        b.copy_alu_src_if_i20_overflow(&mut self.src, GPR, SrcType::ALU);
+    }
+
+    fn encode(&self, e: &mut SM50Encoder<'_>) {
+        e.set_opcode(0x3800);
+        e.set_src_imm_i20(20..39, 56, 0x2000);
+        e.set_bit(40, true);
+        e.set_reg_src(8..16, &self.src);
+        e.set_dst(&self.dst);
+    }
+}
+
 impl SM50Op for OpFlo {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;

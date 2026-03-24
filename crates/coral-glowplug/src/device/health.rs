@@ -64,10 +64,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     .into(),
             });
         }
-        let holder = self.vfio_holder.as_ref().ok_or_else(|| DeviceError::VfioOpen {
-            bdf: self.bdf.clone(),
-            reason: "no VFIO holder — register writes require VFIO personality".into(),
-        })?;
+        let holder = self
+            .vfio_holder
+            .as_ref()
+            .ok_or_else(|| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — register writes require VFIO personality".into(),
+            })?;
         holder
             .bar0
             .write_u32(offset, value)
@@ -106,7 +109,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
         max_channels: usize,
     ) -> Result<coral_driver::vfio::channel::mmu_oracle::PageTableDump, String> {
         let holder = self.vfio_holder.as_ref().ok_or_else(|| {
-            format!("device {} has no VFIO holder — cannot capture oracle", self.bdf)
+            format!(
+                "device {} has no VFIO holder — cannot capture oracle",
+                self.bdf
+            )
         })?;
         coral_driver::vfio::channel::mmu_oracle::capture_page_tables_via_mapped_bar(
             &self.bdf,
@@ -160,10 +166,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
         const PRAMIN_SIZE: usize = 0x0001_0000;
 
         let count = count.min(4096);
-        let holder = self.vfio_holder.as_ref().ok_or_else(|| DeviceError::VfioOpen {
-            bdf: self.bdf.clone(),
-            reason: "no VFIO holder — PRAMIN access requires VFIO personality".into(),
-        })?;
+        let holder = self
+            .vfio_holder
+            .as_ref()
+            .ok_or_else(|| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — PRAMIN access requires VFIO personality".into(),
+            })?;
 
         let saved_window = holder.bar0.read_u32(BAR0_WINDOW).unwrap_or(0);
         let window_base = (vram_offset >> 16) as u32;
@@ -178,12 +187,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
             let pramin_off = PRAMIN_BASE + (byte_off % PRAMIN_SIZE);
 
             if needed_window != current_window {
-                holder.bar0.write_u32(BAR0_WINDOW, needed_window).map_err(|e| {
-                    DeviceError::VfioOpen {
+                holder
+                    .bar0
+                    .write_u32(BAR0_WINDOW, needed_window)
+                    .map_err(|e| DeviceError::VfioOpen {
                         bdf: self.bdf.clone(),
                         reason: format!("BAR0_WINDOW write: {e}"),
-                    }
-                })?;
+                    })?;
                 current_window = needed_window;
             }
 
@@ -210,10 +220,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
         const PRAMIN_BASE: usize = 0x0070_0000;
         const PRAMIN_SIZE: usize = 0x0001_0000;
 
-        let holder = self.vfio_holder.as_ref().ok_or_else(|| DeviceError::VfioOpen {
-            bdf: self.bdf.clone(),
-            reason: "no VFIO holder — PRAMIN access requires VFIO personality".into(),
-        })?;
+        let holder = self
+            .vfio_holder
+            .as_ref()
+            .ok_or_else(|| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — PRAMIN access requires VFIO personality".into(),
+            })?;
 
         let saved_window = holder.bar0.read_u32(BAR0_WINDOW).unwrap_or(0);
         let window_base = (vram_offset >> 16) as u32;
@@ -226,19 +239,26 @@ impl<S: SysfsOps> DeviceSlot<S> {
             let pramin_off = PRAMIN_BASE + (byte_off % PRAMIN_SIZE);
 
             if needed_window != current_window {
-                holder.bar0.write_u32(BAR0_WINDOW, needed_window).map_err(|e| {
-                    DeviceError::VfioOpen {
+                holder
+                    .bar0
+                    .write_u32(BAR0_WINDOW, needed_window)
+                    .map_err(|e| DeviceError::VfioOpen {
                         bdf: self.bdf.clone(),
                         reason: format!("BAR0_WINDOW write: {e}"),
-                    }
-                })?;
+                    })?;
                 current_window = needed_window;
             }
 
-            holder.bar0.write_u32(pramin_off, val).map_err(|e| DeviceError::VfioOpen {
-                bdf: self.bdf.clone(),
-                reason: format!("PRAMIN write at vram {:#010x}: {e}", vram_offset + (i * 4) as u64),
-            })?;
+            holder
+                .bar0
+                .write_u32(pramin_off, val)
+                .map_err(|e| DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: format!(
+                        "PRAMIN write at vram {:#010x}: {e}",
+                        vram_offset + (i * 4) as u64
+                    ),
+                })?;
         }
 
         let _ = holder.bar0.write_u32(BAR0_WINDOW, saved_window);

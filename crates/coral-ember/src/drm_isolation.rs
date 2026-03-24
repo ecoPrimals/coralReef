@@ -116,10 +116,8 @@ pub fn ensure_drm_isolation(devices: &[EmberDeviceConfig]) -> Vec<String> {
 /// Write content only if the file doesn't exist or has different content.
 /// Returns `Ok(true)` if written, `Ok(false)` if unchanged.
 fn write_if_changed(path: &str, content: &str) -> Result<bool, std::io::Error> {
-    if let Ok(existing) = std::fs::read_to_string(path) {
-        if existing == content {
-            return Ok(false);
-        }
+    if std::fs::read_to_string(path).is_ok_and(|existing| existing == content) {
+        return Ok(false);
     }
     if let Some(parent) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent)?;

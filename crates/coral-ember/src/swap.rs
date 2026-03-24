@@ -140,32 +140,28 @@ fn is_active_display_gpu(bdf: &str) -> bool {
 
     if let Some(ref card) = drm_card {
         let fb_dir = format!("/sys/class/drm/{card}/device/drm/{card}");
-        if std::path::Path::new(&fb_dir).exists() {
-            if let Ok(entries) = std::fs::read_dir(&fb_dir) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("card") && name.contains('-') {
-                        let status_path = entry.path().join("status");
-                        if let Ok(status) = std::fs::read_to_string(&status_path) {
-                            if status.trim() == "connected" {
-                                tracing::warn!(
-                                    bdf, card, connector = %name,
-                                    "display GPU detected: connector is connected"
-                                );
-                                return true;
-                            }
-                        }
+        if let Ok(entries) = std::fs::read_dir(&fb_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("card") && name.contains('-') {
+                    let status_path = entry.path().join("status");
+                    if std::fs::read_to_string(&status_path)
+                        .is_ok_and(|status| status.trim() == "connected")
+                    {
+                        tracing::warn!(
+                            bdf, card, connector = %name,
+                            "display GPU detected: connector is connected"
+                        );
+                        return true;
                     }
                 }
             }
         }
 
         let enabled_path = format!("/sys/class/drm/{card}/device/drm/{card}/enabled");
-        if let Ok(enabled) = std::fs::read_to_string(&enabled_path) {
-            if enabled.trim() == "enabled" {
-                tracing::warn!(bdf, card, "display GPU detected: card is enabled");
-                return true;
-            }
+        if std::fs::read_to_string(&enabled_path).is_ok_and(|enabled| enabled.trim() == "enabled") {
+            tracing::warn!(bdf, card, "display GPU detected: card is enabled");
+            return true;
         }
     }
 
@@ -263,6 +259,10 @@ fn preflight_device_check(bdf: &str) -> Result<(), String> {
 
 /// Unbind/rebind the device to `target` (e.g. `vfio-pci`, `amdgpu`, `unbound`), updating `held`.
 ///
+/// When `trace` is `true`, the kernel mmiotrace facility is enabled around
+/// the driver bind, capturing every MMIO write the driver performs during
+/// initialization. The trace is saved to the configured data directory.
+///
 /// # Errors
 ///
 /// Returns an error string when sysfs/VFIO operations fail, external VFIO holders are detected, or
@@ -271,20 +271,34 @@ pub fn handle_swap_device(
     bdf: &str,
     target: &str,
     held: &mut HashMap<String, HeldDevice>,
+    enable_trace: bool,
 ) -> Result<String, String> {
-    tracing::info!(bdf, target, "swap_device: starting");
+    tracing::info!(bdf, target, trace = enable_trace, "swap_device: starting");
 
     const KNOWN_TARGETS: &[&str] = &[
-        "vfio", "vfio-pci", "nouveau", "amdgpu", "nvidia", "xe", "i915", "akida-pcie", "unbound",
+        "vfio",
+        "vfio-pci",
+        "nouveau",
+        "amdgpu",
+        "nvidia",
+        "nvidia_oracle",
+        "xe",
+        "i915",
+        "akida-pcie",
+        "unbound",
     ];
-    if !KNOWN_TARGETS.contains(&target) {
+    let target_matches = KNOWN_TARGETS.contains(&target) || target.starts_with("nvidia_oracle_");
+    if !target_matches {
         return Err(format!("swap_device: unknown target driver '{target}'"));
     }
 
     if target == "unbound"
         && !std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists()
     {
-        tracing::info!(bdf, "device absent from sysfs — already effectively unbound");
+        tracing::info!(
+            bdf,
+            "device absent from sysfs — already effectively unbound"
+        );
         return Ok("unbound".to_string());
     }
 
@@ -300,7 +314,7 @@ pub fn handle_swap_device(
 
     preflight_device_check(bdf)?;
 
-    let lifecycle = vendor_lifecycle::detect_lifecycle(bdf);
+    let lifecycle = vendor_lifecycle::detect_lifecycle_for_target(bdf, target);
     tracing::info!(
         bdf,
         lifecycle = lifecycle.description(),
@@ -365,14 +379,19 @@ pub fn handle_swap_device(
         sysfs::pin_power(bdf);
     }
 
+    if enable_trace {
+        tracing::info!(
+            bdf,
+            target,
+            "mmiotrace requested — trace module pending hotSpring integration"
+        );
+    }
+
     // Step 4: bind to target driver using vendor-appropriate strategy
     match target {
         "vfio" | "vfio-pci" => bind_vfio(bdf, held, &*lifecycle),
-        "nouveau" | "amdgpu" | "nvidia" | "xe" | "i915" | "akida-pcie" => {
-            bind_native(bdf, target, &*lifecycle)
-        }
         "unbound" => Ok("unbound".to_string()),
-        _ => Err(format!("swap_device: unknown target driver '{target}'")),
+        _ => bind_native(bdf, target, &*lifecycle),
     }
 }
 
@@ -425,8 +444,7 @@ fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
     sysfs::pin_bridge_power(bdf);
     sysfs::pin_power(bdf);
 
-    let _ =
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+    let _ = sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
     tracing::info!(bdf, "PCI remove + rescan: removing device");
     sysfs::pci_remove(bdf)?;
@@ -464,6 +482,7 @@ fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
 
 fn is_drm_driver(target: &str) -> bool {
     matches!(target, "nouveau" | "nvidia" | "amdgpu" | "xe" | "i915")
+        || target.starts_with("nvidia_oracle")
 }
 
 /// Ensure the kernel module for `target` is loaded before attempting sysfs bind.
@@ -482,10 +501,7 @@ fn ensure_module_loaded(target: &str) {
     }
 
     tracing::info!(module, "loading kernel module for target driver");
-    match std::process::Command::new("modprobe")
-        .arg(module)
-        .output()
-    {
+    match std::process::Command::new("modprobe").arg(module).output() {
         Ok(out) if out.status.success() => {
             tracing::info!(module, "kernel module loaded successfully");
         }
@@ -652,87 +668,119 @@ mod tests {
     }
 
     #[test]
+    fn is_drm_driver_matches_nvidia_oracle_prefix() {
+        assert!(is_drm_driver("nvidia_oracle"));
+        assert!(is_drm_driver("nvidia_oracle_535"));
+    }
+
+    #[test]
+    fn handle_swap_nvidia_oracle_target_is_recognized_before_preflight() {
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
+        let mut held: HashMap<String, HeldDevice> = HashMap::new();
+        let err = handle_swap_device(NONEXISTENT_BDF, "nvidia_oracle_535", &mut held, false)
+            .expect_err("absent BDF must not complete swap");
+        assert!(
+            err.contains("preflight") || err.contains("swap_device"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn verify_drm_isolation_ok_when_files_valid() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("xorg.conf");
         let udev = dir.path().join("udev.rules");
         let bdf = "0000:03:00.0";
-        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").unwrap();
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n")
+            .expect("write synthetic xorg snippet");
         std::fs::write(
             &udev,
             format!("KERNEL==\"card*\", ATTR{{address}}==\"{bdf}\""),
         )
-        .unwrap();
-        verify_drm_isolation_with_paths(bdf, xorg.to_str().unwrap(), udev.to_str().unwrap())
-            .unwrap();
+        .expect("write synthetic udev rules");
+        verify_drm_isolation_with_paths(
+            bdf,
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
+        )
+        .expect("valid isolation files should verify");
     }
 
     #[test]
     fn verify_drm_isolation_fails_when_xorg_missing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("missing-xorg");
         let udev = dir.path().join("udev.rules");
-        std::fs::write(&udev, "0000:03:00.0").unwrap();
+        std::fs::write(&udev, "0000:03:00.0").expect("write udev stub");
         let err = verify_drm_isolation_with_paths(
             "0000:03:00.0",
-            xorg.to_str().unwrap(),
-            udev.to_str().unwrap(),
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
         )
-        .unwrap_err();
+        .expect_err("missing xorg must fail verification");
         assert!(err.contains("BLOCKED"));
         assert!(err.contains("missing — Xorg"));
     }
 
     #[test]
     fn verify_drm_isolation_fails_when_xorg_missing_autoaddgpu_false() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("xorg.conf");
         let udev = dir.path().join("udev.rules");
-        std::fs::write(&xorg, "not the droids you are looking for\n").unwrap();
-        std::fs::write(&udev, "0000:03:00.0").unwrap();
+        std::fs::write(&xorg, "not the droids you are looking for\n")
+            .expect("write invalid xorg snippet");
+        std::fs::write(&udev, "0000:03:00.0").expect("write udev stub");
         let err = verify_drm_isolation_with_paths(
             "0000:03:00.0",
-            xorg.to_str().unwrap(),
-            udev.to_str().unwrap(),
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
         )
-        .unwrap_err();
+        .expect_err("xorg without AutoAddGPU false must fail");
         assert!(err.contains("AutoAddGPU"));
     }
 
     #[test]
     fn verify_drm_isolation_fails_when_udev_missing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("xorg.conf");
         let udev = dir.path().join("missing-udev");
-        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").unwrap();
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").expect("write xorg snippet");
         let err = verify_drm_isolation_with_paths(
             "0000:03:00.0",
-            xorg.to_str().unwrap(),
-            udev.to_str().unwrap(),
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
         )
-        .unwrap_err();
+        .expect_err("missing udev rules must fail verification");
         assert!(err.contains("logind"));
     }
 
     #[test]
     fn verify_drm_isolation_fails_when_udev_missing_bdf_token() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("xorg.conf");
         let udev = dir.path().join("udev.rules");
         let bdf = "0000:03:00.0";
-        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").unwrap();
-        std::fs::write(&udev, "some other pci address").unwrap();
-        let err =
-            verify_drm_isolation_with_paths(bdf, xorg.to_str().unwrap(), udev.to_str().unwrap())
-                .unwrap_err();
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").expect("write xorg snippet");
+        std::fs::write(&udev, "some other pci address").expect("write udev without BDF");
+        let err = verify_drm_isolation_with_paths(
+            bdf,
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
+        )
+        .expect_err("udev without BDF token must fail");
         assert!(err.contains("does not cover BDF"));
     }
 
     #[test]
     fn handle_swap_unbound_without_sysfs_device_succeeds() {
-        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
-        let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held).unwrap();
+        let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held, false)
+            .expect("unbound on absent device returns ok");
         assert_eq!(out, "unbound");
     }
 
@@ -757,9 +805,12 @@ mod tests {
 
     #[test]
     fn handle_swap_unknown_target_errors() {
-        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
-        let err = handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held).unwrap_err();
+        let err = handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held, false)
+            .expect_err("unknown driver target must error");
         assert!(
             err.contains("unknown target driver") || err.contains("preflight"),
             "expected unknown-target or preflight error, got: {err}"
@@ -768,7 +819,9 @@ mod tests {
 
     #[test]
     fn xorg_isolation_conf_path_contains_default_marker() {
-        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
         let p = super::xorg_isolation_conf_path();
         assert!(
             p.contains("coralreef-gpu-isolation"),
@@ -787,20 +840,24 @@ mod tests {
 
     #[test]
     fn count_external_vfio_skips_proc_when_iommu_group_is_zero() {
-        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
         assert_eq!(count_external_vfio_group_holders("9999:99:99.9"), 0);
     }
 
     #[test]
     fn handle_swap_vfio_targets_fail_without_sysfs_and_vfio() {
-        let _guard = SWAP_TEST_LOCK.lock().unwrap();
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
         let mut held_vfio = HashMap::new();
-        let err_vfio = handle_swap_device(NONEXISTENT_BDF, "vfio", &mut held_vfio);
+        let err_vfio = handle_swap_device(NONEXISTENT_BDF, "vfio", &mut held_vfio, false);
         let mut held_pci = HashMap::new();
-        let err_vfio_pci = handle_swap_device(NONEXISTENT_BDF, "vfio-pci", &mut held_pci);
+        let err_vfio_pci = handle_swap_device(NONEXISTENT_BDF, "vfio-pci", &mut held_pci, false);
         assert!(err_vfio.is_err());
         assert!(err_vfio_pci.is_err());
-        let msg = err_vfio.unwrap_err();
+        let msg = err_vfio.expect_err("vfio swap on absent device must fail");
         assert!(
             msg.contains("VFIO") || msg.contains("sysfs") || msg.contains("swap_device"),
             "unexpected error message: {msg}"

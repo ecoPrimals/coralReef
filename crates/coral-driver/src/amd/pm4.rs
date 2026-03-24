@@ -171,9 +171,9 @@ fn emit_cache_invalidate(pm4: &mut Vec<u32>) {
     pm4.push((1 << 23) | (1 << 24));
     pm4.push(0xFFFF_FFFF); // COHER_SIZE (entire range)
     pm4.push(0x0000_00FF); // COHER_SIZE_HI
-    pm4.push(0);           // COHER_BASE_LO
-    pm4.push(0);           // COHER_BASE_HI
-    pm4.push(10);          // POLL_INTERVAL
+    pm4.push(0); // COHER_BASE_LO
+    pm4.push(0); // COHER_BASE_HI
+    pm4.push(10); // POLL_INTERVAL
 }
 
 /// Emit a PM4 `ACQUIRE_MEM` packet to flush the GPU L2 cache.
@@ -188,9 +188,9 @@ fn emit_acquire_mem(pm4: &mut Vec<u32>) {
     pm4.push((1 << 18) | (1 << 23));
     pm4.push(0xFFFF_FFFF); // COHER_SIZE (entire range)
     pm4.push(0x0000_00FF); // COHER_SIZE_HI
-    pm4.push(0);           // COHER_BASE_LO
-    pm4.push(0);           // COHER_BASE_HI
-    pm4.push(10);          // POLL_INTERVAL
+    pm4.push(0); // COHER_BASE_LO
+    pm4.push(0); // COHER_BASE_HI
+    pm4.push(10); // POLL_INTERVAL
 }
 
 /// Emit a PM4 NOP packet (used for IB padding).
@@ -234,7 +234,11 @@ const fn compute_resource_limits(info: &ShaderInfo) -> u32 {
     let waves_per_threadgroup = threads_per_wg.div_ceil(info.wave_size);
 
     // SIMD_DEST_CNTL: round-robin when waves_per_threadgroup is multiple of 4
-    let simd_dest = if waves_per_threadgroup % 4 == 0 { 1_u32 } else { 0 };
+    let simd_dest = if waves_per_threadgroup.is_multiple_of(4) {
+        1_u32
+    } else {
+        0
+    };
 
     // MI50 (Vega 20): 60 CUs, 4 SEs → 15 CUs/SE, 4 SIMDs/CU, 10 waves/SIMD
     // max_waves_per_sh = 15 * 4 * 10 = 600
@@ -482,5 +486,102 @@ mod tests {
         let hi = (va >> 32) as u32;
         assert_eq!(lo, 0x9ABC_DEF0);
         assert_eq!(hi, 0x1234_5678);
+    }
+
+    #[test]
+    fn compute_resource_limits_waves_multiple_of_four_sets_simd_dest() {
+        let info = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            wave_size: 64,
+            workgroup: [256, 1, 1],
+        };
+        let lim = compute_resource_limits(&info);
+        assert_eq!(
+            (lim >> 4) & 1,
+            1,
+            "SIMD_DEST_CNTL when waves/threadgroup % 4 == 0"
+        );
+        assert_eq!((lim >> 12) & 0xFFFF, 600);
+    }
+
+    #[test]
+    fn compute_resource_limits_waves_not_multiple_of_four_clears_simd_dest() {
+        let info = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            wave_size: 64,
+            workgroup: [64, 1, 1],
+        };
+        let lim = compute_resource_limits(&info);
+        assert_eq!((lim >> 4) & 1, 0);
+    }
+
+    #[test]
+    fn pm4_dispatch_initiator_wave32_sets_cs_w32_en() {
+        let info = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            wave_size: 32,
+            workgroup: [32, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(1), &info, &[]);
+        let dispatch_start = pm4
+            .iter()
+            .position(|&w| (w >> 8) & 0xFF == PM4_DISPATCH_DIRECT && w >> 30 == 3)
+            .expect("DISPATCH_DIRECT header");
+        let initiator = pm4[dispatch_start + 4];
+        assert_ne!(initiator & (1 << 15), 0, "CS_W32_EN for wave32");
+    }
+
+    #[test]
+    fn pm4_dispatch_initiator_wave64_clears_cs_w32_en() {
+        let info = ShaderInfo {
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            wave_size: 64,
+            workgroup: [64, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(1), &info, &[]);
+        let dispatch_start = pm4
+            .iter()
+            .position(|&w| (w >> 8) & 0xFF == PM4_DISPATCH_DIRECT && w >> 30 == 3)
+            .expect("DISPATCH_DIRECT header");
+        let initiator = pm4[dispatch_start + 4];
+        assert_eq!(
+            initiator & (1 << 15),
+            0,
+            "GCN5 wave64 leaves CS_W32_EN clear"
+        );
+    }
+
+    #[test]
+    fn pm4_acquire_mem_after_dispatch_has_tc_wb() {
+        let info = ShaderInfo {
+            gpr_count: 8,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            wave_size: 32,
+            workgroup: [32, 1, 1],
+        };
+        let pm4 = build_compute_dispatch(0x2000, DispatchDims::linear(1), &info, &[]);
+        let dispatch_idx = pm4
+            .iter()
+            .position(|&w| (w >> 8) & 0xFF == PM4_DISPATCH_DIRECT && w >> 30 == 3)
+            .expect("dispatch");
+        let post_dispatch = &pm4[dispatch_idx..];
+        let acquire_after = post_dispatch
+            .windows(2)
+            .find(|w| (w[0] >> 8) & 0xFF == PM4_ACQUIRE_MEM && w[0] >> 30 == 3)
+            .expect("post-dispatch ACQUIRE_MEM");
+        assert_ne!(
+            acquire_after[1] & (1 << 18),
+            0,
+            "L2 writeback (TC_WB_ACTION_ENA) after dispatch"
+        );
     }
 }

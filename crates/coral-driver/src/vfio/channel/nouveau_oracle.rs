@@ -19,7 +19,10 @@ const PRAMIN_OFFSET: usize = 0x0070_0000;
 
 /// Result of reading a nouveau channel's MMU page table chain.
 #[derive(Debug)]
-#[expect(missing_docs, reason = "diagnostic struct — field names are self-documenting")]
+#[expect(
+    missing_docs,
+    reason = "diagnostic struct — field names are self-documenting"
+)]
 pub struct NouveauPageTableDump {
     /// Channel ID that was read.
     pub channel_id: u32,
@@ -45,7 +48,7 @@ pub struct NouveauPageTableDump {
     pub pd1_entry0: u64,
     /// PD0 VRAM address decoded from PD1 entry 0.
     pub pd0_vram_addr: u64,
-    /// PD0 raw entry (16 bytes — dual PDE: [0:7]=small, [8:15]=large).
+    /// PD0 raw entry (16 bytes — dual PDE: `[0:7]`=small, `[8:15]`=large).
     pub pd0_entry0_small: u64,
     pub pd0_entry0_large: u64,
     /// PT VRAM address decoded from PD0 small PDE.
@@ -76,9 +79,7 @@ struct Bar0Rw {
 
 impl Bar0Rw {
     fn open(bdf: &str) -> Result<Self, String> {
-        let path = format!(
-            "/sys/bus/pci/devices/{bdf}/resource0"
-        );
+        let path = format!("/sys/bus/pci/devices/{bdf}/resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -99,25 +100,26 @@ impl Bar0Rw {
         }
         .map_err(|e| format!("mmap {path}: {e}"))?;
 
-        let ptr = NonNull::new(raw.cast::<u8>())
-            .ok_or_else(|| "mmap returned null".to_owned())?;
+        let ptr = NonNull::new(raw.cast::<u8>()).ok_or_else(|| "mmap returned null".to_owned())?;
 
-        Ok(Self { ptr, size, _file: file })
+        Ok(Self {
+            ptr,
+            size,
+            _file: file,
+        })
     }
 
     fn read_u32(&self, offset: usize) -> u32 {
         assert!(offset + 4 <= self.size);
         // SAFETY: bounds checked, volatile for MMIO.
-        unsafe {
-            std::ptr::read_volatile(self.ptr.as_ptr().add(offset).cast::<u32>())
-        }
+        unsafe { std::ptr::read_volatile(self.ptr.as_ptr().add(offset).cast::<u32>()) }
     }
 
     fn write_u32(&self, offset: usize, val: u32) {
         assert!(offset + 4 <= self.size);
         // SAFETY: bounds checked, volatile for MMIO.
         unsafe {
-            std::ptr::write_volatile(self.ptr.as_ptr().add(offset).cast::<u32>() as *mut u32, val);
+            std::ptr::write_volatile(self.ptr.as_ptr().add(offset).cast::<u32>(), val);
         }
     }
 
@@ -245,8 +247,8 @@ pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, Strin
     let saved_window = bar0.read_u32(misc::BAR0_WINDOW);
     log.push(format!("BAR0_WINDOW (saved): {saved_window:#010x}"));
 
-    let (channel_id, pccsr_inst_raw) = find_active_channel(&bar0)
-        .ok_or("no active channel found in PCCSR (0-511)")?;
+    let (channel_id, pccsr_inst_raw) =
+        find_active_channel(&bar0).ok_or("no active channel found in PCCSR (0-511)")?;
 
     log.push(format!(
         "channel {channel_id}: PCCSR inst={pccsr_inst_raw:#010x}"
@@ -266,7 +268,9 @@ pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, Strin
     let pdb_lo = bar0.read_vram_u32(inst_vram_addr + ramin::PAGE_DIR_BASE_LO as u64);
     let pdb_hi = bar0.read_vram_u32(inst_vram_addr + ramin::PAGE_DIR_BASE_HI as u64);
 
-    log.push(format!("PAGE_DIR_BASE: lo={pdb_lo:#010x} hi={pdb_hi:#010x}"));
+    log.push(format!(
+        "PAGE_DIR_BASE: lo={pdb_lo:#010x} hi={pdb_hi:#010x}"
+    ));
 
     // Decode PD3 address from PAGE_DIR_BASE_LO.
     // Format: PTR[31:12] | flags[11:0]
@@ -405,7 +409,9 @@ pub fn print_comparison_report(dump: &NouveauPageTableDump) {
     println!("  (Expected to differ: nouveau uses VRAM aperture, we use SYS_MEM_COH)");
 
     let nouveau_addr_shift = dump.pd3_entry0 >> 4;
-    println!("PDE addr encoding: nouveau stores (addr >> 4) in upper bits = {nouveau_addr_shift:#x}");
+    println!(
+        "PDE addr encoding: nouveau stores (addr >> 4) in upper bits = {nouveau_addr_shift:#x}"
+    );
     println!("  Decoded addr: {:#x}", decode_pde_addr(dump.pd3_entry0));
 
     // Compare our encode_pde with a hypothetical VRAM-target PDE.
@@ -413,25 +419,30 @@ pub fn print_comparison_report(dump: &NouveauPageTableDump) {
     let our_pde = encode_pde(test_iova);
     let expected_addr_bits = test_iova >> 4;
     println!("\nTest: encode_pde({test_iova:#x}) = {our_pde:#018x}");
-    println!("  addr bits = {expected_addr_bits:#x}, flags = {:#x}", our_pde & 0xF);
+    println!(
+        "  addr bits = {expected_addr_bits:#x}, flags = {:#x}",
+        our_pde & 0xF
+    );
 
     // Compare PTE encoding.
-    if let Some(&pte1) = dump.pt_entries.get(1) {
-        if pte1 != 0 {
-            let nouveau_pte_flags = pte1 & 0xF;
-            let nouveau_pte_addr = decode_pte_addr(pte1);
-            println!("\nPT[1]: nouveau raw={pte1:#018x}");
-            println!("  nouveau flags={nouveau_pte_flags:#x} addr={nouveau_pte_addr:#x}");
+    if let Some(&pte1) = dump.pt_entries.get(1)
+        && pte1 != 0
+    {
+        let nouveau_pte_flags = pte1 & 0xF;
+        let nouveau_pte_addr = decode_pte_addr(pte1);
+        println!("\nPT[1]: nouveau raw={pte1:#018x}");
+        println!("  nouveau flags={nouveau_pte_flags:#x} addr={nouveau_pte_addr:#x}");
 
-            let our_pte = encode_pte(nouveau_pte_addr);
-            let flag_match = (our_pte & 0xF) == nouveau_pte_flags;
-            let addr_match = decode_pte_addr(our_pte) == nouveau_pte_addr;
-            println!("  our encode_pte({nouveau_pte_addr:#x}) = {our_pte:#018x}");
-            println!("  flags match: {flag_match}, addr match: {addr_match}");
-            if !flag_match {
-                println!("  ** FLAG MISMATCH: nouveau={nouveau_pte_flags:#x} ours={:#x} **",
-                    our_pte & 0xF);
-            }
+        let our_pte = encode_pte(nouveau_pte_addr);
+        let flag_match = (our_pte & 0xF) == nouveau_pte_flags;
+        let addr_match = decode_pte_addr(our_pte) == nouveau_pte_addr;
+        println!("  our encode_pte({nouveau_pte_addr:#x}) = {our_pte:#018x}");
+        println!("  flags match: {flag_match}, addr match: {addr_match}");
+        if !flag_match {
+            println!(
+                "  ** FLAG MISMATCH: nouveau={nouveau_pte_flags:#x} ours={:#x} **",
+                our_pte & 0xF
+            );
         }
     }
 
@@ -442,10 +453,19 @@ pub fn print_comparison_report(dump: &NouveauPageTableDump) {
     println!("  BIG_PAGE    = {}", (dump.pdb_lo >> 11) & 1);
     println!("  VER2_PT     = {}", (dump.pdb_lo >> 10) & 1);
     println!("  VOL         = {}", (dump.pdb_lo >> 2) & 1);
-    println!("  TARGET[1:0] = {} (0=VRAM, 2=COH, 3=NCOH)", dump.pdb_lo & 3);
+    println!(
+        "  TARGET[1:0] = {} (0=VRAM, 2=COH, 3=NCOH)",
+        dump.pdb_lo & 3
+    );
     println!("Nouveau PDB_HI: {:#010x}", dump.pdb_hi);
-    println!("Nouveau SC0_PDB: lo={:#010x} hi={:#010x}", dump.sc0_pdb_lo, dump.sc0_pdb_hi);
-    println!("Nouveau ADDR_LIMIT: lo={:#010x} hi={:#010x}", dump.addr_limit_lo, dump.addr_limit_hi);
+    println!(
+        "Nouveau SC0_PDB: lo={:#010x} hi={:#010x}",
+        dump.sc0_pdb_lo, dump.sc0_pdb_hi
+    );
+    println!(
+        "Nouveau ADDR_LIMIT: lo={:#010x} hi={:#010x}",
+        dump.addr_limit_lo, dump.addr_limit_hi
+    );
 
     println!("\n=== End Oracle Report ===");
 }

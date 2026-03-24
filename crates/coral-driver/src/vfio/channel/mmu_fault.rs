@@ -104,10 +104,7 @@ pub fn log_mmu_faults(info: &MmuFaultInfo) {
         tracing::error!(
             fault_status = format_args!("{:#010x}", info.fault_status),
             fault_va = format_args!("{:#018x}", info.fault_va),
-            fault_inst = format_args!(
-                "{:#010x}_{:#010x}",
-                info.fault_inst_hi, info.fault_inst_lo
-            ),
+            fault_inst = format_args!("{:#010x}_{:#010x}", info.fault_inst_hi, info.fault_inst_lo),
             fault_type = info.fault_type,
             access_type = info.access_type,
             engine = info.engine,

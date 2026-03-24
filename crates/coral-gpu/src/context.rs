@@ -173,11 +173,15 @@ impl GpuContext {
             }
             #[cfg(feature = "cuda")]
             preference::DRIVER_CUDA => {
-                let dev = coral_driver::cuda::CudaComputeDevice::new(0)
-                    .map_err(GpuError::Driver)?;
+                let dev =
+                    coral_driver::cuda::CudaComputeDevice::new(0).map_err(GpuError::Driver)?;
                 let sm = driver::sm_from_sysfs_or(driver::default_nv_sm());
                 let target = GpuTarget::Nvidia(driver::sm_to_nvarch(sm));
-                tracing::info!(device = dev.device_name(), ordinal = dev.ordinal(), "CUDA device opened");
+                tracing::info!(
+                    device = dev.device_name(),
+                    ordinal = dev.ordinal(),
+                    "CUDA device opened"
+                );
                 Self::with_device(target, Box::new(dev))
             }
             preference::DRIVER_AMDGPU => {

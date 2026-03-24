@@ -26,6 +26,27 @@ impl SM32Op for OpBfe {
     }
 }
 
+impl SM32Op for OpBRev {
+    fn legalize(&mut self, b: &mut LegalizeBuilder) {
+        use RegFile::GPR;
+        b.copy_alu_src_if_not_reg(&mut self.src, GPR, SrcType::ALU);
+    }
+
+    fn encode(&self, e: &mut SM32Encoder<'_>) {
+        let range = Src::new_imm_u32(0x2000);
+        e.encode_form_immreg(
+            0xc00,
+            0x200,
+            Some(&self.dst),
+            &self.src,
+            &range,
+            None,
+            false,
+        );
+        e.set_bit(43, true);
+    }
+}
+
 impl SM32Op for OpFlo {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;

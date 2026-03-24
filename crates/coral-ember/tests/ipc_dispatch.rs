@@ -287,7 +287,13 @@ fn dispatch_ember_vfio_fds_with_hardware() {
     client.write_all(b"\n").expect("newline");
     let device = coral_driver::vfio::VfioDevice::open(&bdf).expect("open");
     let mut map = HashMap::new();
-    map.insert(bdf.clone(), HeldDevice { bdf: bdf.clone(), device });
+    map.insert(
+        bdf.clone(),
+        HeldDevice {
+            bdf: bdf.clone(),
+            device,
+        },
+    );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
     handle_client(&server, &held, &m, Instant::now()).expect("handler");

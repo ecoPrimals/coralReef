@@ -95,29 +95,28 @@ impl<S: SysfsOps> DeviceSlot<S> {
     ///
     /// The returned handle is valid as long as this slot's `VfioHolder` is alive.
     #[must_use]
-    pub fn vfio_bar0_handle(
-        &self,
-    ) -> Option<coral_driver::vfio::channel::mmu_oracle::Bar0Handle> {
+    pub fn vfio_bar0_handle(&self) -> Option<coral_driver::vfio::channel::mmu_oracle::Bar0Handle> {
         let holder = self.vfio_holder.as_ref()?;
-        Some(coral_driver::vfio::channel::mmu_oracle::Bar0Handle::from_mapped_bar(
-            &holder.bar0,
-        ))
+        Some(coral_driver::vfio::channel::mmu_oracle::Bar0Handle::from_mapped_bar(&holder.bar0))
     }
 
     /// Trigger a PCIe Function Level Reset (FLR) via VFIO_DEVICE_RESET.
     ///
     /// Returns `Err` if no VFIO holder is attached (device not bound to VFIO).
     pub fn reset_device(&self) -> Result<(), crate::error::DeviceError> {
-        let holder = self.vfio_holder.as_ref().ok_or_else(|| {
-            crate::error::DeviceError::VfioOpen {
+        let holder =
+            self.vfio_holder
+                .as_ref()
+                .ok_or_else(|| crate::error::DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: "no VFIO holder — device not bound to vfio-pci".into(),
+                })?;
+        holder
+            .reset()
+            .map_err(|e| crate::error::DeviceError::VfioOpen {
                 bdf: self.bdf.clone(),
-                reason: "no VFIO holder — device not bound to vfio-pci".into(),
-            }
-        })?;
-        holder.reset().map_err(|e| crate::error::DeviceError::VfioOpen {
-            bdf: self.bdf.clone(),
-            reason: format!("VFIO_DEVICE_RESET ioctl failed: {e}"),
-        })
+                reason: format!("VFIO_DEVICE_RESET ioctl failed: {e}"),
+            })
     }
 
     /// Returns `true` if a `spawn_blocking` task currently holds a reference
@@ -131,7 +130,11 @@ impl<S: SysfsOps> DeviceSlot<S> {
     /// long-running blocking task.  Returns `None` if the slot is already busy.
     #[must_use]
     pub fn try_acquire_busy(&self) -> Option<BusyGuard> {
-        if self.busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
             Some(BusyGuard(Arc::clone(&self.busy)))
         } else {
             None

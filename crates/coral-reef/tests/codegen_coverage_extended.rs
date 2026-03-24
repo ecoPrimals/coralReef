@@ -176,6 +176,41 @@ fn main() {
     compile_fixture_sm70(wgsl);
 }
 
+/// Large `switch` lowers to control-flow diamonds — exercises `sm70_encode/control.rs` branch lowering.
+#[test]
+fn coverage_sm70_control_switch_many_cases() {
+    let mut wgsl = String::from(
+        "@group(0) @binding(0) var<storage, read_write> out: array<u32>;\n\
+         @compute @workgroup_size(1) fn main() {\n\
+           let x = out[0];\n\
+           var r: u32 = 0u;\n\
+           switch (x % 32u) {\n",
+    );
+    for i in 0..32 {
+        let _ = writeln!(wgsl, "    case {i}u: {{ r = {i}u * 7u; }}");
+    }
+    wgsl.push_str("    default: { r = 0xffffffffu; }\n  }\n  out[1] = r;\n}\n");
+    compile_fixture_sm70(&wgsl);
+}
+
+/// Long chains of `let` aliases of the same value stress copy propagation (`opt_copy_prop`).
+#[test]
+fn coverage_opt_copy_prop_redundant_let_chains() {
+    let mut wgsl = String::from(
+        "@group(0) @binding(0) var<storage, read_write> out: array<f32>;\n\
+         @compute @workgroup_size(1) fn main() {\n  var x: f32 = out[0];\n",
+    );
+    for i in 0..48 {
+        let _ = writeln!(wgsl, "  let c{i} = x;");
+    }
+    wgsl.push_str("  var acc: f32 = 0.0;\n");
+    for i in 0..48 {
+        let _ = writeln!(wgsl, "  acc = acc + c{i};");
+    }
+    wgsl.push_str("  out[1] = acc;\n}\n");
+    compile_fixture_sm70(&wgsl);
+}
+
 // ---------------------------------------------------------------------------
 // sm70_encode/alu/*.rs — int ops, misc ops
 // ---------------------------------------------------------------------------

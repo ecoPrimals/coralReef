@@ -646,8 +646,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Binary { left, .. } => self.is_float_expr(left),
             naga::Expression::Unary { expr: inner, .. } => self.is_float_expr(inner),
             naga::Expression::Math { arg, .. } => self.is_float_expr(arg),
-            naga::Expression::AccessIndex { base, .. }
-            | naga::Expression::Access { base, .. } => {
+            naga::Expression::AccessIndex { base, .. } | naga::Expression::Access { base, .. } => {
                 self.element_scalar(base)
                     .is_some_and(|s| s.kind == naga::ScalarKind::Float)
             }
@@ -676,8 +675,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     pub(super) fn is_signed_int_expr(&self, handle: Handle<naga::Expression>) -> bool {
         let expr = &self.func.expressions[handle];
         match *expr {
-            naga::Expression::AccessIndex { base, .. }
-            | naga::Expression::Access { base, .. } => {
+            naga::Expression::AccessIndex { base, .. } | naga::Expression::Access { base, .. } => {
                 self.element_scalar(base)
                     .is_some_and(|s| s.kind == naga::ScalarKind::Sint)
             }
@@ -710,8 +708,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Binary { left, .. } => self.is_f64_expr(left),
             naga::Expression::Unary { expr: inner, .. } => self.is_f64_expr(inner),
             naga::Expression::Math { arg, .. } => self.is_f64_expr(arg),
-            naga::Expression::AccessIndex { base, .. }
-            | naga::Expression::Access { base, .. } => {
+            naga::Expression::AccessIndex { base, .. } | naga::Expression::Access { base, .. } => {
                 self.element_scalar(base)
                     .is_some_and(|s| s.kind == naga::ScalarKind::Float && s.width == 8)
             }

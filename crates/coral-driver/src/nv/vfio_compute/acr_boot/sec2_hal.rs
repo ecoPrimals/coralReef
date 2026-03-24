@@ -1,0 +1,607 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+//! SEC2 falcon probing, EMEM/IMEM/DMEM helpers, and engine reset.
+
+use std::fmt;
+
+use crate::error::{DriverError, DriverResult};
+use crate::vfio::channel::registers::falcon;
+use crate::vfio::device::MappedBar;
+
+use super::instance_block::{FALCON_INST_VRAM, SEC2_FLCN_BIND_INST};
+
+// ── SEC2 state probing ────────────────────────────────────────────────
+
+/// Classified SEC2 falcon state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sec2State {
+    /// HS-locked (BIOS POST state): SCTL bit 0 set, IMEM write-protected.
+    HsLocked,
+    /// Clean reset (post-driver unbind): IMEM/DMEM writable, SCTL bit 0 clear.
+    CleanReset,
+    /// Already running (mailbox active, firmware loaded).
+    Running,
+    /// Powered off or clock-gated (registers return PRI error).
+    Inaccessible,
+}
+
+/// Detailed SEC2 probe result.
+#[derive(Debug, Clone)]
+pub struct Sec2Probe {
+    /// SEC2 falcon `CPUCTL` register snapshot.
+    pub cpuctl: u32,
+    /// SEC2 `SCTL` (secure control): IMEM protection / HS lock state.
+    pub sctl: u32,
+    /// SEC2 `BOOTVEC` — entry address for IMEM boot.
+    pub bootvec: u32,
+    /// SEC2 `HWCFG` — falcon hardware configuration.
+    pub hwcfg: u32,
+    /// SEC2 `MAILBOX0` — host/falcon command or status.
+    pub mailbox0: u32,
+    /// SEC2 `MAILBOX1` — command parameter or secondary status.
+    pub mailbox1: u32,
+    /// Classified SEC2 state from `cpuctl` / `sctl` / `mailbox0`.
+    pub state: Sec2State,
+}
+
+impl Sec2Probe {
+    /// Reads SEC2 falcon registers from BAR0 and classifies runtime state.
+    pub fn capture(bar0: &MappedBar) -> Self {
+        let base = falcon::SEC2_BASE;
+        let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xBADF_DEAD);
+
+        let cpuctl = r(falcon::CPUCTL);
+        let sctl = r(falcon::SCTL);
+        let bootvec = r(falcon::BOOTVEC);
+        let hwcfg = r(falcon::HWCFG);
+        let mailbox0 = r(falcon::MAILBOX0);
+        let mailbox1 = r(falcon::MAILBOX1);
+
+        let state = classify_sec2(cpuctl, sctl, mailbox0);
+
+        Self {
+            cpuctl,
+            sctl,
+            bootvec,
+            hwcfg,
+            mailbox0,
+            mailbox1,
+            state,
+        }
+    }
+}
+
+impl fmt::Display for Sec2Probe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "SEC2 @ {:#010x}: {:?} cpuctl={:#010x} sctl={:#010x} bootvec={:#010x} \
+             hwcfg={:#010x} mb0={:#010x} mb1={:#010x}",
+            falcon::SEC2_BASE,
+            self.state,
+            self.cpuctl,
+            self.sctl,
+            self.bootvec,
+            self.hwcfg,
+            self.mailbox0,
+            self.mailbox1
+        )
+    }
+}
+
+fn classify_sec2(cpuctl: u32, sctl: u32, mailbox0: u32) -> Sec2State {
+    use crate::vfio::channel::registers::pri;
+    if pri::is_pri_error(cpuctl) || cpuctl == 0xBADF_DEAD {
+        return Sec2State::Inaccessible;
+    }
+    if mailbox0 != 0 && (cpuctl & falcon::CPUCTL_HALTED == 0) {
+        return Sec2State::Running;
+    }
+    if sctl & 1 != 0 {
+        Sec2State::HsLocked
+    } else {
+        Sec2State::CleanReset
+    }
+}
+
+// ── SEC2 EMEM interface ──────────────────────────────────────────────
+
+/// Write data to SEC2 EMEM via PIO (always writable, even in HS lockdown).
+///
+/// nouveau `gp102_flcn_pio_emem_wr_init`: BIT(24) only for write mode.
+/// Auto-increment is implicit in the EMEM port hardware.
+pub fn sec2_emem_write(bar0: &MappedBar, offset: u32, data: &[u8]) {
+    let base = falcon::SEC2_BASE;
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+
+    // BIT(24) = write mode (nouveau: gp102_flcn_pio_emem_wr_init)
+    w(falcon::EMEMC0, (1 << 24) | offset);
+
+    for chunk in data.chunks(4) {
+        let word = match chunk.len() {
+            4 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+            3 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], 0]),
+            2 => u32::from_le_bytes([chunk[0], chunk[1], 0, 0]),
+            1 => u32::from_le_bytes([chunk[0], 0, 0, 0]),
+            _ => 0,
+        };
+        w(falcon::EMEMD0, word);
+    }
+}
+
+/// Read back data from SEC2 EMEM via PIO.
+///
+/// nouveau `gp102_flcn_pio_emem_rd_init`: BIT(25) only for read mode.
+pub fn sec2_emem_read(bar0: &MappedBar, offset: u32, len: usize) -> Vec<u32> {
+    let base = falcon::SEC2_BASE;
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
+
+    // BIT(25) = read mode (nouveau: gp102_flcn_pio_emem_rd_init)
+    w(falcon::EMEMC0, (1 << 25) | offset);
+
+    let word_count = len.div_ceil(4);
+    (0..word_count).map(|_| r(falcon::EMEMD0)).collect()
+}
+
+/// Verify EMEM write by reading back and comparing.
+pub fn sec2_emem_verify(bar0: &MappedBar, offset: u32, data: &[u8]) -> bool {
+    let readback = sec2_emem_read(bar0, offset, data.len());
+    for (i, chunk) in data.chunks(4).enumerate() {
+        let expected = match chunk.len() {
+            4 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+            3 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], 0]),
+            2 => u32::from_le_bytes([chunk[0], chunk[1], 0, 0]),
+            1 => u32::from_le_bytes([chunk[0], 0, 0, 0]),
+            _ => 0,
+        };
+        if i >= readback.len() || readback[i] != expected {
+            tracing::error!(
+                offset,
+                word = i,
+                expected = format!("{expected:#010x}"),
+                got = format!("{:#010x}", readback.get(i).copied().unwrap_or(0xDEAD)),
+                "EMEM verify mismatch"
+            );
+            return false;
+        }
+    }
+    true
+}
+// ── SEC2 falcon-level reset ──────────────────────────────────────
+
+/// Full engine reset: PMC-level disable/enable + falcon-local 0x3C0 reset.
+///
+/// Nouveau's `gp102_flcn_reset_eng()` does a PMC engine reset FIRST,
+/// then the falcon-local 0x3C0 toggle. Without the PMC reset, the falcon
+/// may not enter proper HRESET state and CPUCTL_STARTCPU has no effect.
+///
+/// For SEC2 on GV100: PMC_ENABLE (0x200) bit 22 = SEC2 engine.
+/// Reset a Falcon microcontroller, matching Nouveau's `gm200_flcn_enable` sequence.
+///
+/// Order is critical — Nouveau does:
+///   1. Falcon-local reset via `+0x3C0` pulse
+///   2. PMC engine enable (for SEC2: ensures engine clock is running)
+///   3. Scrub wait: poll `+0x10C` until bits `[2:1]` clear
+///   4. Write GPU BOOT_0 chip ID to `+0x084`
+///
+/// Previous versions of this code did PMC disable+enable BEFORE the 0x3C0 pulse,
+/// which is the wrong order and may explain why SEC2 auto-started its ROM before
+/// we could upload firmware.
+pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
+    let w = |off: usize, val: u32| -> DriverResult<()> {
+        bar0.write_u32(base + off, val)
+            .map_err(|e| DriverError::SubmitFailed(format!("falcon reset {off:#x}: {e}").into()))
+    };
+
+    // Step 1: Falcon-local engine reset via 0x3C0 (gp102_flcn_reset_eng).
+    w(0x3C0, 0x01)?;
+
+    // RACE Window A: Write 0x668 DURING reset (falcon logic disabled)
+    if base == falcon::SEC2_BASE {
+        let iv = FALCON_INST_VRAM >> 12;
+        let _ = bar0.write_u32(base + SEC2_FLCN_BIND_INST, iv);
+        let rba = bar0.read_u32(base + SEC2_FLCN_BIND_INST).unwrap_or(0xDEAD);
+        tracing::info!(rb = format!("{rba:#010x}"), "0x668 during reset");
+    }
+
+    std::thread::sleep(std::time::Duration::from_micros(10));
+    w(0x3C0, 0x00)?;
+
+    // RACE Window B: Write 0x668 immediately after reset clear (before PMC)
+    if base == falcon::SEC2_BASE {
+        let iv = FALCON_INST_VRAM >> 12;
+        let _ = bar0.write_u32(base + SEC2_FLCN_BIND_INST, iv);
+        let rbb = bar0.read_u32(base + SEC2_FLCN_BIND_INST).unwrap_or(0xDEAD);
+        tracing::info!(rb = format!("{rbb:#010x}"), "0x668 post-reset-clear");
+    }
+
+    // Step 2: PMC engine enable (gm200_flcn_enable).
+    if base == falcon::SEC2_BASE {
+        pmc_enable_sec2(bar0)?;
+
+        // RACE Window C: Write 0x668 IMMEDIATELY after PMC enable (no reads first)
+        let iv = FALCON_INST_VRAM >> 12;
+        let _ = bar0.write_u32(base + SEC2_FLCN_BIND_INST, iv);
+        // Also immediately write DMACTL
+        let _ = bar0.write_u32(base + falcon::DMACTL, 0x07);
+        let rbc = bar0.read_u32(base + SEC2_FLCN_BIND_INST).unwrap_or(0xDEAD);
+        let dmactl_c = bar0.read_u32(base + falcon::DMACTL).unwrap_or(0xDEAD);
+        tracing::info!(
+            bind = format!("{rbc:#010x}"),
+            dmactl = format!("{dmactl_c:#010x}"),
+            "0x668 race post-PMC-enable"
+        );
+    }
+
+    // Step 4: Dummy mailbox0 mask (Nouveau: gm200_flcn_reset_wait_mem_scrubbing).
+    let _ = bar0.read_u32(base + falcon::MAILBOX0);
+
+    // Step 5: Wait for memory scrubbing (0x10C bits [2:1] = 0).
+    let timeout = std::time::Duration::from_millis(100);
+    let start = std::time::Instant::now();
+    loop {
+        let scrub = r(0x10C);
+        if scrub & 0x06 == 0 {
+            tracing::info!(
+                scrub = format!("{scrub:#010x}"),
+                elapsed_us = start.elapsed().as_micros(),
+                "falcon memory scrub complete"
+            );
+            break;
+        }
+        if start.elapsed() > timeout {
+            tracing::warn!(
+                scrub = format!("{scrub:#010x}"),
+                "falcon memory scrub timeout"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // Step 6: Write BOOT_0 chip ID to falcon 0x084 (per nouveau gm200_flcn_enable).
+    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    w(0x084, boot0)?;
+
+    // Step 7: Wait for CPUCTL_HALTED — the ROM scrubs IMEM/DMEM then HALTs.
+    // Nouveau: nvkm_falcon_v1_wait_for_halt(). This is CRITICAL: registers
+    // like 0x668 (instance block binding) can only be written while HALTED.
+    let halt_start = std::time::Instant::now();
+    let halt_timeout = std::time::Duration::from_millis(500);
+    let mut halted = false;
+    loop {
+        let cpuctl = r(falcon::CPUCTL);
+        if cpuctl & falcon::CPUCTL_HALTED != 0 {
+            halted = true;
+            tracing::info!(
+                cpuctl = format!("{cpuctl:#010x}"),
+                elapsed_us = halt_start.elapsed().as_micros(),
+                "falcon HALTED after scrub"
+            );
+            break;
+        }
+        if halt_start.elapsed() > halt_timeout {
+            let sctl = r(falcon::SCTL);
+            let pc = r(0x030);
+            tracing::warn!(
+                cpuctl = format!("{cpuctl:#010x}"),
+                sctl = format!("{sctl:#010x}"),
+                pc = format!("{pc:#010x}"),
+                "falcon did NOT halt after scrub (500ms timeout)"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    let cpuctl = r(falcon::CPUCTL);
+    let sctl = r(falcon::SCTL);
+    tracing::info!(
+        cpuctl = format!("{cpuctl:#010x}"),
+        sctl = format!("{sctl:#010x}"),
+        halted,
+        alias_en = cpuctl & (1 << 6) != 0,
+        "falcon state after reset"
+    );
+
+    Ok(())
+}
+/// PMC enable for SEC2 engine (Nouveau: `nvkm_mc_enable`).
+///
+/// This is called AFTER the falcon-local 0x3C0 reset to re-enable the
+/// engine clock. Nouveau's `gm200_flcn_enable` does this as step 2,
+/// after `reset_eng` and before `reset_wait_mem_scrubbing`.
+///
+/// Only ENABLES the engine — does not disable first. A full PMC
+/// disable+enable cycle is a separate, more invasive operation.
+pub(crate) fn pmc_enable_sec2(bar0: &MappedBar) -> DriverResult<()> {
+    let pmc_enable: usize = 0x200;
+
+    let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
+    let sec2_mask = 1u32 << sec2_bit;
+
+    let val = bar0.read_u32(pmc_enable).unwrap_or(0);
+    let already_enabled = val & sec2_mask != 0;
+    tracing::info!(
+        pmc_enable = format!("{val:#010x}"),
+        sec2_bit,
+        already_enabled,
+        "PMC SEC2 enable (post-reset)"
+    );
+
+    if !already_enabled {
+        bar0.write_u32(pmc_enable, val | sec2_mask)
+            .map_err(|e| DriverError::SubmitFailed(format!("PMC enable SEC2: {e}").into()))?;
+        let _ = bar0.read_u32(pmc_enable); // read barrier
+        std::thread::sleep(std::time::Duration::from_micros(20));
+    }
+
+    Ok(())
+}
+
+/// Full PMC disable+enable cycle for SEC2 (more invasive than `pmc_enable_sec2`).
+/// Used by strategies that need a complete engine power cycle.
+fn _pmc_reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
+    let pmc_enable: usize = 0x200;
+
+    let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
+    let sec2_mask = 1u32 << sec2_bit;
+
+    let val = bar0.read_u32(pmc_enable).unwrap_or(0);
+    tracing::info!(
+        pmc_enable = format!("{val:#010x}"),
+        sec2_bit,
+        sec2_mask = format!("{sec2_mask:#010x}"),
+        sec2_enabled = val & sec2_mask != 0,
+        "PMC SEC2 reset: disabling engine"
+    );
+
+    bar0.write_u32(pmc_enable, val & !sec2_mask)
+        .map_err(|e| DriverError::SubmitFailed(format!("PMC disable SEC2: {e}").into()))?;
+    let _ = bar0.read_u32(pmc_enable);
+    std::thread::sleep(std::time::Duration::from_micros(20));
+
+    bar0.write_u32(pmc_enable, val | sec2_mask)
+        .map_err(|e| DriverError::SubmitFailed(format!("PMC enable SEC2: {e}").into()))?;
+    let _ = bar0.read_u32(pmc_enable);
+    std::thread::sleep(std::time::Duration::from_micros(20));
+
+    let after = bar0.read_u32(pmc_enable).unwrap_or(0);
+    tracing::info!(
+        pmc_after = format!("{after:#010x}"),
+        sec2_enabled = after & sec2_mask != 0,
+        "PMC SEC2 reset: engine re-enabled"
+    );
+
+    Ok(())
+}
+
+/// Scan PTOP table at 0x22700 to find SEC2's PMC reset/enable bits.
+///
+/// GV100 PTOP uses multi-entry sequences:
+///
+///   - type 0b01: engine definition (bits [11:2] = engine type, bits [15:12] = instance)
+///   - type 0b10: fault info
+///   - type 0b11: reset/enable info (bits [20:16] = reset bit, bits [25:21] = enable bit)
+///
+/// SEC2 = engine type 0x15 (decimal 21).
+pub(crate) fn find_sec2_pmc_bit(bar0: &MappedBar) -> Option<u32> {
+    let mut found_sec2 = false;
+    let mut reset_bit = None;
+    let mut enable_bit = None;
+
+    for idx in 0..64u32 {
+        let entry = bar0.read_u32(0x22700 + idx as usize * 4).unwrap_or(0);
+        if entry == 0 || entry == 0xFFFFFFFF {
+            if found_sec2 && (reset_bit.is_some() || enable_bit.is_some()) {
+                break;
+            }
+            found_sec2 = false;
+            continue;
+        }
+
+        let entry_type = entry & 0x3;
+
+        if entry_type == 1 {
+            // Engine definition entry
+            let engine_type = (entry >> 2) & 0x3FF;
+            if engine_type == 0x15 {
+                found_sec2 = true;
+                let instance = (entry >> 12) & 0xF;
+                tracing::info!(
+                    ptop_idx = idx,
+                    entry = format!("{entry:#010x}"),
+                    engine_type = format!("{engine_type:#x}"),
+                    instance,
+                    "PTOP: Found SEC2 engine entry"
+                );
+            } else if found_sec2 {
+                break; // next engine, stop
+            }
+        } else if entry_type == 3 && found_sec2 {
+            // Reset/enable info entry (follows engine def)
+            let has_reset = entry & (1 << 14) != 0;
+            let has_enable = entry & (1 << 15) != 0;
+            let r_bit = (entry >> 16) & 0x1F;
+            let e_bit = (entry >> 21) & 0x1F;
+            tracing::info!(
+                ptop_idx = idx,
+                entry = format!("{entry:#010x}"),
+                has_reset,
+                reset_bit = r_bit,
+                has_enable,
+                enable_bit = e_bit,
+                "PTOP: SEC2 reset/enable info"
+            );
+            if has_reset {
+                reset_bit = Some(r_bit);
+            }
+            if has_enable {
+                enable_bit = Some(e_bit);
+            }
+        } else if entry_type == 2 && found_sec2 {
+            // Fault info entry
+            let fault_id = (entry >> 2) & 0x1FF;
+            tracing::info!(
+                ptop_idx = idx,
+                entry = format!("{entry:#010x}"),
+                fault_id,
+                "PTOP: SEC2 fault info"
+            );
+        }
+    }
+
+    // Dump ALL PTOP entries for debugging
+    tracing::info!("PTOP table dump (entries 0-31):");
+    for idx in 0..32u32 {
+        let entry = bar0.read_u32(0x22700 + idx as usize * 4).unwrap_or(0);
+        if entry != 0 && entry != 0xFFFFFFFF {
+            let etype = entry & 0x3;
+            tracing::info!(idx, entry = format!("{entry:#010x}"), etype, "PTOP[{idx}]");
+        }
+    }
+
+    // Prefer enable_bit, fall back to reset_bit
+    let result = enable_bit.or(reset_bit);
+    if result.is_none() {
+        tracing::warn!("SEC2 PMC bit not found in PTOP, using fallback bit 22");
+    }
+    result
+}
+
+/// Reset SEC2 falcon specifically.
+pub fn reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
+    falcon_engine_reset(bar0, falcon::SEC2_BASE)
+}
+
+/// Issue STARTCPU to a falcon, using CPUCTL_ALIAS if ALIAS_EN (bit 6) is set.
+///
+/// Matches Nouveau's `nvkm_falcon_v1_start`:
+/// ```c
+/// u32 reg = nvkm_falcon_rd32(falcon, 0x100);
+/// if (reg & BIT(6))
+///     nvkm_falcon_wr32(falcon, 0x130, 0x2);
+/// else
+///     nvkm_falcon_wr32(falcon, 0x100, 0x2);
+/// ```
+pub(crate) fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
+    let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0);
+    let alias_en = cpuctl & (1 << 6) != 0;
+    if alias_en {
+        tracing::info!("ALIAS_EN set, using CPUCTL_ALIAS (0x130) for STARTCPU");
+        let _ = bar0.write_u32(base + falcon::CPUCTL_ALIAS, falcon::CPUCTL_STARTCPU);
+    } else {
+        tracing::info!("ALIAS_EN clear, using CPUCTL (0x100) for STARTCPU");
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
+    }
+}
+
+/// Prepare a falcon for no-instance-block DMA (physical mode).
+///
+/// Matches Nouveau's `gm200_flcn_fw_load` for the non-instance path:
+/// ```c
+/// nvkm_falcon_mask(falcon, 0x624, 0x00000080, 0x00000080);
+/// nvkm_falcon_wr32(falcon, 0x10c, 0x00000000);
+/// ```
+pub(crate) fn falcon_prepare_physical_dma(bar0: &MappedBar, base: usize) {
+    let cur = bar0.read_u32(base + 0x624).unwrap_or(0);
+    let _ = bar0.write_u32(base + 0x624, cur | 0x80);
+    let _ = bar0.write_u32(base + 0x10C, 0);
+}
+/// Upload code to falcon IMEM matching Nouveau's per-256B-chunk protocol.
+///
+/// Nouveau re-initializes IMEMC for each 256-byte page. This is critical —
+/// auto-increment may not cross page boundaries on all falcon versions.
+pub(crate) fn falcon_imem_upload_nouveau(
+    bar0: &MappedBar,
+    base: usize,
+    imem_addr: u32,
+    data: &[u8],
+    start_tag: u32,
+) {
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+
+    for (chunk_idx, chunk) in data.chunks(256).enumerate() {
+        let chunk_addr = imem_addr + (chunk_idx as u32) * 256;
+        let chunk_tag = start_tag + chunk_idx as u32;
+
+        // Re-init IMEMC for this page (Nouveau: gm200_flcn_pio_imem_wr_init)
+        // BIT(24) = auto-increment within page. No secure flag (sec=false in Nouveau).
+        w(falcon::IMEMC, (1u32 << 24) | chunk_addr);
+
+        // Set tag for this page (Nouveau: gm200_flcn_pio_imem_wr)
+        w(falcon::IMEMT, chunk_tag);
+
+        // Write data words
+        for word_chunk in chunk.chunks(4) {
+            let word = match word_chunk.len() {
+                4 => {
+                    u32::from_le_bytes([word_chunk[0], word_chunk[1], word_chunk[2], word_chunk[3]])
+                }
+                3 => u32::from_le_bytes([word_chunk[0], word_chunk[1], word_chunk[2], 0]),
+                2 => u32::from_le_bytes([word_chunk[0], word_chunk[1], 0, 0]),
+                1 => u32::from_le_bytes([word_chunk[0], 0, 0, 0]),
+                _ => 0,
+            };
+            w(falcon::IMEMD, word);
+        }
+
+        // Pad remainder of 256-byte page with zeroes
+        let written = (chunk.len().div_ceil(4)) * 4;
+        let remainder = written & 0xFF;
+        if remainder != 0 {
+            let pad_words = (256 - remainder) / 4;
+            for _ in 0..pad_words {
+                w(falcon::IMEMD, 0);
+            }
+        }
+    }
+}
+
+/// Upload data to falcon DMEM matching Nouveau's protocol.
+/// Read SEC2 DMEM contents via PIO.
+pub(crate) fn sec2_dmem_read(bar0: &MappedBar, offset: u32, len: usize) -> Vec<u32> {
+    let base = falcon::SEC2_BASE;
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
+
+    // DMEMC: BIT(25) = read mode with auto-increment
+    w(falcon::DMEMC, (1u32 << 25) | offset);
+
+    let words = len.div_ceil(4);
+    let mut result = Vec::with_capacity(words);
+    for _ in 0..words {
+        result.push(r(falcon::DMEMD));
+    }
+    result
+}
+
+pub(crate) fn falcon_dmem_upload(bar0: &MappedBar, base: usize, dmem_addr: u32, data: &[u8]) {
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+
+    // DMEMC: BIT(24) = write mode with auto-increment
+    w(falcon::DMEMC, (1u32 << 24) | dmem_addr);
+
+    for chunk in data.chunks(4) {
+        let word = match chunk.len() {
+            4 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+            3 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], 0]),
+            2 => u32::from_le_bytes([chunk[0], chunk[1], 0, 0]),
+            1 => u32::from_le_bytes([chunk[0], 0, 0, 0]),
+            _ => 0,
+        };
+        w(falcon::DMEMD, word);
+    }
+}

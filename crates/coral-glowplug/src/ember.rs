@@ -200,6 +200,16 @@ impl EmberClient {
     /// times with backoff. Driver swaps can stall briefly while the kernel
     /// settles sysfs state after unbind.
     pub fn swap_device(&self, bdf: &str, target: &str) -> Result<String, EmberError> {
+        self.swap_device_traced(bdf, target, false)
+    }
+
+    /// Like [`swap_device`](Self::swap_device) but with optional mmiotrace capture.
+    pub fn swap_device_traced(
+        &self,
+        bdf: &str,
+        target: &str,
+        trace: bool,
+    ) -> Result<String, EmberError> {
         const MAX_RETRIES: u32 = 3;
         const SWAP_TIMEOUT_SECS: u64 = 60;
 
@@ -208,14 +218,16 @@ impl EmberClient {
             if attempt > 0 {
                 let backoff = std::time::Duration::from_millis(500 * u64::from(attempt));
                 tracing::debug!(
-                    bdf, target, attempt,
+                    bdf,
+                    target,
+                    attempt,
                     backoff_ms = backoff.as_millis(),
                     "ember swap_device: retrying after transient I/O error"
                 );
                 std::thread::sleep(backoff);
             }
 
-            match self.try_swap_device(bdf, target, SWAP_TIMEOUT_SECS) {
+            match self.try_swap_device(bdf, target, trace, SWAP_TIMEOUT_SECS) {
                 Ok(personality) => return Ok(personality),
                 Err(EmberError::Io(ref e)) if is_transient_io(e) && attempt < MAX_RETRIES => {
                     tracing::warn!(
@@ -236,15 +248,17 @@ impl EmberClient {
         &self,
         bdf: &str,
         target: &str,
+        trace: bool,
         timeout_secs: u64,
     ) -> Result<String, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(timeout_secs)))?;
 
-        let req = make_rpc_request(
-            "ember.swap",
-            serde_json::json!({"bdf": bdf, "target": target}),
-        );
+        let mut params = serde_json::json!({"bdf": bdf, "target": target});
+        if trace {
+            params["trace"] = serde_json::json!(true);
+        }
+        let req = make_rpc_request("ember.swap", params);
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
@@ -475,5 +489,48 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_transient_io_matches_would_block_and_interrupted() {
+        assert!(is_transient_io(&std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            "test"
+        )));
+        assert!(is_transient_io(&std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "test"
+        )));
+        assert!(!is_transient_io(&std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "test"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_full_response_reads_until_newline() {
+        let (mut sender, receiver) =
+            std::os::unix::net::UnixStream::pair().expect("unix stream pair");
+        let t = std::thread::spawn(move || {
+            std::io::Write::write_all(&mut sender, br#"{"ok":true}"#).expect("partial write");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::io::Write::write_all(&mut sender, b"\n").expect("newline");
+        });
+        let mut buf = [0u8; 256];
+        let n = read_full_response(&receiver, &mut buf).expect("read response");
+        t.join().expect("writer thread");
+        assert_eq!(&buf[..n], b"{\"ok\":true}\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_full_response_eof_is_error() {
+        let (sender, receiver) = std::os::unix::net::UnixStream::pair().expect("unix stream pair");
+        drop(sender);
+        let mut buf = [0u8; 64];
+        let err = read_full_response(&receiver, &mut buf).expect_err("closed without data");
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 }

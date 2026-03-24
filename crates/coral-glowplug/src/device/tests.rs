@@ -525,6 +525,104 @@ fn resurrect_hbm2_amd_warm_driver_is_amdgpu_without_ember() {
 }
 
 #[test]
+fn activate_unknown_boot_personality_returns_error() {
+    let _guard = EmberClient::disable_for_test();
+    let bdf = "0000:60:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let mut slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "not-a-listed-personality".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+            shared: None,
+        },
+        mock,
+    );
+    let err = slot.activate().expect_err("unknown personality");
+    assert!(matches!(err, DeviceError::UnknownPersonality { .. }));
+}
+
+#[test]
+fn activate_nvidia_oracle_registered_but_not_implemented_returns_unknown() {
+    let _guard = EmberClient::disable_for_test();
+    let bdf = "0000:61:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    mock.current_driver
+        .insert(bdf.to_string(), Some("nvidia_oracle".into()));
+    let mut slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "nvidia_oracle".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+            shared: None,
+        },
+        mock,
+    );
+    let err = slot.activate().expect_err("binding path not implemented");
+    match err {
+        DeviceError::UnknownPersonality { personality, .. } => {
+            assert_eq!(personality, "nvidia_oracle");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn try_acquire_busy_guard_releases_flag_on_drop() {
+    let bdf = "0000:62:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+            shared: None,
+        },
+        mock,
+    );
+    assert!(!slot.is_busy());
+    let guard = slot.try_acquire_busy().expect("first acquire");
+    assert!(slot.is_busy());
+    assert!(slot.try_acquire_busy().is_none());
+    drop(guard);
+    assert!(!slot.is_busy());
+    assert!(slot.try_acquire_busy().is_some());
+}
+
+#[test]
+fn reset_device_without_vfio_returns_error() {
+    let bdf = "0000:63:00.0";
+    let mut mock = MockSysfs::default();
+    mock.seed_bdf(bdf);
+    let slot = DeviceSlot::with_sysfs(
+        DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+            shared: None,
+        },
+        mock,
+    );
+    let err = slot.reset_device().expect_err("no VFIO device");
+    assert!(matches!(err, DeviceError::VfioOpen { .. }));
+}
+
+#[test]
 fn mock_release_errors_when_drm_consumers_reported() {
     let bdf = "0000:04:00.0";
     let config = DeviceConfig {

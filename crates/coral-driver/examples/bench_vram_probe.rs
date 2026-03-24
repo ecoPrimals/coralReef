@@ -40,7 +40,10 @@ fn main() {
             std::process::exit(1);
         });
 
-    println!("=== VRAM Probe: {bdf} (mode: {}) ===", if use_ember { "ember" } else { "direct" });
+    println!(
+        "=== VRAM Probe: {bdf} (mode: {}) ===",
+        if use_ember { "ember" } else { "direct" }
+    );
 
     let handle = if use_ember {
         DeviceHandle::Ember(EmberSession::connect(&bdf).unwrap_or_else(|e| {

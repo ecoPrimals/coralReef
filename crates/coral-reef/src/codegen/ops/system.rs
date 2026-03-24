@@ -68,23 +68,23 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpCS2R {
 /// is placed by the hardware (= number of user data SGPRs).
 fn amd_sys_reg_src(nv_idx: u8, tgid_sgpr_base: u16) -> Result<u16, CompileError> {
     Ok(match nv_idx {
-        0x21 => 256 + 0,              // SR_TID_X → v0
-        0x22 => 256 + 1,              // SR_TID_Y → v1
-        0x23 => 256 + 2,              // SR_TID_Z → v2
-        0x25 => tgid_sgpr_base,       // SR_CTAID_X → s[base]
-        0x26 => tgid_sgpr_base + 1,   // SR_CTAID_Y → s[base+1]
-        0x27 => tgid_sgpr_base + 2,   // SR_CTAID_Z → s[base+2]
-        0x00 => 256 + 0,              // SR_LANEID → v0
+        0x21 => 256,                // SR_TID_X → v0
+        0x22 => 256 + 1,            // SR_TID_Y → v1
+        0x23 => 256 + 2,            // SR_TID_Z → v2
+        0x25 => tgid_sgpr_base,     // SR_CTAID_X → s[base]
+        0x26 => tgid_sgpr_base + 1, // SR_CTAID_Y → s[base+1]
+        0x27 => tgid_sgpr_base + 2, // SR_CTAID_Z → s[base+2]
+        0x00 => 256,                // SR_LANEID → v0
 
         // NTID (workgroup_size) and NCTAID (num_workgroups) are passed
         // via additional user data SGPRs starting after workgroup IDs.
         // The PM4 builder must emit matching COMPUTE_USER_DATA values.
-        0x29 => tgid_sgpr_base + 3,   // SR_NTID_X → s[base+3]
-        0x2a => tgid_sgpr_base + 4,   // SR_NTID_Y → s[base+4]
-        0x2b => tgid_sgpr_base + 5,   // SR_NTID_Z → s[base+5]
-        0x2d => tgid_sgpr_base + 6,   // SR_NCTAID_X → s[base+6]
-        0x2e => tgid_sgpr_base + 7,   // SR_NCTAID_Y → s[base+7]
-        0x2f => tgid_sgpr_base + 8,   // SR_NCTAID_Z → s[base+8]
+        0x29 => tgid_sgpr_base + 3, // SR_NTID_X → s[base+3]
+        0x2a => tgid_sgpr_base + 4, // SR_NTID_Y → s[base+4]
+        0x2b => tgid_sgpr_base + 5, // SR_NTID_Z → s[base+5]
+        0x2d => tgid_sgpr_base + 6, // SR_NCTAID_X → s[base+6]
+        0x2e => tgid_sgpr_base + 7, // SR_NCTAID_Y → s[base+7]
+        0x2f => tgid_sgpr_base + 8, // SR_NCTAID_Z → s[base+8]
         other => {
             return Err(CompileError::NotImplemented(
                 format!("AMD sys reg mapping for NVIDIA SR index 0x{other:02x}").into(),

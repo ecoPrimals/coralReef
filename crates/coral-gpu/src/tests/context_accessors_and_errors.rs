@@ -66,7 +66,8 @@ fn compile_spirv_valid_roundtrip_from_wgsl() {
     let spirv = wgsl_to_spirv_words("@compute @workgroup_size(1) fn main() {}");
     let k = ctx.compile_spirv(&spirv);
     assert!(k.is_ok());
-    assert!(!k.unwrap().binary.is_empty());
+    let kernel = k.expect("valid SPIR-V from WGSL should compile");
+    assert!(!kernel.binary.is_empty());
 }
 
 #[test]

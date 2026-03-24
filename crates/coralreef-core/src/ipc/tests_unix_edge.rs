@@ -840,6 +840,74 @@ fn default_unix_socket_path_format() {
 }
 
 #[cfg(unix)]
+#[tokio::test]
+async fn test_unix_jsonrpc_invalid_jsonrpc_version_string() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("bad-jsonrpc-ver-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .expect("start unix jsonrpc server");
+
+    let req = r#"{"jsonrpc":"1.0","method":"shader.compile.status","params":{},"id":77}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse response json");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 77);
+    assert!(resp["error"].is_object());
+    let msg = resp["error"]["message"]
+        .as_str()
+        .expect("error message string")
+        .to_lowercase();
+    assert!(
+        msg.contains("jsonrpc") || msg.contains("version"),
+        "expected invalid jsonrpc version error: {msg}"
+    );
+    assert_eq!(resp["error"]["code"], -32601);
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_health_check_liveness_readiness() {
+    let check = super::unix_jsonrpc::dispatch("health.check", serde_json::json!({}));
+    assert!(check.is_ok());
+    let v = check.expect("health.check");
+    assert_eq!(v["healthy"], true);
+
+    let live = super::unix_jsonrpc::dispatch("health.liveness", serde_json::json!({}));
+    assert!(live.is_ok());
+    assert_eq!(live.expect("liveness")["alive"], true);
+
+    let ready = super::unix_jsonrpc::dispatch("health.readiness", serde_json::json!({}));
+    assert!(ready.is_ok());
+    assert_eq!(ready.expect("readiness")["ready"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn make_response_internal_error_jsonrpc_code() {
+    use super::error::IpcServiceError;
+    let resp = super::unix_jsonrpc::make_response(
+        serde_json::json!(3),
+        Err(IpcServiceError::internal("serialization bug")),
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse make_response json");
+    assert_eq!(parsed["error"]["code"], -32603);
+    assert!(
+        parsed["error"]["message"]
+            .as_str()
+            .expect("internal error message")
+            .contains("serialization bug")
+    );
+}
+
+#[cfg(unix)]
 #[test]
 fn dispatch_handler_error_returns_handler_phase() {
     let params = serde_json::json!({

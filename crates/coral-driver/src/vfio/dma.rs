@@ -11,8 +11,8 @@
 //!   `Layout::from_size_align(_, 4096)` is required.
 //! - **mlock/munlock**: rustix exposes these as `unsafe` (raw pointer + length).
 //!   No safe wrapper exists; invariants are documented at each call site.
-//! - **Container fd**: Each buffer holds an [`Arc`] clone of the VFIO container
-//!   [`OwnedFd`]; ioctls use [`AsFd::as_fd`] (no `borrow_raw`).
+//! - **Container fd**: Each buffer holds an [`Arc`](std::sync::Arc) clone of the VFIO container
+//!   [`OwnedFd`](std::os::fd::OwnedFd); ioctls use [`AsFd::as_fd`] (no `borrow_raw`).
 
 use crate::error::DriverError;
 use rustix::mm::{mlock, munlock};
@@ -51,15 +51,7 @@ impl DmaBuffer {
     ///
     /// Returns error if size is zero, allocation fails, mlock fails, or IOMMU
     /// DMA mapping fails.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "struct sizes and page-aligned sizes always fit u32/u64"
-    )]
-    pub(crate) fn new(
-        backend: DmaBackend,
-        size: usize,
-        iova: u64,
-    ) -> Result<Self, DriverError> {
+    pub(crate) fn new(backend: DmaBackend, size: usize, iova: u64) -> Result<Self, DriverError> {
         if size == 0 {
             return Err(DriverError::MmapFailed(
                 "DMA buffer size must be > 0".into(),
@@ -100,12 +92,8 @@ impl DmaBuffer {
             "VFIO DMA map attempt"
         );
 
-        let map_result = Self::dma_map_with_retry(
-            &backend,
-            vaddr as u64,
-            iova,
-            aligned_size as u64,
-        );
+        let map_result =
+            Self::dma_map_with_retry(&backend, vaddr as u64, iova, aligned_size as u64);
 
         if let Err(e) = map_result {
             tracing::warn!("VFIO DMA map failed: {e}");
@@ -270,11 +258,7 @@ impl DmaBuffer {
         clippy::cast_possible_truncation,
         reason = "struct sizes always fit u32"
     )]
-    fn dma_unmap_backend(
-        backend: &DmaBackend,
-        iova: u64,
-        length: u64,
-    ) -> Result<(), DriverError> {
+    fn dma_unmap_backend(backend: &DmaBackend, iova: u64, length: u64) -> Result<(), DriverError> {
         match backend {
             DmaBackend::LegacyContainer(container) => {
                 let arg = VfioDmaUnmap {

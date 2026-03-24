@@ -257,10 +257,7 @@ fn phase_a(dev: &mut AmdDevice) -> bool {
         dev.free(out).ok();
         true
     } else {
-        println!(
-            "     FAILED: {}/{n} mismatches",
-            mismatches.len()
-        );
+        println!("     FAILED: {}/{n} mismatches", mismatches.len());
         for &(i, v) in mismatches.iter().take(4) {
             println!(
                 "       [{i}] = {v} (bits=0x{:016x}, expected 0x{:016x})",
@@ -317,10 +314,7 @@ fn phase_b(dev: &mut AmdDevice) -> bool {
     }
 
     let vals = read_f64(dev, out, n);
-    println!(
-        "     First 4 as f64: {:?}",
-        &vals[..4.min(vals.len())]
-    );
+    println!("     First 4 as f64: {:?}", &vals[..4.min(vals.len())]);
     println!(
         "     First 4 as u64: {:?}",
         vals.iter()
@@ -341,10 +335,7 @@ fn phase_b(dev: &mut AmdDevice) -> bool {
         dev.free(out).ok();
         true
     } else {
-        println!(
-            "     FAILED: {}/{n} mismatches",
-            mismatches.len()
-        );
+        println!("     FAILED: {}/{n} mismatches", mismatches.len());
         for &(i, v) in mismatches.iter().take(8) {
             println!(
                 "       [{i}] = {v} (bits=0x{:016x}, expected 0x{:016x})",
@@ -402,9 +393,9 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
     // Stores 0xDEADBEEF to offset 0, loads it back, stores to offset 4.
     // If offset 4 == 0xDEADBEEF, GLOBAL_LOAD works.
     let store_then_load: Vec<u32> = vec![
-        0x7e040200, // v_mov_b32 v2, s0 (buffer VA lo)
-        0x7e060201, // v_mov_b32 v3, s1 (buffer VA hi)
-        0x7e0002ff, // v_mov_b32 v0, literal
+        0x7e040200,  // v_mov_b32 v2, s0 (buffer VA lo)
+        0x7e060201,  // v_mov_b32 v3, s1 (buffer VA hi)
+        0x7e0002ff,  // v_mov_b32 v0, literal
         0xDEAD_BEEF, // literal: 0xDEADBEEF
         // global_store_dword v[2:3], v0, off (store 0xDEADBEEF to offset 0)
         0xdc708000,
@@ -432,7 +423,10 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         let buf = dev.alloc((n * 4) as u64, MemoryDomain::Gtt).expect("alloc");
         let zeros = vec![0u8; n * 4];
         dev.upload(buf, 0, &zeros).expect("zero");
-        let binary: Vec<u8> = store_then_load.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let binary: Vec<u8> = store_then_load
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .collect();
         print!("     STORE-then-LOAD (GTT): ");
         if let Err(e) = dev.dispatch(&binary, &[buf], DispatchDims::new(1, 1, 1), &info) {
             println!("dispatch FAILED: {e}");
@@ -463,7 +457,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         // v_mov_b32 v3, s1           → v3 = VA_hi
         0x7e060201,
         // global_load_dword v0, v[2:3], off GLC=1
-        0xdc518000,  // GFX9 opcode=20, GLC at bit16
+        0xdc518000, // GFX9 opcode=20, GLC at bit16
         (0x7f << 16) | (0 << 8) | 2,
         // s_waitcnt vmcnt(0)
         0xbf8c0000,
@@ -484,9 +478,9 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         // flat_load_dword v0, v[2:3] (SEG=00, not GLOBAL=10)
         0xdc300000, // SEG bits [15:14] = 00 (FLAT), no offset
         (0x7f << 16) | (0 << 8) | 2,
-        0xbf8c0000, // s_waitcnt 0
+        0xbf8c0000,                             // s_waitcnt 0
         (3 << 25) | (0 << 17) | (0 << 9) | 242, // v_add_f32
-        0xdc700000, // flat_store_dword SEG=00
+        0xdc700000,                             // flat_store_dword SEG=00
         (0x7f << 16) | (0 << 8) | 2,
         0xbf8c0000,
         0xbf810000,
@@ -501,13 +495,13 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         // global_load_dword v1, v0, s[0:1]
         // SADDR = 0 (s0 pair), VADDR = v0 (=0)
         0xdc508000,
-        (0 << 16) | (1 << 24) | 0,  // SADDR=s0, VDST=v1, VADDR=v0
+        (0 << 16) | (1 << 24) | 0, // SADDR=s0, VDST=v1, VADDR=v0
         0xbf8c0000,
         // v_add_f32 v1, v1, 1.0
         (3 << 25) | (1 << 17) | (1 << 9) | 242,
         // Store back: SADDR=s0, VADDR=v0 (offset 0)
         0xdc708000,
-        (0 << 16) | (1 << 8) | 0,  // SADDR=s0, VDATA=v1, VADDR=v0
+        (0 << 16) | (1 << 8) | 0, // SADDR=s0, VDATA=v1, VADDR=v0
         0xbf8c0000,
         0xbf810000,
     ];
@@ -531,9 +525,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         0xbf8c0000, // s_waitcnt 0
         0xbf810000, // s_endpgm
     ];
-    let variants: Vec<(&str, Vec<u32>)> = vec![
-        ("LOAD only (GTT buf)", load_only.clone()),
-    ];
+    let variants: Vec<(&str, Vec<u32>)> = vec![("LOAD only (GTT buf)", load_only.clone())];
 
     let mut any_pass = false;
     // Test with both GTT and VRAM buffers
@@ -564,16 +556,18 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
     }
     // Load+modify+store with GLC + VRAM
     {
-        let out = dev.alloc((n * 4) as u64, MemoryDomain::Vram).expect("alloc");
+        let out = dev
+            .alloc((n * 4) as u64, MemoryDomain::Vram)
+            .expect("alloc");
         upload_f32(dev, out, &input_vals);
         let lms: Vec<u32> = vec![
             0x7e040200, // v_mov_b32 v2, s0
             0x7e060201, // v_mov_b32 v3, s1
             0xdc518000, // global_load_dword v0, v[2:3], off GLC=1
             (0x7f << 16) | (0 << 8) | 2,
-            0xbf8c0000, // s_waitcnt 0
+            0xbf8c0000,                             // s_waitcnt 0
             (3 << 25) | (0 << 17) | (0 << 9) | 242, // v_add_f32 v0, 1.0, v0
-            0xdc708000, // global_store_dword
+            0xdc708000,                             // global_store_dword
             (0x7f << 16) | (0 << 8) | 2,
             0xbf8c0000,
             0xbf810000,
@@ -615,8 +609,12 @@ enable f64;
 }
 ";
         let c = compile_gcn5(rcp_src);
-        println!("     Compiled: {} bytes, {} GPRs, {} instrs",
-            c.binary.len(), c.info.gpr_count, c.info.instr_count);
+        println!(
+            "     Compiled: {} bytes, {} GPRs, {} instrs",
+            c.binary.len(),
+            c.info.gpr_count,
+            c.info.instr_count
+        );
         print!("     Binary: ");
         for chunk in c.binary.chunks(4) {
             if chunk.len() == 4 {
@@ -676,8 +674,7 @@ enable f64;
             return false;
         }
         let result = read_f64(dev, out, n);
-        let ok = (result[0] - 1.0).abs() < 1e-10
-            && (result[1] - 0.5).abs() < 1e-10;
+        let ok = (result[0] - 1.0).abs() < 1e-10 && (result[1] - 0.5).abs() < 1e-10;
         if ok {
             println!("PASSED");
         } else {
@@ -757,7 +754,10 @@ enable f64;
     let all_ok = fx0_ok && fy0_ok && fz0_ok && fx1_ok && fy1_ok && fz1_ok;
     if all_ok {
         println!("     PASSED: LJ forces match CPU reference (tol={tol})");
-        println!("     Newton's 3rd law: {}", if newton3 { "VERIFIED" } else { "FAILED" });
+        println!(
+            "     Newton's 3rd law: {}",
+            if newton3 { "VERIFIED" } else { "FAILED" }
+        );
     } else {
         println!("     FAILED:");
         if !fx0_ok {
@@ -791,7 +791,10 @@ fn phase_f(dev: &mut AmdDevice) -> bool {
 
     let n = 1024 * 1024_usize; // 1M elements = 4 MB per buffer
     let buf_bytes = (n * 4) as u64;
-    println!("     Elements: {n} ({} MB per buffer)", buf_bytes / (1024 * 1024));
+    println!(
+        "     Elements: {n} ({} MB per buffer)",
+        buf_bytes / (1024 * 1024)
+    );
 
     let dst = alloc_zero(dev, buf_bytes);
     let src = dev.alloc(buf_bytes, MemoryDomain::Gtt).expect("alloc src");
@@ -801,7 +804,12 @@ fn phase_f(dev: &mut AmdDevice) -> bool {
     let workgroups = (n / 64) as u32;
 
     let start = Instant::now();
-    if !dispatch_and_sync(dev, &compiled, &[dst, src], DispatchDims::linear(workgroups)) {
+    if !dispatch_and_sync(
+        dev,
+        &compiled,
+        &[dst, src],
+        DispatchDims::linear(workgroups),
+    ) {
         dev.free(dst).ok();
         dev.free(src).ok();
         return false;
@@ -888,11 +896,7 @@ fn main() {
     println!("╠═══════════════════════════════════════════════════╣");
     println!(
         "║  {passed}/{total} phases passed{:>30}║",
-        if passed == total {
-            "ALL PASSED"
-        } else {
-            ""
-        }
+        if passed == total { "ALL PASSED" } else { "" }
     );
     println!("╚═══════════════════════════════════════════════════╝");
 

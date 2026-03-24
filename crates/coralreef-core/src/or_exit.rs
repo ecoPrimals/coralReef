@@ -87,4 +87,14 @@ mod tests {
         let opt: Option<String> = Some("hello".into());
         assert_eq!(opt.or_exit_code("test", 2), "hello");
     }
+
+    #[test]
+    fn result_err_display_used_by_fatal_logging() {
+        let err: Result<(), &str> = Err("boom");
+        assert_eq!(
+            err.expect_err("expected Err branch for display check")
+                .to_string(),
+            "boom"
+        );
+    }
 }

@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 21, Iter 62)  
+**Generated:** March 10, 2026 (metrics updated March 24, Iter 64)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 62):** 3460+ tests passing, 108 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 64):** 3912 tests passing, 108 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -212,9 +212,9 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 62) |
+| Metric | Value (as of Iter 64) |
 |--------|-------|
-| Tests passing | 3460+ default + 48 VFIO |
+| Tests passing | 3912 default + 48 VFIO |
 | Ignored tests | 108 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
@@ -227,12 +227,12 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (device.rs→device/ module, socket_tests→socket_tests/ dir, Iter 57–58) |
+| Files over 1000 LOC | 0 (all 5 over-limit files smart-refactored into directory modules, Iter 64) |
 | Clippy warnings | 0 (pedantic + nursery, -D warnings) |
-| Doc warnings | 0 |
-| Region coverage (llvm-cov) | 66.1% (target 90%; was 60.62% Iter 58) |
-| Line coverage (llvm-cov) | 68.7% (target 90%; Iter 62) |
-| Function coverage | 72.9% (target 90%; was 69.03% Iter 58) |
+| Doc warnings | 2 (pre-existing coral-driver intra-doc links: DmaBuffer, VfioDevice::from_received) |
+| Line coverage (llvm-cov) | 65.9% workspace / **81.5% non-hardware** (target 90%; Iter 64) |
+| Function coverage | 73.7% (target 90%; Iter 64) |
+| Untestable lines | ~19,009 in coral-driver (VFIO/DRM/GPU channel — requires hardware) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45) |

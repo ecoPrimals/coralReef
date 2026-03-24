@@ -208,7 +208,7 @@ fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderMode
         }
         GpuTarget::Amd(amd) => {
             let gfx = amd.gfx_major() * 10 + 3;
-            let wave = u8::from(amd.default_wave_size());
+            let wave = amd.default_wave_size();
             Ok(Box::new(
                 codegen::amd::shader_model::ShaderModelRdna2::new(gfx).with_wave_size(wave),
             ))

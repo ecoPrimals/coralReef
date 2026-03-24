@@ -50,7 +50,10 @@ fn main() {
                 if chunk.len() == 4 {
                     let w = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                     print!("{w:08x} ");
-                    if (i + 1) % 8 == 0 { println!(); print!("          "); }
+                    if (i + 1) % 8 == 0 {
+                        println!();
+                        print!("          ");
+                    }
                 }
             }
             println!();
@@ -153,7 +156,11 @@ fn main() {
             0xbf810000,
         ];
 
-        for (name, binary) in [("Test A (fixed addr)", &test_a), ("Test B (per-thread)", &handcraft), ("Test C (dump v0)", &test_c)] {
+        for (name, binary) in [
+            ("Test A (fixed addr)", &test_a),
+            ("Test B (per-thread)", &handcraft),
+            ("Test C (dump v0)", &test_c),
+        ] {
             dev.upload(out_buf, 0, &zeros).expect("zero buffer");
             let bytes: Vec<u8> = binary.iter().flat_map(|w| w.to_le_bytes()).collect();
             let hc_info = ShaderInfo {
@@ -166,25 +173,35 @@ fn main() {
             print!("  {name}: ");
             match dev.dispatch(&bytes, &[out_buf], DispatchDims::new(1, 1, 1), &hc_info) {
                 Ok(()) => {}
-                Err(e) => { println!("dispatch FAILED: {e}"); continue; }
+                Err(e) => {
+                    println!("dispatch FAILED: {e}");
+                    continue;
+                }
             }
             match dev.sync() {
                 Ok(()) => {}
-                Err(e) => { println!("sync FAILED: {e}"); continue; }
+                Err(e) => {
+                    println!("sync FAILED: {e}");
+                    continue;
+                }
             }
-            let d = dev.readback(out_buf, 0, NUM_ELEMENTS * 4).expect("readback");
+            let d = dev
+                .readback(out_buf, 0, NUM_ELEMENTS * 4)
+                .expect("readback");
             let mut vals = Vec::new();
             for i in 0..NUM_ELEMENTS.min(8) {
                 let off = i * 4;
-                let w = u32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
+                let w = u32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
                 vals.push(format!("[{i}]=0x{w:08x}({v})"));
             }
-            let pass = (0..NUM_ELEMENTS).filter(|&i| {
-                let off = i * 4;
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                (v - 42.0).abs() < f32::EPSILON
-            }).count();
+            let pass = (0..NUM_ELEMENTS)
+                .filter(|&i| {
+                    let off = i * 4;
+                    let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                    (v - 42.0).abs() < f32::EPSILON
+                })
+                .count();
             println!("{pass}/{NUM_ELEMENTS} = 42.0 | {}", vals.join(" "));
         }
         // Test F: Dump V_MAD result — all lanes write MAD(v0,4,0) to element 0
@@ -223,7 +240,10 @@ fn main() {
             0xBF810000,
         ];
 
-        for (name, binary) in [("Test F (MAD dump)", &test_f), ("Test G (VOP2 MUL)", &test_g)] {
+        for (name, binary) in [
+            ("Test F (MAD dump)", &test_f),
+            ("Test G (VOP2 MUL)", &test_g),
+        ] {
             dev.upload(out_buf, 0, &zeros).expect("zero buffer");
             let bytes: Vec<u8> = binary.iter().flat_map(|w| w.to_le_bytes()).collect();
             let hc_info = ShaderInfo {
@@ -236,25 +256,35 @@ fn main() {
             print!("  {name}: ");
             match dev.dispatch(&bytes, &[out_buf], DispatchDims::new(1, 1, 1), &hc_info) {
                 Ok(()) => {}
-                Err(e) => { println!("dispatch FAILED: {e}"); continue; }
+                Err(e) => {
+                    println!("dispatch FAILED: {e}");
+                    continue;
+                }
             }
             match dev.sync() {
                 Ok(()) => {}
-                Err(e) => { println!("sync FAILED: {e}"); continue; }
+                Err(e) => {
+                    println!("sync FAILED: {e}");
+                    continue;
+                }
             }
-            let d = dev.readback(out_buf, 0, NUM_ELEMENTS * 4).expect("readback");
+            let d = dev
+                .readback(out_buf, 0, NUM_ELEMENTS * 4)
+                .expect("readback");
             let mut vals = Vec::new();
             for i in 0..NUM_ELEMENTS.min(8) {
                 let off = i * 4;
-                let w = u32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
+                let w = u32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
                 vals.push(format!("[{i}]=0x{w:08x}({v})"));
             }
-            let pass = (0..NUM_ELEMENTS).filter(|&i| {
-                let off = i * 4;
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                (v - 42.0).abs() < f32::EPSILON
-            }).count();
+            let pass = (0..NUM_ELEMENTS)
+                .filter(|&i| {
+                    let off = i * 4;
+                    let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                    (v - 42.0).abs() < f32::EPSILON
+                })
+                .count();
             println!("{pass}/{NUM_ELEMENTS} = 42.0 | {}", vals.join(" "));
         }
 
@@ -294,25 +324,35 @@ fn main() {
             print!("  {name}: ");
             match dev.dispatch(&bytes, &[out_buf], DispatchDims::new(1, 1, 1), &hc_info) {
                 Ok(()) => {}
-                Err(e) => { println!("dispatch FAILED: {e}"); continue; }
+                Err(e) => {
+                    println!("dispatch FAILED: {e}");
+                    continue;
+                }
             }
             match dev.sync() {
                 Ok(()) => {}
-                Err(e) => { println!("sync FAILED: {e}"); continue; }
+                Err(e) => {
+                    println!("sync FAILED: {e}");
+                    continue;
+                }
             }
-            let d = dev.readback(out_buf, 0, NUM_ELEMENTS * 4).expect("readback");
+            let d = dev
+                .readback(out_buf, 0, NUM_ELEMENTS * 4)
+                .expect("readback");
             let mut vals = Vec::new();
             for i in 0..NUM_ELEMENTS.min(8) {
                 let off = i * 4;
-                let w = u32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
+                let w = u32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
                 vals.push(format!("[{i}]=0x{w:08x}({v})"));
             }
-            let pass = (0..NUM_ELEMENTS).filter(|&i| {
-                let off = i * 4;
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                (v - 42.0).abs() < f32::EPSILON
-            }).count();
+            let pass = (0..NUM_ELEMENTS)
+                .filter(|&i| {
+                    let off = i * 4;
+                    let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                    (v - 42.0).abs() < f32::EPSILON
+                })
+                .count();
             println!("{pass}/{NUM_ELEMENTS} = 42.0 | {}", vals.join(" "));
         }
 
@@ -328,27 +368,40 @@ fn main() {
                 wave_size: 64,
             };
             print!("  Test D (compiler binary, gpr=5): ");
-            match dev.dispatch(&compiled.binary, &[out_buf], DispatchDims::new(1, 1, 1), &d_info) {
+            match dev.dispatch(
+                &compiled.binary,
+                &[out_buf],
+                DispatchDims::new(1, 1, 1),
+                &d_info,
+            ) {
                 Ok(()) => {}
-                Err(e) => { println!("dispatch FAILED: {e}"); }
+                Err(e) => {
+                    println!("dispatch FAILED: {e}");
+                }
             }
             match dev.sync() {
                 Ok(()) => {}
-                Err(e) => { println!("sync FAILED: {e}"); }
+                Err(e) => {
+                    println!("sync FAILED: {e}");
+                }
             }
-            let d = dev.readback(out_buf, 0, NUM_ELEMENTS * 4).expect("readback");
+            let d = dev
+                .readback(out_buf, 0, NUM_ELEMENTS * 4)
+                .expect("readback");
             let mut vals = Vec::new();
             for i in 0..NUM_ELEMENTS.min(8) {
                 let off = i * 4;
-                let w = u32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
+                let w = u32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
                 vals.push(format!("[{i}]=0x{w:08x}({v})"));
             }
-            let pass = (0..NUM_ELEMENTS).filter(|&i| {
-                let off = i * 4;
-                let v = f32::from_le_bytes([d[off], d[off+1], d[off+2], d[off+3]]);
-                (v - 42.0).abs() < f32::EPSILON
-            }).count();
+            let pass = (0..NUM_ELEMENTS)
+                .filter(|&i| {
+                    let off = i * 4;
+                    let v = f32::from_le_bytes([d[off], d[off + 1], d[off + 2], d[off + 3]]);
+                    (v - 42.0).abs() < f32::EPSILON
+                })
+                .count();
             println!("{pass}/{NUM_ELEMENTS} = 42.0 | {}", vals.join(" "));
         }
 
@@ -428,7 +481,12 @@ fn main() {
         for i in 0..(full_data.len() / 4) {
             let off = i * 4;
             if off + 4 <= full_data.len() {
-                let w = u32::from_le_bytes([full_data[off], full_data[off+1], full_data[off+2], full_data[off+3]]);
+                let w = u32::from_le_bytes([
+                    full_data[off],
+                    full_data[off + 1],
+                    full_data[off + 2],
+                    full_data[off + 3],
+                ]);
                 if w == 0x42280000 {
                     found_offsets.push(i);
                 } else if w != 0 {

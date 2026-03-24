@@ -504,7 +504,16 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), vgpr(3)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::IAdd3(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
         let words = result.expect("IAdd3 encode should succeed");
         assert!(!words.is_empty());
@@ -518,7 +527,16 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(true)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::IMnMx(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -530,7 +548,16 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), Src::new_imm_bool(false)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::IMnMx(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -542,7 +569,16 @@ mod tests {
             op: LogicOp2::PassB,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::Lop2(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::Lop2(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -569,7 +605,16 @@ mod tests {
             signed: true,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::Shr(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::Shr(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -582,7 +627,16 @@ mod tests {
             signed: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::Shr(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::Shr(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -595,7 +649,16 @@ mod tests {
             srcs: [vgpr(1), vgpr(2), vgpr(3)],
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::IAdd3(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::IAdd3(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_err());
     }
 }

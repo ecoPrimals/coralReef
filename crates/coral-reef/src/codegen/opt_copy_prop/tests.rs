@@ -5,9 +5,9 @@
 use crate::codegen::ir::LogicOp3;
 use crate::codegen::ir::{
     BasicBlock, ComputeShaderInfo, Dst, FRndMode, Function, Instr, LabelAllocator, Op, OpCopy,
-    OpExit, OpFAdd, OpHAdd2, OpIAdd2, OpIAdd3, OpLop3, OpPLop3, OpParCopy, OpPrmt, OpRegOut, OpSel,
-    PhiAllocator, PrmtMode, RegFile, SSAValueAllocator, Shader, ShaderInfo, ShaderIoInfo,
-    ShaderModelInfo, ShaderStageInfo, Src, SrcRef, SrcType,
+    OpDAdd, OpExit, OpFAdd, OpHAdd2, OpIAdd2, OpIAdd3, OpLop3, OpPLop3, OpParCopy, OpPrmt,
+    OpRegOut, OpSel, PhiAllocator, Pred, PredRef, PrmtMode, RegFile, SSAValueAllocator, Shader,
+    ShaderInfo, ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, Src, SrcRef, SrcType,
 };
 use coral_reef_stubs::cfg::CFGBuilder;
 
@@ -948,5 +948,71 @@ fn test_copy_prop_r2ur_uniform() {
     assert!(
         matches!(op.srcs[0].reference, SrcRef::Imm32(99)),
         "R2UR uniform copy should propagate to imm"
+    );
+}
+
+#[test]
+fn test_copy_prop_dadd_fneg_zero_left() {
+    let mut ssa_alloc = SSAValueAllocator::new();
+    let dst = ssa_alloc.alloc_vec(RegFile::GPR, 2);
+    let src_pair = ssa_alloc.alloc_vec(RegFile::GPR, 2);
+    let mut shader = make_shader_with_function(
+        vec![
+            Instr::new(Op::DAdd(Box::new(OpDAdd {
+                dst: dst.clone().into(),
+                srcs: [Src::ZERO.fneg(), src_pair.clone().into()],
+                rnd_mode: FRndMode::NearestEven,
+            }))),
+            Instr::new(OpRegOut {
+                srcs: vec![dst[0].into(), dst[1].into()],
+            }),
+            Instr::new(OpExit {}),
+        ],
+        ssa_alloc,
+    );
+
+    shader.opt_copy_prop();
+
+    let reg_out = &shader.functions[0].blocks[0].instrs[1];
+    let Op::RegOut(op) = &reg_out.op else {
+        panic!("expected RegOut");
+    };
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(ref s) if s[0] == src_pair[0]),
+        "DAdd(-0, x) should record copies so RegOut lo uses src lo"
+    );
+    assert!(
+        matches!(op.srcs[1].reference, SrcRef::SSA(ref s) if s[0] == src_pair[1]),
+        "DAdd(-0, x) should record copies so RegOut hi uses src hi"
+    );
+}
+
+#[test]
+fn test_copy_prop_pred_fold_true_to_none() {
+    let mut ssa_alloc = SSAValueAllocator::new();
+    let dst_p = ssa_alloc.alloc(RegFile::Pred);
+    let dst_g = ssa_alloc.alloc(RegFile::GPR);
+    let op_src0 = LogicOp3::new_lut(&|x, _y, _z| x);
+    let plop = Instr::new(OpPLop3 {
+        dsts: [dst_p.into(), Dst::None],
+        srcs: [SrcRef::True.into(), Src::ZERO, Src::ZERO],
+        ops: [op_src0, op_src0],
+    });
+    let mut iadd = Instr::new(OpIAdd2 {
+        dsts: [dst_g.into(), Dst::None],
+        srcs: [Src::new_imm_u32(11), Src::ZERO],
+    });
+    iadd.pred = Pred {
+        predicate: PredRef::SSA(dst_p),
+        inverted: false,
+    };
+    let mut shader = make_shader_with_function(vec![plop, iadd, Instr::new(OpExit {})], ssa_alloc);
+
+    shader.opt_copy_prop();
+
+    let iadd2 = &shader.functions[0].blocks[0].instrs[1];
+    assert!(
+        iadd2.pred.is_true(),
+        "predicate that was a copy of True should fold to always-true"
     );
 }

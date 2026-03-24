@@ -56,7 +56,14 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
     use std::process::{Command, Stdio};
 
     let mut child = Command::new("/usr/bin/env")
-        .args(["sh", "-c", &format!("printf '%s' \"$1\" > \"$2\""), "sysfs_write", value, path])
+        .args([
+            "sh",
+            "-c",
+            "printf '%s' \"$1\" > \"$2\"",
+            "sysfs_write",
+            value,
+            path,
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -414,11 +421,7 @@ mod tests {
 
     #[test]
     fn guarded_sysfs_write_timeout_reports_d_state() {
-        let err = guarded_sysfs_write(
-            "/dev/null",
-            "test",
-            Duration::ZERO,
-        );
+        let err = guarded_sysfs_write("/dev/null", "test", Duration::ZERO);
         // With zero timeout the child may or may not finish — we just
         // verify no panic and the error path works.
         drop(err);

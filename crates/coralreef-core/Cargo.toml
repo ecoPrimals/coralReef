@@ -18,6 +18,16 @@ name = "or_exit_err"
 path = "tests/bin/or_exit_err.rs"
 required-features = []
 
+[[bin]]
+name = "or_exit_option_err"
+path = "tests/bin/or_exit_option_err.rs"
+required-features = []
+
+[[bin]]
+name = "or_exit_code_err"
+path = "tests/bin/or_exit_code_err.rs"
+required-features = []
+
 [lints]
 workspace = true
 

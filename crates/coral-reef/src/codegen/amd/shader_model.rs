@@ -55,7 +55,13 @@ impl ShaderModel for ShaderModelRdna2 {
     fn reg_count(&self, file: RegFile) -> u32 {
         match file {
             RegFile::GPR => 256,
-            RegFile::UGPR => if self.gfx_version / 10 <= 9 { 102 } else { 106 },
+            RegFile::UGPR => {
+                if self.gfx_version / 10 <= 9 {
+                    102
+                } else {
+                    106
+                }
+            }
             RegFile::Pred => 1,
             RegFile::UPred => 1,
             RegFile::Carry => 1,
@@ -296,7 +302,7 @@ fn encode_rdna2_shader(sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>
     } else {
         let n = encoded.len();
         if n < 2 || encoded[n - 2] != 0xBF8C_0000 {
-            let endpgm = encoded.pop().unwrap();
+            let endpgm = encoded.pop().expect("infallible: non-empty checked above");
             encoded.extend_from_slice(&super::encoding::encode_s_waitcnt(0, 0, 0));
             encoded.push(endpgm);
         }

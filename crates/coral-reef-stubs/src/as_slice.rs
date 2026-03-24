@@ -107,4 +107,34 @@ mod tests {
         AsSlice::as_mut_slice(&mut v)[0] = 10;
         assert_eq!(v[0], 10);
     }
+
+    #[test]
+    fn attr_list_index_uniform() {
+        let al = AttrList::Uniform(7u8);
+        assert_eq!(al[0], 7);
+        assert_eq!(al[3], 7);
+    }
+
+    #[test]
+    fn attr_list_index_list() {
+        let al = AttrList::List(vec![10u16, 20, 30]);
+        assert_eq!(al[1], 20);
+    }
+
+    #[test]
+    fn vec_attrs_returns_uniform_unit() {
+        let v = vec![1_i32, 2, 3];
+        assert!(matches!(attrs::<i32>(&v), AttrList::Uniform(())));
+    }
+
+    fn attrs<T>(v: &Vec<T>) -> AttrList<()> {
+        <Vec<T> as AsSlice<T>>::attrs(v)
+    }
+
+    #[test]
+    fn attr_list_clone_debug() {
+        let a = AttrList::List(vec![1u8, 2]);
+        let b = a.clone();
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
+    }
 }

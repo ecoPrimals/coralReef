@@ -8,7 +8,7 @@ use coral_reef_stubs::fxhash::FxHashMap;
 
 use crate::codegen::ir::{
     Dst, Label, LabelAllocator, MatchOp, MemScope, OpBClear, OpBMov, OpBSSy, OpBSync, OpBar, OpBra,
-    OpBreak, OpExit, OpKill, OpMatch, OpMemBar, OpNop, OpOut, OpOutFinal, OpPixLd, OpVote,
+    OpBreak, OpExit, OpKill, OpMatch, OpMemBar, OpNop, OpOut, OpOutFinal, OpPixLd, OpS2R, OpVote,
     OpWarpSync, OutType, PixVal, Pred, PredRef, RegFile, RegRef, Src, SrcMod, SrcSwizzle, VoteOp,
 };
 
@@ -389,4 +389,50 @@ fn op_membar_scopes_sm70() {
         assert_eq!(e.get_field(76..79), enc);
         assert_eq!(opcode(&e), 0x992);
     }
+}
+
+#[test]
+fn op_s2r_uniform_uses_udst_opcode() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    let mut e = encoder(73, 0, labels);
+    OpS2R {
+        dst: Dst::Reg(RegRef::new(RegFile::UGPR, 5, 1)),
+        idx: 0x2a,
+    }
+    .encode(&mut e);
+    assert_eq!(opcode(&e), 0x9c3);
+    assert_eq!(e.get_field(72..80), 0x2a);
+}
+
+#[test]
+fn op_s2r_warp_uses_vdst_opcode() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    let mut e = encoder(70, 0, labels);
+    OpS2R {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 12, 1)),
+        idx: 0x11,
+    }
+    .encode(&mut e);
+    assert_eq!(opcode(&e), 0x919);
+    assert_eq!(e.get_field(72..80), 0x11);
+}
+
+#[test]
+fn op_bmov_to_gpr_uses_bar_src_encoding_path() {
+    let labels: &'static FxHashMap<Label, usize> = Box::leak(Box::new(FxHashMap::default()));
+    let mut e = encoder(70, 0, labels);
+    let bar_in = RegRef::new(RegFile::Bar, 4, 1);
+    OpBMov {
+        dst: Dst::Reg(RegRef::new(RegFile::GPR, 3, 1)),
+        src: Src {
+            reference: bar_in.into(),
+            modifier: SrcMod::None,
+            swizzle: SrcSwizzle::None,
+        },
+        clear: true,
+    }
+    .encode(&mut e);
+    assert_eq!(opcode(&e), 0x355);
+    assert_eq!(e.get_field(24..28), 4, "bar src slot carries barrier id");
+    assert!(e.get_bit(84), ".CLEAR");
 }

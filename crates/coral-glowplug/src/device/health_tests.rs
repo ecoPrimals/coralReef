@@ -195,3 +195,107 @@ fn resurrect_hbm2_nvidia_vendor_non_nvidia_driver_still_needs_ember() {
         other => panic!("unexpected: {other:?}"),
     }
 }
+
+#[test]
+fn write_register_pmc_enable_blocked_without_allow_dangerous() {
+    let bdf = "0000:55:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    let err = slot
+        .write_register(0x200, 1, false)
+        .expect_err("PMC_ENABLE write without allow_dangerous");
+    match err {
+        DeviceError::VfioOpen { reason, .. } => {
+            assert!(
+                reason.contains("PMC_ENABLE") || reason.contains("0x200"),
+                "{reason}"
+            );
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn write_register_non_pmc_requires_vfio_holder() {
+    let bdf = "0000:56:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    let err = slot
+        .write_register(0x100, 1, false)
+        .expect_err("no VFIO holder");
+    match err {
+        DeviceError::VfioOpen { reason, .. } => {
+            assert!(
+                reason.contains("VFIO") || reason.contains("no VFIO"),
+                "{reason}"
+            );
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn read_bar0_range_without_vfio_returns_empty() {
+    let bdf = "0000:57:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    assert!(slot.read_bar0_range(0, 100).is_empty());
+}
+
+#[test]
+fn read_bar0_range_caps_count_at_4096() {
+    let bdf = "0000:58:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    assert!(slot.read_bar0_range(0, 10_000).is_empty());
+}
+
+#[test]
+fn pramin_read_without_vfio_returns_error() {
+    let bdf = "0000:59:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    let err = slot.pramin_read(0, 4).expect_err("PRAMIN requires VFIO");
+    match err {
+        DeviceError::VfioOpen { reason, .. } => {
+            assert!(
+                reason.contains("PRAMIN") || reason.contains("VFIO"),
+                "{reason}"
+            );
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn pramin_write_without_vfio_returns_error() {
+    let bdf = "0000:5a:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    let err = slot
+        .pramin_write(0, &[1, 2])
+        .expect_err("PRAMIN requires VFIO");
+    match err {
+        DeviceError::VfioOpen { reason, .. } => {
+            assert!(
+                reason.contains("PRAMIN") || reason.contains("VFIO"),
+                "{reason}"
+            );
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn oracle_capture_via_vfio_without_holder_returns_err() {
+    let bdf = "0000:5b:00.0";
+    let mock = MockSysfs::default();
+    let slot = DeviceSlot::with_sysfs(base_config(bdf, "vfio"), mock);
+    let err = slot
+        .oracle_capture_via_vfio(4)
+        .expect_err("oracle capture requires VFIO");
+    assert!(
+        err.contains("VFIO") || err.contains("vfio"),
+        "unexpected message: {err}"
+    );
+}

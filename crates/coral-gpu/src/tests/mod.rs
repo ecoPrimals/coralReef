@@ -8,9 +8,12 @@ mod context_accessors_and_errors;
 mod context_compile;
 mod context_compile_dispatch;
 mod context_from_parts;
+mod context_wave_size;
 mod driver_errors;
 mod driver_preference;
 mod driver_sm_arch;
+#[cfg(all(target_os = "linux", feature = "vfio"))]
+mod driver_vfio;
 mod error_display;
 mod fma;
 mod hash_wgsl;

@@ -854,4 +854,52 @@ mod tests {
         let header = encode_header(&sm, &info, None);
         assert!(header.iter().all(|&w| w == 0));
     }
+
+    #[test]
+    fn test_encode_header_vertex_populates_sph_words() {
+        use crate::codegen::ir::{
+            ShaderInfo, ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, SysValInfo,
+            VertexShaderInfo, VtgIoInfo,
+        };
+        let sm = ShaderModelInfo::new(75, 64);
+        let vtg = VtgIoInfo {
+            sysvals_in: SysValInfo { ab: 0x0f, c: 0x0c },
+            sysvals_in_d: 0x05,
+            sysvals_out: SysValInfo { ab: 0x20, c: 0x01 },
+            sysvals_out_d: 0x02,
+            attr_in: [0x0a, 0x0b, 0, 0],
+            attr_out: [0x0c, 0, 0, 0],
+            store_req_start: 0,
+            store_req_end: 3,
+            clip_enable: 0,
+            cull_enable: 0,
+            xfb: None,
+        };
+        let info = ShaderInfo {
+            max_warps_per_sm: 0,
+            gpr_count: 0,
+            control_barrier_count: 0,
+            instr_count: 0,
+            static_cycle_count: 0,
+            spills_to_mem: 0,
+            fills_from_mem: 0,
+            spills_to_reg: 0,
+            fills_from_reg: 0,
+            shared_local_mem_size: 256,
+            max_crs_depth: 0,
+            uses_global_mem: true,
+            writes_global_mem: false,
+            uses_fp64: true,
+            stage: ShaderStageInfo::Vertex(VertexShaderInfo {
+                isbe_space_sharing_enable: true,
+            }),
+            io: ShaderIoInfo::Vtg(vtg),
+        };
+        let header = encode_header(&sm, &info, None);
+        let nonzero = header.iter().filter(|&&w| w != 0).count();
+        assert!(
+            nonzero > 4,
+            "vertex encode_header should set multiple SPH words from VTG I/O"
+        );
+    }
 }

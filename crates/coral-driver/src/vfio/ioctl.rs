@@ -13,9 +13,8 @@ use std::os::fd::BorrowedFd;
 use super::types::ioctls;
 use super::types::iommufd as iommufd_ops;
 use super::types::{
-    IommuIoasAlloc, IommuIoasMap, IommuIoasUnmap, VfioDeviceAttachIommufdPt,
-    VfioDeviceBindIommufd, VfioDeviceInfo, VfioDmaMap, VfioDmaUnmap, VfioGroupStatus,
-    VfioRegionInfo,
+    IommuIoasAlloc, IommuIoasMap, IommuIoasUnmap, VfioDeviceAttachIommufdPt, VfioDeviceBindIommufd,
+    VfioDeviceInfo, VfioDmaMap, VfioDmaUnmap, VfioGroupStatus, VfioRegionInfo,
 };
 
 /// Ioctl adapter for VFIO commands that return an i32 (no-arg or integer-arg).
@@ -193,8 +192,7 @@ pub(crate) fn device_bind_iommufd(
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_BIND_IOMMUFD }, _> {
         ptr: std::ptr::from_mut(arg),
     };
-    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
-        .map_err(|e| vfio_err("DEVICE_BIND_IOMMUFD", e))
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_BIND_IOMMUFD", e))
 }
 
 /// `VFIO_DEVICE_ATTACH_IOMMUFD_PT` on a cdev device fd.
@@ -207,8 +205,7 @@ pub(crate) fn device_attach_iommufd_pt(
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_ATTACH_IOMMUFD_PT }, _> {
         ptr: std::ptr::from_mut(arg),
     };
-    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
-        .map_err(|e| vfio_err("DEVICE_ATTACH_IOMMUFD_PT", e))
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_ATTACH_IOMMUFD_PT", e))
 }
 
 /// `IOMMU_IOAS_ALLOC` on an iommufd.
@@ -221,8 +218,7 @@ pub(crate) fn iommufd_ioas_alloc(
     let ioctl = VfioIoctlPtr::<{ iommufd_ops::OP_IOAS_ALLOC }, _> {
         ptr: std::ptr::from_mut(arg),
     };
-    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
-        .map_err(|e| vfio_err("IOMMU_IOAS_ALLOC", e))
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("IOMMU_IOAS_ALLOC", e))
 }
 
 /// `IOMMU_IOAS_MAP` on an iommufd.
@@ -235,8 +231,7 @@ pub(crate) fn iommufd_ioas_map(
     let ioctl = VfioIoctlPtr::<{ iommufd_ops::OP_IOAS_MAP }, _> {
         ptr: std::ptr::from_mut(arg),
     };
-    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
-        .map_err(|e| vfio_err("IOMMU_IOAS_MAP", e))
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("IOMMU_IOAS_MAP", e))
 }
 
 /// `IOMMU_IOAS_UNMAP` on an iommufd.
@@ -249,6 +244,5 @@ pub(crate) fn iommufd_ioas_unmap(
     let ioctl = VfioIoctlPtr::<{ iommufd_ops::OP_IOAS_UNMAP }, _> {
         ptr: std::ptr::from_mut(arg),
     };
-    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
-        .map_err(|e| vfio_err("IOMMU_IOAS_UNMAP", e))
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("IOMMU_IOAS_UNMAP", e))
 }

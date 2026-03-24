@@ -392,7 +392,7 @@ fn vop3_promoted_opcode_for_gfx(rdna2_vop3: u16, gfx_major: u8) -> u16 {
     if gfx_major >= 10 {
         return rdna2_vop3;
     }
-    if rdna2_vop3 >= 256 && rdna2_vop3 < 512 {
+    if (256..512).contains(&rdna2_vop3) {
         let rdna2_vop2 = rdna2_vop3 - 256;
         vop2_opcode_for_gfx(rdna2_vop2, gfx_major) + 256
     } else {
@@ -776,4 +776,52 @@ fn encode_vop3_from_srcs_inner(
     };
     prefix0.extend(words);
     Ok(prefix0)
+}
+
+#[cfg(test)]
+mod amd_encoding_helpers_tests {
+    use super::*;
+
+    #[test]
+    fn patch_vop3_prefix_for_gfx9_rewrites_prefix_and_opcode() {
+        let mut w = (0b11_0101u32 << 26) | ((320_u32 & 0x3FF) << 16) | 0x00AB_u32;
+        patch_vop3_prefix_for_gfx9(std::slice::from_mut(&mut w));
+        assert_eq!((w >> 26) & 0x3F, 0b11_0100, "GFX9 VOP3 prefix");
+        assert_eq!((w >> 16) & 0x3FF, 448, "320 + 128 remap");
+    }
+
+    #[test]
+    fn patch_vopc_for_gfx9_remaps_compare_opcode() {
+        let mut w: u32 = (0b011_1110u32 << 25) | ((5_u32 & 0xFF) << 17) | 0x0001_FEDC;
+        patch_vopc_for_gfx9(std::slice::from_mut(&mut w));
+        assert_eq!((w >> 25) & 0x7F, 0b011_1110);
+        assert_eq!((w >> 17) & 0xFF, 69, "RDNA2 VOPC 5 → GFX9 69");
+    }
+
+    #[test]
+    fn patch_vopc_for_gfx9_leaves_non_vopc_prefix() {
+        let mut w: u32 = 0xFFFF_FFFF;
+        patch_vopc_for_gfx9(std::slice::from_mut(&mut w));
+        assert_eq!(w, 0xFFFF_FFFF);
+    }
+
+    #[test]
+    fn imm32_to_src_encoding_inline_and_literal() {
+        let z = imm32_to_src_encoding(0);
+        assert_eq!(z.src0, 128);
+        assert!(z.literal.is_none());
+
+        let lit = imm32_to_src_encoding(0x1234_5678);
+        assert_eq!(lit.src0, 255);
+        assert_eq!(lit.literal, Some(0x1234_5678));
+    }
+
+    #[test]
+    fn vop3_promoted_opcode_for_gfx9_remaps_vop2_base() {
+        assert_eq!(
+            vop3_promoted_opcode_for_gfx(256 + 3, 9),
+            256 + 1,
+            "V_ADD_F32 RDNA2 op 3 → GFX9 op 1 inside VOP3+256"
+        );
+    }
 }

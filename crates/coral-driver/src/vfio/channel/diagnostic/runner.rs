@@ -428,16 +428,16 @@ pub fn diagnostic_matrix(
     let matrix_start = Instant::now();
 
     for cfg in configs {
-        if let Some(req_sm) = cfg.requires_sm {
-            if detected_sm != Some(req_sm) {
-                tracing::debug!(
-                    experiment = cfg.name,
-                    requires_sm = req_sm,
-                    detected_sm = ?detected_sm,
-                    "skipping — architecture mismatch"
-                );
-                continue;
-            }
+        if let Some(req_sm) = cfg.requires_sm
+            && detected_sm != Some(req_sm)
+        {
+            tracing::debug!(
+                experiment = cfg.name,
+                requires_sm = req_sm,
+                detected_sm = ?detected_sm,
+                "skipping — architecture mismatch"
+            );
+            continue;
         }
 
         let exp_start = Instant::now();

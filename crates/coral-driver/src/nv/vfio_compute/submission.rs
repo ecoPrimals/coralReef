@@ -80,7 +80,9 @@ impl NvVfioComputeDevice {
         pb_iova: u64,
         pb_size: u32,
     ) -> DriverResult<Vec<super::diagnostics::TimedCapture>> {
-        use super::diagnostics::{PbdmaSnapshot, PccsrSnapshot, TimedCapture, find_pbdmas_for_runlist};
+        use super::diagnostics::{
+            PbdmaSnapshot, PccsrSnapshot, TimedCapture, find_pbdmas_for_runlist,
+        };
 
         self.submit_pushbuf(pb_iova, pb_size)?;
 

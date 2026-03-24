@@ -12,8 +12,8 @@
 //! Requires: GPU bound to `vfio-pci`, IOMMU enabled.
 
 use coral_driver::nv::vfio_compute::RawVfioDevice;
-use coral_driver::vfio::channel::mmu_fault;
 use coral_driver::vfio::channel::VfioChannel;
+use coral_driver::vfio::channel::mmu_fault;
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::ember_client::EmberSession;
 
@@ -115,8 +115,14 @@ fn main() {
 
     // Check runlist state
     for rl in 0..4u32 {
-        let base_r = raw.bar0.read_u32(0x2270 + (rl as usize) * 0x10).unwrap_or(0);
-        let sub_r = raw.bar0.read_u32(0x2274 + (rl as usize) * 0x10).unwrap_or(0);
+        let base_r = raw
+            .bar0
+            .read_u32(0x2270 + (rl as usize) * 0x10)
+            .unwrap_or(0);
+        let sub_r = raw
+            .bar0
+            .read_u32(0x2274 + (rl as usize) * 0x10)
+            .unwrap_or(0);
         if base_r != 0 || sub_r != 0 {
             eprintln!("  RUNLIST{rl}: BASE={base_r:#010x} SUBMIT={sub_r:#010x}");
         }
@@ -144,7 +150,10 @@ fn main() {
 
     std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
-    if let Err(e) = raw.bar0.write_u32(VfioChannel::doorbell_offset(), channel.id()) {
+    if let Err(e) = raw
+        .bar0
+        .write_u32(VfioChannel::doorbell_offset(), channel.id())
+    {
         eprintln!("  ✗ Doorbell write failed: {e}");
     } else {
         eprintln!("  ✓ Doorbell written (channel_id={})", channel.id());
@@ -196,12 +205,16 @@ fn main() {
         let userd_iova: u64 = 0x2000;
         let limit2 = 9_u32; // 512 entries → ilog2(512) = 9
 
-        let _ = raw.bar0.write_u32(base + 0x008, (userd_iova as u32 & 0xFFFF_FE00) | 2); // USERD_LO + target=COH
+        let _ = raw
+            .bar0
+            .write_u32(base + 0x008, (userd_iova as u32 & 0xFFFF_FE00) | 2); // USERD_LO + target=COH
         let _ = raw.bar0.write_u32(base + 0x00C, (userd_iova >> 32) as u32); // USERD_HI
         let _ = raw.bar0.write_u32(base + 0x010, 0x0000_FACE); // SIGNATURE
         let _ = raw.bar0.write_u32(base + 0x030, 0x7FFF_F902); // ACQUIRE
         let _ = raw.bar0.write_u32(base + 0x048, gpfifo_iova as u32); // GP_BASE_LO
-        let _ = raw.bar0.write_u32(base + 0x04C, (gpfifo_iova >> 32) as u32 | (limit2 << 16)); // GP_BASE_HI
+        let _ = raw
+            .bar0
+            .write_u32(base + 0x04C, (gpfifo_iova >> 32) as u32 | (limit2 << 16)); // GP_BASE_HI
         let _ = raw.bar0.write_u32(base + 0x050, 0); // GP_FETCH = 0
         let _ = raw.bar0.write_u32(base + 0x058, 0); // GP_GET = 0
         let _ = raw.bar0.write_u32(base + 0x054, 1); // GP_PUT = 1 (triggers fetch)
@@ -219,8 +232,12 @@ fn main() {
             std::ptr::read_volatile(gp_get_ptr)
         };
 
-        eprintln!("  PBDMA{pbdma_id} (direct): GP_GET={direct_gp_get} GP_PUT={direct_gp_put} GP_FETCH={direct_gp_fetch:#010x}");
-        eprintln!("  PBDMA{pbdma_id} (direct): INTR={direct_intr:#010x} STATE={direct_state:#010x} SIG={direct_sig:#010x}");
+        eprintln!(
+            "  PBDMA{pbdma_id} (direct): GP_GET={direct_gp_get} GP_PUT={direct_gp_put} GP_FETCH={direct_gp_fetch:#010x}"
+        );
+        eprintln!(
+            "  PBDMA{pbdma_id} (direct): INTR={direct_intr:#010x} STATE={direct_state:#010x} SIG={direct_sig:#010x}"
+        );
         eprintln!("  USERD GP_GET (from DMA buf) = {userd_gp_get_direct}");
 
         let post_direct_fault = mmu_fault::read_mmu_faults(&raw.bar0);
@@ -307,7 +324,10 @@ fn run_bar0_diagnostics(bar0: &MappedBar, bdf: &str) {
 
     eprintln!("\n═══════════════════════════════════════════════════════════════");
     if fault.has_fault {
-        eprintln!("  ⚠ Active MMU fault: type={} engine={}", fault.fault_type, fault.engine);
+        eprintln!(
+            "  ⚠ Active MMU fault: type={} engine={}",
+            fault.fault_type, fault.engine
+        );
     } else {
         eprintln!("  ✓ No active MMU faults on {bdf}");
     }

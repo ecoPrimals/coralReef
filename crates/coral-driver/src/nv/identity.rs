@@ -45,13 +45,13 @@ pub const fn chip_name(sm: u32) -> &'static str {
 pub const fn boot0_to_sm(boot0: u32) -> Option<u32> {
     let chipset = (boot0 >> 20) & 0xFFF;
     match chipset {
-        0x120..=0x12F => Some(50),  // Maxwell GM200
-        0x130..=0x13F => Some(60),  // Pascal GP100/GP102/GP104/GP106/GP107/GP108
-        0x140          => Some(70), // Volta GV100
-        0x164..=0x168 => Some(75),  // Turing TU102/TU104/TU106
-        0x170          => Some(80), // Ampere GA100
-        0x172..=0x177 => Some(86),  // Ampere GA102/GA104/GA106/GA107
-        0x192..=0x197 => Some(89),  // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+        0x120..=0x12F => Some(50), // Maxwell GM200
+        0x130..=0x13F => Some(60), // Pascal GP100/GP102/GP104/GP106/GP107/GP108
+        0x140 => Some(70),         // Volta GV100
+        0x164..=0x168 => Some(75), // Turing TU102/TU104/TU106
+        0x170 => Some(80),         // Ampere GA100
+        0x172..=0x177 => Some(86), // Ampere GA102/GA104/GA106/GA107
+        0x192..=0x197 => Some(89), // Ada Lovelace AD102/AD103/AD104/AD106/AD107
         _ => None,
     }
 }
@@ -65,7 +65,7 @@ pub const fn sm_to_compute_class(sm: u32) -> u32 {
     match sm {
         70..=74 => 0xC3C0, // VOLTA_COMPUTE_A
         75..=79 => 0xC5C0, // TURING_COMPUTE_A
-        _       => 0xC6C0, // AMPERE_COMPUTE_A
+        _ => 0xC6C0,       // AMPERE_COMPUTE_A
     }
 }
 

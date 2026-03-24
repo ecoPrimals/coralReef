@@ -224,7 +224,11 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
                     break;
                 }
             }
-            tracing::info!(rl_mask = format_args!("{rl_mask:#010x}"), got_ack, "runlist preempt");
+            tracing::info!(
+                rl_mask = format_args!("{rl_mask:#010x}"),
+                got_ack,
+                "runlist preempt"
+            );
         }
     }
 
@@ -242,7 +246,9 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
                 let _ = w(b + off, 0);
             }
             // Explicitly clear key state registers after the bulk zero.
-            for off in [0x040, 0x044, 0x050, 0x054, 0x058, 0x0B0, 0x0D0, 0x0D4, 0x0C0, 0x13C] {
+            for off in [
+                0x040, 0x044, 0x050, 0x054, 0x058, 0x0B0, 0x0D0, 0x0D4, 0x0C0, 0x13C,
+            ] {
                 let _ = w(b + off, 0);
             }
             let _ = w(b + 0x108, 0xFFFF_FFFF); // clear pending interrupts

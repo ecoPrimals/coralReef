@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Layer 7 ACR Boot Solver + Falcon Diagnostics (Iter 63)  
+**Status**: Phase 10+ — Deep Audit + Coverage Push + hotSpring Trace Stabilization (Iter 64)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3460+ passing, 0 failed (+108 ignored VFIO/hardware)
+cargo test --workspace     # 3912 passing, 0 failed (+108 ignored VFIO/hardware)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

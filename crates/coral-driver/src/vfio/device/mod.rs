@@ -149,78 +149,9 @@ unsafe impl Send for MappedBar {}
 // x86_64. The mmap lifetime is tied to the struct.
 unsafe impl Sync for MappedBar {}
 
-/// Which VFIO backend is in use — allows callers (ember, glowplug) to
-/// branch on the backend without accessing raw fds or panicking.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VfioBackendKind {
-    /// Legacy VFIO container/group (kernel < 6.2).
-    /// SCM_RIGHTS sends 3 fds: container, group, device.
-    Legacy,
-    /// Modern iommufd/cdev (kernel 6.2+).
-    /// SCM_RIGHTS sends 2 fds: iommufd, device.
-    /// `ioas_id` must be transmitted out-of-band (JSON metadata).
-    Iommufd {
-        /// IOAS id from `IOMMU_IOAS_ALLOC`, needed by the receiver for DMA.
-        ioas_id: u32,
-    },
-}
-
-/// DMA mapping backend — abstracts the difference between the legacy VFIO
-/// container and the modern iommufd IOAS. Both variants are cheap to clone
-/// (`Arc`-wrapped) so they can be passed to [`super::DmaBuffer`] and channel
-/// code that needs to create IOMMU mappings.
-#[derive(Clone)]
-pub enum DmaBackend {
-    /// Legacy VFIO container fd (kernel < 6.2). DMA maps via
-    /// `VFIO_IOMMU_MAP_DMA` / `VFIO_IOMMU_UNMAP_DMA` on this fd.
-    LegacyContainer(Arc<OwnedFd>),
-    /// Modern iommufd IOAS (kernel 6.2+). DMA maps via `IOMMU_IOAS_MAP` /
-    /// `IOMMU_IOAS_UNMAP` on the iommufd, referencing the IOAS by id.
-    Iommufd {
-        /// Open `/dev/iommu` file descriptor.
-        fd: Arc<OwnedFd>,
-        /// IOAS id from `IOMMU_IOAS_ALLOC`.
-        ioas_id: u32,
-    },
-}
-
-/// VFIO file descriptors received via `SCM_RIGHTS` — backend-aware.
-///
-/// Ember sends these to glowplug; glowplug passes them to
-/// [`VfioDevice::from_received`] to reconstruct a device handle.
-pub enum ReceivedVfioFds {
-    /// Legacy path: container, group, device (3 fds).
-    Legacy {
-        /// VFIO container fd.
-        container: OwnedFd,
-        /// VFIO IOMMU group fd.
-        group: OwnedFd,
-        /// VFIO device fd.
-        device: OwnedFd,
-    },
-    /// Modern iommufd path: iommufd, device (2 fds + ioas_id metadata).
-    Iommufd {
-        /// `/dev/iommu` fd with IOAS already allocated and device attached.
-        iommufd: OwnedFd,
-        /// VFIO cdev device fd.
-        device: OwnedFd,
-        /// IOAS id (from JSON metadata, not an fd).
-        ioas_id: u32,
-    },
-}
-
-/// Internal backend state for the VFIO open path. Legacy carries the group
-/// and container fds; iommufd carries the iommufd and IOAS id.
-enum VfioBackend {
-    LegacyGroup {
-        container: Arc<OwnedFd>,
-        group: std::fs::File,
-    },
-    Iommufd {
-        iommufd: Arc<OwnedFd>,
-        ioas_id: u32,
-    },
-}
+mod dma;
+use dma::VfioBackend;
+pub use dma::{DmaBackend, ReceivedVfioFds, VfioBackendKind};
 
 /// A VFIO-managed PCIe device.
 ///
@@ -282,9 +213,7 @@ impl VfioDevice {
             .read(true)
             .write(true)
             .open("/dev/iommu")
-            .map_err(|e| {
-                DriverError::DeviceNotFound(Cow::Owned(format!("/dev/iommu: {e}")))
-            })?;
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("/dev/iommu: {e}"))))?;
 
         let cdev_name = crate::linux_paths::sysfs_vfio_cdev_name(bdf).ok_or_else(|| {
             DriverError::DeviceNotFound(Cow::Owned(format!(
@@ -297,9 +226,7 @@ impl VfioDevice {
             .read(true)
             .write(true)
             .open(&cdev_path)
-            .map_err(|e| {
-                DriverError::DeviceNotFound(Cow::Owned(format!("{cdev_path}: {e}")))
-            })?;
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("{cdev_path}: {e}"))))?;
         let device = OwnedFd::from(device_file);
 
         let mut bind = VfioDeviceBindIommufd {
@@ -408,10 +335,7 @@ impl VfioDevice {
         }
 
         let container_raw_fd = container.as_raw_fd();
-        ioctl::group_set_container(
-            group.as_fd(),
-            std::ptr::from_ref(&container_raw_fd).cast(),
-        )?;
+        ioctl::group_set_container(group.as_fd(), std::ptr::from_ref(&container_raw_fd).cast())?;
 
         ioctl::set_iommu(container.as_fd(), ioctls::VFIO_TYPE1V2_IOMMU)?;
 
@@ -693,8 +617,9 @@ impl VfioDevice {
         let mut pm_offset = 0u64;
         while cap_off != 0 && cap_off < 256 {
             let mut cap_hdr = [0u8; 2];
-            rustix::io::pread(self.device.as_fd(), &mut cap_hdr, cfg + cap_off)
-                .map_err(|e| DriverError::SubmitFailed(format!("cap read at {cap_off:#x}: {e}").into()))?;
+            rustix::io::pread(self.device.as_fd(), &mut cap_hdr, cfg + cap_off).map_err(|e| {
+                DriverError::SubmitFailed(format!("cap read at {cap_off:#x}: {e}").into())
+            })?;
             let cap_id = cap_hdr[0];
             let next = cap_hdr[1] as u64;
             if cap_id == 0x01 {
@@ -705,7 +630,9 @@ impl VfioDevice {
         }
 
         if pm_offset == 0 {
-            return Err(DriverError::DeviceNotFound("PCI PM capability not found".into()));
+            return Err(DriverError::DeviceNotFound(
+                "PCI PM capability not found".into(),
+            ));
         }
 
         // PM Control/Status Register is at PM capability + 4
@@ -775,9 +702,7 @@ impl VfioDevice {
     pub fn backend_kind(&self) -> VfioBackendKind {
         match &self.backend {
             VfioBackend::LegacyGroup { .. } => VfioBackendKind::Legacy,
-            VfioBackend::Iommufd { ioas_id, .. } => VfioBackendKind::Iommufd {
-                ioas_id: *ioas_id,
-            },
+            VfioBackend::Iommufd { ioas_id, .. } => VfioBackendKind::Iommufd { ioas_id: *ioas_id },
         }
     }
 

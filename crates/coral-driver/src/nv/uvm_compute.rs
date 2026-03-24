@@ -207,13 +207,8 @@ impl NvUvmComputeDevice {
         client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
 
         // DMA-map the GPFIFO region (at offset USERD_SIZE within ctrl_mem)
-        let gpfifo_gpu_va = client.rm_map_memory_dma(
-            h_device,
-            h_virt_mem,
-            h_ctrl_mem,
-            USERD_SIZE,
-            GPFIFO_SIZE,
-        )?;
+        let gpfifo_gpu_va =
+            client.rm_map_memory_dma(h_device, h_virt_mem, h_ctrl_mem, USERD_SIZE, GPFIFO_SIZE)?;
 
         let h_channel = client.alloc_gpfifo_channel(
             h_changrp,
@@ -747,7 +742,9 @@ mod tests {
 
         let h_device = client.alloc_device(gpu.index()).expect("RM device");
         let h_subdevice = client.alloc_subdevice(h_device).expect("RM subdevice");
-        let _uuid = client.register_gpu_with_uvm(h_subdevice, &uvm).expect("register UVM");
+        let _uuid = client
+            .register_gpu_with_uvm(h_subdevice, &uvm)
+            .expect("register UVM");
 
         // On Blackwell (580.x), only one rm_map_memory context per nvidiactl fd.
         // Verify the combined-allocation strategy from open() works.
@@ -767,7 +764,10 @@ mod tests {
             crate::mmio::VolatilePtr::new(userd_ptr).write(0xDEAD_BEEF);
             crate::mmio::VolatilePtr::new(gpfifo_ptr).write(0xCAFE_BABE);
             assert_eq!(crate::mmio::VolatilePtr::new(userd_ptr).read(), 0xDEAD_BEEF);
-            assert_eq!(crate::mmio::VolatilePtr::new(gpfifo_ptr).read(), 0xCAFE_BABE);
+            assert_eq!(
+                crate::mmio::VolatilePtr::new(gpfifo_ptr).read(),
+                0xCAFE_BABE
+            );
         }
 
         client

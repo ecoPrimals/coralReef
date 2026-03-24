@@ -1,372 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! JSON-RPC 2.0 socket server for coral-glowplug (`ecoBin` compliant).
-//!
-//! Platform-agnostic IPC per `ecoBin` standard:
-//! - **Unix**: primary transport is Unix domain socket
-//! - **Non-Unix**: TCP fallback to `127.0.0.1:0` (OS-assigned port)
-//!
-//! Ecosystem primals connect via newline-delimited JSON-RPC
-//! over either transport. The JSON-RPC dispatch logic is identical for both.
-//!
-//! ## Semantic methods
-//!
-//! | Method             | Description                                |
-//! |--------------------|--------------------------------------------|
-//! | `device.list`      | List all managed devices and capabilities   |
-//! | `device.get`       | Get details for a specific device (by `BDF`)  |
-//! | `device.swap`      | Hot-swap driver personality                 |
-//! | `device.health`    | Query device health registers               |
-//! | `device.resurrect` | Attempt HBM2 resurrection via nouveau warm swap |
-//! | `device.reset`     | PCIe Function Level Reset via VFIO              |
-//! | `device.write_register` | Write a single BAR0 register            |
-//! | `device.read_bar0_range` | Read contiguous BAR0 register range    |
-//! | `device.pramin_read` | Read VRAM via PRAMIN window                |
-//! | `device.pramin_write` | Write VRAM via PRAMIN window              |
-//! | `device.register_dump` | Dump key BAR0 registers for a device    |
-//! | `device.register_snapshot` | Save timestamped register snapshot to JSON |
-//! | `device.lend`      | Lend VFIO fd to an external consumer        |
-//! | `device.reclaim`   | Reclaim a previously lent VFIO fd           |
-//! | `health.check`     | Daemon health check                         |
-//! | `health.liveness`  | Lightweight alive probe                     |
-//! | `device.oracle_capture` | Capture MMU page tables via daemon (no VFIO access needed) |
-//! | `device.dispatch`  | Submit compute work (shader + buffers) through the daemon |
-//! | `device.compute_info` | Query NVML telemetry for a GPU            |
-//! | `device.quota`     | Query compute quota for shared/display GPU   |
-//! | `device.set_quota` | Set compute quota (power limit, mode)        |
-//! | `daemon.status`    | Daemon uptime and device count              |
-//! | `daemon.shutdown`  | Graceful shutdown                           |
+//! JSON-RPC method handlers (sync and async).
 
-use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
-/// Maximum line length for a single JSON-RPC request (4 MiB).
-/// Sized for compute dispatch payloads (base64-encoded shader + buffers)
-/// while still bounding memory from unbounded input.
-const MAX_REQUEST_LINE_BYTES: usize = 4 * 1024 * 1024;
-
-/// Initial per-connection read buffer (64 KiB).
-/// Tokio's `BufReader` grows on demand up to `MAX_REQUEST_LINE_BYTES` via
-/// `lines()`, so idle connections only use this smaller allocation.
-const INITIAL_BUF_CAPACITY: usize = 64 * 1024;
-
-/// Maximum concurrent client connections.
-const MAX_CONCURRENT_CLIENTS: usize = 64;
-
-/// Per-client request timeout (30 seconds idle = disconnect).
-const CLIENT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-#[derive(Deserialize)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    method: String,
-    #[serde(default)]
-    params: serde_json::Value,
-    id: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct JsonRpcResponse {
-    jsonrpc: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<JsonRpcError>,
-    id: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct JsonRpcError {
-    code: i32,
-    message: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DeviceInfo {
-    pub bdf: String,
-    pub name: Option<String>,
-    pub chip: String,
-    pub vendor_id: u16,
-    pub device_id: u16,
-    pub personality: String,
-    pub role: Option<String>,
-    pub power: String,
-    pub vram_alive: bool,
-    pub domains_alive: usize,
-    pub domains_faulted: usize,
-    pub has_vfio_fd: bool,
-    pub pci_link_width: Option<u8>,
-    /// True when the device has `role = "display"` and is immune to swaps.
-    #[serde(default)]
-    pub protected: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HealthInfo {
-    pub bdf: String,
-    pub boot0: u32,
-    pub pmc_enable: u32,
-    pub vram_alive: bool,
-    pub power: String,
-    pub domains_alive: usize,
-    pub domains_faulted: usize,
-}
-
-/// Set socket group ownership for unprivileged user access.
-///
-/// Resolves `group_name` from `/etc/group` and chowns the socket.
-/// The glowplug socket should be `root:coralreef 0660` so users in the
-/// `coralreef` group can send RPC commands without privilege escalation.
-/// Ember's socket stays `root:root 0660` (service-to-service only).
-#[cfg(unix)]
-fn set_socket_group(path: &str, group_name: &str) {
-    let gid = match resolve_group_gid(group_name) {
-        Some(gid) => gid,
-        None => {
-            tracing::warn!(
-                group = group_name,
-                path,
-                "group not found — socket remains root:root. \
-                 Create with: sudo groupadd -r {group_name} && sudo usermod -aG {group_name} $USER"
-            );
-            return;
-        }
-    };
-
-    match std::os::unix::fs::chown(path, None, Some(gid)) {
-        Ok(()) => {
-            tracing::info!(
-                path,
-                group = group_name,
-                gid,
-                "socket group set — unprivileged RPC enabled"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(path, group = group_name, gid, error = %e, "failed to chown socket");
-        }
-    }
-}
-
-#[cfg(unix)]
-fn resolve_group_gid(group_name: &str) -> Option<u32> {
-    let content = std::fs::read_to_string("/etc/group").ok()?;
-    for line in content.lines() {
-        let fields: Vec<&str> = line.split(':').collect();
-        if fields.len() >= 3 && fields[0] == group_name {
-            return fields[2].parse().ok();
-        }
-    }
-    None
-}
-
-/// Platform-agnostic JSON-RPC socket server (`ecoBin` compliant).
-///
-/// Binds to either a Unix domain socket path or a TCP address.
-/// Use `SocketServer::bind` with a path (e.g. `/run/coralreef/glowplug.sock`)
-/// or TCP address (e.g. `127.0.0.1:0`).
-pub struct SocketServer {
-    transport: Transport,
-    pub started_at: std::time::Instant,
-}
-
-#[cfg(unix)]
-enum Transport {
-    Unix(UnixListener),
-    Tcp(TcpListener),
-}
-
-#[cfg(not(unix))]
-enum Transport {
-    Tcp(TcpListener),
-}
-
-impl SocketServer {
-    /// Bind to the given address.
-    ///
-    /// - If `addr` parses as a `SocketAddr` (e.g. `127.0.0.1:0`), binds TCP.
-    /// - Otherwise, treats `addr` as a Unix socket path (Unix platforms only).
-    ///
-    /// On non-Unix platforms, only TCP addresses are supported.
-    pub async fn bind(addr: &str) -> Result<Self, String> {
-        let started_at = std::time::Instant::now();
-
-        if let Ok(socket_addr) = addr.parse::<SocketAddr>() {
-            // TCP transport
-            let listener = TcpListener::bind(socket_addr)
-                .await
-                .map_err(|e| format!("bind TCP {addr}: {e}"))?;
-            let bound = listener
-                .local_addr()
-                .map_err(|e| format!("get TCP local addr: {e}"))?;
-            tracing::info!(%bound, "JSON-RPC 2.0 TCP server listening");
-            Ok(Self {
-                transport: Transport::Tcp(listener),
-                started_at,
-            })
-        } else {
-            // Unix transport (Unix platforms only)
-            #[cfg(unix)]
-            {
-                if let Some(parent) = std::path::Path::new(addr).parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = std::fs::remove_file(addr);
-
-                let listener =
-                    UnixListener::bind(addr).map_err(|e| format!("bind Unix {addr}: {e}"))?;
-
-                let _ = std::fs::set_permissions(
-                    addr,
-                    std::os::unix::fs::PermissionsExt::from_mode(0o660),
-                );
-
-                let group =
-                    std::env::var("CORALREEF_SOCKET_GROUP").unwrap_or_else(|_| "coralreef".into());
-                set_socket_group(addr, &group);
-
-                tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
-                Ok(Self {
-                    transport: Transport::Unix(listener),
-                    started_at,
-                })
-            }
-            #[cfg(not(unix))]
-            {
-                Err(format!(
-                    "Unix socket path not supported on this platform; use TCP address (e.g. {})",
-                    coral_glowplug::config::FALLBACK_TCP_BIND
-                ))
-            }
-        }
-    }
-
-    /// Returns the bound address for display (e.g. in startup banner).
-    ///
-    /// For TCP with port 0, returns the actual bound address including the
-    /// OS-assigned port.
-    #[must_use]
-    pub fn bound_addr(&self) -> String {
-        match &self.transport {
-            #[cfg(unix)]
-            Transport::Unix(listener) => listener
-                .local_addr()
-                .ok()
-                .and_then(|a| a.as_pathname().map(|p| format!("unix://{}", p.display())))
-                .unwrap_or_else(|| "unix:(unknown)".to_owned()),
-            Transport::Tcp(listener) => listener
-                .local_addr()
-                .map_or_else(|_| "tcp:(unknown)".to_owned(), |a| a.to_string()),
-        }
-    }
-
-    pub async fn accept_loop(
-        &self,
-        devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
-        shutdown: &mut tokio::sync::watch::Receiver<bool>,
-    ) {
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CLIENTS));
-
-        loop {
-            let accept_fut = async {
-                match &self.transport {
-                    #[cfg(unix)]
-                    Transport::Unix(listener) => match listener.accept().await {
-                        Ok((stream, _addr)) => Some(ClientStream::Unix(stream)),
-                        Err(e) => {
-                            tracing::error!(error = %e, "Unix accept error");
-                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            None
-                        }
-                    },
-                    Transport::Tcp(listener) => match listener.accept().await {
-                        Ok((stream, _addr)) => Some(ClientStream::Tcp(stream)),
-                        Err(e) => {
-                            tracing::error!(error = %e, "TCP accept error");
-                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            None
-                        }
-                    },
-                }
-            };
-
-            tokio::select! {
-                accepted = accept_fut => {
-                    if let Some(stream) = accepted {
-                        let Ok(permit) = semaphore.clone().try_acquire_owned() else {
-                            tracing::warn!("max concurrent clients reached ({MAX_CONCURRENT_CLIENTS}), rejecting");
-                            continue;
-                        };
-                        let devices = devices.clone();
-                        let started_at = self.started_at;
-                        tokio::spawn(async move {
-                            if let Err(e) = handle_client(stream, devices, started_at).await {
-                                tracing::warn!(error = %e, "client handler error");
-                            }
-                            drop(permit);
-                        });
-                    }
-                }
-                _ = shutdown.changed() => {
-                    tracing::info!("accept loop: shutdown signal received");
-                    return;
-                }
-            }
-        }
-    }
-}
-
-/// Client stream abstraction — Unix or TCP.
-#[cfg(unix)]
-enum ClientStream {
-    Unix(UnixStream),
-    Tcp(TcpStream),
-}
-
-#[cfg(not(unix))]
-enum ClientStream {
-    Tcp(TcpStream),
-}
-
-fn make_response(
-    id: serde_json::Value,
-    result: Result<serde_json::Value, coral_glowplug::error::RpcError>,
-) -> String {
-    let resp = match result {
-        Ok(val) => JsonRpcResponse {
-            jsonrpc: "2.0",
-            result: Some(val),
-            error: None,
-            id,
-        },
-        Err(e) => JsonRpcResponse {
-            jsonrpc: "2.0",
-            result: None,
-            error: Some(JsonRpcError {
-                code: e.code.into(),
-                message: e.message,
-            }),
-            id,
-        },
-    };
-    match serde_json::to_string(&resp) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to serialize JSON-RPC response");
-            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
-                .to_owned()
-        }
-    }
-}
+use super::protocol::{DeviceInfo, HealthInfo};
 
 /// Validate that a BDF string matches the expected PCI address format.
 ///
 /// Rejects path traversal attempts, null bytes, and malformed addresses
 /// that could be interpolated into sysfs paths by device operations.
-fn validate_bdf(bdf: &str) -> Result<&str, coral_glowplug::error::RpcError> {
+pub(crate) fn validate_bdf(bdf: &str) -> Result<&str, coral_glowplug::error::RpcError> {
     let is_valid = !bdf.is_empty()
         && bdf.len() <= 16
         && !bdf.contains('/')
@@ -386,7 +30,7 @@ fn validate_bdf(bdf: &str) -> Result<&str, coral_glowplug::error::RpcError> {
 
 /// Run oracle capture off the async event loop so it doesn't block the
 /// watchdog or other RPC handlers.
-async fn oracle_capture_async(
+pub(super) async fn oracle_capture_async(
     params: &serde_json::Value,
     devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
 ) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
@@ -412,7 +56,9 @@ async fn oracle_capture_async(
             })
             .map_err(RpcError::from)?;
         let guard = slot.try_acquire_busy().ok_or_else(|| {
-            RpcError::device_error(format!("device {bdf} is busy with another long-running operation"))
+            RpcError::device_error(format!(
+                "device {bdf} is busy with another long-running operation"
+            ))
         })?;
         (slot.vfio_bar0_handle(), guard)
     };
@@ -422,15 +68,12 @@ async fn oracle_capture_async(
         if let Some(handle) = bar0_handle {
             handle.capture_page_tables(&bdf_clone, max_channels)
         } else {
-            coral_driver::vfio::channel::mmu_oracle::capture_page_tables(
-                &bdf_clone,
-                max_channels,
-            )
+            coral_driver::vfio::channel::mmu_oracle::capture_page_tables(&bdf_clone, max_channels)
         }
     })
     .await
     .map_err(|e| RpcError::internal(format!("oracle task panicked: {e}")))?
-    .map_err(|e| RpcError::device_error(e))?;
+    .map_err(RpcError::device_error)?;
 
     serde_json::to_value(&result).map_err(|e| RpcError::internal(e.to_string()))
 }
@@ -445,12 +88,12 @@ async fn oracle_capture_async(
 ///  - `dims`:       [x, y, z] workgroup grid dimensions
 ///  - `workgroup`:  [x, y, z] threads per workgroup (default [64,1,1])
 ///  - `shared_mem`: shared memory bytes (default 0)
-async fn compute_dispatch_async(
+pub(super) async fn compute_dispatch_async(
     params: &serde_json::Value,
     devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
 ) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
-    use coral_glowplug::error::RpcError;
     use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
+    use coral_glowplug::error::RpcError;
 
     let raw_bdf = params
         .get("bdf")
@@ -524,7 +167,9 @@ async fn compute_dispatch_async(
             })
             .map_err(RpcError::from)?;
         slot.try_acquire_busy().ok_or_else(|| {
-            RpcError::device_error(format!("device {bdf} is busy with another long-running operation"))
+            RpcError::device_error(format!(
+                "device {bdf} is busy with another long-running operation"
+            ))
         })?
     };
 
@@ -539,12 +184,14 @@ async fn compute_dispatch_async(
 
         let input_data: Vec<Vec<u8>> = inputs
             .iter()
-            .map(|s| b64.decode(s).map_err(|e| format!("base64 decode input: {e}")))
+            .map(|s| {
+                b64.decode(s)
+                    .map_err(|e| format!("base64 decode input: {e}"))
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut dev =
-            coral_driver::cuda::CudaComputeDevice::from_bdf_hint(&bdf_for_task)
-                .map_err(|e| format!("CUDA open for {bdf_for_task}: {e}"))?;
+        let mut dev = coral_driver::cuda::CudaComputeDevice::from_bdf_hint(&bdf_for_task)
+            .map_err(|e| format!("CUDA open for {bdf_for_task}: {e}"))?;
 
         let mut handles: Vec<BufferHandle> = Vec::new();
 
@@ -553,8 +200,7 @@ async fn compute_dispatch_async(
             let h = dev
                 .alloc(data.len() as u64, MemoryDomain::VramOrGtt)
                 .map_err(|e| format!("alloc input: {e}"))?;
-            dev.upload(h, 0, data)
-                .map_err(|e| format!("upload: {e}"))?;
+            dev.upload(h, 0, data).map_err(|e| format!("upload: {e}"))?;
             handles.push(h);
         }
 
@@ -600,7 +246,7 @@ async fn compute_dispatch_async(
     })
     .await
     .map_err(|e| RpcError::internal(format!("dispatch task panicked: {e}")))?
-    .map_err(|e| RpcError::device_error(e))?;
+    .map_err(RpcError::device_error)?;
 
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
@@ -613,7 +259,7 @@ async fn compute_dispatch_async(
     }))
 }
 
-fn dispatch(
+pub(crate) fn dispatch(
     method: &str,
     params: &serde_json::Value,
     devices: &mut [coral_glowplug::device::DeviceSlot],
@@ -653,6 +299,10 @@ fn dispatch(
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| RpcError::invalid_params("missing 'target' parameter"))?
                 .to_owned();
+            let enable_trace = params
+                .get("trace")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
             let slot = devices
                 .iter_mut()
                 .find(|d| d.bdf.as_ref() == bdf)
@@ -665,7 +315,7 @@ fn dispatch(
                     "device {bdf} is busy — cannot swap while a long-running operation is in progress"
                 )));
             }
-            slot.swap(&target)
+            slot.swap_traced(&target, enable_trace)
                 .map_err(|e| RpcError::device_error(e.to_string()))?;
             Ok(serde_json::json!({
                 "bdf": bdf,
@@ -878,7 +528,9 @@ fn dispatch(
                 .filter_map(|v| v.as_u64().map(|n| n as u32))
                 .collect();
             if values.len() > 4096 {
-                return Err(RpcError::invalid_params("values array exceeds 4096 maximum"));
+                return Err(RpcError::invalid_params(
+                    "values array exceeds 4096 maximum",
+                ));
             }
             let slot = devices
                 .iter()
@@ -1011,9 +663,7 @@ fn dispatch(
         "device.compute_info" | "device.quota" => {
             Err(RpcError::internal("routed to async handler"))
         }
-        "device.set_quota" => {
-            Err(RpcError::internal("routed to async handler"))
-        }
+        "device.set_quota" => Err(RpcError::internal("routed to async handler")),
         "daemon.shutdown" => {
             tracing::info!("shutdown requested via JSON-RPC");
             Err(RpcError::device_error("shutdown"))
@@ -1023,7 +673,7 @@ fn dispatch(
 }
 
 /// Query GPU compute info via nvidia-smi, releasing the device lock first.
-async fn compute_info_async(
+pub(super) async fn compute_info_async(
     params: &serde_json::Value,
     devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
 ) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
@@ -1070,7 +720,7 @@ async fn compute_info_async(
 }
 
 /// Query GPU quota info via nvidia-smi, releasing the device lock first.
-async fn quota_info_async(
+pub(super) async fn quota_info_async(
     params: &serde_json::Value,
     devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
 ) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
@@ -1119,7 +769,7 @@ async fn quota_info_async(
 
 /// Set GPU quota and apply via nvidia-smi, releasing the device lock for the
 /// blocking nvidia-smi call.
-async fn set_quota_async(
+pub(super) async fn set_quota_async(
     params: &serde_json::Value,
     devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
 ) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
@@ -1294,141 +944,576 @@ fn device_to_info(d: &coral_glowplug::device::DeviceSlot) -> DeviceInfo {
     }
 }
 
-async fn handle_client(
-    stream: ClientStream,
-    devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
-    started_at: std::time::Instant,
-) -> Result<(), String> {
-    match stream {
-        #[cfg(unix)]
-        ClientStream::Unix(s) => handle_client_stream(s, devices, started_at).await,
-        ClientStream::Tcp(s) => handle_client_stream(s, devices, started_at).await,
-    }
-}
-
-/// Generic JSON-RPC handler — identical logic for Unix and TCP (ecoBin).
-///
-/// Hardened against:
-/// - Unbounded line length (capped at `MAX_REQUEST_LINE_BYTES`)
-/// - Idle connections (disconnected after `CLIENT_IDLE_TIMEOUT`)
-/// - Rapid request flooding (bounded by line-buffered I/O)
-async fn handle_client_stream<S>(
-    stream: S,
-    devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
-    started_at: std::time::Instant,
-) -> Result<(), String>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let (reader, mut writer) = tokio::io::split(stream);
-    let mut lines = BufReader::with_capacity(INITIAL_BUF_CAPACITY, reader).lines();
-
-    loop {
-        let line = match tokio::time::timeout(CLIENT_IDLE_TIMEOUT, lines.next_line()).await {
-            Ok(Ok(Some(l))) => l,
-            Ok(Ok(None)) => break,
-            Ok(Err(e)) => {
-                if e.kind() == std::io::ErrorKind::InvalidData
-                    || e.to_string().contains("stream capacity")
-                {
-                    tracing::warn!(error = %e, "oversized or malformed request — disconnecting");
-                } else {
-                    tracing::error!(error = %e, "client read error");
-                }
-                break;
-            }
-            Err(_) => {
-                tracing::debug!("client idle timeout — disconnecting");
-                break;
-            }
-        };
-
-        if line.len() > MAX_REQUEST_LINE_BYTES {
-            tracing::warn!(
-                len = line.len(),
-                max = MAX_REQUEST_LINE_BYTES,
-                "request exceeds max line length — disconnecting"
-            );
-            break;
-        }
-
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let resp = match serde_json::from_str::<JsonRpcRequest>(line) {
-            Ok(req) => {
-                if req.jsonrpc != "2.0" {
-                    make_response(
-                        req.id,
-                        Err(coral_glowplug::error::RpcError {
-                            code: coral_glowplug::error::RpcErrorCode::INVALID_REQUEST,
-                            message: format!("invalid jsonrpc version: {}", req.jsonrpc),
-                        }),
-                    )
-                } else if req.method == "device.oracle_capture" {
-                    let result = oracle_capture_async(&req.params, &devices).await;
-                    make_response(req.id, result)
-                } else if req.method == "device.dispatch" {
-                    let result = compute_dispatch_async(&req.params, &devices).await;
-                    make_response(req.id, result)
-                } else if req.method == "device.compute_info" {
-                    let result = compute_info_async(&req.params, &devices).await;
-                    make_response(req.id, result)
-                } else if req.method == "device.quota" {
-                    let result = quota_info_async(&req.params, &devices).await;
-                    make_response(req.id, result)
-                } else if req.method == "device.set_quota" {
-                    let result = set_quota_async(&req.params, &devices).await;
-                    make_response(req.id, result)
-                } else if matches!(
-                    req.method.as_str(),
-                    "device.swap"
-                        | "device.resurrect"
-                        | "device.reset"
-                        | "device.lend"
-                        | "device.reclaim"
-                        | "device.write_register"
-                        | "device.pramin_write"
-                ) {
-                    let result = {
-                        let mut devs = devices.lock().await;
-                        dispatch(&req.method, &req.params, &mut devs, started_at)
-                    };
-                    make_response(req.id, result)
-                } else {
-                    let result = {
-                        let mut devs = devices.lock().await;
-                        dispatch(&req.method, &req.params, &mut devs, started_at)
-                    };
-                    if req.method == "daemon.shutdown" {
-                        let resp_str = make_response(req.id, Ok(serde_json::json!({"ok": true})));
-                        let msg = format!("{resp_str}\n");
-                        let _ = writer.write_all(msg.as_bytes()).await;
-                        return Ok(());
-                    }
-                    make_response(req.id, result)
-                }
-            }
-            Err(e) => make_response(
-                serde_json::Value::Null,
-                Err(coral_glowplug::error::RpcError {
-                    code: coral_glowplug::error::RpcErrorCode::PARSE_ERROR,
-                    message: format!("parse error: {e}"),
-                }),
-            ),
-        };
-
-        let msg = format!("{resp}\n");
-        if writer.write_all(msg.as_bytes()).await.is_err() {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
-#[path = "socket_tests/mod.rs"]
-mod socket_tests;
+mod tests {
+    use super::*;
+    use coral_glowplug::config::{DeviceConfig, SharedQuota};
+    use coral_glowplug::device::DeviceSlot;
+    use std::time::Instant;
+    use tokio::sync::Mutex;
+
+    fn test_device_config(bdf: &str) -> DeviceConfig {
+        DeviceConfig {
+            bdf: bdf.into(),
+            name: None,
+            boot_personality: "vfio".into(),
+            power_policy: "always_on".into(),
+            role: None,
+            oracle_dump: None,
+            shared: None,
+        }
+    }
+
+    #[test]
+    fn validate_bdf_accepts_max_length_hex_address() {
+        let s = "0000:ab:cd.ef";
+        assert_eq!(validate_bdf(s).expect("valid BDF"), s);
+    }
+
+    #[test]
+    fn dispatch_swap_rejects_when_device_busy() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let _guard = devices[0]
+            .try_acquire_busy()
+            .expect("slot should not start busy");
+        let started = Instant::now();
+        let err = dispatch(
+            "device.swap",
+            &serde_json::json!({"bdf": "0000:99:00.0", "target": "nouveau"}),
+            &mut devices,
+            started,
+        )
+        .expect_err("swap while busy");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("busy"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_reclaim_rejects_when_device_busy() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let _guard = devices[0]
+            .try_acquire_busy()
+            .expect("slot should not start busy");
+        let started = Instant::now();
+        let err = dispatch(
+            "device.reclaim",
+            &serde_json::json!({"bdf": "0000:99:00.0"}),
+            &mut devices,
+            started,
+        )
+        .expect_err("reclaim while busy");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("busy"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_resurrect_rejects_when_device_busy() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let _guard = devices[0]
+            .try_acquire_busy()
+            .expect("slot should not start busy");
+        let started = Instant::now();
+        let err = dispatch(
+            "device.resurrect",
+            &serde_json::json!({"bdf": "0000:99:00.0"}),
+            &mut devices,
+            started,
+        )
+        .expect_err("resurrect while busy");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("busy"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_reset_rejects_when_device_busy() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let _guard = devices[0]
+            .try_acquire_busy()
+            .expect("slot should not start busy");
+        let started = Instant::now();
+        let err = dispatch(
+            "device.reset",
+            &serde_json::json!({"bdf": "0000:99:00.0"}),
+            &mut devices,
+            started,
+        )
+        .expect_err("reset while busy");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("busy"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_write_register_missing_offset() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let started = Instant::now();
+        let err = dispatch(
+            "device.write_register",
+            &serde_json::json!({"bdf": "0000:99:00.0", "value": 0}),
+            &mut devices,
+            started,
+        )
+        .expect_err("missing offset");
+        assert_eq!(i32::from(err.code), -32602);
+        assert!(err.message.contains("offset"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_write_register_missing_value() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let started = Instant::now();
+        let err = dispatch(
+            "device.write_register",
+            &serde_json::json!({"bdf": "0000:99:00.0", "offset": 0}),
+            &mut devices,
+            started,
+        )
+        .expect_err("missing value");
+        assert_eq!(i32::from(err.code), -32602);
+        assert!(err.message.contains("value"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_read_bar0_range_missing_count() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let started = Instant::now();
+        let err = dispatch(
+            "device.read_bar0_range",
+            &serde_json::json!({"bdf": "0000:99:00.0", "offset": 0}),
+            &mut devices,
+            started,
+        )
+        .expect_err("missing count");
+        assert_eq!(i32::from(err.code), -32602);
+        assert!(err.message.contains("count"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_pramin_read_missing_vram_offset() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let started = Instant::now();
+        let err = dispatch(
+            "device.pramin_read",
+            &serde_json::json!({"bdf": "0000:99:00.0", "count": 1}),
+            &mut devices,
+            started,
+        )
+        .expect_err("missing vram_offset");
+        assert_eq!(i32::from(err.code), -32602);
+        assert!(err.message.contains("vram_offset"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_pramin_read_missing_count() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let started = Instant::now();
+        let err = dispatch(
+            "device.pramin_read",
+            &serde_json::json!({"bdf": "0000:99:00.0", "vram_offset": 0}),
+            &mut devices,
+            started,
+        )
+        .expect_err("missing count");
+        assert_eq!(i32::from(err.code), -32602);
+        assert!(err.message.contains("count"), "{}", err.message);
+    }
+
+    #[test]
+    fn dispatch_device_swap_invalid_bdf() {
+        let mut devices = vec![DeviceSlot::new(test_device_config("0000:99:00.0"))];
+        let started = Instant::now();
+        let err = dispatch(
+            "device.swap",
+            &serde_json::json!({"bdf": "not-a-bdf", "target": "nouveau"}),
+            &mut devices,
+            started,
+        )
+        .expect_err("invalid bdf");
+        assert_eq!(i32::from(err.code), -32602);
+    }
+
+    #[test]
+    fn apply_quota_unknown_compute_mode_records_failure() {
+        let quota = SharedQuota {
+            power_limit_w: None,
+            vram_budget_mib: None,
+            compute_mode: "bogus_mode".into(),
+            compute_priority: 0,
+        };
+        let v = apply_quota("0000:01:00.0", &quota);
+        let cm = v
+            .as_object()
+            .expect("apply_quota returns JSON object")
+            .get("compute_mode")
+            .expect("compute_mode key");
+        assert_eq!(cm["ok"], false);
+        assert_eq!(cm["message"], "unknown mode");
+    }
+
+    #[test]
+    fn apply_quota_power_limit_and_default_compute_mode_produce_structured_results() {
+        let quota = SharedQuota {
+            power_limit_w: Some(250),
+            vram_budget_mib: None,
+            compute_mode: "default".into(),
+            compute_priority: 0,
+        };
+        let v = apply_quota("0000:01:00.0", &quota);
+        let obj = v.as_object().expect("apply_quota returns JSON object");
+        let pl = obj
+            .get("power_limit")
+            .expect("power_limit branch")
+            .as_object()
+            .expect("power_limit object");
+        assert!(pl.contains_key("ok"));
+        assert!(pl.contains_key("message"));
+        let cm = obj
+            .get("compute_mode")
+            .expect("compute_mode branch")
+            .as_object()
+            .expect("compute_mode object");
+        assert!(cm.contains_key("ok"));
+        assert!(cm.contains_key("message"));
+    }
+
+    #[test]
+    fn apply_quota_exclusive_process_compute_mode_invokes_nvidia_smi_branch() {
+        let quota = SharedQuota {
+            power_limit_w: None,
+            vram_budget_mib: None,
+            compute_mode: "exclusive_process".into(),
+            compute_priority: 0,
+        };
+        let v = apply_quota("0000:01:00.0", &quota);
+        let obj = v.as_object().expect("apply_quota returns JSON object");
+        let cm = obj
+            .get("compute_mode")
+            .expect("compute_mode")
+            .as_object()
+            .expect("compute_mode object");
+        assert!(cm.contains_key("ok"));
+        assert!(cm.contains_key("message"));
+    }
+
+    #[test]
+    fn apply_quota_prohibited_compute_mode_invokes_nvidia_smi_branch() {
+        let quota = SharedQuota {
+            power_limit_w: None,
+            vram_budget_mib: None,
+            compute_mode: "prohibited".into(),
+            compute_priority: 0,
+        };
+        let v = apply_quota("0000:01:00.0", &quota);
+        let obj = v.as_object().expect("apply_quota returns JSON object");
+        let cm = obj
+            .get("compute_mode")
+            .expect("compute_mode")
+            .as_object()
+            .expect("compute_mode object");
+        assert!(cm.contains_key("ok"));
+        assert!(cm.contains_key("message"));
+    }
+
+    #[test]
+    fn query_nvidia_smi_returns_json_object() {
+        let v = query_nvidia_smi("0000:ff:00.0");
+        assert!(
+            v.get("error").is_some() || v.get("gpu_name").is_some(),
+            "expected error or metrics: {v}"
+        );
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_missing_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({"dims": [1, 1, 1], "shader": "YQ=="}),
+            &devices,
+        )
+        .await
+        .expect_err("missing bdf");
+        assert!(err.message.contains("bdf"));
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_missing_shader() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({"bdf": "0000:01:00.0", "dims": [1, 1, 1]}),
+            &devices,
+        )
+        .await
+        .expect_err("missing shader");
+        assert!(err.message.contains("shader"));
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_missing_dims() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({"bdf": "0000:01:00.0", "shader": "YQ=="}),
+            &devices,
+        )
+        .await
+        .expect_err("missing dims");
+        assert!(err.message.contains("dims"));
+    }
+
+    #[tokio::test]
+    async fn oracle_capture_async_missing_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = oracle_capture_async(&serde_json::json!({}), &devices)
+            .await
+            .expect_err("missing bdf");
+        assert!(err.message.contains("bdf"));
+    }
+
+    #[tokio::test]
+    async fn oracle_capture_async_invalid_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = oracle_capture_async(&serde_json::json!({"bdf": "00/00/00.0"}), &devices)
+            .await
+            .expect_err("invalid bdf");
+        assert_eq!(i32::from(err.code), -32602);
+    }
+
+    #[tokio::test]
+    async fn oracle_capture_async_device_not_managed() {
+        let devices = Mutex::new(vec![]);
+        let err = oracle_capture_async(
+            &serde_json::json!({"bdf": "0000:01:00.0", "max_channels": 0}),
+            &devices,
+        )
+        .await
+        .expect_err("not managed");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("not managed"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn oracle_capture_async_device_busy() {
+        let slot = DeviceSlot::new(test_device_config("0000:99:00.0"));
+        let _guard = slot
+            .try_acquire_busy()
+            .expect("acquire busy for oracle test");
+        let devices = Mutex::new(vec![slot]);
+        let err = oracle_capture_async(
+            &serde_json::json!({"bdf": "0000:99:00.0", "max_channels": 0}),
+            &devices,
+        )
+        .await
+        .expect_err("busy");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("busy"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_invalid_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({
+                "bdf": "not!!hex",
+                "shader": "YQ==",
+                "dims": [1, 1, 1],
+                "output_sizes": [],
+            }),
+            &devices,
+        )
+        .await
+        .expect_err("invalid bdf");
+        assert_eq!(i32::from(err.code), -32602);
+        assert!(
+            err.message.contains("BDF") || err.message.contains("bdf"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_device_not_managed() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({
+                "bdf": "0000:01:00.0",
+                "shader": "YQ==",
+                "dims": [1, 1, 1],
+                "output_sizes": [],
+            }),
+            &devices,
+        )
+        .await
+        .expect_err("not managed");
+        assert_eq!(i32::from(err.code), -32000);
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_invalid_shader_base64() {
+        let devices = Mutex::new(vec![DeviceSlot::new(test_device_config("0000:99:00.0"))]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({
+                "bdf": "0000:99:00.0",
+                "shader": "@@@notbase64@@@",
+                "dims": [1, 1, 1],
+                "output_sizes": [],
+            }),
+            &devices,
+        )
+        .await
+        .expect_err("bad base64");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(
+            err.message.contains("base64") || err.message.contains("decode"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn compute_dispatch_async_device_busy() {
+        let slot = DeviceSlot::new(test_device_config("0000:99:00.0"));
+        let _guard = slot.try_acquire_busy().expect("busy for dispatch");
+        let devices = Mutex::new(vec![slot]);
+        let err = compute_dispatch_async(
+            &serde_json::json!({
+                "bdf": "0000:99:00.0",
+                "shader": "YQ==",
+                "dims": [1, 1, 1],
+                "output_sizes": [],
+            }),
+            &devices,
+        )
+        .await
+        .expect_err("busy");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(err.message.contains("busy"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn compute_info_async_missing_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_info_async(&serde_json::json!({}), &devices)
+            .await
+            .expect_err("missing bdf");
+        assert_eq!(i32::from(err.code), -32602);
+    }
+
+    #[tokio::test]
+    async fn compute_info_async_invalid_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_info_async(&serde_json::json!({"bdf": "x/y/z"}), &devices)
+            .await
+            .expect_err("invalid bdf");
+        assert_eq!(i32::from(err.code), -32602);
+    }
+
+    #[tokio::test]
+    async fn compute_info_async_device_not_managed() {
+        let devices = Mutex::new(vec![]);
+        let err = compute_info_async(&serde_json::json!({"bdf": "0000:01:00.0"}), &devices)
+            .await
+            .expect_err("not managed");
+        assert_eq!(i32::from(err.code), -32000);
+    }
+
+    #[tokio::test]
+    async fn compute_info_async_returns_structured_json_with_slot() {
+        let devices = Mutex::new(vec![DeviceSlot::new(test_device_config("0000:99:00.0"))]);
+        let val = compute_info_async(&serde_json::json!({"bdf": "0000:99:00.0"}), &devices)
+            .await
+            .expect("compute_info");
+        assert_eq!(val["bdf"], "0000:99:00.0");
+        assert!(val.get("chip").is_some());
+        assert!(val.get("personality").is_some());
+        assert!(val.get("role").is_some());
+        assert!(val.get("protected").is_some());
+        assert!(val.get("render_node").is_some());
+        assert!(val.get("compute").is_some());
+    }
+
+    #[tokio::test]
+    async fn quota_info_async_missing_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = quota_info_async(&serde_json::json!({}), &devices)
+            .await
+            .expect_err("missing bdf");
+        assert_eq!(i32::from(err.code), -32602);
+    }
+
+    #[tokio::test]
+    async fn quota_info_async_not_managed() {
+        let devices = Mutex::new(vec![]);
+        let err = quota_info_async(&serde_json::json!({"bdf": "0000:02:00.0"}), &devices)
+            .await
+            .expect_err("not managed");
+        assert_eq!(i32::from(err.code), -32000);
+    }
+
+    #[tokio::test]
+    async fn quota_info_async_returns_quota_and_current() {
+        let devices = Mutex::new(vec![DeviceSlot::new(test_device_config("0000:99:00.0"))]);
+        let val = quota_info_async(&serde_json::json!({"bdf": "0000:99:00.0"}), &devices)
+            .await
+            .expect("quota_info");
+        assert_eq!(val["bdf"], "0000:99:00.0");
+        assert!(val.get("quota").is_some());
+        assert!(val.get("current").is_some());
+        assert!(val.get("protected").is_some());
+    }
+
+    #[tokio::test]
+    async fn set_quota_async_missing_bdf() {
+        let devices = Mutex::new(vec![]);
+        let err = set_quota_async(&serde_json::json!({}), &devices)
+            .await
+            .expect_err("missing bdf");
+        assert_eq!(i32::from(err.code), -32602);
+    }
+
+    #[tokio::test]
+    async fn set_quota_async_rejects_non_shared_non_display_role() {
+        let mut cfg = test_device_config("0000:99:00.0");
+        cfg.role = Some("compute".into());
+        let devices = Mutex::new(vec![DeviceSlot::new(cfg)]);
+        let err = set_quota_async(
+            &serde_json::json!({"bdf": "0000:99:00.0", "power_limit_w": 200}),
+            &devices,
+        )
+        .await
+        .expect_err("wrong role");
+        assert_eq!(i32::from(err.code), -32000);
+        assert!(
+            err.message.contains("shared") || err.message.contains("display"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn set_quota_async_applies_for_shared_role() {
+        let mut cfg = test_device_config("0000:99:00.0");
+        cfg.role = Some("shared".into());
+        cfg.shared = Some(SharedQuota {
+            power_limit_w: None,
+            vram_budget_mib: None,
+            compute_mode: "default".into(),
+            compute_priority: 0,
+        });
+        let devices = Mutex::new(vec![DeviceSlot::new(cfg)]);
+        let val = set_quota_async(
+            &serde_json::json!({
+                "bdf": "0000:99:00.0",
+                "power_limit_w": 100,
+                "vram_budget_mib": 1024,
+                "compute_mode": "default",
+                "compute_priority": 0,
+            }),
+            &devices,
+        )
+        .await
+        .expect("set_quota shared");
+        assert_eq!(val["bdf"], "0000:99:00.0");
+        assert!(val.get("applied").is_some());
+        let q = val["quota"].as_object().expect("quota object");
+        assert_eq!(q["power_limit_w"], 100);
+        assert_eq!(q["vram_budget_mib"], 1024);
+    }
+}

@@ -48,6 +48,10 @@ pub(in crate::vfio::channel::diagnostic) struct ExperimentContext<'a> {
     pub gpu_warm: bool,
     pub cfg: &'a ExperimentConfig,
     /// Architecture capabilities detected from BOOT0.
+    #[expect(
+        dead_code,
+        reason = "diagnostic context; populated for future experiment use"
+    )]
     pub gpu_caps: GpuCapabilities,
 }
 

@@ -54,3 +54,4 @@ mod dispatch_tests;
 mod fault_tests;
 mod parse_tests;
 mod tcp_tests;
+mod validate_bdf_tests;

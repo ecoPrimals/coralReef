@@ -131,6 +131,41 @@ impl SM32Op for OpI2F {
     }
 }
 
+impl SM32Op for OpFRnd {
+    fn legalize(&mut self, b: &mut LegalizeBuilder) {
+        use RegFile::GPR;
+        b.copy_alu_src_if_imm(&mut self.src, GPR, SrcType::ALU);
+    }
+
+    fn encode(&self, e: &mut SM32Encoder<'_>) {
+        e.set_dst(&self.dst);
+
+        let src = self.src.clone().without_swizzle();
+        match &src.reference {
+            SrcRef::Zero | SrcRef::Reg(_) => {
+                e.set_opcode(0xe54, 2);
+                e.set_reg_src(23..31, &src);
+            }
+            SrcRef::CBuf(cb) => {
+                e.set_opcode(0x654, 2);
+                e.set_src_cbuf(23..42, cb);
+            }
+            src_ref => crate::codegen::ice!("Invalid frnd src: {src_ref}"),
+        }
+
+        e.set_field(10..12, (self.dst_type.bits() / 8).ilog2());
+        e.set_field(12..14, (self.src_type.bits() / 8).ilog2());
+
+        e.set_rnd_mode(42..44, self.rnd_mode);
+        e.set_bit(45, true);
+        e.set_bit(47, self.ftz);
+        e.set_bit(48, src.modifier.has_fneg());
+        e.set_bit(50, false);
+        e.set_bit(52, src.modifier.has_fabs());
+        e.set_bit(53, false);
+    }
+}
+
 impl SM32Op for OpI2I {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;

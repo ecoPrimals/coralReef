@@ -443,9 +443,19 @@ pub fn submit_command(
     ib_va: u64,
     ib_bytes: u32,
 ) -> DriverResult<u64> {
-    submit_command_ip(fd, ctx_id, bo_list_handle, ib_va, ib_bytes, AMDGPU_HW_IP_COMPUTE)
+    submit_command_ip(
+        fd,
+        ctx_id,
+        bo_list_handle,
+        ib_va,
+        ib_bytes,
+        AMDGPU_HW_IP_COMPUTE,
+    )
 }
 
+/// Submit an IB to the ring identified by `ip_type` (e.g. GFX vs compute/MEC).
+///
+/// Same as [`submit_command`] but selects `AmdgpuCsChunkIb::ip_type` for multi-IP GPUs.
 pub fn submit_command_ip(
     fd: RawFd,
     ctx_id: u32,
@@ -500,6 +510,9 @@ pub fn sync_fence(fd: RawFd, ctx_id: u32, fence_handle: u64, timeout_ns: u64) ->
     sync_fence_ip(fd, ctx_id, fence_handle, timeout_ns, AMDGPU_HW_IP_COMPUTE)
 }
 
+/// Wait for a fence on the ring identified by `ip_type` (must match submission IP).
+///
+/// Same as [`sync_fence`] but passes `ip_type` to `DRM_AMDGPU_WAIT_CS`.
 pub fn sync_fence_ip(
     fd: RawFd,
     ctx_id: u32,

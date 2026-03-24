@@ -42,9 +42,7 @@ mod tests {
         static INIT: Once = Once::new();
         INIT.call_once(|| {
             tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::from_default_env(),
-                )
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
                 .with_test_writer()
                 .try_init()
                 .ok();
@@ -214,20 +212,36 @@ mod tests {
         if fecs.is_in_reset() {
             eprintln!("FECS is in HRESET state — no firmware loaded.");
             eprintln!("  This is the root cause of Layer 7 failures:");
-            eprintln!("  GR engine dead → scheduler holds channel in PENDING → PBDMA never loads context.");
+            eprintln!(
+                "  GR engine dead → scheduler holds channel in PENDING → PBDMA never loads context."
+            );
         } else if fecs.is_halted() {
             eprintln!("FECS is HALTED — firmware may have been loaded but stopped.");
         } else if fecs.mailbox0 != 0 {
-            eprintln!("FECS appears RUNNING — mailbox0={:#010x} (firmware active!).", fecs.mailbox0);
+            eprintln!(
+                "FECS appears RUNNING — mailbox0={:#010x} (firmware active!).",
+                fecs.mailbox0
+            );
         } else {
-            eprintln!("FECS state unclear — cpuctl={:#010x}, mailboxes zero.", fecs.cpuctl);
+            eprintln!(
+                "FECS state unclear — cpuctl={:#010x}, mailboxes zero.",
+                fecs.cpuctl
+            );
         }
-        eprintln!("  secure_mode={} (signed firmware required)", fecs.requires_signed_firmware());
+        eprintln!(
+            "  secure_mode={} (signed firmware required)",
+            fecs.requires_signed_firmware()
+        );
 
         // Phase 4: PCCSR channel analysis.
         eprintln!("\n── Channel Status Analysis ──");
         let pccsr = &diag_pre.pccsr;
-        eprintln!("Channel 0: status={} enabled={} busy={}", pccsr.status_name(), pccsr.is_enabled(), pccsr.is_busy());
+        eprintln!(
+            "Channel 0: status={} enabled={} busy={}",
+            pccsr.status_name(),
+            pccsr.is_enabled(),
+            pccsr.is_busy()
+        );
         if pccsr.status() == 1 {
             eprintln!("  PENDING confirms: scheduler sees channel but won't schedule onto PBDMA.");
             eprintln!("  Root cause: GR engine not ready (FECS firmware not loaded).");
@@ -303,7 +317,9 @@ mod tests {
 
         let diag = dev.layer7_diagnostics("CE-ISOLATION");
 
-        let ce_entries: Vec<_> = diag.engine_topology.iter()
+        let ce_entries: Vec<_> = diag
+            .engine_topology
+            .iter()
             .filter(|e| e.engine_type == 1)
             .collect();
 
@@ -317,7 +333,9 @@ mod tests {
         }
 
         let ce_runlist = ce_entries[0].runlist;
-        let gr_runlist = diag.engine_topology.iter()
+        let gr_runlist = diag
+            .engine_topology
+            .iter()
             .find(|e| e.engine_type == 0)
             .map(|e| e.runlist)
             .unwrap_or(1);
@@ -333,10 +351,14 @@ mod tests {
         // Capture PBDMA state for both runlists.
         let pbdma_map = diag.pfifo.pbdma_map;
         let gr_pbdmas = coral_driver::nv::vfio_compute::diagnostics::find_pbdmas_for_runlist(
-            pbdma_map, &dev.bar0_ref(), gr_runlist,
+            pbdma_map,
+            &dev.bar0_ref(),
+            gr_runlist,
         );
         let ce_pbdmas = coral_driver::nv::vfio_compute::diagnostics::find_pbdmas_for_runlist(
-            pbdma_map, &dev.bar0_ref(), ce_runlist,
+            pbdma_map,
+            &dev.bar0_ref(),
+            ce_runlist,
         );
 
         eprintln!("GR PBDMAs: {gr_pbdmas:?}");
@@ -359,11 +381,16 @@ mod tests {
         eprintln!("\n{pccsr}");
         eprintln!("\nConclusion:");
         if pccsr.status() == 1 {
-            eprintln!("  Channel PENDING on GR runlist — consistent with FECS-not-running hypothesis.");
+            eprintln!(
+                "  Channel PENDING on GR runlist — consistent with FECS-not-running hypothesis."
+            );
             eprintln!("  CE PBDMAs shown above for comparison. If CE has different state,");
             eprintln!("  the issue is GR-engine-specific (requires FECS firmware).");
         } else {
-            eprintln!("  Channel status: {} — unexpected, investigate.", pccsr.status_name());
+            eprintln!(
+                "  Channel status: {} — unexpected, investigate.",
+                pccsr.status_name()
+            );
         }
 
         eprintln!("\n=== End PBDMA CE Isolation ===");
@@ -392,7 +419,10 @@ mod tests {
         let fecs_has_mailbox = fecs.mailbox0 != 0;
 
         eprintln!("\n── FECS State After Warm Handoff ──");
-        eprintln!("  cpuctl={:#010x} mailbox0={:#010x}", fecs.cpuctl, fecs.mailbox0);
+        eprintln!(
+            "  cpuctl={:#010x} mailbox0={:#010x}",
+            fecs.cpuctl, fecs.mailbox0
+        );
         eprintln!("  running={fecs_running} has_mailbox={fecs_has_mailbox}");
 
         if !fecs_running && !fecs_has_mailbox {
@@ -485,15 +515,20 @@ mod tests {
 
         let diag_pre = dev.layer7_diagnostics("SOVEREIGN-PRE");
         eprintln!("FECS state before boot:");
-        eprintln!("  cpuctl={:#010x} mailbox0={:#010x} secure={}",
-            diag_pre.fecs.cpuctl, diag_pre.fecs.mailbox0,
-            diag_pre.fecs.requires_signed_firmware());
+        eprintln!(
+            "  cpuctl={:#010x} mailbox0={:#010x} secure={}",
+            diag_pre.fecs.cpuctl,
+            diag_pre.fecs.mailbox0,
+            diag_pre.fecs.requires_signed_firmware()
+        );
 
         if !diag_pre.fecs.is_in_reset() {
             eprintln!("FECS not in HRESET — already running? Checking mailbox...");
             if diag_pre.fecs.mailbox0 != 0 {
-                eprintln!("  FECS firmware active (mailbox0={:#010x}), skipping boot.",
-                    diag_pre.fecs.mailbox0);
+                eprintln!(
+                    "  FECS firmware active (mailbox0={:#010x}), skipping boot.",
+                    diag_pre.fecs.mailbox0
+                );
             }
         }
 
@@ -504,12 +539,16 @@ mod tests {
                 if result.running {
                     eprintln!("\n*** FECS firmware is RUNNING! ***\n");
                 } else if result.mailbox0 != 0 {
-                    eprintln!("\nFECS responded (mb0={:#010x}) but may not be fully running.",
-                        result.mailbox0);
+                    eprintln!(
+                        "\nFECS responded (mb0={:#010x}) but may not be fully running.",
+                        result.mailbox0
+                    );
                 } else {
                     eprintln!("\nFECS did not respond — boot may have failed.");
-                    eprintln!("  cpuctl={:#010x} — check if halted or still in reset.",
-                        result.cpuctl_after);
+                    eprintln!(
+                        "  cpuctl={:#010x} — check if halted or still in reset.",
+                        result.cpuctl_after
+                    );
                 }
             }
             Err(e) => {
@@ -533,8 +572,8 @@ mod tests {
 
         // Attempt dispatch if FECS appears running.
         let fecs_post = &diag_post.fecs;
-        let fecs_alive = !fecs_post.is_in_reset() && !fecs_post.is_halted()
-            || fecs_post.mailbox0 != 0;
+        let fecs_alive =
+            !fecs_post.is_in_reset() && !fecs_post.is_halted() || fecs_post.mailbox0 != 0;
 
         if !fecs_alive {
             eprintln!("\nFECS not running after boot — skipping dispatch attempt.");
@@ -609,8 +648,14 @@ mod tests {
         eprintln!("\nDetailed SEC2:\n{sec2}");
 
         eprintln!("\nSEC2 state classification: {:?}", sec2.state);
-        eprintln!("  HS-locked: {}", sec2.state == coral_driver::nv::vfio_compute::acr_boot::Sec2State::HsLocked);
-        eprintln!("  Clean reset: {}", sec2.state == coral_driver::nv::vfio_compute::acr_boot::Sec2State::CleanReset);
+        eprintln!(
+            "  HS-locked: {}",
+            sec2.state == coral_driver::nv::vfio_compute::acr_boot::Sec2State::HsLocked
+        );
+        eprintln!(
+            "  Clean reset: {}",
+            sec2.state == coral_driver::nv::vfio_compute::acr_boot::Sec2State::CleanReset
+        );
 
         // EMEM accessibility test
         let bar0 = dev.bar0_ref();
@@ -716,7 +761,11 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let after_flr = dev.falcon_probe();
         eprintln!("After FLR:\n{after_flr}");
-        eprintln!("SEC2 cpuctl: {:#010x} HRESET={}", after_flr.sec2.cpuctl, after_flr.sec2.cpuctl & 0x10 != 0);
+        eprintln!(
+            "SEC2 cpuctl: {:#010x} HRESET={}",
+            after_flr.sec2.cpuctl,
+            after_flr.sec2.cpuctl & 0x10 != 0
+        );
 
         // Try 2: PCI D3→D0 power cycle
         eprintln!("\n--- Try 2: PCI D3→D0 power cycle ---");
@@ -729,7 +778,11 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(200));
         let after_pm = dev.falcon_probe();
         eprintln!("After D3→D0:\n{after_pm}");
-        eprintln!("SEC2 cpuctl: {:#010x} HRESET={}", after_pm.sec2.cpuctl, after_pm.sec2.cpuctl & 0x10 != 0);
+        eprintln!(
+            "SEC2 cpuctl: {:#010x} HRESET={}",
+            after_pm.sec2.cpuctl,
+            after_pm.sec2.cpuctl & 0x10 != 0
+        );
 
         eprintln!("\n=== End GPU Reset Probe ===");
     }
@@ -749,12 +802,21 @@ mod tests {
 
                 // Dump sec2 desc.bin header for analysis
                 eprintln!("\nSEC2 desc.bin ({} bytes):", fw.sec2_desc.len());
-                let hex: String = fw.sec2_desc.iter().take(48).enumerate()
+                let hex: String = fw
+                    .sec2_desc
+                    .iter()
+                    .take(48)
+                    .enumerate()
                     .map(|(i, b)| {
-                        if i > 0 && i % 16 == 0 { format!("\n  {b:02x}") }
-                        else if i > 0 && i % 4 == 0 { format!("  {b:02x}") }
-                        else { format!("{b:02x}") }
-                    }).collect();
+                        if i > 0 && i % 16 == 0 {
+                            format!("\n  {b:02x}")
+                        } else if i > 0 && i % 4 == 0 {
+                            format!("  {b:02x}")
+                        } else {
+                            format!("{b:02x}")
+                        }
+                    })
+                    .collect();
                 eprintln!("  {hex}");
             }
             Err(e) => eprintln!("Failed to load firmware: {e}"),
@@ -768,8 +830,8 @@ mod tests {
     #[test]
     #[ignore = "reads BAR0 via sysfs — run with appropriate BDF"]
     fn sysfs_sec2_register_dump() {
-        let bdf = std::env::var("CORALREEF_VFIO_BDF")
-            .unwrap_or_else(|_| "0000:03:00.0".to_string());
+        let bdf =
+            std::env::var("CORALREEF_VFIO_BDF").unwrap_or_else(|_| "0000:03:00.0".to_string());
 
         eprintln!("\n=== SEC2 Register Dump via SysfsBar0 ({bdf}) ===\n");
 
@@ -802,8 +864,12 @@ mod tests {
             eprintln!("  cpuctl={cpuctl:#010x} sctl={sctl:#010x} hwcfg={hwcfg:#010x}");
             eprintln!("  bootvec={bootvec:#010x} tracepc={tracepc:#010x} exci={exci:#010x}");
             eprintln!("  mb0={mb0:#010x} mb1={mb1:#010x} dmactl={dmactl:#010x}");
-            eprintln!("  halted={} hreset={} hs_mode={}",
-                cpuctl & 0x20 != 0, cpuctl & 0x10 != 0, sctl & 0x3000 != 0);
+            eprintln!(
+                "  halted={} hreset={} hs_mode={}",
+                cpuctl & 0x20 != 0,
+                cpuctl & 0x10 != 0,
+                sctl & 0x3000 != 0
+            );
 
             if name == "SEC2" {
                 let bind_inst = bar0.read_u32(base + 0x668);
@@ -813,12 +879,16 @@ mod tests {
                 let dma_cmd = bar0.read_u32(base + 0x118);
                 let dma_fboffs = bar0.read_u32(base + 0x11C);
                 eprintln!("  0x668={bind_inst:#010x} 0x624={fbif_624:#010x}");
-                eprintln!("  dma_base={dma_base:#010x} dma_moffs={dma_moffs:#010x} dma_cmd={dma_cmd:#010x} dma_fboffs={dma_fboffs:#010x}");
+                eprintln!(
+                    "  dma_base={dma_base:#010x} dma_moffs={dma_moffs:#010x} dma_cmd={dma_cmd:#010x} dma_fboffs={dma_fboffs:#010x}"
+                );
 
                 // Also read some additional SEC2-specific registers
                 for off in [0x480, 0x484, 0x488, 0x48C, 0x490, 0x494] {
                     let v = bar0.read_u32(base + off);
-                    if v != 0 { eprintln!("  +{off:#05x}={v:#010x}"); }
+                    if v != 0 {
+                        eprintln!("  +{off:#05x}={v:#010x}");
+                    }
                 }
             }
             eprintln!();
@@ -827,7 +897,10 @@ mod tests {
         // Check PMC
         let pmc_enable = bar0.read_u32(0x200);
         let sec2_bit = 22;
-        eprintln!("PMC_ENABLE={pmc_enable:#010x} SEC2_enabled={}", pmc_enable & (1 << sec2_bit) != 0);
+        eprintln!(
+            "PMC_ENABLE={pmc_enable:#010x} SEC2_enabled={}",
+            pmc_enable & (1 << sec2_bit) != 0
+        );
         eprintln!("\n=== End SEC2 Register Dump ===");
     }
 

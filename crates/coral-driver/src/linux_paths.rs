@@ -150,3 +150,111 @@ pub fn sysfs_vfio_cdev_name(bdf: &str) -> Option<String> {
         .into_string()
         .ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sysfs_join_builds_path_under_root() {
+        let root = sysfs_root();
+        let path = sysfs_join(&["bus", "pci", "devices"]);
+        assert!(
+            path.starts_with(root),
+            "path should start with sysfs root {root:?}, got {path:?}"
+        );
+        assert!(path.ends_with("/bus/pci/devices"));
+    }
+
+    #[test]
+    fn sysfs_join_trims_slashes_in_segments() {
+        let path = sysfs_join(&["/class/drm/", "renderD128"]);
+        assert!(path.contains("/class/drm/renderD128"));
+    }
+
+    #[test]
+    fn sysfs_pci_devices_matches_join() {
+        assert_eq!(sysfs_pci_devices(), sysfs_join(&["bus", "pci", "devices"]));
+    }
+
+    #[test]
+    fn sysfs_pci_device_path_various_bdfs() {
+        for bdf in ["0000:03:00.0", "0000:0a:00.1", "0000:41:00.0"] {
+            let p = sysfs_pci_device_path(bdf);
+            assert!(
+                p.ends_with(&format!("/bus/pci/devices/{bdf}")),
+                "unexpected path for {bdf}: {p}"
+            );
+        }
+    }
+
+    #[test]
+    fn sysfs_pci_device_file_appends_tail() {
+        let bdf = "0000:01:00.0";
+        let config = sysfs_pci_device_file(bdf, "config");
+        assert!(config.ends_with("/config"));
+        assert!(config.contains(&format!("devices/{bdf}")));
+
+        let power = sysfs_pci_device_file(bdf, "power/control");
+        assert!(power.ends_with("power/control"));
+
+        let leading = sysfs_pci_device_file(bdf, "/uevent");
+        assert!(leading.ends_with("/uevent"));
+    }
+
+    #[test]
+    fn sysfs_pci_device_file_empty_tail_is_base_only() {
+        let bdf = "0000:02:00.0";
+        assert_eq!(sysfs_pci_device_file(bdf, ""), sysfs_pci_device_path(bdf));
+    }
+
+    #[test]
+    fn sysfs_pci_driver_bind_unbind() {
+        let bind = sysfs_pci_driver_bind("vfio-pci");
+        assert!(bind.ends_with("/vfio-pci/bind"));
+        let unbind = sysfs_pci_driver_unbind("vfio-pci");
+        assert!(unbind.ends_with("/vfio-pci/unbind"));
+    }
+
+    #[test]
+    fn sysfs_pci_bus_rescan_path() {
+        let p = sysfs_pci_bus_rescan();
+        assert!(p.ends_with("/bus/pci/rescan"));
+    }
+
+    #[test]
+    fn sysfs_module_path_nvidia() {
+        let p = sysfs_module_path("nvidia");
+        assert!(p.ends_with("/module/nvidia"));
+    }
+
+    #[test]
+    fn sysfs_class_drm_device_card0() {
+        let p = sysfs_class_drm_device("card0");
+        assert!(p.ends_with("/class/drm/card0/device"));
+    }
+
+    #[test]
+    fn sysfs_kernel_iommu_group_42() {
+        let p = sysfs_kernel_iommu_group_devices(42);
+        assert!(p.ends_with("/kernel/iommu_groups/42/devices"));
+    }
+
+    #[test]
+    fn proc_pid_fd_dir_and_self_fd() {
+        let fd_dir = proc_pid_fd_dir(1234);
+        assert!(fd_dir.ends_with("/1234/fd"));
+        assert!(fd_dir.starts_with(proc_root()));
+
+        let self_fd = proc_self_fd(7);
+        assert!(self_fd.ends_with("/self/fd/7"));
+        assert!(self_fd.starts_with(proc_root()));
+    }
+
+    #[test]
+    fn proc_cmdline_path() {
+        let c = proc_cmdline();
+        assert!(c.ends_with("/cmdline"));
+        assert!(c.starts_with(proc_root()));
+    }
+}

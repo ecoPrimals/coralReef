@@ -2,24 +2,23 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 23, 2026 (Phase 10 — Iteration 63 — Layer 7 ACR Boot Solver + Falcon Diagnostics. 3460+ tests passing, 0 failed, 108 ignored hardware-gated, 68.7% line coverage, 8 crates above 90%)
+**Last updated**: March 24, 2026 (Phase 10 — Iteration 64 — Deep Audit + Coverage Push + hotSpring Trace Stabilization. 3912 tests passing, 0 failed, 108 ignored hardware-gated, 65.9% workspace / 81.5% non-hardware line coverage, 6 crates above 90%)
 
 ---
 
 ## Team Evolution Priorities (Iteration 63+)
 
-### Complexity Debt — Files Over 1000 LOC
+### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64)**
 
-Five files exceed the 1000 LOC threshold. These were identified during the Layer 7 ACR
-sprint and flagged for team-driven evolution:
+All five files that exceeded the 1000 LOC threshold have been smart-refactored into directory modules:
 
-| File | LOC | Domain | Recommended Split |
-|------|-----|--------|-------------------|
-| `acr_boot.rs` | 4462 | SEC2/ACR/FECS boot chain | Extract `firmware.rs` (parsing), `wpr.rs` (WPR construction), `instance_block.rs` (MMU/page tables), keep `acr_boot.rs` as orchestrator |
-| `coralctl.rs` | 1649 | CLI entry point | Extract subcommand handlers into `cli/` modules |
-| `socket.rs` | 1434 | Unix/TCP IPC transport | Extract protocol encoding/decoding, keep socket I/O thin |
-| `mmu_oracle.rs` | 1131 | GPU page table oracle captures | Extract `oracle_diff.rs` (comparison logic), `oracle_capture.rs` (state snapshot) |
-| `device.rs` | 1030 | VFIO device abstraction | Extract DMA mapping logic, keep device lifecycle thin |
+| File | Was | Now | Status |
+|------|-----|-----|--------|
+| `acr_boot.rs` | 4462 | `acr_boot/` (12 submodules, all <1000) | **Resolved** |
+| `coralctl.rs` | 1649 | `coralctl/` (main + 5 handler modules) | **Resolved** |
+| `socket.rs` | 1434 | `socket/` (mod + protocol + handlers) | **Resolved** |
+| `mmu_oracle.rs` | 1131 | `mmu_oracle/` (mod + capture + diff) | **Resolved** |
+| `device.rs` | 1030 | `device/` (mod + dma) | **Resolved** |
 
 ### Sovereign Pipeline — Layer 7 (GR/FECS) Status
 
@@ -38,6 +37,27 @@ sprint and flagged for team-driven evolution:
 3. If ACR boot succeeds: construct WPR with FECS/GPCCS LS images
 4. Warm handoff path: capture Nouveau's FECS state via Ember swap
 5. Split `acr_boot.rs` after strategies stabilize
+
+### Untestable Code — Hardware Abstraction Plan
+
+`coral-driver` has 19,009 lines (74%) at 0% coverage — VFIO/DRM/GPU-channel code that requires actual GPU hardware. This is the primary barrier to 90% workspace coverage. Plan:
+
+1. **Abstract hardware interfaces** behind traits (`VfioOps`, `BarOps`, `DmaOps`) so unit tests can inject mock implementations
+2. **Titan V now bound to glowplug** — enable `#[ignore]` hardware tests in CI
+3. **Layered testing**: pure-logic tests (register math, packet building) already covered; need integration harness for VFIO/DRM paths
+4. **Target**: 70% coral-driver (from 26%) via trait abstraction + Titan V CI
+
+### Coverage Gains (Iter 64)
+
+| Crate | Before | After |
+|-------|--------|-------|
+| coralreef-core | 85.6% | **96.0%** |
+| coral-reef-stubs | 59.1% | **97.7%** |
+| coral-reef (compiler) | 73.3% | **82.0%** |
+| coral-ember | 35.5% | **67.5%** |
+| coral-glowplug | 62.6% | **60.8%** |
+| Workspace total | 62.9% | **65.9%** |
+| Non-hardware | — | **81.5%** |
 
 ---
 
@@ -117,6 +137,21 @@ sprint and flagged for team-driven evolution:
 ---
 
 ## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 60)
+
+### Iteration 64 — Deep Audit + Coverage Push + hotSpring Trace Stabilization
+- [x] hotSpring trace module cleanup: removed incomplete `pub mod trace`, `crate::trace` imports, `trace_filter_ranges` trait methods
+- [x] TraceStatus/TraceList CLI subcommands converted from invalid cross-primal imports to proper JSON-RPC calls
+- [x] Cargo.toml path fix for coralctl binary after directory refactor
+- [x] OpBRev SM32/SM50 encoding implemented (naga translator emits OpBRev directly, not through builder lowering)
+- [x] OpFRnd SM32/SM50 encoding implemented (unblocked alu_div_mod_all_nv test)
+- [x] Smart refactoring: acr_boot.rs (4462→12 modules), coralctl.rs (1649→6 modules), socket.rs (1434→3 modules), mmu_oracle.rs (1131→3 modules), device.rs (1030→2 modules)
+- [x] 222 clippy warnings resolved: missing_docs, dead_code, idiomatic Rust, doc links
+- [x] 13 unresolved doc links fixed (hex offsets, OwnedFd, Arc, bit ranges)
+- [x] .unwrap() → .expect() with infallibility reason (shader_model.rs)
+- [x] ~500 new tests across all testable crates (3460→3912)
+- [x] Coverage: 62.9% → 65.9% workspace, 81.5% non-hardware; coralreef-core 96%, stubs 97.7%, compiler 82%
+- [x] Zero files over 1000 LOC, zero clippy warnings, zero fmt drift, zero test failures
+- [x] Quality gates: fmt ✅, clippy ✅, test ✅ (3912 pass, 0 fail), doc ✅ (2 pre-existing coral-driver warnings)
 
 ### Iteration 60 — Deep Audit Execution + Code Quality Evolution
 - [x] `unwrap()` → `expect()` with infallibility reasons (coralctl.rs JSON serialization, main.rs JSON serialization)
@@ -509,15 +544,11 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-3460+ tests passing, 0 failed, 108 ignored hardware-gated, 68.7% line coverage. Zero production unwrap/todo. Zero extern "C". Error types zero-alloc. IPC semantic.
+3912 tests passing, 0 failed, 108 ignored hardware-gated. 65.9% workspace / 81.5% non-hardware line coverage. 6 crates above 90%.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
-Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
-Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero doc warnings. Zero fmt drift.
-`SysfsBar0` safe wrapper for BAR0 reads. `#![forbid(unsafe_code)]` on coral-ember + coral-glowplug. XDG config paths.
-OrExit\<T\> for zero-panic binary entry. IpcServiceError for structured IPC errors.
-coral-glowplug JSON-RPC 2.0 with trait-based GpuPersonality system.
-libc eliminated from direct deps. 14 `#[allow]` → `#[expect]` for stale lint detection.
+IPC: `shader.compile.*` + `health.*` + `trace.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
+Hardware: 2× Titan V (VFIO sovereign, now bound to glowplug) + RTX 5060 (nvidia-drm/UVM).
+Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift.
 All pure Rust. Sovereignty is a runtime choice.*

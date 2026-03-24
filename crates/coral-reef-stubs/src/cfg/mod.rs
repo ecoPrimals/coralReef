@@ -318,6 +318,8 @@ impl<T> Default for CFGBuilder<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
 
     #[test]
@@ -377,8 +379,14 @@ mod tests {
         let rpo = cfg.reverse_post_order();
         assert_eq!(rpo.len(), 3);
         assert_eq!(rpo[0], a);
-        let b_pos = rpo.iter().position(|&n| n == b).unwrap();
-        let c_pos = rpo.iter().position(|&n| n == c).unwrap();
+        let b_pos = rpo
+            .iter()
+            .position(|&n| n == b)
+            .expect("reverse post-order should contain b");
+        let c_pos = rpo
+            .iter()
+            .position(|&n| n == c)
+            .expect("reverse post-order should contain c");
         assert!(b_pos < c_pos);
     }
 
@@ -631,7 +639,8 @@ mod tests {
         let a = builder.add_block("original");
         builder.add_block("b");
         let mut cfg = builder.build();
-        *cfg.block_mut(a).unwrap() = "modified";
+        *cfg.block_mut(a)
+            .expect("block a was inserted and must exist") = "modified";
         assert_eq!(cfg.block(a), Some(&"modified"));
     }
 
@@ -689,5 +698,240 @@ mod tests {
         let cfg: CFG<&str> = CFG::default();
         let rpo = cfg.reverse_post_order();
         assert!(rpo.is_empty());
+    }
+
+    #[test]
+    fn test_single_block_cfg_dominance() {
+        let mut builder = CFGBuilder::new();
+        let solo = builder.add_block("solo");
+        let cfg = builder.build();
+
+        assert_eq!(cfg.len(), 1);
+        assert_eq!(cfg.dom_parent_index(solo), None);
+        assert!(cfg.dominates(solo, solo));
+        assert!(!cfg.dominates(solo + 1, solo));
+        assert!(!cfg.dominates(solo, solo + 1));
+        assert!(!cfg.has_loop());
+        assert_eq!(cfg.loop_depth(solo), 0);
+        assert_eq!(cfg.loop_header_index(solo), None);
+    }
+
+    #[test]
+    fn test_dominates_out_of_range_ids() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        builder.add_edge(a, b);
+        let cfg = builder.build();
+
+        assert!(!cfg.dominates(99, 0));
+        assert!(!cfg.dominates(0, 99));
+    }
+
+    #[test]
+    fn test_loop_header_index_returns_header_for_body() {
+        let mut builder = CFGBuilder::new();
+        let entry = builder.add_block("entry");
+        let header = builder.add_block("header");
+        let body = builder.add_block("body");
+        let exit = builder.add_block("exit");
+        builder.add_edge(entry, header);
+        builder.add_edge(header, body);
+        builder.add_edge(header, exit);
+        builder.add_edge(body, header);
+        let cfg = builder.build();
+
+        assert_eq!(cfg.loop_header_index(body), Some(header));
+    }
+
+    #[test]
+    fn empty_cfg_dom_queries_are_safe() {
+        let cfg: CFG<()> = CFG::default();
+        assert!(!cfg.has_loop());
+        assert_eq!(cfg.loop_depth(0), 0);
+        assert_eq!(cfg.loop_header_index(0), None);
+        assert_eq!(cfg.dom_dfs_pre_index(0), 0);
+        assert!(!cfg.dominates(0, 0));
+        assert_eq!(cfg.dom_parent_index(0), None);
+    }
+
+    #[test]
+    fn large_linear_chain_dominators_and_rpo() {
+        const N: usize = 48;
+        let mut builder = CFGBuilder::new();
+        let mut ids = Vec::with_capacity(N);
+        for i in 0..N {
+            ids.push(builder.add_block(i));
+        }
+        for i in 0..N - 1 {
+            builder.add_edge(ids[i], ids[i + 1]);
+        }
+        let cfg = builder.build();
+        assert_eq!(cfg.len(), N);
+        let rpo = cfg.reverse_post_order();
+        assert_eq!(rpo.len(), N);
+        assert_eq!(rpo[0], ids[0]);
+        for i in 1..N {
+            assert_eq!(cfg.dom_parent_index(ids[i]), Some(ids[i - 1]));
+            assert!(cfg.dominates(ids[0], ids[i]));
+        }
+    }
+
+    #[test]
+    fn triangle_cfg_successors_and_preds() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        let c = builder.add_block("c");
+        builder.add_edge(a, b);
+        builder.add_edge(a, c);
+        builder.add_edge(b, c);
+        let cfg = builder.build();
+        assert_eq!(cfg.successors(a).len(), 2);
+        assert_eq!(cfg.predecessors(c).len(), 2);
+        assert_eq!(cfg.predecessors(b), &[a]);
+        assert!(cfg.dominates(a, c));
+        assert!(!cfg.dominates(b, c));
+    }
+
+    fn bfs_from_entry(cfg: &CFG<impl Sized>, entry: NodeId) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        let mut q = VecDeque::new();
+        let mut seen = vec![false; cfg.len()];
+        q.push_back(entry);
+        while let Some(n) = q.pop_front() {
+            if n >= seen.len() || seen[n] {
+                continue;
+            }
+            seen[n] = true;
+            out.push(n);
+            for &s in cfg.successors(n) {
+                if s < seen.len() && !seen[s] {
+                    q.push_back(s);
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn bfs_diamond_reaches_merge_before_exit() {
+        let mut builder = CFGBuilder::new();
+        let entry = builder.add_block(0u8);
+        let left = builder.add_block(1u8);
+        let right = builder.add_block(2u8);
+        let merge = builder.add_block(3u8);
+        builder.add_edge(entry, left);
+        builder.add_edge(entry, right);
+        builder.add_edge(left, merge);
+        builder.add_edge(right, merge);
+        let cfg = builder.build();
+        let order = bfs_from_entry(&cfg, entry);
+        assert_eq!(order[0], entry);
+        assert_eq!(order.len(), 4);
+        let merge_pos = order
+            .iter()
+            .position(|&n| n == merge)
+            .expect("BFS should visit merge");
+        let left_pos = order
+            .iter()
+            .position(|&n| n == left)
+            .expect("BFS should visit left");
+        let right_pos = order
+            .iter()
+            .position(|&n| n == right)
+            .expect("BFS should visit right");
+        assert!(merge_pos > left_pos);
+        assert!(merge_pos > right_pos);
+    }
+
+    #[test]
+    fn test_pred_indices_succ_indices_aliases() {
+        let mut builder = CFGBuilder::new();
+        let a = builder.add_block("a");
+        let b = builder.add_block("b");
+        builder.add_edge(a, b);
+        let cfg = builder.build();
+        assert_eq!(cfg.pred_indices(b), cfg.predecessors(b));
+        assert_eq!(cfg.succ_indices(a), cfg.successors(a));
+    }
+
+    #[test]
+    fn test_cfg_iter_mut() {
+        let mut builder = CFGBuilder::new();
+        builder.add_block(1);
+        builder.add_block(2);
+        let mut cfg = builder.build();
+        for x in cfg.iter_mut() {
+            *x *= 10;
+        }
+        assert_eq!(cfg[0], 10);
+        assert_eq!(cfg[1], 20);
+    }
+
+    #[test]
+    fn test_cfg_blocks_mut_alias() {
+        let mut builder = CFGBuilder::new();
+        builder.add_block(1u8);
+        let mut cfg = builder.build();
+        cfg.blocks_mut()[0] = 9;
+        assert_eq!(cfg[0], 9);
+    }
+
+    #[test]
+    fn test_cfgbuilder_add_node_as_cfg_counts() {
+        let mut b = CFGBuilder::<()>::new();
+        let _ = b.add_node(());
+        let _ = b.add_node(());
+        b.add_edge(0, 1);
+        assert_eq!(b.block_count(), 2);
+        assert_eq!(b.edge_count(), 1);
+        let cfg = b.as_cfg();
+        assert_eq!(cfg.len(), 2);
+    }
+
+    #[test]
+    fn disconnect_block_removes_incident_edges_and_clears_dom_cache() {
+        let mut cfg: CFG<&str> = CFG::default();
+        let a = cfg.push("a");
+        let b = cfg.push("b");
+        let c = cfg.push("c");
+        cfg.add_edge(a, b);
+        cfg.add_edge(b, c);
+        let _ = cfg.dom_parent_index(b);
+        cfg.disconnect_block(b);
+        assert_eq!(cfg.successors(a), [] as [usize; 0]);
+        assert_eq!(cfg.predecessors(c), [] as [usize; 0]);
+        assert_eq!(cfg.successors(b), [] as [usize; 0]);
+        assert_eq!(cfg.predecessors(b), [] as [usize; 0]);
+        assert_eq!(cfg.dom_parent_index(a), None);
+    }
+
+    #[test]
+    fn nested_loop_dominators_and_loop_depth() {
+        let mut builder = CFGBuilder::new();
+        let entry = builder.add_block("e");
+        let h1 = builder.add_block("h1");
+        let x = builder.add_block("x");
+        let h2 = builder.add_block("h2");
+        let y = builder.add_block("y");
+        let exit = builder.add_block("exit");
+        builder.add_edge(entry, h1);
+        builder.add_edge(h1, x);
+        builder.add_edge(h1, exit);
+        builder.add_edge(x, h2);
+        builder.add_edge(h2, y);
+        builder.add_edge(h2, h1);
+        builder.add_edge(y, h2);
+        let cfg = builder.build();
+        assert!(cfg.has_loop());
+        assert!(cfg.is_loop_header(h1));
+        assert!(cfg.is_loop_header(h2));
+        assert!(cfg.loop_depth(h2) >= 1);
+        assert!(cfg.loop_depth(y) >= 1);
+        assert_eq!(cfg.loop_depth(entry), 0);
+        assert_eq!(cfg.loop_depth(exit), 0);
+        assert!(cfg.dominates(entry, h1));
+        assert!(cfg.dominates(h1, h2));
     }
 }

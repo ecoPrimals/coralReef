@@ -9,7 +9,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         eprintln!("Usage:");
-        eprintln!("  {} capture <BDF> [--output <file.json>] [--max-channels N]", args[0]);
+        eprintln!(
+            "  {} capture <BDF> [--output <file.json>] [--max-channels N]",
+            args[0]
+        );
         eprintln!("  {} diff <left.json> <right.json>", args[0]);
         std::process::exit(1);
     }
@@ -63,14 +66,17 @@ fn cmd_capture(args: &[String]) {
 
     let channel_count = dump.channels.len();
     let total_pts: usize = dump.channels.iter().map(|c| c.page_tables.len()).sum();
-    let total_ptes: usize = dump.channels.iter()
+    let total_ptes: usize = dump
+        .channels
+        .iter()
         .flat_map(|c| c.page_tables.iter())
         .map(|pt| pt.entries.len())
         .sum();
     eprintln!("Captured {channel_count} channels, {total_pts} page tables, {total_ptes} PTEs");
 
     let er = &dump.engine_registers;
-    eprintln!("PMU CPUCTL={:#010x} FECS CPUCTL={:#010x} SEC2 CPUCTL={:#010x}",
+    eprintln!(
+        "PMU CPUCTL={:#010x} FECS CPUCTL={:#010x} SEC2 CPUCTL={:#010x}",
         er.pmu.get("PMU_FALCON_CPUCTL").unwrap_or(&0),
         er.fecs.get("FECS_FALCON_CPUCTL").unwrap_or(&0),
         er.sec2.get("SEC2_FALCON_CPUCTL").unwrap_or(&0),

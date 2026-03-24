@@ -170,11 +170,7 @@ impl<'a> ProbeInterpreter<'a> {
                                 report.dma = Some(dma.clone());
 
                                 if dma.instance_block_accessible {
-                                    match probe_channel(
-                                        self.bar0,
-                                        self.container.clone(),
-                                        &dma,
-                                    ) {
+                                    match probe_channel(self.bar0, self.container.clone(), &dma) {
                                         Ok(ch) => {
                                             report.channel = Some(ch.clone());
                                             match probe_dispatch(&ch) {

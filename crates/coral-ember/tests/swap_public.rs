@@ -14,7 +14,7 @@ const NONEXISTENT_BDF: &str = "9999:99:99.9";
 fn handle_swap_unbound_without_sysfs_device_succeeds() {
     let _guard = SWAP_TEST_LOCK.lock().expect("swap lock");
     let mut held: HashMap<String, HeldDevice> = HashMap::new();
-    let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held).expect("unbound");
+    let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held, false).expect("unbound");
     assert_eq!(out, "unbound");
 }
 
@@ -22,7 +22,8 @@ fn handle_swap_unbound_without_sysfs_device_succeeds() {
 fn handle_swap_unknown_target_errors() {
     let _guard = SWAP_TEST_LOCK.lock().expect("swap lock");
     let mut held: HashMap<String, HeldDevice> = HashMap::new();
-    let err = handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held).unwrap_err();
+    let err =
+        handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held, false).unwrap_err();
     assert!(err.contains("unknown target driver"));
 }
 
@@ -88,7 +89,8 @@ fn verify_drm_isolation_fails_when_udev_missing_bdf_token() {
 fn handle_swap_non_drm_native_target_skips_drm_gate() {
     let _guard = SWAP_TEST_LOCK.lock().expect("swap lock");
     let mut held: HashMap<String, HeldDevice> = HashMap::new();
-    let err = handle_swap_device(NONEXISTENT_BDF, "akida-pcie", &mut held).expect_err("swap");
+    let err =
+        handle_swap_device(NONEXISTENT_BDF, "akida-pcie", &mut held, false).expect_err("swap");
     assert!(
         !err.contains("DRM isolation"),
         "akida-pcie should not hit DRM isolation: {err}"
@@ -104,7 +106,7 @@ fn handle_swap_drm_targets_hit_isolation_or_sysfs() {
     let _guard = SWAP_TEST_LOCK.lock().expect("swap lock");
     for target in ["amdgpu", "nouveau", "nvidia", "xe", "i915"] {
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
-        let err = handle_swap_device(NONEXISTENT_BDF, target, &mut held).expect_err(target);
+        let err = handle_swap_device(NONEXISTENT_BDF, target, &mut held, false).expect_err(target);
         assert!(
             err.contains("BLOCKED")
                 || err.contains("swap_device")
@@ -120,8 +122,8 @@ fn handle_swap_vfio_alias_targets_fail_consistently() {
     let _guard = SWAP_TEST_LOCK.lock().expect("swap lock");
     let mut held_vfio = HashMap::new();
     let mut held_hyphen = HashMap::new();
-    let e1 = handle_swap_device(NONEXISTENT_BDF, "vfio", &mut held_vfio);
-    let e2 = handle_swap_device(NONEXISTENT_BDF, "vfio-pci", &mut held_hyphen);
+    let e1 = handle_swap_device(NONEXISTENT_BDF, "vfio", &mut held_vfio, false);
+    let e2 = handle_swap_device(NONEXISTENT_BDF, "vfio-pci", &mut held_hyphen, false);
     assert!(e1.is_err());
     assert!(e2.is_err());
 }

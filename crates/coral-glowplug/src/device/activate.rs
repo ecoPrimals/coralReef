@@ -4,6 +4,9 @@ use crate::error::DeviceError;
 use crate::personality::{Personality, PersonalityRegistry};
 use crate::sysfs_ops::SysfsOps;
 
+#[cfg(feature = "no-ember")]
+use coral_driver::linux_paths;
+
 use super::DeviceSlot;
 use super::types::VfioHolder;
 
@@ -167,10 +170,12 @@ impl<S: SysfsOps> DeviceSlot<S> {
             "activating device from ember fds"
         );
 
-        let device = coral_driver::vfio::VfioDevice::from_received(&self.bdf, fds)
-            .map_err(|e| DeviceError::VfioOpen {
-                bdf: self.bdf.clone(),
-                reason: format!("ember fds: {e}"),
+        let device =
+            coral_driver::vfio::VfioDevice::from_received(&self.bdf, fds).map_err(|e| {
+                DeviceError::VfioOpen {
+                    bdf: self.bdf.clone(),
+                    reason: format!("ember fds: {e}"),
+                }
             })?;
 
         let bar0 = device.map_bar(0).map_err(|e| DeviceError::VfioOpen {
@@ -248,18 +253,21 @@ impl<S: SysfsOps> DeviceSlot<S> {
                 bdf = %self.bdf,
                 "legacy VFIO bind without ember (no-ember mode)"
             );
-            sysfs::bind_iommu_group_to_vfio(&self.bdf, group_id);
-            let _ = sysfs::sysfs_write(
+            crate::sysfs::bind_iommu_group_to_vfio(&self.bdf, group_id);
+            let _ = crate::sysfs::sysfs_write(
                 &linux_paths::sysfs_pci_device_file(&self.bdf, "driver_override"),
                 "vfio-pci",
             );
-            let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), &self.bdf);
+            let _ = crate::sysfs::sysfs_write(
+                &linux_paths::sysfs_pci_driver_bind("vfio-pci"),
+                &self.bdf,
+            );
             std::thread::sleep(std::time::Duration::from_millis(500));
-            let _ = sysfs::sysfs_write(
+            let _ = crate::sysfs::sysfs_write(
                 &linux_paths::sysfs_pci_device_file(&self.bdf, "power/control"),
                 "on",
             );
-            let _ = sysfs::sysfs_write(
+            let _ = crate::sysfs::sysfs_write(
                 &linux_paths::sysfs_pci_device_file(&self.bdf, "d3cold_allowed"),
                 "0",
             );

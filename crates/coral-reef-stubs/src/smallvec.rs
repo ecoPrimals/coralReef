@@ -175,20 +175,20 @@ mod tests {
     #[test]
     fn test_last_mut_one() {
         let mut sv: SmallVec<i32> = SmallVec::One(7);
-        *sv.last_mut().unwrap() = 8;
+        *sv.last_mut().expect("One variant has a last element") = 8;
         match &sv {
             SmallVec::One(x) => assert_eq!(*x, 8),
-            _ => panic!(),
+            _ => panic!("expected One after last_mut assignment"),
         }
     }
 
     #[test]
     fn test_last_mut_many() {
         let mut sv: SmallVec<i32> = SmallVec::Many(vec![1, 2, 3]);
-        *sv.last_mut().unwrap() = 99;
+        *sv.last_mut().expect("Many variant is non-empty") = 99;
         match &sv {
             SmallVec::Many(v) => assert_eq!(v[2], 99),
-            _ => panic!(),
+            _ => panic!("expected Many after last_mut assignment"),
         }
     }
 
@@ -246,6 +246,92 @@ mod tests {
         match &sv {
             SmallVec::Many(v) => assert_eq!(v, &[1, 2, 3, 4]),
             _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_many_branch_iterates_elements() {
+        let sv: SmallVec<i32> = SmallVec::Many(vec![10, 20, 30]);
+        let sum: i32 = match &sv {
+            SmallVec::Many(v) => v.iter().copied().sum(),
+            _ => panic!("expected Many for iteration"),
+        };
+        assert_eq!(sum, 60);
+    }
+
+    #[test]
+    fn test_last_mut_after_many_pushes_keeps_heap_vec() {
+        let mut sv: SmallVec<i32> = SmallVec::None;
+        for i in 0..16 {
+            sv.push(i);
+        }
+        match &mut sv {
+            SmallVec::Many(v) => {
+                assert_eq!(v.len(), 16);
+                *v.last_mut().expect("non-empty many") = 99;
+            }
+            _ => panic!("expected heap Many after repeated push"),
+        }
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v[15], 99),
+            _ => panic!("expected Many"),
+        }
+    }
+
+    #[test]
+    fn append_many_to_none_replaces_with_drained_vec() {
+        let mut sv: SmallVec<i32> = SmallVec::None;
+        let mut heap = vec![10, 20, 30];
+        sv.append(&mut heap);
+        assert!(heap.is_empty());
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[10, 20, 30]),
+            _ => panic!("expected Many from append"),
+        }
+    }
+
+    #[test]
+    fn push_after_many_appended_from_none() {
+        let mut sv: SmallVec<i32> = SmallVec::None;
+        sv.append(&mut vec![1, 2]);
+        sv.push(3);
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[1, 2, 3]),
+            _ => panic!("expected Many"),
+        }
+    }
+
+    #[test]
+    fn one_push_then_append_builds_many_with_correct_order() {
+        let mut sv: SmallVec<i32> = SmallVec::One(0);
+        sv.append(&mut vec![1, 2, 3]);
+        match &sv {
+            SmallVec::Many(v) => assert_eq!(v, &[0, 1, 2, 3]),
+            _ => panic!("expected Many"),
+        }
+    }
+
+    #[test]
+    fn last_mut_none_stays_none() {
+        let mut sv: SmallVec<String> = SmallVec::None;
+        assert!(sv.last_mut().is_none());
+    }
+
+    #[test]
+    fn push_string_one_and_many() {
+        let mut sv: SmallVec<String> = SmallVec::None;
+        sv.push("a".to_string());
+        sv.push("b".to_string());
+        if let SmallVec::Many(v) = &mut sv {
+            assert_eq!(v.len(), 2);
+            v[0].push('z');
+        } else {
+            panic!("expected Many");
+        }
+        if let SmallVec::Many(v) = &sv {
+            assert_eq!(v[0], "az");
+        } else {
+            panic!("expected Many");
         }
     }
 }

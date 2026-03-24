@@ -333,6 +333,7 @@ dependencies = [
  "base64",
  "clap",
  "coral-driver",
+ "coral-ember",
  "rustix",
  "serde",
  "serde_json",

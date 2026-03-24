@@ -97,8 +97,14 @@ impl NvVfioComputeDevice {
     /// firmware is already managing the GR engine.
     pub(super) fn apply_fecs_channel_init(&mut self) {
         use crate::vfio::channel::registers::falcon;
-        let fecs_cpuctl = self.bar0.read_u32(falcon::FECS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD_DEAD);
-        let fecs_mailbox0 = self.bar0.read_u32(falcon::FECS_BASE + falcon::MAILBOX0).unwrap_or(0);
+        let fecs_cpuctl = self
+            .bar0
+            .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+            .unwrap_or(0xDEAD_DEAD);
+        let fecs_mailbox0 = self
+            .bar0
+            .read_u32(falcon::FECS_BASE + falcon::MAILBOX0)
+            .unwrap_or(0);
         let fecs_halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
         let fecs_hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
         let fecs_running = !fecs_halted && !fecs_hreset && fecs_cpuctl != 0xDEAD_DEAD;

@@ -4,7 +4,7 @@
 //! Usage:
 //!   sudo ./target/release/examples/bench_register_probe <BDF>
 
-use coral_driver::vfio::sysfs_bar0::{SysfsBar0, DEFAULT_BAR0_SIZE};
+use coral_driver::vfio::sysfs_bar0::{DEFAULT_BAR0_SIZE, SysfsBar0};
 
 fn main() {
     let bdf = std::env::args().nth(1).unwrap_or_else(|| {
@@ -46,14 +46,21 @@ fn main() {
         let b = 0x40000 + pid as usize * 0x2000;
         println!(
             "  PBDMA{pid}: SIG={:#010x} GP_BASE={:#010x} GP_GET={} GP_PUT={} STATUS={:#010x} INTR={:#010x}",
-            r(b + 0xC0), r(b + 0x40), r(b + 0x4C), r(b + 0x54), r(b + 0xB0), r(b + 0x100),
+            r(b + 0xC0),
+            r(b + 0x40),
+            r(b + 0x4C),
+            r(b + 0x54),
+            r(b + 0xB0),
+            r(b + 0x100),
         );
     }
 
     println!("\n--- PFIFO topology (0x2700+) ---");
     for i in 0..16u32 {
         let val = r(0x002700 + i as usize * 4);
-        if val == 0 { break; }
+        if val == 0 {
+            break;
+        }
         println!("  TOPO[{i:2}] = {val:#010x}");
     }
 

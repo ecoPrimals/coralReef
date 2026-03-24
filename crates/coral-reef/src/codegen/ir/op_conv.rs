@@ -704,6 +704,7 @@ impl DisplayOp for OpPSetP {
         )
     }
 }
+impl_display_for_op!(OpPSetP);
 
 #[repr(C)]
 #[derive(Clone, SrcsAsSlice, DstsAsSlice)]

@@ -18,7 +18,10 @@
 pub mod devinit;
 pub mod glowplug;
 pub mod hbm2_training;
-#[expect(missing_docs, reason = "diagnostic oracle — struct fields are self-documenting")]
+#[expect(
+    missing_docs,
+    reason = "diagnostic oracle — struct fields are self-documenting"
+)]
 pub mod mmu_oracle;
 pub mod nouveau_oracle;
 pub mod oracle;
@@ -59,6 +62,7 @@ pub struct VfioChannel {
     pd1: DmaBuffer,
     pd0: DmaBuffer,
     pt0: DmaBuffer,
+    #[expect(dead_code, reason = "kept alive for DMA buffer lifecycle")]
     fault_buf: DmaBuffer,
     channel_id: u32,
     runlist_id: u32,
@@ -111,7 +115,11 @@ impl VfioChannel {
         let pfifo_trace = |bar0: &MappedBar, label: &str| {
             let en = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0xDEAD);
             let intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0xDEAD);
-            tracing::debug!(en = format_args!("{en:#010x}"), intr = format_args!("{intr:#010x}"), "{label}");
+            tracing::debug!(
+                en = format_args!("{en:#010x}"),
+                intr = format_args!("{intr:#010x}"),
+                "{label}"
+            );
         };
 
         let (runq, runlist_id) = pfifo::init_pfifo_engine(bar0)?;
@@ -125,9 +133,7 @@ impl VfioChannel {
         {
             let bar2_val: u32 = 2 << 28; // target=COH, mode=PHYSICAL, ptr=0
             bar0.write_u32(registers::misc::PBUS_BAR2_BLOCK, bar2_val)
-                .map_err(|e| DriverError::SubmitFailed(
-                    Cow::Owned(format!("BAR2_BLOCK: {e}"))
-                ))?;
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("BAR2_BLOCK: {e}"))))?;
             std::thread::sleep(std::time::Duration::from_millis(5));
             tracing::info!(
                 bar2_block = format_args!("{bar2_val:#010x}"),
@@ -144,26 +150,40 @@ impl VfioChannel {
             use registers::mmu;
             let fb_lo = (FAULT_BUF_IOVA >> 12) as u32;
             let fb_entries: u32 = 64;
-            bar0.write_u32(mmu::FAULT_BUF0_LO, fb_lo)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_LO: {e}"))))?;
-            bar0.write_u32(mmu::FAULT_BUF0_HI, 0)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_HI: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_LO, fb_lo).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_LO: {e}")))
+            })?;
+            bar0.write_u32(mmu::FAULT_BUF0_HI, 0).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_HI: {e}")))
+            })?;
             bar0.write_u32(mmu::FAULT_BUF0_SIZE, fb_entries)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_SIZE: {e}"))))?;
-            bar0.write_u32(mmu::FAULT_BUF0_GET, 0)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_GET: {e}"))))?;
+                .map_err(|e| {
+                    DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_SIZE: {e}")))
+                })?;
+            bar0.write_u32(mmu::FAULT_BUF0_GET, 0).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_GET: {e}")))
+            })?;
             bar0.write_u32(mmu::FAULT_BUF0_PUT, 0x8000_0000)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_PUT: {e}"))))?;
-            bar0.write_u32(mmu::FAULT_BUF1_LO, fb_lo)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_LO: {e}"))))?;
-            bar0.write_u32(mmu::FAULT_BUF1_HI, 0)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_HI: {e}"))))?;
+                .map_err(|e| {
+                    DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_PUT: {e}")))
+                })?;
+            bar0.write_u32(mmu::FAULT_BUF1_LO, fb_lo).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_LO: {e}")))
+            })?;
+            bar0.write_u32(mmu::FAULT_BUF1_HI, 0).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_HI: {e}")))
+            })?;
             bar0.write_u32(mmu::FAULT_BUF1_SIZE, fb_entries)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_SIZE: {e}"))))?;
-            bar0.write_u32(mmu::FAULT_BUF1_GET, 0)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_GET: {e}"))))?;
+                .map_err(|e| {
+                    DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_SIZE: {e}")))
+                })?;
+            bar0.write_u32(mmu::FAULT_BUF1_GET, 0).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_GET: {e}")))
+            })?;
             bar0.write_u32(mmu::FAULT_BUF1_PUT, 0x8000_0000)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_PUT: {e}"))))?;
+                .map_err(|e| {
+                    DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_PUT: {e}")))
+                })?;
             tracing::info!(
                 fault_buf_iova = format_args!("{FAULT_BUF_IOVA:#x}"),
                 entries = fb_entries,
@@ -242,9 +262,7 @@ impl VfioChannel {
         if pfifo_live {
             tracing::info!("PFIFO liveness probe: preempt ACK received — engine functional");
         } else {
-            tracing::warn!(
-                "PFIFO liveness probe: NO preempt ACK — engine may be non-responsive"
-            );
+            tracing::warn!("PFIFO liveness probe: NO preempt ACK — engine may be non-responsive");
         }
 
         pfifo::log_pfifo_diagnostics(bar0);
@@ -266,7 +284,7 @@ impl VfioChannel {
 
     /// Create a channel on a specific runlist (for PBDMA isolation tests).
     ///
-    /// Identical to [`create`] but overrides the auto-discovered GR runlist
+    /// Identical to `create` but overrides the auto-discovered GR runlist
     /// with `target_runlist`. Use this to test PBDMA command delivery on
     /// non-GR runlists (e.g. copy engine) independent of FECS state.
     pub fn create_on_runlist(
@@ -279,11 +297,17 @@ impl VfioChannel {
         target_runlist: u32,
     ) -> DriverResult<Self> {
         let mut chan = Self::create(
-            container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id,
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
         )?;
         if chan.runlist_id != target_runlist {
             tracing::info!(
-                from = chan.runlist_id, to = target_runlist,
+                from = chan.runlist_id,
+                to = target_runlist,
                 "overriding runlist for PBDMA isolation"
             );
             chan.runlist_id = target_runlist;
@@ -326,13 +350,19 @@ impl VfioChannel {
         // target=2 (SYS_MEM_COH) to match our page table aperture.
         let pdb_inv = ((pd3_iova >> 12) << 4) | 2; // SYS_MEM_COH target
         bar0.write_u32(pfb::MMU_INVALIDATE_PDB, pdb_inv as u32)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB: {e}"))))?;
+            .map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB: {e}")))
+            })?;
         bar0.write_u32(pfb::MMU_INVALIDATE_PDB_HI, (pd3_iova >> 32) as u32)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB_HI: {e}"))))?;
+            .map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB_HI: {e}")))
+            })?;
 
         // Trigger: PAGE_ALL (bit 0) | HUB_ONLY (bit 2) | trigger (bit 31).
         bar0.write_u32(pfb::MMU_INVALIDATE, 0x8000_0005)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE trigger: {e}"))))?;
+            .map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE trigger: {e}")))
+            })?;
 
         // Wait for flush acknowledgement.
         for _ in 0..200 {
@@ -343,7 +373,10 @@ impl VfioChannel {
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
 
-        tracing::info!(pd3_iova = format_args!("{pd3_iova:#x}"), "GPU MMU TLB invalidated");
+        tracing::info!(
+            pd3_iova = format_args!("{pd3_iova:#x}"),
+            "GPU MMU TLB invalidated"
+        );
         Ok(())
     }
 
@@ -376,9 +409,8 @@ impl VfioChannel {
             clippy::cast_possible_truncation,
             reason = "INSTANCE_IOVA >> 12 fits u32 for our allocation range"
         )]
-        let value = (INSTANCE_IOVA >> 12) as u32
-            | (TARGET_SYS_MEM_COHERENT << 28)
-            | pccsr::INST_BIND_TRUE;
+        let value =
+            (INSTANCE_IOVA >> 12) as u32 | (TARGET_SYS_MEM_COHERENT << 28) | pccsr::INST_BIND_TRUE;
         tracing::debug!(
             value = format_args!("{value:#010x}"),
             "PCCSR inst (BIND | SYS_MEM_COH)"

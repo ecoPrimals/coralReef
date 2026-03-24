@@ -109,10 +109,7 @@ impl VendorLifecycle for NvidiaLifecycle {
             bdf,
             "NVIDIA: disabling reset_method (bus reset destroys HBM2 training)"
         );
-        sysfs::sysfs_write_direct(
-            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
-            "",
-        )?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
 
         Ok(())
     }
@@ -131,10 +128,65 @@ impl VendorLifecycle for NvidiaLifecycle {
     fn stabilize_after_bind(&self, bdf: &str, _target_driver: &str) {
         sysfs::pin_power(bdf);
 
-        let _ = sysfs::sysfs_write_direct(
-            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
-            "",
-        );
+        let _ =
+            sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+    }
+
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+        let power = sysfs::read_power_state(bdf);
+        if power.as_deref() == Some("D3cold") {
+            return Err(format!("{bdf}: device in D3cold after bind"));
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NVIDIA Oracle lifecycle (renamed nvidia module for multi-version coexistence)
+// ---------------------------------------------------------------------------
+
+/// NVIDIA Oracle — renamed `nvidia_oracle.ko` module that coexists with the
+/// system `nvidia.ko`. Built by patching `MODULE_BASE_NAME` and
+/// `NV_MAJOR_DEVICE_NUMBER` in the open kernel source. GlowPlug binds Titans
+/// to `nvidia_oracle` via `driver_override` while the display GPU stays on `nvidia`.
+#[derive(Debug)]
+#[expect(
+    dead_code,
+    reason = "vendor lifecycle for oracle mode — used when nvidia_oracle target is selected"
+)]
+pub struct NvidiaOracleLifecycle {
+    /// PCI device ID from config space.
+    pub device_id: u16,
+    /// The oracle module name (e.g. "nvidia_oracle", "nvidia_oracle_535").
+    pub module_name: String,
+}
+
+impl VendorLifecycle for NvidiaOracleLifecycle {
+    fn description(&self) -> &str {
+        "NVIDIA Oracle (renamed module for driver coexistence)"
+    }
+
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+        sysfs::pin_power(bdf);
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        Ok(())
+    }
+
+    fn rebind_strategy(&self, _target_driver: &str) -> RebindStrategy {
+        RebindStrategy::SimpleBind
+    }
+
+    fn settle_secs(&self, target_driver: &str) -> u64 {
+        match target_driver {
+            "nouveau" => 10,
+            _ => 8,
+        }
+    }
+
+    fn stabilize_after_bind(&self, bdf: &str, _target_driver: &str) {
+        sysfs::pin_power(bdf);
+        let _ =
+            sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
     }
 
     fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
@@ -197,10 +249,8 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write_direct(
-            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
-            "",
-        );
+        let _ =
+            sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
         if target_driver == "amdgpu" {
             let _ = sysfs::sysfs_write_direct(
@@ -294,10 +344,8 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
-        let _ = sysfs::sysfs_write_direct(
-            &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
-            "",
-        );
+        let _ =
+            sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
         if target_driver == "amdgpu" {
             let _ = sysfs::sysfs_write_direct(
@@ -502,6 +550,19 @@ pub(crate) fn lifecycle_from_pci_ids(vendor_id: u16, device_id: u16) -> Box<dyn 
             device_id,
         }),
     }
+}
+
+/// Build a lifecycle for a specific target driver override (e.g. `nvidia_oracle_535`).
+/// Falls back to [`detect_lifecycle`] if the target doesn't need special handling.
+pub fn detect_lifecycle_for_target(bdf: &str, target: &str) -> Box<dyn VendorLifecycle> {
+    if target.starts_with("nvidia_oracle") {
+        let device_id = sysfs::read_pci_id(bdf, "device");
+        return Box::new(NvidiaOracleLifecycle {
+            device_id,
+            module_name: target.to_string(),
+        });
+    }
+    detect_lifecycle(bdf)
 }
 
 /// Auto-detect the appropriate VendorLifecycle for a PCI device.
@@ -790,5 +851,50 @@ mod tests {
             .prepare_for_unbind("not-a-bdf", "vfio-pci")
             .expect_err("reset_method sysfs");
         assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn nvidia_oracle_lifecycle_description_and_strategy() {
+        let lc = NvidiaOracleLifecycle {
+            device_id: 0x1d81,
+            module_name: "nvidia_oracle_535".to_string(),
+        };
+        assert!(lc.description().contains("Oracle"));
+        assert_eq!(lc.rebind_strategy("amdgpu"), RebindStrategy::SimpleBind);
+        assert_eq!(lc.settle_secs("nouveau"), 10);
+        assert_eq!(lc.settle_secs("nvidia_oracle_535"), 8);
+    }
+
+    #[test]
+    fn nvidia_oracle_prepare_and_verify_best_effort_on_missing_sysfs() {
+        let lc = NvidiaOracleLifecycle {
+            device_id: 0x1d81,
+            module_name: "nvidia_oracle".to_string(),
+        };
+        let err = lc
+            .prepare_for_unbind("9999:99:99.9", "vfio-pci")
+            .expect_err("reset_method write on absent device");
+        assert!(!err.is_empty());
+        lc.verify_health("9999:99:99.9", "nvidia_oracle")
+            .expect("health when power state unknown");
+    }
+
+    #[test]
+    fn detect_lifecycle_for_target_nvidia_oracle_prefix_uses_oracle_lifecycle() {
+        let lc = detect_lifecycle_for_target("9999:99:99.9", "nvidia_oracle");
+        assert!(lc.description().contains("Oracle"));
+        let lc_suffixed = detect_lifecycle_for_target("9999:99:99.9", "nvidia_oracle_535");
+        assert!(lc_suffixed.description().contains("Oracle"));
+    }
+
+    #[test]
+    fn detect_lifecycle_for_target_plain_driver_delegates_to_detect_lifecycle() {
+        let oracle = detect_lifecycle_for_target("9999:99:99.9", "nvidia_oracle");
+        let plain = detect_lifecycle_for_target("9999:99:99.9", "nouveau");
+        assert!(oracle.description().contains("Oracle"));
+        assert!(
+            plain.description().contains("Unknown"),
+            "non-oracle target should use PCI-detected lifecycle"
+        );
     }
 }

@@ -347,8 +347,7 @@ mod tests {
         }
 
         // ── Phase 4: Memory topology before any changes ─────────────────
-        let topo_before =
-            memory_probe::discover_memory_topology(&raw.bar0, raw.container.clone());
+        let topo_before = memory_probe::discover_memory_topology(&raw.bar0, raw.container.clone());
         eprintln!("╠══ MEMORY TOPOLOGY BEFORE FB INIT ══════════════════════════╣");
         topo_before.print_summary();
 
@@ -388,8 +387,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         // ── Phase 6: Re-probe memory topology after applying oracle regs ─
-        let topo_after =
-            memory_probe::discover_memory_topology(&raw.bar0, raw.container.clone());
+        let topo_after = memory_probe::discover_memory_topology(&raw.bar0, raw.container.clone());
         eprintln!("╠══ MEMORY TOPOLOGY AFTER FB INIT ═══════════════════════════╣");
         topo_after.print_summary();
 
@@ -793,8 +791,8 @@ mod tests {
         eprintln!("║ METAL GLOWPLUG — TRAIT-BASED WARM-UP                       ║");
         eprintln!("╠══════════════════════════════════════════════════════════════╣");
 
-        let gp = GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf)
-            .with_metal(Box::new(metal));
+        let gp =
+            GlowPlug::with_bdf(&raw.bar0, raw.container.clone(), &bdf).with_metal(Box::new(metal));
 
         let result = gp.warm();
         for msg in &result.log {

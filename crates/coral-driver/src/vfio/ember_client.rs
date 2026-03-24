@@ -23,8 +23,7 @@ const MAX_RESPONSE: usize = 4096;
 
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
 fn default_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
 }
 
 /// A VFIO session obtained from coral-ember via FD sharing.
@@ -57,9 +56,7 @@ impl EmberSession {
     pub fn connect(bdf: &str) -> DriverResult<Self> {
         let socket_path = default_socket();
         let stream = UnixStream::connect(&socket_path).map_err(|e| {
-            DriverError::DeviceNotFound(Cow::Owned(format!(
-                "ember socket {socket_path}: {e}"
-            )))
+            DriverError::DeviceNotFound(Cow::Owned(format!("ember socket {socket_path}: {e}")))
         })?;
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -109,14 +106,11 @@ impl EmberSession {
                         fds.len()
                     ))));
                 }
-                let ioas_id = result
-                    .get("ioas_id")
-                    .and_then(|v| v.as_u64())
-                    .ok_or_else(|| {
-                        DriverError::DeviceNotFound(Cow::Borrowed(
-                            "ember: iommufd response missing ioas_id",
-                        ))
-                    })? as u32;
+                let ioas_id = result.get("ioas_id").and_then(|v| v.as_u64()).ok_or(
+                    DriverError::DeviceNotFound(Cow::Borrowed(
+                        "ember: iommufd response missing ioas_id",
+                    )),
+                )? as u32;
                 let mut it = fds.into_iter();
                 ReceivedVfioFds::Iommufd {
                     iommufd: it.next().expect("checked len"),

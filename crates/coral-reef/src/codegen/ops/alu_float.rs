@@ -243,8 +243,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpF64Sqrt {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&Src::from(self.src.reference.clone()))?;
-        let (mut prefix, materialized) =
-            materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
+        let (mut prefix, materialized) = materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
         let words = Rdna2Encoder::encode_vop3(
             isa::vop3::V_SQRT_F64,
             AmdRegRef::vgpr_pair(dst_reg),
@@ -263,8 +262,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpF64Rcp {
     fn encode(&self, e: &mut AmdOpEncoder<'_>) -> Result<Vec<u32>, CompileError> {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let src_enc = src_to_encoding(&Src::from(self.src.reference.clone()))?;
-        let (mut prefix, materialized) =
-            materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
+        let (mut prefix, materialized) = materialize_f64_if_literal(e.scratch_vgpr_0, &src_enc);
         let words = Rdna2Encoder::encode_vop3(
             isa::vop3::V_RCP_F64,
             AmdRegRef::vgpr_pair(dst_reg),
@@ -584,7 +582,16 @@ mod tests {
             ftz: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::FAdd(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::FAdd(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -596,7 +603,16 @@ mod tests {
             ftz: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::FMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::FMnMx(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 
@@ -608,7 +624,16 @@ mod tests {
             ftz: false,
         };
         let labels = FxHashMap::default();
-        let result = encode_amd_op(&Op::FMnMx(Box::new(op)), &pred_true(), &labels, 0, 254, 255, 10, 2);
+        let result = encode_amd_op(
+            &Op::FMnMx(Box::new(op)),
+            &pred_true(),
+            &labels,
+            0,
+            254,
+            255,
+            10,
+            2,
+        );
         assert!(result.is_ok());
     }
 }

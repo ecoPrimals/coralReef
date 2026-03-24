@@ -131,13 +131,13 @@ pub(crate) fn discover_vfio_nvidia_bdf() -> Option<String> {
 pub(crate) fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
     match device_id {
         Some(0x1003 | 0x1004 | 0x1023 | 0x1024) => 35, // GK110/GK210 (K80, K40)
-        Some(0x1D81) => 70,                             // Titan V
-        Some(0x1E00..=0x1E8F) => 75,                    // Turing (TU10x)
-        Some(0x2200..=0x2203 | 0x2207..=0x22FF) => 80,  // GA100
-        Some(0x2204..=0x2206) => 86,                    // GA102 (RTX 3090/3080)
-        Some(0x2300..=0x23FF) => 86,                    // GA10x
-        Some(0x2400..=0x26FF) => 89,                    // Ada Lovelace
-        Some(0x2900..=0x29FF) => 120,                   // Blackwell (GB20x)
+        Some(0x1D81) => 70,                            // Titan V
+        Some(0x1E00..=0x1E8F) => 75,                   // Turing (TU10x)
+        Some(0x2200..=0x2203 | 0x2207..=0x22FF) => 80, // GA100
+        Some(0x2204..=0x2206) => 86,                   // GA102 (RTX 3090/3080)
+        Some(0x2300..=0x23FF) => 86,                   // GA10x
+        Some(0x2400..=0x26FF) => 89,                   // Ada Lovelace
+        Some(0x2900..=0x29FF) => 120,                  // Blackwell (GB20x)
         _ => default_nv_sm(),
     }
 }

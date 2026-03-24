@@ -338,3 +338,44 @@ pub trait LegalizeBuildHelpers: SSABuilder {
         }
     }
 }
+
+#[cfg(test)]
+mod helper_fn_tests {
+    use super::{src_is_reg, src_is_upred_reg, swap_srcs_if_not_reg};
+    use crate::codegen::ir::{RegFile, SSAValueAllocator, Src, SrcRef};
+
+    #[test]
+    fn src_is_reg_zero_matches_float_and_predicate_special_cases() {
+        assert!(src_is_reg(&Src::ZERO, RegFile::GPR));
+        assert!(
+            src_is_reg(&Src::ZERO, RegFile::Pred),
+            "Zero is treated as a valid predicate-file source for legalization"
+        );
+    }
+
+    #[test]
+    fn src_is_reg_bool_constants_match_predicate_file() {
+        assert!(src_is_reg(&SrcRef::True.into(), RegFile::Pred));
+        assert!(src_is_reg(&SrcRef::False.into(), RegFile::Pred));
+        assert!(!src_is_reg(&SrcRef::True.into(), RegFile::GPR));
+    }
+
+    #[test]
+    fn swap_srcs_if_not_reg_moves_ssa_operand_first() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let g = ssa_alloc.alloc(RegFile::GPR);
+        let mut a = Src::new_imm_u32(7);
+        let mut b = Src::from(g);
+        assert!(swap_srcs_if_not_reg(&mut a, &mut b, RegFile::GPR));
+        assert!(matches!(a.reference, SrcRef::SSA(_)));
+        assert!(matches!(b.reference, SrcRef::Imm32(7)));
+    }
+
+    #[test]
+    fn src_is_upred_reg_detects_uniform_predicate_ssa() {
+        let mut ssa_alloc = SSAValueAllocator::new();
+        let u = ssa_alloc.alloc(RegFile::UPred);
+        let s = Src::from(u);
+        assert!(src_is_upred_reg(&s));
+    }
+}

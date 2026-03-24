@@ -516,7 +516,8 @@ fn test_dispatch_health_check_counts_devices() {
 #[test]
 fn test_make_response_preserves_null_id() {
     let resp = make_response(serde_json::Value::Null, Ok(serde_json::json!({"ok": true})));
-    let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("make_response should emit valid JSON");
     assert!(parsed["id"].is_null());
 }
 
@@ -526,8 +527,217 @@ fn test_make_response_device_error_round_trip() {
         serde_json::json!(42),
         Err(coral_glowplug::error::RpcError::device_error("boom")),
     );
-    let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("make_response should emit valid JSON");
     assert_eq!(parsed["error"]["code"], -32000);
     assert_eq!(parsed["error"]["message"], "boom");
     assert_eq!(parsed["id"], 42);
+}
+
+#[test]
+fn test_dispatch_read_bar0_range_count_exceeds_max() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.read_bar0_range",
+        &serde_json::json!({"bdf": "0000:99:00.0", "offset": 0, "count": 5000}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("count over 4096");
+    assert_eq!(i32::from(err.code), -32602);
+    assert!(err.message.contains("4096"));
+}
+
+#[test]
+fn test_dispatch_read_bar0_range_missing_offset() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.read_bar0_range",
+        &serde_json::json!({"bdf": "0000:99:00.0", "count": 4}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("missing offset");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_pramin_read_count_exceeds_max() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.pramin_read",
+        &serde_json::json!({"bdf": "0000:99:00.0", "vram_offset": 0, "count": 5000}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("count over 4096");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_pramin_write_values_too_long() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let values: Vec<u64> = (0..4100).collect();
+    let result = dispatch(
+        "device.pramin_write",
+        &serde_json::json!({"bdf": "0000:99:00.0", "vram_offset": 0, "values": values}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("values array too long");
+    assert_eq!(i32::from(err.code), -32602);
+    assert!(err.message.contains("4096"));
+}
+
+#[test]
+fn test_dispatch_pramin_write_missing_values_array() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.pramin_write",
+        &serde_json::json!({"bdf": "0000:99:00.0", "vram_offset": 0}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("missing values");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_write_register_pmc_blocked_without_allow_dangerous() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.write_register",
+        &serde_json::json!({
+            "bdf": "0000:99:00.0",
+            "offset": 0x200,
+            "value": 1,
+            "allow_dangerous": false
+        }),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("PMC write blocked");
+    assert_eq!(i32::from(err.code), -32000);
+    assert!(
+        err.message.contains("PMC") || err.message.contains("0x200"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn test_dispatch_async_routed_methods_return_internal() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    for method in ["device.compute_info", "device.quota", "device.set_quota"] {
+        let result = dispatch(
+            method,
+            &serde_json::json!({"bdf": "0000:01:00.0"}),
+            &mut devices,
+            started,
+        );
+        let err = result.expect_err("sync handler should not implement async route");
+        assert_eq!(i32::from(err.code), -32603);
+        assert!(err.message.contains("async"), "{method}: {}", err.message);
+    }
+}
+
+#[test]
+fn test_dispatch_device_reset_missing_bdf() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.reset",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let err = result.expect_err("missing bdf");
+    assert_eq!(i32::from(err.code), -32602);
+}
+
+#[test]
+fn test_dispatch_read_bar0_range_success_empty_without_vfio() {
+    let config = coral_glowplug::config::DeviceConfig {
+        bdf: "0000:99:00.0".into(),
+        name: None,
+        boot_personality: "vfio".into(),
+        power_policy: "always_on".into(),
+        role: None,
+        oracle_dump: None,
+        shared: None,
+    };
+    let mut devices = vec![coral_glowplug::device::DeviceSlot::new(config)];
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "device.read_bar0_range",
+        &serde_json::json!({"bdf": "0000:99:00.0", "offset": 0, "count": 4}),
+        &mut devices,
+        started,
+    );
+    let val = result.expect("read_bar0_range");
+    assert_eq!(val["bdf"], "0000:99:00.0");
+    assert_eq!(val["count"], 0);
+    let arr = val["values"].as_array().expect("values array");
+    assert!(arr.is_empty());
 }

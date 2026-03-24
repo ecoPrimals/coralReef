@@ -177,7 +177,11 @@ mod tests {
             crate::MemoryDomain::Gtt,
             crate::MemoryDomain::VramOrGtt,
         ] {
-            let e = DriverError::AllocFailed { size: 8192, domain, detail: "test".into() };
+            let e = DriverError::AllocFailed {
+                size: 8192,
+                domain,
+                detail: "test".into(),
+            };
             let msg = e.to_string();
             assert!(msg.contains("8192"));
             assert!(msg.contains("domain"));

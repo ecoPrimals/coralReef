@@ -252,26 +252,24 @@ async fn main() {
         let ember_ok = if let Some(ref client) = ember_client {
             if slot.config.boot_personality == "vfio" {
                 match client.request_fds(&slot.bdf) {
-                    Ok(fds) => {
-                        match slot.activate_from_ember(fds) {
-                            Ok(()) => {
-                                tracing::info!(
-                                    bdf = %slot.bdf,
-                                    chip = %slot.chip_name,
-                                    "device ready (ember fds)"
-                                );
-                                true
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    bdf = %slot.bdf,
-                                    error = %e,
-                                    "ember fd activation failed — falling back to direct open"
-                                );
-                                false
-                            }
+                    Ok(fds) => match slot.activate_from_ember(fds) {
+                        Ok(()) => {
+                            tracing::info!(
+                                bdf = %slot.bdf,
+                                chip = %slot.chip_name,
+                                "device ready (ember fds)"
+                            );
+                            true
                         }
-                    }
+                        Err(e) => {
+                            tracing::warn!(
+                                bdf = %slot.bdf,
+                                error = %e,
+                                "ember fd activation failed — falling back to direct open"
+                            );
+                            false
+                        }
+                    },
                     Err(e) => {
                         tracing::warn!(
                             bdf = %slot.bdf,
@@ -477,6 +475,28 @@ mod tests {
         // Filter fails, so full arg is used as bdf with default vfio.
         let cfg = parse_bdf_arg("0000:01:00.0:1");
         assert_eq!(cfg.bdf, "0000:01:00.0:1");
+        assert_eq!(cfg.boot_personality, "vfio");
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_empty_string_defaults_vfio() {
+        let cfg = parse_bdf_arg("");
+        assert_eq!(cfg.bdf, "");
+        assert_eq!(cfg.boot_personality, "vfio");
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_hyphenated_personality() {
+        let cfg = parse_bdf_arg("0000:01:00.0:nouveau-modeset");
+        assert_eq!(cfg.bdf, "0000:01:00.0");
+        assert_eq!(cfg.boot_personality, "nouveau-modeset");
+    }
+
+    #[test]
+    fn test_parse_bdf_arg_underscore_in_personality_rejected() {
+        // Personality tail must be [A-Za-z-] only; underscore fails the filter.
+        let cfg = parse_bdf_arg("0000:01:00.0:my_driver");
+        assert_eq!(cfg.bdf, "0000:01:00.0:my_driver");
         assert_eq!(cfg.boot_personality, "vfio");
     }
 }

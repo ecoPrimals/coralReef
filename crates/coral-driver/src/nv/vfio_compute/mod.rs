@@ -112,10 +112,6 @@ pub struct NvVfioComputeDevice {
     container: DmaBackend,
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
-    #[expect(
-        dead_code,
-        reason = "kept alive for fd lifecycle; used by DmaBuffer drop"
-    )]
     device: VfioDevice,
 }
 
@@ -258,37 +254,46 @@ impl NvVfioComputeDevice {
         let boot0 = bar0.read_u32(bar0_reg::BOOT0)?;
         let hw_sm = crate::nv::identity::boot0_to_sm(boot0);
 
-        let sm = if caller_sm == 0 {
-            match hw_sm {
-                Some(sm) => {
-                    tracing::info!(bdf, boot0 = format_args!("{boot0:#010x}"), sm, "SM auto-detected from BOOT0");
-                    sm
-                }
-                None => {
-                    return Err(DriverError::OpenFailed(format!(
+        let sm =
+            if caller_sm == 0 {
+                match hw_sm {
+                    Some(sm) => {
+                        tracing::info!(
+                            bdf,
+                            boot0 = format_args!("{boot0:#010x}"),
+                            sm,
+                            "SM auto-detected from BOOT0"
+                        );
+                        sm
+                    }
+                    None => {
+                        return Err(DriverError::OpenFailed(format!(
                         "BOOT0 {boot0:#010x} maps to unknown chipset — cannot auto-detect SM. \
                          Pass an explicit sm_version or add the chipset to boot0_to_sm()."
                     ).into()));
-                }
-            }
-        } else {
-            if let Some(hw) = hw_sm {
-                if hw != caller_sm {
-                    return Err(DriverError::OpenFailed(format!(
-                        "SM mismatch: caller passed sm={caller_sm} but BOOT0 {boot0:#010x} \
-                         decodes to sm={hw}. Wrong SM corrupts GPU state — aborting."
-                    ).into()));
+                    }
                 }
             } else {
-                tracing::warn!(
-                    bdf,
-                    boot0 = format_args!("{boot0:#010x}"),
-                    caller_sm,
-                    "BOOT0 chipset unknown — trusting caller-supplied SM"
-                );
-            }
-            caller_sm
-        };
+                if let Some(hw) = hw_sm {
+                    if hw != caller_sm {
+                        return Err(DriverError::OpenFailed(
+                            format!(
+                                "SM mismatch: caller passed sm={caller_sm} but BOOT0 {boot0:#010x} \
+                         decodes to sm={hw}. Wrong SM corrupts GPU state — aborting."
+                            )
+                            .into(),
+                        ));
+                    }
+                } else {
+                    tracing::warn!(
+                        bdf,
+                        boot0 = format_args!("{boot0:#010x}"),
+                        caller_sm,
+                        "BOOT0 chipset unknown — trusting caller-supplied SM"
+                    );
+                }
+                caller_sm
+            };
 
         let compute_class = if caller_class == 0 {
             crate::nv::identity::sm_to_compute_class(sm)
@@ -316,8 +321,7 @@ impl NvVfioComputeDevice {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
-        let (sm_version, compute_class) =
-            Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
+        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
@@ -372,8 +376,7 @@ impl NvVfioComputeDevice {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
-        let (sm_version, compute_class) =
-            Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
+        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
@@ -493,16 +496,14 @@ impl NvVfioComputeDevice {
     /// Run only the system-memory ACR boot strategy (Exp 083).
     pub fn sysmem_acr_boot(&self) -> acr_boot::AcrBootResult {
         let chip = sm_to_chip(self.sm_version);
-        let fw = acr_boot::AcrFirmwareSet::load(chip)
-            .expect("firmware load");
+        let fw = acr_boot::AcrFirmwareSet::load(chip).expect("firmware load");
         acr_boot::attempt_sysmem_acr_boot(&self.bar0, &fw, self.container.clone())
     }
 
     /// Run the hybrid ACR boot: VRAM page tables + system memory data (Exp 083b).
     pub fn hybrid_acr_boot(&self) -> acr_boot::AcrBootResult {
         let chip = sm_to_chip(self.sm_version);
-        let fw = acr_boot::AcrFirmwareSet::load(chip)
-            .expect("firmware load");
+        let fw = acr_boot::AcrFirmwareSet::load(chip).expect("firmware load");
         acr_boot::attempt_hybrid_acr_boot(&self.bar0, &fw, self.container.clone())
     }
 

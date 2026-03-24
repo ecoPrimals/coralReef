@@ -159,13 +159,21 @@ pub enum NvArch {
     Sm86,
     /// Ada Lovelace (RTX 40xx) — 4th gen tensor cores.
     Sm89,
-    /// Blackwell (RTX 50xx, GB20x) — 5th gen tensor cores.
+    /// Blackwell (RTX 50xx, `GB20x`) — 5th gen tensor cores.
     Sm120,
 }
 
 impl NvArch {
     /// All supported NVIDIA architectures, ordered by SM version.
-    pub const ALL: &[Self] = &[Self::Sm35, Self::Sm70, Self::Sm75, Self::Sm80, Self::Sm86, Self::Sm89, Self::Sm120];
+    pub const ALL: &[Self] = &[
+        Self::Sm35,
+        Self::Sm70,
+        Self::Sm75,
+        Self::Sm80,
+        Self::Sm86,
+        Self::Sm89,
+        Self::Sm120,
+    ];
 
     /// Parse an architecture string (`"sm_70"`, `"sm70"`, etc.).
     ///
@@ -725,7 +733,10 @@ mod tests {
     fn test_nv_arch_has_transcendental_64h() {
         assert!(!NvArch::Sm35.has_transcendental_64h());
         for &arch in &NvArch::ALL[1..] {
-            assert!(arch.has_transcendental_64h(), "{arch} should have 64h seeds");
+            assert!(
+                arch.has_transcendental_64h(),
+                "{arch} should have 64h seeds"
+            );
         }
     }
 

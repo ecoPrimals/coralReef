@@ -49,3 +49,51 @@ fn assign_switch_groups_empty_and_single_device() {
     assign_switch_groups(&mut one);
     assert_eq!(one[0].switch_group, Some(0));
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn assign_switch_groups_same_prefix_shares_group_id() {
+    use crate::pcie::assign_switch_groups;
+
+    let mut two = vec![
+        crate::PcieDeviceInfo {
+            render_node: "/dev/dri/renderD200".into(),
+            pcie_address: Some("0000:01:00.0".into()),
+            switch_group: None,
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+        },
+        crate::PcieDeviceInfo {
+            render_node: "/dev/dri/renderD201".into(),
+            pcie_address: Some("0000:01:01.0".into()),
+            switch_group: None,
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+        },
+    ];
+    assign_switch_groups(&mut two);
+    assert_eq!(two[0].switch_group, Some(0));
+    assert_eq!(two[1].switch_group, Some(0));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn assign_switch_groups_different_bus_prefix_gets_distinct_groups() {
+    use crate::pcie::assign_switch_groups;
+
+    let mut two = vec![
+        crate::PcieDeviceInfo {
+            render_node: "/dev/dri/renderD210".into(),
+            pcie_address: Some("0000:01:00.0".into()),
+            switch_group: None,
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+        },
+        crate::PcieDeviceInfo {
+            render_node: "/dev/dri/renderD211".into(),
+            pcie_address: Some("0000:65:00.0".into()),
+            switch_group: None,
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+        },
+    ];
+    assign_switch_groups(&mut two);
+    assert_eq!(two[0].switch_group, Some(0));
+    assert_eq!(two[1].switch_group, Some(1));
+}

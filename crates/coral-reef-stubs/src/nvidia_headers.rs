@@ -620,6 +620,40 @@ mod tests {
     }
 
     #[test]
+    fn kepler_qmd_shared_mem_and_l1_fields() {
+        use classes::cla0c0::qmd;
+        assert!(qmd::QMDV00_06_SHARED_MEMORY_SIZE.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        assert!(qmd::QMDV00_06_L1_CONFIGURATION.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        assert_eq!(
+            qmd::QMDV00_06_L1_CONFIGURATION_DIRECTLY_ADDRESSABLE_MEMORY_SIZE_48KB,
+            3
+        );
+    }
+
+    #[test]
+    fn pascal_qmd_sm_global_caching_and_program_offset() {
+        use classes::clc0c0::qmd;
+        assert!(qmd::QMDV02_01_SM_GLOBAL_CACHING_ENABLE.end <= qmd::QMDV02_01_MAX_BIT + 1);
+        assert!(qmd::QMDV02_01_PROGRAM_OFFSET.end <= qmd::QMDV02_01_MAX_BIT + 1);
+    }
+
+    #[test]
+    fn blackwell_qmd_type_and_program_address_fields() {
+        use classes::clcdc0::qmd;
+        assert!(qmd::QMDV05_00_QMD_TYPE.end <= qmd::QMDV05_00_MAX_BIT + 1);
+        assert!(qmd::QMDV05_00_PROGRAM_ADDRESS_LOWER_SHIFTED4.end <= qmd::QMDV05_00_MAX_BIT + 1);
+        assert!(qmd::QMDV05_00_PROGRAM_ADDRESS_UPPER_SHIFTED4.end <= qmd::QMDV05_00_MAX_BIT + 1);
+    }
+
+    #[test]
+    fn hopper_qmd_grid_fields_cover_header_region() {
+        use classes::clcbc0::qmd;
+        assert!(qmd::QMDV04_00_GRID_WIDTH.end <= 64);
+        assert!(qmd::QMDV04_00_GRID_HEIGHT.start >= 32);
+        assert!(qmd::QMDV04_00_QMD_MAJOR_VERSION.end <= qmd::QMDV04_00_MAX_BIT + 1);
+    }
+
+    #[test]
     fn qmd_version_fields_defined() {
         use classes::cla0c0::qmd as q06;
         use classes::clc0c0::qmd as q21;
@@ -636,5 +670,158 @@ mod tests {
         assert_eq!(q40::QMDV04_00_QMD_VERSION, 64..68);
         assert_eq!(q50::QMDV05_00_QMD_MAJOR_VERSION, 68..72);
         assert_eq!(q50::QMDV05_00_QMD_VERSION, 64..68);
+    }
+
+    /// Maps each named GPU generation used in tooling to its primary compute [`NvClass`].
+    /// Turing and Ada do not introduce distinct class constants in this stub; Ada aligns with Ampere.
+    #[test]
+    fn nv_class_chip_generations_all_variants() {
+        let cases: &[(&str, NvClass, u32)] = &[
+            ("kepler_sph", NvClass::KEPLER_SPH, 0xA097),
+            ("kepler_compute", NvClass::KEPLER_COMPUTE_A, 0xA0C0),
+            ("maxwell_compute_a", NvClass::MAXWELL_COMPUTE_A, 0xB0C0),
+            ("maxwell_compute_b", NvClass::MAXWELL_COMPUTE_B, 0xB1C0),
+            ("pascal", NvClass::PASCAL_COMPUTE, 0xC0C0),
+            ("volta", NvClass::VOLTA_COMPUTE_A, 0xC3C0),
+            (
+                "turing_same_class_as_pascal_stub",
+                NvClass::PASCAL_COMPUTE,
+                0xC0C0,
+            ),
+            ("ampere", NvClass::AMPERE_COMPUTE_A, 0xC6C0),
+            (
+                "ada_same_class_as_ampere_stub",
+                NvClass::AMPERE_COMPUTE_A,
+                0xC6C0,
+            ),
+            ("hopper", NvClass::HOPPER_COMPUTE_A, 0xCBC0),
+            ("blackwell", NvClass::BLACKWELL_COMPUTE, 0xCDC0),
+            ("fermi_dma", NvClass::FERMI_DMA_COPY, 0x90B5),
+        ];
+        for (label, class, raw) in cases {
+            assert_eq!(class.0, *raw, "{label}");
+            let s = format!("{class}");
+            assert!(
+                s.contains(&format!("{:04X}", raw & 0xFFFF)),
+                "{label} display should contain class hex"
+            );
+            let v: u32 = (*class).into();
+            assert_eq!(v, *raw, "{label} Into<u32>");
+        }
+    }
+
+    #[test]
+    fn qmd_indexed_lookups_cover_multiple_indices() {
+        use classes::cla0c0::qmd as q06;
+        use classes::clc0c0::qmd as q21;
+        use classes::clc3c0::qmd as q22;
+        use classes::clc6c0::qmd as q30;
+        use classes::clcbc0::qmd as q40;
+        use classes::clcdc0::qmd as q50;
+        for idx in [0usize, 1, 4, 7] {
+            let base = 1536 + idx * 64;
+            assert_eq!(
+                q06::QMDV00_06_CONSTANT_BUFFER_ADDR_LOWER(idx),
+                base..base + 32
+            );
+            assert_eq!(
+                q06::QMDV00_06_CONSTANT_BUFFER_ADDR_UPPER(idx),
+                base + 32..base + 40
+            );
+            assert_eq!(
+                q06::QMDV00_06_CONSTANT_BUFFER_SIZE(idx),
+                base + 40..base + 57
+            );
+            assert_eq!(
+                q06::QMDV00_06_CONSTANT_BUFFER_VALID(idx),
+                base + 57..base + 58
+            );
+
+            assert_eq!(
+                q21::QMDV02_01_CONSTANT_BUFFER_ADDR_LOWER(idx),
+                base..base + 32
+            );
+            assert_eq!(
+                q21::QMDV02_01_CONSTANT_BUFFER_SIZE_SHIFTED4(idx),
+                base + 40..base + 57
+            );
+            assert_eq!(
+                q21::QMDV02_01_CONSTANT_BUFFER_VALID(idx),
+                base + 57..base + 58
+            );
+
+            assert_eq!(
+                q22::QMDV02_02_CONSTANT_BUFFER_ADDR_LOWER(idx),
+                base..base + 32
+            );
+            assert_eq!(
+                q22::QMDV02_02_CONSTANT_BUFFER_SIZE_SHIFTED4(idx),
+                base + 40..base + 57
+            );
+            assert_eq!(
+                q22::QMDV02_02_CONSTANT_BUFFER_VALID(idx),
+                base + 57..base + 58
+            );
+
+            assert_eq!(
+                q30::QMDV03_00_CONSTANT_BUFFER_ADDR_LOWER(idx),
+                base..base + 32
+            );
+            assert_eq!(
+                q30::QMDV03_00_CONSTANT_BUFFER_SIZE_SHIFTED4(idx),
+                base + 40..base + 57
+            );
+            assert_eq!(
+                q30::QMDV03_00_CONSTANT_BUFFER_VALID(idx),
+                base + 57..base + 58
+            );
+
+            let base_h = 2048 + idx * 64;
+            assert_eq!(
+                q40::QMDV04_00_CONSTANT_BUFFER_ADDR_LOWER_SHIFTED6(idx),
+                base_h..base_h + 26
+            );
+            assert_eq!(
+                q40::QMDV04_00_CONSTANT_BUFFER_ADDR_UPPER_SHIFTED6(idx),
+                base_h + 26..base_h + 43
+            );
+            assert_eq!(
+                q40::QMDV04_00_CONSTANT_BUFFER_SIZE_SHIFTED4(idx),
+                base_h + 43..base_h + 60
+            );
+            assert_eq!(
+                q40::QMDV04_00_CONSTANT_BUFFER_VALID(idx),
+                base_h + 60..base_h + 61
+            );
+
+            assert_eq!(
+                q50::QMDV05_00_CONSTANT_BUFFER_ADDR_LOWER_SHIFTED6(idx),
+                base_h..base_h + 26
+            );
+            assert_eq!(
+                q50::QMDV05_00_CONSTANT_BUFFER_ADDR_UPPER_SHIFTED6(idx),
+                base_h + 26..base_h + 43
+            );
+            assert_eq!(
+                q50::QMDV05_00_CONSTANT_BUFFER_SIZE_SHIFTED4(idx),
+                base_h + 43..base_h + 60
+            );
+            assert_eq!(
+                q50::QMDV05_00_CONSTANT_BUFFER_VALID(idx),
+                base_h + 60..base_h + 61
+            );
+        }
+    }
+
+    #[test]
+    fn qmd_volta_ampere_extended_fields_within_max_bit() {
+        use classes::clc3c0::qmd as q22;
+        use classes::clc6c0::qmd as q30;
+        let max22 = q22::QMDV02_02_MAX_BIT + 1;
+        let max30 = q30::QMDV03_00_MAX_BIT + 1;
+        assert!(q22::QMDV02_02_PROGRAM_ADDRESS_UPPER.end <= max22);
+        assert!(q22::QMDV02_02_MIN_SM_CONFIG_SHARED_MEM_SIZE.end <= max22);
+        assert!(q30::QMDV03_00_PROGRAM_ADDRESS_UPPER.end <= max30);
+        assert!(q30::QMDV03_00_TARGET_SM_CONFIG_SHARED_MEM_SIZE.end <= max30);
     }
 }

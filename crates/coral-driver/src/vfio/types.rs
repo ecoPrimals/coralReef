@@ -49,7 +49,10 @@ pub(crate) mod ioctls {
     /// `VFIO_DEVICE_ATTACH_IOMMUFD_PT` — attach device to an IOAS or hwpt.
     pub const OP_DEVICE_ATTACH_IOMMUFD_PT: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 19);
     /// `VFIO_DEVICE_DETACH_IOMMUFD_PT` — detach device from IOAS.
-    #[expect(dead_code, reason = "reserved for explicit detach; fd close also detaches")]
+    #[expect(
+        dead_code,
+        reason = "reserved for explicit detach; fd close also detaches"
+    )]
     pub const OP_DEVICE_DETACH_IOMMUFD_PT: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 20);
 }
 
@@ -62,6 +65,7 @@ pub(crate) mod iommufd {
 
     const IOMMUFD_TYPE: u8 = b';';
 
+    #[expect(dead_code, reason = "iommufd opcode — not yet used")]
     pub const OP_DESTROY: Opcode = opcode::none(IOMMUFD_TYPE, 0x80);
     pub const OP_IOAS_ALLOC: Opcode = opcode::none(IOMMUFD_TYPE, 0x81);
     pub const OP_IOAS_MAP: Opcode = opcode::none(IOMMUFD_TYPE, 0x85);
@@ -371,9 +375,44 @@ mod tests {
 
     #[test]
     fn iommufd_map_flags() {
-        let flags = iommufd::IOAS_MAP_FIXED_IOVA
-            | iommufd::IOAS_MAP_WRITEABLE
-            | iommufd::IOAS_MAP_READABLE;
+        let flags =
+            iommufd::IOAS_MAP_FIXED_IOVA | iommufd::IOAS_MAP_WRITEABLE | iommufd::IOAS_MAP_READABLE;
         assert_eq!(flags, 7);
+    }
+
+    #[test]
+    fn vfio_kernel_abi_constants() {
+        assert_eq!(ioctls::VFIO_API_VERSION, 0);
+        assert_eq!(ioctls::VFIO_TYPE1V2_IOMMU, 3);
+        assert_eq!(ioctls::BAR0_REGION_INDEX, 0);
+        assert_eq!(ioctls::VFIO_GROUP_FLAGS_VIABLE, 1);
+    }
+
+    #[test]
+    fn vfio_dma_flag_bits() {
+        assert_eq!(ioctls::VFIO_DMA_MAP_FLAG_READ, 1);
+        assert_eq!(ioctls::VFIO_DMA_MAP_FLAG_WRITE, 2);
+    }
+
+    #[test]
+    fn repr_c_struct_sizes_and_alignment() {
+        assert!(std::mem::size_of::<VfioDeviceInfo>() >= 16);
+        assert!(std::mem::size_of::<VfioRegionInfo>() >= 32);
+        assert!(std::mem::align_of::<VfioDmaMap>() <= 8);
+        assert!(std::mem::align_of::<IommuIoasMap>() <= 8);
+        assert_eq!(std::mem::size_of::<VfioDeviceBindIommufd>(), 16);
+        assert_eq!(std::mem::size_of::<VfioDeviceAttachIommufdPt>(), 12);
+    }
+
+    #[test]
+    fn iommu_ioas_alloc_roundtrip_fields() {
+        let mut a = IommuIoasAlloc {
+            size: 12,
+            flags: 0,
+            out_ioas_id: 99,
+        };
+        assert_eq!(a.size, 12);
+        a.out_ioas_id = 0;
+        assert_eq!(a.out_ioas_id, 0);
     }
 }

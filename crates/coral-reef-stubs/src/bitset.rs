@@ -592,4 +592,60 @@ mod tests {
         assert!(dbg.contains("BitSet"));
         assert!(dbg.contains("capacity"));
     }
+
+    #[test]
+    fn test_sub_owned_bitset_minus_ref() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(64);
+        a.insert(0_usize);
+        a.insert(1_usize);
+        a.insert(2_usize);
+        b.insert(1_usize);
+        let c = a - &b;
+        assert!(c.contains(0_usize));
+        assert!(!c.contains(1_usize));
+        assert!(c.contains(2_usize));
+        assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn test_into_iter_empty_bitset() {
+        let bs = BitSet::<()>::new(8);
+        let v: Vec<usize> = (&bs).into_iter().collect();
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn test_intersect_when_other_has_more_words() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(256);
+        a.insert(0_usize);
+        a.insert(1_usize);
+        b.insert(1_usize);
+        b.insert(200_usize);
+        a.intersect(&b);
+        assert_eq!(a.len(), 1);
+        assert!(a.contains(1_usize));
+        assert!(!a.contains(0_usize));
+    }
+
+    #[test]
+    fn test_union_with_longer_other_extends_words() {
+        let mut a = BitSet::<()>::new(64);
+        let mut b = BitSet::<()>::new(256);
+        a.insert(0_usize);
+        b.insert(200_usize);
+        a.union(&b);
+        assert!(a.contains(0_usize));
+        assert!(a.contains(200_usize));
+    }
+
+    #[test]
+    fn test_bitset_iter_covers_word_after_all_zeros() {
+        let mut bs = BitSet::<()>::new(256);
+        bs.insert(0_usize);
+        bs.insert(128_usize);
+        let bits: Vec<usize> = bs.iter().collect();
+        assert_eq!(bits, vec![0, 128]);
+    }
 }

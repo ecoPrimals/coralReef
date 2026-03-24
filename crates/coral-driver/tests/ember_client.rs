@@ -84,8 +84,7 @@ pub fn request_fds(bdf: &str) -> Result<ReceivedVfioFds, String> {
                 .get("result")
                 .and_then(|r| r.get("ioas_id"))
                 .and_then(|v| v.as_u64())
-                .ok_or("iommufd response missing ioas_id")?
-                as u32;
+                .ok_or("iommufd response missing ioas_id")? as u32;
             let mut it = fds.into_iter();
             Ok(ReceivedVfioFds::Iommufd {
                 iommufd: it.next().expect("checked len >= 2"),

@@ -230,6 +230,8 @@ pub fn translate<'sm>(
 }
 
 #[cfg(test)]
+mod tests_expr_func_ops_coverage;
+#[cfg(test)]
 mod tests_interpolation_builtins;
 #[cfg(test)]
 mod tests_math_coverage;

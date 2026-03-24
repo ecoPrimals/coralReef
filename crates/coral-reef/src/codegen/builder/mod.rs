@@ -296,6 +296,9 @@ impl<T: SSABuilder> SSABuilder for UniformBuilder<'_, T> {
 }
 
 #[cfg(test)]
+mod tests_emit;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::codegen::ir::{
@@ -303,11 +306,11 @@ mod tests {
         TranscendentalOp,
     };
 
-    fn make_sm70() -> ShaderModelInfo {
+    pub(super) fn make_sm70() -> ShaderModelInfo {
         ShaderModelInfo::new(70, 64)
     }
 
-    fn make_sm50() -> ShaderModelInfo {
+    pub(super) fn make_sm50() -> ShaderModelInfo {
         ShaderModelInfo::new(50, 64)
     }
 

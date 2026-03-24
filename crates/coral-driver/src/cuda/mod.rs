@@ -14,9 +14,7 @@ use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, PushKernelAr
 use cudarc::nvrtc::Ptx;
 
 use crate::error::DriverError;
-use crate::{
-    BufferHandle, ComputeDevice, DispatchDims, DriverResult, MemoryDomain, ShaderInfo,
-};
+use crate::{BufferHandle, ComputeDevice, DispatchDims, DriverResult, MemoryDomain, ShaderInfo};
 
 struct CudaBuffer {
     slice: CudaSlice<u8>,
@@ -71,21 +69,20 @@ impl CudaComputeDevice {
             return Err(DriverError::OpenFailed("no CUDA devices found".into()));
         }
 
-        let expected_bus: i32 = i32::from_str_radix(
-            bdf.split(':').nth(1).unwrap_or("ff"),
-            16,
-        )
-        .unwrap_or(-1);
+        let expected_bus: i32 =
+            i32::from_str_radix(bdf.split(':').nth(1).unwrap_or("ff"), 16).unwrap_or(-1);
 
         for i in 0..count {
-            if let Ok(ctx) = CudaContext::new(i) {
-                if let Ok(pci_bus) = ctx.attribute(
-                    cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_PCI_BUS_ID,
-                ) {
-                    if pci_bus == expected_bus {
-                        return Self::from_context(ctx, i);
-                    }
-                }
+            let Ok(ctx) = CudaContext::new(i) else {
+                continue;
+            };
+            let Ok(pci_bus) = ctx
+                .attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_PCI_BUS_ID)
+            else {
+                continue;
+            };
+            if pci_bus == expected_bus {
+                return Self::from_context(ctx, i);
             }
         }
         Err(DriverError::OpenFailed(
@@ -100,9 +97,9 @@ impl CudaComputeDevice {
 
     fn from_context(ctx: Arc<CudaContext>, ordinal: usize) -> DriverResult<Self> {
         let device_name = ctx.name().unwrap_or_else(|_| "unknown".into());
-        let stream = ctx.new_stream().map_err(|e| {
-            DriverError::OpenFailed(format!("CUDA stream: {e}").into())
-        })?;
+        let stream = ctx
+            .new_stream()
+            .map_err(|e| DriverError::OpenFailed(format!("CUDA stream: {e}").into()))?;
         Ok(Self {
             ctx,
             stream,
@@ -150,9 +147,10 @@ impl CudaComputeDevice {
         })?;
 
         let ptx = Ptx::from_src(ptx_src);
-        let module = self.ctx.load_module(ptx).map_err(|e| {
-            DriverError::DispatchFailed(format!("CUDA module load: {e}").into())
-        })?;
+        let module = self
+            .ctx
+            .load_module(ptx)
+            .map_err(|e| DriverError::DispatchFailed(format!("CUDA module load: {e}").into()))?;
         let func = module.load_function(kernel_name).map_err(|e| {
             DriverError::DispatchFailed(format!("kernel '{kernel_name}' not found: {e}").into())
         })?;
@@ -170,10 +168,13 @@ impl CudaComputeDevice {
         let dev_ptrs: Vec<cudarc::driver::sys::CUdeviceptr> = buffers
             .iter()
             .map(|bh| {
-                self.buffers.get(&bh.0).map(|b| {
-                    let (ptr, _guard) = b.slice.device_ptr(&self.stream);
-                    ptr
-                }).ok_or_else(|| DriverError::BufferNotFound(*bh))
+                self.buffers
+                    .get(&bh.0)
+                    .map(|b| {
+                        let (ptr, _guard) = b.slice.device_ptr(&self.stream);
+                        ptr
+                    })
+                    .ok_or(DriverError::BufferNotFound(*bh))
             })
             .collect::<DriverResult<Vec<_>>>()?;
 
@@ -194,14 +195,14 @@ impl CudaComputeDevice {
 
 impl ComputeDevice for CudaComputeDevice {
     fn alloc(&mut self, size: u64, domain: MemoryDomain) -> DriverResult<BufferHandle> {
-        let slice = self
-            .stream
-            .alloc_zeros::<u8>(size as usize)
-            .map_err(|e| DriverError::AllocFailed {
-                size,
-                domain,
-                detail: format!("CUDA alloc: {e}"),
-            })?;
+        let slice =
+            self.stream
+                .alloc_zeros::<u8>(size as usize)
+                .map_err(|e| DriverError::AllocFailed {
+                    size,
+                    domain,
+                    detail: format!("CUDA alloc: {e}"),
+                })?;
         let handle_id = self.alloc_handle();
         self.buffers.insert(handle_id, CudaBuffer { slice, size });
         Ok(BufferHandle(handle_id))
@@ -222,7 +223,12 @@ impl ComputeDevice for CudaComputeDevice {
         let off = offset as usize;
         if off + data.len() > buf.size as usize {
             return Err(DriverError::SubmitFailed(
-                format!("upload out of bounds: offset={off} len={} size={}", data.len(), buf.size).into(),
+                format!(
+                    "upload out of bounds: offset={off} len={} size={}",
+                    data.len(),
+                    buf.size
+                )
+                .into(),
             ));
         }
         let mut slice_view = buf.slice.try_slice_mut(off..).ok_or_else(|| {
@@ -242,7 +248,11 @@ impl ComputeDevice for CudaComputeDevice {
         let off = offset as usize;
         if off + len > buf.size as usize {
             return Err(DriverError::SubmitFailed(
-                format!("readback out of bounds: offset={off} len={len} size={}", buf.size).into(),
+                format!(
+                    "readback out of bounds: offset={off} len={len} size={}",
+                    buf.size
+                )
+                .into(),
             ));
         }
         let slice_view = buf.slice.try_slice(off..off + len).ok_or_else(|| {
@@ -266,9 +276,9 @@ impl ComputeDevice for CudaComputeDevice {
     }
 
     fn sync(&mut self) -> DriverResult<()> {
-        self.ctx.synchronize().map_err(|e| {
-            DriverError::SyncFailed(format!("CUDA synchronize: {e}").into())
-        })?;
+        self.ctx
+            .synchronize()
+            .map_err(|e| DriverError::SyncFailed(format!("CUDA synchronize: {e}").into()))?;
         Ok(())
     }
 }

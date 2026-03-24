@@ -168,6 +168,46 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     compile_fixture_all_nv(wgsl);
 }
 
+/// Naga expression + func_ops paths: compose/swizzle, splat, mat2×2, f64 vec2,
+/// `arrayLength` on `array<vec4<f32>>`, `all`/`any`, `select`, int bitwise ops.
+#[test]
+fn multi_arch_naga_expr_and_func_ops() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+@group(0) @binding(1) var<storage, read_write> di: array<f64>;
+@group(0) @binding(2) var<storage, read_write> buf: array<vec4<f32>>;
+@compute @workgroup_size(32)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let a = f32(gid.x);
+    let b = a + 1.0;
+    let c = a + 2.0;
+    let v3 = vec3<f32>(a, b, c);
+    let v4 = vec4<f32>(v3, 1.0);
+    let s = vec2<u32>(gid.x);
+    let u2 = s + vec2<u32>(1u, 2u);
+    let m = mat2x2<f32>(vec2<f32>(1.0, 2.0), vec2<f32>(3.0, 4.0));
+    let d = vec2<f64>(f64(gid.x), 1.0) + vec2<f64>(2.0, 3.0);
+    let t = m * vec2<f32>(f32(d.x), f32(d.y));
+    let n = arrayLength(&buf);
+    let i = gid.x % n;
+    let vx = buf[i] * vec4<f32>(2.0, 2.0, 2.0, 2.0);
+    let cmp = vec2<f32>(a, b) < vec2<f32>(1e6, 1e6);
+    let ok = all(cmp) || any(vec2<f32>(a, c) > vec2<f32>(1e3, 1e3));
+    let lo = vec3<f32>(1.0, 2.0, 3.0);
+    let hi = vec3<f32>(10.0, 20.0, 30.0);
+    let pick = select(lo, hi, vec3<bool>(gid.x < 4u, gid.x < 8u, gid.x < 12u));
+    let xi = i32(gid.x);
+    let bits = ~xi + (-xi >> 1);
+    out[gid.x] = t.x + t.y + vx.x + f32(u2.x)
+        + pick.x + f32(bits)
+        + select(0.0, 1.0, ok)
+        + f32(arrayLength(&di));
+    buf[gid.x] = v4.wzyx + vec4<f32>(f32(bits & 7), 0.0, 0.0, 0.0);
+}
+";
+    compile_fixture_all_nv(wgsl);
+}
+
 #[test]
 fn multi_arch_atomics() {
     let wgsl = r"

@@ -14,11 +14,19 @@ impl<S: SysfsOps> DeviceSlot<S> {
     /// the immortal ember process. Glowplug only drops its local VFIO fds and
     /// updates personality state after ember confirms the swap.
     ///
+    /// When `trace` is `true`, Ember enables the kernel mmiotrace facility
+    /// around the driver bind, capturing every MMIO write for the ACR boot solver.
+    ///
     /// # Errors
     ///
     /// Returns `DeviceError::DriverBind` if ember is not available or the swap
     /// fails. Returns `DeviceError::VfioOpen` if post-swap fd acquisition fails.
     pub fn swap(&mut self, target: &str) -> Result<(), DeviceError> {
+        self.swap_traced(target, false)
+    }
+
+    /// Like [`swap`](Self::swap) but with optional mmiotrace capture.
+    pub fn swap_traced(&mut self, target: &str, trace: bool) -> Result<(), DeviceError> {
         if self.config.is_protected() {
             tracing::error!(
                 bdf = %self.bdf,
@@ -72,7 +80,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
             })?;
 
         client
-            .swap_device(&self.bdf, target)
+            .swap_device_traced(&self.bdf, target, trace)
             .map_err(|e| DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: target.into(),
@@ -112,6 +120,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
             "nvidia" => {
                 let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::Nvidia { drm_card: drm };
+            }
+            t if t.starts_with("nvidia_oracle") => {
+                let drm = self.sysfs.find_drm_card(&self.bdf);
+                self.personality = Personality::NvidiaOracle {
+                    drm_card: drm,
+                    module_name: t.to_string(),
+                };
             }
             "amdgpu" => {
                 let drm = self.sysfs.find_drm_card(&self.bdf);

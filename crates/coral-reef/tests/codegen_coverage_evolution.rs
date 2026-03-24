@@ -251,6 +251,25 @@ fn main() {
     assert_compile_sm70(wgsl);
 }
 
+/// Many sequential `if`/`else` regions with live values feeding a final sum — stresses `assign_regs/block`.
+#[test]
+fn evolution_assign_regs_chained_conditional_blocks() {
+    let mut wgsl = String::from(
+        "@group(0) @binding(0) var<storage, read_write> out: array<f32>;\n\
+         @group(0) @binding(1) var<storage, read> inp: array<f32>;\n\
+         @compute @workgroup_size(1) fn main() {\n\
+           var acc: f32 = 0.0;\n",
+    );
+    for i in 0..16 {
+        let _ = writeln!(
+            wgsl,
+            "  if inp[{i}] > 0.0 {{ acc = acc + inp[{i}]; }} else {{ acc = acc - inp[{i}] * 0.5; }}"
+        );
+    }
+    wgsl.push_str("  out[0] = acc;\n}\n");
+    assert_compile_sm70(&wgsl);
+}
+
 // =============================================================================
 // 4. legalize — IR legalization passes
 // =============================================================================

@@ -61,11 +61,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpI2F {
                 IntType::U32 => isa::vop1::V_CVT_F64_U32,
                 _ => isa::vop1::V_CVT_F64_I32,
             };
-            let mut words = Rdna2Encoder::encode_vop1(
-                opcode,
-                AmdRegRef::vgpr_pair(dst_reg),
-                src_enc.src0,
-            );
+            let mut words =
+                Rdna2Encoder::encode_vop1(opcode, AmdRegRef::vgpr_pair(dst_reg), src_enc.src0);
             src_enc.extend_with_literal(&mut words);
             Ok(words)
         } else {

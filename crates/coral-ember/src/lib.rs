@@ -28,7 +28,9 @@ use serde::Deserialize;
 pub use hold::HeldDevice;
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use swap::{handle_swap_device, verify_drm_isolation_with_paths};
-pub use vendor_lifecycle::{RebindStrategy, VendorLifecycle, detect_lifecycle};
+pub use vendor_lifecycle::{
+    RebindStrategy, VendorLifecycle, detect_lifecycle, detect_lifecycle_for_target,
+};
 
 /// Parsed `glowplug.toml` top-level structure for ember.
 #[derive(Deserialize)]
@@ -331,4 +333,78 @@ pub fn run() -> Result<(), i32> {
 
     tracing::error!("ember accept loop ended unexpectedly");
     Err(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_device(role: Option<&str>) -> EmberDeviceConfig {
+        EmberDeviceConfig {
+            bdf: "0000:01:00.0".to_string(),
+            name: None,
+            boot_personality: None,
+            power_policy: None,
+            role: role.map(|s| s.to_string()),
+            oracle_dump: None,
+        }
+    }
+
+    #[test]
+    fn ember_device_config_is_display_only_for_display_role() {
+        let mut d = sample_device(None);
+        assert!(!d.is_display());
+        d.role = Some("compute".to_string());
+        assert!(!d.is_display());
+        d.role = Some("display".to_string());
+        assert!(d.is_display());
+    }
+
+    #[test]
+    fn ember_device_config_is_shared_only_for_shared_role() {
+        let mut d = sample_device(None);
+        assert!(!d.is_shared());
+        d.role = Some("shared".to_string());
+        assert!(d.is_shared());
+        d.role = Some("display".to_string());
+        assert!(!d.is_shared());
+    }
+
+    #[test]
+    fn ember_device_config_is_protected_for_display_or_shared() {
+        let mut d = sample_device(None);
+        assert!(!d.is_protected());
+        d.role = Some("compute".to_string());
+        assert!(!d.is_protected());
+        d.role = Some("display".to_string());
+        assert!(d.is_protected());
+        d.role = Some("shared".to_string());
+        assert!(d.is_protected());
+    }
+
+    #[test]
+    fn parse_glowplug_config_roles_roundtrip() {
+        let toml = r#"
+            [[device]]
+            bdf = "0000:01:00.0"
+            role = "display"
+
+            [[device]]
+            bdf = "0000:02:00.0"
+            role = "shared"
+        "#;
+        let cfg = parse_glowplug_config(toml).expect("valid glowplug TOML");
+        assert_eq!(cfg.device.len(), 2);
+        assert!(cfg.device[0].is_display());
+        assert!(cfg.device[1].is_shared());
+        assert!(!cfg.device[1].is_display());
+    }
+
+    #[test]
+    fn parse_glowplug_config_invalid_returns_error() {
+        assert!(
+            parse_glowplug_config("[[device]]\n bdf =").is_err(),
+            "truncated device table must not parse"
+        );
+    }
 }

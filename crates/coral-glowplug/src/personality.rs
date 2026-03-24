@@ -273,6 +273,43 @@ impl GpuPersonality for AkidaPersonality {
     }
 }
 
+/// NVIDIA Oracle personality — renamed nvidia module for multi-version coexistence.
+#[derive(Debug, Clone)]
+pub struct NvidiaOraclePersonality {
+    /// DRM card device path (e.g. `/dev/dri/card1`).
+    pub drm_card_path: Option<String>,
+    /// The oracle module name (e.g. "nvidia_oracle", "nvidia_oracle_535").
+    pub module_name: String,
+}
+
+impl fmt::Display for NvidiaOraclePersonality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.module_name)?;
+        if let Some(card) = &self.drm_card_path {
+            write!(f, " ({card})")?;
+        }
+        Ok(())
+    }
+}
+
+impl GpuPersonality for NvidiaOraclePersonality {
+    fn name(&self) -> &'static str {
+        "nvidia_oracle"
+    }
+    fn provides_vfio(&self) -> bool {
+        false
+    }
+    fn drm_card(&self) -> Option<&str> {
+        self.drm_card_path.as_deref()
+    }
+    fn supports_hbm2_training(&self) -> bool {
+        false
+    }
+    fn driver_module(&self) -> &'static str {
+        "nvidia_oracle"
+    }
+}
+
 /// Unbound state — no driver attached.
 #[derive(Debug, Clone)]
 pub struct UnboundPersonality;
@@ -318,6 +355,7 @@ impl PersonalityRegistry {
                 "vfio",
                 "nouveau",
                 "nvidia",
+                "nvidia_oracle",
                 "amdgpu",
                 "xe",
                 "i915",
@@ -362,6 +400,10 @@ impl PersonalityRegistry {
                 drm_card_path: None,
             })),
             "akida-pcie" | "akida" => Some(Box::new(AkidaPersonality)),
+            "nvidia_oracle" => Some(Box::new(NvidiaOraclePersonality {
+                drm_card_path: None,
+                module_name: "nvidia_oracle".to_string(),
+            })),
             "unbound" => Some(Box::new(UnboundPersonality)),
             _ => None,
         }
@@ -374,12 +416,28 @@ impl PersonalityRegistry {
 /// This is the runtime value; the trait is used for polymorphic dispatch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Personality {
-    Vfio { group_id: u32 },
-    Nouveau { drm_card: Option<String> },
-    Nvidia { drm_card: Option<String> },
-    Amdgpu { drm_card: Option<String> },
-    Xe { drm_card: Option<String> },
-    I915 { drm_card: Option<String> },
+    Vfio {
+        group_id: u32,
+    },
+    Nouveau {
+        drm_card: Option<String>,
+    },
+    Nvidia {
+        drm_card: Option<String>,
+    },
+    NvidiaOracle {
+        drm_card: Option<String>,
+        module_name: String,
+    },
+    Amdgpu {
+        drm_card: Option<String>,
+    },
+    Xe {
+        drm_card: Option<String>,
+    },
+    I915 {
+        drm_card: Option<String>,
+    },
     Akida,
     Unbound,
 }
@@ -392,6 +450,7 @@ impl Personality {
             Self::Vfio { .. } => "vfio",
             Self::Nouveau { .. } => "nouveau",
             Self::Nvidia { .. } => "nvidia",
+            Self::NvidiaOracle { .. } => "nvidia_oracle",
             Self::Amdgpu { .. } => "amdgpu",
             Self::Xe { .. } => "xe",
             Self::I915 { .. } => "i915",
@@ -411,7 +470,10 @@ impl Personality {
     pub const fn supports_hbm2_training(&self) -> bool {
         matches!(
             self,
-            Self::Nouveau { .. } | Self::Nvidia { .. } | Self::Amdgpu { .. }
+            Self::Nouveau { .. }
+                | Self::Nvidia { .. }
+                | Self::NvidiaOracle { .. }
+                | Self::Amdgpu { .. }
         )
     }
 }
@@ -420,6 +482,16 @@ impl fmt::Display for Personality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Vfio { group_id } => write!(f, "vfio (group {group_id})"),
+            Self::NvidiaOracle {
+                drm_card,
+                module_name,
+            } => {
+                write!(f, "{module_name}")?;
+                if let Some(card) = drm_card {
+                    write!(f, " ({card})")?;
+                }
+                Ok(())
+            }
             Self::Nouveau { drm_card }
             | Self::Nvidia { drm_card }
             | Self::Amdgpu { drm_card }
@@ -556,8 +628,9 @@ mod tests {
         assert!(list.contains(&"xe"));
         assert!(list.contains(&"i915"));
         assert!(list.contains(&"akida-pcie"));
+        assert!(list.contains(&"nvidia_oracle"));
         assert!(list.contains(&"unbound"));
-        assert_eq!(list.len(), 8);
+        assert_eq!(list.len(), 9);
     }
 
     #[test]

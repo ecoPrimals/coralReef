@@ -546,6 +546,7 @@ macro_rules! sm50_op_match {
             Op::F2I($x) => $y,
             Op::I2F($x) => $y,
             Op::I2I($x) => $y,
+            Op::FRnd($x) => $y,
             Op::IMad($x) => $y,
             Op::IMul($x) => $y,
             Op::IMnMx($x) => $y,
@@ -581,6 +582,7 @@ macro_rules! sm50_op_match {
             Op::Isberd($x) => $y,
             Op::Out($x) => $y,
             Op::Bfe($x) => $y,
+            Op::BRev($x) => $y,
             _ => crate::codegen::ice!("Unhandled instruction {}", $op),
         }
     };

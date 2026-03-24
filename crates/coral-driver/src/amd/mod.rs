@@ -182,8 +182,14 @@ impl ComputeDevice for AmdDevice {
         }
 
         let bo_list = ioctl::create_bo_list(self.drm.fd(), &gem_handles)?;
-        let submit_result =
-            ioctl::submit_command_ip(self.drm.fd(), self.ctx_handle, bo_list, ib_va, ib_bytes, self.ip_type);
+        let submit_result = ioctl::submit_command_ip(
+            self.drm.fd(),
+            self.ctx_handle,
+            bo_list,
+            ib_va,
+            ib_bytes,
+            self.ip_type,
+        );
         let _ = ioctl::destroy_bo_list(self.drm.fd(), bo_list);
 
         self.last_fence = submit_result?;

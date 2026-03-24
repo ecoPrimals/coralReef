@@ -152,7 +152,11 @@ fn phase_a(dev: &mut NvDevice) -> bool {
     let vals = read_f32(dev, buf, 4);
     dev.free(buf).ok();
     let pass = vals.iter().all(|&v| (v - 42.0).abs() < 0.001);
-    println!("     first 4: {:?} → {}", vals, if pass { "PASS" } else { "FAIL" });
+    println!(
+        "     first 4: {:?} → {}",
+        vals,
+        if pass { "PASS" } else { "FAIL" }
+    );
     pass
 }
 
@@ -171,7 +175,11 @@ fn phase_b(dev: &mut NvDevice) -> bool {
     let vals = read_f32(dev, buf, 4);
     dev.free(buf).ok();
     let pass = vals.iter().all(|&v| (v - 42.0).abs() < 0.001);
-    println!("     first 4: {:?} → {}", vals, if pass { "PASS" } else { "FAIL" });
+    println!(
+        "     first 4: {:?} → {}",
+        vals,
+        if pass { "PASS" } else { "FAIL" }
+    );
     pass
 }
 
@@ -224,7 +232,11 @@ fn phase_d(dev: &mut NvDevice) -> bool {
     let vals = read_f64(dev, buf, 4);
     dev.free(buf).ok();
     let pass = vals.iter().all(|&v| (v - 42.0).abs() < 0.001);
-    println!("     first 4: {:?} → {}", vals, if pass { "PASS" } else { "FAIL" });
+    println!(
+        "     first 4: {:?} → {}",
+        vals,
+        if pass { "PASS" } else { "FAIL" }
+    );
     pass
 }
 
@@ -284,10 +296,9 @@ fn phase_e(dev: &mut NvDevice) -> bool {
     let fy_ok = forces[1].abs() < tol && forces[4].abs() < tol;
     let fz_ok = forces[2].abs() < tol && forces[5].abs() < tol;
 
-    let newton3 =
-        (forces[0] + forces[3]).abs() < tol
-            && (forces[1] + forces[4]).abs() < tol
-            && (forces[2] + forces[5]).abs() < tol;
+    let newton3 = (forces[0] + forces[3]).abs() < tol
+        && (forces[1] + forces[4]).abs() < tol
+        && (forces[2] + forces[5]).abs() < tol;
 
     let pass = fx_ok && fy_ok && fz_ok;
     if pass {

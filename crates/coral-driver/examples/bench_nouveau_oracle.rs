@@ -23,7 +23,8 @@ fn main() {
     let driver_path = format!("/sys/bus/pci/devices/{bdf}/driver");
     match std::fs::read_link(&driver_path) {
         Ok(link) => {
-            let driver = link.file_name()
+            let driver = link
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
             eprintln!("Current driver: {driver}");

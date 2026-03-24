@@ -959,3 +959,21 @@ fn test_spill_values_shader_info_preserves_preseeded_mem_counts() {
     assert!(info.spills_to_mem >= PRESEEDED_MEM_SPILLS);
     assert!(info.fills_from_mem >= PRESEEDED_MEM_FILLS);
 }
+
+/// Many chained `OpCopy` defs (50+) with a tight limit — exercises the main spill path without relying
+/// on a specific spill count (copy chains may fold live ranges).
+const SPILL_STRESS_MANY_DEFS: usize = 52;
+
+#[test]
+fn test_spill_values_extreme_gpr_pressure_many_defs() {
+    let mut func = make_function_with_many_gprs(SPILL_STRESS_MANY_DEFS);
+    let mut info = default_shader_info();
+    func.to_cssa();
+    func.spill_values(RegFile::GPR, LIMIT_TWO_GPR, &mut info)
+        .expect("spill_values should succeed with a long copy chain and low GPR limit");
+    assert_eq!(func.blocks.len(), 1);
+    assert!(matches!(
+        func.blocks[0].instrs.last().expect("non-empty block").op,
+        Op::Exit(_)
+    ));
+}
