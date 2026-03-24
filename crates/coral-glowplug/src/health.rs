@@ -193,6 +193,14 @@ mod tests {
             PowerState::D0,
             "always_on"
         ));
+        assert!(!d3hot_always_on_recovery_applies(
+            PowerState::D3Cold,
+            "always_on"
+        ));
+        assert!(!d3hot_always_on_recovery_applies(
+            PowerState::Unknown,
+            "always_on"
+        ));
     }
 
     #[test]
@@ -291,5 +299,10 @@ mod tests {
             .await
             .expect("join timeout")
             .expect("join");
+    }
+
+    #[test]
+    fn notify_watchdog_test_hook_is_callable() {
+        crate::test_support_notify_watchdog();
     }
 }

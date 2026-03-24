@@ -120,6 +120,10 @@ mod inner {
                 let resp = service::handle_health_readiness();
                 serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
             }
+            "identity.get" => {
+                let resp = service::handle_identity_get();
+                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+            }
             other => Err(IpcServiceError::dispatch(format!(
                 "method not found: {other}"
             ))),

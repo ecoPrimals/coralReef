@@ -556,6 +556,42 @@ mod tests {
     }
 
     #[test]
+    fn handle_client_ember_vfio_fds_missing_bdf_errors() {
+        let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+        let (server, mut client) = UnixStream::pair().expect("unix stream pair");
+        let req = r#"{"jsonrpc":"2.0","method":"ember.vfio_fds","params":{},"id":501}"#;
+        client
+            .write_all(req.as_bytes())
+            .expect("write request to test socket");
+        client
+            .write_all(b"\n")
+            .expect("write request to test socket");
+        let held = empty_held();
+        let m = managed(&[TEST_BDF]);
+        let err =
+            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+        assert!(err.contains("bdf"), "{err}");
+    }
+
+    #[test]
+    fn handle_client_ember_reacquire_missing_bdf_errors() {
+        let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+        let (server, mut client) = UnixStream::pair().expect("unix stream pair");
+        let req = r#"{"jsonrpc":"2.0","method":"ember.reacquire","params":{},"id":502}"#;
+        client
+            .write_all(req.as_bytes())
+            .expect("write request to test socket");
+        client
+            .write_all(b"\n")
+            .expect("write request to test socket");
+        let held = empty_held();
+        let m = managed(&[TEST_BDF]);
+        let err =
+            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+        assert!(err.contains("bdf"), "{err}");
+    }
+
+    #[test]
     fn handle_client_ember_release_missing_bdf_errors() {
         let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
         let (server, mut client) = UnixStream::pair().expect("unix stream pair");

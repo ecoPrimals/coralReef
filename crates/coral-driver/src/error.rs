@@ -240,4 +240,41 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<DriverError>();
     }
+
+    #[test]
+    fn error_display_open_failed() {
+        let e = DriverError::OpenFailed("permission denied".into());
+        assert!(e.to_string().contains("permission denied"));
+    }
+
+    #[test]
+    fn error_display_dispatch_failed() {
+        let e = DriverError::DispatchFailed("illegal instruction".into());
+        assert!(e.to_string().contains("illegal instruction"));
+    }
+
+    #[test]
+    fn error_display_sync_failed() {
+        let e = DriverError::SyncFailed("fence wait failed".into());
+        assert!(e.to_string().contains("fence wait failed"));
+    }
+
+    #[test]
+    fn error_display_oracle_error() {
+        let e = DriverError::OracleError("bar0 walk failed".into());
+        assert!(e.to_string().contains("bar0 walk failed"));
+    }
+
+    #[test]
+    fn error_oracle_helper_builds_variant() {
+        let e = DriverError::oracle("dynamic oracle message");
+        assert!(matches!(e, DriverError::OracleError(_)));
+        assert!(e.to_string().contains("dynamic oracle message"));
+    }
+
+    #[test]
+    fn error_oracle_static_cow() {
+        let e = DriverError::oracle(Cow::Borrowed("static oracle"));
+        assert_eq!(e.to_string(), "oracle error: static oracle");
+    }
 }

@@ -39,7 +39,7 @@ pub(crate) mod ioctls {
     pub const VFIO_DMA_MAP_FLAG_READ: u32 = 1 << 0;
     pub const VFIO_DMA_MAP_FLAG_WRITE: u32 = 1 << 1;
 
-    #[expect(dead_code, reason = "used by NvVfioComputeDevice in step 2")]
+    #[allow(dead_code, reason = "used by NvVfioComputeDevice BAR0 region access")]
     pub const BAR0_REGION_INDEX: u32 = 0;
 
     // --- VFIO device-level ioctls for iommufd binding (kernel 6.2+) ---

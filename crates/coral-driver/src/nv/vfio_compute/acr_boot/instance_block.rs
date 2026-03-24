@@ -5,8 +5,153 @@
 use crate::vfio::device::MappedBar;
 use crate::vfio::memory::{MemoryRegion, PraminRegion};
 
-/// SEC2 falcon instance block binding register (Nouveau `gp102_sec2_flcn_bind_inst`).
-pub(crate) const SEC2_FLCN_BIND_INST: usize = 0x668;
+/// SEC2 falcon instance block binding register.
+/// Nouveau `gm200_flcn_bind_inst` writes to falcon_base + 0x054.
+/// Previous value 0x668 was incorrect — confirmed via upstream
+/// `nvkm/falcon/gm200.c` (hotSpring Exp 083).
+pub(crate) const SEC2_FLCN_BIND_INST: usize = 0x054;
+
+/// DMAIDX register — must be cleared to 0 (VIRT) before writing bind_inst.
+/// Nouveau: `nvkm_falcon_mask(falcon, 0x604, 0x07, 0x00)`.
+pub(crate) const FALCON_DMAIDX: usize = 0x604;
+
+/// UNK090 — bit 16 must be set after writing bind_inst to trigger binding.
+/// Nouveau: `nvkm_falcon_mask(falcon, 0x090, 0x00010000, 0x00010000)`.
+pub(crate) const FALCON_UNK090: usize = 0x090;
+
+/// ENG_CONTROL — bit 3 must be set after UNK090 to complete bind trigger.
+/// Nouveau: `nvkm_falcon_mask(falcon, 0x0a4, 0x00000008, 0x00000008)`.
+pub(crate) const FALCON_ENG_CONTROL: usize = 0x0a4;
+
+/// CHANNEL_TRIGGER — bit 1 (LOAD) must be set after bind_stat==5 to activate.
+/// Nouveau: `nvkm_falcon_mask(falcon, 0x058, 2, 2)`.
+pub(crate) const FALCON_CHANNEL_TRIGGER: usize = 0x058;
+
+/// INTR_ACK — write bit 3 to acknowledge bind completion interrupt.
+/// Nouveau: `nvkm_falcon_mask(falcon, 0x004, 0x8, 0x8)`.
+pub(crate) const FALCON_INTR_ACK: usize = 0x004;
+
+/// bind_stat register — bits [14:12] polled until == 5.
+pub(crate) const FALCON_BIND_STAT: usize = 0x0dc;
+
+/// Construct the bind_inst register value.
+/// Format from nouveau `gm200_flcn_bind_inst`:
+///   `(1 << 30) | (target << 28) | (addr >> 12)`
+/// Target: 0=VRAM, 2=SYS_MEM_COHERENT, 3=SYS_MEM_NCOH.
+pub(crate) fn encode_bind_inst(addr: u64, target: u32) -> u32 {
+    (1u32 << 30) | (target << 28) | ((addr >> 12) as u32)
+}
+
+/// Execute the full nouveau-style falcon bind sequence (Exp 084 discovery).
+///
+/// Nouveau `gm200_flcn_bind_inst` + `gm200_flcn_fw_load` does ALL of these:
+/// 1. Clear DMAIDX → VIRT
+/// 2. Write CHANNEL_NEXT (0x054) with bind value
+/// 3. Set UNK090 bit 16 (trigger)
+/// 4. Set ENG_CONTROL bit 3 (trigger)
+/// 5. Poll bind_stat bits[14:12] == 5
+/// 6. Ack interrupt (0x004 bit 3)
+/// 7. Set CHANNEL_TRIGGER LOAD (0x058 bit 1)
+/// 8. Poll bind_stat bits[14:12] == 0
+///
+/// Returns (bind_ok, notes) where bind_ok is true if bind_stat reached 5.
+pub(crate) fn falcon_bind_context(
+    r: &dyn Fn(usize) -> u32,
+    w: &dyn Fn(usize, u32),
+    bind_val: u32,
+) -> (bool, Vec<String>) {
+    let mut notes = Vec::new();
+
+    // Step 1: DMAIDX → VIRT
+    let dmaidx_before = r(FALCON_DMAIDX);
+    w(FALCON_DMAIDX, dmaidx_before & !0x07);
+    notes.push(format!(
+        "DMAIDX: {dmaidx_before:#x} → {:#x}",
+        r(FALCON_DMAIDX)
+    ));
+
+    // Step 2: Write CHANNEL_NEXT (bind_inst)
+    w(SEC2_FLCN_BIND_INST, bind_val);
+    let rb = r(SEC2_FLCN_BIND_INST);
+    notes.push(format!(
+        "bind_inst: wrote={bind_val:#010x} readback={rb:#010x}"
+    ));
+
+    // Step 3: UNK090 bit 16 — trigger
+    let unk090 = r(FALCON_UNK090);
+    w(FALCON_UNK090, unk090 | 0x0001_0000);
+    notes.push(format!(
+        "UNK090: {unk090:#010x} → {:#010x}",
+        r(FALCON_UNK090)
+    ));
+
+    // Step 4: ENG_CONTROL bit 3 — trigger
+    let eng_ctrl = r(FALCON_ENG_CONTROL);
+    w(FALCON_ENG_CONTROL, eng_ctrl | 0x0000_0008);
+    notes.push(format!(
+        "ENG_CTRL: {eng_ctrl:#010x} → {:#010x}",
+        r(FALCON_ENG_CONTROL)
+    ));
+
+    // Step 5: Poll bind_stat bits[14:12] == 5 (10ms timeout)
+    let start = std::time::Instant::now();
+    let mut bind_ok = false;
+    let mut last_stat_raw;
+    loop {
+        last_stat_raw = r(FALCON_BIND_STAT);
+        let stat = (last_stat_raw >> 12) & 0x7;
+        if stat == 5 {
+            bind_ok = true;
+            break;
+        }
+        if start.elapsed() > std::time::Duration::from_millis(10) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(10));
+    }
+
+    if bind_ok {
+        notes.push(format!(
+            "bind_stat→5: OK ({:#010x}) in {:?}",
+            last_stat_raw,
+            start.elapsed()
+        ));
+
+        // Step 6: Ack interrupt bit 3
+        w(FALCON_INTR_ACK, r(FALCON_INTR_ACK) | 0x08);
+
+        // Step 7: CHANNEL_TRIGGER LOAD (bit 1)
+        let trigger = r(FALCON_CHANNEL_TRIGGER);
+        w(FALCON_CHANNEL_TRIGGER, trigger | 0x02);
+        notes.push(format!(
+            "CHANNEL_TRIGGER: {trigger:#010x} → {:#010x}",
+            r(FALCON_CHANNEL_TRIGGER)
+        ));
+
+        // Step 8: Poll bind_stat → 0
+        let start2 = std::time::Instant::now();
+        loop {
+            let raw = r(FALCON_BIND_STAT);
+            let stat = (raw >> 12) & 0x7;
+            if stat == 0 {
+                notes.push(format!(
+                    "bind_stat→0: OK ({raw:#010x}) in {:?}",
+                    start2.elapsed()
+                ));
+                break;
+            }
+            if start2.elapsed() > std::time::Duration::from_millis(10) {
+                notes.push(format!("bind_stat→0: TIMEOUT ({raw:#010x})",));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(10));
+        }
+    } else {
+        notes.push(format!("bind_stat→5: TIMEOUT ({last_stat_raw:#010x})"));
+    }
+
+    (bind_ok, notes)
+}
 
 // ── VRAM Instance Block for Falcon DMA ────────────────────────────────
 // VRAM addresses for the page table chain (below our ACR/WPR region)

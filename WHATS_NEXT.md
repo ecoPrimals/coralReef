@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 24, 2026 (Phase 10 — Iteration 64 — Deep Audit + Coverage Push + hotSpring Trace Stabilization. 3912 tests passing, 0 failed, 108 ignored hardware-gated, 65.9% workspace / 81.5% non-hardware line coverage, 6 crates above 90%)
+**Last updated**: March 24, 2026 (Phase 10 — Iteration 65 — Deep Debt Solutions + Ecosystem Integration. 3956 tests passing, 0 failed, ~119 ignored hardware-gated, ~66% workspace line coverage, clippy pedantic+nursery zero warnings)
 
 ---
 
-## Team Evolution Priorities (Iteration 63+)
+## Team Evolution Priorities (Iteration 65+)
 
-### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64)**
+### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–65)**
 
-All five files that exceeded the 1000 LOC threshold have been smart-refactored into directory modules:
+The five files that exceeded the 1000 LOC threshold were smart-refactored into directory modules (Iter 64). **Iteration 65** also split the oversized coralctl `handlers.rs` (1519 lines) into four domain modules (`device_ops`, `compute`, `quota`, `mod`) and trimmed `opt_copy_prop/tests.rs` (1018 → 973) via shared helpers — both now under the 1000 LOC policy.
 
 | File | Was | Now | Status |
 |------|-----|-----|--------|
@@ -19,6 +19,10 @@ All five files that exceeded the 1000 LOC threshold have been smart-refactored i
 | `socket.rs` | 1434 | `socket/` (mod + protocol + handlers) | **Resolved** |
 | `mmu_oracle.rs` | 1131 | `mmu_oracle/` (mod + capture + diff) | **Resolved** |
 | `device.rs` | 1030 | `device/` (mod + dma) | **Resolved** |
+| `coralctl/handlers.rs` | 1519 | `handlers/` (`device_ops`, `compute`, `quota`, `mod`) | **Resolved (Iter 65)** |
+| `opt_copy_prop/tests.rs` | 1018 | 973 (shared test helpers) | **Resolved (Iter 65)** |
+
+**Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
 ### Sovereign Pipeline — Layer 7 (GR/FECS) Status
 
@@ -137,6 +141,16 @@ All five files that exceeded the 1000 LOC threshold have been smart-refactored i
 ---
 
 ## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 60)
+
+### Iteration 65 — Deep Debt Solutions + Ecosystem Integration
+- [x] Comprehensive audit execution — all 20 priority audit items addressed
+- [x] coralctl `handlers.rs` → 4 domain modules (`device_ops`, `compute`, `quota`, `mod`); `opt_copy_prop/tests.rs` 1018 → 973 via shared helpers
+- [x] Warnings/docs: schedule.rs unused vars, dma.rs doc links, coral-driver unfulfilled expects
+- [x] `#[forbid(unsafe_code)]` on `coral-ember/src/main.rs`; SAFETY on all coral-driver `unsafe` blocks
+- [x] JSON-RPC `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD); `capability.register`; `ipc.heartbeat` (45s)
+- [x] `CORALREEF_DATA_DIR` with `HOTSPRING_DATA_DIR` fallback; hardcoded `"hotSpring"` removed from `swap.rs`
+- [x] `coralreef-core` `ecosystem.rs` (Songbird registration); expanded tests + shared `test_shader_helpers` for codegen
+- [x] Metrics: 3956 tests passing, ~119 ignored, ~66% workspace line coverage; fmt, clippy (pedantic+nursery), doc, release build — PASS
 
 ### Iteration 64 — Deep Audit + Coverage Push + hotSpring Trace Stabilization
 - [x] hotSpring trace module cleanup: removed incomplete `pub mod trace`, `crate::trace` imports, `trace_filter_ranges` trait methods
@@ -539,16 +553,16 @@ the full Spring absorption map.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
 - [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 5060 on-site testing (RTX 3090 decommissioned)
-- [ ] Coverage 68.7% → 90% (68.7% line — ceiling ~81% non-hardware without GPU hardware test infrastructure)
+- [ ] Coverage ~66% → 90% (~66% workspace line — ceiling ~81% non-hardware without GPU hardware test infrastructure)
 
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-3912 tests passing, 0 failed, 108 ignored hardware-gated. 65.9% workspace / 81.5% non-hardware line coverage. 6 crates above 90%.
+3956 tests passing, 0 failed, ~119 ignored hardware-gated. ~66% workspace line coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` methods — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
+IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
 Hardware: 2× Titan V (VFIO sovereign, now bound to glowplug) + RTX 5060 (nvidia-drm/UVM).
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift.
 All pure Rust. Sovereignty is a runtime choice.*

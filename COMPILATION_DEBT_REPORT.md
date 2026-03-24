@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 24, Iter 64)  
+**Generated:** March 10, 2026 (metrics updated March 24, Iter 65)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 64):** 3912 tests passing, 108 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 65):** 3956 tests passing, ~119 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -191,7 +191,7 @@ Most are ICE / illegal-path guards in codegen; some are assertion-style panics.
 | coral-reef/src/lib.rs | `#[allow(non_camel_case_types, non_snake_case, dead_code, missing_docs)]` | Broad; consider per-module or per-type overrides |
 | coral-reef/src/codegen/amd/isa_generated/mod.rs | Multiple `#[allow(dead_code)]` | Generated code; acceptable |
 
-### Status (Iter 62)
+### Status (Iter 62–65)
 
 Two rounds of tightening:
 
@@ -212,10 +212,10 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 64) |
+| Metric | Value (as of Iter 65) |
 |--------|-------|
-| Tests passing | 3912 default + 48 VFIO |
-| Ignored tests | 108 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 3956 default + 48 VFIO |
+| Ignored tests | ~119 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
 | Production unwraps | 0 |
@@ -227,13 +227,14 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (all 5 over-limit files smart-refactored into directory modules, Iter 64) |
+| Files over 1000 LOC | 0 (Iter 64: five files → directory modules; Iter 65: coralctl `handlers/` split + `opt_copy_prop` test helper extraction) |
 | Clippy warnings | 0 (pedantic + nursery, -D warnings) |
-| Doc warnings | 2 (pre-existing coral-driver intra-doc links: DmaBuffer, VfioDevice::from_received) |
-| Line coverage (llvm-cov) | 65.9% workspace / **81.5% non-hardware** (target 90%; Iter 64) |
-| Function coverage | 73.7% (target 90%; Iter 64) |
+| Doc warnings | 0 (pedantic doc link fixes in Iter 65, e.g. dma.rs) |
+| Line coverage (llvm-cov) | ~66% workspace (target 90%; Iter 65) |
+| Function coverage | 73.7% (target 90%; Iter 65) |
 | Untestable lines | ~19,009 in coral-driver (VFIO/DRM/GPU channel — requires hardware) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
+| IPC discovery / ecosystem | `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `ipc.heartbeat` (45s), Songbird registration via `ecosystem.rs` (Iter 65) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iter 45) |
 | Zero-copy | `Arc<str>` for shader source + device bdf (Iter 58); `bytes::Bytes` for binary payloads; shader_model refs not clones (Iter 58) |
@@ -241,7 +242,7 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | Config discovery | CLI > env `$CORALREEF_CONFIG` > XDG config > system fallback (Iter 56) |
 | Driver constants | Named constants for PCI vendor IDs, class codes; env var fallbacks (Iter 56) |
 | RM ioctl sovereignty | nv_rm_ioctl via rustix (zero extern "C") |
-| SAFETY documentation | All `unsafe impl Send/Sync` documented; VolatilePtr wrapper (Iter 56) |
+| SAFETY documentation | All `unsafe impl Send/Sync` documented; VolatilePtr wrapper (Iter 56); all coral-driver `unsafe` blocks have SAFETY comments (Iter 65) |
 | Unsafe evolution | VolatilePtr safe MMIO; DmaBuffer Arc\<OwnedFd\> (Iter 58); SCM_RIGHTS fully safe via AsFd (Iter 58); from_raw_fd consolidated (Iter 58) |
 | Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based (Iter 56) |
 | Primal self-knowledge | Zero hardcoded primal names in production; capability-based discovery (Iter 56) |

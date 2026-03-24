@@ -166,6 +166,8 @@ fn main() {
     print_fault("post-nop", &post_nop_fault);
 
     // Read GP_GET from USERD at Volta RAMUSERD offset 0x88.
+    // SAFETY: `userd_ptr` points at the channel USERD DMA buffer (4096 bytes); offset 0x88
+    // plus 4-byte read fits in that page. The mapping remains valid for this read.
     let mut gp_get = unsafe {
         let gp_get_ptr = userd_ptr.add(0x88) as *const u32;
         std::ptr::read_volatile(gp_get_ptr)
@@ -227,6 +229,7 @@ fn main() {
         let direct_intr = raw.bar0.read_u32(base + 0x108).unwrap_or(0xDEAD);
         let direct_state = raw.bar0.read_u32(base + 0x0B0).unwrap_or(0xDEAD);
         let direct_sig = raw.bar0.read_u32(base + 0x0C0).unwrap_or(0xDEAD);
+        // SAFETY: Same USERD DMA page as above; 0x88+4 is within the 4096-byte buffer.
         let userd_gp_get_direct = unsafe {
             let gp_get_ptr = userd_ptr.add(0x88) as *const u32;
             std::ptr::read_volatile(gp_get_ptr)

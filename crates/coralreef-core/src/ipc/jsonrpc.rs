@@ -80,6 +80,10 @@ trait CoralReefRpc {
     /// `health.readiness` — ready to accept compilation requests.
     #[method(name = "health.readiness")]
     async fn health_readiness(&self) -> Result<service::ReadinessResponse, ErrorObjectOwned>;
+
+    /// `identity.get` — primal self-description for capability-based discovery.
+    #[method(name = "identity.get")]
+    async fn identity_get(&self) -> Result<service::IdentityGetResponse, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
@@ -127,6 +131,10 @@ impl CoralReefRpcServer for RpcImpl {
 
     async fn health_readiness(&self) -> Result<service::ReadinessResponse, ErrorObjectOwned> {
         Ok(service::handle_health_readiness())
+    }
+
+    async fn identity_get(&self) -> Result<service::IdentityGetResponse, ErrorObjectOwned> {
+        Ok(service::handle_identity_get())
     }
 }
 

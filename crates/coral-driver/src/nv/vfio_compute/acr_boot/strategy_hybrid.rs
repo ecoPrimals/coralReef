@@ -11,9 +11,8 @@ use crate::vfio::memory::{MemoryRegion, PraminRegion};
 use super::boot_result::{AcrBootResult, make_fail_result};
 use super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
 use super::instance_block::{
-    FALCON_INST_VRAM, FALCON_PD0_VRAM, FALCON_PD1_VRAM, FALCON_PD2_VRAM, FALCON_PD3_VRAM,
-    FALCON_PT0_VRAM, SEC2_FLCN_BIND_INST, encode_sysmem_pte, encode_vram_pd0_pde, encode_vram_pde,
-    encode_vram_pte,
+    self, FALCON_INST_VRAM, FALCON_PD0_VRAM, FALCON_PD1_VRAM, FALCON_PD2_VRAM, FALCON_PD3_VRAM,
+    FALCON_PT0_VRAM, encode_sysmem_pte, encode_vram_pd0_pde, encode_vram_pde, encode_vram_pte,
 };
 use super::sec2_hal::{
     Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, find_sec2_pmc_bit,
@@ -227,56 +226,13 @@ pub fn attempt_hybrid_acr_boot(
     w(0x048, (itfen & !0x01) | 0x01);
     notes.push(format!("ITFEN: {itfen:#010x} → {:#010x}", r(0x048)));
 
-    // 6b. gp102_sec2_flcn_bind_inst: VRAM target (bits[29:28] = 0)
-    let inst_bind_val = FALCON_INST_VRAM >> 12;
-    w(SEC2_FLCN_BIND_INST, inst_bind_val);
-    notes.push(format!("0x668: wrote={inst_bind_val:#010x} (VRAM target)"));
-
-    // 6c. Poll bind_stat (0x0dc bits[14:12]) until == 5 (bind complete)
-    let bind_start = std::time::Instant::now();
-    let mut bind_ok = false;
-    loop {
-        let stat = (r(0x0dc) & 0x7000) >> 12;
-        if stat == 5 {
-            bind_ok = true;
-            break;
-        }
-        if bind_start.elapsed() > std::time::Duration::from_millis(10) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_micros(10));
+    // 6b. Full nouveau-style bind: DMAIDX → bind_inst → UNK090 → ENG_CONTROL → poll
+    let inst_bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
+    let (_bind_ok, bind_notes) =
+        instance_block::falcon_bind_context(&|off| r(off), &|off, val| w(off, val), inst_bind_val);
+    for n in &bind_notes {
+        notes.push(n.clone());
     }
-    notes.push(format!(
-        "bind_stat→5: {} (0x0dc={:#010x})",
-        if bind_ok { "OK" } else { "TIMEOUT" },
-        r(0x0dc)
-    ));
-
-    // 6d. Clear DMA interrupt + set IRQ mask
-    let irqs = r(0x004);
-    w(0x004, (irqs & !0x08) | 0x08);
-    let irqm = r(0x058);
-    w(0x058, (irqm & !0x02) | 0x02);
-
-    // 6e. Poll bind_stat until == 0 (idle)
-    let idle_start = std::time::Instant::now();
-    let mut idle_ok = false;
-    loop {
-        let stat = (r(0x0dc) & 0x7000) >> 12;
-        if stat == 0 {
-            idle_ok = true;
-            break;
-        }
-        if idle_start.elapsed() > std::time::Duration::from_millis(10) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_micros(10));
-    }
-    notes.push(format!(
-        "bind_stat→0: {} (0x0dc={:#010x})",
-        if idle_ok { "OK" } else { "TIMEOUT" },
-        r(0x0dc)
-    ));
 
     // ── Step 7: Load BL code → IMEM ──
     let hwcfg = r(falcon::HWCFG);

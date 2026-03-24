@@ -24,22 +24,26 @@ fn sched_buffer(
     max_reg_count: PerRegFile<i32>,
     instrs: &[Instr],
     graph: &ScheduleUnitGraph,
-    live_in_count: PerRegFile<u32>,
+    _live_in_count: PerRegFile<u32>,
     live_out: &LiveSet,
     thresholds: ScheduleThresholds,
 ) -> Option<InstructionOrder> {
-    let (mut new_order, live_in_count2) = GenerateOrder::new(max_reg_count, instrs, live_out)
-        .generate_order(&graph.g, &graph.init_ready_list, thresholds)?;
+    let (mut new_order, _live_in_count_backward) = GenerateOrder::new(
+        max_reg_count,
+        instrs,
+        live_out,
+    )
+    .generate_order(&graph.g, &graph.init_ready_list, thresholds)?;
 
     #[cfg(debug_assertions)]
     {
         let expected = PerRegFile::new_with(|f| {
-            live_in_count[f]
+            _live_in_count[f]
                 .try_into()
                 .expect("live_in count must fit in i32")
         });
         debug_assert_eq!(
-            live_in_count2, expected,
+            _live_in_count_backward, expected,
             "opt_instr_sched_prepass: backward live-in count must match forward accounting"
         );
     }

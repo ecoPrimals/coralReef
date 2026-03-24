@@ -11,12 +11,44 @@ pub use compile::{
 };
 pub use types::{
     CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
-    HealthCheckResponse, HealthResponse, LivenessResponse, MultiDeviceCompileRequest,
-    MultiDeviceCompileResponse, ReadinessResponse,
+    HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
+    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse,
 };
 
+use std::sync::OnceLock;
+
+use crate::capability::SelfDescription;
 use crate::config;
 use coral_reef::{AmdArch, NvArch};
+
+static IDENTITY_ADVERTISED: OnceLock<IdentityGetResponse> = OnceLock::new();
+
+/// Store the primal identity for `identity.get` after IPC binds (full transports).
+///
+/// If not called, [`handle_identity_get`] returns [`IdentityGetResponse::fallback`].
+pub fn set_identity_for_ipc(identity: IdentityGetResponse) {
+    let _ = IDENTITY_ADVERTISED.set(identity);
+}
+
+/// Build identity from a bound [`SelfDescription`] and publish for JSON-RPC.
+pub fn set_identity_from_self_description(desc: &SelfDescription) {
+    set_identity_for_ipc(IdentityGetResponse {
+        name: config::PRIMAL_NAME.into(),
+        version: config::PRIMAL_VERSION.into(),
+        provides: desc.provides.clone(),
+        requires: desc.requires.clone(),
+        transports: desc.transports.clone(),
+    });
+}
+
+/// `identity.get` — return this primal's self-description for ecosystem discovery.
+#[must_use]
+pub fn handle_identity_get() -> IdentityGetResponse {
+    IDENTITY_ADVERTISED
+        .get()
+        .cloned()
+        .unwrap_or_else(IdentityGetResponse::fallback)
+}
 
 /// Generate a health response listing all supported architectures.
 #[must_use]
@@ -139,6 +171,13 @@ mod tests {
         let resp = handle_health_readiness();
         assert!(resp.ready);
         assert_eq!(resp.name, env!("CARGO_PKG_NAME"));
+    }
+
+    #[test]
+    fn test_handle_identity_get_without_advertised_transports() {
+        let resp = handle_identity_get();
+        assert_eq!(resp.name.as_ref(), env!("CARGO_PKG_NAME"));
+        assert!(!resp.provides.is_empty());
     }
 
     #[test]

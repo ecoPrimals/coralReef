@@ -678,4 +678,46 @@ role = "npu"
         assert!(q.power_limit_w.is_none());
         assert!(q.vram_budget_mib.is_none());
     }
+
+    #[test]
+    fn load_shared_quota_and_compute_priority() {
+        let path = write_temp_config(
+            r#"
+[[device]]
+bdf = "0000:04:00.0"
+role = "shared"
+shared = { power_limit_w = 220, vram_budget_mib = 4096, compute_mode = "exclusive_process", compute_priority = 1 }
+"#,
+            "shared_quota",
+        );
+        let cfg = Config::load(path.to_str().expect("utf8 path")).expect("parse");
+        let _ = std::fs::remove_file(&path);
+        let shared = cfg.device[0].shared.as_ref().expect("shared table");
+        assert_eq!(shared.power_limit_w, Some(220));
+        assert_eq!(shared.vram_budget_mib, Some(4096));
+        assert_eq!(shared.compute_mode, "exclusive_process");
+        assert_eq!(shared.compute_priority, 1);
+    }
+
+    #[test]
+    fn daemon_config_deserialize_partial_preserves_other_defaults() {
+        let path = write_temp_config(
+            r#"
+[daemon]
+log_level = "warn"
+"#,
+            "daemon_partial",
+        );
+        let cfg = Config::load(path.to_str().expect("utf8 path")).expect("parse");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(cfg.daemon.log_level, "warn");
+        assert_eq!(cfg.daemon.health_interval_ms, 5000);
+        #[cfg(unix)]
+        assert!(cfg.daemon.socket.contains("coral-glowplug"));
+    }
+
+    #[test]
+    fn system_config_path_uses_glowplug_filename() {
+        assert!(system_config_path().ends_with("glowplug.toml"));
+    }
 }

@@ -415,7 +415,197 @@ fn sm_for_chip(chip: &str) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::firmware_parser::{FirmwareFormat, GrFirmwareBlobs};
+    use super::super::gr_init::GrInitSequence;
+
     use super::*;
+
+    fn bundle_bytes(addr: u32, value: u32) -> Vec<u8> {
+        let mut v = Vec::with_capacity(8);
+        v.extend_from_slice(&addr.to_le_bytes());
+        v.extend_from_slice(&value.to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn detect_address_space_method_offset_when_first_pair_below_bar0() {
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(
+            &bundle_bytes(0x1_0000, 1),
+            &[],
+            &[],
+            &[],
+            "test_chip",
+        );
+        assert_eq!(
+            super::detect_address_space(&blobs),
+            AddressSpace::MethodOffset
+        );
+    }
+
+    #[test]
+    fn detect_address_space_bar0_when_first_pair_in_mmio_range() {
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(
+            &bundle_bytes(0x0040_0000, 1),
+            &[],
+            &[],
+            &[],
+            "test_chip",
+        );
+        assert_eq!(super::detect_address_space(&blobs), AddressSpace::Bar0Mmio);
+    }
+
+    #[test]
+    fn detect_address_space_unknown_when_bundle_empty() {
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(&[], &[], &[], &[], "empty");
+        assert_eq!(super::detect_address_space(&blobs), AddressSpace::Unknown);
+    }
+
+    #[test]
+    fn transfer_map_with_inserted_architectures() {
+        let mut kb = GpuKnowledge::new();
+        let blobs_a = GrFirmwareBlobs::from_legacy_bytes(
+            &{
+                let mut b = bundle_bytes(0x100, 1);
+                b.extend_from_slice(&bundle_bytes(0x200, 2));
+                b
+            },
+            &[],
+            &[],
+            &[],
+            "chip_a",
+        );
+        let blobs_b = GrFirmwareBlobs::from_legacy_bytes(
+            &{
+                let mut b = bundle_bytes(0x200, 1);
+                b.extend_from_slice(&bundle_bytes(0x300, 2));
+                b
+            },
+            &[],
+            &[],
+            &[],
+            "chip_b",
+        );
+        kb.insert_for_test(ArchKnowledge {
+            chip: "chip_a".into(),
+            sm: Some(86),
+            vendor: GpuVendor::Nvidia,
+            has_firmware: true,
+            format: Some(FirmwareFormat::Legacy),
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: Some(blobs_a),
+            gr_init: Some(GrInitSequence {
+                chip: "chip_a".into(),
+                writes: vec![],
+            }),
+            register_count: 2,
+        });
+        kb.insert_for_test(ArchKnowledge {
+            chip: "chip_b".into(),
+            sm: Some(89),
+            vendor: GpuVendor::Nvidia,
+            has_firmware: true,
+            format: Some(FirmwareFormat::Legacy),
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: Some(blobs_b),
+            gr_init: Some(GrInitSequence {
+                chip: "chip_b".into(),
+                writes: vec![],
+            }),
+            register_count: 2,
+        });
+
+        assert_eq!(kb.common_registers("chip_a", "chip_b"), 1);
+
+        let map = kb.transfer_map("chip_a", "chip_b").expect("transfer map");
+        assert_eq!(map.common_registers.len(), 1);
+        assert!(map.common_registers.contains(&0x200));
+        assert!(map.teacher_only_registers.contains(&0x100));
+        assert!(map.target_only_registers.contains(&0x300));
+        assert!((0.0..=100.0).contains(&map.coverage_pct()));
+    }
+
+    #[test]
+    fn best_teacher_prefers_same_address_space_and_overlap() {
+        let mut kb = GpuKnowledge::new();
+        let shared = bundle_bytes(0x5000, 0);
+        let blobs_target = GrFirmwareBlobs::from_legacy_bytes(&shared, &[], &[], &[], "target");
+        let mut teacher_hi = shared.clone();
+        teacher_hi.extend_from_slice(&bundle_bytes(0x6000, 0));
+        let blobs_teacher =
+            GrFirmwareBlobs::from_legacy_bytes(&teacher_hi, &[], &[], &[], "teacher");
+
+        kb.insert_for_test(ArchKnowledge {
+            chip: "target".into(),
+            sm: Some(89),
+            vendor: GpuVendor::Nvidia,
+            has_firmware: false,
+            format: Some(FirmwareFormat::Legacy),
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: Some(blobs_target),
+            gr_init: Some(GrInitSequence {
+                chip: "target".into(),
+                writes: vec![],
+            }),
+            register_count: 1,
+        });
+        kb.insert_for_test(ArchKnowledge {
+            chip: "teacher".into(),
+            sm: Some(86),
+            vendor: GpuVendor::Nvidia,
+            has_firmware: true,
+            format: Some(FirmwareFormat::Legacy),
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: Some(blobs_teacher),
+            gr_init: Some(GrInitSequence {
+                chip: "teacher".into(),
+                writes: vec![],
+            }),
+            register_count: 2,
+        });
+
+        assert_eq!(kb.best_teacher_for("target").as_deref(), Some("teacher"));
+    }
+
+    #[test]
+    fn generational_evolution_from_synthetic_entries() {
+        let mut kb = GpuKnowledge::new();
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(&bundle_bytes(0x100, 0), &[], &[], &[], "x");
+        kb.insert_for_test(ArchKnowledge {
+            chip: "early".into(),
+            sm: Some(75),
+            vendor: GpuVendor::Nvidia,
+            has_firmware: true,
+            format: Some(FirmwareFormat::Legacy),
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: Some(blobs),
+            gr_init: Some(GrInitSequence {
+                chip: "early".into(),
+                writes: vec![],
+            }),
+            register_count: 3,
+        });
+        let blobs2 =
+            GrFirmwareBlobs::from_legacy_bytes(&bundle_bytes(0x100, 0), &[], &[], &[], "y");
+        kb.insert_for_test(ArchKnowledge {
+            chip: "late".into(),
+            sm: Some(86),
+            vendor: GpuVendor::Nvidia,
+            has_firmware: false,
+            format: Some(FirmwareFormat::Legacy),
+            address_space: AddressSpace::MethodOffset,
+            gr_blobs: Some(blobs2),
+            gr_init: Some(GrInitSequence {
+                chip: "late".into(),
+                writes: vec![],
+            }),
+            register_count: 5,
+        });
+
+        let evo = kb.generational_evolution();
+        assert_eq!(evo.len(), 2);
+        assert!(evo[0].overlap_with_previous.is_none());
+        assert_eq!(evo[1].overlap_with_previous, Some(1));
+    }
 
     #[test]
     fn discover_and_learn() {

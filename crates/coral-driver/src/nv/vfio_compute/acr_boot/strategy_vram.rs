@@ -9,7 +9,7 @@ use crate::vfio::memory::{MemoryRegion, PraminRegion};
 use super::boot_result::{AcrBootResult, make_fail_result};
 use super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
 use super::instance_block::{
-    FALCON_INST_VRAM, FALCON_PT0_VRAM, SEC2_FLCN_BIND_INST, build_vram_falcon_inst_block,
+    self, FALCON_INST_VRAM, FALCON_PT0_VRAM, SEC2_FLCN_BIND_INST, build_vram_falcon_inst_block,
 };
 use super::sec2_hal::{
     Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, pmc_enable_sec2,
@@ -203,19 +203,19 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         "VRAM inst: built={inst_ok} PDB@0x200={pdb:#010x}:{pdb_hi:#010x} PT[112]={pt112_lo:#010x}:{pt112_hi:#010x}"
     ));
 
-    // ── Step 3: Inline engine reset with 0x668 race timing ──
-    let inst_bind_val = FALCON_INST_VRAM >> 12;
+    // ── Step 3: Inline engine reset with bind_inst race timing ──
+    let inst_bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
 
     // 3a: Falcon-local reset pulse
     w(0x3C0, 0x01);
-    // RACE A: Write 0x668 during reset (falcon logic disabled)
+    // RACE A: Write bind_inst during reset (falcon logic disabled)
     w(SEC2_FLCN_BIND_INST, inst_bind_val);
     let rba = r(SEC2_FLCN_BIND_INST);
     let sctl_a = r(falcon::SCTL);
     std::thread::sleep(std::time::Duration::from_micros(10));
 
     w(0x3C0, 0x00);
-    // RACE B: Write 0x668 immediately after reset clear
+    // RACE B: Write bind_inst immediately after reset clear
     w(SEC2_FLCN_BIND_INST, inst_bind_val);
     let rbb = r(SEC2_FLCN_BIND_INST);
     let sctl_b = r(falcon::SCTL);
@@ -223,7 +223,13 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     // 3b: PMC enable
     let _ = pmc_enable_sec2(bar0);
 
-    // RACE C: Write 0x668 immediately after PMC enable (no other ops)
+    // Clear DMAIDX to VIRT before bind attempts (nouveau: mask(0x604, 0x07, 0x00))
+    w(
+        instance_block::FALCON_DMAIDX,
+        r(instance_block::FALCON_DMAIDX) & !0x07,
+    );
+
+    // RACE C: Write bind_inst immediately after PMC enable
     w(SEC2_FLCN_BIND_INST, inst_bind_val);
     w(falcon::DMACTL, 0x07);
     let rbc = r(SEC2_FLCN_BIND_INST);
@@ -244,22 +250,23 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    // RACE D: Write 0x668 immediately after scrub completes
-    w(SEC2_FLCN_BIND_INST, inst_bind_val);
-    let rbd = r(SEC2_FLCN_BIND_INST);
-    let sctl_d = r(falcon::SCTL);
-
-    // 3d: Write BOOT_0
+    // 3d: Write BOOT_0 (chip identity, per nouveau gm200_flcn_enable)
     let boot0 = bar0.read_u32(0x000).unwrap_or(0);
     w(0x084, boot0);
 
     notes.push(format!(
-        "0x668 race: A(reset)={rba:#x}/sctl={sctl_a:#x} B(clear)={rbb:#x}/sctl={sctl_b:#x} C(pmc)={rbc:#x}/sctl={sctl_c:#x}/dma={dmactl_c:#x} D(scrub)={rbd:#x}/sctl={sctl_d:#x}"
+        "race pre-bind: A(reset)={rba:#x}/sctl={sctl_a:#x} B(clear)={rbb:#x}/sctl={sctl_b:#x} C(pmc)={rbc:#x}/sctl={sctl_c:#x}/dma={dmactl_c:#x}"
     ));
 
-    let bind_ok = rba != 0 || rbb != 0 || rbc != 0 || rbd != 0;
-    if bind_ok {
-        notes.push("0x668 ACCEPTED at one of the race windows!".to_string());
+    // 3e: Enable ITFEN (ACCESS_EN bit 0, per nouveau gm200_flcn_fw_load)
+    let itfen = r(0x048);
+    w(0x048, (itfen & !0x01) | 0x01);
+
+    // 3f: Full nouveau-style bind (with trigger writes discovered in Exp 084)
+    let (_bind_ok, bind_notes) =
+        instance_block::falcon_bind_context(&|off| r(off), &|off, val| w(off, val), inst_bind_val);
+    for n in &bind_notes {
+        notes.push(n.clone());
     }
 
     // ── Step 4: Configure DMA — match Nouveau's 0x624 = 0x190 ──
@@ -448,13 +455,13 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     // DMA config and transfer registers after ACR settles
     let dma_624 = r(0x624);
     let dma_10c = r(falcon::DMACTL);
-    let dma_668 = r(SEC2_FLCN_BIND_INST);
+    let dma_bind = r(SEC2_FLCN_BIND_INST);
     let dmatrfbase = r(0x110);
     let dmatrfmoffs = r(0x114);
     let dmatrfcmd = r(0x118);
     let dmatrffboffs = r(0x11C);
     notes.push(format!(
-        "DMA: 0x624={dma_624:#010x} DMACTL={dma_10c:#010x} 0x668={dma_668:#010x}"
+        "DMA: 0x624={dma_624:#010x} DMACTL={dma_10c:#010x} bind_inst={dma_bind:#010x}"
     ));
     notes.push(format!(
         "DMA xfer: base={dmatrfbase:#010x} moffs={dmatrfmoffs:#010x} cmd={dmatrfcmd:#010x} fboffs={dmatrffboffs:#010x}"

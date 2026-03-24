@@ -34,6 +34,7 @@ pub mod capability;
 pub mod commands;
 pub mod config;
 pub mod discovery;
+pub mod ecosystem;
 pub mod health;
 pub mod lifecycle;
 pub mod or_exit;

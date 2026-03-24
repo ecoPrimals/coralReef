@@ -4,6 +4,8 @@
 //! Environment:
 //! - `CORALREEF_SYSFS_ROOT` — sysfs mount (default `/sys`).
 //! - `CORALREEF_PROC_ROOT` — procfs mount (default `/proc`).
+//! - `CORALREEF_DATA_DIR` — optional data directory for dumps and training assets
+//!   (falls back to `HOTSPRING_DATA_DIR` for backward compatibility).
 
 use std::sync::OnceLock;
 
@@ -41,6 +43,21 @@ pub fn sysfs_root() -> &'static str {
 #[must_use]
 pub fn proc_root() -> &'static str {
     proc_root_storage()
+}
+
+/// Optional data directory for VBIOS dumps and similar assets.
+///
+/// Reads `$CORALREEF_DATA_DIR`, then `$HOTSPRING_DATA_DIR` if unset (legacy).
+#[must_use]
+pub fn optional_data_dir() -> Option<String> {
+    std::env::var("CORALREEF_DATA_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var("HOTSPRING_DATA_DIR")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
 }
 
 /// Join path segments under [`sysfs_root`].
@@ -154,6 +171,9 @@ pub fn sysfs_vfio_cdev_name(bdf: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static OPTIONAL_DATA_DIR_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn sysfs_join_builds_path_under_root() {
@@ -256,5 +276,53 @@ mod tests {
         let c = proc_cmdline();
         assert!(c.ends_with("/cmdline"));
         assert!(c.starts_with(proc_root()));
+    }
+
+    #[test]
+    fn optional_data_dir_prefers_coralreef_env() {
+        let _guard = OPTIONAL_DATA_DIR_TEST_LOCK.lock().expect("lock");
+        // SAFETY: `OPTIONAL_DATA_DIR_TEST_LOCK` serializes tests that touch these
+        // process environment variables; no concurrent readers elsewhere in tests.
+        unsafe {
+            std::env::remove_var("CORALREEF_DATA_DIR");
+            std::env::remove_var("HOTSPRING_DATA_DIR");
+        }
+        assert!(optional_data_dir().is_none());
+
+        unsafe {
+            std::env::set_var("CORALREEF_DATA_DIR", "/var/coral");
+        }
+        assert_eq!(optional_data_dir().as_deref(), Some("/var/coral"));
+
+        unsafe {
+            std::env::set_var("CORALREEF_DATA_DIR", "");
+            std::env::set_var("HOTSPRING_DATA_DIR", "/var/hot");
+        }
+        assert_eq!(optional_data_dir().as_deref(), Some("/var/hot"));
+
+        unsafe {
+            std::env::remove_var("CORALREEF_DATA_DIR");
+            std::env::remove_var("HOTSPRING_DATA_DIR");
+        }
+    }
+
+    #[test]
+    fn optional_data_dir_empty_hot_spring_ignored() {
+        let _guard = OPTIONAL_DATA_DIR_TEST_LOCK.lock().expect("lock");
+        unsafe {
+            std::env::remove_var("CORALREEF_DATA_DIR");
+            std::env::set_var("HOTSPRING_DATA_DIR", "");
+        }
+        assert!(optional_data_dir().is_none());
+        unsafe {
+            std::env::remove_var("HOTSPRING_DATA_DIR");
+        }
+    }
+
+    #[test]
+    fn sysfs_join_empty_segment_trims_to_root_only_extra_slash() {
+        let path = sysfs_join(&["", "bus", "pci"]);
+        assert!(path.contains("/bus/pci"));
+        assert!(path.starts_with(sysfs_root()));
     }
 }

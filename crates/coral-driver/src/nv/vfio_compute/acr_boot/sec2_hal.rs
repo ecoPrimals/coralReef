@@ -8,7 +8,7 @@ use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::registers::falcon;
 use crate::vfio::device::MappedBar;
 
-use super::instance_block::{FALCON_INST_VRAM, SEC2_FLCN_BIND_INST};
+use super::instance_block::{self, FALCON_INST_VRAM, SEC2_FLCN_BIND_INST};
 
 // ── SEC2 state probing ────────────────────────────────────────────────
 
@@ -202,40 +202,56 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
     // Step 1: Falcon-local engine reset via 0x3C0 (gp102_flcn_reset_eng).
     w(0x3C0, 0x01)?;
 
-    // RACE Window A: Write 0x668 DURING reset (falcon logic disabled)
+    // RACE Window A: Write bind_inst DURING reset (falcon logic disabled)
     if base == falcon::SEC2_BASE {
-        let iv = FALCON_INST_VRAM >> 12;
+        let iv = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
         let _ = bar0.write_u32(base + SEC2_FLCN_BIND_INST, iv);
         let rba = bar0.read_u32(base + SEC2_FLCN_BIND_INST).unwrap_or(0xDEAD);
-        tracing::info!(rb = format!("{rba:#010x}"), "0x668 during reset");
+        tracing::info!(rb = format!("{rba:#010x}"), "bind_inst during reset");
     }
 
     std::thread::sleep(std::time::Duration::from_micros(10));
     w(0x3C0, 0x00)?;
 
-    // RACE Window B: Write 0x668 immediately after reset clear (before PMC)
+    // RACE Window B: Write bind_inst immediately after reset clear (before PMC)
     if base == falcon::SEC2_BASE {
-        let iv = FALCON_INST_VRAM >> 12;
+        let iv = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
         let _ = bar0.write_u32(base + SEC2_FLCN_BIND_INST, iv);
         let rbb = bar0.read_u32(base + SEC2_FLCN_BIND_INST).unwrap_or(0xDEAD);
-        tracing::info!(rb = format!("{rbb:#010x}"), "0x668 post-reset-clear");
+        tracing::info!(rb = format!("{rbb:#010x}"), "bind_inst post-reset-clear");
     }
 
     // Step 2: PMC engine enable (gm200_flcn_enable).
     if base == falcon::SEC2_BASE {
         pmc_enable_sec2(bar0)?;
 
-        // RACE Window C: Write 0x668 IMMEDIATELY after PMC enable (no reads first)
-        let iv = FALCON_INST_VRAM >> 12;
+        // Clear DMAIDX to VIRT before bind (nouveau: mask(0x604, 0x07, 0x00))
+        let dmaidx = bar0
+            .read_u32(base + instance_block::FALCON_DMAIDX)
+            .unwrap_or(0);
+        let _ = bar0.write_u32(base + instance_block::FALCON_DMAIDX, dmaidx & !0x07);
+
+        // RACE Window C: Full bind sequence post-PMC-enable
+        let iv = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
         let _ = bar0.write_u32(base + SEC2_FLCN_BIND_INST, iv);
-        // Also immediately write DMACTL
+        // Trigger: UNK090 bit 16 + ENG_CONTROL bit 3 (Exp 084 discovery)
+        let unk090 = bar0
+            .read_u32(base + instance_block::FALCON_UNK090)
+            .unwrap_or(0);
+        let _ = bar0.write_u32(base + instance_block::FALCON_UNK090, unk090 | 0x0001_0000);
+        let eng = bar0
+            .read_u32(base + instance_block::FALCON_ENG_CONTROL)
+            .unwrap_or(0);
+        let _ = bar0.write_u32(base + instance_block::FALCON_ENG_CONTROL, eng | 0x0000_0008);
         let _ = bar0.write_u32(base + falcon::DMACTL, 0x07);
         let rbc = bar0.read_u32(base + SEC2_FLCN_BIND_INST).unwrap_or(0xDEAD);
-        let dmactl_c = bar0.read_u32(base + falcon::DMACTL).unwrap_or(0xDEAD);
+        let stat_c = bar0
+            .read_u32(base + instance_block::FALCON_BIND_STAT)
+            .unwrap_or(0xDEAD);
         tracing::info!(
             bind = format!("{rbc:#010x}"),
-            dmactl = format!("{dmactl_c:#010x}"),
-            "0x668 race post-PMC-enable"
+            bind_stat = format!("{stat_c:#010x}"),
+            "bind_inst race post-PMC-enable (with triggers)"
         );
     }
 

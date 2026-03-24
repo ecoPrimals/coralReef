@@ -24,6 +24,11 @@ use tracing_subscriber::EnvFilter;
 mod config {
     pub use coralreef_core::config::*;
 }
+
+mod capability {
+    pub use coralreef_core::capability::*;
+}
+
 mod ipc;
 mod service;
 
@@ -265,10 +270,14 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")
     );
 
+    service::set_identity_from_self_description(&desc);
+
     // File-based discovery: write transport info so peer primals can find us.
     if let Err(e) = write_discovery_file(&desc) {
         tracing::warn!(error = %e, "failed to write discovery file (peers must use fallback discovery)");
     }
+
+    coralreef_core::ecosystem::spawn_registration(desc);
 
     // Wait for SIGTERM or SIGINT (graceful shutdown)
     let signal_received = wait_for_shutdown_signal().await;

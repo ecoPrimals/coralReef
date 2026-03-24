@@ -7,6 +7,7 @@
 //! Shader source strings use `Arc<str>` for zero-copy sharing across pipeline
 //! stages per wateringHole standards.
 
+use crate::capability::{Capability, Transport};
 use bytes::Bytes;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::borrow::Cow;
@@ -94,6 +95,39 @@ pub struct CompileResponse {
     /// Compilation status (e.g. `"success"`, `"partial"`).
     #[serde(default)]
     pub status: Option<String>,
+}
+
+/// `identity.get` response — primal self-description for capability-based discovery.
+///
+/// Per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD`: name, version, capability
+/// lists, and bound transports after servers listen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentityGetResponse {
+    /// Primal name (from crate / config).
+    pub name: Cow<'static, str>,
+    /// Semantic version.
+    pub version: Cow<'static, str>,
+    /// Capabilities this primal provides.
+    pub provides: Vec<Capability>,
+    /// Capabilities required from peers.
+    pub requires: Vec<Capability>,
+    /// IPC transports (populated after bind).
+    pub transports: Vec<Transport>,
+}
+
+impl IdentityGetResponse {
+    /// Minimal identity when full advertisement is not yet available.
+    #[must_use]
+    pub fn fallback() -> Self {
+        let desc = crate::capability::self_description();
+        Self {
+            name: crate::config::PRIMAL_NAME.into(),
+            version: crate::config::PRIMAL_VERSION.into(),
+            provides: desc.provides,
+            requires: desc.requires,
+            transports: Vec::new(),
+        }
+    }
 }
 
 /// Health check response.
@@ -222,4 +256,18 @@ pub fn default_arch() -> String {
 #[must_use]
 pub const fn default_opt_level() -> u32 {
     2
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn identity_get_fallback_matches_package() {
+        let r = IdentityGetResponse::fallback();
+        assert_eq!(r.name.as_ref(), env!("CARGO_PKG_NAME"));
+        assert_eq!(r.version.as_ref(), env!("CARGO_PKG_VERSION"));
+        assert!(r.transports.is_empty());
+        assert!(!r.provides.is_empty());
+    }
 }

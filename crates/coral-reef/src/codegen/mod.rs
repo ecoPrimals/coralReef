@@ -154,4 +154,7 @@ mod ssa_value;
 mod to_cssa;
 mod union_find;
 
+#[cfg(test)]
+pub(crate) mod test_shader_helpers;
+
 pub mod naga_translate;

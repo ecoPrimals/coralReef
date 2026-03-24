@@ -28,6 +28,19 @@ async fn test_jsonrpc_health_endpoint() {
 }
 
 #[tokio::test]
+async fn test_jsonrpc_identity_get() {
+    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let client = RpcClient::tcp(addr);
+
+    let response: service::IdentityGetResponse =
+        client.request("identity.get", no_params()).await.unwrap();
+
+    assert_eq!(response.name.as_ref(), env!("CARGO_PKG_NAME"));
+    assert_eq!(response.version.as_ref(), env!("CARGO_PKG_VERSION"));
+    assert!(!response.provides.is_empty());
+}
+
+#[tokio::test]
 async fn test_jsonrpc_supported_archs_endpoint() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
     let client = RpcClient::tcp(addr);

@@ -43,7 +43,9 @@ mod protocol;
 pub use protocol::{DeviceInfo, HealthInfo};
 
 #[cfg(test)]
-pub(crate) use handlers::{dispatch, validate_bdf};
+pub(crate) use handlers::dispatch;
+#[cfg(test)]
+pub(crate) use handlers::validate_bdf;
 #[cfg(test)]
 pub(crate) use protocol::JsonRpcRequest;
 

@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Deep Audit + Coverage Push + hotSpring Trace Stabilization (Iter 64)  
+**Status**: Phase 10+ — Deep Debt Solutions + Ecosystem Integration (Iter 65)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3912 passing, 0 failed (+108 ignored VFIO/hardware)
+cargo test --workspace     # 3956 passing, 0 failed (~119 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -175,11 +175,12 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3460+ passing, 0 failed, 108 ignored hardware-gated) |
-| `cargo llvm-cov` | 68.7% line (coralreef-core 95.9%, coral-reef 78.6%, 8 crates above 90%) |
+| `cargo test --workspace` | PASS (3956 passing, 0 failed, ~119 ignored hardware-gated) |
+| `cargo llvm-cov` | ~66% workspace line coverage |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
+| `cargo build --workspace --release` | PASS |
 
 ## Driver Sovereignty
 
@@ -238,10 +239,10 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
-| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, 3460+ tests, 68.7% line coverage |
+| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, 3956+ tests, ~66% workspace line coverage |
 
 ---
 
 **License**: AGPL-3.0-only (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
-**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness` — JSON-RPC 2.0 + tarpc
+**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `ipc.heartbeat` (periodic), Songbird ecosystem registration — JSON-RPC 2.0 + tarpc

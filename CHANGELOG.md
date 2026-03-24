@@ -4,11 +4,28 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 63
+**Current status**: Phase 10 — Iteration 65
 
 ---
 
 ## [Unreleased]
+
+### Iteration 65 — Deep Debt Solutions + Ecosystem Integration (Mar 24 2026)
+
+- **Audit closure**: All 20 priority items from the comprehensive audit addressed
+- **coralctl handlers refactor**: `handlers.rs` 1519 lines → 4 domain modules (`device_ops`, `compute`, `quota`, `mod`)
+- **opt_copy_prop tests**: `tests.rs` 1018 → 973 lines via shared test helper extraction
+- **Warnings / docs**: schedule.rs unused vars; dma.rs broken doc links; coral-driver unfulfilled lint expectations resolved
+- **`#[forbid(unsafe_code)]`**: Added to `coral-ember/src/main.rs`
+- **coral-driver**: SAFETY comments on all `unsafe` blocks
+- **JSON-RPC `identity.get`**: Implemented per CAPABILITY_BASED_DISCOVERY_STANDARD
+- **`capability.register`**: Ecosystem integration (fire-and-forget, graceful degradation)
+- **`ipc.heartbeat`**: Periodic registration (45s interval)
+- **Env**: `HOTSPRING_DATA_DIR` evolved to `CORALREEF_DATA_DIR` with backward-compatible fallback
+- **Hardcoding**: Removed hardcoded `"hotSpring"` string from `swap.rs`
+- **coralreef-core `ecosystem.rs`**: Songbird registration module
+- **Tests / coverage**: Expanded across coral-driver, coral-glowplug, coral-ember, coral-gpu; shared `test_shader_helpers` for codegen tests
+- **Metrics**: 3956 tests passing, 0 failed, ~119 ignored hardware-gated; ~66% workspace line coverage; fmt, clippy (pedantic+nursery), doc, release build — PASS
 
 ### Iteration 63 — Layer 7 Sovereign Pipeline: ACR Boot Solver + Falcon Diagnostics (Mar 23 2026)
 

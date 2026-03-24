@@ -183,6 +183,9 @@ impl CudaComputeDevice {
             builder.arg(ptr);
         }
 
+        // SAFETY: `dev_ptrs` are device pointers from the same `stream` context as `func`;
+        // argument order matches the kernel; `config` uses non-zero dimensions and shared
+        // memory size from `info`. Launch runs on the current CUDA context for this device.
         unsafe {
             builder.launch(config).map_err(|e| {
                 DriverError::DispatchFailed(format!("CUDA kernel launch: {e}").into())

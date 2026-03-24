@@ -617,6 +617,36 @@ mod tests {
     }
 
     #[test]
+    fn drm_version_name_len_caps_to_buffer() {
+        let mut name_buf = [0u8; 64];
+        for (i, b) in b"nouveau".iter().enumerate() {
+            name_buf[i] = *b;
+        }
+        let ver = DrmVersion {
+            name_len: 9999,
+            ..Default::default()
+        };
+        let len = usize::try_from(ver.name_len)
+            .unwrap_or(name_buf.len())
+            .min(name_buf.len());
+        assert_eq!(len, 64);
+        let name = String::from_utf8_lossy(&name_buf[..len])
+            .trim_end_matches('\0')
+            .to_string();
+        assert_eq!(name, "nouveau");
+    }
+
+    #[test]
+    fn drm_render_node_index_range_matches_linux_abi() {
+        assert_eq!(DRI_RENDER_FIRST, 128);
+        assert_eq!(DRI_RENDER_LAST, 191);
+        let first = format!("{DRI_RENDER_PREFIX}{}", DRI_RENDER_FIRST);
+        let last = format!("{DRI_RENDER_PREFIX}{}", DRI_RENDER_LAST);
+        assert_eq!(first, "/dev/dri/renderD128");
+        assert_eq!(last, "/dev/dri/renderD191");
+    }
+
+    #[test]
     fn drm_device_not_found_on_invalid_path() {
         let result = DrmDevice::open("/dev/dri/renderD999");
         assert!(result.is_err());

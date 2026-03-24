@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 23, 2026  
-**Phase**: 10 — Iteration 63 (Layer 7 Sovereign Pipeline — ACR Boot Solver + Falcon Diagnostics)
+**Last updated**: March 24, 2026  
+**Phase**: 10 — Iteration 65 (Deep Debt Solutions + Ecosystem Integration)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` semantic naming (wateringHole compliant), differentiated error codes |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60) |
-| Tests | A+ | 3460+ passing, 0 failed, 68.7% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 3956+ passing, 0 failed, 66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -40,7 +40,25 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 62** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+
+### Iteration 65: Deep Debt Solutions + Ecosystem Integration (Mar 24 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Comprehensive audit execution | ✅ | All 20 priority audit items addressed |
+| coralctl `handlers.rs` refactor | ✅ | 1519 lines → 4 domain modules (`device_ops`, `compute`, `quota`, `mod`) |
+| `opt_copy_prop/tests.rs` slimming | ✅ | 1018 → 973 lines via shared test helper extraction |
+| Compiler / rustdoc hygiene | ✅ | schedule.rs unused vars, dma.rs doc links, coral-driver unfulfilled expects |
+| `#[forbid(unsafe_code)]` on coral-ember `main.rs` | ✅ | Aligns with workspace standards |
+| coral-driver SAFETY | ✅ | SAFETY comments on all `unsafe` blocks |
+| JSON-RPC `identity.get` | ✅ | Per CAPABILITY_BASED_DISCOVERY_STANDARD |
+| `capability.register` + ecosystem | ✅ | Fire-and-forget; degrades gracefully |
+| `ipc.heartbeat` | ✅ | Periodic registration (45s interval) |
+| Data dir env | ✅ | `CORALREEF_DATA_DIR` (backward-compat `HOTSPRING_DATA_DIR` fallback) |
+| Hardcoding | ✅ | Removed hardcoded `"hotSpring"` from `swap.rs` |
+| `ecosystem.rs` (coralreef-core) | ✅ | Songbird registration wiring |
+| Test coverage | ✅ | Expanded across coral-driver, coral-glowplug, coral-ember, coral-gpu; shared `test_shader_helpers` for codegen tests |
 
 ### Iteration 63: Layer 7 Sovereign Pipeline — ACR Boot Solver + Falcon Diagnostics (Mar 23 2026)
 

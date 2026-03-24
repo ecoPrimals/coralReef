@@ -34,7 +34,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 3460+ passing, 0 failed (+108 ignored hardware)
+cargo test --workspace     # 3956 passing, 0 failed (~119 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -124,7 +124,10 @@ Key modules in `crates/coral-reef/src/codegen/`:
 
 This primal starts with zero knowledge. It advertises its capabilities
 (`shader.compile`, `shader.health`) via the universal adapter and discovers
-peers by capability, not by name.
+peers by capability, not by name. **Iteration 65** added `identity.get` (per
+CAPABILITY_BASED_DISCOVERY_STANDARD), fire-and-forget `capability.register` with
+ecosystem integration, and periodic `ipc.heartbeat` registration (45s) toward
+Songbird.
 
 ---
 

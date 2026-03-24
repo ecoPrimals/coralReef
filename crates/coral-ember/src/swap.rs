@@ -383,7 +383,7 @@ pub fn handle_swap_device(
         tracing::info!(
             bdf,
             target,
-            "mmiotrace requested — trace module pending hotSpring integration"
+            "mmiotrace requested — trace module pending ecosystem integration"
         );
     }
 

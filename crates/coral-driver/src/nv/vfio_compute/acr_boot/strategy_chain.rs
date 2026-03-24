@@ -8,7 +8,7 @@ use crate::vfio::dma::DmaBuffer;
 
 use super::boot_result::{AcrBootResult, make_fail_result};
 use super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
-use super::instance_block::SEC2_FLCN_BIND_INST;
+use super::instance_block;
 use super::sec2_hal::{
     Sec2Probe, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
     falcon_prepare_physical_dma, falcon_start_cpu,
@@ -104,8 +104,8 @@ pub fn attempt_acr_chain(
     // Nouveau uses two different approaches depending on falcon generation:
     //
     // A) Instance block binding (gp102_sec2_flcn_bind_inst):
-    //    Register 0x668 (SEC2-specific) or 0x480 (generic falcon)
-    //    Value: (pd3_iova >> 12) | (target << 28), target=3 for SYS_MEM_COH
+    //    Register 0x054 (falcon bind_inst) — see instance_block.rs
+    //    Value: (1<<30) | (target<<28) | (addr>>12), target=2 for SYS_MEM_COH
     //    Then DMACTL=0x02 (enable IMEM DMA through instance block)
     //
     // B) Physical DMA mode (gm200_flcn_fw_boot, no instance block):
@@ -114,18 +114,18 @@ pub fn attempt_acr_chain(
     //
     // We try both: bind instance block first, then set physical DMA as fallback.
     use crate::vfio::channel::registers::PD3_IOVA;
-    const SYS_MEM_COH_TARGET: u64 = 3;
-    let inst_val = ((PD3_IOVA >> 12) | (SYS_MEM_COH_TARGET << 28)) as u32;
 
-    // Method A: Instance block binding (both SEC2-specific and generic registers)
-    w(SEC2_FLCN_BIND_INST, inst_val); // 0x668 — gp102+ SEC2
-    w(0x480, inst_val); // 0x480 — generic gm200+ falcon bind_inst
+    // Full nouveau-style bind sequence (Exp 084: missing trigger writes caused bind_stat=0)
+    let inst_val = instance_block::encode_bind_inst(PD3_IOVA, 2);
+    let (bind_ok, bind_notes) =
+        instance_block::falcon_bind_context(&|off| r(off), &|off, val| w(off, val), inst_val);
+    for n in &bind_notes {
+        notes.push(n.clone());
+    }
     w(falcon::DMACTL, 0x02);
-    let r668 = r(SEC2_FLCN_BIND_INST);
-    let r480 = r(0x480);
-    let dmactl_a = r(falcon::DMACTL);
     notes.push(format!(
-        "DMA config: 0x668={r668:#010x} 0x480={r480:#010x} DMACTL={dmactl_a:#010x} (wrote {inst_val:#010x})"
+        "DMA config: bind_ok={bind_ok} DMACTL={:#010x}",
+        r(falcon::DMACTL)
     ));
 
     // Method B: Also enable physical DMA as fallback (does not conflict with inst block)

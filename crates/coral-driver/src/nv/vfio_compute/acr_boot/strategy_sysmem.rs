@@ -8,7 +8,7 @@ use crate::vfio::dma::DmaBuffer;
 
 use super::boot_result::{AcrBootResult, make_fail_result};
 use super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
-use super::instance_block::SEC2_FLCN_BIND_INST;
+use super::instance_block::{self, SEC2_FLCN_BIND_INST};
 use super::sec2_hal::{
     Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, find_sec2_pmc_bit,
     pmc_enable_sec2, sec2_dmem_read,
@@ -288,55 +288,22 @@ pub fn attempt_sysmem_acr_boot(
     w(0x048, (itfen & !0x01) | 0x01);
     notes.push(format!("ITFEN: {itfen:#010x} → {:#010x}", r(0x048)));
 
-    // 7b. gp102_sec2_flcn_bind_inst: SYS_MEM_COH target
-    const SYS_MEM_COH_TARGET: u32 = 2;
-    let inst_bind_val = ((sysmem_iova::INST >> 12) as u32) | (SYS_MEM_COH_TARGET << 28);
-    w(SEC2_FLCN_BIND_INST, inst_bind_val);
-    notes.push(format!("0x668: wrote={inst_bind_val:#010x} (SYS_MEM_COH)"));
-
-    // 7c. Poll bind_stat (0x0dc bits[14:12]) until == 5 (bind complete)
-    let bind_start = std::time::Instant::now();
-    let mut bind_ok = false;
-    loop {
-        let stat = (r(0x0dc) & 0x7000) >> 12;
-        if stat == 5 {
-            bind_ok = true;
-            break;
-        }
-        if bind_start.elapsed() > std::time::Duration::from_millis(10) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_micros(10));
+    // 7b. Full nouveau-style bind: DMAIDX → bind_inst → UNK090 → ENG_CONTROL → poll
+    let inst_bind_val = instance_block::encode_bind_inst(sysmem_iova::INST, 2);
+    let (bind_ok_ctx, bind_notes) =
+        instance_block::falcon_bind_context(&|off| r(off), &|off, val| w(off, val), inst_bind_val);
+    for n in &bind_notes {
+        notes.push(n.clone());
     }
-    notes.push(format!(
-        "bind_stat→5: {} (0x0dc={:#010x})",
-        if bind_ok { "OK" } else { "TIMEOUT" },
-        r(0x0dc)
-    ));
 
-    // 7d. Clear DMA interrupt + set IRQ mask: mask(0x004, 0x08, 0x08), mask(0x058, 0x02, 0x02)
-    let irqs = r(0x004);
-    w(0x004, (irqs & !0x08) | 0x08);
-    let irqm = r(0x058);
-    w(0x058, (irqm & !0x02) | 0x02);
-
-    // 7e. Poll bind_stat until == 0 (idle)
-    let idle_start = std::time::Instant::now();
-    let mut idle_ok = false;
-    loop {
-        let stat = (r(0x0dc) & 0x7000) >> 12;
-        if stat == 0 {
-            idle_ok = true;
-            break;
-        }
-        if idle_start.elapsed() > std::time::Duration::from_millis(10) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_micros(10));
-    }
+    let bind_ok = bind_ok_ctx;
     notes.push(format!(
         "bind_stat→0: {} (0x0dc={:#010x})",
-        if idle_ok { "OK" } else { "TIMEOUT" },
+        if bind_ok {
+            "OK (via falcon_bind_context)"
+        } else {
+            "TIMEOUT"
+        },
         r(0x0dc)
     ));
 
@@ -465,13 +432,13 @@ pub fn attempt_sysmem_acr_boot(
 
     let dma_624 = r(0x624);
     let dma_10c = r(falcon::DMACTL);
-    let dma_668 = r(SEC2_FLCN_BIND_INST);
+    let dma_bind = r(SEC2_FLCN_BIND_INST);
     let dmatrfbase = r(0x110);
     let dmatrfmoffs = r(0x114);
     let dmatrfcmd = r(0x118);
     let dmatrffboffs = r(0x11C);
     notes.push(format!(
-        "DMA: 0x624={dma_624:#010x} DMACTL={dma_10c:#010x} 0x668={dma_668:#010x}"
+        "DMA: 0x624={dma_624:#010x} DMACTL={dma_10c:#010x} bind_inst={dma_bind:#010x}"
     ));
     notes.push(format!(
         "DMA xfer: base={dmatrfbase:#010x} moffs={dmatrfmoffs:#010x} cmd={dmatrfcmd:#010x} fboffs={dmatrffboffs:#010x}"

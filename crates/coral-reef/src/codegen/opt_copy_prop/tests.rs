@@ -2,57 +2,12 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022)
 
-use crate::codegen::ir::LogicOp3;
 use crate::codegen::ir::{
-    BasicBlock, ComputeShaderInfo, Dst, FRndMode, Function, Instr, LabelAllocator, Op, OpCopy,
-    OpDAdd, OpExit, OpFAdd, OpHAdd2, OpIAdd2, OpIAdd3, OpLop3, OpPLop3, OpParCopy, OpPrmt,
-    OpRegOut, OpSel, PhiAllocator, Pred, PredRef, PrmtMode, RegFile, SSAValueAllocator, Shader,
-    ShaderInfo, ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, Src, SrcRef, SrcType,
+    Dst, FRndMode, Instr, LogicOp3, Op, OpCopy, OpDAdd, OpExit, OpFAdd, OpHAdd2, OpIAdd2, OpIAdd3,
+    OpLop3, OpPLop3, OpParCopy, OpPrmt, OpRegOut, OpSel, Pred, PredRef, PrmtMode, RegFile,
+    SSAValueAllocator, Src, SrcRef, SrcType,
 };
-use coral_reef_stubs::cfg::CFGBuilder;
-
-fn make_shader_with_function(instrs: Vec<Instr>, ssa_alloc: SSAValueAllocator) -> Shader<'static> {
-    let sm = Box::leak(Box::new(ShaderModelInfo::new(70, 64)));
-    let mut label_alloc = LabelAllocator::new();
-    let mut cfg_builder = CFGBuilder::new();
-    let block = BasicBlock {
-        label: label_alloc.alloc(),
-        uniform: false,
-        instrs,
-    };
-    cfg_builder.add_block(block);
-    let function = Function {
-        ssa_alloc,
-        phi_alloc: PhiAllocator::new(),
-        blocks: cfg_builder.build(),
-    };
-    Shader {
-        sm,
-        info: ShaderInfo {
-            max_warps_per_sm: 0,
-            gpr_count: 0,
-            control_barrier_count: 0,
-            instr_count: 0,
-            static_cycle_count: 0,
-            spills_to_mem: 0,
-            fills_from_mem: 0,
-            spills_to_reg: 0,
-            fills_from_reg: 0,
-            shared_local_mem_size: 0,
-            max_crs_depth: 0,
-            uses_global_mem: false,
-            writes_global_mem: false,
-            uses_fp64: false,
-            stage: ShaderStageInfo::Compute(ComputeShaderInfo {
-                local_size: [1, 1, 1],
-                shared_mem_size: 0,
-            }),
-            io: ShaderIoInfo::None,
-        },
-        functions: vec![function],
-        fma_policy: crate::FmaPolicy::default(),
-    }
-}
+use crate::codegen::test_shader_helpers::make_shader_with_function;
 
 #[test]
 fn test_copy_prop_propagates_copy() {

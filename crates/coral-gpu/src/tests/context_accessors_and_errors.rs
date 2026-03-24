@@ -5,6 +5,7 @@
 
 use crate::GpuContext;
 use crate::error::GpuError;
+use coral_driver::{BufferHandle, MemoryDomain};
 use coral_reef::{CompileOptions, GpuTarget, NvArch, compile_glsl};
 
 use super::common::{ctx_with_mock, wgsl_to_spirv_words};
@@ -105,4 +106,38 @@ fn from_parts_overwrites_options_target_to_match_explicit_target() {
         ctx.compile_options().target,
         GpuTarget::Nvidia(NvArch::Sm89)
     );
+}
+
+#[test]
+fn gpu_context_device_ops_without_attached_device_return_no_device_attached() {
+    let mut ctx = GpuContext::new(GpuTarget::default()).unwrap();
+    let handle = BufferHandle::from_id(1);
+    assert!(matches!(ctx.alloc(64), Err(GpuError::NoDeviceAttached)));
+    assert!(matches!(
+        ctx.alloc_in(64, MemoryDomain::Vram),
+        Err(GpuError::NoDeviceAttached)
+    ));
+    assert!(matches!(ctx.free(handle), Err(GpuError::NoDeviceAttached)));
+    assert!(matches!(
+        ctx.upload(handle, &[1, 2, 3]),
+        Err(GpuError::NoDeviceAttached)
+    ));
+    assert!(matches!(
+        ctx.readback(handle, 4),
+        Err(GpuError::NoDeviceAttached)
+    ));
+    assert!(matches!(ctx.sync(), Err(GpuError::NoDeviceAttached)));
+
+    let kernel = ctx
+        .compile_wgsl("@compute @workgroup_size(1) fn main() {}")
+        .unwrap();
+    assert!(matches!(
+        ctx.dispatch(&kernel, &[], [1, 1, 1]),
+        Err(GpuError::NoDeviceAttached)
+    ));
+    let entry = kernel.to_cache_entry();
+    assert!(matches!(
+        ctx.dispatch_precompiled(&entry, &[], [1, 1, 1]),
+        Err(GpuError::NoDeviceAttached)
+    ));
 }

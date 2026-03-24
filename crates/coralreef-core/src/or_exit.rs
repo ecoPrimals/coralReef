@@ -91,10 +91,10 @@ mod tests {
     #[test]
     fn result_err_display_used_by_fatal_logging() {
         let err: Result<(), &str> = Err("boom");
-        assert_eq!(
-            err.expect_err("expected Err branch for display check")
-                .to_string(),
-            "boom"
-        );
+        let message = match err {
+            Err(e) => e.to_string(),
+            Ok(()) => panic!("expected Err"),
+        };
+        assert_eq!(message, "boom");
     }
 }

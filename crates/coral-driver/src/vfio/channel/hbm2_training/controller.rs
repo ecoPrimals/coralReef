@@ -376,7 +376,7 @@ impl<'a> Hbm2Controller<'a, PhyUp> {
             return self.train_links_vbios(&rom);
         }
 
-        if let Ok(data_dir) = std::env::var("HOTSPRING_DATA_DIR") {
+        if let Some(data_dir) = crate::linux_paths::optional_data_dir() {
             let dump_names = ["vbios_0000_4a_00_0.bin", "vbios_0000_03_00_0.bin"];
             for name in &dump_names {
                 let path = format!("{data_dir}/{name}");

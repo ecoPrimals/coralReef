@@ -669,6 +669,8 @@ pub fn capture_page_tables_via_mapped_bar(
     mapped_bar: &crate::vfio::device::MappedBar,
     max_channels: usize,
 ) -> Result<PageTableDump, String> {
+    // SAFETY: `mapped_bar` is a live VFIO BAR0 mapping; `base_ptr`/`size` describe the
+    // full mapped region for the borrow of `mapped_bar`, satisfying `Bar0Rw::from_raw`.
     let bar0 = unsafe { Bar0Rw::from_raw(mapped_bar.base_ptr(), mapped_bar.size())? };
     capture_page_tables_inner(bdf, &bar0, max_channels)
 }
@@ -713,18 +715,24 @@ impl Bar0Handle {
         bdf: &str,
         max_channels: usize,
     ) -> Result<PageTableDump, String> {
+        // SAFETY: `Bar0Handle` is only constructed from a live `MappedBar`; the caller
+        // keeps that mapping alive, so `ptr`/`size` remain valid for `Bar0Rw::from_raw`.
         let bar0 = unsafe { Bar0Rw::from_raw(self.ptr, self.size)? };
         capture_page_tables_inner(bdf, &bar0, max_channels)
     }
 
     /// Read a 32-bit BAR0 register with proper error handling.
     pub fn try_read_u32(&self, offset: usize) -> Result<u32, String> {
+        // SAFETY: Same invariants as `capture_page_tables`: underlying BAR0 mapping outlives
+        // this handle, so `ptr`/`size` satisfy `Bar0Rw::from_raw`.
         let bar0 = unsafe { Bar0Rw::from_raw(self.ptr, self.size)? };
         bar0.try_read_u32(offset)
     }
 
     /// Write a 32-bit BAR0 register with proper error handling.
     pub fn try_write_u32(&self, offset: usize, val: u32) -> Result<(), String> {
+        // SAFETY: Same invariants as `capture_page_tables`: underlying BAR0 mapping outlives
+        // this handle, so `ptr`/`size` satisfy `Bar0Rw::from_raw`.
         let bar0 = unsafe { Bar0Rw::from_raw(self.ptr, self.size)? };
         bar0.try_write_u32(offset, val)
     }

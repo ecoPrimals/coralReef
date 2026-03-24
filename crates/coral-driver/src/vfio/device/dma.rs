@@ -22,7 +22,7 @@ pub enum VfioBackendKind {
 
 /// DMA mapping backend — abstracts the difference between the legacy VFIO
 /// container and the modern iommufd IOAS. Both variants are cheap to clone
-/// (`Arc`-wrapped) so they can be passed to [`super::DmaBuffer`] and channel
+/// (`Arc`-wrapped) so they can be passed to [`DmaBackend`] consumers and channel
 /// code that needs to create IOMMU mappings.
 #[derive(Clone)]
 pub enum DmaBackend {
@@ -42,7 +42,7 @@ pub enum DmaBackend {
 /// VFIO file descriptors received via `SCM_RIGHTS` — backend-aware.
 ///
 /// Ember sends these to glowplug; glowplug passes them to
-/// [`VfioDevice::from_received`] to reconstruct a device handle.
+/// `VfioDevice::from_received` to reconstruct a device handle.
 pub enum ReceivedVfioFds {
     /// Legacy path: container, group, device (3 fds).
     Legacy {

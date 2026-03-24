@@ -127,10 +127,7 @@ pub(crate) mod pbdma {
     pub const STRIDE: usize = 0x2000;
 
     /// Base address for a specific PBDMA in BAR0.
-    #[expect(
-        dead_code,
-        reason = "will be used when diagnostic migrates from inline computation"
-    )]
+    #[allow(dead_code, reason = "hardware register map — used by diagnostic tests")]
     pub const fn base(id: usize) -> usize {
         BASE + id * STRIDE
     }
@@ -668,7 +665,7 @@ pub(crate) mod pccsr {
     }
 
     /// `INST_TARGET` = `SYS_MEM_NONCOHERENT` (bits [29:28] = 3).
-    #[expect(
+    #[allow(
         dead_code,
         reason = "hardware register map — used as reference during bring-up"
     )]

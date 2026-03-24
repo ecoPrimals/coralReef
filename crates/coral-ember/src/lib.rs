@@ -407,4 +407,10 @@ mod tests {
             "truncated device table must not parse"
         );
     }
+
+    #[test]
+    fn parse_glowplug_config_empty_device_list() {
+        let cfg = parse_glowplug_config("device = []").expect("valid empty device list");
+        assert!(cfg.device.is_empty());
+    }
 }
