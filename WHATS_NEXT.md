@@ -2,7 +2,42 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 21, 2026 (Phase 10 — Iteration 62 — 3460+ tests passing, 0 failed, 108 ignored hardware-gated, 68.7% line coverage, 8 crates above 90%)
+**Last updated**: March 23, 2026 (Phase 10 — Iteration 63 — Layer 7 ACR Boot Solver + Falcon Diagnostics. 3460+ tests passing, 0 failed, 108 ignored hardware-gated, 68.7% line coverage, 8 crates above 90%)
+
+---
+
+## Team Evolution Priorities (Iteration 63+)
+
+### Complexity Debt — Files Over 1000 LOC
+
+Five files exceed the 1000 LOC threshold. These were identified during the Layer 7 ACR
+sprint and flagged for team-driven evolution:
+
+| File | LOC | Domain | Recommended Split |
+|------|-----|--------|-------------------|
+| `acr_boot.rs` | 4462 | SEC2/ACR/FECS boot chain | Extract `firmware.rs` (parsing), `wpr.rs` (WPR construction), `instance_block.rs` (MMU/page tables), keep `acr_boot.rs` as orchestrator |
+| `coralctl.rs` | 1649 | CLI entry point | Extract subcommand handlers into `cli/` modules |
+| `socket.rs` | 1434 | Unix/TCP IPC transport | Extract protocol encoding/decoding, keep socket I/O thin |
+| `mmu_oracle.rs` | 1131 | GPU page table oracle captures | Extract `oracle_diff.rs` (comparison logic), `oracle_capture.rs` (state snapshot) |
+| `device.rs` | 1030 | VFIO device abstraction | Extract DMA mapping logic, keep device lifecycle thin |
+
+### Sovereign Pipeline — Layer 7 (GR/FECS) Status
+
+7/10 layers proven. Layer 7 (GR engine / FECS context) is the active frontier:
+
+- SEC2 base address corrected, EMEM PIO verified, firmware headers parsed
+- ACR boot solver tries 5 strategies with increasing aggression
+- HS ROM PC is advancing (0x14b9 → 0x1505) but BL has not yet executed
+- `bind_stat` (instance block binding) is the immediate blocker
+- Three parallel paths: system-memory WPR, hybrid WPR, Nouveau warm handoff
+
+### Immediate Next Steps
+
+1. Resolve `bind_stat` timeout (instance block not binding to SEC2)
+2. Verify PMC disable+enable cycle fixes DMA engine state
+3. If ACR boot succeeds: construct WPR with FECS/GPCCS LS images
+4. Warm handoff path: capture Nouveau's FECS state via Ember swap
+5. Split `acr_boot.rs` after strategies stabilize
 
 ---
 

@@ -70,6 +70,67 @@ impl NvVfioComputeDevice {
         Ok(())
     }
 
+    /// Submit a push buffer via GPFIFO with timed post-doorbell diagnostic captures.
+    ///
+    /// Identical to `submit_pushbuf` but captures PBDMA + PCCSR state at
+    /// fixed intervals (1ms, 10ms, 100ms, 500ms, 1s) after the doorbell
+    /// write. Returns the timed captures for analysis.
+    pub(super) fn submit_pushbuf_traced(
+        &mut self,
+        pb_iova: u64,
+        pb_size: u32,
+    ) -> DriverResult<Vec<super::diagnostics::TimedCapture>> {
+        use super::diagnostics::{PbdmaSnapshot, PccsrSnapshot, TimedCapture, find_pbdmas_for_runlist};
+
+        self.submit_pushbuf(pb_iova, pb_size)?;
+
+        let pbdma_map = self.bar0.read_u32(0x2004).unwrap_or(0);
+        let gr_pbdmas = find_pbdmas_for_runlist(pbdma_map, &self.bar0, 1);
+        let channel_id = self.channel.id();
+        let start = std::time::Instant::now();
+
+        let intervals: &[(&str, u64)] = &[
+            ("t+1ms", 1_000),
+            ("t+10ms", 10_000),
+            ("t+100ms", 100_000),
+            ("t+500ms", 500_000),
+            ("t+1s", 1_000_000),
+        ];
+
+        let mut captures = Vec::with_capacity(intervals.len());
+
+        for &(label, target_us) in intervals {
+            let target = std::time::Duration::from_micros(target_us);
+            let elapsed = start.elapsed();
+            if elapsed < target {
+                std::thread::sleep(target - elapsed);
+            }
+
+            let pccsr = PccsrSnapshot::capture(&self.bar0, channel_id);
+            let pbdma_snapshots: Vec<PbdmaSnapshot> = gr_pbdmas
+                .iter()
+                .map(|&id| PbdmaSnapshot::capture(&self.bar0, id, start))
+                .collect();
+
+            tracing::debug!(
+                label,
+                pccsr_status = pccsr.status_name(),
+                pccsr_chan = format!("{:#010x}", pccsr.channel),
+                pbdma_count = pbdma_snapshots.len(),
+                "post-doorbell diagnostic capture"
+            );
+
+            captures.push(TimedCapture {
+                label,
+                delay_us: start.elapsed().as_micros() as u64,
+                pccsr,
+                pbdma_snapshots,
+            });
+        }
+
+        Ok(captures)
+    }
+
     /// Poll USERD GP_GET until it catches up to GP_PUT, indicating
     /// the GPU has consumed all submitted GPFIFO entries.
     ///

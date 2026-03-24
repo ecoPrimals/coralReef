@@ -29,10 +29,6 @@ pub(crate) mod pfifo {
     pub const INTR_BIT8: u32 = 0x0000_0100;
     /// PFIFO_INTR bit 16 — channel switch error.
     pub const INTR_CHSW_ERROR: u32 = 0x0001_0000;
-    #[expect(
-        dead_code,
-        reason = "hardware register definition — used by future targets"
-    )]
     /// PFIFO_INTR bit 29 — aggregate "any PBDMA has an interrupt pending".
     pub const INTR_PBDMA: u32 = 0x2000_0000;
     /// PFIFO_INTR bit 30 — runlist update completion event.
@@ -94,10 +90,8 @@ pub(crate) mod pfifo {
     #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// FB timeout counter.
     pub const FB_TIMEOUT: usize = 0x0000_2254;
-    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Engine status, per-engine at stride 4.
     pub const ENGN_STATUS: usize = 0x0000_2640;
-    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Engine topology table at stride 4 (GV100).
     pub const ENGN_TABLE: usize = 0x0002_2700;
 }
@@ -466,6 +460,127 @@ pub mod pclock {
     ];
 }
 
+/// Falcon microcontroller registers for GR engine falcons.
+///
+/// FECS (Front-End Command Scheduler) and GPCCS (GPC Command Scheduler)
+/// are Falcon-class microcontrollers that manage the GR (graphics/compute)
+/// engine. Without signed firmware loaded via ACR secure boot, FECS stays
+/// in HRESET and the PFIFO scheduler refuses to schedule channels on the
+/// GR runlist — the root cause of Layer 7 dispatch failures on cold VFIO.
+///
+/// PMU falcon is at 0x10A000 (separate from GR, documented in `devinit/pmu.rs`).
+pub(crate) mod falcon {
+    /// FECS falcon base address in BAR0.
+    pub const FECS_BASE: usize = 0x0040_9000;
+    /// GPCCS falcon base address in BAR0 (GPC0 instance).
+    pub const GPCCS_BASE: usize = 0x0041_A000;
+    /// PMU falcon base address in BAR0.
+    pub const PMU_BASE: usize = 0x0010_A000;
+    /// SEC2 falcon base address in BAR0.
+    /// GV100 topology (PTOP at 0x22700) places SEC2 at 0x087000, NOT the legacy 0x840000.
+    pub const SEC2_BASE: usize = 0x0008_7000;
+
+    // Per-falcon register offsets (add to base).
+    // From open-gpu-doc `dev_falcon_v4.ref.txt` and nouveau `nvkm/falcon/`.
+
+    /// IRQSSET — interrupt set (write to raise IRQ).
+    pub const IRQSSET: usize = 0x000;
+    /// IRQSCLR — interrupt clear (write to clear IRQ).
+    pub const IRQSCLR: usize = 0x004;
+    /// IRQSTAT — interrupt status (read pending IRQs).
+    pub const IRQSTAT: usize = 0x008;
+    /// IRQMSET — interrupt mask set.
+    pub const IRQMSET: usize = 0x010;
+    /// IRQMCLR — interrupt mask clear.
+    pub const IRQMCLR: usize = 0x014;
+    /// MAILBOX0 — general-purpose mailbox for host<->falcon communication.
+    pub const MAILBOX0: usize = 0x040;
+    /// MAILBOX1 — general-purpose mailbox.
+    pub const MAILBOX1: usize = 0x044;
+    /// OS — falcon OS/version register.
+    pub const OS: usize = 0x080;
+    /// DEBUG1 — debug/trace register.
+    pub const DEBUG1: usize = 0x090;
+    /// CPUCTL — CPU control: start, halt, reset.
+    /// Bit 0: STARTCPU, Bit 1: IINVAL, Bit 4: HRESET, Bit 5: HALTED.
+    pub const CPUCTL: usize = 0x100;
+    /// BOOTVEC — boot vector address (PC on start).
+    pub const BOOTVEC: usize = 0x104;
+    /// HWCFG — hardware config: IMEM/DMEM sizes, security mode.
+    /// Bit 8: SECURITY_MODE (1 = signed-only firmware required).
+    pub const HWCFG: usize = 0x108;
+    /// DMACTL — DMA control register.
+    pub const DMACTL: usize = 0x10C;
+    /// IMEMC — IMEM control (for direct host upload).
+    pub const IMEMC: usize = 0x180;
+    /// IMEMD — IMEM data port.
+    pub const IMEMD: usize = 0x184;
+    /// IMEMT — IMEM tag port.
+    pub const IMEMT: usize = 0x188;
+    /// CPUCTL_ALIAS — alternate CPU control register (falcon v5+).
+    /// On HS falcons, host may need to use this instead of CPUCTL.
+    pub const CPUCTL_ALIAS: usize = 0x130;
+    /// DMEMC — DMEM control (for direct host upload).
+    pub const DMEMC: usize = 0x1C0;
+    /// DMEMD — DMEM data port.
+    pub const DMEMD: usize = 0x1C4;
+    /// CURCTX — current context pointer.
+    pub const CURCTX: usize = 0x118;
+    /// NXTCTX — next context pointer.
+    pub const NXTCTX: usize = 0x11C;
+
+    // SEC2-specific registers (beyond the common falcon set above).
+    // EMEM PIO is the host's interface for providing HS bootloaders to the
+    // falcon internal ROM. Always writable, even in full HS lockdown.
+
+    /// SCTL — security control register. Read-only in HS mode.
+    /// Bit 0: HS enabled, Bit 5: HS auth done, Bits 12-14: security level.
+    pub const SCTL: usize = 0x240;
+    /// EXCI — exception info: [31:16]=cause, [15:0]=PC.
+    pub const EXCI: usize = 0x148;
+    /// TRACEPC — trace program counter (write index to EXCI, read here).
+    pub const TRACEPC: usize = 0x14C;
+    /// EMEMC — EMEM control port 0. BIT(24)=write, BIT(25)=read, auto-inc.
+    pub const EMEMC0: usize = 0xAC0;
+    /// EMEMD — EMEM data port 0.
+    pub const EMEMD0: usize = 0xAC4;
+    /// Falcon DMA transfer base (external address, shifted >>8).
+    pub const DMATRFBASE: usize = 0x110;
+    /// Falcon DMA transfer IMEM/DMEM offset.
+    pub const DMATRFMOFFS: usize = 0x114;
+    /// Falcon DMA transfer command: bit 1=IMEM(1)/DMEM(0), bit 2=SIZE(0=256B,1=4B), bit 4=direction.
+    pub const DMATRFCMD: usize = 0x118;
+    /// Falcon DMA transfer framebuffer/external offset.
+    pub const DMATRFFBOFFS: usize = 0x11C;
+
+    /// Falcon v4+ CPUCTL: bit 0 = IINVAL (instruction cache invalidate).
+    /// On v0-v3, bit 0 was STARTCPU. On v4+, STARTCPU moved to bit 1.
+    pub const CPUCTL_IINVAL: u32 = 1 << 0;
+    /// Falcon v4+ CPUCTL: bit 1 = STARTCPU (release from HRESET).
+    /// nouveau `gm200_flcn_fw_boot` writes 0x02 to start the CPU.
+    pub const CPUCTL_STARTCPU: u32 = 1 << 1;
+    /// CPUCTL bit: falcon is in hard reset state.
+    pub const CPUCTL_HRESET: u32 = 1 << 4;
+    /// CPUCTL bit: falcon is halted.
+    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    /// HWCFG bit: security mode — signed firmware required.
+    pub const HWCFG_SECURITY_MODE: u32 = 1 << 8;
+
+    /// Extract IMEM size in bytes from HWCFG register.
+    /// IMEM_SIZE field is bits [8:0] of HWCFG, in units of 256 bytes.
+    #[must_use]
+    pub const fn imem_size_bytes(hwcfg: u32) -> u32 {
+        (hwcfg & 0x1FF) * 256
+    }
+
+    /// Extract DMEM size in bytes from HWCFG register.
+    /// DMEM_SIZE field is bits [17:9] of HWCFG, in units of 256 bytes.
+    #[must_use]
+    pub const fn dmem_size_bytes(hwcfg: u32) -> u32 {
+        ((hwcfg >> 9) & 0x1FF) * 256
+    }
+}
+
 /// Miscellaneous BAR0 registers.
 #[expect(
     dead_code,
@@ -633,7 +748,8 @@ pub(super) const INSTANCE_IOVA: u64 = 0x3000;
 /// Runlist DMA buffer IOVA.
 pub(super) const RUNLIST_IOVA: u64 = 0x4000;
 /// PD3 (level-4 page directory) IOVA.
-pub(super) const PD3_IOVA: u64 = 0x5000;
+/// pub(crate) so SEC2 ACR boot can bind the falcon's instance block to this.
+pub(crate) const PD3_IOVA: u64 = 0x5000;
 /// PD2 (level-3 page directory) IOVA.
 pub(super) const PD2_IOVA: u64 = 0x6000;
 /// PD1 (level-2 page directory) IOVA.

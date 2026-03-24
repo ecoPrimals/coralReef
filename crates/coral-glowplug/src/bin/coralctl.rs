@@ -156,6 +156,19 @@ enum Command {
         output_dir: Option<String>,
     },
 
+    /// Warm FECS firmware via nouveau round-trip.
+    ///
+    /// Swaps the GPU to nouveau (which loads ACR → FECS/GPCCS firmware),
+    /// waits for GR init, then swaps back to VFIO. Ember's NvidiaLifecycle
+    /// disables `reset_method` so FECS IMEM persists across the swap.
+    WarmFecs {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Seconds to wait for nouveau GR init (default: 12).
+        #[arg(long, default_value_t = 12)]
+        settle: u64,
+    },
+
     /// Generate udev rules for /dev/vfio/* from glowplug.toml.
     DeployUdev {
         #[arg(short, long)]
@@ -339,6 +352,7 @@ fn main() {
                 output_dir.as_deref(),
             );
         }
+        Command::WarmFecs { bdf, settle } => rpc_warm_fecs(&cli.socket, &bdf, settle),
         Command::DeployUdev {
             config: config_path,
             output,
@@ -521,6 +535,49 @@ fn rpc_reset(socket: &str, bdf: &str) {
     );
     check_rpc_error(&response);
     println!("ok: {bdf} reset complete");
+}
+
+fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
+    println!("=== Warm FECS via nouveau round-trip ===");
+    println!("step 1: swapping {bdf} -> nouveau (loads ACR → FECS firmware)...");
+
+    let resp1 = rpc_call(
+        socket,
+        "device.swap",
+        serde_json::json!({"bdf": bdf, "target": "nouveau"}),
+    );
+    check_rpc_error(&resp1);
+
+    let personality = resp1
+        .get("result")
+        .and_then(|r| r.get("personality"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    println!("  now on {personality}");
+
+    println!("step 2: waiting {settle_secs}s for nouveau GR init...");
+    std::thread::sleep(std::time::Duration::from_secs(settle_secs));
+
+    println!("step 3: swapping {bdf} -> vfio (Ember disables reset_method to preserve FECS IMEM)...");
+    let resp2 = rpc_call(
+        socket,
+        "device.swap",
+        serde_json::json!({"bdf": bdf, "target": "vfio"}),
+    );
+    check_rpc_error(&resp2);
+
+    let personality = resp2
+        .get("result")
+        .and_then(|r| r.get("personality"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let vram = resp2
+        .get("result")
+        .and_then(|r| r.get("vram_alive"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    println!("  now on {personality} (vram_alive={vram})");
+    println!("=== warm-fecs complete — run vfio_dispatch_warm_handoff test ===");
 }
 
 fn rpc_compute_info(socket: &str, bdf: &str) {

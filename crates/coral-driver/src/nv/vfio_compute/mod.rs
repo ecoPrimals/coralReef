@@ -25,7 +25,10 @@
 //!   └─ pushbuf + QMD    (reuses coral-driver's existing builders)
 //! ```
 
+pub mod acr_boot;
+pub mod diagnostics;
 mod dispatch;
+pub mod fecs_boot;
 mod init;
 mod submission;
 
@@ -426,6 +429,101 @@ impl NvVfioComputeDevice {
         }
     }
 
+    /// Capture comprehensive Layer 7 diagnostic state from BAR0.
+    ///
+    /// Reads all falcon states (FECS, GPCCS, PMU, SEC2), engine topology,
+    /// engine status, PCCSR channel state, PFIFO scheduler registers, and
+    /// PBDMA operational registers for the GR runlist's PBDMAs.
+    pub fn layer7_diagnostics(&self, label: &str) -> diagnostics::Layer7Diagnostics {
+        diagnostics::Layer7Diagnostics::capture(&self.bar0, label, self.channel.id())
+    }
+
+    /// Snapshot PBDMA registers for specific PBDMA IDs.
+    pub fn pbdma_snapshot(&self, pbdma_ids: &[usize]) -> Vec<diagnostics::PbdmaSnapshot> {
+        let start = std::time::Instant::now();
+        pbdma_ids
+            .iter()
+            .map(|&id| diagnostics::PbdmaSnapshot::capture(&self.bar0, id, start))
+            .collect()
+    }
+
+    /// Find the PBDMA IDs assigned to the GR engine runlist (runlist 1).
+    pub fn gr_runlist_pbdma_ids(&self) -> Vec<usize> {
+        let pbdma_map = self.bar0.read_u32(0x2004).unwrap_or(0);
+        diagnostics::find_pbdmas_for_runlist(pbdma_map, &self.bar0, 1)
+    }
+
+    /// Capture PCCSR channel status for this device's channel.
+    pub fn pccsr_status(&self) -> diagnostics::PccsrSnapshot {
+        diagnostics::PccsrSnapshot::capture(&self.bar0, self.channel.id())
+    }
+
+    /// Borrow the BAR0 mapped region for direct diagnostic reads.
+    pub fn bar0_ref(&self) -> &crate::vfio::device::MappedBar {
+        &self.bar0
+    }
+
+    /// Attempt sovereign FECS falcon boot from firmware files.
+    ///
+    /// Loads `fecs_bl.bin`, `fecs_inst.bin`, `fecs_data.bin` from
+    /// `/lib/firmware/nvidia/{chip}/gr/` and uploads them directly
+    /// to the FECS falcon IMEM/DMEM ports.
+    pub fn sovereign_fecs_boot(&self) -> DriverResult<fecs_boot::FalconBootResult> {
+        let chip = sm_to_chip(self.sm_version);
+        fecs_boot::boot_fecs(&self.bar0, chip)
+    }
+
+    /// Attempt sovereign FECS + GPCCS falcon boot.
+    pub fn sovereign_gr_boot(&self) -> DriverResult<fecs_boot::FalconBootResult> {
+        let chip = sm_to_chip(self.sm_version);
+        fecs_boot::boot_gr_falcons(&self.bar0, chip)
+    }
+
+    /// Probe all falcon states for boot strategy selection.
+    pub fn falcon_probe(&self) -> acr_boot::FalconProbe {
+        acr_boot::FalconProbe::capture(&self.bar0)
+    }
+
+    /// Run the Falcon Boot Solver — tries all strategies to boot FECS.
+    pub fn falcon_boot_solver(&self) -> DriverResult<Vec<acr_boot::AcrBootResult>> {
+        let chip = sm_to_chip(self.sm_version);
+        acr_boot::FalconBootSolver::boot(&self.bar0, chip, Some(self.container.clone()))
+    }
+
+    /// Run only the system-memory ACR boot strategy (Exp 083).
+    pub fn sysmem_acr_boot(&self) -> acr_boot::AcrBootResult {
+        let chip = sm_to_chip(self.sm_version);
+        let fw = acr_boot::AcrFirmwareSet::load(chip)
+            .expect("firmware load");
+        acr_boot::attempt_sysmem_acr_boot(&self.bar0, &fw, self.container.clone())
+    }
+
+    /// Run the hybrid ACR boot: VRAM page tables + system memory data (Exp 083b).
+    pub fn hybrid_acr_boot(&self) -> acr_boot::AcrBootResult {
+        let chip = sm_to_chip(self.sm_version);
+        let fw = acr_boot::AcrFirmwareSet::load(chip)
+            .expect("firmware load");
+        acr_boot::attempt_hybrid_acr_boot(&self.bar0, &fw, self.container.clone())
+    }
+
+    /// Perform a VFIO device reset (PCI Function Level Reset).
+    /// After FLR, ALL GPU state is cleared. The channel, page tables, and
+    /// DMA buffers must be re-initialized.
+    pub fn device_reset(&self) -> DriverResult<()> {
+        self.device.reset()
+    }
+
+    /// PCI D3→D0 power cycle. Puts GPU into D3hot sleep and brings it back
+    /// to D0, resetting all GPU engines to power-on state.
+    pub fn pci_power_cycle(&self) -> DriverResult<(u32, u32)> {
+        self.device.pci_power_cycle()
+    }
+
+    /// Probe SEC2 falcon state specifically.
+    pub fn sec2_probe(&self) -> acr_boot::Sec2Probe {
+        acr_boot::Sec2Probe::capture(&self.bar0)
+    }
+
     pub(super) fn alloc_dma(&mut self, size: usize) -> DriverResult<(BufferHandle, u64)> {
         let aligned = size.div_ceil(4096) * 4096;
         let iova = self.next_iova;
@@ -523,6 +621,33 @@ impl ComputeDevice for NvVfioComputeDevice {
             let _ = self.free(handle);
         }
         Ok(())
+    }
+}
+
+impl NvVfioComputeDevice {
+    /// Dispatch a compute shader with timed post-doorbell diagnostic captures.
+    ///
+    /// Identical to `dispatch()` but uses `submit_pushbuf_traced()` internally,
+    /// capturing PBDMA + PCCSR state at fixed intervals after the doorbell.
+    /// Returns the timed captures on success, or `Err` if submission fails.
+    pub fn dispatch_traced(
+        &mut self,
+        shader: &[u8],
+        buffers: &[BufferHandle],
+        dims: DispatchDims,
+        info: &ShaderInfo,
+    ) -> DriverResult<Vec<diagnostics::TimedCapture>> {
+        let mut temps: Vec<BufferHandle> = Vec::with_capacity(4);
+        let result = self.dispatch_inner_traced(shader, buffers, dims, info, &mut temps);
+        match &result {
+            Ok(_) => self.inflight.extend(temps),
+            Err(_) => {
+                for h in temps {
+                    let _ = self.free(h);
+                }
+            }
+        }
+        result
     }
 }
 

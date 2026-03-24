@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 62
+**Current status**: Phase 10 — Iteration 63
 
 ---
 
 ## [Unreleased]
+
+### Iteration 63 — Layer 7 Sovereign Pipeline: ACR Boot Solver + Falcon Diagnostics (Mar 23 2026)
+
+- **Falcon Boot Solver (`acr_boot.rs`)**: Multi-strategy SEC2→ACR→FECS boot chain with `FalconProbe`, `Sec2Probe`, `AcrFirmwareSet`, `NvFwBinHeader`/`HsBlDescriptor` firmware parsing. Strategies: direct HRESET clear, EMEM-based SEC2 boot, IMEM-based SEC2 boot, system-memory WPR, hybrid WPR. SEC2 correctly probed, EMEM PIO verified, HS ROM PC advancing
+- **Falcon Diagnostics (`diagnostics.rs`)**: Comprehensive falcon state capture — FECS/GPCCS/PMU/SEC2, HWCFG decode, security mode, IMEM/DMEM sizes, exception info
+- **FECS Boot Module (`fecs_boot.rs`)**: Direct firmware upload (IMEM/DMEM PIO), warm-handoff-aware boot, ACR-bypass based on HWCFG security_mode
+- **SEC2 base address fix**: `0x0084_0000` → `0x0008_7000` (GV100 PTOP topology) — unlocked all SEC2 diagnostics
+- **CPUCTL v4+ bit layout**: Bit 0 = IINVAL, Bit 1 = STARTCPU (previously swapped). Aligns with Nouveau `gm200_flcn_fw_boot`
+- **ACR firmware format decoded**: `nvfw_bin_hdr` (magic `0x10DE`), sub-headers, payload offsets. BL descriptor with DMA targeting
+- **DMA context index fix**: `ctx_dma` from `PHYS_SYS(6)` → `VIRT(4)` matching `FALCON_DMAIDX_VIRT`. PC advanced `0x14b9` → `0x1505`
+- **Full PMC disable+enable cycle**: Nouveau-style `nvkm_falcon_disable`/`enable` — ITFEN clear, interrupt clear, PMC disable/enable, falcon-local reset, memory scrub, BOOT0
+- **Instance block + V2 MMU**: System-memory and hybrid page table construction for ACR WPR DMA. Bind polling implemented
+- **Complexity debt flagged for team**: 5 files >1000 LOC: `acr_boot.rs` (4462), `coralctl.rs` (1649), `socket.rs` (1434), `mmu_oracle.rs` (1131), `device.rs` (1030)
 
 ### Iteration 62 — Deep Audit + Coverage Expansion + Hardcoding Evolution (Mar 21 2026)
 

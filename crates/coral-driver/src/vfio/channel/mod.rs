@@ -264,6 +264,35 @@ impl VfioChannel {
         Ok(chan)
     }
 
+    /// Create a channel on a specific runlist (for PBDMA isolation tests).
+    ///
+    /// Identical to [`create`] but overrides the auto-discovered GR runlist
+    /// with `target_runlist`. Use this to test PBDMA command delivery on
+    /// non-GR runlists (e.g. copy engine) independent of FECS state.
+    pub fn create_on_runlist(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+        target_runlist: u32,
+    ) -> DriverResult<Self> {
+        let mut chan = Self::create(
+            container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id,
+        )?;
+        if chan.runlist_id != target_runlist {
+            tracing::info!(
+                from = chan.runlist_id, to = target_runlist,
+                "overriding runlist for PBDMA isolation"
+            );
+            chan.runlist_id = target_runlist;
+            chan.submit_runlist(bar0)?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        Ok(chan)
+    }
+
     /// Channel ID used for doorbell notification.
     #[must_use]
     pub const fn id(&self) -> u32 {

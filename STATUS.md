@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 21, 2026  
-**Phase**: 10 — Iteration 62 (Deep Audit + Coverage + Hardcoding Evolution)
+**Last updated**: March 23, 2026  
+**Phase**: 10 — Iteration 63 (Layer 7 Sovereign Pipeline — ACR Boot Solver + Falcon Diagnostics)
 
 ---
 
@@ -41,6 +41,21 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 62** |
+
+### Iteration 63: Layer 7 Sovereign Pipeline — ACR Boot Solver + Falcon Diagnostics (Mar 23 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Falcon Boot Solver (`acr_boot.rs`) | 🔬 In Progress | Multi-strategy SEC2→ACR→FECS boot chain. `FalconProbe`, `Sec2Probe`, `AcrFirmwareSet`, `NvFwBinHeader`, `HsBlDescriptor`. Tries strategies in order of cost: direct HRESET clear → EMEM-based SEC2 boot → IMEM-based SEC2 boot → system-memory WPR → hybrid WPR. SEC2 correctly probed, EMEM PIO verified, PC advancing through HS ROM |
+| Falcon Diagnostics (`diagnostics.rs`) | ✅ | Comprehensive diagnostic capture: all falcon states (FECS/GPCCS/PMU/SEC2), HWCFG decoding, security mode, IMEM/DMEM sizes, exception info, register diff infrastructure |
+| FECS Boot Module (`fecs_boot.rs`) | 🔬 In Progress | Direct FECS firmware upload (IMEM/DMEM PIO), warm-handoff-aware boot path, ACR-bypass attempt based on HWCFG security_mode discovery |
+| SEC2 base address fix | ✅ | `SEC2_BASE` corrected from `0x0084_0000` to `0x0008_7000` (GV100 PTOP topology). Unlocked all SEC2 diagnostics previously showing `0xbadf1100` |
+| CPUCTL v4+ bit layout fix | ✅ | Bit 0 = IINVAL, Bit 1 = STARTCPU for Falcon v4+ (previously swapped). Nouveau always writes 0x02 for STARTCPU |
+| ACR firmware parsing | ✅ | `nvfw_bin_hdr` format decoded (magic `0x10DE`, sub-headers, payload offsets). ACR bl.bin, ucode_load.bin, sec2/sig.bin all parsed. BL descriptor DMA targeting implemented |
+| DMA context index fix | ✅ | `ctx_dma` changed from `PHYS_SYS (6)` to `VIRT (4)` matching Nouveau's `FALCON_DMAIDX_VIRT`. PC advanced from `0x14b9` → `0x1505` |
+| Full PMC disable+enable cycle | ✅ | Nouveau-style `nvkm_falcon_disable` + `nvkm_falcon_enable`: clear ITFEN, clear interrupts, PMC disable SEC2, falcon-local reset, PMC re-enable, memory scrub wait, write BOOT0 |
+| Instance block + V2 MMU pages | 🔬 In Progress | System-memory and hybrid instance block construction with 5-level V2 page tables for ACR WPR DMA. `bind_stat` polling implemented but bind-complete state not yet reached |
+| **Complexity debt flagged** | 📋 Team | 5 files >1000 LOC identified for team evolution: `acr_boot.rs` (4462), `coralctl.rs` (1649), `socket.rs` (1434), `mmu_oracle.rs` (1131), `device.rs` (1030) |
 
 ### Iteration 62: Deep Audit + Coverage Expansion + Hardcoding Evolution (Mar 21 2026)
 

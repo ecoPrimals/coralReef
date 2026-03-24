@@ -90,7 +90,28 @@ impl NvVfioComputeDevice {
     /// Builds a push buffer containing the GR context setup methods
     /// from `sw_bundle_init.bin` / `sw_method_init.bin` (entries with
     /// offsets <= 0x7FFC that are submittable as channel methods).
+    ///
+    /// If FECS firmware is already running (e.g. after a warm handoff
+    /// from nouveau), the GR init methods may conflict with the running
+    /// firmware's context. We skip channel init in that case — the
+    /// firmware is already managing the GR engine.
     pub(super) fn apply_fecs_channel_init(&mut self) {
+        use crate::vfio::channel::registers::falcon;
+        let fecs_cpuctl = self.bar0.read_u32(falcon::FECS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD_DEAD);
+        let fecs_mailbox0 = self.bar0.read_u32(falcon::FECS_BASE + falcon::MAILBOX0).unwrap_or(0);
+        let fecs_halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
+        let fecs_hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
+        let fecs_running = !fecs_halted && !fecs_hreset && fecs_cpuctl != 0xDEAD_DEAD;
+
+        if fecs_running || fecs_mailbox0 != 0 {
+            tracing::info!(
+                fecs_cpuctl = format!("{fecs_cpuctl:#010x}"),
+                fecs_mailbox0 = format!("{fecs_mailbox0:#010x}"),
+                "FECS firmware already running — skipping channel init (warm handoff)"
+            );
+            return;
+        }
+
         let chip = sm_to_chip(self.sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,

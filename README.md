@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Kepler/Blackwell ISA + Ember Per-Client Threading + iommufd/cdev  
+**Status**: Phase 10+ — Layer 7 ACR Boot Solver + Falcon Diagnostics (Iter 63)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
