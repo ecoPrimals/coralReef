@@ -25,6 +25,23 @@ use crate::sysfs;
 use coral_driver::linux_paths;
 use std::fmt;
 
+/// Available PCI reset methods for a device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetMethod {
+    /// VFIO_DEVICE_RESET ioctl — requires an open VFIO fd and FLR-capable hardware.
+    VfioFlr,
+    /// Sysfs `reset` file on the device itself. Works on hardware with kernel-negotiated
+    /// reset, but fails on VFIO-bound devices that lack FLR (e.g. GV100).
+    SysfsSbr,
+    /// Reset via the parent PCI bridge's `reset` file. Triggers a true Secondary Bus
+    /// Reset that affects all devices behind the bridge. Works even when the device
+    /// is VFIO-bound and lacks FLR — this is the primary reset path for GV100 Titan V.
+    BridgeSbr,
+    /// Full PCI remove + bus rescan cycle. Most aggressive: tears down the kernel's
+    /// device tree and forces re-enumeration. VFIO fds become invalid after this.
+    RemoveRescan,
+}
+
 /// How to transition a device from unbound to a new driver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RebindStrategy {
@@ -80,6 +97,14 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     /// Post-bind health check. Called after the target driver appears in sysfs.
     /// Should verify the device is actually functional (temp sensors, VRAM, etc.)
     fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String>;
+
+    /// Which reset methods are safe/available for this hardware, in priority order.
+    /// The caller should try methods in order and stop at the first success.
+    ///
+    /// Default: try VFIO FLR first, then sysfs SBR.
+    fn available_reset_methods(&self) -> Vec<ResetMethod> {
+        vec![ResetMethod::VfioFlr, ResetMethod::SysfsSbr]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +125,19 @@ pub struct NvidiaLifecycle {
 impl VendorLifecycle for NvidiaLifecycle {
     fn description(&self) -> &str {
         "NVIDIA (bus reset kills HBM2 — reset_method disabled)"
+    }
+
+    fn available_reset_methods(&self) -> Vec<ResetMethod> {
+        // GV100 (Titan V / V100) does not support FLR — VFIO_DEVICE_RESET
+        // returns EINVAL. Device-level SBR fails when bound to VFIO.
+        // Bridge-level SBR is the reliable path — writes to the parent
+        // bridge's reset file, which triggers a true bus reset.
+        // Remove+rescan is the nuclear fallback.
+        vec![
+            ResetMethod::BridgeSbr,
+            ResetMethod::SysfsSbr,
+            ResetMethod::RemoveRescan,
+        ]
     }
 
     fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
@@ -142,6 +180,69 @@ impl VendorLifecycle for NvidiaLifecycle {
 }
 
 // ---------------------------------------------------------------------------
+// NVIDIA Open lifecycle (open-source nvidia.ko with GSP firmware)
+// ---------------------------------------------------------------------------
+
+/// NVIDIA open kernel module — uses GSP firmware for falcon management.
+/// Same reset behavior as closed-source nvidia, but different boot sequence
+/// (GSP-based vs legacy PMU). Distinguished for the solution matrix.
+#[derive(Debug)]
+pub struct NvidiaOpenLifecycle {
+    /// PCI device ID from config space.
+    #[expect(dead_code, reason = "reserved for per-chip GSP support detection")]
+    pub device_id: u16,
+}
+
+impl VendorLifecycle for NvidiaOpenLifecycle {
+    fn description(&self) -> &str {
+        "NVIDIA Open (GSP-based — bus reset kills HBM2)"
+    }
+
+    fn available_reset_methods(&self) -> Vec<ResetMethod> {
+        vec![
+            ResetMethod::BridgeSbr,
+            ResetMethod::SysfsSbr,
+            ResetMethod::RemoveRescan,
+        ]
+    }
+
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+        sysfs::pin_power(bdf);
+        tracing::info!(
+            bdf,
+            "NVIDIA Open: disabling reset_method (bus reset destroys HBM2 training)"
+        );
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        Ok(())
+    }
+
+    fn rebind_strategy(&self, _target_driver: &str) -> RebindStrategy {
+        RebindStrategy::SimpleBind
+    }
+
+    fn settle_secs(&self, target_driver: &str) -> u64 {
+        match target_driver {
+            "nouveau" => 10,
+            _ => 8,
+        }
+    }
+
+    fn stabilize_after_bind(&self, bdf: &str, _target_driver: &str) {
+        sysfs::pin_power(bdf);
+        let _ =
+            sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+    }
+
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+        let power = sysfs::read_power_state(bdf);
+        if power.as_deref() == Some("D3cold") {
+            return Err(format!("{bdf}: NVIDIA Open device in D3cold after bind"));
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NVIDIA Oracle lifecycle (renamed nvidia module for multi-version coexistence)
 // ---------------------------------------------------------------------------
 
@@ -164,6 +265,14 @@ pub struct NvidiaOracleLifecycle {
 impl VendorLifecycle for NvidiaOracleLifecycle {
     fn description(&self) -> &str {
         "NVIDIA Oracle (renamed module for driver coexistence)"
+    }
+
+    fn available_reset_methods(&self) -> Vec<ResetMethod> {
+        vec![
+            ResetMethod::BridgeSbr,
+            ResetMethod::SysfsSbr,
+            ResetMethod::RemoveRescan,
+        ]
     }
 
     fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
@@ -561,6 +670,10 @@ pub fn detect_lifecycle_for_target(bdf: &str, target: &str) -> Box<dyn VendorLif
             device_id,
             module_name: target.to_string(),
         });
+    }
+    if target == "nvidia-open" {
+        let device_id = sysfs::read_pci_id(bdf, "device");
+        return Box::new(NvidiaOpenLifecycle { device_id });
     }
     detect_lifecycle(bdf)
 }

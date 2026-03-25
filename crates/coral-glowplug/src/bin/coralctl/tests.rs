@@ -213,10 +213,23 @@ fn snapshot_save_default_file_omits_optional() {
 #[test]
 fn cli_parses_reset_subcommand() {
     let cli = Cli::try_parse_from(["coralctl", "reset", "0000:4a:00.0"]).expect("parse reset");
-    let Command::Reset { bdf } = cli.command else {
+    let Command::Reset { bdf, method } = cli.command else {
         panic!("expected Reset");
     };
     assert_eq!(bdf, "0000:4a:00.0");
+    assert_eq!(method, "auto");
+}
+
+#[test]
+fn cli_parses_reset_with_method_flag() {
+    let cli =
+        Cli::try_parse_from(["coralctl", "reset", "0000:4a:00.0", "--method", "sbr"])
+            .expect("parse reset --method sbr");
+    let Command::Reset { bdf, method } = cli.command else {
+        panic!("expected Reset");
+    };
+    assert_eq!(bdf, "0000:4a:00.0");
+    assert_eq!(method, "sbr");
 }
 
 #[test]

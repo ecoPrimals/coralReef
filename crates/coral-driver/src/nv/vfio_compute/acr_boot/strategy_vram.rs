@@ -12,7 +12,7 @@ use super::instance_block::{
     self, FALCON_INST_VRAM, FALCON_PT0_VRAM, SEC2_FLCN_BIND_INST, build_vram_falcon_inst_block,
 };
 use super::sec2_hal::{
-    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, pmc_enable_sec2,
+    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, pmc_reset_sec2,
     sec2_dmem_read,
 };
 use super::wpr::{build_bl_dmem_desc, build_wpr, falcon_id, patch_acr_desc};
@@ -208,20 +208,73 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
 
     // 3a: Falcon-local reset pulse
     w(0x3C0, 0x01);
-    // RACE A: Write bind_inst during reset (falcon logic disabled)
     w(SEC2_FLCN_BIND_INST, inst_bind_val);
     let rba = r(SEC2_FLCN_BIND_INST);
     let sctl_a = r(falcon::SCTL);
     std::thread::sleep(std::time::Duration::from_micros(10));
 
     w(0x3C0, 0x00);
-    // RACE B: Write bind_inst immediately after reset clear
     w(SEC2_FLCN_BIND_INST, inst_bind_val);
     let rbb = r(SEC2_FLCN_BIND_INST);
     let sctl_b = r(falcon::SCTL);
 
-    // 3b: PMC enable
-    let _ = pmc_enable_sec2(bar0);
+    // 3b: PMC disable→enable (full toggle required for ROM restart)
+    let _ = pmc_reset_sec2(bar0);
+
+    // Wait for ROM to exit HRESET after local reset deassert
+    {
+        let t = std::time::Instant::now();
+        loop {
+            let c = r(falcon::CPUCTL);
+            if c & falcon::CPUCTL_HRESET == 0 {
+                notes.push(format!(
+                    "SEC2 exited HRESET in {:?}",
+                    t.elapsed()
+                ));
+                break;
+            }
+            if t.elapsed() > std::time::Duration::from_millis(3000) {
+                notes.push(format!(
+                    "SEC2 HRESET timeout (3s) cpuctl={c:#010x} sctl={:#010x} pc={:#010x}",
+                    r(falcon::SCTL), r(0x030)
+                ));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+    }
+
+    // Wait for ROM to HALT after scrub — CPUCTL_HALTED (bit 5) means IMEM/DMEM
+    // are clean and safe to write. Without this wait, our BL upload can be
+    // clobbered by the ROM's ongoing IMEM scrub.
+    {
+        let t = std::time::Instant::now();
+        loop {
+            let c = r(falcon::CPUCTL);
+            if c & falcon::CPUCTL_HALTED != 0 {
+                notes.push(format!(
+                    "SEC2 ROM HALTED in {:?} cpuctl={c:#010x}",
+                    t.elapsed()
+                ));
+                break;
+            }
+            if c & falcon::CPUCTL_HRESET == 0 {
+                notes.push(format!(
+                    "SEC2 HRESET cleared (ROM done) in {:?} cpuctl={c:#010x}",
+                    t.elapsed()
+                ));
+                break;
+            }
+            if t.elapsed() > std::time::Duration::from_millis(5000) {
+                notes.push(format!(
+                    "SEC2 HALT timeout (5s) cpuctl={c:#010x} pc={:#010x}",
+                    r(0x030)
+                ));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+    }
 
     // Clear DMAIDX to VIRT before bind attempts (nouveau: mask(0x604, 0x07, 0x00))
     w(

@@ -14,6 +14,7 @@ use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg}
 use serde::{Deserialize, Serialize};
 
 use crate::hold::HeldDevice;
+use crate::journal::{Journal, JournalEntry, JournalFilter};
 use crate::swap;
 use crate::sysfs;
 
@@ -122,6 +123,41 @@ fn require_managed_bdf(
     Err(Ok(()))
 }
 
+/// Try reset methods in priority order until one succeeds.
+fn try_reset_methods(
+    bdf: &str,
+    methods: &[crate::vendor_lifecycle::ResetMethod],
+) -> Result<(), String> {
+    let mut last_err = String::new();
+    for m in methods {
+        let label = match m {
+            crate::vendor_lifecycle::ResetMethod::BridgeSbr => "bridge-sbr",
+            crate::vendor_lifecycle::ResetMethod::SysfsSbr => "sbr",
+            crate::vendor_lifecycle::ResetMethod::RemoveRescan => "remove-rescan",
+            crate::vendor_lifecycle::ResetMethod::VfioFlr => {
+                last_err =
+                    "FLR not available via ember (use GlowPlug device.reset)".to_string();
+                continue;
+            }
+        };
+        tracing::info!(bdf, method = label, "trying reset method");
+        let result = match m {
+            crate::vendor_lifecycle::ResetMethod::BridgeSbr => sysfs::pci_bridge_reset(bdf),
+            crate::vendor_lifecycle::ResetMethod::SysfsSbr => sysfs::pci_device_reset(bdf),
+            crate::vendor_lifecycle::ResetMethod::RemoveRescan => sysfs::pci_remove_rescan(bdf),
+            crate::vendor_lifecycle::ResetMethod::VfioFlr => unreachable!(),
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                tracing::warn!(bdf, method = label, error = %e, "reset method failed, trying next");
+                last_err = format!("{label}: {e}");
+            }
+        }
+    }
+    Err(last_err)
+}
+
 /// Handle one JSON-RPC request on `stream` (read one line, dispatch, write response).
 ///
 /// For `ember.vfio_fds`, sends the JSON line first, then passes fds via `SCM_RIGHTS`.
@@ -136,6 +172,7 @@ pub fn handle_client(
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
     managed_bdfs: &HashSet<String>,
     started_at: std::time::Instant,
+    journal: Option<&Arc<Journal>>,
 ) -> Result<(), String> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -351,15 +388,19 @@ pub fn handle_client(
                 return Ok(());
             }
             let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
-            match swap::handle_swap_device(bdf, target, &mut map, enable_trace) {
-                Ok(personality) => {
+            match swap::handle_swap_device_with_journal(bdf, target, &mut map, enable_trace, journal) {
+                Ok(obs) => {
                     drop(map);
-                    write_jsonrpc_ok(
-                        stream,
-                        id,
-                        serde_json::json!({"bdf": bdf, "personality": personality}),
-                    )
-                    .map_err(ipc_io_error_string)?;
+                    if let Some(j) = journal {
+                        if let Err(e) = j.append(&JournalEntry::Swap(obs.clone())) {
+                            tracing::warn!(error = %e, "journal append failed for swap");
+                        }
+                    }
+                    let obs_json = serde_json::to_value(&obs).unwrap_or_else(|e| {
+                        serde_json::json!({"bdf": bdf, "to_personality": obs.to_personality, "error": e.to_string()})
+                    });
+                    write_jsonrpc_ok(stream, id, obs_json)
+                        .map_err(ipc_io_error_string)?;
                 }
                 Err(e) => {
                     drop(map);
@@ -367,76 +408,89 @@ pub fn handle_client(
                 }
             }
         }
-        "ember.ring_meta.get" => {
+        "ember.device_reset" => {
             let bdf = params
                 .get("bdf")
                 .and_then(|v| v.as_str())
                 .ok_or("missing 'bdf' parameter")?;
+            let method = params
+                .get("method")
+                .and_then(|v| v.as_str())
+                .unwrap_or("auto");
             match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
                 Ok(()) => {}
                 Err(early) => return early.map_err(ipc_io_error_string),
             }
-            let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
-            match map.get(bdf) {
-                Some(dev) => {
-                    let meta = &dev.ring_meta;
-                    let val = serde_json::to_value(meta)
-                        .map_err(|e| format!("serialize ring_meta: {e}"))?;
-                    drop(map);
-                    write_jsonrpc_ok(stream, id, val).map_err(ipc_io_error_string)?;
+            if sysfs::is_d3cold(bdf) {
+                write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("{bdf} is D3cold — cannot reset"),
+                )
+                .map_err(ipc_io_error_string)?;
+                return Ok(());
+            }
+
+            let lifecycle = crate::vendor_lifecycle::detect_lifecycle(bdf);
+            let methods = lifecycle.available_reset_methods();
+            tracing::info!(
+                bdf,
+                method,
+                available = ?methods,
+                "ember.device_reset: starting"
+            );
+
+            let reset_start = std::time::Instant::now();
+            let result = match method {
+                "sbr" => sysfs::pci_device_reset(bdf),
+                "bridge-sbr" => sysfs::pci_bridge_reset(bdf),
+                "remove-rescan" => sysfs::pci_remove_rescan(bdf),
+                "auto" => try_reset_methods(bdf, &methods),
+                other => Err(format!(
+                    "unknown reset method: {other} (use 'auto', 'sbr', 'bridge-sbr', 'remove-rescan')"
+                )),
+            };
+            let duration_ms = reset_start.elapsed().as_millis() as u64;
+
+            let (success, error_msg) = match &result {
+                Ok(()) => (true, None),
+                Err(e) => (false, Some(e.clone())),
+            };
+
+            if let Some(j) = journal {
+                let obs = crate::observation::ResetObservation {
+                    bdf: bdf.to_string(),
+                    method: method.to_string(),
+                    success,
+                    error: error_msg.clone(),
+                    timestamp_epoch_ms: crate::observation::epoch_ms(),
+                    duration_ms,
+                };
+                if let Err(e) = j.append(&JournalEntry::Reset(obs)) {
+                    tracing::warn!(error = %e, "journal append failed for reset");
                 }
-                None => {
-                    drop(map);
-                    write_jsonrpc_error(
+            }
+
+            match result {
+                Ok(()) => {
+                    tracing::info!(bdf, method, duration_ms, "PCI device reset complete");
+                    write_jsonrpc_ok(
                         stream,
                         id,
-                        -32000,
-                        &format!("device {bdf} not held by ember"),
+                        serde_json::json!({
+                            "bdf": bdf,
+                            "reset": true,
+                            "method": method,
+                            "duration_ms": duration_ms,
+                        }),
                     )
                     .map_err(ipc_io_error_string)?;
                 }
-            }
-        }
-        "ember.ring_meta.set" => {
-            let bdf = params
-                .get("bdf")
-                .and_then(|v| v.as_str())
-                .ok_or("missing 'bdf' parameter")?;
-            let meta_val = params
-                .get("meta")
-                .ok_or("missing 'meta' parameter")?;
-            let meta: crate::hold::RingMeta = serde_json::from_value(meta_val.clone())
-                .map_err(|e| format!("invalid ring_meta: {e}"))?;
-            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
-                Ok(()) => {}
-                Err(early) => return early.map_err(ipc_io_error_string),
-            }
-            let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
-            match map.get_mut(bdf) {
-                Some(dev) => {
-                    let prev_version = dev.ring_meta.version;
-                    dev.ring_meta = meta;
-                    tracing::info!(
-                        bdf,
-                        version = dev.ring_meta.version,
-                        prev_version,
-                        mailboxes = dev.ring_meta.mailboxes.len(),
-                        rings = dev.ring_meta.rings.len(),
-                        "ring_meta updated"
-                    );
-                    drop(map);
-                    write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
+                Err(e) => {
+                    tracing::error!(bdf, method, error = %e, duration_ms, "PCI device reset failed");
+                    write_jsonrpc_error(stream, id, -32000, &format!("reset failed: {e}"))
                         .map_err(ipc_io_error_string)?;
-                }
-                None => {
-                    drop(map);
-                    write_jsonrpc_error(
-                        stream,
-                        id,
-                        -32000,
-                        &format!("device {bdf} not held by ember"),
-                    )
-                    .map_err(ipc_io_error_string)?;
                 }
             }
         }
@@ -453,6 +507,124 @@ pub fn handle_client(
                 }),
             )
             .map_err(ipc_io_error_string)?;
+        }
+        "ember.journal.query" => {
+            if let Some(j) = journal {
+                let filter: JournalFilter = serde_json::from_value(params.clone()).unwrap_or_default();
+                match j.query(&filter) {
+                    Ok(entries) => {
+                        write_jsonrpc_ok(stream, id, serde_json::json!({"entries": entries}))
+                            .map_err(ipc_io_error_string)?;
+                    }
+                    Err(e) => {
+                        write_jsonrpc_error(stream, id, -32000, &format!("journal query: {e}"))
+                            .map_err(ipc_io_error_string)?;
+                    }
+                }
+            } else {
+                write_jsonrpc_error(stream, id, -32000, "journal not available")
+                    .map_err(ipc_io_error_string)?;
+            }
+        }
+        "ember.journal.stats" => {
+            if let Some(j) = journal {
+                let bdf = params.get("bdf").and_then(|v| v.as_str());
+                match j.stats(bdf) {
+                    Ok(stats) => {
+                        let stats_json = serde_json::to_value(&stats).unwrap_or_default();
+                        write_jsonrpc_ok(stream, id, stats_json)
+                            .map_err(ipc_io_error_string)?;
+                    }
+                    Err(e) => {
+                        write_jsonrpc_error(stream, id, -32000, &format!("journal stats: {e}"))
+                            .map_err(ipc_io_error_string)?;
+                    }
+                }
+            } else {
+                write_jsonrpc_error(stream, id, -32000, "journal not available")
+                    .map_err(ipc_io_error_string)?;
+            }
+        }
+        "ember.journal.append" => {
+            if let Some(j) = journal {
+                match serde_json::from_value::<JournalEntry>(params.clone()) {
+                    Ok(entry) => match j.append(&entry) {
+                        Ok(()) => {
+                            write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
+                                .map_err(ipc_io_error_string)?;
+                        }
+                        Err(e) => {
+                            write_jsonrpc_error(
+                                stream,
+                                id,
+                                -32000,
+                                &format!("journal append: {e}"),
+                            )
+                            .map_err(ipc_io_error_string)?;
+                        }
+                    },
+                    Err(e) => {
+                        write_jsonrpc_error(
+                            stream,
+                            id,
+                            -32602,
+                            &format!("invalid journal entry: {e}"),
+                        )
+                        .map_err(ipc_io_error_string)?;
+                    }
+                }
+            } else {
+                write_jsonrpc_error(stream, id, -32000, "journal not available")
+                    .map_err(ipc_io_error_string)?;
+            }
+        }
+        "ember.ring_meta.get" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
+                .ok_or("missing 'bdf' parameter")?;
+            let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
+            if let Some(device) = map.get(bdf) {
+                let meta_json = serde_json::to_value(&device.ring_meta).unwrap_or_default();
+                drop(map);
+                write_jsonrpc_ok(stream, id, meta_json).map_err(ipc_io_error_string)?;
+            } else {
+                drop(map);
+                write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("{bdf}: not held by ember"),
+                )
+                .map_err(ipc_io_error_string)?;
+            }
+        }
+        "ember.ring_meta.set" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
+                .ok_or("missing 'bdf' parameter")?;
+            let meta_val = params
+                .get("ring_meta")
+                .ok_or("missing 'ring_meta' parameter")?;
+            let meta: crate::hold::RingMeta = serde_json::from_value(meta_val.clone())
+                .map_err(|e| format!("invalid ring_meta: {e}"))?;
+            let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
+            if let Some(device) = map.get_mut(bdf) {
+                device.ring_meta = meta;
+                drop(map);
+                write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
+                    .map_err(ipc_io_error_string)?;
+            } else {
+                drop(map);
+                write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("{bdf}: not held by ember"),
+                )
+                .map_err(ipc_io_error_string)?;
+            }
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
@@ -525,7 +697,7 @@ mod tests {
         drop(b);
         let held = empty_held();
         let m = managed(&[]);
-        handle_client(&a, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&a, &held, &m, Instant::now(), None).expect("handle_client completes");
         drop(a);
     }
 
@@ -538,7 +710,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -559,7 +731,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -580,7 +752,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(v["result"]["devices"], serde_json::json!([]));
     }
@@ -599,7 +771,7 @@ mod tests {
         let started = Instant::now() - Duration::from_secs(10);
         let held = empty_held();
         let m = managed(&[]);
-        handle_client(&server, &held, &m, started).expect("handle_client completes");
+        handle_client(&server, &held, &m, started, None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         let uptime = v["result"]["uptime_secs"].as_u64().expect("uptime field");
         assert!(uptime >= 10);
@@ -618,7 +790,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -640,7 +812,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -662,7 +834,7 @@ mod tests {
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
         let err =
-            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+            handle_client(&server, &held, &m, Instant::now(), None).expect_err("handler returns error");
         assert!(err.contains("bdf"), "{err}");
     }
 
@@ -680,7 +852,7 @@ mod tests {
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
         let err =
-            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+            handle_client(&server, &held, &m, Instant::now(), None).expect_err("handler returns error");
         assert!(err.contains("bdf"), "{err}");
     }
 
@@ -698,7 +870,7 @@ mod tests {
         let held = empty_held();
         let m = managed(&[]);
         let err =
-            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+            handle_client(&server, &held, &m, Instant::now(), None).expect_err("handler returns error");
         assert!(err.contains("bdf"));
     }
 
@@ -716,7 +888,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -739,7 +911,7 @@ mod tests {
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
         let err =
-            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+            handle_client(&server, &held, &m, Instant::now(), None).expect_err("handler returns error");
         assert!(err.contains("target"));
     }
 
@@ -756,7 +928,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[BOGUS_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -781,9 +953,9 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[BOGUS_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
-        assert_eq!(v["result"]["personality"], "unbound");
+        assert_eq!(v["result"]["to_personality"], "unbound");
         assert_eq!(v["id"], serde_json::json!(42));
     }
 
@@ -797,7 +969,7 @@ mod tests {
         let held = empty_held();
         let m = managed(&[]);
         let err =
-            handle_client(&server, &held, &m, Instant::now()).expect_err("handler returns error");
+            handle_client(&server, &held, &m, Instant::now(), None).expect_err("handler returns error");
         assert!(err.contains("utf8"), "{err}");
     }
 
@@ -824,7 +996,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[BOGUS_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -852,7 +1024,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -877,7 +1049,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -898,7 +1070,7 @@ mod tests {
             .expect("write request to test socket");
         let held = empty_held();
         let m = managed(&[TEST_BDF]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
         let v = drain_json_line(&mut client);
         assert_eq!(
             v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -979,6 +1151,6 @@ mod tests {
         );
         let held = Arc::new(RwLock::new(map));
         let m = managed(&[&bdf]);
-        handle_client(&server, &held, &m, Instant::now()).expect("handle_client completes");
+        handle_client(&server, &held, &m, Instant::now(), None).expect("handle_client completes");
     }
 }

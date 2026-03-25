@@ -162,18 +162,37 @@ pub(crate) const FALCON_PD1_VRAM: u32 = 0x13000;
 pub(crate) const FALCON_PD0_VRAM: u32 = 0x14000;
 pub(crate) const FALCON_PT0_VRAM: u32 = 0x15000;
 
+/// Encode a non-leaf PDE pointing to a sub-directory in VRAM.
+///
+/// MMU v2 PDE format (from nova-core `dev_mmu.h`):
+///   bit 0:      valid_inverted (0 = valid)
+///   bits[2:1]:  aperture (1 = VideoMemory)
+///   bits[32:8]: table_frame_vid = phys_addr >> 12
+///
+/// Result: `(phys >> 12) << 8 | aperture << 1` = `(phys >> 4) | 0x2`
 pub(crate) fn encode_vram_pde(vram_addr: u64) -> u64 {
     const APER_VRAM: u64 = 1 << 1; // bits[2:1] = 1 = VRAM
     (vram_addr >> 4) | APER_VRAM
 }
 
+/// Encode a PD0 dual PDE for the small page table pointer (same as non-leaf PDE).
+///
+/// On GV100, the PD0 level uses 16-byte dual PDEs. The small PT pointer goes in
+/// the **upper** 8 bytes (offset 8). Callers must write this at offset 8.
 pub(crate) fn encode_vram_pd0_pde(vram_addr: u64) -> u64 {
-    const SPT_PRESENT: u64 = 1 << 4;
-    encode_vram_pde(vram_addr) | SPT_PRESENT
+    encode_vram_pde(vram_addr)
 }
 
+/// Encode a PTE for a 4K VRAM page.
+///
+/// MMU v2 PTE format (from nova-core `dev_mmu.h`):
+///   bit 0:      valid (1 = valid)
+///   bits[2:1]:  aperture (0 = VideoMemory for PTEs)
+///   bits[32:8]: frame_number_vid = phys_addr >> 12
+///
+/// Result: `(phys >> 12) << 8 | 1` = `(phys >> 4) | 1`
 pub(crate) fn encode_vram_pte(vram_phys: u64) -> u64 {
-    const VALID: u64 = 1; // bit[0] = VALID, bits[2:1] = 0 = VRAM aperture
+    const VALID: u64 = 1;
     (vram_phys >> 4) | VALID
 }
 
@@ -201,29 +220,60 @@ pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
         wv(vram_addr, offset, lo) && wv(vram_addr, offset + 4, hi)
     };
 
-    // PD3[0] → PD2
-    if !wv64(FALCON_PD3_VRAM, 0, encode_vram_pde(FALCON_PD2_VRAM as u64)) {
+    // Zero ALL pages first — stale VRAM garbage in unused PDE/PTE entries
+    // can look valid to the MMU walker and cause it to follow bogus pointers.
+    for &page_vram in &[
+        FALCON_INST_VRAM,
+        FALCON_PD3_VRAM,
+        FALCON_PD2_VRAM,
+        FALCON_PD1_VRAM,
+        FALCON_PD0_VRAM,
+        FALCON_PT0_VRAM,
+    ] {
+        for off in (0..0x1000).step_by(4) {
+            if !wv(page_vram, off, 0) {
+                tracing::warn!(page_vram, off, "failed to zero page");
+                return false;
+            }
+        }
+    }
+
+    // GV100 MMU v2 uses 16-byte (128-bit) PDE entries at all directory levels.
+    // Non-leaf PDEs: lower 8 bytes = 0 (V=0 → PDE mode), upper 8 bytes = pointer.
+    // PD0 dual PDE: lower 8 bytes = big PT (0 for small-only), upper 8 bytes = small PT.
+
+    // PD3[0] → PD2 (upper half of 16-byte entry)
+    if !wv64(FALCON_PD3_VRAM, 0, 0) {
+        return false;
+    }
+    if !wv64(FALCON_PD3_VRAM, 8, encode_vram_pde(FALCON_PD2_VRAM as u64)) {
         return false;
     }
     // PD2[0] → PD1
-    if !wv64(FALCON_PD2_VRAM, 0, encode_vram_pde(FALCON_PD1_VRAM as u64)) {
+    if !wv64(FALCON_PD2_VRAM, 0, 0) {
+        return false;
+    }
+    if !wv64(FALCON_PD2_VRAM, 8, encode_vram_pde(FALCON_PD1_VRAM as u64)) {
         return false;
     }
     // PD1[0] → PD0
-    if !wv64(FALCON_PD1_VRAM, 0, encode_vram_pde(FALCON_PD0_VRAM as u64)) {
+    if !wv64(FALCON_PD1_VRAM, 0, 0) {
         return false;
     }
-    // PD0[0] → PT0 (dual PDE format: small PDE at bytes 0-7)
-    if !wv64(
-        FALCON_PD0_VRAM,
-        0,
-        encode_vram_pd0_pde(FALCON_PT0_VRAM as u64),
-    ) {
+    if !wv64(FALCON_PD1_VRAM, 8, encode_vram_pde(FALCON_PD0_VRAM as u64)) {
+        return false;
+    }
+    // PD0[0] → PT0 (dual PDE: lower = big PT [none], upper = small PT)
+    if !wv64(FALCON_PD0_VRAM, 0, 0) {
+        return false;
+    }
+    if !wv64(FALCON_PD0_VRAM, 8, encode_vram_pde(FALCON_PT0_VRAM as u64)) {
         return false;
     }
 
-    // PT0: identity-map 512 small pages (4KiB each = 2MiB total)
-    for i in 1u64..512 {
+    // PT0: identity-map 512 small pages (4KiB each = 2MiB total).
+    // Starts at page 0 to avoid unmapped-VA faults if firmware accesses low VRAM.
+    for i in 0u64..512 {
         let phys = i * 4096;
         let pte = encode_vram_pte(phys);
         if !wv64(FALCON_PT0_VRAM, (i as usize) * 8, pte) {
@@ -251,7 +301,7 @@ pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
         return false;
     }
 
-    // Verify: read back key entries
+    // Verify: read back key entries (PDE pointer is at upper 8 bytes = offset +8)
     let rv = |vram_addr: u32, offset: usize| -> u32 {
         PraminRegion::new(bar0, vram_addr, offset + 4)
             .ok()
@@ -259,8 +309,8 @@ pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
             .unwrap_or(0xDEAD)
     };
     let pdb_rb = rv(FALCON_INST_VRAM, 0x200);
-    let pd3_0 = rv(FALCON_PD3_VRAM, 0);
-    let pd3_4 = rv(FALCON_PD3_VRAM, 4);
+    let pd3_hi_lo = rv(FALCON_PD3_VRAM, 8);
+    let pd3_hi_hi = rv(FALCON_PD3_VRAM, 12);
     let pt0_112_lo = rv(FALCON_PT0_VRAM, 112 * 8);
     let pt0_112_hi = rv(FALCON_PT0_VRAM, 112 * 8 + 4);
     let pt0_1_lo = rv(FALCON_PT0_VRAM, 8);
@@ -269,7 +319,7 @@ pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
     tracing::info!(
         pdb_lo = format!("{pdb_lo:#010x}"),
         pdb_rb = format!("{pdb_rb:#010x}"),
-        pd3 = format!("{pd3_0:#010x}:{pd3_4:#010x}"),
+        pd3_upper = format!("{pd3_hi_lo:#010x}:{pd3_hi_hi:#010x}"),
         pt112 = format!("{pt0_112_lo:#010x}:{pt0_112_hi:#010x}"),
         pt1 = format!("{pt0_1_lo:#010x}:{pt0_1_hi:#010x}"),
         "VRAM falcon instance block built"

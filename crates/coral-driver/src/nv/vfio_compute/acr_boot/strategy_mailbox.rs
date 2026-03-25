@@ -9,7 +9,8 @@ use super::boot_result::{AcrBootResult, make_fail_result};
 use super::firmware::AcrFirmwareSet;
 use super::sec2_hal::{
     Sec2Probe, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
-    falcon_prepare_physical_dma, falcon_start_cpu, sec2_dmem_read, sec2_emem_read, sec2_emem_write,
+    falcon_prepare_physical_dma, falcon_start_cpu, sec2_dmem_read, sec2_emem_read,
+    sec2_emem_write, sec2_prepare_physical_first,
 };
 use super::wpr::falcon_id;
 
@@ -243,6 +244,64 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     let _ = bar0.write_u32(0x41a10c, 0); // GPCCS status clear
     let _ = bar0.write_u32(0x40910c, 0); // FECS status clear
 
+    const GPCCS_BL_IMEM_OFF: u32 = 0x3400;
+    const FECS_BL_IMEM_OFF: u32 = 0x7E00;
+
+    // Exp 091b: Verify GPCCS IMEM contents before STARTCPU.
+    // If IMEM is all-zero, ACR's BOOTSTRAP_FALCON DMA failed silently.
+    {
+        let gpccs_imem_base = falcon::GPCCS_BASE;
+        let mut imem_at_0000 = [0u32; 4];
+        let mut imem_at_3400 = [0u32; 4];
+
+        // Read IMEM[0x0000..0x0010]
+        let _ = bar0.write_u32(gpccs_imem_base + falcon::IMEMC, 0x0200_0000);
+        for w in &mut imem_at_0000 {
+            *w = bar0.read_u32(gpccs_imem_base + falcon::IMEMD).unwrap_or(0xDEAD_DEAD);
+        }
+        // Read IMEM[0x3400..0x3410]
+        let _ = bar0.write_u32(gpccs_imem_base + falcon::IMEMC, 0x0200_3400);
+        for w in &mut imem_at_3400 {
+            *w = bar0.read_u32(gpccs_imem_base + falcon::IMEMD).unwrap_or(0xDEAD_DEAD);
+        }
+
+        let zero_0 = imem_at_0000.iter().all(|&w| w == 0);
+        let zero_bl = imem_at_3400.iter().all(|&w| w == 0);
+        notes.push(format!(
+            "GPCCS IMEM[0x0000]: {:08x} {:08x} {:08x} {:08x} ({})",
+            imem_at_0000[0], imem_at_0000[1], imem_at_0000[2], imem_at_0000[3],
+            if zero_0 { "EMPTY" } else { "HAS DATA" }
+        ));
+        notes.push(format!(
+            "GPCCS IMEM[0x3400]: {:08x} {:08x} {:08x} {:08x} ({})",
+            imem_at_3400[0], imem_at_3400[1], imem_at_3400[2], imem_at_3400[3],
+            if zero_bl { "EMPTY — ACR DMA FAILED" } else { "HAS FIRMWARE" }
+        ));
+
+        if zero_bl {
+            tracing::warn!("GPCCS IMEM[0x3400] is empty after BOOTSTRAP_FALCON — ACR DMA likely failed");
+        }
+    }
+
+    let gpccs_bootvec = bar0
+        .read_u32(falcon::GPCCS_BASE + falcon::BOOTVEC)
+        .unwrap_or(0xDEAD);
+    let fecs_bootvec = bar0
+        .read_u32(falcon::FECS_BASE + falcon::BOOTVEC)
+        .unwrap_or(0xDEAD);
+    notes.push(format!(
+        "Pre-fix BOOTVEC: GPCCS={gpccs_bootvec:#010x} FECS={fecs_bootvec:#010x}"
+    ));
+
+    if gpccs_bootvec == 0 {
+        let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::BOOTVEC, GPCCS_BL_IMEM_OFF);
+        notes.push(format!("GPCCS BOOTVEC fixed: 0 → {GPCCS_BL_IMEM_OFF:#06x}"));
+    }
+    if fecs_bootvec == 0 {
+        let _ = bar0.write_u32(falcon::FECS_BASE + falcon::BOOTVEC, FECS_BL_IMEM_OFF);
+        notes.push(format!("FECS BOOTVEC fixed: 0 → {FECS_BL_IMEM_OFF:#06x}"));
+    }
+
     // Start GPCCS first (FECS expects GPCCS to be running)
     tracing::info!("Layer 9: issuing STARTCPU to GPCCS");
     falcon_start_cpu(bar0, falcon::GPCCS_BASE);
@@ -250,8 +309,14 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     let gpccs_post_start = bar0
         .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
         .unwrap_or(0xDEAD);
+    let gpccs_post_pc = bar0
+        .read_u32(falcon::GPCCS_BASE + falcon::PC)
+        .unwrap_or(0xDEAD);
+    let gpccs_post_exci = bar0
+        .read_u32(falcon::GPCCS_BASE + falcon::EXCI)
+        .unwrap_or(0xDEAD);
     notes.push(format!(
-        "GPCCS after STARTCPU: cpuctl={gpccs_post_start:#010x}"
+        "GPCCS after STARTCPU: cpuctl={gpccs_post_start:#010x} pc={gpccs_post_pc:#06x} exci={gpccs_post_exci:#010x}"
     ));
 
     // Start FECS second
@@ -878,6 +943,302 @@ pub fn attempt_nouveau_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRes
 
     post.into_result(
         "nouveau-style IMEM+EMEM SEC2 boot",
+        sec2_before,
+        sec2_after,
+        notes,
+    )
+}
+
+/// Exp 091b: Direct host-driven GPCCS/FECS firmware upload, bypassing SEC2/ACR DMA.
+///
+/// SEC2's inst block bind fails (bind_stat stuck at 3), so ACR cannot DMA
+/// firmware into GPCCS IMEM. Instead, we upload firmware directly via
+/// IMEMC/IMEMD host ports while the falcons are in HRESET.
+pub fn attempt_direct_falcon_upload(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult {
+    let mut notes = Vec::new();
+    let sec2_before = Sec2Probe::capture(bar0);
+
+    // PMC GR reset to get clean HRESET on FECS/GPCCS
+    let pmc_enable: usize = 0x200;
+    let pmc_val = bar0.read_u32(pmc_enable).unwrap_or(0);
+    let gr_bit = 1u32 << 12;
+    notes.push(format!("PMC pre-reset: {pmc_val:#010x}"));
+
+    // Disable GR
+    let _ = bar0.write_u32(pmc_enable, pmc_val & !gr_bit);
+    let _ = bar0.read_u32(pmc_enable); // barrier
+    std::thread::sleep(std::time::Duration::from_micros(20));
+    // Re-enable GR
+    let _ = bar0.write_u32(pmc_enable, pmc_val | gr_bit);
+    let _ = bar0.read_u32(pmc_enable); // barrier
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    let gpccs_cpuctl = bar0.read_u32(falcon::GPCCS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
+    let fecs_cpuctl = bar0.read_u32(falcon::FECS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
+    notes.push(format!(
+        "Post-PMC-reset: GPCCS cpuctl={gpccs_cpuctl:#010x} FECS cpuctl={fecs_cpuctl:#010x}"
+    ));
+
+    // Upload GPCCS firmware: inst → IMEM[0], BL → IMEM[bl_imem_off], data → DMEM[0]
+    let gpccs_bl_off = fw.gpccs_bl.bl_imem_off();
+    notes.push(format!(
+        "GPCCS firmware: inst={}B bl={}B(tag={:#x}, off={gpccs_bl_off:#x}) data={}B",
+        fw.gpccs_inst.len(), fw.gpccs_bl.code.len(), fw.gpccs_bl.start_tag, fw.gpccs_data.len()
+    ));
+
+    // IMEM upload: inst code first (tag starts at 0)
+    falcon_imem_upload_nouveau(bar0, falcon::GPCCS_BASE, 0, &fw.gpccs_inst, 0);
+    // IMEM upload: bootloader at bl_imem_off (tag = start_tag)
+    falcon_imem_upload_nouveau(
+        bar0,
+        falcon::GPCCS_BASE,
+        gpccs_bl_off,
+        &fw.gpccs_bl.code,
+        fw.gpccs_bl.start_tag,
+    );
+    // DMEM upload: data section
+    falcon_dmem_upload(bar0, falcon::GPCCS_BASE, 0, &fw.gpccs_data);
+
+    // Verify IMEM was written
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::IMEMC, 0x0200_0000);
+    let imem0 = bar0.read_u32(falcon::GPCCS_BASE + falcon::IMEMD).unwrap_or(0);
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::IMEMC, 0x0200_0000 | gpccs_bl_off);
+    let imem_bl = bar0.read_u32(falcon::GPCCS_BASE + falcon::IMEMD).unwrap_or(0);
+    notes.push(format!(
+        "GPCCS IMEM verify: [0x0000]={imem0:#010x} [{gpccs_bl_off:#06x}]={imem_bl:#010x}"
+    ));
+
+    // Configure GPCCS: BOOTVEC, ITFEN, INTR_ENABLE
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::BOOTVEC, gpccs_bl_off);
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x048, 0x04); // ITFEN
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x00c, 0xfc24); // INTR_ENABLE
+    let bv_rb = bar0.read_u32(falcon::GPCCS_BASE + falcon::BOOTVEC).unwrap_or(0xDEAD);
+    notes.push(format!("GPCCS BOOTVEC={bv_rb:#010x} ITFEN=0x04 INTR_EN=0xfc24"));
+
+    // Start GPCCS
+    tracing::info!("Exp 091b: STARTCPU on GPCCS with host-loaded firmware");
+    falcon_start_cpu(bar0, falcon::GPCCS_BASE);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let gpccs_pc = bar0.read_u32(falcon::GPCCS_BASE + falcon::PC).unwrap_or(0xDEAD);
+    let gpccs_exci = bar0.read_u32(falcon::GPCCS_BASE + falcon::EXCI).unwrap_or(0xDEAD);
+    let gpccs_cpuctl2 = bar0.read_u32(falcon::GPCCS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
+    let gpccs_mb0 = bar0.read_u32(falcon::GPCCS_BASE + falcon::MAILBOX0).unwrap_or(0xDEAD);
+    notes.push(format!(
+        "GPCCS after start: cpuctl={gpccs_cpuctl2:#010x} pc={gpccs_pc:#06x} exci={gpccs_exci:#010x} mb0={gpccs_mb0:#010x}"
+    ));
+
+    let gpccs_ok = gpccs_exci == 0 && gpccs_pc != 0;
+    if gpccs_ok {
+        tracing::info!("GPCCS ALIVE: pc={gpccs_pc:#06x}");
+    } else {
+        tracing::warn!("GPCCS FAULT: pc={gpccs_pc:#06x} exci={gpccs_exci:#010x}");
+
+        // PC sampling to detect any progression
+        let mut pcs = Vec::new();
+        for _ in 0..5 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            pcs.push(bar0.read_u32(falcon::GPCCS_BASE + falcon::PC).unwrap_or(0xDEAD));
+        }
+        notes.push(format!("GPCCS PC samples: {pcs:08x?}"));
+    }
+
+    // Upload FECS firmware
+    let fecs_bl_off = fw.fecs_bl.bl_imem_off();
+    notes.push(format!(
+        "FECS firmware: inst={}B bl={}B(tag={:#x}, off={fecs_bl_off:#x}) data={}B",
+        fw.fecs_inst.len(), fw.fecs_bl.code.len(), fw.fecs_bl.start_tag, fw.fecs_data.len()
+    ));
+
+    falcon_imem_upload_nouveau(bar0, falcon::FECS_BASE, 0, &fw.fecs_inst, 0);
+    falcon_imem_upload_nouveau(
+        bar0,
+        falcon::FECS_BASE,
+        fecs_bl_off,
+        &fw.fecs_bl.code,
+        fw.fecs_bl.start_tag,
+    );
+    falcon_dmem_upload(bar0, falcon::FECS_BASE, 0, &fw.fecs_data);
+
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::BOOTVEC, fecs_bl_off);
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x048, 0x04); // ITFEN
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x00c, 0xfc24); // INTR_ENABLE
+
+    tracing::info!("Exp 091b: STARTCPU on FECS with host-loaded firmware");
+    falcon_start_cpu(bar0, falcon::FECS_BASE);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let fecs_pc = bar0.read_u32(falcon::FECS_BASE + falcon::PC).unwrap_or(0xDEAD);
+    let fecs_exci = bar0.read_u32(falcon::FECS_BASE + falcon::EXCI).unwrap_or(0xDEAD);
+    let fecs_cpuctl2 = bar0.read_u32(falcon::FECS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
+    let fecs_mb0 = bar0.read_u32(falcon::FECS_BASE + falcon::MAILBOX0).unwrap_or(0xDEAD);
+    notes.push(format!(
+        "FECS after start: cpuctl={fecs_cpuctl2:#010x} pc={fecs_pc:#06x} exci={fecs_exci:#010x} mb0={fecs_mb0:#010x}"
+    ));
+
+    let sec2_after = Sec2Probe::capture(bar0);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
+
+    post.into_result(
+        "Exp 091b: direct host IMEM/DMEM upload (bypass ACR DMA)",
+        sec2_before,
+        sec2_after,
+        notes,
+    )
+}
+
+/// Physical-first SEC2 boot: PMC reset → physical DMA (no instance block) → BL upload → start.
+///
+/// This strategy eliminates the circular dependency that blocks the instance block bind:
+/// - `sec2_prepare_direct_boot` tries to bind an instance block for virtual DMA, but
+///   the bind walker needs FBIF in physical mode to read the page tables it's trying to
+///   bind. The walker stalls at state 2.
+/// - Nouveau boots with physical DMA for the initial bootloader, and only the BL
+///   itself sets up virtual addressing internally after it's running.
+///
+/// After SBR (via Ember), this sequence gives SEC2 a fully clean hardware state:
+/// 1. `sec2_prepare_physical_first` — PMC reset + physical DMA mode (no bind)
+/// 2. Upload BL code to IMEM (PIO)
+/// 3. Upload BL descriptor to EMEM/DMEM with **physical** VRAM addresses for WPR
+/// 4. BOOTVEC + STARTCPU
+/// 5. BL runs with physical DMA, loads ACR firmware from physical VRAM
+pub fn attempt_physical_first_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult {
+    let mut notes = Vec::new();
+    let sec2_before = Sec2Probe::capture(bar0);
+    notes.push(format!("SEC2 state: {:?}", sec2_before.state));
+
+    let base = falcon::SEC2_BASE;
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+
+    // Step 1: Full reset + physical DMA setup (no instance block)
+    tracing::info!("Physical-first: resetting SEC2 and configuring physical DMA");
+    let (halted, prep_notes) = sec2_prepare_physical_first(bar0);
+    notes.extend(prep_notes);
+    if !halted {
+        notes.push("WARNING: SEC2 did not halt after reset — continuing anyway".to_string());
+    }
+
+    // Step 2: Parse BL descriptor
+    let bl_hdr = &fw.acr_bl_parsed;
+    let sub_hdr = &bl_hdr.raw;
+    let bl_start_tag = if sub_hdr.len() >= 4 {
+        u32::from_le_bytes([sub_hdr[0], sub_hdr[1], sub_hdr[2], sub_hdr[3]])
+    } else {
+        0xFD
+    };
+    let bl_code_off = if sub_hdr.len() >= 12 {
+        u32::from_le_bytes([sub_hdr[8], sub_hdr[9], sub_hdr[10], sub_hdr[11]])
+    } else {
+        0
+    };
+    let bl_code_size = if sub_hdr.len() >= 16 {
+        u32::from_le_bytes([sub_hdr[12], sub_hdr[13], sub_hdr[14], sub_hdr[15]])
+    } else {
+        0x200
+    };
+    let bl_data_off = if sub_hdr.len() >= 20 {
+        u32::from_le_bytes([sub_hdr[16], sub_hdr[17], sub_hdr[18], sub_hdr[19]])
+    } else {
+        0x200
+    };
+    let bl_data_size = if sub_hdr.len() >= 24 {
+        u32::from_le_bytes([sub_hdr[20], sub_hdr[21], sub_hdr[22], sub_hdr[23]])
+    } else {
+        0x100
+    };
+
+    let boot_addr = bl_start_tag << 8;
+    notes.push(format!(
+        "BL: start_tag={bl_start_tag:#x} boot_addr={boot_addr:#x} \
+         code=[{bl_code_off:#x}+{bl_code_size:#x}] data=[{bl_data_off:#x}+{bl_data_size:#x}]"
+    ));
+
+    // Step 3: Upload BL code to IMEM
+    let payload = bl_hdr.payload(&fw.acr_bl_raw);
+    let code_end = (bl_code_off + bl_code_size) as usize;
+    let data_end = (bl_data_off + bl_data_size) as usize;
+    let bl_code = if code_end <= payload.len() {
+        &payload[bl_code_off as usize..code_end]
+    } else {
+        payload
+    };
+    let bl_data = if data_end <= payload.len() {
+        &payload[bl_data_off as usize..data_end]
+    } else {
+        &[]
+    };
+
+    let hwcfg = r(falcon::HWCFG);
+    let code_limit = falcon::imem_size_bytes(hwcfg);
+    let imem_addr = code_limit.saturating_sub(bl_code.len() as u32);
+    let imem_tag = boot_addr >> 8;
+
+    notes.push(format!(
+        "Uploading BL: {} bytes IMEM@{imem_addr:#x} tag={imem_tag:#x}",
+        bl_code.len()
+    ));
+    falcon_imem_upload_nouveau(bar0, base, imem_addr, bl_code, imem_tag);
+
+    // Step 4: Upload BL data to EMEM (descriptor with physical addresses)
+    if !bl_data.is_empty() {
+        notes.push(format!("Uploading BL data: {} bytes EMEM@0", bl_data.len()));
+        sec2_emem_write(bar0, 0, bl_data);
+    }
+
+    // Step 5: BOOTVEC + STARTCPU
+    w(falcon::MAILBOX0, 0xcafe_beef_u32);
+    w(falcon::BOOTVEC, boot_addr);
+    notes.push(format!(
+        "BOOTVEC={boot_addr:#x} mailbox0=0xcafebeef — PHYSICAL DMA mode"
+    ));
+    falcon_start_cpu(bar0, base);
+
+    // Step 6: Poll for halt/completion
+    let timeout = std::time::Duration::from_secs(3);
+    let start = std::time::Instant::now();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let cpuctl = r(falcon::CPUCTL);
+        let mb0 = r(falcon::MAILBOX0);
+        let mb1 = r(falcon::MAILBOX1);
+
+        if cpuctl & falcon::CPUCTL_HRESET != 0 && cpuctl != sec2_before.cpuctl {
+            notes.push(format!(
+                "SEC2 halted: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} ({}ms)",
+                start.elapsed().as_millis()
+            ));
+            break;
+        }
+        if mb0 != 0xcafe_beef && mb0 != 0 {
+            notes.push(format!(
+                "SEC2 mailbox changed: cpuctl={cpuctl:#010x} mb0={mb0:#010x} ({}ms)",
+                start.elapsed().as_millis()
+            ));
+            break;
+        }
+        if start.elapsed() > timeout {
+            notes.push(format!(
+                "SEC2 timeout (3s): cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x}"
+            ));
+            break;
+        }
+    }
+
+    // Diagnostics
+    let exci = r(falcon::EXCI);
+    let pc = bar0.read_u32(base + falcon::PC).unwrap_or(0xDEAD);
+    notes.push(format!(
+        "Post-boot: pc={pc:#06x} exci={exci:#010x}"
+    ));
+
+    let sec2_after = Sec2Probe::capture(bar0);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
+
+    post.into_result(
+        "Physical-first SEC2 boot (no instance block)",
         sec2_before,
         sec2_after,
         notes,

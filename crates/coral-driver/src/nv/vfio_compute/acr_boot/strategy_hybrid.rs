@@ -115,15 +115,15 @@ pub fn attempt_hybrid_acr_boot(
         wv(vram_addr, offset, lo) && wv(vram_addr, offset + 4, hi)
     };
 
-    // PD chain: all VRAM aperture
-    let pt_ok = wv64(FALCON_PD3_VRAM, 0, encode_vram_pde(FALCON_PD2_VRAM as u64))
-        && wv64(FALCON_PD2_VRAM, 0, encode_vram_pde(FALCON_PD1_VRAM as u64))
-        && wv64(FALCON_PD1_VRAM, 0, encode_vram_pde(FALCON_PD0_VRAM as u64))
-        && wv64(
-            FALCON_PD0_VRAM,
-            0,
-            encode_vram_pd0_pde(FALCON_PT0_VRAM as u64),
-        );
+    // PD chain: 16-byte DualPDE entries — pointer in upper 8 bytes (offset 8)
+    let pt_ok = wv64(FALCON_PD3_VRAM, 0, 0)
+        && wv64(FALCON_PD3_VRAM, 8, encode_vram_pde(FALCON_PD2_VRAM as u64))
+        && wv64(FALCON_PD2_VRAM, 0, 0)
+        && wv64(FALCON_PD2_VRAM, 8, encode_vram_pde(FALCON_PD1_VRAM as u64))
+        && wv64(FALCON_PD1_VRAM, 0, 0)
+        && wv64(FALCON_PD1_VRAM, 8, encode_vram_pde(FALCON_PD0_VRAM as u64))
+        && wv64(FALCON_PD0_VRAM, 0, 0)
+        && wv64(FALCON_PD0_VRAM, 8, encode_vram_pd0_pde(FALCON_PT0_VRAM as u64));
 
     if !pt_ok {
         notes.push("VRAM page directory chain write failed".to_string());

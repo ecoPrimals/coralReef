@@ -98,7 +98,7 @@ pub(crate) fn build_bl_dmem_desc(
 ///   0x23C: region_props[1]  (28 bytes, left zeroed)
 ///   0x258: ucode_blob_size  (u32)
 ///   0x260: ucode_blob_base  (u64, 8-byte aligned)
-pub(crate) fn patch_acr_desc(payload: &mut [u8], data_off: usize, wpr_start: u64, wpr_end: u64) {
+pub fn patch_acr_desc(payload: &mut [u8], data_off: usize, wpr_start: u64, wpr_end: u64) {
     let needed = data_off + 0x268;
     if needed > payload.len() {
         tracing::warn!(

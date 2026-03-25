@@ -16,6 +16,7 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg}
 use serde::Deserialize;
 
 use coral_driver::vfio::ReceivedVfioFds;
+use coral_ember::observation::SwapObservation;
 
 use crate::error::EmberError;
 
@@ -191,15 +192,35 @@ impl EmberClient {
         Ok(())
     }
 
+    /// Ask ember to perform a PCI device reset via sysfs.
+    ///
+    /// This is the SBR path — writes `1` to the sysfs `reset` file for the
+    /// device. Required for GPUs without FLR support (e.g. GV100 Titan V).
+    pub fn device_reset(&self, bdf: &str, method: &str) -> Result<(), EmberError> {
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
+
+        let req = make_rpc_request(
+            "ember.device_reset",
+            serde_json::json!({"bdf": bdf, "method": method}),
+        );
+        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+
+        let mut buf = [0u8; MAX_RESPONSE_SIZE];
+        let n = std::io::Read::read(&mut &stream, &mut buf)?;
+        parse_rpc_response(&buf[..n])?;
+        Ok(())
+    }
+
     /// Ask ember to perform a full driver swap (unbind current, bind target).
     ///
-    /// Ember handles all sysfs writes and VFIO fd lifecycle. Returns the
-    /// resulting personality name on success.
+    /// Ember handles all sysfs writes and VFIO fd lifecycle. Returns a
+    /// [`SwapObservation`] with timing, trace artifacts, and health status.
     ///
     /// Retries transient I/O errors (EAGAIN, EWOULDBLOCK, EINTR) up to 3
     /// times with backoff. Driver swaps can stall briefly while the kernel
     /// settles sysfs state after unbind.
-    pub fn swap_device(&self, bdf: &str, target: &str) -> Result<String, EmberError> {
+    pub fn swap_device(&self, bdf: &str, target: &str) -> Result<SwapObservation, EmberError> {
         self.swap_device_traced(bdf, target, false)
     }
 
@@ -209,7 +230,7 @@ impl EmberClient {
         bdf: &str,
         target: &str,
         trace: bool,
-    ) -> Result<String, EmberError> {
+    ) -> Result<SwapObservation, EmberError> {
         const MAX_RETRIES: u32 = 3;
         const SWAP_TIMEOUT_SECS: u64 = 60;
 
@@ -228,7 +249,7 @@ impl EmberClient {
             }
 
             match self.try_swap_device(bdf, target, trace, SWAP_TIMEOUT_SECS) {
-                Ok(personality) => return Ok(personality),
+                Ok(obs) => return Ok(obs),
                 Err(EmberError::Io(ref e)) if is_transient_io(e) && attempt < MAX_RETRIES => {
                     tracing::warn!(
                         bdf, target, attempt, error = %e,
@@ -250,7 +271,7 @@ impl EmberClient {
         target: &str,
         trace: bool,
         timeout_secs: u64,
-    ) -> Result<String, EmberError> {
+    ) -> Result<SwapObservation, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(timeout_secs)))?;
 
@@ -261,14 +282,108 @@ impl EmberClient {
         let req = make_rpc_request("ember.swap", params);
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
 
-        let mut buf = [0u8; MAX_RESPONSE_SIZE];
+        let mut buf = vec![0u8; 8192];
         let n = read_full_response(&stream, &mut buf)?;
         let result = parse_rpc_response(&buf[..n])?;
-        Ok(result
-            .get("personality")
-            .and_then(|v| v.as_str())
-            .unwrap_or(target)
-            .to_string())
+        serde_json::from_value::<SwapObservation>(result.clone()).or_else(|_| {
+            // Backward-compat: old ember returning {"bdf", "personality"}
+            let personality = result
+                .get("personality")
+                .or_else(|| result.get("to_personality"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(target);
+            Ok(SwapObservation {
+                bdf: bdf.to_string(),
+                from_personality: None,
+                to_personality: personality.to_string(),
+                timestamp_epoch_ms: 0,
+                timing: coral_ember::observation::SwapTiming {
+                    prepare_ms: 0,
+                    unbind_ms: 0,
+                    bind_ms: 0,
+                    stabilize_ms: 0,
+                    total_ms: 0,
+                },
+                trace_path: None,
+                health: coral_ember::observation::HealthResult::Ok,
+                lifecycle_description: "unknown (legacy response)".to_string(),
+                reset_method_used: None,
+            })
+        })
+    }
+
+    /// Query the experiment journal.
+    pub fn journal_query(
+        &self,
+        filter: &coral_ember::journal::JournalFilter,
+    ) -> Result<Vec<coral_ember::journal::JournalEntry>, EmberError> {
+        let result = self.simple_rpc(
+            "ember.journal.query",
+            serde_json::to_value(filter).unwrap_or_default(),
+        )?;
+        let entries = result
+            .get("entries")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        serde_json::from_value(entries).map_err(EmberError::Parse)
+    }
+
+    /// Get aggregate journal statistics.
+    pub fn journal_stats(
+        &self,
+        bdf: Option<&str>,
+    ) -> Result<coral_ember::journal::JournalStats, EmberError> {
+        let params = match bdf {
+            Some(b) => serde_json::json!({"bdf": b}),
+            None => serde_json::json!({}),
+        };
+        let result = self.simple_rpc("ember.journal.stats", params)?;
+        serde_json::from_value(result).map_err(EmberError::Parse)
+    }
+
+    /// Append an entry to the experiment journal (e.g. boot attempt results).
+    pub fn journal_append(
+        &self,
+        entry: &coral_ember::journal::JournalEntry,
+    ) -> Result<(), EmberError> {
+        let params = serde_json::to_value(entry).map_err(EmberError::Parse)?;
+        self.simple_rpc("ember.journal.append", params)?;
+        Ok(())
+    }
+
+    /// Get ring metadata for a held device.
+    pub fn ring_meta_get(&self, bdf: &str) -> Result<coral_ember::RingMeta, EmberError> {
+        let result = self.simple_rpc("ember.ring_meta.get", serde_json::json!({"bdf": bdf}))?;
+        serde_json::from_value(result).map_err(EmberError::Parse)
+    }
+
+    /// Set ring metadata for a held device.
+    pub fn ring_meta_set(
+        &self,
+        bdf: &str,
+        meta: &coral_ember::RingMeta,
+    ) -> Result<(), EmberError> {
+        let meta_val = serde_json::to_value(meta).map_err(EmberError::Parse)?;
+        self.simple_rpc(
+            "ember.ring_meta.set",
+            serde_json::json!({"bdf": bdf, "ring_meta": meta_val}),
+        )?;
+        Ok(())
+    }
+
+    /// Generic one-shot RPC call to ember.
+    fn simple_rpc(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, EmberError> {
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+        let req = make_rpc_request(method, params);
+        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        let mut buf = vec![0u8; 65536];
+        let n = read_full_response(&stream, &mut buf)?;
+        parse_rpc_response(&buf[..n])
     }
 
     /// Request VFIO fds for a specific BDF from the ember.

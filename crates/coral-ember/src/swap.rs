@@ -9,10 +9,14 @@
 //! management, rebind strategies). See [`vendor_lifecycle`] module.
 
 use crate::hold::HeldDevice;
+use crate::journal::Journal;
+use crate::observation::{self, HealthResult, SwapObservation, SwapTiming};
 use crate::sysfs;
 use crate::vendor_lifecycle::{self, RebindStrategy};
 use coral_driver::linux_paths;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 /// Default Xorg drop-in path when `CORALREEF_XORG_ISOLATION_CONF` is unset.
 const DEFAULT_XORG_ISOLATION_CONF: &str = "/etc/X11/xorg.conf.d/11-coralreef-gpu-isolation.conf";
@@ -259,6 +263,10 @@ fn preflight_device_check(bdf: &str) -> Result<(), String> {
 
 /// Unbind/rebind the device to `target` (e.g. `vfio-pci`, `amdgpu`, `unbound`), updating `held`.
 ///
+/// Returns a [`SwapObservation`] with per-phase timing, trace artifacts, and
+/// health results. This observation is also suitable for journal persistence
+/// and cross-personality comparison.
+///
 /// When `trace` is `true`, the kernel mmiotrace facility is enabled around
 /// the driver bind, capturing every MMIO write the driver performs during
 /// initialization. The trace is saved to the configured data directory.
@@ -272,7 +280,21 @@ pub fn handle_swap_device(
     target: &str,
     held: &mut HashMap<String, HeldDevice>,
     enable_trace: bool,
-) -> Result<String, String> {
+) -> Result<SwapObservation, String> {
+    handle_swap_device_with_journal(bdf, target, held, enable_trace, None)
+}
+
+/// Inner swap implementation that optionally wraps the lifecycle in [`AdaptiveLifecycle`]
+/// when a journal is provided.
+pub fn handle_swap_device_with_journal(
+    bdf: &str,
+    target: &str,
+    held: &mut HashMap<String, HeldDevice>,
+    enable_trace: bool,
+    journal: Option<&Arc<Journal>>,
+) -> Result<SwapObservation, String> {
+    let swap_start = Instant::now();
+    let timestamp = observation::epoch_ms();
     tracing::info!(bdf, target, trace = enable_trace, "swap_device: starting");
 
     const KNOWN_TARGETS: &[&str] = &[
@@ -281,6 +303,7 @@ pub fn handle_swap_device(
         "nouveau",
         "amdgpu",
         "nvidia",
+        "nvidia-open",
         "nvidia_oracle",
         "xe",
         "i915",
@@ -299,7 +322,23 @@ pub fn handle_swap_device(
             bdf,
             "device absent from sysfs — already effectively unbound"
         );
-        return Ok("unbound".to_string());
+        return Ok(SwapObservation {
+            bdf: bdf.to_string(),
+            from_personality: None,
+            to_personality: "unbound".to_string(),
+            timestamp_epoch_ms: timestamp,
+            timing: SwapTiming {
+                prepare_ms: 0,
+                unbind_ms: 0,
+                bind_ms: 0,
+                stabilize_ms: 0,
+                total_ms: swap_start.elapsed().as_millis() as u64,
+            },
+            trace_path: None,
+            health: HealthResult::Ok,
+            lifecycle_description: "absent device".to_string(),
+            reset_method_used: None,
+        });
     }
 
     if is_active_display_gpu(bdf) {
@@ -314,12 +353,18 @@ pub fn handle_swap_device(
 
     preflight_device_check(bdf)?;
 
-    let lifecycle = vendor_lifecycle::detect_lifecycle_for_target(bdf, target);
-    tracing::info!(
-        bdf,
-        lifecycle = lifecycle.description(),
-        "vendor lifecycle detected"
-    );
+    let base_lifecycle = vendor_lifecycle::detect_lifecycle_for_target(bdf, target);
+    let lifecycle: Box<dyn vendor_lifecycle::VendorLifecycle> = if let Some(j) = journal {
+        Box::new(crate::adaptive::AdaptiveLifecycle::new(
+            base_lifecycle,
+            Arc::clone(j),
+            bdf.to_string(),
+        ))
+    } else {
+        base_lifecycle
+    };
+    let lifecycle_desc = lifecycle.description().to_string();
+    tracing::info!(bdf, lifecycle = %lifecycle_desc, "vendor lifecycle detected");
 
     let external = count_external_vfio_group_holders(bdf);
     if external > 0 {
@@ -335,19 +380,26 @@ pub fn handle_swap_device(
         ));
     }
 
-    // Step 1: vendor-specific preparation BEFORE dropping fds.
-    // This MUST happen first — vfio-pci triggers a PCI reset when its
-    // last fd closes (vfio_pci_core_disable). If we don't clear
-    // reset_method before the fd drop, the reset fires and can kill
-    // the card (AMD Vega 20 → D3cold).
+    // --- Phase 1: Prepare ---
+    let prepare_start = Instant::now();
     let current = sysfs::read_current_driver(bdf);
+    let from_personality = current.clone();
+
+    // Vendor-specific preparation BEFORE dropping fds.
+    // vfio-pci triggers a PCI reset when its last fd closes
+    // (vfio_pci_core_disable). If we don't clear reset_method before
+    // the fd drop, the reset fires and can kill the card.
     if let Some(ref drv) = current {
         lifecycle.prepare_for_unbind(bdf, drv)?;
     } else {
         sysfs::pin_power(bdf);
     }
+    let prepare_ms = prepare_start.elapsed().as_millis() as u64;
 
-    // Step 2: release held VFIO fds (reset_method already cleared).
+    // --- Phase 2: Unbind ---
+    let unbind_start = Instant::now();
+
+    // Release held VFIO fds (reset_method already cleared).
     if let Some(device) = held.remove(bdf) {
         let dev_fd = device.device.device_fd();
         tracing::info!(bdf, device_fd = dev_fd, "swap_device: dropping VFIO fds");
@@ -368,7 +420,7 @@ pub fn handle_swap_device(
         );
     }
 
-    // Step 3: unbind current driver
+    // Unbind current driver.
     if let Some(ref drv) = current {
         tracing::info!(bdf, driver = %drv, "swap_device: unbinding current driver");
         sysfs::sysfs_write(
@@ -378,21 +430,81 @@ pub fn handle_swap_device(
         std::thread::sleep(std::time::Duration::from_millis(500));
         sysfs::pin_power(bdf);
     }
+    let unbind_ms = unbind_start.elapsed().as_millis() as u64;
 
-    if enable_trace {
-        tracing::info!(
-            bdf,
-            target,
-            "mmiotrace requested — trace module pending ecosystem integration"
-        );
-    }
+    // --- Phase 3: Bind ---
+    let bind_start = Instant::now();
+    let mut trace_path_captured: Option<String> = None;
 
-    // Step 4: bind to target driver using vendor-appropriate strategy
-    match target {
-        "vfio" | "vfio-pci" => bind_vfio(bdf, held, &*lifecycle),
-        "unbound" => Ok("unbound".to_string()),
-        _ => bind_native(bdf, target, &*lifecycle),
-    }
+    let bind_result = if enable_trace && crate::trace::is_mmiotrace_available() {
+        tracing::info!(bdf, target, "mmiotrace capture enabled for bind");
+        let (result, tp) = crate::trace::with_mmiotrace(bdf, target, || {
+            match target {
+                "vfio" | "vfio-pci" => bind_vfio(bdf, held, &*lifecycle),
+                "unbound" => Ok("unbound".to_string()),
+                _ => bind_native(bdf, target, &*lifecycle),
+            }
+        });
+        if let Some(ref path) = tp {
+            tracing::info!(bdf, target, path = %path, "mmiotrace saved");
+        }
+        trace_path_captured = tp;
+        result
+    } else {
+        if enable_trace {
+            tracing::warn!(
+                bdf,
+                target,
+                "mmiotrace requested but debugfs tracer not available"
+            );
+        }
+        match target {
+            "vfio" | "vfio-pci" => bind_vfio(bdf, held, &*lifecycle),
+            "unbound" => Ok("unbound".to_string()),
+            _ => bind_native(bdf, target, &*lifecycle),
+        }
+    };
+
+    let personality = bind_result?;
+    let bind_ms = bind_start.elapsed().as_millis() as u64;
+
+    // --- Phase 4: Stabilize (already done inside bind_vfio/bind_native, measure residual) ---
+    let stabilize_start = Instant::now();
+    // bind_vfio and bind_native already call stabilize_after_bind + verify_health,
+    // so this phase captures any additional overhead.
+    let stabilize_ms = stabilize_start.elapsed().as_millis() as u64;
+
+    let total_ms = swap_start.elapsed().as_millis() as u64;
+
+    let obs = SwapObservation {
+        bdf: bdf.to_string(),
+        from_personality,
+        to_personality: personality,
+        timestamp_epoch_ms: timestamp,
+        timing: SwapTiming {
+            prepare_ms,
+            unbind_ms,
+            bind_ms,
+            stabilize_ms,
+            total_ms,
+        },
+        trace_path: trace_path_captured,
+        health: HealthResult::Ok,
+        lifecycle_description: lifecycle_desc,
+        reset_method_used: None,
+    };
+
+    tracing::info!(
+        bdf,
+        to = %obs.to_personality,
+        total_ms,
+        prepare_ms,
+        unbind_ms,
+        bind_ms,
+        "swap_device: complete"
+    );
+
+    Ok(obs)
 }
 
 fn bind_vfio(
@@ -411,7 +523,7 @@ fn bind_vfio(
 
     let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), bdf);
     let settle = lifecycle.settle_secs("vfio-pci");
-    std::thread::sleep(std::time::Duration::from_secs(settle.min(2)));
+    std::thread::sleep(std::time::Duration::from_secs(settle));
 
     lifecycle.stabilize_after_bind(bdf, "vfio-pci");
     lifecycle.verify_health(bdf, "vfio-pci")?;
@@ -442,43 +554,7 @@ fn bind_vfio(
 }
 
 fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
-    sysfs::pin_bridge_power(bdf);
-    sysfs::pin_power(bdf);
-
-    let _ = sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
-
-    tracing::info!(bdf, "PCI remove + rescan: removing device");
-    sysfs::pci_remove(bdf)?;
-
-    for i in 0..6 {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        if !std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists() {
-            tracing::info!(bdf, seconds = i + 1, "device removed from sysfs");
-            break;
-        }
-    }
-
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    tracing::info!(bdf, "PCI remove + rescan: rescanning bus");
-    sysfs::pci_rescan()?;
-
-    for i in 0..10 {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        if std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists() {
-            tracing::info!(bdf, seconds = i + 1, "device re-appeared after rescan");
-
-            sysfs::pin_power(bdf);
-            sysfs::pin_bridge_power(bdf);
-            let _ = sysfs::sysfs_write_direct(
-                &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
-                "",
-            );
-            return Ok(());
-        }
-    }
-
-    Err(format!("{bdf}: device did not re-appear after PCI rescan"))
+    sysfs::pci_remove_rescan(bdf)
 }
 
 fn is_drm_driver(target: &str) -> bool {
@@ -780,9 +856,9 @@ mod tests {
             .lock()
             .expect("swap tests must not run concurrently with other swap IPC tests");
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
-        let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held, false)
+        let obs = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held, false)
             .expect("unbound on absent device returns ok");
-        assert_eq!(out, "unbound");
+        assert_eq!(obs.to_personality, "unbound");
     }
 
     #[test]

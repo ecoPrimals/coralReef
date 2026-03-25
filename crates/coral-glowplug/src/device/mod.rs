@@ -22,6 +22,7 @@ use crate::personality::Personality;
 use crate::ring::MultiRing;
 use crate::sysfs;
 use crate::sysfs_ops::{RealSysfs, SysfsOps};
+use coral_ember::observation::SwapObservation;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,6 +44,8 @@ pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     /// Multi-ring command submission buffers for ordered, timed GPU interaction.
     /// Enables granular hardware testing and multi-ring dispatch via `ring.*` RPC.
     pub rings: MultiRing,
+    /// Most recent swap observation from ember, available for observers and diagnostics.
+    pub last_swap_observation: Option<SwapObservation>,
     /// Set while a long-running `spawn_blocking` task (oracle capture, compute
     /// dispatch) holds a borrowed reference to this slot's VFIO mapping or GPU
     /// context.  Mutating operations (`swap`, `reclaim`, `resurrect`) must
@@ -84,6 +87,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
             sysfs: ops,
             mailboxes: MailboxSet::new(),
             rings: MultiRing::new(),
+            last_swap_observation: None,
             busy: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             test_vfio_override: None,
@@ -148,6 +152,56 @@ impl<S: SysfsOps> DeviceSlot<S> {
             Some(BusyGuard(Arc::clone(&self.busy)))
         } else {
             None
+        }
+    }
+
+    /// Snapshot current ring/mailbox state as [`RingMeta`] for persistence via ember.
+    pub fn ring_meta_snapshot(&self) -> coral_ember::RingMeta {
+        let mailboxes = self
+            .mailboxes
+            .iter()
+            .map(|m| {
+                let stats = m.stats();
+                coral_ember::MailboxMeta {
+                    engine: m.name().to_string(),
+                    capacity: stats.capacity,
+                }
+            })
+            .collect();
+
+        let rings = self
+            .rings
+            .iter()
+            .map(|(name, ring)| coral_ember::RingMetaEntry {
+                name: name.to_string(),
+                capacity: ring.stats().capacity,
+                last_fence: ring.current_fence(),
+            })
+            .collect();
+
+        coral_ember::RingMeta {
+            mailboxes,
+            rings,
+            version: 0,
+        }
+    }
+
+    /// Restore ring/mailbox names and capacities from a [`RingMeta`] snapshot.
+    ///
+    /// This recreates the ring and mailbox structures (empty but correctly
+    /// sized) so GlowPlug can resume after a restart while ember held the fds.
+    pub fn restore_ring_meta(&mut self, meta: &coral_ember::RingMeta) {
+        for mb in &meta.mailboxes {
+            if self.mailboxes.get(&mb.engine).is_none() {
+                self.mailboxes
+                    .add(crate::mailbox::Mailbox::new(&mb.engine, mb.capacity));
+            }
+        }
+        for ring in &meta.rings {
+            if self.rings.get(&ring.name).is_none() {
+                self.rings
+                    .add(crate::ring::Ring::new(&ring.name, ring.capacity));
+            }
         }
     }
 }

@@ -14,8 +14,8 @@ const NONEXISTENT_BDF: &str = "9999:99:99.9";
 fn handle_swap_unbound_without_sysfs_device_succeeds() {
     let _guard = SWAP_TEST_LOCK.lock().expect("swap lock");
     let mut held: HashMap<String, HeldDevice> = HashMap::new();
-    let out = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held, false).expect("unbound");
-    assert_eq!(out, "unbound");
+    let obs = handle_swap_device(NONEXISTENT_BDF, "unbound", &mut held, false).expect("unbound");
+    assert_eq!(obs.to_personality, "unbound");
 }
 
 #[test]

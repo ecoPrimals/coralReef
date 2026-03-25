@@ -298,17 +298,41 @@ fn vfio_sec2_cmdq_probe() {
             .iter()
             .all(|&w| w == 0xBAD0_0000 || w == 0xBADF_5040);
         eprintln!(
-            "  IMEM[0..32]: {:?}",
+            "  IMEM[0x0000..0x0020]: {:?}",
             imem_words
                 .iter()
                 .map(|w| format!("{w:#010x}"))
                 .collect::<Vec<_>>()
         );
         if all_zero {
-            eprintln!("  ** GPCCS IMEM IS ALL ZEROS — firmware not loaded **");
+            eprintln!("  ** GPCCS IMEM[0] IS ALL ZEROS — firmware not loaded at addr 0 **");
         }
         if all_bad {
             eprintln!("  ** GPCCS IMEM reads return PRI error — HS mode blocks reads **");
+        }
+
+        // Exp 091: Read IMEM at BOOTVEC target (0x3400) — this is where
+        // ACR places the GPCCS bootloader (start_tag=0x34 → 0x3400).
+        // If BOOTVEC=0 but firmware is at 0x3400, that's the L10 root cause.
+        let bl_imem_off = 0x3400u32;
+        let imemc_val = 0x0200_0000 | (bl_imem_off & 0xFFFC);
+        let _ = bar0.write_u32(GPCCS + 0x180, imemc_val);
+        let mut imem_bl_words = Vec::new();
+        for _ in 0..8 {
+            imem_bl_words.push(r(GPCCS + 0x184));
+        }
+        let bl_all_zero = imem_bl_words.iter().all(|&w| w == 0);
+        eprintln!(
+            "  IMEM[0x3400..0x3420]: {:?}",
+            imem_bl_words
+                .iter()
+                .map(|w| format!("{w:#010x}"))
+                .collect::<Vec<_>>()
+        );
+        if !bl_all_zero && all_zero {
+            eprintln!("  ** FIRMWARE AT 0x3400, NOTHING AT 0x0000 — BOOTVEC MUST BE 0x3400! **");
+        } else if bl_all_zero {
+            eprintln!("  ** IMEM[0x3400] also empty — BL may not have been loaded by ACR **");
         }
 
         // Read DMEM too

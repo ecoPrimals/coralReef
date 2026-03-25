@@ -101,11 +101,40 @@ pub(crate) fn rpc_swap(socket: &str, bdf: &str, target: &str, trace: bool) {
     }
 }
 
-pub(crate) fn rpc_reset(socket: &str, bdf: &str) {
-    println!("resetting {bdf} via VFIO FLR...");
-    let response = rpc_call(socket, "device.reset", json!({"bdf": bdf}));
-    check_rpc_error(&response);
-    println!("ok: {bdf} reset complete");
+pub(crate) fn rpc_reset(socket: &str, bdf: &str, method: &str) {
+    match method {
+        "flr" => {
+            println!("resetting {bdf} via VFIO FLR...");
+            let response = rpc_call(socket, "device.reset", json!({"bdf": bdf}));
+            check_rpc_error(&response);
+            println!("ok: {bdf} FLR reset complete");
+        }
+        "sbr" | "bridge-sbr" | "remove-rescan" | "auto" => {
+            let label = match method {
+                "auto" => "auto-detect",
+                "bridge-sbr" => "bridge SBR",
+                "remove-rescan" => "PCI remove+rescan",
+                _ => "device SBR",
+            };
+            println!("resetting {bdf} via {label}...");
+            let response = rpc_call(
+                socket,
+                "device.reset",
+                json!({"bdf": bdf, "method": method}),
+            );
+            check_rpc_error(&response);
+            let actual_method = response
+                .get("result")
+                .and_then(|r| r.get("method"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(method);
+            println!("ok: {bdf} reset complete (method={actual_method})");
+        }
+        other => {
+            eprintln!("error: unknown reset method '{other}' (use: auto, flr, sbr, bridge-sbr, remove-rescan)");
+            std::process::exit(1);
+        }
+    }
 }
 
 pub(crate) fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
@@ -456,4 +485,403 @@ pub(crate) fn rpc_health(socket: &str) {
             println!("  daemon reports not alive");
         }
     }
+}
+
+/// Resolve the ember socket path for direct journal access.
+fn ember_socket() -> String {
+    std::env::var("CORALREEF_EMBER_SOCKET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/run/coralreef/ember.sock".to_string())
+}
+
+pub(crate) fn rpc_journal_query(
+    _glowplug_socket: &str,
+    bdf: Option<String>,
+    kind: Option<String>,
+    personality: Option<String>,
+    limit: usize,
+) {
+    let mut params = json!({});
+    if let Some(ref b) = bdf {
+        params["bdf"] = json!(b);
+    }
+    if let Some(ref k) = kind {
+        params["kind"] = json!(k);
+    }
+    if let Some(ref p) = personality {
+        params["personality"] = json!(p);
+    }
+    params["limit"] = json!(limit);
+
+    let response = rpc_call(&ember_socket(), "ember.journal.query", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let entries = result
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if entries.is_empty() {
+            println!("No journal entries found.");
+            return;
+        }
+
+        println!("{} journal entries:", entries.len());
+        println!("{}", "-".repeat(80));
+
+        for entry in &entries {
+            let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
+            let bdf = entry.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
+            let ts = entry
+                .get("timestamp_epoch_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+
+            match kind {
+                "Swap" => {
+                    let to = entry
+                        .get("to_personality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let from = entry
+                        .get("from_personality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("none");
+                    let total_ms = entry
+                        .get("timing")
+                        .and_then(|t| t.get("total_ms"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let trace = entry
+                        .get("trace_path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    print!("[{ts}] SWAP {bdf}: {from} → {to} ({total_ms}ms)");
+                    if !trace.is_empty() {
+                        print!(" trace={trace}");
+                    }
+                    println!();
+                }
+                "Reset" => {
+                    let method = entry
+                        .get("method")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let success = entry
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let dur = entry
+                        .get("duration_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let status = if success { "OK" } else { "FAIL" };
+                    println!("[{ts}] RESET {bdf}: {method} {status} ({dur}ms)");
+                }
+                "BootAttempt" => {
+                    let strategy = entry
+                        .get("strategy")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let success = entry
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let sec2 = entry
+                        .get("sec2_exci")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let status = if success { "OK" } else { "FAIL" };
+                    println!(
+                        "[{ts}] BOOT {bdf}: {strategy} {status} (sec2_exci=0x{sec2:08x})"
+                    );
+                }
+                _ => {
+                    println!("[{ts}] {kind} {bdf}");
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn rpc_journal_stats(_glowplug_socket: &str, bdf: Option<String>) {
+    let params = match bdf {
+        Some(ref b) => json!({"bdf": b}),
+        None => json!({}),
+    };
+
+    let response = rpc_call(&ember_socket(), "ember.journal.stats", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let total_swaps = result
+            .get("total_swaps")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let total_resets = result
+            .get("total_resets")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let total_boots = result
+            .get("total_boot_attempts")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        println!("Journal Statistics");
+        println!("{}", "=".repeat(60));
+        println!(
+            "Total: {} swaps, {} resets, {} boot attempts",
+            total_swaps, total_resets, total_boots
+        );
+
+        if let Some(personalities) = result
+            .get("personality_stats")
+            .and_then(|v| v.as_array())
+        {
+            if !personalities.is_empty() {
+                println!("\nPersonality Swap Timing:");
+                println!(
+                    "  {:<16} {:>6} {:>10} {:>10} {:>10}",
+                    "PERSONALITY", "COUNT", "AVG_TOTAL", "AVG_BIND", "AVG_UNBIND"
+                );
+                for p in personalities {
+                    let name = p
+                        .get("personality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let count = p.get("swap_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let avg_total = p.get("avg_total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let avg_bind = p.get("avg_bind_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let avg_unbind = p
+                        .get("avg_unbind_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    println!(
+                        "  {:<16} {:>6} {:>8}ms {:>8}ms {:>8}ms",
+                        name, count, avg_total, avg_bind, avg_unbind
+                    );
+                }
+            }
+        }
+
+        if let Some(resets) = result
+            .get("reset_method_stats")
+            .and_then(|v| v.as_array())
+        {
+            if !resets.is_empty() {
+                println!("\nReset Method Stats:");
+                println!(
+                    "  {:<16} {:>8} {:>8} {:>10} {:>10}",
+                    "METHOD", "ATTEMPTS", "SUCCESS", "RATE", "AVG_MS"
+                );
+                for r in resets {
+                    let method = r.get("method").and_then(|v| v.as_str()).unwrap_or("?");
+                    let attempts = r.get("attempts").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let successes = r.get("successes").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let rate = r
+                        .get("success_rate")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let avg_ms = r
+                        .get("avg_duration_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    println!(
+                        "  {:<16} {:>8} {:>8} {:>9.0}% {:>8}ms",
+                        method,
+                        attempts,
+                        successes,
+                        rate * 100.0,
+                        avg_ms
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Default personalities to sweep when none specified.
+const DEFAULT_SWEEP_PERSONALITIES: &[&str] = &[
+    "nouveau",
+    "amdgpu",
+    "nvidia-open",
+    "xe",
+    "i915",
+];
+
+pub(crate) fn rpc_experiment_sweep(
+    socket: &str,
+    bdf: &str,
+    personalities: Option<&str>,
+    return_to: &str,
+    trace: bool,
+) {
+    let targets: Vec<&str> = match personalities {
+        Some(p) => p.split(',').map(|s| s.trim()).collect(),
+        None => DEFAULT_SWEEP_PERSONALITIES.to_vec(),
+    };
+
+    println!("Experiment Sweep: {bdf}");
+    println!("Personalities: {}", targets.join(", "));
+    println!("Return-to: {return_to}");
+    println!("Trace: {trace}");
+    println!("{}", "=".repeat(80));
+
+    struct SweepResult {
+        personality: String,
+        success: bool,
+        total_ms: u64,
+        bind_ms: u64,
+        unbind_ms: u64,
+        trace_path: Option<String>,
+        insights: usize,
+        error: Option<String>,
+    }
+
+    let mut results: Vec<SweepResult> = Vec::new();
+
+    for (i, target) in targets.iter().enumerate() {
+        println!(
+            "\n[{}/{}] Swapping to: {}",
+            i + 1,
+            targets.len(),
+            target
+        );
+
+        let swap_resp = rpc_call(
+            socket,
+            "device.swap",
+            json!({
+                "bdf": bdf,
+                "target": target,
+                "trace": trace,
+            }),
+        );
+
+        if let Some(error) = swap_resp.get("error") {
+            let msg = error
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            println!("  FAILED: {msg}");
+            results.push(SweepResult {
+                personality: target.to_string(),
+                success: false,
+                total_ms: 0,
+                bind_ms: 0,
+                unbind_ms: 0,
+                trace_path: None,
+                insights: 0,
+                error: Some(msg.to_string()),
+            });
+        } else if let Some(result) = swap_resp.get("result") {
+            let obs = result.get("observation").and_then(|v| {
+                if v.is_null() {
+                    None
+                } else {
+                    Some(v)
+                }
+            });
+            let total_ms = obs
+                .and_then(|o| o.get("total_ms"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let bind_ms = obs
+                .and_then(|o| o.get("bind_ms"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let unbind_ms = obs
+                .and_then(|o| o.get("unbind_ms"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let trace_path = obs
+                .and_then(|o| o.get("trace_path"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let insights = result
+                .get("insights")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let vram = result
+                .get("vram_alive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            println!("  OK: {target} ({total_ms}ms, bind={bind_ms}ms, vram={vram})");
+            if let Some(ref tp) = trace_path {
+                println!("  Trace: {tp}");
+            }
+            if insights > 0 {
+                println!("  Observer insights: {insights}");
+            }
+
+            results.push(SweepResult {
+                personality: target.to_string(),
+                success: true,
+                total_ms,
+                bind_ms,
+                unbind_ms,
+                trace_path,
+                insights,
+                error: None,
+            });
+        }
+
+        // Return to base personality between tests
+        if *target != return_to {
+            print!("  Returning to {return_to}...");
+            let ret_resp = rpc_call(
+                socket,
+                "device.swap",
+                json!({
+                    "bdf": bdf,
+                    "target": return_to,
+                }),
+            );
+            if ret_resp.get("error").is_some() {
+                println!(" FAILED (experiment may be in inconsistent state)");
+                break;
+            }
+            println!(" ok");
+        }
+    }
+
+    // Print comparison table
+    println!("\n{}", "=".repeat(80));
+    println!("Experiment Results: {bdf}");
+    println!("{}", "=".repeat(80));
+    println!(
+        "{:<16} {:>6} {:>10} {:>10} {:>10} {:>8} {}",
+        "PERSONALITY", "STATUS", "TOTAL_MS", "BIND_MS", "UNBIND_MS", "INSIGHTS", "TRACE/ERROR"
+    );
+    println!("{}", "-".repeat(80));
+
+    for r in &results {
+        let status = if r.success { "OK" } else { "FAIL" };
+        let trail = if let Some(ref e) = r.error {
+            e.clone()
+        } else if let Some(ref t) = r.trace_path {
+            t.clone()
+        } else {
+            String::new()
+        };
+        println!(
+            "{:<16} {:>6} {:>8}ms {:>8}ms {:>8}ms {:>8} {}",
+            r.personality, status, r.total_ms, r.bind_ms, r.unbind_ms, r.insights, trail
+        );
+    }
+
+    let ok_count = results.iter().filter(|r| r.success).count();
+    let fail_count = results.len() - ok_count;
+    println!("{}", "-".repeat(80));
+    println!(
+        "Summary: {ok_count} succeeded, {fail_count} failed out of {} tested",
+        results.len()
+    );
+    println!("All observations recorded in the experiment journal.");
+    println!("Run 'coralctl journal stats --bdf {bdf}' for aggregate analysis.");
 }

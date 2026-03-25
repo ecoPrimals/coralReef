@@ -466,6 +466,14 @@ impl NvVfioComputeDevice {
         &self.bar0
     }
 
+    /// Trigger a VFIO device reset (PCI FLR).
+    ///
+    /// Fully resets the GPU hardware, clearing all falcon state including
+    /// secure mode. BAR0 MMIO mapping remains valid after FLR.
+    pub fn vfio_device_reset(&self) -> DriverResult<()> {
+        self.device.reset()
+    }
+
     /// Attempt sovereign FECS falcon boot from firmware files.
     ///
     /// Loads `fecs_bl.bin`, `fecs_inst.bin`, `fecs_data.bin` from

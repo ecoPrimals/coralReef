@@ -9,13 +9,14 @@ use crate::vfio::channel::registers::falcon;
 use crate::vfio::device::{DmaBackend, MappedBar};
 
 use super::boot_result::AcrBootResult;
+use super::fecs_method;
 use super::firmware::AcrFirmwareSet;
 use super::sec2_hal::Sec2Probe;
 use super::strategy_chain::{attempt_acr_chain, attempt_direct_acr_load};
 use super::strategy_hybrid::attempt_hybrid_acr_boot;
 use super::strategy_mailbox::{
-    attempt_acr_mailbox_command, attempt_direct_fecs_boot, attempt_direct_hreset,
-    attempt_emem_boot, attempt_nouveau_boot,
+    attempt_acr_mailbox_command, attempt_direct_falcon_upload, attempt_direct_fecs_boot,
+    attempt_direct_hreset, attempt_emem_boot, attempt_nouveau_boot, attempt_physical_first_boot,
 };
 use super::strategy_sysmem::attempt_sysmem_acr_boot;
 use super::strategy_vram::attempt_vram_acr_boot;
@@ -245,6 +246,19 @@ impl FalconBootSolver {
             return Ok(results);
         }
 
+        // ── Strategy 1b: Physical-first SEC2 boot ──
+        // Eliminates the instance block bind that stalls Strategy 1.
+        // Uses PMC reset + physical DMA only, matching nouveau's actual
+        // bootloader load path (no virtual addressing until ACR is running).
+        tracing::info!("Strategy 1b: Physical-first SEC2 boot (no instance block)...");
+        let physical_result = attempt_physical_first_boot(bar0, &fw);
+        tracing::info!("{physical_result}");
+        let physical_success = physical_result.success;
+        results.push(physical_result);
+        if physical_success {
+            return Ok(results);
+        }
+
         // ── Strategy 2: VRAM-based ACR boot ──
         // Write ACR payload to VRAM via PRAMIN, then have the BL
         // DMA-load from VRAM addresses (physical DMA stays on-GPU).
@@ -307,6 +321,27 @@ impl FalconBootSolver {
             return Ok(results);
         }
 
+        // Check if FECS is running even without the ready signal — if so,
+        // try the method interface directly before proceeding with more
+        // strategies that would reset the falcons.
+        let post5_probe = FalconProbe::capture(bar0);
+        if post5_probe.fecs_cpuctl & falcon::CPUCTL_HRESET == 0
+            && post5_probe.fecs_cpuctl != 0xDEAD_DEAD
+        {
+            tracing::info!(
+                pc = format!("{:#06x}", post5_probe.fecs_pc),
+                cpuctl = format!("{:#010x}", post5_probe.fecs_cpuctl),
+                "FECS is RUNNING after Strategy 5 — probing method interface"
+            );
+            let method_probe = fecs_method::fecs_probe_methods(bar0);
+            tracing::info!("{method_probe}");
+
+            if method_probe.ctx_size.is_ok() {
+                tracing::info!("*** FECS METHOD INTERFACE ALIVE — GR ENGINE ACCESSIBLE ***");
+                return Ok(results);
+            }
+        }
+
         // ── Strategy 6: Direct HRESET experiments ──
         tracing::info!("Strategy 6: Direct HRESET experiments...");
         let direct_result = attempt_direct_hreset(bar0);
@@ -346,6 +381,17 @@ impl FalconBootSolver {
         let emem_result = attempt_emem_boot(bar0, &fw);
         tracing::info!("{emem_result}");
         results.push(emem_result);
+
+        // ── Strategy 10: Direct host IMEM/DMEM upload (bypass ACR DMA) ──
+        tracing::info!("Strategy 10: Direct host GPCCS/FECS firmware upload (Exp 091b)...");
+        let direct_upload_result = attempt_direct_falcon_upload(bar0, &fw);
+        tracing::info!("{direct_upload_result}");
+        let direct_upload_success = direct_upload_result.success;
+        results.push(direct_upload_result);
+        if direct_upload_success {
+            tracing::info!("*** DIRECT FALCON UPLOAD SUCCEEDED ***");
+            return Ok(results);
+        }
 
         Ok(results)
     }

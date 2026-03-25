@@ -49,16 +49,17 @@ pub use firmware::{
 };
 pub use instance_block::build_vram_falcon_inst_block;
 pub use sec2_hal::{
-    Sec2Probe, Sec2State, falcon_engine_reset, reset_sec2, sec2_emem_read, sec2_emem_verify,
-    sec2_emem_write,
+    Sec2Probe, Sec2State, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
+    falcon_start_cpu, reset_sec2, sec2_emem_read, sec2_emem_verify, sec2_emem_write,
+    sec2_prepare_direct_boot,
 };
 pub use solver::{BootStrategy, FalconBootSolver, FalconProbe, FecsState};
 pub use strategy_chain::{attempt_acr_chain, attempt_direct_acr_load};
 pub use strategy_hybrid::attempt_hybrid_acr_boot;
 pub use strategy_mailbox::{
-    attempt_acr_mailbox_command, attempt_direct_fecs_boot, attempt_direct_hreset,
-    attempt_emem_boot, attempt_nouveau_boot,
+    attempt_acr_mailbox_command, attempt_direct_falcon_upload, attempt_direct_fecs_boot,
+    attempt_direct_hreset, attempt_emem_boot, attempt_nouveau_boot,
 };
 pub use strategy_sysmem::attempt_sysmem_acr_boot;
 pub use strategy_vram::attempt_vram_acr_boot;
-pub use wpr::{AcrDmaContext, build_wpr, falcon_id};
+pub use wpr::{AcrDmaContext, build_wpr, falcon_id, patch_acr_desc};

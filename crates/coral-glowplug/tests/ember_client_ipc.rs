@@ -99,10 +99,8 @@ fn ember_list_release_reacquire_swap_roundtrip_with_mock_server() {
     );
     client.release_device("0000:01:00.0").expect("release");
     client.reacquire_device("0000:01:00.0").expect("reacquire");
-    assert_eq!(
-        client.swap_device("0000:01:00.0", "unbound").expect("swap"),
-        "unbound"
-    );
+    let swap_obs = client.swap_device("0000:01:00.0", "unbound").expect("swap");
+    assert_eq!(swap_obs.to_personality, "unbound");
 
     server.join().expect("server join");
     // SAFETY: test mutex serializes env access.

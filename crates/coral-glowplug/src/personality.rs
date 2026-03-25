@@ -175,6 +175,47 @@ impl GpuPersonality for NvidiaPersonality {
     }
 }
 
+/// NVIDIA open kernel module personality — open-source nvidia.ko (GSP-based).
+///
+/// Distinguished from `NvidiaPersonality` (closed-source) because the open
+/// kernel module uses GSP firmware for falcon management, producing different
+/// register write sequences during boot. The kernel module name is the same
+/// (`nvidia`), but the personality tracks which variant is loaded for the
+/// solution matrix.
+#[derive(Debug, Clone)]
+pub struct NvidiaOpenPersonality {
+    /// DRM card device path (e.g. `/dev/dri/card1`).
+    pub drm_card_path: Option<String>,
+}
+
+impl fmt::Display for NvidiaOpenPersonality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "nvidia-open")?;
+        if let Some(card) = &self.drm_card_path {
+            write!(f, " ({card})")?;
+        }
+        Ok(())
+    }
+}
+
+impl GpuPersonality for NvidiaOpenPersonality {
+    fn name(&self) -> &'static str {
+        "nvidia-open"
+    }
+    fn provides_vfio(&self) -> bool {
+        false
+    }
+    fn drm_card(&self) -> Option<&str> {
+        self.drm_card_path.as_deref()
+    }
+    fn supports_hbm2_training(&self) -> bool {
+        false
+    }
+    fn driver_module(&self) -> &'static str {
+        "nvidia"
+    }
+}
+
 /// Intel Xe personality — modern Intel discrete GPU driver (Arc, Battlemage).
 #[derive(Debug, Clone)]
 pub struct XePersonality {
@@ -355,6 +396,7 @@ impl PersonalityRegistry {
                 "vfio",
                 "nouveau",
                 "nvidia",
+                "nvidia-open",
                 "nvidia_oracle",
                 "amdgpu",
                 "xe",
@@ -388,6 +430,9 @@ impl PersonalityRegistry {
                 drm_card_path: None,
             })),
             "nvidia" => Some(Box::new(NvidiaPersonality {
+                drm_card_path: None,
+            })),
+            "nvidia-open" => Some(Box::new(NvidiaOpenPersonality {
                 drm_card_path: None,
             })),
             "amdgpu" => Some(Box::new(AmdgpuPersonality {
@@ -425,6 +470,9 @@ pub enum Personality {
     Nvidia {
         drm_card: Option<String>,
     },
+    NvidiaOpen {
+        drm_card: Option<String>,
+    },
     NvidiaOracle {
         drm_card: Option<String>,
         module_name: String,
@@ -450,6 +498,7 @@ impl Personality {
             Self::Vfio { .. } => "vfio",
             Self::Nouveau { .. } => "nouveau",
             Self::Nvidia { .. } => "nvidia",
+            Self::NvidiaOpen { .. } => "nvidia-open",
             Self::NvidiaOracle { .. } => "nvidia_oracle",
             Self::Amdgpu { .. } => "amdgpu",
             Self::Xe { .. } => "xe",
@@ -472,6 +521,7 @@ impl Personality {
             self,
             Self::Nouveau { .. }
                 | Self::Nvidia { .. }
+                | Self::NvidiaOpen { .. }
                 | Self::NvidiaOracle { .. }
                 | Self::Amdgpu { .. }
         )
@@ -494,6 +544,7 @@ impl fmt::Display for Personality {
             }
             Self::Nouveau { drm_card }
             | Self::Nvidia { drm_card }
+            | Self::NvidiaOpen { drm_card }
             | Self::Amdgpu { drm_card }
             | Self::Xe { drm_card }
             | Self::I915 { drm_card } => {
@@ -628,9 +679,10 @@ mod tests {
         assert!(list.contains(&"xe"));
         assert!(list.contains(&"i915"));
         assert!(list.contains(&"akida-pcie"));
+        assert!(list.contains(&"nvidia-open"));
         assert!(list.contains(&"nvidia_oracle"));
         assert!(list.contains(&"unbound"));
-        assert_eq!(list.len(), 9);
+        assert_eq!(list.len(), 10);
     }
 
     #[test]

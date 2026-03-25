@@ -67,6 +67,19 @@ impl<S: SysfsOps> DeviceSlot<S> {
             self.snapshot_registers();
         }
 
+        // Save ring/mailbox state to ember before dropping VFIO
+        if let Some(ref client_for_meta) =
+            crate::ember::EmberClient::connect()
+        {
+            let mut meta = self.ring_meta_snapshot();
+            meta.version += 1;
+            if let Err(e) = client_for_meta.ring_meta_set(&self.bdf, &meta) {
+                tracing::debug!(bdf = %self.bdf, error = %e, "ring_meta save before swap (non-fatal)");
+            } else {
+                tracing::debug!(bdf = %self.bdf, version = meta.version, "ring_meta saved to ember");
+            }
+        }
+
         // Drop local VFIO holder before asking ember to swap
         drop(self.vfio_holder.take());
 
@@ -79,13 +92,23 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     .into(),
             })?;
 
-        client
+        let swap_obs = client
             .swap_device_traced(&self.bdf, target, trace)
             .map_err(|e| DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: target.into(),
                 reason: format!("ember swap_device: {e}"),
             })?;
+
+        tracing::info!(
+            bdf = %self.bdf,
+            to = %swap_obs.to_personality,
+            total_ms = swap_obs.timing.total_ms,
+            bind_ms = swap_obs.timing.bind_ms,
+            trace_path = ?swap_obs.trace_path,
+            "ember swap observation received"
+        );
+        self.last_swap_observation = Some(swap_obs);
 
         // Update local personality state after successful ember swap
         match target {
@@ -104,6 +127,24 @@ impl<S: SysfsOps> DeviceSlot<S> {
                         })?;
                         self.vfio_holder = Some(VfioHolder::new(device, bar0));
                         self.personality = Personality::Vfio { group_id };
+
+                        // Restore ring/mailbox state from ember after VFIO reacquire
+                        match client.ring_meta_get(&self.bdf) {
+                            Ok(meta) if !meta.mailboxes.is_empty() || !meta.rings.is_empty() => {
+                                tracing::debug!(
+                                    bdf = %self.bdf,
+                                    version = meta.version,
+                                    mailboxes = meta.mailboxes.len(),
+                                    rings = meta.rings.len(),
+                                    "restoring ring_meta from ember"
+                                );
+                                self.restore_ring_meta(&meta);
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::debug!(bdf = %self.bdf, error = %e, "ring_meta restore (non-fatal)");
+                            }
+                        }
                     }
                     Err(e) => {
                         return Err(DeviceError::VfioOpen {
@@ -120,6 +161,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
             "nvidia" => {
                 let drm = self.sysfs.find_drm_card(&self.bdf);
                 self.personality = Personality::Nvidia { drm_card: drm };
+            }
+            "nvidia-open" => {
+                let drm = self.sysfs.find_drm_card(&self.bdf);
+                self.personality = Personality::NvidiaOpen { drm_card: drm };
             }
             t if t.starts_with("nvidia_oracle") => {
                 let drm = self.sysfs.find_drm_card(&self.bdf);

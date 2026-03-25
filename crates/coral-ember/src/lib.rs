@@ -12,11 +12,15 @@
 //!   coral-ember /etc/coralreef/glowplug.toml
 //!   coral-ember  (auto-discovers config from XDG/system paths; override system path with `$CORALREEF_GLOWPLUG_CONFIG`)
 
+pub mod adaptive;
 pub mod drm_isolation;
 mod hold;
 mod ipc;
+pub mod journal;
+pub mod observation;
 mod swap;
 mod sysfs;
+pub mod trace;
 pub(crate) mod vendor_lifecycle;
 
 use std::collections::{HashMap, HashSet};
@@ -27,9 +31,13 @@ use serde::Deserialize;
 
 pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
-pub use swap::{handle_swap_device, verify_drm_isolation_with_paths};
+pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};
+pub use observation::{
+    HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms,
+};
+pub use swap::{handle_swap_device, handle_swap_device_with_journal, verify_drm_isolation_with_paths};
 pub use vendor_lifecycle::{
-    RebindStrategy, VendorLifecycle, detect_lifecycle, detect_lifecycle_for_target,
+    RebindStrategy, ResetMethod, VendorLifecycle, detect_lifecycle, detect_lifecycle_for_target,
 };
 
 /// Parsed `glowplug.toml` top-level structure for ember.
@@ -278,6 +286,9 @@ pub fn run() -> Result<(), i32> {
             .collect(),
     );
 
+    let journal = Arc::new(journal::Journal::open_default());
+    tracing::info!(path = %journal.path().display(), "experiment journal opened");
+
     let socket_path = ember_socket_path();
 
     if let Some(parent) = std::path::Path::new(&socket_path).parent() {
@@ -322,8 +333,11 @@ pub fn run() -> Result<(), i32> {
             Ok(stream) => {
                 let held = Arc::clone(&held);
                 let managed = Arc::clone(&managed_bdfs);
+                let journal = Arc::clone(&journal);
                 std::thread::spawn(move || {
-                    if let Err(e) = ipc::handle_client(&stream, &held, &managed, started_at) {
+                    if let Err(e) =
+                        ipc::handle_client(&stream, &held, &managed, started_at, Some(&journal))
+                    {
                         tracing::warn!(error = %e, "client handler error");
                     }
                 });

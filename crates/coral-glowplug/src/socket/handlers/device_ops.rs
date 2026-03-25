@@ -109,10 +109,50 @@ fn handle_swap(
     }
     slot.swap_traced(&target, enable_trace)
         .map_err(|e| RpcError::device_error(e.to_string()))?;
+
+    let mut observer_insights = Vec::new();
+    if let Some(ref obs) = slot.last_swap_observation {
+        let registry = coral_glowplug::observer::ObserverRegistry::default_observers();
+        observer_insights = registry.observe_swap(obs);
+
+        if let Some(ref trace_path) = obs.trace_path {
+            if let Some(trace_insight) =
+                registry.observe_trace(&obs.to_personality, trace_path)
+            {
+                observer_insights.push(trace_insight);
+            }
+        }
+
+        if !observer_insights.is_empty() {
+            for insight in &observer_insights {
+                tracing::info!(
+                    bdf = %bdf,
+                    personality = %insight.personality,
+                    findings = insight.findings.len(),
+                    "observer insight captured"
+                );
+            }
+        }
+    }
+
+    let insights_json: Vec<serde_json::Value> = observer_insights
+        .iter()
+        .map(|i| serde_json::to_value(i).unwrap_or_default())
+        .collect();
+
     Ok(serde_json::json!({
         "bdf": bdf,
         "personality": slot.personality.to_string(),
         "vram_alive": slot.health.vram_alive,
+        "observation": slot.last_swap_observation.as_ref().map(|o| {
+            serde_json::json!({
+                "total_ms": o.timing.total_ms,
+                "bind_ms": o.timing.bind_ms,
+                "unbind_ms": o.timing.unbind_ms,
+                "trace_path": o.trace_path,
+            })
+        }),
+        "insights": insights_json,
     }))
 }
 
@@ -482,6 +522,10 @@ fn handle_reset(
         .get("bdf")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let method = params
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("flr");
     let bdf = validate_bdf(raw_bdf)?.to_owned();
     let slot = devices
         .iter()
@@ -495,13 +539,38 @@ fn handle_reset(
             "device {bdf} is busy — cannot reset while a long-running operation is in progress"
         )));
     }
-    slot.reset_device()
-        .map_err(|e| RpcError::device_error(e.to_string()))?;
-    tracing::info!(bdf = %bdf, "PCIe FLR completed via VFIO_DEVICE_RESET");
-    Ok(serde_json::json!({
-        "bdf": bdf,
-        "reset": true,
-    }))
+
+    match method {
+        "flr" => {
+            slot.reset_device()
+                .map_err(|e| RpcError::device_error(e.to_string()))?;
+            tracing::info!(bdf = %bdf, "PCIe FLR completed via VFIO_DEVICE_RESET");
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "reset": true,
+                "method": "flr",
+            }))
+        }
+        "sbr" | "bridge-sbr" | "remove-rescan" | "auto" => {
+            let ember = coral_glowplug::ember::EmberClient::connect().ok_or_else(|| {
+                RpcError::device_error(
+                    "ember not available — cannot perform reset".to_string(),
+                )
+            })?;
+            ember
+                .device_reset(&bdf, method)
+                .map_err(|e| RpcError::device_error(format!("ember reset: {e}")))?;
+            tracing::info!(bdf = %bdf, method, "PCI device reset completed via ember");
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "reset": true,
+                "method": method,
+            }))
+        }
+        other => Err(RpcError::invalid_params(format!(
+            "unknown reset method '{other}' (use: auto, flr, sbr, bridge-sbr, remove-rescan)"
+        ))),
+    }
 }
 
 #[cfg(test)]

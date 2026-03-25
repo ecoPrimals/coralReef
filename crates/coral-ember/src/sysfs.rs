@@ -311,6 +311,126 @@ pub fn pin_bridge_power(bdf: &str) {
     }
 }
 
+/// Trigger a PCI device reset via the sysfs `reset` file.
+///
+/// Writes `1` to `/sys/bus/pci/devices/<BDF>/reset`, which triggers
+/// a Secondary Bus Reset (SBR) or FLR depending on what the kernel
+/// negotiates. Unlike VFIO's `VFIO_DEVICE_RESET` (which requires an
+/// open VFIO fd and FLR capability), this path works for any PCI
+/// device the kernel can reach — including GV100 Titan V which lacks
+/// FLR but supports SBR.
+///
+/// Uses the guarded write path because a reset on a hung device can
+/// stall the writing thread indefinitely.
+pub fn pci_device_reset(bdf: &str) -> Result<(), String> {
+    let path = linux_paths::sysfs_pci_device_file(bdf, "reset");
+    tracing::info!(bdf, path = %path, "triggering PCI device reset via sysfs");
+    sysfs_write(&path, "1")
+}
+
+/// Discover the parent PCI bridge for a device by walking sysfs.
+///
+/// Returns the BDF of the parent bridge (e.g. `0000:00:01.3` for a device
+/// at `0000:03:00.0`). Returns `None` if the topology cannot be resolved.
+pub fn find_parent_bridge(bdf: &str) -> Option<String> {
+    let device_path = linux_paths::sysfs_pci_device_path(bdf);
+    let real_path = std::fs::canonicalize(&device_path).ok()?;
+    let parent = real_path.parent()?;
+    let parent_name = parent.file_name()?.to_str()?;
+
+    // Parent directory should be a PCI BDF like "0000:00:01.3"
+    if parent_name.contains(':') && parent_name.contains('.') {
+        tracing::debug!(bdf, bridge = parent_name, "found parent PCI bridge");
+        Some(parent_name.to_string())
+    } else {
+        tracing::debug!(bdf, parent = parent_name, "parent is not a PCI bridge");
+        None
+    }
+}
+
+/// Reset a device via its parent PCI bridge's `reset` file (bridge-level SBR).
+///
+/// This is the correct reset mechanism for hardware that lacks FLR (like GV100).
+/// Writing to the bridge's reset triggers a Secondary Bus Reset that affects all
+/// devices behind the bridge. This works even when the device is VFIO-bound,
+/// unlike the device-level `reset` file which often fails with I/O errors on
+/// FLR-incapable hardware.
+pub fn pci_bridge_reset(bdf: &str) -> Result<(), String> {
+    let bridge_bdf = find_parent_bridge(bdf)
+        .ok_or_else(|| format!("{bdf}: cannot find parent PCI bridge for bridge-level SBR"))?;
+
+    let bridge_reset = linux_paths::sysfs_pci_device_file(&bridge_bdf, "reset");
+    if !std::path::Path::new(&bridge_reset).exists() {
+        return Err(format!(
+            "{bdf}: parent bridge {bridge_bdf} has no reset file"
+        ));
+    }
+
+    tracing::info!(
+        bdf,
+        bridge = %bridge_bdf,
+        path = %bridge_reset,
+        "triggering bridge-level SBR"
+    );
+    sysfs_write(&bridge_reset, "1")?;
+
+    // Brief settle after bridge reset — device needs time to re-enumerate
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Re-pin power after reset (bridge reset can change power state)
+    pin_power(bdf);
+    pin_bridge_power(bdf);
+
+    tracing::info!(bdf, bridge = %bridge_bdf, "bridge-level SBR complete");
+    Ok(())
+}
+
+/// Full PCI remove + bus rescan cycle. This is the most aggressive reset
+/// available: it tears down the kernel's entire device tree entry and
+/// forces full re-enumeration and driver re-probe on rescan.
+///
+/// Used as a fallback when both device-level and bridge-level resets fail.
+/// WARNING: The device will be absent from sysfs between remove and rescan.
+/// VFIO fds become invalid and must be reacquired after rescan.
+pub fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
+    pin_bridge_power(bdf);
+    pin_power(bdf);
+
+    let _ = sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+
+    tracing::info!(bdf, "PCI remove + rescan: removing device");
+    pci_remove(bdf)?;
+
+    for i in 0..6 {
+        std::thread::sleep(Duration::from_secs(1));
+        if !std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists() {
+            tracing::info!(bdf, seconds = i + 1, "device removed from sysfs");
+            break;
+        }
+    }
+
+    std::thread::sleep(Duration::from_secs(2));
+
+    tracing::info!(bdf, "PCI remove + rescan: rescanning bus");
+    pci_rescan()?;
+
+    for i in 0..10 {
+        std::thread::sleep(Duration::from_secs(1));
+        if std::path::Path::new(&linux_paths::sysfs_pci_device_path(bdf)).exists() {
+            tracing::info!(bdf, seconds = i + 1, "device re-appeared after rescan");
+            pin_power(bdf);
+            pin_bridge_power(bdf);
+            let _ = sysfs_write_direct(
+                &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
+                "",
+            );
+            return Ok(());
+        }
+    }
+
+    Err(format!("{bdf}: device did not re-appear after PCI rescan"))
+}
+
 /// Remove a PCI device from the kernel's device tree.
 /// This forces full cleanup of sysfs entries, DRM nodes, hwmon, etc.
 pub fn pci_remove(bdf: &str) -> Result<(), String> {

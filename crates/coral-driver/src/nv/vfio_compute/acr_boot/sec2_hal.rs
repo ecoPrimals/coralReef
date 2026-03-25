@@ -199,6 +199,14 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
             .map_err(|e| DriverError::SubmitFailed(format!("falcon reset {off:#x}: {e}").into()))
     };
 
+    // Step 0: Build VRAM page tables at 0x10000 BEFORE any bind attempt.
+    // The bind_inst register points the falcon MMU to these page tables;
+    // without valid tables, bind_stat stays at state 2 (MMU resolution failure).
+    if base == falcon::SEC2_BASE {
+        let pt_ok = instance_block::build_vram_falcon_inst_block(bar0);
+        tracing::info!(ok = pt_ok, "VRAM page tables built at 0x10000");
+    }
+
     // Step 1: Falcon-local engine reset via 0x3C0 (gp102_flcn_reset_eng).
     w(0x3C0, 0x01)?;
 
@@ -221,9 +229,37 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
         tracing::info!(rb = format!("{rbb:#010x}"), "bind_inst post-reset-clear");
     }
 
-    // Step 2: PMC engine enable (gm200_flcn_enable).
+    // Step 2: PMC engine reset (disable→enable) to fully restart ROM.
+    // Just "enable" is a no-op when already enabled — the full toggle is
+    // required for the ROM to run through scrub → HALTED properly.
     if base == falcon::SEC2_BASE {
-        pmc_enable_sec2(bar0)?;
+        pmc_reset_sec2(bar0)?;
+
+        // Wait for ROM to exit HRESET. The ROM runs automatically after
+        // PMC enable but takes variable time to start executing.
+        let hreset_start = std::time::Instant::now();
+        let hreset_timeout = std::time::Duration::from_millis(3000);
+        loop {
+            let cpuctl_now = r(falcon::CPUCTL);
+            if cpuctl_now & falcon::CPUCTL_HRESET == 0 {
+                tracing::info!(
+                    cpuctl = format!("{cpuctl_now:#010x}"),
+                    elapsed_us = hreset_start.elapsed().as_micros(),
+                    "SEC2 exited HRESET after PMC reset"
+                );
+                break;
+            }
+            if hreset_start.elapsed() > hreset_timeout {
+                tracing::warn!(
+                    cpuctl = format!("{cpuctl_now:#010x}"),
+                    sctl = format!("{:#010x}", r(falcon::SCTL)),
+                    pc = format!("{:#010x}", r(0x030)),
+                    "SEC2 did not exit HRESET after PMC reset (3s)"
+                );
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
 
         // Clear DMAIDX to VIRT before bind (nouveau: mask(0x604, 0x07, 0x00))
         let dmaidx = bar0
@@ -363,7 +399,7 @@ pub(crate) fn pmc_enable_sec2(bar0: &MappedBar) -> DriverResult<()> {
 
 /// Full PMC disable+enable cycle for SEC2 (more invasive than `pmc_enable_sec2`).
 /// Used by strategies that need a complete engine power cycle.
-fn _pmc_reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
+pub(crate) fn pmc_reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
     let pmc_enable: usize = 0x200;
 
     let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
@@ -496,6 +532,257 @@ pub fn reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
     falcon_engine_reset(bar0, falcon::SEC2_BASE)
 }
 
+/// Prepare SEC2 falcon for direct ACR boot (bypass bootloader DMA).
+///
+/// After a primer (`attempt_nouveau_boot`), SEC2 is halted in the ROM's
+/// exception handler in secure mode (sctl=0x3000), which blocks host writes
+/// to control registers. A PMC-level reset is the only way to fully clear
+/// the security mode and restore host access.
+///
+/// Sequence (matching nouveau's gm200_flcn_enable + gm200_flcn_fw_load):
+/// 1. PMC disable/enable — full hardware reset, clears secure mode
+/// 2. 0x3C0 local reset — extra cleanup (nouveau does both)
+/// 3. Wait for memory scrub completion (DMACTL bits[2:1])
+/// 4. Wait for ROM to halt (cpuctl bit 4)
+/// 5. Enable ITFEN ACCESS_EN for DMA
+/// 6. Full nouveau-style instance block bind
+/// 7. Configure DMA registers
+///
+/// After this call, IMEM/DMEM are clean and the caller should upload ACR
+/// firmware via PIO, set BOOTVEC, and call `falcon_start_cpu`.
+///
+/// VRAM contents (page tables at 0x10000, WPR at 0x70000) survive the
+/// PMC reset because it only affects the SEC2 engine, not the frame buffer.
+pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
+    let base = falcon::SEC2_BASE;
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+    let mut notes = Vec::new();
+
+    // 0. Diagnostic: capture pre-reset state
+    let pre_cpuctl = r(falcon::CPUCTL);
+    let pre_sctl = r(falcon::SCTL);
+    let pre_exci = r(falcon::EXCI);
+    notes.push(format!(
+        "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x} exci={pre_exci:#010x}"
+    ));
+
+    // 1. PMC-level reset: the ONLY way to clear secure mode after primer's STARTCPU.
+    //    0x3C0 local reset is silently ignored when sctl indicates secure mode.
+    match pmc_reset_sec2(bar0) {
+        Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
+        Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
+    }
+
+    // 2. 0x3C0 local reset — nouveau does this after PMC reset as extra cleanup
+    w(0x3C0, 0x01);
+    std::thread::sleep(std::time::Duration::from_micros(10));
+    w(0x3C0, 0x00);
+    notes.push("0x3C0 local reset pulse".to_string());
+
+    // 3. Wait for memory scrub (DMACTL bits [2:1] = 0).
+    //    After PMC reset, the ROM runs automatically, scrubs IMEM/DMEM, then halts.
+    let scrub_start = std::time::Instant::now();
+    loop {
+        let scrub = r(falcon::DMACTL);
+        if scrub & 0x06 == 0 {
+            notes.push(format!("Scrub done in {:?}", scrub_start.elapsed()));
+            break;
+        }
+        if scrub_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("Scrub timeout DMACTL={scrub:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // 4. Wait for ROM to halt (cpuctl bit 4 = HALTED on GV100).
+    //    nouveau: nvkm_falcon_v1_wait_for_halt checks `cpuctl & 0x10`.
+    let halt_start = std::time::Instant::now();
+    loop {
+        let cpuctl = r(falcon::CPUCTL);
+        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+            notes.push(format!(
+                "ROM halted in {:?} cpuctl={cpuctl:#010x}",
+                halt_start.elapsed()
+            ));
+            break;
+        }
+        if halt_start.elapsed() > std::time::Duration::from_millis(3000) {
+            notes.push(format!("HALT timeout (3s) cpuctl={cpuctl:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // Post-PMC diagnostic: verify secure mode is cleared
+    let post_cpuctl = r(falcon::CPUCTL);
+    let post_sctl = r(falcon::SCTL);
+    let post_exci = r(falcon::EXCI);
+    notes.push(format!(
+        "Post-PMC-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} exci={post_exci:#010x}"
+    ));
+
+    // 5. Write BOOT_0 chip ID (per nouveau gm200_flcn_enable)
+    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    w(0x084, boot0);
+
+    // 6. Enable ITFEN ACCESS_EN (bit 0) — required for DMA path
+    let itfen_before = r(0x048);
+    w(0x048, itfen_before | 0x01);
+    let itfen_after = r(0x048);
+    notes.push(format!("ITFEN: {itfen_before:#x} → {itfen_after:#x}"));
+
+    // 7. Configure FBIF BEFORE bind — the bind walker reads page tables
+    //    from VRAM via FBIF. If FBIF is in VIRT mode (0), the walker needs
+    //    the page tables it's trying to bind (circular dependency, stalls at
+    //    state 2). Setting FBIF to PHYS_VID (1) lets the walker access VRAM
+    //    directly to read page tables.
+    let fbif_before = r(0x624);
+    w(0x624, (fbif_before & !0x03) | 0x01);
+    w(falcon::DMACTL, 0x01);
+    let fbif_after = r(0x624);
+    let dmactl_after = r(falcon::DMACTL);
+    notes.push(format!(
+        "FBIF→PHYS_VID: 0x624={fbif_before:#x}→{fbif_after:#x} DMACTL={dmactl_after:#x}"
+    ));
+
+    // 8. Full nouveau-style bind sequence (Exp 084 discovery)
+    let bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
+    let (bind_ok, bind_notes) = instance_block::falcon_bind_context(
+        &|off| r(off),
+        &|off, val| w(off, val),
+        bind_val,
+    );
+    notes.extend(bind_notes);
+    notes.push(format!("Bind result: ok={bind_ok} val={bind_val:#010x}"));
+
+    // 9. Diagnostic: check bind_stat and EXCI
+    let bind_stat = r(instance_block::FALCON_BIND_STAT);
+    let exci = r(falcon::EXCI);
+    notes.push(format!(
+        "Post-prepare: bind_stat={bind_stat:#010x} bits[14:12]={} EXCI={exci:#010x}",
+        (bind_stat >> 12) & 0x7
+    ));
+
+    (bind_ok, notes)
+}
+
+/// Prepare SEC2 for physical-DMA-only boot — no instance block, no virtual addressing.
+///
+/// This mirrors nouveau's approach more faithfully than [`sec2_prepare_direct_boot`]:
+/// nouveau boots the SEC2 bootloader with **physical DMA** and only sets up virtual
+/// addressing later when the ACR firmware needs it. Our prior approach tried to build
+/// a full instance block + page table chain before SEC2 was running, creating a
+/// circular dependency (the MMU bind walker needs FBIF in physical mode to read the
+/// page tables it's trying to bind).
+///
+/// Sequence:
+/// 1. PMC-level reset (clears secure mode from prior primer)
+/// 2. 0x3C0 local reset (extra cleanup)
+/// 3. Wait for memory scrub completion
+/// 4. Wait for ROM halt
+/// 5. Write BOOT_0 chip ID
+/// 6. Enable ITFEN ACCESS_EN
+/// 7. Set physical DMA mode (FBIF |= 0x80, clear DMACTL) — **NO instance block**
+///
+/// After this, the caller uploads BL to IMEM, BL descriptor to DMEM/EMEM with
+/// physical VRAM addresses, sets BOOTVEC, and calls `falcon_start_cpu`.
+pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
+    let base = falcon::SEC2_BASE;
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+    let mut notes = Vec::new();
+
+    let pre_cpuctl = r(falcon::CPUCTL);
+    let pre_sctl = r(falcon::SCTL);
+    let pre_exci = r(falcon::EXCI);
+    notes.push(format!(
+        "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x} exci={pre_exci:#010x}"
+    ));
+
+    // 1. PMC-level reset
+    match pmc_reset_sec2(bar0) {
+        Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
+        Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
+    }
+
+    // 2. 0x3C0 local reset pulse
+    w(0x3C0, 0x01);
+    std::thread::sleep(std::time::Duration::from_micros(10));
+    w(0x3C0, 0x00);
+    notes.push("0x3C0 local reset pulse".to_string());
+
+    // 3. Wait for memory scrub (DMACTL bits [2:1] = 0)
+    let scrub_start = std::time::Instant::now();
+    loop {
+        let scrub = r(falcon::DMACTL);
+        if scrub & 0x06 == 0 {
+            notes.push(format!("Scrub done in {:?}", scrub_start.elapsed()));
+            break;
+        }
+        if scrub_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("Scrub timeout DMACTL={scrub:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // 4. Wait for ROM halt
+    let halt_start = std::time::Instant::now();
+    let mut halted = false;
+    loop {
+        let cpuctl = r(falcon::CPUCTL);
+        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+            notes.push(format!(
+                "ROM halted in {:?} cpuctl={cpuctl:#010x}",
+                halt_start.elapsed()
+            ));
+            halted = true;
+            break;
+        }
+        if halt_start.elapsed() > std::time::Duration::from_millis(3000) {
+            notes.push(format!("HALT timeout (3s) cpuctl={cpuctl:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // Post-reset diagnostics
+    let post_cpuctl = r(falcon::CPUCTL);
+    let post_sctl = r(falcon::SCTL);
+    let post_exci = r(falcon::EXCI);
+    notes.push(format!(
+        "Post-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} exci={post_exci:#010x}"
+    ));
+
+    // 5. Write BOOT_0 chip ID
+    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    w(0x084, boot0);
+
+    // 6. Enable ITFEN ACCESS_EN (bit 0)
+    let itfen_before = r(0x048);
+    w(0x048, itfen_before | 0x01);
+    let itfen_after = r(0x048);
+    notes.push(format!("ITFEN: {itfen_before:#x} → {itfen_after:#x}"));
+
+    // 7. Physical DMA mode — NO instance block bind
+    //    FBIF_TRANSCFG[7] = 1 enables physical addressing for DMA
+    //    DMACTL = 0 disables MMU-based DMA translation
+    falcon_prepare_physical_dma(bar0, base);
+    let fbif_after = r(0x624);
+    let dmactl_after = r(falcon::DMACTL);
+    notes.push(format!(
+        "Physical DMA: 0x624={fbif_after:#010x} DMACTL={dmactl_after:#010x} (NO instance block)"
+    ));
+
+    (halted, notes)
+}
+
 /// Issue STARTCPU to a falcon, using CPUCTL_ALIAS if ALIAS_EN (bit 6) is set.
 ///
 /// Matches Nouveau's `nvkm_falcon_v1_start`:
@@ -506,7 +793,7 @@ pub fn reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
 /// else
 ///     nvkm_falcon_wr32(falcon, 0x100, 0x2);
 /// ```
-pub(crate) fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
+pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
     let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0);
     let bootvec = bar0.read_u32(base + falcon::BOOTVEC).unwrap_or(0xDEAD);
     let alias_en = cpuctl & (1 << 6) != 0;
@@ -554,7 +841,7 @@ pub(crate) fn falcon_prepare_physical_dma(bar0: &MappedBar, base: usize) {
 ///
 /// Nouveau re-initializes IMEMC for each 256-byte page. This is critical —
 /// auto-increment may not cross page boundaries on all falcon versions.
-pub(crate) fn falcon_imem_upload_nouveau(
+pub fn falcon_imem_upload_nouveau(
     bar0: &MappedBar,
     base: usize,
     imem_addr: u32,
@@ -622,7 +909,7 @@ pub(crate) fn sec2_dmem_read(bar0: &MappedBar, offset: u32, len: usize) -> Vec<u
     result
 }
 
-pub(crate) fn falcon_dmem_upload(bar0: &MappedBar, base: usize, dmem_addr: u32, data: &[u8]) {
+pub fn falcon_dmem_upload(bar0: &MappedBar, base: usize, dmem_addr: u32, data: &[u8]) {
     let w = |off: usize, val: u32| {
         let _ = bar0.write_u32(base + off, val);
     };

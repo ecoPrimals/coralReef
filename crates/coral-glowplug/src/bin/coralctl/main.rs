@@ -19,7 +19,6 @@
 mod deploy;
 mod handlers_device;
 mod handlers_diag;
-mod handlers_firmware;
 mod oracle;
 mod rpc;
 
@@ -87,13 +86,20 @@ enum Command {
     /// List all captured mmiotrace data.
     TraceList,
 
-    /// Trigger a PCIe Function Level Reset (FLR) on a device via VFIO.
+    /// Reset a PCI device to recover from corrupted GPU state.
     ///
-    /// Recovers from corrupted GPU state (e.g. wrong firmware applied)
-    /// without a full system reboot. Requires the device to be VFIO-bound.
+    /// Methods:
+    ///   auto (default)  — tries vendor-preferred chain (bridge-sbr → sbr → remove-rescan)
+    ///   bridge-sbr      — SBR via parent PCI bridge (best for GV100 under VFIO)
+    ///   sbr             — device-level sysfs reset (may fail under VFIO for FLR-less hw)
+    ///   flr             — PCIe Function Level Reset via VFIO (requires FLR-capable hw)
+    ///   remove-rescan   — PCI remove + bus rescan (nuclear option, invalidates VFIO fds)
     Reset {
         /// PCI BDF address (e.g. 0000:4a:00.0).
         bdf: String,
+        /// Reset method: auto, bridge-sbr, sbr, flr, or remove-rescan. Default: auto.
+        #[arg(long, default_value = "auto")]
+        method: String,
     },
 
     /// Query health registers for all managed devices.
@@ -187,18 +193,6 @@ enum Command {
         settle: u64,
     },
 
-    /// Mailbox operations for GPU firmware probing (hotSpring integration).
-    Mailbox {
-        #[command(subcommand)]
-        action: MailboxAction,
-    },
-
-    /// Ring buffer operations for ordered GPU command submission.
-    Ring {
-        #[command(subcommand)]
-        action: RingAction,
-    },
-
     /// Generate udev rules for /dev/vfio/* from glowplug.toml.
     DeployUdev {
         #[arg(short, long)]
@@ -209,6 +203,65 @@ enum Command {
         dry_run: bool,
         #[arg(long, default_value = "coralreef")]
         group: String,
+    },
+
+    /// Query the experiment journal for swap, reset, and boot observations.
+    Journal {
+        #[command(subcommand)]
+        action: JournalAction,
+    },
+
+    /// Run automated experiments on a GPU — sweep personalities and compare.
+    Experiment {
+        #[command(subcommand)]
+        action: ExperimentAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExperimentAction {
+    /// Sweep through multiple personalities on a device, tracing each.
+    ///
+    /// For each personality: swap (with mmiotrace), capture timing and observer
+    /// insights, then swap back to the return personality. All observations are
+    /// recorded in the experiment journal.
+    Sweep {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Comma-separated list of personalities to test. Default: nouveau,amdgpu,nvidia-open,xe,i915.
+        #[arg(long)]
+        personalities: Option<String>,
+        /// Personality to return to after each test swap. Default: vfio.
+        #[arg(long, default_value = "vfio")]
+        return_to: String,
+        /// Enable mmiotrace for each swap. Default: true.
+        #[arg(long, default_value_t = true)]
+        trace: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum JournalAction {
+    /// Query journal entries with optional filters.
+    Query {
+        /// Filter by PCI BDF address.
+        #[arg(long)]
+        bdf: Option<String>,
+        /// Filter by entry kind: Swap, Reset, or BootAttempt.
+        #[arg(long)]
+        kind: Option<String>,
+        /// Filter by personality name.
+        #[arg(long)]
+        personality: Option<String>,
+        /// Maximum entries to return (newest first).
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Show aggregate statistics from journal entries.
+    Stats {
+        /// Filter stats by PCI BDF address.
+        #[arg(long)]
+        bdf: Option<String>,
     },
 }
 
@@ -278,117 +331,6 @@ enum OracleAction {
     },
 }
 
-#[derive(Subcommand)]
-enum MailboxAction {
-    /// Create a mailbox for a GPU engine (e.g. fecs, gpccs, sec2, pmu).
-    Create {
-        /// PCI BDF address.
-        bdf: String,
-        /// Engine name (e.g. fecs, gpccs, sec2, pmu).
-        engine: String,
-        /// Slot capacity (default: 16).
-        #[arg(long, default_value_t = 16)]
-        capacity: usize,
-    },
-    /// Post a firmware command to a mailbox.
-    Post {
-        /// PCI BDF address.
-        bdf: String,
-        /// Engine name.
-        engine: String,
-        /// BAR0 register offset (hex or decimal).
-        register: String,
-        /// Command word (hex or decimal).
-        command: String,
-        /// Status register offset (hex or decimal).
-        status_register: String,
-        /// Expected status value (hex or decimal, default: 0).
-        #[arg(long, default_value = "0")]
-        expected_status: String,
-        /// Status mask (hex or decimal, default: 0xFFFFFFFF).
-        #[arg(long, default_value = "0xFFFFFFFF")]
-        status_mask: String,
-        /// Timeout in milliseconds (default: 5000).
-        #[arg(long, default_value_t = 5000)]
-        timeout_ms: u64,
-    },
-    /// Poll a posted command's completion status.
-    Poll {
-        /// PCI BDF address.
-        bdf: String,
-        /// Engine name.
-        engine: String,
-        /// Sequence number returned by `post`.
-        seq: u64,
-    },
-    /// Drain completed entries from a mailbox.
-    Drain {
-        /// PCI BDF address.
-        bdf: String,
-        /// Engine name.
-        engine: String,
-    },
-    /// Show mailbox statistics for all engines on a device.
-    Stats {
-        /// PCI BDF address.
-        bdf: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum RingAction {
-    /// Create a named ring buffer on a device.
-    Create {
-        /// PCI BDF address.
-        bdf: String,
-        /// Ring name (e.g. gpfifo, ce0, sec2).
-        name: String,
-        /// Entry capacity (default: 64).
-        #[arg(long, default_value_t = 64)]
-        capacity: usize,
-    },
-    /// Submit an entry to a ring buffer.
-    Submit {
-        /// PCI BDF address.
-        bdf: String,
-        /// Ring name.
-        ring: String,
-        /// Semantic method name (e.g. sec2.boot, gpfifo.submit).
-        method: String,
-        /// Hex-encoded payload data (optional).
-        #[arg(long, default_value = "")]
-        data: String,
-    },
-    /// Consume the next pending ring entry.
-    Consume {
-        /// PCI BDF address.
-        bdf: String,
-        /// Ring name.
-        ring: String,
-    },
-    /// Consume entries up through a fence value.
-    Fence {
-        /// PCI BDF address.
-        bdf: String,
-        /// Ring name.
-        ring: String,
-        /// Fence value to consume through.
-        fence: u64,
-    },
-    /// Peek at the next pending entry without consuming.
-    Peek {
-        /// PCI BDF address.
-        bdf: String,
-        /// Ring name.
-        ring: String,
-    },
-    /// Show ring statistics for all rings on a device.
-    Stats {
-        /// PCI BDF address.
-        bdf: String,
-    },
-}
-
 fn parse_hex_or_dec(s: &str) -> Result<u64, String> {
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         u64::from_str_radix(hex, 16).map_err(|e| format!("invalid hex '{s}': {e}"))
@@ -426,7 +368,7 @@ fn main() {
                 );
             }
         }
-        Command::Reset { bdf } => handlers_device::rpc_reset(&cli.socket, &bdf),
+        Command::Reset { bdf, method } => handlers_device::rpc_reset(&cli.socket, &bdf, &method),
         Command::Health => handlers_device::rpc_health(&cli.socket),
         Command::Probe { bdf } => handlers_diag::rpc_probe(&cli.socket, &bdf),
         Command::VramProbe { bdf } => handlers_diag::rpc_vram_probe(&cli.socket, &bdf),
@@ -529,70 +471,6 @@ fn main() {
         Command::WarmFecs { bdf, settle } => {
             handlers_device::rpc_warm_fecs(&cli.socket, &bdf, settle)
         }
-        Command::Mailbox { action } => match action {
-            MailboxAction::Create {
-                bdf,
-                engine,
-                capacity,
-            } => handlers_firmware::rpc_mailbox_create(&cli.socket, &bdf, &engine, capacity),
-            MailboxAction::Post {
-                bdf,
-                engine,
-                register,
-                command,
-                status_register,
-                expected_status,
-                status_mask,
-                timeout_ms,
-            } => {
-                let hex_or_exit = |s: &str| parse_hex_or_dec(s).unwrap_or_else(|e| { eprintln!("error: {e}"); std::process::exit(1); });
-                handlers_firmware::rpc_mailbox_post(&handlers_firmware::MailboxPostParams {
-                    socket: &cli.socket,
-                    bdf: &bdf,
-                    engine: &engine,
-                    register: hex_or_exit(&register),
-                    command: hex_or_exit(&command),
-                    status_register: hex_or_exit(&status_register),
-                    expected_status: hex_or_exit(&expected_status),
-                    status_mask: hex_or_exit(&status_mask),
-                    timeout_ms,
-                });
-            }
-            MailboxAction::Poll { bdf, engine, seq } => {
-                handlers_firmware::rpc_mailbox_poll(&cli.socket, &bdf, &engine, seq);
-            }
-            MailboxAction::Drain { bdf, engine } => {
-                handlers_firmware::rpc_mailbox_drain(&cli.socket, &bdf, &engine);
-            }
-            MailboxAction::Stats { bdf } => {
-                handlers_firmware::rpc_mailbox_stats(&cli.socket, &bdf);
-            }
-        },
-        Command::Ring { action } => match action {
-            RingAction::Create {
-                bdf,
-                name,
-                capacity,
-            } => handlers_firmware::rpc_ring_create(&cli.socket, &bdf, &name, capacity),
-            RingAction::Submit {
-                bdf,
-                ring,
-                method,
-                data,
-            } => handlers_firmware::rpc_ring_submit(&cli.socket, &bdf, &ring, &method, &data),
-            RingAction::Consume { bdf, ring } => {
-                handlers_firmware::rpc_ring_consume(&cli.socket, &bdf, &ring);
-            }
-            RingAction::Fence { bdf, ring, fence } => {
-                handlers_firmware::rpc_ring_fence(&cli.socket, &bdf, &ring, fence);
-            }
-            RingAction::Peek { bdf, ring } => {
-                handlers_firmware::rpc_ring_peek(&cli.socket, &bdf, &ring);
-            }
-            RingAction::Stats { bdf } => {
-                handlers_firmware::rpc_ring_stats(&cli.socket, &bdf);
-            }
-        },
         Command::DeployUdev {
             config: config_path,
             output,
@@ -601,5 +479,34 @@ fn main() {
         } => {
             deploy::deploy_udev(config_path, &output, dry_run, &group);
         }
+        Command::Journal { action } => match action {
+            JournalAction::Query {
+                bdf,
+                kind,
+                personality,
+                limit,
+            } => {
+                handlers_device::rpc_journal_query(&cli.socket, bdf, kind, personality, limit);
+            }
+            JournalAction::Stats { bdf } => {
+                handlers_device::rpc_journal_stats(&cli.socket, bdf);
+            }
+        },
+        Command::Experiment { action } => match action {
+            ExperimentAction::Sweep {
+                bdf,
+                personalities,
+                return_to,
+                trace,
+            } => {
+                handlers_device::rpc_experiment_sweep(
+                    &cli.socket,
+                    &bdf,
+                    personalities.as_deref(),
+                    &return_to,
+                    trace,
+                );
+            }
+        },
     }
 }

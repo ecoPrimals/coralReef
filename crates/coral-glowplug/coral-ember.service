@@ -36,7 +36,7 @@ NoNewPrivileges=true
 
 # Filesystem isolation
 ProtectSystem=strict
-ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc
+ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc /sys/kernel/debug/tracing /var/lib/coralreef
 ReadOnlyPaths=/lib/modules /etc/modprobe.d /lib/modprobe.d
 PrivateTmp=true
 ProtectHome=true
