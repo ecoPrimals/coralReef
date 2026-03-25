@@ -429,6 +429,7 @@ fn bind_vfio(
                 HeldDevice {
                     bdf: bdf.to_string(),
                     device,
+                    ring_meta: crate::hold::RingMeta::default(),
                 },
             );
         }

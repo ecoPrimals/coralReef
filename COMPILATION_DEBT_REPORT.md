@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 65):** 3956 tests passing, ~119 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 66):** 4047 tests passing, ~121 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -212,10 +212,10 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 65) |
+| Metric | Value (as of Iter 66) |
 |--------|-------|
-| Tests passing | 3956 default + 48 VFIO |
-| Ignored tests | ~119 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 4047 default + 48 VFIO |
+| Ignored tests | ~121 (hardware-gated + diagnostic + VFIO HW) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
 | Production unwraps | 0 |

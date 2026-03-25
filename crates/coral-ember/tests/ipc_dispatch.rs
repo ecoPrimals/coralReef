@@ -292,6 +292,7 @@ fn dispatch_ember_vfio_fds_with_hardware() {
         HeldDevice {
             bdf: bdf.clone(),
             device,
+            ring_meta: coral_ember::RingMeta::default(),
         },
     );
     let held = Arc::new(RwLock::new(map));
@@ -312,6 +313,7 @@ fn dispatch_ember_release_success_when_held() {
         HeldDevice {
             bdf: bdf.clone(),
             device,
+            ring_meta: coral_ember::RingMeta::default(),
         },
     );
     let held = Arc::new(RwLock::new(map));
@@ -340,6 +342,7 @@ fn dispatch_ember_reacquire_skips_open_when_already_held() {
         HeldDevice {
             bdf: bdf.clone(),
             device,
+            ring_meta: coral_ember::RingMeta::default(),
         },
     );
     let held = Arc::new(RwLock::new(map));

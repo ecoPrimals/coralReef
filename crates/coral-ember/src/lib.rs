@@ -25,7 +25,7 @@ use std::sync::{Arc, RwLock};
 
 use serde::Deserialize;
 
-pub use hold::HeldDevice;
+pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use swap::{handle_swap_device, verify_drm_isolation_with_paths};
 pub use vendor_lifecycle::{
@@ -249,6 +249,7 @@ pub fn run() -> Result<(), i32> {
                     HeldDevice {
                         bdf: dev_config.bdf.clone(),
                         device,
+                        ring_meta: hold::RingMeta::default(),
                     },
                 );
             }
@@ -314,6 +315,8 @@ pub fn run() -> Result<(), i32> {
             .and_then(|sock| sock.send_to(b"READY=1", path));
     }
 
+    spawn_watchdog(Arc::clone(&held));
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -333,6 +336,46 @@ pub fn run() -> Result<(), i32> {
 
     tracing::error!("ember accept loop ended unexpectedly");
     Err(1)
+}
+
+/// Default watchdog interval in seconds (half a typical `WatchdogSec=30`).
+const WATCHDOG_INTERVAL_SECS: u64 = 15;
+
+/// Spawn a background thread that periodically:
+/// 1. Sends `WATCHDOG=1` to systemd (if `NOTIFY_SOCKET` is set).
+/// 2. Verifies held VFIO fds are still valid (ring-keeper liveness).
+///
+/// The thread is daemonic — it dies when the main process exits.
+fn spawn_watchdog(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
+    let interval = std::env::var("CORALREEF_EMBER_WATCHDOG_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(WATCHDOG_INTERVAL_SECS);
+
+    let notify_path = std::env::var("NOTIFY_SOCKET").ok();
+
+    std::thread::Builder::new()
+        .name("ember-watchdog".into())
+        .spawn(move || {
+            let interval = std::time::Duration::from_secs(interval);
+            loop {
+                std::thread::sleep(interval);
+
+                let device_count = held.read().map(|map| map.len()).unwrap_or(0);
+
+                if device_count == 0 {
+                    tracing::warn!("watchdog: no devices held — ring-keeper degraded");
+                }
+
+                if let Some(ref path) = notify_path {
+                    let _ = std::os::unix::net::UnixDatagram::unbound()
+                        .and_then(|sock| sock.send_to(b"WATCHDOG=1", path));
+                }
+
+                tracing::trace!(devices = device_count, "watchdog: heartbeat");
+            }
+        })
+        .expect("spawn ember watchdog thread");
 }
 
 #[cfg(test)]

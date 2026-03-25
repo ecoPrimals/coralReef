@@ -33,6 +33,18 @@
 //! | `device.compute_info` | Query NVML telemetry for a GPU            |
 //! | `device.quota`     | Query compute quota for shared/display GPU   |
 //! | `device.set_quota` | Set compute quota (power limit, mode)        |
+//! | `mailbox.create`   | Create a named mailbox on a device            |
+//! | `mailbox.post`     | Post a firmware command to a mailbox          |
+//! | `mailbox.poll`     | Poll a posted command's completion status      |
+//! | `mailbox.complete` | Mark a command complete (test/simulation)      |
+//! | `mailbox.drain`    | Drain completed mailbox entries                |
+//! | `mailbox.stats`    | Mailbox statistics for a device               |
+//! | `ring.create`      | Create a named ring buffer on a device        |
+//! | `ring.submit`      | Submit an entry to a ring buffer              |
+//! | `ring.consume`     | Consume the next pending ring entry           |
+//! | `ring.fence`       | Consume entries through a fence value          |
+//! | `ring.peek`        | Peek at next pending entry without consuming   |
+//! | `ring.stats`       | Ring statistics for a device                  |
 //! | `daemon.status`    | Daemon uptime and device count              |
 //! | `daemon.shutdown`  | Graceful shutdown                           |
 
@@ -363,6 +375,12 @@ where
                     make_response(req.id, result)
                 } else if req.method == "device.set_quota" {
                     let result = handlers::set_quota_async(&req.params, &devices).await;
+                    make_response(req.id, result)
+                } else if req.method.starts_with("mailbox.") || req.method.starts_with("ring.") {
+                    let result = {
+                        let mut devs = devices.lock().await;
+                        handlers::mailbox_ring::dispatch(&req.method, &req.params, &mut devs)
+                    };
                     make_response(req.id, result)
                 } else if matches!(
                     req.method.as_str(),

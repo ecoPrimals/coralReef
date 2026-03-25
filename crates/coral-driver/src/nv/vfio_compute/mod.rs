@@ -525,6 +525,16 @@ impl NvVfioComputeDevice {
         acr_boot::Sec2Probe::capture(&self.bar0)
     }
 
+    /// Probe FECS method interface — discover context sizes after falcon boot.
+    pub fn fecs_method_probe(&self) -> acr_boot::fecs_method::FecsMethodProbe {
+        acr_boot::fecs_method::fecs_probe_methods(&self.bar0)
+    }
+
+    /// Apply FECS exception configuration (GP100+).
+    pub fn fecs_init_exceptions(&self) {
+        acr_boot::fecs_method::fecs_init_exceptions(&self.bar0);
+    }
+
     pub(super) fn alloc_dma(&mut self, size: usize) -> DriverResult<(BufferHandle, u64)> {
         let aligned = size.div_ceil(4096) * 4096;
         let iova = self.next_iova;

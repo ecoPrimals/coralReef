@@ -508,13 +508,33 @@ pub fn reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
 /// ```
 pub(crate) fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
     let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0);
+    let bootvec = bar0.read_u32(base + falcon::BOOTVEC).unwrap_or(0xDEAD);
     let alias_en = cpuctl & (1 << 6) != 0;
+    tracing::info!(
+        "falcon_start_cpu: base={:#x} cpuctl={:#010x} bootvec={:#010x} alias_en={}",
+        base, cpuctl, bootvec, alias_en
+    );
     if alias_en {
-        tracing::info!("ALIAS_EN set, using CPUCTL_ALIAS (0x130) for STARTCPU");
         let _ = bar0.write_u32(base + falcon::CPUCTL_ALIAS, falcon::CPUCTL_STARTCPU);
     } else {
-        tracing::info!("ALIAS_EN clear, using CPUCTL (0x100) for STARTCPU");
         let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let pc_after = bar0.read_u32(base + falcon::PC).unwrap_or(0xDEAD);
+    let exci_after = bar0.read_u32(base + falcon::EXCI).unwrap_or(0xDEAD);
+    let cpuctl_after = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
+    if exci_after != 0 || pc_after == 0 {
+        tracing::warn!(
+            "falcon_start_cpu: POST-START FAULT base={:#x} pc={:#06x} exci={:#010x} cpuctl={:#010x}",
+            base, pc_after, exci_after, cpuctl_after
+        );
+    } else {
+        tracing::info!(
+            "falcon_start_cpu: OK base={:#x} pc={:#06x} exci={:#010x} cpuctl={:#010x}",
+            base, pc_after, exci_after, cpuctl_after
+        );
     }
 }
 

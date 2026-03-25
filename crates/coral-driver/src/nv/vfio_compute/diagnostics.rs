@@ -40,6 +40,10 @@ pub struct FalconState {
     pub nxtctx: u32,
     /// `DEBUG1`: Falcon debug / trap status.
     pub debug1: u32,
+    /// `EXCI`: Exception info — [31:16]=cause, [15:0]=PC at fault.
+    pub exci: u32,
+    /// `PC`: Program counter snapshot (offset 0x030).
+    pub pc: u32,
 }
 
 impl FalconState {
@@ -60,6 +64,8 @@ impl FalconState {
             curctx: r(falcon::CURCTX),
             nxtctx: r(falcon::NXTCTX),
             debug1: r(falcon::DEBUG1),
+            exci: r(falcon::EXCI),
+            pc: r(falcon::PC),
         }
     }
 
@@ -97,6 +103,10 @@ impl FalconState {
             "HRESET"
         } else if self.is_halted() {
             "HALTED"
+        } else if self.exci != 0 {
+            "FAULTED (exci != 0)"
+        } else if self.pc == 0 && self.mailbox0 == 0 && self.mailbox1 == 0 {
+            "STALLED (PC=0, no mailbox)"
         } else if self.mailbox0 != 0 || self.mailbox1 != 0 {
             "RUNNING (mailbox active)"
         } else {
@@ -119,6 +129,11 @@ impl fmt::Display for FalconState {
             f,
             "    cpuctl={:#010x} bootvec={:#010x} hwcfg={:#010x}",
             self.cpuctl, self.bootvec, self.hwcfg
+        )?;
+        writeln!(
+            f,
+            "    pc={:#06x} exci={:#010x}",
+            self.pc, self.exci
         )?;
         writeln!(
             f,
@@ -622,6 +637,8 @@ mod tests {
             curctx: 0,
             nxtctx: 0,
             debug1: 0,
+            exci: 0,
+            pc: 0,
         }
     }
 

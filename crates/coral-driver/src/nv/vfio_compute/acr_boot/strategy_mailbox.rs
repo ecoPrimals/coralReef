@@ -45,21 +45,52 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
 
     // Try multiple ACR command approaches:
 
-    // Approach 1: Direct MAILBOX0 command
-    // Some ACR firmwares accept commands via MAILBOX0:
-    //   MAILBOX0 = command_id, MAILBOX1 = parameter
+    // Pre-bootstrap: apply GR engine configuration that FECS firmware expects.
+    // Nouveau does this in gf100_gr_init() BEFORE gf100_gr_init_ctxctl().
+    //
+    // GP100+ FECS exceptions: gp100_gr_init_fecs_exceptions
+    let _ = bar0.write_u32(0x0040_9c24, 0x000e_0002);
+    // SCC init (ctxgf100.c): needed for context switch
+    let _ = bar0.write_u32(0x0040_802c, 0x0000_0001);
+
     const ACR_CMD_BOOTSTRAP_FALCON: u32 = 1;
     const FALCON_ID_FECS: u32 = falcon_id::FECS; // 2
     const FALCON_ID_GPCCS: u32 = falcon_id::GPCCS; // 3
 
-    w(falcon::MAILBOX1, FALCON_ID_FECS);
+    // Bootstrap both FECS and GPCCS together using a bitmask.
+    // Nouveau uses nvkm_acr_bootstrap_falcons(device, FECS|GPCCS)
+    // which passes a bitmask: (1<<2)|(1<<3) = 0x0C.
+    let falcon_mask = (1u32 << FALCON_ID_FECS) | (1u32 << FALCON_ID_GPCCS);
+    notes.push(format!(
+        "Sending BOOTSTRAP_FALCON mask={falcon_mask:#06x} (FECS+GPCCS)"
+    ));
+    w(falcon::MAILBOX1, falcon_mask);
     w(falcon::MAILBOX0, ACR_CMD_BOOTSTRAP_FALCON);
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     let mb0_after = r(falcon::MAILBOX0);
     let mb1_after = r(falcon::MAILBOX1);
+    let fecs_cpu_check = bar0
+        .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+        .unwrap_or(0xDEAD);
+    let gpccs_cpu_check = bar0
+        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
+        .unwrap_or(0xDEAD);
     notes.push(format!(
-        "After BOOTSTRAP_FALCON(FECS): mb0={mb0_after:#010x} mb1={mb1_after:#010x}"
+        "After BOOTSTRAP(mask): mb0={mb0_after:#010x} mb1={mb1_after:#010x} FECS={fecs_cpu_check:#010x} GPCCS={gpccs_cpu_check:#010x}"
     ));
+
+    // If mask approach didn't work (mb0 unchanged), try individual FECS
+    if mb0_after == 0 || mb0_after == 0xcafe_beef {
+        notes.push("Mask approach failed, trying individual FECS...".to_string());
+        w(falcon::MAILBOX1, FALCON_ID_FECS);
+        w(falcon::MAILBOX0, ACR_CMD_BOOTSTRAP_FALCON);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let mb0_fecs = r(falcon::MAILBOX0);
+        let mb1_fecs = r(falcon::MAILBOX1);
+        notes.push(format!(
+            "After BOOTSTRAP_FALCON(FECS): mb0={mb0_fecs:#010x} mb1={mb1_fecs:#010x}"
+        ));
+    }
 
     // Approach 2: Dump SEC2 DMEM to find active command queue structures.
     // The ACR firmware uses CMDQ/MSGQ in DMEM for host communication.
@@ -125,46 +156,168 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
         }
     }
 
-    // Approach 3: Try GPCCS too
+    // Reset mailbox before GPCCS command — SEC2 needs to see mb0 transition
+    // from 0 to command_id to detect a new command.
+    w(falcon::MAILBOX0, 0);
+    w(falcon::MAILBOX1, 0);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
     w(falcon::MAILBOX1, FALCON_ID_GPCCS);
     w(falcon::MAILBOX0, ACR_CMD_BOOTSTRAP_FALCON);
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     let mb0_gpccs = r(falcon::MAILBOX0);
+    let mb1_gpccs = r(falcon::MAILBOX1);
     notes.push(format!(
-        "After BOOTSTRAP_FALCON(GPCCS): mb0={mb0_gpccs:#010x}"
+        "After BOOTSTRAP_FALCON(GPCCS): mb0={mb0_gpccs:#010x} mb1={mb1_gpccs:#010x}"
     ));
-
-    // Approach 4: Try interrupt/doorbell to wake SEC2
-    // Write to SEC2 interrupt register to signal new command
-    let sec2_irq_set: usize = 0x000; // INTR_SET at falcon base + 0x000 (varies)
-    w(sec2_irq_set, 1);
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Check final state
-    let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
+    let gpccs_cpuctl_pre = bar0
         .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
         .unwrap_or(0xDEAD);
     notes.push(format!(
-        "FECS: cpuctl={fecs_cpuctl_after:#010x} mb0={fecs_mailbox0_after:#010x}"
+        "GPCCS cpuctl after ACR bootstrap attempt: {gpccs_cpuctl_pre:#010x}"
     ));
-    notes.push(format!("GPCCS: cpuctl={gpccs_cpuctl_after:#010x}"));
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
+    // If GPCCS wasn't loaded by ACR (still in HRESET or empty IMEM),
+    // directly upload GPCCS firmware via IMEM/DMEM ports.
+    if gpccs_cpuctl_pre == 0x10 || gpccs_cpuctl_pre == 0x00 {
+        notes.push("GPCCS not bootstrapped by ACR — trying direct IMEM upload...".to_string());
+        let boot0 = bar0.read_u32(0x0).unwrap_or(0);
+        let sm = ((boot0 >> 20) & 0x1F0) | ((boot0 >> 15) & 0x00F);
+        let gpccs_chip = if sm >= 100 {
+            "ga102"
+        } else if sm >= 80 {
+            "ga100"
+        } else {
+            "gv100"
+        };
+        match super::super::fecs_boot::boot_gpccs(bar0, gpccs_chip) {
+            Ok(result) => {
+                notes.push(format!("GPCCS direct boot: {result}"));
+            }
+            Err(e) => {
+                notes.push(format!("GPCCS direct boot failed: {e}"));
+            }
+        }
+    }
 
-    AcrBootResult {
-        strategy: "ACR mailbox command (live SEC2)",
+    // ── Layer 9: Post-ACR falcon start (Exp 088) ──
+    //
+    // Nouveau's gf100_gr_init_ctxctl_ext performs these steps AFTER ACR's
+    // BOOTSTRAP_FALCON returns. The falcons are loaded but sit in HRESET;
+    // the host must explicitly issue STARTCPU.
+    //
+    // Sequence from nouveau gf100.c:
+    //   1. nvkm_mc_unk260(device, 1)           — clock-gating restore
+    //   2. 0x409800=0, 0x41a10c=0, 0x40910c=0  — clear mailbox + status
+    //   3. nvkm_falcon_start(GPCCS)             — GPCCS first
+    //   4. nvkm_falcon_start(FECS)              — FECS second
+    //   5. poll 0x409800 bit 0 for 2000ms       — FECS ready
+    let fecs_pre_start = bar0
+        .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+        .unwrap_or(0xDEAD);
+    let gpccs_pre_start = bar0
+        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
+        .unwrap_or(0xDEAD);
+    notes.push(format!(
+        "Pre-start: FECS cpuctl={fecs_pre_start:#010x} GPCCS cpuctl={gpccs_pre_start:#010x}"
+    ));
+
+    // Step 1: Clock-gating restore — nouveau's nvkm_mc_unk260(device, 1)
+    let _ = bar0.write_u32(0x000260, 1);
+
+    // Step 1b: Configure FECS/GPCCS interrupt enables before starting.
+    // Nouveau has these set from its GR init. Without them FECS can't
+    // complete its initialization (stuck polling for interrupts).
+    // FECS INTR_ENABLE: nouveau value = 0xfc24
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x00c, 0x0000_fc24);
+    // GPCCS INTR_ENABLE: matching value
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x00c, 0x0000_fc24);
+    // FECS ITFEN (interface enable): nouveau = 0x04
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x048, 0x0000_0004);
+    // GPCCS ITFEN
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x048, 0x0000_0004);
+
+    // Clear status registers before starting falcons
+    const FECS_CTXSW_MAILBOX: usize = 0x409800; // FECS_BASE + 0x800
+    let _ = bar0.write_u32(FECS_CTXSW_MAILBOX, 0);
+    let _ = bar0.write_u32(0x41a10c, 0); // GPCCS status clear
+    let _ = bar0.write_u32(0x40910c, 0); // FECS status clear
+
+    // Start GPCCS first (FECS expects GPCCS to be running)
+    tracing::info!("Layer 9: issuing STARTCPU to GPCCS");
+    falcon_start_cpu(bar0, falcon::GPCCS_BASE);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let gpccs_post_start = bar0
+        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
+        .unwrap_or(0xDEAD);
+    notes.push(format!(
+        "GPCCS after STARTCPU: cpuctl={gpccs_post_start:#010x}"
+    ));
+
+    // Start FECS second
+    tracing::info!("Layer 9: issuing STARTCPU to FECS");
+    falcon_start_cpu(bar0, falcon::FECS_BASE);
+
+    // Poll FECS_CTXSW_MAILBOX (0x409800) bit 0 for FECS ready
+    let poll_timeout = std::time::Duration::from_millis(2000);
+    let poll_start = std::time::Instant::now();
+    let mut fecs_ready = false;
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let status = bar0.read_u32(FECS_CTXSW_MAILBOX).unwrap_or(0);
+        let fecs_cpu = bar0
+            .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+            .unwrap_or(0xDEAD);
+
+        if status & 1 != 0 {
+            notes.push(format!(
+                "FECS READY: 0x409800={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
+                poll_start.elapsed().as_millis()
+            ));
+            fecs_ready = true;
+            break;
+        }
+        // Also check if FECS is running (HRESET cleared, not halted)
+        if fecs_cpu & (falcon::CPUCTL_HRESET | falcon::CPUCTL_HALTED) == 0 {
+            notes.push(format!(
+                "FECS RUNNING (no ready signal yet): 0x409800={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
+                poll_start.elapsed().as_millis()
+            ));
+            fecs_ready = true;
+            break;
+        }
+        if poll_start.elapsed() > poll_timeout {
+            notes.push(format!(
+                "FECS ready timeout (2s): 0x409800={status:#010x} cpuctl={fecs_cpu:#010x}"
+            ));
+            break;
+        }
+    }
+
+    // Set watchdog timeout (nouveau: 0x7fffffff)
+    if fecs_ready {
+        let _ = bar0.write_u32(falcon::FECS_BASE + 0x034, 0x7fff_ffff);
+        notes.push("Set FECS watchdog timeout 0x7fffffff".to_string());
+    }
+
+    // Check final state with full PC/EXCI verification
+    let sec2_after = Sec2Probe::capture(bar0);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
+    notes.push(format!(
+        "FECS final: cpuctl={:#010x} pc={:#06x} exci={:#010x} mb0={:#010x}",
+        post.fecs_cpuctl, post.fecs_pc, post.fecs_exci, post.fecs_mailbox0
+    ));
+    notes.push(format!(
+        "GPCCS final: cpuctl={:#010x} pc={:#06x} exci={:#010x}",
+        post.gpccs_cpuctl, post.gpccs_pc, post.gpccs_exci
+    ));
+
+    post.into_result(
+        "ACR mailbox command (live SEC2) + falcon start",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }
 
 /// Direct FECS boot — bypass SEC2/ACR entirely.
@@ -300,22 +453,14 @@ pub fn attempt_direct_fecs_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoo
     }
 
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_cpuctl_after = fr(fecs_base, falcon::CPUCTL);
-    let fecs_mailbox0_after = fr(fecs_base, falcon::MAILBOX0);
-    let gpccs_cpuctl_after = fr(gpccs_base, falcon::CPUCTL);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "Direct FECS boot (bypass ACR)",
+    post.into_result(
+        "Direct FECS boot (bypass ACR)",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }
 
 /// Attempt 081a: Direct HRESET release experiments.
@@ -379,24 +524,14 @@ pub fn attempt_direct_hreset(bar0: &MappedBar) -> AcrBootResult {
     ));
 
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "081a: direct HRESET experiments",
+    post.into_result(
+        "081a: direct HRESET experiments",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }
 
 /// Attempt EMEM-based SEC2 boot with signed ACR bootloader.
@@ -533,29 +668,18 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
     ));
 
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
-
+    let post = super::boot_result::PostBootCapture::capture(bar0);
     notes.push(format!(
-        "FECS: cpuctl={fecs_cpuctl_after:#010x} mb0={fecs_mailbox0_after:#010x}"
+        "FECS: cpuctl={:#010x} pc={:#06x} exci={:#010x} mb0={:#010x}",
+        post.fecs_cpuctl, post.fecs_pc, post.fecs_exci, post.fecs_mailbox0
     ));
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "EMEM-based SEC2 boot",
+    post.into_result(
+        "EMEM-based SEC2 boot",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }
 
 /// Attempt nouveau-style SEC2 boot: falcon reset + IMEM code + EMEM descriptor.
@@ -750,23 +874,12 @@ pub fn attempt_nouveau_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRes
     ));
 
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "nouveau-style IMEM+EMEM SEC2 boot",
+    post.into_result(
+        "nouveau-style IMEM+EMEM SEC2 boot",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }

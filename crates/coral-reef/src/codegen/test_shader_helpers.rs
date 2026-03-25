@@ -2,7 +2,7 @@
 //! Shared test helpers for codegen pass tests.
 
 use super::ir::{
-    BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, PhiAllocator, RegFile,
+    BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, PhiAllocator,
     SSAValueAllocator, Shader, ShaderInfo, ShaderIoInfo, ShaderModelInfo, ShaderStageInfo,
 };
 use coral_reef_stubs::cfg::CFGBuilder;

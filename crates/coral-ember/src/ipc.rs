@@ -2,7 +2,7 @@
 //! JSON-RPC 2.0 IPC handler and SCM_RIGHTS fd passing.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
@@ -70,12 +70,12 @@ fn write_jsonrpc_ok(
     stream: &UnixStream,
     id: serde_json::Value,
     result: serde_json::Value,
-) -> Result<(), String> {
+) -> std::io::Result<()> {
     let resp = make_jsonrpc_ok(id, result);
-    let json = serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?;
+    let json =
+        serde_json::to_string(&resp).map_err(|e| std::io::Error::new(ErrorKind::InvalidData, e))?;
     let mut w: &UnixStream = stream;
     w.write_all(format!("{json}\n").as_bytes())
-        .map_err(|e| format!("write: {e}"))
 }
 
 fn write_jsonrpc_error(
@@ -83,7 +83,7 @@ fn write_jsonrpc_error(
     id: serde_json::Value,
     code: i32,
     message: &str,
-) -> Result<(), String> {
+) -> std::io::Result<()> {
     let resp = JsonRpcResponse {
         jsonrpc: "2.0",
         result: None,
@@ -93,10 +93,14 @@ fn write_jsonrpc_error(
         }),
         id,
     };
-    let json = serde_json::to_string(&resp).map_err(|e| format!("serialize: {e}"))?;
+    let json =
+        serde_json::to_string(&resp).map_err(|e| std::io::Error::new(ErrorKind::InvalidData, e))?;
     let mut w: &UnixStream = stream;
     w.write_all(format!("{json}\n").as_bytes())
-        .map_err(|e| format!("write: {e}"))
+}
+
+fn ipc_io_error_string(e: std::io::Error) -> String {
+    e.to_string()
 }
 
 /// Reject a BDF that is not in the managed set from `glowplug.toml`.
@@ -105,7 +109,7 @@ fn require_managed_bdf(
     managed: &HashSet<String>,
     stream: &UnixStream,
     id: serde_json::Value,
-) -> Result<(), Result<(), String>> {
+) -> Result<(), Result<(), std::io::Error>> {
     if managed.contains(bdf) {
         return Ok(());
     }
@@ -125,7 +129,8 @@ fn require_managed_bdf(
 /// # Errors
 ///
 /// Returns `Err` when a required parameter is missing for a method that uses `?` (e.g. `ember.swap`
-/// without `target`); socket write/serialize errors are returned as `Err` strings.
+/// without `target`); socket write/serialize errors are returned as `Err` strings (including I/O
+/// errors from writing JSON-RPC responses).
 pub fn handle_client(
     stream: &UnixStream,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -153,7 +158,8 @@ pub fn handle_client(
                 serde_json::Value::Null,
                 -32700,
                 &format!("parse error: {e}"),
-            )?;
+            )
+            .map_err(ipc_io_error_string)?;
             return Ok(());
         }
     };
@@ -164,7 +170,8 @@ pub fn handle_client(
             req.id,
             -32600,
             &format!("invalid jsonrpc version: {}", req.jsonrpc),
-        )?;
+        )
+        .map_err(ipc_io_error_string)?;
         return Ok(());
     }
 
@@ -179,7 +186,7 @@ pub fn handle_client(
                 .ok_or("missing 'bdf' parameter")?;
             match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
                 Ok(()) => {}
-                Err(early) => return early,
+                Err(early) => return early.map_err(ipc_io_error_string),
             }
             let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
             let dev = match map.get(bdf) {
@@ -191,7 +198,8 @@ pub fn handle_client(
                         id,
                         -32000,
                         &format!("device {bdf} not held by ember"),
-                    )?;
+                    )
+                    .map_err(ipc_io_error_string)?;
                     return Ok(());
                 }
             };
@@ -227,7 +235,8 @@ pub fn handle_client(
             let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
             let devices: Vec<String> = map.keys().cloned().collect();
             drop(map);
-            write_jsonrpc_ok(stream, id, serde_json::json!({"devices": devices}))?;
+            write_jsonrpc_ok(stream, id, serde_json::json!({"devices": devices}))
+                .map_err(ipc_io_error_string)?;
         }
         "ember.release" => {
             let bdf = params
@@ -236,7 +245,7 @@ pub fn handle_client(
                 .ok_or("missing 'bdf' parameter")?;
             match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
                 Ok(()) => {}
-                Err(early) => return early,
+                Err(early) => return early.map_err(ipc_io_error_string),
             }
             let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
             match map.remove(bdf) {
@@ -244,7 +253,8 @@ pub fn handle_client(
                     drop(device);
                     tracing::info!(bdf, "ember released VFIO fds for swap");
                     drop(map);
-                    write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
+                    write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))
+                        .map_err(ipc_io_error_string)?;
                 }
                 None => {
                     drop(map);
@@ -253,7 +263,8 @@ pub fn handle_client(
                         id,
                         -32000,
                         &format!("device {bdf} not held by ember"),
-                    )?;
+                    )
+                    .map_err(ipc_io_error_string)?;
                 }
             }
         }
@@ -264,7 +275,7 @@ pub fn handle_client(
                 .ok_or("missing 'bdf' parameter")?;
             match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
                 Ok(()) => {}
-                Err(early) => return early,
+                Err(early) => return early.map_err(ipc_io_error_string),
             }
             if sysfs::is_d3cold(bdf) {
                 write_jsonrpc_error(
@@ -272,14 +283,16 @@ pub fn handle_client(
                     id,
                     -32000,
                     &format!("{bdf} is D3cold — cannot reacquire"),
-                )?;
+                )
+                .map_err(ipc_io_error_string)?;
                 return Ok(());
             }
             let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
             if map.contains_key(bdf) {
                 tracing::warn!(bdf, "device already held — skipping reacquire");
                 drop(map);
-                write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
+                write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))
+                    .map_err(ipc_io_error_string)?;
             } else {
                 match coral_driver::vfio::VfioDevice::open(bdf) {
                     Ok(device) => {
@@ -294,15 +307,18 @@ pub fn handle_client(
                             HeldDevice {
                                 bdf: bdf.to_string(),
                                 device,
+                                ring_meta: crate::hold::RingMeta::default(),
                             },
                         );
                         drop(map);
-                        write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))?;
+                        write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))
+                            .map_err(ipc_io_error_string)?;
                     }
                     Err(e) => {
                         drop(map);
                         tracing::error!(bdf, error = %e, "failed to reacquire VFIO device");
-                        write_jsonrpc_error(stream, id, -32000, &format!("reacquire failed: {e}"))?;
+                        write_jsonrpc_error(stream, id, -32000, &format!("reacquire failed: {e}"))
+                            .map_err(ipc_io_error_string)?;
                     }
                 }
             }
@@ -322,7 +338,7 @@ pub fn handle_client(
                 .unwrap_or(false);
             match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
                 Ok(()) => {}
-                Err(early) => return early,
+                Err(early) => return early.map_err(ipc_io_error_string),
             }
             if sysfs::is_d3cold(bdf) {
                 write_jsonrpc_error(
@@ -330,7 +346,8 @@ pub fn handle_client(
                     id,
                     -32000,
                     &format!("{bdf} is D3cold — cannot swap"),
-                )?;
+                )
+                .map_err(ipc_io_error_string)?;
                 return Ok(());
             }
             let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
@@ -341,11 +358,85 @@ pub fn handle_client(
                         stream,
                         id,
                         serde_json::json!({"bdf": bdf, "personality": personality}),
-                    )?;
+                    )
+                    .map_err(ipc_io_error_string)?;
                 }
                 Err(e) => {
                     drop(map);
-                    write_jsonrpc_error(stream, id, -32000, &e)?;
+                    write_jsonrpc_error(stream, id, -32000, &e).map_err(ipc_io_error_string)?;
+                }
+            }
+        }
+        "ember.ring_meta.get" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
+                .ok_or("missing 'bdf' parameter")?;
+            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
+                Ok(()) => {}
+                Err(early) => return early.map_err(ipc_io_error_string),
+            }
+            let map = held.read().map_err(|e| format!("lock poisoned: {e}"))?;
+            match map.get(bdf) {
+                Some(dev) => {
+                    let meta = &dev.ring_meta;
+                    let val = serde_json::to_value(meta)
+                        .map_err(|e| format!("serialize ring_meta: {e}"))?;
+                    drop(map);
+                    write_jsonrpc_ok(stream, id, val).map_err(ipc_io_error_string)?;
+                }
+                None => {
+                    drop(map);
+                    write_jsonrpc_error(
+                        stream,
+                        id,
+                        -32000,
+                        &format!("device {bdf} not held by ember"),
+                    )
+                    .map_err(ipc_io_error_string)?;
+                }
+            }
+        }
+        "ember.ring_meta.set" => {
+            let bdf = params
+                .get("bdf")
+                .and_then(|v| v.as_str())
+                .ok_or("missing 'bdf' parameter")?;
+            let meta_val = params
+                .get("meta")
+                .ok_or("missing 'meta' parameter")?;
+            let meta: crate::hold::RingMeta = serde_json::from_value(meta_val.clone())
+                .map_err(|e| format!("invalid ring_meta: {e}"))?;
+            match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
+                Ok(()) => {}
+                Err(early) => return early.map_err(ipc_io_error_string),
+            }
+            let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
+            match map.get_mut(bdf) {
+                Some(dev) => {
+                    let prev_version = dev.ring_meta.version;
+                    dev.ring_meta = meta;
+                    tracing::info!(
+                        bdf,
+                        version = dev.ring_meta.version,
+                        prev_version,
+                        mailboxes = dev.ring_meta.mailboxes.len(),
+                        rings = dev.ring_meta.rings.len(),
+                        "ring_meta updated"
+                    );
+                    drop(map);
+                    write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
+                        .map_err(ipc_io_error_string)?;
+                }
+                None => {
+                    drop(map);
+                    write_jsonrpc_error(
+                        stream,
+                        id,
+                        -32000,
+                        &format!("device {bdf} not held by ember"),
+                    )
+                    .map_err(ipc_io_error_string)?;
                 }
             }
         }
@@ -360,10 +451,12 @@ pub fn handle_client(
                     "devices": devices,
                     "uptime_secs": started_at.elapsed().as_secs(),
                 }),
-            )?;
+            )
+            .map_err(ipc_io_error_string)?;
         }
         other => {
-            write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))?;
+            write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
+                .map_err(ipc_io_error_string)?;
         }
     }
 
@@ -881,6 +974,7 @@ mod tests {
             crate::hold::HeldDevice {
                 bdf: bdf.clone(),
                 device,
+                ring_meta: crate::hold::RingMeta::default(),
             },
         );
         let held = Arc::new(RwLock::new(map));

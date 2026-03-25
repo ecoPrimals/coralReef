@@ -4,11 +4,20 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 65
+**Current status**: Phase 10 — Iteration 66
 
 ---
 
 ## [Unreleased]
+
+### Iteration 66 — hotSpring Firmware Wiring + Coverage Push (Mar 25 2026)
+
+- **Mailbox system (`coral-glowplug`)**: `MailboxSet` + `PostedCommand` + `Sequence` — posted-command firmware interaction for FECS/GPCCS/SEC2/PMU engines. Per-device mailboxes wired into `DeviceSlot`. JSON-RPC: `mailbox.create`, `mailbox.post`, `mailbox.poll`, `mailbox.complete`, `mailbox.drain`, `mailbox.stats`
+- **Ring buffer system (`coral-glowplug`)**: `MultiRing` + `Ring` + `RingPayload` — ordered, timed, fence-based GPU command submission. Per-device rings wired into `DeviceSlot`. JSON-RPC: `ring.create`, `ring.submit`, `ring.consume`, `ring.fence`, `ring.peek`, `ring.stats`
+- **Ember ring-keeper**: `RingMeta` persistence in `HeldDevice` for cross-restart ring/mailbox reconstruction. JSON-RPC: `ember.ring_meta.get`, `ember.ring_meta.set`. Systemd watchdog heartbeat (`spawn_watchdog`)
+- **coralctl firmware subcommands**: `coralctl mailbox {create,post,poll,drain,stats}` + `coralctl ring {create,submit,consume,fence,peek,stats}` — CLI interface for hotSpring firmware probing
+- **Coverage**: `debug.rs` (7 new tests), `op_float/f16_ops.rs` display tests (12 new — `OpHSet2`, `OpHSetP2`, `OpHMul2` dnz, `OpHAdd2` ftz, `OpHFma2` ftz+sat, `OpHMnMx2` ftz, `ImmaSize`/`HmmaSize` exhaustive), `ember hold.rs` (2 new), `mailbox_ring.rs` handler tests (10 new)
+- **Metrics**: 4047 tests passing, 0 failed, ~121 ignored hardware-gated; ~66% workspace line coverage; fmt, clippy (pedantic+nursery), doc, release build — PASS
 
 ### Iteration 65 — Deep Debt Solutions + Ecosystem Integration (Mar 24 2026)
 

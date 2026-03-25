@@ -29,6 +29,7 @@
 //! ```
 
 mod boot_result;
+pub mod fecs_method;
 mod firmware;
 mod instance_block;
 mod sec2_hal;

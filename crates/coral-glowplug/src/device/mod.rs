@@ -17,7 +17,9 @@ pub mod types;
 pub use types::*;
 
 use crate::config::DeviceConfig;
+use crate::mailbox::MailboxSet;
 use crate::personality::Personality;
+use crate::ring::MultiRing;
 use crate::sysfs;
 use crate::sysfs_ops::{RealSysfs, SysfsOps};
 use std::collections::BTreeMap;
@@ -35,6 +37,12 @@ pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     vfio_holder: Option<types::VfioHolder>,
     register_snapshot: BTreeMap<usize, u32>,
     sysfs: S,
+    /// Posted-command mailboxes for GPU engine interaction (FECS, GPCCS, SEC2, PMU).
+    /// Enables hotSpring-style firmware probing via `mailbox.*` RPC methods.
+    pub mailboxes: MailboxSet,
+    /// Multi-ring command submission buffers for ordered, timed GPU interaction.
+    /// Enables granular hardware testing and multi-ring dispatch via `ring.*` RPC.
+    pub rings: MultiRing,
     /// Set while a long-running `spawn_blocking` task (oracle capture, compute
     /// dispatch) holds a borrowed reference to this slot's VFIO mapping or GPU
     /// context.  Mutating operations (`swap`, `reclaim`, `resurrect`) must
@@ -74,6 +82,8 @@ impl<S: SysfsOps> DeviceSlot<S> {
             vfio_holder: None,
             register_snapshot: BTreeMap::new(),
             sysfs: ops,
+            mailboxes: MailboxSet::new(),
+            rings: MultiRing::new(),
             busy: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             test_vfio_override: None,

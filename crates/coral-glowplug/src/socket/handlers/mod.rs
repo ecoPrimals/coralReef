@@ -7,6 +7,7 @@
 
 mod compute;
 mod device_ops;
+pub(crate) mod mailbox_ring;
 mod quota;
 
 pub(crate) use compute::{compute_dispatch_async, oracle_capture_async};

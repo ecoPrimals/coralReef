@@ -222,28 +222,16 @@ pub fn attempt_acr_chain(
     ));
 
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    // DMA buffer is dropped here, unmapping it.
     drop(acr_dma);
 
-    AcrBootResult {
-        strategy: "ACR chain: DMA-backed SEC2 boot",
+    post.into_result(
+        "ACR chain: DMA-backed SEC2 boot",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }
 
 /// Direct ACR firmware load — bypasses the bootloader's DMA transfer.
@@ -521,23 +509,12 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
     ));
 
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "Direct ACR IMEM load (no BL DMA)",
+    post.into_result(
+        "Direct ACR IMEM load (no BL DMA)",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }

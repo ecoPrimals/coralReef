@@ -475,29 +475,17 @@ pub fn attempt_sysmem_acr_boot(
 
     // ── Capture final state ──
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_cpuctl_after = bar0
-        .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
-    let fecs_mailbox0_after = bar0
-        .read_u32(falcon::FECS_BASE + falcon::MAILBOX0)
-        .unwrap_or(0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
     notes.push(format!(
-        "Final: FECS cpuctl={fecs_cpuctl_after:#010x} GPCCS cpuctl={gpccs_cpuctl_after:#010x}"
+        "Final: FECS cpuctl={:#010x} pc={:#06x} exci={:#010x} GPCCS cpuctl={:#010x} pc={:#06x} exci={:#010x}",
+        post.fecs_cpuctl, post.fecs_pc, post.fecs_exci,
+        post.gpccs_cpuctl, post.gpccs_pc, post.gpccs_exci
     ));
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "System-memory ACR boot (IOMMU DMA)",
+    post.into_result(
+        "System-memory ACR boot (IOMMU DMA)",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }

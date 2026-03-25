@@ -136,6 +136,76 @@ mod tests {
     }
 
     #[test]
+    fn test_get_debug_flags_print() {
+        let d = TestDebugFlags {
+            flags: 1 << DebugFlag::Print as u8,
+        };
+        assert!(d.print());
+        assert!(!d.panic());
+    }
+
+    #[test]
+    fn test_get_debug_flags_spill() {
+        let d = TestDebugFlags {
+            flags: 1 << DebugFlag::Spill as u8,
+        };
+        assert!(d.spill());
+        assert!(!d.serial());
+    }
+
+    #[test]
+    fn test_get_debug_flags_no_ugpr() {
+        let d = TestDebugFlags {
+            flags: 1 << DebugFlag::NoUgpr as u8,
+        };
+        assert!(d.no_ugpr());
+        assert!(!d.spill());
+    }
+
+    #[test]
+    fn test_get_debug_flags_cycles() {
+        let d = TestDebugFlags {
+            flags: 1 << DebugFlag::Cycles as u8,
+        };
+        assert!(d.cycles());
+        assert!(!d.no_ugpr());
+    }
+
+    #[test]
+    fn test_get_debug_flags_multiple() {
+        let d = TestDebugFlags {
+            flags: (1 << DebugFlag::Panic as u8)
+                | (1 << DebugFlag::Serial as u8)
+                | (1 << DebugFlag::Cycles as u8),
+        };
+        assert!(d.panic());
+        assert!(d.serial());
+        assert!(d.cycles());
+        assert!(!d.print());
+        assert!(!d.spill());
+        assert!(!d.annotate());
+        assert!(!d.no_ugpr());
+    }
+
+    #[test]
+    fn test_get_debug_flags_all_zero() {
+        let d = TestDebugFlags { flags: 0 };
+        assert!(!d.panic());
+        assert!(!d.print());
+        assert!(!d.serial());
+        assert!(!d.spill());
+        assert!(!d.annotate());
+        assert!(!d.no_ugpr());
+        assert!(!d.cycles());
+    }
+
+    #[test]
+    fn test_debug_from_env_empty_string() {
+        let d = Debug { flags: 0 };
+        assert_eq!(d.flags, 0);
+    }
+
+    #[test]
     fn test_debug_initializes() {
         let _ = DEBUG.debug_flags();
         assert!(DEBUG.get().is_some());

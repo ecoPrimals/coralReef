@@ -760,6 +760,10 @@ mod tests {
 
         let userd_ptr = addr as *mut u32;
         let gpfifo_ptr = (addr + USERD_SIZE) as *mut u32;
+        // SAFETY: addr is a valid kernel mmap'd address from rm_map_memory
+        // (asserted non-null above). userd_ptr and gpfifo_ptr are within the
+        // mapped range (USERD_SIZE + GPFIFO_SIZE). Volatile reads/writes
+        // match the GPU-visible mapping semantics.
         unsafe {
             crate::mmio::VolatilePtr::new(userd_ptr).write(0xDEAD_BEEF);
             crate::mmio::VolatilePtr::new(gpfifo_ptr).write(0xCAFE_BABE);

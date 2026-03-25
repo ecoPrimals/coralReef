@@ -389,4 +389,150 @@ mod tests {
         let s = format!("{op}");
         assert!(s.contains("hmnmx2"));
     }
+
+    #[test]
+    fn test_op_hset2_display() {
+        let op = OpHSet2 {
+            dst: Dst::None,
+            set_op: PredSetOp::And,
+            cmp_op: FloatCmpOp::OrdLt,
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(true)],
+            ftz: true,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hset2"));
+        assert!(s.contains(".ftz"));
+    }
+
+    #[test]
+    fn test_op_hset2_no_ftz() {
+        let op = OpHSet2 {
+            dst: Dst::None,
+            set_op: PredSetOp::And,
+            cmp_op: FloatCmpOp::OrdEq,
+            srcs: [zero_src(), imm_src(1), Src::new_imm_bool(true)],
+            ftz: false,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hset2"));
+        assert!(!s.contains(".ftz"));
+    }
+
+    #[test]
+    fn test_op_hsetp2_display() {
+        let op = OpHSetP2 {
+            dsts: [Dst::None, Dst::None],
+            set_op: PredSetOp::And,
+            cmp_op: FloatCmpOp::OrdLt,
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(true)],
+            ftz: true,
+            horizontal: false,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hsetp2"));
+        assert!(s.contains(".ftz"));
+    }
+
+    #[test]
+    fn test_op_hsetp2_no_ftz() {
+        let op = OpHSetP2 {
+            dsts: [Dst::None, Dst::None],
+            set_op: PredSetOp::And,
+            cmp_op: FloatCmpOp::OrdGe,
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(true)],
+            ftz: false,
+            horizontal: true,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hsetp2"));
+        assert!(!s.contains(".ftz"));
+    }
+
+    #[test]
+    fn test_op_hmul2_dnz() {
+        let op = OpHMul2 {
+            dst: Dst::None,
+            srcs: [zero_src(), zero_src()],
+            saturate: true,
+            ftz: false,
+            dnz: true,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hmul2"));
+        assert!(s.contains(".sat"));
+        assert!(s.contains(".dnz"));
+        assert!(!s.contains(".ftz"));
+    }
+
+    #[test]
+    fn test_op_hadd2_ftz_only() {
+        let op = OpHAdd2 {
+            dst: Dst::None,
+            srcs: [zero_src(), zero_src()],
+            saturate: false,
+            ftz: true,
+            f32: false,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hadd2"));
+        assert!(s.contains(".ftz"));
+        assert!(!s.contains(".sat"));
+        assert!(!s.contains(".f32"));
+    }
+
+    #[test]
+    fn test_op_hfma2_ftz_and_sat() {
+        let op = OpHFma2 {
+            dst: Dst::None,
+            srcs: [zero_src(), zero_src(), zero_src()],
+            saturate: true,
+            ftz: true,
+            dnz: false,
+            f32: true,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hfma2"));
+        assert!(s.contains(".sat"));
+        assert!(s.contains(".f32"));
+        assert!(s.contains(".ftz"));
+        assert!(!s.contains(".dnz"));
+    }
+
+    #[test]
+    fn test_op_hmnmx2_ftz() {
+        let op = OpHMnMx2 {
+            dst: Dst::None,
+            srcs: [zero_src(), zero_src(), Src::new_imm_bool(false)],
+            ftz: true,
+        };
+        let s = format!("{op}");
+        assert!(s.contains("hmnmx2"));
+        assert!(s.contains(".ftz"));
+    }
+
+    #[test]
+    fn test_imma_size_display_all() {
+        assert_eq!(format!("{}", ImmaSize::M8N8K32), ".m8n8k32");
+        assert_eq!(format!("{}", ImmaSize::M16N8K16), ".m16n8k16");
+        assert_eq!(format!("{}", ImmaSize::M16N8K32), ".m16n8k32");
+    }
+
+    #[test]
+    fn test_hmma_size_display_all() {
+        assert_eq!(format!("{}", HmmaSize::M16N8K8), ".m16n8k8");
+    }
+
+    #[test]
+    fn test_op_imma_saturate() {
+        let op = OpImma {
+            dst: Dst::None,
+            mat_size: ImmaSize::M16N8K16,
+            src_types: [IntType::I8, IntType::I8],
+            saturate: true,
+            srcs: [zero_src(), zero_src(), zero_src()],
+        };
+        let s = format!("{op}");
+        assert!(s.contains("imma"));
+        assert!(s.contains(".sat"));
+    }
 }

@@ -149,6 +149,78 @@ impl fmt::Display for HsBlDescriptor {
     }
 }
 
+/// Parsed GR falcon bootloader from `gr/{fecs,gpccs}_bl.bin`.
+///
+/// These files are packaged with `nvfw_bin_hdr` + `nvfw_hs_bl_desc` headers.
+/// The WPR image needs only the code section, not the full file. The
+/// `start_tag` determines the IMEM address where ACR places the bootloader:
+/// `bl_imem_off = start_tag << 8`.
+#[derive(Debug)]
+pub struct GrBlFirmware {
+    /// Extracted bootloader code bytes (data section only, no headers).
+    pub code: Vec<u8>,
+    /// IMEM tag where the BL must be loaded (`bl_imem_off = start_tag << 8`).
+    pub start_tag: u32,
+}
+
+impl GrBlFirmware {
+    /// Parse a `gr/*_bl.bin` file, extracting code section and start_tag.
+    ///
+    /// GR BL files use a different magic (0x3B1D14F0) than ACR BL (0x10DE),
+    /// but share the same 24-byte header layout and `nvfw_hs_bl_desc` format.
+    pub fn parse(data: &[u8], name: &str) -> DriverResult<Self> {
+        if data.len() < 24 {
+            return Err(DriverError::DeviceNotFound(
+                format!("{name}: too small for bin header ({} bytes)", data.len()).into(),
+            ));
+        }
+        let r = |off: usize| {
+            u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
+        };
+        let hdr_off = r(12) as usize;
+        let data_off = r(16) as usize;
+        let data_size = r(20) as usize;
+
+        if hdr_off + 28 > data.len() {
+            return Err(DriverError::DeviceNotFound(
+                format!("{name}: hs_bl_desc at {hdr_off:#x} beyond file").into(),
+            ));
+        }
+        let bl_desc = HsBlDesc::parse(&data[hdr_off..])?;
+
+        if data_off + data_size > data.len() {
+            return Err(DriverError::DeviceNotFound(
+                format!(
+                    "{name}: code section [{data_off:#x}..{:#x}] beyond file ({}B)",
+                    data_off + data_size,
+                    data.len()
+                )
+                .into(),
+            ));
+        }
+
+        tracing::info!(
+            name,
+            file_size = data.len(),
+            data_off,
+            data_size,
+            start_tag = bl_desc.bl_start_tag,
+            bl_imem_off = bl_desc.bl_start_tag << 8,
+            "Parsed GR BL firmware"
+        );
+
+        Ok(Self {
+            code: data[data_off..data_off + data_size].to_vec(),
+            start_tag: bl_desc.bl_start_tag,
+        })
+    }
+
+    /// IMEM byte offset where ACR should place the bootloader.
+    pub fn bl_imem_off(&self) -> u32 {
+        self.start_tag << 8
+    }
+}
+
 /// All firmware needed for the SEC2→ACR→FECS boot chain.
 #[derive(Debug)]
 pub struct AcrFirmwareSet {
@@ -166,16 +238,16 @@ pub struct AcrFirmwareSet {
     pub sec2_image: Vec<u8>,
     /// `sec2/sig.bin` — SEC2 signature blob.
     pub sec2_sig: Vec<u8>,
-    /// `gr/fecs_bl.bin` — FECS bootloader section.
-    pub fecs_bl: Vec<u8>,
+    /// `gr/fecs_bl.bin` — parsed FECS bootloader (code section + start_tag).
+    pub fecs_bl: GrBlFirmware,
     /// `gr/fecs_inst.bin` — FECS IMEM (instruction) image.
     pub fecs_inst: Vec<u8>,
     /// `gr/fecs_data.bin` — FECS DMEM (data) image.
     pub fecs_data: Vec<u8>,
-    /// `gr/fecs_sig.bin` — FECS signature blob for WPR/LSF.
+    /// `gr/fecs_sig.bin` — FECS signature blob for WPR/LSF (192B `lsf_signature_v1`).
     pub fecs_sig: Vec<u8>,
-    /// `gr/gpccs_bl.bin` — GPCCS bootloader section.
-    pub gpccs_bl: Vec<u8>,
+    /// `gr/gpccs_bl.bin` — parsed GPCCS bootloader (code section + start_tag).
+    pub gpccs_bl: GrBlFirmware,
     /// `gr/gpccs_inst.bin` — GPCCS IMEM image.
     pub gpccs_inst: Vec<u8>,
     /// `gr/gpccs_data.bin` — GPCCS DMEM image.
@@ -199,6 +271,11 @@ impl AcrFirmwareSet {
         let acr_ucode_raw = read("acr/ucode_load.bin")?;
         let acr_ucode_parsed = HsBlDescriptor::parse(&acr_ucode_raw)?;
 
+        let fecs_bl_raw = read("gr/fecs_bl.bin")?;
+        let fecs_bl = GrBlFirmware::parse(&fecs_bl_raw, "fecs_bl")?;
+        let gpccs_bl_raw = read("gr/gpccs_bl.bin")?;
+        let gpccs_bl = GrBlFirmware::parse(&gpccs_bl_raw, "gpccs_bl")?;
+
         Ok(Self {
             acr_bl_raw,
             acr_bl_parsed,
@@ -207,11 +284,11 @@ impl AcrFirmwareSet {
             sec2_desc: read("sec2/desc.bin")?,
             sec2_image: read("sec2/image.bin")?,
             sec2_sig: read("sec2/sig.bin")?,
-            fecs_bl: read("gr/fecs_bl.bin")?,
+            fecs_bl,
             fecs_inst: read("gr/fecs_inst.bin")?,
             fecs_data: read("gr/fecs_data.bin")?,
             fecs_sig: read("gr/fecs_sig.bin")?,
-            gpccs_bl: read("gr/gpccs_bl.bin")?,
+            gpccs_bl,
             gpccs_inst: read("gr/gpccs_inst.bin")?,
             gpccs_data: read("gr/gpccs_data.bin")?,
             gpccs_sig: read("gr/gpccs_sig.bin")?,
@@ -222,18 +299,20 @@ impl AcrFirmwareSet {
     pub fn summary(&self) -> String {
         format!(
             "ACR FW: bl={}B ucode={}B | SEC2: desc={}B image={}B sig={}B | \
-             FECS: bl={}B inst={}B data={}B sig={}B | \
-             GPCCS: bl={}B inst={}B data={}B sig={}B",
+             FECS: bl={}B(tag={:#x}) inst={}B data={}B sig={}B | \
+             GPCCS: bl={}B(tag={:#x}) inst={}B data={}B sig={}B",
             self.acr_bl_raw.len(),
             self.acr_ucode_raw.len(),
             self.sec2_desc.len(),
             self.sec2_image.len(),
             self.sec2_sig.len(),
-            self.fecs_bl.len(),
+            self.fecs_bl.code.len(),
+            self.fecs_bl.start_tag,
             self.fecs_inst.len(),
             self.fecs_data.len(),
             self.fecs_sig.len(),
-            self.gpccs_bl.len(),
+            self.gpccs_bl.code.len(),
+            self.gpccs_bl.start_tag,
             self.gpccs_inst.len(),
             self.gpccs_data.len(),
             self.gpccs_sig.len(),

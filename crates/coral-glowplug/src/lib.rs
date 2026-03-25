@@ -13,8 +13,10 @@ pub mod device;
 pub mod ember;
 pub mod error;
 pub mod health;
+pub mod mailbox;
 pub mod pci_ids;
 pub mod personality;
+pub mod ring;
 pub mod sysfs;
 pub mod sysfs_ops;
 

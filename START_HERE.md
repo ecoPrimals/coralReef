@@ -34,7 +34,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 3956 passing, 0 failed (~119 ignored hardware-gated)
+cargo test --workspace     # 4047 passing, 0 failed (~121 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -70,6 +70,8 @@ coralReef/
 │   │       ├── drm.rs           Pure Rust DRM interface (inline asm syscalls)
 │   │       ├── amd/             amdgpu: GEM, PM4, command submission, fence
 │   │       └── nv/              nouveau: channel, GEM, QMD, pushbuf submit
+│   ├── coral-glowplug/         GPU device broker (VFIO, mailbox, multi-ring)
+│   ├── coral-ember/            VFIO fd holder + ring-keeper (restart persistence)
 │   ├── coral-gpu/               Unified GPU compute abstraction
 │   ├── coral-reef-bitview/     Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/         ISA tables, latency model

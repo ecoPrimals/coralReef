@@ -44,8 +44,18 @@ pub struct FalconProbe {
     pub fecs_mailbox0: u32,
     /// FECS `HWCFG` register snapshot.
     pub fecs_hwcfg: u32,
+    /// FECS program counter (offset 0x030).
+    pub fecs_pc: u32,
+    /// FECS exception info register (offset 0x148).
+    pub fecs_exci: u32,
     /// GPCCS `CPUCTL` register snapshot.
     pub gpccs_cpuctl: u32,
+    /// GPCCS program counter (offset 0x030).
+    pub gpccs_pc: u32,
+    /// GPCCS exception info register (offset 0x148).
+    pub gpccs_exci: u32,
+    /// GPCCS `BOOTVEC` register (offset 0x104).
+    pub gpccs_bootvec: u32,
     /// SEC2 falcon probe (same BAR0 window as boot strategy code).
     pub sec2: Sec2Probe,
     /// Classified FECS runtime state.
@@ -59,12 +69,19 @@ impl FalconProbe {
             bar0.read_u32(falcon::FECS_BASE + off)
                 .unwrap_or(0xDEAD_DEAD)
         };
+        let gpccs_r = |off: usize| {
+            bar0.read_u32(falcon::GPCCS_BASE + off)
+                .unwrap_or(0xDEAD_DEAD)
+        };
         let fecs_cpuctl = fecs_r(falcon::CPUCTL);
         let fecs_mailbox0 = fecs_r(falcon::MAILBOX0);
         let fecs_hwcfg = fecs_r(falcon::HWCFG);
-        let gpccs_cpuctl = bar0
-            .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-            .unwrap_or(0xDEAD_DEAD);
+        let fecs_pc = fecs_r(falcon::PC);
+        let fecs_exci = fecs_r(falcon::EXCI);
+        let gpccs_cpuctl = gpccs_r(falcon::CPUCTL);
+        let gpccs_pc = gpccs_r(falcon::PC);
+        let gpccs_exci = gpccs_r(falcon::EXCI);
+        let gpccs_bootvec = gpccs_r(falcon::BOOTVEC);
         let sec2 = Sec2Probe::capture(bar0);
 
         let fecs_state = if crate::vfio::channel::registers::pri::is_pri_error(fecs_cpuctl) {
@@ -81,9 +98,50 @@ impl FalconProbe {
             fecs_cpuctl,
             fecs_mailbox0,
             fecs_hwcfg,
+            fecs_pc,
+            fecs_exci,
             gpccs_cpuctl,
+            gpccs_pc,
+            gpccs_exci,
+            gpccs_bootvec,
             sec2,
             fecs_state,
+        }
+    }
+}
+
+impl FalconProbe {
+    /// Classify GPCCS execution state from cpuctl, PC, and EXCI.
+    pub fn gpccs_state_label(&self) -> &'static str {
+        if self.gpccs_cpuctl == 0xDEAD_DEAD {
+            "UNREACHABLE"
+        } else if self.gpccs_cpuctl & falcon::CPUCTL_HRESET != 0 {
+            "HRESET"
+        } else if self.gpccs_cpuctl & falcon::CPUCTL_HALTED != 0 {
+            "HALTED"
+        } else if self.gpccs_exci != 0 {
+            "FAULTED"
+        } else if self.gpccs_pc == 0 {
+            "STALLED (PC=0)"
+        } else {
+            "RUNNING"
+        }
+    }
+
+    /// Classify FECS execution state from cpuctl, PC, and EXCI.
+    pub fn fecs_state_label(&self) -> &'static str {
+        if self.fecs_cpuctl == 0xDEAD_DEAD {
+            "UNREACHABLE"
+        } else if self.fecs_cpuctl & falcon::CPUCTL_HRESET != 0 {
+            "HRESET"
+        } else if self.fecs_cpuctl & falcon::CPUCTL_HALTED != 0 {
+            "HALTED"
+        } else if self.fecs_exci != 0 {
+            "FAULTED"
+        } else if self.fecs_pc == 0 && self.fecs_mailbox0 == 0 {
+            "STALLED (PC=0)"
+        } else {
+            "RUNNING"
         }
     }
 }
@@ -93,10 +151,23 @@ impl fmt::Display for FalconProbe {
         writeln!(f, "Falcon Probe:")?;
         writeln!(
             f,
-            "  FECS: {:?} cpuctl={:#010x} mb0={:#010x} hwcfg={:#010x}",
-            self.fecs_state, self.fecs_cpuctl, self.fecs_mailbox0, self.fecs_hwcfg
+            "  FECS: {} cpuctl={:#010x} pc={:#06x} exci={:#010x} mb0={:#010x} hwcfg={:#010x}",
+            self.fecs_state_label(),
+            self.fecs_cpuctl,
+            self.fecs_pc,
+            self.fecs_exci,
+            self.fecs_mailbox0,
+            self.fecs_hwcfg
         )?;
-        writeln!(f, "  GPCCS: cpuctl={:#010x}", self.gpccs_cpuctl)?;
+        writeln!(
+            f,
+            "  GPCCS: {} cpuctl={:#010x} pc={:#06x} exci={:#010x} bootvec={:#010x}",
+            self.gpccs_state_label(),
+            self.gpccs_cpuctl,
+            self.gpccs_pc,
+            self.gpccs_exci,
+            self.gpccs_bootvec
+        )?;
         write!(f, "  {}", self.sec2)
     }
 }

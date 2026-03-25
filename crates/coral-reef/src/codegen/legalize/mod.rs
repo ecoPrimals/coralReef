@@ -34,6 +34,15 @@ impl<'a> LegalizeBuilder<'a> {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        sm: &'a dyn ShaderModel,
+        alloc: &'a mut SSAValueAllocator,
+        const_tracker: &'a mut ConstTracker,
+    ) -> Self {
+        Self::new(sm, alloc, const_tracker)
+    }
+
     pub fn into_vec(self) -> Vec<Instr> {
         self.b.into_vec()
     }

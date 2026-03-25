@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 21, 2026 (Phase 10 — Iteration 62)
-**Phase**: 10 — Multi-GPU Sovereignty & Cross-Vendor Parity
+**Last updated**: March 25, 2026 (Phase 10 — Iteration 66)
+**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity & hotSpring Wiring
 
 ---
 
@@ -11,7 +11,7 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-3460+ tests (108 ignored), 68.7% line coverage (8 crates above 90%),
+4047 tests (121 ignored), ~66% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -29,6 +29,15 @@ VFIO PFIFO channel creation via BAR0 — full Volta hardware channel init with
 V2 MMU 5-level page tables, RAMFC population, TSG+channel runlist, PCCSR
 bind/enable. RAMUSERD offsets corrected (GP_GET@0x88, GP_PUT@0x8C).
 USERMODE doorbell at BAR0+0x810090.
+
+**Iteration 63–66**: ACR boot solver (multi-strategy SEC2→ACR→FECS chain),
+falcon diagnostics, comprehensive audit closure, coralctl handler refactor
+(1519→4 modules), `identity.get` + `capability.register` + `ipc.heartbeat`,
+Songbird ecosystem registration. **hotSpring firmware wiring**: `MailboxSet` +
+`MultiRing` on `DeviceSlot` for GPU engine interaction (FECS/GPCCS/SEC2/PMU
+posted commands, ordered ring-buffer dispatch with fence values). Ember
+`RingMeta` persistence across glowplug restarts. `coralctl` firmware
+subcommands (`mailbox.*`, `ring.*`). Coverage push: 91 new tests.
 
 **Iteration 47 milestone**: Deep debt evolution — unsafe code elimination (`from_raw_parts_mut` →
 safe `as_mut_slice()`), zero-copy evolution (`KernelCacheEntry.binary: Vec<u8>` → `Bytes`),
@@ -444,24 +453,28 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 58 | Audit Hardening + Coverage: full codebase audit, `#[forbid(unsafe_code)]` on ember+glowplug, libc eliminated from direct deps, hardcoded paths → env vars, 14 `#[allow]`→`#[expect]`, tarpc Unix roundtrip tests (80→95% coverage), vendor_lifecycle tests, IPC error path tests, debris cleanup | **2680+** (90 ignored), 60.16% coverage |
 | 10 iter 59 | Deep Coverage + Clone Reduction: +358 encoder tests (tex/mem/control/int/f64/f16 across SM20–SM70), glowplug socket+personality, unix_jsonrpc advanced, lower_f64/naga_translate clone reduction, panic→ice evolution, file splits | **3038+** (102 ignored), 65.8% line / 79.6% non-hw |
 | 10 iter 60 | Deep Audit Execution + Code Quality: unwrap→expect, 14+ #[allow]→#[expect] across 11 files, tex.rs smart refactor (986→505+484), +24 tests (lib preambles/emit/compile, main shutdown_timeout), 8 SAFETY comments on unsafe, 9 unreachable→ice in encoder, hardcoding evolution (ember socket + socket group → env vars), amd-isa-gen template evolution | **3062+** (102 ignored), 65.8% line / 79.6% non-hw |
-| 10 iter 62 (current) | Deep Audit + Coverage + Hardcoding Evolution: 3460+ workspace tests, 68.7% line coverage, 108 ignored hardware-gated, quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC) | **3460+** (108 ignored), 68.7% line |
+| 10 iter 62 | Deep Audit + Coverage + Hardcoding Evolution: 3460+ workspace tests, 68.7% line coverage, 108 ignored hardware-gated, quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC) | **3460+** (108 ignored), 68.7% line |
+| 10 iter 65 | Deep Debt Solutions + Ecosystem Integration: comprehensive audit closure (20 items), coralctl handlers refactor (1519→4 modules), `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird ecosystem registration, `CORALREEF_DATA_DIR` env evolution | **3956** (119 ignored), ~66% line |
+| 10 iter 66 (current) | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
 | 10 iter 52 | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 62: 3460+ tests passing, 108 ignored. 68.7% line coverage (8 crates above 90%).
+Iteration 66: 4047 tests passing, 121 ignored. ~66% line coverage (8 crates above 90%).
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).
 OrExit\<T\> for zero-panic binary validation. IpcServiceError for structured IPC errors.
-coral-glowplug JSON-RPC 2.0 compliant with `device.lend`/`device.reclaim` VFIO broker.
+coral-glowplug JSON-RPC 2.0 compliant with `device.lend`/`device.reclaim` VFIO broker,
+`mailbox.*` posted-command firmware interaction, `ring.*` multi-ring GPU dispatch.
+Ember ring-keeper: `RingMeta` persistence across glowplug restarts.
 GpuPersonality trait-based system. `VfioLease` RAII test harness.
 VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 GP_PUT H1 cache flush experiment: proven insufficient — root cause is cold silicon (PFIFO/GPCCS not initialized).
 NVIDIA UVM dispatch: GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` — JSON-RPC 2.0 + tarpc + Unix socket.
+IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
 Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM, dedicated display GPU).
 8 of 9 crates enforce #[deny(unsafe_code)].
 All pure Rust. Sovereignty is a runtime choice.*

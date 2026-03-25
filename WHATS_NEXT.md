@@ -2,7 +2,7 @@
 
 # coralReef — What's Next
 
-**Last updated**: March 24, 2026 (Phase 10 — Iteration 65 — Deep Debt Solutions + Ecosystem Integration. 3956 tests passing, 0 failed, ~119 ignored hardware-gated, ~66% workspace line coverage, clippy pedantic+nursery zero warnings)
+**Last updated**: March 25, 2026 (Phase 10 — Iteration 66 — hotSpring Firmware Wiring + Coverage Push. 4047 tests passing, 0 failed, ~121 ignored hardware-gated, ~66% workspace line coverage, clippy pedantic+nursery zero warnings)
 
 ---
 
@@ -558,11 +558,12 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-3956 tests passing, 0 failed, ~119 ignored hardware-gated. ~66% workspace line coverage.
+4047 tests passing, 0 failed, ~121 ignored hardware-gated. ~66% workspace line coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
+IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
+Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
 Hardware: 2× Titan V (VFIO sovereign, now bound to glowplug) + RTX 5060 (nvidia-drm/UVM).
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift.
 All pure Rust. Sovereignty is a runtime choice.*

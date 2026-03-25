@@ -557,6 +557,8 @@ pub(crate) mod falcon {
     /// SCTL — security control register. Read-only in HS mode.
     /// Bit 0: HS enabled, Bit 5: HS auth done, Bits 12-14: security level.
     pub const SCTL: usize = 0x240;
+    /// PC — falcon program counter (read-only snapshot of current execution address).
+    pub const PC: usize = 0x030;
     /// EXCI — exception info: [31:16]=cause, [15:0]=PC.
     pub const EXCI: usize = 0x148;
     /// TRACEPC — trace program counter (write index to EXCI, read here).

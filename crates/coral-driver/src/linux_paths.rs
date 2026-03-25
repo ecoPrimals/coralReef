@@ -309,11 +309,14 @@ mod tests {
     #[test]
     fn optional_data_dir_empty_hot_spring_ignored() {
         let _guard = OPTIONAL_DATA_DIR_TEST_LOCK.lock().expect("lock");
+        // SAFETY: test-only env mutation under a mutex; no concurrent reads
+        // of these env vars in this process outside guarded tests.
         unsafe {
             std::env::remove_var("CORALREEF_DATA_DIR");
             std::env::set_var("HOTSPRING_DATA_DIR", "");
         }
         assert!(optional_data_dir().is_none());
+        // SAFETY: same guard; restoring env to clean state.
         unsafe {
             std::env::remove_var("HOTSPRING_DATA_DIR");
         }

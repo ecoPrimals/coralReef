@@ -140,3 +140,7 @@ impl SM20Op for OpDSetP {
         e.set_float_cmp_op(55..59, self.cmp_op);
     }
 }
+
+#[cfg(test)]
+#[path = "float64_tests.rs"]
+mod tests;

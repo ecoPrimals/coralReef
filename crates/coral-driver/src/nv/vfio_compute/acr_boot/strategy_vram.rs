@@ -609,26 +609,17 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
 
     // Final FECS/GPCCS state
     let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let fecs_cpuctl_after = fecs_r(falcon::CPUCTL);
-    let fecs_mailbox0_after = fecs_r(falcon::MAILBOX0);
-    let gpccs_cpuctl_after = bar0
-        .read_u32(falcon::GPCCS_BASE + falcon::CPUCTL)
-        .unwrap_or(0xDEAD);
+    let post = super::boot_result::PostBootCapture::capture(bar0);
     notes.push(format!(
-        "Final: FECS cpuctl={fecs_cpuctl_after:#010x} mb0={fecs_mailbox0_after:#010x} GPCCS cpuctl={gpccs_cpuctl_after:#010x}"
+        "Final: FECS cpuctl={:#010x} pc={:#06x} exci={:#010x} GPCCS cpuctl={:#010x} pc={:#06x} exci={:#010x}",
+        post.fecs_cpuctl, post.fecs_pc, post.fecs_exci,
+        post.gpccs_cpuctl, post.gpccs_pc, post.gpccs_exci
     ));
 
-    let success = fecs_cpuctl_after & falcon::CPUCTL_HRESET == 0 && fecs_mailbox0_after != 0;
-
-    AcrBootResult {
-        strategy: "VRAM-based ACR boot (PRAMIN DMA)",
+    post.into_result(
+        "VRAM-based ACR boot (PRAMIN DMA)",
         sec2_before,
         sec2_after,
-        fecs_cpuctl_after,
-        fecs_mailbox0_after,
-        gpccs_cpuctl_after,
-        success,
         notes,
-    }
+    )
 }

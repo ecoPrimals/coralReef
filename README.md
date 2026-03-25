@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Deep Debt Solutions + Ecosystem Integration (Iter 65)  
+**Status**: Phase 10+ — Deep Debt Solutions + Ecosystem Integration + hotSpring Wiring (Iter 66)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3956 passing, 0 failed (~119 ignored hardware-gated)
+cargo test --workspace     # 4047 passing, 0 failed (~121 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -118,8 +118,8 @@ coralReef/
 │   ├── coral-gpu/                 # Unified GPU compute + driver preference
 │   ├── coral-reef-bitview/        # Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/            # ISA tables, latency model
-│   ├── coral-glowplug/            # GPU device broker (VFIO, health, hot-swap)
-│   ├── coral-ember/               # VFIO device swap daemon (SCM_RIGHTS)
+│   ├── coral-glowplug/            # GPU device broker (VFIO, health, hot-swap, mailbox/ring firmware probing)
+│   ├── coral-ember/               # VFIO fd holder + ring-keeper (SCM_RIGHTS, watchdog, ring metadata persistence)
 │   ├── coral-reef-stubs/          # Pure-Rust dependency replacements
 │   └── nak-ir-proc/              # Proc-macro derives for IR types
 ├── tools/
@@ -143,8 +143,8 @@ coralReef/
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal communication (tests + production) |
-| `coral-glowplug` | GPU device broker — VFIO device management, JSON-RPC socket, health monitoring, hot-swap, circuit breaker, boot sovereignty. `bdf: Arc<str>` for zero-alloc device identity |
-| `coral-ember` | VFIO device swap daemon — per-client threading (`Arc<RwLock<HashMap>>`), `SCM_RIGHTS` fd passing (fully safe via `rustix` `AsFd`), vendor lifecycle hooks, D3cold pre-checks, Xorg/udev isolation |
+| `coral-glowplug` | GPU device broker — VFIO device management, JSON-RPC socket, health monitoring, hot-swap, circuit breaker, boot sovereignty, posted-command `MailboxSet` (FECS/GPCCS/SEC2/PMU engines), `MultiRing` command dispatch (ordered, timed, fence-based). `coralctl` CLI |
+| `coral-ember` | VFIO fd holder + ring-keeper — `SCM_RIGHTS` fd passing (fully safe via `rustix` `AsFd`), `RingMeta` persistence (mailbox/ring state across glowplug restarts), vendor lifecycle hooks, systemd watchdog, D3cold pre-checks, Xorg/udev isolation |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
@@ -175,7 +175,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3956 passing, 0 failed, ~119 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4047 passing, 0 failed, ~121 ignored hardware-gated) |
 | `cargo llvm-cov` | ~66% workspace line coverage |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -239,10 +239,10 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
-| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, 3956+ tests, ~66% workspace line coverage |
+| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4047 tests, ~66% workspace line coverage |
 
 ---
 
 **License**: AGPL-3.0-only (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
-**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `ipc.heartbeat` (periodic), Songbird ecosystem registration — JSON-RPC 2.0 + tarpc
+**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `ipc.heartbeat`, `mailbox.{create,post,poll,complete,drain,stats}`, `ring.{create,submit,consume,fence,peek,stats}`, `ember.ring_meta.{get,set}` — JSON-RPC 2.0 + tarpc + Songbird ecosystem
