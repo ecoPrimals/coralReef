@@ -135,7 +135,7 @@ fn vfio_fecs_method_probe() {
 
     // Phase 1: Boot FECS via the solver
     eprintln!("Phase 1: Running falcon boot solver...");
-    let results = dev.falcon_boot_solver().expect("solver");
+    let results = dev.falcon_boot_solver(None).expect("solver");
     let any_success = results.iter().any(|r| r.success);
     for (i, r) in results.iter().enumerate() {
         let tag = if r.success { "SUCCESS" } else { "FAILED" };

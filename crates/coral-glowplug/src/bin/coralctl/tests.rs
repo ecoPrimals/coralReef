@@ -2,7 +2,7 @@
 //! Unit tests for coralctl CLI parsing and helpers.
 
 use super::{
-    Cli, Command, MmioAction, OracleAction, SnapshotAction, parse_hex_or_dec,
+    Cli, Command, ExperimentAction, MmioAction, OracleAction, SnapshotAction, parse_hex_or_dec,
     resolve_glowplug_socket_path,
 };
 use crate::deploy::try_load_config;
@@ -273,4 +273,69 @@ fn cli_parses_oracle_diff_subcommand() {
     };
     assert_eq!(left, "left.json");
     assert_eq!(right, "right.json");
+}
+
+#[test]
+fn cli_parses_experiment_sweep_defaults() {
+    let cli = Cli::try_parse_from([
+        "coralctl",
+        "experiment",
+        "sweep",
+        "0000:03:00.0",
+    ])
+    .expect("parse experiment sweep");
+    let Command::Experiment {
+        action:
+            ExperimentAction::Sweep {
+                bdf,
+                personalities,
+                return_to,
+                trace,
+                repeat,
+            },
+    } = cli.command
+    else {
+        panic!("expected Experiment Sweep");
+    };
+    assert_eq!(bdf, "0000:03:00.0");
+    assert!(personalities.is_none());
+    assert_eq!(return_to, "vfio");
+    assert!(trace);
+    assert_eq!(repeat, 1);
+}
+
+#[test]
+fn cli_parses_experiment_sweep_with_repeat_and_multi_bdf() {
+    let cli = Cli::try_parse_from([
+        "coralctl",
+        "experiment",
+        "sweep",
+        "0000:03:00.0,0000:4a:00.0",
+        "--personalities",
+        "nouveau,nvidia-open",
+        "--repeat",
+        "5",
+        "--return-to",
+        "vfio",
+        "--trace",
+    ])
+    .expect("parse experiment sweep with repeat");
+    let Command::Experiment {
+        action:
+            ExperimentAction::Sweep {
+                bdf,
+                personalities,
+                return_to,
+                trace,
+                repeat,
+            },
+    } = cli.command
+    else {
+        panic!("expected Experiment Sweep");
+    };
+    assert_eq!(bdf, "0000:03:00.0,0000:4a:00.0");
+    assert_eq!(personalities.as_deref(), Some("nouveau,nvidia-open"));
+    assert_eq!(return_to, "vfio");
+    assert!(trace);
+    assert_eq!(repeat, 5);
 }

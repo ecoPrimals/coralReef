@@ -8,12 +8,10 @@ use crate::vfio::memory::{MemoryRegion, PraminRegion};
 
 use super::boot_result::{AcrBootResult, make_fail_result};
 use super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
-use super::instance_block::{
-    self, FALCON_INST_VRAM, FALCON_PT0_VRAM, SEC2_FLCN_BIND_INST, build_vram_falcon_inst_block,
-};
+use super::instance_block::{FALCON_INST_VRAM, FALCON_PT0_VRAM, build_vram_falcon_inst_block};
 use super::sec2_hal::{
-    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, pmc_reset_sec2,
-    sec2_dmem_read,
+    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, sec2_dmem_read,
+    sec2_emem_write, sec2_prepare_physical_first,
 };
 use super::wpr::{build_bl_dmem_desc, build_wpr, falcon_id, patch_acr_desc};
 
@@ -23,7 +21,7 @@ use super::wpr::{build_bl_dmem_desc, build_wpr, falcon_id, patch_acr_desc};
 ///
 /// 1. Parse firmware blobs (bl.bin, ucode_load.bin)
 /// 2. Allocate DMA buffer for ACR firmware payload
-/// 3. Patch ACR descriptor with WPR addresses (placeholder for now)
+/// 3. Patch ACR descriptor with WPR addresses
 ///
 /// VRAM-based ACR boot: write the ACR payload into VRAM via PRAMIN, then
 /// have the BL DMA-load it from VRAM using physical addressing.
@@ -112,6 +110,7 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         data_off,
         wpr_vram_base as u64,
         wpr_end,
+        wpr_vram_base as u64,
     );
     notes.push(format!(
         "ACR desc patched: wpr_start={wpr_vram_base:#x} wpr_end={wpr_end:#x} at data_off={data_off:#x}"
@@ -203,138 +202,26 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         "VRAM inst: built={inst_ok} PDB@0x200={pdb:#010x}:{pdb_hi:#010x} PT[112]={pt112_lo:#010x}:{pt112_hi:#010x}"
     ));
 
-    // ── Step 3: Inline engine reset with bind_inst race timing ──
-    let inst_bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
-
-    // 3a: Falcon-local reset pulse
-    w(0x3C0, 0x01);
-    w(SEC2_FLCN_BIND_INST, inst_bind_val);
-    let rba = r(SEC2_FLCN_BIND_INST);
-    let sctl_a = r(falcon::SCTL);
-    std::thread::sleep(std::time::Duration::from_micros(10));
-
-    w(0x3C0, 0x00);
-    w(SEC2_FLCN_BIND_INST, inst_bind_val);
-    let rbb = r(SEC2_FLCN_BIND_INST);
-    let sctl_b = r(falcon::SCTL);
-
-    // 3b: PMC disable→enable (full toggle required for ROM restart)
-    let _ = pmc_reset_sec2(bar0);
-
-    // Wait for ROM to exit HRESET after local reset deassert
-    {
-        let t = std::time::Instant::now();
-        loop {
-            let c = r(falcon::CPUCTL);
-            if c & falcon::CPUCTL_HRESET == 0 {
-                notes.push(format!(
-                    "SEC2 exited HRESET in {:?}",
-                    t.elapsed()
-                ));
-                break;
-            }
-            if t.elapsed() > std::time::Duration::from_millis(3000) {
-                notes.push(format!(
-                    "SEC2 HRESET timeout (3s) cpuctl={c:#010x} sctl={:#010x} pc={:#010x}",
-                    r(falcon::SCTL), r(0x030)
-                ));
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_micros(100));
-        }
-    }
-
-    // Wait for ROM to HALT after scrub — CPUCTL_HALTED (bit 5) means IMEM/DMEM
-    // are clean and safe to write. Without this wait, our BL upload can be
-    // clobbered by the ROM's ongoing IMEM scrub.
-    {
-        let t = std::time::Instant::now();
-        loop {
-            let c = r(falcon::CPUCTL);
-            if c & falcon::CPUCTL_HALTED != 0 {
-                notes.push(format!(
-                    "SEC2 ROM HALTED in {:?} cpuctl={c:#010x}",
-                    t.elapsed()
-                ));
-                break;
-            }
-            if c & falcon::CPUCTL_HRESET == 0 {
-                notes.push(format!(
-                    "SEC2 HRESET cleared (ROM done) in {:?} cpuctl={c:#010x}",
-                    t.elapsed()
-                ));
-                break;
-            }
-            if t.elapsed() > std::time::Duration::from_millis(5000) {
-                notes.push(format!(
-                    "SEC2 HALT timeout (5s) cpuctl={c:#010x} pc={:#010x}",
-                    r(0x030)
-                ));
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_micros(500));
-        }
-    }
-
-    // Clear DMAIDX to VIRT before bind attempts (nouveau: mask(0x604, 0x07, 0x00))
-    w(
-        instance_block::FALCON_DMAIDX,
-        r(instance_block::FALCON_DMAIDX) & !0x07,
-    );
-
-    // RACE C: Write bind_inst immediately after PMC enable
-    w(SEC2_FLCN_BIND_INST, inst_bind_val);
-    w(falcon::DMACTL, 0x07);
-    let rbc = r(SEC2_FLCN_BIND_INST);
-    let sctl_c = r(falcon::SCTL);
-    let dmactl_c = r(falcon::DMACTL);
-
-    // 3c: Mailbox mask + scrub wait
-    let _ = bar0.read_u32(base + falcon::MAILBOX0);
-    let scrub_start = std::time::Instant::now();
-    loop {
-        let scrub = r(falcon::DMACTL);
-        if scrub & 0x06 == 0 {
-            break;
-        }
-        if scrub_start.elapsed() > std::time::Duration::from_millis(100) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_micros(100));
-    }
-
-    // 3d: Write BOOT_0 (chip identity, per nouveau gm200_flcn_enable)
-    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
-    w(0x084, boot0);
-
-    notes.push(format!(
-        "race pre-bind: A(reset)={rba:#x}/sctl={sctl_a:#x} B(clear)={rbb:#x}/sctl={sctl_b:#x} C(pmc)={rbc:#x}/sctl={sctl_c:#x}/dma={dmactl_c:#x}"
-    ));
-
-    // 3e: Enable ITFEN (ACCESS_EN bit 0, per nouveau gm200_flcn_fw_load)
-    let itfen = r(0x048);
-    w(0x048, (itfen & !0x01) | 0x01);
-
-    // 3f: Full nouveau-style bind (with trigger writes discovered in Exp 084)
-    let (_bind_ok, bind_notes) =
-        instance_block::falcon_bind_context(&|off| r(off), &|off, val| w(off, val), inst_bind_val);
-    for n in &bind_notes {
+    // ── Step 3: Minimal SEC2 preparation (NO bind, NO double reset) ──
+    // Exp 094 proved that bind_inst writes and double ENGCTL cycles before
+    // STARTCPU prevent the BL from executing. For physical DMA (ctx_dma=PHYS),
+    // no instance block binding is needed — FBIF=0x91 routes DMA directly to VRAM.
+    //
+    // Match Strategy 1's flow (which successfully executes BL):
+    // engine_reset → FBIF → BL_upload → BOOTVEC → STARTCPU
+    let (reset_ok, reset_notes) = sec2_prepare_physical_first(bar0);
+    for n in &reset_notes {
         notes.push(n.clone());
     }
+    notes.push(format!("SEC2 engine reset: ok={reset_ok}"));
 
-    // ── Step 4: Configure DMA — match Nouveau's 0x624 = 0x190 ──
-    // Nouveau shows 0x624=0x190 (bits 4,7,8). Our previous value was 0x090 (bits 4,7).
-    // Bit 8 (0x100) likely enables instance block DMA path alongside physical DMA.
-    let fbif_before = r(0x624);
-    w(0x624, 0x190); // Match Nouveau: physical DMA + instance block DMA
-    let fbif_after = r(0x624);
+    // Set FBIF for physical VRAM access AFTER reset (reset sets FBIF=0x190)
+    let fbif_target = falcon::FBIF_TARGET_PHYS_VID | falcon::FBIF_PHYSICAL_OVERRIDE | 0x10;
+    w(falcon::FBIF_TRANSCFG, fbif_target);
+    let fbif_after = r(falcon::FBIF_TRANSCFG);
     notes.push(format!(
-        "0x624: was={fbif_before:#010x} wrote=0x190 now={fbif_after:#010x}"
+        "FBIF_TRANSCFG: target={fbif_target:#010x} now={fbif_after:#010x}"
     ));
-
-    w(falcon::DMACTL, 0x07);
-    let dmactl_after = r(falcon::DMACTL);
-    notes.push(format!("DMACTL: wrote=0x07 after={dmactl_after:#010x}"));
 
     // ── Step 5: Load BL code → IMEM ──
     let hwcfg = r(falcon::HWCFG);
@@ -351,6 +238,51 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         parsed.bl_code.len()
     ));
 
+    // Verify IMEM upload at boot_addr (first 4 words)
+    w(falcon::IMEMC, (1u32 << 25) | imem_addr); // read mode
+    let mut imem_verify = [0u32; 4];
+    for word in &mut imem_verify {
+        *word = r(falcon::IMEMD);
+    }
+    let bl_first_word = if parsed.bl_code.len() >= 4 {
+        u32::from_le_bytes([
+            parsed.bl_code[0],
+            parsed.bl_code[1],
+            parsed.bl_code[2],
+            parsed.bl_code[3],
+        ])
+    } else {
+        0
+    };
+    let imem_ok = imem_verify[0] == bl_first_word;
+    notes.push(format!(
+        "IMEM verify @{imem_addr:#x}: [{:#010x} {:#010x} {:#010x} {:#010x}] expected[0]={bl_first_word:#010x} ok={imem_ok}",
+        imem_verify[0], imem_verify[1], imem_verify[2], imem_verify[3]
+    ));
+
+    // ── Step 5b: Load BL data section → EMEM ──
+    // Critical: Strategy 1/1b both upload the BL's own data section to EMEM.
+    // SEC2's bootloader on gp102+ reads initialization data from EMEM; without
+    // it the BL cannot bootstrap (Exp 094 discovery: empty TRACEPC = BL never
+    // initialized because EMEM was empty).
+    let bl_payload = fw.acr_bl_parsed.payload(&fw.acr_bl_raw);
+    let bl_data_off = parsed.bl_desc.bl_data_off as usize;
+    let bl_data_size = parsed.bl_desc.bl_data_size as usize;
+    let bl_data_end = (bl_data_off + bl_data_size).min(bl_payload.len());
+    if bl_data_off < bl_payload.len() && bl_data_size > 0 {
+        let bl_data = &bl_payload[bl_data_off..bl_data_end];
+        sec2_emem_write(bar0, 0, bl_data);
+        notes.push(format!(
+            "BL data: {}B → EMEM@0 (from bl.bin [{bl_data_off:#x}..{bl_data_end:#x}])",
+            bl_data.len()
+        ));
+    } else {
+        notes.push(format!(
+            "BL data: SKIP (bl_data_off={bl_data_off:#x} bl_data_size={bl_data_size:#x} payload={}B)",
+            bl_payload.len()
+        ));
+    }
+
     // ── Step 6: Pre-load ACR data section + BL descriptor to DMEM ──
     // The BL's data xcld (from VRAM) may fail. To ensure the ACR finds its
     // flcn_acr_desc_v1 in DMEM, we pre-load the patched data section first,
@@ -365,45 +297,54 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
 
     let code_dma_base = vram_base as u64;
     let data_dma_base = vram_base as u64 + parsed.load_header.data_dma_base as u64;
-    let bl_desc = build_bl_dmem_desc(code_dma_base, data_dma_base, &parsed);
-    // Overlay BL descriptor at DMEM@0 (first 76 bytes, within reserved_dmem)
-    falcon_dmem_upload(bar0, base, 0, &bl_desc);
+    let mut bl_desc = build_bl_dmem_desc(code_dma_base, data_dma_base, &parsed);
+    // Override ctx_dma from VIRT(4) to PHYS(0) for VRAM physical DMA path.
+    // DMACTL only enables index 0 in LS mode; the BL must DMA through index 0.
+    bl_desc[32..36].copy_from_slice(&0u32.to_le_bytes());
+    let dmem_load_off = parsed.bl_desc.bl_desc_dmem_load_off;
+    falcon_dmem_upload(bar0, base, dmem_load_off, &bl_desc);
     notes.push(format!(
-        "BL desc overlay: {}B → DMEM@0 (code={code_dma_base:#x} data={data_dma_base:#x})",
+        "BL desc: {}B → DMEM@{dmem_load_off:#x} (code={code_dma_base:#x} data={data_dma_base:#x} ctx_dma=PHYS)",
         bl_desc.len()
     ));
 
     // ── Step 7: Boot SEC2 ──
-    w(falcon::MAILBOX0, 0);
+    // Clear any leftover ROM exception before STARTCPU
+    let exci_pre = r(falcon::EXCI);
+    w(falcon::EXCI, 0);
+    notes.push(format!("EXCI cleared: was={exci_pre:#010x}"));
+
+    // Match nouveau's sentinel (BL checks MAILBOX0 for host-ready signal)
+    w(falcon::MAILBOX0, 0xcafe_beef_u32);
     w(falcon::MAILBOX1, 0);
     w(falcon::BOOTVEC, boot_addr);
+
+    // Verify BOOTVEC readback
+    let bootvec_rb = r(falcon::BOOTVEC);
     let cpuctl_pre = r(falcon::CPUCTL);
+    let sctl_pre = r(falcon::SCTL);
     notes.push(format!(
-        "BOOTVEC={boot_addr:#x} cpuctl={cpuctl_pre:#010x}, issuing STARTCPU"
+        "Pre-start: BOOTVEC={bootvec_rb:#x}(expected {boot_addr:#x}) cpuctl={cpuctl_pre:#010x} sctl={sctl_pre:#010x} mb0=0xcafebeef"
     ));
+
     falcon_start_cpu(bar0, base);
 
-    // ── Step 7b: Aggressively write DMACTL and 0x668 during BL execution ──
-    // The BL runs for a few microseconds. During this window, the HS
-    // security context might be different, allowing register writes.
-    let mut dmactl_best = 0u32;
-    let mut bind_best = 0u32;
+    // ── Step 7b: Maintain FBIF during BL execution ──
+    // Re-apply FBIF in case BL or ROM clears PHYS_VID bit during startup.
     for _ in 0..100 {
-        w(falcon::DMACTL, 0x07);
-        w(SEC2_FLCN_BIND_INST, inst_bind_val);
-        let dc = r(falcon::DMACTL);
-        let bi = r(SEC2_FLCN_BIND_INST);
-        if dc > dmactl_best {
-            dmactl_best = dc;
-        }
-        if bi > bind_best {
-            bind_best = bi;
-        }
+        w(falcon::FBIF_TRANSCFG, fbif_target);
         std::thread::sleep(std::time::Duration::from_micros(10));
     }
+    let fbif_post_start = r(falcon::FBIF_TRANSCFG);
+    let dmactl_post_start = r(falcon::DMACTL);
+    let mb0_post_start = r(falcon::MAILBOX0);
     notes.push(format!(
-        "Post-boot DMACTL race: best={dmactl_best:#010x} bind_best={bind_best:#010x}"
+        "Post-boot: FBIF={fbif_post_start:#010x} DMACTL={dmactl_post_start:#010x} mb0={mb0_post_start:#010x}"
     ));
+    // If mb0 changed from 0xcafebeef, BL executed and wrote a status
+    if mb0_post_start != 0xcafe_beef && mb0_post_start != 0 {
+        notes.push(format!("BL MAILBOX RESPONSE: {mb0_post_start:#010x} (BL executed!)"));
+    }
 
     // ── Step 8: Poll with PC sampling ──
     let timeout = std::time::Duration::from_secs(5);
@@ -413,7 +354,7 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     // Phase 1: Aggressive tracing (100μs intervals) to catch execution flow
     let mut all_pcs: Vec<u32> = Vec::new();
     for _ in 0..500 {
-        let pc = r(0x030);
+        let pc = r(falcon::PC);
         if all_pcs.last() != Some(&pc) {
             all_pcs.push(pc);
         }
@@ -430,7 +371,7 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         let cpuctl = r(falcon::CPUCTL);
         let mb0 = r(falcon::MAILBOX0);
         let mb1 = r(falcon::MAILBOX1);
-        let pc = r(0x030);
+        let pc = r(falcon::PC);
 
         if pc != last_pc {
             pc_samples.push(format!(
@@ -446,8 +387,9 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
 
         let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
         let hreset_back = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let mb0_changed = mb0 != 0xcafe_beef && mb0 != 0;
 
-        if mb0 != 0 || halted || hreset_back {
+        if mb0_changed || halted || hreset_back {
             notes.push(format!(
                 "SEC2 response: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} pc={pc:#010x} ({}ms)",
                 start_time.elapsed().as_millis()
@@ -506,15 +448,15 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     ));
 
     // DMA config and transfer registers after ACR settles
-    let dma_624 = r(0x624);
+    let dma_fbif = r(falcon::FBIF_TRANSCFG);
     let dma_10c = r(falcon::DMACTL);
-    let dma_bind = r(SEC2_FLCN_BIND_INST);
+    let dma_bind = r(0x054); // bind_inst
     let dmatrfbase = r(0x110);
     let dmatrfmoffs = r(0x114);
     let dmatrfcmd = r(0x118);
     let dmatrffboffs = r(0x11C);
     notes.push(format!(
-        "DMA: 0x624={dma_624:#010x} DMACTL={dma_10c:#010x} bind_inst={dma_bind:#010x}"
+        "DMA: FBIF={dma_fbif:#010x} DMACTL={dma_10c:#010x} bind_inst={dma_bind:#010x}"
     ));
     notes.push(format!(
         "DMA xfer: base={dmatrfbase:#010x} moffs={dmatrfmoffs:#010x} cmd={dmatrfcmd:#010x} fboffs={dmatrffboffs:#010x}"
@@ -526,7 +468,7 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     let tracepc4 = r(0x03C); // TRACEPC[3]
     notes.push(format!(
         "Diag: EXCI={exci:#010x} TRACEPC[0..3]=[{:#06x}, {:#06x}, {:#06x}, {:#06x}]",
-        r(0x030),
+        r(falcon::PC),
         tracepc2,
         tracepc3,
         tracepc4
@@ -580,7 +522,7 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
 
     // ── Step 9: Send BOOTSTRAP_FALCON commands ──
     // If ACR is running (not back in ROM), send bootstrap commands via mailbox.
-    let sec2_pc = r(0x030);
+    let sec2_pc = r(falcon::PC);
     let sec2_in_acr = sec2_pc > 0x100 && sec2_pc < 0x3000; // ACR code range
 
     if sec2_in_acr {
@@ -642,7 +584,7 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         w(0x000, 0x01);
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        let pc_post = r(0x030);
+        let pc_post = r(falcon::PC);
         let fecs_cpuctl_post = bar0
             .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
             .unwrap_or(0);
@@ -659,6 +601,9 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
             "ACR not in code range (pc={sec2_pc:#x}), skipping bootstrap commands"
         ));
     }
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     // Final FECS/GPCCS state
     let sec2_after = Sec2Probe::capture(bar0);

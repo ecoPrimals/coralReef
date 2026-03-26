@@ -2,8 +2,7 @@
 
 //! Hybrid ACR boot: VRAM page tables + system memory payloads.
 
-use crate::vfio::channel::registers::falcon;
-use crate::vfio::channel::registers::mmu;
+use crate::vfio::channel::registers::{falcon, misc, mmu};
 use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::dma::DmaBuffer;
 use crate::vfio::memory::{MemoryRegion, PraminRegion};
@@ -88,15 +87,38 @@ pub fn attempt_hybrid_acr_boot(
         "DMA: ACR@{acr_iova:#x}({acr_payload_size:#x}) WPR@{wpr_iova:#x}({wpr_buf_size:#x})"
     ));
 
-    // ── Step 3: Populate WPR + patch ACR descriptor ──
+    // Shadow WPR: separate copy for ACR verification
+    let shadow_iova = sysmem_iova::SHADOW;
+    let mut shadow_dma =
+        match DmaBuffer::new(container.clone(), wpr_buf_size.max(4096), shadow_iova) {
+            Ok(b) => b,
+            Err(e) => {
+                notes.push(format!("DMA alloc shadow failed: {e}"));
+                return make_fail_result(
+                    "Hybrid ACR: DMA alloc failed",
+                    sec2_before,
+                    bar0,
+                    notes,
+                );
+            }
+        };
+
+    // ── Step 3: Populate WPR + shadow + patch ACR descriptor ──
     wpr_dma.as_mut_slice()[..wpr_data.len()].copy_from_slice(&wpr_data);
+    shadow_dma.as_mut_slice()[..wpr_data.len()].copy_from_slice(&wpr_data);
 
     let mut payload_patched = parsed.acr_payload.to_vec();
     let data_off = parsed.load_header.data_dma_base as usize;
-    patch_acr_desc(&mut payload_patched, data_off, wpr_iova, wpr_end);
+    patch_acr_desc(
+        &mut payload_patched,
+        data_off,
+        wpr_iova,
+        wpr_end,
+        shadow_iova,
+    );
     acr_dma.as_mut_slice()[..payload_patched.len()].copy_from_slice(&payload_patched);
     notes.push(format!(
-        "WPR: {}B [{wpr_iova:#x}..{wpr_end:#x}] desc patched",
+        "WPR: {}B [{wpr_iova:#x}..{wpr_end:#x}] shadow={shadow_iova:#x}",
         wpr_data.len()
     ));
 
@@ -175,22 +197,21 @@ pub fn attempt_hybrid_acr_boot(
 
     // ── Step 5: Full Nouveau-style SEC2 reset (gm200_flcn_disable + gm200_flcn_enable) ──
     // Phase A: gm200_flcn_disable
-    w(0x048, r(0x048) & !0x03); // clear ITFEN bits[1:0]
-    w(0x014, 0xFFFF_FFFF); // clear all interrupts
+    w(falcon::ITFEN, r(falcon::ITFEN) & !0x03);
+    w(falcon::IRQMCLR, 0xFFFF_FFFF);
     {
-        let pmc_enable: usize = 0x200;
         let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
         let sec2_mask = 1u32 << sec2_bit;
-        let val = bar0.read_u32(pmc_enable).unwrap_or(0);
+        let val = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
         if val & sec2_mask != 0 {
-            let _ = bar0.write_u32(pmc_enable, val & !sec2_mask);
-            let _ = bar0.read_u32(pmc_enable);
+            let _ = bar0.write_u32(misc::PMC_ENABLE, val & !sec2_mask);
+            let _ = bar0.read_u32(misc::PMC_ENABLE);
             std::thread::sleep(std::time::Duration::from_micros(20));
         }
     }
-    w(0x3C0, 0x01);
+    w(falcon::ENGCTL, 0x01);
     std::thread::sleep(std::time::Duration::from_micros(10));
-    w(0x3C0, 0x00);
+    w(falcon::ENGCTL, 0x00);
 
     // Phase B: gm200_flcn_enable
     if let Err(e) = pmc_enable_sec2(bar0) {
@@ -210,7 +231,7 @@ pub fn attempt_hybrid_acr_boot(
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    let boot0 = bar0.read_u32(misc::BOOT0).unwrap_or(0);
     w(0x084, boot0);
 
     let cpuctl_post = r(falcon::CPUCTL);
@@ -221,10 +242,9 @@ pub fn attempt_hybrid_acr_boot(
 
     // ── Step 6: Bind instance block (exact Nouveau gm200_flcn_fw_load sequence) ──
 
-    // 6a. Enable interrupt/transfer: mask(0x048, 0x01, 0x01)
-    let itfen = r(0x048);
-    w(0x048, (itfen & !0x01) | 0x01);
-    notes.push(format!("ITFEN: {itfen:#010x} → {:#010x}", r(0x048)));
+    let itfen = r(falcon::ITFEN);
+    w(falcon::ITFEN, (itfen & !0x01) | 0x01);
+    notes.push(format!("ITFEN: {itfen:#010x} → {:#010x}", r(falcon::ITFEN)));
 
     // 6b. Full nouveau-style bind: DMAIDX → bind_inst → UNK090 → ENG_CONTROL → poll
     let inst_bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
@@ -278,7 +298,7 @@ pub fn attempt_hybrid_acr_boot(
 
     let mut all_pcs: Vec<u32> = Vec::new();
     for _ in 0..500 {
-        let pc = r(0x030);
+        let pc = r(falcon::PC);
         if all_pcs.last() != Some(&pc) {
             all_pcs.push(pc);
         }
@@ -294,7 +314,7 @@ pub fn attempt_hybrid_acr_boot(
         let cpuctl = r(falcon::CPUCTL);
         let mb0 = r(falcon::MAILBOX0);
         let mb1 = r(falcon::MAILBOX1);
-        let pc = r(0x030);
+        let pc = r(falcon::PC);
 
         if pc != last_pc {
             pc_samples.push(format!(
@@ -343,11 +363,15 @@ pub fn attempt_hybrid_acr_boot(
 
     // ── Diagnostics ──
     let exci = r(falcon::EXCI);
-    let tracepc = [r(0x030), r(0x034), r(0x038), r(0x03C)];
-    notes.push(format!(
-        "Diag: EXCI={exci:#010x} TRACEPC=[{:#06x}, {:#06x}, {:#06x}, {:#06x}]",
-        tracepc[0], tracepc[1], tracepc[2], tracepc[3]
-    ));
+    let (trace_count, traces) = super::sec2_hal::sec2_tracepc_dump(bar0);
+    notes.push(format!("Diag: EXCI={exci:#010x}"));
+    if trace_count > 0 {
+        let trace_str: Vec<String> = traces.iter().map(|t| format!("{t:#06x}")).collect();
+        notes.push(format!(
+            "TRACEPC[0..{trace_count}]: {}",
+            trace_str.join(" ")
+        ));
+    }
 
     let dmatrfcmd = r(0x118);
     notes.push(format!(
@@ -408,6 +432,9 @@ pub fn attempt_hybrid_acr_boot(
             "WPR: FECS status={fecs_status} GPCCS status={gpccs_status} (1=copy, 0xFF=done)"
         ));
     }
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);

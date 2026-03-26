@@ -38,7 +38,11 @@ pub(crate) const FALCON_BIND_STAT: usize = 0x0dc;
 /// Format from nouveau `gm200_flcn_bind_inst`:
 ///   `(1 << 30) | (target << 28) | (addr >> 12)`
 /// Target: 0=VRAM, 2=SYS_MEM_COHERENT, 3=SYS_MEM_NCOH.
-pub(crate) fn encode_bind_inst(addr: u64, target: u32) -> u32 {
+/// Construct the bind_inst register value.
+/// Format from nouveau `gm200_flcn_bind_inst`:
+///   `(1 << 30) | (target << 28) | (addr >> 12)`
+/// Target: 0=VRAM, 2=SYS_MEM_COHERENT, 3=SYS_MEM_NCOH.
+pub fn encode_bind_inst(addr: u64, target: u32) -> u32 {
     (1u32 << 30) | (target << 28) | ((addr >> 12) as u32)
 }
 
@@ -55,7 +59,8 @@ pub(crate) fn encode_bind_inst(addr: u64, target: u32) -> u32 {
 /// 8. Poll bind_stat bits[14:12] == 0
 ///
 /// Returns (bind_ok, notes) where bind_ok is true if bind_stat reached 5.
-pub(crate) fn falcon_bind_context(
+/// Execute the full nouveau-style falcon bind sequence.
+pub fn falcon_bind_context(
     r: &dyn Fn(usize) -> u32,
     w: &dyn Fn(usize, u32),
     bind_val: u32,
@@ -155,12 +160,14 @@ pub(crate) fn falcon_bind_context(
 
 // ── VRAM Instance Block for Falcon DMA ────────────────────────────────
 // VRAM addresses for the page table chain (below our ACR/WPR region)
-pub(crate) const FALCON_INST_VRAM: u32 = 0x10000;
+/// VRAM address of the falcon instance block.
+pub const FALCON_INST_VRAM: u32 = 0x10000;
 pub(crate) const FALCON_PD3_VRAM: u32 = 0x11000;
 pub(crate) const FALCON_PD2_VRAM: u32 = 0x12000;
 pub(crate) const FALCON_PD1_VRAM: u32 = 0x13000;
 pub(crate) const FALCON_PD0_VRAM: u32 = 0x14000;
-pub(crate) const FALCON_PT0_VRAM: u32 = 0x15000;
+/// VRAM address of the falcon page table (PT0).
+pub const FALCON_PT0_VRAM: u32 = 0x15000;
 
 /// Encode a non-leaf PDE pointing to a sub-directory in VRAM.
 ///
@@ -199,7 +206,7 @@ pub(crate) fn encode_vram_pte(vram_phys: u64) -> u64 {
 /// Encode a PTE pointing to system memory (SYS_MEM_COH) for the hybrid VRAM
 /// page table approach. VRAM PDEs walk the page table chain in VRAM, but leaf
 /// PTEs point to IOMMU-mapped system memory where the ACR/WPR data lives.
-pub(crate) fn encode_sysmem_pte(iova: u64) -> u64 {
+pub fn encode_sysmem_pte(iova: u64) -> u64 {
     const FLAGS: u64 = 1 | (2 << 1) | (1 << 3); // VALID + SYS_MEM_COH + VOL
     (iova >> 4) | FLAGS
 }

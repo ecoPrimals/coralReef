@@ -38,6 +38,7 @@ pub mod dma;
 pub mod ember_client;
 pub mod gpu_vendor;
 pub mod ioctl;
+pub mod irq;
 pub mod memory;
 pub mod nv_metal;
 pub mod pci_discovery;

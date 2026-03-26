@@ -177,6 +177,23 @@ impl Ring {
         self.next_fence.saturating_sub(1)
     }
 
+    /// Restore the fence counter from a persisted snapshot.
+    ///
+    /// Sets `next_fence = last_fence + 1` so the next submission gets a
+    /// fence value that continues from where the previous session left off.
+    /// Only valid on an empty ring (no pending entries).
+    pub fn restore_fence(&mut self, last_fence: u64) {
+        if last_fence > 0 {
+            self.next_fence = last_fence + 1;
+            tracing::debug!(
+                ring = %self.name,
+                last_fence,
+                next_fence = self.next_fence,
+                "fence restored from snapshot"
+            );
+        }
+    }
+
     /// Submit an entry to the ring. Returns the entry ID and fence value.
     ///
     /// # Errors

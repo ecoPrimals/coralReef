@@ -2,10 +2,10 @@
 
 //! Boot strategies: mailbox command, direct FECS, HRESET, EMEM, nouveau-style SEC2.
 
-use crate::vfio::channel::registers::falcon;
+use crate::vfio::channel::registers::{falcon, misc};
 use crate::vfio::device::MappedBar;
 
-use super::boot_result::{AcrBootResult, make_fail_result};
+use super::boot_result::{AcrBootResult, dmem_detail, dmem_nonzero_summary, make_fail_result};
 use super::firmware::AcrFirmwareSet;
 use super::sec2_hal::{
     Sec2Probe, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
@@ -27,7 +27,29 @@ use super::wpr::falcon_id;
 ///   3. SEC2 processes command, loads FECS firmware from WPR
 ///   4. SEC2 releases FECS from HRESET
 ///   5. SEC2 writes completion status
-pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
+
+/// BOOTVEC offsets for FECS/GPCCS, derived from firmware metadata.
+///
+/// When ACR loads firmware via DMA, it should set BOOTVEC to the BL entry
+/// point. If it doesn't (BOOTVEC reads as 0), the falcon starts executing
+/// at IMEM[0] instead of the BL entry — immediate exception. These offsets
+/// are passed from [`AcrFirmwareSet`]'s parsed [`GrBlFirmware`] metadata.
+pub struct FalconBootvecOffsets {
+    /// GPCCS BL IMEM byte offset (typically `0x3400` for GV100).
+    pub gpccs: u32,
+    /// FECS BL IMEM byte offset (typically `0x7E00` for GV100).
+    pub fecs: u32,
+}
+
+/// Attempt to command the (potentially still-running) SEC2 ACR firmware
+/// to re-bootstrap FECS via the mailbox command interface.
+///
+/// The `bootvec` parameter supplies firmware-derived IMEM offsets for the
+/// BOOTVEC fix (Exp 091 discovery): if ACR's DMA loaded firmware but left
+/// BOOTVEC at 0, the falcon would start at IMEM\[0\] instead of the BL
+/// entry, causing an immediate exception. This function patches BOOTVEC
+/// from the supplied offsets before issuing STARTCPU.
+pub fn attempt_acr_mailbox_command(bar0: &MappedBar, bootvec: &FalconBootvecOffsets) -> AcrBootResult {
     let mut notes = Vec::new();
     let sec2_before = Sec2Probe::capture(bar0);
     let base = falcon::SEC2_BASE;
@@ -50,9 +72,9 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     // Nouveau does this in gf100_gr_init() BEFORE gf100_gr_init_ctxctl().
     //
     // GP100+ FECS exceptions: gp100_gr_init_fecs_exceptions
-    let _ = bar0.write_u32(0x0040_9c24, 0x000e_0002);
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::EXCEPTION_REG, 0x000e_0002);
     // SCC init (ctxgf100.c): needed for context switch
-    let _ = bar0.write_u32(0x0040_802c, 0x0000_0001);
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::GR_CLASS_CFG, 0x0000_0001);
 
     const ACR_CMD_BOOTSTRAP_FALCON: u32 = 1;
     const FALCON_ID_FECS: u32 = falcon_id::FECS; // 2
@@ -101,59 +123,18 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
         let dmem_sz = falcon::dmem_size_bytes(hwcfg);
         let read_sz = (dmem_sz as usize).min(4096);
         let sec2_dmem = sec2_dmem_read(bar0, 0, read_sz);
-        let mut ranges = Vec::new();
-        let mut in_nonzero = false;
-        let mut start = 0;
-        for (i, &word) in sec2_dmem.iter().enumerate() {
-            if word != 0 && word != 0xDEAD_DEAD {
-                if !in_nonzero {
-                    start = i;
-                    in_nonzero = true;
-                }
-            } else if in_nonzero {
-                ranges.push(format!("[{:#05x}..{:#05x}]", start * 4, i * 4));
-                in_nonzero = false;
-            }
-        }
-        if in_nonzero {
-            ranges.push(format!(
-                "[{:#05x}..{:#05x}]",
-                start * 4,
-                sec2_dmem.len() * 4
-            ));
-        }
         notes.push(format!(
             "SEC2 DMEM size={dmem_sz}B, non-zero ranges: {}",
-            if ranges.is_empty() {
-                "NONE".to_string()
-            } else {
-                ranges.join(", ")
-            }
+            dmem_nonzero_summary(&sec2_dmem)
         ));
 
-        // Dump first 128 bytes in detail for analysis
-        let mut detail = Vec::new();
-        for (i, &word) in sec2_dmem.iter().take(32).enumerate() {
-            if word != 0 {
-                detail.push(format!("[{:#05x}]={word:#010x}", i * 4));
-            }
-        }
+        let detail = dmem_detail(&sec2_dmem, 0, 32);
         if !detail.is_empty() {
             notes.push(format!("SEC2 DMEM[0..128]: {}", detail.join(" ")));
         }
-
-        // Also dump around common queue descriptor offsets (0x100-0x200)
-        let mut queue_detail = Vec::new();
-        for (i, &word) in sec2_dmem.iter().skip(64).take(64).enumerate() {
-            if word != 0 && word != 0xDEAD_DEAD {
-                queue_detail.push(format!("[{:#05x}]={word:#010x}", (i + 64) * 4));
-            }
-        }
+        let queue_detail = dmem_detail(&sec2_dmem, 64, 64);
         if !queue_detail.is_empty() {
-            notes.push(format!(
-                "SEC2 DMEM[0x100..0x200]: {}",
-                queue_detail.join(" ")
-            ));
+            notes.push(format!("SEC2 DMEM[0x100..0x200]: {}", queue_detail.join(" ")));
         }
     }
 
@@ -183,14 +164,8 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     if gpccs_cpuctl_pre == 0x10 || gpccs_cpuctl_pre == 0x00 {
         notes.push("GPCCS not bootstrapped by ACR — trying direct IMEM upload...".to_string());
         let boot0 = bar0.read_u32(0x0).unwrap_or(0);
-        let sm = ((boot0 >> 20) & 0x1F0) | ((boot0 >> 15) & 0x00F);
-        let gpccs_chip = if sm >= 100 {
-            "ga102"
-        } else if sm >= 80 {
-            "ga100"
-        } else {
-            "gv100"
-        };
+        let sm = crate::nv::identity::boot0_to_sm(boot0).unwrap_or(70);
+        let gpccs_chip = crate::nv::identity::chip_name(sm);
         match super::super::fecs_boot::boot_gpccs(bar0, gpccs_chip) {
             Ok(result) => {
                 notes.push(format!("GPCCS direct boot: {result}"));
@@ -208,11 +183,11 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     // the host must explicitly issue STARTCPU.
     //
     // Sequence from nouveau gf100.c:
-    //   1. nvkm_mc_unk260(device, 1)           — clock-gating restore
-    //   2. 0x409800=0, 0x41a10c=0, 0x40910c=0  — clear mailbox + status
-    //   3. nvkm_falcon_start(GPCCS)             — GPCCS first
-    //   4. nvkm_falcon_start(FECS)              — FECS second
-    //   5. poll 0x409800 bit 0 for 2000ms       — FECS ready
+    //   1. nvkm_mc_unk260(device, 1)               — clock-gating restore
+    //   2. clear MTHD_STATUS + DMACTL               — clear mailbox + status
+    //   3. nvkm_falcon_start(GPCCS)                 — GPCCS first
+    //   4. nvkm_falcon_start(FECS)                  — FECS second
+    //   5. poll FECS MTHD_STATUS bit 0 for 2000ms   — FECS ready
     let fecs_pre_start = bar0
         .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
         .unwrap_or(0xDEAD);
@@ -223,29 +198,24 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
         "Pre-start: FECS cpuctl={fecs_pre_start:#010x} GPCCS cpuctl={gpccs_pre_start:#010x}"
     ));
 
-    // Step 1: Clock-gating restore — nouveau's nvkm_mc_unk260(device, 1)
-    let _ = bar0.write_u32(0x000260, 1);
+    let _ = bar0.write_u32(misc::PMC_UNK260, 1);
 
     // Step 1b: Configure FECS/GPCCS interrupt enables before starting.
     // Nouveau has these set from its GR init. Without them FECS can't
     // complete its initialization (stuck polling for interrupts).
-    // FECS INTR_ENABLE: nouveau value = 0xfc24
-    let _ = bar0.write_u32(falcon::FECS_BASE + 0x00c, 0x0000_fc24);
-    // GPCCS INTR_ENABLE: matching value
-    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x00c, 0x0000_fc24);
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::IRQMODE, 0x0000_fc24);
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::IRQMODE, 0x0000_fc24);
     // FECS ITFEN (interface enable): nouveau = 0x04
-    let _ = bar0.write_u32(falcon::FECS_BASE + 0x048, 0x0000_0004);
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::ITFEN, 0x0000_0004);
     // GPCCS ITFEN
-    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x048, 0x0000_0004);
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::ITFEN, 0x0000_0004);
 
-    // Clear status registers before starting falcons
-    const FECS_CTXSW_MAILBOX: usize = 0x409800; // FECS_BASE + 0x800
-    let _ = bar0.write_u32(FECS_CTXSW_MAILBOX, 0);
-    let _ = bar0.write_u32(0x41a10c, 0); // GPCCS status clear
-    let _ = bar0.write_u32(0x40910c, 0); // FECS status clear
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::MTHD_STATUS, 0);
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::DMACTL, 0);
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::DMACTL, 0);
 
-    const GPCCS_BL_IMEM_OFF: u32 = 0x3400;
-    const FECS_BL_IMEM_OFF: u32 = 0x7E00;
+    let gpccs_bl_imem_off = bootvec.gpccs;
+    let fecs_bl_imem_off = bootvec.fecs;
 
     // Exp 091b: Verify GPCCS IMEM contents before STARTCPU.
     // If IMEM is all-zero, ACR's BOOTSTRAP_FALCON DMA failed silently.
@@ -294,12 +264,12 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     ));
 
     if gpccs_bootvec == 0 {
-        let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::BOOTVEC, GPCCS_BL_IMEM_OFF);
-        notes.push(format!("GPCCS BOOTVEC fixed: 0 → {GPCCS_BL_IMEM_OFF:#06x}"));
+        let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::BOOTVEC, gpccs_bl_imem_off);
+        notes.push(format!("GPCCS BOOTVEC fixed: 0 → {gpccs_bl_imem_off:#06x}"));
     }
     if fecs_bootvec == 0 {
-        let _ = bar0.write_u32(falcon::FECS_BASE + falcon::BOOTVEC, FECS_BL_IMEM_OFF);
-        notes.push(format!("FECS BOOTVEC fixed: 0 → {FECS_BL_IMEM_OFF:#06x}"));
+        let _ = bar0.write_u32(falcon::FECS_BASE + falcon::BOOTVEC, fecs_bl_imem_off);
+        notes.push(format!("FECS BOOTVEC fixed: 0 → {fecs_bl_imem_off:#06x}"));
     }
 
     // Start GPCCS first (FECS expects GPCCS to be running)
@@ -323,20 +293,20 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
     tracing::info!("Layer 9: issuing STARTCPU to FECS");
     falcon_start_cpu(bar0, falcon::FECS_BASE);
 
-    // Poll FECS_CTXSW_MAILBOX (0x409800) bit 0 for FECS ready
+    let fecs_mthd_status = falcon::FECS_BASE + falcon::MTHD_STATUS;
     let poll_timeout = std::time::Duration::from_millis(2000);
     let poll_start = std::time::Instant::now();
     let mut fecs_ready = false;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let status = bar0.read_u32(FECS_CTXSW_MAILBOX).unwrap_or(0);
+        let status = bar0.read_u32(fecs_mthd_status).unwrap_or(0);
         let fecs_cpu = bar0
             .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
             .unwrap_or(0xDEAD);
 
         if status & 1 != 0 {
             notes.push(format!(
-                "FECS READY: 0x409800={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
+                "FECS READY: MTHD_STATUS={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
                 poll_start.elapsed().as_millis()
             ));
             fecs_ready = true;
@@ -345,7 +315,7 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
         // Also check if FECS is running (HRESET cleared, not halted)
         if fecs_cpu & (falcon::CPUCTL_HRESET | falcon::CPUCTL_HALTED) == 0 {
             notes.push(format!(
-                "FECS RUNNING (no ready signal yet): 0x409800={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
+                "FECS RUNNING (no ready signal yet): MTHD_STATUS={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
                 poll_start.elapsed().as_millis()
             ));
             fecs_ready = true;
@@ -353,7 +323,7 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
         }
         if poll_start.elapsed() > poll_timeout {
             notes.push(format!(
-                "FECS ready timeout (2s): 0x409800={status:#010x} cpuctl={fecs_cpu:#010x}"
+                "FECS ready timeout (2s): MTHD_STATUS={status:#010x} cpuctl={fecs_cpu:#010x}"
             ));
             break;
         }
@@ -361,9 +331,12 @@ pub fn attempt_acr_mailbox_command(bar0: &MappedBar) -> AcrBootResult {
 
     // Set watchdog timeout (nouveau: 0x7fffffff)
     if fecs_ready {
-        let _ = bar0.write_u32(falcon::FECS_BASE + 0x034, 0x7fff_ffff);
+        let _ = bar0.write_u32(falcon::FECS_BASE + falcon::WATCHDOG, 0x7fff_ffff);
         notes.push("Set FECS watchdog timeout 0x7fffffff".to_string());
     }
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     // Check final state with full PC/EXCI verification
     let sec2_after = Sec2Probe::capture(bar0);
@@ -517,6 +490,9 @@ pub fn attempt_direct_fecs_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoo
         }
     }
 
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
+
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);
 
@@ -559,15 +535,13 @@ pub fn attempt_direct_hreset(bar0: &MappedBar) -> AcrBootResult {
         }
     }
 
-    // Experiment 2: PMC GR engine reset toggle (bit 12)
-    let pmc_enable: usize = 0x200;
-    let pmc = bar0.read_u32(pmc_enable).unwrap_or(0);
+    let pmc = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
     let gr_bit: u32 = 1 << 12;
     notes.push(format!("PMC before GR toggle: {pmc:#010x}"));
 
-    let _ = bar0.write_u32(pmc_enable, pmc & !gr_bit);
+    let _ = bar0.write_u32(misc::PMC_ENABLE, pmc & !gr_bit);
     std::thread::sleep(std::time::Duration::from_millis(5));
-    let _ = bar0.write_u32(pmc_enable, pmc | gr_bit);
+    let _ = bar0.write_u32(misc::PMC_ENABLE, pmc | gr_bit);
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let fecs_after_pmc = fecs_r(falcon::CPUCTL);
@@ -587,6 +561,9 @@ pub fn attempt_direct_hreset(bar0: &MappedBar) -> AcrBootResult {
         readback.first().copied().unwrap_or(0),
         emem_ok
     ));
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);
@@ -633,7 +610,7 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
         notes.push(format!("Pre-dump reset failed: {e}"));
     }
     std::thread::sleep(std::time::Duration::from_millis(100));
-    let tracepc_rom = r(0x030);
+    let tracepc_rom = r(falcon::PC);
     notes.push(format!("ROM idle PC: {tracepc_rom:#010x}"));
 
     // Dump DMEM after ROM init (first 256 bytes)
@@ -679,7 +656,7 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
     std::thread::sleep(std::time::Duration::from_millis(200));
     let cpuctl_a = r(falcon::CPUCTL);
     let mb0_a = r(falcon::MAILBOX0);
-    let tracepc_a = r(0x030);
+    let tracepc_a = r(falcon::PC);
     notes.push(format!(
         "A (full@0): cpuctl={cpuctl_a:#010x} mb0={mb0_a:#010x} pc={tracepc_a:#010x}"
     ));
@@ -692,7 +669,7 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
     }
     std::thread::sleep(std::time::Duration::from_millis(200));
     let cpuctl_b = r(falcon::CPUCTL);
-    let tracepc_b = r(0x030);
+    let tracepc_b = r(falcon::PC);
     notes.push(format!(
         "B (payload@0): cpuctl={cpuctl_b:#010x} pc={tracepc_b:#010x}"
     ));
@@ -708,7 +685,7 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
     }
     std::thread::sleep(std::time::Duration::from_millis(200));
     let cpuctl_c = r(falcon::CPUCTL);
-    let tracepc_c = r(0x030);
+    let tracepc_c = r(falcon::PC);
     notes.push(format!(
         "C (full@0x200): cpuctl={cpuctl_c:#010x} pc={tracepc_c:#010x}"
     ));
@@ -726,11 +703,14 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
     let _ = bar0.write_u32(base + falcon::MAILBOX0, 0x1);
     std::thread::sleep(std::time::Duration::from_millis(200));
     let mb0_d = r(falcon::MAILBOX0);
-    let tracepc_d = r(0x030);
+    let tracepc_d = r(falcon::PC);
     notes.push(format!(
         "D (mailbox signal): mb0={mb0_d:#010x} pc={tracepc_d:#010x} (changed={})",
         mb0_d != 0x1
     ));
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);
@@ -750,7 +730,7 @@ pub fn attempt_emem_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootResult
 /// Attempt nouveau-style SEC2 boot: falcon reset + IMEM code + EMEM descriptor.
 ///
 /// Matches nouveau's `gm200_flcn_fw_load()` + `gm200_flcn_fw_boot()`:
-/// 1. Reset SEC2 falcon (engine reset via 0x3C0)
+/// 1. Reset SEC2 falcon (engine reset via ENGCTL)
 /// 2. Load BL CODE into IMEM at (code_limit - boot_size) with tag = start_tag
 /// 3. Load BL DATA descriptor into EMEM at offset 0
 /// 4. Set BOOTVEC = start_tag << 8 = 0xFD00
@@ -769,7 +749,7 @@ pub fn attempt_nouveau_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRes
     };
 
     // Step 1: Falcon engine reset (nouveau: gp102_flcn_reset_eng).
-    tracing::info!("Resetting SEC2 falcon via engine reset (0x3C0)");
+    tracing::info!("Resetting SEC2 falcon via engine reset");
     if let Err(e) = falcon_engine_reset(bar0, base) {
         notes.push(format!("Engine reset failed: {e}"));
     } else {
@@ -938,6 +918,9 @@ pub fn attempt_nouveau_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRes
             .collect::<Vec<_>>()
     ));
 
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
+
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);
 
@@ -958,19 +941,16 @@ pub fn attempt_direct_falcon_upload(bar0: &MappedBar, fw: &AcrFirmwareSet) -> Ac
     let mut notes = Vec::new();
     let sec2_before = Sec2Probe::capture(bar0);
 
-    // PMC GR reset to get clean HRESET on FECS/GPCCS
-    let pmc_enable: usize = 0x200;
-    let pmc_val = bar0.read_u32(pmc_enable).unwrap_or(0);
+    let pmc_val = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
     let gr_bit = 1u32 << 12;
     notes.push(format!("PMC pre-reset: {pmc_val:#010x}"));
 
-    // Disable GR
-    let _ = bar0.write_u32(pmc_enable, pmc_val & !gr_bit);
-    let _ = bar0.read_u32(pmc_enable); // barrier
+    let _ = bar0.write_u32(misc::PMC_ENABLE, pmc_val & !gr_bit);
+    let _ = bar0.read_u32(misc::PMC_ENABLE);
     std::thread::sleep(std::time::Duration::from_micros(20));
-    // Re-enable GR
-    let _ = bar0.write_u32(pmc_enable, pmc_val | gr_bit);
-    let _ = bar0.read_u32(pmc_enable); // barrier
+    let _ = bar0.write_u32(misc::PMC_ENABLE, pmc_val | gr_bit);
+    let _ = bar0.read_u32(misc::PMC_ENABLE);
+
     std::thread::sleep(std::time::Duration::from_millis(5));
 
     let gpccs_cpuctl = bar0.read_u32(falcon::GPCCS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
@@ -1010,8 +990,8 @@ pub fn attempt_direct_falcon_upload(bar0: &MappedBar, fw: &AcrFirmwareSet) -> Ac
 
     // Configure GPCCS: BOOTVEC, ITFEN, INTR_ENABLE
     let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::BOOTVEC, gpccs_bl_off);
-    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x048, 0x04); // ITFEN
-    let _ = bar0.write_u32(falcon::GPCCS_BASE + 0x00c, 0xfc24); // INTR_ENABLE
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::ITFEN, 0x04);
+    let _ = bar0.write_u32(falcon::GPCCS_BASE + falcon::IRQMODE, 0xfc24);
     let bv_rb = bar0.read_u32(falcon::GPCCS_BASE + falcon::BOOTVEC).unwrap_or(0xDEAD);
     notes.push(format!("GPCCS BOOTVEC={bv_rb:#010x} ITFEN=0x04 INTR_EN=0xfc24"));
 
@@ -1061,8 +1041,8 @@ pub fn attempt_direct_falcon_upload(bar0: &MappedBar, fw: &AcrFirmwareSet) -> Ac
     falcon_dmem_upload(bar0, falcon::FECS_BASE, 0, &fw.fecs_data);
 
     let _ = bar0.write_u32(falcon::FECS_BASE + falcon::BOOTVEC, fecs_bl_off);
-    let _ = bar0.write_u32(falcon::FECS_BASE + 0x048, 0x04); // ITFEN
-    let _ = bar0.write_u32(falcon::FECS_BASE + 0x00c, 0xfc24); // INTR_ENABLE
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::ITFEN, 0x04);
+    let _ = bar0.write_u32(falcon::FECS_BASE + falcon::IRQMODE, 0xfc24);
 
     tracing::info!("Exp 091b: STARTCPU on FECS with host-loaded firmware");
     falcon_start_cpu(bar0, falcon::FECS_BASE);
@@ -1075,6 +1055,9 @@ pub fn attempt_direct_falcon_upload(bar0: &MappedBar, fw: &AcrFirmwareSet) -> Ac
     notes.push(format!(
         "FECS after start: cpuctl={fecs_cpuctl2:#010x} pc={fecs_pc:#06x} exci={fecs_exci:#010x} mb0={fecs_mb0:#010x}"
     ));
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);
@@ -1233,6 +1216,9 @@ pub fn attempt_physical_first_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> Acr
     notes.push(format!(
         "Post-boot: pc={pc:#06x} exci={exci:#010x}"
     ));
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);

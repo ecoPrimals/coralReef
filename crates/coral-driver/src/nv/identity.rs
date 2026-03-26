@@ -25,6 +25,9 @@ pub const fn chip_name(sm: u32) -> &'static str {
         80 => "ga100",
         86..=87 => "ga102",
         89 => "ad102",
+        90 => "gh100",
+        100 => "gb100",
+        120 => "gb202",
         _ => "gv100",
     }
 }
@@ -45,14 +48,55 @@ pub const fn chip_name(sm: u32) -> &'static str {
 pub const fn boot0_to_sm(boot0: u32) -> Option<u32> {
     let chipset = (boot0 >> 20) & 0xFFF;
     match chipset {
-        0x120..=0x12F => Some(50), // Maxwell GM200
-        0x130..=0x13F => Some(60), // Pascal GP100/GP102/GP104/GP106/GP107/GP108
-        0x140 => Some(70),         // Volta GV100
-        0x164..=0x168 => Some(75), // Turing TU102/TU104/TU106
-        0x170 => Some(80),         // Ampere GA100
-        0x172..=0x177 => Some(86), // Ampere GA102/GA104/GA106/GA107
-        0x192..=0x197 => Some(89), // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+        0x120..=0x12F => Some(50),  // Maxwell GM200
+        0x130..=0x13F => Some(60),  // Pascal GP100/GP102/GP104/GP106/GP107/GP108
+        0x140 => Some(70),          // Volta GV100
+        0x164..=0x168 => Some(75),  // Turing TU102/TU104/TU106/TU116/TU117
+        0x170 => Some(80),          // Ampere GA100
+        0x172..=0x177 => Some(86),  // Ampere GA102/GA103/GA104/GA106/GA107
+        0x180 => Some(90),          // Hopper GH100 (H100/H200)
+        0x192..=0x197 => Some(89),  // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+        0x1A0 | 0x1A2 => Some(100), // Blackwell GB100/GB102 (B100/B200 datacenter)
+        0x1B2..=0x1B7 => Some(120), // Blackwell GB202/GB203/GB205/GB206/GB207 (RTX 50-series)
         _ => None,
+    }
+}
+
+/// Decode BOOT0 chipset ID to a specific chip variant name.
+///
+/// Finer-grained than [`chip_name`] — distinguishes AD102 from AD104, GB202 from GB205, etc.
+/// Use this for diagnostics and per-chip identity; use [`chip_name`] for firmware directory lookup.
+#[must_use]
+pub const fn chipset_variant(boot0: u32) -> &'static str {
+    let chipset = (boot0 >> 20) & 0xFFF;
+    match chipset {
+        0x120..=0x12F => "gm200",
+        0x130..=0x13F => "gp100",
+        0x140 => "gv100",
+        0x164 => "tu102",
+        0x166 => "tu104",
+        0x167 => "tu106",
+        0x168 => "tu116",
+        0x170 => "ga100",
+        0x172 => "ga102",
+        0x173 => "ga103",
+        0x174 => "ga104",
+        0x176 => "ga106",
+        0x177 => "ga107",
+        0x180 => "gh100",
+        0x192 => "ad102",
+        0x193 => "ad103",
+        0x194 => "ad104",
+        0x196 => "ad106",
+        0x197 => "ad107",
+        0x1A0 => "gb100",
+        0x1A2 => "gb102",
+        0x1B2 => "gb202",
+        0x1B3 => "gb203",
+        0x1B5 => "gb205",
+        0x1B6 => "gb206",
+        0x1B7 => "gb207",
+        _ => "unknown",
     }
 }
 
@@ -63,9 +107,11 @@ pub const fn boot0_to_sm(boot0: u32) -> Option<u32> {
 #[must_use]
 pub const fn sm_to_compute_class(sm: u32) -> u32 {
     match sm {
-        70..=74 => 0xC3C0, // VOLTA_COMPUTE_A
-        75..=79 => 0xC5C0, // TURING_COMPUTE_A
-        _ => 0xC6C0,       // AMPERE_COMPUTE_A
+        70..=74 => 0xC3C0,   // VOLTA_COMPUTE_A
+        75..=79 => 0xC5C0,   // TURING_COMPUTE_A
+        80..=89 => 0xC6C0,   // AMPERE_COMPUTE_A (also Ada)
+        90..=99 => 0xC7C0,   // HOPPER_COMPUTE_A
+        _ => 0xC8C0,         // BLACKWELL_COMPUTE_A (SM 100+)
     }
 }
 
@@ -119,6 +165,11 @@ impl GpuIdentity {
             | 0x2880..=0x2899 => Some(86),
             // Ada Lovelace AD102/AD103/AD104/AD106/AD107
             0x2600..=0x2683 => Some(89),
+            // Hopper GH100 (H100 SXM/PCIe, H200)
+            0x2321..=0x233F | 0x2330..=0x2339 => Some(90),
+            // Blackwell GB202 (RTX 5090), GB203 (RTX 5080), GB205 (RTX 5070 Ti),
+            // GB206 (RTX 5070), GB207 (RTX 5060)
+            0x2900..=0x2999 => Some(120),
             _ => None,
         }
     }
@@ -526,9 +577,46 @@ mod tests {
     }
 
     #[test]
+    fn boot0_gh100_hopper() {
+        assert_eq!(boot0_to_sm(0x1800_00a1), Some(90));
+    }
+
+    #[test]
+    fn boot0_gb202_blackwell_consumer() {
+        assert_eq!(boot0_to_sm(0x1B20_00a1), Some(120)); // RTX 5090
+    }
+
+    #[test]
+    fn boot0_gb100_blackwell_datacenter() {
+        assert_eq!(boot0_to_sm(0x1A00_00a1), Some(100)); // B100
+    }
+
+    #[test]
     fn boot0_unknown_chipset() {
         assert_eq!(boot0_to_sm(0x0000_0000), None);
         assert_eq!(boot0_to_sm(0xFFFF_FFFF), None);
+    }
+
+    #[test]
+    fn chipset_variant_ada_granularity() {
+        assert_eq!(chipset_variant(0x1920_00a1), "ad102");
+        assert_eq!(chipset_variant(0x1930_00a1), "ad103");
+        assert_eq!(chipset_variant(0x1940_00a1), "ad104");
+        assert_eq!(chipset_variant(0x1960_00a1), "ad106");
+        assert_eq!(chipset_variant(0x1970_00a1), "ad107");
+    }
+
+    #[test]
+    fn chipset_variant_blackwell() {
+        assert_eq!(chipset_variant(0x1B20_00a1), "gb202");
+        assert_eq!(chipset_variant(0x1B30_00a1), "gb203");
+        assert_eq!(chipset_variant(0x1B50_00a1), "gb205");
+        assert_eq!(chipset_variant(0x1A00_00a1), "gb100");
+    }
+
+    #[test]
+    fn chipset_variant_hopper() {
+        assert_eq!(chipset_variant(0x1800_00a1), "gh100");
     }
 
     #[test]
@@ -538,6 +626,9 @@ mod tests {
         assert_eq!(sm_to_compute_class(80), 0xC6C0);
         assert_eq!(sm_to_compute_class(86), 0xC6C0);
         assert_eq!(sm_to_compute_class(89), 0xC6C0);
+        assert_eq!(sm_to_compute_class(90), 0xC7C0);
+        assert_eq!(sm_to_compute_class(100), 0xC8C0);
+        assert_eq!(sm_to_compute_class(120), 0xC8C0);
     }
 
     #[test]
@@ -586,8 +677,18 @@ mod tests {
     }
 
     #[test]
-    fn chip_name_sm120_default_fallback() {
-        assert_eq!(chip_name(120), "gv100");
+    fn chip_name_sm90_hopper() {
+        assert_eq!(chip_name(90), "gh100");
+    }
+
+    #[test]
+    fn chip_name_sm100_blackwell_datacenter() {
+        assert_eq!(chip_name(100), "gb100");
+    }
+
+    #[test]
+    fn chip_name_sm120_blackwell_consumer() {
+        assert_eq!(chip_name(120), "gb202");
     }
 
     #[test]

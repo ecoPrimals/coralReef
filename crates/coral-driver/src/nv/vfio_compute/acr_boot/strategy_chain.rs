@@ -72,13 +72,13 @@ pub fn attempt_acr_chain(
     // Copy ACR payload into DMA buffer (with optional WPR patching)
     let payload_copy = parsed.acr_payload.clone();
 
-    // Patch ACR descriptor with placeholder WPR (all zeros = no WPR yet)
-    // For the initial boot test, WPR patching is deferred — the BL should
-    // still DMA-load the ACR ucode successfully and we can observe the behavior.
+    // ACR descriptor WPR fields are zero at this point — WPR patching is done
+    // in the VRAM/sysmem strategies. The chain strategy tests BL DMA-load behavior
+    // without WPR to isolate DMA fault root causes.
     let data_off = parsed.load_header.data_dma_base as usize;
     if data_off + 0x24 <= payload_copy.len() {
         notes.push(format!(
-            "ACR desc at data_off={data_off:#x} (placeholder WPR)"
+            "ACR desc at data_off={data_off:#x} (WPR fields zero — chain strategy test)"
         ));
     }
 
@@ -221,6 +221,9 @@ pub fn attempt_acr_chain(
             .collect::<Vec<_>>()
     ));
 
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
+
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);
 
@@ -356,15 +359,10 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
         ));
     }
 
-    // Method C: Try SCTL register (0x240) — security control might
-    // allow halting or state changes.
+    // Method C: Read SCTL (0x240) — security mode is informational, not a PIO gate.
+    // SCTL is fuse-enforced on GV100 (always LS=0x3000). Writes are ineffective.
     let sctl = r(0x240);
-    notes.push(format!("SEC2 SCTL: {sctl:#010x}"));
-    // Try writing 0 to SCTL to clear security state
-    w(0x240, 0);
-    std::thread::sleep(std::time::Duration::from_millis(1));
-    let sctl_after = r(0x240);
-    notes.push(format!("SEC2 SCTL after clear: {sctl_after:#010x}"));
+    notes.push(format!("SEC2 SCTL: {sctl:#010x} (informational — does not block PIO)"));
 
     // Method D: Check EXCI (exception info) and TRACEPC for signs of life
     let exci = r(0x01C);
@@ -507,6 +505,9 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
             .map(|v| format!("{v:#010x}"))
             .collect::<Vec<_>>()
     ));
+
+    // ── SEC2 Conversation probe ──
+    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     let sec2_after = Sec2Probe::capture(bar0);
     let post = super::boot_result::PostBootCapture::capture(bar0);

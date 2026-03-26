@@ -22,6 +22,50 @@ fn ember_socket_path() -> String {
     std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| DEFAULT_EMBER_SOCKET.to_string())
 }
 
+/// Request a PCI device reset from Ember (which runs as root).
+///
+/// `method` is one of: `"auto"`, `"sbr"`, `"bridge-sbr"`, `"remove-rescan"`.
+/// Bridge-SBR resets all devices behind the parent PCI bridge — the only
+/// reset mechanism available on GV100 Titan V (no FLR capability).
+///
+/// After a bridge-SBR, existing BAR mappings become invalid. Callers must
+/// re-acquire VFIO fds and re-map BARs.
+pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
+    let socket_path = ember_socket_path();
+    let stream =
+        UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .map_err(|e| format!("set timeout: {e}"))?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "ember.device_reset",
+        "params": {"bdf": bdf, "method": method},
+        "id": 2
+    });
+    let req_bytes = format!("{req}\n");
+    (&stream)
+        .write_all(req_bytes.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
+
+    let mut buf = [0u8; 4096];
+    let n = std::io::Read::read(&mut &stream, &mut buf).map_err(|e| format!("read: {e}"))?;
+
+    let resp: serde_json::Value =
+        serde_json::from_slice(&buf[..n]).map_err(|e| format!("parse: {e}"))?;
+
+    if let Some(err) = resp.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("ember.device_reset: {msg}"));
+    }
+
+    Ok(())
+}
+
 pub fn request_fds(bdf: &str) -> Result<ReceivedVfioFds, String> {
     let socket_path = ember_socket_path();
     let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;

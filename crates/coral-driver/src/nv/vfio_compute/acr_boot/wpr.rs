@@ -34,13 +34,17 @@ pub struct AcrDmaContext {
     pub acr_ucode: DmaBuffer,
 }
 
-/// Build flcn_bl_dmem_desc_v1 for SEC2 BL — tells BL where to find ACR firmware.
-pub(crate) fn build_bl_dmem_desc(
+/// Build `flcn_bl_dmem_desc_v2` (84 bytes) for SEC2 BL on GV100.
+///
+/// Ref: nouveau `gp108_acr_hsfw_load_bld()` uses v2 (not v1) for GV100 SEC2.
+/// v2 adds `argc` and `argv` fields (both 0) at offsets 76 and 80.
+/// Written to DMEM at offset 0.
+pub fn build_bl_dmem_desc(
     code_dma_base: u64,
     data_dma_base: u64,
     parsed: &ParsedAcrFirmware,
 ) -> Vec<u8> {
-    let mut desc = vec![0u8; 76];
+    let mut desc = vec![0u8; 84];
     let w32 = |buf: &mut [u8], off: usize, val: u32| {
         buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
     };
@@ -50,28 +54,20 @@ pub(crate) fn build_bl_dmem_desc(
 
     // reserved[4] at 0..16: zeroes
     // signature[4] at 16..32: zeroes
-    // ctx_dma at 32: SEC2 uses DMA index 6 (instance-block-translated),
-    // NOT index 0 (physical DMA). This is critical — wrong index causes BL
-    // to read from VRAM instead of system memory.
-    w32(&mut desc, 32, dma_idx::VIRT);
-    // code_dma_base at 36 (u64, packed)
+    w32(&mut desc, 32, dma_idx::VIRT); // ctx_dma = FALCON_DMAIDX_VIRT = 1
     w64(&mut desc, 36, code_dma_base);
-    // non_sec_code_off at 44
     w32(&mut desc, 44, parsed.load_header.non_sec_code_off);
-    // non_sec_code_size at 48
     w32(&mut desc, 48, parsed.load_header.non_sec_code_size);
-    // sec_code_off at 52 (first app code offset)
     let sec_off = parsed.load_header.apps.first().map(|a| a.0).unwrap_or(0);
     w32(&mut desc, 52, sec_off);
-    // sec_code_size at 56 (first app code size)
     let sec_size = parsed.load_header.apps.first().map(|a| a.1).unwrap_or(0);
     w32(&mut desc, 56, sec_size);
-    // code_entry_point at 60
-    w32(&mut desc, 60, 0);
-    // data_dma_base at 64 (u64, packed)
+    w32(&mut desc, 60, 0); // code_entry_point = 0
     w64(&mut desc, 64, data_dma_base);
-    // data_size at 72
     w32(&mut desc, 72, parsed.load_header.data_size);
+    // v2 extensions
+    w32(&mut desc, 76, 0); // argc = 0
+    w32(&mut desc, 80, 0); // argv = 0
 
     desc
 }
@@ -98,7 +94,13 @@ pub(crate) fn build_bl_dmem_desc(
 ///   0x23C: region_props[1]  (28 bytes, left zeroed)
 ///   0x258: ucode_blob_size  (u32)
 ///   0x260: ucode_blob_base  (u64, 8-byte aligned)
-pub fn patch_acr_desc(payload: &mut [u8], data_off: usize, wpr_start: u64, wpr_end: u64) {
+pub fn patch_acr_desc(
+    payload: &mut [u8],
+    data_off: usize,
+    wpr_start: u64,
+    wpr_end: u64,
+    shadow_start: u64,
+) {
     let needed = data_off + 0x268;
     if needed > payload.len() {
         tracing::warn!(
@@ -125,7 +127,7 @@ pub fn patch_acr_desc(payload: &mut [u8], data_off: usize, wpr_start: u64, wpr_e
     w32(payload, base + 0x22C, 0xF); // region[0].read_mask
     w32(payload, base + 0x230, 0xC); // region[0].write_mask
     w32(payload, base + 0x234, 0x2); // region[0].client_mask
-    w32(payload, base + 0x238, (wpr_start >> 8) as u32); // region[0].shadow_mem_start
+    w32(payload, base + 0x238, (shadow_start >> 8) as u32); // region[0].shadow_mem_start
 
     // ucode_blob_base/size: point ACR at the entire WPR region
     let wpr_size = wpr_end - wpr_start;

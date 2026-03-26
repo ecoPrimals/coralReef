@@ -2,9 +2,9 @@
 //! GPFIFO submission and completion polling.
 
 use crate::error::{DriverError, DriverResult};
-use crate::mmio::VolatilePtr;
 use crate::vfio::cache_ops::{clflush_range, memory_fence};
 use crate::vfio::channel::mmu_fault;
+use crate::vfio::channel::registers::{misc, pccsr, pfifo};
 use crate::vfio::channel::{VfioChannel, ramuserd};
 
 use std::borrow::Cow;
@@ -37,21 +37,9 @@ impl NvVfioComputeDevice {
         let slot = (self.gpfifo_put as usize) % gpfifo::ENTRIES;
         let offset = slot * gpfifo::ENTRY_SIZE;
 
-        // Volatile write GPFIFO entry to DMA ring.
-        let ring_ptr = self.gpfifo_ring.vaddr().cast_mut();
-        // SAFETY: gpfifo_ring.vaddr() is valid from DmaBuffer::new; offset is
-        // bounds-checked by slot % ENTRIES; volatile required for GPU DMA visibility.
-        let vol = unsafe { VolatilePtr::new(ring_ptr.add(offset).cast::<u64>()) };
-        vol.write(entry);
-
+        self.gpfifo_ring.volatile_write_u64(offset, entry);
         self.gpfifo_put = self.gpfifo_put.wrapping_add(1);
-
-        // Volatile write GP_PUT to USERD at Volta RAMUSERD offset 0x8C.
-        let userd_ptr = self.userd.vaddr().cast_mut();
-        // SAFETY: userd.vaddr() is valid from DmaBuffer::new; ramuserd::GP_PUT
-        // (0x8C) is within the 4096-byte USERD page; volatile required for GPU DMA.
-        let vol = unsafe { VolatilePtr::new(userd_ptr.add(ramuserd::GP_PUT).cast::<u32>()) };
-        vol.write(self.gpfifo_put);
+        self.userd.volatile_write_u32(ramuserd::GP_PUT, self.gpfifo_put);
 
         // H1 hypothesis: CPU writes GP_PUT to DMA-mapped USERD page, but the write
         // sits in CPU cache. PBDMA reads via IOMMU DMA and sees stale zero, so
@@ -86,7 +74,7 @@ impl NvVfioComputeDevice {
 
         self.submit_pushbuf(pb_iova, pb_size)?;
 
-        let pbdma_map = self.bar0.read_u32(0x2004).unwrap_or(0);
+        let pbdma_map = self.bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
         let gr_pbdmas = find_pbdmas_for_runlist(pbdma_map, &self.bar0, 1);
         let channel_id = self.channel.id();
         let start = std::time::Instant::now();
@@ -145,35 +133,24 @@ impl NvVfioComputeDevice {
         }
 
         let deadline = std::time::Instant::now() + SYNC_TIMEOUT;
-        let userd_ptr = self.userd.vaddr();
 
         loop {
-            // SAFETY: userd DMA page is valid for the lifetime of the device;
-            // GP_GET at Volta RAMUSERD offset 0x88 is a u32 written by the
-            // GPU via IOMMU DMA. Volatile read required for async GPU writes.
-            let vol = unsafe {
-                VolatilePtr::new((userd_ptr.add(ramuserd::GP_GET) as *mut u8).cast::<u32>())
-            };
-            let gp_get = vol.read();
+            let gp_get = self.userd.volatile_read_u32(ramuserd::GP_GET);
 
             if gp_get >= self.gpfifo_put {
                 return Ok(());
             }
 
             if std::time::Instant::now() > deadline {
-                // SAFETY: same as GP_GET — userd DMA page valid; GP_PUT within bounds.
-                let vol = unsafe {
-                    VolatilePtr::new((userd_ptr.add(ramuserd::GP_PUT) as *mut u8).cast::<u32>())
-                };
-                let gp_put_val = vol.read();
+                let gp_put_val = self.userd.volatile_read_u32(ramuserd::GP_PUT);
                 let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
 
                 let mmu_info = mmu_fault::read_mmu_faults(&self.bar0);
                 mmu_fault::log_mmu_faults(&mmu_info);
 
-                let pfifo_intr = r(0x2100);
-                let pccsr_chan = r(0x80_0004);
-                let priv_ring_intr = r(0x0001_2070);
+                let pfifo_intr = r(pfifo::INTR);
+                let pccsr_chan = r(pccsr::channel(self.channel.id()));
+                let priv_ring_intr = r(misc::PRIV_RING);
                 let pbdma_intr: [u32; 2] = [r(0x40108), r(0x40108 + 0x2000)];
                 let pbdma_state: [u32; 2] = [r(0x400B0), r(0x400B0 + 0x2000)];
 

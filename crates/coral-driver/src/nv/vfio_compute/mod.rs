@@ -28,7 +28,9 @@
 pub mod acr_boot;
 pub mod diagnostics;
 mod dispatch;
+pub mod falcon_capability;
 pub mod fecs_boot;
+pub mod gr_context;
 mod init;
 mod submission;
 
@@ -418,17 +420,18 @@ impl NvVfioComputeDevice {
 
     /// Reads GR engine diagnostic status from BAR0 registers.
     pub fn gr_engine_status(&self) -> GrEngineStatus {
+        use crate::vfio::channel::registers::{falcon, misc};
         let r = |off: usize| self.bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
 
         GrEngineStatus {
-            pgraph_status: r(0x0040_0700),
-            fecs_cpuctl: r(0x0040_9100),
-            fecs_mailbox0: r(0x0040_9130),
-            fecs_mailbox1: r(0x0040_9134),
-            fecs_hwcfg: r(0x0040_9800),
-            gpccs_cpuctl: r(0x0041_a100),
-            pmc_enable: r(0x0000_0200),
-            pfifo_enable: r(0x0000_2504),
+            pgraph_status: r(misc::PGRAPH_STATUS),
+            fecs_cpuctl: r(falcon::FECS_BASE + falcon::CPUCTL),
+            fecs_mailbox0: r(falcon::FECS_BASE + falcon::MAILBOX0),
+            fecs_mailbox1: r(falcon::FECS_BASE + falcon::MAILBOX1),
+            fecs_hwcfg: r(falcon::FECS_BASE + falcon::HWCFG),
+            gpccs_cpuctl: r(falcon::GPCCS_BASE + falcon::CPUCTL),
+            pmc_enable: r(misc::PMC_ENABLE),
+            pfifo_enable: r(misc::PFIFO_SCHED_EN),
         }
     }
 
@@ -452,7 +455,8 @@ impl NvVfioComputeDevice {
 
     /// Find the PBDMA IDs assigned to the GR engine runlist (runlist 1).
     pub fn gr_runlist_pbdma_ids(&self) -> Vec<usize> {
-        let pbdma_map = self.bar0.read_u32(0x2004).unwrap_or(0);
+        use crate::vfio::channel::registers::pfifo;
+        let pbdma_map = self.bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
         diagnostics::find_pbdmas_for_runlist(pbdma_map, &self.bar0, 1)
     }
 
@@ -466,12 +470,26 @@ impl NvVfioComputeDevice {
         &self.bar0
     }
 
+    /// Clone the DMA backend for allocating IOMMU-mapped host memory buffers.
+    pub fn dma_backend(&self) -> DmaBackend {
+        self.container.clone()
+    }
+
     /// Trigger a VFIO device reset (PCI FLR).
     ///
     /// Fully resets the GPU hardware, clearing all falcon state including
     /// secure mode. BAR0 MMIO mapping remains valid after FLR.
     pub fn vfio_device_reset(&self) -> DriverResult<()> {
         self.device.reset()
+    }
+
+    /// PCI Secondary Bus Reset via VFIO hot reset ioctl.
+    ///
+    /// Asserts SBR through the upstream PCIe bridge, fully resetting all
+    /// GPU engines including falcons stuck in LS mode. Works on GV100
+    /// Titan V which lacks FLR. Bus master is re-enabled after reset.
+    pub fn vfio_pci_hot_reset(&self) -> DriverResult<()> {
+        self.device.pci_hot_reset()
     }
 
     /// Attempt sovereign FECS falcon boot from firmware files.
@@ -496,9 +514,12 @@ impl NvVfioComputeDevice {
     }
 
     /// Run the Falcon Boot Solver — tries all strategies to boot FECS.
-    pub fn falcon_boot_solver(&self) -> DriverResult<Vec<acr_boot::AcrBootResult>> {
+    pub fn falcon_boot_solver(
+        &self,
+        journal: Option<&dyn acr_boot::BootJournal>,
+    ) -> DriverResult<Vec<acr_boot::AcrBootResult>> {
         let chip = sm_to_chip(self.sm_version);
-        acr_boot::FalconBootSolver::boot(&self.bar0, chip, Some(self.container.clone()))
+        acr_boot::FalconBootSolver::boot(&self.bar0, chip, Some(self.container.clone()), journal)
     }
 
     /// Run only the system-memory ACR boot strategy (Exp 083).
@@ -506,6 +527,17 @@ impl NvVfioComputeDevice {
         let chip = sm_to_chip(self.sm_version);
         let fw = acr_boot::AcrFirmwareSet::load(chip).expect("firmware load");
         acr_boot::attempt_sysmem_acr_boot(&self.bar0, &fw, self.container.clone())
+    }
+
+    /// Sysmem physical DMA boot: simple flow, no instance block binding.
+    ///
+    /// Uses IOMMU-mapped host memory for ACR/WPR, with the falcon's physical
+    /// DMA routed to system memory via `FBIF_TRANSCFG=0x93`. Avoids the
+    /// binding step that breaks the boot on fresh-reset SEC2.
+    pub fn sysmem_physical_boot(&self) -> acr_boot::AcrBootResult {
+        let chip = sm_to_chip(self.sm_version);
+        let fw = acr_boot::AcrFirmwareSet::load(chip).expect("firmware load");
+        acr_boot::attempt_sysmem_physical_boot(&self.bar0, &fw, self.container.clone())
     }
 
     /// Run the hybrid ACR boot: VRAM page tables + system memory data (Exp 083b).
@@ -541,6 +573,60 @@ impl NvVfioComputeDevice {
     /// Apply FECS exception configuration (GP100+).
     pub fn fecs_init_exceptions(&self) {
         acr_boot::fecs_method::fecs_init_exceptions(&self.bar0);
+    }
+
+    /// Check whether FECS is alive and responding.
+    pub fn fecs_is_alive(&self) -> bool {
+        gr_context::fecs_is_alive(&self.bar0)
+    }
+
+    /// Discover GR context image sizes from FECS.
+    ///
+    /// Returns `(image_size, zcull_size, pm_size)` in bytes.
+    /// Requires FECS to be running (warm from nouveau or ACR boot).
+    pub fn discover_gr_context_sizes(&self) -> DriverResult<(u32, u32, u32)> {
+        gr_context::discover_context_sizes(&self.bar0)
+    }
+
+    /// Full GR context lifecycle: allocate DMA buffer, bind to FECS, golden save.
+    ///
+    /// This is the primary entry point for setting up GR context from scratch.
+    /// Queries FECS for the required image size, allocates a DMA buffer,
+    /// binds it to FECS, and performs a golden save.
+    pub fn setup_gr_context(&mut self) -> DriverResult<gr_context::GrContext> {
+        let (image_size, _, _) = gr_context::discover_context_sizes(&self.bar0)?;
+        let alloc_size = (image_size as usize).max(4096);
+        let (_handle, iova) = self.alloc_dma(alloc_size)?;
+        gr_context::bind_and_golden_save(&self.bar0, iova)
+    }
+
+    /// Probe GR context lifecycle without panicking — returns structured status.
+    pub fn probe_gr_context(&mut self) -> gr_context::GrContextStatus {
+        if !gr_context::fecs_is_alive(&self.bar0) {
+            return gr_context::GrContextStatus {
+                description: "FECS not running".into(),
+                fecs_alive: false,
+                image_size: 0,
+                golden_saved: false,
+            };
+        }
+        match self.setup_gr_context() {
+            Ok(ctx) => gr_context::GrContextStatus {
+                description: format!(
+                    "GR context ready: {}B image at IOVA {:#x}",
+                    ctx.image_size, ctx.iova
+                ),
+                fecs_alive: true,
+                image_size: ctx.image_size,
+                golden_saved: ctx.golden_saved,
+            },
+            Err(e) => gr_context::GrContextStatus {
+                description: format!("GR context setup failed: {e}"),
+                fecs_alive: true,
+                image_size: 0,
+                golden_saved: false,
+            },
+        }
     }
 
     pub(super) fn alloc_dma(&mut self, size: usize) -> DriverResult<(BufferHandle, u64)> {

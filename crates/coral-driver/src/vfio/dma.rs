@@ -18,6 +18,7 @@ use crate::error::DriverError;
 use rustix::mm::{mlock, munlock};
 use std::borrow::Cow;
 use std::os::fd::AsFd;
+use std::ptr::NonNull;
 
 use super::device::DmaBackend;
 use super::ioctl;
@@ -32,8 +33,11 @@ const PAGE_SIZE: usize = 4096;
 /// Allocated page-aligned, mlock'd to prevent swapping, and mapped through the
 /// IOMMU so the GPU can read/write via the assigned IOVA. Automatically
 /// unmapped and freed on drop.
+///
+/// `vaddr` is `NonNull` — the non-null invariant is guaranteed at construction
+/// and upheld through the lifetime of the buffer.
 pub struct DmaBuffer {
-    vaddr: *mut u8,
+    vaddr: NonNull<u8>,
     iova: u64,
     size: usize,
     /// DMA mapping backend (legacy container or iommufd IOAS).
@@ -51,7 +55,7 @@ impl DmaBuffer {
     ///
     /// Returns error if size is zero, allocation fails, mlock fails, or IOMMU
     /// DMA mapping fails.
-    pub(crate) fn new(backend: DmaBackend, size: usize, iova: u64) -> Result<Self, DriverError> {
+    pub fn new(backend: DmaBackend, size: usize, iova: u64) -> Result<Self, DriverError> {
         if size == 0 {
             return Err(DriverError::MmapFailed(
                 "DMA buffer size must be > 0".into(),
@@ -68,45 +72,46 @@ impl DmaBuffer {
         // Returns null on OOM (checked below). Dealloc'd in Drop with same layout.
         // Note: Vec<u8> cannot replace this — VFIO DMA map requires page-aligned
         // (4096) virtual addresses; Vec does not guarantee alignment.
-        let vaddr = unsafe { std::alloc::alloc_zeroed(layout) };
-        if vaddr.is_null() {
-            return Err(DriverError::MmapFailed(
-                "Failed to allocate DMA buffer".into(),
-            ));
-        }
+        let vaddr = {
+            let raw = unsafe { std::alloc::alloc_zeroed(layout) };
+            NonNull::new(raw).ok_or_else(|| {
+                DriverError::MmapFailed("Failed to allocate DMA buffer".into())
+            })?
+        };
 
         // SAFETY: mlock prevents page-out, required for VFIO DMA correctness.
         // vaddr valid for aligned_size bytes from alloc above.
-        if let Err(e) = unsafe { mlock(vaddr.cast(), aligned_size) } {
+        if let Err(e) = unsafe { mlock(vaddr.as_ptr().cast(), aligned_size) } {
             // SAFETY: Cleanup — vaddr allocated above with same layout.
-            unsafe { std::alloc::dealloc(vaddr, layout) };
+            unsafe { std::alloc::dealloc(vaddr.as_ptr(), layout) };
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "Failed to lock DMA memory: {e}"
             ))));
         }
 
+        let ptr = vaddr.as_ptr();
         tracing::debug!(
-            vaddr = format_args!("{vaddr:p}"),
+            vaddr = format_args!("{ptr:p}"),
             iova = format_args!("{iova:#x}"),
             size = format_args!("{aligned_size:#x}"),
             "VFIO DMA map attempt"
         );
 
         let map_result =
-            Self::dma_map_with_retry(&backend, vaddr as u64, iova, aligned_size as u64);
+            Self::dma_map_with_retry(&backend, ptr as u64, iova, aligned_size as u64);
 
         if let Err(e) = map_result {
             tracing::warn!("VFIO DMA map failed: {e}");
             // SAFETY: Cleanup — vaddr allocated and mlock'd above.
             unsafe {
-                let _ = munlock(vaddr.cast(), aligned_size);
-                std::alloc::dealloc(vaddr, layout);
+                let _ = munlock(ptr.cast(), aligned_size);
+                std::alloc::dealloc(ptr, layout);
             };
             return Err(e);
         }
 
         tracing::debug!(
-            vaddr = format_args!("{vaddr:p}"),
+            vaddr = format_args!("{ptr:p}"),
             iova = format_args!("{iova:#x}"),
             size = format_args!("{aligned_size:#x}"),
             "VFIO DMA buffer created"
@@ -122,26 +127,16 @@ impl DmaBuffer {
 
     /// Immutable slice view of the buffer contents.
     pub fn as_slice(&self) -> &[u8] {
-        // SAFETY: vaddr from alloc_zeroed in new() (null checked before use); valid for size
-        // bytes; &self prevents concurrent mutation. DmaBuffer is only constructible via new().
-        assert!(
-            !self.vaddr.is_null(),
-            "DmaBuffer vaddr is null (invalid state)"
-        );
-        assert!(self.size > 0, "DmaBuffer size is 0 (invalid state)");
-        unsafe { std::slice::from_raw_parts(self.vaddr, self.size) }
+        // SAFETY: NonNull guarantees non-null; new() guarantees valid for `size` bytes
+        // and size > 0; &self prevents concurrent mutation.
+        unsafe { std::slice::from_raw_parts(self.vaddr.as_ptr(), self.size) }
     }
 
     /// Mutable slice view for writing data into the buffer.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: vaddr valid for size bytes; &mut self guarantees exclusive access.
-        // Same invariants as as_slice.
-        assert!(
-            !self.vaddr.is_null(),
-            "DmaBuffer vaddr is null (invalid state)"
-        );
-        assert!(self.size > 0, "DmaBuffer size is 0 (invalid state)");
-        unsafe { std::slice::from_raw_parts_mut(self.vaddr, self.size) }
+        // SAFETY: NonNull guarantees non-null; new() guarantees valid for `size` bytes;
+        // &mut self guarantees exclusive access.
+        unsafe { std::slice::from_raw_parts_mut(self.vaddr.as_ptr(), self.size) }
     }
 
     /// Device-visible I/O virtual address.
@@ -157,64 +152,27 @@ impl DmaBuffer {
     }
 
     /// Map a user VA into the IOMMU, with EEXIST retry for stale mappings.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "struct sizes always fit u32"
-    )]
     fn dma_map_with_retry(
         backend: &DmaBackend,
         user_va: u64,
         iova: u64,
         length: u64,
     ) -> Result<(), DriverError> {
-        let map_err = match backend {
-            DmaBackend::LegacyContainer(container) => {
-                let arg = VfioDmaMap {
-                    argsz: std::mem::size_of::<VfioDmaMap>() as u32,
-                    flags: ioctls::VFIO_DMA_MAP_FLAG_READ | ioctls::VFIO_DMA_MAP_FLAG_WRITE,
-                    vaddr: user_va,
-                    iova,
-                    size: length,
-                };
-                match ioctl::dma_map(container.as_fd(), &arg) {
-                    Ok(()) => return Ok(()),
-                    Err(e) => e,
-                }
+        match Self::dma_map_once(backend, user_va, iova, length) {
+            Ok(()) => Ok(()),
+            Err(e) if e.to_string().contains("File exists") => {
+                tracing::info!(
+                    iova = format_args!("{iova:#x}"),
+                    "IOVA already mapped — unmapping stale entry and retrying"
+                );
+                let _ = Self::dma_unmap_backend(backend, iova, length);
+                Self::dma_map_once(backend, user_va, iova, length)
             }
-            DmaBackend::Iommufd { fd, ioas_id } => {
-                let mut arg = IommuIoasMap {
-                    size: std::mem::size_of::<IommuIoasMap>() as u32,
-                    flags: iommufd_ops::IOAS_MAP_FIXED_IOVA
-                        | iommufd_ops::IOAS_MAP_WRITEABLE
-                        | iommufd_ops::IOAS_MAP_READABLE,
-                    ioas_id: *ioas_id,
-                    __reserved: 0,
-                    user_va,
-                    length,
-                    iova,
-                };
-                match ioctl::iommufd_ioas_map(fd.as_fd(), &mut arg) {
-                    Ok(()) => return Ok(()),
-                    Err(e) => e,
-                }
-            }
-        };
-
-        // EEXIST: stale mapping from a previous consumer on a shared container
-        // (common with ember fd sharing). Unmap first, then retry.
-        if map_err.to_string().contains("File exists") {
-            tracing::info!(
-                iova = format_args!("{iova:#x}"),
-                "IOVA already mapped — unmapping stale entry and retrying"
-            );
-            let _ = Self::dma_unmap_backend(backend, iova, length);
-            Self::dma_map_once(backend, user_va, iova, length)
-        } else {
-            Err(map_err)
+            Err(e) => Err(e),
         }
     }
 
-    /// Single DMA map attempt (no retry).
+    /// Single DMA map attempt.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "struct sizes always fit u32"
@@ -283,27 +241,62 @@ impl DmaBuffer {
 
     /// Host virtual address pointer (for volatile MMIO writes referencing this buffer).
     #[must_use]
-    pub const fn vaddr(&self) -> *const u8 {
-        self.vaddr
+    pub fn vaddr(&self) -> *const u8 {
+        self.vaddr.as_ptr()
+    }
+
+    /// Volatile write a u32 at the given byte offset.
+    ///
+    /// Panics if offset + 4 exceeds the buffer size.
+    pub fn volatile_write_u32(&self, offset: usize, value: u32) {
+        assert!(offset + 4 <= self.size, "DMA volatile write out of bounds");
+        // SAFETY: NonNull guarantees non-null; bounds checked above; DmaBuffer
+        // is mlock'd and page-aligned, so aligned u32 writes are valid.
+        let vol =
+            unsafe { crate::mmio::VolatilePtr::new(self.vaddr.as_ptr().add(offset).cast::<u32>()) };
+        vol.write(value);
+    }
+
+    /// Volatile read a u32 at the given byte offset.
+    ///
+    /// Panics if offset + 4 exceeds the buffer size.
+    #[must_use]
+    pub fn volatile_read_u32(&self, offset: usize) -> u32 {
+        assert!(offset + 4 <= self.size, "DMA volatile read out of bounds");
+        // SAFETY: NonNull guarantees non-null; bounds checked above.
+        let vol =
+            unsafe { crate::mmio::VolatilePtr::new(self.vaddr.as_ptr().add(offset).cast::<u32>()) };
+        vol.read()
+    }
+
+    /// Volatile write a u64 at the given byte offset.
+    ///
+    /// Panics if offset + 8 exceeds the buffer size.
+    pub fn volatile_write_u64(&self, offset: usize, value: u64) {
+        assert!(offset + 8 <= self.size, "DMA volatile write out of bounds");
+        // SAFETY: NonNull guarantees non-null; bounds checked above.
+        let vol =
+            unsafe { crate::mmio::VolatilePtr::new(self.vaddr.as_ptr().add(offset).cast::<u64>()) };
+        vol.write(value);
     }
 }
 
 impl Drop for DmaBuffer {
     fn drop(&mut self) {
+        let ptr = self.vaddr.as_ptr();
+
         // SAFETY: munlock matches mlock from new(); must unlock before dealloc.
         unsafe {
-            let _ = munlock(self.vaddr.cast(), self.size);
+            let _ = munlock(ptr.cast(), self.size);
         };
 
         let _ = Self::dma_unmap_backend(&self.backend, self.iova, self.size as u64);
 
         // SAFETY: self.size and PAGE_SIZE are identical to those used in new().
-        // size is from aligned_size (div_ceil * PAGE_SIZE); PAGE_SIZE is 4096.
-        // Layout::from_size_align(size, 4096) cannot fail for this combination.
         let layout = std::alloc::Layout::from_size_align(self.size, PAGE_SIZE)
             .expect("Layout valid: matches alloc in new()");
         // SAFETY: dealloc matches alloc_zeroed from new(); layout identical.
-        unsafe { std::alloc::dealloc(self.vaddr, layout) };
+        unsafe { std::alloc::dealloc(ptr, layout) };
 
         tracing::debug!(
             iova = format_args!("{:#x}", self.iova),

@@ -321,15 +321,22 @@ impl AcrFirmwareSet {
 }
 
 pub(crate) mod dma_idx {
-    /// Physical DMA, no MMU translation.
+    /// Physical DMA, no MMU translation — `FALCON_DMAIDX_UCODE` (0).
     #[expect(dead_code, reason = "kept for non-instance-block paths")]
     pub const PHYS: u32 = 0;
-    /// Virtual DMA via instance block — `FALCON_DMAIDX_VIRT` in Nouveau.
-    /// Used in flcn_bl_dmem_desc_v2.ctx_dma for SEC2 ACR boot.
-    pub const VIRT: u32 = 4;
-    /// Physical DMA to system memory — `FALCON_DMAIDX_PHYS_SYS` in Nouveau.
+    /// Virtual DMA via instance block — `FALCON_DMAIDX_VIRT` (1) in nouveau.
+    /// Ref: `nvkm/engine/falcon.h` enum `nvkm_falcon_dmaidx`.
+    /// Previously incorrectly set to 4 (`PHYS_SYS_NCOH`).
+    pub const VIRT: u32 = 1;
+    /// Physical DMA to VRAM — `FALCON_DMAIDX_PHYS_VID` (2).
     #[expect(dead_code, reason = "kept for alternative DMA paths")]
-    pub const PHYS_SYS: u32 = 6;
+    pub const PHYS_VID: u32 = 2;
+    /// Physical DMA to coherent system memory — `FALCON_DMAIDX_PHYS_SYS_COH` (3).
+    #[expect(dead_code, reason = "kept for alternative DMA paths")]
+    pub const PHYS_SYS_COH: u32 = 3;
+    /// Physical DMA to non-coherent system memory — `FALCON_DMAIDX_PHYS_SYS_NCOH` (4).
+    #[expect(dead_code, reason = "kept for alternative DMA paths")]
+    pub const PHYS_SYS_NCOH: u32 = 4;
 }
 
 /// Parsed HS header from `ucode_load.bin` sub-header.
@@ -566,7 +573,13 @@ impl ParsedAcrFirmware {
             }
         };
 
-        let sig_patch_loc = rd_u32(hs_header.patch_loc as usize) as usize;
+        // patch_loc/patch_sig are INDIRECT: read the u32 at that file offset.
+        // The value at patch_loc is FILE-relative, so subtract data_offset to
+        // get the payload-relative destination. Nouveau: gm200_secboot_hsf_patch_signature
+        // does `patch_loc -= hdr->data_offset` before memcpy into the payload.
+        let data_offset = fw.acr_ucode_parsed.bin_hdr.data_offset as usize;
+        let sig_patch_loc_raw = rd_u32(hs_header.patch_loc as usize) as usize;
+        let sig_patch_loc = sig_patch_loc_raw.saturating_sub(data_offset);
         let sig_adj = rd_u32(hs_header.patch_sig as usize) as usize;
         let sig_src = hs_header.sig_prod_offset as usize + sig_adj;
         let sig_size = hs_header.sig_prod_size as usize;
@@ -578,6 +591,8 @@ impl ParsedAcrFirmware {
             acr_payload[sig_patch_loc..sig_patch_loc + sig_size]
                 .copy_from_slice(&file[sig_src..sig_src + sig_size]);
             tracing::info!(
+                sig_patch_loc_raw,
+                data_offset,
                 sig_patch_loc,
                 sig_src,
                 sig_size,
@@ -585,6 +600,8 @@ impl ParsedAcrFirmware {
             );
         } else {
             tracing::warn!(
+                sig_patch_loc_raw,
+                data_offset,
                 sig_patch_loc,
                 sig_src,
                 sig_size,

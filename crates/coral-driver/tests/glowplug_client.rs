@@ -96,6 +96,11 @@ impl GlowPlugClient {
         }
     }
 
+    /// Swap device to a different driver target (e.g. "nouveau", "vfio-pci").
+    pub fn swap(&mut self, bdf: &str, target: &str) -> Result<serde_json::Value, String> {
+        self.call("device.swap", serde_json::json!({ "bdf": bdf, "target": target }))
+    }
+
     /// Check daemon health.
     pub fn health_check(&mut self) -> Result<serde_json::Value, String> {
         self.call("health.check", serde_json::json!({}))

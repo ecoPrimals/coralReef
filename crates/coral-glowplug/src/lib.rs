@@ -18,6 +18,7 @@ pub mod observer;
 pub mod pci_ids;
 pub mod personality;
 pub mod ring;
+pub mod sec2_bridge;
 pub mod sysfs;
 pub mod sysfs_ops;
 

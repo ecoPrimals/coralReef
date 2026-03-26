@@ -62,3 +62,23 @@ mod error_handling;
 #[cfg(feature = "vfio")]
 #[path = "hw_nv_vfio/sec2_cmdq.rs"]
 mod sec2_cmdq;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/sec2_conversation.rs"]
+mod sec2_conversation;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/sec2_emem_discovery.rs"]
+mod sec2_emem_discovery;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/post_nouveau_falcon_state.rs"]
+mod post_nouveau_falcon_state;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp100_dma_fix.rs"]
+mod exp100_dma_fix;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp103_no_flr.rs"]
+mod exp103_no_flr;

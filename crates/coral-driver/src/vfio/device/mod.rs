@@ -581,14 +581,67 @@ impl VfioDevice {
         })
     }
 
-    /// Reset the device via VFIO.
+    /// Reset the device via VFIO (FLR).
     ///
     /// # Errors
     ///
-    /// Returns error if the reset ioctl fails.
+    /// Returns error if the reset ioctl fails (e.g. no FLR capability).
     pub fn reset(&self) -> Result<(), DriverError> {
         ioctl::device_reset(self.device.as_fd())?;
         tracing::info!(bdf = %self.bdf, "VFIO device reset");
+        Ok(())
+    }
+
+    /// PCI Secondary Bus Reset via `VFIO_DEVICE_PCI_HOT_RESET`.
+    ///
+    /// The kernel walks up to the upstream PCIe bridge and asserts SBR on
+    /// the secondary bus, fully resetting all GPU engines including falcons
+    /// stuck in secure mode. This works on GV100 Titan V which lacks FLR.
+    ///
+    /// For legacy VFIO, the group fd is passed to authorize the reset.
+    /// For iommufd (kernel 6.7+), `count=0` may work if all affected
+    /// devices share the same iommufd context.
+    ///
+    /// After SBR, PCI config space (including bus master) is cleared.
+    /// Call [`enable_bus_master`] or re-open the device to restore it.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the hot reset ioctl fails.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "struct argsz always fits u32"
+    )]
+    pub fn pci_hot_reset(&self) -> Result<(), DriverError> {
+        use super::types::VfioPciHotReset;
+
+        match &self.backend {
+            VfioBackend::LegacyGroup { group, .. } => {
+                let mut reset = VfioPciHotReset {
+                    argsz: (std::mem::size_of::<u32>() * 3 + std::mem::size_of::<i32>()) as u32,
+                    flags: 0,
+                    count: 1,
+                    group_fds: [group.as_raw_fd(), 0, 0, 0],
+                };
+                ioctl::device_pci_hot_reset(self.device.as_fd(), &mut reset)?;
+            }
+            VfioBackend::Iommufd { .. } => {
+                let mut reset = VfioPciHotReset {
+                    argsz: (std::mem::size_of::<u32>() * 3) as u32,
+                    flags: 0,
+                    count: 0,
+                    group_fds: [0; 4],
+                };
+                ioctl::device_pci_hot_reset(self.device.as_fd(), &mut reset)?;
+            }
+        }
+
+        tracing::info!(bdf = %self.bdf, "VFIO PCI hot reset (SBR) completed");
+
+        // SBR clears bus master — re-enable it.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        self.enable_bus_master()?;
+
         Ok(())
     }
 

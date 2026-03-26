@@ -492,16 +492,20 @@ pub fn pmu_upload_data(bar0: &MappedBar, rom: &[u8], pmu_addr: u32, rom_offset: 
     }
 }
 
-/// Read a DMEM argument pointer.
+/// Read a DMEM argument pointer (indirect read: DMEM[DMEM[argp] + argi]).
+///
+/// Uses BIT(25) for DMEMC read mode, consistent with the GM200+ PIO protocol
+/// used by all other falcon PIO paths in this codebase.
 pub fn pmu_read_args(bar0: &MappedBar, argp: u32, argi: u32) -> u32 {
     let r = |reg| bar0.read_u32(reg).unwrap_or(0);
     let w = |reg, val: u32| {
         let _ = bar0.write_u32(reg, val);
     };
 
-    w(pmu_reg::DMEM_PORT, argp);
+    // BIT(25) = 0x0200_0000: read mode with auto-increment
+    w(pmu_reg::DMEM_PORT, 0x0200_0000 | argp);
     let indirect = r(pmu_reg::DMEM_DATA);
-    w(pmu_reg::DMEM_PORT, indirect + argi);
+    w(pmu_reg::DMEM_PORT, 0x0200_0000 | (indirect + argi));
     r(pmu_reg::DMEM_DATA)
 }
 

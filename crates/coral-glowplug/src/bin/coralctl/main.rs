@@ -225,8 +225,13 @@ enum ExperimentAction {
     /// For each personality: swap (with mmiotrace), capture timing and observer
     /// insights, then swap back to the return personality. All observations are
     /// recorded in the experiment journal.
+    ///
+    /// Use --repeat to run each personality multiple times for statistical
+    /// significance. Use comma-separated BDFs to sweep multiple cards and
+    /// get a cross-card comparison table.
     Sweep {
-        /// PCI BDF address (e.g. 0000:03:00.0).
+        /// PCI BDF address(es), comma-separated for cross-card comparison
+        /// (e.g. "0000:03:00.0" or "0000:03:00.0,0000:4a:00.0").
         bdf: String,
         /// Comma-separated list of personalities to test. Default: nouveau,amdgpu,nvidia-open,xe,i915.
         #[arg(long)]
@@ -237,6 +242,9 @@ enum ExperimentAction {
         /// Enable mmiotrace for each swap. Default: true.
         #[arg(long, default_value_t = true)]
         trace: bool,
+        /// Number of times to repeat each personality swap (for statistical analysis).
+        #[arg(long, default_value_t = 1)]
+        repeat: u32,
     },
 }
 
@@ -498,6 +506,7 @@ fn main() {
                 personalities,
                 return_to,
                 trace,
+                repeat,
             } => {
                 handlers_device::rpc_experiment_sweep(
                     &cli.socket,
@@ -505,6 +514,7 @@ fn main() {
                     personalities.as_deref(),
                     &return_to,
                     trace,
+                    repeat,
                 );
             }
         },

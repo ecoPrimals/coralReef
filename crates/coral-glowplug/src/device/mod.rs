@@ -186,10 +186,11 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
     }
 
-    /// Restore ring/mailbox names and capacities from a [`RingMeta`] snapshot.
+    /// Restore ring/mailbox names, capacities, and fence state from a [`RingMeta`] snapshot.
     ///
-    /// This recreates the ring and mailbox structures (empty but correctly
-    /// sized) so GlowPlug can resume after a restart while ember held the fds.
+    /// Recreates ring and mailbox structures (empty but correctly sized) and
+    /// restores fence continuity so GlowPlug can resume after a restart while
+    /// ember held the fds.
     pub fn restore_ring_meta(&mut self, meta: &coral_ember::RingMeta) {
         for mb in &meta.mailboxes {
             if self.mailboxes.get(&mb.engine).is_none() {
@@ -197,10 +198,13 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     .add(crate::mailbox::Mailbox::new(&mb.engine, mb.capacity));
             }
         }
-        for ring in &meta.rings {
-            if self.rings.get(&ring.name).is_none() {
-                self.rings
-                    .add(crate::ring::Ring::new(&ring.name, ring.capacity));
+        for ring_meta in &meta.rings {
+            if self.rings.get(&ring_meta.name).is_none() {
+                let mut ring = crate::ring::Ring::new(&ring_meta.name, ring_meta.capacity);
+                ring.restore_fence(ring_meta.last_fence);
+                self.rings.add(ring);
+            } else if let Some(existing) = self.rings.get_mut(&ring_meta.name) {
+                existing.restore_fence(ring_meta.last_fence);
             }
         }
     }

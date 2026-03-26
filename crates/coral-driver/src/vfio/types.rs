@@ -21,11 +21,15 @@ pub(crate) mod ioctls {
 
     pub const OP_DEVICE_GET_INFO: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 7);
     pub const OP_DEVICE_GET_REGION_INFO: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 8);
-    #[expect(dead_code, reason = "VFIO ioctl opcode; reserved for IRQ support")]
     pub const OP_DEVICE_GET_IRQ_INFO: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 9);
-    #[expect(dead_code, reason = "VFIO ioctl opcode; reserved for IRQ support")]
     pub const OP_DEVICE_SET_IRQS: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 10);
     pub const OP_DEVICE_RESET: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 11);
+
+    /// `VFIO_DEVICE_GET_PCI_HOT_RESET_INFO` — query affected groups for hot reset.
+    pub const OP_DEVICE_GET_PCI_HOT_RESET_INFO: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 12);
+    /// `VFIO_DEVICE_PCI_HOT_RESET` — trigger PCI SBR via upstream bridge.
+    /// Same opcode as `OP_IOMMU_MAP_DMA` (VFIO_BASE+13) — kernel dispatches by fd type.
+    pub const OP_DEVICE_PCI_HOT_RESET: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 13);
 
     pub const OP_IOMMU_MAP_DMA: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 13);
     pub const OP_IOMMU_UNMAP_DMA: Opcode = opcode::none(VFIO_TYPE, VFIO_BASE + 14);
@@ -136,6 +140,19 @@ pub(crate) struct IommuIoasUnmap {
     pub ioas_id: u32,
     pub iova: u64,
     pub length: u64,
+}
+
+/// `struct vfio_pci_hot_reset` — PCI Secondary Bus Reset via VFIO.
+///
+/// Variable-length: the kernel struct uses a flexible array `__s32 group_fds[]`.
+/// This fixed-size variant supports up to 4 groups (sufficient for all known topologies).
+#[repr(C)]
+#[derive(Debug)]
+pub(crate) struct VfioPciHotReset {
+    pub argsz: u32,
+    pub flags: u32,
+    pub count: u32,
+    pub group_fds: [i32; 4],
 }
 
 /// VFIO device info (kernel ABI).

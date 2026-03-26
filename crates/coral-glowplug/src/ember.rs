@@ -521,6 +521,55 @@ fn read_full_response(stream: &UnixStream, buf: &mut [u8]) -> std::io::Result<us
     Ok(total)
 }
 
+// ── BootJournal bridge ───────────────────────────────────────────────
+
+/// Bridges coral-driver's [`BootJournal`] trait to Ember's JSONL journal
+/// via [`EmberClient::journal_append`].
+///
+/// Constructed with a BDF and ember socket path so the solver can journal
+/// every boot attempt without knowing about Ember's existence.
+pub struct EmberBootJournal {
+    bdf: String,
+    socket_path: String,
+}
+
+impl EmberBootJournal {
+    /// Create a journal bridge for a specific device.
+    pub fn new(bdf: impl Into<String>, socket_path: impl Into<String>) -> Self {
+        Self {
+            bdf: bdf.into(),
+            socket_path: socket_path.into(),
+        }
+    }
+
+    /// Create using the default ember socket path.
+    pub fn with_default_socket(bdf: impl Into<String>) -> Self {
+        Self::new(bdf, default_ember_socket())
+    }
+}
+
+impl coral_driver::nv::vfio_compute::acr_boot::BootJournal for EmberBootJournal {
+    fn record_boot_attempt(&self, result: &coral_driver::nv::vfio_compute::acr_boot::AcrBootResult) {
+        let entry = coral_ember::journal::JournalEntry::BootAttempt {
+            bdf: self.bdf.clone(),
+            strategy: result.strategy.to_string(),
+            success: result.success,
+            sec2_exci: result.sec2_after.exci,
+            fecs_pc: result.fecs_pc_after,
+            gpccs_exci: result.gpccs_exci_after,
+            notes: result.notes.clone(),
+            timestamp_epoch_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        };
+        let client = EmberClient { socket_path: self.socket_path.clone() };
+        if let Err(e) = client.journal_append(&entry) {
+            tracing::warn!(bdf = %self.bdf, strategy = result.strategy, "ember journal write failed: {e}");
+        }
+    }
+}
+
 /// RAII guard that re-enables ember connections when dropped.
 #[cfg(test)]
 pub struct EmberTestGuard(());
@@ -647,5 +696,28 @@ mod tests {
         let mut buf = [0u8; 64];
         let err = read_full_response(&receiver, &mut buf).expect_err("closed without data");
         assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+
+    // ── EmberBootJournal ─────────────────────────────────────────────
+
+    #[test]
+    fn ember_boot_journal_construction() {
+        let j = EmberBootJournal::new("0000:3b:00.0", "/tmp/test.sock");
+        assert_eq!(j.bdf, "0000:3b:00.0");
+        assert_eq!(j.socket_path, "/tmp/test.sock");
+    }
+
+    #[test]
+    fn ember_boot_journal_default_socket() {
+        let j = EmberBootJournal::with_default_socket("0000:01:00.0");
+        assert_eq!(j.bdf, "0000:01:00.0");
+        assert_eq!(j.socket_path, default_ember_socket());
+    }
+
+    #[test]
+    fn ember_boot_journal_implements_boot_journal() {
+        use coral_driver::nv::vfio_compute::acr_boot::BootJournal;
+        let j = EmberBootJournal::new("test", "/nonexistent.sock");
+        let _: &dyn BootJournal = &j;
     }
 }

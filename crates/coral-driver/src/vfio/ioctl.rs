@@ -14,7 +14,7 @@ use super::types::ioctls;
 use super::types::iommufd as iommufd_ops;
 use super::types::{
     IommuIoasAlloc, IommuIoasMap, IommuIoasUnmap, VfioDeviceAttachIommufdPt, VfioDeviceBindIommufd,
-    VfioDeviceInfo, VfioDmaMap, VfioDmaUnmap, VfioGroupStatus, VfioRegionInfo,
+    VfioDeviceInfo, VfioDmaMap, VfioDmaUnmap, VfioGroupStatus, VfioPciHotReset, VfioRegionInfo,
 };
 
 /// Ioctl adapter for VFIO commands that return an i32 (no-arg or integer-arg).
@@ -160,6 +160,23 @@ pub(crate) fn device_reset(fd: BorrowedFd<'_>) -> Result<i32, DriverError> {
     unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_RESET", e))
 }
 
+/// `VFIO_DEVICE_PCI_HOT_RESET` — PCI SBR via the upstream bridge.
+///
+/// The kernel walks up to the PCIe bridge and asserts Secondary Bus Reset,
+/// resetting ALL devices behind the bridge. All IOMMU groups containing
+/// affected devices must be represented by open group fds.
+#[inline]
+pub(crate) fn device_pci_hot_reset(
+    fd: BorrowedFd<'_>,
+    arg: &mut VfioPciHotReset,
+) -> Result<(), DriverError> {
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_PCI_HOT_RESET }, _> {
+        ptr: std::ptr::from_mut(arg),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
+        .map_err(|e| vfio_err("DEVICE_PCI_HOT_RESET", e))
+}
+
 #[inline]
 pub(crate) fn dma_map(fd: BorrowedFd<'_>, arg: &VfioDmaMap) -> Result<(), DriverError> {
     // SAFETY: struct ioctl; fd valid (container); arg has kernel layout.
@@ -245,4 +262,32 @@ pub(crate) fn iommufd_ioas_unmap(
         ptr: std::ptr::from_mut(arg),
     };
     unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("IOMMU_IOAS_UNMAP", e))
+}
+
+// ---------------------------------------------------------------------------
+// VFIO IRQ ioctls
+// ---------------------------------------------------------------------------
+
+/// `VFIO_DEVICE_GET_IRQ_INFO` — query IRQ capabilities for an index.
+#[inline]
+pub(crate) fn device_get_irq_info<T>(
+    fd: BorrowedFd<'_>,
+    arg: &mut T,
+) -> Result<(), DriverError> {
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_GET_IRQ_INFO }, _> {
+        ptr: std::ptr::from_mut(arg),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_GET_IRQ_INFO", e))
+}
+
+/// `VFIO_DEVICE_SET_IRQS` — configure IRQ trigger/masking for a device.
+#[inline]
+pub(crate) fn device_set_irqs<T>(
+    fd: BorrowedFd<'_>,
+    arg: &mut T,
+) -> Result<(), DriverError> {
+    let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_SET_IRQS }, _> {
+        ptr: std::ptr::from_mut(arg),
+    };
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_SET_IRQS", e))
 }

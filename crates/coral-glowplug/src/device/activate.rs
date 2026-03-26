@@ -187,6 +187,26 @@ impl<S: SysfsOps> DeviceSlot<S> {
         self.personality = Personality::Vfio { group_id };
         self.check_health();
 
+        // Restore ring/mailbox state from ember (survives glowplug restarts)
+        if let Some(client) = crate::ember::EmberClient::connect() {
+            match client.ring_meta_get(&self.bdf) {
+                Ok(meta) if !meta.mailboxes.is_empty() || !meta.rings.is_empty() => {
+                    tracing::debug!(
+                        bdf = %self.bdf,
+                        version = meta.version,
+                        mailboxes = meta.mailboxes.len(),
+                        rings = meta.rings.len(),
+                        "restoring ring_meta from ember during startup activation"
+                    );
+                    self.restore_ring_meta(&meta);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::debug!(bdf = %self.bdf, error = %e, "ring_meta restore during startup (non-fatal)");
+                }
+            }
+        }
+
         tracing::info!(
             bdf = %self.bdf,
             personality = %self.personality,
@@ -220,6 +240,23 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     })?;
                     self.vfio_holder = Some(VfioHolder::new(device, bar0));
                     self.personality = Personality::Vfio { group_id };
+
+                    // Restore ring/mailbox state from ember
+                    match client.ring_meta_get(&self.bdf) {
+                        Ok(meta) if !meta.mailboxes.is_empty() || !meta.rings.is_empty() => {
+                            tracing::debug!(
+                                bdf = %self.bdf,
+                                version = meta.version,
+                                "restoring ring_meta from ember during bind_vfio"
+                            );
+                            self.restore_ring_meta(&meta);
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::debug!(bdf = %self.bdf, error = %e, "ring_meta restore during bind_vfio (non-fatal)");
+                        }
+                    }
+
                     tracing::info!(bdf = %self.bdf, "VFIO fds acquired from ember");
                     return Ok(());
                 }

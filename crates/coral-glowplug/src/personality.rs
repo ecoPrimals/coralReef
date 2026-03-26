@@ -168,7 +168,7 @@ impl GpuPersonality for NvidiaPersonality {
         self.drm_card_path.as_deref()
     }
     fn supports_hbm2_training(&self) -> bool {
-        false
+        true
     }
     fn driver_module(&self) -> &'static str {
         "nvidia"
@@ -209,7 +209,7 @@ impl GpuPersonality for NvidiaOpenPersonality {
         self.drm_card_path.as_deref()
     }
     fn supports_hbm2_training(&self) -> bool {
-        false
+        true
     }
     fn driver_module(&self) -> &'static str {
         "nvidia"
@@ -344,7 +344,7 @@ impl GpuPersonality for NvidiaOraclePersonality {
         self.drm_card_path.as_deref()
     }
     fn supports_hbm2_training(&self) -> bool {
-        false
+        true
     }
     fn driver_module(&self) -> &'static str {
         "nvidia_oracle"
@@ -734,6 +734,7 @@ mod tests {
         assert!(!Personality::Xe { drm_card: None }.supports_hbm2_training());
         assert!(!Personality::I915 { drm_card: None }.supports_hbm2_training());
         assert!(Personality::Nvidia { drm_card: None }.supports_hbm2_training());
+        assert!(Personality::NvidiaOpen { drm_card: None }.supports_hbm2_training());
         assert!(!Personality::Akida.supports_hbm2_training());
     }
 
@@ -763,7 +764,7 @@ mod tests {
         assert_eq!(reg.create("akida").unwrap().name(), "akida-pcie");
         let nvidia = reg.create("nvidia").unwrap();
         assert_eq!(nvidia.name(), "nvidia");
-        assert!(!nvidia.supports_hbm2_training());
+        assert!(nvidia.supports_hbm2_training());
         let xe = reg.create("xe").unwrap();
         assert_eq!(xe.driver_module(), "xe");
         let i915 = reg.create("i915").unwrap();
@@ -776,7 +777,7 @@ mod tests {
             drm_card_path: Some("/dev/dri/card1".into()),
         };
         assert_eq!(nvidia.name(), "nvidia");
-        assert!(!nvidia.supports_hbm2_training());
+        assert!(nvidia.supports_hbm2_training());
         assert_eq!(nvidia.drm_card(), Some("/dev/dri/card1"));
 
         let xe = XePersonality {

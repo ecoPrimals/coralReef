@@ -12,10 +12,10 @@ use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::registers::falcon;
 use crate::vfio::device::MappedBar;
 
-const FECS_MTHD_DATA: usize = falcon::FECS_BASE + 0x500;
-const FECS_MTHD_CMD: usize = falcon::FECS_BASE + 0x504;
-const FECS_MTHD_STATUS: usize = falcon::FECS_BASE + 0x800;
-const FECS_MTHD_STATUS2: usize = falcon::FECS_BASE + 0x804;
+const FECS_MTHD_DATA: usize = falcon::FECS_BASE + falcon::MTHD_DATA;
+const FECS_MTHD_CMD: usize = falcon::FECS_BASE + falcon::MTHD_CMD;
+const FECS_MTHD_STATUS: usize = falcon::FECS_BASE + falcon::MTHD_STATUS;
+const FECS_MTHD_STATUS2: usize = falcon::FECS_BASE + falcon::MTHD_STATUS2;
 
 /// Submit a method to FECS and wait for completion.
 ///
@@ -186,10 +186,10 @@ pub fn fecs_wfi_golden_save(bar0: &MappedBar, inst_addr: u64) -> DriverResult<()
 /// Nouveau's `gp100_gr_init_fecs_exceptions` writes `0x409c24 = 0x000e0002`.
 /// This enables FECS to handle exceptions from GR sub-units.
 pub fn fecs_init_exceptions(bar0: &MappedBar) {
-    const FECS_EXCEPTION_REG: usize = 0x0040_9c24;
     const FECS_EXCEPTION_VAL: u32 = 0x000e_0002;
-    let _ = bar0.write_u32(FECS_EXCEPTION_REG, FECS_EXCEPTION_VAL);
-    tracing::info!("FECS: exception config 0x409c24 = 0x000e0002");
+    let reg = falcon::FECS_BASE + falcon::EXCEPTION_REG;
+    let _ = bar0.write_u32(reg, FECS_EXCEPTION_VAL);
+    tracing::info!("FECS: exception config {reg:#08x} = {FECS_EXCEPTION_VAL:#010x}");
 }
 
 /// Probe FECS method interface — call discover sizes and report results.

@@ -8,15 +8,16 @@ use crate::error::DriverResult;
 use crate::vfio::channel::registers::falcon;
 use crate::vfio::device::{DmaBackend, MappedBar};
 
-use super::boot_result::AcrBootResult;
+use super::boot_result::{AcrBootResult, BootJournal};
 use super::fecs_method;
 use super::firmware::AcrFirmwareSet;
 use super::sec2_hal::Sec2Probe;
 use super::strategy_chain::{attempt_acr_chain, attempt_direct_acr_load};
 use super::strategy_hybrid::attempt_hybrid_acr_boot;
 use super::strategy_mailbox::{
-    attempt_acr_mailbox_command, attempt_direct_falcon_upload, attempt_direct_fecs_boot,
-    attempt_direct_hreset, attempt_emem_boot, attempt_nouveau_boot, attempt_physical_first_boot,
+    FalconBootvecOffsets, attempt_acr_mailbox_command, attempt_direct_falcon_upload,
+    attempt_direct_fecs_boot, attempt_direct_hreset, attempt_emem_boot, attempt_nouveau_boot,
+    attempt_physical_first_boot,
 };
 use super::strategy_sysmem::attempt_sysmem_acr_boot;
 use super::strategy_vram::attempt_vram_acr_boot;
@@ -210,10 +211,17 @@ impl FalconBootSolver {
         bar0: &MappedBar,
         chip: &str,
         container: Option<DmaBackend>,
+        journal: Option<&dyn BootJournal>,
     ) -> DriverResult<Vec<AcrBootResult>> {
         let mut results = Vec::new();
         let probe = FalconProbe::capture(bar0);
         tracing::info!("{probe}");
+
+        let record = |r: &AcrBootResult| {
+            if let Some(j) = journal {
+                j.record_boot_attempt(r);
+            }
+        };
 
         // Strategy 0: Already running
         if probe.fecs_state == FecsState::Running {
@@ -240,6 +248,7 @@ impl FalconBootSolver {
         tracing::info!("Strategy 1: Nouveau-style SEC2 boot (corrected sequence)...");
         let nouveau_result = attempt_nouveau_boot(bar0, &fw);
         tracing::info!("{nouveau_result}");
+        record(&nouveau_result);
         let nouveau_success = nouveau_result.success;
         results.push(nouveau_result);
         if nouveau_success {
@@ -253,6 +262,7 @@ impl FalconBootSolver {
         tracing::info!("Strategy 1b: Physical-first SEC2 boot (no instance block)...");
         let physical_result = attempt_physical_first_boot(bar0, &fw);
         tracing::info!("{physical_result}");
+        record(&physical_result);
         let physical_success = physical_result.success;
         results.push(physical_result);
         if physical_success {
@@ -265,6 +275,7 @@ impl FalconBootSolver {
         tracing::info!("Strategy 2: VRAM-based ACR boot (PRAMIN→VRAM→falcon DMA)...");
         let vram_result = attempt_vram_acr_boot(bar0, &fw);
         tracing::info!("{vram_result}");
+        record(&vram_result);
         let vram_success = vram_result.success;
         results.push(vram_result);
         if vram_success {
@@ -278,6 +289,7 @@ impl FalconBootSolver {
             tracing::info!("Strategy 3: System-memory ACR boot (IOMMU DMA)...");
             let sysmem_result = attempt_sysmem_acr_boot(bar0, &fw, dma_backend.clone());
             tracing::info!("{sysmem_result}");
+            record(&sysmem_result);
             let sysmem_success = sysmem_result.success;
             results.push(sysmem_result);
             if sysmem_success {
@@ -292,6 +304,7 @@ impl FalconBootSolver {
             tracing::info!("Strategy 3b: Hybrid ACR boot (VRAM pages + sysmem data)...");
             let hybrid_result = attempt_hybrid_acr_boot(bar0, &fw, dma_backend.clone());
             tracing::info!("{hybrid_result}");
+            record(&hybrid_result);
             let hybrid_success = hybrid_result.success;
             results.push(hybrid_result);
             if hybrid_success {
@@ -304,6 +317,7 @@ impl FalconBootSolver {
             tracing::info!("Strategy 4: Direct FECS boot (bypass ACR)...");
             let fecs_result = attempt_direct_fecs_boot(bar0, &fw);
             tracing::info!("{fecs_result}");
+            record(&fecs_result);
             let fecs_success = fecs_result.success;
             results.push(fecs_result);
             if fecs_success {
@@ -313,8 +327,13 @@ impl FalconBootSolver {
 
         // ── Strategy 5: ACR mailbox command ──
         tracing::info!("Strategy 5: ACR mailbox command (live SEC2)...");
-        let mailbox_result = attempt_acr_mailbox_command(bar0);
+        let bootvec = FalconBootvecOffsets {
+            gpccs: fw.gpccs_bl.bl_imem_off(),
+            fecs: fw.fecs_bl.bl_imem_off(),
+        };
+        let mailbox_result = attempt_acr_mailbox_command(bar0, &bootvec);
         tracing::info!("{mailbox_result}");
+        record(&mailbox_result);
         let mailbox_success = mailbox_result.success;
         results.push(mailbox_result);
         if mailbox_success {
@@ -346,6 +365,7 @@ impl FalconBootSolver {
         tracing::info!("Strategy 6: Direct HRESET experiments...");
         let direct_result = attempt_direct_hreset(bar0);
         tracing::info!("{direct_result}");
+        record(&direct_result);
         let direct_success = direct_result.success;
         results.push(direct_result);
         if direct_success {
@@ -356,6 +376,7 @@ impl FalconBootSolver {
         tracing::info!("Strategy 7: Direct ACR IMEM load (canary + firmware)...");
         let direct_acr_result = attempt_direct_acr_load(bar0, &fw);
         tracing::info!("{direct_acr_result}");
+        record(&direct_acr_result);
         let direct_acr_success = direct_acr_result.success;
         results.push(direct_acr_result);
         if direct_acr_success {
@@ -367,6 +388,7 @@ impl FalconBootSolver {
             tracing::info!("Strategy 8: Full ACR chain boot (DMA-backed, legacy)...");
             let chain_result = attempt_acr_chain(bar0, &fw, dma_backend);
             tracing::info!("{chain_result}");
+            record(&chain_result);
             let chain_success = chain_result.success;
             results.push(chain_result);
             if chain_success {
@@ -380,12 +402,14 @@ impl FalconBootSolver {
         tracing::info!("Strategy 9: EMEM-based SEC2 boot (fallback)...");
         let emem_result = attempt_emem_boot(bar0, &fw);
         tracing::info!("{emem_result}");
+        record(&emem_result);
         results.push(emem_result);
 
         // ── Strategy 10: Direct host IMEM/DMEM upload (bypass ACR DMA) ──
         tracing::info!("Strategy 10: Direct host GPCCS/FECS firmware upload (Exp 091b)...");
         let direct_upload_result = attempt_direct_falcon_upload(bar0, &fw);
         tracing::info!("{direct_upload_result}");
+        record(&direct_upload_result);
         let direct_upload_success = direct_upload_result.success;
         results.push(direct_upload_result);
         if direct_upload_success {

@@ -8,7 +8,7 @@
 use std::fmt;
 use std::time::Instant;
 
-use crate::vfio::channel::registers::{falcon, pbdma, pccsr, pfifo};
+use crate::vfio::channel::registers::{falcon, misc, pbdma, pccsr, pfifo};
 use crate::vfio::device::MappedBar;
 
 /// State snapshot of a single Falcon microcontroller.
@@ -479,8 +479,8 @@ impl Layer7Diagnostics {
             pccsr: pccsr_snap,
             pfifo: pfifo_snap,
             pbdma_snapshots,
-            pmc_enable: r(0x200),
-            pgraph_status: r(0x40_0700),
+            pmc_enable: r(misc::PMC_ENABLE),
+            pgraph_status: r(misc::PGRAPH_STATUS),
         }
     }
 }
