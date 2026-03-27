@@ -16,6 +16,7 @@
 pub mod bar0;
 pub mod identity;
 pub mod ioctl;
+pub mod kepler_falcon;
 pub mod pushbuf;
 pub mod qmd;
 

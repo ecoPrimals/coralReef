@@ -82,3 +82,51 @@ mod exp100_dma_fix;
 #[cfg(feature = "vfio")]
 #[path = "hw_nv_vfio/exp103_no_flr.rs"]
 mod exp103_no_flr;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp110_matrix.rs"]
+mod exp110_matrix;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp111_vram_native.rs"]
+mod exp111_vram_native;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp113_trap_analysis.rs"]
+mod exp113_trap_analysis;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp114_ls_mailbox.rs"]
+mod exp114_ls_mailbox;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp115_direct_boot.rs"]
+mod exp115_direct_boot;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp116_wpr_reuse.rs"]
+mod exp116_wpr_reuse;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp117_wpr2_state.rs"]
+mod exp117_wpr2_state;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp118_wpr2_preserve.rs"]
+mod exp118_wpr2_preserve;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp119_cold_boot_wpr2.rs"]
+mod exp119_cold_boot_wpr2;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp120_sovereign_devinit.rs"]
+mod exp120_sovereign_devinit;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp121_minimal_acr.rs"]
+mod exp121_minimal_acr;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp122_wpr2_resolution.rs"]
+mod exp122_wpr2_resolution;

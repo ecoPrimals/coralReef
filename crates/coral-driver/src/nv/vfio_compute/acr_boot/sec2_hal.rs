@@ -920,24 +920,29 @@ pub(crate) fn falcon_prepare_physical_dma(bar0: &MappedBar, base: usize) {
 ///
 /// Nouveau re-initializes IMEMC for each 256-byte page. This is critical —
 /// auto-increment may not cross page boundaries on all falcon versions.
-pub fn falcon_imem_upload_nouveau(
+/// Upload code to falcon IMEM with optional SECURE flag.
+///
+/// When `secure` is true, bit 28 is set in IMEMC, marking the IMEM region
+/// as accessible only in HS mode. Nouveau sets secure=true for the HS code
+/// section of ACR firmware (`gm200_flcn_pio_imem_wr_init`).
+pub fn falcon_imem_upload_secure(
     bar0: &MappedBar,
     base: usize,
     imem_addr: u32,
     data: &[u8],
     start_tag: u32,
+    secure: bool,
 ) {
     let w = |off: usize, val: u32| {
         let _ = bar0.write_u32(base + off, val);
     };
+    let sec_bit = if secure { 1u32 << 28 } else { 0 };
 
     for (chunk_idx, chunk) in data.chunks(256).enumerate() {
         let chunk_addr = imem_addr + (chunk_idx as u32) * 256;
         let chunk_tag = start_tag + chunk_idx as u32;
 
-        // Re-init IMEMC for this page (Nouveau: gm200_flcn_pio_imem_wr_init)
-        // BIT(24) = auto-increment within page. No secure flag (sec=false in Nouveau).
-        w(falcon::IMEMC, (1u32 << 24) | chunk_addr);
+        w(falcon::IMEMC, sec_bit | (1u32 << 24) | chunk_addr);
 
         // Set tag for this page (Nouveau: gm200_flcn_pio_imem_wr)
         w(falcon::IMEMT, chunk_tag);
@@ -966,6 +971,17 @@ pub fn falcon_imem_upload_nouveau(
             }
         }
     }
+}
+
+/// Upload code to falcon IMEM (non-secure). Convenience wrapper.
+pub fn falcon_imem_upload_nouveau(
+    bar0: &MappedBar,
+    base: usize,
+    imem_addr: u32,
+    data: &[u8],
+    start_tag: u32,
+) {
+    falcon_imem_upload_secure(bar0, base, imem_addr, data, start_tag, false);
 }
 
 /// Upload data to falcon DMEM matching Nouveau's protocol.

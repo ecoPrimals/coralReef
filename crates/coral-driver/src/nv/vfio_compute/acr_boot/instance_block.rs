@@ -162,10 +162,14 @@ pub fn falcon_bind_context(
 // VRAM addresses for the page table chain (below our ACR/WPR region)
 /// VRAM address of the falcon instance block.
 pub const FALCON_INST_VRAM: u32 = 0x10000;
-pub(crate) const FALCON_PD3_VRAM: u32 = 0x11000;
-pub(crate) const FALCON_PD2_VRAM: u32 = 0x12000;
-pub(crate) const FALCON_PD1_VRAM: u32 = 0x13000;
-pub(crate) const FALCON_PD0_VRAM: u32 = 0x14000;
+/// VRAM address of PD3 (page directory level 3).
+pub const FALCON_PD3_VRAM: u32 = 0x11000;
+/// VRAM address of PD2 (page directory level 2).
+pub const FALCON_PD2_VRAM: u32 = 0x12000;
+/// VRAM address of PD1 (page directory level 1).
+pub const FALCON_PD1_VRAM: u32 = 0x13000;
+/// VRAM address of PD0 (page directory level 0).
+pub const FALCON_PD0_VRAM: u32 = 0x14000;
 /// VRAM address of the falcon page table (PT0).
 pub const FALCON_PT0_VRAM: u32 = 0x15000;
 
@@ -177,7 +181,7 @@ pub const FALCON_PT0_VRAM: u32 = 0x15000;
 ///   bits[32:8]: table_frame_vid = phys_addr >> 12
 ///
 /// Result: `(phys >> 12) << 8 | aperture << 1` = `(phys >> 4) | 0x2`
-pub(crate) fn encode_vram_pde(vram_addr: u64) -> u64 {
+pub fn encode_vram_pde(vram_addr: u64) -> u64 {
     const APER_VRAM: u64 = 1 << 1; // bits[2:1] = 1 = VRAM
     (vram_addr >> 4) | APER_VRAM
 }

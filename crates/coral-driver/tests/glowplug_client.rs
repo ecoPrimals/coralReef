@@ -13,7 +13,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 const DEFAULT_SOCKET: &str = "/run/coralreef/glowplug.sock";
-const TIMEOUT: Duration = Duration::from_secs(10);
+const TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct GlowPlugClient {
     stream: BufReader<UnixStream>,
@@ -104,6 +104,15 @@ impl GlowPlugClient {
     /// Check daemon health.
     pub fn health_check(&mut self) -> Result<serde_json::Value, String> {
         self.call("health.check", serde_json::json!({}))
+    }
+
+    /// Trigger a PCI device reset via GlowPlug → Ember.
+    /// Methods: "flr", "sbr", "bridge-sbr", "remove-rescan", "auto"
+    pub fn reset(&mut self, bdf: &str, method: &str) -> Result<serde_json::Value, String> {
+        self.call(
+            "device.reset",
+            serde_json::json!({ "bdf": bdf, "method": method }),
+        )
     }
 }
 
