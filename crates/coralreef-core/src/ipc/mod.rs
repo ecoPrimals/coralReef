@@ -3,6 +3,7 @@
 //!
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
 //! - JSON-RPC 2.0 as primary protocol (TCP/HTTP — external, debuggable)
+//! - JSON-RPC 2.0 over TCP newline-delimited (mandatory inter-primal framing per v3.1)
 //! - JSON-RPC 2.0 over Unix socket (newline-delimited — ecosystem-compatible)
 //! - tarpc as optional high-performance channel (TCP or Unix socket — internal)
 //! - Semantic method names: `shader.compile.{spirv,wgsl,status,capabilities}`
@@ -34,18 +35,28 @@ pub use tarpc_transport::start_tarpc_unix_server;
 )]
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
-#[cfg(unix)]
-mod unix_jsonrpc;
-/// JSON-RPC method dispatch — same routing as the Unix newline-delimited server.
+mod newline_jsonrpc;
+/// Start a raw newline-delimited JSON-RPC server on a TCP socket.
+///
+/// This is the wateringHole v3.1 mandatory wire framing for inter-primal
+/// composition. Springs and orchestrators connect to this endpoint.
+///
+/// The server stops when `shutdown_rx` fires (watch channel shared with other listeners).
+pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
+
+/// JSON-RPC method dispatch — same routing as newline-delimited servers (Unix/TCP).
 ///
 /// Exposed for integration tests and coverage-guided fuzzing when the `e2e`
-/// feature is enabled. Unix-only (matches the transport that uses this helper).
-#[cfg(all(unix, feature = "e2e"))]
+/// feature is enabled.
+#[cfg(any(test, feature = "e2e"))]
 #[allow(
     unused_imports,
     reason = "re-exported for fuzzing and integration tests, not the coralreef binary"
 )]
-pub use unix_jsonrpc::dispatch;
+pub use newline_jsonrpc::dispatch;
+
+#[cfg(unix)]
+mod unix_jsonrpc;
 #[cfg(unix)]
 #[allow(
     unused_imports,
@@ -69,6 +80,9 @@ pub enum IpcError {
     #[error("tarpc server error: {0}")]
     Tarpc(#[from] std::io::Error),
 }
+
+/// `WateringHole` IPC error type for newline TCP JSON-RPC and related helpers.
+pub type CoralReefError = IpcError;
 
 /// Transport-agnostic bound address reported by servers.
 #[derive(Debug, Clone)]
@@ -152,6 +166,8 @@ mod tests_chaos;
 mod tests_fault;
 #[cfg(test)]
 mod tests_jsonrpc;
+#[cfg(test)]
+mod tests_newline_jsonrpc;
 #[cfg(test)]
 mod tests_tarpc;
 #[cfg(test)]

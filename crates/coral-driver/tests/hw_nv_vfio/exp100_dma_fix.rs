@@ -51,8 +51,8 @@ fn exp100_full_iommu_acr_boot() {
     // Phase 1: Clean state via nouveau cycle
     eprintln!("── Phase 1: Nouveau Cycle (clean FLR) ──");
     {
-        let mut gp = crate::glowplug_client::GlowPlugClient::connect()
-            .expect("GlowPlug connection");
+        let mut gp =
+            crate::glowplug_client::GlowPlugClient::connect().expect("GlowPlug connection");
 
         gp.swap(&bdf, "nouveau").expect("swap→nouveau");
         eprintln!("  nouveau bound, sleeping 3s for full init...");
@@ -64,20 +64,25 @@ fn exp100_full_iommu_acr_boot() {
     }
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     // Phase 2: Pre-boot falcon state
     eprintln!("\n── Phase 2: Pre-Boot State ──");
-    for (name, base) in [("SEC2", SEC2_BASE), ("FECS", FECS_BASE), ("GPCCS", GPCCS_BASE)] {
+    for (name, base) in [
+        ("SEC2", SEC2_BASE),
+        ("FECS", FECS_BASE),
+        ("GPCCS", GPCCS_BASE),
+    ] {
         let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
         let cpuctl = r(freg::CPUCTL);
         let sctl = r(freg::SCTL);
         let pc = r(freg::PC);
         let exci = r(freg::EXCI);
         let hreset = cpuctl & freg::CPUCTL_HRESET != 0;
-        eprintln!("  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} sctl={sctl:#010x} PC={pc:#06x} EXCI={exci:#010x}");
+        eprintln!(
+            "  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} sctl={sctl:#010x} PC={pc:#06x} EXCI={exci:#010x}"
+        );
     }
 
     // Phase 3: SysMem ACR boot with VRAM WPR mirror
@@ -97,7 +102,11 @@ fn exp100_full_iommu_acr_boot() {
 
     // Phase 4: Post-boot state
     eprintln!("\n── Phase 4: Post-Boot State ──");
-    for (name, base) in [("SEC2", SEC2_BASE), ("FECS", FECS_BASE), ("GPCCS", GPCCS_BASE)] {
+    for (name, base) in [
+        ("SEC2", SEC2_BASE),
+        ("FECS", FECS_BASE),
+        ("GPCCS", GPCCS_BASE),
+    ] {
         let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
         let cpuctl = r(freg::CPUCTL);
         let sctl = r(freg::SCTL);
@@ -113,13 +122,17 @@ fn exp100_full_iommu_acr_boot() {
         eprintln!("    PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x} mb1={mb1:#010x}");
 
         // IMEM probe
-        let w = |off: usize, val: u32| { let _ = bar0.write_u32(base + off, val); };
+        let w = |off: usize, val: u32| {
+            let _ = bar0.write_u32(base + off, val);
+        };
         w(freg::IMEMC, (1u32 << 25) | 0);
         let imem: Vec<u32> = (0..32).map(|_| r(freg::IMEMD)).collect();
         let nz = imem.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD).count();
         eprintln!("    IMEM[0..128]: {nz}/32 non-zero");
         if nz > 0 {
-            let first: Vec<String> = imem.iter().enumerate()
+            let first: Vec<String> = imem
+                .iter()
+                .enumerate()
                 .filter(|&(_, &w)| w != 0 && w != 0xDEAD_DEAD)
                 .take(4)
                 .map(|(i, w)| format!("[{:#05x}]={w:#010x}", i * 4))
@@ -138,12 +151,16 @@ fn exp100_full_iommu_acr_boot() {
         let pgraph = bar0.read_u32(0x400700).unwrap_or(0xDEAD);
         let gr_class = bar0.read_u32(0x410004).unwrap_or(0xDEAD);
         let fecs_mb0 = bar0.read_u32(FECS_BASE + freg::MAILBOX0).unwrap_or(0xDEAD);
-        eprintln!("  PGRAPH_STATUS={pgraph:#010x} GR_CLASS={gr_class:#010x} FECS_MB0={fecs_mb0:#010x}");
+        eprintln!(
+            "  PGRAPH_STATUS={pgraph:#010x} GR_CLASS={gr_class:#010x} FECS_MB0={fecs_mb0:#010x}"
+        );
 
         let gpccs_cpuctl = bar0.read_u32(GPCCS_BASE + freg::CPUCTL).unwrap_or(0xDEAD);
         let gpccs_pc = bar0.read_u32(GPCCS_BASE + freg::PC).unwrap_or(0xDEAD);
         let gpccs_exci = bar0.read_u32(GPCCS_BASE + freg::EXCI).unwrap_or(0xDEAD);
-        eprintln!("  GPCCS: cpuctl={gpccs_cpuctl:#010x} PC={gpccs_pc:#06x} EXCI={gpccs_exci:#010x}");
+        eprintln!(
+            "  GPCCS: cpuctl={gpccs_cpuctl:#010x} PC={gpccs_pc:#06x} EXCI={gpccs_exci:#010x}"
+        );
 
         eprintln!("\n  *** SOVEREIGN COMPUTE PIPELINE POTENTIALLY UNLOCKED ***");
     } else {
@@ -154,7 +171,9 @@ fn exp100_full_iommu_acr_boot() {
         let sec2_cpuctl = bar0.read_u32(SEC2_BASE + freg::CPUCTL).unwrap_or(0xDEAD);
         let sec2_exci = bar0.read_u32(SEC2_BASE + freg::EXCI).unwrap_or(0xDEAD);
         let sec2_sctl = bar0.read_u32(SEC2_BASE + freg::SCTL).unwrap_or(0xDEAD);
-        eprintln!("  SEC2: cpuctl={sec2_cpuctl:#010x} EXCI={sec2_exci:#010x} SCTL={sec2_sctl:#010x}");
+        eprintln!(
+            "  SEC2: cpuctl={sec2_cpuctl:#010x} EXCI={sec2_exci:#010x} SCTL={sec2_sctl:#010x}"
+        );
 
         if sec2_exci == 0 && sec2_cpuctl & freg::CPUCTL_HALTED == 0 {
             eprintln!("  SEC2 completed WITHOUT DMA trap — progress! Check WPR state.");

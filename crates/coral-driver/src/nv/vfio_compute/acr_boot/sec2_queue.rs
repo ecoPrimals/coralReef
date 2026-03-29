@@ -265,10 +265,7 @@ impl Sec2Queues {
 
     /// Discover queues from pre-known offsets (skip DMEM scan).
     pub fn from_known(info: Sec2QueueInfo) -> Self {
-        Self {
-            info,
-            next_seq: 0,
-        }
+        Self { info, next_seq: 0 }
     }
 
     /// Get the discovered queue info.
@@ -297,10 +294,7 @@ impl Sec2Queues {
         //   flags=0 (RESET_YES)
         //   falcon_id
         let cmd: [u32; 4] = [
-            u32::from(NV_SEC2_UNIT_ACR)
-                | (0x10u32 << 8)
-                | (0x03u32 << 16)
-                | ((seq as u32) << 24),
+            u32::from(NV_SEC2_UNIT_ACR) | (0x10u32 << 8) | (0x03u32 << 16) | ((seq as u32) << 24),
             ACR_CMD_BOOTSTRAP_FALCON as u32,
             0x0000_0000, // flags = RESET_YES
             falcon_id as u32,
@@ -455,10 +449,7 @@ impl std::fmt::Display for Sec2QueueProbe {
 impl Sec2QueueProbe {
     /// Whether any queue registers are non-zero (queues initialized).
     pub fn is_initialized(&self) -> bool {
-        self.cmdq_head != 0
-            || self.cmdq_tail != 0
-            || self.msgq_head != 0
-            || self.msgq_tail != 0
+        self.cmdq_head != 0 || self.cmdq_tail != 0 || self.msgq_head != 0 || self.msgq_tail != 0
     }
 }
 
@@ -527,10 +518,7 @@ pub fn probe_and_bootstrap(bar0: &MappedBar, notes: &mut Vec<String>) {
 /// Useful for tests and offline validation of the wire format.
 pub fn build_bootstrap_cmd(seq: u8, falcon_id: FalconId) -> [u32; 4] {
     [
-        u32::from(NV_SEC2_UNIT_ACR)
-            | (0x10u32 << 8)
-            | (0x03u32 << 16)
-            | ((seq as u32) << 24),
+        u32::from(NV_SEC2_UNIT_ACR) | (0x10u32 << 8) | (0x03u32 << 16) | ((seq as u32) << 24),
         ACR_CMD_BOOTSTRAP_FALCON as u32,
         0x0000_0000,
         falcon_id as u32,

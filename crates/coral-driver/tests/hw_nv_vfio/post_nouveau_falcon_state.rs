@@ -64,8 +64,8 @@ fn post_nouveau_falcon_state() {
     // ── Phase 1: Nouveau cycle ──
     eprintln!("── Phase 1: Nouveau Cycle ──");
     {
-        let mut gp = crate::glowplug_client::GlowPlugClient::connect()
-            .expect("GlowPlug connection");
+        let mut gp =
+            crate::glowplug_client::GlowPlugClient::connect().expect("GlowPlug connection");
 
         match gp.swap(&bdf, "nouveau") {
             Ok(r) => eprintln!("  swap→nouveau: OK"),
@@ -87,8 +87,7 @@ fn post_nouveau_falcon_state() {
     }
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     // Helper closures for each falcon
@@ -114,22 +113,31 @@ fn post_nouveau_falcon_state() {
         let halted = cpuctl & freg::CPUCTL_HALTED != 0;
 
         eprintln!("  {name}:");
-        eprintln!("    cpuctl={cpuctl:#010x} sctl={sctl:#010x} HS={hs} HRESET={hreset} HALTED={halted}");
+        eprintln!(
+            "    cpuctl={cpuctl:#010x} sctl={sctl:#010x} HS={hs} HRESET={hreset} HALTED={halted}"
+        );
         eprintln!("    PC={pc:#06x} EXCI={exci:#010x} BOOTVEC={bootvec:#06x}");
         eprintln!("    mb0={mb0:#010x} mb1={mb1:#010x}");
         eprintln!("    IMEM={imem_sz}B DMEM={dmem_sz}B hwcfg={hwcfg:#010x}");
         eprintln!("    irqstat={irqstat:#010x} irqmask={irqmask:#010x} itfen={itfen:#010x}");
 
         // IMEM probe: read first 64 words to check for code
-        let w = |off: usize, val: u32| { let _ = bar0.write_u32(base + off, val); };
+        let w = |off: usize, val: u32| {
+            let _ = bar0.write_u32(base + off, val);
+        };
         // IMEMC: BIT(25) = read, auto-increment
         w(freg::IMEMC, (1u32 << 25) | 0);
         let imem_first: Vec<u32> = (0..64).map(|_| r(freg::IMEMD)).collect();
-        let imem_nonzero = imem_first.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD).count();
+        let imem_nonzero = imem_first
+            .iter()
+            .filter(|&&w| w != 0 && w != 0xDEAD_DEAD)
+            .count();
 
         eprintln!("    IMEM[0..256]: {imem_nonzero}/64 non-zero words");
         if imem_nonzero > 0 {
-            let first_nz: Vec<String> = imem_first.iter().enumerate()
+            let first_nz: Vec<String> = imem_first
+                .iter()
+                .enumerate()
                 .filter(|&(_, &w)| w != 0 && w != 0xDEAD_DEAD)
                 .take(8)
                 .map(|(i, w)| format!("[{:#05x}]={w:#010x}", i * 4))
@@ -142,10 +150,18 @@ fn post_nouveau_falcon_state() {
             let end_off = (imem_sz - 256) as u32;
             w(freg::IMEMC, (1u32 << 25) | end_off);
             let imem_end: Vec<u32> = (0..64).map(|_| r(freg::IMEMD)).collect();
-            let end_nz = imem_end.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD).count();
-            eprintln!("    IMEM[{end_off:#x}..{:#x}]: {end_nz}/64 non-zero words", end_off + 256);
+            let end_nz = imem_end
+                .iter()
+                .filter(|&&w| w != 0 && w != 0xDEAD_DEAD)
+                .count();
+            eprintln!(
+                "    IMEM[{end_off:#x}..{:#x}]: {end_nz}/64 non-zero words",
+                end_off + 256
+            );
             if end_nz > 0 {
-                let end_str: Vec<String> = imem_end.iter().enumerate()
+                let end_str: Vec<String> = imem_end
+                    .iter()
+                    .enumerate()
                     .filter(|&(_, &w)| w != 0 && w != 0xDEAD_DEAD)
                     .take(4)
                     .map(|(i, w)| format!("[{:#07x}]={w:#010x}", end_off as usize + i * 4))
@@ -157,12 +173,17 @@ fn post_nouveau_falcon_state() {
         // DMEM probe: first 64 words
         w(freg::DMEMC, (1u32 << 25) | 0);
         let dmem_first: Vec<u32> = (0..64).map(|_| r(freg::DMEMD)).collect();
-        let dmem_nonzero = dmem_first.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD && w != 0xDEAD_5EC2).count();
+        let dmem_nonzero = dmem_first
+            .iter()
+            .filter(|&&w| w != 0 && w != 0xDEAD_DEAD && w != 0xDEAD_5EC2)
+            .count();
         let dmem_locked = dmem_first.iter().any(|&w| w == 0xDEAD_5EC2);
 
         eprintln!("    DMEM[0..256]: {dmem_nonzero}/64 non-zero locked={dmem_locked}");
         if dmem_nonzero > 0 {
-            let first_dm: Vec<String> = dmem_first.iter().enumerate()
+            let first_dm: Vec<String> = dmem_first
+                .iter()
+                .enumerate()
                 .filter(|&(_, &w)| w != 0 && w != 0xDEAD_DEAD && w != 0xDEAD_5EC2)
                 .take(8)
                 .map(|(i, w)| format!("[{:#05x}]={w:#010x}", i * 4))
@@ -170,30 +191,66 @@ fn post_nouveau_falcon_state() {
             eprintln!("    First: {}", first_dm.join(" "));
         }
 
-        (cpuctl, sctl, pc, exci, hwcfg, imem_nonzero, dmem_nonzero, hs, hreset)
+        (
+            cpuctl,
+            sctl,
+            pc,
+            exci,
+            hwcfg,
+            imem_nonzero,
+            dmem_nonzero,
+            hs,
+            hreset,
+        )
     };
 
     // ── Phase 2: Full state dump ──
     eprintln!("\n── Phase 2: Post-Nouveau Falcon State ──");
     let (sec2_cpuctl, sec2_sctl, sec2_pc, sec2_exci, _, _, _, sec2_hs, _) =
         dump_falcon("SEC2", SEC2_BASE);
-    let (fecs_cpuctl, fecs_sctl, fecs_pc, fecs_exci, fecs_hwcfg, fecs_imem_nz, fecs_dmem_nz, fecs_hs, fecs_hreset) =
-        dump_falcon("FECS", FECS_BASE);
-    let (gpccs_cpuctl, gpccs_sctl, gpccs_pc, gpccs_exci, gpccs_hwcfg, gpccs_imem_nz, gpccs_dmem_nz, gpccs_hs, gpccs_hreset) =
-        dump_falcon("GPCCS", GPCCS_BASE);
+    let (
+        fecs_cpuctl,
+        fecs_sctl,
+        fecs_pc,
+        fecs_exci,
+        fecs_hwcfg,
+        fecs_imem_nz,
+        fecs_dmem_nz,
+        fecs_hs,
+        fecs_hreset,
+    ) = dump_falcon("FECS", FECS_BASE);
+    let (
+        gpccs_cpuctl,
+        gpccs_sctl,
+        gpccs_pc,
+        gpccs_exci,
+        gpccs_hwcfg,
+        gpccs_imem_nz,
+        gpccs_dmem_nz,
+        gpccs_hs,
+        gpccs_hreset,
+    ) = dump_falcon("GPCCS", GPCCS_BASE);
 
     // ── Phase 3: Summary and decision ──
     eprintln!("\n── Phase 3: Decision ──");
     let fecs_has_code = fecs_imem_nz > 4;
     let gpccs_has_code = gpccs_imem_nz > 4;
-    eprintln!("  FECS has firmware: {} ({fecs_imem_nz} IMEM words)", fecs_has_code);
-    eprintln!("  GPCCS has firmware: {} ({gpccs_imem_nz} IMEM words)", gpccs_has_code);
+    eprintln!(
+        "  FECS has firmware: {} ({fecs_imem_nz} IMEM words)",
+        fecs_has_code
+    );
+    eprintln!(
+        "  GPCCS has firmware: {} ({gpccs_imem_nz} IMEM words)",
+        gpccs_has_code
+    );
     eprintln!("  SEC2 HS: {sec2_hs} FECS HS: {fecs_hs} GPCCS HS: {gpccs_hs}");
 
     // ── Phase 4: Try STARTCPU on FECS ──
     if fecs_has_code && fecs_hreset {
         eprintln!("\n── Phase 4: FECS STARTCPU ──");
-        let w = |off: usize, val: u32| { let _ = bar0.write_u32(FECS_BASE + off, val); };
+        let w = |off: usize, val: u32| {
+            let _ = bar0.write_u32(FECS_BASE + off, val);
+        };
         let r = |off: usize| bar0.read_u32(FECS_BASE + off).unwrap_or(0xDEAD_DEAD);
 
         // Set BOOTVEC to 0 (standard entry point)
@@ -226,7 +283,10 @@ fn post_nouveau_falcon_state() {
 
             if halted || hreset || mb0 != 0 || start.elapsed() > std::time::Duration::from_secs(2) {
                 eprintln!("  cpuctl={cpuctl:#010x} PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}");
-                eprintln!("  HALTED={halted} HRESET={hreset} ({}ms)", start.elapsed().as_millis());
+                eprintln!(
+                    "  HALTED={halted} HRESET={hreset} ({}ms)",
+                    start.elapsed().as_millis()
+                );
                 if !pc_trace.is_empty() {
                     eprintln!("  PC trace: [{}]", pc_trace.join(", "));
                 }
@@ -254,7 +314,9 @@ fn post_nouveau_falcon_state() {
             let gpccs_post = gr(freg::CPUCTL);
             let gpccs_pc_post = gr(freg::PC);
             let gpccs_exci_post = gr(freg::EXCI);
-            eprintln!("  GPCCS: cpuctl={gpccs_post:#010x} PC={gpccs_pc_post:#06x} EXCI={gpccs_exci_post:#010x}");
+            eprintln!(
+                "  GPCCS: cpuctl={gpccs_post:#010x} PC={gpccs_pc_post:#06x} EXCI={gpccs_exci_post:#010x}"
+            );
 
             // Try FECS method: read GR engine status
             let pgraph = bar0.read_u32(0x400700).unwrap_or(0xDEAD);
@@ -273,7 +335,9 @@ fn post_nouveau_falcon_state() {
     // ── Phase 5: Try STARTCPU on GPCCS ──
     if gpccs_has_code && gpccs_hreset {
         eprintln!("\n── Phase 5: GPCCS STARTCPU ──");
-        let w = |off: usize, val: u32| { let _ = bar0.write_u32(GPCCS_BASE + off, val); };
+        let w = |off: usize, val: u32| {
+            let _ = bar0.write_u32(GPCCS_BASE + off, val);
+        };
         let r = |off: usize| bar0.read_u32(GPCCS_BASE + off).unwrap_or(0xDEAD_DEAD);
 
         w(freg::BOOTVEC, 0);
@@ -293,7 +357,11 @@ fn post_nouveau_falcon_state() {
 
     // ── Phase 6: Final state summary ──
     eprintln!("\n── Phase 6: Final State ──");
-    for (name, base) in [("SEC2", SEC2_BASE), ("FECS", FECS_BASE), ("GPCCS", GPCCS_BASE)] {
+    for (name, base) in [
+        ("SEC2", SEC2_BASE),
+        ("FECS", FECS_BASE),
+        ("GPCCS", GPCCS_BASE),
+    ] {
         let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
         let cpuctl = r(freg::CPUCTL);
         let pc = r(freg::PC);

@@ -362,7 +362,9 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
     // Method C: Read SCTL (0x240) — security mode is informational, not a PIO gate.
     // SCTL is fuse-enforced on GV100 (always LS=0x3000). Writes are ineffective.
     let sctl = r(0x240);
-    notes.push(format!("SEC2 SCTL: {sctl:#010x} (informational — does not block PIO)"));
+    notes.push(format!(
+        "SEC2 SCTL: {sctl:#010x} (informational — does not block PIO)"
+    ));
 
     // Method D: Check EXCI (exception info) and TRACEPC for signs of life
     let exci = r(0x01C);

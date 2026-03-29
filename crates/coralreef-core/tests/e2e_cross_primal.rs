@@ -107,6 +107,8 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
     let mut child = tokio::process::Command::new(bin)
         .args([
             "server",
+            "--port",
+            "0",
             "--rpc-bind",
             "127.0.0.1:0",
             "--tarpc-bind",

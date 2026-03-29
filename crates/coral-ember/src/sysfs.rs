@@ -45,7 +45,7 @@ pub fn sysfs_write(path: &str, value: &str) -> Result<(), String> {
 
 /// Process-isolated sysfs write with configurable timeout.
 ///
-/// The child process is spawned via `Command::new("/bin/sh")` with a
+/// The child process is spawned via `/usr/bin/env sh -c` with a
 /// simple `printf | tee` pipeline. This is intentionally a separate
 /// process (not a thread) because:
 ///
@@ -55,6 +55,9 @@ pub fn sysfs_write(path: &str, value: &str) -> Result<(), String> {
 fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
+    // `/usr/bin/env` is the conventional FHS location for the `env(1)` utility.
+    // It invokes the named program (`sh`) with a controlled argv; using it
+    // avoids hardcoding `/bin/sh` vs `/usr/bin/sh` and matches common POSIX usage.
     let mut child = Command::new("/usr/bin/env")
         .args([
             "sh",
@@ -420,10 +423,8 @@ pub fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
             tracing::info!(bdf, seconds = i + 1, "device re-appeared after rescan");
             pin_power(bdf);
             pin_bridge_power(bdf);
-            let _ = sysfs_write_direct(
-                &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
-                "",
-            );
+            let _ =
+                sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
             return Ok(());
         }
     }

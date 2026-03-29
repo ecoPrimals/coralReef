@@ -27,8 +27,8 @@ use crate::helpers::init_tracing;
 use coral_driver::gsp::RegisterAccess;
 use coral_driver::nv::bar0::Bar0Access;
 use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, BootConfig, FalconBootvecOffsets,
-    attempt_acr_mailbox_command, attempt_sysmem_acr_boot_with_config,
+    AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
+    attempt_sysmem_acr_boot_with_config,
 };
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
@@ -83,11 +83,15 @@ fn read_wpr2(bar0: &MappedBar) -> (u64, u64, bool) {
 }
 
 fn falcon_state(bar0: &MappedBar, name: &str, base: usize) -> (u32, u32, u32) {
-    let cpuctl = bar0.read_u32(base + r118::CPUCTL as usize).unwrap_or(0xDEAD);
+    let cpuctl = bar0
+        .read_u32(base + r118::CPUCTL as usize)
+        .unwrap_or(0xDEAD);
     let sctl = bar0.read_u32(base + r118::SCTL as usize).unwrap_or(0xDEAD);
     let pc = bar0.read_u32(base + r118::PC as usize).unwrap_or(0xDEAD);
     let exci = bar0.read_u32(base + r118::EXCI as usize).unwrap_or(0xDEAD);
-    let mb0 = bar0.read_u32(base + r118::MAILBOX0 as usize).unwrap_or(0xDEAD);
+    let mb0 = bar0
+        .read_u32(base + r118::MAILBOX0 as usize)
+        .unwrap_or(0xDEAD);
     let hreset = cpuctl & r118::CPUCTL_HRESET != 0;
     let halted = cpuctl & r118::CPUCTL_HALTED != 0;
     let alive = !hreset && !halted && cpuctl != 0xDEAD;
@@ -115,13 +119,23 @@ fn dump_wpr_headers(bar0: &MappedBar, vram_base: u64, label: &str) {
             for i in 0..11 {
                 let off = i * 24;
                 let falcon_id = rgn.read_u32(off).unwrap_or(0xDEAD);
-                if falcon_id == 0xFFFF_FFFF || falcon_id == 0xDEAD_DEAD { break; }
+                if falcon_id == 0xFFFF_FFFF || falcon_id == 0xDEAD_DEAD {
+                    break;
+                }
                 let status = rgn.read_u32(off + 20).unwrap_or(0);
                 let sname = match status {
-                    0 => "NONE", 1 => "COPY", 4 => "VALID_DONE", 6 => "BOOT_READY", _ => "?",
+                    0 => "NONE",
+                    1 => "COPY",
+                    4 => "VALID_DONE",
+                    6 => "BOOT_READY",
+                    _ => "?",
                 };
                 let fname = match falcon_id {
-                    0 => "PMU", 2 => "FECS", 3 => "GPCCS", 7 => "SEC2", _ => "???",
+                    0 => "PMU",
+                    2 => "FECS",
+                    3 => "GPCCS",
+                    7 => "SEC2",
+                    _ => "???",
                 };
                 eprintln!("    [{i}] falcon={falcon_id}({fname}) status={status}({sname})");
             }
@@ -160,8 +174,8 @@ fn exp118_wpr2_preserve() {
 
     eprintln!("\n── A2: Read WPR2 via sysfs while nouveau active ──");
     let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
-    let mut bar0_sysfs = Bar0Access::from_sysfs_device(&sysfs_dev)
-        .expect("BAR0 sysfs while nouveau is bound");
+    let mut bar0_sysfs =
+        Bar0Access::from_sysfs_device(&sysfs_dev).expect("BAR0 sysfs while nouveau is bound");
 
     // Indexed WPR2 read
     let _ = bar0_sysfs.write_u32(r118::INDEXED_WPR, 2);
@@ -174,9 +188,15 @@ fn exp118_wpr2_preserve() {
     eprintln!("  WPR2 (nouveau): start={wpr2_start:#x} end={wpr2_end:#x} valid={wpr2_valid}");
 
     // Falcon state during nouveau
-    let sec2_sctl_nouveau = bar0_sysfs.read_u32(r118::SEC2_BASE + r118::SCTL).unwrap_or(0);
-    let fecs_sctl_nouveau = bar0_sysfs.read_u32(r118::FECS_BASE + r118::SCTL).unwrap_or(0);
-    let gpccs_sctl_nouveau = bar0_sysfs.read_u32(r118::GPCCS_BASE + r118::SCTL).unwrap_or(0);
+    let sec2_sctl_nouveau = bar0_sysfs
+        .read_u32(r118::SEC2_BASE + r118::SCTL)
+        .unwrap_or(0);
+    let fecs_sctl_nouveau = bar0_sysfs
+        .read_u32(r118::FECS_BASE + r118::SCTL)
+        .unwrap_or(0);
+    let gpccs_sctl_nouveau = bar0_sysfs
+        .read_u32(r118::GPCCS_BASE + r118::SCTL)
+        .unwrap_or(0);
     eprintln!("  SEC2  SCTL={sec2_sctl_nouveau:#06x} (during nouveau)");
     eprintln!("  FECS  SCTL={fecs_sctl_nouveau:#06x} (during nouveau)");
     eprintln!("  GPCCS SCTL={gpccs_sctl_nouveau:#06x} (during nouveau)");
@@ -195,12 +215,12 @@ fn exp118_wpr2_preserve() {
     eprintln!("  PCI reset method restored");
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── A4: Post-swap state (NO RESET) ──");
-    let (sec2_cpu_a, sec2_sctl_a, _sec2_pc_a) = falcon_state(&bar0, "SEC2", r118::SEC2_BASE as usize);
+    let (sec2_cpu_a, sec2_sctl_a, _sec2_pc_a) =
+        falcon_state(&bar0, "SEC2", r118::SEC2_BASE as usize);
     let (fecs_cpu_a, _fecs_sctl_a, _) = falcon_state(&bar0, "FECS", r118::FECS_BASE as usize);
     let (gpccs_cpu_a, _gpccs_sctl_a, _) = falcon_state(&bar0, "GPCCS", r118::GPCCS_BASE as usize);
 
@@ -346,7 +366,9 @@ fn exp118_wpr2_preserve() {
                             match vfio_dev.map_bar(0) {
                                 Ok(bar0) => {
                                     let (ws, we, wv) = read_wpr2(&bar0);
-                                    eprintln!("  Post-{method} WPR2: start={ws:#x} end={we:#x} valid={wv}");
+                                    eprintln!(
+                                        "  Post-{method} WPR2: start={ws:#x} end={we:#x} valid={wv}"
+                                    );
                                     falcon_state(&bar0, "SEC2", r118::SEC2_BASE as usize);
 
                                     if wv {
@@ -405,10 +427,14 @@ fn exp118_wpr2_preserve() {
                     std::thread::sleep(std::time::Duration::from_millis(500));
 
                     if let Ok(fds) = ember_client::request_fds(&bdf) {
-                        if let Ok(vfio_dev) = coral_driver::vfio::VfioDevice::from_received(&bdf, fds) {
+                        if let Ok(vfio_dev) =
+                            coral_driver::vfio::VfioDevice::from_received(&bdf, fds)
+                        {
                             if let Ok(bar0) = vfio_dev.map_bar(0) {
                                 let (ws, we, wv) = read_wpr2(&bar0);
-                                eprintln!("  Post-rebind WPR2: start={ws:#x} end={we:#x} valid={wv}");
+                                eprintln!(
+                                    "  Post-rebind WPR2: start={ws:#x} end={we:#x} valid={wv}"
+                                );
                                 falcon_state(&bar0, "SEC2", r118::SEC2_BASE as usize);
                             }
                         }
@@ -442,7 +468,9 @@ fn exp118_wpr2_preserve() {
             let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
             match Bar0Access::from_sysfs_device(&sysfs_dev) {
                 Ok(mut sbar0) => {
-                    eprintln!("  Reading WPR2 region from VRAM ({wpr2_start:#x}..{wpr2_end:#x})...");
+                    eprintln!(
+                        "  Reading WPR2 region from VRAM ({wpr2_start:#x}..{wpr2_end:#x})..."
+                    );
                     let wpr2_size = (wpr2_end - wpr2_start) as usize;
                     let mut wpr2_data = vec![0u32; wpr2_size / 4];
                     let mut read_ok = true;
@@ -460,18 +488,25 @@ fn exp118_wpr2_preserve() {
                         let chunk_words = ((wpr2_size / 4) - chunk_start).min(1024 * 1024 / 4);
 
                         for i in 0..chunk_words {
-                            let offset_in_window = ((wpr2_start as usize & 0xFFFFF) + i * 4) % (1024 * 1024);
-                            let val = sbar0.read_u32((pramin_base + offset_in_window) as u32)
+                            let offset_in_window =
+                                ((wpr2_start as usize & 0xFFFFF) + i * 4) % (1024 * 1024);
+                            let val = sbar0
+                                .read_u32((pramin_base + offset_in_window) as u32)
                                 .unwrap_or(0xDEAD_DEAD);
                             if chunk_start + i < wpr2_data.len() {
                                 wpr2_data[chunk_start + i] = val;
                             }
-                            if val == 0xDEAD_DEAD { read_ok = false; }
+                            if val == 0xDEAD_DEAD {
+                                read_ok = false;
+                            }
                         }
                     }
 
-                    eprintln!("  WPR2 capture: {} words ({} KiB), read_ok={read_ok}",
-                              wpr2_data.len(), wpr2_data.len() * 4 / 1024);
+                    eprintln!(
+                        "  WPR2 capture: {} words ({} KiB), read_ok={read_ok}",
+                        wpr2_data.len(),
+                        wpr2_data.len() * 4 / 1024
+                    );
 
                     // Display first 64 bytes of WPR2 content
                     eprintln!("\n  WPR2 first 64 bytes:");
@@ -490,25 +525,42 @@ fn exp118_wpr2_preserve() {
                     eprintln!("\n  WPR2 header analysis:");
                     for i in 0..11u32 {
                         let base = (i * 6) as usize; // 24 bytes = 6 u32s per header
-                        if base + 5 >= wpr2_data.len() { break; }
+                        if base + 5 >= wpr2_data.len() {
+                            break;
+                        }
                         let falcon_id = wpr2_data[base];
-                        if falcon_id == 0xFFFF_FFFF { break; }
+                        if falcon_id == 0xFFFF_FFFF {
+                            break;
+                        }
                         let lsb_off = wpr2_data[base + 1];
                         let status = wpr2_data[base + 5];
                         let fname = match falcon_id {
-                            0 => "PMU", 2 => "FECS", 3 => "GPCCS", 7 => "SEC2", _ => "???",
+                            0 => "PMU",
+                            2 => "FECS",
+                            3 => "GPCCS",
+                            7 => "SEC2",
+                            _ => "???",
                         };
                         let sname = match status {
-                            0 => "NONE", 1 => "COPY", 4 => "VALID_DONE",
-                            5 => "VALID_SKIP", 6 => "BOOT_READY", _ => "?",
+                            0 => "NONE",
+                            1 => "COPY",
+                            4 => "VALID_DONE",
+                            5 => "VALID_SKIP",
+                            6 => "BOOT_READY",
+                            _ => "?",
                         };
-                        eprintln!("    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({sname})");
+                        eprintln!(
+                            "    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({sname})"
+                        );
                     }
 
                     // Count non-zero words
                     let nz = wpr2_data.iter().filter(|&&v| v != 0).count();
-                    eprintln!("\n  Non-zero words: {nz}/{} ({:.1}%)",
-                              wpr2_data.len(), nz as f64 / wpr2_data.len() as f64 * 100.0);
+                    eprintln!(
+                        "\n  Non-zero words: {nz}/{} ({:.1}%)",
+                        wpr2_data.len(),
+                        nz as f64 / wpr2_data.len() as f64 * 100.0
+                    );
 
                     drop(sbar0);
                 }

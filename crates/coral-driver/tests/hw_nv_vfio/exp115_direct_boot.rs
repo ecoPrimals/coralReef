@@ -24,9 +24,7 @@
 use crate::ember_client;
 use crate::glowplug_client::GlowPlugClient;
 use crate::helpers::init_tracing;
-use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, attempt_direct_falcon_upload,
-};
+use coral_driver::nv::vfio_compute::acr_boot::{AcrFirmwareSet, attempt_direct_falcon_upload};
 use coral_driver::nv::vfio_compute::fecs_boot;
 use coral_driver::vfio::device::MappedBar;
 
@@ -158,7 +156,9 @@ fn dmem_upload(bar0: &MappedBar, base: usize, addr: u32, data: &[u8]) {
 
 fn imem_read(bar0: &MappedBar, base: usize, addr: u32, count: usize) -> Vec<u32> {
     let _ = bar0.write_u32(base + freg115::IMEMC, 0x0200_0000 | addr);
-    (0..count).map(|_| bar0.read_u32(base + freg115::IMEMD).unwrap_or(0xDEAD_DEAD)).collect()
+    (0..count)
+        .map(|_| bar0.read_u32(base + freg115::IMEMD).unwrap_or(0xDEAD_DEAD))
+        .collect()
 }
 
 fn start_falcon(bar0: &MappedBar, base: usize) {
@@ -211,8 +211,7 @@ fn exp115_direct_boot() {
     nouveau_cycle(&bdf);
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── Phase 1b: Post-Nouveau State ──");
@@ -250,12 +249,23 @@ fn exp115_direct_boot() {
     falcon_state(&bar0, "FECS", freg115::FECS_BASE);
 
     // Verify CPUCTL is writable after PMC reset
-    let gpccs_cpuctl = bar0.read_u32(freg115::GPCCS_BASE + freg115::CPUCTL).unwrap_or(0xDEAD);
+    let gpccs_cpuctl = bar0
+        .read_u32(freg115::GPCCS_BASE + freg115::CPUCTL)
+        .unwrap_or(0xDEAD);
     eprintln!("  GPCCS CPUCTL after PMC reset: {gpccs_cpuctl:#010x}");
-    let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::CPUCTL, freg115::CPUCTL_HRESET);
-    let gpccs_cpuctl_rb = bar0.read_u32(freg115::GPCCS_BASE + freg115::CPUCTL).unwrap_or(0xDEAD);
-    let writable = gpccs_cpuctl_rb == freg115::CPUCTL_HRESET || gpccs_cpuctl_rb & freg115::CPUCTL_HRESET != 0;
-    eprintln!("  GPCCS CPUCTL write test: wrote={:#010x} read={gpccs_cpuctl_rb:#010x} writable={writable}", freg115::CPUCTL_HRESET);
+    let _ = bar0.write_u32(
+        freg115::GPCCS_BASE + freg115::CPUCTL,
+        freg115::CPUCTL_HRESET,
+    );
+    let gpccs_cpuctl_rb = bar0
+        .read_u32(freg115::GPCCS_BASE + freg115::CPUCTL)
+        .unwrap_or(0xDEAD);
+    let writable =
+        gpccs_cpuctl_rb == freg115::CPUCTL_HRESET || gpccs_cpuctl_rb & freg115::CPUCTL_HRESET != 0;
+    eprintln!(
+        "  GPCCS CPUCTL write test: wrote={:#010x} read={gpccs_cpuctl_rb:#010x} writable={writable}",
+        freg115::CPUCTL_HRESET
+    );
 
     eprintln!("\n── A2: Upload GPCCS firmware (inst+data, no BL) ──");
     imem_upload(&bar0, freg115::GPCCS_BASE, 0, &fw.gpccs_inst, 0);
@@ -290,8 +300,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::FECS_BASE);
-    let (fecs_a_cpu, fecs_a_pc, fecs_a_exci) =
-        poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 200);
+    let (fecs_a_cpu, fecs_a_pc, fecs_a_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 200);
 
     let fecs_a_ok = fecs_a_exci == 0 && fecs_a_pc != 0;
     eprintln!("  FECS-A result: alive={fecs_a_ok}");
@@ -309,8 +318,7 @@ fn exp115_direct_boot() {
     drop(vfio_dev);
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── B1: PMC GR Reset ──");
@@ -366,8 +374,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::FECS_BASE);
-    let (fecs_b_cpu, fecs_b_pc, fecs_b_exci) =
-        poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 500);
+    let (fecs_b_cpu, fecs_b_pc, fecs_b_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 500);
 
     let fecs_b_ok = fecs_b_exci == 0 && fecs_b_pc != 0;
     eprintln!("  FECS-B result: alive={fecs_b_ok}");
@@ -384,8 +391,7 @@ fn exp115_direct_boot() {
     drop(vfio_dev);
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── C1: Run attempt_direct_falcon_upload ──");
@@ -408,8 +414,7 @@ fn exp115_direct_boot() {
     drop(vfio_dev);
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     // PMC GR reset first (needed to break CPUCTL lock)
@@ -449,8 +454,7 @@ fn exp115_direct_boot() {
     drop(vfio_dev);
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let container = vfio_dev.dma_backend();
 
@@ -484,7 +488,9 @@ fn exp115_direct_boot() {
     falcon_state(&bar0, "GPCCS", freg115::GPCCS_BASE);
 
     let sec2_pc = bar0.read_u32(freg115::SEC2_BASE + freg115::PC).unwrap_or(0);
-    let sec2_cpuctl = bar0.read_u32(freg115::SEC2_BASE + freg115::CPUCTL).unwrap_or(0);
+    let sec2_cpuctl = bar0
+        .read_u32(freg115::SEC2_BASE + freg115::CPUCTL)
+        .unwrap_or(0);
     let sec2_alive = sec2_pc > 0x100
         && sec2_cpuctl & freg115::CPUCTL_HRESET == 0
         && sec2_cpuctl & freg115::CPUCTL_HALTED == 0;
@@ -498,11 +504,13 @@ fn exp115_direct_boot() {
         gpccs: fw.gpccs_bl.bl_imem_off(),
         fecs: fw.fecs_bl.bl_imem_off(),
     };
-    eprintln!("  BOOTVEC: GPCCS={:#06x} FECS={:#06x}", bootvec.gpccs, bootvec.fecs);
-
-    let mailbox_e = coral_driver::nv::vfio_compute::acr_boot::attempt_acr_mailbox_command(
-        &bar0, &bootvec,
+    eprintln!(
+        "  BOOTVEC: GPCCS={:#06x} FECS={:#06x}",
+        bootvec.gpccs, bootvec.fecs
     );
+
+    let mailbox_e =
+        coral_driver::nv::vfio_compute::acr_boot::attempt_acr_mailbox_command(&bar0, &bootvec);
     eprintln!("  Mailbox strategy: {}", mailbox_e.strategy);
     eprintln!("  Mailbox success: {}", mailbox_e.success);
     for note in &mailbox_e.notes {
@@ -514,16 +522,28 @@ fn exp115_direct_boot() {
     falcon_state(&bar0, "FECS", freg115::FECS_BASE);
     falcon_state(&bar0, "GPCCS", freg115::GPCCS_BASE);
 
-    let fecs_e_cpuctl = bar0.read_u32(freg115::FECS_BASE + freg115::CPUCTL).unwrap_or(0xDEAD);
+    let fecs_e_cpuctl = bar0
+        .read_u32(freg115::FECS_BASE + freg115::CPUCTL)
+        .unwrap_or(0xDEAD);
     let fecs_e_pc = bar0.read_u32(freg115::FECS_BASE + freg115::PC).unwrap_or(0);
-    let fecs_e_exci = bar0.read_u32(freg115::FECS_BASE + freg115::EXCI).unwrap_or(0);
-    let gpccs_e_cpuctl = bar0.read_u32(freg115::GPCCS_BASE + freg115::CPUCTL).unwrap_or(0xDEAD);
-    let gpccs_e_pc = bar0.read_u32(freg115::GPCCS_BASE + freg115::PC).unwrap_or(0);
-    let gpccs_e_exci = bar0.read_u32(freg115::GPCCS_BASE + freg115::EXCI).unwrap_or(0);
+    let fecs_e_exci = bar0
+        .read_u32(freg115::FECS_BASE + freg115::EXCI)
+        .unwrap_or(0);
+    let gpccs_e_cpuctl = bar0
+        .read_u32(freg115::GPCCS_BASE + freg115::CPUCTL)
+        .unwrap_or(0xDEAD);
+    let gpccs_e_pc = bar0
+        .read_u32(freg115::GPCCS_BASE + freg115::PC)
+        .unwrap_or(0);
+    let gpccs_e_exci = bar0
+        .read_u32(freg115::GPCCS_BASE + freg115::EXCI)
+        .unwrap_or(0);
 
     let fecs_e_running = fecs_e_cpuctl & (freg115::CPUCTL_HRESET | freg115::CPUCTL_HALTED) == 0;
     let gpccs_e_running = gpccs_e_cpuctl & (freg115::CPUCTL_HRESET | freg115::CPUCTL_HALTED) == 0;
-    let fecs_e_mthd = bar0.read_u32(freg115::FECS_BASE + freg115::MTHD_STATUS).unwrap_or(0);
+    let fecs_e_mthd = bar0
+        .read_u32(freg115::FECS_BASE + freg115::MTHD_STATUS)
+        .unwrap_or(0);
 
     // ══════════════════════════════════════════════════════════════
     // SUMMARY

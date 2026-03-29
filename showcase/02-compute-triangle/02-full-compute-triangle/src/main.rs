@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![forbid(unsafe_code)]
 use coral_gpu::{AmdArch, GpuContext, GpuTarget, NvArch};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;

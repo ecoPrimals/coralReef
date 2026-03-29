@@ -8,9 +8,7 @@
 
 use crate::ember_client;
 use crate::helpers::{init_tracing, open_vfio, vfio_bdf};
-use coral_driver::nv::vfio_compute::acr_boot::sec2_queue::{
-    FalconId, Sec2QueueProbe, Sec2Queues,
-};
+use coral_driver::nv::vfio_compute::acr_boot::sec2_queue::{FalconId, Sec2QueueProbe, Sec2Queues};
 
 /// Full conversation test: boot → discover queues → send commands → read responses.
 #[test]
@@ -23,9 +21,7 @@ fn sec2_conversation_full_cycle() {
 
     // Phase 1: Run the boot solver (captures queue probes via probe_and_bootstrap)
     eprintln!("Phase 1: Running falcon boot solver...");
-    let results = dev
-        .falcon_boot_solver(None)
-        .expect("falcon_boot_solver");
+    let results = dev.falcon_boot_solver(None).expect("falcon_boot_solver");
     eprintln!("Boot solver produced {} results\n", results.len());
 
     for (i, r) in results.iter().enumerate() {
@@ -54,16 +50,12 @@ fn sec2_conversation_full_cycle() {
     eprintln!("Phase 2: Direct SEC2 queue probe...");
     let bdf = vfio_bdf();
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     let probe = Sec2Queues::probe(&bar0);
     eprintln!("Queue registers: {probe}");
-    eprintln!(
-        "  is_initialized: {}",
-        probe.is_initialized()
-    );
+    eprintln!("  is_initialized: {}", probe.is_initialized());
 
     // Phase 3: Attempt queue discovery on live DMEM
     eprintln!("\nPhase 3: Queue discovery...");
@@ -92,11 +84,8 @@ fn sec2_conversation_full_cycle() {
                                     "  Response for {name}: unit={:#04x} size={} seq={}",
                                     msg.unit_id, msg.size, msg.seq_id
                                 );
-                                let hex_words: Vec<_> = msg
-                                    .words
-                                    .iter()
-                                    .map(|w| format!("{w:#010x}"))
-                                    .collect();
+                                let hex_words: Vec<_> =
+                                    msg.words.iter().map(|w| format!("{w:#010x}")).collect();
                                 eprintln!("    words: [{}]", hex_words.join(", "));
                             }
                             Err(e) => {
@@ -122,7 +111,7 @@ fn sec2_conversation_full_cycle() {
 
     // Phase 5: VFIO IRQ probe
     eprintln!("\nPhase 5: VFIO IRQ info...");
-    use coral_driver::vfio::irq::{get_irq_info, VfioIrqIndex};
+    use coral_driver::vfio::irq::{VfioIrqIndex, get_irq_info};
 
     for (name, idx) in [
         ("INTX", VfioIrqIndex::Intx),
@@ -131,10 +120,7 @@ fn sec2_conversation_full_cycle() {
     ] {
         match get_irq_info(vfio_dev.device_as_fd(), idx) {
             Ok(info) => {
-                eprintln!(
-                    "  {name}: count={} flags={:#010x}",
-                    info.count, info.flags
-                );
+                eprintln!("  {name}: count={} flags={:#010x}", info.count, info.flags);
             }
             Err(e) => {
                 eprintln!("  {name}: query failed: {e}");
@@ -153,8 +139,7 @@ fn sec2_queue_probe_only() {
 
     let bdf = vfio_bdf();
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     let probe = Sec2Queues::probe(&bar0);

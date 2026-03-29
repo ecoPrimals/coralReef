@@ -53,10 +53,10 @@ pub fn encode_bind_inst(addr: u64, target: u32) -> u32 {
 /// 2. Write CHANNEL_NEXT (0x054) with bind value
 /// 3. Set UNK090 bit 16 (trigger)
 /// 4. Set ENG_CONTROL bit 3 (trigger)
-/// 5. Poll bind_stat bits[14:12] == 5
+/// 5. Poll bind_stat `bits[14:12]` == 5
 /// 6. Ack interrupt (0x004 bit 3)
 /// 7. Set CHANNEL_TRIGGER LOAD (0x058 bit 1)
-/// 8. Poll bind_stat bits[14:12] == 0
+/// 8. Poll bind_stat `bits[14:12]` == 0
 ///
 /// Returns (bind_ok, notes) where bind_ok is true if bind_stat reached 5.
 /// Execute the full nouveau-style falcon bind sequence.
@@ -177,8 +177,8 @@ pub const FALCON_PT0_VRAM: u32 = 0x15000;
 ///
 /// MMU v2 PDE format (from nova-core `dev_mmu.h`):
 ///   bit 0:      valid_inverted (0 = valid)
-///   bits[2:1]:  aperture (1 = VideoMemory)
-///   bits[32:8]: table_frame_vid = phys_addr >> 12
+///   `bits[2:1]`:  aperture (1 = VideoMemory)
+///   `bits[32:8]`: table_frame_vid = phys_addr >> 12
 ///
 /// Result: `(phys >> 12) << 8 | aperture << 1` = `(phys >> 4) | 0x2`
 pub fn encode_vram_pde(vram_addr: u64) -> u64 {

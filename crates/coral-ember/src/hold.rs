@@ -21,7 +21,7 @@ pub struct HeldDevice {
 ///
 /// Ember holds this alongside VFIO fds. When glowplug dies and restarts,
 /// it reads this metadata via `ember.ring_meta.get` to restore its
-/// [`MailboxSet`](coral_glowplug) and [`MultiRing`](coral_glowplug) state.
+/// `MailboxSet` and `MultiRing` (coral-glowplug) state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RingMeta {
     /// Active mailbox engine names and their capacities.

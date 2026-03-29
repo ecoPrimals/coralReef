@@ -115,12 +115,10 @@ fn handle_swap(
         let registry = coral_glowplug::observer::ObserverRegistry::default_observers();
         observer_insights = registry.observe_swap(obs);
 
-        if let Some(ref trace_path) = obs.trace_path {
-            if let Some(trace_insight) =
-                registry.observe_trace(&obs.to_personality, trace_path)
-            {
-                observer_insights.push(trace_insight);
-            }
+        if let Some(ref trace_path) = obs.trace_path
+            && let Some(trace_insight) = registry.observe_trace(&obs.to_personality, trace_path)
+        {
+            observer_insights.push(trace_insight);
         }
 
         if !observer_insights.is_empty() {
@@ -553,9 +551,7 @@ fn handle_reset(
         }
         "sbr" | "bridge-sbr" | "remove-rescan" | "auto" => {
             let ember = coral_glowplug::ember::EmberClient::connect().ok_or_else(|| {
-                RpcError::device_error(
-                    "ember not available — cannot perform reset".to_string(),
-                )
+                RpcError::device_error("ember not available — cannot perform reset".to_string())
             })?;
             ember
                 .device_reset(&bdf, method)

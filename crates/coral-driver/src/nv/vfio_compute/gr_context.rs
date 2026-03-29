@@ -12,13 +12,13 @@
 //!
 //! This matches nouveau's `gf100_gr_init` / `gf100_grctx_generate` flow.
 
+use super::acr_boot::fecs_method;
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::device::MappedBar;
-use super::acr_boot::fecs_method;
 
 /// GR context — a DMA-backed buffer holding the full GR engine state image.
 ///
-/// Lifecycle: `allocate` → `bind` → `golden_save` → [dispatch] → `save`/`restore`.
+/// Lifecycle: `allocate` → `bind` → `golden_save` → `dispatch` → `save`/`restore`.
 pub struct GrContext {
     /// DMA buffer IOVA for the context image.
     pub iova: u64,

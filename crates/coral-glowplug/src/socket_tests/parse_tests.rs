@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use super::super::*;
+use super::super::JsonRpcRequest;
+use super::super::protocol::{DeviceInfo, HealthInfo};
 
 #[test]
 fn test_jsonrpc_request_parse_valid() {

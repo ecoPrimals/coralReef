@@ -52,6 +52,8 @@ fn cmd_server_subprocess_tcp_unix_listen_and_sigterm() {
     let mut child = Command::new(&exe)
         .args([
             "server",
+            "--port",
+            "0",
             "--rpc-bind",
             "127.0.0.1:0",
             "--tarpc-bind",
@@ -124,5 +126,74 @@ fn cmd_server_subprocess_tcp_unix_listen_and_sigterm() {
     assert!(
         !discovery_path.exists(),
         "discovery file should be removed on shutdown"
+    );
+}
+
+/// Exercise `cmd_server` graceful shutdown with a near-zero join timeout so the
+/// `shutdown_result.is_err()` branch (warning log) is reachable in the binary.
+#[test]
+fn cmd_server_subprocess_shutdown_join_timeout_still_exits_on_sigterm() {
+    let tmp = tempdir().unwrap();
+    let family_id = format!("shutdown-timeout-{}", std::process::id());
+
+    let exe = coralreef_unibin_exe();
+    assert!(
+        exe.exists(),
+        "coralreef binary missing at {} — run `cargo build -p coralreef-core --bin coralreef`",
+        exe.display()
+    );
+
+    let mut child = Command::new(&exe)
+        .args([
+            "server",
+            "--rpc-bind",
+            "127.0.0.1:0",
+            "--tarpc-bind",
+            "127.0.0.1:0",
+        ])
+        .env("XDG_RUNTIME_DIR", tmp.path())
+        .env("BIOMEOS_FAMILY_ID", &family_id)
+        .env("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS", "0")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn coralreef server subprocess");
+
+    let deadline = Instant::now() + DISCOVERY_POLL_TIMEOUT;
+    assert!(
+        wait_until(
+            || tmp
+                .path()
+                .join(crate::config::ECOSYSTEM_NAMESPACE)
+                .join(format!("{}.json", env!("CARGO_PKG_NAME")))
+                .exists(),
+            deadline
+        ),
+        "discovery file should appear (server ready)"
+    );
+
+    let pid = child.id();
+    let status = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("send SIGTERM to server child");
+    assert!(status.success(), "kill -TERM should succeed");
+
+    let exit_deadline = Instant::now() + CHILD_EXIT_TIMEOUT;
+    let code = loop {
+        match child.try_wait().expect("try_wait") {
+            Some(st) => break st.code(),
+            None if Instant::now() >= exit_deadline => {
+                let _ = child.kill();
+                panic!("child did not exit after SIGTERM within {CHILD_EXIT_TIMEOUT:?}");
+            }
+            None => thread::sleep(DISCOVERY_POLL_INTERVAL),
+        }
+    };
+
+    assert_eq!(
+        code,
+        Some(UniBinExit::Signal as i32),
+        "graceful shutdown should map to signal exit code even with short join timeout"
     );
 }

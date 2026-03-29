@@ -46,13 +46,13 @@ mod wpr;
 
 pub use boot_result::{AcrBootResult, BootJournal};
 pub use firmware::{
-    AcrFirmwareSet, GrBlFirmware, HsBlDesc, HsBlDescriptor, HsHeader, HsLoadHeader,
-    NvFwBinHeader, ParsedAcrFirmware,
+    AcrFirmwareSet, GrBlFirmware, HsBlDesc, HsBlDescriptor, HsHeader, HsLoadHeader, NvFwBinHeader,
+    ParsedAcrFirmware,
 };
 pub use instance_block::{
-    build_vram_falcon_inst_block, encode_bind_inst, encode_sysmem_pte, encode_vram_pde,
-    falcon_bind_context, FALCON_INST_VRAM, FALCON_PD0_VRAM, FALCON_PD1_VRAM,
-    FALCON_PD2_VRAM, FALCON_PD3_VRAM, FALCON_PT0_VRAM,
+    FALCON_INST_VRAM, FALCON_PD0_VRAM, FALCON_PD1_VRAM, FALCON_PD2_VRAM, FALCON_PD3_VRAM,
+    FALCON_PT0_VRAM, build_vram_falcon_inst_block, encode_bind_inst, encode_sysmem_pte,
+    encode_vram_pde, falcon_bind_context,
 };
 pub use sec2_hal::{
     Sec2Probe, Sec2State, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
@@ -69,10 +69,10 @@ pub use strategy_mailbox::{
 };
 pub use strategy_sysmem::{
     BootConfig, attempt_sysmem_acr_boot, attempt_sysmem_acr_boot_full,
-    attempt_sysmem_acr_boot_with_config, attempt_sysmem_physical_boot,
+    attempt_sysmem_acr_boot_with_config,
 };
 pub use strategy_vram::{
-    DualPhaseConfig, attempt_dual_phase_boot, attempt_dual_phase_boot_cfg,
-    attempt_vram_acr_boot, attempt_vram_native_acr_boot,
+    DualPhaseConfig, attempt_dual_phase_boot, attempt_dual_phase_boot_cfg, attempt_vram_acr_boot,
+    attempt_vram_native_acr_boot,
 };
 pub use wpr::{AcrDmaContext, build_bl_dmem_desc, build_wpr, falcon_id, patch_acr_desc};

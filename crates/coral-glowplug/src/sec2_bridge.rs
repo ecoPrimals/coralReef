@@ -5,7 +5,7 @@
 //!
 //! The bridge shadows every hardware CMDQ submission with a software ring
 //! entry, matches hardware MSGQ responses back to the originating ring
-//! entry, and persists ring state to Ember via [`RingMeta`].
+//! entry, and persists ring state to Ember via [`RingMeta`](coral_ember::RingMeta).
 //!
 //! ```text
 //!  GlowPlug Ring (software)          SEC2 CMDQ/MSGQ (hardware)

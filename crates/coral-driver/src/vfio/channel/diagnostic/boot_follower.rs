@@ -80,7 +80,7 @@ pub struct DomainStats {
 }
 
 /// Init recipe step extracted from a boot diff.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RecipeStep {
     pub domain: String,
     pub offset: usize,

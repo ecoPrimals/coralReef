@@ -32,8 +32,7 @@ fn ember_socket_path() -> String {
 /// re-acquire VFIO fds and re-map BARs.
 pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
     let socket_path = ember_socket_path();
-    let stream =
-        UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
+    let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(30)))
         .map_err(|e| format!("set timeout: {e}"))?;

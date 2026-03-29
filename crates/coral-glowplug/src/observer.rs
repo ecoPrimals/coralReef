@@ -280,7 +280,10 @@ impl DriverObserver for VfioObserver {
         });
 
         // VRAM health assessment
-        let vram_ok = matches!(observation.health, coral_ember::observation::HealthResult::Ok);
+        let vram_ok = matches!(
+            observation.health,
+            coral_ember::observation::HealthResult::Ok
+        );
         findings.push(Finding {
             category: FindingCategory::Other("vram_probe".to_string()),
             description: format!(

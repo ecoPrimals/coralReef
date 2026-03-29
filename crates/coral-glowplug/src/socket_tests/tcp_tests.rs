@@ -67,6 +67,7 @@ async fn test_tcp_device_list_and_get() {
         name: Some("RPC GPU".into()),
         boot_personality: "vfio".into(),
         power_policy: "always_on".into(),
+        health_policy: "passive".into(),
         role: Some("compute".into()),
         oracle_dump: None,
         shared: None,

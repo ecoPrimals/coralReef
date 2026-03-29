@@ -11,6 +11,11 @@ async fn cmd_doctor_output_formatting() {
     assert!(report.contains("doctor"));
     assert!(report.contains("[OK]"));
     assert!(report.contains("Capabilities"));
+    assert!(report.contains("Capabilities (provides)"));
+    assert!(report.contains("Capabilities (requires)"));
     assert!(report.contains("Supported architectures"));
+    assert!(report.contains("Primal created"));
+    assert!(report.contains("Primal started"));
+    assert!(report.contains("Health:"));
     assert!(report.contains("Diagnostic complete"));
 }

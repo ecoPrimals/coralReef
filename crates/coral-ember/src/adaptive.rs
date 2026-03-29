@@ -298,13 +298,10 @@ mod tests {
 
         // 5 swaps with 15s bind time → adaptive should increase settle
         for _ in 0..5 {
-            journal
-                .append(&swap_entry(bdf, "nouveau", 15000))
-                .unwrap();
+            journal.append(&swap_entry(bdf, "nouveau", 15000)).unwrap();
         }
 
-        let adaptive =
-            AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
+        let adaptive = AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
         let settle = adaptive.settle_secs("nouveau");
         // avg_bind = 15000ms → 15s + 20% = 18s, clamped to ceiling of 20
         assert!(settle > 10, "expected adaptive settle > 10, got {settle}");
@@ -321,8 +318,7 @@ mod tests {
             journal.append(&swap_entry(bdf, "nouveau", 1000)).unwrap();
         }
 
-        let adaptive =
-            AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
+        let adaptive = AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
         let settle = adaptive.settle_secs("nouveau");
         // floor = 10/2 = 5
         assert!(settle >= 5, "expected adaptive settle >= 5, got {settle}");
@@ -356,8 +352,7 @@ mod tests {
         journal.append(&reset_entry(bdf, "sbr", true)).unwrap();
         journal.append(&reset_entry(bdf, "sbr", true)).unwrap();
 
-        let adaptive =
-            AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
+        let adaptive = AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
         let methods = adaptive.available_reset_methods();
         // sbr has higher success rate → should come first
         assert_eq!(methods[0], ResetMethod::SysfsSbr);
@@ -367,8 +362,7 @@ mod tests {
     #[test]
     fn delegates_other_methods() {
         let (_dir, journal) = test_journal();
-        let adaptive =
-            AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, "x".into());
+        let adaptive = AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, "x".into());
         assert_eq!(adaptive.description(), "Stub");
         assert_eq!(
             adaptive.rebind_strategy("nouveau"),

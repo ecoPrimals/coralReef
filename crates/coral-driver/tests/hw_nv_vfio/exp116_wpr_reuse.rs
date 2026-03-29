@@ -29,8 +29,8 @@ use crate::ember_client;
 use crate::glowplug_client::GlowPlugClient;
 use crate::helpers::init_tracing;
 use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, BootConfig, FalconBootvecOffsets,
-    attempt_acr_mailbox_command, attempt_sysmem_acr_boot_with_config,
+    AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
+    attempt_sysmem_acr_boot_with_config,
 };
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
@@ -190,8 +190,7 @@ fn exp116_wpr_reuse() {
     nouveau_cycle(&bdf);
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── A2: Post-Nouveau Falcon State ──");
@@ -201,9 +200,15 @@ fn exp116_wpr_reuse() {
 
     eprintln!("\n── A3: WPR2 Hardware Boundaries ──");
     let (wpr2_start, wpr2_end) = read_wpr2_boundaries(&bar0);
-    let wpr2_size = if wpr2_end > wpr2_start { wpr2_end - wpr2_start } else { 0 };
-    eprintln!("  WPR2: start={wpr2_start:#x} end={wpr2_end:#x} size={wpr2_size:#x} ({} KiB)",
-              wpr2_size / 1024);
+    let wpr2_size = if wpr2_end > wpr2_start {
+        wpr2_end - wpr2_start
+    } else {
+        0
+    };
+    eprintln!(
+        "  WPR2: start={wpr2_start:#x} end={wpr2_end:#x} size={wpr2_size:#x} ({} KiB)",
+        wpr2_size / 1024
+    );
 
     let wpr2_valid = wpr2_start > 0 && wpr2_end > wpr2_start && wpr2_size > 0x1000;
     eprintln!("  WPR2 valid: {wpr2_valid}");
@@ -226,11 +231,15 @@ fn exp116_wpr_reuse() {
     let fw = AcrFirmwareSet::load("gv100").expect("firmware load");
     eprintln!(
         "\n  Firmware sizes: fecs_bl={}B fecs_inst={}B fecs_data={}B",
-        fw.fecs_bl.code.len(), fw.fecs_inst.len(), fw.fecs_data.len()
+        fw.fecs_bl.code.len(),
+        fw.fecs_inst.len(),
+        fw.fecs_data.len()
     );
     eprintln!(
         "  Firmware sizes: gpccs_bl={}B gpccs_inst={}B gpccs_data={}B",
-        fw.gpccs_bl.code.len(), fw.gpccs_inst.len(), fw.gpccs_data.len()
+        fw.gpccs_bl.code.len(),
+        fw.gpccs_inst.len(),
+        fw.gpccs_data.len()
     );
 
     // ══════════════════════════════════════════════════════════════════════
@@ -246,8 +255,7 @@ fn exp116_wpr_reuse() {
     drop(vfio_dev);
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let container = vfio_dev.dma_backend();
 
@@ -279,7 +287,9 @@ fn exp116_wpr_reuse() {
     falcon_state(&bar0, "GPCCS", freg116::GPCCS_BASE);
 
     let sec2_pc = bar0.read_u32(freg116::SEC2_BASE + freg116::PC).unwrap_or(0);
-    let sec2_cpuctl = bar0.read_u32(freg116::SEC2_BASE + freg116::CPUCTL).unwrap_or(0);
+    let sec2_cpuctl = bar0
+        .read_u32(freg116::SEC2_BASE + freg116::CPUCTL)
+        .unwrap_or(0);
     let sec2_alive = sec2_pc > 0x100
         && sec2_cpuctl & freg116::CPUCTL_HRESET == 0
         && sec2_cpuctl & freg116::CPUCTL_HALTED == 0;
@@ -290,7 +300,10 @@ fn exp116_wpr_reuse() {
         gpccs: fw.gpccs_bl.bl_imem_off(),
         fecs: fw.fecs_bl.bl_imem_off(),
     };
-    eprintln!("  BOOTVEC offsets: GPCCS={:#06x} FECS={:#06x}", bootvec.gpccs, bootvec.fecs);
+    eprintln!(
+        "  BOOTVEC offsets: GPCCS={:#06x} FECS={:#06x}",
+        bootvec.gpccs, bootvec.fecs
+    );
 
     let mailbox_b = attempt_acr_mailbox_command(&bar0, &bootvec);
     eprintln!("  Mailbox strategy: {}", mailbox_b.strategy);
@@ -304,16 +317,26 @@ fn exp116_wpr_reuse() {
     falcon_state(&bar0, "FECS", freg116::FECS_BASE);
     falcon_state(&bar0, "GPCCS", freg116::GPCCS_BASE);
 
-    let fecs_b = bar0.read_u32(freg116::FECS_BASE + freg116::CPUCTL).unwrap_or(0xDEAD);
-    let gpccs_b = bar0.read_u32(freg116::GPCCS_BASE + freg116::CPUCTL).unwrap_or(0xDEAD);
+    let fecs_b = bar0
+        .read_u32(freg116::FECS_BASE + freg116::CPUCTL)
+        .unwrap_or(0xDEAD);
+    let gpccs_b = bar0
+        .read_u32(freg116::GPCCS_BASE + freg116::CPUCTL)
+        .unwrap_or(0xDEAD);
     let fecs_b_pc = bar0.read_u32(freg116::FECS_BASE + freg116::PC).unwrap_or(0);
-    let gpccs_b_pc = bar0.read_u32(freg116::GPCCS_BASE + freg116::PC).unwrap_or(0);
-    let fecs_b_exci = bar0.read_u32(freg116::FECS_BASE + freg116::EXCI).unwrap_or(0);
-    let gpccs_b_exci = bar0.read_u32(freg116::GPCCS_BASE + freg116::EXCI).unwrap_or(0);
-    let fecs_b_running = fecs_b & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0
-        && fecs_b != 0xDEAD;
-    let gpccs_b_running = gpccs_b & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0
-        && gpccs_b != 0xDEAD;
+    let gpccs_b_pc = bar0
+        .read_u32(freg116::GPCCS_BASE + freg116::PC)
+        .unwrap_or(0);
+    let fecs_b_exci = bar0
+        .read_u32(freg116::FECS_BASE + freg116::EXCI)
+        .unwrap_or(0);
+    let gpccs_b_exci = bar0
+        .read_u32(freg116::GPCCS_BASE + freg116::EXCI)
+        .unwrap_or(0);
+    let fecs_b_running =
+        fecs_b & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && fecs_b != 0xDEAD;
+    let gpccs_b_running =
+        gpccs_b & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && gpccs_b != 0xDEAD;
 
     // Check WPR status in VRAM after ACR
     eprintln!("\n── B5: WPR Header Status After ACR (VRAM) ──");
@@ -337,8 +360,7 @@ fn exp116_wpr_reuse() {
     drop(vfio_dev);
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let container_c = vfio_dev.dma_backend();
 
@@ -365,9 +387,13 @@ fn exp116_wpr_reuse() {
     falcon_state(&bar0, "FECS", freg116::FECS_BASE);
     falcon_state(&bar0, "GPCCS", freg116::GPCCS_BASE);
 
-    let sec2_c_sctl = bar0.read_u32(freg116::SEC2_BASE + freg116::SCTL).unwrap_or(0);
+    let sec2_c_sctl = bar0
+        .read_u32(freg116::SEC2_BASE + freg116::SCTL)
+        .unwrap_or(0);
     let sec2_c_pc = bar0.read_u32(freg116::SEC2_BASE + freg116::PC).unwrap_or(0);
-    let sec2_c_cpuctl = bar0.read_u32(freg116::SEC2_BASE + freg116::CPUCTL).unwrap_or(0);
+    let sec2_c_cpuctl = bar0
+        .read_u32(freg116::SEC2_BASE + freg116::CPUCTL)
+        .unwrap_or(0);
     let sec2_c_alive = sec2_c_pc > 0x100
         && sec2_c_cpuctl & freg116::CPUCTL_HRESET == 0
         && sec2_c_cpuctl & freg116::CPUCTL_HALTED == 0;
@@ -426,7 +452,9 @@ fn exp116_wpr_reuse() {
                 Ok(mut rgn) => {
                     for wo in (0..chunk_size).step_by(4) {
                         let src = offset + wo;
-                        if src >= wpr_data.len() { break; }
+                        if src >= wpr_data.len() {
+                            break;
+                        }
                         let end = (src + 4).min(wpr_data.len());
                         let mut bytes = [0u8; 4];
                         bytes[..end - src].copy_from_slice(&wpr_data[src..end]);
@@ -458,7 +486,9 @@ fn exp116_wpr_reuse() {
                 Ok(mut rgn) => {
                     for wo in (0..chunk_size).step_by(4) {
                         let src = offset + wo;
-                        if src >= wpr_data.len() { break; }
+                        if src >= wpr_data.len() {
+                            break;
+                        }
                         let end = (src + 4).min(wpr_data.len());
                         let mut bytes = [0u8; 4];
                         bytes[..end - src].copy_from_slice(&wpr_data[src..end]);
@@ -528,8 +558,12 @@ fn exp116_wpr_reuse() {
         falcon_state(&bar0, "FECS", freg116::FECS_BASE);
         falcon_state(&bar0, "GPCCS", freg116::GPCCS_BASE);
 
-        let fd = bar0.read_u32(freg116::FECS_BASE + freg116::CPUCTL).unwrap_or(0xDEAD);
-        let gd = bar0.read_u32(freg116::GPCCS_BASE + freg116::CPUCTL).unwrap_or(0xDEAD);
+        let fd = bar0
+            .read_u32(freg116::FECS_BASE + freg116::CPUCTL)
+            .unwrap_or(0xDEAD);
+        let gd = bar0
+            .read_u32(freg116::GPCCS_BASE + freg116::CPUCTL)
+            .unwrap_or(0xDEAD);
         (
             fd & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && fd != 0xDEAD,
             gd & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && gd != 0xDEAD,

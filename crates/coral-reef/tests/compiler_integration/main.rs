@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![forbid(unsafe_code)]
 //! Integration tests for the coral-reef compiler pipeline.
 //!
 //! Compute shader compilation through the full pipeline is exercised here.

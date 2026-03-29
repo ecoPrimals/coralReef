@@ -87,7 +87,10 @@ impl fmt::Display for AcrBootResult {
         writeln!(
             f,
             "  FECS after:  cpuctl={:#010x} pc={:#06x} exci={:#010x} mb0={:#010x}",
-            self.fecs_cpuctl_after, self.fecs_pc_after, self.fecs_exci_after, self.fecs_mailbox0_after
+            self.fecs_cpuctl_after,
+            self.fecs_pc_after,
+            self.fecs_exci_after,
+            self.fecs_mailbox0_after
         )?;
         writeln!(
             f,
@@ -107,11 +110,7 @@ impl fmt::Display for AcrBootResult {
 /// Evaluate whether falcons are genuinely running (not just cpuctl==0).
 ///
 /// Requires: FECS not in HRESET, GPCCS EXCI == 0, and GPCCS PC != 0.
-pub(crate) fn evaluate_boot_success(
-    fecs_cpuctl: u32,
-    gpccs_pc: u32,
-    gpccs_exci: u32,
-) -> bool {
+pub(crate) fn evaluate_boot_success(fecs_cpuctl: u32, gpccs_pc: u32, gpccs_exci: u32) -> bool {
     let fecs_not_reset = fecs_cpuctl & falcon::CPUCTL_HRESET == 0;
     let gpccs_healthy = gpccs_exci == 0 && gpccs_pc != 0;
     fecs_not_reset && gpccs_healthy
@@ -173,7 +172,10 @@ impl PostBootCapture {
 }
 
 /// Poll a falcon's CPUCTL/MAILBOX for boot completion.
-#[expect(dead_code, reason = "shared helper — strategies will adopt incrementally")]
+#[expect(
+    dead_code,
+    reason = "shared helper — strategies will adopt incrementally"
+)]
 ///
 /// Returns `(cpuctl, mailbox0)` when the falcon either signals ready (mailbox0 != 0),
 /// halts (HALTED bit set), or times out. Appends poll notes to the provided vec.
@@ -237,11 +239,7 @@ pub(crate) fn dmem_nonzero_summary(dmem: &[u32]) -> String {
         }
     }
     if in_nonzero {
-        ranges.push(format!(
-            "[{:#05x}..{:#05x}]",
-            start * 4,
-            dmem.len() * 4
-        ));
+        ranges.push(format!("[{:#05x}..{:#05x}]", start * 4, dmem.len() * 4));
     }
     if ranges.is_empty() {
         "NONE".to_string()
@@ -334,11 +332,7 @@ mod tests {
 
     #[test]
     fn evaluate_boot_success_fecs_in_hreset_fails() {
-        assert!(!evaluate_boot_success(
-            falcon::CPUCTL_HRESET,
-            0x100,
-            0x00
-        ));
+        assert!(!evaluate_boot_success(falcon::CPUCTL_HRESET, 0x100, 0x00));
     }
 
     #[test]

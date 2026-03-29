@@ -68,9 +68,10 @@ pub async fn health_loop<S: crate::sysfs_ops::SysfsOps>(
             let bdf = slot.bdf.clone();
             let is_tripped = tripped.get(&bdf).copied().unwrap_or(false);
 
-            if is_tripped {
-                // Circuit breaker open — skip ALL BAR0 reads for this device.
-                // Only do safe sysfs-based power state checks.
+            if !slot.config.is_health_active() || is_tripped {
+                // Passive policy OR circuit breaker open — sysfs only, no BAR0.
+                // BAR0 reads on uninitialized hardware can cause PCIe completion
+                // timeouts that cascade through the root complex to other devices.
                 slot.refresh_power_state();
                 continue;
             }
@@ -274,6 +275,7 @@ mod tests {
             name: None,
             boot_personality: "vfio".into(),
             power_policy: "power_save".into(),
+            health_policy: "active".into(),
             role: None,
             oracle_dump: None,
             shared: None,

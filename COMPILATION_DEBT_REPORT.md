@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 24, Iter 65)  
+**Generated:** March 10, 2026 (metrics updated March 29, Iter 69)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 66):** 4047 tests passing, ~121 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 69):** 4189 tests passing, ~153 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -212,13 +212,13 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 66) |
+| Metric | Value (as of Iter 69) |
 |--------|-------|
-| Tests passing | 4047 default + 48 VFIO |
-| Ignored tests | ~121 (hardware-gated + diagnostic + VFIO HW) |
+| Tests passing | 4189 default + 48 VFIO |
+| Ignored tests | ~153 |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
-| Production unwraps | 0 |
+| Production unwraps | 0 (eliminated Iter 69) |
 | Production expect() | 0 (glowplug config.rs evolved to match/Result, Iter 56) |
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
@@ -227,16 +227,16 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 0 (Iter 64: five files → directory modules; Iter 65: coralctl `handlers/` split + `opt_copy_prop` test helper extraction) |
-| Clippy warnings | 0 (pedantic + nursery, -D warnings) |
-| Doc warnings | 0 (pedantic doc link fixes in Iter 65, e.g. dma.rs) |
-| Line coverage (llvm-cov) | ~66% workspace (target 90%; Iter 65) |
-| Function coverage | 73.7% (target 90%; Iter 65) |
+| Files over 1000 LOC | 1 (test file exp123k_k80_sovereign.rs) |
+| Clippy warnings | 0 (pedantic + nursery, -D warnings) — Iter 69 deep clean |
+| Doc warnings | 0 (all intra-doc links fixed Iter 69) |
+| Line coverage (llvm-cov) | ~64% workspace (target 90%; Iter 69) |
+| Function coverage | ~72% (target 90%; Iter 69) |
 | Untestable lines | ~19,009 in coral-driver (VFIO/DRM/GPU channel — requires hardware) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
 | IPC discovery / ecosystem | `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `ipc.heartbeat` (45s), Songbird registration via `ecosystem.rs` (Iter 65) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
-| eprintln! in production | 0 (migrated to tracing, Iter 45) |
+| eprintln! in production | 0 (migrated to tracing, Iters 45+67) |
 | Zero-copy | `Arc<str>` for shader source + device bdf (Iter 58); `bytes::Bytes` for binary payloads; shader_model refs not clones (Iter 58) |
 | Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |
 | Config discovery | CLI > env `$CORALREEF_CONFIG` > XDG config > system fallback (Iter 56) |
@@ -246,6 +246,6 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | Unsafe evolution | VolatilePtr safe MMIO; DmaBuffer Arc\<OwnedFd\> (Iter 58); SCM_RIGHTS fully safe via AsFd (Iter 58); from_raw_fd consolidated (Iter 58) |
 | Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based (Iter 56) |
 | Primal self-knowledge | Zero hardcoded primal names in production; capability-based discovery (Iter 56) |
-| SPDX headers | 476/476 .rs files have SPDX |
+| SPDX headers | 490+ .rs files have SPDX |
 | scyBorg license | AGPL-3.0-only; NAK MIT exception documented |
 | Shutdown safety | coral-glowplug: cancellation token + mutex timeout; no spawn_blocking deadlock (Iter 56) |

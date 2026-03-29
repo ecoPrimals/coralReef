@@ -222,9 +222,8 @@ fn cli_parses_reset_subcommand() {
 
 #[test]
 fn cli_parses_reset_with_method_flag() {
-    let cli =
-        Cli::try_parse_from(["coralctl", "reset", "0000:4a:00.0", "--method", "sbr"])
-            .expect("parse reset --method sbr");
+    let cli = Cli::try_parse_from(["coralctl", "reset", "0000:4a:00.0", "--method", "sbr"])
+        .expect("parse reset --method sbr");
     let Command::Reset { bdf, method } = cli.command else {
         panic!("expected Reset");
     };
@@ -277,13 +276,8 @@ fn cli_parses_oracle_diff_subcommand() {
 
 #[test]
 fn cli_parses_experiment_sweep_defaults() {
-    let cli = Cli::try_parse_from([
-        "coralctl",
-        "experiment",
-        "sweep",
-        "0000:03:00.0",
-    ])
-    .expect("parse experiment sweep");
+    let cli = Cli::try_parse_from(["coralctl", "experiment", "sweep", "0000:03:00.0"])
+        .expect("parse experiment sweep");
     let Command::Experiment {
         action:
             ExperimentAction::Sweep {

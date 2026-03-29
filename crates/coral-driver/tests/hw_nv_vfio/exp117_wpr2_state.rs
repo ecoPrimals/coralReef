@@ -30,8 +30,8 @@ use crate::helpers::init_tracing;
 use coral_driver::gsp::RegisterAccess;
 use coral_driver::nv::bar0::Bar0Access;
 use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, BootConfig, FalconBootvecOffsets,
-    attempt_acr_mailbox_command, attempt_sysmem_acr_boot_with_config,
+    AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
+    attempt_sysmem_acr_boot_with_config,
 };
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
@@ -147,27 +147,66 @@ impl GpuSnapshot {
         eprintln!("  {dash}");
         eprintln!("  Snapshot: {}", self.label);
         eprintln!("  {dash}");
-        eprintln!("  BOOT_0={:#010x}  PMC_ENABLE={:#010x}  BAR0_WIN={:#010x}",
-                  self.boot_id, self.pmc_enable, self.bar0_window);
+        eprintln!(
+            "  BOOT_0={:#010x}  PMC_ENABLE={:#010x}  BAR0_WIN={:#010x}",
+            self.boot_id, self.pmc_enable, self.bar0_window
+        );
         eprintln!();
         eprintln!("  Falcons:");
-        eprintln!("  {}",
-            self.falcon_desc("SEC2", self.sec2_cpuctl, self.sec2_sctl, self.sec2_pc, self.sec2_exci));
-        eprintln!("    MB0={:#010x}  MB1={:#010x}", self.sec2_mb0, self.sec2_mb1);
-        eprintln!("  {}",
-            self.falcon_desc("FECS", self.fecs_cpuctl, self.fecs_sctl, self.fecs_pc, self.fecs_exci));
-        eprintln!("  {}",
-            self.falcon_desc("GPCCS", self.gpccs_cpuctl, self.gpccs_sctl, self.gpccs_pc, self.gpccs_exci));
+        eprintln!(
+            "  {}",
+            self.falcon_desc(
+                "SEC2",
+                self.sec2_cpuctl,
+                self.sec2_sctl,
+                self.sec2_pc,
+                self.sec2_exci
+            )
+        );
+        eprintln!(
+            "    MB0={:#010x}  MB1={:#010x}",
+            self.sec2_mb0, self.sec2_mb1
+        );
+        eprintln!(
+            "  {}",
+            self.falcon_desc(
+                "FECS",
+                self.fecs_cpuctl,
+                self.fecs_sctl,
+                self.fecs_pc,
+                self.fecs_exci
+            )
+        );
+        eprintln!(
+            "  {}",
+            self.falcon_desc(
+                "GPCCS",
+                self.gpccs_cpuctl,
+                self.gpccs_sctl,
+                self.gpccs_pc,
+                self.gpccs_exci
+            )
+        );
         eprintln!();
         eprintln!("  WPR registers:");
-        eprintln!("    Indexed (0x100CD4): start_raw={:#010x} end_raw={:#010x}",
-                  self.wpr2_idx_start_raw, self.wpr2_idx_end_raw);
-        eprintln!("    Indexed decoded:    start={:#010x} end={:#010x} valid={}",
-                  self.wpr2_indexed_start(), self.wpr2_indexed_end(), self.wpr2_indexed_valid());
-        eprintln!("    Direct  (CEC/CF0):  beg={:#010x} end={:#010x}",
-                  self.wpr2_direct_beg, self.wpr2_direct_end);
-        eprintln!("    WPR1    (CE8/CEC):  beg={:#010x} end={:#010x}",
-                  self.wpr1_direct_beg, self.wpr1_direct_end);
+        eprintln!(
+            "    Indexed (0x100CD4): start_raw={:#010x} end_raw={:#010x}",
+            self.wpr2_idx_start_raw, self.wpr2_idx_end_raw
+        );
+        eprintln!(
+            "    Indexed decoded:    start={:#010x} end={:#010x} valid={}",
+            self.wpr2_indexed_start(),
+            self.wpr2_indexed_end(),
+            self.wpr2_indexed_valid()
+        );
+        eprintln!(
+            "    Direct  (CEC/CF0):  beg={:#010x} end={:#010x}",
+            self.wpr2_direct_beg, self.wpr2_direct_end
+        );
+        eprintln!(
+            "    WPR1    (CE8/CEC):  beg={:#010x} end={:#010x}",
+            self.wpr1_direct_beg, self.wpr1_direct_end
+        );
         eprintln!("  {dash}");
     }
 }
@@ -296,8 +335,12 @@ fn compare_snapshots(a: &GpuSnapshot, b: &GpuSnapshot) {
         ($field:ident, $fmt:literal) => {
             if a.$field != b.$field {
                 diffs += 1;
-                eprintln!(concat!("  DIFF {:20}: ", $fmt, " → ", $fmt),
-                    stringify!($field), a.$field, b.$field);
+                eprintln!(
+                    concat!("  DIFF {:20}: ", $fmt, " → ", $fmt),
+                    stringify!($field),
+                    a.$field,
+                    b.$field
+                );
             }
         };
     }
@@ -347,14 +390,26 @@ fn dump_wpr_headers(bar0: &MappedBar, vram_base: u64, label: &str) {
                 let lsb_off = rgn.read_u32(off + 4).unwrap_or(0);
                 let status = rgn.read_u32(off + 20).unwrap_or(0);
                 let status_str = match status {
-                    0 => "NONE", 1 => "COPY", 2 => "VCODE_FAIL", 3 => "VDATA_FAIL",
-                    4 => "VALID_DONE", 5 => "VALID_SKIP", 6 => "BOOT_READY",
-                    7 => "REVOKE_FAIL", _ => "???",
+                    0 => "NONE",
+                    1 => "COPY",
+                    2 => "VCODE_FAIL",
+                    3 => "VDATA_FAIL",
+                    4 => "VALID_DONE",
+                    5 => "VALID_SKIP",
+                    6 => "BOOT_READY",
+                    7 => "REVOKE_FAIL",
+                    _ => "???",
                 };
                 let fname = match falcon_id {
-                    0 => "PMU", 2 => "FECS", 3 => "GPCCS", 7 => "SEC2", _ => "???",
+                    0 => "PMU",
+                    2 => "FECS",
+                    3 => "GPCCS",
+                    7 => "SEC2",
+                    _ => "???",
                 };
-                eprintln!("    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({status_str})");
+                eprintln!(
+                    "    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({status_str})"
+                );
             }
         }
         Err(e) => eprintln!("    PRAMIN failed: {e}"),
@@ -433,7 +488,10 @@ fn exp117_wpr2_state_tracking() {
         let end = snap_nouveau.wpr2_indexed_end();
         let size = end - start;
         eprintln!("  *** WPR2 IS VALID during nouveau session ***");
-        eprintln!("  WPR2 range: {start:#x}..{end:#x} ({size:#x} = {} KiB)", size / 1024);
+        eprintln!(
+            "  WPR2 range: {start:#x}..{end:#x} ({size:#x} = {} KiB)",
+            size / 1024
+        );
     } else {
         eprintln!("  WPR2 is INVALID during nouveau session too");
         eprintln!("  This means FWSEC did not set up WPR2 (or different register layout)");
@@ -460,8 +518,7 @@ fn exp117_wpr2_state_tracking() {
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── B2: Capture post-swap snapshot ──");
@@ -517,7 +574,10 @@ fn exp117_wpr2_state_tracking() {
             gpccs: fw.gpccs_bl.bl_imem_off(),
             fecs: fw.fecs_bl.bl_imem_off(),
         };
-        eprintln!("  BOOTVEC offsets: GPCCS={:#06x} FECS={:#06x}", bootvec.gpccs, bootvec.fecs);
+        eprintln!(
+            "  BOOTVEC offsets: GPCCS={:#06x} FECS={:#06x}",
+            bootvec.gpccs, bootvec.fecs
+        );
 
         let mailbox_result = attempt_acr_mailbox_command(&bar0, &bootvec);
         eprintln!("  Mailbox strategy: {}", mailbox_result.strategy);
@@ -593,7 +653,9 @@ fn exp117_wpr2_state_tracking() {
                 Ok(mut rgn) => {
                     for wo in (0..chunk_size).step_by(4) {
                         let src = offset + wo;
-                        if src >= wpr_data.len() { break; }
+                        if src >= wpr_data.len() {
+                            break;
+                        }
                         let end = (src + 4).min(wpr_data.len());
                         let mut bytes = [0u8; 4];
                         bytes[..end - src].copy_from_slice(&wpr_data[src..end]);
@@ -663,21 +725,37 @@ fn exp117_wpr2_state_tracking() {
     eprintln!("\n{sep}");
     eprintln!("  Exp 117 RESULTS SUMMARY");
     eprintln!("{sep}");
-    eprintln!("  WPR2 valid during nouveau: {}", snap_nouveau.wpr2_indexed_valid());
+    eprintln!(
+        "  WPR2 valid during nouveau: {}",
+        snap_nouveau.wpr2_indexed_valid()
+    );
     if snap_nouveau.wpr2_indexed_valid() {
-        eprintln!("  WPR2 range: {:#x}..{:#x}",
-                  snap_nouveau.wpr2_indexed_start(), snap_nouveau.wpr2_indexed_end());
+        eprintln!(
+            "  WPR2 range: {:#x}..{:#x}",
+            snap_nouveau.wpr2_indexed_start(),
+            snap_nouveau.wpr2_indexed_end()
+        );
     }
-    eprintln!("  WPR2 valid after swap:     {}", snap_vfio.wpr2_indexed_valid());
+    eprintln!(
+        "  WPR2 valid after swap:     {}",
+        snap_vfio.wpr2_indexed_valid()
+    );
     eprintln!("  SEC2 alive after swap:     {sec2_alive_post_swap}");
-    eprintln!("  SEC2 SCTL nouveau:         {:#06x}", snap_nouveau.sec2_sctl);
+    eprintln!(
+        "  SEC2 SCTL nouveau:         {:#06x}",
+        snap_nouveau.sec2_sctl
+    );
     eprintln!("  SEC2 SCTL post-swap:       {:#06x}", snap_vfio.sec2_sctl);
-    eprintln!("  FECS running (nouveau):    {}",
+    eprintln!(
+        "  FECS running (nouveau):    {}",
         snap_nouveau.fecs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
-            && snap_nouveau.fecs_cpuctl != 0xDEAD_DEAD);
-    eprintln!("  GPCCS running (nouveau):   {}",
+            && snap_nouveau.fecs_cpuctl != 0xDEAD_DEAD
+    );
+    eprintln!(
+        "  GPCCS running (nouveau):   {}",
         snap_nouveau.gpccs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
-            && snap_nouveau.gpccs_cpuctl != 0xDEAD_DEAD);
+            && snap_nouveau.gpccs_cpuctl != 0xDEAD_DEAD
+    );
     eprintln!("{sep}");
 
     eprintln!("\n=== Exp 117 Complete ===");

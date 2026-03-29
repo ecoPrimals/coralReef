@@ -68,9 +68,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
 
         // Save ring/mailbox state to ember before dropping VFIO
-        if let Some(ref client_for_meta) =
-            crate::ember::EmberClient::connect()
-        {
+        if let Some(ref client_for_meta) = crate::ember::EmberClient::connect() {
             let mut meta = self.ring_meta_snapshot();
             meta.version += 1;
             if let Err(e) = client_for_meta.ring_meta_set(&self.bdf, &meta) {

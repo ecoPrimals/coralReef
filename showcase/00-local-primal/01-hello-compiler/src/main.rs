@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![forbid(unsafe_code)]
 use coral_gpu::{GpuContext, GpuTarget, NvArch};
 
 const SHADER: &str = r#"

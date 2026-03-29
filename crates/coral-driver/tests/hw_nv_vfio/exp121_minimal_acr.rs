@@ -16,11 +16,11 @@
 //! ```
 
 use crate::helpers::init_tracing;
-use coral_driver::vfio::device::{MappedBar, VfioDevice};
 use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, BootConfig, FalconBootvecOffsets,
-    attempt_acr_mailbox_command, attempt_sysmem_acr_boot_with_config,
+    AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
+    attempt_sysmem_acr_boot_with_config,
 };
+use coral_driver::vfio::device::{MappedBar, VfioDevice};
 
 mod r121 {
     pub const SEC2_BASE: usize = 0x087000;
@@ -52,7 +52,12 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     let mb0 = bar0.read_u32(base + r121::MAILBOX0).unwrap_or(0xDEAD);
     let hreset = cpuctl & 0x10 != 0;
     let halted = cpuctl & 0x20 != 0;
-    let mode = match sctl { 0x3000 => "LS", 0x3002 => "HS", 0x7021 => "FW", _ => "??" };
+    let mode = match sctl {
+        0x3000 => "LS",
+        0x3002 => "HS",
+        0x7021 => "FW",
+        _ => "??",
+    };
     eprintln!(
         "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x}({mode}) \
          PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} hreset={hreset} halted={halted}"
@@ -81,7 +86,10 @@ fn clear_pri_faults(bar0: &MappedBar) {
 
 fn pmc_gr_reset(bar0: &MappedBar) {
     let pmc = bar0.read_u32(r121::PMC_ENABLE).unwrap_or(0);
-    eprintln!("  PMC_ENABLE before: {pmc:#010x} (GR bit={:?})", pmc & r121::GR_ENGINE_BIT != 0);
+    eprintln!(
+        "  PMC_ENABLE before: {pmc:#010x} (GR bit={:?})",
+        pmc & r121::GR_ENGINE_BIT != 0
+    );
 
     let _ = bar0.write_u32(r121::PMC_ENABLE, pmc & !r121::GR_ENGINE_BIT);
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -107,12 +115,10 @@ fn exp121_minimal_acr() {
     // ── Phase A: Minimal VFIO open (just BAR0 + IOMMU) ────────
     eprintln!("\n  PHASE A: Minimal VFIO open (BAR0 + DMA only)");
 
-    let fds = crate::ember_client::request_fds(&bdf)
-        .expect("ember fds");
+    let fds = crate::ember_client::request_fds(&bdf).expect("ember fds");
     eprintln!("  ember: received VFIO fds for {bdf}");
 
-    let device = VfioDevice::from_received(&bdf, fds)
-        .expect("VfioDevice::from_received");
+    let device = VfioDevice::from_received(&bdf, fds).expect("VfioDevice::from_received");
     let dma = device.dma_backend();
     let bar0 = device.map_bar(0).expect("map BAR0");
 
@@ -147,8 +153,7 @@ fn exp121_minimal_acr() {
     eprintln!("  PHASE C: ACR Boot (minimal path)");
     eprintln!("{eq}");
 
-    let fw = AcrFirmwareSet::load("gv100")
-        .expect("load firmware");
+    let fw = AcrFirmwareSet::load("gv100").expect("load firmware");
 
     let config = BootConfig {
         pde_upper: true,
@@ -181,7 +186,10 @@ fn exp121_minimal_acr() {
     // ── Phase E: BOOTSTRAP_FALCON ─────────────────────────────
     eprintln!("\n  PHASE E: BOOTSTRAP_FALCON");
 
-    let bootvecs = FalconBootvecOffsets { fecs: 0x7E00, gpccs: 0x3400 };
+    let bootvecs = FalconBootvecOffsets {
+        fecs: 0x7E00,
+        gpccs: 0x3400,
+    };
     let mb_result = attempt_acr_mailbox_command(&bar0, &bootvecs);
     eprintln!("\n  {mb_result}");
     for note in &mb_result.notes {

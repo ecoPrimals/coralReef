@@ -74,9 +74,8 @@ impl DmaBuffer {
         // (4096) virtual addresses; Vec does not guarantee alignment.
         let vaddr = {
             let raw = unsafe { std::alloc::alloc_zeroed(layout) };
-            NonNull::new(raw).ok_or_else(|| {
-                DriverError::MmapFailed("Failed to allocate DMA buffer".into())
-            })?
+            NonNull::new(raw)
+                .ok_or_else(|| DriverError::MmapFailed("Failed to allocate DMA buffer".into()))?
         };
 
         // SAFETY: mlock prevents page-out, required for VFIO DMA correctness.
@@ -97,8 +96,7 @@ impl DmaBuffer {
             "VFIO DMA map attempt"
         );
 
-        let map_result =
-            Self::dma_map_with_retry(&backend, ptr as u64, iova, aligned_size as u64);
+        let map_result = Self::dma_map_with_retry(&backend, ptr as u64, iova, aligned_size as u64);
 
         if let Err(e) = map_result {
             tracing::warn!("VFIO DMA map failed: {e}");

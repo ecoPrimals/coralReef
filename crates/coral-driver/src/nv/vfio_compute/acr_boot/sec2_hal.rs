@@ -10,6 +10,11 @@ use crate::vfio::device::MappedBar;
 
 use super::instance_block::{self, FALCON_INST_VRAM, SEC2_FLCN_BIND_INST};
 
+mod falcon_mem_upload;
+
+pub(crate) use falcon_mem_upload::sec2_dmem_read;
+pub use falcon_mem_upload::{falcon_dmem_upload, falcon_imem_upload_nouveau};
+
 // ── SEC2 state probing ────────────────────────────────────────────────
 
 /// Classified SEC2 falcon state.
@@ -37,7 +42,7 @@ pub struct Sec2Probe {
     /// SEC2 falcon `CPUCTL` register snapshot.
     pub cpuctl: u32,
     /// SEC2 `SCTL` (security mode): informational — does NOT gate PIO access.
-    /// Bits[13:12] encode SEC_MODE (0=NS, 1=LS, 2=HS). Value 0x3000 on GV100
+    /// `Bits[13:12]` encode SEC_MODE (0=NS, 1=LS, 2=HS). Value 0x3000 on GV100
     /// indicates LS mode (fuse-enforced). PIO works regardless of this value.
     pub sctl: u32,
     /// SEC2 `BOOTVEC` — entry address for IMEM boot.
@@ -627,7 +632,7 @@ pub fn reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
 /// Sequence (matching nouveau's gm200_flcn_enable + gm200_flcn_fw_load):
 /// 1. PMC disable/enable — full hardware reset, clears execution state
 /// 2. ENGCTL local reset — extra cleanup (nouveau does both)
-/// 3. Wait for memory scrub completion (DMACTL bits[2:1])
+/// 3. Wait for memory scrub completion (DMACTL `bits[2:1]`)
 /// 4. Wait for ROM to halt (cpuctl bit 4)
 /// 5. Enable ITFEN ACCESS_EN for DMA
 /// 6. Full nouveau-style instance block bind
@@ -722,7 +727,10 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
     //    state 2). Setting FBIF to PHYS_VID (1) lets the walker access VRAM
     //    directly to read page tables.
     let fbif_before = r(falcon::FBIF_TRANSCFG);
-    w(falcon::FBIF_TRANSCFG, (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID);
+    w(
+        falcon::FBIF_TRANSCFG,
+        (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID,
+    );
     w(falcon::DMACTL, 0x01);
     let fbif_after = r(falcon::FBIF_TRANSCFG);
     let dmactl_after = r(falcon::DMACTL);
@@ -732,11 +740,8 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
 
     // 8. Full nouveau-style bind sequence (Exp 084 discovery)
     let bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
-    let (bind_ok, bind_notes) = instance_block::falcon_bind_context(
-        &|off| r(off),
-        &|off, val| w(off, val),
-        bind_val,
-    );
+    let (bind_ok, bind_notes) =
+        instance_block::falcon_bind_context(&|off| r(off), &|off, val| w(off, val), bind_val);
     notes.extend(bind_notes);
     notes.push(format!("Bind result: ok={bind_ok} val={bind_val:#010x}"));
 
@@ -878,7 +883,10 @@ pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
     let alias_en = cpuctl & (1 << 6) != 0;
     tracing::info!(
         "falcon_start_cpu: base={:#x} cpuctl={:#010x} bootvec={:#010x} alias_en={}",
-        base, cpuctl, bootvec, alias_en
+        base,
+        cpuctl,
+        bootvec,
+        alias_en
     );
     if alias_en {
         let _ = bar0.write_u32(base + falcon::CPUCTL_ALIAS, falcon::CPUCTL_STARTCPU);
@@ -894,12 +902,18 @@ pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
     if exci_after != 0 || pc_after == 0 {
         tracing::warn!(
             "falcon_start_cpu: POST-START FAULT base={:#x} pc={:#06x} exci={:#010x} cpuctl={:#010x}",
-            base, pc_after, exci_after, cpuctl_after
+            base,
+            pc_after,
+            exci_after,
+            cpuctl_after
         );
     } else {
         tracing::info!(
             "falcon_start_cpu: OK base={:#x} pc={:#06x} exci={:#010x} cpuctl={:#010x}",
-            base, pc_after, exci_after, cpuctl_after
+            base,
+            pc_after,
+            exci_after,
+            cpuctl_after
         );
     }
 }
@@ -913,113 +927,9 @@ pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
 /// ```
 pub(crate) fn falcon_prepare_physical_dma(bar0: &MappedBar, base: usize) {
     let cur = bar0.read_u32(base + falcon::FBIF_TRANSCFG).unwrap_or(0);
-    let _ = bar0.write_u32(base + falcon::FBIF_TRANSCFG, cur | falcon::FBIF_PHYSICAL_OVERRIDE);
+    let _ = bar0.write_u32(
+        base + falcon::FBIF_TRANSCFG,
+        cur | falcon::FBIF_PHYSICAL_OVERRIDE,
+    );
     let _ = bar0.write_u32(base + falcon::DMACTL, 0);
-}
-/// Upload code to falcon IMEM matching Nouveau's per-256B-chunk protocol.
-///
-/// Nouveau re-initializes IMEMC for each 256-byte page. This is critical —
-/// auto-increment may not cross page boundaries on all falcon versions.
-/// Upload code to falcon IMEM with optional SECURE flag.
-///
-/// When `secure` is true, bit 28 is set in IMEMC, marking the IMEM region
-/// as accessible only in HS mode. Nouveau sets secure=true for the HS code
-/// section of ACR firmware (`gm200_flcn_pio_imem_wr_init`).
-pub fn falcon_imem_upload_secure(
-    bar0: &MappedBar,
-    base: usize,
-    imem_addr: u32,
-    data: &[u8],
-    start_tag: u32,
-    secure: bool,
-) {
-    let w = |off: usize, val: u32| {
-        let _ = bar0.write_u32(base + off, val);
-    };
-    let sec_bit = if secure { 1u32 << 28 } else { 0 };
-
-    for (chunk_idx, chunk) in data.chunks(256).enumerate() {
-        let chunk_addr = imem_addr + (chunk_idx as u32) * 256;
-        let chunk_tag = start_tag + chunk_idx as u32;
-
-        w(falcon::IMEMC, sec_bit | (1u32 << 24) | chunk_addr);
-
-        // Set tag for this page (Nouveau: gm200_flcn_pio_imem_wr)
-        w(falcon::IMEMT, chunk_tag);
-
-        // Write data words
-        for word_chunk in chunk.chunks(4) {
-            let word = match word_chunk.len() {
-                4 => {
-                    u32::from_le_bytes([word_chunk[0], word_chunk[1], word_chunk[2], word_chunk[3]])
-                }
-                3 => u32::from_le_bytes([word_chunk[0], word_chunk[1], word_chunk[2], 0]),
-                2 => u32::from_le_bytes([word_chunk[0], word_chunk[1], 0, 0]),
-                1 => u32::from_le_bytes([word_chunk[0], 0, 0, 0]),
-                _ => 0,
-            };
-            w(falcon::IMEMD, word);
-        }
-
-        // Pad remainder of 256-byte page with zeroes
-        let written = (chunk.len().div_ceil(4)) * 4;
-        let remainder = written & 0xFF;
-        if remainder != 0 {
-            let pad_words = (256 - remainder) / 4;
-            for _ in 0..pad_words {
-                w(falcon::IMEMD, 0);
-            }
-        }
-    }
-}
-
-/// Upload code to falcon IMEM (non-secure). Convenience wrapper.
-pub fn falcon_imem_upload_nouveau(
-    bar0: &MappedBar,
-    base: usize,
-    imem_addr: u32,
-    data: &[u8],
-    start_tag: u32,
-) {
-    falcon_imem_upload_secure(bar0, base, imem_addr, data, start_tag, false);
-}
-
-/// Upload data to falcon DMEM matching Nouveau's protocol.
-/// Read SEC2 DMEM contents via PIO.
-pub(crate) fn sec2_dmem_read(bar0: &MappedBar, offset: u32, len: usize) -> Vec<u32> {
-    let base = falcon::SEC2_BASE;
-    let w = |off: usize, val: u32| {
-        let _ = bar0.write_u32(base + off, val);
-    };
-    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
-
-    // DMEMC: BIT(25) = read mode with auto-increment
-    w(falcon::DMEMC, (1u32 << 25) | offset);
-
-    let words = len.div_ceil(4);
-    let mut result = Vec::with_capacity(words);
-    for _ in 0..words {
-        result.push(r(falcon::DMEMD));
-    }
-    result
-}
-
-pub fn falcon_dmem_upload(bar0: &MappedBar, base: usize, dmem_addr: u32, data: &[u8]) {
-    let w = |off: usize, val: u32| {
-        let _ = bar0.write_u32(base + off, val);
-    };
-
-    // DMEMC: BIT(24) = write mode with auto-increment
-    w(falcon::DMEMC, (1u32 << 24) | dmem_addr);
-
-    for chunk in data.chunks(4) {
-        let word = match chunk.len() {
-            4 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
-            3 => u32::from_le_bytes([chunk[0], chunk[1], chunk[2], 0]),
-            2 => u32::from_le_bytes([chunk[0], chunk[1], 0, 0]),
-            1 => u32::from_le_bytes([chunk[0], 0, 0, 0]),
-            _ => 0,
-        };
-        w(falcon::DMEMD, word);
-    }
 }

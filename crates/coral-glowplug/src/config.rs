@@ -117,6 +117,15 @@ pub struct DeviceConfig {
     pub power_policy: String,
     #[serde(default)]
     pub role: Option<String>,
+    /// Health check policy: `"passive"` (default, sysfs-only — no BAR0 reads),
+    /// `"active"` (full BAR0 register probing each tick).
+    ///
+    /// Default is `"passive"` (fail-safe). BAR0 reads on uninitialized or
+    /// misbehaving hardware can cause PCIe completion timeouts that cascade
+    /// through the root complex to other devices (e.g. USB controllers).
+    /// Only set `"active"` for devices known to be safely readable.
+    #[serde(default = "default_health_policy")]
+    pub health_policy: String,
     /// Path to write oracle register dumps (state vault persistence).
     /// Loaded from TOML config, used by `device.rs` `snapshot_registers`.
     #[serde(default)]
@@ -187,13 +196,30 @@ impl DeviceConfig {
     pub fn is_protected(&self) -> bool {
         self.is_display() || self.is_shared()
     }
+
+    /// Returns `true` if health checks should read BAR0 registers.
+    ///
+    /// Only `"active"` policy enables BAR0 probing. The default `"passive"`
+    /// policy restricts health checks to safe sysfs reads (power state, link
+    /// width) — no PCIe MMIO transactions that could cascade through a shared
+    /// root complex.
+    #[must_use]
+    pub fn is_health_active(&self) -> bool {
+        self.health_policy == "active"
+    }
 }
 
 /// TCP loopback with OS-assigned port (ecoBin fallback on non-Unix platforms).
 ///
 /// Kept in sync with `coralreef-core::ipc::FALLBACK_TCP_BIND` — coral-glowplug does not
 /// depend on coralreef-core, so both define this constant for ecoBin compliance.
-#[cfg_attr(unix, allow(dead_code))]
+#[cfg_attr(
+    unix,
+    allow(
+        dead_code,
+        reason = "TCP loopback fallback is only referenced on non-Unix builds"
+    )
+)]
 pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
 
 /// Default TCP bind address for ecoBin compliance.
@@ -201,7 +227,13 @@ pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
 /// Returns `127.0.0.1:0` (localhost, OS-assigned port). Callers may override
 /// via `$CORALREEF_TCP_BIND` for deployment configuration.
 #[must_use]
-#[cfg_attr(unix, allow(dead_code))]
+#[cfg_attr(
+    unix,
+    allow(
+        dead_code,
+        reason = "TCP loopback fallback is only referenced on non-Unix builds"
+    )
+)]
 pub fn default_tcp_fallback() -> String {
     std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
@@ -249,6 +281,9 @@ fn default_personality() -> String {
 }
 fn default_power_policy() -> String {
     DEFAULT_POWER_POLICY.into()
+}
+fn default_health_policy() -> String {
+    "passive".into()
 }
 
 impl Config {
@@ -336,6 +371,7 @@ impl Config {
                 name: None,
                 boot_personality: personality,
                 power_policy: DEFAULT_POWER_POLICY.into(),
+                health_policy: default_health_policy(),
                 role: Some(DEFAULT_ROLE.into()),
                 oracle_dump: None,
                 shared: None,
@@ -645,6 +681,7 @@ role = "npu"
             name: None,
             boot_personality: "vfio".into(),
             power_policy: "always_on".into(),
+            health_policy: "passive".into(),
             role: Some("display".into()),
             oracle_dump: None,
             shared: None,

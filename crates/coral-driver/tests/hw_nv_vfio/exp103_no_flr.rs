@@ -49,8 +49,8 @@ fn exp103_no_flr_acr_boot() {
     // Phase 1: nouveau cycle WITHOUT FLR on return
     eprintln!("── Phase 1: Nouveau Init → No-FLR swap back ──");
     {
-        let mut gp = crate::glowplug_client::GlowPlugClient::connect()
-            .expect("GlowPlug connection");
+        let mut gp =
+            crate::glowplug_client::GlowPlugClient::connect().expect("GlowPlug connection");
 
         gp.swap(&bdf, "nouveau").expect("swap→nouveau");
         eprintln!("  nouveau bound, sleeping 3s for full init...");
@@ -71,14 +71,17 @@ fn exp103_no_flr_acr_boot() {
     }
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     // Phase 2: Check what state nouveau left
     eprintln!("\n── Phase 2: Post-Nouveau (No-FLR) State ──");
     let mut sec2_already_hs = false;
-    for (name, base) in [("SEC2", SEC2_BASE), ("FECS", FECS_BASE), ("GPCCS", GPCCS_BASE)] {
+    for (name, base) in [
+        ("SEC2", SEC2_BASE),
+        ("FECS", FECS_BASE),
+        ("GPCCS", GPCCS_BASE),
+    ] {
         let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
         let cpuctl = r(freg103::CPUCTL);
         let sctl = r(freg103::SCTL);
@@ -88,7 +91,9 @@ fn exp103_no_flr_acr_boot() {
         let hreset = cpuctl & freg103::CPUCTL_HRESET != 0;
         let halted = cpuctl & freg103::CPUCTL_HALTED != 0;
         let hs = sctl & 0x02 != 0;
-        eprintln!("  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HALTED={halted} HS={hs} sctl={sctl:#010x}");
+        eprintln!(
+            "  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HALTED={halted} HS={hs} sctl={sctl:#010x}"
+        );
         eprintln!("    PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}");
 
         if name == "SEC2" && hs && !halted && !hreset {
@@ -109,7 +114,9 @@ fn exp103_no_flr_acr_boot() {
         let fbhub8 = bar0.read_u32(0x100808).unwrap_or(0xDEAD);
         let pmc = bar0.read_u32(0x000200).unwrap_or(0xDEAD);
         let mmu_ctrl = bar0.read_u32(0x100C80).unwrap_or(0xDEAD);
-        eprintln!("  MC: PFB[0]={mc_boot:#010x} [4]={mc_cfg:#010x} FBHUB={fbhub0:#010x}/{fbhub4:#010x}/{fbhub8:#010x}");
+        eprintln!(
+            "  MC: PFB[0]={mc_boot:#010x} [4]={mc_cfg:#010x} FBHUB={fbhub0:#010x}/{fbhub4:#010x}/{fbhub8:#010x}"
+        );
         eprintln!("  MC: PMC_EN={pmc:#010x} MMU_CTRL={mmu_ctrl:#010x}");
     }
 
@@ -121,9 +128,8 @@ fn exp103_no_flr_acr_boot() {
             gpccs: 0x3400,
             fecs: 0x7E00,
         };
-        let result = coral_driver::nv::vfio_compute::acr_boot::attempt_acr_mailbox_command(
-            &bar0, &bootvec,
-        );
+        let result =
+            coral_driver::nv::vfio_compute::acr_boot::attempt_acr_mailbox_command(&bar0, &bootvec);
         eprintln!("  Strategy: {}", result.strategy);
         eprintln!("  Success: {}", result.success);
         for note in &result.notes {
@@ -149,7 +155,11 @@ fn exp103_no_flr_acr_boot() {
 
     // Phase 4: Final state
     eprintln!("\n── Phase 4: Final State ──");
-    for (name, base) in [("SEC2", SEC2_BASE), ("FECS", FECS_BASE), ("GPCCS", GPCCS_BASE)] {
+    for (name, base) in [
+        ("SEC2", SEC2_BASE),
+        ("FECS", FECS_BASE),
+        ("GPCCS", GPCCS_BASE),
+    ] {
         let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD_DEAD);
         let cpuctl = r(freg103::CPUCTL);
         let sctl = r(freg103::SCTL);
@@ -158,7 +168,9 @@ fn exp103_no_flr_acr_boot() {
         let mb0 = r(freg103::MAILBOX0);
         let hreset = cpuctl & freg103::CPUCTL_HRESET != 0;
         let hs = sctl & 0x02 != 0;
-        eprintln!("  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HS={hs} PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}");
+        eprintln!(
+            "  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HS={hs} PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}"
+        );
     }
 
     eprintln!("\n=== Exp 103 Complete ===");

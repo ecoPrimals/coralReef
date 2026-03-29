@@ -9,8 +9,10 @@
 //! dies, ember's fds prevent the kernel from performing a PM reset.
 //!
 //! Usage:
-//!   coral-ember /etc/coralreef/glowplug.toml
-//!   coral-ember  (auto-discovers config from XDG/system paths; override system path with `$CORALREEF_GLOWPLUG_CONFIG`)
+//!   `coral-ember server` / `coral-ember server --port 9000`
+//!   `coral-ember /etc/coralreef/glowplug.toml` (legacy: same as `server` with a config path)
+//!   Auto-discovers config from XDG/system paths when omitted; override system path with
+//!   `$CORALREEF_GLOWPLUG_CONFIG`.
 
 pub mod adaptive;
 pub mod drm_isolation;
@@ -24,6 +26,7 @@ pub mod trace;
 pub(crate) mod vendor_lifecycle;
 
 use std::collections::{HashMap, HashSet};
+use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
 use std::sync::{Arc, RwLock};
 
@@ -32,10 +35,10 @@ use serde::Deserialize;
 pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};
-pub use observation::{
-    HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms,
+pub use observation::{HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms};
+pub use swap::{
+    handle_swap_device, handle_swap_device_with_journal, verify_drm_isolation_with_paths,
 };
-pub use swap::{handle_swap_device, handle_swap_device_with_journal, verify_drm_isolation_with_paths};
 pub use vendor_lifecycle::{
     RebindStrategy, ResetMethod, VendorLifecycle, detect_lifecycle, detect_lifecycle_for_target,
 };
@@ -89,6 +92,18 @@ impl EmberDeviceConfig {
     pub fn is_protected(&self) -> bool {
         self.is_display() || self.is_shared()
     }
+}
+
+/// Environment variable for the optional TCP JSON-RPC listen port (set when `--port` is used).
+pub const EMBER_LISTEN_PORT_ENV: &str = "CORALREEF_EMBER_PORT";
+
+/// Options for [`run_with_options`] (UniBin `server` entry).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EmberRunOptions {
+    /// Path to `glowplug.toml`; when `None`, uses [`find_config`] (XDG then system).
+    pub config_path: Option<String>,
+    /// When `Some`, also listens on `127.0.0.1:port` for JSON-RPC over TCP.
+    pub listen_port: Option<u16>,
 }
 
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
@@ -155,6 +170,9 @@ fn set_socket_group(path: &str, group_name: &str) {
 
 /// Entry point for the coral-ember daemon: load config, hold VFIO fds, serve JSON-RPC on the Unix socket.
 ///
+/// Equivalent to [`run_with_options`] with a legacy first positional config path from [`std::env::args`]
+/// and no TCP listen port.
+///
 /// On startup failure, returns `Err(exit_code)` (typically `1`). On success, blocks in the accept
 /// loop until the process is terminated.
 ///
@@ -162,6 +180,22 @@ fn set_socket_group(path: &str, group_name: &str) {
 ///
 /// Returns `Err(1)` when configuration is missing, invalid, empty, or VFIO setup fails.
 pub fn run() -> Result<(), i32> {
+    run_with_options(EmberRunOptions {
+        config_path: std::env::args().nth(1),
+        listen_port: None,
+    })
+}
+
+/// Same as [`run`] but accepts explicit config and optional TCP listen port (see [`EmberRunOptions`]).
+///
+/// When `listen_port` is set, a TCP listener is started on `127.0.0.1` in addition to the Unix socket.
+/// ([`EMBER_LISTEN_PORT_ENV`] names the conventional env var for documenting the chosen port; it is
+/// not written by this crate — Rust 2024 treats concurrent `set_var` as `unsafe`.)
+///
+/// # Errors
+///
+/// Returns `Err(1)` when configuration is missing, invalid, empty, or VFIO setup fails.
+pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -169,10 +203,10 @@ pub fn run() -> Result<(), i32> {
         )
         .init();
 
-    let config_path = match std::env::args().nth(1).or_else(find_config) {
+    let config_path = match opts.config_path.or_else(find_config) {
         Some(p) => p,
         None => {
-            tracing::error!("usage: coral-ember [config.toml]");
+            tracing::error!("usage: coral-ember server [--port PORT] [CONFIG.toml]");
             tracing::error!("  no config found in XDG/system paths");
             return Err(1);
         }
@@ -319,6 +353,9 @@ pub fn run() -> Result<(), i32> {
         }
     }
     tracing::info!("║ Socket: {socket_path}");
+    if let Some(port) = opts.listen_port {
+        tracing::info!("║ TCP JSON-RPC: 127.0.0.1:{port} (vfio_fds unavailable over TCP)");
+    }
     tracing::info!("╚══════════════════════════════════════════════════════════╝");
 
     if let Ok(ref path) = std::env::var("NOTIFY_SOCKET") {
@@ -328,16 +365,64 @@ pub fn run() -> Result<(), i32> {
 
     spawn_watchdog(Arc::clone(&held));
 
+    if let Some(port) = opts.listen_port {
+        let tcp_addr = format!("127.0.0.1:{port}");
+        let tcp_listener = match TcpListener::bind(&tcp_addr) {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!(addr = %tcp_addr, error = %e, "failed to bind ember TCP listen");
+                return Err(1);
+            }
+        };
+
+        let held_tcp = Arc::clone(&held);
+        let managed_tcp = Arc::clone(&managed_bdfs);
+        let journal_tcp = Arc::clone(&journal);
+        let started_tcp = started_at;
+        std::thread::Builder::new()
+            .name("ember-tcp-accept".into())
+            .spawn(move || {
+                for stream in tcp_listener.incoming() {
+                    match stream {
+                        Ok(mut stream) => {
+                            let held = Arc::clone(&held_tcp);
+                            let managed = Arc::clone(&managed_tcp);
+                            let journal = Arc::clone(&journal_tcp);
+                            std::thread::spawn(move || {
+                                if let Err(e) = ipc::handle_client_tcp(
+                                    &mut stream,
+                                    &held,
+                                    managed.as_ref(),
+                                    started_tcp,
+                                    Some(&journal),
+                                ) {
+                                    tracing::warn!(error = %e, "ember TCP client handler error");
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "ember TCP accept error");
+                        }
+                    }
+                }
+            })
+            .expect("spawn ember TCP accept thread");
+    }
+
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
+            Ok(mut stream) => {
                 let held = Arc::clone(&held);
                 let managed = Arc::clone(&managed_bdfs);
                 let journal = Arc::clone(&journal);
                 std::thread::spawn(move || {
-                    if let Err(e) =
-                        ipc::handle_client(&stream, &held, &managed, started_at, Some(&journal))
-                    {
+                    if let Err(e) = ipc::handle_client(
+                        &mut stream,
+                        &held,
+                        managed.as_ref(),
+                        started_at,
+                        Some(&journal),
+                    ) {
                         tracing::warn!(error = %e, "client handler error");
                     }
                 });

@@ -294,4 +294,12 @@ mod tests {
         write!(f, "{j}").expect("write");
         assert!(registry_bind_from_json_file(&path).is_none());
     }
+
+    #[test]
+    fn registry_bind_from_json_file_malformed_returns_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("broken.json");
+        std::fs::write(&path, "not-json").expect("write");
+        assert!(registry_bind_from_json_file(&path).is_none());
+    }
 }

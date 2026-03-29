@@ -537,7 +537,12 @@ impl NvVfioComputeDevice {
     pub fn sysmem_physical_boot(&self) -> acr_boot::AcrBootResult {
         let chip = sm_to_chip(self.sm_version);
         let fw = acr_boot::AcrFirmwareSet::load(chip).expect("firmware load");
-        acr_boot::attempt_sysmem_physical_boot(&self.bar0, &fw, self.container.clone())
+        acr_boot::attempt_sysmem_acr_boot_with_config(
+            &self.bar0,
+            &fw,
+            self.container.clone(),
+            &acr_boot::BootConfig::exp095_baseline(),
+        )
     }
 
     /// Run the hybrid ACR boot: VRAM page tables + system memory data (Exp 083b).

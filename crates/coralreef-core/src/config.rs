@@ -26,6 +26,13 @@ pub const PRIMAL_NAME: &str = env!("CARGO_PKG_NAME");
 /// Primal version derived from the crate version at compile time.
 pub const PRIMAL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Environment variable: stem for the capability-domain symlink next to the Unix socket.
+///
+/// Per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.1, clients discover the
+/// shader capability via `{stem}.sock` in the same directory as the instance socket.
+/// Default stem when unset or invalid: `shader`.
+pub const CORALREEF_CAPABILITY_DOMAIN_ENV: &str = "CORALREEF_CAPABILITY_DOMAIN";
+
 /// Family ID for multi-instance isolation.
 ///
 /// Reads `$BIOMEOS_FAMILY_ID` at runtime (set by genomeBin or systemd).
@@ -33,6 +40,27 @@ pub const PRIMAL_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[must_use]
 pub fn family_id() -> String {
     std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+}
+
+/// Filename for the capability-domain symlink: `{domain}.sock`.
+///
+/// Reads [`CORALREEF_CAPABILITY_DOMAIN_ENV`]. Empty or path-like values fall back to `shader`.
+#[must_use]
+pub fn capability_domain_socket_filename() -> String {
+    const DEFAULT_STEM: &str = "shader";
+    let raw = std::env::var(CORALREEF_CAPABILITY_DOMAIN_ENV).unwrap_or_default();
+    let stem = raw.trim();
+    let stem = if stem.is_empty()
+        || stem.contains('/')
+        || stem.contains('\\')
+        || stem == "."
+        || stem == ".."
+    {
+        DEFAULT_STEM
+    } else {
+        stem
+    };
+    format!("{stem}.sock")
 }
 
 /// Compute the socket filename for this primal per wateringHole standard.
@@ -111,6 +139,13 @@ mod tests {
             Some("sock"),
         );
         assert!(name.contains('-'));
+    }
+
+    #[test]
+    fn test_capability_domain_socket_filename_suffix() {
+        let name = capability_domain_socket_filename();
+        assert!(name.ends_with(".sock"));
+        assert!(!name.trim().is_empty());
     }
 
     #[test]

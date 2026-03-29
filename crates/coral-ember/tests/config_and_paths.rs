@@ -3,6 +3,8 @@
 
 use std::sync::Mutex;
 
+use coral_ember::drm_isolation::{default_udev_path, default_xorg_path};
+use coral_ember::journal::Journal;
 use tempfile::TempDir;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -346,4 +348,73 @@ fn find_config_prefers_explicit_xdg_config_home() {
     } else {
         unsafe { env_remove_var("CORALREEF_GLOWPLUG_CONFIG") };
     }
+}
+
+#[test]
+fn default_xorg_path_respects_coralreef_x11_conf_dir_env() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let dir = TempDir::new().expect("tempdir");
+    let prev = std::env::var("CORALREEF_X11_CONF_DIR").ok();
+    unsafe {
+        env_set_var(
+            "CORALREEF_X11_CONF_DIR",
+            dir.path().to_str().expect("utf8 temp path"),
+        );
+    }
+    let path = default_xorg_path();
+    if let Some(v) = prev {
+        unsafe { env_set_var("CORALREEF_X11_CONF_DIR", &v) };
+    } else {
+        unsafe { env_remove_var("CORALREEF_X11_CONF_DIR") };
+    }
+    let expected = dir
+        .path()
+        .join("11-coralreef-gpu-isolation.conf")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(path, expected);
+}
+
+#[test]
+fn default_udev_path_respects_coralreef_udev_rules_dir_env() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let dir = TempDir::new().expect("tempdir");
+    let prev = std::env::var("CORALREEF_UDEV_RULES_DIR").ok();
+    unsafe {
+        env_set_var(
+            "CORALREEF_UDEV_RULES_DIR",
+            dir.path().to_str().expect("utf8 temp path"),
+        );
+    }
+    let path = default_udev_path();
+    if let Some(v) = prev {
+        unsafe { env_set_var("CORALREEF_UDEV_RULES_DIR", &v) };
+    } else {
+        unsafe { env_remove_var("CORALREEF_UDEV_RULES_DIR") };
+    }
+    let expected = dir
+        .path()
+        .join("61-coralreef-drm-ignore.rules")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(path, expected);
+}
+
+#[test]
+fn journal_open_default_respects_coralreef_journal_path_env() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let dir = TempDir::new().expect("tempdir");
+    let journal_path = dir.path().join("from-env.jsonl");
+    let path_str = journal_path.to_str().expect("utf8 journal path");
+    let prev = std::env::var("CORALREEF_JOURNAL_PATH").ok();
+    unsafe {
+        env_set_var("CORALREEF_JOURNAL_PATH", path_str);
+    }
+    let journal = Journal::open_default();
+    if let Some(v) = prev {
+        unsafe { env_set_var("CORALREEF_JOURNAL_PATH", &v) };
+    } else {
+        unsafe { env_remove_var("CORALREEF_JOURNAL_PATH") };
+    }
+    assert_eq!(journal.path(), journal_path.as_path());
 }

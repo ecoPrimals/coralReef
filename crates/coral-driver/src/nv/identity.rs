@@ -49,16 +49,16 @@ pub const fn chip_name(sm: u32) -> &'static str {
 pub const fn boot0_to_sm(boot0: u32) -> Option<u32> {
     let chipset = (boot0 >> 20) & 0xFFF;
     match chipset {
-        0x0F0..=0x0F1 => Some(35), // Kepler GK110/GK110B (K40/K80 first die)
-        0x0F2..=0x0FF => Some(37), // Kepler GK210 (K80 — exact ID TBD from real silicon)
-        0x120..=0x12F => Some(50), // Maxwell GM200
-        0x130..=0x13F => Some(60), // Pascal GP100/GP102/GP104/GP106/GP107/GP108
-        0x140 => Some(70),         // Volta GV100
-        0x164..=0x168 => Some(75), // Turing TU102/TU104/TU106/TU116/TU117
-        0x170 => Some(80),         // Ampere GA100
-        0x172..=0x177 => Some(86), // Ampere GA102/GA103/GA104/GA106/GA107
-        0x180 => Some(90),         // Hopper GH100 (H100/H200)
-        0x192..=0x197 => Some(89), // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+        0x0F0..=0x0F1 => Some(35),  // Kepler GK110/GK110B (K40/K80 first die)
+        0x0F2..=0x0FF => Some(37),  // Kepler GK210 (K80 — exact ID TBD from real silicon)
+        0x120..=0x12F => Some(50),  // Maxwell GM200
+        0x130..=0x13F => Some(60),  // Pascal GP100/GP102/GP104/GP106/GP107/GP108
+        0x140 => Some(70),          // Volta GV100
+        0x164..=0x168 => Some(75),  // Turing TU102/TU104/TU106/TU116/TU117
+        0x170 => Some(80),          // Ampere GA100
+        0x172..=0x177 => Some(86),  // Ampere GA102/GA103/GA104/GA106/GA107
+        0x180 => Some(90),          // Hopper GH100 (H100/H200)
+        0x192..=0x197 => Some(89),  // Ada Lovelace AD102/AD103/AD104/AD106/AD107
         0x1A0 | 0x1A2 => Some(100), // Blackwell GB100/GB102 (B100/B200 datacenter)
         0x1B2..=0x1B7 => Some(120), // Blackwell GB202/GB203/GB205/GB206/GB207 (RTX 50-series)
         _ => None,
@@ -113,14 +113,14 @@ pub const fn chipset_variant(boot0: u32) -> &'static str {
 #[must_use]
 pub const fn sm_to_compute_class(sm: u32) -> u32 {
     match sm {
-        35..=37 => 0xA1C0,   // KEPLER_COMPUTE_B (GK110/GK210)
-        50..=52 => 0xB0C0,   // MAXWELL_COMPUTE_B
-        60..=62 => 0xC0C0,   // PASCAL_COMPUTE_A
-        70..=74 => 0xC3C0,   // VOLTA_COMPUTE_A
-        75..=79 => 0xC5C0,   // TURING_COMPUTE_A
-        80..=89 => 0xC6C0,   // AMPERE_COMPUTE_A (also Ada)
-        90..=99 => 0xC7C0,   // HOPPER_COMPUTE_A
-        _ => 0xC8C0,         // BLACKWELL_COMPUTE_A (SM 100+)
+        35..=37 => 0xA1C0, // KEPLER_COMPUTE_B (GK110/GK210)
+        50..=52 => 0xB0C0, // MAXWELL_COMPUTE_B
+        60..=62 => 0xC0C0, // PASCAL_COMPUTE_A
+        70..=74 => 0xC3C0, // VOLTA_COMPUTE_A
+        75..=79 => 0xC5C0, // TURING_COMPUTE_A
+        80..=89 => 0xC6C0, // AMPERE_COMPUTE_A (also Ada)
+        90..=99 => 0xC7C0, // HOPPER_COMPUTE_A
+        _ => 0xC8C0,       // BLACKWELL_COMPUTE_A (SM 100+)
     }
 }
 
@@ -147,9 +147,9 @@ impl GpuIdentity {
         }
         match self.device_id {
             // Kepler GK110/GK110B/GK210
-            0x1003 | 0x1004 | 0x1005 => Some(35), // GK110: Tesla K40/K20X variants
-            0x100A | 0x100C => Some(35),           // GK110B: Tesla K40/K80 single-die
-            0x102D => Some(37),                    // GK210GL: Tesla K80
+            0x1003..=0x1005 => Some(35), // GK110: Tesla K40/K20X variants
+            0x100A | 0x100C => Some(35), // GK110B: Tesla K40/K80 single-die
+            0x102D => Some(37),          // GK210GL: Tesla K80
             // Volta
             0x1D81 | 0x1DB1 | 0x1DB4 | 0x1DB5 | 0x1DB6 | 0x1DB7 => Some(70),
             // Turing
@@ -179,7 +179,7 @@ impl GpuIdentity {
             // Ada Lovelace AD102/AD103/AD104/AD106/AD107
             0x2600..=0x2683 => Some(89),
             // Hopper GH100 (H100 SXM/PCIe, H200)
-            0x2321..=0x233F | 0x2330..=0x2339 => Some(90),
+            0x2321..=0x233F => Some(90),
             // Blackwell GB202 (RTX 5090), GB203 (RTX 5080), GB205 (RTX 5070 Ti),
             // GB206 (RTX 5070), GB207 (RTX 5060)
             0x2900..=0x2999 => Some(120),

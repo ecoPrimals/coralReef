@@ -5,6 +5,7 @@ pub mod boot_follower;
 mod experiments;
 pub mod interpreter;
 mod matrix;
+pub mod replay;
 mod runner;
 mod types;
 

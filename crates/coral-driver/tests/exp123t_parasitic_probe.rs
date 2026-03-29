@@ -16,10 +16,22 @@ struct FalconDesc {
 }
 
 const FALCONS: &[FalconDesc] = &[
-    FalconDesc { name: "FECS",  base: 0x0040_9000 },
-    FalconDesc { name: "GPCCS", base: 0x0041_A000 },
-    FalconDesc { name: "PMU",   base: 0x0010_A000 },
-    FalconDesc { name: "SEC2",  base: 0x0008_7000 },
+    FalconDesc {
+        name: "FECS",
+        base: 0x0040_9000,
+    },
+    FalconDesc {
+        name: "GPCCS",
+        base: 0x0041_A000,
+    },
+    FalconDesc {
+        name: "PMU",
+        base: 0x0010_A000,
+    },
+    FalconDesc {
+        name: "SEC2",
+        base: 0x0008_7000,
+    },
 ];
 
 fn read_reg(bar0: &Bar0Access, addr: u32) -> u32 {
@@ -28,11 +40,11 @@ fn read_reg(bar0: &Bar0Access, addr: u32) -> u32 {
 
 fn probe_falcon(bar0: &Bar0Access, f: &FalconDesc) {
     let cpuctl = read_reg(bar0, f.base + 0x100);
-    let sctl   = read_reg(bar0, f.base + 0x240);
-    let exci   = read_reg(bar0, f.base + 0x04C);
-    let mb0    = read_reg(bar0, f.base + 0x040);
-    let mb1    = read_reg(bar0, f.base + 0x044);
-    let hwcfg  = read_reg(bar0, f.base + 0x108);
+    let sctl = read_reg(bar0, f.base + 0x240);
+    let exci = read_reg(bar0, f.base + 0x04C);
+    let mb0 = read_reg(bar0, f.base + 0x040);
+    let mb1 = read_reg(bar0, f.base + 0x044);
+    let hwcfg = read_reg(bar0, f.base + 0x108);
 
     let state = if cpuctl == 0xBADF_1100 || cpuctl == 0xDEAD_DEAD || cpuctl == 0xBADF_5040 {
         "PRI_FAULT/GATED"
@@ -52,7 +64,9 @@ fn probe_falcon(bar0: &Bar0Access, f: &FalconDesc) {
         let status = read_reg(bar0, f.base + 0x800);
         let scratch0 = read_reg(bar0, f.base + 0x500);
         let scratch1 = read_reg(bar0, f.base + 0x504);
-        eprintln!("         status={status:#010x}  scratch0={scratch0:#010x}  scratch1={scratch1:#010x}");
+        eprintln!(
+            "         status={status:#010x}  scratch0={scratch0:#010x}  scratch1={scratch1:#010x}"
+        );
     }
 }
 
@@ -116,7 +130,9 @@ fn exp123t0_parasitic_falcon_probe() {
         let variant = identity::chipset_variant(boot0);
         let pmc_enable = read_reg(&bar0, 0x200);
 
-        eprintln!("  BOOT0={boot0:#010x}  chipset={variant}  SM={sm:?}  PMC_ENABLE={pmc_enable:#010x}");
+        eprintln!(
+            "  BOOT0={boot0:#010x}  chipset={variant}  SM={sm:?}  PMC_ENABLE={pmc_enable:#010x}"
+        );
 
         eprintln!("\n  --- Falcon State ---");
         for f in FALCONS {
@@ -127,8 +143,10 @@ fn exp123t0_parasitic_falcon_probe() {
         eprintln!("  --- WPR2 State ---");
         let wpr2_beg = read_reg(&bar0, 0x100CEC);
         let wpr2_end = read_reg(&bar0, 0x100CF0);
-        let wpr_cfg  = read_reg(&bar0, 0x100CD0);
-        eprintln!("  PFB_WPR2_BEG={wpr2_beg:#010x}  PFB_WPR2_END={wpr2_end:#010x}  WPR_CFG={wpr_cfg:#010x}");
+        let wpr_cfg = read_reg(&bar0, 0x100CD0);
+        eprintln!(
+            "  PFB_WPR2_BEG={wpr2_beg:#010x}  PFB_WPR2_END={wpr2_end:#010x}  WPR_CFG={wpr_cfg:#010x}"
+        );
 
         // Indexed WPR read
         let _ = bar0.read_u32(0x100CD4); // trigger indexed read
@@ -146,7 +164,10 @@ fn exp123t0_parasitic_falcon_probe() {
             let chan = read_reg(&bar0, 0x800000 + chid * 8);
             if chan & 0x8000_0000 != 0 {
                 active_chans += 1;
-                eprintln!("  CH[{chid:2}]: {chan:#010x} (ACTIVE, inst={:#x})", (chan & 0x0FFF_FFFF) << 12);
+                eprintln!(
+                    "  CH[{chid:2}]: {chan:#010x} (ACTIVE, inst={:#x})",
+                    (chan & 0x0FFF_FFFF) << 12
+                );
             }
         }
         if active_chans == 0 {
@@ -155,14 +176,16 @@ fn exp123t0_parasitic_falcon_probe() {
 
         eprintln!("\n  --- Memory Controller ---");
         let mmu_ctrl = read_reg(&bar0, 0x100C80);
-        let fb_cc4   = read_reg(&bar0, 0x100CC4);
-        let fb_cc8   = read_reg(&bar0, 0x100CC8);
-        let fb_ccc   = read_reg(&bar0, 0x100CCC);
-        eprintln!("  PFB_MMU_CTRL={mmu_ctrl:#010x}  100CC4={fb_cc4:#010x}  100CC8={fb_cc8:#010x}  100CCC={fb_ccc:#010x}");
+        let fb_cc4 = read_reg(&bar0, 0x100CC4);
+        let fb_cc8 = read_reg(&bar0, 0x100CC8);
+        let fb_ccc = read_reg(&bar0, 0x100CCC);
+        eprintln!(
+            "  PFB_MMU_CTRL={mmu_ctrl:#010x}  100CC4={fb_cc4:#010x}  100CC8={fb_cc8:#010x}  100CCC={fb_ccc:#010x}"
+        );
 
         // GR engine status
         let gr_status = read_reg(&bar0, 0x400700);
-        let gr_intr   = read_reg(&bar0, 0x400100);
+        let gr_intr = read_reg(&bar0, 0x400100);
         eprintln!("  GR_STATUS={gr_status:#010x}  GR_INTR={gr_intr:#010x}");
     }
 

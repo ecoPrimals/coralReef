@@ -39,7 +39,8 @@ impl NvVfioComputeDevice {
 
         self.gpfifo_ring.volatile_write_u64(offset, entry);
         self.gpfifo_put = self.gpfifo_put.wrapping_add(1);
-        self.userd.volatile_write_u32(ramuserd::GP_PUT, self.gpfifo_put);
+        self.userd
+            .volatile_write_u32(ramuserd::GP_PUT, self.gpfifo_put);
 
         // H1 hypothesis: CPU writes GP_PUT to DMA-mapped USERD page, but the write
         // sits in CPU cache. PBDMA reads via IOMMU DMA and sees stale zero, so

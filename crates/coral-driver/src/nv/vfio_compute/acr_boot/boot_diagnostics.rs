@@ -4,7 +4,7 @@
 //!
 //! Extracts falcon register dumps, TRACEPC, DMEM/IMEM snapshots,
 //! and FBHUB/MMU fault state into a reusable function. Called by
-//! `strategy_sysmem.rs` after the boot polling loop.
+//! [`strategy_sysmem`](super::strategy_sysmem) after the boot polling loop.
 
 use crate::vfio::channel::registers::falcon;
 use crate::vfio::device::MappedBar;
@@ -18,7 +18,9 @@ use super::sec2_hal::sec2_dmem_read;
 /// but before the final `PostBootCapture`.
 pub fn capture_post_boot_diagnostics(bar0: &MappedBar, base: usize, notes: &mut Vec<String>) {
     let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
-    let w = |off: usize, val: u32| { let _ = bar0.write_u32(base + off, val); };
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
 
     let exci = r(falcon::EXCI);
     let sctl_post = r(falcon::SCTL);
@@ -109,9 +111,11 @@ pub fn capture_post_boot_diagnostics(bar0: &MappedBar, base: usize, notes: &mut 
         for _ in 0..32 {
             imem_words.push(bar0.read_u32(base + 0x184).unwrap_or(0xDEAD));
         }
-        let hex: Vec<String> = imem_words.iter().enumerate().map(|(i, &w)| {
-            format!("[{:#05x}]={w:#010x}", 0x4C0 + i * 4)
-        }).collect();
+        let hex: Vec<String> = imem_words
+            .iter()
+            .enumerate()
+            .map(|(i, &w)| format!("[{:#05x}]={w:#010x}", 0x4C0 + i * 4))
+            .collect();
         notes.push(format!("IMEM[0x4C0..0x540]: {}", hex.join(" ")));
     }
 
@@ -126,7 +130,11 @@ pub fn capture_post_boot_diagnostics(bar0: &MappedBar, base: usize, notes: &mut 
         .collect();
     notes.push(format!(
         "DMEM[0x00..0x54] (BL desc): {}",
-        if bl_vals.is_empty() { "ALL ZERO/DEAD".to_string() } else { bl_vals.join(" ") }
+        if bl_vals.is_empty() {
+            "ALL ZERO/DEAD".to_string()
+        } else {
+            bl_vals.join(" ")
+        }
     ));
 
     // DMEM diagnostic: ACR descriptor region (0x200..0x270)
@@ -145,13 +153,19 @@ pub fn capture_post_boot_diagnostics(bar0: &MappedBar, base: usize, notes: &mut 
             acr_vals.join(" ")
         }
     ));
-    let raw8: Vec<String> = dmem_acr.iter().take(8).map(|w| format!("{w:#010x}")).collect();
+    let raw8: Vec<String> = dmem_acr
+        .iter()
+        .take(8)
+        .map(|w| format!("{w:#010x}"))
+        .collect();
     notes.push(format!("DMEM[0x200] raw: {}", raw8.join(" ")));
 
     // MMU TLB state after boot
     {
         let tlb_hi = bar0.read_u32(0x100CEC).unwrap_or(0);
         let reg_cf0 = bar0.read_u32(0x100CF0).unwrap_or(0);
-        notes.push(format!("MMU post-boot: TLB_hi={tlb_hi:#010x} 0xCF0={reg_cf0:#010x}"));
+        notes.push(format!(
+            "MMU post-boot: TLB_hi={tlb_hi:#010x} 0xCF0={reg_cf0:#010x}"
+        ));
     }
 }

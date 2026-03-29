@@ -48,9 +48,7 @@ fn discover_bdf() -> String {
             }
         }
     }
-    panic!(
-        "No VFIO GPU found. Set CORALREEF_VFIO_BDF or bind an NVIDIA GPU to vfio-pci."
-    );
+    panic!("No VFIO GPU found. Set CORALREEF_VFIO_BDF or bind an NVIDIA GPU to vfio-pci.");
 }
 
 fn detect_chip(bar0: &coral_driver::vfio::device::MappedBar) -> (&'static str, u32) {
@@ -64,18 +62,150 @@ fn detect_chip(bar0: &coral_driver::vfio::device::MappedBar) -> (&'static str, u
 
 fn build_matrix() -> Vec<(u32, BootConfig, &'static str)> {
     vec![
-        ( 1, BootConfig { pde_upper: false, acr_vram_pte: false, blob_size_zero: true,  bind_vram: false, imem_preload: false, tlb_invalidate: false }, "Exp 095 baseline"),
-        ( 2, BootConfig { pde_upper: false, acr_vram_pte: false, blob_size_zero: true,  bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "+ TLB"),
-        ( 3, BootConfig { pde_upper: true,  acr_vram_pte: false, blob_size_zero: true,  bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "Correct PDEs, skip blob"),
-        ( 4, BootConfig { pde_upper: true,  acr_vram_pte: true,  blob_size_zero: true,  bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "+ VRAM code PTEs"),
-        ( 5, BootConfig { pde_upper: false, acr_vram_pte: false, blob_size_zero: false, bind_vram: false, imem_preload: false, tlb_invalidate: false }, "Old PDEs, full init"),
-        ( 6, BootConfig { pde_upper: false, acr_vram_pte: false, blob_size_zero: false, bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "+ TLB"),
-        ( 7, BootConfig { pde_upper: true,  acr_vram_pte: false, blob_size_zero: false, bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "Correct PDEs, full init"),
-        ( 8, BootConfig { pde_upper: true,  acr_vram_pte: true,  blob_size_zero: false, bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "+ VRAM code PTEs, full init"),
-        ( 9, BootConfig { pde_upper: true,  acr_vram_pte: true,  blob_size_zero: false, bind_vram: true,  imem_preload: false, tlb_invalidate: true  }, "All-VRAM path"),
-        (10, BootConfig { pde_upper: true,  acr_vram_pte: false, blob_size_zero: true,  bind_vram: false, imem_preload: true,  tlb_invalidate: true  }, "Pre-load interference"),
-        (11, BootConfig { pde_upper: false, acr_vram_pte: false, blob_size_zero: true,  bind_vram: false, imem_preload: true,  tlb_invalidate: false }, "Pre-load + old PDEs"),
-        (12, BootConfig { pde_upper: true,  acr_vram_pte: true,  blob_size_zero: true,  bind_vram: false, imem_preload: false, tlb_invalidate: true  }, "Correct PDEs + VRAM code + skip blob"),
+        (
+            1,
+            BootConfig {
+                pde_upper: false,
+                acr_vram_pte: false,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: false,
+            },
+            "Exp 095 baseline",
+        ),
+        (
+            2,
+            BootConfig {
+                pde_upper: false,
+                acr_vram_pte: false,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "+ TLB",
+        ),
+        (
+            3,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: false,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "Correct PDEs, skip blob",
+        ),
+        (
+            4,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: true,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "+ VRAM code PTEs",
+        ),
+        (
+            5,
+            BootConfig {
+                pde_upper: false,
+                acr_vram_pte: false,
+                blob_size_zero: false,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: false,
+            },
+            "Old PDEs, full init",
+        ),
+        (
+            6,
+            BootConfig {
+                pde_upper: false,
+                acr_vram_pte: false,
+                blob_size_zero: false,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "+ TLB",
+        ),
+        (
+            7,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: false,
+                blob_size_zero: false,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "Correct PDEs, full init",
+        ),
+        (
+            8,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: true,
+                blob_size_zero: false,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "+ VRAM code PTEs, full init",
+        ),
+        (
+            9,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: true,
+                blob_size_zero: false,
+                bind_vram: true,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "All-VRAM path",
+        ),
+        (
+            10,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: false,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: true,
+                tlb_invalidate: true,
+            },
+            "Pre-load interference",
+        ),
+        (
+            11,
+            BootConfig {
+                pde_upper: false,
+                acr_vram_pte: false,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: true,
+                tlb_invalidate: false,
+            },
+            "Pre-load + old PDEs",
+        ),
+        (
+            12,
+            BootConfig {
+                pde_upper: true,
+                acr_vram_pte: true,
+                blob_size_zero: true,
+                bind_vram: false,
+                imem_preload: false,
+                tlb_invalidate: true,
+            },
+            "Correct PDEs + VRAM code + skip blob",
+        ),
     ]
 }
 
@@ -95,7 +225,13 @@ struct RunResult {
 
 impl RunResult {
     fn hs_str(&self) -> &str {
-        if self.error.is_some() { "ERR" } else if self.hs { "YES" } else { "no" }
+        if self.error.is_some() {
+            "ERR"
+        } else if self.hs {
+            "YES"
+        } else {
+            "no"
+        }
     }
 }
 
@@ -126,9 +262,15 @@ fn run_single(
         Ok(f) => f,
         Err(e) => {
             return RunResult {
-                combo, label: why.to_string(),
-                sctl: 0, hs: false, exci: 0, tracepc_count: 0,
-                crash_pc: 0, dmem_readable: false, mailbox0_cleared: false,
+                combo,
+                label: why.to_string(),
+                sctl: 0,
+                hs: false,
+                exci: 0,
+                tracepc_count: 0,
+                crash_pc: 0,
+                dmem_readable: false,
+                mailbox0_cleared: false,
                 error: Some(format!("ember fds: {e}")),
             };
         }
@@ -138,9 +280,15 @@ fn run_single(
         Ok(d) => d,
         Err(e) => {
             return RunResult {
-                combo, label: why.to_string(),
-                sctl: 0, hs: false, exci: 0, tracepc_count: 0,
-                crash_pc: 0, dmem_readable: false, mailbox0_cleared: false,
+                combo,
+                label: why.to_string(),
+                sctl: 0,
+                hs: false,
+                exci: 0,
+                tracepc_count: 0,
+                crash_pc: 0,
+                dmem_readable: false,
+                mailbox0_cleared: false,
                 error: Some(format!("VfioDevice: {e}")),
             };
         }
@@ -200,8 +348,7 @@ fn exp110_consolidation_matrix() {
     // Initial cycle to get BAR0 for chip detection
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds for chip detect");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let (chip, _boot0) = detect_chip(&bar0);
     drop(bar0);
@@ -225,8 +372,20 @@ fn exp110_consolidation_matrix() {
     eprintln!("{sep120}");
     eprintln!(
         "{:>3} | {:>5} {:>8} {:>5} {:>5} {:>4} {:>3} | {:>3} | {:>10} | {:>4} | {:>3} | {:>5} | {:>4} | {}",
-        "#", "pde", "vram_pte", "blob0", "bind", "imem", "tlb",
-        "HS", "SCTL", "EXCI", "TPC", "PC", "MB0=0", "Why"
+        "#",
+        "pde",
+        "vram_pte",
+        "blob0",
+        "bind",
+        "imem",
+        "tlb",
+        "HS",
+        "SCTL",
+        "EXCI",
+        "TPC",
+        "PC",
+        "MB0=0",
+        "Why"
     );
     eprintln!("{}", "-".repeat(120));
 

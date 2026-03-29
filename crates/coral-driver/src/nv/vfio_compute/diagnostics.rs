@@ -40,7 +40,7 @@ pub struct FalconState {
     pub nxtctx: u32,
     /// `DEBUG1`: Falcon debug / trap status.
     pub debug1: u32,
-    /// `EXCI`: Exception info — [31:16]=cause, [15:0]=PC at fault.
+    /// `EXCI`: Exception info — `[31:16]`=cause, `[15:0]`=PC at fault.
     pub exci: u32,
     /// `PC`: Program counter snapshot (offset 0x030).
     pub pc: u32,
@@ -130,11 +130,7 @@ impl fmt::Display for FalconState {
             "    cpuctl={:#010x} bootvec={:#010x} hwcfg={:#010x}",
             self.cpuctl, self.bootvec, self.hwcfg
         )?;
-        writeln!(
-            f,
-            "    pc={:#06x} exci={:#010x}",
-            self.pc, self.exci
-        )?;
+        writeln!(f, "    pc={:#06x} exci={:#010x}", self.pc, self.exci)?;
         writeln!(
             f,
             "    imem={}B dmem={}B secure={}",

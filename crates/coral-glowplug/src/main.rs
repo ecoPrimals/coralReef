@@ -57,6 +57,7 @@ fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
         name: None,
         boot_personality: personality.to_string(),
         power_policy: "always_on".into(),
+        health_policy: "passive".into(),
         role: Some("compute".into()),
         oracle_dump: None,
         shared: None,

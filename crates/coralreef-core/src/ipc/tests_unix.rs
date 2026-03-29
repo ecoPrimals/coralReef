@@ -2,7 +2,8 @@
 //! Unix JSON-RPC (newline-delimited over Unix socket) tests.
 
 #[cfg(unix)]
-use super::unix_jsonrpc::{dispatch, make_response};
+use super::newline_jsonrpc::dispatch;
+use super::unix_jsonrpc::make_response;
 #[cfg(unix)]
 use super::*;
 

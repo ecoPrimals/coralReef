@@ -8,6 +8,7 @@
 //! hooks that encode vendor-specific knowledge (reset method quirks, power state
 //! management, rebind strategies). See [`vendor_lifecycle`] module.
 
+use crate::drm_isolation;
 use crate::hold::HeldDevice;
 use crate::journal::Journal;
 use crate::observation::{self, HealthResult, SwapObservation, SwapTiming};
@@ -18,28 +19,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Default Xorg drop-in path when `CORALREEF_XORG_ISOLATION_CONF` is unset.
-const DEFAULT_XORG_ISOLATION_CONF: &str = "/etc/X11/xorg.conf.d/11-coralreef-gpu-isolation.conf";
-/// Default udev rules path when `CORALREEF_UDEV_ISOLATION_RULES` is unset.
-const DEFAULT_UDEV_ISOLATION_RULES: &str = "/etc/udev/rules.d/61-coralreef-drm-ignore.rules";
-
-fn xorg_isolation_conf_path() -> String {
-    std::env::var("CORALREEF_XORG_ISOLATION_CONF")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_XORG_ISOLATION_CONF.to_string())
-}
-
-fn udev_isolation_rules_path() -> String {
-    std::env::var("CORALREEF_UDEV_ISOLATION_RULES")
-        .unwrap_or_else(|_| DEFAULT_UDEV_ISOLATION_RULES.to_string())
-}
-
 fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
     verify_drm_isolation_with_paths(
         bdf,
-        &xorg_isolation_conf_path(),
-        &udev_isolation_rules_path(),
+        &drm_isolation::default_xorg_path(),
+        &drm_isolation::default_udev_path(),
     )
 }
 
@@ -257,8 +241,76 @@ fn preflight_device_check(bdf: &str) -> Result<(), String> {
         }
     }
 
+    // Cold-hardware detection: NVIDIA GPUs claimed by vfio-pci at boot
+    // without a prior VBIOS POST have empty reset_method files. Unbinding
+    // vfio-pci from such devices triggers PCI config-space writes that the
+    // cold hardware doesn't complete, causing PCIe completion timeouts and
+    // kernel D-state. Detect this and reject early with an actionable error.
+    let current_driver = sysfs::read_current_driver(bdf);
+    if current_driver.as_deref() == Some("vfio-pci") {
+        let reset_path = linux_paths::sysfs_pci_device_file(bdf, "reset_method");
+        let reset_methods = std::fs::read_to_string(&reset_path).unwrap_or_default();
+        if reset_methods.trim().is_empty() {
+            let resource0_path = linux_paths::sysfs_pci_device_file(bdf, "resource0");
+            let is_cold = is_gpu_cold_via_ptimer(&resource0_path);
+            if is_cold {
+                return Err(format!(
+                    "preflight FAILED for {bdf}: device is cold/un-POSTed (empty reset_method, \
+                     PTIMER frozen). Unbinding vfio-pci will cause kernel D-state. \
+                     Boot with nouveau first to POST the device, then swap to vfio-pci."
+                ));
+            }
+            tracing::warn!(
+                bdf,
+                "preflight: empty reset_method but PTIMER appears alive — \
+                 proceeding cautiously"
+            );
+        }
+    }
+
     tracing::info!(bdf, "preflight: device state OK");
     Ok(())
+}
+
+/// Heuristic: read PTIMER (offset 0x9400 in BAR0) twice with a gap.
+/// If both reads return the same value or zero, the GPU crystal clock
+/// is not running and the device is cold/un-POSTed.
+fn is_gpu_cold_via_ptimer(resource0_path: &str) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+
+    const PTIMER_LOW: u64 = 0x9400;
+
+    let mut file = match std::fs::OpenOptions::new().read(true).open(resource0_path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+
+    let read_u32_at = |f: &mut std::fs::File, offset: u64| -> Option<u32> {
+        f.seek(SeekFrom::Start(offset)).ok()?;
+        let mut buf = [0u8; 4];
+        f.read_exact(&mut buf).ok()?;
+        Some(u32::from_le_bytes(buf))
+    };
+
+    let Some(t1) = read_u32_at(&mut file, PTIMER_LOW) else {
+        return false;
+    };
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let Some(t2) = read_u32_at(&mut file, PTIMER_LOW) else {
+        return false;
+    };
+
+    if t1 == t2 {
+        tracing::warn!(
+            resource0_path,
+            ptimer_t1 = format!("{t1:#010x}"),
+            ptimer_t2 = format!("{t2:#010x}"),
+            "PTIMER frozen — GPU is cold/un-POSTed"
+        );
+        return true;
+    }
+
+    false
 }
 
 /// Unbind/rebind the device to `target` (e.g. `vfio-pci`, `amdgpu`, `unbound`), updating `held`.
@@ -284,7 +336,7 @@ pub fn handle_swap_device(
     handle_swap_device_with_journal(bdf, target, held, enable_trace, None)
 }
 
-/// Inner swap implementation that optionally wraps the lifecycle in [`AdaptiveLifecycle`]
+/// Inner swap implementation that optionally wraps the lifecycle in [`AdaptiveLifecycle`](crate::adaptive::AdaptiveLifecycle)
 /// when a journal is provided.
 pub fn handle_swap_device_with_journal(
     bdf: &str,
@@ -438,12 +490,10 @@ pub fn handle_swap_device_with_journal(
 
     let bind_result = if enable_trace && crate::trace::is_mmiotrace_available() {
         tracing::info!(bdf, target, "mmiotrace capture enabled for bind");
-        let (result, tp) = crate::trace::with_mmiotrace(bdf, target, || {
-            match target {
-                "vfio" | "vfio-pci" => bind_vfio(bdf, held, &*lifecycle),
-                "unbound" => Ok("unbound".to_string()),
-                _ => bind_native(bdf, target, &*lifecycle),
-            }
+        let (result, tp) = crate::trace::with_mmiotrace(bdf, target, || match target {
+            "vfio" | "vfio-pci" => bind_vfio(bdf, held, &*lifecycle),
+            "unbound" => Ok("unbound".to_string()),
+            _ => bind_native(bdf, target, &*lifecycle),
         });
         if let Some(ref path) = tp {
             tracing::info!(bdf, target, path = %path, "mmiotrace saved");
@@ -895,11 +945,11 @@ mod tests {
     }
 
     #[test]
-    fn xorg_isolation_conf_path_contains_default_marker() {
+    fn default_xorg_path_contains_default_marker() {
         let _guard = SWAP_TEST_LOCK
             .lock()
             .expect("swap tests must not run concurrently with other swap IPC tests");
-        let p = super::xorg_isolation_conf_path();
+        let p = drm_isolation::default_xorg_path();
         assert!(
             p.contains("coralreef-gpu-isolation"),
             "unexpected xorg path: {p}"
@@ -907,8 +957,8 @@ mod tests {
     }
 
     #[test]
-    fn udev_isolation_rules_path_contains_default_marker() {
-        let p = super::udev_isolation_rules_path();
+    fn default_udev_path_contains_default_marker() {
+        let p = drm_isolation::default_udev_path();
         assert!(
             p.contains("coralreef-drm-ignore"),
             "unexpected udev path: {p}"

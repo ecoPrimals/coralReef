@@ -22,8 +22,8 @@
 use crate::helpers::{init_tracing, open_vfio};
 use coral_driver::gsp::RegisterAccess;
 use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, BootConfig, FalconBootvecOffsets,
-    attempt_acr_mailbox_command, attempt_sysmem_acr_boot_with_config,
+    AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
+    attempt_sysmem_acr_boot_with_config,
 };
 use coral_driver::vfio::device::MappedBar;
 
@@ -113,7 +113,11 @@ fn exp119_cold_boot_wpr2() {
 
     eprintln!("\n  ── WPR2 Hardware Boundaries ──");
     let (wpr2_start, wpr2_end, wpr2_valid) = read_wpr2(bar0);
-    let wpr2_size = if wpr2_end > wpr2_start { wpr2_end - wpr2_start } else { 0 };
+    let wpr2_size = if wpr2_end > wpr2_start {
+        wpr2_end - wpr2_start
+    } else {
+        0
+    };
     eprintln!(
         "  WPR2: start={wpr2_start:#012x} end={wpr2_end:#012x} \
          size={wpr2_size:#x} ({} KiB) valid={wpr2_valid}",
@@ -140,8 +144,7 @@ fn exp119_cold_boot_wpr2() {
     eprintln!("  PHASE B: ACR Boot — blob_size=0, correct PDEs, valid WPR2");
     eprintln!("{eq}");
 
-    let fw = AcrFirmwareSet::load("gv100")
-        .expect("load firmware from /lib/firmware/nvidia/gv100/");
+    let fw = AcrFirmwareSet::load("gv100").expect("load firmware from /lib/firmware/nvidia/gv100/");
     eprintln!("  Firmware loaded OK");
 
     let config = BootConfig {
@@ -155,12 +158,7 @@ fn exp119_cold_boot_wpr2() {
     eprintln!("  Config: pde_upper=true, blob_size=0, TLB flush");
     eprintln!("  WPR2 addresses: start={wpr2_start:#x} end={wpr2_end:#x}");
 
-    let result = attempt_sysmem_acr_boot_with_config(
-        bar0,
-        &fw,
-        dev.dma_backend(),
-        &config,
-    );
+    let result = attempt_sysmem_acr_boot_with_config(bar0, &fw, dev.dma_backend(), &config);
 
     eprintln!("\n  ── ACR Boot Result ──");
     eprintln!("  {result}");
@@ -197,9 +195,15 @@ fn exp119_cold_boot_wpr2() {
 
     // Check WPR copy status
     eprintln!("\n  ── WPR Copy Status (MB0) ──");
-    let sec2_mb0 = bar0.read_u32(r119::SEC2_BASE + r119::MAILBOX0).unwrap_or(0xDEAD);
-    let fecs_mb0 = bar0.read_u32(r119::FECS_BASE + r119::MAILBOX0).unwrap_or(0xDEAD);
-    let gpccs_mb0 = bar0.read_u32(r119::GPCCS_BASE + r119::MAILBOX0).unwrap_or(0xDEAD);
+    let sec2_mb0 = bar0
+        .read_u32(r119::SEC2_BASE + r119::MAILBOX0)
+        .unwrap_or(0xDEAD);
+    let fecs_mb0 = bar0
+        .read_u32(r119::FECS_BASE + r119::MAILBOX0)
+        .unwrap_or(0xDEAD);
+    let gpccs_mb0 = bar0
+        .read_u32(r119::GPCCS_BASE + r119::MAILBOX0)
+        .unwrap_or(0xDEAD);
     eprintln!("  SEC2  MB0: {sec2_mb0:#010x}");
     eprintln!("  FECS  MB0: {fecs_mb0:#010x}");
     eprintln!("  GPCCS MB0: {gpccs_mb0:#010x}");

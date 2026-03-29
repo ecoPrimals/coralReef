@@ -22,8 +22,7 @@ pub fn compile_shader(
     debug: bool,
 ) -> Result<CompiledShader, crate::CompileError> {
     if debug {
-        eprintln!("=== IR after naga_translate (before opts) ===");
-        eprintln!("{shader}");
+        tracing::debug!("=== IR after naga_translate (before opts) ===\n{shader}");
     }
 
     // Optimization passes
@@ -57,8 +56,7 @@ pub fn compile_shader(
     shader.lower_f64_transcendentals();
 
     if debug {
-        eprintln!("=== IR after opts + f64 lowering (before legalize) ===");
-        eprintln!("{shader}");
+        tracing::debug!("=== IR after opts + f64 lowering (before legalize) ===\n{shader}");
     }
 
     // Legalize for target arch
@@ -84,8 +82,7 @@ pub fn compile_shader(
     shader.gather_info()?;
 
     if debug {
-        eprintln!("=== IR after RA + post-RA (before encoding) ===");
-        eprintln!("{shader}");
+        tracing::debug!("=== IR after RA + post-RA (before encoding) ===\n{shader}");
     }
 
     // Encode to binary

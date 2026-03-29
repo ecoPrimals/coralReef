@@ -14,21 +14,32 @@ pub const FECS_BASE: u32 = 0x0040_9000;
 /// GPCCS Falcon base address (BAR0 offset).
 pub const GPCCS_BASE: u32 = 0x0041_A000;
 
-/// FECS/GPCCS host method interface offsets (from FECS_BASE/GPCCS_BASE).
+/// Falcon mailbox register 0 offset (host↔falcon communication).
 pub const FALCON_MAILBOX0: u32 = 0x040;
+/// Falcon mailbox register 1 offset (host↔falcon communication).
 pub const FALCON_MAILBOX1: u32 = 0x044;
+/// Falcon CPU control register offset.
 pub const FALCON_CPUCTL: u32 = 0x100;
+/// Falcon CPU control alias register offset (alternate start trigger).
 pub const FALCON_CPUCTL_ALIAS: u32 = 0x130;
-pub const FALCON_IMEM_CTRL: u32 = 0x180; // port 0
+/// Falcon IMEM control register offset (port 0).
+pub const FALCON_IMEM_CTRL: u32 = 0x180;
+/// Falcon IMEM data register offset (port 0, auto-increment).
 pub const FALCON_IMEM_DATA: u32 = 0x184;
+/// Falcon IMEM tag register offset (one tag per 256-byte line).
 pub const FALCON_IMEM_TAG: u32 = 0x188;
-pub const FALCON_DMEM_CTRL: u32 = 0x1C0; // port 0
+/// Falcon DMEM control register offset (port 0).
+pub const FALCON_DMEM_CTRL: u32 = 0x1C0;
+/// Falcon DMEM data register offset (port 0, auto-increment).
 pub const FALCON_DMEM_DATA: u32 = 0x1C4;
 
-/// FECS method interface registers (absolute addresses).
+/// FECS scratch register 0 (absolute BAR0 address).
 pub const FECS_SCRATCH0: u32 = 0x0040_9500;
+/// FECS scratch register 1 (absolute BAR0 address).
 pub const FECS_SCRATCH1: u32 = 0x0040_9504;
+/// FECS status register — bit 0 indicates boot completion.
 pub const FECS_STATUS: u32 = 0x0040_9800;
+/// FECS secondary status register (absolute BAR0 address).
 pub const FECS_STATUS2: u32 = 0x0040_9804;
 
 /// IMEM tag alignment: one tag per 256 bytes (64 u32 words).
@@ -96,10 +107,8 @@ pub fn upload_imem(
 
     regs.write_u32(ctrl_reg, start_addr | (1 << 24))?;
 
-    let total_words = (code.len() + 3) / 4;
-    let padded_words = (total_words + IMEM_TAG_WORD_INTERVAL - 1)
-        / IMEM_TAG_WORD_INTERVAL
-        * IMEM_TAG_WORD_INTERVAL;
+    let total_words = code.len().div_ceil(4);
+    let padded_words = total_words.div_ceil(IMEM_TAG_WORD_INTERVAL) * IMEM_TAG_WORD_INTERVAL;
 
     let mut tag = 0u32;
 
@@ -193,9 +202,7 @@ pub fn boot_fecs_gpccs(
             let status = regs.read_u32(FECS_STATUS)?;
             return Err(ApplyError::MmioFailed {
                 offset: FECS_STATUS,
-                detail: format!(
-                    "FECS boot timeout after {timeout:?} (status={status:#010x})"
-                ),
+                detail: format!("FECS boot timeout after {timeout:?} (status={status:#010x})"),
             });
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -208,10 +215,7 @@ pub fn pmc_unk260(regs: &mut dyn RegisterAccess, enable: bool) -> FalconResult<(
 }
 
 /// Diagnostic: read key falcon registers for status reporting.
-pub fn read_falcon_diag(
-    regs: &dyn RegisterAccess,
-    base: u32,
-) -> FalconResult<FalconDiagnostic> {
+pub fn read_falcon_diag(regs: &dyn RegisterAccess, base: u32) -> FalconResult<FalconDiagnostic> {
     Ok(FalconDiagnostic {
         cpuctl: regs.read_u32(base + FALCON_CPUCTL)?,
         mailbox0: regs.read_u32(base + FALCON_MAILBOX0)?,

@@ -80,14 +80,15 @@ fn exp111_vram_native() {
     // Detect chip
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let boot0 = bar0.read_u32(freg111::BOOT0).unwrap_or(0);
     let sm = identity::boot0_to_sm(boot0).unwrap_or(0);
     let chip = identity::chip_name(sm);
-    eprintln!("Chip: {} (sm={sm}, BOOT0={boot0:#010x}) → firmware: {chip}",
-        identity::chipset_variant(boot0));
+    eprintln!(
+        "Chip: {} (sm={sm}, BOOT0={boot0:#010x}) → firmware: {chip}",
+        identity::chipset_variant(boot0)
+    );
     drop(bar0);
     drop(vfio_dev);
 
@@ -110,10 +111,16 @@ fn exp111_vram_native() {
     for note in &result1.notes {
         eprintln!("  | {note}");
     }
-    let sctl1 = bar0.read_u32(freg111::SEC2_BASE + freg111::SCTL).unwrap_or(0);
-    let exci1 = bar0.read_u32(freg111::SEC2_BASE + freg111::EXCI).unwrap_or(0);
+    let sctl1 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::SCTL)
+        .unwrap_or(0);
+    let exci1 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::EXCI)
+        .unwrap_or(0);
     let pc1 = bar0.read_u32(freg111::SEC2_BASE + freg111::PC).unwrap_or(0);
-    let mb01 = bar0.read_u32(freg111::SEC2_BASE + freg111::MAILBOX0).unwrap_or(0xDEAD);
+    let mb01 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::MAILBOX0)
+        .unwrap_or(0xDEAD);
     let hs1 = sctl1 & 0x02 != 0;
     eprintln!("  => SCTL={sctl1:#010x} HS={hs1} EXCI={exci1:#010x} PC={pc1:#06x} MB0={mb01:#010x}");
     drop(bar0);
@@ -135,10 +142,16 @@ fn exp111_vram_native() {
     for note in &result2.notes {
         eprintln!("  | {note}");
     }
-    let sctl2 = bar0.read_u32(freg111::SEC2_BASE + freg111::SCTL).unwrap_or(0);
-    let exci2 = bar0.read_u32(freg111::SEC2_BASE + freg111::EXCI).unwrap_or(0);
+    let sctl2 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::SCTL)
+        .unwrap_or(0);
+    let exci2 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::EXCI)
+        .unwrap_or(0);
     let pc2 = bar0.read_u32(freg111::SEC2_BASE + freg111::PC).unwrap_or(0);
-    let mb02 = bar0.read_u32(freg111::SEC2_BASE + freg111::MAILBOX0).unwrap_or(0xDEAD);
+    let mb02 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::MAILBOX0)
+        .unwrap_or(0xDEAD);
     let hs2 = sctl2 & 0x02 != 0;
     eprintln!("  => SCTL={sctl2:#010x} HS={hs2} EXCI={exci2:#010x} PC={pc2:#06x} MB0={mb02:#010x}");
     drop(bar0);
@@ -149,8 +162,12 @@ fn exp111_vram_native() {
     eprintln!("\n\n{summary}");
     eprintln!("  Exp 111 RESULTS");
     eprintln!("{summary}");
-    eprintln!("  Run 1 (skip blob):  HS={hs1} SCTL={sctl1:#010x} EXCI={exci1:#010x} PC={pc1:#06x} MB0={mb01:#010x}");
-    eprintln!("  Run 2 (full init):  HS={hs2} SCTL={sctl2:#010x} EXCI={exci2:#010x} PC={pc2:#06x} MB0={mb02:#010x}");
+    eprintln!(
+        "  Run 1 (skip blob):  HS={hs1} SCTL={sctl1:#010x} EXCI={exci1:#010x} PC={pc1:#06x} MB0={mb01:#010x}"
+    );
+    eprintln!(
+        "  Run 2 (full init):  HS={hs2} SCTL={sctl2:#010x} EXCI={exci2:#010x} PC={pc2:#06x} MB0={mb02:#010x}"
+    );
     eprintln!("{summary}");
 
     if hs1 || hs2 {
@@ -185,14 +202,15 @@ fn exp112_dual_phase_boot() {
     // Detect chip
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let boot0 = bar0.read_u32(freg111::BOOT0).unwrap_or(0);
     let sm = identity::boot0_to_sm(boot0).unwrap_or(0);
     let chip = identity::chip_name(sm);
-    eprintln!("Chip: {} (sm={sm}) → firmware: {chip}",
-        identity::chipset_variant(boot0));
+    eprintln!(
+        "Chip: {} (sm={sm}) → firmware: {chip}",
+        identity::chipset_variant(boot0)
+    );
     drop(bar0);
     drop(vfio_dev);
 
@@ -206,8 +224,7 @@ fn exp112_dual_phase_boot() {
 
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     let result = attempt_dual_phase_boot(&bar0, &fw);
@@ -216,10 +233,16 @@ fn exp112_dual_phase_boot() {
         eprintln!("  | {note}");
     }
 
-    let sctl = bar0.read_u32(freg111::SEC2_BASE + freg111::SCTL).unwrap_or(0);
-    let exci = bar0.read_u32(freg111::SEC2_BASE + freg111::EXCI).unwrap_or(0);
+    let sctl = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::SCTL)
+        .unwrap_or(0);
+    let exci = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::EXCI)
+        .unwrap_or(0);
     let pc = bar0.read_u32(freg111::SEC2_BASE + freg111::PC).unwrap_or(0);
-    let mb0 = bar0.read_u32(freg111::SEC2_BASE + freg111::MAILBOX0).unwrap_or(0xDEAD);
+    let mb0 = bar0
+        .read_u32(freg111::SEC2_BASE + freg111::MAILBOX0)
+        .unwrap_or(0xDEAD);
     let hs = sctl & 0x02 != 0;
 
     let summary = "=".repeat(80);

@@ -12,6 +12,8 @@ pub mod config;
 pub mod device;
 pub mod ember;
 pub mod error;
+#[cfg(unix)]
+pub mod group_unix;
 pub mod health;
 pub mod mailbox;
 pub mod observer;

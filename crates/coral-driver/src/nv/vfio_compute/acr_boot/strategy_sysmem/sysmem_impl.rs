@@ -1,129 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-//! System-memory ACR boot (IOMMU DMA).
-
 use crate::vfio::channel::registers::{falcon, misc};
 use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::dma::DmaBuffer;
-
 use crate::vfio::memory::{MemoryRegion, PraminRegion};
 
-use super::boot_result::{AcrBootResult, make_fail_result};
-use super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
-use super::instance_block;
-use super::sec2_hal::{
-    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu,
-    find_sec2_pmc_bit, pmc_enable_sec2, sec2_dmem_read, sec2_emem_write,
-    sec2_prepare_physical_first,
+use super::super::boot_result::{AcrBootResult, make_fail_result};
+use super::super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
+use super::super::instance_block;
+use super::super::sec2_hal::{
+    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, find_sec2_pmc_bit,
+    pmc_enable_sec2, sec2_dmem_read,
 };
-use super::sysmem_iova;
-use super::wpr::{build_bl_dmem_desc, build_wpr, patch_acr_desc};
+use super::super::sysmem_iova;
+use super::super::wpr::{build_bl_dmem_desc, build_wpr, patch_acr_desc};
+use super::boot_config::BootConfig;
 
-/// Parameterized boot configuration for the SEC2 ACR boot matrix.
-///
-/// Each field controls one variable in the boot sequence. The 12-combination
-/// matrix (Exp 110) sweeps these to find which achieve HS mode.
-#[derive(Debug, Clone)]
-pub struct BootConfig {
-    /// `true` = correct GV100 upper-8-byte PDE slot, `false` = legacy lower-8
-    pub pde_upper: bool,
-    /// `true` = VRAM aperture PTEs for ACR code pages, `false` = all SYS_MEM
-    pub acr_vram_pte: bool,
-    /// `true` = zero blob_size so ACR skips its internal DMA (Exp 095 style)
-    pub blob_size_zero: bool,
-    /// `true` = VRAM bind target (0), `false` = SYS_MEM bind target (2)
-    pub bind_vram: bool,
-    /// `true` = PIO pre-load ACR code to IMEM before STARTCPU
-    pub imem_preload: bool,
-    /// `true` = flush TLB after binding
-    pub tlb_invalidate: bool,
-}
-
-impl BootConfig {
-    /// Exp 095 baseline: skip blob DMA, legacy PDEs, all SYS_MEM.
-    pub fn exp095_baseline() -> Self {
-        Self {
-            pde_upper: false,
-            acr_vram_pte: false,
-            blob_size_zero: true,
-            bind_vram: false,
-            imem_preload: false,
-            tlb_invalidate: false,
-        }
-    }
-
-    /// Full-init path: correct PDEs, VRAM code PTEs, TLB flush.
-    pub fn full_init() -> Self {
-        Self {
-            pde_upper: true,
-            acr_vram_pte: true,
-            blob_size_zero: false,
-            bind_vram: false,
-            imem_preload: false,
-            tlb_invalidate: true,
-        }
-    }
-
-    /// Short label for matrix output.
-    pub fn label(&self) -> String {
-        format!(
-            "pde={} vram_pte={} blob0={} bind={} imem={} tlb={}",
-            if self.pde_upper { "upper" } else { "lower" },
-            self.acr_vram_pte,
-            self.blob_size_zero,
-            if self.bind_vram { "VRAM" } else { "SYS" },
-            self.imem_preload,
-            self.tlb_invalidate,
-        )
-    }
-}
-
-impl std::fmt::Display for BootConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.label())
-    }
-}
-
-/// System-memory ACR boot with skip-blob-DMA (Exp 095 style).
-///
-/// blob_size is zeroed so the ACR firmware skips its internal blob DMA.
-/// This achieves HS mode but causes the firmware to exit immediately.
-pub fn attempt_sysmem_acr_boot(
-    bar0: &MappedBar,
-    fw: &AcrFirmwareSet,
-    container: DmaBackend,
-) -> AcrBootResult {
-    let config = BootConfig {
-        pde_upper: true,
-        acr_vram_pte: false,
-        blob_size_zero: true,
-        bind_vram: false,
-        imem_preload: false,
-        tlb_invalidate: true,
-    };
-    attempt_sysmem_acr_boot_inner(bar0, fw, container, &config)
-}
-
-/// System-memory ACR boot with blob DMA enabled — firmware attempts full init.
-pub fn attempt_sysmem_acr_boot_full(
-    bar0: &MappedBar,
-    fw: &AcrFirmwareSet,
-    container: DmaBackend,
-) -> AcrBootResult {
-    attempt_sysmem_acr_boot_inner(bar0, fw, container, &BootConfig::full_init())
-}
-
-/// System-memory ACR boot with caller-supplied configuration.
-pub fn attempt_sysmem_acr_boot_with_config(
-    bar0: &MappedBar,
-    fw: &AcrFirmwareSet,
-    container: DmaBackend,
-    config: &BootConfig,
-) -> AcrBootResult {
-    attempt_sysmem_acr_boot_inner(bar0, fw, container, config)
-}
-
-fn attempt_sysmem_acr_boot_inner(
+pub(super) fn attempt_sysmem_acr_boot_inner(
     bar0: &MappedBar,
     fw: &AcrFirmwareSet,
     container: DmaBackend,
@@ -314,12 +207,7 @@ fn attempt_sysmem_acr_boot_inner(
             Ok(b) => b,
             Err(e) => {
                 notes.push(format!("DMA alloc shadow failed: {e}"));
-                return make_fail_result(
-                    "SysMem ACR: DMA alloc failed",
-                    sec2_before,
-                    bar0,
-                    notes,
-                );
+                return make_fail_result("SysMem ACR: DMA alloc failed", sec2_before, bar0, notes);
             }
         };
 
@@ -431,9 +319,8 @@ fn attempt_sysmem_acr_boot_inner(
         let fw_at_500: Vec<String> = (0x500..0x510)
             .step_by(4)
             .map(|off| {
-                let w = u32::from_le_bytes(
-                    payload_patched[off..off + 4].try_into().unwrap_or([0; 4]),
-                );
+                let w =
+                    u32::from_le_bytes(payload_patched[off..off + 4].try_into().unwrap_or([0; 4]));
                 format!("[{off:#05x}]={w:#010x}")
             })
             .collect();
@@ -450,7 +337,10 @@ fn attempt_sysmem_acr_boot_inner(
                     format!("[{off:#05x}]={w:#010x}")
                 })
                 .collect();
-            notes.push(format!("FW code @HS_entry({hs_entry_off:#x}): {}", fw_at_hs.join(" ")));
+            notes.push(format!(
+                "FW code @HS_entry({hs_entry_off:#x}): {}",
+                fw_at_hs.join(" ")
+            ));
         }
     }
 
@@ -524,8 +414,12 @@ fn attempt_sysmem_acr_boot_inner(
     // GV100 MMU v2: 16-byte PDE entries.
     // pde_upper=true  → directory pointer in upper 8 bytes (correct per spec)
     // pde_upper=false → directory pointer in lower 8 bytes (legacy, enables HS via fallback)
-    let (lo_range, hi_range): (std::ops::Range<usize>, std::ops::Range<usize>) =
-        if config.pde_upper { (0..8, 8..16) } else { (8..16, 0..8) };
+    let (lo_range, hi_range): (std::ops::Range<usize>, std::ops::Range<usize>) = if config.pde_upper
+    {
+        (0..8, 8..16)
+    } else {
+        (8..16, 0..8)
+    };
 
     let pde3 = sysmem_pde(sysmem_iova::PD2);
     pd3_dma.as_mut_slice()[lo_range.clone()].copy_from_slice(&0u64.to_le_bytes());
@@ -545,7 +439,9 @@ fn attempt_sysmem_acr_boot_inner(
 
     // VRAM aperture PTE for WPR/shadow pages in full-init mode
     let vram_pte = |phys: u64| -> u64 {
-        const FLAGS: u64 = 1 | (0 << 1) | (1 << 3); // VALID + VRAM(0) + VOL
+        const VALID: u64 = 1;
+        const VOL: u64 = 1 << 3;
+        const FLAGS: u64 = VALID | VOL; // VRAM aperture (bits[2:1]=0)
         (phys >> 4) | FLAGS
     };
 
@@ -555,14 +451,13 @@ fn attempt_sysmem_acr_boot_inner(
     // and HS-mode DMA accesses VRAM, not system memory.
     let pt = pt0_dma.as_mut_slice();
     let acr_start_page = (sysmem_iova::ACR as usize) / 4096;
-    let acr_end_page = (sysmem_iova::ACR as usize + acr_payload_size + 4095) / 4096;
+    let acr_end_page = (sysmem_iova::ACR as usize + acr_payload_size).div_ceil(4096);
     let shadow_page = (shadow_iova as usize) / 4096;
-    let wpr_end_page = (wpr_end_iova as usize + 4095) / 4096;
+    let wpr_end_page = (wpr_end_iova as usize).div_ceil(4096);
     let mut vram_pages = 0u32;
     for i in 0..512usize {
         let phys = (i as u64) * 4096;
-        let use_vram = config.acr_vram_pte
-            && i >= acr_start_page && i < acr_end_page;
+        let use_vram = config.acr_vram_pte && i >= acr_start_page && i < acr_end_page;
         let pte = if use_vram {
             vram_pages += 1;
             vram_pte(phys)
@@ -610,11 +505,8 @@ fn attempt_sysmem_acr_boot_inner(
         let inst = inst_dma.as_mut_slice();
         let pd3_iova = sysmem_iova::PD3;
         const APER_COH: u32 = 2;
-        let pdb_lo: u32 = ((pd3_iova >> 12) as u32) << 12
-            | (1 << 11)
-            | (1 << 10)
-            | (1 << 2)
-            | APER_COH;
+        let pdb_lo: u32 =
+            ((pd3_iova >> 12) as u32) << 12 | (1 << 11) | (1 << 10) | (1 << 2) | APER_COH;
         let pdb_hi: u32 = (pd3_iova >> 32) as u32;
         w32_le(inst, 0x200, pdb_lo);
         w32_le(inst, 0x204, pdb_hi);
@@ -635,14 +527,17 @@ fn attempt_sysmem_acr_boot_inner(
     // and bind to VRAM so both LS and HS modes use the VRAM page tables.
     if !skip_blob_dma {
         let vram_pde = |addr: u64| -> u64 {
-            const FLAGS: u64 = (0 << 1) | (1 << 3); // VRAM aperture + VOL
+            const VOL: u64 = 1 << 3;
+            const FLAGS: u64 = VOL; // VRAM aperture (bits[2:1]=0)
             (addr >> 4) | FLAGS
         };
         let vram_pd0_pde = |addr: u64| -> u64 {
             vram_pde(addr) | (1 << 4) // SPT_PRESENT
         };
         let vram_pte_fn = |phys: u64| -> u64 {
-            const FLAGS: u64 = 1 | (0 << 1) | (1 << 3); // VALID + VRAM + VOL
+            const VALID: u64 = 1;
+            const VOL: u64 = 1 << 3;
+            const FLAGS: u64 = VALID | VOL; // VRAM aperture (bits[2:1]=0)
             (phys >> 4) | FLAGS
         };
 
@@ -880,7 +775,7 @@ fn attempt_sysmem_acr_boot_inner(
             .map(|(i, &w)| format!("[{:#05x}]={w:#010x}", 0x200 + i * 4))
             .collect();
         let pre_bl = sec2_dmem_read(bar0, 0, 0x54);
-        let bl_ctx_dma = pre_bl.get(8).copied().unwrap_or(0xDEAD);  // byte offset 0x20
+        let bl_ctx_dma = pre_bl.get(8).copied().unwrap_or(0xDEAD); // byte offset 0x20
         let bl_data_sz = pre_bl.get(18).copied().unwrap_or(0xDEAD); // byte offset 0x48
         notes.push(format!(
             "Pre-boot DMEM verify: BL[0x20]ctx_dma={bl_ctx_dma:#x} BL[0x48]data_size={bl_data_sz:#x}"
@@ -914,7 +809,9 @@ fn attempt_sysmem_acr_boot_inner(
         for _ in 0..4 {
             w5.push(bar0.read_u32(base + 0x184).unwrap_or(0xDEAD));
         }
-        let hex5: Vec<String> = w5.iter().enumerate()
+        let hex5: Vec<String> = w5
+            .iter()
+            .enumerate()
             .map(|(i, &v)| format!("[{:#05x}]={v:#010x}", 0x500 + i * 4))
             .collect();
         notes.push(format!("Pre-boot IMEM[0x500..0x510]: {}", hex5.join(" ")));
@@ -926,10 +823,15 @@ fn attempt_sysmem_acr_boot_inner(
         for _ in 0..4 {
             wbl.push(bar0.read_u32(base + 0x184).unwrap_or(0xDEAD));
         }
-        let hexbl: Vec<String> = wbl.iter().enumerate()
+        let hexbl: Vec<String> = wbl
+            .iter()
+            .enumerate()
             .map(|(i, &v)| format!("[{:#05x}]={v:#010x}", bl_start as usize + i * 4))
             .collect();
-        notes.push(format!("Pre-boot IMEM BL[{bl_start:#x}..]: {}", hexbl.join(" ")));
+        notes.push(format!(
+            "Pre-boot IMEM BL[{bl_start:#x}..]: {}",
+            hexbl.join(" ")
+        ));
     }
 
     {
@@ -1015,7 +917,7 @@ fn attempt_sysmem_acr_boot_inner(
     }
 
     // ── Step 13: Diagnostics ──
-    super::boot_diagnostics::capture_post_boot_diagnostics(bar0, base, &mut notes);
+    super::super::boot_diagnostics::capture_post_boot_diagnostics(bar0, base, &mut notes);
 
     // Check WPR header status in both DMA buffers — did ACR modify them?
     {
@@ -1051,11 +953,11 @@ fn attempt_sysmem_acr_boot_inner(
     ));
 
     // ── SEC2 Conversation: try queue discovery + BOOTSTRAP_FALCON ──
-    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
+    super::super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
 
     // ── Capture final state ──
     let sec2_after = Sec2Probe::capture(bar0);
-    let post = super::boot_result::PostBootCapture::capture(bar0);
+    let post = super::super::boot_result::PostBootCapture::capture(bar0);
     notes.push(format!(
         "Final: FECS cpuctl={:#010x} pc={:#06x} exci={:#010x} GPCCS cpuctl={:#010x} pc={:#06x} exci={:#010x}",
         post.fecs_cpuctl, post.fecs_pc, post.fecs_exci,
@@ -1064,257 +966,6 @@ fn attempt_sysmem_acr_boot_inner(
 
     post.into_result(
         "System-memory ACR boot (IOMMU DMA)",
-        sec2_before,
-        sec2_after,
-        notes,
-    )
-}
-
-/// Sysmem physical DMA boot: DMA buffers in host memory, no instance block.
-///
-/// **DEPRECATED** — Exp 110 matrix confirmed that HS mode requires legacy
-/// PDE slot position, not physical DMA. This function never achieved HS mode.
-/// Retained for reference; prefer `attempt_sysmem_acr_boot_with_config` with
-/// `BootConfig::exp095_baseline()` instead.
-///
-/// Uses FBIF_TRANSCFG=0x93 (PHYS_SYS + physical override) for DMA routing.
-#[deprecated(note = "Use attempt_sysmem_acr_boot_with_config with BootConfig::exp095_baseline()")]
-pub fn attempt_sysmem_physical_boot(
-    bar0: &MappedBar,
-    fw: &AcrFirmwareSet,
-    container: DmaBackend,
-) -> AcrBootResult {
-    let mut notes = Vec::new();
-    let sec2_before = Sec2Probe::capture(bar0);
-    let base = falcon::SEC2_BASE;
-    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
-    let w = |off: usize, val: u32| {
-        let _ = bar0.write_u32(base + off, val);
-    };
-
-    notes.push(format!("SEC2 state: {:?}", sec2_before.state));
-
-    // ── Step 1: Parse firmware ──
-    let parsed = match super::firmware::ParsedAcrFirmware::parse(fw) {
-        Ok(p) => p,
-        Err(e) => {
-            notes.push(format!("Firmware parse failed: {e}"));
-            return make_fail_result("SysMemPhys: parse failed", sec2_before, bar0, notes);
-        }
-    };
-    notes.push(format!(
-        "ACR payload: {}B code=[{:#x}+{:#x}] data=[{:#x}+{:#x}]",
-        parsed.acr_payload.len(),
-        parsed.load_header.non_sec_code_off,
-        parsed.load_header.non_sec_code_size,
-        parsed.load_header.data_dma_base,
-        parsed.load_header.data_size,
-    ));
-
-    // ── Step 2: Allocate DMA buffers in host memory ──
-    let acr_payload_size = parsed.acr_payload.len().div_ceil(4096) * 4096;
-    let mut acr_dma = match DmaBuffer::new(
-        container.clone(),
-        acr_payload_size.max(4096),
-        sysmem_iova::ACR,
-    ) {
-        Ok(b) => b,
-        Err(e) => {
-            notes.push(format!("DMA alloc ACR failed: {e}"));
-            return make_fail_result("SysMemPhys: DMA alloc failed", sec2_before, bar0, notes);
-        }
-    };
-
-    let wpr_base_iova = sysmem_iova::WPR;
-    let wpr_data = build_wpr(fw, wpr_base_iova);
-    let wpr_end_iova = wpr_base_iova + wpr_data.len() as u64;
-    let wpr_buf_size = wpr_data.len().div_ceil(4096) * 4096;
-    let mut wpr_dma = match DmaBuffer::new(container.clone(), wpr_buf_size.max(4096), wpr_base_iova)
-    {
-        Ok(b) => b,
-        Err(e) => {
-            notes.push(format!("DMA alloc WPR failed: {e}"));
-            return make_fail_result("SysMemPhys: DMA alloc failed", sec2_before, bar0, notes);
-        }
-    };
-    let shadow_iova = sysmem_iova::SHADOW;
-    let mut shadow_dma =
-        match DmaBuffer::new(container, wpr_buf_size.max(4096), shadow_iova) {
-            Ok(b) => b,
-            Err(e) => {
-                notes.push(format!("DMA alloc shadow failed: {e}"));
-                return make_fail_result(
-                    "SysMemPhys: DMA alloc failed",
-                    sec2_before,
-                    bar0,
-                    notes,
-                );
-            }
-        };
-
-    notes.push(format!(
-        "DMA: ACR={:#x}({acr_payload_size:#x}) shadow={shadow_iova:#x} WPR={:#x}({wpr_buf_size:#x})",
-        sysmem_iova::ACR, sysmem_iova::WPR,
-    ));
-
-    // ── Step 3: Populate WPR + shadow + patch ACR descriptor ──
-    wpr_dma.as_mut_slice()[..wpr_data.len()].copy_from_slice(&wpr_data);
-    shadow_dma.as_mut_slice()[..wpr_data.len()].copy_from_slice(&wpr_data);
-
-    let mut payload_patched = parsed.acr_payload.to_vec();
-    let data_off = parsed.load_header.data_dma_base as usize;
-    patch_acr_desc(
-        &mut payload_patched,
-        data_off,
-        wpr_base_iova,
-        wpr_end_iova,
-        shadow_iova,
-    );
-    acr_dma.as_mut_slice()[..payload_patched.len()].copy_from_slice(&payload_patched);
-
-    notes.push(format!(
-        "ACR patched: wpr=[{wpr_base_iova:#x}..{wpr_end_iova:#x}] shadow={shadow_iova:#x}",
-    ));
-
-    // ── Step 4: Engine reset + FBIF for sysmem physical DMA ──
-    let (reset_ok, reset_notes) = sec2_prepare_physical_first(bar0);
-    for n in &reset_notes {
-        notes.push(n.clone());
-    }
-    notes.push(format!("Engine reset: ok={reset_ok}"));
-
-    // PHYS_SYS(0x03) | bit4(0x10) | PHYSICAL_OVERRIDE(0x80) = 0x93
-    const FBIF_PHYS_SYS: u32 = 0x93;
-    w(falcon::FBIF_TRANSCFG, FBIF_PHYS_SYS);
-    let fbif_readback = r(falcon::FBIF_TRANSCFG);
-    w(falcon::DMACTL, 0x01);
-    let dmactl_readback = r(falcon::DMACTL);
-    notes.push(format!(
-        "FBIF=PHYS_SYS: wrote={FBIF_PHYS_SYS:#x} read={fbif_readback:#x} DMACTL={dmactl_readback:#x}"
-    ));
-
-    // ── Step 5: Load BL code → IMEM ──
-    let hwcfg = r(falcon::HWCFG);
-    let code_limit = falcon::imem_size_bytes(hwcfg);
-    let boot_size =
-        ((parsed.bl_desc.bl_code_off + parsed.bl_desc.bl_code_size + 0xFF) & !0xFF) as u32;
-    let imem_addr = code_limit.saturating_sub(boot_size);
-    let start_tag = parsed.bl_desc.bl_start_tag;
-    let boot_addr = start_tag << 8;
-
-    falcon_imem_upload_nouveau(bar0, base, imem_addr, &parsed.bl_code, start_tag);
-    notes.push(format!(
-        "BL: {}B→IMEM@{imem_addr:#x} tag={start_tag:#x} boot={boot_addr:#x}",
-        parsed.bl_code.len()
-    ));
-
-    // ── Step 5b: Load BL data → EMEM ──
-    let bl_payload = fw.acr_bl_parsed.payload(&fw.acr_bl_raw);
-    let bl_data_off = parsed.bl_desc.bl_data_off as usize;
-    let bl_data_size = parsed.bl_desc.bl_data_size as usize;
-    let bl_data_end = (bl_data_off + bl_data_size).min(bl_payload.len());
-    if bl_data_off < bl_payload.len() && bl_data_size > 0 {
-        let bl_data = &bl_payload[bl_data_off..bl_data_end];
-        sec2_emem_write(bar0, 0, bl_data);
-        notes.push(format!("BL data: {}B→EMEM@0", bl_data.len()));
-    }
-
-    // ── Step 6: Pre-load ACR data + BL descriptor to DMEM ──
-    let data_section = &payload_patched[parsed.load_header.data_dma_base as usize..];
-    falcon_dmem_upload(bar0, base, 0, data_section);
-
-    let code_dma_base = sysmem_iova::ACR;
-    let data_dma_base =
-        sysmem_iova::ACR + parsed.load_header.data_dma_base as u64;
-    let mut bl_desc = super::wpr::build_bl_dmem_desc(code_dma_base, data_dma_base, &parsed);
-    // ctx_dma=PHYS(0) — BL must DMA through physical index 0.
-    bl_desc[32..36].copy_from_slice(&0u32.to_le_bytes());
-    let dmem_load_off = parsed.bl_desc.bl_desc_dmem_load_off;
-    falcon_dmem_upload(bar0, base, dmem_load_off, &bl_desc);
-
-    notes.push(format!(
-        "BL desc→DMEM@{dmem_load_off:#x}: code={code_dma_base:#x} data={data_dma_base:#x} ctx_dma=PHYS"
-    ));
-
-    // ── Step 7: Clear EXCI + boot SEC2 ──
-    let exci_pre = r(falcon::EXCI);
-    w(falcon::EXCI, 0);
-    w(falcon::MAILBOX0, 0xcafe_beef_u32);
-    w(falcon::MAILBOX1, 0);
-    w(falcon::BOOTVEC, boot_addr);
-    let cpuctl_pre = r(falcon::CPUCTL);
-    notes.push(format!(
-        "Pre-start: EXCI was={exci_pre:#x} BOOTVEC={boot_addr:#x} cpuctl={cpuctl_pre:#010x}"
-    ));
-    falcon_start_cpu(bar0, base);
-
-    // Re-apply FBIF during BL execution (BL or ROM may clear it)
-    for _ in 0..200 {
-        w(falcon::FBIF_TRANSCFG, FBIF_PHYS_SYS);
-        std::thread::sleep(std::time::Duration::from_micros(50));
-    }
-
-    // ── Step 8: Poll for completion ──
-    let timeout = std::time::Duration::from_secs(5);
-    let start_time = std::time::Instant::now();
-    let mut pc_samples: Vec<String> = Vec::new();
-    let mut last_pc = 0u32;
-
-    loop {
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        let cpuctl = r(falcon::CPUCTL);
-        let mb0 = r(falcon::MAILBOX0);
-        let mb1 = r(falcon::MAILBOX1);
-        let pc = r(falcon::PC);
-
-        if pc != last_pc {
-            pc_samples.push(format!("{pc:#06x}@{}ms", start_time.elapsed().as_millis()));
-            last_pc = pc;
-        }
-
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
-        let mb0_changed = mb0 != 0xcafe_beef && mb0 != 0;
-
-        if mb0_changed || halted || hreset {
-            notes.push(format!(
-                "SEC2 done: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} pc={pc:#06x} ({}ms)",
-                start_time.elapsed().as_millis()
-            ));
-            break;
-        }
-        if start_time.elapsed() > timeout {
-            notes.push(format!(
-                "SEC2 timeout: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} pc={pc:#06x}"
-            ));
-            break;
-        }
-    }
-
-    if !pc_samples.is_empty() {
-        notes.push(format!("PC trace: [{}]", pc_samples.join(", ")));
-    }
-
-    // Diagnostics
-    let exci = r(falcon::EXCI);
-    let fbif_post = r(falcon::FBIF_TRANSCFG);
-    let dmactl_post = r(falcon::DMACTL);
-    notes.push(format!(
-        "Diag: EXCI={exci:#010x} FBIF={fbif_post:#x} DMACTL={dmactl_post:#x}"
-    ));
-
-    // ── SEC2 Conversation probe ──
-    super::sec2_queue::probe_and_bootstrap(bar0, &mut notes);
-
-    let sec2_after = Sec2Probe::capture(bar0);
-    let post = super::boot_result::PostBootCapture::capture(bar0);
-    notes.push(format!(
-        "Final: FECS cpuctl={:#010x} GPCCS cpuctl={:#010x}",
-        post.fecs_cpuctl, post.gpccs_cpuctl,
-    ));
-
-    post.into_result(
-        "System-memory physical DMA boot",
         sec2_before,
         sec2_after,
         notes,

@@ -12,9 +12,11 @@ fn parse_cli_server_defaults() {
     let cli = parse_cli_from(["coralreef", "server"]).unwrap();
     match &cli.command {
         Commands::Server {
+            port,
             rpc_bind,
             tarpc_bind,
         } => {
+            assert!(port.is_none());
             assert!(rpc_bind.contains("127.0.0.1"));
             assert!(tarpc_bind.is_none());
         }
@@ -94,9 +96,11 @@ fn parse_cli_server_custom_bind_addresses() {
     .unwrap();
     match &cli.command {
         Commands::Server {
+            port,
             rpc_bind,
             tarpc_bind,
         } => {
+            assert!(port.is_none());
             assert_eq!(rpc_bind, "127.0.0.1:9999");
             assert_eq!(
                 tarpc_bind.as_deref(),
@@ -214,9 +218,11 @@ fn parse_cli_server_rpc_bind_only() {
     let cli = parse_cli_from(["coralreef", "server", "--rpc-bind", "127.0.0.1:8888"]).unwrap();
     match &cli.command {
         Commands::Server {
+            port,
             rpc_bind,
             tarpc_bind,
         } => {
+            assert!(port.is_none());
             assert_eq!(rpc_bind, "127.0.0.1:8888");
             assert!(tarpc_bind.is_none());
         }
@@ -350,6 +356,17 @@ fn parse_cli_server_tarpc_bind_tcp() {
     match &cli.command {
         Commands::Server { tarpc_bind, .. } => {
             assert_eq!(tarpc_bind.as_deref(), Some("127.0.0.1:0"));
+        }
+        _ => panic!("expected Server command"),
+    }
+}
+
+#[test]
+fn parse_cli_server_port() {
+    let cli = parse_cli_from(["coralreef", "server", "--port", "8765"]).unwrap();
+    match &cli.command {
+        Commands::Server { port, .. } => {
+            assert_eq!(*port, Some(8765));
         }
         _ => panic!("expected Server command"),
     }

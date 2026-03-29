@@ -155,7 +155,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
     }
 
-    /// Snapshot current ring/mailbox state as [`RingMeta`] for persistence via ember.
+    /// Snapshot current ring/mailbox state as [`RingMeta`](coral_ember::RingMeta) for persistence via ember.
     pub fn ring_meta_snapshot(&self) -> coral_ember::RingMeta {
         let mailboxes = self
             .mailboxes
@@ -186,7 +186,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
     }
 
-    /// Restore ring/mailbox names, capacities, and fence state from a [`RingMeta`] snapshot.
+    /// Restore ring/mailbox names, capacities, and fence state from a [`RingMeta`](coral_ember::RingMeta) snapshot.
     ///
     /// Recreates ring and mailbox structures (empty but correctly sized) and
     /// restores fence continuity so GlowPlug can resume after a restart while

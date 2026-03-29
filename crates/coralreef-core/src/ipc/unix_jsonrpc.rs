@@ -2,8 +2,13 @@
 //! Unix socket JSON-RPC 2.0 server — newline-delimited protocol.
 //!
 //! Ecosystem primals discover coralReef via a Unix socket at
-//! `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`. This module
-//! serves the same `shader.compile.*` and `health.*` methods as the
+//! `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`. After bind, a
+//! capability-domain symlink is also created in that directory:
+//! `{CORALREEF_CAPABILITY_DOMAIN}.sock` → `<primal>-<family_id>.sock` (relative),
+//! per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.1. The symlink is
+//! only installed when the socket path includes the shared `biomeos` directory segment
+//! (production layout); ad-hoc test paths skip it to avoid collisions.
+//! This module serves the same `shader.compile.*` and `health.*` methods as the
 //! TCP/HTTP server but over newline-delimited JSON on a Unix domain socket.
 //!
 //! Protocol: each request is a single JSON-RPC 2.0 object terminated
@@ -13,149 +18,48 @@
 mod inner {
     use std::path::{Path, PathBuf};
 
-    use serde::{Deserialize, Serialize};
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::UnixListener;
     use tokio::sync::watch;
     use tokio::task::JoinHandle;
 
-    use crate::ipc::error::IpcServiceError;
-    use crate::service;
+    use super::super::newline_jsonrpc::process_newline_reader_writer;
 
-    #[derive(Deserialize)]
-    struct JsonRpcRequest {
-        jsonrpc: String,
-        method: String,
-        #[serde(default)]
-        params: serde_json::Value,
-        id: serde_json::Value,
+    /// `true` when the bound socket path uses the shared ecosystem directory segment.
+    fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
+        socket_path
+            .iter()
+            .any(|c| c == std::ffi::OsStr::new(crate::config::ECOSYSTEM_NAMESPACE))
     }
 
-    #[derive(Serialize)]
-    struct JsonRpcResponse {
-        jsonrpc: &'static str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        result: Option<serde_json::Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<JsonRpcError>,
-        id: serde_json::Value,
-    }
-
-    #[derive(Serialize)]
-    struct JsonRpcError {
-        code: i32,
-        message: String,
-    }
-
-    fn extract_params<T: serde::de::DeserializeOwned>(
-        mut params: serde_json::Value,
-    ) -> Result<T, IpcServiceError> {
-        if let Some(arr) = params.as_array_mut() {
-            if arr.is_empty() {
-                return Err(IpcServiceError::dispatch("missing request parameter"));
-            }
-            serde_json::from_value(arr.remove(0))
-                .map_err(|e| IpcServiceError::dispatch(format!("invalid params: {e}")))
-        } else if params.is_object() {
-            serde_json::from_value(params)
-                .map_err(|e| IpcServiceError::dispatch(format!("invalid params: {e}")))
-        } else {
-            Err(IpcServiceError::dispatch("params must be array or object"))
-        }
-    }
-
-    /// Route a JSON-RPC method call to the appropriate handler.
+    /// After a successful bind, install `{domain}.sock` → instance socket (relative symlink).
     ///
-    /// # Errors
-    ///
-    /// Returns `IpcServiceError` if the method is unknown, params are
-    /// invalid, or the handler itself fails.
-    pub fn dispatch(
-        method: &str,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, IpcServiceError> {
-        match method {
-            "shader.compile.status" => {
-                let health = service::handle_health();
-                serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))
-            }
-            "shader.compile.capabilities" => {
-                let health = service::handle_health();
-                serde_json::to_value(health.supported_archs)
-                    .map_err(|e| IpcServiceError::internal(e.to_string()))
-            }
-            "shader.compile.wgsl" => {
-                let req: service::CompileWgslRequest = extract_params(params)?;
-                match service::handle_compile_wgsl(&req) {
-                    Ok(resp) => serde_json::to_value(resp)
-                        .map_err(|e| IpcServiceError::internal(e.to_string())),
-                    Err(e) => Err(IpcServiceError::handler(e.to_string())),
-                }
-            }
-            "shader.compile.spirv" => {
-                let req: service::CompileRequest = extract_params(params)?;
-                match service::handle_compile(&req) {
-                    Ok(resp) => serde_json::to_value(resp)
-                        .map_err(|e| IpcServiceError::internal(e.to_string())),
-                    Err(e) => Err(IpcServiceError::handler(e.to_string())),
-                }
-            }
-            "shader.compile.wgsl.multi" => {
-                let req: service::MultiDeviceCompileRequest = extract_params(params)?;
-                match service::handle_compile_wgsl_multi(req) {
-                    Ok(resp) => serde_json::to_value(resp)
-                        .map_err(|e| IpcServiceError::internal(e.to_string())),
-                    Err(e) => Err(IpcServiceError::handler(e.to_string())),
-                }
-            }
-            "health.check" => {
-                let resp = service::handle_health_check();
-                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-            }
-            "health.liveness" => {
-                let resp = service::handle_health_liveness();
-                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-            }
-            "health.readiness" => {
-                let resp = service::handle_health_readiness();
-                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-            }
-            "identity.get" => {
-                let resp = service::handle_identity_get();
-                serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-            }
-            other => Err(IpcServiceError::dispatch(format!(
-                "method not found: {other}"
-            ))),
+    /// Returns the symlink path when created, for shutdown cleanup. Skipped when the socket
+    /// is not under the ecosystem layout or when symlink creation fails (caller logs).
+    fn install_capability_domain_symlink(bound_path: &Path) -> Option<PathBuf> {
+        if !path_in_ecosystem_namespace(bound_path) {
+            return None;
         }
-    }
-
-    /// Serialize a JSON-RPC 2.0 response from a handler result.
-    pub fn make_response(
-        id: serde_json::Value,
-        result: Result<serde_json::Value, IpcServiceError>,
-    ) -> String {
-        let resp = match result {
-            Ok(val) => JsonRpcResponse {
-                jsonrpc: "2.0",
-                result: Some(val),
-                error: None,
-                id,
-            },
-            Err(e) => JsonRpcResponse {
-                jsonrpc: "2.0",
-                result: None,
-                error: Some(JsonRpcError {
-                    code: e.phase.jsonrpc_code(),
-                    message: e.to_string(),
-                }),
-                id,
-            },
-        };
-        serde_json::to_string(&resp).unwrap_or_else(|_| {
-            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
-                .to_owned()
-        })
+        let parent = bound_path.parent()?;
+        let link = parent.join(crate::config::capability_domain_socket_filename());
+        if link.as_path() == bound_path {
+            return None;
+        }
+        let target_name = bound_path.file_name()?;
+        if link.exists() {
+            let _ = std::fs::remove_file(&link);
+        }
+        match std::os::unix::fs::symlink(target_name, &link) {
+            Ok(()) => Some(link),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    link = %link.display(),
+                    target = %target_name.to_string_lossy(),
+                    "failed to create capability-domain symlink (non-fatal)"
+                );
+                None
+            }
+        }
     }
 
     /// Build the socket path from an explicit base directory.
@@ -200,6 +104,7 @@ mod inner {
         let listener = UnixListener::bind(path)?;
         let bound_path = path.to_path_buf();
         let cleanup_path = bound_path.clone();
+        let cleanup_capability_link = install_capability_domain_symlink(&bound_path);
 
         tracing::info!(path = %bound_path.display(), "Unix JSON-RPC server listening");
 
@@ -210,41 +115,8 @@ mod inner {
                         match accept {
                             Ok((stream, _addr)) => {
                                 tokio::spawn(async move {
-                                    let (reader, mut writer) = stream.into_split();
-                                    let mut lines = BufReader::new(reader).lines();
-                                    while let Ok(Some(line)) = lines.next_line().await {
-                                        let line = line.trim().to_owned();
-                                        if line.is_empty() {
-                                            continue;
-                                        }
-                                        let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
-                                            Ok(req) => {
-                                                if req.jsonrpc == "2.0" {
-                                                    let result =
-                                                        dispatch(&req.method, req.params);
-                                                    make_response(req.id, result)
-                                                } else {
-                                                    make_response(
-                                                        req.id,
-                                                        Err(IpcServiceError::dispatch(format!(
-                                                            "invalid jsonrpc version: {}",
-                                                            req.jsonrpc
-                                                        ))),
-                                                    )
-                                                }
-                                            }
-                                            Err(e) => {
-                                                make_response(
-                                                    serde_json::Value::Null,
-                                                    Err(IpcServiceError::transport(format!("parse error: {e}"))),
-                                                )
-                                            }
-                                        };
-                                        let msg = format!("{resp}\n");
-                                        if writer.write_all(msg.as_bytes()).await.is_err() {
-                                            break;
-                                        }
-                                    }
+                                    let (reader, writer) = stream.into_split();
+                                    process_newline_reader_writer(reader, writer).await;
                                 });
                             }
                             Err(e) => {
@@ -258,16 +130,17 @@ mod inner {
                 }
             }
             let _ = std::fs::remove_file(&cleanup_path);
+            if let Some(ref cap_link) = cleanup_capability_link {
+                let _ = std::fs::remove_file(cap_link);
+            }
         });
 
         Ok((bound_path, handle))
     }
 }
 
-#[cfg(all(unix, any(test, feature = "e2e")))]
-pub use inner::dispatch;
 #[cfg(all(unix, test))]
-pub use inner::make_response;
+pub use super::newline_jsonrpc::make_response;
 #[cfg(unix)]
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]

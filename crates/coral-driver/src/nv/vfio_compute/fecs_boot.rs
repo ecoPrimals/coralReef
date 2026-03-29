@@ -141,13 +141,7 @@ impl std::fmt::Display for FalconBootResult {
 /// 1. Write IMEMC with auto-increment and target address
 /// 2. Set IMEMT tag for each 256-byte block
 /// 3. Write IMEMD with 32-bit words of firmware data
-pub fn falcon_upload_imem(
-    bar0: &MappedBar,
-    base: usize,
-    addr: u32,
-    data: &[u8],
-    secure: bool,
-) {
+pub fn falcon_upload_imem(bar0: &MappedBar, base: usize, addr: u32, data: &[u8], secure: bool) {
     let w = |off: usize, val: u32| {
         let _ = bar0.write_u32(base + off, val);
     };
@@ -209,7 +203,7 @@ fn le_word(chunk: &[u8]) -> u32 {
 /// 7. Write CPUCTL = STARTCPU (bit 1) to release HRESET
 /// 8. Poll for mailbox0 != 0 or HALTED state
 ///
-/// The `bl_imem_off` parameter comes from [`GrBlFirmware::bl_imem_off`] — the
+/// The `bl_imem_off` parameter comes from [`field@GrBlFirmware::start_tag`] (`start_tag << 8`) — the
 /// `start_tag << 8` value parsed from the BL file headers. For GV100:
 /// GPCCS=`0x3400`, FECS=`0x7E00`. Uploading the BL at the wrong IMEM address
 /// or setting BOOTVEC to the wrong value causes an immediate exception
@@ -419,8 +413,8 @@ pub fn firmware_available(chip: &str) -> bool {
 /// with runtime-discovered register layouts.
 ///
 /// `bl_imem_off` is the IMEM byte offset where the BL expects to run
-/// (from [`GrBlFirmware::bl_imem_off`]). Inst code goes to IMEM[0],
-/// BL code goes to IMEM[bl_imem_off], BOOTVEC is set to bl_imem_off.
+/// (from [`field@GrBlFirmware::start_tag`] as `start_tag << 8`). Inst code goes to `IMEM[0]`,
+/// BL code goes to `IMEM[bl_imem_off]`, BOOTVEC is set to bl_imem_off.
 pub fn falcon_boot_probed(
     bar0: &MappedBar,
     caps: &FalconCapabilities,
@@ -562,7 +556,15 @@ pub fn boot_fecs_probed(bar0: &MappedBar, chip: &str) -> DriverResult<FalconBoot
     let caps = falcon_capability::probe_falcon(bar0, "FECS", falcon::FECS_BASE)?;
     tracing::info!("FECS capabilities: {caps}");
     let fw = FecsFirmware::load(chip)?;
-    falcon_boot_probed(bar0, &caps, &fw.bootloader, fw.bl_imem_off, &fw.inst, &fw.data, true)
+    falcon_boot_probed(
+        bar0,
+        &caps,
+        &fw.bootloader,
+        fw.bl_imem_off,
+        &fw.inst,
+        &fw.data,
+        true,
+    )
 }
 
 /// Probe falcon capabilities and boot GPCCS with verification.
@@ -570,7 +572,15 @@ pub fn boot_gpccs_probed(bar0: &MappedBar, chip: &str) -> DriverResult<FalconBoo
     let caps = falcon_capability::probe_falcon(bar0, "GPCCS", falcon::GPCCS_BASE)?;
     tracing::info!("GPCCS capabilities: {caps}");
     let fw = GpccsFirmware::load(chip)?;
-    falcon_boot_probed(bar0, &caps, &fw.bootloader, fw.bl_imem_off, &fw.inst, &fw.data, true)
+    falcon_boot_probed(
+        bar0,
+        &caps,
+        &fw.bootloader,
+        fw.bl_imem_off,
+        &fw.inst,
+        &fw.data,
+        true,
+    )
 }
 
 /// Convert a dynamic string to a `&'static str` for `FalconBootResult::name`.

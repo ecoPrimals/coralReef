@@ -235,13 +235,38 @@ fn exp122a_wpr2_register_write_probe() {
     );
 
     // Direct flat register probes
-    probe_register_writability(&bar0, "PFB_WPR2_BEG (0x100CEC)", wpr_regs::PFB_WPR2_BEG, 0x2FFE_0000);
-    probe_register_writability(&bar0, "PFB_WPR2_END (0x100CF0)", wpr_regs::PFB_WPR2_END, 0x3000_0000);
-    probe_register_writability(&bar0, "FBPA_WPR2_LO (0x1FA824)", wpr_regs::FBPA_WPR2_ADDR_LO, 0x0002_FFE0);
-    probe_register_writability(&bar0, "FBPA_WPR2_HI (0x1FA828)", wpr_regs::FBPA_WPR2_ADDR_HI, 0x0003_0000);
+    probe_register_writability(
+        &bar0,
+        "PFB_WPR2_BEG (0x100CEC)",
+        wpr_regs::PFB_WPR2_BEG,
+        0x2FFE_0000,
+    );
+    probe_register_writability(
+        &bar0,
+        "PFB_WPR2_END (0x100CF0)",
+        wpr_regs::PFB_WPR2_END,
+        0x3000_0000,
+    );
+    probe_register_writability(
+        &bar0,
+        "FBPA_WPR2_LO (0x1FA824)",
+        wpr_regs::FBPA_WPR2_ADDR_LO,
+        0x0002_FFE0,
+    );
+    probe_register_writability(
+        &bar0,
+        "FBPA_WPR2_HI (0x1FA828)",
+        wpr_regs::FBPA_WPR2_ADDR_HI,
+        0x0003_0000,
+    );
 
     // Probe WPR configuration register (might control WPR enable/mode)
-    probe_register_writability(&bar0, "PFB_WPR_CFG (0x100CD0)", wpr_regs::PFB_WPR_CFG, 0x0000_0001);
+    probe_register_writability(
+        &bar0,
+        "PFB_WPR_CFG (0x100CD0)",
+        wpr_regs::PFB_WPR_CFG,
+        0x0000_0001,
+    );
 
     // Probe additional indexed values (0-7) for any accessible WPR sub-regs
     eprintln!("\n  ── Indexed register scan (indices 0-15) ──");
@@ -283,7 +308,9 @@ fn exp122a_wpr2_register_write_probe() {
 
     // Phase 7: Check if PRI ring state changed
     eprintln!("\n  ── Phase 7: Post-probe PRI state ──");
-    let pri = bar0.read_u32(wpr_regs::PRIV_RING_INTR_STATUS).unwrap_or(0xDEAD);
+    let pri = bar0
+        .read_u32(wpr_regs::PRIV_RING_INTR_STATUS)
+        .unwrap_or(0xDEAD);
     eprintln!("  PRI_RING_INTR_STATUS: {pri:#010x}");
     if pri != 0 {
         clear_pri_faults(&bar0);
@@ -323,8 +350,7 @@ fn exp122b_parasitic_nouveau() {
 
     // Phase 1: Swap to nouveau
     eprintln!("\n  ── Phase 1: Swap to nouveau ──");
-    let mut gp = crate::glowplug_client::GlowPlugClient::connect()
-        .expect("GlowPlug connection");
+    let mut gp = crate::glowplug_client::GlowPlugClient::connect().expect("GlowPlug connection");
     gp.swap(&bdf, "nouveau").expect("swap→nouveau");
     std::thread::sleep(std::time::Duration::from_secs(4));
     eprintln!("  nouveau bound, waiting for initialization...");
@@ -332,8 +358,8 @@ fn exp122b_parasitic_nouveau() {
 
     // Phase 2: Open sysfs BAR0
     eprintln!("\n  ── Phase 2: Open sysfs BAR0 ──");
-    let mut bar0 = coral_driver::nv::bar0::Bar0Access::from_sysfs_device(&sysfs_dev)
-        .expect("sysfs BAR0");
+    let mut bar0 =
+        coral_driver::nv::bar0::Bar0Access::from_sysfs_device(&sysfs_dev).expect("sysfs BAR0");
     use coral_driver::gsp::RegisterAccess;
     eprintln!("  BAR0 sysfs: {} MiB", bar0.size() / (1024 * 1024));
 
@@ -343,7 +369,8 @@ fn exp122b_parasitic_nouveau() {
     // Phase 3: Read ALL WPR2 registers while nouveau is active
     eprintln!("\n  ── Phase 3: WPR2 registers (nouveau active) ──");
 
-    let r = |b: &coral_driver::nv::bar0::Bar0Access, off: u32| b.read_u32(off).unwrap_or(0xDEAD_DEAD);
+    let r =
+        |b: &coral_driver::nv::bar0::Bar0Access, off: u32| b.read_u32(off).unwrap_or(0xDEAD_DEAD);
 
     // Indexed WPR2
     let _ = bar0.write_u32(0x100CD4, 2);
@@ -353,7 +380,11 @@ fn exp122b_parasitic_nouveau() {
     let s = decode_indexed_wpr2(idx_start);
     let e = decode_indexed_wpr2(idx_end) + 0x20000;
     eprintln!("  Indexed WPR2: start_raw={idx_start:#010x} end_raw={idx_end:#010x}");
-    eprintln!("  Decoded: {s:#x}..{e:#x} ({} KiB) valid={}", (e - s) / 1024, s > 0 && e > s);
+    eprintln!(
+        "  Decoded: {s:#x}..{e:#x} ({} KiB) valid={}",
+        (e - s) / 1024,
+        s > 0 && e > s
+    );
 
     // Direct registers
     let cec = r(&bar0, 0x100CEC);
@@ -389,7 +420,12 @@ fn exp122b_parasitic_nouveau() {
         let mb0 = r(&bar0, base + 0x040);
         let hreset = cpuctl & 0x10 != 0;
         let halted = cpuctl & 0x20 != 0;
-        let mode = match sctl { 0x3000 => "LS", 0x3002 => "HS", 0x7021 => "FW", _ => "??" };
+        let mode = match sctl {
+            0x3000 => "LS",
+            0x3002 => "HS",
+            0x7021 => "FW",
+            _ => "??",
+        };
         eprintln!(
             "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x}({mode}) \
              PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} hreset={hreset} halted={halted}"
@@ -439,7 +475,11 @@ fn exp122b_parasitic_nouveau() {
                 _ => "???",
             };
             let fname = match falcon_id {
-                0 => "PMU", 2 => "FECS", 3 => "GPCCS", 7 => "SEC2", _ => "???",
+                0 => "PMU",
+                2 => "FECS",
+                3 => "GPCCS",
+                7 => "SEC2",
+                _ => "???",
             };
             eprintln!(
                 "    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} owner={bootstrap_owner} \
@@ -480,9 +520,7 @@ fn exp122b_parasitic_nouveau() {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let method_result = r(&bar0, 0x409500);
         let method_status = r(&bar0, 0x409504);
-        eprintln!(
-            "  FECS response: data={method_result:#010x} status={method_status:#010x}"
-        );
+        eprintln!("  FECS response: data={method_result:#010x} status={method_status:#010x}");
         if method_result > 0 && method_result < 0x100_0000 {
             eprintln!("  *** FECS responded! Context image size = {method_result:#x} ***");
         }
@@ -546,12 +584,14 @@ fn exp122c_fwsec_extraction() {
 
     // Phase 1: Read VBIOS from PROM
     eprintln!("\n  ── Phase 1: Read VBIOS from PROM ──");
-    use coral_driver::vfio::channel::devinit::{
-        BitTable, parse_pmu_table, read_vbios_prom,
-    };
+    use coral_driver::vfio::channel::devinit::{BitTable, parse_pmu_table, read_vbios_prom};
 
     let rom = read_vbios_prom(&bar0).expect("VBIOS PROM read");
-    eprintln!("  VBIOS size: {} bytes ({} KiB)", rom.len(), rom.len() / 1024);
+    eprintln!(
+        "  VBIOS size: {} bytes ({} KiB)",
+        rom.len(),
+        rom.len() / 1024
+    );
 
     // Phase 2: Parse BIT table
     eprintln!("\n  ── Phase 2: BIT table entries ──");
@@ -576,8 +616,13 @@ fn exp122c_fwsec_extraction() {
                 eprintln!(
                     "    PMU[{i}]: type={} boot_addr={:#x} boot_size={:#x} \
                      code_addr={:#x} code_size={:#x} data_addr={:#x} data_size={:#x}",
-                    fw.app_type, fw.boot_addr, fw.boot_size,
-                    fw.code_addr, fw.code_size, fw.data_addr, fw.data_size
+                    fw.app_type,
+                    fw.boot_addr,
+                    fw.boot_size,
+                    fw.code_addr,
+                    fw.code_size,
+                    fw.data_addr,
+                    fw.data_size
                 );
             }
         }
@@ -591,7 +636,10 @@ fn exp122c_fwsec_extraction() {
     for &entry_id in &[b'B', b'S', b'F', b'f', b'U', b'u', b'i', b'I'] {
         if let Some(entry) = bit.find(entry_id) {
             let id_char = entry_id as char;
-            eprintln!("  BIT '{id_char}': offset={:#06x} size={:#x}", entry.data_offset, entry.data_size);
+            eprintln!(
+                "  BIT '{id_char}': offset={:#06x} size={:#x}",
+                entry.data_offset, entry.data_size
+            );
             let off = entry.data_offset as usize;
             let end = (off + entry.data_size as usize).min(rom.len());
             if end > off && end - off >= 4 {
@@ -622,9 +670,15 @@ fn exp122c_fwsec_extraction() {
     ];
 
     for (label, pattern) in scan_patterns {
-        let count = rom.windows(pattern.len()).filter(|w| *w == *pattern).count();
+        let count = rom
+            .windows(pattern.len())
+            .filter(|w| *w == *pattern)
+            .count();
         if count > 0 {
-            let first = rom.windows(pattern.len()).position(|w| w == *pattern).unwrap();
+            let first = rom
+                .windows(pattern.len())
+                .position(|w| w == *pattern)
+                .unwrap();
             eprintln!("    {label}: {count} occurrences, first at offset {first:#06x}");
         }
     }
@@ -686,7 +740,11 @@ fn exp122c_fwsec_extraction() {
             .map(|(pos, _)| pos)
             .collect();
         if !positions.is_empty() {
-            let pos_str: Vec<String> = positions.iter().take(5).map(|p| format!("{p:#06x}")).collect();
+            let pos_str: Vec<String> = positions
+                .iter()
+                .take(5)
+                .map(|p| format!("{p:#06x}"))
+                .collect();
             let suffix = if positions.len() > 5 {
                 format!(" (+{} more)", positions.len() - 5)
             } else {
@@ -722,7 +780,8 @@ fn exp122c_fwsec_extraction() {
 
         let vendor = u16::from_le_bytes([rom[pcir_off + 4], rom[pcir_off + 5]]);
         let device_id = u16::from_le_bytes([rom[pcir_off + 6], rom[pcir_off + 7]]);
-        let img_len_blocks = u16::from_le_bytes([rom[pcir_off + 0x10], rom[pcir_off + 0x11]]) as usize;
+        let img_len_blocks =
+            u16::from_le_bytes([rom[pcir_off + 0x10], rom[pcir_off + 0x11]]) as usize;
         let img_len = img_len_blocks * 512;
         let code_type = rom[pcir_off + 0x14];
         let indicator = rom[pcir_off + 0x15];

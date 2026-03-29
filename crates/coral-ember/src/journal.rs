@@ -103,15 +103,15 @@ pub struct JournalFilter {
 
 impl JournalFilter {
     fn matches(&self, entry: &JournalEntry) -> bool {
-        if let Some(ref bdf) = self.bdf {
-            if entry.bdf() != bdf {
-                return false;
-            }
+        if let Some(ref bdf) = self.bdf
+            && entry.bdf() != bdf
+        {
+            return false;
         }
-        if let Some(ref kind) = self.kind {
-            if entry.kind_tag() != kind {
-                return false;
-            }
+        if let Some(ref kind) = self.kind
+            && entry.kind_tag() != kind
+        {
+            return false;
         }
         if let Some(ref personality) = self.personality {
             let matches = match entry {
@@ -126,15 +126,15 @@ impl JournalFilter {
                 return false;
             }
         }
-        if let Some(after) = self.after {
-            if entry.timestamp_epoch_ms() < after {
-                return false;
-            }
+        if let Some(after) = self.after
+            && entry.timestamp_epoch_ms() < after
+        {
+            return false;
         }
-        if let Some(before) = self.before {
-            if entry.timestamp_epoch_ms() > before {
-                return false;
-            }
+        if let Some(before) = self.before
+            && entry.timestamp_epoch_ms() > before
+        {
+            return false;
         }
         true
     }
@@ -253,11 +253,11 @@ impl Journal {
             }
         }
 
-        if let Some(limit) = filter.limit {
-            if results.len() > limit {
-                let start = results.len() - limit;
-                results = results[start..].to_vec();
-            }
+        if let Some(limit) = filter.limit
+            && results.len() > limit
+        {
+            let start = results.len() - limit;
+            results = results[start..].to_vec();
         }
 
         Ok(results)
@@ -291,9 +291,7 @@ impl Journal {
                 }
                 JournalEntry::Reset(obs) => {
                     stats.total_resets += 1;
-                    let acc = reset_accum
-                        .entry(obs.method.clone())
-                        .or_insert((0, 0, 0));
+                    let acc = reset_accum.entry(obs.method.clone()).or_insert((0, 0, 0));
                     acc.0 += 1;
                     if obs.success {
                         acc.1 += 1;
@@ -308,33 +306,35 @@ impl Journal {
 
         stats.personality_stats = personality_accum
             .into_iter()
-            .map(|(personality, (count, total, bind, unbind))| PersonalityStats {
-                personality,
-                swap_count: count,
-                avg_total_ms: if count > 0 { total / count } else { 0 },
-                avg_bind_ms: if count > 0 { bind / count } else { 0 },
-                avg_unbind_ms: if count > 0 { unbind / count } else { 0 },
-            })
+            .map(
+                |(personality, (count, total, bind, unbind))| PersonalityStats {
+                    personality,
+                    swap_count: count,
+                    avg_total_ms: if count > 0 { total / count } else { 0 },
+                    avg_bind_ms: if count > 0 { bind / count } else { 0 },
+                    avg_unbind_ms: if count > 0 { unbind / count } else { 0 },
+                },
+            )
             .collect();
-        stats.personality_stats.sort_by(|a, b| b.swap_count.cmp(&a.swap_count));
+        stats
+            .personality_stats
+            .sort_by(|a, b| b.swap_count.cmp(&a.swap_count));
 
         stats.reset_method_stats = reset_accum
             .into_iter()
-            .map(|(method, (attempts, successes, duration))| ResetMethodStats {
-                method,
-                attempts,
-                successes,
-                success_rate: if attempts > 0 {
-                    successes as f64 / attempts as f64
-                } else {
-                    0.0
+            .map(
+                |(method, (attempts, successes, duration))| ResetMethodStats {
+                    method,
+                    attempts,
+                    successes,
+                    success_rate: if attempts > 0 {
+                        successes as f64 / attempts as f64
+                    } else {
+                        0.0
+                    },
+                    avg_duration_ms: if attempts > 0 { duration / attempts } else { 0 },
                 },
-                avg_duration_ms: if attempts > 0 {
-                    duration / attempts
-                } else {
-                    0
-                },
-            })
+            )
             .collect();
         stats
             .reset_method_stats
@@ -395,9 +395,7 @@ mod tests {
         let reset = JournalEntry::Reset(test_reset_obs("0000:03:00.0", "bridge-sbr", true));
         journal.append(&reset).expect("append reset");
 
-        let entries = journal
-            .query(&JournalFilter::default())
-            .expect("query all");
+        let entries = journal.query(&JournalFilter::default()).expect("query all");
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].kind_tag(), "Swap");
         assert_eq!(entries[1].kind_tag(), "Reset");

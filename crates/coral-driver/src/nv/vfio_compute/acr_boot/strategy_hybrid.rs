@@ -94,12 +94,7 @@ pub fn attempt_hybrid_acr_boot(
             Ok(b) => b,
             Err(e) => {
                 notes.push(format!("DMA alloc shadow failed: {e}"));
-                return make_fail_result(
-                    "Hybrid ACR: DMA alloc failed",
-                    sec2_before,
-                    bar0,
-                    notes,
-                );
+                return make_fail_result("Hybrid ACR: DMA alloc failed", sec2_before, bar0, notes);
             }
         };
 
@@ -145,7 +140,11 @@ pub fn attempt_hybrid_acr_boot(
         && wv64(FALCON_PD1_VRAM, 0, 0)
         && wv64(FALCON_PD1_VRAM, 8, encode_vram_pde(FALCON_PD0_VRAM as u64))
         && wv64(FALCON_PD0_VRAM, 0, 0)
-        && wv64(FALCON_PD0_VRAM, 8, encode_vram_pd0_pde(FALCON_PT0_VRAM as u64));
+        && wv64(
+            FALCON_PD0_VRAM,
+            8,
+            encode_vram_pd0_pde(FALCON_PT0_VRAM as u64),
+        );
 
     if !pt_ok {
         notes.push("VRAM page directory chain write failed".to_string());

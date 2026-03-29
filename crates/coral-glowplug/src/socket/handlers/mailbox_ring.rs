@@ -157,7 +157,9 @@ fn handle_mailbox_post(
         timeout: Duration::from_millis(timeout_ms),
     };
 
-    let seq = mb.post(cmd).map_err(|e| RpcError::device_error(e.to_string()))?;
+    let seq = mb
+        .post(cmd)
+        .map_err(|e| RpcError::device_error(e.to_string()))?;
 
     Ok(serde_json::json!({
         "seq": seq.raw(),
@@ -486,7 +488,12 @@ mod tests {
             &mut devices,
         )
         .expect("poll");
-        assert!(poll_result["state"].as_str().expect("state").contains("Posted"));
+        assert!(
+            poll_result["state"]
+                .as_str()
+                .expect("state")
+                .contains("Posted")
+        );
 
         dispatch(
             "mailbox.complete",

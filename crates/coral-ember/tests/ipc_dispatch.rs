@@ -42,11 +42,11 @@ fn drain_json_line(stream: &mut UnixStream) -> serde_json::Value {
 #[test]
 fn dispatch_invalid_json_parse_error() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     client.write_all(b"not json\n").expect("write");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32700);
 }
@@ -54,13 +54,13 @@ fn dispatch_invalid_json_parse_error() {
 #[test]
 fn dispatch_wrong_jsonrpc_version() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"1.0","method":"ember.list","id":1}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32600);
 }
@@ -68,13 +68,13 @@ fn dispatch_wrong_jsonrpc_version() {
 #[test]
 fn dispatch_ember_list_empty() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.list","id":7}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["devices"], serde_json::json!([]));
 }
@@ -82,14 +82,14 @@ fn dispatch_ember_list_empty() {
 #[test]
 fn dispatch_ember_status_uptime() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.status","id":2}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let started = Instant::now() - Duration::from_secs(10);
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&server, &held, &m, started, None).expect("handler");
+    handle_client(&mut server, &held, &m, started, None).expect("handler");
     let v = drain_json_line(&mut client);
     let uptime = v["result"]["uptime_secs"].as_u64().expect("uptime");
     assert!(uptime >= 10);
@@ -100,13 +100,13 @@ fn dispatch_ember_status_uptime() {
 #[test]
 fn dispatch_unknown_method() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"nope.not_found","id":3}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32601);
 }
@@ -114,14 +114,14 @@ fn dispatch_unknown_method() {
 #[test]
 fn dispatch_ember_vfio_fds_missing_device() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req =
         r#"{"jsonrpc":"2.0","method":"ember.vfio_fds","params":{"bdf":"0000:01:00.0"},"id":4}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
 }
@@ -129,27 +129,27 @@ fn dispatch_ember_vfio_fds_missing_device() {
 #[test]
 fn dispatch_ember_release_missing_bdf_errors() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.release","params":{},"id":5}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&server, &held, &m, Instant::now(), None).expect_err("missing bdf");
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
     assert!(err.contains("bdf"));
 }
 
 #[test]
 fn dispatch_ember_release_not_held() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req =
         r#"{"jsonrpc":"2.0","method":"ember.release","params":{"bdf":"0000:01:00.0"},"id":6}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
 }
@@ -157,14 +157,14 @@ fn dispatch_ember_release_not_held() {
 #[test]
 fn dispatch_ember_reacquire_open_failure() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req =
         r#"{"jsonrpc":"2.0","method":"ember.reacquire","params":{"bdf":"9999:99:99.9"},"id":11}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
     let msg = v["error"]["message"].as_str().expect("msg");
@@ -174,26 +174,27 @@ fn dispatch_ember_reacquire_open_failure() {
 #[test]
 fn dispatch_ember_swap_missing_target() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"0000:01:00.0"},"id":8}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&server, &held, &m, Instant::now(), None).expect_err("missing target");
+    let err =
+        handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing target");
     assert!(err.contains("target"));
 }
 
 #[test]
 fn dispatch_ember_swap_unknown_target() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"bdf":"9999:99:99.9","target":"bogus-target"},"id":9}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
     let msg = v["error"]["message"].as_str().expect("msg");
@@ -206,39 +207,39 @@ fn dispatch_ember_swap_unknown_target() {
 #[test]
 fn dispatch_ember_vfio_fds_missing_bdf_param() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.vfio_fds","params":{},"id":10}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&server, &held, &m, Instant::now(), None).expect_err("missing bdf");
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
     assert!(err.contains("bdf"));
 }
 
 #[test]
 fn dispatch_ember_reacquire_missing_bdf_param() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.reacquire","params":{},"id":12}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&server, &held, &m, Instant::now(), None).expect_err("missing bdf");
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
     assert!(err.contains("bdf"));
 }
 
 #[test]
 fn dispatch_ember_swap_missing_bdf_param() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = r#"{"jsonrpc":"2.0","method":"ember.swap","params":{"target":"unbound"},"id":13}"#;
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&server, &held, &m, Instant::now(), None).expect_err("missing bdf");
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
     assert!(err.contains("bdf"));
 }
 
@@ -279,7 +280,7 @@ fn send_with_fds_accepts_unix_stream_and_dev_null_fd() {
 #[ignore = "requires GPU bound to vfio-pci and a real BDF"]
 fn dispatch_ember_vfio_fds_with_hardware() {
     let bdf = std::env::var("CORAL_EMBER_TEST_BDF").expect("set CORAL_EMBER_TEST_BDF");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let req = format!(
         r#"{{"jsonrpc":"2.0","method":"ember.vfio_fds","params":{{"bdf":"{bdf}"}},"id":1}}"#
     );
@@ -297,7 +298,7 @@ fn dispatch_ember_vfio_fds_with_hardware() {
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
 }
 
 #[test]
@@ -305,7 +306,7 @@ fn dispatch_ember_vfio_fds_with_hardware() {
 fn dispatch_ember_release_success_when_held() {
     let bdf = std::env::var("CORAL_EMBER_TEST_BDF").expect("set CORAL_EMBER_TEST_BDF");
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let device = coral_driver::vfio::VfioDevice::open(&bdf).expect("open");
     let mut map = HashMap::new();
     map.insert(
@@ -323,7 +324,7 @@ fn dispatch_ember_release_success_when_held() {
     );
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["bdf"].as_str().expect("bdf"), bdf.as_str());
     assert!(held.read().unwrap().is_empty());
@@ -334,7 +335,7 @@ fn dispatch_ember_release_success_when_held() {
 fn dispatch_ember_reacquire_skips_open_when_already_held() {
     let bdf = std::env::var("CORAL_EMBER_TEST_BDF").expect("set CORAL_EMBER_TEST_BDF");
     let _guard = IPC_TEST_LOCK.lock().expect("ipc lock");
-    let (server, mut client) = UnixStream::pair().expect("pair");
+    let (mut server, mut client) = UnixStream::pair().expect("pair");
     let device = coral_driver::vfio::VfioDevice::open(&bdf).expect("open");
     let mut map = HashMap::new();
     map.insert(
@@ -352,7 +353,7 @@ fn dispatch_ember_reacquire_skips_open_when_already_held() {
     );
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
-    handle_client(&server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["bdf"].as_str().expect("bdf"), bdf.as_str());
     assert_eq!(held.read().unwrap().len(), 1);

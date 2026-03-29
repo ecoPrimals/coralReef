@@ -49,9 +49,13 @@ struct Cli {
 enum Commands {
     /// Start the IPC server (JSON-RPC 2.0 + tarpc).
     Server {
+        /// TCP port for newline-delimited JSON-RPC (`UniBin` v1.1).
+        #[arg(long, help = "TCP port for newline-delimited JSON-RPC (UniBin v1.1)")]
+        port: Option<u16>,
+
         /// Bind address for JSON-RPC server (TCP only — HTTP transport).
         /// Respects `$CORALREEF_TCP_BIND` for deployment configuration.
-        #[arg(long, default_value_t = default_tcp_bind())]
+        #[arg(long, hide = true, default_value_t = default_tcp_bind())]
         rpc_bind: String,
 
         /// Bind address for tarpc server.
@@ -115,7 +119,10 @@ async fn main() -> ExitCode {
     let cli = match parse_cli() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{e}");
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::new("info"))
+                .try_init();
+            tracing::error!(error = %e, "invalid command line");
             return UniBinExit::ConfigError.into();
         }
     };
@@ -128,11 +135,12 @@ async fn main() -> ExitCode {
 
     let exit = match cli.command {
         Commands::Server {
+            port,
             rpc_bind,
             tarpc_bind,
         } => {
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
-            cmd_server(&rpc_bind, &tarpc_bind).await
+            cmd_server(&rpc_bind, &tarpc_bind, port).await
         }
         Commands::Compile {
             input,
@@ -174,8 +182,14 @@ fn install_panic_hook() {
         let location = info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
-        // Log structurally; tracing may not be initialized yet, so also eprintln as fallback
-        eprintln!("internal error: panic: message={msg}, location={location:?}");
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::ERROR)
+            .try_init();
+        tracing::error!(
+            message = %msg,
+            location = ?location,
+            "internal error: panic before normal logging bootstrap"
+        );
         std::process::abort();
     }));
 }
@@ -209,9 +223,9 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
     format!("shutdown timed out after {join_timeout:?}")
 }
 
-async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
+async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniBinExit {
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
-    tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
+    tracing::info!(rpc_bind, tarpc_bind, ?port, "binding addresses");
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 
@@ -223,12 +237,29 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         }
     };
 
+    let newline_bind = port.map(|p| format!("127.0.0.1:{p}"));
+    let (newline_addr, newline_handle) = if let Some(ref bind) = newline_bind {
+        match ipc::start_newline_tcp_jsonrpc(bind, shutdown_rx.clone()).await {
+            Ok(x) => (Some(x.0), Some(x.1)),
+            Err(e) => {
+                tracing::error!(error = %e, "failed to start newline-delimited TCP JSON-RPC server");
+                let _ = rpc_handle.stop();
+                return UniBinExit::GeneralError;
+            }
+        }
+    } else {
+        (None, None)
+    };
+
     let (tarpc_bound, tarpc_handle) =
         match ipc::start_tarpc_server(tarpc_bind, shutdown_rx.clone()).await {
             Ok(x) => x,
             Err(e) => {
                 tracing::error!(error = %e, "failed to start tarpc server");
                 let _ = rpc_handle.stop();
+                if let Some(h) = newline_handle {
+                    h.abort();
+                }
                 return UniBinExit::GeneralError;
             }
         };
@@ -249,21 +280,26 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     };
 
     let desc = coralreef_core::capability::self_description();
-    let desc = coralreef_core::capability::with_transports(
-        desc,
-        vec![
-            coralreef_core::capability::Transport {
-                protocol: "jsonrpc".into(),
-                address: rpc_addr.to_string().into(),
-            },
-            coralreef_core::capability::Transport {
-                protocol: format!("tarpc+{}", tarpc_bound.protocol()).into(),
-                address: tarpc_bound.to_string().into(),
-            },
-        ],
-    );
+    let mut transports = vec![
+        coralreef_core::capability::Transport {
+            protocol: "jsonrpc".into(),
+            address: rpc_addr.to_string().into(),
+        },
+        coralreef_core::capability::Transport {
+            protocol: format!("tarpc+{}", tarpc_bound.protocol()).into(),
+            address: tarpc_bound.to_string().into(),
+        },
+    ];
+    if let Some(addr) = newline_addr {
+        transports.push(coralreef_core::capability::Transport {
+            protocol: "jsonrpc-line".into(),
+            address: addr.to_string().into(),
+        });
+    }
+    let desc = coralreef_core::capability::with_transports(desc, transports);
     tracing::info!(
         rpc_addr = %rpc_addr,
+        newline_addr = ?newline_addr,
         tarpc_addr = %tarpc_bound,
         provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
         requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
@@ -291,6 +327,9 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     let join_timeout = shutdown_join_timeout();
     let shutdown_result = tokio::time::timeout(join_timeout, async move {
         rpc_stopped.await;
+        if let Some(h) = newline_handle {
+            h.await.ok();
+        }
         tarpc_handle.await.ok();
         #[cfg(unix)]
         if let Some(h) = unix_jsonrpc_handle {
@@ -326,6 +365,11 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
         .iter()
         .find(|t| t.protocol == "jsonrpc")
         .map_or("", |t| t.address.as_ref());
+    let jsonrpc_line_addr = desc
+        .transports
+        .iter()
+        .find(|t| t.protocol == "jsonrpc-line")
+        .map_or("", |t| t.address.as_ref());
     let tarpc_addr = desc
         .transports
         .iter()
@@ -334,6 +378,7 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
 
     // Phase 10: each transport has { "bind": "..." }
     let jsonrpc_bind = jsonrpc_addr.to_string();
+    let jsonrpc_line_bind = jsonrpc_line_addr.to_string();
 
     let discovery = serde_json::json!({
         "primal": env!("CARGO_PKG_NAME"),
@@ -343,6 +388,7 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
         "requires": desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
         "transports": {
             "jsonrpc": { "bind": jsonrpc_bind },
+            "jsonrpc_line": { "bind": jsonrpc_line_bind },
             "tarpc": { "bind": tarpc_addr },
         },
     });
@@ -430,7 +476,7 @@ fn cmd_compile(
 async fn cmd_doctor() -> UniBinExit {
     match commands::run_doctor().await {
         Ok(report) => {
-            println!("{report}");
+            tracing::info!(report = %report, "doctor");
             UniBinExit::Success
         }
         Err(e) => {

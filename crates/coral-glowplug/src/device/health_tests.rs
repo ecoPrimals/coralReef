@@ -19,6 +19,7 @@ fn base_config(bdf: &str, boot: &str) -> DeviceConfig {
         name: None,
         boot_personality: boot.into(),
         power_policy: "always_on".into(),
+        health_policy: "passive".into(),
         role: None,
         oracle_dump: None,
         shared: None,

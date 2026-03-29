@@ -51,9 +51,6 @@
 mod handlers;
 mod protocol;
 
-#[allow(unused_imports)] // Stable `socket::` re-exports; used by `socket_tests` (`super::*`).
-pub use protocol::{DeviceInfo, HealthInfo};
-
 #[cfg(test)]
 pub(crate) use handlers::dispatch;
 #[cfg(test)]
@@ -74,7 +71,8 @@ const MAX_CONCURRENT_CLIENTS: usize = 64;
 
 /// Set socket group ownership for unprivileged user access.
 ///
-/// Resolves `group_name` from `/etc/group` and chowns the socket.
+/// Resolves `group_name` from the group database file (`/etc/group` by default,
+/// override with `CORALREEF_GROUP_FILE`) and chowns the socket.
 /// The glowplug socket should be `root:coralreef 0660` so users in the
 /// `coralreef` group can send RPC commands without privilege escalation.
 /// Ember's socket stays `root:root 0660` (service-to-service only).
@@ -110,14 +108,7 @@ fn set_socket_group(path: &str, group_name: &str) {
 
 #[cfg(unix)]
 fn resolve_group_gid(group_name: &str) -> Option<u32> {
-    let content = std::fs::read_to_string("/etc/group").ok()?;
-    for line in content.lines() {
-        let fields: Vec<&str> = line.split(':').collect();
-        if fields.len() >= 3 && fields[0] == group_name {
-            return fields[2].parse().ok();
-        }
-    }
-    None
+    coral_glowplug::group_unix::gid_for_group_name(group_name)
 }
 
 /// Platform-agnostic JSON-RPC socket server (`ecoBin` compliant).

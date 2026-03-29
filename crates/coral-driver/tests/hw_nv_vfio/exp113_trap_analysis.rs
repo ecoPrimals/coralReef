@@ -79,12 +79,7 @@ struct VariantResult {
     wpr_gpccs: u32,
 }
 
-fn run_variant(
-    bdf: &str,
-    fw: &AcrFirmwareSet,
-    label: &str,
-    cfg: DualPhaseConfig,
-) -> VariantResult {
+fn run_variant(bdf: &str, fw: &AcrFirmwareSet, label: &str, cfg: DualPhaseConfig) -> VariantResult {
     let sep = "-".repeat(60);
     eprintln!("\n{sep}");
     eprintln!("  Variant: {label}");
@@ -93,8 +88,7 @@ fn run_variant(
 
     nouveau_cycle(bdf);
     let fds = ember_client::request_fds(bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     let result = attempt_dual_phase_boot_cfg(&bar0, fw, &cfg);
@@ -156,8 +150,7 @@ fn exp113_trap_analysis() {
     // Detect chip
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let boot0 = bar0.read_u32(0).unwrap_or(0);
     let sm = identity::boot0_to_sm(boot0).unwrap_or(0);

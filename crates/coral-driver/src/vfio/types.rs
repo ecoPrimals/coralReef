@@ -5,6 +5,10 @@
 //! ioctl opcodes derived from `_IO(';', base + offset)`.
 
 /// VFIO ioctl opcodes and constants from `<linux/vfio.h>`.
+#[allow(
+    dead_code,
+    reason = "kernel ABI definitions — full surface kept for correctness"
+)]
 pub(crate) mod ioctls {
     use rustix::ioctl::{Opcode, opcode};
 

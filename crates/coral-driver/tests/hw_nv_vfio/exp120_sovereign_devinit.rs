@@ -19,14 +19,14 @@
 //! ```
 
 use crate::helpers::{init_tracing, open_vfio};
+use coral_driver::nv::vfio_compute::acr_boot::{
+    AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
+    attempt_sysmem_acr_boot_with_config,
+};
 use coral_driver::vfio::channel::devinit::{
     DevinitStatus, FalconDiagnostic, execute_devinit_with_diagnostics,
 };
 use coral_driver::vfio::device::MappedBar;
-use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, BootConfig, FalconBootvecOffsets,
-    attempt_acr_mailbox_command, attempt_sysmem_acr_boot_with_config,
-};
 
 mod r120 {
     pub const SEC2_BASE: usize = 0x087000;
@@ -112,8 +112,10 @@ fn exp120_sovereign_devinit() {
     eprintln!("  WPR2: start={w_s:#012x} end={w_e:#012x} valid={w_v}");
 
     let status = DevinitStatus::probe(bar0);
-    eprintln!("\n  needs_post={} devinit_reg={:#010x}",
-        status.needs_post, status.devinit_reg);
+    eprintln!(
+        "\n  needs_post={} devinit_reg={:#010x}",
+        status.needs_post, status.devinit_reg
+    );
 
     // ── Phase B: Execute DEVINIT ───────────────────────────────
     eprintln!("\n{eq}");
@@ -146,8 +148,10 @@ fn exp120_sovereign_devinit() {
     eprintln!("  WPR2: start={w_s2:#012x} end={w_e2:#012x} size={w_sz2:#x} valid={w_v2}");
 
     let status2 = DevinitStatus::probe(bar0);
-    eprintln!("  needs_post={} devinit_reg={:#010x}",
-        status2.needs_post, status2.devinit_reg);
+    eprintln!(
+        "  needs_post={} devinit_reg={:#010x}",
+        status2.needs_post, status2.devinit_reg
+    );
 
     if !w_v2 {
         eprintln!("\n  WPR2 still invalid after DEVINIT.");
@@ -162,8 +166,7 @@ fn exp120_sovereign_devinit() {
     eprintln!("  PHASE D: ACR Boot with Valid WPR2");
     eprintln!("{eq}");
 
-    let fw = AcrFirmwareSet::load("gv100")
-        .expect("load firmware from /lib/firmware/nvidia/gv100/");
+    let fw = AcrFirmwareSet::load("gv100").expect("load firmware from /lib/firmware/nvidia/gv100/");
 
     let config = BootConfig {
         pde_upper: true,
@@ -174,12 +177,7 @@ fn exp120_sovereign_devinit() {
         tlb_invalidate: true,
     };
 
-    let result = attempt_sysmem_acr_boot_with_config(
-        bar0,
-        &fw,
-        dev.dma_backend(),
-        &config,
-    );
+    let result = attempt_sysmem_acr_boot_with_config(bar0, &fw, dev.dma_backend(), &config);
     eprintln!("\n  {result}");
 
     // ── Phase E: BOOTSTRAP_FALCON ──────────────────────────────

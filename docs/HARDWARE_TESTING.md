@@ -2,7 +2,7 @@
 
 # Hardware Testing Guide — coralReef GPU Parity
 
-**Last updated**: March 21, 2026 (Phase 10 — Iteration 62)
+**Last updated**: March 21, 2026 (Phase 10 — Iteration 67)
 
 ## Hardware Inventory
 

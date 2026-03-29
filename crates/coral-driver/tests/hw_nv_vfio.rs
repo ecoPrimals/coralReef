@@ -48,7 +48,11 @@ mod dispatch;
 mod diagnostics;
 
 #[cfg(feature = "vfio")]
-#[path = "hw_nv_vfio/falcon.rs"]
+#[path = "hw_nv_vfio/falcon_exp095_phase3.rs"]
+mod falcon_exp095_phase3;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/falcon/mod.rs"]
 mod falcon;
 
 #[cfg(feature = "vfio")]

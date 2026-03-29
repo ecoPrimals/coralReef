@@ -204,9 +204,17 @@ impl fmt::Display for FalconCapabilities {
             self.dmem_size,
             self.requires_signed_fw,
             self.pio.write_autoinc,
-            if self.pio.write_validated { "(OK)" } else { "(?)" },
+            if self.pio.write_validated {
+                "(OK)"
+            } else {
+                "(?)"
+            },
             self.pio.read_autoinc,
-            if self.pio.read_validated { "(OK)" } else { "(?)" },
+            if self.pio.read_validated {
+                "(OK)"
+            } else {
+                "(?)"
+            },
             self.cpuctl.startcpu,
         )?;
         if !self.anomalies.is_empty() {
@@ -226,11 +234,7 @@ const DEAD_READ: u32 = 0xDEAD_DEAD;
 /// Safe to call on any falcon (FECS, GPCCS, SEC2, PMU) — the probe reads
 /// HWCFG to determine version, then performs non-destructive PIO validation
 /// if the falcon appears accessible (not in DEAD state).
-pub fn probe_falcon(
-    bar0: &MappedBar,
-    name: &str,
-    base: usize,
-) -> DriverResult<FalconCapabilities> {
+pub fn probe_falcon(bar0: &MappedBar, name: &str, base: usize) -> DriverResult<FalconCapabilities> {
     let r = |off: usize| bar0.read_u32(base + off).unwrap_or(DEAD_READ);
 
     let hwcfg_raw = r(falcon::HWCFG);
@@ -460,9 +464,11 @@ fn probe_pio_layout(
     // None of the candidates produced a valid readback.
     // This can happen if the falcon is in a state that blocks DMEM PIO
     // (e.g., running firmware occupying DMEM, or truly inaccessible).
-    anomalies.push("PIO validation failed: no write+read candidate produced correct readback. \
+    anomalies.push(
+        "PIO validation failed: no write+read candidate produced correct readback. \
                     Falcon may be running or DMEM inaccessible. Using default GM200+ layout."
-        .to_string());
+            .to_string(),
+    );
 
     layout
 }
@@ -484,9 +490,7 @@ fn probe_secure_flag(
     // A full validation would: write IMEM[high_addr] with BIT(28), read back,
     // check for 0xdead5ec1. But IMEM writes clobber firmware, so we skip this
     // on running falcons.
-    let cpuctl = bar0
-        .read_u32(base + falcon::CPUCTL)
-        .unwrap_or(DEAD_READ);
+    let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(DEAD_READ);
     let halted_or_hreset = cpuctl & ((1 << 4) | (1 << 5)) != 0;
 
     if !halted_or_hreset && cpuctl != DEAD_READ {
@@ -536,17 +540,20 @@ impl<'a> FalconPio<'a> {
         } else {
             self.caps.imem_write_ctrl(addr)
         };
-        let _ = self.bar0.write_u32(self.caps.base + falcon::IMEMC, ctrl.raw());
+        let _ = self
+            .bar0
+            .write_u32(self.caps.base + falcon::IMEMC, ctrl.raw());
 
         for (i, chunk) in data.chunks(4).enumerate() {
             let byte_offset = (i * 4) as u32;
             if byte_offset & 0xFF == 0 {
-                let _ = self.bar0.write_u32(
-                    self.caps.base + falcon::IMEMT,
-                    (addr + byte_offset) >> 8,
-                );
+                let _ = self
+                    .bar0
+                    .write_u32(self.caps.base + falcon::IMEMT, (addr + byte_offset) >> 8);
             }
-            let _ = self.bar0.write_u32(self.caps.base + falcon::IMEMD, le_word(chunk));
+            let _ = self
+                .bar0
+                .write_u32(self.caps.base + falcon::IMEMD, le_word(chunk));
         }
 
         // Pad to 256-byte boundary
@@ -563,17 +570,23 @@ impl<'a> FalconPio<'a> {
     /// Upload data to DMEM at `addr`.
     pub fn upload_dmem(&self, addr: u32, data: &[u8]) {
         let ctrl = self.caps.dmem_write_ctrl(addr);
-        let _ = self.bar0.write_u32(self.caps.base + falcon::DMEMC, ctrl.raw());
+        let _ = self
+            .bar0
+            .write_u32(self.caps.base + falcon::DMEMC, ctrl.raw());
 
         for chunk in data.chunks(4) {
-            let _ = self.bar0.write_u32(self.caps.base + falcon::DMEMD, le_word(chunk));
+            let _ = self
+                .bar0
+                .write_u32(self.caps.base + falcon::DMEMD, le_word(chunk));
         }
     }
 
     /// Read `count` 32-bit words from IMEM starting at `addr`.
     pub fn read_imem(&self, addr: u32, count: usize) -> Vec<u32> {
         let ctrl = self.caps.imem_read_ctrl(addr);
-        let _ = self.bar0.write_u32(self.caps.base + falcon::IMEMC, ctrl.raw());
+        let _ = self
+            .bar0
+            .write_u32(self.caps.base + falcon::IMEMC, ctrl.raw());
 
         (0..count)
             .map(|_| {
@@ -587,7 +600,9 @@ impl<'a> FalconPio<'a> {
     /// Read `count` 32-bit words from DMEM starting at `addr`.
     pub fn read_dmem(&self, addr: u32, count: usize) -> Vec<u32> {
         let ctrl = self.caps.dmem_read_ctrl(addr);
-        let _ = self.bar0.write_u32(self.caps.base + falcon::DMEMC, ctrl.raw());
+        let _ = self
+            .bar0
+            .write_u32(self.caps.base + falcon::DMEMC, ctrl.raw());
 
         (0..count)
             .map(|_| {
@@ -673,21 +688,30 @@ mod tests {
     #[test]
     fn security_mode_decode_ns() {
         let mut a = Vec::new();
-        assert_eq!(decode_security_mode(0x0000, &mut a), SecurityMode::NonSecure);
+        assert_eq!(
+            decode_security_mode(0x0000, &mut a),
+            SecurityMode::NonSecure
+        );
         assert!(a.is_empty());
     }
 
     #[test]
     fn security_mode_decode_ls() {
         let mut a = Vec::new();
-        assert_eq!(decode_security_mode(0x1000, &mut a), SecurityMode::LightSecure);
+        assert_eq!(
+            decode_security_mode(0x1000, &mut a),
+            SecurityMode::LightSecure
+        );
         assert!(a.is_empty());
     }
 
     #[test]
     fn security_mode_decode_hs() {
         let mut a = Vec::new();
-        assert_eq!(decode_security_mode(0x2000, &mut a), SecurityMode::HeavySecure);
+        assert_eq!(
+            decode_security_mode(0x2000, &mut a),
+            SecurityMode::HeavySecure
+        );
         assert!(a.is_empty());
     }
 
@@ -703,12 +727,18 @@ mod tests {
     fn security_mode_extra_bits_flagged() {
         let mut a = Vec::new();
         decode_security_mode(0x3001, &mut a);
-        assert!(a.len() >= 2, "should flag both unknown level and extra bit 0");
+        assert!(
+            a.len() >= 2,
+            "should flag both unknown level and extra bit 0"
+        );
     }
 
     #[test]
     fn cpuctl_layout_v4_plus() {
-        let v = FalconVersion { major: 4, hwcfg_raw: 0 };
+        let v = FalconVersion {
+            major: 4,
+            hwcfg_raw: 0,
+        };
         let layout = detect_cpuctl_layout(&v);
         assert_eq!(layout.startcpu, 1 << 1);
         assert_eq!(layout.iinval, 1 << 0);
@@ -718,7 +748,10 @@ mod tests {
 
     #[test]
     fn cpuctl_layout_v0() {
-        let v = FalconVersion { major: 0, hwcfg_raw: 0 };
+        let v = FalconVersion {
+            major: 0,
+            hwcfg_raw: 0,
+        };
         let layout = detect_cpuctl_layout(&v);
         assert_eq!(layout.startcpu, 1 << 0);
         assert_eq!(layout.iinval, 0);
@@ -729,8 +762,14 @@ mod tests {
         let caps = FalconCapabilities {
             name: "test".into(),
             base: 0,
-            version: FalconVersion { major: 4, hwcfg_raw: 0 },
-            cpuctl: detect_cpuctl_layout(&FalconVersion { major: 4, hwcfg_raw: 0 }),
+            version: FalconVersion {
+                major: 4,
+                hwcfg_raw: 0,
+            },
+            cpuctl: detect_cpuctl_layout(&FalconVersion {
+                major: 4,
+                hwcfg_raw: 0,
+            }),
             pio: PioLayout {
                 write_autoinc: 1 << 24,
                 read_autoinc: 1 << 25,
@@ -774,8 +813,14 @@ mod tests {
         let caps = FalconCapabilities {
             name: "FECS".into(),
             base: 0x409000,
-            version: FalconVersion { major: 4, hwcfg_raw: 0x04000140 },
-            cpuctl: detect_cpuctl_layout(&FalconVersion { major: 4, hwcfg_raw: 0 }),
+            version: FalconVersion {
+                major: 4,
+                hwcfg_raw: 0x04000140,
+            },
+            cpuctl: detect_cpuctl_layout(&FalconVersion {
+                major: 4,
+                hwcfg_raw: 0,
+            }),
             pio: PioLayout {
                 write_autoinc: 1 << 24,
                 read_autoinc: 1 << 25,

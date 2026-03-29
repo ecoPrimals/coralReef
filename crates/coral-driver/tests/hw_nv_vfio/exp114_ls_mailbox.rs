@@ -23,8 +23,7 @@ use crate::ember_client;
 use crate::glowplug_client::GlowPlugClient;
 use crate::helpers::init_tracing;
 use coral_driver::nv::vfio_compute::acr_boot::{
-    AcrFirmwareSet, FalconBootvecOffsets, attempt_acr_mailbox_command,
-    attempt_sysmem_acr_boot_full,
+    AcrFirmwareSet, FalconBootvecOffsets, attempt_acr_mailbox_command, attempt_sysmem_acr_boot_full,
 };
 
 mod freg114 {
@@ -105,8 +104,7 @@ fn exp114_ls_mailbox_pipeline() {
     nouveau_cycle(&bdf);
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── Phase 1b: Post-Nouveau State ──");
@@ -133,7 +131,9 @@ fn exp114_ls_mailbox_pipeline() {
     falcon_state(&bar0, "GPCCS", freg114::GPCCS_BASE);
 
     let sec2_pc = bar0.read_u32(freg114::SEC2_BASE + freg114::PC).unwrap_or(0);
-    let sec2_cpuctl = bar0.read_u32(freg114::SEC2_BASE + freg114::CPUCTL).unwrap_or(0);
+    let sec2_cpuctl = bar0
+        .read_u32(freg114::SEC2_BASE + freg114::CPUCTL)
+        .unwrap_or(0);
     let sec2_alive = sec2_pc > 0x100
         && sec2_cpuctl & freg114::CPUCTL_HRESET == 0
         && sec2_cpuctl & freg114::CPUCTL_HALTED == 0;
@@ -152,7 +152,10 @@ fn exp114_ls_mailbox_pipeline() {
         gpccs: fw.gpccs_bl.bl_imem_off(),
         fecs: fw.fecs_bl.bl_imem_off(),
     };
-    eprintln!("  BOOTVEC offsets: GPCCS={:#06x} FECS={:#06x}", bootvec.gpccs, bootvec.fecs);
+    eprintln!(
+        "  BOOTVEC offsets: GPCCS={:#06x} FECS={:#06x}",
+        bootvec.gpccs, bootvec.fecs
+    );
 
     let mailbox_result = attempt_acr_mailbox_command(&bar0, &bootvec);
     eprintln!("\n  Mailbox result:");
@@ -168,26 +171,40 @@ fn exp114_ls_mailbox_pipeline() {
     falcon_state(&bar0, "FECS", freg114::FECS_BASE);
     falcon_state(&bar0, "GPCCS", freg114::GPCCS_BASE);
 
-    let fecs_cpuctl = bar0.read_u32(freg114::FECS_BASE + freg114::CPUCTL).unwrap_or(0xDEAD);
+    let fecs_cpuctl = bar0
+        .read_u32(freg114::FECS_BASE + freg114::CPUCTL)
+        .unwrap_or(0xDEAD);
     let fecs_pc = bar0.read_u32(freg114::FECS_BASE + freg114::PC).unwrap_or(0);
-    let fecs_exci = bar0.read_u32(freg114::FECS_BASE + freg114::EXCI).unwrap_or(0);
-    let gpccs_cpuctl = bar0.read_u32(freg114::GPCCS_BASE + freg114::CPUCTL).unwrap_or(0xDEAD);
-    let gpccs_pc = bar0.read_u32(freg114::GPCCS_BASE + freg114::PC).unwrap_or(0);
-    let gpccs_exci = bar0.read_u32(freg114::GPCCS_BASE + freg114::EXCI).unwrap_or(0);
+    let fecs_exci = bar0
+        .read_u32(freg114::FECS_BASE + freg114::EXCI)
+        .unwrap_or(0);
+    let gpccs_cpuctl = bar0
+        .read_u32(freg114::GPCCS_BASE + freg114::CPUCTL)
+        .unwrap_or(0xDEAD);
+    let gpccs_pc = bar0
+        .read_u32(freg114::GPCCS_BASE + freg114::PC)
+        .unwrap_or(0);
+    let gpccs_exci = bar0
+        .read_u32(freg114::GPCCS_BASE + freg114::EXCI)
+        .unwrap_or(0);
 
     let fecs_running = fecs_cpuctl & (freg114::CPUCTL_HRESET | freg114::CPUCTL_HALTED) == 0;
     let gpccs_running = gpccs_cpuctl & (freg114::CPUCTL_HRESET | freg114::CPUCTL_HALTED) == 0;
     let fecs_no_exci = fecs_exci == 0 || (fecs_exci >> 24) < 0x10;
     let gpccs_no_exci = gpccs_exci == 0 || (gpccs_exci >> 24) < 0x10;
 
-    let fecs_mthd = bar0.read_u32(freg114::FECS_BASE + freg114::MTHD_STATUS).unwrap_or(0);
+    let fecs_mthd = bar0
+        .read_u32(freg114::FECS_BASE + freg114::MTHD_STATUS)
+        .unwrap_or(0);
 
     // ── Summary ──
     let sep = "=".repeat(70);
     eprintln!("\n{sep}");
     eprintln!("  Exp 114 RESULTS");
     eprintln!("{sep}");
-    eprintln!("  FECS:  running={fecs_running} PC={fecs_pc:#06x} EXCI={fecs_exci:#010x} MTHD={fecs_mthd:#010x}");
+    eprintln!(
+        "  FECS:  running={fecs_running} PC={fecs_pc:#06x} EXCI={fecs_exci:#010x} MTHD={fecs_mthd:#010x}"
+    );
     eprintln!("  GPCCS: running={gpccs_running} PC={gpccs_pc:#06x} EXCI={gpccs_exci:#010x}");
     eprintln!("{sep}");
 

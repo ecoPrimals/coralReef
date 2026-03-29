@@ -521,7 +521,7 @@ async fn test_unix_jsonrpc_empty_line_skipped() {
 #[cfg(unix)]
 #[test]
 fn dispatch_status_returns_health() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.status", serde_json::json!({}));
+    let result = super::newline_jsonrpc::dispatch("shader.compile.status", serde_json::json!({}));
     assert!(result.is_ok());
     let val = result.unwrap();
     assert!(val.is_object());
@@ -532,7 +532,7 @@ fn dispatch_status_returns_health() {
 #[test]
 fn dispatch_capabilities_returns_archs() {
     let result =
-        super::unix_jsonrpc::dispatch("shader.compile.capabilities", serde_json::json!({}));
+        super::newline_jsonrpc::dispatch("shader.compile.capabilities", serde_json::json!({}));
     assert!(result.is_ok());
     let val = result.unwrap();
     assert!(val.is_array());
@@ -542,7 +542,7 @@ fn dispatch_capabilities_returns_archs() {
 #[cfg(unix)]
 #[test]
 fn dispatch_unknown_method_returns_error() {
-    let result = super::unix_jsonrpc::dispatch("nonexistent.method", serde_json::json!({}));
+    let result = super::newline_jsonrpc::dispatch("nonexistent.method", serde_json::json!({}));
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("method not found"));
 }
@@ -554,7 +554,7 @@ fn dispatch_wgsl_with_object_params() {
         "wgsl_source": "@compute @workgroup_size(64) fn main() {}",
         "arch": "sm70"
     });
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", params);
     assert!(result.is_ok());
 }
 
@@ -565,14 +565,15 @@ fn dispatch_wgsl_with_array_params() {
         "wgsl_source": "@compute @workgroup_size(64) fn main() {}",
         "arch": "sm70"
     }]);
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", params);
     assert!(result.is_ok());
 }
 
 #[cfg(unix)]
 #[test]
 fn dispatch_wgsl_with_invalid_params_type() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!("string"));
+    let result =
+        super::newline_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!("string"));
     assert!(result.is_err());
     assert!(
         result
@@ -585,7 +586,7 @@ fn dispatch_wgsl_with_invalid_params_type() {
 #[cfg(unix)]
 #[test]
 fn dispatch_wgsl_with_empty_array() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!([]));
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!([]));
     assert!(result.is_err());
     assert!(
         result
@@ -598,14 +599,14 @@ fn dispatch_wgsl_with_empty_array() {
 #[cfg(unix)]
 #[test]
 fn dispatch_spirv_with_invalid_params_type() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.spirv", serde_json::json!(42));
+    let result = super::newline_jsonrpc::dispatch("shader.compile.spirv", serde_json::json!(42));
     assert!(result.is_err());
 }
 
 #[cfg(unix)]
 #[test]
 fn dispatch_spirv_with_empty_array() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.spirv", serde_json::json!([]));
+    let result = super::newline_jsonrpc::dispatch("shader.compile.spirv", serde_json::json!([]));
     assert!(result.is_err());
 }
 
@@ -616,7 +617,7 @@ fn dispatch_wgsl_multi_with_object_params() {
         "wgsl_source": "@compute @workgroup_size(64) fn main() {}",
         "targets": [{"arch": "sm_70"}]
     });
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl.multi", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl.multi", params);
     assert!(result.is_ok());
 }
 
@@ -624,14 +625,15 @@ fn dispatch_wgsl_multi_with_object_params() {
 #[test]
 fn dispatch_wgsl_multi_with_invalid_params_type() {
     let result =
-        super::unix_jsonrpc::dispatch("shader.compile.wgsl.multi", serde_json::json!(true));
+        super::newline_jsonrpc::dispatch("shader.compile.wgsl.multi", serde_json::json!(true));
     assert!(result.is_err());
 }
 
 #[cfg(unix)]
 #[test]
 fn dispatch_wgsl_multi_with_empty_array() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl.multi", serde_json::json!([]));
+    let result =
+        super::newline_jsonrpc::dispatch("shader.compile.wgsl.multi", serde_json::json!([]));
     assert!(result.is_err());
 }
 
@@ -686,7 +688,7 @@ fn dispatch_extract_params_invalid_object_structure() {
         "wrong_field": "value",
         "arch": "sm_70"
     });
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", params);
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string().to_lowercase();
     assert!(
@@ -699,7 +701,7 @@ fn dispatch_extract_params_invalid_object_structure() {
 #[test]
 fn dispatch_extract_params_array_with_invalid_inner() {
     let params = serde_json::json!([{ "not_wgsl_source": "x" }]);
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", params);
     assert!(result.is_err());
 }
 
@@ -712,7 +714,7 @@ fn dispatch_extract_params_object_invalid_spirv_type() {
         "opt_level": 2,
         "fp64_software": true
     });
-    let result = super::unix_jsonrpc::dispatch("shader.compile.spirv", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.spirv", params);
     assert!(result.is_err());
 }
 
@@ -772,7 +774,7 @@ async fn test_unix_jsonrpc_unicode_in_request() {
 #[cfg(unix)]
 #[test]
 fn dispatch_params_must_be_array_or_object_number() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!(42));
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!(42));
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string().to_lowercase();
     assert!(
@@ -784,7 +786,7 @@ fn dispatch_params_must_be_array_or_object_number() {
 #[cfg(unix)]
 #[test]
 fn dispatch_params_must_be_array_or_object_bool() {
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!(true));
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", serde_json::json!(true));
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string().to_lowercase();
     assert!(
@@ -875,16 +877,16 @@ async fn test_unix_jsonrpc_invalid_jsonrpc_version_string() {
 #[cfg(unix)]
 #[test]
 fn dispatch_health_check_liveness_readiness() {
-    let check = super::unix_jsonrpc::dispatch("health.check", serde_json::json!({}));
+    let check = super::newline_jsonrpc::dispatch("health.check", serde_json::json!({}));
     assert!(check.is_ok());
     let v = check.expect("health.check");
     assert_eq!(v["healthy"], true);
 
-    let live = super::unix_jsonrpc::dispatch("health.liveness", serde_json::json!({}));
+    let live = super::newline_jsonrpc::dispatch("health.liveness", serde_json::json!({}));
     assert!(live.is_ok());
     assert_eq!(live.expect("liveness")["alive"], true);
 
-    let ready = super::unix_jsonrpc::dispatch("health.readiness", serde_json::json!({}));
+    let ready = super::newline_jsonrpc::dispatch("health.readiness", serde_json::json!({}));
     assert!(ready.is_ok());
     assert_eq!(ready.expect("readiness")["ready"], true);
 }
@@ -916,7 +918,7 @@ fn dispatch_handler_error_returns_handler_phase() {
         "opt_level": 2,
         "fp64_software": true
     });
-    let result = super::unix_jsonrpc::dispatch("shader.compile.wgsl", params);
+    let result = super::newline_jsonrpc::dispatch("shader.compile.wgsl", params);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(

@@ -358,11 +358,7 @@ impl EmberClient {
     }
 
     /// Set ring metadata for a held device.
-    pub fn ring_meta_set(
-        &self,
-        bdf: &str,
-        meta: &coral_ember::RingMeta,
-    ) -> Result<(), EmberError> {
+    pub fn ring_meta_set(&self, bdf: &str, meta: &coral_ember::RingMeta) -> Result<(), EmberError> {
         let meta_val = serde_json::to_value(meta).map_err(EmberError::Parse)?;
         self.simple_rpc(
             "ember.ring_meta.set",
@@ -523,7 +519,7 @@ fn read_full_response(stream: &UnixStream, buf: &mut [u8]) -> std::io::Result<us
 
 // ── BootJournal bridge ───────────────────────────────────────────────
 
-/// Bridges coral-driver's [`BootJournal`] trait to Ember's JSONL journal
+/// Bridges coral-driver's [`BootJournal`](coral_driver::nv::vfio_compute::acr_boot::BootJournal) trait to Ember's JSONL journal
 /// via [`EmberClient::journal_append`].
 ///
 /// Constructed with a BDF and ember socket path so the solver can journal
@@ -549,7 +545,10 @@ impl EmberBootJournal {
 }
 
 impl coral_driver::nv::vfio_compute::acr_boot::BootJournal for EmberBootJournal {
-    fn record_boot_attempt(&self, result: &coral_driver::nv::vfio_compute::acr_boot::AcrBootResult) {
+    fn record_boot_attempt(
+        &self,
+        result: &coral_driver::nv::vfio_compute::acr_boot::AcrBootResult,
+    ) {
         let entry = coral_ember::journal::JournalEntry::BootAttempt {
             bdf: self.bdf.clone(),
             strategy: result.strategy.to_string(),
@@ -563,7 +562,9 @@ impl coral_driver::nv::vfio_compute::acr_boot::BootJournal for EmberBootJournal 
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0),
         };
-        let client = EmberClient { socket_path: self.socket_path.clone() };
+        let client = EmberClient {
+            socket_path: self.socket_path.clone(),
+        };
         if let Err(e) = client.journal_append(&entry) {
             tracing::warn!(bdf = %self.bdf, strategy = result.strategy, "ember journal write failed: {e}");
         }

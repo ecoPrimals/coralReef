@@ -64,6 +64,7 @@ pub(super) fn test_device_config(bdf: &str) -> coral_glowplug::config::DeviceCon
         name: None,
         boot_personality: "vfio".into(),
         power_policy: "always_on".into(),
+        health_policy: "passive".into(),
         role: None,
         oracle_dump: None,
         shared: None,

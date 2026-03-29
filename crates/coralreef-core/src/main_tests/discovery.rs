@@ -42,6 +42,7 @@ fn write_and_remove_discovery_file() {
     assert!(json.get("pid").is_some(), "Phase 10 requires pid");
     assert!(json.get("provides").is_some(), "Phase 10 requires provides");
     assert_eq!(json["transports"]["jsonrpc"]["bind"], "127.0.0.1:12345");
+    assert_eq!(json["transports"]["jsonrpc_line"]["bind"], "");
     assert_eq!(json["transports"]["tarpc"]["bind"], "127.0.0.1:12346");
 
     remove_discovery_file();
@@ -56,6 +57,7 @@ fn write_and_remove_discovery_file() {
     let contents_empty = std::fs::read_to_string(&path).unwrap();
     let json_empty: serde_json::Value = serde_json::from_str(&contents_empty).unwrap();
     assert_eq!(json_empty["transports"]["jsonrpc"]["bind"], "");
+    assert_eq!(json_empty["transports"]["jsonrpc_line"]["bind"], "");
     assert_eq!(json_empty["transports"]["tarpc"]["bind"], "");
     remove_discovery_file();
 }

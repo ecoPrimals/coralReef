@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 25, 2026  
-**Phase**: 10 — Iteration 66 (hotSpring Firmware Wiring + Coverage Push)
+**Last updated**: March 29, 2026  
+**Phase**: 10 — Iteration 69 (Deep Debt Resolution + wateringHole Compliance)
 
 ---
 
@@ -12,8 +12,8 @@
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
-| UniBin compliance | A | Binary target with clap, panic hook, SIGTERM/SIGINT, structured errors |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes |
+| UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -21,8 +21,8 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60) |
-| Tests | A+ | 4047+ passing, 0 failed, ~66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60), vendor_lifecycle→8 modules, ipc→6 modules, handlers→mod+sweep, ACR strategies→directory modules (Iter 69) |
+| Tests | A+ | 4189 passing, 0 failed, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -41,6 +41,30 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+
+### Iteration 69: Deep Debt Resolution + wateringHole Compliance (Mar 29, 2026)
+
+**Theme**: Comprehensive audit and deep debt resolution against wateringHole v3.1 standards.
+
+| Area | Change |
+|------|--------|
+| `cargo fmt` | Fixed 457 formatting regions across entire workspace |
+| `cargo clippy` | Fixed 30+ errors: manual_div_ceil, identity_op, collapsible_else_if, derivable_impls, unnecessary_cast, missing_docs, doc_lazy_continuation, manual_range_patterns, deprecated calls |
+| UniBin `--port` | Added `--port` flag to `coralreef server` (wateringHole v1.1 mandatory) |
+| Newline TCP | Added raw newline-delimited TCP JSON-RPC listener (wateringHole v3.1 mandatory framing) |
+| coral-ember UniBin | Added clap CLI with `server --port` subcommand |
+| Capability symlink | `shader.sock → coralreef-{family}.sock` (CAPABILITY_BASED_DISCOVERY v1.1) |
+| File sizes | Refactored 10 files over 1000 LOC into cohesive directory modules |
+| Doc links | Fixed all 43 broken intra-doc links; zero rustdoc warnings |
+| SPDX/license | All 9 showcase + tools Cargo.toml now have `rust-version = "1.85"` |
+| `#![forbid(unsafe_code)]` | Added to all 9 showcase/test main.rs files |
+| Production logging | Replaced println!/eprintln! with tracing in all production paths |
+| Production .unwrap() | Eliminated from all library code; .expect() with reasons where invariant proven |
+| Dead code cleanup | All `#[allow(dead_code)]` documented with `reason = "..."` |
+| Hardcoding evolution | CORALREEF_X11_CONF_DIR, CORALREEF_UDEV_RULES_DIR, CORALREEF_JOURNAL_PATH, CORALREEF_GROUP_FILE, CORALREEF_CAPABILITY_DOMAIN env overrides |
+| Coverage tests | +30 tests: ecosystem discovery, newline TCP JSON-RPC, server error paths, capability symlinks |
+| Deprecated removal | Removed deprecated sysmem physical boot path (243 lines, superseded by `attempt_sysmem_acr_boot_with_config`) |
+| Tests | 4189 passed, 0 failed, 153 ignored |
 
 ### Iteration 65: Deep Debt Solutions + Ecosystem Integration (Mar 24 2026)
 

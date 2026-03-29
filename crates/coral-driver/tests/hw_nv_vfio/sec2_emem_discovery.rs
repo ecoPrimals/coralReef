@@ -65,8 +65,8 @@ fn sec2_full_init_conversation() {
     // Phase 1: Nouveau cycle via GlowPlug — fresh DEVINIT + signed firmware
     eprintln!("Phase 1: Nouveau cycle (GlowPlug swap)...");
     {
-        let mut gp = crate::glowplug_client::GlowPlugClient::connect()
-            .expect("GlowPlug connection");
+        let mut gp =
+            crate::glowplug_client::GlowPlugClient::connect().expect("GlowPlug connection");
 
         match gp.swap(&bdf, "nouveau") {
             Ok(r) => eprintln!("  swap→nouveau: {r}"),
@@ -85,8 +85,7 @@ fn sec2_full_init_conversation() {
 
     // Phase 1b: Open fresh VFIO device
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     let r = |off: usize| bar0.read_u32(SEC2_BASE + off).unwrap_or(0xDEAD_DEAD);
@@ -99,7 +98,11 @@ fn sec2_full_init_conversation() {
     eprintln!("\nPhase 1c: Post-nouveau SEC2 state...");
     eprintln!("  sctl={sctl_pre:#010x} cpuctl={cpuctl_pre:#010x}");
     eprintln!("  PC={pc_pre:#06x} EXCI={exci_pre:#010x}");
-    eprintln!("  HS={} HRESET={}", sctl_pre & 0x02 != 0, cpuctl_pre & falcon::CPUCTL_HRESET != 0);
+    eprintln!(
+        "  HS={} HRESET={}",
+        sctl_pre & 0x02 != 0,
+        cpuctl_pre & falcon::CPUCTL_HRESET != 0
+    );
 
     // Phase 2: Run the FULL sysmem boot (blob_size preserved)
     eprintln!("\nPhase 2: Attempting sysmem ACR boot with full init...");
@@ -107,10 +110,9 @@ fn sec2_full_init_conversation() {
         .expect("firmware load");
     let container = vfio_dev.dma_backend();
 
-    let full_result =
-        coral_driver::nv::vfio_compute::acr_boot::attempt_sysmem_acr_boot_full(
-            &bar0, &fw, container,
-        );
+    let full_result = coral_driver::nv::vfio_compute::acr_boot::attempt_sysmem_acr_boot_full(
+        &bar0, &fw, container,
+    );
 
     eprintln!("Full boot result: success={}", full_result.success);
     eprintln!("Strategy: {}", full_result.strategy);
@@ -168,11 +170,8 @@ fn sec2_full_init_conversation() {
                                         "  *** RESPONSE for {name}: unit={:#04x} size={} seq={}",
                                         msg.unit_id, msg.size, msg.seq_id
                                     );
-                                    let hex_words: Vec<_> = msg
-                                        .words
-                                        .iter()
-                                        .map(|w| format!("{w:#010x}"))
-                                        .collect();
+                                    let hex_words: Vec<_> =
+                                        msg.words.iter().map(|w| format!("{w:#010x}")).collect();
                                     eprintln!("    words: [{}]", hex_words.join(", "));
                                 }
                                 Err(e) => eprintln!("  No response for {name}: {e}"),
@@ -197,9 +196,7 @@ fn sec2_full_init_conversation() {
                     });
                     eprintln!("  Built queues from known offsets (EMEM Exp 097).");
                     use coral_driver::nv::vfio_compute::acr_boot::sec2_queue::FalconId;
-                    for (name, fid) in
-                        [("GPCCS", FalconId::Gpccs), ("FECS", FalconId::Fecs)]
-                    {
+                    for (name, fid) in [("GPCCS", FalconId::Gpccs), ("FECS", FalconId::Fecs)] {
                         match queues.cmd_bootstrap_falcon(&bar0, fid) {
                             Ok(seq) => {
                                 eprintln!("  Sent BOOTSTRAP_FALCON({name}) seq={seq}");
@@ -264,8 +261,7 @@ fn sec2_emem_discovery_after_hs() {
     // ── Phase 0: Get a raw VFIO device (SEC2 should be in HS from prior test) ──
     let bdf = vfio_bdf();
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
-    let vfio_dev =
-        coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     let r = |off: usize| bar0.read_u32(SEC2_BASE + off).unwrap_or(0xDEAD_DEAD);
@@ -391,18 +387,28 @@ fn sec2_emem_discovery_after_hs() {
             let msg_type = w1 & 0xFF;
             let num_queues = (w1 >> 8) & 0xFF;
 
-            if unit_id == 0x01 && (24..=48).contains(&size) && msg_type == 0x00 && num_queues == 2
-            {
+            if unit_id == 0x01 && (24..=48).contains(&size) && msg_type == 0x00 && num_queues == 2 {
                 let emem_off = offset + (i as u32) * 4;
                 eprintln!("  *** INIT MSG in EMEM at {emem_off:#06x}!");
                 eprintln!("    w0={w0:#010x} (unit=0x01 size={size})");
-                eprintln!("    w1={w1:#010x} (msg=0x00 queues=2 os_debug={:#06x})", (w1 >> 16) & 0xFFFF);
+                eprintln!(
+                    "    w1={w1:#010x} (msg=0x00 queues=2 os_debug={:#06x})",
+                    (w1 >> 16) & 0xFFFF
+                );
                 let q0_off = window[2];
                 let q0_meta = window[3];
                 let q1_off = window[4];
                 let q1_meta = window[5];
-                eprintln!("    queue0: offset={q0_off:#010x} size={} id={}", q0_meta & 0xFFFF, (q0_meta >> 24) & 0xFF);
-                eprintln!("    queue1: offset={q1_off:#010x} size={} id={}", q1_meta & 0xFFFF, (q1_meta >> 24) & 0xFF);
+                eprintln!(
+                    "    queue0: offset={q0_off:#010x} size={} id={}",
+                    q0_meta & 0xFFFF,
+                    (q0_meta >> 24) & 0xFF
+                );
+                eprintln!(
+                    "    queue1: offset={q1_off:#010x} size={} id={}",
+                    q1_meta & 0xFFFF,
+                    (q1_meta >> 24) & 0xFF
+                );
                 init_msg_candidates.push((emem_off, w0));
             }
         }
@@ -439,7 +445,10 @@ fn sec2_emem_discovery_after_hs() {
 
             // Check for any pending IRQs
             let pending = msi.poll_irq();
-            eprintln!("  Pending IRQs after arm: {pending} (fires={})", msi.fire_count());
+            eprintln!(
+                "  Pending IRQs after arm: {pending} (fires={})",
+                msi.fire_count()
+            );
 
             // Wait briefly for any spontaneous IRQ
             let spontaneous = msi.wait(100);
@@ -463,7 +472,10 @@ fn sec2_emem_discovery_after_hs() {
             eprintln!("  cpuctl after poke: {cpuctl_after_poke:#010x}");
 
             let msi_fired = msi.poll_irq();
-            eprintln!("  MSI fired after IRQSSET poke: {msi_fired} (fires={})", msi.fire_count());
+            eprintln!(
+                "  MSI fired after IRQSSET poke: {msi_fired} (fires={})",
+                msi.fire_count()
+            );
 
             // Also try IRQMSET to enable the IRQ mask, then poke again
             eprintln!("\n  Trying IRQMSET=0x40 (enable SWGEN0 in mask)...");
@@ -474,7 +486,10 @@ fn sec2_emem_discovery_after_hs() {
             w(falcon::IRQSSET, 0x40);
             std::thread::sleep(std::time::Duration::from_millis(10));
             let msi_fired2 = msi.poll_irq();
-            eprintln!("  MSI fired after mask+poke: {msi_fired2} (fires={})", msi.fire_count());
+            eprintln!(
+                "  MSI fired after mask+poke: {msi_fired2} (fires={})",
+                msi.fire_count()
+            );
 
             // ── Phase 7: Try STARTCPU on STOPPED SEC2 ──
             eprintln!("\n── Phase 7: STARTCPU on STOPPED SEC2 ──");
@@ -492,7 +507,10 @@ fn sec2_emem_discovery_after_hs() {
             eprintln!("  SCTL after STARTCPU: {sctl_after:#010x}");
 
             let msi_after_start = msi.poll_irq();
-            eprintln!("  MSI fired after STARTCPU: {msi_after_start} (fires={})", msi.fire_count());
+            eprintln!(
+                "  MSI fired after STARTCPU: {msi_after_start} (fires={})",
+                msi.fire_count()
+            );
 
             // Try CPUCTL_ALIAS too
             eprintln!("\n  Trying CPUCTL_ALIAS...");
@@ -520,10 +538,15 @@ fn sec2_emem_discovery_after_hs() {
             let cmdq_head_post = r(0xA00);
             let cmdq_tail_post = r(0xA04);
             let pc_post = r(falcon::PC);
-            eprintln!("  After poke: CMDQ head={cmdq_head_post:#x} tail={cmdq_tail_post:#x} PC={pc_post:#06x}");
+            eprintln!(
+                "  After poke: CMDQ head={cmdq_head_post:#x} tail={cmdq_tail_post:#x} PC={pc_post:#06x}"
+            );
 
             let msi_cmdq = msi.poll_irq();
-            eprintln!("  MSI fired after CMDQ+poke: {msi_cmdq} (fires={})", msi.fire_count());
+            eprintln!(
+                "  MSI fired after CMDQ+poke: {msi_cmdq} (fires={})",
+                msi.fire_count()
+            );
 
             // Restore CMDQ head to 0
             w(0xA00, 0x0);
@@ -542,7 +565,13 @@ fn sec2_emem_discovery_after_hs() {
                 let ascii: String = emem_first[base..base + 8]
                     .iter()
                     .flat_map(|w| w.to_le_bytes())
-                    .map(|b| if (0x20..0x7F).contains(&b) { b as char } else { '.' })
+                    .map(|b| {
+                        if (0x20..0x7F).contains(&b) {
+                            b as char
+                        } else {
+                            '.'
+                        }
+                    })
                     .collect();
                 eprintln!("  {offset:04x}: {} |{ascii}|", vals.join(" "));
             }
@@ -552,7 +581,10 @@ fn sec2_emem_discovery_after_hs() {
             eprintln!("  Total MSI fires: {}", msi.fire_count());
             eprintln!("  DMEM locked: {dmem_locked}");
             eprintln!("  HS mode: {hs}");
-            eprintln!("  Init msg candidates in EMEM: {}", init_msg_candidates.len());
+            eprintln!(
+                "  Init msg candidates in EMEM: {}",
+                init_msg_candidates.len()
+            );
         }
         Err(e) => {
             eprintln!("  MSI arm failed: {e}");

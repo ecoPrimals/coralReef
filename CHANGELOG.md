@@ -4,11 +4,41 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 66
+**Current status**: Phase 10 — Iteration 69
 
 ---
 
 ## [Unreleased]
+
+### Iteration 69 — Deep Debt Resolution + wateringHole v3.1 Compliance (2026-03-29)
+
+#### Added
+- `--port` flag on `coralreef server` for wateringHole UniBin v1.1 compliance
+- Raw newline-delimited TCP JSON-RPC listener (wateringHole IPC v3.1 mandatory framing)
+- `coral-ember server --port` UniBin CLI with clap subcommands
+- Capability-domain symlink (`shader.sock → coralreef.sock`) per CAPABILITY_BASED_DISCOVERY v1.1
+- `CORALREEF_CAPABILITY_DOMAIN` env var for symlink naming
+- `CORALREEF_X11_CONF_DIR`, `CORALREEF_UDEV_RULES_DIR`, `CORALREEF_JOURNAL_PATH`, `CORALREEF_GROUP_FILE` env overrides
+- 30+ new tests: ecosystem discovery, newline TCP JSON-RPC, server error paths, capability symlinks
+- `rust-version = "1.85"` to all showcase and tools Cargo.toml
+- `#![forbid(unsafe_code)]` on all showcase and test main.rs files
+
+#### Changed
+- Refactored 10 files over 1000 LOC into cohesive directory modules (vendor_lifecycle→8, ipc→6, handlers_device→2, ACR strategies→directories, sec2_hal/device/registers split)
+- Replaced all production println!/eprintln! with tracing
+- Eliminated all .unwrap() from library code; .expect() with documented invariants
+- Collapsed nested if statements to Rust 2024 let-chains across coral-ember and coral-glowplug
+- All `#[allow(dead_code)]` now documented with `reason = "..."`
+
+#### Fixed
+- 30+ clippy errors: manual_div_ceil, identity_op, collapsible_else_if, derivable_impls, unnecessary_cast, missing_docs, doc_lazy_continuation, deprecated calls
+- 457 formatting regions (cargo fmt)
+- 43 broken intra-doc links (zero rustdoc warnings)
+- Unreachable pattern in Hopper device ID range
+- Stale re-export of deprecated `attempt_sysmem_physical_boot`
+
+#### Removed
+- `attempt_sysmem_physical_boot` (243 lines, superseded by `attempt_sysmem_acr_boot_with_config`)
 
 ### Iteration 66 — hotSpring Firmware Wiring + Coverage Push (Mar 25 2026)
 

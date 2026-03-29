@@ -173,8 +173,7 @@ pub(crate) fn device_pci_hot_reset(
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_PCI_HOT_RESET }, _> {
         ptr: std::ptr::from_mut(arg),
     };
-    unsafe { rustix::ioctl::ioctl(fd, ioctl) }
-        .map_err(|e| vfio_err("DEVICE_PCI_HOT_RESET", e))
+    unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_PCI_HOT_RESET", e))
 }
 
 #[inline]
@@ -270,10 +269,7 @@ pub(crate) fn iommufd_ioas_unmap(
 
 /// `VFIO_DEVICE_GET_IRQ_INFO` — query IRQ capabilities for an index.
 #[inline]
-pub(crate) fn device_get_irq_info<T>(
-    fd: BorrowedFd<'_>,
-    arg: &mut T,
-) -> Result<(), DriverError> {
+pub(crate) fn device_get_irq_info<T>(fd: BorrowedFd<'_>, arg: &mut T) -> Result<(), DriverError> {
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_GET_IRQ_INFO }, _> {
         ptr: std::ptr::from_mut(arg),
     };
@@ -282,10 +278,7 @@ pub(crate) fn device_get_irq_info<T>(
 
 /// `VFIO_DEVICE_SET_IRQS` — configure IRQ trigger/masking for a device.
 #[inline]
-pub(crate) fn device_set_irqs<T>(
-    fd: BorrowedFd<'_>,
-    arg: &mut T,
-) -> Result<(), DriverError> {
+pub(crate) fn device_set_irqs<T>(fd: BorrowedFd<'_>, arg: &mut T) -> Result<(), DriverError> {
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_SET_IRQS }, _> {
         ptr: std::ptr::from_mut(arg),
     };

@@ -119,11 +119,7 @@ pub fn arm_irq_eventfd(
 
     ioctl::device_set_irqs(device_fd, &mut set)?;
 
-    tracing::info!(
-        ?index,
-        vector,
-        "VFIO IRQ armed on eventfd"
-    );
+    tracing::info!(?index, vector, "VFIO IRQ armed on eventfd");
 
     Ok(efd)
 }

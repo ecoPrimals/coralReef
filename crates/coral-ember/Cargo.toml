@@ -15,6 +15,7 @@ name = "coral-ember"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
 coral-driver = { path = "../coral-driver", features = ["vfio"] }
 rustix = { version = "1.1.4", features = ["net"] }
 serde = { version = "1", features = ["derive"] }
