@@ -45,13 +45,14 @@ async fn test_jsonrpc_supported_archs_endpoint() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
     let client = RpcClient::tcp(addr);
 
-    let archs: Vec<String> = client
+    let caps: crate::service::CompileCapabilitiesResponse = client
         .request("shader.compile.capabilities", no_params())
         .await
         .unwrap();
 
     let default_arch = coral_reef::GpuArch::default().to_string();
-    assert!(archs.contains(&default_arch));
+    assert!(caps.supported_archs.contains(&default_arch));
+    assert!(caps.f64_transcendentals.composite_lowering);
 }
 
 #[tokio::test]
@@ -246,12 +247,15 @@ async fn test_jsonrpc_capabilities_endpoint() {
     let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
     let client = RpcClient::tcp(addr);
 
-    let archs: Vec<String> = client
+    let caps: crate::service::CompileCapabilitiesResponse = client
         .request("shader.compile.capabilities", no_params())
         .await
         .unwrap();
-    assert!(!archs.is_empty());
-    assert!(archs.iter().any(|a| a == "sm_70"));
+    assert!(!caps.supported_archs.is_empty());
+    assert!(caps.supported_archs.iter().any(|a| a == "sm_70"));
+    assert!(caps.f64_transcendentals.sqrt);
+    assert!(caps.f64_transcendentals.sin);
+    assert!(caps.f64_transcendentals.cos);
 }
 
 #[tokio::test]

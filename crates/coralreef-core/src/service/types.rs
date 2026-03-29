@@ -143,6 +143,48 @@ pub struct HealthResponse {
     pub supported_archs: Vec<String>,
 }
 
+/// Structured capability report for `shader.compile.capabilities`.
+///
+/// Carries architecture support AND f64 transcendental capability metadata,
+/// enabling callers to make informed routing decisions (no blind routing).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileCapabilitiesResponse {
+    /// Supported GPU architectures (e.g. `["sm_70", "sm_86", "rdna2"]`).
+    pub supported_archs: Vec<String>,
+    /// f64 transcendental lowering capabilities — which ops the sovereign
+    /// compiler can polyfill into pure f64 arithmetic (DFMA/DMUL/DADD).
+    pub f64_transcendentals: F64TranscendentalCapabilities,
+}
+
+/// Per-operation f64 transcendental capabilities that the sovereign compiler
+/// can provide via software lowering.
+///
+/// When `true`, the compiler can replace the named WGSL built-in with a
+/// polynomial/Newton-Raphson software implementation using only basic f64
+/// arithmetic, bypassing broken driver JIT (e.g. NVVM) entirely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct F64TranscendentalCapabilities {
+    /// sin(f64) via Cody-Waite range reduction + Chebyshev polynomial
+    pub sin: bool,
+    /// cos(f64) via Cody-Waite range reduction + Chebyshev polynomial
+    pub cos: bool,
+    /// sqrt(f64) via Newton-Raphson (DFMA convergence)
+    pub sqrt: bool,
+    /// exp2(f64) via range reduction + Horner polynomial
+    pub exp2: bool,
+    /// log2(f64) via range reduction + Horner polynomial
+    pub log2: bool,
+    /// rcp(f64) via Newton-Raphson (1/x)
+    pub rcp: bool,
+    /// exp(f64) via exp2(x * log2(e))
+    pub exp: bool,
+    /// log(f64) via log2(x) * ln(2)
+    pub log: bool,
+    /// `compile_mode: "f64_polyfill"` — all transcendentals lowered to
+    /// pure f64 arithmetic. Use `fp64_strategy: "software"` in compile requests.
+    pub composite_lowering: bool,
+}
+
 /// A single device target for multi-device compilation.
 ///
 /// Carries an architecture hint and optional `PCIe` group ID so the caller

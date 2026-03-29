@@ -73,9 +73,8 @@ pub fn dispatch_jsonrpc(
             serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
         "shader.compile.capabilities" => {
-            let health = service::handle_health();
-            serde_json::to_value(health.supported_archs)
-                .map_err(|e| IpcServiceError::internal(e.to_string()))
+            let caps = service::handle_compile_capabilities();
+            serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
         "shader.compile.wgsl" => {
             let req: service::CompileWgslRequest = extract_params(params)?;

@@ -10,9 +10,10 @@ pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
 pub use types::{
-    CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
-    HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
-    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse,
+    CompileCapabilitiesResponse, CompileRequest, CompileResponse, CompileSpirvRequestTarpc,
+    CompileWgslRequest, F64TranscendentalCapabilities, HealthCheckResponse, HealthResponse,
+    IdentityGetResponse, LivenessResponse, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+    ReadinessResponse,
 };
 
 use std::sync::OnceLock;
@@ -60,6 +61,30 @@ pub fn handle_health() -> HealthResponse {
         version: config::PRIMAL_VERSION.into(),
         status: "operational".into(),
         supported_archs: archs,
+    }
+}
+
+/// `shader.compile.capabilities` — structured capability report.
+///
+/// Reports both supported architectures AND f64 transcendental lowering
+/// capabilities. Callers use this to decide whether to route transcendental-
+/// heavy shaders through the sovereign compiler (polyfill) vs native driver.
+#[must_use]
+pub fn handle_compile_capabilities() -> CompileCapabilitiesResponse {
+    let health = handle_health();
+    CompileCapabilitiesResponse {
+        supported_archs: health.supported_archs,
+        f64_transcendentals: F64TranscendentalCapabilities {
+            sin: true,
+            cos: true,
+            sqrt: true,
+            exp2: true,
+            log2: true,
+            rcp: true,
+            exp: true,
+            log: true,
+            composite_lowering: true,
+        },
     }
 }
 
@@ -148,6 +173,21 @@ mod tests {
             !err_msg.contains("multiple of 4"),
             "4 bytes should pass bytes_to_spirv_words; error was: {err_msg}"
         );
+    }
+
+    #[test]
+    fn test_handle_compile_capabilities() {
+        let caps = handle_compile_capabilities();
+        assert!(!caps.supported_archs.is_empty());
+        assert!(caps.f64_transcendentals.sin);
+        assert!(caps.f64_transcendentals.cos);
+        assert!(caps.f64_transcendentals.sqrt);
+        assert!(caps.f64_transcendentals.exp2);
+        assert!(caps.f64_transcendentals.log2);
+        assert!(caps.f64_transcendentals.rcp);
+        assert!(caps.f64_transcendentals.exp);
+        assert!(caps.f64_transcendentals.log);
+        assert!(caps.f64_transcendentals.composite_lowering);
     }
 
     #[test]

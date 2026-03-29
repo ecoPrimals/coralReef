@@ -421,7 +421,7 @@ async fn test_unix_jsonrpc_multiple_requests_same_connection() {
     assert_eq!(r1["id"], 1);
     assert!(r1["result"].is_object());
     assert_eq!(r2["id"], 2);
-    assert!(r2["result"].is_array());
+    assert!(r2["result"].is_object());
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
@@ -535,8 +535,15 @@ fn dispatch_capabilities_returns_archs() {
         super::newline_jsonrpc::dispatch("shader.compile.capabilities", serde_json::json!({}));
     assert!(result.is_ok());
     let val = result.unwrap();
-    assert!(val.is_array());
-    assert!(!val.as_array().unwrap().is_empty());
+    let obj = val.as_object().expect("capabilities returns object");
+    let archs = obj["supported_archs"]
+        .as_array()
+        .expect("supported_archs is array");
+    assert!(!archs.is_empty());
+    let f64_caps = obj["f64_transcendentals"]
+        .as_object()
+        .expect("f64_transcendentals is object");
+    assert_eq!(f64_caps["composite_lowering"], true);
 }
 
 #[cfg(unix)]

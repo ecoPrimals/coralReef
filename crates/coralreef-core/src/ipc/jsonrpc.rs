@@ -58,9 +58,12 @@ trait CoralReefRpc {
     #[method(name = "shader.compile.status")]
     async fn shader_compile_status(&self) -> Result<service::HealthResponse, ErrorObjectOwned>;
 
-    /// `shader.compile.capabilities` — list supported GPU architectures.
+    /// `shader.compile.capabilities` — structured capability report including
+    /// supported architectures and f64 transcendental lowering capabilities.
     #[method(name = "shader.compile.capabilities")]
-    async fn shader_compile_capabilities(&self) -> Result<Vec<String>, ErrorObjectOwned>;
+    async fn shader_compile_capabilities(
+        &self,
+    ) -> Result<service::CompileCapabilitiesResponse, ErrorObjectOwned>;
 
     /// `shader.compile.wgsl.multi` — compile WGSL to multiple GPU targets at once.
     #[method(name = "shader.compile.wgsl.multi")]
@@ -109,9 +112,10 @@ impl CoralReefRpcServer for RpcImpl {
         Ok(service::handle_health())
     }
 
-    async fn shader_compile_capabilities(&self) -> Result<Vec<String>, ErrorObjectOwned> {
-        let health = service::handle_health();
-        Ok(health.supported_archs)
+    async fn shader_compile_capabilities(
+        &self,
+    ) -> Result<service::CompileCapabilitiesResponse, ErrorObjectOwned> {
+        Ok(service::handle_compile_capabilities())
     }
 
     async fn shader_compile_wgsl_multi(

@@ -85,8 +85,12 @@ fn test_dispatch_health_readiness() {
 fn test_dispatch_valid_method_capabilities() {
     let result = dispatch("shader.compile.capabilities", serde_json::json!({}));
     let val = result.expect("capabilities should succeed");
-    let arr = val.as_array().expect("capabilities returns array");
-    assert!(!arr.is_empty());
+    let obj = val.as_object().expect("capabilities returns object");
+    let archs = obj["supported_archs"]
+        .as_array()
+        .expect("supported_archs is array");
+    assert!(!archs.is_empty());
+    assert_eq!(obj["f64_transcendentals"]["composite_lowering"], true);
 }
 
 #[cfg(unix)]
@@ -607,10 +611,12 @@ async fn test_unix_jsonrpc_capabilities() {
 
     assert_eq!(resp["jsonrpc"], "2.0");
     assert_eq!(resp["id"], 3);
-    assert!(resp["result"].is_array());
-    let archs = resp["result"].as_array().unwrap();
+    assert!(resp["result"].is_object());
+    let result = &resp["result"];
+    let archs = result["supported_archs"].as_array().unwrap();
     assert!(!archs.is_empty());
     assert!(archs.iter().any(|a| a.as_str() == Some("sm_70")));
+    assert_eq!(result["f64_transcendentals"]["composite_lowering"], true);
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
