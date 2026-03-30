@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 30, 2026  
-**Phase**: 10 — Iteration 70 (ludoSpring V35 Gap Resolution + Deep Audit)
+**Phase**: 10 — Iteration 70c (Deep Evolution — Typed Errors, Observer Split, Tracing)
 
 ---
 
@@ -21,8 +21,9 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60), vendor_lifecycle→8 modules, ipc→6 modules, handlers→mod+sweep, ACR strategies→directory modules (Iter 69), swap.rs 1102→708+swap_preflight (362), vfio_compute/mod.rs 1018→855+gr_engine_status (173) (Iter 70) |
-| Tests | A+ | 4189 passing, 0 failed, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
+| Tests | A+ | 3258+ passing, 2 pre-existing upstream failures, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -41,6 +42,20 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+
+### Iteration 70c: Deep Evolution (Mar 30, 2026)
+
+**Theme**: Typed error system, observer refactoring, production tracing, namespace evolution.
+
+| Area | Change |
+|------|--------|
+| Typed errors | `SysfsError`, `SwapError`, `TraceError` via `thiserror`; public API evolved from `Result<_, String>` |
+| Observer split | `observer.rs` (934 lines) → `observer/` directory (6 files, per-personality modules) |
+| ECOSYSTEM_NAMESPACE | Runtime-configurable via `$BIOMEOS_ECOSYSTEM_NAMESPACE` (OnceLock pattern) |
+| Tracing | ~100 `println!/eprintln!` → structured tracing in 10 diagnostic/library files |
+| Cache ops | `uvm_compute` inline `_mm_clflush` routed through `cache_ops` module |
+| Coverage | 7 swap_preflight tests, 10 observer tests, 2 identity tests, 7 bare `#[ignore]` given reasons |
+| Safety | 3 SAFETY comments added, 8 `#[allow]` given reasons, `HOTSPRING_DATA_DIR` deprecated with warning |
 
 ### Iteration 70: ludoSpring V35 Gap Resolution + Deep Audit (Mar 30, 2026)
 

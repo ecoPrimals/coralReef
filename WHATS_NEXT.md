@@ -2,33 +2,34 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70.
+**Current position**: Phase 10 — Iteration 70c.
 
-**Last completed**: ludoSpring V35 gap resolution (capabilities.list, file-size splits, 8 clippy fixes), wateringHole v3.1 compliance, UniBin compliance.
+**Last completed**: Typed error system (`SysfsError`, `SwapError`, `TraceError`), observer directory refactor, ~100 println→tracing, ECOSYSTEM_NAMESPACE runtime-configurable, cache_ops consolidation, 19 new tests.
 
-**Tests**: 4189 passing, 2 pre-existing failures (upstream SSA regression).
+**Tests**: 3258+ passing, 2 pre-existing upstream failures (SSA regression).
 
-**Next focus**: Coverage push toward 90%, hardware integration testing, toadStool E2E pipeline, remaining spring absorption.
+**Next focus**: MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle `Result<_, String>` → typed errors, coverage push toward 90%, hardware integration testing, toadStool E2E pipeline.
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70 — ludoSpring V35 Gap Resolution. 4189 tests passing; clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70c — Deep Evolution. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
 
 ---
 
-## Team Evolution Priorities (Iteration 70+)
+## Team Evolution Priorities (Iteration 70c+)
 
-### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–65)**
+### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–70)**
 
-The five files that exceeded the 1000 LOC threshold were smart-refactored into directory modules (Iter 64). **Iteration 65** also split the oversized coralctl `handlers.rs` (1519 lines) into four domain modules (`device_ops`, `compute`, `quota`, `mod`) and trimmed `opt_copy_prop/tests.rs` (1018 → 973) via shared helpers — both now under the 1000 LOC policy.
+All production files under 1000 LOC. Iter 70 added three more splits:
 
 | File | Was | Now | Status |
 |------|-----|-----|--------|
-| `acr_boot.rs` | 4462 | `acr_boot/` (12 submodules, all <1000) | **Resolved** |
-| `coralctl.rs` | 1649 | `coralctl/` (main + 5 handler modules) | **Resolved** |
-| `socket.rs` | 1434 | `socket/` (mod + protocol + handlers) | **Resolved** |
-| `mmu_oracle.rs` | 1131 | `mmu_oracle/` (mod + capture + diff) | **Resolved** |
-| `device.rs` | 1030 | `device/` (mod + dma) | **Resolved** |
-| `coralctl/handlers.rs` | 1519 | `handlers/` (`device_ops`, `compute`, `quota`, `mod`) | **Resolved (Iter 65)** |
-| `opt_copy_prop/tests.rs` | 1018 | 973 (shared test helpers) | **Resolved (Iter 65)** |
+| `acr_boot.rs` | 4462 | `acr_boot/` (12 submodules) | **Resolved (Iter 64)** |
+| `coralctl.rs` | 1649 | `coralctl/` (main + 5 handlers) | **Resolved (Iter 64)** |
+| `socket.rs` | 1434 | `socket/` (mod + protocol + handlers) | **Resolved (Iter 64)** |
+| `swap.rs` | 1102 | 708 + `swap_preflight.rs` (362) | **Resolved (Iter 70)** |
+| `vfio_compute/mod.rs` | 1018 | 855 + `gr_engine_status.rs` (173) | **Resolved (Iter 70)** |
+| `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
+
+**Approaching 1000 (monitor):** `sysmem_impl.rs` (973), `pci_discovery.rs` (967), `uvm_compute.rs` (959).
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 

@@ -4,11 +4,32 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70
+**Current status**: Phase 10 — Iteration 70c
 
 ---
 
 ## [Unreleased]
+
+### Iteration 70c — Deep Evolution (2026-03-30)
+
+#### Added
+- Typed error system: `SysfsError`, `SwapError`, `TraceError` via `thiserror` in coral-ember
+- `ecosystem_namespace()` runtime function with `$BIOMEOS_ECOSYSTEM_NAMESPACE` override
+- 7 swap_preflight.rs unit tests, 10 observer tests, 2 identity tests
+- SAFETY comments on 3 unsafe blocks (uvm_compute, ioctl IRQ helpers)
+
+#### Changed
+- `observer.rs` (934 lines) → `observer/` directory (mod.rs + nouveau.rs + vfio.rs + nvidia.rs + nvidia_open.rs + tests.rs)
+- Public API: `handle_swap_device` → `Result<SwapObservation, SwapError>`, sysfs ops → `Result<(), SysfsError>`
+- ~100 `println!/eprintln!` → structured `tracing` in 10 diagnostic/oracle/library files
+- `uvm_compute` inline `_mm_clflush` routed through `cache_ops` module
+- `NvidiaObserver` evolved from stub to full mmiotrace parser (PRIV resets, PMC enables, falcon boots, slow-bind anomaly)
+- HOTSPRING_DATA_DIR deprecated with `tracing::warn!`
+- HTTP `Host:` header derived from `SocketAddr` (primal-rpc-client)
+- 8 `#[allow]` given `reason` strings, 7 bare `#[ignore]` given reason strings
+
+#### Removed
+- `vis_test` binary (stale build artifact committed at repo root)
 
 ### Iteration 70 — ludoSpring V35 Gap Resolution + Deep Audit (2026-03-30)
 
