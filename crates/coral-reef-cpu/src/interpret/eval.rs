@@ -4,7 +4,7 @@
 //! Pure evaluation functions separated from the interpreter orchestration
 //! in `mod.rs` for file-size compliance and logical cohesion.
 
-use super::{eval_expr, interpret_function, BindingMemory, InterpreterState, Value};
+use super::{eval_expr, InterpreterState, Value};
 use crate::types::CpuError;
 
 pub(super) fn eval_function_argument(

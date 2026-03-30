@@ -2,19 +2,19 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70c.
+**Current position**: Phase 10 — Iteration 70d.
 
-**Last completed**: Typed error system (`SysfsError`, `SwapError`, `TraceError`), observer directory refactor, ~100 println→tracing, ECOSYSTEM_NAMESPACE runtime-configurable, cache_ops consolidation, 19 new tests.
+**Last completed**: coral-reef-cpu crate (Naga IR tree-walk interpreter), `shader.compile.cpu` + `shader.execute.cpu` + `shader.validate` JSON-RPC methods, tolerance-based CPU vs GPU validation, barraCuda evolution path complete.
 
-**Tests**: 3258+ passing, 2 pre-existing upstream failures (SSA regression).
+**Tests**: 3270+ passing, 2 pre-existing upstream failures (SSA regression).
 
-**Next focus**: MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle `Result<_, String>` → typed errors, coverage push toward 90%, hardware integration testing, toadStool E2E pipeline.
+**Next focus**: Cranelift JIT backend (cpu-jit feature flag), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle typed errors, coverage push toward 90%, toadStool E2E pipeline, socket name alignment to wateringHole convention.
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70c — Deep Evolution. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70d — CPU Backend. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
 
 ---
 
-## Team Evolution Priorities (Iteration 70c+)
+## Team Evolution Priorities (Iteration 70d+)
 
 ### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–70)**
 

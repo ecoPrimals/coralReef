@@ -132,7 +132,7 @@ pub fn filter_clock_registers(steps: &[RecipeStep]) -> Vec<RecipeStep> {
 }
 
 /// Configuration for which register domains to include in cold boot replay.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ColdBootConfig {
     /// Include PGRAPH registers (priority 30, offsets 0x400000..0x420000).
     /// Required for GR engine + FECS execution.
@@ -143,16 +143,6 @@ pub struct ColdBootConfig {
     /// Include PRAMIN registers (priority 40, offsets 0x700000..0x710000).
     /// Instance memory / RAMIN window.
     pub include_pramin: bool,
-}
-
-impl Default for ColdBootConfig {
-    fn default() -> Self {
-        Self {
-            include_pgraph: false,
-            include_pccsr: false,
-            include_pramin: false,
-        }
-    }
 }
 
 impl ColdBootConfig {

@@ -495,11 +495,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                     let mut fds = Vec::new();
                     let mut names = Vec::new();
                     for (bdf, dev) in map.iter() {
-                        if let Some(ref req_fd) = dev.req_eventfd {
-                            if let Ok(cloned) = req_fd.try_clone() {
-                                fds.push(cloned);
-                                names.push(bdf.clone());
-                            }
+                        if let Some(ref req_fd) = dev.req_eventfd
+                            && let Ok(cloned) = req_fd.try_clone()
+                        {
+                            fds.push(cloned);
+                            names.push(bdf.clone());
                         }
                     }
                     (fds, names)

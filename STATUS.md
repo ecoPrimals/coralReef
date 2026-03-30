@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 30, 2026  
-**Phase**: 10 — Iteration 70c (Deep Evolution — Typed Errors, Observer Split, Tracing)
+**Phase**: 10 — Iteration 70d (CPU Backend + barraCuda Shader Validation)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `shader.compile.cpu` + `shader.execute.cpu` + `shader.validate` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -42,6 +42,21 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+
+### Iteration 70d: CPU Backend + barraCuda Shader Validation (Mar 30, 2026)
+
+**Theme**: Naga IR tree-walk interpreter for CPU shader execution, tolerance-based validation, barraCuda evolution.
+
+| Area | Change |
+|------|--------|
+| coral-reef-cpu | New crate: Naga IR interpreter with native f64 arithmetic, workgroup dispatch, `BindingMemory` I/O |
+| `shader.compile.cpu` | JSON-RPC: parse + validate WGSL on CPU, return Naga IR module info |
+| `shader.execute.cpu` | JSON-RPC: execute compute shader on CPU, return modified bindings |
+| `shader.validate` | JSON-RPC: tolerance-based comparison of CPU vs GPU outputs (absolute + relative) |
+| IPC parity | All 3 new methods on newline JSON-RPC, jsonrpsee HTTP, and tarpc transports |
+| Capabilities | `CompileCapabilitiesResponse` extended with `cpu_archs`, `supports_cpu_execution`, `supports_validation` |
+| File split | `interpret.rs` (1170) → `interpret/mod.rs` (612) + `interpret/eval.rs` (687) |
+| Formatting | `cargo fmt` applied to 126 files across workspace |
 
 ### Iteration 70c: Deep Evolution (Mar 30, 2026)
 

@@ -2,8 +2,8 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Deep Debt Solutions + Ecosystem Integration + hotSpring Wiring (Iter 66)  
-**Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
+**Status**: Phase 10+ — Iteration 70d (CPU Backend + barraCuda Shader Validation)  
+**Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary + CPU shader execution
 
 ---
 
@@ -245,4 +245,4 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 
 **License**: AGPL-3.0-only (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
-**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `ipc.heartbeat`, `mailbox.{create,post,poll,complete,drain,stats}`, `ring.{create,submit,consume,fence,peek,stats}`, `ember.ring_meta.{get,set}` — JSON-RPC 2.0 + tarpc + Songbird ecosystem
+**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `shader.compile.cpu`, `shader.execute.cpu`, `shader.validate`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `capabilities.list`, `ipc.heartbeat`, `mailbox.{create,post,poll,complete,drain,stats}`, `ring.{create,submit,consume,fence,peek,stats}`, `ember.ring_meta.{get,set}` — JSON-RPC 2.0 + tarpc + Songbird ecosystem

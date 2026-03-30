@@ -4,11 +4,33 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70c
+**Current status**: Phase 10 — Iteration 70d
 
 ---
 
 ## [Unreleased]
+
+### Iteration 70d — CPU Backend + barraCuda Shader Validation (2026-03-30)
+
+#### Added
+- **coral-reef-cpu** crate: Naga IR tree-walk interpreter for CPU execution of WGSL compute shaders
+- `shader.compile.cpu` JSON-RPC method: compile WGSL to Naga IR for CPU execution
+- `shader.execute.cpu` JSON-RPC method: execute compiled shaders on the CPU with native f64 arithmetic
+- `shader.validate` JSON-RPC method: tolerance-based comparison of CPU vs GPU shader outputs
+- All three methods wired to newline-delimited JSON-RPC, jsonrpsee HTTP, and tarpc transports
+- `CompileCapabilitiesResponse` extended: `cpu_archs`, `supports_cpu_execution`, `supports_validation`
+- Capability advertisements for `shader.compile.cpu`, `shader.execute.cpu`, `shader.validate`
+- 12 unit tests in coral-reef-cpu (interpreter + validator)
+
+#### Changed
+- `interpret.rs` (1170 lines) split into `interpret/mod.rs` (612) + `interpret/eval.rs` (687)
+- `cargo fmt` applied to 126 files across workspace
+- 54 clippy errors resolved in coral-reef-cpu (pedantic casts, idiomatic patterns, `#[expect]` annotations)
+- tarpc `capabilities()` now returns full `CompileCapabilitiesResponse` (parity with JSON-RPC)
+
+#### Fixed
+- Socket path regression: restored XDG_RUNTIME_DIR resolution for glowplug and ember sockets
+- Unfulfilled `#[expect(missing_docs)]` in coral-driver diagnostic module
 
 ### Iteration 70c — Deep Evolution (2026-03-30)
 
