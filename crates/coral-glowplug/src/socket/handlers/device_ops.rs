@@ -59,6 +59,47 @@ pub(crate) fn dispatch(
             "device_count": devices.len(),
             "healthy_count": devices.iter().filter(|d| d.health.vram_alive).count(),
         })),
+        "health.readiness" => {
+            let healthy = devices.iter().filter(|d| d.health.vram_alive).count();
+            let total = devices.len();
+            Ok(serde_json::json!({
+                "ready": total > 0 && healthy == total,
+                "name": "coral-glowplug",
+                "device_count": total,
+                "healthy_count": healthy,
+                "uptime_secs": started_at.elapsed().as_secs(),
+            }))
+        }
+        "capabilities.list" | "capability.list" | "primal.capabilities" => Ok(serde_json::json!({
+            "name": "coral-glowplug",
+            "version": env!("CARGO_PKG_VERSION"),
+            "capabilities": [
+                "device.list",
+                "device.get",
+                "device.swap",
+                "device.warm_handoff",
+                "device.health",
+                "device.register_dump",
+                "device.register_snapshot",
+                "device.write_register",
+                "device.read_bar0_range",
+                "device.pramin_read",
+                "device.pramin_write",
+                "device.lend",
+                "device.reclaim",
+                "device.resurrect",
+                "device.reset",
+                "device.compute_info",
+                "device.quota",
+                "device.set_quota",
+                "health.check",
+                "health.liveness",
+                "health.readiness",
+                "capabilities.list",
+                "daemon.status",
+                "daemon.shutdown",
+            ],
+        })),
         "daemon.status" => Ok(serde_json::json!({
             "uptime_secs": started_at.elapsed().as_secs(),
             "device_count": devices.len(),

@@ -248,6 +248,42 @@ pub(crate) fn dmem_nonzero_summary(dmem: &[u32]) -> String {
     }
 }
 
+/// Dump first N words of DMEM as non-zero detail lines for diagnostics.
+pub(crate) fn dmem_detail(dmem: &[u32], word_offset: usize, count: usize) -> Vec<String> {
+    dmem.iter()
+        .skip(word_offset)
+        .take(count)
+        .enumerate()
+        .filter(|&(_, &word)| word != 0)
+        .map(|(i, &word)| format!("[{:#05x}]={word:#010x}", (i + word_offset) * 4))
+        .collect()
+}
+
+pub(crate) fn make_fail_result(
+    strategy: &'static str,
+    sec2_before: Sec2Probe,
+    bar0: &MappedBar,
+    notes: Vec<String>,
+) -> AcrBootResult {
+    let sec2_after = Sec2Probe::capture(bar0);
+    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
+    let gpccs_r = |off: usize| bar0.read_u32(falcon::GPCCS_BASE + off).unwrap_or(0xDEAD);
+    AcrBootResult {
+        strategy,
+        sec2_before,
+        sec2_after,
+        fecs_cpuctl_after: fecs_r(falcon::CPUCTL),
+        fecs_mailbox0_after: fecs_r(falcon::MAILBOX0),
+        gpccs_cpuctl_after: gpccs_r(falcon::CPUCTL),
+        fecs_pc_after: fecs_r(falcon::PC),
+        fecs_exci_after: fecs_r(falcon::EXCI),
+        gpccs_pc_after: gpccs_r(falcon::PC),
+        gpccs_exci_after: gpccs_r(falcon::EXCI),
+        success: false,
+        notes,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,41 +395,5 @@ mod tests {
         let s = dmem_nonzero_summary(&buf);
         assert!(s.contains("[0x010..0x018]"));
         assert!(s.contains("[0x028..0x02c]"));
-    }
-}
-
-/// Dump first N words of DMEM as non-zero detail lines for diagnostics.
-pub(crate) fn dmem_detail(dmem: &[u32], word_offset: usize, count: usize) -> Vec<String> {
-    dmem.iter()
-        .skip(word_offset)
-        .take(count)
-        .enumerate()
-        .filter(|&(_, &word)| word != 0)
-        .map(|(i, &word)| format!("[{:#05x}]={word:#010x}", (i + word_offset) * 4))
-        .collect()
-}
-
-pub(crate) fn make_fail_result(
-    strategy: &'static str,
-    sec2_before: Sec2Probe,
-    bar0: &MappedBar,
-    notes: Vec<String>,
-) -> AcrBootResult {
-    let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let gpccs_r = |off: usize| bar0.read_u32(falcon::GPCCS_BASE + off).unwrap_or(0xDEAD);
-    AcrBootResult {
-        strategy,
-        sec2_before,
-        sec2_after,
-        fecs_cpuctl_after: fecs_r(falcon::CPUCTL),
-        fecs_mailbox0_after: fecs_r(falcon::MAILBOX0),
-        gpccs_cpuctl_after: gpccs_r(falcon::CPUCTL),
-        fecs_pc_after: fecs_r(falcon::PC),
-        fecs_exci_after: fecs_r(falcon::EXCI),
-        gpccs_pc_after: gpccs_r(falcon::PC),
-        gpccs_exci_after: gpccs_r(falcon::EXCI),
-        success: false,
-        notes,
     }
 }

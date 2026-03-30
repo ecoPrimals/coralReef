@@ -566,42 +566,42 @@ mod tests {
 
     #[test]
     fn boot0_gv100_titan_v() {
-        assert_eq!(boot0_to_sm(0x1400_00a1), Some(70));
+        assert_eq!(boot0_to_sm(0x1400_00A1), Some(70));
     }
 
     #[test]
     fn boot0_ga102_rtx3090() {
-        assert_eq!(boot0_to_sm(0x1720_00a1), Some(86));
+        assert_eq!(boot0_to_sm(0x1720_00A1), Some(86));
     }
 
     #[test]
     fn boot0_ad102_rtx4090() {
-        assert_eq!(boot0_to_sm(0x1920_00a1), Some(89));
+        assert_eq!(boot0_to_sm(0x1920_00A1), Some(89));
     }
 
     #[test]
     fn boot0_ga100() {
-        assert_eq!(boot0_to_sm(0x1700_00a1), Some(80));
+        assert_eq!(boot0_to_sm(0x1700_00A1), Some(80));
     }
 
     #[test]
     fn boot0_tu102_turing() {
-        assert_eq!(boot0_to_sm(0x1640_00a1), Some(75));
+        assert_eq!(boot0_to_sm(0x1640_00A1), Some(75));
     }
 
     #[test]
     fn boot0_gh100_hopper() {
-        assert_eq!(boot0_to_sm(0x1800_00a1), Some(90));
+        assert_eq!(boot0_to_sm(0x1800_00A1), Some(90));
     }
 
     #[test]
     fn boot0_gb202_blackwell_consumer() {
-        assert_eq!(boot0_to_sm(0x1B20_00a1), Some(120)); // RTX 5090
+        assert_eq!(boot0_to_sm(0x1B20_00A1), Some(120)); // RTX 5090
     }
 
     #[test]
     fn boot0_gb100_blackwell_datacenter() {
-        assert_eq!(boot0_to_sm(0x1A00_00a1), Some(100)); // B100
+        assert_eq!(boot0_to_sm(0x1A00_00A1), Some(100)); // B100
     }
 
     #[test]
@@ -612,24 +612,24 @@ mod tests {
 
     #[test]
     fn chipset_variant_ada_granularity() {
-        assert_eq!(chipset_variant(0x1920_00a1), "ad102");
-        assert_eq!(chipset_variant(0x1930_00a1), "ad103");
-        assert_eq!(chipset_variant(0x1940_00a1), "ad104");
-        assert_eq!(chipset_variant(0x1960_00a1), "ad106");
-        assert_eq!(chipset_variant(0x1970_00a1), "ad107");
+        assert_eq!(chipset_variant(0x1920_00A1), "ad102");
+        assert_eq!(chipset_variant(0x1930_00A1), "ad103");
+        assert_eq!(chipset_variant(0x1940_00A1), "ad104");
+        assert_eq!(chipset_variant(0x1960_00A1), "ad106");
+        assert_eq!(chipset_variant(0x1970_00A1), "ad107");
     }
 
     #[test]
     fn chipset_variant_blackwell() {
-        assert_eq!(chipset_variant(0x1B20_00a1), "gb202");
-        assert_eq!(chipset_variant(0x1B30_00a1), "gb203");
-        assert_eq!(chipset_variant(0x1B50_00a1), "gb205");
-        assert_eq!(chipset_variant(0x1A00_00a1), "gb100");
+        assert_eq!(chipset_variant(0x1B20_00A1), "gb202");
+        assert_eq!(chipset_variant(0x1B30_00A1), "gb203");
+        assert_eq!(chipset_variant(0x1B50_00A1), "gb205");
+        assert_eq!(chipset_variant(0x1A00_00A1), "gb100");
     }
 
     #[test]
     fn chipset_variant_hopper() {
-        assert_eq!(chipset_variant(0x1800_00a1), "gh100");
+        assert_eq!(chipset_variant(0x1800_00A1), "gh100");
     }
 
     #[test]
@@ -660,14 +660,14 @@ mod tests {
 
     #[test]
     fn boot0_kepler_gk110() {
-        assert_eq!(boot0_to_sm(0x0F00_00a1), Some(35));
-        assert_eq!(boot0_to_sm(0x0F10_00a1), Some(35));
+        assert_eq!(boot0_to_sm(0x0F00_00A1), Some(35));
+        assert_eq!(boot0_to_sm(0x0F10_00A1), Some(35));
     }
 
     #[test]
     fn chipset_variant_kepler() {
-        assert_eq!(chipset_variant(0x0F00_00a1), "gk110");
-        assert_eq!(chipset_variant(0x0F10_00a1), "gk110b");
+        assert_eq!(chipset_variant(0x0F00_00A1), "gk110");
+        assert_eq!(chipset_variant(0x0F10_00A1), "gk110b");
     }
 
     #[test]

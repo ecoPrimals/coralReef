@@ -17,6 +17,7 @@ const SEC2_BASE: usize = 0x087000;
 const FECS_BASE: usize = 0x409000;
 const GPCCS_BASE: usize = 0x41a000;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg103 {
     pub const CPUCTL: usize = 0x100;
     pub const SCTL: usize = 0x240;

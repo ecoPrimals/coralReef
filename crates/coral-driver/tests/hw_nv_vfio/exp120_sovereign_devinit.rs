@@ -23,11 +23,10 @@ use coral_driver::nv::vfio_compute::acr_boot::{
     AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
     attempt_sysmem_acr_boot_with_config,
 };
-use coral_driver::vfio::channel::devinit::{
-    DevinitStatus, FalconDiagnostic, execute_devinit_with_diagnostics,
-};
+use coral_driver::vfio::channel::devinit::{DevinitStatus, execute_devinit_with_diagnostics};
 use coral_driver::vfio::device::MappedBar;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod r120 {
     pub const SEC2_BASE: usize = 0x087000;
     pub const FECS_BASE: usize = 0x409000;
@@ -144,7 +143,7 @@ fn exp120_sovereign_devinit() {
 
     eprintln!("\n  ── WPR2 (post-DEVINIT) ──");
     let (w_s2, w_e2, w_v2) = read_wpr2(bar0);
-    let w_sz2 = if w_e2 > w_s2 { w_e2 - w_s2 } else { 0 };
+    let w_sz2 = w_e2.saturating_sub(w_s2);
     eprintln!("  WPR2: start={w_s2:#012x} end={w_e2:#012x} size={w_sz2:#x} valid={w_v2}");
 
     let status2 = DevinitStatus::probe(bar0);

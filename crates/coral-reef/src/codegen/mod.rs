@@ -6,7 +6,7 @@
 // ISA domain types intentionally use naming conventions that mirror hardware docs
 // (e.g. OpFAdd, SrcType, UGPR). dead_code covers builder traits and ISA variants
 // reserved for future use.
-#![expect(
+#![allow(
     clippy::wildcard_imports,
     clippy::enum_glob_use,
     reason = "Ported NAK codegen relies on `use crate::codegen::ir::*` and `use SomeEnum::*` across many modules; explicit imports would be large churn without readability gain."
@@ -155,6 +155,6 @@ mod to_cssa;
 mod union_find;
 
 #[cfg(test)]
-pub(crate) mod test_shader_helpers;
+pub mod test_shader_helpers;
 
 pub mod naga_translate;

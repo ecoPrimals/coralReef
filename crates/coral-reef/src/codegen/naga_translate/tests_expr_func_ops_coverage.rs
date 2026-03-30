@@ -184,7 +184,7 @@ fn func_ops_f64_scalar_comparisons_all_orders() {
 #[test]
 fn func_ops_relational_is_nan_is_inf_glsl() {
     // Naga's WGSL front (as of 28.x) does not expose isnan/isinf; GLSL does.
-    let glsl = r#"#version 450
+    let glsl = r"#version 450
         layout(local_size_x = 64) in;
         layout(std430, binding = 0) buffer Data { float data[]; };
         void main() {
@@ -195,7 +195,7 @@ fn func_ops_relational_is_nan_is_inf_glsl() {
             bool i = isinf(x * 1e38 * 1e38);
             data[gid] = float(n) + float(i);
         }
-    "#;
+    ";
     let module = parse_glsl(glsl).expect("GLSL should parse");
     let sm = sm70();
     let shader = translate(&module, &sm, "main").expect("translate");

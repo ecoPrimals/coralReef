@@ -36,6 +36,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod regs {
     pub const SEC2_BASE: u32 = 0x087000;
     pub const FECS_BASE: u32 = 0x409000;
@@ -63,6 +64,8 @@ mod regs {
     pub const NV_PMC_ENABLE: u32 = 0x000200;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;

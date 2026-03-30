@@ -35,6 +35,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg116 {
     pub const SEC2_BASE: usize = 0x087000;
     pub const FECS_BASE: usize = 0x409000;
@@ -53,6 +54,8 @@ mod freg116 {
     pub const CPUCTL_STOPPED: u32 = 1 << 5;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;
@@ -200,11 +203,7 @@ fn exp116_wpr_reuse() {
 
     eprintln!("\n── A3: WPR2 Hardware Boundaries ──");
     let (wpr2_start, wpr2_end) = read_wpr2_boundaries(&bar0);
-    let wpr2_size = if wpr2_end > wpr2_start {
-        wpr2_end - wpr2_start
-    } else {
-        0
-    };
+    let wpr2_size = wpr2_end.saturating_sub(wpr2_start);
     eprintln!(
         "  WPR2: start={wpr2_start:#x} end={wpr2_end:#x} size={wpr2_size:#x} ({} KiB)",
         wpr2_size / 1024

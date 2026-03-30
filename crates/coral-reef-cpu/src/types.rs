@@ -241,7 +241,7 @@ mod tests {
             group: 0,
             binding: 0,
             index: 42,
-            got: 3.14,
+            got: std::f64::consts::PI,
             expected: 3.15,
             abs_error: 0.01,
             rel_error: 0.003_174_603,

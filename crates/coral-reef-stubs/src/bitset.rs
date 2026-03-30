@@ -611,8 +611,7 @@ mod tests {
     #[test]
     fn test_into_iter_empty_bitset() {
         let bs = BitSet::<()>::new(8);
-        let v: Vec<usize> = (&bs).into_iter().collect();
-        assert!(v.is_empty());
+        assert!((&bs).into_iter().next().is_none());
     }
 
     #[test]

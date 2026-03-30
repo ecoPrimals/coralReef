@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Tests for default configuration values used by the UniBin entry point.
+//! Tests for default configuration values used by the `UniBin` entry point.
 //!
 //! Environment-based bind overrides are covered in integration tests under `tests/` because
 //! `std::env::set_var` / `remove_var` are `unsafe` in Rust 2024 and this crate forbids `unsafe_code`.

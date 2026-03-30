@@ -558,14 +558,14 @@ mod tests {
 
     #[test]
     fn execute_trivial_shader() {
-        let wgsl = r#"
+        let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> output: array<f32>;
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     output[id.x] = 42.0;
 }
-"#;
+";
         let request = ExecuteCpuRequest {
             wgsl_source: wgsl.into(),
             entry_point: None,

@@ -97,7 +97,10 @@ pub fn discover_ecosystem_jsonrpc_bind() -> Option<String> {
     let entries = std::fs::read_dir(&dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "json") {
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+        {
             if let Some(bind) = registry_bind_from_json_file(&path) {
                 return Some(bind);
             }
@@ -330,10 +333,10 @@ mod tests {
 
     #[test]
     fn registry_bind_from_json_file_prefers_transports_jsonrpc_over_endpoint() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("prefer-transports.json");
         const FROM_TRANSPORT: &str = "unix:///from/transports.sock";
         const FROM_ENDPOINT: &str = "unix:///from/endpoint.sock";
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("prefer-transports.json");
         let j = serde_json::json!({
             "provides": ["capability.register"],
             "transports": { "jsonrpc": { "bind": FROM_TRANSPORT } },
@@ -369,7 +372,9 @@ mod ecosystem_unix_transport_tests {
             EcosystemError::Transport(msg) => {
                 assert!(!msg.is_empty(), "error should carry OS message fragment");
             }
-            other => panic!("expected Transport error, got {other:?}"),
+            EcosystemError::Encode(e) => {
+                panic!("expected Transport error, got Encode: {e}");
+            }
         }
     }
 

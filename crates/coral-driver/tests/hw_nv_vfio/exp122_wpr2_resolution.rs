@@ -24,12 +24,15 @@
 //! ```
 
 use crate::helpers::init_tracing;
+use coral_driver::gsp::RegisterAccess;
 use coral_driver::vfio::device::{MappedBar, VfioDevice};
-use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 const PRAMIN_MMIO_BASE: usize = 0x0070_0000;
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 const BAR0_WINDOW_REG: usize = 0x0000_1700;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod wpr_regs {
     pub const INDEXED_WPR: usize = 0x100CD4;
 
@@ -206,8 +209,8 @@ fn exp122a_wpr2_register_write_probe() {
     eprintln!("  Testing each WPR2-related register for host writability...\n");
 
     // Use a realistic WPR2 start value (256KB-aligned address in VRAM)
-    let test_wpr_start: u32 = 0x00_2FFE_02; // encoded: (0x2FFE00000 >> 8) | idx_2
-    let test_wpr_end: u32 = 0x00_2FFF_03; // encoded: (0x2FFF00000 >> 8) | idx_3
+    let test_wpr_start: u32 = 0x002F_FE02; // encoded: (0x2FFE00000 >> 8) | idx_2
+    let test_wpr_end: u32 = 0x002F_FF03; // encoded: (0x2FFF00000 >> 8) | idx_3
 
     // Indexed WPR register — try writing with data + index encoding
     let _ = bar0.write_u32(wpr_regs::INDEXED_WPR, 2);
@@ -287,7 +290,7 @@ fn exp122a_wpr2_register_write_probe() {
         let base = 0x1F0000 + part * 0x4000;
         let wpr_lo = bar0.read_u32((base + 0x824) as usize).unwrap_or(0xBADF);
         let wpr_hi = bar0.read_u32((base + 0x828) as usize).unwrap_or(0xBADF);
-        let ctrl = bar0.read_u32((base + 0x000) as usize).unwrap_or(0xBADF);
+        let ctrl = bar0.read_u32(base as usize).unwrap_or(0xBADF);
         if wpr_lo != 0xBADF_1100 || wpr_hi != 0xBADF_1100 {
             eprintln!(
                 "  FBPA[{part}] @ {base:#08x}: ctrl={ctrl:#010x} wpr_lo={wpr_lo:#010x} wpr_hi={wpr_hi:#010x}"
@@ -360,7 +363,6 @@ fn exp122b_parasitic_nouveau() {
     eprintln!("\n  ── Phase 2: Open sysfs BAR0 ──");
     let mut bar0 =
         coral_driver::nv::bar0::Bar0Access::from_sysfs_device(&sysfs_dev).expect("sysfs BAR0");
-    use coral_driver::gsp::RegisterAccess;
     eprintln!("  BAR0 sysfs: {} MiB", bar0.size() / (1024 * 1024));
 
     let boot0 = bar0.read_u32(0).unwrap_or(0xDEAD);
@@ -434,9 +436,9 @@ fn exp122b_parasitic_nouveau() {
     };
 
     let (_, _, _) = sysfs_falcon("PMU", 0x10a000);
-    let (sec2_cpu, sec2_sctl, _) = sysfs_falcon("SEC2", 0x087000);
+    let (_sec2_cpu, _sec2_sctl, _) = sysfs_falcon("SEC2", 0x087000);
     let (fecs_cpu, fecs_sctl, _) = sysfs_falcon("FECS", 0x409000);
-    let (gpccs_cpu, gpccs_sctl, _) = sysfs_falcon("GPCCS", 0x41a000);
+    let (_gpccs_cpu, _gpccs_sctl, _) = sysfs_falcon("GPCCS", 0x41a000);
 
     // Phase 5: Read WPR headers from VRAM via PRAMIN (sysfs BAR0)
     eprintln!("\n  ── Phase 5: WPR headers from VRAM ──");
@@ -633,7 +635,7 @@ fn exp122c_fwsec_extraction() {
     eprintln!("\n  ── Phase 4: FWSEC-related BIT entries ──");
 
     // 'B' = Boot scripts, 'S' = security/FWSEC, 'F' = falcon
-    for &entry_id in &[b'B', b'S', b'F', b'f', b'U', b'u', b'i', b'I'] {
+    for &entry_id in b"BSFfUuiI" {
         if let Some(entry) = bit.find(entry_id) {
             let id_char = entry_id as char;
             eprintln!(

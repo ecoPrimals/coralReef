@@ -346,7 +346,7 @@ mod tests {
     fn decode_maxwell() {
         let (arch, chip) = decode_architecture(0x1000_00A1);
         assert_eq!(arch, "Maxwell");
-        assert!(chip >= 0x100 && chip <= 0x10F);
+        assert!((0x100..=0x10F).contains(&chip));
     }
 
     #[test]

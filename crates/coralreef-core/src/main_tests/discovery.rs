@@ -13,7 +13,9 @@ fn discovery_dir_returns_path() {
 
 #[test]
 fn write_and_remove_discovery_file() {
-    let _lock = DISCOVERY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = DISCOVERY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let desc = SelfDescription {
         provides: vec![Capability {
             id: "test.provide".into(),
@@ -67,7 +69,9 @@ fn write_and_remove_discovery_file() {
 
 #[test]
 fn remove_discovery_file_idempotent() {
-    let _lock = DISCOVERY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = DISCOVERY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     remove_discovery_file();
     remove_discovery_file();
 }
@@ -84,8 +88,10 @@ fn discovery_dir_leaf_is_ecosystem_namespace() {
 
 #[test]
 fn write_discovery_file_includes_jsonrpc_line_bind_when_transport_present() {
-    let _lock = DISCOVERY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     const JSONRPC_LINE_ADDR: &str = "127.0.0.1:54321";
+    let _lock = DISCOVERY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let desc = SelfDescription {
         provides: vec![Capability {
             id: "test.provide".into(),

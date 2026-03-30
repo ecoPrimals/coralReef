@@ -8,7 +8,7 @@ use crate::types::{
 
 /// Execute a WGSL shader on the CPU and compare outputs against expected values.
 ///
-/// For each [`ExpectedBinding`], the validator runs the shader, extracts the
+/// For each [`crate::ExpectedBinding`], the validator runs the shader, extracts the
 /// output binding with matching `(group, binding)`, and compares element-wise
 /// as `f64` (or raw `u32` when both are exact integers). A mismatch is reported
 /// when both absolute and relative error exceed their respective tolerances.
@@ -148,9 +148,10 @@ fn compare_binding(
 }
 
 #[cfg(test)]
+#[allow(clippy::iter_on_single_items)]
 mod tests {
     use super::*;
-    use crate::types::{BindingUsage, Tolerance, UniformData};
+    use crate::types::Tolerance;
 
     #[test]
     fn exact_match_passes() {

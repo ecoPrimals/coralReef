@@ -862,7 +862,7 @@ mod tests {
         builder.add_block(1);
         builder.add_block(2);
         let mut cfg = builder.build();
-        for x in cfg.iter_mut() {
+        for x in &mut cfg {
             *x *= 10;
         }
         assert_eq!(cfg[0], 10);

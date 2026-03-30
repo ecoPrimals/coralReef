@@ -127,7 +127,10 @@ pub(crate) mod pbdma {
     pub const STRIDE: usize = 0x2000;
 
     /// Base address for a specific PBDMA in BAR0.
-    #[expect(dead_code, reason = "hardware register map — used by diagnostic tests")]
+    #[allow(
+        dead_code,
+        reason = "used by `#[cfg(test)]` register map tests in this module"
+    )]
     pub const fn base(id: usize) -> usize {
         BASE + id * STRIDE
     }
@@ -531,9 +534,9 @@ pub(crate) mod pccsr {
     }
 
     /// `INST_TARGET` = `SYS_MEM_NONCOHERENT` (bits [29:28] = 3).
-    #[expect(
+    #[allow(
         dead_code,
-        reason = "hardware register map — used as reference during bring-up"
+        reason = "used by `#[cfg(test)]` PCCSR encoding tests in page_tables"
     )]
     pub const INST_TARGET_SYS_MEM_NCOH: u32 = 3 << 28;
     /// `INST_BIND` = TRUE (bit 31).

@@ -199,9 +199,9 @@ fn serialize_jsonrpc_response_into(
 }
 
 /// Serialize a JSON-RPC 2.0 response from a handler result.
-#[expect(
+#[allow(
     dead_code,
-    reason = "called from integration tests and re-exported via `unix_jsonrpc`"
+    reason = "called via `unix_jsonrpc` re-export and integration tests"
 )]
 pub fn make_response(
     id: serde_json::Value,

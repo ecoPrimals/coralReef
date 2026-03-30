@@ -309,7 +309,7 @@ mod tests {
             FECS_EXCI,
         ] {
             assert!(
-                offset >= 0x0040_0000 && offset < 0x0050_0000,
+                (0x0040_0000..0x0050_0000).contains(&offset),
                 "FECS offset {offset:#010x} should be in PGRAPH BAR0 range"
             );
         }

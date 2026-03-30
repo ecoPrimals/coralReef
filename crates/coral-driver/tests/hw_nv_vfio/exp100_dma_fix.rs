@@ -19,6 +19,7 @@ const SEC2_BASE: usize = 0x087000;
 const FECS_BASE: usize = 0x409000;
 const GPCCS_BASE: usize = 0x41a000;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg {
     pub const CPUCTL: usize = 0x100;
     pub const HWCFG: usize = 0x108;
@@ -114,7 +115,7 @@ fn exp100_full_iommu_acr_boot() {
         let exci = r(freg::EXCI);
         let mb0 = r(freg::MAILBOX0);
         let mb1 = r(freg::MAILBOX1);
-        let hwcfg = r(freg::HWCFG);
+        let _hwcfg = r(freg::HWCFG);
         let halted = cpuctl & freg::CPUCTL_HALTED != 0;
         let stopped = cpuctl & freg::CPUCTL_STOPPED != 0;
         let hs = sctl == 0x3002;
@@ -125,7 +126,7 @@ fn exp100_full_iommu_acr_boot() {
         let w = |off: usize, val: u32| {
             let _ = bar0.write_u32(base + off, val);
         };
-        w(freg::IMEMC, (1u32 << 25) | 0);
+        w(freg::IMEMC, 1u32 << 25);
         let imem: Vec<u32> = (0..32).map(|_| r(freg::IMEMD)).collect();
         let nz = imem.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD).count();
         eprintln!("    IMEM[0..128]: {nz}/32 non-zero");

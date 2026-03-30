@@ -33,6 +33,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod r118 {
     pub const SEC2_BASE: u32 = 0x087000;
     pub const FECS_BASE: u32 = 0x409000;
@@ -50,6 +51,8 @@ mod r118 {
     pub const INDEXED_WPR: u32 = 0x100CD4;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;
@@ -146,6 +149,7 @@ fn dump_wpr_headers(bar0: &MappedBar, vram_base: u64, label: &str) {
 
 #[test]
 #[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
+#[allow(clippy::collapsible_if)]
 fn exp118_wpr2_preserve() {
     init_tracing();
 

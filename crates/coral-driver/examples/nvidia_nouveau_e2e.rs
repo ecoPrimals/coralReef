@@ -251,7 +251,7 @@ fn phase_e(dev: &mut NvDevice) -> bool {
 
     let force_buf = dev.alloc(2 * 3 * 8, MemoryDomain::Gtt).unwrap();
     let pos_buf = dev.alloc(2 * 3 * 8, MemoryDomain::Gtt).unwrap();
-    dev.upload(force_buf, 0, &vec![0u8; 2 * 3 * 8]).unwrap();
+    dev.upload(force_buf, 0, &[0u8; 2 * 3 * 8]).unwrap();
 
     let positions: [f64; 6] = [-0.55, 0.0, 0.0, 0.55, 0.0, 0.0];
     let pos_bytes: Vec<u8> = positions.iter().flat_map(|v| v.to_le_bytes()).collect();

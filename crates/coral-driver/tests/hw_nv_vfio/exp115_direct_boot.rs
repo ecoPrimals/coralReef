@@ -28,6 +28,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{AcrFirmwareSet, attempt_direct_fa
 use coral_driver::nv::vfio_compute::fecs_boot;
 use coral_driver::vfio::device::MappedBar;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg115 {
     pub const SEC2_BASE: usize = 0x087000;
     pub const FECS_BASE: usize = 0x409000;
@@ -57,6 +58,8 @@ mod freg115 {
     pub const PMC_UNK260: usize = 0x0000_0260;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;
@@ -284,7 +287,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::GPCCS_BASE);
-    let (gpccs_a_cpu, gpccs_a_pc, gpccs_a_exci) =
+    let (_gpccs_a_cpu, gpccs_a_pc, gpccs_a_exci) =
         poll_falcon(&bar0, "GPCCS", freg115::GPCCS_BASE, 200);
 
     let gpccs_a_ok = gpccs_a_exci == 0 && gpccs_a_pc != 0;
@@ -300,7 +303,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::FECS_BASE);
-    let (fecs_a_cpu, fecs_a_pc, fecs_a_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 200);
+    let (_fecs_a_cpu, fecs_a_pc, fecs_a_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 200);
 
     let fecs_a_ok = fecs_a_exci == 0 && fecs_a_pc != 0;
     eprintln!("  FECS-A result: alive={fecs_a_ok}");
@@ -350,7 +353,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::GPCCS_BASE);
-    let (gpccs_b_cpu, gpccs_b_pc, gpccs_b_exci) =
+    let (_gpccs_b_cpu, gpccs_b_pc, gpccs_b_exci) =
         poll_falcon(&bar0, "GPCCS", freg115::GPCCS_BASE, 500);
 
     let gpccs_b_ok = gpccs_b_exci == 0 && gpccs_b_pc != 0;
@@ -374,7 +377,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::FECS_BASE);
-    let (fecs_b_cpu, fecs_b_pc, fecs_b_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 500);
+    let (_fecs_b_cpu, fecs_b_pc, fecs_b_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 500);
 
     let fecs_b_ok = fecs_b_exci == 0 && fecs_b_pc != 0;
     eprintln!("  FECS-B result: alive={fecs_b_ok}");

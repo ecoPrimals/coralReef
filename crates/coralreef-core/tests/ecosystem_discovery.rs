@@ -114,25 +114,28 @@ fn discover_ecosystem_jsonrpc_bind_skips_malformed_json_files() {
 #[cfg(unix)]
 #[tokio::test]
 async fn spawn_registration_no_registry_returns_without_panic() {
-    let _guard = ENV_LOCK.lock().unwrap();
-    let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
-    let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
-    let biomeos = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
-    std::fs::create_dir_all(&biomeos).expect("create_dir_all");
-
-    bio.remove();
-    xdg.set(tmp.path().to_str().expect("utf8 path"));
-    spawn_registration(coralreef_core::capability::self_description());
+    {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
+        let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+        let biomeos = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
+        std::fs::create_dir_all(&biomeos).expect("create_dir_all");
+        bio.remove();
+        xdg.set(tmp.path().to_str().expect("utf8 path"));
+        spawn_registration(coralreef_core::capability::self_description());
+    }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn spawn_registration_non_unix_bind_skips_background_tasks() {
-    let _guard = ENV_LOCK.lock().unwrap();
-    let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
-    bio.set("127.0.0.1:65530");
-    spawn_registration(coralreef_core::capability::self_description());
+    {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
+        bio.set("127.0.0.1:65530");
+        spawn_registration(coralreef_core::capability::self_description());
+    }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 }

@@ -31,11 +31,13 @@ mod dispatch;
 pub mod falcon_capability;
 pub mod fecs_boot;
 pub mod gr_context;
-mod gr_engine_status;
+mod gr_status;
 mod init;
+mod raw_device;
 mod submission;
 
-pub use gr_engine_status::GrEngineStatus;
+pub use gr_status::GrEngineStatus;
+pub use raw_device::RawVfioDevice;
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::VfioChannel;
@@ -44,7 +46,6 @@ use crate::vfio::dma::DmaBuffer;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use std::collections::HashMap;
-use std::os::fd::AsRawFd;
 
 /// BAR0 register offsets for NVIDIA GPU.
 mod bar0_reg {
@@ -118,72 +119,6 @@ pub struct NvVfioComputeDevice {
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
     device: VfioDevice,
-}
-
-/// Raw VFIO device handle for diagnostic/experimental access to BAR0.
-///
-/// Drop order: DMA buffers drop before `device` (which closes the container fd).
-pub struct RawVfioDevice {
-    /// MMIO-mapped BAR0 region for register access.
-    pub bar0: MappedBar,
-    /// Shared VFIO container handle for DMA mapping and diagnostics.
-    pub container: DmaBackend,
-    /// DMA buffer holding the GPFIFO command ring.
-    pub gpfifo_ring: DmaBuffer,
-    /// DMA buffer for the USERD (user data) doorbell page.
-    pub userd: DmaBuffer,
-    #[expect(dead_code, reason = "kept alive for fd lifecycle")]
-    device: VfioDevice,
-}
-
-impl RawVfioDevice {
-    /// Raw numeric VFIO container fd (same open file as [`Self::container`]).
-    #[must_use]
-    pub fn container_fd(&self) -> std::os::fd::RawFd {
-        match &self.container {
-            DmaBackend::LegacyContainer(fd) => fd.as_raw_fd(),
-            DmaBackend::Iommufd { fd, .. } => fd.as_raw_fd(),
-        }
-    }
-
-    /// Open a raw VFIO device by PCI BDF address (e.g. `"0000:06:00.0"`).
-    pub fn open(bdf: &str) -> DriverResult<Self> {
-        if let Err(e) = crate::vfio::channel::devinit::force_pci_d0(bdf) {
-            tracing::warn!(bdf, error = %e, "force_pci_d0 failed (may already be in D0)");
-        }
-        let device = VfioDevice::open(bdf)?;
-        let container = device.dma_backend();
-        let bar0 = device.map_bar(0)?;
-        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
-        Ok(Self {
-            device,
-            bar0,
-            container,
-            gpfifo_ring,
-            userd,
-        })
-    }
-
-    /// Returns the IOVA of the GPFIFO ring buffer.
-    pub const fn gpfifo_iova() -> u64 {
-        GPFIFO_IOVA
-    }
-
-    /// Returns the number of GPFIFO ring entries.
-    pub const fn gpfifo_entries() -> u32 {
-        gpfifo::ENTRIES as u32
-    }
-
-    /// Returns the IOVA of the USERD doorbell page.
-    pub const fn userd_iova() -> u64 {
-        USERD_IOVA
-    }
-
-    /// Leaks the device handle without running drop (for diagnostic use).
-    pub fn leak(self) {
-        std::mem::forget(self);
-    }
 }
 
 impl NvVfioComputeDevice {

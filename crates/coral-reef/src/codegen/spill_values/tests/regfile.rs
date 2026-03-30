@@ -2,7 +2,7 @@
 //! Register-file-specific spill tests: UPred, Bar, pinned values, parallel copy, UGPR non-uniform.
 
 use super::*;
-use crate::codegen::ir::{Dst, IntCmpOp, IntCmpType, OpBClear, OpBSync, OpBra, OpParCopy, OpPin};
+use crate::codegen::ir::{IntCmpOp, IntCmpType, OpBClear, OpBSync, OpBra, OpParCopy, OpPin};
 
 /// UPred spilling path (spills to UGPR, fills via `OpISetP`).
 #[test]
