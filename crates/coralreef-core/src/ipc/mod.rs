@@ -142,7 +142,7 @@ pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
     {
         let dir = config::discovery_dir()
-            .unwrap_or_else(|_| std::env::temp_dir().join(config::ECOSYSTEM_NAMESPACE));
+            .unwrap_or_else(|_| std::env::temp_dir().join(config::ecosystem_namespace()));
         let sock = dir.join(format!(
             "{}-{}-tarpc.sock",
             config::PRIMAL_NAME,

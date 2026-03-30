@@ -138,16 +138,20 @@ pub fn diagnostic_matrix(
     let pfb_alive = !pri::is_pri_error(pfb_probe) && pfb_probe != 0xDEAD_DEAD;
     let mmu_ctrl = r(pfb::MMU_CTRL);
     let bar2_block = r(misc::PBUS_BAR2_BLOCK);
-    eprintln!(
-        "║ WARM-STATE: PFB={pfb_probe:#010x} alive={pfb_alive} MMU_CTRL={mmu_ctrl:#010x} BAR2={bar2_block:#010x}"
+    tracing::info!(
+        pfb = format_args!("{pfb_probe:#010x}"),
+        pfb_alive,
+        mmu_ctrl = format_args!("{mmu_ctrl:#010x}"),
+        bar2 = format_args!("{bar2_block:#010x}"),
+        "diagnostic matrix warm-state"
     );
 
     let gpu_warm;
     if pfb_alive {
-        eprintln!("║ GPU warm from nouveau — preserving PFB/MMU/BAR2 state");
+        tracing::info!("GPU warm from nouveau — preserving PFB/MMU/BAR2 state");
         gpu_warm = true;
     } else {
-        eprintln!("║ PFB gated — running GlowPlug cold-start path");
+        tracing::info!("PFB gated — running GlowPlug cold-start path");
         let gp = crate::vfio::channel::glowplug::GlowPlug::new(bar0, container.clone());
         let state = gp.check_state();
         tracing::debug!("╔══ GLOW PLUG — GPU STATE: {state:?} ════════════════════════╗");
@@ -200,13 +204,19 @@ pub fn diagnostic_matrix(
     {
         let pmc_val = r(pmc::ENABLE);
         let pfifo_en = r(pfifo::ENABLE);
-        eprintln!(
-            "║ PRE-INIT: PMC={pmc_val:#010x} PFIFO_EN={pfifo_en:#010x} PBDMA_MAP={:#010x}",
-            r(pfifo::PBDMA_MAP)
+        tracing::debug!(
+            pmc = format_args!("{pmc_val:#010x}"),
+            pfifo_en = format_args!("{pfifo_en:#010x}"),
+            pbdma_map = format_args!("{:#010x}", r(pfifo::PBDMA_MAP)),
+            "PRE-INIT"
         );
         for pid in [1_usize, 2, 3] {
             let b = 0x40000 + pid * 0x2000;
-            eprintln!("║ PRE-INIT PBDMA{pid}: STATE={:#010x}", r(b + 0xB0));
+            tracing::debug!(
+                pid,
+                state = format_args!("{:#010x}", r(b + 0xB0)),
+                "PRE-INIT PBDMA"
+            );
         }
     }
 
@@ -216,7 +226,11 @@ pub fn diagnostic_matrix(
     {
         for pid in [1_usize, 2, 3] {
             let b = 0x40000 + pid * 0x2000;
-            eprintln!("║ POST-INIT PBDMA{pid}: STATE={:#010x}", r(b + 0xB0));
+            tracing::debug!(
+                pid,
+                state = format_args!("{:#010x}", r(b + 0xB0)),
+                "POST-INIT PBDMA"
+            );
         }
     }
 
@@ -283,7 +297,7 @@ pub fn diagnostic_matrix(
         }
     }
     let target_runlist = gr_runlist.unwrap_or(0);
-    eprintln!("║ Target runlist: {target_runlist}");
+    tracing::info!(target_runlist, "diagnostic matrix target runlist");
 
     // Dump ALL PBDMA → runlist mappings and engine info
     {
@@ -293,7 +307,7 @@ pub fn diagnostic_matrix(
                 continue;
             }
             let rl = r(0x2390 + seq * 4);
-            eprintln!("║ PBDMA_RUNL_MAP[{seq}]: PBDMA {pid} → runlist {rl}");
+            tracing::debug!(seq, pid, runlist = rl, "PBDMA_RUNL_MAP");
             seq += 1;
         }
         // Also dump engine table at 0x22700
@@ -355,16 +369,24 @@ pub fn diagnostic_matrix(
     }
     let pb = 0x040000 + target_pbdma * 0x2000;
     let pb2 = alt_pbdma.map(|id| 0x040000 + id * 0x2000);
-    eprintln!("║ Target PBDMA: {target_pbdma} (base={pb:#x})");
+    tracing::info!(
+        target_pbdma,
+        pbdma_base = format_args!("{pb:#x}"),
+        "Target PBDMA"
+    );
     if let Some((alt, alt_base)) = alt_pbdma.zip(pb2) {
-        eprintln!("║ Alt PBDMA: {alt} (base={alt_base:#x})");
+        tracing::info!(
+            alt_pbdma = alt,
+            alt_base = format_args!("{alt_base:#x}"),
+            "Alt PBDMA"
+        );
     }
 
     // PBDMA init, interrupts, scheduler, and runlist flush are handled
     // by init_pfifo_engine_with() above — no duplicate init needed here.
-    eprintln!(
-        "║ SCHED_DISABLE={:#010x} (0=scheduler runs)",
-        r(pfifo::SCHED_DISABLE)
+    tracing::debug!(
+        sched_disable = format_args!("{:#010x}", r(pfifo::SCHED_DISABLE)),
+        "SCHED_DISABLE (0=scheduler runs)"
     );
 
     populate_page_tables(

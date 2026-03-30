@@ -28,7 +28,7 @@ mod inner {
     fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
         socket_path
             .iter()
-            .any(|c| c == std::ffi::OsStr::new(crate::config::ECOSYSTEM_NAMESPACE))
+            .any(|c| c == std::ffi::OsStr::new(crate::config::ecosystem_namespace()))
     }
 
     /// After a successful bind, install `{domain}.sock` → instance socket (relative symlink).
@@ -70,7 +70,7 @@ mod inner {
     #[must_use]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
         let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
-        base.join(crate::config::ECOSYSTEM_NAMESPACE)
+        base.join(crate::config::ecosystem_namespace())
             .join(crate::config::primal_socket_name())
     }
 

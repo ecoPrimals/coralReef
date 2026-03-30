@@ -126,7 +126,8 @@ impl VendorLifecycle for NvidiaLifecycle {
             bdf,
             "NVIDIA: disabling reset_method (bus reset destroys HBM2 training)"
         );
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -191,7 +192,8 @@ impl VendorLifecycle for NvidiaOpenLifecycle {
             bdf,
             "NVIDIA Open: disabling reset_method (bus reset destroys HBM2 training)"
         );
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -256,7 +258,8 @@ impl VendorLifecycle for NvidiaOracleLifecycle {
 
     fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
         sysfs::pin_power(bdf);
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -236,145 +236,204 @@ impl NvVfioComputeDevice {
         use std::borrow::Cow;
 
         let r = |a: usize| self.bar0.read_u32(a).unwrap_or(0xDEAD_DEAD);
+        let w = |a: usize, v: u32| { let _ = self.bar0.write_u32(a, v); };
 
+        // --- Phase 1: Diagnose initial state ---
         let fecs_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
-        let gpccs_cpuctl = r(falcon::GPCCS_BASE + falcon::CPUCTL);
-        let fecs_pc_before = r(falcon::FECS_BASE + falcon::PC);
         let fecs_sctl = r(falcon::FECS_BASE + falcon::SCTL);
+        let fecs_pc = r(falcon::FECS_BASE + falcon::PC);
         let pmc_enable = r(0x200);
         let gr_enable = r(0x400500);
-        let gr_status = r(0x400700);
-        let gr_intr = r(0x400100);
-        let gr_fecs_excp = r(0x409C24);
 
         tracing::info!(
             fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"),
-            gpccs_cpuctl = format_args!("{gpccs_cpuctl:#010x}"),
-            fecs_pc = format_args!("{fecs_pc_before:#06x}"),
             fecs_sctl = format_args!("{fecs_sctl:#010x}"),
+            fecs_pc = format_args!("{fecs_pc:#06x}"),
             pmc_enable = format_args!("{pmc_enable:#010x}"),
             gr_enable = format_args!("{gr_enable:#010x}"),
-            gr_status = format_args!("{gr_status:#010x}"),
-            gr_intr = format_args!("{gr_intr:#010x}"),
-            gr_fecs_excp = format_args!("{gr_fecs_excp:#010x}"),
-            "warm falcon restart: GR engine state dump"
+            "warm restart phase 1: initial state"
         );
 
-        let fecs_dead = fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
+        let fecs_dead =
+            fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
         if fecs_dead {
             return Err(DriverError::SubmitFailed(Cow::Borrowed(
-                "FECS engine unreachable (PRI timeout) — GPU is cold, warm handoff did not preserve state",
+                "FECS unreachable (PRI timeout) — GPU is cold",
             )));
         }
 
-        // Re-apply GR engine enables that may have been lost during swap.
-        // These are the critical registers from apply_dynamic_gr_init:
-        // interrupt/trap enables + GR engine enable register.
-        tracing::info!("re-applying GR interrupt/trap enables and engine enable");
-        let _ = self.bar0.write_u32(0x400100, 0xFFFF_FFFF); // GR INTR clear
-        let _ = self.bar0.write_u32(0x40013c, 0xFFFF_FFFF); // GR INTR enable
-        let _ = self.bar0.write_u32(0x400124, 0x0000_0002); // GR TRAP enable
-        let _ = self.bar0.write_u32(0x404000, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x404600, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x408030, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x406018, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x404490, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x405840, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x405844, 0x00FF_FFFF);
-        let _ = self.bar0.write_u32(0x405848, 0xC000_0000);
-        let _ = self.bar0.write_u32(0x407020, 0x4000_0000);
-        let _ = self.bar0.write_u32(0x400108, 0xFFFF_FFFF);
-        let _ = self.bar0.write_u32(0x400138, 0xFFFF_FFFF);
-        let _ = self.bar0.write_u32(0x400118, 0xFFFF_FFFF);
-        let _ = self.bar0.write_u32(0x400130, 0xFFFF_FFFF);
-        let _ = self.bar0.write_u32(0x40011c, 0xFFFF_FFFF);
-        let _ = self.bar0.write_u32(0x400134, 0xFFFF_FFFF);
-        let _ = self.bar0.write_u32(0x409C24, 0x000E_0002); // FECS exceptions
-        let _ = self.bar0.write_u32(0x400500, 0x0001_0001); // GR engine enable
-        let _ = self.bar0.write_u32(0x40802c, 1); // GR FE power mode
+        let fecs_halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
+        let fecs_hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
+        let fecs_hs = (fecs_sctl >> 12) & 3 >= 2; // HS or above
 
-        let gr_enable_after = r(0x400500);
         tracing::info!(
-            gr_enable = format_args!("{gr_enable_after:#010x}"),
-            "GR engine enable after re-apply"
+            halted = fecs_halted,
+            hreset = fecs_hreset,
+            hs_mode = fecs_hs,
+            "warm restart phase 1: decoded FECS state"
         );
 
-        let fecs_hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
-        let gpccs_hreset = gpccs_cpuctl & falcon::CPUCTL_HRESET != 0;
+        // --- Phase 2: PMC GR engine reset to clear HS mode ---
+        //
+        // FECS self-resets (HRESET) when nouveau tears down its last
+        // channel. In HS mode, host STARTCPU is blocked. We toggle the
+        // GR engine bit in PMC_ENABLE which:
+        //   1. Powers down GR → clears HS security state
+        //   2. Powers up GR → FECS in HRESET + non-secure (NS) mode
+        //   3. IMEM/DMEM contents survive (SRAM)
+        //   4. Host can now STARTCPU to re-run the ACR-loaded firmware
+        if fecs_hreset {
+            tracing::info!("phase 2: PMC GR engine reset to clear HS mode");
 
-        if !fecs_hreset {
-            tracing::info!("FECS not in HRESET — already running, skipping restart");
-        } else {
-            // Clear stale exceptions from nouveau's teardown.
-            let _ = self.bar0.write_u32(falcon::FECS_BASE + falcon::EXCI, 0);
-            let _ = self.bar0.write_u32(falcon::GPCCS_BASE + falcon::EXCI, 0);
+            // Read a few IMEM words before reset to verify firmware presence
+            w(falcon::FECS_BASE + falcon::IMEMC, (1 << 25)); // auto-increment, read mode
+            let imem_word0 = r(falcon::FECS_BASE + falcon::IMEMD);
+            let imem_word1 = r(falcon::FECS_BASE + falcon::IMEMD);
+            tracing::info!(
+                imem_0 = format_args!("{imem_word0:#010x}"),
+                imem_1 = format_args!("{imem_word1:#010x}"),
+                "pre-reset FECS IMEM probe"
+            );
 
-            // GPCCS must be started before FECS.
-            if gpccs_hreset {
-                tracing::info!("issuing STARTCPU to GPCCS");
-                Self::warm_start_falcon(&self.bar0, falcon::GPCCS_BASE);
-                std::thread::sleep(std::time::Duration::from_millis(50));
+            // GR engine is bit 12 (0x1000) in PMC_ENABLE on GV100.
+            const PMC_ENABLE: usize = 0x200;
+            const GR_ENGINE_BIT: u32 = 1 << 12;
+
+            let pmc_val = r(PMC_ENABLE);
+            w(PMC_ENABLE, pmc_val & !GR_ENGINE_BIT); // clear GR bit → power down
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            w(PMC_ENABLE, pmc_val | GR_ENGINE_BIT); // set GR bit → power up
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            let post_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
+            let post_sctl = r(falcon::FECS_BASE + falcon::SCTL);
+            let post_pc = r(falcon::FECS_BASE + falcon::PC);
+            let post_gr_enable = r(0x400500);
+
+            // Re-read IMEM after reset to check if firmware survived
+            w(falcon::FECS_BASE + falcon::IMEMC, (1 << 25));
+            let imem_post0 = r(falcon::FECS_BASE + falcon::IMEMD);
+            let imem_post1 = r(falcon::FECS_BASE + falcon::IMEMD);
+
+            tracing::info!(
+                cpuctl = format_args!("{post_cpuctl:#010x}"),
+                sctl = format_args!("{post_sctl:#010x}"),
+                pc = format_args!("{post_pc:#06x}"),
+                gr_enable = format_args!("{post_gr_enable:#010x}"),
+                imem_0 = format_args!("{imem_post0:#010x}"),
+                imem_1 = format_args!("{imem_post1:#010x}"),
+                imem_survived = imem_post0 == imem_word0 && imem_word0 != 0,
+                "phase 2: post-PMC-reset FECS state"
+            );
+
+            let post_hs = (post_sctl >> 12) & 3 >= 2;
+            if !post_hs {
+                tracing::info!("HS mode cleared by PMC reset — attempting STARTCPU");
+            } else {
+                tracing::warn!("HS mode survived PMC reset — STARTCPU may still be blocked");
             }
 
-            tracing::info!("issuing STARTCPU to FECS");
-            Self::warm_start_falcon(&self.bar0, falcon::FECS_BASE);
+            // --- Phase 3: Start FECS from preserved IMEM ---
+            w(falcon::FECS_BASE + falcon::BOOTVEC, 0);
+            w(falcon::FECS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
+            w(falcon::FECS_BASE + falcon::MAILBOX0, 0);
+            w(falcon::FECS_BASE + falcon::MAILBOX1, 0);
 
-            // Poll for liveness: check MAILBOX0 (firmware sets it during init)
-            // and CPUCTL (HALTED means firmware ran and stopped).
+            // Also start GPCCS first (FECS expects it running)
+            w(falcon::GPCCS_BASE + falcon::BOOTVEC, 0);
+            w(falcon::GPCCS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
+            w(falcon::GPCCS_BASE + falcon::MAILBOX0, 0);
+            w(falcon::GPCCS_BASE + falcon::MAILBOX1, 0);
+            let gpccs_start = falcon::CPUCTL_IINVAL | falcon::CPUCTL_STARTCPU;
+            w(falcon::GPCCS_BASE + falcon::CPUCTL, gpccs_start);
+            w(falcon::GPCCS_BASE + falcon::CPUCTL_ALIAS, gpccs_start);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            let fecs_start = falcon::CPUCTL_IINVAL | falcon::CPUCTL_STARTCPU;
+            w(falcon::FECS_BASE + falcon::CPUCTL, fecs_start);
+            w(falcon::FECS_BASE + falcon::CPUCTL_ALIAS, fecs_start);
+
+            // Poll for FECS liveness
             let mut fecs_alive = false;
-            for attempt in 0..50 {
+            for attempt in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 let cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
                 let mb0 = r(falcon::FECS_BASE + falcon::MAILBOX0);
                 let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
                 let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
 
-                // Firmware is alive if: mailbox0 changed, or HALTED (ran and
-                // stopped), or HRESET cleared (running).
-                if mb0 != 0 || halted || !hreset {
+                if mb0 != 0 || (halted && !hreset) {
                     tracing::info!(
                         attempt,
                         cpuctl = format_args!("{cpuctl:#010x}"),
                         mailbox0 = format_args!("{mb0:#010x}"),
-                        halted,
-                        hreset,
-                        "FECS responded"
+                        "FECS responded after PMC reset + STARTCPU"
+                    );
+                    fecs_alive = true;
+                    break;
+                }
+                if !hreset && !halted {
+                    tracing::info!(
+                        attempt,
+                        cpuctl = format_args!("{cpuctl:#010x}"),
+                        "FECS running (not halted, not in reset)"
                     );
                     fecs_alive = true;
                     break;
                 }
             }
 
-            let fecs_post_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
-            let fecs_post_sctl = r(falcon::FECS_BASE + falcon::SCTL);
-            let fecs_post_mb0 = r(falcon::FECS_BASE + falcon::MAILBOX0);
-            let fecs_post_pc = r(falcon::FECS_BASE + falcon::PC);
-            let fecs_post_exci = r(falcon::FECS_BASE + falcon::EXCI);
-            let gpccs_post_cpuctl = r(falcon::GPCCS_BASE + falcon::CPUCTL);
-            let gpccs_post_mb0 = r(falcon::GPCCS_BASE + falcon::MAILBOX0);
+            let final_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
+            let final_sctl = r(falcon::FECS_BASE + falcon::SCTL);
+            let final_pc = r(falcon::FECS_BASE + falcon::PC);
+            let final_mb0 = r(falcon::FECS_BASE + falcon::MAILBOX0);
+            let final_exci = r(falcon::FECS_BASE + falcon::EXCI);
+            let gpccs_cpuctl = r(falcon::GPCCS_BASE + falcon::CPUCTL);
 
             tracing::info!(
-                fecs_cpuctl = format_args!("{fecs_post_cpuctl:#010x}"),
-                fecs_sctl = format_args!("{fecs_post_sctl:#010x}"),
-                fecs_pc = format_args!("{fecs_post_pc:#06x}"),
-                fecs_exci = format_args!("{fecs_post_exci:#010x}"),
-                fecs_mb0 = format_args!("{fecs_post_mb0:#010x}"),
-                gpccs_cpuctl = format_args!("{gpccs_post_cpuctl:#010x}"),
-                gpccs_mb0 = format_args!("{gpccs_post_mb0:#010x}"),
+                fecs_cpuctl = format_args!("{final_cpuctl:#010x}"),
+                fecs_sctl = format_args!("{final_sctl:#010x}"),
+                fecs_pc = format_args!("{final_pc:#06x}"),
+                fecs_mb0 = format_args!("{final_mb0:#010x}"),
+                fecs_exci = format_args!("{final_exci:#010x}"),
+                gpccs_cpuctl = format_args!("{gpccs_cpuctl:#010x}"),
                 fecs_alive,
-                "warm falcon restart: post-STARTCPU state"
+                "phase 3: post-STARTCPU state"
             );
 
             if !fecs_alive {
                 tracing::warn!(
-                    "FECS did not respond within 500ms — STARTCPU may be blocked \
-                     by HS mode. Consider extending livepatch to prevent falcon halt \
-                     during nouveau teardown."
+                    "FECS did not respond within 1s after PMC reset + STARTCPU"
                 );
             }
+        } else {
+            tracing::info!("FECS not in HRESET — already running, skipping restart");
         }
 
-        // Try FECS method interface regardless of liveness detection.
+        // --- Phase 4: GR register re-init ---
+        w(0x400100, 0xFFFF_FFFF); // GR INTR clear
+        w(0x40013c, 0xFFFF_FFFF); // GR INTR enable
+        w(0x400124, 0x0000_0002); // GR TRAP enable
+        w(0x404000, 0xC000_0000);
+        w(0x404600, 0xC000_0000);
+        w(0x408030, 0xC000_0000);
+        w(0x406018, 0xC000_0000);
+        w(0x404490, 0xC000_0000);
+        w(0x405840, 0xC000_0000);
+        w(0x405844, 0x00FF_FFFF);
+        w(0x405848, 0xC000_0000);
+        w(0x407020, 0x4000_0000);
+        w(0x400108, 0xFFFF_FFFF);
+        w(0x400138, 0xFFFF_FFFF);
+        w(0x400118, 0xFFFF_FFFF);
+        w(0x400130, 0xFFFF_FFFF);
+        w(0x40011c, 0xFFFF_FFFF);
+        w(0x400134, 0xFFFF_FFFF);
+        w(0x409C24, 0x000E_0002); // FECS exceptions
+        w(0x400500, 0x0001_0001); // GR engine enable
+        w(0x40802c, 1);           // GR FE power mode
+
+        // Try FECS method interface
         self.setup_gr_context_warm()
     }
 
@@ -410,10 +469,7 @@ impl NvVfioComputeDevice {
         // Step 1: Release engine from local reset if ENGCTL has reset bit set.
         // This is the gate that prevents STARTCPU from working.
         if engctl & 1 != 0 {
-            tracing::info!(
-                base = format_args!("{base:#x}"),
-                "ENGCTL reset active — releasing"
-            );
+            tracing::info!(base = format_args!("{base:#x}"), "ENGCTL reset active — releasing");
             let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -472,7 +528,9 @@ impl NvVfioComputeDevice {
         };
 
         if image_size == 0 {
-            tracing::warn!("FECS returned image_size=0 — method interface not responsive yet");
+            tracing::warn!(
+                "FECS returned image_size=0 — method interface not responsive yet"
+            );
             return Ok(());
         }
 

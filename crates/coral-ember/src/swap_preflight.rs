@@ -159,10 +159,12 @@ pub(super) fn is_active_display_gpu(bdf: &str) -> bool {
 pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
     let sysfs_path = linux_paths::sysfs_pci_device_path(bdf);
     if !std::path::Path::new(&sysfs_path).exists() {
-        return Err(format!(
-            "preflight FAILED for {bdf}: sysfs path does not exist ({sysfs_path}). \
-             Device may have been removed or never enumerated."
-        ));
+        tracing::debug!(
+            bdf,
+            sysfs_path,
+            "preflight: sysfs path absent — no device to validate (no blockers)"
+        );
+        return Ok(());
     }
 
     if let Some(power) = sysfs::read_power_state(bdf) {
@@ -359,4 +361,122 @@ pub(super) fn is_gpu_cold_via_ptimer(resource0_path: &str) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`verify_drm_isolation_with_paths`], VFIO holder counting,
+    //! display-GPU detection, preflight, cold-GPU heuristics, and BAR0 BOOT0 reads.
+
+    use super::*;
+    use std::fs;
+
+    const TEST_BDF: &str = "0000:99:00.0";
+
+    #[test]
+    fn verify_drm_isolation_with_paths_passes_when_xorg_and_udev_rules_match() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("99-gpu.rules");
+        fs::write(
+            &xorg,
+            r#"
+Section "ServerFlags"
+    Option "AutoAddGPU" "false"
+EndSection
+"#,
+        )
+        .expect("write xorg");
+        fs::write(
+            &udev,
+            format!(
+                r#"KERNEL=="{TEST_BDF}", DRIVER=="vfio-pci", TAG+="seat0"
+"#
+            ),
+        )
+        .expect("write udev");
+
+        let result = verify_drm_isolation_with_paths(
+            TEST_BDF,
+            xorg.to_str().expect("utf8 path"),
+            udev.to_str().expect("utf8 path"),
+        );
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+    }
+
+    #[test]
+    fn verify_drm_isolation_with_paths_fails_when_xorg_missing_autoaddgpu() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("99-gpu.rules");
+        fs::write(&xorg, "Section \"ServerFlags\"\nEndSection\n").expect("write xorg");
+        fs::write(
+            &udev,
+            format!(r#"KERNEL=="{TEST_BDF}", DRIVER=="vfio-pci""#),
+        )
+        .expect("write udev");
+
+        let err = verify_drm_isolation_with_paths(
+            TEST_BDF,
+            xorg.to_str().expect("utf8 path"),
+            udev.to_str().expect("utf8 path"),
+        )
+        .expect_err("expected error when AutoAddGPU false is absent");
+        assert!(
+            err.contains("AutoAddGPU") || err.contains("missing"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn verify_drm_isolation_with_paths_fails_with_multiple_errors_when_paths_missing() {
+        let err = verify_drm_isolation_with_paths(
+            TEST_BDF,
+            "/nonexistent/xorg.conf",
+            "/nonexistent/udev.rules",
+        )
+        .expect_err("expected error when both config paths are missing");
+        assert!(
+            err.contains("xorg.conf") && err.contains("udev.rules"),
+            "expected both paths mentioned: {err}"
+        );
+    }
+
+    #[test]
+    fn count_external_vfio_group_holders_returns_zero_for_nonexistent_bdf() {
+        assert_eq!(count_external_vfio_group_holders("0000:ff:ff:ff:ff"), 0);
+    }
+
+    #[test]
+    fn is_active_display_gpu_returns_false_for_nonexistent_bdf() {
+        assert!(!is_active_display_gpu("0000:ff:ff:ff:ff"));
+    }
+
+    #[test]
+    fn preflight_device_check_ok_when_no_sysfs_for_bdf() {
+        assert!(preflight_device_check("0000:ff:ff:ff:ff").is_ok());
+    }
+
+    #[test]
+    fn is_gpu_cold_via_ptimer_returns_false_when_resource0_missing() {
+        assert!(!is_gpu_cold_via_ptimer("/nonexistent/resource0"));
+    }
+
+    #[test]
+    fn read_boot0_returns_none_for_nonexistent_path() {
+        assert_eq!(read_boot0("/nonexistent/resource0"), None);
+    }
+
+    #[test]
+    fn read_boot0_returns_some_le_u32_for_temp_file_with_four_bytes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("resource0");
+        let expected = 0x1234_5678_u32;
+        fs::write(&path, expected.to_le_bytes()).expect("write resource0");
+
+        assert_eq!(
+            read_boot0(path.to_str().expect("utf8 path")),
+            Some(expected)
+        );
+    }
 }

@@ -388,40 +388,47 @@ pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, Strin
     })
 }
 
-/// Print a comparison report between nouveau's page tables and our encoding.
+/// Emit a comparison report between nouveau's page tables and our encoding via tracing.
 pub fn print_comparison_report(dump: &NouveauPageTableDump) {
     use super::page_tables::{encode_pde, encode_pte};
 
-    println!("=== Nouveau MMU Oracle — Page Table Comparison ===\n");
+    tracing::info!("=== Nouveau MMU Oracle — Page Table Comparison ===");
 
     for line in &dump.log {
-        println!("  {line}");
+        tracing::debug!(message = %line, "nouveau walk log line");
     }
 
-    println!("\n--- Encoding Comparison ---\n");
+    tracing::info!("--- Encoding Comparison ---");
 
     // Compare PDE encoding.
     // Nouveau stores page tables in VRAM (aperture=1), ours are in SYS_MEM_COH (aperture=2).
     // So the flag bits WILL differ — the address encoding is what matters.
     let our_flags: u64 = (2 << 1) | (1 << 3); // COH + VOL
     let nouveau_flags = dump.pd3_entry0 & 0xF;
-    println!("PDE flags: nouveau={nouveau_flags:#x} ours={our_flags:#x}");
-    println!("  (Expected to differ: nouveau uses VRAM aperture, we use SYS_MEM_COH)");
+    tracing::info!(
+        nouveau_flags = format_args!("{nouveau_flags:#x}"),
+        our_flags = format_args!("{our_flags:#x}"),
+        note = "expected to differ: nouveau VRAM aperture vs SYS_MEM_COH",
+        "PDE flags"
+    );
 
     let nouveau_addr_shift = dump.pd3_entry0 >> 4;
-    println!(
-        "PDE addr encoding: nouveau stores (addr >> 4) in upper bits = {nouveau_addr_shift:#x}"
+    tracing::debug!(
+        nouveau_addr_shift = format_args!("{nouveau_addr_shift:#x}"),
+        decoded_addr = format_args!("{:#x}", decode_pde_addr(dump.pd3_entry0)),
+        "PDE addr encoding (upper bits store addr >> 4)"
     );
-    println!("  Decoded addr: {:#x}", decode_pde_addr(dump.pd3_entry0));
 
     // Compare our encode_pde with a hypothetical VRAM-target PDE.
     let test_iova: u64 = 0x1_0000; // 64 KiB
     let our_pde = encode_pde(test_iova);
     let expected_addr_bits = test_iova >> 4;
-    println!("\nTest: encode_pde({test_iova:#x}) = {our_pde:#018x}");
-    println!(
-        "  addr bits = {expected_addr_bits:#x}, flags = {:#x}",
-        our_pde & 0xF
+    tracing::debug!(
+        test_iova = format_args!("{test_iova:#x}"),
+        our_pde = format_args!("{our_pde:#018x}"),
+        addr_bits = format_args!("{expected_addr_bits:#x}"),
+        flags = format_args!("{:#x}", our_pde & 0xF),
+        "encode_pde test"
     );
 
     // Compare PTE encoding.
@@ -430,42 +437,57 @@ pub fn print_comparison_report(dump: &NouveauPageTableDump) {
     {
         let nouveau_pte_flags = pte1 & 0xF;
         let nouveau_pte_addr = decode_pte_addr(pte1);
-        println!("\nPT[1]: nouveau raw={pte1:#018x}");
-        println!("  nouveau flags={nouveau_pte_flags:#x} addr={nouveau_pte_addr:#x}");
+        tracing::debug!(
+            index = 1,
+            raw = format_args!("{pte1:#018x}"),
+            flags = format_args!("{nouveau_pte_flags:#x}"),
+            addr = format_args!("{nouveau_pte_addr:#x}"),
+            "PT[1] nouveau"
+        );
 
         let our_pte = encode_pte(nouveau_pte_addr);
         let flag_match = (our_pte & 0xF) == nouveau_pte_flags;
         let addr_match = decode_pte_addr(our_pte) == nouveau_pte_addr;
-        println!("  our encode_pte({nouveau_pte_addr:#x}) = {our_pte:#018x}");
-        println!("  flags match: {flag_match}, addr match: {addr_match}");
+        tracing::debug!(
+            our_pte = format_args!("{our_pte:#018x}"),
+            flag_match,
+            addr_match,
+            "encode_pte comparison"
+        );
         if !flag_match {
-            println!(
-                "  ** FLAG MISMATCH: nouveau={nouveau_pte_flags:#x} ours={:#x} **",
-                our_pte & 0xF
+            tracing::warn!(
+                nouveau = format_args!("{nouveau_pte_flags:#x}"),
+                ours = format_args!("{:#x}", our_pte & 0xF),
+                "PTE flag mismatch"
             );
         }
     }
 
     // Compare instance block PAGE_DIR_BASE encoding.
-    println!("\n--- Instance Block PAGE_DIR_BASE ---\n");
-    println!("Nouveau PDB_LO: {:#010x}", dump.pdb_lo);
-    println!("  PTR[31:12]  = {:#010x}", dump.pdb_lo & 0xFFFF_F000);
-    println!("  BIG_PAGE    = {}", (dump.pdb_lo >> 11) & 1);
-    println!("  VER2_PT     = {}", (dump.pdb_lo >> 10) & 1);
-    println!("  VOL         = {}", (dump.pdb_lo >> 2) & 1);
-    println!(
-        "  TARGET[1:0] = {} (0=VRAM, 2=COH, 3=NCOH)",
-        dump.pdb_lo & 3
+    tracing::info!("--- Instance Block PAGE_DIR_BASE ---");
+    tracing::debug!(
+        pdb_lo = format_args!("{:#010x}", dump.pdb_lo),
+        ptr_31_12 = format_args!("{:#010x}", dump.pdb_lo & 0xFFFF_F000),
+        big_page = (dump.pdb_lo >> 11) & 1,
+        ver2_pt = (dump.pdb_lo >> 10) & 1,
+        vol = (dump.pdb_lo >> 2) & 1,
+        target = dump.pdb_lo & 3,
+        "Nouveau PDB_LO fields (TARGET: 0=VRAM, 2=COH, 3=NCOH)"
     );
-    println!("Nouveau PDB_HI: {:#010x}", dump.pdb_hi);
-    println!(
-        "Nouveau SC0_PDB: lo={:#010x} hi={:#010x}",
-        dump.sc0_pdb_lo, dump.sc0_pdb_hi
+    tracing::debug!(
+        pdb_hi = format_args!("{:#010x}", dump.pdb_hi),
+        "Nouveau PDB_HI"
     );
-    println!(
-        "Nouveau ADDR_LIMIT: lo={:#010x} hi={:#010x}",
-        dump.addr_limit_lo, dump.addr_limit_hi
+    tracing::debug!(
+        sc0_lo = format_args!("{:#010x}", dump.sc0_pdb_lo),
+        sc0_hi = format_args!("{:#010x}", dump.sc0_pdb_hi),
+        "Nouveau SC0_PDB"
+    );
+    tracing::info!(
+        limit_lo = format_args!("{:#010x}", dump.addr_limit_lo),
+        limit_hi = format_args!("{:#010x}", dump.addr_limit_hi),
+        "Nouveau ADDR_LIMIT"
     );
 
-    println!("\n=== End Oracle Report ===");
+    tracing::info!("=== End Oracle Report ===");
 }

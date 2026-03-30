@@ -13,6 +13,7 @@
 //! Requires: `ReadWritePaths=/sys/kernel/debug/tracing` in the systemd unit
 //! and `CAP_SYS_ADMIN` for debugfs access.
 
+use crate::error::{SwapError, TraceError};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -31,26 +32,27 @@ fn trace_data_dir() -> String {
 ///
 /// Writes `mmiotrace` to `current_tracer` and `1` to `tracing_on`.
 /// Returns `Ok(())` if both writes succeed.
-pub fn enable_mmiotrace() -> Result<(), String> {
+pub fn enable_mmiotrace() -> Result<(), TraceError> {
     tracing::info!("enabling kernel mmiotrace");
 
     // Clear any previous trace data
     std::fs::write(TRACE_PATH, "").ok();
 
-    std::fs::write(TRACER_PATH, "mmiotrace")
-        .map_err(|e| format!("failed to set current_tracer to mmiotrace: {e}"))?;
+    std::fs::write(TRACER_PATH, "mmiotrace").map_err(|e| {
+        TraceError::Enable(format!("failed to set current_tracer to mmiotrace: {e}"))
+    })?;
 
     std::fs::write(TRACING_ON_PATH, "1")
-        .map_err(|e| format!("failed to enable tracing_on: {e}"))?;
+        .map_err(|e| TraceError::Enable(format!("failed to enable tracing_on: {e}")))?;
 
     let verify = std::fs::read_to_string(TRACER_PATH)
         .unwrap_or_default()
         .trim()
         .to_string();
     if verify != "mmiotrace" {
-        return Err(format!(
+        return Err(TraceError::Enable(format!(
             "tracer verification failed: expected 'mmiotrace', got '{verify}'"
-        ));
+        )));
     }
 
     tracing::info!("mmiotrace enabled");
@@ -61,14 +63,14 @@ pub fn enable_mmiotrace() -> Result<(), String> {
 ///
 /// Ensures `tracing_on` is off and switches `current_tracer` back to `nop`.
 /// Idempotent — safe to call even if tracing_on was already stopped.
-pub fn disable_mmiotrace() -> Result<(), String> {
+pub fn disable_mmiotrace() -> Result<(), TraceError> {
     tracing::info!("disabling kernel mmiotrace");
 
     // Idempotent: stop recording if not already stopped
     let _ = std::fs::write(TRACING_ON_PATH, "0");
 
     std::fs::write(TRACER_PATH, "nop")
-        .map_err(|e| format!("failed to reset current_tracer to nop: {e}"))?;
+        .map_err(|e| TraceError::Disable(format!("failed to reset current_tracer to nop: {e}")))?;
 
     tracing::info!("mmiotrace disabled");
     Ok(())
@@ -78,7 +80,7 @@ pub fn disable_mmiotrace() -> Result<(), String> {
 ///
 /// The output file is named `<BDF>_<driver>_<timestamp>.mmiotrace`.
 /// Returns the path to the saved file on success.
-pub fn capture_trace(bdf: &str, driver: &str) -> Result<String, String> {
+pub fn capture_trace(bdf: &str, driver: &str) -> Result<String, TraceError> {
     let data_dir = trace_data_dir();
 
     if let Some(parent) = Path::new(&data_dir).parent() {
@@ -95,8 +97,10 @@ pub fn capture_trace(bdf: &str, driver: &str) -> Result<String, String> {
     let filename = format!("{safe_bdf}_{driver}_{timestamp}.mmiotrace");
     let output_path = format!("{data_dir}/{filename}");
 
-    let trace_data = std::fs::read_to_string(TRACE_PATH)
-        .map_err(|e| format!("failed to read trace buffer: {e}"))?;
+    let trace_data = std::fs::read_to_string(TRACE_PATH).map_err(|e| TraceError::Capture {
+        bdf: bdf.to_string(),
+        reason: format!("failed to read trace buffer: {e}"),
+    })?;
 
     let line_count = trace_data.lines().count();
     tracing::info!(
@@ -107,8 +111,10 @@ pub fn capture_trace(bdf: &str, driver: &str) -> Result<String, String> {
         "captured mmiotrace"
     );
 
-    std::fs::write(&output_path, &trace_data)
-        .map_err(|e| format!("failed to write trace to {output_path}: {e}"))?;
+    std::fs::write(&output_path, &trace_data).map_err(|e| TraceError::Capture {
+        bdf: bdf.to_string(),
+        reason: format!("failed to write trace to {output_path}: {e}"),
+    })?;
 
     Ok(output_path)
 }
@@ -120,9 +126,9 @@ pub fn capture_trace(bdf: &str, driver: &str) -> Result<String, String> {
 /// IMPORTANT: The capture must happen BEFORE switching current_tracer back to
 /// "nop", because the kernel clears the ring buffer when the tracer changes.
 /// The sequence is: enable → run → stop recording → capture → reset tracer.
-pub fn with_mmiotrace<F, T>(bdf: &str, driver: &str, f: F) -> (Result<T, String>, Option<String>)
+pub fn with_mmiotrace<F, T>(bdf: &str, driver: &str, f: F) -> (Result<T, SwapError>, Option<String>)
 where
-    F: FnOnce() -> Result<T, String>,
+    F: FnOnce() -> Result<T, SwapError>,
 {
     if let Err(e) = enable_mmiotrace() {
         tracing::error!(error = %e, "mmiotrace enable failed — proceeding without trace");

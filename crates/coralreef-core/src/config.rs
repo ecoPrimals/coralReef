@@ -10,12 +10,23 @@ use std::time::Duration;
 /// Default timeout for graceful shutdown (SIGTERM/SIGINT).
 pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The ecosystem namespace used for shared directories (discovery, sockets).
+/// Default ecosystem namespace for shared directories (discovery, sockets).
 ///
 /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0 — all primals share the
-/// `biomeos` namespace under `$XDG_RUNTIME_DIR`. This is the *only* place
-/// this string literal appears. All other code references this constant.
+/// `biomeos` namespace under `$XDG_RUNTIME_DIR`. Use [`ecosystem_namespace()`]
+/// for runtime resolution (respects `$BIOMEOS_ECOSYSTEM_NAMESPACE` override).
 pub const ECOSYSTEM_NAMESPACE: &str = "biomeos";
+
+/// Resolve the ecosystem namespace at runtime.
+///
+/// Returns `$BIOMEOS_ECOSYSTEM_NAMESPACE` if set, otherwise [`ECOSYSTEM_NAMESPACE`].
+pub fn ecosystem_namespace() -> &'static str {
+    use std::sync::OnceLock;
+    static NS: OnceLock<String> = OnceLock::new();
+    NS.get_or_init(|| {
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| ECOSYSTEM_NAMESPACE.into())
+    })
+}
 
 /// Primal identity derived from the binary name at compile time.
 ///
@@ -84,7 +95,7 @@ pub fn primal_socket_name() -> String {
 pub fn discovery_dir() -> std::io::Result<PathBuf> {
     let base =
         std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    Ok(base.join(ECOSYSTEM_NAMESPACE))
+    Ok(base.join(ecosystem_namespace()))
 }
 
 #[cfg(test)]

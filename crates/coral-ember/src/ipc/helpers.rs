@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::io::Write;
 
+use crate::error::SysfsError;
 use crate::sysfs;
 
 use super::jsonrpc::write_jsonrpc_error;
@@ -31,7 +32,7 @@ pub(crate) fn require_managed_bdf(
 pub(crate) fn try_reset_methods(
     bdf: &str,
     methods: &[crate::vendor_lifecycle::ResetMethod],
-) -> Result<(), String> {
+) -> Result<(), SysfsError> {
     let mut last_err = String::new();
     for m in methods {
         let label = match m {
@@ -58,5 +59,8 @@ pub(crate) fn try_reset_methods(
             }
         }
     }
-    Err(last_err)
+    Err(SysfsError::PciReset {
+        bdf: bdf.to_string(),
+        reason: last_err,
+    })
 }

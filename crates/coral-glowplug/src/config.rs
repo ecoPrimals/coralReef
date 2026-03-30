@@ -240,8 +240,15 @@ pub fn default_tcp_fallback() -> String {
 
 /// Runtime filesystem segment for IPC socket layout per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
 ///
+/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`).
 /// This is a protocol-defined path component, not a capability registry or primal lookup key.
-const ECOSYSTEM_NAMESPACE: &str = "biomeos";
+fn ecosystem_namespace() -> &'static str {
+    use std::sync::OnceLock;
+    static NS: OnceLock<String> = OnceLock::new();
+    NS.get_or_init(|| {
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
+    })
+}
 
 /// Instance isolation id for socket filenames (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
 fn family_id() -> String {
@@ -250,8 +257,8 @@ fn family_id() -> String {
 
 /// Platform-aware default socket address (ecoBin / wateringHole compliance).
 ///
-/// On Unix: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/<crate>-<family_id>.sock`
-/// (or `$TMPDIR/{ECOSYSTEM_NAMESPACE}/` if `XDG_RUNTIME_DIR` unset).
+/// On Unix: `$XDG_RUNTIME_DIR/<namespace>/<crate>-<family_id>.sock`
+/// (or `$TMPDIR/<namespace>/` if `XDG_RUNTIME_DIR` unset).
 /// On non-Unix: TCP fallback to `127.0.0.1:0` (OS-assigned port).
 #[must_use]
 fn default_socket() -> String {
@@ -260,7 +267,7 @@ fn default_socket() -> String {
         let base = std::env::var("XDG_RUNTIME_DIR")
             .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
         let sock_name = format!("{}-{}.sock", env!("CARGO_PKG_NAME"), family_id());
-        base.join(ECOSYSTEM_NAMESPACE)
+        base.join(ecosystem_namespace())
             .join(sock_name)
             .display()
             .to_string()

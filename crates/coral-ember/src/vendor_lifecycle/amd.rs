@@ -34,7 +34,8 @@ impl VendorLifecycle for AmdVega20Lifecycle {
             bdf,
             "AMD Vega 20: disabling reset_method (prevents D3cold on any transition)"
         );
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -132,7 +133,8 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         sysfs::pin_bridge_power(bdf);
 
         tracing::info!(bdf, "AMD RDNA: disabling reset_method (conservative)");
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }

@@ -251,7 +251,7 @@ pub(crate) fn swap(
         }
         Err(e) => {
             drop(map);
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(ipc_io_error_string)
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(ipc_io_error_string)
         }
     }
 }
@@ -301,15 +301,18 @@ pub(crate) fn device_reset(
         "bridge-sbr" => sysfs::pci_bridge_reset(bdf),
         "remove-rescan" => sysfs::pci_remove_rescan(bdf),
         "auto" => try_reset_methods(bdf, &methods),
-        other => Err(format!(
-            "unknown reset method: {other} (use 'auto', 'sbr', 'bridge-sbr', 'remove-rescan')"
-        )),
+        other => Err(crate::SysfsError::PciReset {
+            bdf: bdf.to_string(),
+            reason: format!(
+                "unknown reset method: {other} (use 'auto', 'sbr', 'bridge-sbr', 'remove-rescan')"
+            ),
+        }),
     };
     let duration_ms = reset_start.elapsed().as_millis() as u64;
 
     let (success, error_msg) = match &result {
         Ok(()) => (true, None),
-        Err(e) => (false, Some(e.clone())),
+        Err(e) => (false, Some(e.to_string())),
     };
 
     if let Some(j) = journal {

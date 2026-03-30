@@ -16,6 +16,8 @@
 
 pub mod adaptive;
 pub mod drm_isolation;
+pub mod error;
+pub use error::{SwapError, SysfsError, TraceError};
 mod hold;
 mod ipc;
 pub mod journal;

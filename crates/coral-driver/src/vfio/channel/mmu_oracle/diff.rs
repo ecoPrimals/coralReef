@@ -249,46 +249,60 @@ fn compare_pd_entries(
     }
 }
 
-/// Print a human-readable diff report to stdout.
+/// Emit a human-readable diff report via structured tracing.
 pub fn print_diff_report(diff: &PageTableDiffResult) {
-    println!("=== Page Table Oracle Diff ===\n");
-    println!(
-        "Left:  {} on {} (BOOT0 capture)",
-        diff.left_driver, diff.left_bdf
+    tracing::info!("=== Page Table Oracle Diff ===");
+    tracing::info!(
+        left_driver = %diff.left_driver,
+        left_bdf = %diff.left_bdf,
+        right_driver = %diff.right_driver,
+        right_bdf = %diff.right_bdf,
+        "oracle diff sides (BOOT0 capture on left)"
     );
-    println!("Right: {} on {}\n", diff.right_driver, diff.right_bdf);
 
-    println!("--- Instance Block ---");
+    tracing::info!("--- Instance Block ---");
     if diff.instance_block_diffs.is_empty() {
-        println!("  (identical)\n");
+        tracing::info!(status = "identical", "instance block");
     } else {
         for d in &diff.instance_block_diffs {
-            println!("  {}: {:#010x} vs {:#010x}", d.name, d.left, d.right);
+            tracing::debug!(
+                register = %d.name,
+                left = format_args!("{:#010x}", d.left),
+                right = format_args!("{:#010x}", d.right),
+                "instance block register diff"
+            );
         }
-        println!();
     }
 
-    println!("--- Page Table Entries ---");
+    tracing::info!("--- Page Table Entries ---");
     if diff.entry_diffs.is_empty() {
-        println!("  (no differences in populated entries)\n");
+        tracing::info!("no differences in populated entries");
     } else {
         for d in &diff.entry_diffs {
-            println!(
-                "  {}[{}]: {:#018x} vs {:#018x}  addr_match={} flags_match={}",
-                d.level, d.index, d.left_raw, d.right_raw, d.addr_match, d.flags_match
+            tracing::debug!(
+                level = %d.level,
+                index = d.index,
+                left_raw = format_args!("{:#018x}", d.left_raw),
+                right_raw = format_args!("{:#018x}", d.right_raw),
+                addr_match = d.addr_match,
+                flags_match = d.flags_match,
+                "page table entry diff"
             );
             if !d.flags_match {
-                println!(
-                    "    left:  aper={} vol={}",
-                    d.left_flags.aperture_name, d.left_flags.vol
+                tracing::debug!(
+                    side = "left",
+                    aperture = %d.left_flags.aperture_name,
+                    vol = d.left_flags.vol,
+                    "entry flags"
                 );
-                println!(
-                    "    right: aper={} vol={}",
-                    d.right_flags.aperture_name, d.right_flags.vol
+                tracing::debug!(
+                    side = "right",
+                    aperture = %d.right_flags.aperture_name,
+                    vol = d.right_flags.vol,
+                    "entry flags"
                 );
             }
         }
-        println!();
     }
 
     for (name, diffs) in &[
@@ -303,20 +317,27 @@ pub fn print_diff_report(diff: &PageTableDiffResult) {
         if diffs.is_empty() {
             continue;
         }
-        println!("--- {name} Register Diffs ---");
+        tracing::info!(engine = name, "register diffs section");
         for d in *diffs {
-            println!("  {}: {:#010x} vs {:#010x}", d.name, d.left, d.right);
+            tracing::debug!(
+                engine = name,
+                register = %d.name,
+                left = format_args!("{:#010x}", d.left),
+                right = format_args!("{:#010x}", d.right),
+                "engine register diff"
+            );
         }
-        println!();
     }
 
     let s = &diff.summary;
-    println!("--- Summary ---");
-    println!("  PT entries compared: {}", s.total_entries_compared);
-    println!("  Matching:            {}", s.entries_matching);
-    println!("  Addr-only diff:      {}", s.entries_addr_only_diff);
-    println!("  Flags-only diff:     {}", s.entries_flags_only_diff);
-    println!("  Both diff:           {}", s.entries_both_diff);
-    println!("  Register diffs:      {}", s.register_diffs);
-    println!("\n=== End Diff ===");
+    tracing::info!(
+        pt_entries_compared = s.total_entries_compared,
+        matching = s.entries_matching,
+        addr_only_diff = s.entries_addr_only_diff,
+        flags_only_diff = s.entries_flags_only_diff,
+        both_diff = s.entries_both_diff,
+        register_diffs = s.register_diffs,
+        "diff summary"
+    );
+    tracing::info!("=== End Diff ===");
 }

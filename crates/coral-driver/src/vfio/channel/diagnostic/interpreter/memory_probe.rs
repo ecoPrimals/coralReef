@@ -206,7 +206,7 @@ fn probe_dma_sysmem(
                 status: PathStatus::ErrorPattern { pattern: 0 },
                 prerequisites: vec!["vfio_container", "iommu"],
             });
-            eprintln!("║ Memory probe: DMA alloc failed: {e}");
+            tracing::warn!(error = %e, "memory probe: DMA alloc failed");
         }
     }
 
@@ -245,30 +245,32 @@ pub fn snapshot_fbpa_registers(bar0: &MappedBar) -> Vec<(usize, u32)> {
     regs
 }
 
-/// Print a human-readable NV_PFB register dump, highlighting non-zero values.
+/// Emit an NV_PFB register dump via tracing (non-zero values highlighted in output).
 pub fn dump_pfb_registers(bar0: &MappedBar) {
     let pfb_regs = snapshot_pfb_registers(bar0);
     let fbpa_regs = snapshot_fbpa_registers(bar0);
 
-    eprintln!(
-        "╠══ NV_PFB Register Snapshot ({} non-dead regs) ═══╣",
-        pfb_regs.len()
-    );
+    tracing::debug!(non_dead_count = pfb_regs.len(), "NV_PFB register snapshot");
     for (offset, val) in &pfb_regs {
         if *val != 0 {
-            eprintln!("║   {offset:#010x} = {val:#010x}");
+            tracing::debug!(
+                offset = format_args!("{offset:#010x}"),
+                value = format_args!("{val:#010x}"),
+                "NV_PFB reg"
+            );
         }
     }
     if !fbpa_regs.is_empty() {
-        eprintln!(
-            "╠══ FBPA Partitions ({} non-zero regs) ═══════════╣",
-            fbpa_regs.len()
-        );
+        tracing::debug!(non_zero_count = fbpa_regs.len(), "FBPA partitions");
         for (offset, val) in fbpa_regs.iter().take(32) {
-            eprintln!("║   {offset:#010x} = {val:#010x}");
+            tracing::debug!(
+                offset = format_args!("{offset:#010x}"),
+                value = format_args!("{val:#010x}"),
+                "FBPA reg"
+            );
         }
         if fbpa_regs.len() > 32 {
-            eprintln!("║   ... {} more", fbpa_regs.len() - 32);
+            tracing::debug!(omitted = fbpa_regs.len() - 32, "FBPA regs truncated");
         }
     }
 }
@@ -292,7 +294,10 @@ pub fn attempt_fb_init(
 
     // Step 1: Read current PFB state (oracle comparison baseline)
     let pfb_snapshot = snapshot_pfb_registers(bar0);
-    eprintln!("║ FB init: {} PFB registers readable", pfb_snapshot.len());
+    tracing::info!(
+        readable = pfb_snapshot.len(),
+        "FB init: PFB registers readable"
+    );
 
     // Step 2: Try NISO flush address configuration.
     // nouveau's ramgv100.c sets NV_PFB_NISO_FLUSH_SYSMEM_ADDR to a known
@@ -310,7 +315,7 @@ pub fn attempt_fb_init(
             after_niso.clone(),
         );
         if delta.unlocked_memory() {
-            eprintln!("║ FB init: NISO flush addr unlocked VRAM!");
+            tracing::info!("FB init: NISO flush addr unlocked VRAM");
             significant_deltas.push(delta);
             return (after_niso, significant_deltas);
         }
@@ -339,7 +344,7 @@ pub fn attempt_fb_init(
             after_tlb.clone(),
         );
         if delta.unlocked_memory() {
-            eprintln!("║ FB init: TLB invalidation unlocked VRAM!");
+            tracing::info!("FB init: TLB invalidation unlocked VRAM");
             significant_deltas.push(delta);
             return (after_tlb, significant_deltas);
         }
@@ -351,7 +356,7 @@ pub fn attempt_fb_init(
     // "enable everything" heuristic) and see what changes.
     let current_topo = discover_memory_topology(bar0, container.clone());
     if !current_topo.vram_accessible {
-        eprintln!("║ FB init: VRAM still cold after quick attempts — scanning NV_PFB range");
+        tracing::info!("FB init: VRAM still cold after quick attempts — scanning NV_PFB range");
 
         // Scan a focused subset of NV_PFB registers (the ones nouveau touches
         // during ramgv100.c init). Full scan_register_range is expensive.
@@ -370,7 +375,11 @@ pub fn attempt_fb_init(
         for &offset in fb_critical_offsets {
             let current_val = bar0.read_u32(offset).unwrap_or(0);
             // Record what's there
-            eprintln!("║ FB init: PFB[{offset:#010x}] = {current_val:#010x}");
+            tracing::debug!(
+                offset = format_args!("{offset:#010x}"),
+                value = format_args!("{current_val:#010x}"),
+                "FB init: PFB critical reg"
+            );
         }
     }
 

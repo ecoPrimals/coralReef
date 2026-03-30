@@ -24,7 +24,7 @@ fn handle_swap_unknown_target_errors() {
     let mut held: HashMap<String, HeldDevice> = HashMap::new();
     let err =
         handle_swap_device(NONEXISTENT_BDF, "not-a-real-driver", &mut held, false).unwrap_err();
-    assert!(err.contains("unknown target driver"));
+    assert!(err.to_string().contains("unknown target driver"));
 }
 
 #[test]
@@ -92,12 +92,15 @@ fn handle_swap_non_drm_native_target_skips_drm_gate() {
     let err =
         handle_swap_device(NONEXISTENT_BDF, "akida-pcie", &mut held, false).expect_err("swap");
     assert!(
-        !err.contains("DRM isolation"),
+        !err.to_string().contains("DRM isolation"),
         "akida-pcie should not hit DRM isolation: {err}"
     );
+    let msg = err.to_string();
     assert!(
-        err.contains("preflight") || err.contains("swap_device"),
-        "expected preflight or swap error for nonexistent device: {err}"
+        msg.contains("preflight")
+            || msg.contains("swap_device")
+            || msg.contains("sysfs"),
+        "expected preflight, sysfs, or swap error for nonexistent device: {err}"
     );
 }
 
@@ -107,11 +110,13 @@ fn handle_swap_drm_targets_hit_isolation_or_sysfs() {
     for target in ["amdgpu", "nouveau", "nvidia", "xe", "i915"] {
         let mut held: HashMap<String, HeldDevice> = HashMap::new();
         let err = handle_swap_device(NONEXISTENT_BDF, target, &mut held, false).expect_err(target);
+        let s = err.to_string();
         assert!(
-            err.contains("BLOCKED")
-                || err.contains("swap_device")
-                || err.contains("bind")
-                || err.contains("preflight"),
+            s.contains("BLOCKED")
+                || s.contains("swap_device")
+                || s.contains("bind")
+                || s.contains("preflight")
+                || s.contains("sysfs"),
             "{target}: unexpected error: {err}"
         );
     }

@@ -33,6 +33,15 @@ pub struct PfifoInitConfig {
     /// Force-clear all PBDMA registers to remove stale channel state.
     /// Set false for warm handoff to preserve PBDMA configuration.
     pub pbdma_force_clear: bool,
+    /// Flush all runlists with count=0 during init. On warm handoff,
+    /// skip this: the empty flush tells FECS "no channels" which causes
+    /// it to disable GR and halt. Our channel submit replaces the
+    /// runlist immediately after, but FECS won't wake to process it.
+    pub flush_empty_runlists: bool,
+    /// Preempt all active runlists during init to clear stale channel
+    /// state. On warm handoff, skip this: the preempt forces FECS to
+    /// unload all channels; with none remaining FECS disables GR.
+    pub preempt_runlists: bool,
     /// `true` → write `SCHED_EN (0x2504) = 1`; `false` → write `SCHED_DISABLE (0x2630) = 0`.
     pub use_sched_en: bool,
     /// Milliseconds to wait after empty-runlist flush.
@@ -50,6 +59,8 @@ impl Default for PfifoInitConfig {
             retry_on_priv_fault: true,
             pmc_pfifo_reset: true,
             pbdma_force_clear: true,
+            flush_empty_runlists: true,
+            preempt_runlists: true,
             use_sched_en: true,
             post_flush_settle_ms: 20,
         }
@@ -68,6 +79,8 @@ impl PfifoInitConfig {
             retry_on_priv_fault: false,
             pmc_pfifo_reset: false,
             pbdma_force_clear: false,
+            flush_empty_runlists: false,
+            preempt_runlists: false,
             use_sched_en: false,
             post_flush_settle_ms: 0,
         }
@@ -85,6 +98,8 @@ impl PfifoInitConfig {
             retry_on_priv_fault: true,
             pmc_pfifo_reset: false,
             pbdma_force_clear: false,
+            flush_empty_runlists: false,
+            preempt_runlists: false,
             use_sched_en: true,
             post_flush_settle_ms: 10,
         }
@@ -100,18 +115,13 @@ impl PfifoInitConfig {
 /// registers read `0xBAD0_DA00`. We must enable the engine in
 /// `NV_PMC_ENABLE` first, matching nouveau's `gp100_mc_init()`.
 ///
+/// Pass [`PfifoInitConfig::default`] for the standard bring-up sequence, or
+/// [`PfifoInitConfig::diagnostic`] / [`PfifoInitConfig::warm_handoff`] where
+/// callers need a lighter touch.
+///
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
-#[allow(dead_code, reason = "public API for standalone PFIFO init; called from experiment tests")]
-pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
-    init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
-}
-
-/// Configurable PFIFO engine initialization.
-///
-/// Same as [`init_pfifo_engine`] but takes a [`PfifoInitConfig`] to
-/// control the bring-up sequence. Use this from the diagnostic runner.
 pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> DriverResult<(u32, u32)> {
     let w = |reg: usize, val: u32| {
         bar0.write_u32(reg, val)
@@ -225,9 +235,10 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
     let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
 
     // Preempt ALL active runlists to clear the scheduler's stale channel
-    // table from nouveau's previous session. Without this, the scheduler
-    // may try to context-switch to channels that no longer exist.
-    {
+    // table from nouveau's previous session. On warm handoff this is
+    // SKIPPED: the preempt forces FECS to unload all channels; with none
+    // remaining FECS disables the GR engine and halts permanently.
+    if cfg.preempt_runlists {
         let cur_map = r(pfifo::PBDMA_MAP);
         let mut rl_mask: u32 = 0;
         let mut seq = 0_usize;
@@ -260,6 +271,10 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
                 "runlist preempt"
             );
         }
+    } else {
+        tracing::info!(
+            "runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)"
+        );
     }
 
     // Force-clear PBDMA registers to remove nouveau's stale channel context.
@@ -400,24 +415,35 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
     }
 
     // GV100 per-runlist registers at stride 0x10 — flush with count=0.
-    let mut flushed_runlists = std::collections::HashSet::new();
-    let rl_base_val = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
-    let rl_submit_val = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0);
-    for &(_, rl) in &pbdma_runlists {
-        if rl > 31 || !flushed_runlists.insert(rl) {
-            continue;
+    // On warm handoff this is SKIPPED: the empty flush tells FECS "no
+    // channels on GR runlist" which causes FECS to disable the GR engine
+    // and halt. Our channel submit replaces the runlist immediately after,
+    // but FECS won't wake to process it. The preempt above already cleared
+    // stale channels; our submit_runlist() will overwrite the runlist.
+    if cfg.flush_empty_runlists {
+        let mut flushed_runlists = std::collections::HashSet::new();
+        let rl_base_val = pfifo::gv100_runlist_base_value(RUNLIST_IOVA);
+        let rl_submit_val = pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 0);
+        for &(_, rl) in &pbdma_runlists {
+            if rl > 31 || !flushed_runlists.insert(rl) {
+                continue;
+            }
+            w(pfifo::runlist_base(rl), rl_base_val)?;
+            w(pfifo::runlist_submit(rl), rl_submit_val)?;
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0);
+            if intr & 0x4000_0000 != 0 {
+                let _ = bar0.read_u32(pfifo::RUNLIST_ACK);
+                w(pfifo::RUNLIST_ACK, 1u32 << rl)?;
+                w(pfifo::INTR, 0x4000_0000)?;
+                tracing::debug!(runlist = rl, "ACK'd empty runlist completion");
+            }
+            tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
         }
-        w(pfifo::runlist_base(rl), rl_base_val)?;
-        w(pfifo::runlist_submit(rl), rl_submit_val)?;
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0);
-        if intr & 0x4000_0000 != 0 {
-            let _ = bar0.read_u32(pfifo::RUNLIST_ACK);
-            w(pfifo::RUNLIST_ACK, 1u32 << rl)?;
-            w(pfifo::INTR, 0x4000_0000)?;
-            tracing::debug!(runlist = rl, "ACK'd empty runlist completion");
-        }
-        tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
+    } else {
+        tracing::info!(
+            "empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)"
+        );
     }
     if cfg.post_flush_settle_ms > 0 {
         std::thread::sleep(std::time::Duration::from_millis(cfg.post_flush_settle_ms));
