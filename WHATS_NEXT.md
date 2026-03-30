@@ -2,19 +2,19 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 69.
+**Current position**: Phase 10 — Iteration 70.
 
-**Last completed**: Deep debt resolution, wateringHole v3.1 compliance, UniBin compliance for all binaries.
+**Last completed**: ludoSpring V35 gap resolution (capabilities.list, file-size splits, 8 clippy fixes), wateringHole v3.1 compliance, UniBin compliance.
 
-**Tests**: 4189 passing, 0 failed.
+**Tests**: 4189 passing, 2 pre-existing failures (upstream SSA regression).
 
-**Next focus**: Coverage push toward 90%, hardware integration testing, remaining spring absorption.
+**Next focus**: Coverage push toward 90%, hardware integration testing, toadStool E2E pipeline, remaining spring absorption.
 
-**Last updated**: March 29, 2026 (Phase 10 — Iteration 69 — Deep Debt Resolution + wateringHole v3.1 Compliance. 4189 tests passing, 0 failed; clippy pedantic+nursery zero warnings)
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70 — ludoSpring V35 Gap Resolution. 4189 tests passing; clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
 
 ---
 
-## Team Evolution Priorities (Iteration 69+)
+## Team Evolution Priorities (Iteration 70+)
 
 ### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–65)**
 

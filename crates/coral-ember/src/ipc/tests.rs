@@ -497,6 +497,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
             bdf: bdf.clone(),
             device,
             ring_meta: crate::hold::RingMeta::default(),
+            req_eventfd: None,
         },
     );
     let held = Arc::new(RwLock::new(map));

@@ -5,8 +5,8 @@
 
 #[cfg(feature = "nvidia-drm")]
 mod tests {
-    use coral_driver::nv::NvDrmDevice;
     use coral_driver::ComputeDevice;
+    use coral_driver::nv::NvDrmDevice;
 
     fn open_nv() -> NvDrmDevice {
         NvDrmDevice::open().expect("NvDrmDevice::open() failed — is nvidia-drm loaded?")

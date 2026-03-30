@@ -644,16 +644,14 @@ pub fn encode_vopc_legalized(
     src1: &Src,
     enc: &AmdOpEncoder<'_>,
 ) -> Result<Vec<u32>, CompileError> {
-    let src1_is_vgpr = src_to_vgpr_index(src1).is_ok();
+    let src0_enc = src_to_encoding(src0)?;
 
-    if src1_is_vgpr {
-        let src0_enc = src_to_encoding(src0)?;
+    if src_to_vgpr_index(src1).is_ok() {
         let src1_idx = src_to_vgpr_index(src1)?;
         let mut words = Rdna2Encoder::encode_vopc(opcode, src0_enc.src0, src1_idx);
         src0_enc.extend_with_literal(&mut words);
         Ok(words)
     } else {
-        let src0_enc = src_to_encoding(src0)?;
         let src1_enc = src_to_encoding(src1)?;
         let (mut prefix0, mat0) = materialize_if_literal(enc.scratch_vgpr_0, &src0_enc);
         let (prefix1, mat1) = materialize_if_literal(enc.scratch_vgpr_1, &src1_enc);

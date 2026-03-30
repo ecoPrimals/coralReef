@@ -188,12 +188,12 @@ fn emit_cache_invalidate(pm4: &mut Vec<u32>, gfx_major: u8) {
     if gfx_major >= 10 {
         let header = pm4_type3_header(PM4_ACQUIRE_MEM, 7);
         pm4.push(header);
-        pm4.push(0);            // CP_COHER_CNTL (unused on GFX10+)
-        pm4.push(0xFFFF_FFFF);  // COHER_SIZE
-        pm4.push(0x0000_00FF);  // COHER_SIZE_HI
-        pm4.push(0);            // COHER_BASE_LO
-        pm4.push(0);            // COHER_BASE_HI
-        pm4.push(0);            // reserved
+        pm4.push(0); // CP_COHER_CNTL (unused on GFX10+)
+        pm4.push(0xFFFF_FFFF); // COHER_SIZE
+        pm4.push(0x0000_00FF); // COHER_SIZE_HI
+        pm4.push(0); // COHER_BASE_LO
+        pm4.push(0); // COHER_BASE_HI
+        pm4.push(0); // reserved
         // GCR_CNTL (PM4 ACQUIRE_MEM dword 6):
         //   GL2_INV [14] | GL1_INV [9] | GLV_INV [8] | GLK_INV [7] | GLM_INV [5]
         pm4.push((1 << 14) | (1 << 9) | (1 << 8) | (1 << 7) | (1 << 5));
@@ -202,11 +202,11 @@ fn emit_cache_invalidate(pm4: &mut Vec<u32>, gfx_major: u8) {
         pm4.push(header);
         // GFX9 CP_COHER_CNTL: TC_ACTION_ENA [23] | TCL1_ACTION_ENA [25]
         pm4.push((1 << 23) | (1 << 25));
-        pm4.push(0xFFFF_FFFF);  // COHER_SIZE
-        pm4.push(0x0000_00FF);  // COHER_SIZE_HI
-        pm4.push(0);            // COHER_BASE_LO
-        pm4.push(0);            // COHER_BASE_HI
-        pm4.push(10);           // POLL_INTERVAL
+        pm4.push(0xFFFF_FFFF); // COHER_SIZE
+        pm4.push(0x0000_00FF); // COHER_SIZE_HI
+        pm4.push(0); // COHER_BASE_LO
+        pm4.push(0); // COHER_BASE_HI
+        pm4.push(10); // POLL_INTERVAL
     }
 }
 
@@ -221,12 +221,12 @@ fn emit_acquire_mem(pm4: &mut Vec<u32>, gfx_major: u8) {
     if gfx_major >= 10 {
         let header = pm4_type3_header(PM4_ACQUIRE_MEM, 7);
         pm4.push(header);
-        pm4.push(0);            // CP_COHER_CNTL (unused on GFX10+)
-        pm4.push(0xFFFF_FFFF);  // COHER_SIZE
-        pm4.push(0x0000_00FF);  // COHER_SIZE_HI
-        pm4.push(0);            // COHER_BASE_LO
-        pm4.push(0);            // COHER_BASE_HI
-        pm4.push(0);            // reserved
+        pm4.push(0); // CP_COHER_CNTL (unused on GFX10+)
+        pm4.push(0xFFFF_FFFF); // COHER_SIZE
+        pm4.push(0x0000_00FF); // COHER_SIZE_HI
+        pm4.push(0); // COHER_BASE_LO
+        pm4.push(0); // COHER_BASE_HI
+        pm4.push(0); // reserved
         // GCR_CNTL: GL2_WB [15] | GL2_INV [14] | GL1_INV [9]
         pm4.push((1 << 15) | (1 << 14) | (1 << 9));
     } else {
@@ -234,11 +234,11 @@ fn emit_acquire_mem(pm4: &mut Vec<u32>, gfx_major: u8) {
         pm4.push(header);
         // GFX9 CP_COHER_CNTL: TC_WB_ACTION_ENA [18] | TC_ACTION_ENA [23]
         pm4.push((1 << 18) | (1 << 23));
-        pm4.push(0xFFFF_FFFF);  // COHER_SIZE
-        pm4.push(0x0000_00FF);  // COHER_SIZE_HI
-        pm4.push(0);            // COHER_BASE_LO
-        pm4.push(0);            // COHER_BASE_HI
-        pm4.push(10);           // POLL_INTERVAL
+        pm4.push(0xFFFF_FFFF); // COHER_SIZE
+        pm4.push(0x0000_00FF); // COHER_SIZE_HI
+        pm4.push(0); // COHER_BASE_LO
+        pm4.push(0); // COHER_BASE_HI
+        pm4.push(10); // POLL_INTERVAL
     }
 }
 
@@ -333,7 +333,10 @@ const fn compute_pgm_rsrc2(user_sgpr_count: u32) -> u32 {
     let tgid_y_en = 1_u32;
     let tgid_z_en = 1_u32;
     let tidig_comp_cnt = 2_u32; // initialize v0=TID.X, v1=TID.Y, v2=TID.Z
-    (user_sgpr << 1) | (tgid_x_en << 7) | (tgid_y_en << 8) | (tgid_z_en << 9)
+    (user_sgpr << 1)
+        | (tgid_x_en << 7)
+        | (tgid_y_en << 8)
+        | (tgid_z_en << 9)
         | (tidig_comp_cnt << 11)
 }
 
@@ -373,7 +376,8 @@ mod tests {
             workgroup: [64, 1, 1],
         };
         let buf_vas = [0x1_0000_0000_u64, 0x2_0000_0000_u64];
-        let pm4 = build_compute_dispatch(0x3_0000_0000, DispatchDims::linear(64), &info, &buf_vas, 10);
+        let pm4 =
+            build_compute_dispatch(0x3_0000_0000, DispatchDims::linear(64), &info, &buf_vas, 10);
         assert!(!pm4.is_empty());
         assert!(pm4.len() > 14, "PM4 should contain user data packets");
     }
@@ -456,8 +460,13 @@ mod tests {
             workgroup: [64, 2, 1],
         };
         let buf_vas = [0x1_0000_0000_u64, 0x2_0000_0000_u64, 0x3_0000_0000_u64];
-        let pm4 =
-            build_compute_dispatch(0x4_0000_0000, DispatchDims::new(128, 4, 2), &info, &buf_vas, 10);
+        let pm4 = build_compute_dispatch(
+            0x4_0000_0000,
+            DispatchDims::new(128, 4, 2),
+            &info,
+            &buf_vas,
+            10,
+        );
         assert!(pm4.len() > 20);
     }
 

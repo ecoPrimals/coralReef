@@ -90,6 +90,47 @@ impl VfioChannel {
         userd_iova: u64,
         channel_id: u32,
     ) -> DriverResult<Self> {
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::default(),
+        )
+    }
+
+    /// Create a VFIO channel in warm handoff mode — preserves PFIFO/PMC
+    /// state from nouveau so falcon engines (FECS/GPCCS) remain alive.
+    pub fn create_warm(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+    ) -> DriverResult<Self> {
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::warm_handoff(),
+        )
+    }
+
+    fn create_with_config(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+        pfifo_cfg: &pfifo::PfifoInitConfig,
+    ) -> DriverResult<Self> {
         let instance = DmaBuffer::new(container.clone(), 4096, INSTANCE_IOVA)?;
         let runlist = DmaBuffer::new(container.clone(), 4096, RUNLIST_IOVA)?;
         let pd3 = DmaBuffer::new(container.clone(), 4096, PD3_IOVA)?;
@@ -122,8 +163,7 @@ impl VfioChannel {
             );
         };
 
-        let (runq, runlist_id) = pfifo::init_pfifo_engine(bar0)?;
-        chan.runlist_id = runlist_id;
+        let (runq, _runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
         pfifo_trace(bar0, "after-pfifo-init");
 
         // Configure BAR2 in PHYSICAL mode targeting system memory.

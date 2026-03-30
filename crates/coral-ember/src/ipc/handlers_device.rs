@@ -170,10 +170,12 @@ pub(crate) fn reacquire(
     } else {
         match coral_driver::vfio::VfioDevice::open(bdf) {
             Ok(device) => {
+                let req_eventfd = crate::arm_req_irq(&device, bdf);
                 tracing::info!(
                     bdf,
                     backend = ?device.backend_kind(),
                     device_fd = device.device_fd(),
+                    req_armed = req_eventfd.is_some(),
                     "VFIO device reacquired by ember after swap"
                 );
                 map.insert(
@@ -182,6 +184,7 @@ pub(crate) fn reacquire(
                         bdf: bdf.to_string(),
                         device,
                         ring_meta: crate::hold::RingMeta::default(),
+                        req_eventfd,
                     },
                 );
                 drop(map);

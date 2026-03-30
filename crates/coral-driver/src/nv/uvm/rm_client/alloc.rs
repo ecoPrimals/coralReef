@@ -5,18 +5,17 @@ use crate::error::DriverResult;
 
 use super::super::structs::{
     Nv0080AllocParams, Nv2080AllocParams, NvChannelAllocParams, NvChannelGroupAllocParams,
-    NvCtxShareAllocParams, NvMemoryAllocParams, NvMemoryVirtualAllocParams,
-    NvVaspaceAllocParams,
+    NvCtxShareAllocParams, NvMemoryAllocParams, NvMemoryVirtualAllocParams, NvVaspaceAllocParams,
 };
 use super::super::{
     ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
     BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, FERMI_CONTEXT_SHARE_A, FERMI_VASPACE_A,
-    HOPPER_COMPUTE_A, KEPLER_CHANNEL_GROUP_A, NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING,
-    NV01_DEVICE_0, NV01_MEMORY_LOCAL_USER, NV01_MEMORY_SYSTEM, NV01_MEMORY_VIRTUAL,
-    NV20_SUBDEVICE_0, NV2080_ENGINE_TYPE_GR0, NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE,
+    HOPPER_COMPUTE_A, KEPLER_CHANNEL_GROUP_A, NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING, NV01_DEVICE_0,
+    NV01_MEMORY_LOCAL_USER, NV01_MEMORY_SYSTEM, NV01_MEMORY_VIRTUAL, NV20_SUBDEVICE_0,
+    NV2080_ENGINE_TYPE_GR0, NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE,
     NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT, NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED,
-    NVOS32_ATTR2_32BIT_ADDRESSABLE, NVOS32_ATTR_PHYSICALITY_CONTIGUOUS,
-    NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS,
+    NVOS32_ATTR_PHYSICALITY_CONTIGUOUS, NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS,
+    NVOS32_ATTR2_32BIT_ADDRESSABLE,
 };
 use super::RmClient;
 
@@ -193,14 +192,10 @@ impl RmClient {
     /// # Errors
     ///
     /// Returns [`DriverError`](crate::error::DriverError) if the RM alloc fails.
-    pub fn alloc_error_notifier(
-        &mut self,
-        h_device: u32,
-        handle: u32,
-    ) -> DriverResult<u32> {
+    pub fn alloc_error_notifier(&mut self, h_device: u32, handle: u32) -> DriverResult<u32> {
         let mut mem_params = NvMemoryAllocParams {
             owner: h_device,
-            mem_type: 13, // NVOS32_TYPE_NOTIFIER
+            mem_type: 13,       // NVOS32_TYPE_NOTIFIER
             flags: 0x0000_C001, // MAP_NOT_REQUIRED | ALIGNMENT_FORCE | PERSISTENT
             attr: 0x2A80_0000,
             attr2: 0x0000_0009,
@@ -284,8 +279,7 @@ impl RmClient {
     ) -> DriverResult<u32> {
         let mut mem_params = NvMemoryAllocParams {
             owner: self.h_client,
-            flags: NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED
-                | NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT,
+            flags: NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED | NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT,
             attr: NVOS32_ATTR_PHYSICALITY_CONTIGUOUS,
             attr2: NVOS32_ATTR2_32BIT_ADDRESSABLE,
             size,
@@ -400,6 +394,10 @@ impl RmClient {
     ///
     /// Returns `(h_channel, hw_channel_id)` — the RM handle and the hardware
     /// channel ID (used as the doorbell work submit token).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "RM API requires all channel alloc params"
+    )]
     pub fn alloc_gpfifo_channel(
         &mut self,
         h_changrp: u32,

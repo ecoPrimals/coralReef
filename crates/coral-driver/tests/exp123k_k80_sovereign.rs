@@ -103,6 +103,15 @@ fn is_pri_fault(val: u32) -> bool {
 }
 
 fn find_k80_devices() -> Vec<String> {
+    // If CORALREEF_VFIO_BDF is set, use that specific device
+    if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
+        let dev_path = format!("/sys/bus/pci/devices/{bdf}");
+        if std::fs::metadata(&dev_path).is_ok() {
+            eprintln!("  K80 target (env): {bdf}");
+            return vec![dev_path];
+        }
+    }
+
     let mut devices = Vec::new();
     let pci_dir = "/sys/bus/pci/devices";
     if let Ok(entries) = std::fs::read_dir(pci_dir) {
@@ -111,14 +120,15 @@ fn find_k80_devices() -> Vec<String> {
             let dev_path = format!("{pci_dir}/{name}");
             let vendor = std::fs::read_to_string(format!("{dev_path}/vendor")).unwrap_or_default();
             let device = std::fs::read_to_string(format!("{dev_path}/device")).unwrap_or_default();
-            // K80 = 10de:102d
             if vendor.trim() == "0x10de" && device.trim() == "0x102d" {
                 let driver = std::fs::read_link(format!("{dev_path}/driver"))
                     .ok()
                     .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
                     .unwrap_or_else(|| "none".to_string());
                 eprintln!("  K80 found: {name} driver={driver}");
-                devices.push(dev_path);
+                if driver == "vfio-pci" {
+                    devices.push(dev_path);
+                }
             }
         }
     }
@@ -1386,5 +1396,273 @@ fn exp123k3_devinit_then_fecs_boot() {
 
     eprintln!("\n{}", "=".repeat(70));
     eprintln!("Exp 123-K3 complete.");
+    eprintln!("{}", "=".repeat(70));
+}
+
+/// Path to the nvidia-470 cold→warm diff JSON relative to the workspace data dir.
+const NVIDIA470_DIFF: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../data/k80/nvidia470-captures/nvidia470_cold_warm_diff.json"
+);
+
+/// Apply register writes from nvidia-470 cold→warm diff to BAR0.
+/// Skips PMC_ENABLE, PRI-fault sentinel values, and addresses above BAR0 range.
+fn apply_nvidia470_recipe(bar0: &mut Bar0Access) -> (usize, usize) {
+    let data = std::fs::read_to_string(NVIDIA470_DIFF)
+        .unwrap_or_else(|e| panic!("Cannot read nvidia-470 diff: {e}"));
+
+    let json: serde_json::Value =
+        serde_json::from_str(&data).expect("Failed to parse nvidia-470 diff JSON");
+
+    let skip = [0x200u32, 0x204]; // PMC_ENABLE, PMC_SPOON
+    let mut writes = 0usize;
+    let mut skipped = 0usize;
+
+    let apply_section = |section: &serde_json::Value,
+                         bar0: &mut Bar0Access,
+                         writes: &mut usize,
+                         skipped: &mut usize,
+                         is_changed: bool| {
+        if let Some(obj) = section.as_object() {
+            for (_domain, regs) in obj {
+                if let Some(regs_obj) = regs.as_object() {
+                    for (addr_s, val_entry) in regs_obj {
+                        let addr = u32::from_str_radix(addr_s.trim_start_matches("0x"), 16)
+                            .unwrap_or(u32::MAX);
+                        if addr >= 0x0100_0000 || skip.contains(&addr) {
+                            *skipped += 1;
+                            continue;
+                        }
+
+                        let val_str = if is_changed {
+                            val_entry
+                                .get("warm")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0x0")
+                        } else {
+                            val_entry.as_str().unwrap_or("0x0")
+                        };
+                        let val =
+                            u32::from_str_radix(val_str.trim_start_matches("0x"), 16).unwrap_or(0);
+
+                        if is_pri_fault(val) {
+                            *skipped += 1;
+                            continue;
+                        }
+
+                        let _ = bar0.write_u32(addr, val);
+                        *writes += 1;
+                    }
+                }
+            }
+        }
+    };
+
+    if let Some(added) = json.get("added") {
+        apply_section(added, bar0, &mut writes, &mut skipped, false);
+    }
+    if let Some(changed) = json.get("changed") {
+        apply_section(changed, bar0, &mut writes, &mut skipped, true);
+    }
+
+    (writes, skipped)
+}
+
+#[test]
+#[ignore = "requires K80 on vfio-pci — DEVINIT + nvidia-470 recipe + FECS boot"]
+fn exp123k4_devinit_nvidia470_recipe_fecs_boot() {
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("Exp 123-K4: DEVINIT + nvidia-470 Recipe + FECS Boot");
+    eprintln!("{}", "=".repeat(70));
+
+    let devices = find_k80_devices();
+    assert!(!devices.is_empty(), "No K80 devices found");
+
+    let dev_path = &devices[0];
+    eprintln!("\nTarget: {dev_path}");
+
+    let mut bar0 = Bar0Access::from_sysfs_device(dev_path).expect("Failed to open BAR0");
+
+    let boot0 = read_reg(&bar0, 0x0);
+    eprintln!(
+        "  BOOT0={boot0:#010x}  SM={:?}  variant={}",
+        identity::boot0_to_sm(boot0),
+        identity::chipset_variant(boot0)
+    );
+
+    // Phase 0: VBIOS DEVINIT (partial — configures enough for PRI access)
+    eprintln!("\n--- Phase 0: VBIOS DEVINIT ---");
+    let rom = read_vbios_prom(&mut bar0);
+    eprintln!("  VBIOS: {} bytes", rom.len());
+    let (scripts, ops, vbios_writes) = interpret_vbios_scripts(&mut bar0, &rom);
+    eprintln!("  DEVINIT: {scripts} scripts, {ops} ops, {vbios_writes} writes");
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Ensure engines enabled after DEVINIT
+    let pmc = read_reg(&bar0, PMC_ENABLE);
+    write_reg(&mut bar0, PMC_ENABLE, pmc | PMC_ENABLE_FULL);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    // GR reset toggle to bring FECS out of PRI fault
+    let pmc_now = read_reg(&bar0, PMC_ENABLE);
+    write_reg(&mut bar0, PMC_ENABLE, pmc_now & !PMC_PGRAPH);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    write_reg(&mut bar0, PMC_ENABLE, pmc_now | PMC_PGRAPH);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let fecs_post_devinit = read_falcon(&bar0, "FECS", KEPLER_FECS_BASE);
+    eprintln!("\n  Post-DEVINIT + GR reset FECS:");
+    print_falcon(&fecs_post_devinit);
+
+    if is_pri_fault(fecs_post_devinit.cpuctl) {
+        eprintln!("  FECS still PRI_FAULT after DEVINIT + GR reset. Cannot proceed.");
+        return;
+    }
+    eprintln!("  *** FECS accessible after DEVINIT + GR reset! ***");
+
+    // Phase 1: Apply nvidia-470 register recipe (after GR reset, so writes stick)
+    eprintln!("\n--- Phase 1: Apply nvidia-470 Recipe ---");
+    let clk_before = read_reg(&bar0, 0x137020);
+    let clk_src_before = read_reg(&bar0, 0x130000);
+    let (recipe_writes, recipe_skipped) = apply_nvidia470_recipe(&mut bar0);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let clk_after = read_reg(&bar0, 0x137020);
+    let clk_src_after = read_reg(&bar0, 0x130000);
+    eprintln!("  Recipe applied: {recipe_writes} writes, {recipe_skipped} skipped");
+    eprintln!("  HUB_PLL: {clk_before:#010x} → {clk_after:#010x}");
+    eprintln!("  CLK_SRC: {clk_src_before:#010x} → {clk_src_after:#010x}");
+    eprintln!(
+        "  PMC_ENABLE={:#010x} (no extra GR reset — preserve clock writes)",
+        read_reg(&bar0, PMC_ENABLE)
+    );
+
+    // Phase 3: Check post-recipe state
+    eprintln!("\n--- Phase 3: Post-Recipe State ---");
+    let fecs = read_falcon(&bar0, "FECS", KEPLER_FECS_BASE);
+    let gpccs = read_falcon(&bar0, "GPCCS", KEPLER_GPCCS_BASE);
+    let pmu = read_falcon(&bar0, "PMU", 0x10A000);
+    print_falcon(&fecs);
+    print_falcon(&gpccs);
+    print_falcon(&pmu);
+
+    let gr_status = read_reg(&bar0, 0x400700);
+    let pfb_cfg = read_reg(&bar0, 0x100200);
+    eprintln!("  GR_STATUS={gr_status:#010x}  PFB_CFG0={pfb_cfg:#010x}");
+    eprintln!(
+        "  FECS accessible: {}  GPCCS accessible: {}  GR accessible: {}",
+        !is_pri_fault(fecs.cpuctl),
+        !is_pri_fault(gpccs.cpuctl),
+        !is_pri_fault(gr_status)
+    );
+
+    if is_pri_fault(fecs.cpuctl) {
+        eprintln!("  FECS PRI_FAULT after recipe. Cannot boot firmware.");
+        return;
+    }
+
+    // Phase 4: Load GK110-native firmware
+    let (fecs_inst, fecs_data, gpccs_inst, gpccs_data) = load_firmware(GK110_FW_DIR);
+    eprintln!("\n--- Phase 4: Firmware Load ---");
+    eprintln!(
+        "  FECS  inst={} data={}  GPCCS inst={} data={}",
+        fecs_inst.len(),
+        fecs_data.len(),
+        gpccs_inst.len(),
+        gpccs_data.len()
+    );
+
+    kepler_falcon::pmc_unk260(&mut bar0, false).ok();
+
+    kepler_falcon::upload_dmem(&mut bar0, KEPLER_FECS_BASE, 0, &fecs_data).expect("FECS DMEM");
+    kepler_falcon::upload_imem(&mut bar0, KEPLER_FECS_BASE, 0, &fecs_inst).expect("FECS IMEM");
+
+    let gpccs_ok = !is_pri_fault(read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100));
+    if gpccs_ok {
+        kepler_falcon::upload_dmem(&mut bar0, KEPLER_GPCCS_BASE, 0, &gpccs_data)
+            .expect("GPCCS DMEM");
+        kepler_falcon::upload_imem(&mut bar0, KEPLER_GPCCS_BASE, 0, &gpccs_inst)
+            .expect("GPCCS IMEM");
+        eprintln!("  GPCCS firmware loaded");
+        write_reg(&mut bar0, KEPLER_GPCCS_BASE + 0x104, 0x0);
+        write_reg(&mut bar0, KEPLER_GPCCS_BASE + 0x010, 0xFFFF_FFFF);
+        write_reg(&mut bar0, KEPLER_GPCCS_BASE + 0x014, 0xFFFF_FFFF);
+        write_reg(&mut bar0, KEPLER_GPCCS_BASE + 0x048, 0x3);
+        kepler_falcon::start_falcon(&mut bar0, KEPLER_GPCCS_BASE).expect("GPCCS start");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    } else {
+        eprintln!("  GPCCS PRI_FAULT — FECS-only boot");
+    }
+
+    // Phase 5: Boot FECS
+    eprintln!("\n--- Phase 5: Boot FECS ---");
+    write_reg(&mut bar0, KEPLER_FECS_BASE + 0x104, 0x0);
+    write_reg(&mut bar0, KEPLER_FECS_BASE + 0x010, 0xFFFF_FFFF);
+    write_reg(&mut bar0, KEPLER_FECS_BASE + 0x014, 0xFFFF_FFFF);
+    write_reg(&mut bar0, KEPLER_FECS_BASE + 0x048, 0x3);
+    kepler_falcon::pmc_unk260(&mut bar0, true).ok();
+    kepler_falcon::start_falcon(&mut bar0, KEPLER_FECS_BASE).expect("FECS start");
+    eprintln!("  FECS started");
+
+    // Phase 6: Poll
+    eprintln!("\n--- Phase 6: Polling FECS ---");
+    let mut booted = false;
+    for i in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let cpuctl = read_reg(&bar0, KEPLER_FECS_BASE + 0x100);
+        let pc = read_reg(&bar0, KEPLER_FECS_BASE + 0x110);
+        let mb0 = read_reg(&bar0, KEPLER_FECS_BASE + 0x040);
+        let mb1 = read_reg(&bar0, KEPLER_FECS_BASE + 0x044);
+        let exci = read_reg(&bar0, KEPLER_FECS_BASE + 0x04C);
+        let scratch0 = read_reg(&bar0, kepler_falcon::FECS_SCRATCH0);
+
+        let state = if cpuctl & 0x20 != 0 {
+            "HRESET"
+        } else if cpuctl & 0x10 != 0 {
+            "HALTED"
+        } else {
+            "RUNNING"
+        };
+
+        if i < 10 || i % 5 == 0 || state != "RUNNING" {
+            eprintln!(
+                "  [{i:2}] cpuctl={cpuctl:#010x}({state}) pc={pc:#010x} mb0={mb0:#010x} mb1={mb1:#010x} exci={exci:#010x} s0={scratch0:#010x}"
+            );
+        }
+
+        if state == "RUNNING" {
+            if mb1 != 0 || scratch0 != 0 {
+                eprintln!("  *** FECS RUNNING + RESPONSE ***");
+                booted = true;
+            }
+            break;
+        }
+        if state == "HALTED" && i > 0 {
+            eprintln!("  FECS HALTED at PC={pc:#010x}  exci={exci:#010x}");
+            for t in 0..4 {
+                let trace = read_reg(&bar0, KEPLER_FECS_BASE + 0x030 + t * 4);
+                eprintln!("    TRACEPC[{t}]={trace:#010x}");
+            }
+            let exc_cause = read_reg(&bar0, KEPLER_FECS_BASE + 0x028);
+            eprintln!("    EXCP_CAUSE={exc_cause:#010x}");
+            break;
+        }
+    }
+
+    // Final state
+    eprintln!("\n--- Final State ---");
+    let f = read_falcon(&bar0, "FECS", KEPLER_FECS_BASE);
+    let g = read_falcon(&bar0, "GPCCS", KEPLER_GPCCS_BASE);
+    print_falcon(&f);
+    print_falcon(&g);
+    let gs = read_reg(&bar0, 0x400700);
+    let gi = read_reg(&bar0, 0x400100);
+    eprintln!("  GR_STATUS={gs:#010x}  GR_INTR={gi:#010x}");
+
+    if booted {
+        eprintln!("\n  *** FECS BOOT SUCCESS — sovereign compute on K80 ***");
+    }
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("Exp 123-K4 complete.");
     eprintln!("{}", "=".repeat(70));
 }

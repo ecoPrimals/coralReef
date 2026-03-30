@@ -8,7 +8,6 @@
 //! hooks that encode vendor-specific knowledge (reset method quirks, power state
 //! management, rebind strategies). See [`vendor_lifecycle`] module.
 
-use crate::drm_isolation;
 use crate::hold::HeldDevice;
 use crate::journal::Journal;
 use crate::observation::{self, HealthResult, SwapObservation, SwapTiming};
@@ -19,299 +18,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
-    verify_drm_isolation_with_paths(
-        bdf,
-        &drm_isolation::default_xorg_path(),
-        &drm_isolation::default_udev_path(),
-    )
-}
-
-/// Same checks as `verify_drm_isolation`, but with explicit paths (unit tests and non-default
-/// config layouts).
-pub fn verify_drm_isolation_with_paths(
-    bdf: &str,
-    xorg_path: &str,
-    udev_path: &str,
-) -> Result<(), String> {
-    let mut failures = Vec::new();
-
-    match std::fs::read_to_string(xorg_path) {
-        Ok(content) => {
-            if !content.contains("AutoAddGPU") || !content.contains("false") {
-                failures.push(format!("{xorg_path} exists but missing 'AutoAddGPU false'"));
-            }
-        }
-        Err(_) => {
-            failures.push(format!(
-                "{xorg_path} missing — Xorg will hotplug DRM devices and crash compositor"
-            ));
-        }
-    }
-
-    match std::fs::read_to_string(udev_path) {
-        Ok(content) => {
-            if !content.contains(bdf) {
-                failures.push(format!("{udev_path} exists but does not cover BDF {bdf}"));
-            }
-        }
-        Err(_) => {
-            failures.push(format!(
-                "{udev_path} missing — logind will assign DRM device to seat0"
-            ));
-        }
-    }
-
-    if failures.is_empty() {
-        tracing::debug!(bdf, "DRM isolation verified");
-        Ok(())
-    } else {
-        let msg = format!(
-            "swap_device BLOCKED for {bdf}: DRM isolation incomplete. {}",
-            failures.join("; ")
-        );
-        tracing::error!("{msg}");
-        Err(msg)
-    }
-}
-
-/// Check whether any EXTERNAL process still holds the VFIO group fd.
-fn count_external_vfio_group_holders(bdf: &str) -> usize {
-    let group_id = sysfs::read_iommu_group(bdf);
-    if group_id == 0 {
-        return 0;
-    }
-    let group_path = format!("/dev/vfio/{group_id}");
-    let self_pid = std::process::id();
-    let mut count = 0;
-
-    let Ok(proc_entries) = std::fs::read_dir(linux_paths::proc_root()) else {
-        return 0;
-    };
-
-    for entry in proc_entries.flatten() {
-        let pid_str = entry.file_name().to_string_lossy().to_string();
-        let Ok(pid) = pid_str.parse::<u32>() else {
-            continue;
-        };
-        if pid == self_pid {
-            continue;
-        }
-
-        let fd_dir = linux_paths::proc_pid_fd_dir(pid);
-        let Ok(fds) = std::fs::read_dir(&fd_dir) else {
-            continue;
-        };
-
-        for fd_entry in fds.flatten() {
-            if let Ok(link_target) = std::fs::read_link(fd_entry.path())
-                && link_target.to_string_lossy() == group_path
-            {
-                tracing::warn!(
-                    bdf,
-                    pid,
-                    fd = ?fd_entry.file_name(),
-                    group = group_id,
-                    "external process holds VFIO group fd"
-                );
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-/// Check if a PCI device is currently driving an active display (DRM master, active framebuffer,
-/// or render clients). Unbinding such a device causes an unrecoverable kernel crash.
-fn is_active_display_gpu(bdf: &str) -> bool {
-    let drm_card = sysfs::find_drm_card(bdf);
-
-    if let Some(ref card) = drm_card {
-        let fb_dir = format!("/sys/class/drm/{card}/device/drm/{card}");
-        if let Ok(entries) = std::fs::read_dir(&fb_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("card") && name.contains('-') {
-                    let status_path = entry.path().join("status");
-                    if std::fs::read_to_string(&status_path)
-                        .is_ok_and(|status| status.trim() == "connected")
-                    {
-                        tracing::warn!(
-                            bdf, card, connector = %name,
-                            "display GPU detected: connector is connected"
-                        );
-                        return true;
-                    }
-                }
-            }
-        }
-
-        let enabled_path = format!("/sys/class/drm/{card}/device/drm/{card}/enabled");
-        if std::fs::read_to_string(&enabled_path).is_ok_and(|enabled| enabled.trim() == "enabled") {
-            tracing::warn!(bdf, card, "display GPU detected: card is enabled");
-            return true;
-        }
-    }
-
-    let current_driver = sysfs::read_current_driver(bdf);
-    if current_driver.as_deref() == Some("nvidia") && drm_card.is_some() {
-        tracing::warn!(
-            bdf,
-            card = ?drm_card,
-            "display GPU detected: nvidia driver with DRM card — assumed display GPU"
-        );
-        return true;
-    }
-
-    false
-}
-
-/// Pre-flight check: verify the device is in a sane state before any
-/// sysfs unbind/bind. Rejects early if the device would cause the kernel
-/// to hang on a driver transition (D3cold, unreachable config space, etc.).
-fn preflight_device_check(bdf: &str) -> Result<(), String> {
-    let sysfs_path = linux_paths::sysfs_pci_device_path(bdf);
-    if !std::path::Path::new(&sysfs_path).exists() {
-        return Err(format!(
-            "preflight FAILED for {bdf}: sysfs path does not exist ({sysfs_path}). \
-             Device may have been removed or never enumerated."
-        ));
-    }
-
-    if let Some(power) = sysfs::read_power_state(bdf) {
-        match power.as_str() {
-            "D3cold" => {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: device in D3cold. \
-                     Platform powered it off — sysfs operations will hang."
-                ));
-            }
-            "D3hot" => {
-                tracing::warn!(
-                    bdf,
-                    "preflight: device in D3hot — attempting power pin before swap"
-                );
-                sysfs::pin_power(bdf);
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                if sysfs::read_power_state(bdf).as_deref() != Some("D0") {
-                    return Err(format!(
-                        "preflight FAILED for {bdf}: device stuck in D3hot after pin_power"
-                    ));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let vendor_id = sysfs::read_pci_id(bdf, "vendor");
-    if vendor_id == 0xFFFF {
-        return Err(format!(
-            "preflight FAILED for {bdf}: vendor ID is 0xFFFF — \
-             device not responding on PCIe bus"
-        ));
-    }
-
-    let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
-    match std::fs::read(&config_path) {
-        Ok(buf) if buf.len() >= 4 => {
-            let vendor = u16::from_le_bytes([buf[0], buf[1]]);
-            let device = u16::from_le_bytes([buf[2], buf[3]]);
-            if vendor == 0xFFFF {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: raw config space returns 0xFFFF — \
-                     device not responding on PCIe bus"
-                ));
-            }
-            tracing::debug!(
-                bdf,
-                vendor = format!("{vendor:#06x}"),
-                device = format!("{device:#06x}"),
-                "preflight: config space accessible"
-            );
-        }
-        Ok(_) => {
-            tracing::warn!(bdf, "preflight: config space read returned < 4 bytes");
-        }
-        Err(e) => {
-            tracing::warn!(
-                bdf,
-                error = %e,
-                "preflight: config space read failed (non-fatal if device is unbound)"
-            );
-        }
-    }
-
-    // Cold-hardware detection: NVIDIA GPUs claimed by vfio-pci at boot
-    // without a prior VBIOS POST have empty reset_method files. Unbinding
-    // vfio-pci from such devices triggers PCI config-space writes that the
-    // cold hardware doesn't complete, causing PCIe completion timeouts and
-    // kernel D-state. Detect this and reject early with an actionable error.
-    let current_driver = sysfs::read_current_driver(bdf);
-    if current_driver.as_deref() == Some("vfio-pci") {
-        let reset_path = linux_paths::sysfs_pci_device_file(bdf, "reset_method");
-        let reset_methods = std::fs::read_to_string(&reset_path).unwrap_or_default();
-        if reset_methods.trim().is_empty() {
-            let resource0_path = linux_paths::sysfs_pci_device_file(bdf, "resource0");
-            let is_cold = is_gpu_cold_via_ptimer(&resource0_path);
-            if is_cold {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: device is cold/un-POSTed (empty reset_method, \
-                     PTIMER frozen). Unbinding vfio-pci will cause kernel D-state. \
-                     Boot with nouveau first to POST the device, then swap to vfio-pci."
-                ));
-            }
-            tracing::warn!(
-                bdf,
-                "preflight: empty reset_method but PTIMER appears alive — \
-                 proceeding cautiously"
-            );
-        }
-    }
-
-    tracing::info!(bdf, "preflight: device state OK");
-    Ok(())
-}
-
-/// Heuristic: read PTIMER (offset 0x9400 in BAR0) twice with a gap.
-/// If both reads return the same value or zero, the GPU crystal clock
-/// is not running and the device is cold/un-POSTed.
-fn is_gpu_cold_via_ptimer(resource0_path: &str) -> bool {
-    use std::io::{Read, Seek, SeekFrom};
-
-    const PTIMER_LOW: u64 = 0x9400;
-
-    let mut file = match std::fs::OpenOptions::new().read(true).open(resource0_path) {
-        Ok(f) => f,
-        Err(_) => return false,
-    };
-
-    let read_u32_at = |f: &mut std::fs::File, offset: u64| -> Option<u32> {
-        f.seek(SeekFrom::Start(offset)).ok()?;
-        let mut buf = [0u8; 4];
-        f.read_exact(&mut buf).ok()?;
-        Some(u32::from_le_bytes(buf))
-    };
-
-    let Some(t1) = read_u32_at(&mut file, PTIMER_LOW) else {
-        return false;
-    };
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    let Some(t2) = read_u32_at(&mut file, PTIMER_LOW) else {
-        return false;
-    };
-
-    if t1 == t2 {
-        tracing::warn!(
-            resource0_path,
-            ptimer_t1 = format!("{t1:#010x}"),
-            ptimer_t2 = format!("{t2:#010x}"),
-            "PTIMER frozen — GPU is cold/un-POSTed"
-        );
-        return true;
-    }
-
-    false
-}
+#[path = "swap_preflight.rs"]
+mod swap_preflight;
+pub use swap_preflight::verify_drm_isolation_with_paths;
+use swap_preflight::{
+    count_external_vfio_group_holders, is_active_display_gpu, preflight_device_check,
+    verify_drm_isolation,
+};
 
 /// Unbind/rebind the device to `target` (e.g. `vfio-pci`, `amdgpu`, `unbound`), updating `held`.
 ///
@@ -592,6 +305,7 @@ fn bind_vfio(
                     bdf: bdf.to_string(),
                     device,
                     ring_meta: crate::hold::RingMeta::default(),
+                    req_eventfd: None,
                 },
             );
         }
@@ -766,6 +480,7 @@ fn bind_native(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drm_isolation;
     use std::collections::HashMap;
     use std::sync::Mutex;
 

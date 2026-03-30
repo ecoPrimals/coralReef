@@ -290,11 +290,7 @@ fn dispatch_ember_vfio_fds_with_hardware() {
     let mut map = HashMap::new();
     map.insert(
         bdf.clone(),
-        HeldDevice {
-            bdf: bdf.clone(),
-            device,
-            ring_meta: coral_ember::RingMeta::default(),
-        },
+        HeldDevice::new_unmonitored(bdf.clone(), device),
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
@@ -311,11 +307,7 @@ fn dispatch_ember_release_success_when_held() {
     let mut map = HashMap::new();
     map.insert(
         bdf.clone(),
-        HeldDevice {
-            bdf: bdf.clone(),
-            device,
-            ring_meta: coral_ember::RingMeta::default(),
-        },
+        HeldDevice::new_unmonitored(bdf.clone(), device),
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
@@ -340,11 +332,7 @@ fn dispatch_ember_reacquire_skips_open_when_already_held() {
     let mut map = HashMap::new();
     map.insert(
         bdf.clone(),
-        HeldDevice {
-            bdf: bdf.clone(),
-            device,
-            ring_meta: coral_ember::RingMeta::default(),
-        },
+        HeldDevice::new_unmonitored(bdf.clone(), device),
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);

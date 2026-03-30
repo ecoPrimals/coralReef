@@ -87,6 +87,10 @@ trait CoralReefRpc {
     /// `identity.get` — primal self-description for capability-based discovery.
     #[method(name = "identity.get")]
     async fn identity_get(&self) -> Result<service::IdentityGetResponse, ErrorObjectOwned>;
+
+    /// `capabilities.list` — list capability IDs this primal provides.
+    #[method(name = "capabilities.list")]
+    async fn capabilities_list(&self) -> Result<Vec<String>, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
@@ -139,6 +143,11 @@ impl CoralReefRpcServer for RpcImpl {
 
     async fn identity_get(&self) -> Result<service::IdentityGetResponse, ErrorObjectOwned> {
         Ok(service::handle_identity_get())
+    }
+
+    async fn capabilities_list(&self) -> Result<Vec<String>, ErrorObjectOwned> {
+        let desc = crate::capability::self_description();
+        Ok(desc.provides.iter().map(|c| c.id.to_string()).collect())
     }
 }
 

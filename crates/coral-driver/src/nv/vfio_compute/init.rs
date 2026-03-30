@@ -219,6 +219,279 @@ impl NvVfioComputeDevice {
         );
     }
 
+    /// Restart FECS/GPCCS falcons after a warm handoff from nouveau.
+    ///
+    /// After `coralctl warm-fecs` + livepatch, both falcons are in HRESET
+    /// (CPUCTL=0x10): firmware sits in IMEM but the CPU is held in hardware
+    /// reset. The restart sequence:
+    ///
+    /// 1. Dump GR engine state for diagnostics
+    /// 2. Re-apply GR engine enables (interrupt, trap, 0x400500)
+    /// 3. ENGCTL release + IINVAL + STARTCPU on GPCCS then FECS
+    /// 4. Try FECS method interface to set up GR context
+    ///
+    /// Boot order: GPCCS first (FECS expects GPCCS running), then FECS.
+    pub fn restart_warm_falcons(&mut self) -> DriverResult<()> {
+        use crate::vfio::channel::registers::falcon;
+        use std::borrow::Cow;
+
+        let r = |a: usize| self.bar0.read_u32(a).unwrap_or(0xDEAD_DEAD);
+
+        let fecs_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
+        let gpccs_cpuctl = r(falcon::GPCCS_BASE + falcon::CPUCTL);
+        let fecs_pc_before = r(falcon::FECS_BASE + falcon::PC);
+        let fecs_sctl = r(falcon::FECS_BASE + falcon::SCTL);
+        let pmc_enable = r(0x200);
+        let gr_enable = r(0x400500);
+        let gr_status = r(0x400700);
+        let gr_intr = r(0x400100);
+        let gr_fecs_excp = r(0x409C24);
+
+        tracing::info!(
+            fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"),
+            gpccs_cpuctl = format_args!("{gpccs_cpuctl:#010x}"),
+            fecs_pc = format_args!("{fecs_pc_before:#06x}"),
+            fecs_sctl = format_args!("{fecs_sctl:#010x}"),
+            pmc_enable = format_args!("{pmc_enable:#010x}"),
+            gr_enable = format_args!("{gr_enable:#010x}"),
+            gr_status = format_args!("{gr_status:#010x}"),
+            gr_intr = format_args!("{gr_intr:#010x}"),
+            gr_fecs_excp = format_args!("{gr_fecs_excp:#010x}"),
+            "warm falcon restart: GR engine state dump"
+        );
+
+        let fecs_dead = fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
+        if fecs_dead {
+            return Err(DriverError::SubmitFailed(Cow::Borrowed(
+                "FECS engine unreachable (PRI timeout) — GPU is cold, warm handoff did not preserve state",
+            )));
+        }
+
+        // Re-apply GR engine enables that may have been lost during swap.
+        // These are the critical registers from apply_dynamic_gr_init:
+        // interrupt/trap enables + GR engine enable register.
+        tracing::info!("re-applying GR interrupt/trap enables and engine enable");
+        let _ = self.bar0.write_u32(0x400100, 0xFFFF_FFFF); // GR INTR clear
+        let _ = self.bar0.write_u32(0x40013c, 0xFFFF_FFFF); // GR INTR enable
+        let _ = self.bar0.write_u32(0x400124, 0x0000_0002); // GR TRAP enable
+        let _ = self.bar0.write_u32(0x404000, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x404600, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x408030, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x406018, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x404490, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x405840, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x405844, 0x00FF_FFFF);
+        let _ = self.bar0.write_u32(0x405848, 0xC000_0000);
+        let _ = self.bar0.write_u32(0x407020, 0x4000_0000);
+        let _ = self.bar0.write_u32(0x400108, 0xFFFF_FFFF);
+        let _ = self.bar0.write_u32(0x400138, 0xFFFF_FFFF);
+        let _ = self.bar0.write_u32(0x400118, 0xFFFF_FFFF);
+        let _ = self.bar0.write_u32(0x400130, 0xFFFF_FFFF);
+        let _ = self.bar0.write_u32(0x40011c, 0xFFFF_FFFF);
+        let _ = self.bar0.write_u32(0x400134, 0xFFFF_FFFF);
+        let _ = self.bar0.write_u32(0x409C24, 0x000E_0002); // FECS exceptions
+        let _ = self.bar0.write_u32(0x400500, 0x0001_0001); // GR engine enable
+        let _ = self.bar0.write_u32(0x40802c, 1); // GR FE power mode
+
+        let gr_enable_after = r(0x400500);
+        tracing::info!(
+            gr_enable = format_args!("{gr_enable_after:#010x}"),
+            "GR engine enable after re-apply"
+        );
+
+        let fecs_hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
+        let gpccs_hreset = gpccs_cpuctl & falcon::CPUCTL_HRESET != 0;
+
+        if !fecs_hreset {
+            tracing::info!("FECS not in HRESET — already running, skipping restart");
+        } else {
+            // Clear stale exceptions from nouveau's teardown.
+            let _ = self.bar0.write_u32(falcon::FECS_BASE + falcon::EXCI, 0);
+            let _ = self.bar0.write_u32(falcon::GPCCS_BASE + falcon::EXCI, 0);
+
+            // GPCCS must be started before FECS.
+            if gpccs_hreset {
+                tracing::info!("issuing STARTCPU to GPCCS");
+                Self::warm_start_falcon(&self.bar0, falcon::GPCCS_BASE);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            tracing::info!("issuing STARTCPU to FECS");
+            Self::warm_start_falcon(&self.bar0, falcon::FECS_BASE);
+
+            // Poll for liveness: check MAILBOX0 (firmware sets it during init)
+            // and CPUCTL (HALTED means firmware ran and stopped).
+            let mut fecs_alive = false;
+            for attempt in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                let cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
+                let mb0 = r(falcon::FECS_BASE + falcon::MAILBOX0);
+                let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
+                let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
+
+                // Firmware is alive if: mailbox0 changed, or HALTED (ran and
+                // stopped), or HRESET cleared (running).
+                if mb0 != 0 || halted || !hreset {
+                    tracing::info!(
+                        attempt,
+                        cpuctl = format_args!("{cpuctl:#010x}"),
+                        mailbox0 = format_args!("{mb0:#010x}"),
+                        halted,
+                        hreset,
+                        "FECS responded"
+                    );
+                    fecs_alive = true;
+                    break;
+                }
+            }
+
+            let fecs_post_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
+            let fecs_post_sctl = r(falcon::FECS_BASE + falcon::SCTL);
+            let fecs_post_mb0 = r(falcon::FECS_BASE + falcon::MAILBOX0);
+            let fecs_post_pc = r(falcon::FECS_BASE + falcon::PC);
+            let fecs_post_exci = r(falcon::FECS_BASE + falcon::EXCI);
+            let gpccs_post_cpuctl = r(falcon::GPCCS_BASE + falcon::CPUCTL);
+            let gpccs_post_mb0 = r(falcon::GPCCS_BASE + falcon::MAILBOX0);
+
+            tracing::info!(
+                fecs_cpuctl = format_args!("{fecs_post_cpuctl:#010x}"),
+                fecs_sctl = format_args!("{fecs_post_sctl:#010x}"),
+                fecs_pc = format_args!("{fecs_post_pc:#06x}"),
+                fecs_exci = format_args!("{fecs_post_exci:#010x}"),
+                fecs_mb0 = format_args!("{fecs_post_mb0:#010x}"),
+                gpccs_cpuctl = format_args!("{gpccs_post_cpuctl:#010x}"),
+                gpccs_mb0 = format_args!("{gpccs_post_mb0:#010x}"),
+                fecs_alive,
+                "warm falcon restart: post-STARTCPU state"
+            );
+
+            if !fecs_alive {
+                tracing::warn!(
+                    "FECS did not respond within 500ms — STARTCPU may be blocked \
+                     by HS mode. Consider extending livepatch to prevent falcon halt \
+                     during nouveau teardown."
+                );
+            }
+        }
+
+        // Try FECS method interface regardless of liveness detection.
+        self.setup_gr_context_warm()
+    }
+
+    /// Release a falcon from engine reset and issue STARTCPU.
+    ///
+    /// During nouveau teardown, `gm200_flcn_fw_fini` writes ENGCTL=0x01
+    /// (engine-local reset), which holds the CPU in HRESET regardless of
+    /// CPUCTL writes. We must release ENGCTL first, then STARTCPU.
+    ///
+    /// The full sequence mirrors nouveau's `gm200_flcn_fw_boot`:
+    /// 1. ENGCTL = 0x00 (release engine from reset)
+    /// 2. Clear IRQSCLR (pending interrupts)
+    /// 3. MAILBOX0/MAILBOX1 = 0 (clean state for firmware handshake)
+    /// 4. CPUCTL = IINVAL | STARTCPU (invalidate icache + start CPU)
+    /// 5. Also write CPUCTL_ALIAS for Volta HS compatibility
+    fn warm_start_falcon(bar0: &MappedBar, base: usize) {
+        use crate::vfio::channel::registers::falcon;
+
+        let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0);
+        let bootvec = bar0.read_u32(base + falcon::BOOTVEC).unwrap_or(0xDEAD);
+        let engctl = bar0.read_u32(base + falcon::ENGCTL).unwrap_or(0xDEAD);
+        let mailbox0 = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
+
+        tracing::info!(
+            base = format_args!("{base:#x}"),
+            cpuctl = format_args!("{cpuctl:#010x}"),
+            bootvec = format_args!("{bootvec:#010x}"),
+            engctl = format_args!("{engctl:#010x}"),
+            mailbox0 = format_args!("{mailbox0:#010x}"),
+            "warm_start_falcon: pre-release state"
+        );
+
+        // Step 1: Release engine from local reset if ENGCTL has reset bit set.
+        // This is the gate that prevents STARTCPU from working.
+        if engctl & 1 != 0 {
+            tracing::info!(
+                base = format_args!("{base:#x}"),
+                "ENGCTL reset active — releasing"
+            );
+            let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        // Step 2: Clear pending interrupts and exceptions.
+        let _ = bar0.write_u32(base + falcon::IRQSCLR, 0xFFFF_FFFF);
+
+        // Step 3: Clean mailbox state for firmware handshake.
+        let _ = bar0.write_u32(base + falcon::MAILBOX0, 0);
+        let _ = bar0.write_u32(base + falcon::MAILBOX1, 0);
+
+        // Step 4: IINVAL + STARTCPU — invalidate instruction cache and start.
+        let start_val = falcon::CPUCTL_IINVAL | falcon::CPUCTL_STARTCPU; // 0x03
+        let _ = bar0.write_u32(base + falcon::CPUCTL, start_val);
+        // Also write CPUCTL_ALIAS — on Volta HS falcons, the primary CPUCTL
+        // may be locked and only CPUCTL_ALIAS accepts STARTCPU.
+        let _ = bar0.write_u32(base + falcon::CPUCTL_ALIAS, start_val);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        let cpuctl_after = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
+        let pc_after = bar0.read_u32(base + falcon::PC).unwrap_or(0);
+        let exci_after = bar0.read_u32(base + falcon::EXCI).unwrap_or(0);
+        let mailbox0_after = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
+        let engctl_after = bar0.read_u32(base + falcon::ENGCTL).unwrap_or(0xDEAD);
+
+        tracing::info!(
+            base = format_args!("{base:#x}"),
+            cpuctl = format_args!("{cpuctl_after:#010x}"),
+            pc = format_args!("{pc_after:#06x}"),
+            exci = format_args!("{exci_after:#010x}"),
+            engctl = format_args!("{engctl_after:#010x}"),
+            mailbox0 = format_args!("{mailbox0_after:#010x}"),
+            "warm_start_falcon: post-STARTCPU state"
+        );
+    }
+
+    /// GR context setup that bypasses `fecs_is_alive()`.
+    ///
+    /// On Volta, the sticky CPUCTL HRESET bit causes `fecs_is_alive()`
+    /// to return false even when FECS is running. This method calls the
+    /// FECS method interface directly without the liveness gate.
+    fn setup_gr_context_warm(&mut self) -> DriverResult<()> {
+        use super::acr_boot::fecs_method;
+
+        let image_size = match fecs_method::fecs_discover_image_size(&self.bar0) {
+            Ok(sz) => sz,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "GR context setup failed after warm restart — FECS method interface \
+                     may not be responding (firmware still initializing or TRAP'd)"
+                );
+                return Ok(());
+            }
+        };
+
+        if image_size == 0 {
+            tracing::warn!("FECS returned image_size=0 — method interface not responsive yet");
+            return Ok(());
+        }
+
+        let alloc_size = (image_size as usize).max(4096);
+        let (_handle, iova) = self.alloc_dma(alloc_size)?;
+
+        fecs_method::fecs_init_exceptions(&self.bar0);
+        fecs_method::fecs_set_watchdog_timeout(&self.bar0, 0x7FFF_FFFF)?;
+        fecs_method::fecs_bind_pointer(&self.bar0, iova)?;
+        fecs_method::fecs_wfi_golden_save(&self.bar0, iova)?;
+
+        tracing::info!(
+            image_size,
+            iova = format_args!("{iova:#x}"),
+            "GR context ready after warm falcon restart"
+        );
+        Ok(())
+    }
+
     /// Submit FECS channel init methods via GPFIFO after channel creation.
     ///
     /// Builds a push buffer containing the GR context setup methods

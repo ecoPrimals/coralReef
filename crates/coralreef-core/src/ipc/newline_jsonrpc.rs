@@ -119,6 +119,11 @@ pub fn dispatch_jsonrpc(
             let resp = service::handle_identity_get();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
+        "capabilities.list" => {
+            let desc = crate::capability::self_description();
+            let caps: Vec<&str> = desc.provides.iter().map(|c| c.id.as_ref()).collect();
+            serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"
         ))),

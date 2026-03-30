@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 29, Iter 69)  
+**Generated:** March 10, 2026 (metrics updated March 30, Iter 70)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 69):** 4189 tests passing, ~153 ignored (hardware-gated + diagnostic + VFIO HW). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 70):** 4189 tests passing, ~153 ignored (hardware-gated + diagnostic + VFIO HW). 2 pre-existing failures (upstream SSA regression in `corpus_euler_hll_f64`). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -212,7 +212,7 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 69) |
+| Metric | Value (as of Iter 70) |
 |--------|-------|
 | Tests passing | 4189 default + 48 VFIO |
 | Ignored tests | ~153 |
@@ -228,13 +228,13 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
 | Files over 1000 LOC | 1 (test file exp123k_k80_sovereign.rs) |
-| Clippy warnings | 0 (pedantic + nursery, -D warnings) — Iter 69 deep clean |
+| Clippy warnings | 0 (pedantic + nursery, -D warnings) — Iter 70 deep clean |
 | Doc warnings | 0 (all intra-doc links fixed Iter 69) |
-| Line coverage (llvm-cov) | ~64% workspace (target 90%; Iter 69) |
-| Function coverage | ~72% (target 90%; Iter 69) |
+| Line coverage (llvm-cov) | ~64% workspace (target 90%; Iter 70) |
+| Function coverage | ~72% (target 90%; Iter 70) |
 | Untestable lines | ~19,009 in coral-driver (VFIO/DRM/GPU channel — requires hardware) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
-| IPC discovery / ecosystem | `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `ipc.heartbeat` (45s), Songbird registration via `ecosystem.rs` (Iter 65) |
+| IPC discovery / ecosystem | `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `capabilities.list`, `ipc.heartbeat` (45s), Songbird registration via `ecosystem.rs` (Iter 65+70) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iters 45+67) |
 | Zero-copy | `Arc<str>` for shader source + device bdf (Iter 58); `bytes::Bytes` for binary payloads; shader_model refs not clones (Iter 58) |

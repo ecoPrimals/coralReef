@@ -145,3 +145,39 @@ async fn newline_tcp_shader_compile_status_roundtrip() {
     let _ = shutdown_tx.send(());
     handle.abort();
 }
+
+#[tokio::test]
+async fn newline_tcp_capabilities_list_returns_known_capabilities() {
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (addr, handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx)
+        .await
+        .unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let req = json!({
+        "jsonrpc": "2.0",
+        "method": "capabilities.list",
+        "params": {},
+        "id": 42_u64
+    });
+    let line = format!("{}\n", serde_json::to_string(&req).unwrap());
+    stream.write_all(line.as_bytes()).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut out = String::new();
+    reader.read_line(&mut out).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    let caps = v
+        .get("result")
+        .expect("capabilities.list must return result")
+        .as_array()
+        .expect("result must be an array");
+    assert!(
+        caps.iter().any(|c| c.as_str() == Some("shader.compile")),
+        "must include shader.compile: {caps:?}"
+    );
+    assert!(
+        caps.iter().any(|c| c.as_str() == Some("shader.health")),
+        "must include shader.health: {caps:?}"
+    );
+    let _ = shutdown_tx.send(());
+    handle.abort();
+}

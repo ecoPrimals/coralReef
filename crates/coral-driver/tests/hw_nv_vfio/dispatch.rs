@@ -54,49 +54,50 @@ fn vfio_dispatch_nop_shader() {
     }
 }
 
-/// Exp 079: Warm handoff dispatch test.
+/// Exp 079/125: Warm handoff dispatch test.
 ///
-/// Assumes `coralctl warm-fecs <bdf>` has been run first to cycle the
-/// GPU through nouveau (loading FECS firmware) and back to VFIO.
-/// Ember's NvidiaLifecycle disables `reset_method`, so FECS IMEM
-/// should persist across the swap.
+/// Assumes `coralctl warm-fecs <bdf>` has been run first (with the
+/// `livepatch_nvkm_mc_reset` module loaded) to cycle the GPU through
+/// nouveau (loading FECS firmware) and back to VFIO with falcons preserved.
 ///
-/// If FECS is running, this test attempts a full compute dispatch.
-/// If it succeeds, we have a Layer 7 breakthrough.
+/// `open_vfio_warm()` internally:
+///  - Creates a channel with warm PFIFO init (no PMC reset / PBDMA clear)
+///  - Issues STARTCPU to restart GPCCS then FECS from HRESET
+///  - Sets up GR context (discover sizes, bind, golden save)
+///
+/// If that succeeds, this test compiles a NOP shader and dispatches it.
+/// A successful sync = Layer 7 breakthrough (sovereign compute via warm handoff).
 #[test]
-#[ignore = "requires VFIO-bound GPU hardware + warm-fecs"]
+#[ignore = "requires VFIO-bound GPU hardware + warm-fecs + livepatch"]
 fn vfio_dispatch_warm_handoff() {
-    let mut dev = open_vfio();
-    eprintln!("\n=== Warm Handoff Dispatch Test (Exp 079) ===\n");
+    let mut dev = crate::helpers::open_vfio_warm();
+    eprintln!("\n=== Warm Handoff Dispatch Test (Exp 079/125) ===\n");
 
     let diag_pre = dev.layer7_diagnostics("WARM-HANDOFF-PRE");
     eprintln!("{diag_pre}");
 
     let fecs = &diag_pre.fecs;
-    let fecs_running = !fecs.is_halted() && !fecs.is_in_reset() && fecs.cpuctl != 0xDEAD_DEAD;
-    let fecs_has_mailbox = fecs.mailbox0 != 0;
+    let fecs_dead = fecs.cpuctl == 0xDEAD_DEAD || fecs.cpuctl & 0xBADF_0000 == 0xBADF_0000;
 
-    eprintln!("\n── FECS State After Warm Handoff ──");
+    eprintln!("\n── FECS State (post-restart) ──");
     eprintln!(
-        "  cpuctl={:#010x} mailbox0={:#010x}",
-        fecs.cpuctl, fecs.mailbox0
+        "  cpuctl={:#010x} mailbox0={:#010x} in_reset={} halted={}",
+        fecs.cpuctl,
+        fecs.mailbox0,
+        fecs.is_in_reset(),
+        fecs.is_halted()
     );
-    eprintln!("  running={fecs_running} has_mailbox={fecs_has_mailbox}");
 
-    if !fecs_running && !fecs_has_mailbox {
-        eprintln!("\nFECS firmware NOT running after warm handoff.");
-        eprintln!("Possible causes:");
-        eprintln!("  1. `coralctl warm-fecs` was not run before this test");
-        eprintln!("  2. Ember did not disable reset_method (FLR cleared IMEM)");
-        eprintln!("  3. Nouveau failed to load FECS firmware");
-        eprintln!("\nCapturing post-state for analysis...");
+    if fecs_dead {
+        eprintln!("\nFECS engine inaccessible (PRI timeout) — GPU is cold.");
+        eprintln!("Ensure `coralctl warm-fecs` was run with livepatch loaded.");
         let gr = dev.gr_engine_status();
         eprintln!("{gr}");
-        eprintln!("\n=== End Warm Handoff (FECS not running) ===");
+        eprintln!("\n=== End Warm Handoff (engine dead) ===");
         return;
     }
 
-    eprintln!("\nFECS appears active! Attempting compute dispatch...");
+    eprintln!("\nFECS engine accessible. Attempting compute dispatch...");
 
     let sm = dev.sm_version();
     let wgsl = "@compute @workgroup_size(64) fn main() {}";
@@ -145,9 +146,9 @@ fn vfio_dispatch_warm_handoff() {
         }
         Err(e) => {
             eprintln!("sync failed: {e}");
-            eprintln!("\nEven with FECS running, dispatch failed. Possible causes:");
-            eprintln!("  1. Channel context not compatible with nouveau's GR state");
-            eprintln!("  2. GR engine needs additional init after handoff");
+            eprintln!("\nDispatch failed despite FECS restart. Possible causes:");
+            eprintln!("  1. GR context binding incompatible with nouveau's GR state");
+            eprintln!("  2. FECS firmware rejected STARTCPU re-entry");
             eprintln!("  3. MMU page tables differ between nouveau and VFIO contexts");
             let diag_timeout = dev.layer7_diagnostics("WARM-HANDOFF-POST-TIMEOUT");
             eprintln!("\n{diag_timeout}");

@@ -4,11 +4,25 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 69
+**Current status**: Phase 10 — Iteration 70
 
 ---
 
 ## [Unreleased]
+
+### Iteration 70 — ludoSpring V35 Gap Resolution + Deep Audit (2026-03-30)
+
+#### Added
+- `capabilities.list` JSON-RPC method on both newline-delimited (UDS/TCP) and HTTP servers
+- Unit test for `capabilities.list` endpoint
+
+#### Changed
+- `swap.rs` 1102→708 lines: extracted preflight checks to `swap_preflight.rs` (362 lines)
+- `vfio_compute/mod.rs` 1018→855 lines: extracted `GrEngineStatus` to `gr_engine_status.rs` (173 lines)
+- 0 production `.rs` files over 1000 LOC
+
+#### Fixed
+- 8 clippy errors: `branches_sharing_code` (×2, codegen ops + naga_translate expr), `redundant_clone`, `collapsible_if`, `struct_excessive_bools`, `unused_variables`, `dead_code`+`missing_docs`+`too_many_arguments` (coral-driver), `unfulfilled_lint_expectations`
 
 ### Iteration 69 — Deep Debt Resolution + wateringHole v3.1 Compliance (2026-03-29)
 

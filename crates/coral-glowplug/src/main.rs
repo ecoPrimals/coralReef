@@ -223,21 +223,29 @@ async fn main() {
         })
         .collect();
 
-    // Try to connect to coral-ember for safe fd keepalive
-    let ember_client = ember::EmberClient::connect();
-    if let Some(ref client) = ember_client {
-        match client.list_devices() {
+    // Try to connect to coral-ember for safe fd keepalive.
+    // If ember is reachable but unresponsive (stuck in D-state from a
+    // previous swap), skip it entirely to avoid blocking all device
+    // activations behind a 5s timeout per device.
+    let ember_client =
+        ember::EmberClient::connect().and_then(|client| match client.list_devices() {
             Ok(ember_devices) => {
                 tracing::info!(
                     devices = ?ember_devices,
                     "ember is holding VFIO fds — daemon restarts are safe"
                 );
+                Some(client)
             }
             Err(e) => {
-                tracing::warn!(error = %e, "ember reachable but list failed");
+                tracing::warn!(
+                    error = %e,
+                    "ember reachable but not responding — \
+                     falling back to direct activation for all devices"
+                );
+                None
             }
-        }
-    } else {
+        });
+    if ember_client.is_none() {
         tracing::info!(
             "ember not available — VFIO fds will be opened directly \
              (daemon restart may trigger PM reset on GV100)"

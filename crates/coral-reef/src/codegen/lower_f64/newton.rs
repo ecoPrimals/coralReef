@@ -255,11 +255,7 @@ pub fn lower_f64_sqrt(
 /// V_RCP_F64 on GCN/RDNA provides ~24-29 bits of mantissa precision.
 /// Two Newton-Raphson iterations refine to full 53-bit double precision:
 ///   y₀ = V_RCP_F64(x), t = FMA(-x, yₙ, 2), yₙ₊₁ = yₙ * t
-pub fn lower_f64_rcp_amd(
-    op: &OpF64Rcp,
-    pred: Pred,
-    alloc: &mut SSAValueAllocator,
-) -> Vec<Instr> {
+pub fn lower_f64_rcp_amd(op: &OpF64Rcp, pred: Pred, alloc: &mut SSAValueAllocator) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
 

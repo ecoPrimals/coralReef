@@ -51,3 +51,22 @@ pub fn open_vfio() -> NvVfioComputeDevice {
         }
     }
 }
+
+/// Open VFIO device in warm handoff mode — skips GR init and uses
+/// lighter PFIFO init to preserve falcon state from nouveau.
+pub fn open_vfio_warm() -> NvVfioComputeDevice {
+    init_tracing();
+    let bdf = vfio_bdf();
+    let sm = vfio_sm();
+
+    match ember_client::request_fds(&bdf) {
+        Ok(fds) => {
+            eprintln!("ember: received VFIO fds for {bdf} (WARM MODE)");
+            NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0)
+                .expect("NvVfioComputeDevice::open_warm()")
+        }
+        Err(e) => {
+            panic!("warm handoff requires ember for VFIO fds (ember unavailable: {e})");
+        }
+    }
+}

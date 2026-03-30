@@ -104,52 +104,30 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::GlobalVariable(gv) => {
                 let global = &self.module.global_variables[gv];
                 if let Some(binding) = &global.binding {
-                    if global.space == naga::AddressSpace::Uniform {
-                        // Load uniform buffer VA from user SGPRs (same layout as storage).
-                        let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
-                        let buf_idx = binding.group as u8;
-                        let base_offset = (binding.binding * 8) as u16;
-                        let cbuf = CBufRef {
-                            buf: CBuf::Binding(buf_idx),
-                            offset: base_offset,
-                        };
-                        self.push_instr(Instr::new(OpCopy {
-                            dst: addr[0].into(),
-                            src: Src::from(SrcRef::CBuf(cbuf)),
-                        }));
-                        let cbuf_hi = CBufRef {
-                            buf: CBuf::Binding(buf_idx),
-                            offset: base_offset + 4,
-                        };
-                        self.push_instr(Instr::new(OpCopy {
-                            dst: addr[1].into(),
-                            src: Src::from(SrcRef::CBuf(cbuf_hi)),
-                        }));
+                    let is_uniform = global.space == naga::AddressSpace::Uniform;
+                    let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
+                    let buf_idx = binding.group as u8;
+                    let base_offset = (binding.binding * 8) as u16;
+                    let cbuf = CBufRef {
+                        buf: CBuf::Binding(buf_idx),
+                        offset: base_offset,
+                    };
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: addr[0].into(),
+                        src: Src::from(SrcRef::CBuf(cbuf)),
+                    }));
+                    let cbuf_hi = CBufRef {
+                        buf: CBuf::Binding(buf_idx),
+                        offset: base_offset + 4,
+                    };
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: addr[1].into(),
+                        src: Src::from(SrcRef::CBuf(cbuf_hi)),
+                    }));
+                    if is_uniform {
                         self.uniform_refs.insert(handle, (addr.clone(), 0));
-                        Ok(addr)
-                    } else {
-                        // Storage buffers: CBuf holds descriptor address
-                        let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
-                        let buf_idx = binding.group as u8;
-                        let base_offset = (binding.binding * 8) as u16;
-                        let cbuf = CBufRef {
-                            buf: CBuf::Binding(buf_idx),
-                            offset: base_offset,
-                        };
-                        self.push_instr(Instr::new(OpCopy {
-                            dst: addr[0].into(),
-                            src: Src::from(SrcRef::CBuf(cbuf)),
-                        }));
-                        let cbuf_hi = CBufRef {
-                            buf: CBuf::Binding(buf_idx),
-                            offset: base_offset + 4,
-                        };
-                        self.push_instr(Instr::new(OpCopy {
-                            dst: addr[1].into(),
-                            src: Src::from(SrcRef::CBuf(cbuf_hi)),
-                        }));
-                        Ok(addr)
                     }
+                    Ok(addr)
                 } else {
                     let dst = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
@@ -239,7 +217,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 if let Some((addr, base_offset)) = self.uniform_refs.get(&base).cloned() {
                     let field_offset = self.uniform_field_byte_offset(base, index)?;
                     let total_offset = base_offset + field_offset;
-                    self.uniform_refs.insert(handle, (addr.clone(), total_offset));
+                    self.uniform_refs.insert(handle, (addr, total_offset));
                     let dummy = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef { dst: dummy.into() }));
                     Ok(dummy.into())

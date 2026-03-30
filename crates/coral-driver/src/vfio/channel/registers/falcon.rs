@@ -26,10 +26,6 @@ pub const SEC2_BASE: usize = 0x0008_7000;
 /// IRQSSET — interrupt set (write to raise IRQ).
 pub const IRQSSET: usize = 0x000;
 /// IRQSCLR — interrupt clear (write to clear IRQ).
-#[expect(
-    dead_code,
-    reason = "register map constant — will be used for IRQ unmask"
-)]
 pub const IRQSCLR: usize = 0x004;
 /// IRQSTAT — interrupt status (read pending IRQs).
 pub const IRQSTAT: usize = 0x008;

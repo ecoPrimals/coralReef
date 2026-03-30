@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 29, 2026  
-**Phase**: 10 — Iteration 69 (Deep Debt Resolution + wateringHole Compliance)
+**Last updated**: March 30, 2026  
+**Phase**: 10 — Iteration 70 (ludoSpring V35 Gap Resolution + Deep Audit)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -21,7 +21,7 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60), vendor_lifecycle→8 modules, ipc→6 modules, handlers→mod+sweep, ACR strategies→directory modules (Iter 69) |
+| Code structure | A+ | Smart refactoring: vfio/channel.rs 2894→5 modules (prod <1000 LOC), diagnostic/runner.rs 2485→769+experiments/ (Iter 46), scheduler prepass 842→313, cfg→{mod,dom}, ir/{pred,src,fold}, ipc/{jsonrpc,tarpc}, tex.rs 986→505+484 (Iter 60), vendor_lifecycle→8 modules, ipc→6 modules, handlers→mod+sweep, ACR strategies→directory modules (Iter 69), swap.rs 1102→708+swap_preflight (362), vfio_compute/mod.rs 1018→855+gr_engine_status (173) (Iter 70) |
 | Tests | A+ | 4189 passing, 0 failed, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
@@ -41,6 +41,17 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+
+### Iteration 70: ludoSpring V35 Gap Resolution + Deep Audit (Mar 30, 2026)
+
+**Theme**: Resolve composition gaps found by ludoSpring V35 experiments, deep clippy/file-size audit.
+
+| Area | Change |
+|------|--------|
+| `capabilities.list` | Added JSON-RPC method to both newline-delimited and HTTP servers |
+| `cargo clippy` | Fixed 8 additional errors: branches_sharing_code (×2), redundant_clone, collapsible_if, struct_excessive_bools, unused_variables, dead_code, missing_docs, too_many_arguments, unfulfilled_lint_expectations |
+| File sizes | `swap.rs` 1102→708 (extracted `swap_preflight.rs`), `vfio_compute/mod.rs` 1018→855 (extracted `gr_engine_status.rs`) |
+| ludoSpring V35 P1 | UDS framing confirmed raw newline-delimited (Iter 69). `capability.register` confirmed working (Iter 69). `capabilities.list` added (Iter 70). |
 
 ### Iteration 69: Deep Debt Resolution + wateringHole Compliance (Mar 29, 2026)
 

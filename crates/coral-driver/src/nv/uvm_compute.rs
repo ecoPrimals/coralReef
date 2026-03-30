@@ -263,7 +263,9 @@ impl NvUvmComputeDevice {
                 .read(true)
                 .write(true)
                 .open(format!("/dev/nvidia{gpu_index}"))
-                .map_err(|e| DriverError::DeviceNotFound(format!("nvidia{gpu_index} for USERD: {e}").into()))?
+                .map_err(|e| {
+                    DriverError::DeviceNotFound(format!("nvidia{gpu_index} for USERD: {e}").into())
+                })?
         } else {
             open_ctl()?
         };
@@ -298,7 +300,10 @@ impl NvUvmComputeDevice {
 
         let work_submit_token = match client.get_work_submit_token(h_channel) {
             Ok(t) => {
-                tracing::info!(token = format_args!("0x{t:08X}"), "Work submit token acquired");
+                tracing::info!(
+                    token = format_args!("0x{t:08X}"),
+                    "Work submit token acquired"
+                );
                 t
             }
             Err(e) => {
@@ -322,7 +327,9 @@ impl NvUvmComputeDevice {
             .read(true)
             .write(true)
             .open(format!("/dev/nvidia{gpu_index}"))
-            .map_err(|e| DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into()))?;
+            .map_err(|e| {
+                DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into())
+            })?;
         let doorbell_addr = client.rm_map_memory_on_fd(
             usermode_mmap_fd.as_raw_fd(),
             h_device,
@@ -372,31 +379,25 @@ impl NvUvmComputeDevice {
         // NOP smoke test: submit a single NOP to verify GPFIFO is working.
         let nop_h_mem = h_device + 0x5FFF;
         dev.client.alloc_system_memory(h_device, nop_h_mem, 4096)?;
-        let nop_gpu_va = dev.client.rm_map_memory_dma(
-            h_device,
-            h_virt_mem,
-            nop_h_mem,
-            0,
-            4096,
-        )?;
+        let nop_gpu_va = dev
+            .client
+            .rm_map_memory_dma(h_device, h_virt_mem, nop_h_mem, 0, 4096)?;
         let nop_fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open("/dev/nvidiactl")
             .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
-        let nop_cpu = dev.client.rm_map_memory_on_fd(
-            nop_fd.as_raw_fd(),
-            h_device,
-            nop_h_mem,
-            0,
-            4096,
-        )?;
+        let nop_cpu =
+            dev.client
+                .rm_map_memory_on_fd(nop_fd.as_raw_fd(), h_device, nop_h_mem, 0, 4096)?;
         unsafe { VolatilePtr::new(nop_cpu as *mut u32).write(0) };
         dev.submit_gpfifo(nop_gpu_va, 1)?;
         dev.poll_gpfifo_completion()?;
         tracing::info!("NOP smoke test passed — GPFIFO pipeline operational");
 
-        dev.client.rm_unmap_memory(h_device, nop_h_mem, nop_cpu).ok();
+        dev.client
+            .rm_unmap_memory(h_device, nop_h_mem, nop_cpu)
+            .ok();
         dev.client.free_object(h_device, nop_h_mem).ok();
         drop(nop_fd);
 

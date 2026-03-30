@@ -71,15 +71,19 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpCS2R {
 ///
 /// The `tgid_sgpr_base` is the SGPR index where the first workgroup ID
 /// is placed by the hardware (= total user data SGPRs = buffer VAs + 6).
-fn amd_sys_reg_src(nv_idx: u8, tgid_sgpr_base: u16, tid_save_base: u16) -> Result<u16, CompileError> {
+fn amd_sys_reg_src(
+    nv_idx: u8,
+    tgid_sgpr_base: u16,
+    tid_save_base: u16,
+) -> Result<u16, CompileError> {
     Ok(match nv_idx {
-        0x21 => 256 + tid_save_base, // SR_TID_X → v[tid_save_base+0]
+        0x21 => 256 + tid_save_base,     // SR_TID_X → v[tid_save_base+0]
         0x22 => 256 + tid_save_base + 1, // SR_TID_Y → v[tid_save_base+1]
         0x23 => 256 + tid_save_base + 2, // SR_TID_Z → v[tid_save_base+2]
-        0x25 => tgid_sgpr_base,     // SR_CTAID_X → s[base]   (hw-appended)
-        0x26 => tgid_sgpr_base + 1, // SR_CTAID_Y → s[base+1] (hw-appended)
-        0x27 => tgid_sgpr_base + 2, // SR_CTAID_Z → s[base+2] (hw-appended)
-        0x00 => 256,                // SR_LANEID → v0
+        0x25 => tgid_sgpr_base,          // SR_CTAID_X → s[base]   (hw-appended)
+        0x26 => tgid_sgpr_base + 1,      // SR_CTAID_Y → s[base+1] (hw-appended)
+        0x27 => tgid_sgpr_base + 2,      // SR_CTAID_Z → s[base+2] (hw-appended)
+        0x00 => 256,                     // SR_LANEID → v0
 
         // NTID (workgroup_size) and NCTAID (num_workgroups) are in user data
         // SGPRs immediately before the hardware-appended TGIDs.

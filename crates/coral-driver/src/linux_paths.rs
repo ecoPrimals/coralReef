@@ -113,6 +113,27 @@ pub fn sysfs_pci_bus_rescan() -> String {
     sysfs_join(&["bus", "pci", "rescan"])
 }
 
+/// `/…/bus/pci/drivers_autoprobe` under [`sysfs_root`].
+///
+/// Writing `0` disables automatic driver probing on bus rescan;
+/// writing `1` re-enables it. Used during targeted PCI remove+rescan
+/// to prevent the kernel from matching `vfio-pci.ids` before ember
+/// can set `driver_override`.
+#[must_use]
+pub fn sysfs_pci_drivers_autoprobe() -> String {
+    sysfs_join(&["bus", "pci", "drivers_autoprobe"])
+}
+
+/// `/…/bus/pci/drivers_probe` under [`sysfs_root`].
+///
+/// Writing a BDF triggers the kernel's driver matching for that device,
+/// honoring `driver_override` if set. Used after disabling autoprobe
+/// and setting the desired override.
+#[must_use]
+pub fn sysfs_pci_drivers_probe() -> String {
+    sysfs_join(&["bus", "pci", "drivers_probe"])
+}
+
 /// `/…/module/{name}` under [`sysfs_root`] (e.g. `nvidia` for the proprietary stack).
 #[must_use]
 pub fn sysfs_module_path(name: &str) -> String {
@@ -240,6 +261,18 @@ mod tests {
     fn sysfs_pci_bus_rescan_path() {
         let p = sysfs_pci_bus_rescan();
         assert!(p.ends_with("/bus/pci/rescan"));
+    }
+
+    #[test]
+    fn sysfs_pci_drivers_autoprobe_path() {
+        let p = sysfs_pci_drivers_autoprobe();
+        assert!(p.ends_with("/bus/pci/drivers_autoprobe"));
+    }
+
+    #[test]
+    fn sysfs_pci_drivers_probe_path() {
+        let p = sysfs_pci_drivers_probe();
+        assert!(p.ends_with("/bus/pci/drivers_probe"));
     }
 
     #[test]

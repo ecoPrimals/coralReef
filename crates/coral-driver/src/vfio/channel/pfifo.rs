@@ -27,6 +27,12 @@ pub struct PfifoInitConfig {
     pub pfifo_settle_ms: u64,
     /// Re-clear PRIV_RING and retry if `PFIFO_ENABLE` reads back 0.
     pub retry_on_priv_fault: bool,
+    /// Reset PFIFO via PMC_ENABLE bit 8 toggle. Set false for warm
+    /// handoff to preserve the PFIFO scheduler state from nouveau.
+    pub pmc_pfifo_reset: bool,
+    /// Force-clear all PBDMA registers to remove stale channel state.
+    /// Set false for warm handoff to preserve PBDMA configuration.
+    pub pbdma_force_clear: bool,
     /// `true` → write `SCHED_EN (0x2504) = 1`; `false` → write `SCHED_DISABLE (0x2630) = 0`.
     pub use_sched_en: bool,
     /// Milliseconds to wait after empty-runlist flush.
@@ -42,6 +48,8 @@ impl Default for PfifoInitConfig {
             pmc_glow_plug: true,
             pfifo_settle_ms: 50,
             retry_on_priv_fault: true,
+            pmc_pfifo_reset: true,
+            pbdma_force_clear: true,
             use_sched_en: true,
             post_flush_settle_ms: 20,
         }
@@ -58,8 +66,27 @@ impl PfifoInitConfig {
             pmc_glow_plug: false,
             pfifo_settle_ms: 10,
             retry_on_priv_fault: false,
+            pmc_pfifo_reset: false,
+            pbdma_force_clear: false,
             use_sched_en: false,
             post_flush_settle_ms: 0,
+        }
+    }
+
+    /// Config for warm handoff from nouveau — preserves PFIFO/PMC state
+    /// left by nouveau. Skips PMC glow plug, PMC PFIFO reset, and PBDMA
+    /// force-clear so falcon engines (FECS/GPCCS) remain alive.
+    #[must_use]
+    pub fn warm_handoff() -> Self {
+        Self {
+            clear_priv_ring: true,
+            pmc_glow_plug: false,
+            pfifo_settle_ms: 10,
+            retry_on_priv_fault: true,
+            pmc_pfifo_reset: false,
+            pbdma_force_clear: false,
+            use_sched_en: true,
+            post_flush_settle_ms: 10,
         }
     }
 }
@@ -76,6 +103,10 @@ impl PfifoInitConfig {
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
+#[allow(
+    dead_code,
+    reason = "public API for standalone PFIFO init; called from experiment tests"
+)]
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
 }
@@ -147,7 +178,7 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
     // On GV100, bit 1 of PMC_ENABLE is not the PFIFO engine control.
     // nouveau's gk104_mc_reset uses device-specific engine→bit mappings;
     // for PFIFO (NVKM_ENGINE_FIFO) the bit is 8.
-    {
+    if cfg.pmc_pfifo_reset {
         let pmc_cur = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
         const PFIFO_BIT: u32 = 1 << 8;
         w(pmc::ENABLE, pmc_cur & !PFIFO_BIT)?;
@@ -160,6 +191,8 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             pmc_after = format_args!("{rb:#010x}"),
             "PMC PFIFO reset (bit 8)"
         );
+    } else {
+        tracing::info!("PMC PFIFO reset skipped (warm handoff)");
     }
 
     // Initialize PFIFO — verify the enable write takes effect.
@@ -235,7 +268,7 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
     // Force-clear PBDMA registers to remove nouveau's stale channel context.
     // This mirrors the diagnostic runner's Phase 4 — without it, PBDMAs may
     // attempt DMA fetches from nouveau's now-unmapped GPFIFO addresses.
-    {
+    if cfg.pbdma_force_clear {
         let cur_map = r(pfifo::PBDMA_MAP);
         for pid in 0..32_usize {
             if cur_map & (1 << pid) == 0 {
@@ -245,7 +278,6 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             for off in (0x000..=0x1FC).step_by(4) {
                 let _ = w(b + off, 0);
             }
-            // Explicitly clear key state registers after the bulk zero.
             for off in [
                 0x040, 0x044, 0x050, 0x054, 0x058, 0x0B0, 0x0D0, 0x0D4, 0x0C0, 0x13C,
             ] {
@@ -256,6 +288,8 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
         }
         std::thread::sleep(std::time::Duration::from_millis(2));
         tracing::info!("PBDMA registers force-cleared");
+    } else {
+        tracing::info!("PBDMA force-clear skipped (warm handoff)");
     }
 
     // Discover PBDMAs and their runlist assignments.

@@ -279,11 +279,13 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
         match coral_driver::vfio::VfioDevice::open(&dev_config.bdf) {
             Ok(device) => {
+                let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
                 tracing::info!(
                     bdf = %dev_config.bdf,
                     backend = ?device.backend_kind(),
                     device_fd = device.device_fd(),
                     num_fds = device.sendable_fds().len(),
+                    req_armed = req_eventfd.is_some(),
                     "VFIO device held by ember"
                 );
                 held_init.insert(
@@ -292,6 +294,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                         bdf: dev_config.bdf.clone(),
                         device,
                         ring_meta: hold::RingMeta::default(),
+                        req_eventfd,
                     },
                 );
             }
@@ -364,6 +367,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     }
 
     spawn_watchdog(Arc::clone(&held));
+    spawn_req_watcher(Arc::clone(&held));
 
     if let Some(port) = opts.listen_port {
         let tcp_addr = format!("127.0.0.1:{port}");
@@ -435,6 +439,125 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
     tracing::error!("ember accept loop ended unexpectedly");
     Err(1)
+}
+
+/// Arm `VFIO_PCI_REQ_ERR_IRQ` (index 4) on a VFIO device.
+///
+/// When armed, the kernel signals this eventfd instead of printing
+/// "No device request channel registered, blocked until released by user".
+/// The [`spawn_req_watcher`] thread monitors all active eventfds and
+/// auto-releases the VFIO fd before the kernel enters D-state.
+fn arm_req_irq(device: &coral_driver::vfio::VfioDevice, bdf: &str) -> Option<std::os::fd::OwnedFd> {
+    use coral_driver::vfio::irq::{VfioIrqIndex, arm_irq_eventfd};
+
+    match arm_irq_eventfd(device.device_as_fd(), VfioIrqIndex::Req, 0) {
+        Ok(fd) => {
+            tracing::info!(bdf, "VFIO REQ IRQ armed — kernel can signal device release");
+            Some(fd)
+        }
+        Err(e) => {
+            tracing::warn!(
+                bdf,
+                error = %e,
+                "failed to arm VFIO REQ IRQ (non-fatal — external unbind may D-state)"
+            );
+            None
+        }
+    }
+}
+
+/// Spawn a background thread that monitors all VFIO device request eventfds.
+///
+/// When the kernel signals a REQ IRQ (because someone wrote to `driver/unbind`
+/// while ember holds the fd), this thread auto-releases the VFIO device from
+/// the `held` map. This prevents the kernel from blocking indefinitely in
+/// `wait_for_completion()` inside `vfio_unregister_group_dev()`, which is the
+/// root cause of D-state cascades on Kepler and other FLR-lacking GPUs.
+///
+/// The thread rebuilds its poll set each cycle from `try_clone()`'d eventfds,
+/// so it remains correct as devices are added/removed from the held map.
+fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
+    use rustix::event::{PollFd, PollFlags, poll};
+    use rustix::time::Timespec;
+
+    std::thread::Builder::new()
+        .name("ember-req-watcher".into())
+        .spawn(move || {
+            loop {
+                let (cloned_fds, bdfs): (Vec<std::os::fd::OwnedFd>, Vec<String>) = {
+                    let map = match held.read() {
+                        Ok(m) => m,
+                        Err(_) => break,
+                    };
+                    let mut fds = Vec::new();
+                    let mut names = Vec::new();
+                    for (bdf, dev) in map.iter() {
+                        if let Some(ref req_fd) = dev.req_eventfd
+                            && let Ok(cloned) = req_fd.try_clone()
+                        {
+                            fds.push(cloned);
+                            names.push(bdf.clone());
+                        }
+                    }
+                    (fds, names)
+                };
+
+                if cloned_fds.is_empty() {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    continue;
+                }
+
+                let mut poll_fds: Vec<PollFd<'_>> = cloned_fds
+                    .iter()
+                    .map(|fd| PollFd::new(fd, PollFlags::IN))
+                    .collect();
+
+                let timeout = Timespec {
+                    tv_sec: 1,
+                    tv_nsec: 0,
+                };
+                match poll(&mut poll_fds, Some(&timeout)) {
+                    Ok(n) if n > 0 => {
+                        for (i, pfd) in poll_fds.iter().enumerate() {
+                            let revents = pfd.revents();
+                            if revents.contains(PollFlags::IN) {
+                                let bdf = &bdfs[i];
+                                tracing::warn!(
+                                    bdf,
+                                    "VFIO device-release request from kernel — \
+                                     auto-releasing VFIO fds to prevent D-state"
+                                );
+
+                                let mut buf = [0u8; 8];
+                                let _ = rustix::io::read(&cloned_fds[i], &mut buf);
+
+                                match held.try_write() {
+                                    Ok(mut map) => {
+                                        if let Some(device) = map.remove(bdf) {
+                                            drop(device);
+                                            tracing::info!(
+                                                bdf,
+                                                "device auto-released (kernel REQ IRQ)"
+                                            );
+                                        }
+                                    }
+                                    Err(_) => {
+                                        tracing::warn!(
+                                            bdf,
+                                            "held lock busy — will retry auto-release \
+                                             on next poll cycle"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            tracing::info!("req-watcher thread exiting");
+        })
+        .expect("spawn device request watcher thread");
 }
 
 /// Default watchdog interval in seconds (half a typical `WatchdogSec=30`).

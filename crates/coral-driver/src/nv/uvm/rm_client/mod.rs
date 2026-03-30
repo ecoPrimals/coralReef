@@ -163,6 +163,7 @@ impl RmClient {
         Ok(params.h_object_new)
     }
 
+    /// Allocate an RM object with no params (zero-length param buffer).
     pub fn rm_alloc_simple(
         &mut self,
         h_parent: u32,

@@ -103,7 +103,25 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
                         "sysfs write TIMED OUT — child likely in D-state, killing"
                     );
                     let _ = child.kill();
-                    let _ = child.wait();
+                    // D-state processes ignore SIGKILL until the kernel syscall
+                    // unblocks. A blocking wait() here would hang this thread
+                    // indefinitely. Brief try_wait loop, then abandon the zombie
+                    // — it is reaped when the D-state eventually resolves.
+                    let reaped = (0..10).any(|_| match child.try_wait() {
+                        Ok(Some(_)) | Err(_) => true,
+                        Ok(None) => {
+                            std::thread::sleep(Duration::from_millis(100));
+                            false
+                        }
+                    });
+                    if !reaped {
+                        tracing::warn!(
+                            path,
+                            pid = child.id(),
+                            "sysfs write child still in D-state after kill — \
+                             abandoning zombie (will be reaped when kernel unblocks)"
+                        );
+                    }
                     return Err(format!(
                         "sysfs write {path}: timed out after {}s (child killed — \
                          kernel sysfs operation likely in D-state)",
@@ -396,11 +414,46 @@ pub fn pci_bridge_reset(bdf: &str) -> Result<(), String> {
 /// WARNING: The device will be absent from sysfs between remove and rescan.
 /// VFIO fds become invalid and must be reacquired after rescan.
 pub fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
+    pci_remove_rescan_targeted(bdf, None)
+}
+
+/// PCI remove + rescan with an optional target driver override.
+///
+/// When `target_driver` is `Some`, the kernel's `drivers_autoprobe` is
+/// disabled before rescan, `driver_override` is set on the reappeared
+/// device, and a manual `drivers_probe` triggers binding. This prevents
+/// the kernel's `vfio-pci.ids` cmdline parameter (or any other built-in
+/// match table) from reclaiming the device during rescan.
+pub fn pci_remove_rescan_targeted(bdf: &str, target_driver: Option<&str>) -> Result<(), String> {
     pin_bridge_power(bdf);
     pin_power(bdf);
 
     let _ = sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
+    // When targeting a specific driver, disable autoprobe so the kernel
+    // does not match vfio-pci.ids (or any other ID table) during rescan.
+    let autoprobe_disabled = target_driver.is_some();
+    if autoprobe_disabled {
+        tracing::info!(
+            bdf,
+            target = ?target_driver,
+            "disabling drivers_autoprobe before rescan"
+        );
+        let _ = sysfs_write_direct(&linux_paths::sysfs_pci_drivers_autoprobe(), "0");
+    }
+
+    // Ensure autoprobe is re-enabled on all exit paths.
+    let result = pci_remove_rescan_inner(bdf, target_driver);
+
+    if autoprobe_disabled {
+        let _ = sysfs_write_direct(&linux_paths::sysfs_pci_drivers_autoprobe(), "1");
+        tracing::debug!(bdf, "drivers_autoprobe re-enabled");
+    }
+
+    result
+}
+
+fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(), String> {
     tracing::info!(bdf, "PCI remove + rescan: removing device");
     pci_remove(bdf)?;
 
@@ -425,6 +478,21 @@ pub fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
             pin_bridge_power(bdf);
             let _ =
                 sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+
+            if let Some(driver) = target_driver {
+                tracing::info!(
+                    bdf,
+                    driver,
+                    "setting driver_override before probe (autoprobe disabled)"
+                );
+                let _ = sysfs_write_direct(
+                    &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
+                    driver,
+                );
+                tracing::info!(bdf, "triggering manual drivers_probe");
+                let _ = sysfs_write(&linux_paths::sysfs_pci_drivers_probe(), bdf);
+            }
+
             return Ok(());
         }
     }
@@ -593,5 +661,27 @@ mod tests {
     fn pci_rescan_write_failure_is_propagated_when_rescan_missing() {
         let err = sysfs_write("/nonexistent-coral-ember-pci/rescan", "1").unwrap_err();
         assert!(err.contains("sysfs write"));
+    }
+
+    #[test]
+    fn pci_remove_rescan_targeted_accepts_none_target() {
+        // With target=None, behaves like the original pci_remove_rescan.
+        // Invalid BDF ensures early failure (device doesn't exist).
+        let err = pci_remove_rescan_targeted("9999:99:99.9", None).unwrap_err();
+        assert!(
+            err.contains("sysfs write"),
+            "expected sysfs error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn pci_remove_rescan_targeted_accepts_some_target() {
+        // With a target driver, the function should still fail on
+        // invalid BDF but exercise the autoprobe-disable path.
+        let err = pci_remove_rescan_targeted("9999:99:99.9", Some("nouveau")).unwrap_err();
+        assert!(
+            err.contains("sysfs write"),
+            "expected sysfs error, got: {err}"
+        );
     }
 }
