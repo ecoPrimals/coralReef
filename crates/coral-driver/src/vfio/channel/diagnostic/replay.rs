@@ -91,7 +91,10 @@ pub fn load_devinit_recipe(path: &Path) -> Result<Vec<DevinitScript>, DriverErro
 }
 
 /// Apply DEVINIT scripts to a cold GPU via VFIO BAR0.
-pub fn apply_devinit(bdf: &str, scripts: &[DevinitScript]) -> Result<ReplayResult, DriverError> {
+pub fn apply_devinit(
+    bdf: &str,
+    scripts: &[DevinitScript],
+) -> Result<ReplayResult, DriverError> {
     tracing::info!(bdf, scripts = scripts.len(), "devinit: opening VFIO device");
 
     let device = VfioDevice::open(bdf)?;
@@ -402,10 +405,7 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].ops.len(), 4);
-        assert!(matches!(
-            parsed[0].ops[0],
-            DevinitOp::ZmReg { reg: 0x200, .. }
-        ));
+        assert!(matches!(parsed[0].ops[0], DevinitOp::ZmReg { reg: 0x200, .. }));
         assert!(matches!(parsed[0].ops[3], DevinitOp::Time { usec: 10000 }));
     }
 

@@ -54,13 +54,9 @@ pub fn optional_data_dir() -> Option<String> {
         .ok()
         .filter(|s| !s.is_empty())
         .or_else(|| {
-            let legacy = std::env::var("HOTSPRING_DATA_DIR")
+            std::env::var("HOTSPRING_DATA_DIR")
                 .ok()
-                .filter(|s| !s.is_empty());
-            if legacy.is_some() {
-                tracing::warn!("HOTSPRING_DATA_DIR is deprecated — use CORALREEF_DATA_DIR instead");
-            }
-            legacy
+                .filter(|s| !s.is_empty())
         })
 }
 

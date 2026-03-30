@@ -227,8 +227,8 @@ async fn main() {
     // If ember is reachable but unresponsive (stuck in D-state from a
     // previous swap), skip it entirely to avoid blocking all device
     // activations behind a 5s timeout per device.
-    let ember_client =
-        ember::EmberClient::connect().and_then(|client| match client.list_devices() {
+    let ember_client = ember::EmberClient::connect().and_then(|client| {
+        match client.list_devices() {
             Ok(ember_devices) => {
                 tracing::info!(
                     devices = ?ember_devices,
@@ -244,7 +244,8 @@ async fn main() {
                 );
                 None
             }
-        });
+        }
+    });
     if ember_client.is_none() {
         tracing::info!(
             "ember not available — VFIO fds will be opened directly \

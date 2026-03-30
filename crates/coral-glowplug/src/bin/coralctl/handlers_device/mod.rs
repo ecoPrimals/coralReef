@@ -141,6 +141,20 @@ pub(crate) fn rpc_reset(socket: &str, bdf: &str, method: &str) {
 
 pub(crate) fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
     println!("=== Warm FECS via nouveau round-trip ===");
+
+    // Livepatch must be DISABLED before nouveau loads so gk104_runl_commit
+    // (and other functions) run normally during init. If it's enabled and
+    // nouveau loads, the NOP would prevent runlist submission and break init.
+    let lp_enabled = "/sys/kernel/livepatch/livepatch_nvkm_mc_reset/enabled";
+    if std::path::Path::new(lp_enabled).exists() {
+        let cur = std::fs::read_to_string(lp_enabled).unwrap_or_default();
+        if cur.trim() == "1" {
+            println!("step 0: disabling livepatch before nouveau load...");
+            sysfs_write_privileged(lp_enabled, "0");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
     println!("step 1: swapping {bdf} -> nouveau (loads ACR → FECS firmware)...");
 
     let resp1 = rpc_call(
@@ -159,6 +173,15 @@ pub(crate) fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
 
     println!("step 2: waiting {settle_secs}s for nouveau GR init...");
     std::thread::sleep(std::time::Duration::from_secs(settle_secs));
+
+    // Enable livepatch AFTER init, BEFORE teardown — NOPs freeze the
+    // runlist, prevent falcon halts, and skip engine resets so FECS
+    // stays alive in its context-switch-ready HALT state.
+    if std::path::Path::new(lp_enabled).exists() {
+        println!("step 2b: enabling livepatch (freezing runlist for warm handoff)...");
+        sysfs_write_privileged(lp_enabled, "1");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 
     println!(
         "step 3: swapping {bdf} -> vfio (Ember disables reset_method to preserve FECS IMEM)..."
@@ -681,6 +704,26 @@ pub(crate) fn rpc_journal_stats(_glowplug_socket: &str, bdf: Option<String>) {
                     avg_ms
                 );
             }
+        }
+    }
+}
+
+/// Write to a privileged sysfs path via `sudo -n coralreef-sysfs-write`.
+/// Falls back to direct write if the helper is not installed.
+fn sysfs_write_privileged(path: &str, value: &str) {
+    let status = std::process::Command::new("sudo")
+        .args(["-n", "/usr/local/bin/coralreef-sysfs-write", path, value])
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            eprintln!(
+                "warning: coralreef-sysfs-write {path} exited with {s}, trying direct write"
+            );
+            let _ = std::fs::write(path, value);
+        }
+        Err(_) => {
+            let _ = std::fs::write(path, value);
         }
     }
 }

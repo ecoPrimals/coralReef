@@ -77,15 +77,13 @@ fn vfio_dispatch_warm_handoff() {
     eprintln!("{diag_pre}");
 
     let fecs = &diag_pre.fecs;
-    let fecs_dead = fecs.cpuctl == 0xDEAD_DEAD || fecs.cpuctl & 0xBADF_0000 == 0xBADF_0000;
+    let fecs_dead =
+        fecs.cpuctl == 0xDEAD_DEAD || fecs.cpuctl & 0xBADF_0000 == 0xBADF_0000;
 
     eprintln!("\n── FECS State (post-restart) ──");
     eprintln!(
         "  cpuctl={:#010x} mailbox0={:#010x} in_reset={} halted={}",
-        fecs.cpuctl,
-        fecs.mailbox0,
-        fecs.is_in_reset(),
-        fecs.is_halted()
+        fecs.cpuctl, fecs.mailbox0, fecs.is_in_reset(), fecs.is_halted()
     );
 
     if fecs_dead {

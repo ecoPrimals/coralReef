@@ -20,7 +20,6 @@ coral-driver = { path = "../coral-driver", features = ["vfio"] }
 rustix = { version = "1.1.4", features = ["net", "event", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror.workspace = true
 toml = "0.8"
 tracing.workspace = true
 tracing-subscriber.workspace = true

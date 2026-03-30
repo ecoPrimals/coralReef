@@ -115,13 +115,17 @@ impl PfifoInitConfig {
 /// registers read `0xBAD0_DA00`. We must enable the engine in
 /// `NV_PMC_ENABLE` first, matching nouveau's `gp100_mc_init()`.
 ///
-/// Pass [`PfifoInitConfig::default`] for the standard bring-up sequence, or
-/// [`PfifoInitConfig::diagnostic`] / [`PfifoInitConfig::warm_handoff`] where
-/// callers need a lighter touch.
-///
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
+pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
+    init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
+}
+
+/// Configurable PFIFO engine initialization.
+///
+/// Same as [`init_pfifo_engine`] but takes a [`PfifoInitConfig`] to
+/// control the bring-up sequence. Use this from the diagnostic runner.
 pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> DriverResult<(u32, u32)> {
     let w = |reg: usize, val: u32| {
         bar0.write_u32(reg, val)
@@ -272,9 +276,7 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             );
         }
     } else {
-        tracing::info!(
-            "runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)"
-        );
+        tracing::info!("runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)");
     }
 
     // Force-clear PBDMA registers to remove nouveau's stale channel context.
@@ -441,9 +443,7 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
         }
     } else {
-        tracing::info!(
-            "empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)"
-        );
+        tracing::info!("empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)");
     }
     if cfg.post_flush_settle_ms > 0 {
         std::thread::sleep(std::time::Duration::from_millis(cfg.post_flush_settle_ms));

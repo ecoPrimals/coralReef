@@ -16,8 +16,6 @@
 
 pub mod adaptive;
 pub mod drm_isolation;
-pub mod error;
-pub use error::{SwapError, SysfsError, TraceError};
 mod hold;
 mod ipc;
 pub mod journal;
@@ -449,7 +447,10 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 /// "No device request channel registered, blocked until released by user".
 /// The [`spawn_req_watcher`] thread monitors all active eventfds and
 /// auto-releases the VFIO fd before the kernel enters D-state.
-fn arm_req_irq(device: &coral_driver::vfio::VfioDevice, bdf: &str) -> Option<std::os::fd::OwnedFd> {
+fn arm_req_irq(
+    device: &coral_driver::vfio::VfioDevice,
+    bdf: &str,
+) -> Option<std::os::fd::OwnedFd> {
     use coral_driver::vfio::irq::{VfioIrqIndex, arm_irq_eventfd};
 
     match arm_irq_eventfd(device.device_as_fd(), VfioIrqIndex::Req, 0) {
@@ -494,11 +495,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                     let mut fds = Vec::new();
                     let mut names = Vec::new();
                     for (bdf, dev) in map.iter() {
-                        if let Some(ref req_fd) = dev.req_eventfd
-                            && let Ok(cloned) = req_fd.try_clone()
-                        {
-                            fds.push(cloned);
-                            names.push(bdf.clone());
+                        if let Some(ref req_fd) = dev.req_eventfd {
+                            if let Ok(cloned) = req_fd.try_clone() {
+                                fds.push(cloned);
+                                names.push(bdf.clone());
+                            }
                         }
                     }
                     (fds, names)

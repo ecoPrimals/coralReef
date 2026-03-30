@@ -1442,8 +1442,8 @@ fn apply_nvidia470_recipe(bar0: &mut Bar0Access) -> (usize, usize) {
                         } else {
                             val_entry.as_str().unwrap_or("0x0")
                         };
-                        let val =
-                            u32::from_str_radix(val_str.trim_start_matches("0x"), 16).unwrap_or(0);
+                        let val = u32::from_str_radix(val_str.trim_start_matches("0x"), 16)
+                            .unwrap_or(0);
 
                         if is_pri_fault(val) {
                             *skipped += 1;
@@ -1528,13 +1528,12 @@ fn exp123k4_devinit_nvidia470_recipe_fecs_boot() {
     std::thread::sleep(std::time::Duration::from_millis(200));
     let clk_after = read_reg(&bar0, 0x137020);
     let clk_src_after = read_reg(&bar0, 0x130000);
-    eprintln!("  Recipe applied: {recipe_writes} writes, {recipe_skipped} skipped");
+    eprintln!(
+        "  Recipe applied: {recipe_writes} writes, {recipe_skipped} skipped"
+    );
     eprintln!("  HUB_PLL: {clk_before:#010x} → {clk_after:#010x}");
     eprintln!("  CLK_SRC: {clk_src_before:#010x} → {clk_src_after:#010x}");
-    eprintln!(
-        "  PMC_ENABLE={:#010x} (no extra GR reset — preserve clock writes)",
-        read_reg(&bar0, PMC_ENABLE)
-    );
+    eprintln!("  PMC_ENABLE={:#010x} (no extra GR reset — preserve clock writes)", read_reg(&bar0, PMC_ENABLE));
 
     // Phase 3: Check post-recipe state
     eprintln!("\n--- Phase 3: Post-Recipe State ---");
@@ -1547,7 +1546,9 @@ fn exp123k4_devinit_nvidia470_recipe_fecs_boot() {
 
     let gr_status = read_reg(&bar0, 0x400700);
     let pfb_cfg = read_reg(&bar0, 0x100200);
-    eprintln!("  GR_STATUS={gr_status:#010x}  PFB_CFG0={pfb_cfg:#010x}");
+    eprintln!(
+        "  GR_STATUS={gr_status:#010x}  PFB_CFG0={pfb_cfg:#010x}"
+    );
     eprintln!(
         "  FECS accessible: {}  GPCCS accessible: {}  GR accessible: {}",
         !is_pri_fault(fecs.cpuctl),
