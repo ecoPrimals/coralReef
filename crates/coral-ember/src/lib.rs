@@ -110,10 +110,18 @@ pub struct EmberRunOptions {
 }
 
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
+///
+/// Follows the wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 #[must_use]
 pub fn ember_socket_path() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .unwrap_or_else(|_| "/run/coralreef/ember.sock".to_string())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).

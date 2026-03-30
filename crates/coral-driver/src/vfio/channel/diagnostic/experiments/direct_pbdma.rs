@@ -130,12 +130,21 @@ pub(super) fn direct_pbdma_sched_doorbell(ctx: &mut ExperimentContext<'_>) -> Dr
     let ctx_userd = ctx.r(pb + pbdma::CTX_USERD_LO);
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
-    eprintln!(
-        "║   T: PCCSR={post:#010x} GP_PUT={gp_put} GP_FETCH={gp_fetch} USERD@D0={userd_rd:#010x} USERD@08={ctx_userd:#010x}"
+    tracing::info!(
+        post = format_args!("{:#010x}", post),
+        gp_put,
+        gp_fetch,
+        userd_rd = format_args!("{:#010x}", userd_rd),
+        ctx_userd = format_args!("{:#010x}", ctx_userd),
+        "║   T: PCCSR userd"
     );
-    eprintln!(
-        "║   T: SIG={sig:#010x} STATE={state:#010x} INTR={intr:#010x} sched={}",
-        post & 2 != 0
+    let sched = post & 2 != 0;
+    tracing::info!(
+        sig = format_args!("{:#010x}", sig),
+        state = format_args!("{:#010x}", state),
+        intr = format_args!("{:#010x}", intr),
+        sched,
+        "║   T: sig/state/intr"
     );
     Ok(())
 }

@@ -199,7 +199,7 @@ fn serialize_jsonrpc_response_into(
 }
 
 /// Serialize a JSON-RPC 2.0 response from a handler result.
-#[allow(
+#[expect(
     dead_code,
     reason = "called from integration tests and re-exported via `unix_jsonrpc`"
 )]
@@ -222,7 +222,7 @@ pub fn make_response(
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     dead_code,
-    reason = "re-exported from `ipc` for tests and the `e2e` feature"
+    reason = "used in integration tests — dead in binary when e2e feature active"
 )]
 pub fn dispatch(
     method: &str,

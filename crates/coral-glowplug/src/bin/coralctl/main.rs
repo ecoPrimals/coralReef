@@ -30,11 +30,16 @@ use clap::{Parser, Subcommand};
 
 /// Resolve the glowplug socket path from an optional env value.
 ///
-/// `default_socket` passes `std::env::var("CORALREEF_GLOWPLUG_SOCKET").ok().as_deref()`.
+/// Follows wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-glowplug-<family>.sock`.
 fn resolve_glowplug_socket_path(env_value: Option<&str>) -> String {
-    env_value
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| "/run/coralreef/glowplug.sock".into())
+    if let Some(p) = env_value {
+        return p.to_owned();
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-glowplug-{family}.sock")
 }
 
 /// Default socket path, overridable via `$CORALREEF_GLOWPLUG_SOCKET`.

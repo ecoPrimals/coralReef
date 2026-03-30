@@ -53,11 +53,21 @@ pub(super) fn ramfc_mirror_sched_doorbell(ctx: &mut ExperimentContext<'_>) -> Dr
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let method0 = ctx.r(ctx.pb() + pbdma::METHOD0);
     let data0 = ctx.r(ctx.pb() + pbdma::DATA0);
-    eprintln!(
-        "║   R: PCCSR={post:#010x} CTX: PUT={ctx_put} FETCH={ctx_fetch} USERD={ctx_userd:#010x} SIG={ctx_sig:#010x}"
+    tracing::info!(
+        post = format_args!("{:#010x}", post),
+        ctx_put,
+        ctx_fetch,
+        ctx_userd = format_args!("{:#010x}", ctx_userd),
+        ctx_sig = format_args!("{:#010x}", ctx_sig),
+        "║   R: PCCSR CTX"
     );
-    eprintln!(
-        "║   R: DIRECT: FETCH={direct_fetch} USERD={direct_userd:#010x} INTR={intr:#010x} METHOD={method0:#010x} DATA={data0:#010x}"
+    tracing::info!(
+        direct_fetch,
+        direct_userd = format_args!("{:#010x}", direct_userd),
+        intr = format_args!("{:#010x}", intr),
+        method0 = format_args!("{:#010x}", method0),
+        data0 = format_args!("{:#010x}", data0),
+        "║   R: DIRECT"
     );
     Ok(())
 }
@@ -118,12 +128,22 @@ pub(super) fn both_paths_sched_doorbell(ctx: &mut ExperimentContext<'_>) -> Driv
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let method0 = ctx.r(pb + pbdma::METHOD0);
     let data0 = ctx.r(pb + pbdma::DATA0);
-    eprintln!(
-        "║   S: PCCSR={post:#010x} CTX_FETCH={ctx_fetch} DIR_FETCH={direct_fetch} CTX_USERD={ctx_userd:#010x} DIR_USERD={direct_userd:#010x}"
+    tracing::info!(
+        post = format_args!("{:#010x}", post),
+        ctx_fetch,
+        direct_fetch,
+        ctx_userd = format_args!("{:#010x}", ctx_userd),
+        direct_userd = format_args!("{:#010x}", direct_userd),
+        "║   S: PCCSR fetch/userd"
     );
-    eprintln!(
-        "║   S: STATE={state:#010x} INTR={intr:#010x} METHOD={method0:#010x} DATA={data0:#010x} sched={}",
-        post & 2 != 0
+    let sched = post & 2 != 0;
+    tracing::info!(
+        state = format_args!("{:#010x}", state),
+        intr = format_args!("{:#010x}", intr),
+        method0 = format_args!("{:#010x}", method0),
+        data0 = format_args!("{:#010x}", data0),
+        sched,
+        "║   S: state/intr"
     );
     Ok(())
 }
@@ -173,14 +193,18 @@ pub(super) fn clean_sched_no_work(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let status = pccsr::status_name(post);
-    eprintln!(
-        "║   U: PCCSR={post:#010x} STATUS={status} PUT={ctx_put} FETCH={ctx_fetch} STATE={state:#010x} INTR={intr:#010x}"
+    tracing::info!(
+        post = format_args!("{:#010x}", post),
+        status,
+        ctx_put,
+        ctx_fetch,
+        state = format_args!("{:#010x}", state),
+        intr = format_args!("{:#010x}", intr),
+        "║   U: PCCSR"
     );
-    eprintln!(
-        "║   U: faulted={} sched={}",
-        post & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0,
-        post & 2 != 0
-    );
+    let faulted = post & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0;
+    let sched = post & 2 != 0;
+    tracing::info!(faulted, sched, "║   U: flags");
     Ok(())
 }
 
@@ -245,17 +269,25 @@ pub(super) fn sched_with_nop_pushbuf(ctx: &mut ExperimentContext<'_>) -> DriverR
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let ctx_sig = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let status = pccsr::status_name(post);
-    eprintln!(
-        "║   U2: PCCSR={post:#010x} STATUS={status} CTX_PUT={ctx_put} CTX_FETCH={ctx_fetch} DIR_PUT={dir_put} DIR_FETCH={dir_fetch}"
+    tracing::info!(
+        post = format_args!("{:#010x}", post),
+        status,
+        ctx_put,
+        ctx_fetch,
+        dir_put,
+        dir_fetch,
+        "║   U2: PCCSR put/fetch"
     );
-    eprintln!(
-        "║   U2: SIG={ctx_sig:#010x} STATE={state:#010x} INTR={intr:#010x} GP_BASE={ctx_get:#010x}"
+    tracing::info!(
+        ctx_sig = format_args!("{:#010x}", ctx_sig),
+        state = format_args!("{:#010x}", state),
+        intr = format_args!("{:#010x}", intr),
+        ctx_get = format_args!("{:#010x}", ctx_get),
+        "║   U2: sig/state"
     );
-    eprintln!(
-        "║   U2: faulted={} sched={}",
-        post & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0,
-        post & 2 != 0
-    );
+    let faulted = post & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0;
+    let sched = post & 2 != 0;
+    tracing::info!(faulted, sched, "║   U2: flags");
     Ok(())
 }
 
@@ -269,9 +301,11 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let _ = ctx.w(pb + pbdma::CTX_GP_BASE_HI, 0xDEAD_004C);
 
     let sched_dis = ctx.r(pfifo::SCHED_DISABLE);
-    eprintln!(
-        "║   V: SCHED_DIS={sched_dis:#010x} PFIFO_INTR={:#010x}",
-        ctx.r(pfifo::INTR)
+    let pfifo_intr_pre = ctx.r(pfifo::INTR);
+    tracing::info!(
+        sched_dis = format_args!("{:#010x}", sched_dis),
+        pfifo_intr = format_args!("{:#010x}", pfifo_intr_pre),
+        "║   V: SCHED_DIS"
     );
 
     let _ = ctx.w(pccsr::inst(ctx.channel_id), ctx.pccsr_inst_val);
@@ -291,18 +325,25 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
     let pfifo_intr = ctx.r(pfifo::INTR);
     let rl_ack = ctx.r(pfifo::RUNLIST_ACK);
-    eprintln!(
-        "║   V: post-rl PCCSR={post_rl:#010x} sched={} PFIFO_INTR={pfifo_intr:#010x} RL_ACK={rl_ack:#010x}",
-        post_rl & 2 != 0
+    let sched = post_rl & 2 != 0;
+    tracing::info!(
+        post_rl = format_args!("{:#010x}", post_rl),
+        sched,
+        pfifo_intr = format_args!("{:#010x}", pfifo_intr),
+        rl_ack = format_args!("{:#010x}", rl_ack),
+        "║   V: post-rl"
     );
 
     let ctx_userd = ctx.r(pb + pbdma::CTX_USERD_LO);
     let ctx_sig = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let ctx_gpbase = ctx.r(pb + pbdma::CTX_GP_BASE_LO);
     let sentinel_changed = ctx_userd != 0xDEAD_0008 || ctx_sig != 0xDEAD_0010;
-    eprintln!(
-        "║   V: CTX: USERD={ctx_userd:#010x} SIG={ctx_sig:#010x} GP_BASE={ctx_gpbase:#010x} loaded={}",
-        sentinel_changed
+    tracing::info!(
+        ctx_userd = format_args!("{:#010x}", ctx_userd),
+        ctx_sig = format_args!("{:#010x}", ctx_sig),
+        ctx_gpbase = format_args!("{:#010x}", ctx_gpbase),
+        loaded = sentinel_changed,
+        "║   V: CTX"
     );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
@@ -312,8 +353,12 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let ctx_userd_post = ctx.r(pb + pbdma::CTX_USERD_LO);
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let pfifo_post = ctx.r(pfifo::INTR);
-    eprintln!(
-        "║   V: post-db PCCSR={post_db:#010x} CTX_USERD={ctx_userd_post:#010x} INTR={intr:#010x} PFIFO={pfifo_post:#010x}"
+    tracing::info!(
+        post_db = format_args!("{:#010x}", post_db),
+        ctx_userd_post = format_args!("{:#010x}", ctx_userd_post),
+        intr = format_args!("{:#010x}", intr),
+        pfifo_post = format_args!("{:#010x}", pfifo_post),
+        "║   V: post-db"
     );
     Ok(())
 }

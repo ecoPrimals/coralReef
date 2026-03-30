@@ -4,7 +4,7 @@
 use crate::sysfs;
 use coral_driver::linux_paths;
 
-use super::types::{RebindStrategy, ResetMethod, VendorLifecycle};
+use super::types::{RebindStrategy, ResetMethod, VendorError, VendorLifecycle};
 
 // ---------------------------------------------------------------------------
 // NVIDIA Kepler lifecycle (GK110, GK210 — Tesla K80, GTX Titan, 780 Ti)
@@ -45,7 +45,7 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
         vec![ResetMethod::RemoveRescan]
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
@@ -77,10 +77,13 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
             sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: Kepler device in D3cold after bind"));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "Kepler device in D3cold after bind".to_string(),
+            });
         }
         Ok(())
     }
@@ -119,7 +122,7 @@ impl VendorLifecycle for NvidiaLifecycle {
         ]
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
 
         tracing::info!(
@@ -127,7 +130,7 @@ impl VendorLifecycle for NvidiaLifecycle {
             "NVIDIA: disabling reset_method (bus reset destroys HBM2 training)"
         );
         sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
-            .map_err(|e| e.to_string())?;
+            .map_err(VendorError::Sysfs)?;
 
         Ok(())
     }
@@ -150,10 +153,13 @@ impl VendorLifecycle for NvidiaLifecycle {
             sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: device in D3cold after bind"));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "device in D3cold after bind".to_string(),
+            });
         }
         Ok(())
     }
@@ -186,14 +192,14 @@ impl VendorLifecycle for NvidiaOpenLifecycle {
         ]
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
         tracing::info!(
             bdf,
             "NVIDIA Open: disabling reset_method (bus reset destroys HBM2 training)"
         );
         sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
-            .map_err(|e| e.to_string())?;
+            .map_err(VendorError::Sysfs)?;
         Ok(())
     }
 
@@ -214,10 +220,13 @@ impl VendorLifecycle for NvidiaOpenLifecycle {
             sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: NVIDIA Open device in D3cold after bind"));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "NVIDIA Open device in D3cold after bind".to_string(),
+            });
         }
         Ok(())
     }
@@ -256,10 +265,10 @@ impl VendorLifecycle for NvidiaOracleLifecycle {
         ]
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
         sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
-            .map_err(|e| e.to_string())?;
+            .map_err(VendorError::Sysfs)?;
         Ok(())
     }
 
@@ -280,10 +289,13 @@ impl VendorLifecycle for NvidiaOracleLifecycle {
             sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: device in D3cold after bind"));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "device in D3cold after bind".to_string(),
+            });
         }
         Ok(())
     }

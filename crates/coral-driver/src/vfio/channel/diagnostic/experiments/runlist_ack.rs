@@ -15,7 +15,10 @@ pub(super) fn runlist_ack_protocol(ctx: &mut ExperimentContext<'_>) -> DriverRes
     let _ = ctx.w(pfifo::INTR, 0xFFFF_FFFF);
     std::thread::sleep(std::time::Duration::from_millis(2));
     let pfifo_pre = ctx.r(pfifo::INTR);
-    eprintln!("║   W: pre PFIFO_INTR={pfifo_pre:#010x}");
+    tracing::info!(
+        pfifo_pre = format_args!("{:#010x}", pfifo_pre),
+        "║   W: pre PFIFO_INTR"
+    );
 
     let _ = ctx.w(pccsr::inst(ctx.channel_id), ctx.pccsr_inst_val);
     std::thread::sleep(std::time::Duration::from_millis(2));
@@ -36,9 +39,16 @@ pub(super) fn runlist_ack_protocol(ctx: &mut ExperimentContext<'_>) -> DriverRes
         let intr = ctx.r(pfifo::INTR);
         if intr & 0x4000_0000 != 0 {
             rl_completed = true;
-            eprintln!("║   W: PFIFO_INTR bit30 SET after {poll}*5ms: {intr:#010x}");
+            tracing::info!(
+                poll,
+                intr = format_args!("{:#010x}", intr),
+                "║   W: PFIFO_INTR bit30 SET"
+            );
             let ack_val = ctx.r(pfifo::RUNLIST_ACK);
-            eprintln!("║   W: RUNLIST_ACK={ack_val:#010x}");
+            tracing::info!(
+                ack_val = format_args!("{:#010x}", ack_val),
+                "║   W: RUNLIST_ACK"
+            );
             let _ = ctx.w(pfifo::RUNLIST_ACK, 1u32 << ctx.target_runlist);
             std::thread::sleep(std::time::Duration::from_millis(2));
             let _ = ctx.w(pfifo::INTR, 0x4000_0000);
@@ -46,7 +56,10 @@ pub(super) fn runlist_ack_protocol(ctx: &mut ExperimentContext<'_>) -> DriverRes
             break;
         }
         if poll == 19 {
-            eprintln!("║   W: PFIFO_INTR bit30 NEVER SET — intr={intr:#010x}");
+            tracing::info!(
+                intr = format_args!("{:#010x}", intr),
+                "║   W: PFIFO_INTR bit30 NEVER SET"
+            );
         }
     }
     let post_ack = ctx.r(pfifo::INTR);
@@ -54,11 +67,20 @@ pub(super) fn runlist_ack_protocol(ctx: &mut ExperimentContext<'_>) -> DriverRes
     let ctx_userd = ctx.r(pb + pbdma::CTX_USERD_LO);
     let ctx_sig = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let sentinel_changed = ctx_userd != 0xDEAD_0008 || ctx_sig != 0xDEAD_0010;
-    eprintln!(
-        "║   W: post-ack PFIFO={post_ack:#010x} PCCSR={pccsr_post:#010x} sched={} loaded={sentinel_changed} rl_done={rl_completed}",
-        pccsr_post & 2 != 0
+    let sched = pccsr_post & 2 != 0;
+    tracing::info!(
+        post_ack = format_args!("{:#010x}", post_ack),
+        pccsr_post = format_args!("{:#010x}", pccsr_post),
+        sched,
+        loaded = sentinel_changed,
+        rl_done = rl_completed,
+        "║   W: post-ack summary"
     );
-    eprintln!("║   W: CTX_USERD={ctx_userd:#010x} CTX_SIG={ctx_sig:#010x}");
+    tracing::info!(
+        ctx_userd = format_args!("{:#010x}", ctx_userd),
+        ctx_sig = format_args!("{:#010x}", ctx_sig),
+        "║   W: CTX"
+    );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -67,8 +89,12 @@ pub(super) fn runlist_ack_protocol(ctx: &mut ExperimentContext<'_>) -> DriverRes
     let post_db_intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let ctx_fetch = ctx.r(pb + pbdma::CTX_GP_BASE_LO);
     let dir_fetch = ctx.r(pb + pbdma::GP_FETCH);
-    eprintln!(
-        "║   W: post-db PCCSR={post_db_pccsr:#010x} PBDMA_INTR={post_db_intr:#010x} CTX_GP={ctx_fetch:#010x} FETCH={dir_fetch:#010x}"
+    tracing::info!(
+        post_db_pccsr = format_args!("{:#010x}", post_db_pccsr),
+        post_db_intr = format_args!("{:#010x}", post_db_intr),
+        ctx_fetch = format_args!("{:#010x}", ctx_fetch),
+        dir_fetch = format_args!("{:#010x}", dir_fetch),
+        "║   W: post-db"
     );
     Ok(())
 }
@@ -93,8 +119,11 @@ pub(super) fn inst_bind_with_runlist_ack(ctx: &mut ExperimentContext<'_>) -> Dri
     let bind_pccsr = ctx.r(pccsr::channel(ctx.channel_id));
     let bind_ctx_userd = ctx.r(pb + pbdma::CTX_USERD_LO);
     let bind_ctx_sig = ctx.r(pb + pbdma::CTX_SIGNATURE);
-    eprintln!(
-        "║   X: post-bind PCCSR={bind_pccsr:#010x} CTX_USERD={bind_ctx_userd:#010x} CTX_SIG={bind_ctx_sig:#010x}"
+    tracing::info!(
+        bind_pccsr = format_args!("{:#010x}", bind_pccsr),
+        bind_ctx_userd = format_args!("{:#010x}", bind_ctx_userd),
+        bind_ctx_sig = format_args!("{:#010x}", bind_ctx_sig),
+        "║   X: post-bind"
     );
 
     let gp_entry: u64 = (NOP_PB_IOVA & 0xFFFF_FFFC) | ((2_u64) << (32 + 10));
@@ -111,16 +140,26 @@ pub(super) fn inst_bind_with_runlist_ack(ctx: &mut ExperimentContext<'_>) -> Dri
         let intr = ctx.r(pfifo::INTR);
         if intr & 0x4000_0000 != 0 {
             rl_completed = true;
-            eprintln!("║   X: PFIFO_INTR bit30 SET after {poll}*5ms: {intr:#010x}");
+            tracing::info!(
+                poll,
+                intr = format_args!("{:#010x}", intr),
+                "║   X: PFIFO_INTR bit30 SET"
+            );
             let ack_val = ctx.r(pfifo::RUNLIST_ACK);
-            eprintln!("║   X: RUNLIST_ACK={ack_val:#010x}");
+            tracing::info!(
+                ack_val = format_args!("{:#010x}", ack_val),
+                "║   X: RUNLIST_ACK"
+            );
             let _ = ctx.w(pfifo::RUNLIST_ACK, 1u32 << ctx.target_runlist);
             let _ = ctx.w(pfifo::INTR, 0x4000_0000);
             std::thread::sleep(std::time::Duration::from_millis(2));
             break;
         }
         if poll == 19 {
-            eprintln!("║   X: PFIFO_INTR bit30 NEVER SET — intr={intr:#010x}");
+            tracing::info!(
+                intr = format_args!("{:#010x}", intr),
+                "║   X: PFIFO_INTR bit30 NEVER SET"
+            );
         }
     }
 
@@ -128,9 +167,13 @@ pub(super) fn inst_bind_with_runlist_ack(ctx: &mut ExperimentContext<'_>) -> Dri
     let ctx_userd_post = ctx.r(pb + pbdma::CTX_USERD_LO);
     let ctx_sig_post = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let sentinel_changed = ctx_userd_post != 0xDEAD_0008 || ctx_sig_post != 0xDEAD_0010;
-    eprintln!(
-        "║   X: post-ack PCCSR={pccsr_post:#010x} sched={} loaded={sentinel_changed} rl_done={rl_completed}",
-        pccsr_post & 2 != 0
+    let sched = pccsr_post & 2 != 0;
+    tracing::info!(
+        pccsr_post = format_args!("{:#010x}", pccsr_post),
+        sched,
+        loaded = sentinel_changed,
+        rl_done = rl_completed,
+        "║   X: post-ack"
     );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
@@ -140,8 +183,12 @@ pub(super) fn inst_bind_with_runlist_ack(ctx: &mut ExperimentContext<'_>) -> Dri
     let post_db_intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let dir_gp_put = ctx.r(pb + pbdma::GP_PUT);
     let dir_gp_fetch = ctx.r(pb + pbdma::GP_FETCH);
-    eprintln!(
-        "║   X: post-db PCCSR={post_db_pccsr:#010x} PBDMA_INTR={post_db_intr:#010x} GP_PUT={dir_gp_put} GP_FETCH={dir_gp_fetch}"
+    tracing::info!(
+        post_db_pccsr = format_args!("{:#010x}", post_db_pccsr),
+        post_db_intr = format_args!("{:#010x}", post_db_intr),
+        dir_gp_put,
+        dir_gp_fetch,
+        "║   X: post-db"
     );
     Ok(())
 }
@@ -158,13 +205,16 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
     let _ = ctx.w(pfifo::GV100_PREEMPT, 1u32 << ctx.target_runlist);
     std::thread::sleep(std::time::Duration::from_millis(10));
     let preempt_intr = ctx.r(pfifo::INTR);
-    eprintln!("║   Y: post-preempt PFIFO_INTR={preempt_intr:#010x}");
+    tracing::info!(
+        preempt_intr = format_args!("{:#010x}", preempt_intr),
+        "║   Y: post-preempt PFIFO_INTR"
+    );
 
     if preempt_intr & 0x4000_0000 != 0 {
         let ack = ctx.r(pfifo::RUNLIST_ACK);
         let _ = ctx.w(pfifo::RUNLIST_ACK, 1u32 << ctx.target_runlist);
         let _ = ctx.w(pfifo::INTR, 0x4000_0000);
-        eprintln!("║   Y: preempt ACK'd (ack={ack:#010x})");
+        tracing::info!(ack = format_args!("{:#010x}", ack), "║   Y: preempt ACK'd");
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let _ = ctx.w(pfifo::INTR, 0xFFFF_FFFF);
@@ -178,7 +228,10 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let bind_pccsr = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!("║   Y: post-bind PCCSR={bind_pccsr:#010x}");
+    tracing::info!(
+        bind_pccsr = format_args!("{:#010x}", bind_pccsr),
+        "║   Y: post-bind PCCSR"
+    );
 
     let gp_entry: u64 = (NOP_PB_IOVA & 0xFFFF_FFFC) | ((2_u64) << (32 + 10));
     ctx.gpfifo_ring[0..8].copy_from_slice(&gp_entry.to_le_bytes());
@@ -195,8 +248,11 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
         if intr & 0x4000_0000 != 0 {
             rl_completed = true;
             let ack_val = ctx.r(pfifo::RUNLIST_ACK);
-            eprintln!(
-                "║   Y: PFIFO_INTR bit30 SET after {poll}*5ms: {intr:#010x} ACK={ack_val:#010x}"
+            tracing::info!(
+                poll,
+                intr = format_args!("{:#010x}", intr),
+                ack_val = format_args!("{:#010x}", ack_val),
+                "║   Y: PFIFO_INTR bit30 SET"
             );
             let _ = ctx.w(pfifo::RUNLIST_ACK, 1u32 << ctx.target_runlist);
             let _ = ctx.w(pfifo::INTR, 0x4000_0000);
@@ -204,7 +260,10 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
             break;
         }
         if poll == 19 {
-            eprintln!("║   Y: PFIFO_INTR bit30 NEVER SET — intr={intr:#010x}");
+            tracing::info!(
+                intr = format_args!("{:#010x}", intr),
+                "║   Y: PFIFO_INTR bit30 NEVER SET"
+            );
         }
     }
 
@@ -212,11 +271,19 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
     let ctx_userd_post = ctx.r(pb + pbdma::CTX_USERD_LO);
     let ctx_sig_post = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let sentinel_changed = ctx_userd_post != 0xDEAD_0008 || ctx_sig_post != 0xDEAD_0010;
-    eprintln!(
-        "║   Y: post-ack PCCSR={pccsr_post:#010x} sched={} loaded={sentinel_changed} rl_done={rl_completed}",
-        pccsr_post & 2 != 0
+    let sched = pccsr_post & 2 != 0;
+    tracing::info!(
+        pccsr_post = format_args!("{:#010x}", pccsr_post),
+        sched,
+        loaded = sentinel_changed,
+        rl_done = rl_completed,
+        "║   Y: post-ack"
     );
-    eprintln!("║   Y: CTX_USERD={ctx_userd_post:#010x} CTX_SIG={ctx_sig_post:#010x}");
+    tracing::info!(
+        ctx_userd_post = format_args!("{:#010x}", ctx_userd_post),
+        ctx_sig_post = format_args!("{:#010x}", ctx_sig_post),
+        "║   Y: CTX"
+    );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -226,8 +293,13 @@ pub(super) fn preempt_inst_bind_ack(ctx: &mut ExperimentContext<'_>) -> DriverRe
     let dir_gp_put = ctx.r(pb + pbdma::GP_PUT);
     let dir_gp_fetch = ctx.r(pb + pbdma::GP_FETCH);
     let pfifo_post = ctx.r(pfifo::INTR);
-    eprintln!(
-        "║   Y: post-db PCCSR={post_db_pccsr:#010x} INTR={post_db_intr:#010x} GP_PUT={dir_gp_put} FETCH={dir_gp_fetch} PFIFO={pfifo_post:#010x}"
+    tracing::info!(
+        post_db_pccsr = format_args!("{:#010x}", post_db_pccsr),
+        post_db_intr = format_args!("{:#010x}", post_db_intr),
+        dir_gp_put,
+        dir_gp_fetch,
+        pfifo_post = format_args!("{:#010x}", pfifo_post),
+        "║   Y: post-db"
     );
     Ok(())
 }

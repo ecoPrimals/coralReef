@@ -4,7 +4,7 @@
 //! Pure evaluation functions separated from the interpreter orchestration
 //! in `mod.rs` for file-size compliance and logical cohesion.
 
-use super::{eval_expr, InterpreterState, Value};
+use super::{InterpreterState, Value, eval_expr};
 use crate::types::CpuError;
 
 pub(super) fn eval_function_argument(
@@ -222,10 +222,20 @@ pub(super) fn eval_math(
     tertiary: Option<&Value>,
 ) -> Result<Value, CpuError> {
     if let Value::Vector(components) = primary {
-        let sec_vec =
-            secondary.and_then(|v| if let Value::Vector(bv) = v { Some(bv.as_slice()) } else { None });
-        let ter_vec =
-            tertiary.and_then(|v| if let Value::Vector(cv) = v { Some(cv.as_slice()) } else { None });
+        let sec_vec = secondary.and_then(|v| {
+            if let Value::Vector(bv) = v {
+                Some(bv.as_slice())
+            } else {
+                None
+            }
+        });
+        let ter_vec = tertiary.and_then(|v| {
+            if let Value::Vector(cv) = v {
+                Some(cv.as_slice())
+            } else {
+                None
+            }
+        });
 
         let results: Vec<Value> = components
             .iter()
@@ -356,7 +366,7 @@ fn eval_math_f64(
         _ => {
             return Err(CpuError::Unsupported(format!(
                 "math function {fun:?} on f64"
-            )))
+            )));
         }
     })
 }
@@ -441,8 +451,10 @@ pub(super) fn eval_cast(val: &Value, kind: naga::ScalarKind) -> Result<Value, Cp
             Value::I32(v) => Ok(Value::F32(*v as f32)),
             Value::Bool(v) => Ok(Value::F32(if *v { 1.0 } else { 0.0 })),
             Value::Vector(v) => {
-                let casted: Vec<Value> =
-                    v.iter().map(|c| eval_cast(c, kind)).collect::<Result<_, _>>()?;
+                let casted: Vec<Value> = v
+                    .iter()
+                    .map(|c| eval_cast(c, kind))
+                    .collect::<Result<_, _>>()?;
                 Ok(Value::Vector(casted))
             }
         },
@@ -453,8 +465,10 @@ pub(super) fn eval_cast(val: &Value, kind: naga::ScalarKind) -> Result<Value, Cp
             Value::F64(v) => Ok(Value::U32(*v as u32)),
             Value::Bool(v) => Ok(Value::U32(u32::from(*v))),
             Value::Vector(v) => {
-                let casted: Vec<Value> =
-                    v.iter().map(|c| eval_cast(c, kind)).collect::<Result<_, _>>()?;
+                let casted: Vec<Value> = v
+                    .iter()
+                    .map(|c| eval_cast(c, kind))
+                    .collect::<Result<_, _>>()?;
                 Ok(Value::Vector(casted))
             }
         },
@@ -465,8 +479,10 @@ pub(super) fn eval_cast(val: &Value, kind: naga::ScalarKind) -> Result<Value, Cp
             Value::F64(v) => Ok(Value::I32(*v as i32)),
             Value::Bool(v) => Ok(Value::I32(i32::from(*v))),
             Value::Vector(v) => {
-                let casted: Vec<Value> =
-                    v.iter().map(|c| eval_cast(c, kind)).collect::<Result<_, _>>()?;
+                let casted: Vec<Value> = v
+                    .iter()
+                    .map(|c| eval_cast(c, kind))
+                    .collect::<Result<_, _>>()?;
                 Ok(Value::Vector(casted))
             }
         },
@@ -477,8 +493,10 @@ pub(super) fn eval_cast(val: &Value, kind: naga::ScalarKind) -> Result<Value, Cp
             Value::F32(v) => Ok(Value::Bool(*v != 0.0)),
             Value::F64(v) => Ok(Value::Bool(*v != 0.0)),
             Value::Vector(v) => {
-                let casted: Vec<Value> =
-                    v.iter().map(|c| eval_cast(c, kind)).collect::<Result<_, _>>()?;
+                let casted: Vec<Value> = v
+                    .iter()
+                    .map(|c| eval_cast(c, kind))
+                    .collect::<Result<_, _>>()?;
                 Ok(Value::Vector(casted))
             }
         },
@@ -544,10 +562,14 @@ pub(super) fn store_to_pointer(
                         let byte_offset = index as usize * 4;
                         match value {
                             Value::F32(v) => {
-                                state.memory.write_f32(rb.group, rb.binding, byte_offset, *v)
+                                state
+                                    .memory
+                                    .write_f32(rb.group, rb.binding, byte_offset, *v)
                             }
                             Value::U32(v) => {
-                                state.memory.write_u32(rb.group, rb.binding, byte_offset, *v)
+                                state
+                                    .memory
+                                    .write_u32(rb.group, rb.binding, byte_offset, *v)
                             }
                             _ => Err(CpuError::Unsupported(
                                 "store non-scalar to binding element".into(),
@@ -578,10 +600,14 @@ pub(super) fn store_to_pointer(
                         let byte_offset = idx * 4;
                         match value {
                             Value::F32(v) => {
-                                state.memory.write_f32(rb.group, rb.binding, byte_offset, *v)
+                                state
+                                    .memory
+                                    .write_f32(rb.group, rb.binding, byte_offset, *v)
                             }
                             Value::U32(v) => {
-                                state.memory.write_u32(rb.group, rb.binding, byte_offset, *v)
+                                state
+                                    .memory
+                                    .write_u32(rb.group, rb.binding, byte_offset, *v)
                             }
                             _ => Err(CpuError::Unsupported(
                                 "store non-scalar to array element".into(),
@@ -607,14 +633,15 @@ pub(super) fn eval_global_binding(
     rb: naga::ResourceBinding,
     _gv: &naga::GlobalVariable,
 ) -> Result<Value, CpuError> {
-    let buf = state
-        .memory
-        .buffers
-        .get(&(rb.group, rb.binding))
-        .ok_or(CpuError::MissingBinding {
-            group: rb.group,
-            binding: rb.binding,
-        })?;
+    let buf =
+        state
+            .memory
+            .buffers
+            .get(&(rb.group, rb.binding))
+            .ok_or(CpuError::MissingBinding {
+                group: rb.group,
+                binding: rb.binding,
+            })?;
     let element_count = buf.len() / 4;
     let mut vals = Vec::with_capacity(element_count);
     for i in 0..element_count {
@@ -659,10 +686,7 @@ fn store_to_global_binding(
     }
 }
 
-pub(super) fn default_value_for_type(
-    module: &naga::Module,
-    ty: naga::Handle<naga::Type>,
-) -> Value {
+pub(super) fn default_value_for_type(module: &naga::Module, ty: naga::Handle<naga::Type>) -> Value {
     match module.types[ty].inner {
         naga::TypeInner::Scalar(s) => match s.kind {
             naga::ScalarKind::Float if s.width == 8 => Value::F64(0.0),

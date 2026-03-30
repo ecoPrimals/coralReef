@@ -41,7 +41,7 @@ pub use intel::IntelXeLifecycle;
 pub use nvidia::{
     NvidiaKeplerLifecycle, NvidiaLifecycle, NvidiaOpenLifecycle, NvidiaOracleLifecycle,
 };
-pub use types::{RebindStrategy, ResetMethod, VendorLifecycle};
+pub use types::{RebindStrategy, ResetMethod, VendorError, VendorLifecycle};
 
 #[cfg(test)]
 pub(crate) use detect::{is_amd_vega20, is_nvidia_kepler, lifecycle_from_pci_ids};

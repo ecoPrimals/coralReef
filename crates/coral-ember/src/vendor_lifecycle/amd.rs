@@ -4,7 +4,7 @@
 use crate::sysfs;
 use coral_driver::linux_paths;
 
-use super::types::{RebindStrategy, VendorLifecycle};
+use super::types::{RebindStrategy, VendorError, VendorLifecycle};
 
 // ---------------------------------------------------------------------------
 // AMD lifecycle (Vega 20 / GFX906 — MI50, MI60, Radeon VII)
@@ -26,7 +26,7 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         "AMD Vega 20 (bus reset causes D3cold — reset_method must be disabled)"
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
@@ -35,7 +35,7 @@ impl VendorLifecycle for AmdVega20Lifecycle {
             "AMD Vega 20: disabling reset_method (prevents D3cold on any transition)"
         );
         sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
-            .map_err(|e| e.to_string())?;
+            .map_err(VendorError::Sysfs)?;
 
         Ok(())
     }
@@ -79,12 +79,13 @@ impl VendorLifecycle for AmdVega20Lifecycle {
         );
     }
 
-    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!(
-                "{bdf}: AMD Vega 20 in D3cold — SMU firmware lost, reboot required"
-            ));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "AMD Vega 20 in D3cold — SMU firmware lost, reboot required".to_string(),
+            });
         }
 
         if target_driver == "amdgpu" {
@@ -128,13 +129,13 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         "AMD RDNA (conservative — needs empirical validation)"
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
         sysfs::pin_bridge_power(bdf);
 
         tracing::info!(bdf, "AMD RDNA: disabling reset_method (conservative)");
         sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")
-            .map_err(|e| e.to_string())?;
+            .map_err(VendorError::Sysfs)?;
 
         Ok(())
     }
@@ -169,10 +170,13 @@ impl VendorLifecycle for AmdRdnaLifecycle {
         }
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: AMD RDNA in D3cold after bind"));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "AMD RDNA in D3cold after bind".to_string(),
+            });
         }
         Ok(())
     }

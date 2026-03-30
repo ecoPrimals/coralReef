@@ -118,7 +118,10 @@ impl PfifoInitConfig {
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
-#[expect(dead_code, reason = "convenience wrapper for init_pfifo_engine_with — used once channel orchestrator is fully wired")]
+#[expect(
+    dead_code,
+    reason = "convenience wrapper — used once channel orchestrator is fully wired"
+)]
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
 }

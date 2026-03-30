@@ -33,7 +33,7 @@
 
 use crate::sysfs;
 
-use super::types::{RebindStrategy, VendorLifecycle};
+use super::types::{RebindStrategy, VendorError, VendorLifecycle};
 
 /// Returns true when `target_driver` is a native Intel DRM driver that owns `/dev/dri/card*`.
 #[inline]
@@ -58,7 +58,7 @@ impl VendorLifecycle for IntelXeLifecycle {
         "Intel Xe/Arc (xe/i915 — simple bind, ~2s settle, DRM card sysfs check)"
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), VendorError> {
         sysfs::pin_power(bdf);
         Ok(())
     }
@@ -75,16 +75,20 @@ impl VendorLifecycle for IntelXeLifecycle {
         sysfs::pin_power(bdf);
     }
 
-    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), VendorError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: Intel GPU in D3cold after bind"));
+            return Err(VendorError::HealthCheck {
+                bdf: bdf.to_string(),
+                detail: "Intel GPU in D3cold after bind".to_string(),
+            });
         }
 
         if is_intel_drm_target_driver(target_driver) && sysfs::find_drm_card(bdf).is_none() {
-            return Err(format!(
-                "{bdf}: no DRM card sysfs node for {target_driver} (expected drm/card*)"
-            ));
+            return Err(VendorError::DrmCardNotFound {
+                bdf: bdf.to_string(),
+                driver: target_driver.to_string(),
+            });
         }
 
         Ok(())

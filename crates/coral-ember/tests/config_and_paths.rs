@@ -30,7 +30,7 @@ unsafe fn env_remove_var(key: &str) {
 }
 
 fn with_env_cleared<F: FnOnce()>(vars: &[&str], f: F) {
-    let _guard = ENV_LOCK.lock().expect("env test lock poisoned");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let saved: Vec<(&str, Option<String>)> =
         vars.iter().map(|&k| (k, std::env::var(k).ok())).collect();
     for &k in vars {
@@ -106,7 +106,7 @@ fn system_glowplug_config_path_ignores_empty_env() {
 
 #[test]
 fn find_config_prefers_xdg_over_system_path() {
-    let _guard = ENV_LOCK.lock().expect("env test lock poisoned");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let home = dir.path().join("home");
     std::fs::create_dir_all(home.join(".config/coralreef")).expect("mkdir");
@@ -153,7 +153,7 @@ fn find_config_prefers_xdg_over_system_path() {
 
 #[test]
 fn find_config_falls_back_to_system_when_xdg_missing() {
-    let _guard = ENV_LOCK.lock().expect("env test lock poisoned");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let home = dir.path().join("empty_home");
     std::fs::create_dir_all(&home).expect("mkdir");
@@ -196,7 +196,7 @@ fn find_config_falls_back_to_system_when_xdg_missing() {
 
 #[test]
 fn find_config_none_when_no_candidates_exist() {
-    let _guard = ENV_LOCK.lock().expect("env test lock poisoned");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let home = dir.path().join("nope");
     std::fs::create_dir_all(&home).expect("mkdir");
@@ -306,7 +306,7 @@ fn parse_glowplug_config_ignores_unknown_top_level_and_device_keys() {
 
 #[test]
 fn find_config_prefers_explicit_xdg_config_home() {
-    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let xdg_base = dir.path().join("xdg");
     let xdg_cfg = xdg_base.join("coralreef/glowplug.toml");
@@ -351,7 +351,7 @@ fn find_config_prefers_explicit_xdg_config_home() {
 
 #[test]
 fn default_xorg_path_respects_coralreef_x11_conf_dir_env() {
-    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let prev = std::env::var("CORALREEF_X11_CONF_DIR").ok();
     unsafe {
@@ -376,7 +376,7 @@ fn default_xorg_path_respects_coralreef_x11_conf_dir_env() {
 
 #[test]
 fn default_udev_path_respects_coralreef_udev_rules_dir_env() {
-    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let prev = std::env::var("CORALREEF_UDEV_RULES_DIR").ok();
     unsafe {
@@ -401,7 +401,7 @@ fn default_udev_path_respects_coralreef_udev_rules_dir_env() {
 
 #[test]
 fn journal_open_default_respects_coralreef_journal_path_env() {
-    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let journal_path = dir.path().join("from-env.jsonl");
     let path_str = journal_path.to_str().expect("utf8 journal path");

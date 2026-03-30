@@ -52,9 +52,7 @@ pub fn execute_cpu(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, Cp
                                 workgroup_id: [wg_x, wg_y, wg_z],
                                 num_workgroups: request.workgroups,
                             };
-                            interpret_function(
-                                &module, &info, &ep.function, &ctx, &mut memory,
-                            )?;
+                            interpret_function(&module, &info, &ep.function, &ctx, &mut memory)?;
                         }
                     }
                 }
@@ -214,7 +212,11 @@ impl BindingMemory {
                 group,
                 binding,
                 data: bytes::Bytes::from(data),
-                usage: self.usage.get(&(group, binding)).copied().unwrap_or_default(),
+                usage: self
+                    .usage
+                    .get(&(group, binding))
+                    .copied()
+                    .unwrap_or_default(),
             })
             .collect();
         result.sort_by_key(|b| (b.group, b.binding));
@@ -435,10 +437,7 @@ pub(crate) fn eval_expr(
             eval_const_expr(state.module, constant.init)
         }
         naga::Expression::ZeroValue(ty) => Ok(default_value_for_type(state.module, ty)),
-        naga::Expression::Compose {
-            ty,
-            ref components,
-        } => {
+        naga::Expression::Compose { ty, ref components } => {
             let vals: Vec<Value> = components
                 .iter()
                 .map(|&c| eval_expr(state, c))
@@ -468,9 +467,11 @@ pub(crate) fn eval_expr(
                 let gv = &state.module.global_variables[var];
                 if let Some(ref rb) = gv.binding {
                     let byte_offset = idx * 4;
-                    return Ok(Value::F32(
-                        state.memory.read_f32(rb.group, rb.binding, byte_offset)?,
-                    ));
+                    return Ok(Value::F32(state.memory.read_f32(
+                        rb.group,
+                        rb.binding,
+                        byte_offset,
+                    )?));
                 }
             }
             let base_val = eval_expr(state, base)?;
@@ -537,9 +538,7 @@ pub(crate) fn eval_expr(
             let gv = &state.module.global_variables[var];
             gv.binding.as_ref().map_or_else(
                 || match gv.space {
-                    naga::AddressSpace::Private => {
-                        Ok(default_value_for_type(state.module, gv.ty))
-                    }
+                    naga::AddressSpace::Private => Ok(default_value_for_type(state.module, gv.ty)),
                     _ => Err(CpuError::Internal(format!(
                         "global variable without binding in space {:?}",
                         gv.space

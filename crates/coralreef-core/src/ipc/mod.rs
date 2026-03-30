@@ -31,7 +31,7 @@ pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     unused_imports,
-    reason = "re-exported for integration tests via e2e feature"
+    reason = "used in integration tests — unused in binary when e2e feature active"
 )]
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
@@ -51,7 +51,7 @@ pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     unused_imports,
-    reason = "re-exported for fuzzing and integration tests, not the coralreef binary"
+    reason = "used in integration tests — unused in binary when e2e feature active"
 )]
 pub use newline_jsonrpc::dispatch;
 
@@ -60,7 +60,7 @@ mod unix_jsonrpc;
 #[cfg(unix)]
 #[allow(
     unused_imports,
-    reason = "re-exported for embedders; not referenced by the coralreef binary"
+    reason = "re-exported for embedders; unused in the coralreef binary itself"
 )]
 pub use unix_jsonrpc::unix_socket_path_for_base;
 #[cfg(unix)]

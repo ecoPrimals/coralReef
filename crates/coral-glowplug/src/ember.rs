@@ -21,8 +21,17 @@ use coral_ember::observation::SwapObservation;
 use crate::error::EmberError;
 
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
+///
+/// Follows wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 fn default_ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 /// Returns the resolved ember socket path (for integration tests that set `CORALREEF_EMBER_SOCKET`).
@@ -100,7 +109,7 @@ impl EmberClient {
 
     /// Try to connect to the ember. Returns None if the ember is not running.
     ///
-    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
+    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`).
     pub fn connect() -> Option<Self> {
         #[cfg(test)]
         if EMBER_DISABLED.with(|c| c.get()) {

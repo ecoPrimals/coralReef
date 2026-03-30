@@ -128,7 +128,7 @@ fn nvidia_prepare_for_unbind_clears_reset_method() {
     let err = lc
         .prepare_for_unbind("not-a-bdf", "nouveau")
         .expect_err("should fail on fake BDF (sysfs path absent)");
-    assert!(!err.is_empty());
+    assert!(!err.to_string().is_empty());
 }
 
 #[test]
@@ -250,7 +250,8 @@ fn intel_verify_health_requires_drm_sysfs_for_native_drivers() {
     let err = intel
         .verify_health("9999:99:99.9", "xe")
         .expect_err("missing drm/card on fake BDF");
-    assert!(err.contains("DRM") || err.contains("drm"), "{err}");
+    let msg = err.to_string();
+    assert!(msg.contains("DRM") || msg.contains("drm"), "{msg}");
 }
 
 #[test]
@@ -339,7 +340,7 @@ fn amd_vega20_prepare_for_unbind_errors_on_garbage_bdf() {
     let err = lc
         .prepare_for_unbind("not-a-bdf", "vfio-pci")
         .expect_err("reset_method sysfs");
-    assert!(!err.is_empty());
+    assert!(!err.to_string().is_empty());
 }
 
 #[test]
@@ -363,7 +364,7 @@ fn nvidia_oracle_prepare_and_verify_best_effort_on_missing_sysfs() {
     let err = lc
         .prepare_for_unbind("9999:99:99.9", "vfio-pci")
         .expect_err("reset_method write on absent device");
-    assert!(!err.is_empty());
+    assert!(!err.to_string().is_empty());
     lc.verify_health("9999:99:99.9", "nvidia_oracle")
         .expect("health when power state unknown");
 }

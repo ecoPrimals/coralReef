@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use crate::journal::Journal;
-use crate::vendor_lifecycle::{RebindStrategy, ResetMethod, VendorLifecycle};
+use crate::vendor_lifecycle::{RebindStrategy, ResetMethod, VendorError, VendorLifecycle};
 
 /// Minimum number of journal entries needed before adaptive overrides apply.
 const MIN_DATA_POINTS: u64 = 3;
@@ -133,7 +133,7 @@ impl VendorLifecycle for AdaptiveLifecycle {
         self.inner.description()
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), VendorError> {
         self.inner.prepare_for_unbind(bdf, current_driver)
     }
 
@@ -173,7 +173,7 @@ impl VendorLifecycle for AdaptiveLifecycle {
         self.inner.stabilize_after_bind(bdf, target_driver);
     }
 
-    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), VendorError> {
         self.inner.verify_health(bdf, target_driver)
     }
 
@@ -228,7 +228,7 @@ mod tests {
         fn description(&self) -> &str {
             "Stub"
         }
-        fn prepare_for_unbind(&self, _bdf: &str, _driver: &str) -> Result<(), String> {
+        fn prepare_for_unbind(&self, _bdf: &str, _driver: &str) -> Result<(), VendorError> {
             Ok(())
         }
         fn rebind_strategy(&self, _target: &str) -> RebindStrategy {
@@ -238,7 +238,7 @@ mod tests {
             10
         }
         fn stabilize_after_bind(&self, _bdf: &str, _target: &str) {}
-        fn verify_health(&self, _bdf: &str, _target: &str) -> Result<(), String> {
+        fn verify_health(&self, _bdf: &str, _target: &str) -> Result<(), VendorError> {
             Ok(())
         }
         fn available_reset_methods(&self) -> Vec<ResetMethod> {

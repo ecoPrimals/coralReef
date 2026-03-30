@@ -569,11 +569,19 @@ pub(crate) fn rpc_health(socket: &str) {
 }
 
 /// Resolve the ember socket path for direct journal access.
+///
+/// Follows wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 pub(super) fn ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/run/coralreef/ember.sock".to_string())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET")
+        && !p.is_empty()
+    {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 pub(crate) fn rpc_journal_query(
