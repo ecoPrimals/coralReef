@@ -14,6 +14,9 @@
 
 use super::super::ir::*;
 use super::super::legalize::{LegalizeBuildHelpers, LegalizeBuilder};
+use super::encoding::Rdna2Encoder;
+use super::isa;
+use super::reg::AmdRegRef;
 use crate::CompileError;
 
 use coral_reef_stubs::fxhash::FxHashMap;
@@ -252,6 +255,13 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
     Ok(())
 }
 
+/// Number of VGPRs reserved at the end of the GPR allocation for the
+/// TID save prologue. v0/v1/v2 are hardware-preloaded with local thread
+/// IDs (TID.x/y/z) but the register allocator doesn't know they're live,
+/// so compiler-generated code can overwrite them. We save them to safe
+/// VGPRs before any other instructions execute.
+const TID_SAVE_VGPRS: u16 = 3;
+
 /// Encode an AMD RDNA2 shader to instruction words.
 ///
 /// Compute shaders have no header (unlike NVIDIA's SPH).
@@ -260,12 +270,18 @@ fn encode_rdna2_shader(sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>
         return Err(CompileError::InvalidInput("empty shader".into()));
     }
     let func = &s.functions[0];
-    let scratch_vgpr_0 = u16::from(s.info.gpr_count);
+
+    // Reserve VGPRs for TID save + scratch: [gpr_count..gpr_count+2] = TID save,
+    // [gpr_count+3] = scratch_0, [gpr_count+4] = scratch_1.
+    let tid_save_base = u16::from(s.info.gpr_count);
+    let scratch_vgpr_0 = tid_save_base + TID_SAVE_VGPRS;
     let scratch_vgpr_1 = scratch_vgpr_0 + 1;
 
     let user_sgpr_count = compute_user_sgpr_count(s);
 
     let mut ip = 0_usize;
+    // Prologue: 3 V_MOV_B32 instructions (1 dword each)
+    ip += 3;
     let mut labels: FxHashMap<Label, usize> = FxHashMap::default();
     for b in &func.blocks {
         labels.insert(b.label, ip);
@@ -280,6 +296,18 @@ fn encode_rdna2_shader(sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>
     }
 
     let mut encoded = Vec::new();
+
+    // ── TID Save Prologue ──
+    // v0/v1/v2 contain hardware-preloaded TID.x/y/z. Save them before
+    // any compiler-generated code can overwrite them.
+    for i in 0..TID_SAVE_VGPRS {
+        encoded.extend_from_slice(&Rdna2Encoder::encode_vop1(
+            isa::vop1::V_MOV_B32,
+            AmdRegRef::vgpr(tid_save_base + i),
+            256 + i, // v0, v1, v2
+        ));
+    }
+
     for b in &func.blocks {
         for instr in &b.instrs {
             let words = super::super::ops::encode_amd_op(
@@ -291,6 +319,7 @@ fn encode_rdna2_shader(sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>
                 scratch_vgpr_1,
                 sm.gfx_version / 10,
                 user_sgpr_count,
+                tid_save_base,
             )?;
             encoded.extend_from_slice(&words);
         }
@@ -311,9 +340,10 @@ fn encode_rdna2_shader(sm: &ShaderModelRdna2, s: &Shader<'_>) -> Result<Vec<u32>
     Ok(encoded)
 }
 
-/// Scan the shader IR to determine how many user data SGPRs are consumed
-/// by constant buffer references (buffer VAs). Workgroup ID SGPRs follow
-/// immediately after these in the AMD compute dispatch SGPR layout.
+/// Compute the total user data SGPR count for AMD compute dispatch.
+///
+/// Layout: `[buffer VAs (2 per buffer)] [NTID x/y/z] [NCTAID x/y/z]`
+/// Hardware appends TGID (workgroup IDs) after user_sgpr_count.
 fn compute_user_sgpr_count(s: &Shader<'_>) -> u16 {
     let mut max_sgpr: Option<u16> = None;
     for func in &s.functions {
@@ -330,7 +360,8 @@ fn compute_user_sgpr_count(s: &Shader<'_>) -> u16 {
             }
         }
     }
-    max_sgpr.map_or(0, |m| m + 1)
+    let buffer_sgprs = max_sgpr.map_or(0, |m| m + 1);
+    buffer_sgprs + 6
 }
 
 fn ends_with_endpgm(words: &[u32]) -> bool {

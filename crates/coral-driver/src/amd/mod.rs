@@ -35,6 +35,9 @@ pub struct AmdDevice {
     inflight: Vec<BufferHandle>,
     /// HW IP ring to submit on (default: COMPUTE).
     ip_type: u32,
+    /// GFX major version (9=GCN5/Vega, 10=RDNA2, 11=RDNA3, 12=RDNA4).
+    /// Controls PM4 register encoding differences (MEM_ORDERED, cache GCR bits).
+    gfx_major: u8,
 }
 
 impl AmdDevice {
@@ -78,7 +81,14 @@ impl AmdDevice {
             last_fence: 0,
             inflight: Vec::new(),
             ip_type: ioctl::AMDGPU_HW_IP_COMPUTE,
+            gfx_major: 10,
         })
+    }
+
+    /// Set the GFX major version for PM4 register encoding.
+    /// 9=GCN5/Vega, 10=RDNA2, 11=RDNA3, 12=RDNA4.
+    pub fn set_gfx_major(&mut self, gfx_major: u8) {
+        self.gfx_major = gfx_major;
     }
 
     const fn alloc_handle(&mut self) -> u32 {
@@ -157,7 +167,26 @@ impl ComputeDevice for AmdDevice {
             .iter()
             .filter_map(|bh| self.buffers.get(&bh.0).map(|g| g.gpu_va))
             .collect();
-        let pm4_words = pm4::build_compute_dispatch(shader_va, dims, info, &buffer_vas);
+
+        eprintln!("[coral-driver AMD] dispatch diagnostics:");
+        eprintln!("  shader_va    = 0x{shader_va:016X}  (pgm_lo=0x{:08X}, pgm_hi=0x{:08X})",
+            (shader_va >> 8) as u32, (shader_va >> 40) as u32);
+        eprintln!("  shader_size  = {} bytes", shader.len());
+        for (i, va) in buffer_vas.iter().enumerate() {
+            eprintln!("  buffer[{i}] va = 0x{va:016X}  (lo=0x{:08X}, hi=0x{:08X})",
+                *va as u32, (*va >> 32) as u32);
+        }
+        eprintln!("  dims         = {}x{}x{}", dims.x, dims.y, dims.z);
+        eprintln!("  gfx_major    = {}", self.gfx_major);
+        eprintln!("  workgroup    = {:?}, wave_size={}", info.workgroup, info.wave_size);
+
+        let pm4_words =
+            pm4::build_compute_dispatch(shader_va, dims, info, &buffer_vas, self.gfx_major);
+
+        eprintln!("  PM4 stream ({} dwords, {} bytes):", pm4_words.len(), pm4_words.len() * 4);
+        for (i, &w) in pm4_words.iter().enumerate() {
+            eprintln!("    [{i:3}] 0x{w:08X}");
+        }
 
         let pm4_bytes = u32_slice_as_bytes(&pm4_words);
         let ib_size = u64::try_from(pm4_bytes.len())

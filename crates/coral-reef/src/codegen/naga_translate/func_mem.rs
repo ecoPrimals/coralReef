@@ -97,14 +97,14 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         Ok(dst)
     }
 
-    /// Load a value from a uniform buffer (CBuf) at a known offset.
+    /// Load a value from a uniform buffer via its virtual address + byte offset.
     ///
-    /// Handles scalars (32/64-bit), vectors, and matrices by emitting
-    /// consecutive `OpCopy` from `SrcRef::CBuf` at increasing offsets.
+    /// The buffer VA was loaded into `addr` (VGPR pair) from user SGPRs at
+    /// GlobalVariable time. Emits GLOBAL_LOAD_DWORD at addr + offset.
     pub(super) fn emit_uniform_load(
         &mut self,
         pointer: Handle<naga::Expression>,
-        cbuf_idx: u8,
+        addr: SSARef,
         offset: u16,
     ) -> Result<SSARef, CompileError> {
         let ptr_ty = self.resolve_expr_type_handle(pointer)?;
@@ -117,13 +117,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         match *inner {
             naga::TypeInner::Scalar(s) if s.width == 8 => {
                 let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
-                self.emit_cbuf_copy(dst[0], cbuf_idx, offset);
-                self.emit_cbuf_copy(dst[1], cbuf_idx, offset + 4);
+                self.emit_uniform_mem_load(dst[0], &addr, offset as i32);
+                self.emit_uniform_mem_load(dst[1], &addr, offset as i32 + 4);
                 Ok(dst)
             }
             naga::TypeInner::Scalar(_) => {
                 let dst = self.alloc_ssa(RegFile::GPR);
-                self.emit_cbuf_copy(dst, cbuf_idx, offset);
+                self.emit_uniform_mem_load(dst, &addr, offset as i32);
                 Ok(dst.into())
             }
             naga::TypeInner::Vector { size, scalar } => {
@@ -132,15 +132,16 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 if scalar.width == 8 {
                     let dst = self.alloc_ssa_vec(RegFile::GPR, comps * 2);
                     for i in 0..comps as u16 {
-                        let comp_off = offset + i * comp_bytes;
-                        self.emit_cbuf_copy(dst[(i * 2) as usize], cbuf_idx, comp_off);
-                        self.emit_cbuf_copy(dst[(i * 2 + 1) as usize], cbuf_idx, comp_off + 4);
+                        let comp_off = offset as i32 + (i as i32) * (comp_bytes as i32);
+                        self.emit_uniform_mem_load(dst[(i * 2) as usize], &addr, comp_off);
+                        self.emit_uniform_mem_load(dst[(i * 2 + 1) as usize], &addr, comp_off + 4);
                     }
                     Ok(dst)
                 } else {
                     let dst = self.alloc_ssa_vec(RegFile::GPR, comps);
                     for i in 0..comps as u16 {
-                        self.emit_cbuf_copy(dst[i as usize], cbuf_idx, offset + i * comp_bytes);
+                        let comp_off = offset as i32 + (i as i32) * (comp_bytes as i32);
+                        self.emit_uniform_mem_load(dst[i as usize], &addr, comp_off);
                     }
                     Ok(dst)
                 }
@@ -157,8 +158,10 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let mut reg = 0usize;
                 for col in 0..columns as u16 {
                     for row in 0..rows as u16 {
-                        let comp_off = offset + col * col_stride + row * comp_bytes;
-                        self.emit_cbuf_copy(dst[reg], cbuf_idx, comp_off);
+                        let comp_off = offset as i32
+                            + (col as i32) * (col_stride as i32)
+                            + (row as i32) * (comp_bytes as i32);
+                        self.emit_uniform_mem_load(dst[reg], &addr, comp_off);
                         reg += 1;
                     }
                 }
@@ -166,19 +169,19 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }
             _ => {
                 let dst = self.alloc_ssa(RegFile::GPR);
-                self.emit_cbuf_copy(dst, cbuf_idx, offset);
+                self.emit_uniform_mem_load(dst, &addr, offset as i32);
                 Ok(dst.into())
             }
         }
     }
 
-    fn emit_cbuf_copy(&mut self, dst: SSAValue, cbuf_idx: u8, offset: u16) {
-        self.push_instr(Instr::new(OpCopy {
+    fn emit_uniform_mem_load(&mut self, dst: SSAValue, addr: &SSARef, byte_offset: i32) {
+        self.push_instr(Instr::new(OpLd {
             dst: dst.into(),
-            src: Src::from(SrcRef::CBuf(CBufRef {
-                buf: CBuf::Binding(cbuf_idx),
-                offset,
-            })),
+            addr: addr.clone().into(),
+            offset: byte_offset,
+            stride: OffsetStride::X1,
+            access: super::mem_access_global_b32(),
         }));
     }
 

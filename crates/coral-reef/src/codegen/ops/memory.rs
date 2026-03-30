@@ -151,25 +151,37 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpMemBar {
 
 // ---- Lookup tables ----
 
+/// Load opcodes for GLOBAL segment (SEG=10) on RDNA2.
+///
+/// The encoder always emits SEG=GLOBAL, so we must use the RDNA2 GLOBAL
+/// opcode table (flat_glbl). The GFX9 FLAT opcodes (flat.rs, 16-23 for
+/// loads) are only valid when SEG=FLAT on GFX9 hardware. On RDNA2 with
+/// SEG=GLOBAL, GLOBAL_LOAD_DWORD = 12, not 20 — using the wrong opcode
+/// causes the hardware to execute a byte load instead of a dword load.
 fn mem_type_to_flat_load(mt: MemType) -> Result<u16, CompileError> {
     Ok(match mt {
-        MemType::U8 => isa::flat::FLAT_LOAD_UBYTE,
-        MemType::I8 => isa::flat::FLAT_LOAD_SBYTE,
-        MemType::U16 => isa::flat::FLAT_LOAD_USHORT,
-        MemType::I16 => isa::flat::FLAT_LOAD_SSHORT,
-        MemType::B32 => isa::flat::FLAT_LOAD_DWORD,
-        MemType::B64 => isa::flat::FLAT_LOAD_DWORDX2,
-        MemType::B128 => isa::flat::FLAT_LOAD_DWORDX4,
+        MemType::U8 => isa::flat_glbl::GLOBAL_LOAD_UBYTE,
+        MemType::I8 => isa::flat_glbl::GLOBAL_LOAD_SBYTE,
+        MemType::U16 => isa::flat_glbl::GLOBAL_LOAD_USHORT,
+        MemType::I16 => isa::flat_glbl::GLOBAL_LOAD_SSHORT,
+        MemType::B32 => isa::flat_glbl::GLOBAL_LOAD_DWORD,
+        MemType::B64 => isa::flat_glbl::GLOBAL_LOAD_DWORDX2,
+        MemType::B128 => isa::flat_glbl::GLOBAL_LOAD_DWORDX4,
     })
 }
 
+/// Store opcodes for GLOBAL segment (SEG=10) on RDNA2.
+///
+/// Store opcodes happen to be identical between GFX9 FLAT and RDNA2 GLOBAL
+/// (STORE_DWORD=28, STORE_DWORDX2=29), but we use the GLOBAL table for
+/// correctness and consistency with the load path.
 fn mem_type_to_flat_store(mt: MemType) -> Result<u16, CompileError> {
     Ok(match mt {
-        MemType::U8 | MemType::I8 => isa::flat::FLAT_STORE_BYTE,
-        MemType::U16 | MemType::I16 => isa::flat::FLAT_STORE_SHORT,
-        MemType::B32 => isa::flat::FLAT_STORE_DWORD,
-        MemType::B64 => isa::flat::FLAT_STORE_DWORDX2,
-        MemType::B128 => isa::flat::FLAT_STORE_DWORDX4,
+        MemType::U8 | MemType::I8 => isa::flat_glbl::GLOBAL_STORE_BYTE,
+        MemType::U16 | MemType::I16 => isa::flat_glbl::GLOBAL_STORE_SHORT,
+        MemType::B32 => isa::flat_glbl::GLOBAL_STORE_DWORD,
+        MemType::B64 => isa::flat_glbl::GLOBAL_STORE_DWORDX2,
+        MemType::B128 => isa::flat_glbl::GLOBAL_STORE_DWORDX4,
     })
 }
 

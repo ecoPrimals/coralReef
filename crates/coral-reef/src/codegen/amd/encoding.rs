@@ -729,29 +729,29 @@ mod tests {
 
     #[test]
     fn flat_load_encoding_structure() {
-        let words = Rdna2Encoder::encode_flat_load(isa::flat::FLAT_LOAD_DWORD, 0, 5, 0);
+        let words = Rdna2Encoder::encode_flat_load(isa::flat_glbl::GLOBAL_LOAD_DWORD, 0, 5, 0);
         assert_eq!(words.len(), 2, "FLAT is 64-bit");
         let prefix = (words[0] >> 26) & 0x3F;
         assert_eq!(prefix, 0b11_0111, "FLAT encoding prefix");
         let opcode = (words[0] >> 18) & 0x7F;
-        assert_eq!(opcode, u32::from(isa::flat::FLAT_LOAD_DWORD));
+        assert_eq!(opcode, u32::from(isa::flat_glbl::GLOBAL_LOAD_DWORD));
         let seg = (words[0] >> 14) & 3;
         assert_eq!(seg, 2, "SEG must be GLOBAL (10)");
     }
 
     #[test]
     fn flat_store_encoding_structure() {
-        let words = Rdna2Encoder::encode_flat_store(isa::flat::FLAT_STORE_DWORD, 0, 1, 0);
+        let words = Rdna2Encoder::encode_flat_store(isa::flat_glbl::GLOBAL_STORE_DWORD, 0, 1, 0);
         assert_eq!(words.len(), 2);
         let opcode = (words[0] >> 18) & 0x7F;
-        assert_eq!(opcode, u32::from(isa::flat::FLAT_STORE_DWORD));
+        assert_eq!(opcode, u32::from(isa::flat_glbl::GLOBAL_STORE_DWORD));
         let seg = (words[0] >> 14) & 3;
         assert_eq!(seg, 2, "SEG must be GLOBAL (10)");
     }
 
     #[test]
     fn flat_atomic_encoding_has_glc() {
-        let words = Rdna2Encoder::encode_flat_atomic(isa::flat::FLAT_ATOMIC_ADD, 0, 1, 2, 0);
+        let words = Rdna2Encoder::encode_flat_atomic(isa::flat_glbl::GLOBAL_ATOMIC_ADD, 0, 1, 2, 0);
         assert_eq!(words.len(), 2);
         let glc = (words[0] >> 16) & 1;
         assert_eq!(glc, 1, "GLC must be set for atomic return");

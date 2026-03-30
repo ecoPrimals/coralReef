@@ -52,9 +52,12 @@ pub struct AmdOpEncoder<'a> {
     /// GFX major version (9 = GCN5/Vega, 10 = RDNA2, 11 = RDNA3, 12 = RDNA4).
     /// Controls encoding differences such as FLAT offset availability.
     pub gfx_major: u8,
-    /// Number of user data SGPRs (2 per buffer VA). Workgroup IDs follow
-    /// immediately after in the SGPR file (s[user_sgpr_count], etc.).
+    /// Number of user data SGPRs (buffer VAs + NTID + NCTAID). Workgroup IDs
+    /// follow immediately after in the SGPR file (s[user_sgpr_count], etc.).
     pub user_sgpr_count: u16,
+    /// VGPR base where hardware-preloaded TID.x/y/z were saved in the prologue.
+    /// S2R for SR_TID_X/Y/Z maps to v[tid_save_base+0/1/2].
+    pub tid_save_base: u16,
 }
 
 impl<'a> AmdOpEncoder<'a> {
@@ -65,6 +68,7 @@ impl<'a> AmdOpEncoder<'a> {
         scratch_vgpr_1: u16,
         gfx_major: u8,
         user_sgpr_count: u16,
+        tid_save_base: u16,
     ) -> Self {
         Self {
             labels,
@@ -73,6 +77,7 @@ impl<'a> AmdOpEncoder<'a> {
             scratch_vgpr_1,
             gfx_major,
             user_sgpr_count,
+            tid_save_base,
         }
     }
 
@@ -203,6 +208,7 @@ pub fn encode_amd_op(
     scratch_vgpr_1: u16,
     gfx_major: u8,
     user_sgpr_count: u16,
+    tid_save_base: u16,
 ) -> Result<Vec<u32>, CompileError> {
     let mut enc = AmdOpEncoder::new(
         labels,
@@ -211,6 +217,7 @@ pub fn encode_amd_op(
         scratch_vgpr_1,
         gfx_major,
         user_sgpr_count,
+        tid_save_base,
     );
     let mut words = op_encode_amd!(op, &mut enc)?;
     if gfx_major < 10 {
@@ -627,9 +634,10 @@ pub fn encode_vop2_from_srcs(
 
 /// Encode a VOPC comparison with automatic operand legalization.
 ///
-/// RDNA2 VOPC requires VSRC1 to be a VGPR. If `src1` is not a VGPR but
-/// `src0` is, swap operands (comparison direction is preserved by the caller
-/// selecting the appropriate opcode).
+/// RDNA2 VOPC e32 requires VSRC1 to be a VGPR. When that constraint cannot
+/// be met, promote to VOP3 encoding which accepts any 9-bit source in all
+/// operand slots. VOPC opcodes occupy the 0-255 range of the VOP3 opcode
+/// space (no offset).
 pub fn encode_vopc_legalized(
     opcode: u16,
     src0: &Src,
@@ -637,7 +645,6 @@ pub fn encode_vopc_legalized(
     enc: &AmdOpEncoder<'_>,
 ) -> Result<Vec<u32>, CompileError> {
     let src1_is_vgpr = src_to_vgpr_index(src1).is_ok();
-    let src0_is_vgpr = src_to_vgpr_index(src0).is_ok();
 
     if src1_is_vgpr {
         let src0_enc = src_to_encoding(src0)?;
@@ -645,21 +652,20 @@ pub fn encode_vopc_legalized(
         let mut words = Rdna2Encoder::encode_vopc(opcode, src0_enc.src0, src1_idx);
         src0_enc.extend_with_literal(&mut words);
         Ok(words)
-    } else if src0_is_vgpr {
-        let src1_enc = src_to_encoding(src1)?;
-        let src0_idx = src_to_vgpr_index(src0)?;
-        let mut words = Rdna2Encoder::encode_vopc(opcode, src1_enc.src0, src0_idx);
-        src1_enc.extend_with_literal(&mut words);
-        Ok(words)
     } else {
         let src0_enc = src_to_encoding(src0)?;
         let src1_enc = src_to_encoding(src1)?;
         let (mut prefix0, mat0) = materialize_if_literal(enc.scratch_vgpr_0, &src0_enc);
         let (prefix1, mat1) = materialize_if_literal(enc.scratch_vgpr_1, &src1_enc);
         prefix0.extend(prefix1);
-        let vop3_opcode = vop3_promoted_opcode_for_gfx(opcode + 256, enc.gfx_major);
+        // VOPC opcodes map 1:1 into VOP3 opcode space (0-255 range, no offset).
+        let vop3_opcode = if enc.gfx_major < 10 {
+            vopc_opcode_for_gfx9(opcode)
+        } else {
+            opcode
+        };
         let words =
-            Rdna2Encoder::encode_vop3(vop3_opcode, AmdRegRef::vgpr(0), mat0.src0, mat1.src0, 0);
+            Rdna2Encoder::encode_vop3(vop3_opcode, AmdRegRef::sgpr(106), mat0.src0, mat1.src0, 0);
         prefix0.extend(words);
         Ok(prefix0)
     }

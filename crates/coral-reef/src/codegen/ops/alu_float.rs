@@ -416,7 +416,8 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpDSetP {
         };
         prefix0.extend(prefix1);
         let vop3_opcode = float_cmp_to_vop3_f64(self.cmp_op);
-        let dst = AmdRegRef::vgpr(0);
+        // VOP3 VOPC: SDST must be VCC (SGPR 106) so S_CBRANCH_VCCNZ sees the result
+        let dst = AmdRegRef::sgpr(106);
         let words = Rdna2Encoder::encode_vop3(vop3_opcode, dst, mat0.src0, mat1.src0, 0);
         prefix0.extend(words);
         Ok(prefix0)
@@ -531,7 +532,7 @@ mod tests {
             dst: dst_reg(0),
             src: Src::new_imm_u32(0x1234_5678),
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2, 0);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.unwrap();
@@ -545,7 +546,7 @@ mod tests {
             dst: dst_reg(0),
             src: Src::new_imm_u32(0x1234_5678),
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2, 0);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.unwrap();
@@ -565,7 +566,7 @@ mod tests {
                 Src::new_imm_bool(true),
             ],
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2, 0);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.unwrap();
@@ -591,6 +592,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -612,6 +614,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -633,6 +636,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }

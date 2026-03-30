@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! NVIDIA DRM device tests — probe, compile, and dispatch readiness.
-//!
-//! The nvidia-drm render node currently supports device probing and
-//! identification. Buffer management and compute dispatch require
-//! NVIDIA UVM integration (tracked for future evolution).
+//! NVIDIA DRM device tests — probe, alloc, dispatch via UVM.
 //!
 //! Run: `cargo test --test hw_nv_buffers --features nvidia-drm -- --ignored`
 
 #[cfg(feature = "nvidia-drm")]
 mod tests {
     use coral_driver::nv::NvDrmDevice;
-    use coral_driver::{ComputeDevice, DispatchDims, ShaderInfo};
+    use coral_driver::ComputeDevice;
 
     fn open_nv() -> NvDrmDevice {
         NvDrmDevice::open().expect("NvDrmDevice::open() failed — is nvidia-drm loaded?")
@@ -27,34 +23,19 @@ mod tests {
 
     #[test]
     #[ignore = "requires nvidia-drm hardware"]
-    fn alloc_returns_pending_uvm_error() {
+    fn alloc_and_free() {
         let mut dev = open_nv();
-        let result = dev.alloc(4096, coral_driver::MemoryDomain::Gtt);
-        assert!(result.is_err(), "alloc should fail pending UVM");
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("UVM"), "error should mention UVM: {err}");
-    }
-
-    #[test]
-    #[ignore = "requires nvidia-drm hardware"]
-    fn dispatch_returns_pending_uvm_error() {
-        let mut dev = open_nv();
-        let result = dev.dispatch(
-            &[0xBF, 0x81, 0x00, 0x00],
-            &[],
-            DispatchDims::linear(1),
-            &ShaderInfo::default(),
-        );
-        assert!(result.is_err(), "dispatch should fail pending UVM");
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("UVM"), "error should mention UVM: {err}");
+        let handle = dev
+            .alloc(4096, coral_driver::MemoryDomain::Gtt)
+            .expect("alloc should succeed via UVM");
+        dev.free(handle).expect("free should succeed");
     }
 
     #[test]
     #[ignore = "requires nvidia-drm hardware"]
     fn sync_succeeds() {
         let mut dev = open_nv();
-        dev.sync().expect("sync should succeed (no-op)");
+        dev.sync().expect("sync should succeed");
     }
 
     /// Verify that SM86 shader compilation succeeds independently of

@@ -250,6 +250,78 @@ pub fn lower_f64_sqrt(
     out
 }
 
+/// AMD rcp(x) via Newton-Raphson with native V_RCP_F64 seed.
+///
+/// V_RCP_F64 on GCN/RDNA provides ~24-29 bits of mantissa precision.
+/// Two Newton-Raphson iterations refine to full 53-bit double precision:
+///   y₀ = V_RCP_F64(x), t = FMA(-x, yₙ, 2), yₙ₊₁ = yₙ * t
+pub fn lower_f64_rcp_amd(
+    op: &OpF64Rcp,
+    pred: Pred,
+    alloc: &mut SSAValueAllocator,
+) -> Vec<Instr> {
+    let mut out = Vec::new();
+    let rnd = FRndMode::NearestEven;
+
+    let x = ensure_f64_ssa(&op.src, alloc, &mut out);
+    let x_src = Src::from(x);
+
+    // y₀ = V_RCP_F64(x) — hardware seed (~24-29 bits)
+    let y0 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpF64Rcp {
+            dst: y0.clone().into(),
+            src: x_src.clone(),
+        }),
+        pred,
+    ));
+    let y0_src = Src::from(y0);
+
+    // Iteration 1: y₁ = y₀ * (2 - x*y₀) = y₀ * FMA(-x, y₀, 2)
+    let two1 = super::emit_f64_const(&mut out, alloc, pred, 2.0);
+    let t1 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDFma {
+            dst: t1.clone().into(),
+            srcs: [x_src.clone().fneg(), y0_src.clone(), Src::from(two1)],
+            rnd_mode: rnd,
+        }),
+        pred,
+    ));
+    let y1 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDMul {
+            dst: y1.clone().into(),
+            srcs: [y0_src, Src::from(t1)],
+            rnd_mode: rnd,
+        }),
+        pred,
+    ));
+    let y1_src = Src::from(y1);
+
+    // Iteration 2: y₂ = y₁ * (2 - x*y₁) = y₁ * FMA(-x, y₁, 2)
+    let two2 = super::emit_f64_const(&mut out, alloc, pred, 2.0);
+    let t2 = alloc.alloc_vec(RegFile::GPR, 2);
+    out.push(with_pred(
+        Instr::new(OpDFma {
+            dst: t2.clone().into(),
+            srcs: [x_src.fneg(), y1_src.clone(), Src::from(two2)],
+            rnd_mode: rnd,
+        }),
+        pred,
+    ));
+    out.push(with_pred(
+        Instr::new(OpDMul {
+            dst: op.dst.clone(),
+            srcs: [y1_src, Src::from(t2)],
+            rnd_mode: rnd,
+        }),
+        pred,
+    ));
+
+    out
+}
+
 /// rcp(x) via Newton-Raphson: y₀ = MUFU.RCP64H(x_hi), y₁ = y₀·(2 - x·y₀), y₂ = y₁·(2 - x·y₁)
 pub fn lower_f64_rcp(
     op: &OpF64Rcp,

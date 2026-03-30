@@ -86,17 +86,11 @@ impl RmClient {
 
     fn alloc_root_client(ctl: &NvCtlDevice) -> DriverResult<u32> {
         let mut params = NvRmAllocParams {
-            h_root: 0,
-            h_object_parent: 0,
-            h_object_new: 0,
             h_class: NV01_ROOT_CLIENT,
-            p_alloc_parms: 0,
-            params_size: 0,
-            status: 0,
+            ..Default::default()
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
-        // ioctl contract: `NvRmAllocParams` is `#[repr(C)]` matching NVOS21; opcode matches.
         crate::drm::drm_ioctl_named(
             ctl.fd(),
             ioctl_nr,
@@ -133,8 +127,8 @@ impl RmClient {
             h_object_new: h_new,
             h_class,
             p_alloc_parms: std::ptr::from_mut(alloc_params) as u64,
-            params_size: 0,
-            status: 0,
+            params_size: u32::try_from(std::mem::size_of::<T>()).unwrap_or(0),
+            ..Default::default()
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());
@@ -169,7 +163,7 @@ impl RmClient {
         Ok(params.h_object_new)
     }
 
-    fn rm_alloc_simple(
+    pub fn rm_alloc_simple(
         &mut self,
         h_parent: u32,
         h_new: u32,
@@ -181,9 +175,7 @@ impl RmClient {
             h_object_parent: h_parent,
             h_object_new: h_new,
             h_class,
-            p_alloc_parms: 0,
-            params_size: 0,
-            status: 0,
+            ..Default::default()
         };
 
         let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_ALLOC, std::mem::size_of::<NvRmAllocParams>());

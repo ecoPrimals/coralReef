@@ -513,6 +513,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
         let words = result.expect("IAdd3 encode should succeed");
@@ -536,6 +537,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -557,6 +559,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -578,6 +581,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -589,7 +593,7 @@ mod tests {
             dst: dst_reg(0),
             src: Src::new_imm_u32(0x1234_5678),
         };
-        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2);
+        let mut enc = AmdOpEncoder::new(&labels, 0, 254, 255, 10, 2, 0);
         let result = op.encode(&mut enc);
         assert!(result.is_ok());
         let words = result.expect("PopC encode should succeed");
@@ -614,6 +618,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -636,6 +641,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_ok());
     }
@@ -658,6 +664,7 @@ mod tests {
             255,
             10,
             2,
+            0,
         );
         assert!(result.is_err());
     }

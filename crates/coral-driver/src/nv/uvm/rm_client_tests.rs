@@ -81,10 +81,12 @@ fn uvm_alloc_channel() {
         .rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, gpfifo_size)
         .expect("GPFIFO DMA map");
 
-    let _h_channel = client
+    let (_h_channel, _hw_cid) = client
         .alloc_gpfifo_channel(
             h_changrp,
             h_userd_mem,
+            0,
+            0,
             gpfifo_gpu_va,
             gpfifo_entries,
             AMPERE_CHANNEL_GPFIFO_A,
@@ -130,10 +132,12 @@ fn uvm_compute_bind() {
         .rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, gpfifo_size)
         .expect("GPFIFO DMA map");
 
-    let h_channel = client
+    let (h_channel, _hw_cid) = client
         .alloc_gpfifo_channel(
             h_changrp,
             h_userd_mem,
+            0,
+            0,
             gpfifo_gpu_va,
             gpfifo_entries,
             channel_class,
@@ -207,10 +211,12 @@ fn rm_protocol_observer_captures_session() {
         .rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, gpfifo_size)
         .expect("GPFIFO DMA map");
 
-    let h_channel = client
+    let (h_channel, _hw_cid) = client
         .alloc_gpfifo_channel(
             h_changrp,
             h_userd_mem,
+            0,
+            0,
             gpfifo_gpu_va,
             gpfifo_entries,
             AMPERE_CHANNEL_GPFIFO_A,
@@ -317,7 +323,7 @@ fn rm_alloc_params_construction() {
         h_class: NV01_DEVICE_0,
         p_alloc_parms: 0x1234,
         params_size: 56,
-        status: 0,
+        ..Default::default()
     };
     assert_eq!(params.h_root, 0x1000);
     assert_eq!(params.h_class, NV01_DEVICE_0);

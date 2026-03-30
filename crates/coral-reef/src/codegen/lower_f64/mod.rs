@@ -107,12 +107,9 @@ pub fn lower_instr(
         }
         Op::F64Rcp(op) => {
             if is_amd {
-                // AMD: native v_rcp_f64 — no lowering needed
-                return MappedInstrs::One(Instr {
-                    op: Op::F64Rcp(op),
-                    pred,
-                    ..instr
-                });
+                // AMD: V_RCP_F64 gives ~24-29 bits; refine with Newton-Raphson
+                let seq = newton::lower_f64_rcp_amd(&op, pred, alloc);
+                return MappedInstrs::Many(seq);
             }
             let seq = newton::lower_f64_rcp(&op, pred, alloc, sm);
             MappedInstrs::Many(seq)

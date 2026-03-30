@@ -105,13 +105,28 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let global = &self.module.global_variables[gv];
                 if let Some(binding) = &global.binding {
                     if global.space == naga::AddressSpace::Uniform {
-                        // Uniform buffers: data is directly in CBuf. Record the
-                        // base reference; actual reads happen in Load via CBuf.
+                        // Load uniform buffer VA from user SGPRs (same layout as storage).
+                        let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
                         let buf_idx = binding.group as u8;
-                        self.uniform_refs.insert(handle, (buf_idx, 0));
-                        let dummy = self.alloc_ssa(RegFile::GPR);
-                        self.push_instr(Instr::new(OpUndef { dst: dummy.into() }));
-                        Ok(dummy.into())
+                        let base_offset = (binding.binding * 8) as u16;
+                        let cbuf = CBufRef {
+                            buf: CBuf::Binding(buf_idx),
+                            offset: base_offset,
+                        };
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: addr[0].into(),
+                            src: Src::from(SrcRef::CBuf(cbuf)),
+                        }));
+                        let cbuf_hi = CBufRef {
+                            buf: CBuf::Binding(buf_idx),
+                            offset: base_offset + 4,
+                        };
+                        self.push_instr(Instr::new(OpCopy {
+                            dst: addr[1].into(),
+                            src: Src::from(SrcRef::CBuf(cbuf_hi)),
+                        }));
+                        self.uniform_refs.insert(handle, (addr.clone(), 0));
+                        Ok(addr)
                     } else {
                         // Storage buffers: CBuf holds descriptor address
                         let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
@@ -189,8 +204,8 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     self.expr_map.insert(handle, result.clone());
                     return Ok(result);
                 }
-                if let Some(&(cbuf_idx, offset)) = self.uniform_refs.get(&pointer) {
-                    return self.emit_uniform_load(pointer, cbuf_idx, offset);
+                if let Some((addr, offset)) = self.uniform_refs.get(&pointer).cloned() {
+                    self.emit_uniform_load(pointer, addr, offset)
                 } else {
                     let addr = self.ensure_expr(pointer)?;
                     let ptr_ty = self.resolve_expr_type_handle(pointer)?;
@@ -210,26 +225,21 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
             }
             naga::Expression::Access { base, index } => {
-                if let Some(&(cbuf_idx, base_offset)) = self.uniform_refs.get(&base) {
-                    let stride = self.type_stride(base)?;
-                    let idx_val = self.ensure_expr(index)?;
-                    return self.emit_uniform_dynamic_access(
-                        handle,
-                        cbuf_idx,
-                        base_offset,
-                        stride,
-                        idx_val,
-                    );
-                }
                 let base_val = self.ensure_expr(base)?;
+                if let Some((_addr, _base_offset)) = self.uniform_refs.get(&base).cloned() {
+                    return Err(CompileError::NotImplemented(
+                        "dynamic indexing into uniform buffers via memory load".into(),
+                    ));
+                }
                 let idx_val = self.ensure_expr(index)?;
                 self.emit_access(base_val, idx_val, base)
             }
             naga::Expression::AccessIndex { base, index } => {
-                if let Some(&(cbuf_idx, base_offset)) = self.uniform_refs.get(&base) {
+                let base_val = self.ensure_expr(base)?;
+                if let Some((addr, base_offset)) = self.uniform_refs.get(&base).cloned() {
                     let field_offset = self.uniform_field_byte_offset(base, index)?;
                     let total_offset = base_offset + field_offset;
-                    self.uniform_refs.insert(handle, (cbuf_idx, total_offset));
+                    self.uniform_refs.insert(handle, (addr.clone(), total_offset));
                     let dummy = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef { dst: dummy.into() }));
                     Ok(dummy.into())
@@ -249,7 +259,6 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     }));
                     Ok(placeholder.into())
                 } else {
-                    let base_val = self.ensure_expr(base)?;
                     self.emit_access_index(base_val, index, base)
                 }
             }
@@ -556,12 +565,26 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Access { base, .. } | naga::Expression::AccessIndex { base, .. } => {
                 let base_ty = self.resolve_expr_type_handle(base)?;
                 let base_inner = &self.module.types[base_ty].inner;
-                match *base_inner {
-                    naga::TypeInner::Array { base, .. } | naga::TypeInner::Pointer { base, .. } => {
-                        Ok(base)
+
+                let (real_ty, real_inner) = match *base_inner {
+                    naga::TypeInner::Pointer { base: pointee, .. } => {
+                        (pointee, &self.module.types[pointee].inner)
                     }
+                    _ => (base_ty, base_inner),
+                };
+
+                match *real_inner {
+                    naga::TypeInner::Struct { ref members, .. } => {
+                        if let naga::Expression::AccessIndex { index, .. } = *expr {
+                            if let Some(member) = members.get(index as usize) {
+                                return Ok(member.ty);
+                            }
+                        }
+                        Ok(real_ty)
+                    }
+                    naga::TypeInner::Array { base, .. } => Ok(base),
                     naga::TypeInner::Vector { scalar, .. } => self.scalar_type_handle(scalar),
-                    _ => Ok(base_ty),
+                    _ => Ok(real_ty),
                 }
             }
             naga::Expression::Load { pointer } => {

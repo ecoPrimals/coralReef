@@ -211,6 +211,13 @@ pub const NV20_SUBDEVICE_0: u32 = 0x0000_2080;
 /// `FERMI_VASPACE_A` — GPU virtual address space object.
 pub const FERMI_VASPACE_A: u32 = 0x0000_90F1;
 
+/// `FERMI_CONTEXT_SHARE_A` — GPU context share for TSG channels.
+///
+/// Must be allocated under the channel group (TSG) before any channels are
+/// created. Required on 580.x GSP-RM for channels to be properly initialized
+/// and placed on a runlist.
+pub const FERMI_CONTEXT_SHARE_A: u32 = 0x0000_9067;
+
 /// VA space flag: page faulting enabled (required for UVM managed pages).
 pub const NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING: u32 = 0x0000_0040;
 
@@ -278,6 +285,12 @@ pub const NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS: u32 = 0x0200_0000;
 /// `NVOS32_ATTR_PHYSICALITY_CONTIGUOUS` (bits 26:25 = 10).
 pub const NVOS32_ATTR_PHYSICALITY_CONTIGUOUS: u32 = 0x0400_0000;
 
+/// `NVOS32_ATTR2_32BIT_ADDRESSABLE` — force DMA address below 4 GiB.
+///
+/// Required for allocations that the GPU accesses via limited-width DMA
+/// address fields (e.g., USERD page table on GV100+).
+pub const NVOS32_ATTR2_32BIT_ADDRESSABLE: u32 = 0x0000_0001;
+
 // ── NVOS32_ALLOC_FLAGS_* — allocation modifier flags ────────────────
 
 /// Don't require a CPU mapping at alloc time.
@@ -300,6 +313,12 @@ pub const NV2080_ENGINE_TYPE_GR0: u32 = 0x0000_0001;
 
 /// RM control command: query GPU GID (UUID).
 pub const NV2080_CTRL_CMD_GPU_GET_GID_INFO: u32 = 0x2080_014A;
+
+/// RM control command: get GPFIFO work submit token (channel doorbell).
+pub const NVA06F_CTRL_CMD_GPFIFO_GET_WORK_SUBMIT_TOKEN: u32 = 0xA06F_0108;
+
+/// Volta+ USERMODE class — provides user-space doorbell register access.
+pub const VOLTA_USERMODE_A: u32 = 0x0000_C361;
 
 // ── Device handles ──────────────────────────────────────────────────
 
@@ -649,7 +668,7 @@ mod tests {
     #[test]
     fn uvm_param_struct_sizes() {
         assert_eq!(std::mem::size_of::<UvmInitializeParams>(), 16);
-        assert_eq!(std::mem::size_of::<NvRmAllocParams>(), 32);
+        assert_eq!(std::mem::size_of::<NvRmAllocParams>(), 48);
         assert_eq!(std::mem::size_of::<NvRmFreeParams>(), 16);
         assert_eq!(std::mem::size_of::<NvRmControlParams>(), 32);
         assert_eq!(std::mem::size_of::<NvMemoryDescParams>(), 24);

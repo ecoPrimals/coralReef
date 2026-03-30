@@ -89,21 +89,27 @@ struct UvmBuffer {
 
 /// GPFIFO entry in the ring buffer (8 bytes).
 ///
+/// Layout (NVA06F+ Kepler/Volta/Ampere):
 /// ```text
-/// [63:42] = length in dwords (push buffer size / 4)
-/// [41:40] = control bits (0 = normal)
-/// [39:2]  = GPU VA of push buffer >> 2
-/// [1:0]   = fetch type (0 = normal)
+/// DWORD 0 [31:2]  = push buffer GPU VA [31:2]
+/// DWORD 0 [1:0]   = 0 (unconditional fetch)
+/// DWORD 1 [8:0]   = push buffer GPU VA [40:32]
+/// DWORD 1 [9]     = privilege level (0 = user)
+/// DWORD 1 [30:10] = length in dwords
+/// DWORD 1 [31]    = 0 (not a SYNC entry)
 /// ```
+///
+/// The address is NOT shifted — it goes directly into the entry with bits
+/// `[1:0]` = 0 (4-byte alignment is required).
 const fn gpfifo_entry(push_buf_va: u64, length_dwords: u32) -> u64 {
-    ((push_buf_va >> 2) & 0x00_0000_003F_FFFF_FFFF) | ((length_dwords as u64) << 42)
+    (push_buf_va & !3) | ((length_dwords as u64) << 42)
 }
 
-/// USERD `GP_PUT` doorbell offset (bytes).
-const USERD_GP_PUT_OFFSET: usize = 0x0C;
+/// Volta+ RAMUSERD `GP_PUT` offset (bytes) — dword 35.
+const USERD_GP_PUT_OFFSET: usize = 35 * 4; // 0x8C
 
-/// USERD `GP_GET` offset (bytes).
-const USERD_GP_GET_OFFSET: usize = 0x08;
+/// Volta+ RAMUSERD `GP_GET` offset (bytes) — dword 34.
+const USERD_GP_GET_OFFSET: usize = 34 * 4; // 0x88
 
 /// Compute device backed by the NVIDIA proprietary driver (RM + UVM).
 ///
@@ -153,6 +159,16 @@ pub struct NvUvmComputeDevice {
     gp_put: u32,
     /// Handle of the `NV01_MEMORY_VIRTUAL` for DMA mapping.
     h_virt_mem: u32,
+    #[expect(dead_code, reason = "kept alive for USERD mmap lifetime")]
+    userd_mmap_fd: std::fs::File,
+    #[expect(dead_code, reason = "kept alive for GPFIFO mmap lifetime")]
+    gpfifo_mmap_fd: std::fs::File,
+    #[expect(dead_code, reason = "kept alive for USERMODE doorbell mmap lifetime")]
+    usermode_mmap_fd: std::fs::File,
+    /// CPU-mapped pointer to the USERMODE doorbell register page.
+    doorbell_addr: u64,
+    /// Work submit token returned by RM (written to doorbell to notify GPU).
+    work_submit_token: u32,
 }
 
 /// Default GPFIFO ring entries (each entry = 8 bytes, 512 entries = 4 KiB).
@@ -189,36 +205,131 @@ impl NvUvmComputeDevice {
 
         let gpu_uuid = client.register_gpu_with_uvm(h_subdevice, &uvm)?;
 
-        // On Blackwell (580.x), the nvidiactl fd supports only ONE active
-        // rm_map_memory context. Combine USERD + GPFIFO into a single
-        // allocation mapped once, then subdivide via offsets.
-        let ctrl_mem_size = USERD_SIZE + GPFIFO_SIZE; // 4K userd + 4K gpfifo = 8K
-        let h_ctrl_mem = h_device + 0x5000;
+        let h_userd_mem = h_device + 0x5000;
+        let h_gpfifo_mem = h_device + 0x5001;
         let h_virt_mem = h_device + 0x5002;
-        client.alloc_system_memory(h_device, h_ctrl_mem, ctrl_mem_size)?;
-        let ctrl_cpu_addr = client.rm_map_memory(h_device, h_ctrl_mem, 0, ctrl_mem_size)?;
 
-        let userd_cpu_addr = ctrl_cpu_addr;
-        let gpfifo_cpu_addr = ctrl_cpu_addr + USERD_SIZE;
+        // CUDA allocates USERD in VRAM (NV01_MEMORY_LOCAL_USER) with 2 MiB
+        // size/alignment. Try that first; fall back to system memory if needed.
+        let userd_vram_size: u64 = 0x20_0000; // 2 MiB like CUDA
+        let userd_in_vram = match client.alloc_local_memory(h_device, h_userd_mem, userd_vram_size)
+        {
+            Ok(_) => {
+                tracing::info!("USERD allocated in VRAM (2 MiB)");
+                true
+            }
+            Err(e) => {
+                tracing::warn!("VRAM USERD failed ({e}), falling back to contiguous sysmem");
+                client.alloc_contig_system_memory(h_device, h_userd_mem, USERD_SIZE)?;
+                false
+            }
+        };
+        client.alloc_system_memory(h_device, h_gpfifo_mem, GPFIFO_SIZE)?;
+
+        let h_errnotif_mem = h_device + 0x5004;
+        client.alloc_error_notifier(h_device, h_errnotif_mem)?;
 
         let h_vaspace = client.alloc_vaspace(h_device)?;
         let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
 
+        let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, h_subdevice)?;
+
         client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
 
-        // DMA-map the GPFIFO region (at offset USERD_SIZE within ctrl_mem)
         let gpfifo_gpu_va =
-            client.rm_map_memory_dma(h_device, h_virt_mem, h_ctrl_mem, USERD_SIZE, GPFIFO_SIZE)?;
+            client.rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, GPFIFO_SIZE)?;
 
-        let h_channel = client.alloc_gpfifo_channel(
+        let (h_channel, hw_channel_id) = client.alloc_gpfifo_channel(
             h_changrp,
-            h_ctrl_mem, // channel uses the same memory (USERD at offset 0)
+            h_userd_mem,
+            h_errnotif_mem,
+            h_ctxshare,
             gpfifo_gpu_va,
             GPFIFO_ENTRIES,
             gpu_gen.channel_class(),
         )?;
 
-        let h_compute = client.alloc_compute_engine(h_channel, gpu_gen.compute_class())?;
+        // CPU-map USERD and GPFIFO on dedicated nvidiactl fds.
+        let open_ctl = || -> DriverResult<std::fs::File> {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("/dev/nvidiactl")
+                .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))
+        };
+        // VRAM buffers must be mapped on the GPU device fd (BAR1), not nvidiactl.
+        let userd_mmap_fd = if userd_in_vram {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(format!("/dev/nvidia{gpu_index}"))
+                .map_err(|e| DriverError::DeviceNotFound(format!("nvidia{gpu_index} for USERD: {e}").into()))?
+        } else {
+            open_ctl()?
+        };
+        let userd_cpu_addr = client.rm_map_memory_on_fd(
+            userd_mmap_fd.as_raw_fd(),
+            h_device,
+            h_userd_mem,
+            0,
+            USERD_SIZE,
+        )?;
+        let gpfifo_mmap_fd = open_ctl()?;
+        let gpfifo_cpu_addr = client.rm_map_memory_on_fd(
+            gpfifo_mmap_fd.as_raw_fd(),
+            h_device,
+            h_gpfifo_mem,
+            0,
+            GPFIFO_SIZE,
+        )?;
+
+        let compute_class = gpu_gen.compute_class();
+        let h_compute = client.alloc_compute_engine(h_channel, compute_class)?;
+
+        // BIND the compute engine to the channel — without this the GPU
+        // cannot route push buffer methods to the compute engine.
+        client.channel_bind_engine(h_channel, h_compute, compute_class, 1)?;
+        tracing::info!(
+            h_compute = format_args!("0x{h_compute:08X}"),
+            "Compute engine bound to channel"
+        );
+
+        client.tsg_gpfifo_schedule(h_changrp)?;
+
+        let work_submit_token = match client.get_work_submit_token(h_channel) {
+            Ok(t) => {
+                tracing::info!(token = format_args!("0x{t:08X}"), "Work submit token acquired");
+                t
+            }
+            Err(e) => {
+                tracing::warn!("get_work_submit_token failed ({e}), using cid");
+                hw_channel_id
+            }
+        };
+
+        // Allocate VOLTA_USERMODE_A to get the doorbell register mapping.
+        let h_usermode = h_device + 0x5003;
+        client.rm_alloc_simple(
+            h_subdevice,
+            h_usermode,
+            super::uvm::VOLTA_USERMODE_A,
+            "RM_ALLOC(VOLTA_USERMODE_A)",
+        )?;
+
+        // Map the usermode object to get the doorbell page in CPU space.
+        // USERMODE is a BAR-mapped object — must use the GPU device fd.
+        let usermode_mmap_fd = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/dev/nvidia{gpu_index}"))
+            .map_err(|e| DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into()))?;
+        let doorbell_addr = client.rm_map_memory_on_fd(
+            usermode_mmap_fd.as_raw_fd(),
+            h_device,
+            h_usermode,
+            0,
+            4096,
+        )?;
 
         tracing::info!(
             gpu_index,
@@ -226,12 +337,12 @@ impl NvUvmComputeDevice {
             h_device = format_args!("0x{h_device:08X}"),
             h_channel = format_args!("0x{h_channel:08X}"),
             h_compute = format_args!("0x{h_compute:08X}"),
-            userd_cpu_addr = format_args!("0x{userd_cpu_addr:016X}"),
-            gpfifo_cpu_addr = format_args!("0x{gpfifo_cpu_addr:016X}"),
+            work_submit_token = format_args!("0x{work_submit_token:08X}"),
             "NvUvmComputeDevice fully initialized"
         );
 
-        Ok(Self {
+        // Smoke-test: submit a NOP push buffer to verify the GPFIFO mechanism.
+        let mut dev = Self {
             client,
             uvm,
             gpu,
@@ -251,7 +362,45 @@ impl NvUvmComputeDevice {
             gpfifo_cpu_addr,
             gp_put: 0,
             h_virt_mem,
-        })
+            userd_mmap_fd,
+            gpfifo_mmap_fd,
+            usermode_mmap_fd,
+            doorbell_addr,
+            work_submit_token,
+        };
+
+        // NOP smoke test: submit a single NOP to verify GPFIFO is working.
+        let nop_h_mem = h_device + 0x5FFF;
+        dev.client.alloc_system_memory(h_device, nop_h_mem, 4096)?;
+        let nop_gpu_va = dev.client.rm_map_memory_dma(
+            h_device,
+            h_virt_mem,
+            nop_h_mem,
+            0,
+            4096,
+        )?;
+        let nop_fd = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/nvidiactl")
+            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
+        let nop_cpu = dev.client.rm_map_memory_on_fd(
+            nop_fd.as_raw_fd(),
+            h_device,
+            nop_h_mem,
+            0,
+            4096,
+        )?;
+        unsafe { VolatilePtr::new(nop_cpu as *mut u32).write(0) };
+        dev.submit_gpfifo(nop_gpu_va, 1)?;
+        dev.poll_gpfifo_completion()?;
+        tracing::info!("NOP smoke test passed — GPFIFO pipeline operational");
+
+        dev.client.rm_unmap_memory(h_device, nop_h_mem, nop_cpu).ok();
+        dev.client.free_object(h_device, nop_h_mem).ok();
+        drop(nop_fd);
+
+        Ok(dev)
     }
 
     #[expect(
@@ -319,13 +468,34 @@ impl NvUvmComputeDevice {
             return Err(DriverError::SubmitFailed("USERD not CPU-mapped".into()));
         }
 
+        // Flush GPFIFO entry from CPU cache so GPU DMA sees it.
+        // SAFETY: gpfifo_slot..+8 is within the valid GPFIFO mapping.
+        unsafe {
+            let ptr = gpfifo_slot as *const u8;
+            core::arch::x86_64::_mm_clflush(ptr);
+        }
+
         let doorbell = (self.userd_cpu_addr + USERD_GP_PUT_OFFSET as u64) as *mut u32;
         // SAFETY: userd_cpu_addr is a valid kernel mmap'd address.
-        // GP_PUT offset (0x0C) is within the 4096-byte USERD page.
+        // GP_PUT offset (0x8C) is within the 4096-byte USERD page.
         let vol = unsafe { VolatilePtr::new(doorbell) };
         vol.write(self.gp_put);
 
+        // Flush USERD page from CPU cache so GPU sees GP_PUT update.
+        // SAFETY: doorbell points within the valid USERD mapping.
+        unsafe {
+            core::arch::x86_64::_mm_clflush(doorbell as *const u8);
+        }
+
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+
+        // Ring the USERMODE doorbell to notify the GPU.
+        // SAFETY: doorbell_addr is a valid mmap'd BAR0 USERMODE page.
+        // Offset 0x90 = NV_USERMODE_NOTIFY_CHANNEL_PENDING.
+        if self.doorbell_addr != 0 {
+            let db = (self.doorbell_addr + 0x90) as *mut u32;
+            unsafe { VolatilePtr::new(db).write(self.work_submit_token) };
+        }
 
         tracing::debug!(
             gp_put = self.gp_put,
@@ -666,17 +836,24 @@ mod tests {
         let va = 0x0000_0001_0000_1000_u64;
         let dwords = 64_u32;
         let entry = gpfifo_entry(va, dwords);
-        let decoded_va = (entry & 0x00_0000_003F_FFFF_FFFF) << 2;
+        // DWORD 0 = address[31:0] (bits[1:0]=0 for alignment)
+        let dw0 = entry as u32;
+        assert_eq!(dw0, va as u32);
+        // DWORD 1 bits[8:0] = address[40:32], bits[30:10] = length
+        let dw1 = (entry >> 32) as u32;
+        let decoded_addr_hi = (dw1 & 0x1FF) as u64;
+        let decoded_va = (dw0 as u64) | (decoded_addr_hi << 32);
         assert_eq!(decoded_va, va);
-        let decoded_len = (entry >> 42) as u32;
+        let decoded_len = (dw1 >> 10) & 0x1F_FFFF;
         assert_eq!(decoded_len, dwords);
     }
 
     #[test]
     fn gpfifo_entry_zero_length() {
         let entry = gpfifo_entry(0x1000, 0);
-        assert_eq!(entry >> 42, 0);
-        assert_ne!(entry & 0x00_0000_003F_FFFF_FFFF, 0);
+        let dw1 = (entry >> 32) as u32;
+        assert_eq!((dw1 >> 10) & 0x1F_FFFF, 0);
+        assert_eq!(entry as u32, 0x1000);
     }
 
     #[test]
@@ -714,10 +891,8 @@ mod tests {
     #[ignore = "requires proprietary nvidia driver loaded"]
     fn uvm_compute_device_open() {
         let sm = detect_sm_version();
-        eprintln!("Detected SM version: {sm}");
         let device = NvUvmComputeDevice::open(0, sm).expect("UVM compute device");
         assert!(device.is_open());
-        eprintln!("UVM compute device opened, SM{}", device.sm_version());
     }
 
     #[test]

@@ -40,8 +40,9 @@ pub(super) struct FuncTranslator<'a, 'b> {
     pub(super) label_alloc: LabelAllocator,
     pub(super) cfg_builder: CFGBuilder<BasicBlock>,
     pub(super) expr_map: FxHashMap<Handle<naga::Expression>, SSARef>,
-    /// Tracks expressions that refer to uniform CBuf data: (cbuf_idx, byte_offset).
-    pub(super) uniform_refs: FxHashMap<Handle<naga::Expression>, (u8, u16)>,
+    /// Tracks expressions that refer to uniform buffer data: (buffer_addr_ssa, byte_offset).
+    /// The SSARef is a 2-component VGPR pair holding the buffer virtual address.
+    pub(super) uniform_refs: FxHashMap<Handle<naga::Expression>, (SSARef, u16)>,
     /// Register-promoted local variable slots (shared across inline boundaries).
     pub(super) var_storage: Vec<SSARef>,
     /// Maps expression handles to local variable references (per-function context).

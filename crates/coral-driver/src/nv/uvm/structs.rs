@@ -54,7 +54,12 @@ pub struct UvmRegisterGpuParams {
     pub rm_status: u32,
 }
 
-/// Arguments for `NV_ESC_RM_ALLOC` (simplified).
+/// Arguments for `NV_ESC_RM_ALLOC` — uses `NVOS64_PARAMETERS` (48 bytes).
+///
+/// On 580.x GSP-RM, the CUDA driver uses the 48-byte `NVOS64` variant which
+/// includes `pRightsRequested` and `flags`. The 32-byte `NVOS21` variant
+/// triggers a legacy code path that may not fully initialize objects through
+/// GSP (causing channels to lack runlist assignment, work submit tokens, etc.).
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct NvRmAllocParams {
@@ -68,10 +73,15 @@ pub struct NvRmAllocParams {
     pub h_class: u32,
     /// Pointer to allocation parameters.
     pub p_alloc_parms: u64,
+    /// Pointer to requested rights (0 = none).
+    pub p_rights_requested: u64,
     /// Size of allocation parameters.
     pub params_size: u32,
+    /// NVOS64 flags (bit 0 = FINN interface).
+    pub flags: u32,
     /// Status code returned by kernel.
     pub status: u32,
+    pub(crate) _pad: u32,
 }
 
 /// Allocation parameters for `NV01_DEVICE_0` (`NV0080_ALLOC_PARAMETERS`).
@@ -161,6 +171,14 @@ pub struct NvRmControlParams {
     pub status: u32,
 }
 
+/// Parameters for `NVA06F_CTRL_CMD_GPFIFO_GET_WORK_SUBMIT_TOKEN`.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct NvA06fGetWorkSubmitTokenParams {
+    /// Output: work submit token (channel ID for doorbell).
+    pub work_submit_token: u32,
+}
+
 /// Parameters for `NV2080_CTRL_CMD_GPU_GET_GID_INFO`.
 #[repr(C)]
 #[derive(Debug)]
@@ -236,6 +254,23 @@ pub struct NvChannelGroupAllocParams {
     _pad0: [u8; 7],
     /// Pointer to GPU group info (0 for user-space).
     pub p_gpu_grp_info: u64,
+}
+
+/// Context share allocation parameters for `FERMI_CONTEXT_SHARE_A`.
+///
+/// Required by 580.x GSP-RM to properly initialize channels within a TSG.
+/// The context share must be allocated under the channel group (TSG) before
+/// any channels are created, and its handle passed as `h_context_share` in
+/// `NvChannelAllocParams`.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct NvCtxShareAllocParams {
+    /// VA space handle (same as the TSG's VA space).
+    pub h_vaspace: u32,
+    /// Flags (0 for default).
+    pub flags: u32,
+    /// Subdevice handle.
+    pub h_subdevice: u32,
 }
 
 /// Memory descriptor for RM structures (push buffer, USERD, etc.).

@@ -53,7 +53,12 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpBra {
 
         if matches!(self.cond.reference, SrcRef::True) {
             Ok(Rdna2Encoder::encode_s_branch(offset_i16))
+        } else if matches!(self.cond.modifier, SrcMod::BNot) {
+            // Naga translator emits Bra(cond.bnot(), label) for if-then / if-then-else.
+            // BNot means "branch when original condition is FALSE" → VCCZ.
+            Ok(Rdna2Encoder::encode_s_cbranch_vccz(offset_i16))
         } else {
+            // No negation — branch when condition is TRUE → VCCNZ (used by loop break_if).
             Ok(Rdna2Encoder::encode_s_cbranch_vccnz(offset_i16))
         }
     }

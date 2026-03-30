@@ -63,12 +63,17 @@ impl NvDrmDevice {
             .and_then(|id| id.nvidia_sm())
             .unwrap_or(86);
 
-        let compute = NvUvmComputeDevice::open(0, sm).ok();
-        if compute.is_some() {
-            tracing::info!(sm, "UVM compute device initialized for nvidia-drm");
-        } else {
-            tracing::warn!("UVM compute device unavailable — dispatch will fail");
-        }
+        let compute = match NvUvmComputeDevice::open(0, sm) {
+            Ok(dev) => {
+                tracing::info!(sm, "UVM compute device initialized for nvidia-drm");
+                Some(dev)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, sm, "UVM compute device failed to open — dispatch will fail");
+                eprintln!("[coral-driver] UVM init failed for SM{sm}: {e}");
+                None
+            }
+        };
 
         Ok(Self { drm, compute })
     }
@@ -90,7 +95,14 @@ impl NvDrmDevice {
             .and_then(|id| id.nvidia_sm())
             .unwrap_or(86);
 
-        let compute = NvUvmComputeDevice::open(0, sm).ok();
+        let compute = match NvUvmComputeDevice::open(0, sm) {
+            Ok(dev) => Some(dev),
+            Err(e) => {
+                tracing::warn!(error = %e, "UVM compute device failed for nvidia-drm at {path}");
+                eprintln!("[coral-driver] UVM init failed for {path}: {e}");
+                None
+            }
+        };
 
         Ok(Self { drm, compute })
     }
