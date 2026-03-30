@@ -32,10 +32,9 @@ use clap::{Parser, Subcommand};
 ///
 /// `default_socket` passes `std::env::var("CORALREEF_GLOWPLUG_SOCKET").ok().as_deref()`.
 fn resolve_glowplug_socket_path(env_value: Option<&str>) -> String {
-    env_value.map(|s| s.to_owned()).unwrap_or_else(|| {
-        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{runtime}/biomeos/coral-glowplug-default.sock")
-    })
+    env_value
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "/run/coralreef/glowplug.sock".into())
 }
 
 /// Default socket path, overridable via `$CORALREEF_GLOWPLUG_SOCKET`.
@@ -378,12 +377,7 @@ enum OracleAction {
 }
 
 fn parse_hex_or_dec(s: &str) -> Result<u64, String> {
-    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        u64::from_str_radix(hex, 16).map_err(|e| format!("invalid hex '{s}': {e}"))
-    } else {
-        s.parse::<u64>()
-            .map_err(|e| format!("invalid number '{s}': {e}"))
-    }
+    coral_driver::parse_hex_u64(s)
 }
 
 fn main() {

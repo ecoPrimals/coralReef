@@ -489,7 +489,9 @@ fn exp128a2_full_recipe_fecs_boot() {
     let pfifo_stat = read_reg(&bar0, 0x2204);
     let pbdma_map = read_reg(&bar0, 0x2004);
     eprintln!("\n--- Phase 7: PFIFO State ---");
-    eprintln!("  PFIFO_CTRL={pfifo_ctrl:#010x}  STAT={pfifo_stat:#010x}  PBDMA_MAP={pbdma_map:#010x}");
+    eprintln!(
+        "  PFIFO_CTRL={pfifo_ctrl:#010x}  STAT={pfifo_stat:#010x}  PBDMA_MAP={pbdma_map:#010x}"
+    );
 
     if fecs_running {
         eprintln!("\n  *** FECS RUNNING — ready for dispatch ***");
@@ -546,11 +548,17 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
 
     // Check pre-init GPCCS state
     let gpccs_pre = read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100);
-    eprintln!("  GPCCS CPUCTL before PRI init: {gpccs_pre:#010x} ({})",
-        if is_pri_fault(gpccs_pre) { "PRI_FAULT" } else { "accessible" });
+    eprintln!(
+        "  GPCCS CPUCTL before PRI init: {gpccs_pre:#010x} ({})",
+        if is_pri_fault(gpccs_pre) {
+            "PRI_FAULT"
+        } else {
+            "accessible"
+        }
+    );
 
     // PRI ring master registers (envytools: PRING)
-    let ring_cmd = 0x12004C_u32;  // PRING command
+    let ring_cmd = 0x12004C_u32; // PRING command
     let ring_status = 0x120048_u32; // PRING status
 
     // Read current ring state
@@ -582,8 +590,14 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
 
     // Check GPCCS accessibility now
     let gpccs_post_ring = read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100);
-    eprintln!("  GPCCS CPUCTL after PRI init: {gpccs_post_ring:#010x} ({})",
-        if is_pri_fault(gpccs_post_ring) { "PRI_FAULT" } else { "accessible" });
+    eprintln!(
+        "  GPCCS CPUCTL after PRI init: {gpccs_post_ring:#010x} ({})",
+        if is_pri_fault(gpccs_post_ring) {
+            "PRI_FAULT"
+        } else {
+            "accessible"
+        }
+    );
 
     // Also try broader PRI ring fixes:
     // nouveau's gf100_priv does: wr32(0x122204, 2) then rd32(0x122204)
@@ -593,8 +607,14 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
     eprintln!("  GPC slave ring (0x122204): {gpc_slave:#010x}");
 
     let gpccs_post_slave = read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100);
-    eprintln!("  GPCCS CPUCTL after slave start: {gpccs_post_slave:#010x} ({})",
-        if is_pri_fault(gpccs_post_slave) { "PRI_FAULT" } else { "accessible" });
+    eprintln!(
+        "  GPCCS CPUCTL after slave start: {gpccs_post_slave:#010x} ({})",
+        if is_pri_fault(gpccs_post_slave) {
+            "PRI_FAULT"
+        } else {
+            "accessible"
+        }
+    );
 
     // Phase 3: Apply nvidia-470 recipe
     eprintln!("\n--- Phase 3: nvidia-470 Recipe Replay ---");
@@ -603,8 +623,14 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
 
     // Check GPCCS again after recipe
     let gpccs_post_recipe = read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100);
-    eprintln!("  GPCCS CPUCTL after recipe: {gpccs_post_recipe:#010x} ({})",
-        if is_pri_fault(gpccs_post_recipe) { "PRI_FAULT" } else { "accessible" });
+    eprintln!(
+        "  GPCCS CPUCTL after recipe: {gpccs_post_recipe:#010x} ({})",
+        if is_pri_fault(gpccs_post_recipe) {
+            "PRI_FAULT"
+        } else {
+            "accessible"
+        }
+    );
 
     // Phase 4: GR reset toggle
     eprintln!("\n--- Phase 4: GR Reset Toggle ---");
@@ -617,8 +643,14 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
 
     // Re-check GPCCS after GR reset
     let gpccs_post_reset = read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100);
-    eprintln!("  GPCCS CPUCTL after GR reset: {gpccs_post_reset:#010x} ({})",
-        if is_pri_fault(gpccs_post_reset) { "PRI_FAULT" } else { "accessible" });
+    eprintln!(
+        "  GPCCS CPUCTL after GR reset: {gpccs_post_reset:#010x} ({})",
+        if is_pri_fault(gpccs_post_reset) {
+            "PRI_FAULT"
+        } else {
+            "accessible"
+        }
+    );
 
     // Phase 4b: Re-init PRI ring after GR reset (GR reset may tear down ring)
     if is_pri_fault(gpccs_post_reset) {
@@ -633,8 +665,14 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
         std::thread::sleep(std::time::Duration::from_millis(20));
 
         let gpccs_post_reinit = read_reg(&bar0, KEPLER_GPCCS_BASE + 0x100);
-        eprintln!("  GPCCS CPUCTL after re-init: {gpccs_post_reinit:#010x} ({})",
-            if is_pri_fault(gpccs_post_reinit) { "PRI_FAULT" } else { "accessible" });
+        eprintln!(
+            "  GPCCS CPUCTL after re-init: {gpccs_post_reinit:#010x} ({})",
+            if is_pri_fault(gpccs_post_reinit) {
+                "PRI_FAULT"
+            } else {
+                "accessible"
+            }
+        );
     }
 
     // Phase 5: Boot FECS/GPCCS
@@ -645,14 +683,19 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
     let (fecs_inst, fecs_data, gpccs_inst, gpccs_data) = load_firmware(GK110_FW_DIR);
     eprintln!(
         "  Firmware: FECS inst={}B data={}B  GPCCS inst={}B data={}B",
-        fecs_inst.len(), fecs_data.len(), gpccs_inst.len(), gpccs_data.len()
+        fecs_inst.len(),
+        fecs_data.len(),
+        gpccs_inst.len(),
+        gpccs_data.len()
     );
 
     if gpccs_accessible {
         match kepler_falcon::boot_fecs_gpccs(
             &mut bar0,
-            &fecs_inst, &fecs_data,
-            &gpccs_inst, &gpccs_data,
+            &fecs_inst,
+            &fecs_data,
+            &gpccs_inst,
+            &gpccs_data,
             std::time::Duration::from_secs(5),
         ) {
             Ok(()) => eprintln!("  boot_fecs_gpccs: SUCCESS"),
@@ -674,13 +717,11 @@ fn exp128a2b_pri_ring_fecs_gpccs_boot() {
     print_falcon(&gpccs_post);
 
     let fecs_cpuctl = fecs_post.cpuctl;
-    let fecs_running = !is_pri_fault(fecs_cpuctl)
-        && fecs_cpuctl & 0x10 == 0
-        && fecs_cpuctl & 0x20 == 0;
+    let fecs_running =
+        !is_pri_fault(fecs_cpuctl) && fecs_cpuctl & 0x10 == 0 && fecs_cpuctl & 0x20 == 0;
     let gpccs_cpuctl = gpccs_post.cpuctl;
-    let gpccs_running = !is_pri_fault(gpccs_cpuctl)
-        && gpccs_cpuctl & 0x10 == 0
-        && gpccs_cpuctl & 0x20 == 0;
+    let gpccs_running =
+        !is_pri_fault(gpccs_cpuctl) && gpccs_cpuctl & 0x10 == 0 && gpccs_cpuctl & 0x20 == 0;
 
     eprintln!("  FECS running: {fecs_running}  GPCCS running: {gpccs_running}");
 
@@ -741,9 +782,8 @@ fn exp128a3_kepler_gpfifo_dispatch() {
 
     // Pre-check: FECS must be alive
     let fecs_cpuctl = read_reg(&bar0, KEPLER_FECS_BASE + 0x100);
-    let fecs_alive = !is_pri_fault(fecs_cpuctl)
-        && fecs_cpuctl & 0x10 == 0
-        && fecs_cpuctl & 0x20 == 0;
+    let fecs_alive =
+        !is_pri_fault(fecs_cpuctl) && fecs_cpuctl & 0x10 == 0 && fecs_cpuctl & 0x20 == 0;
     eprintln!("  FECS CPUCTL={fecs_cpuctl:#010x} alive={fecs_alive}");
     if !fecs_alive {
         eprintln!("  FECS not running. Run exp128a2_full_recipe_fecs_boot first.");
@@ -863,7 +903,9 @@ fn exp128a3_kepler_gpfifo_dispatch() {
     write_reg(&mut bar0, inst_off + 0xE8, 0); // channel ID = 0
 
     eprintln!("  Instance block at PRAMIN+0x000 ({inst_off:#010x})");
-    eprintln!("  GPFIFO at PRAMIN+0x200 ({gpfifo_off:#010x}), {gpfifo_entries_log2} entries (log2)");
+    eprintln!(
+        "  GPFIFO at PRAMIN+0x200 ({gpfifo_off:#010x}), {gpfifo_entries_log2} entries (log2)"
+    );
     eprintln!("  USERD at PRAMIN+0x400 ({userd_off:#010x})");
 
     // Phase 4: Bind channel via CCSR
@@ -920,9 +962,7 @@ fn exp128a3_kepler_gpfifo_dispatch() {
 
     eprintln!("\n{}", "=".repeat(70));
     eprintln!("Exp 128-A3 complete.");
-    eprintln!(
-        "  This is a skeletal channel test. Full dispatch requires MMU setup"
-    );
+    eprintln!("  This is a skeletal channel test. Full dispatch requires MMU setup");
     eprintln!("  and compute class binding (KEPLER_COMPUTE_B = 0xA1C0).");
     eprintln!("{}", "=".repeat(70));
 }

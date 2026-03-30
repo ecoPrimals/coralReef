@@ -118,10 +118,6 @@ impl PfifoInitConfig {
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
-#[allow(
-    dead_code,
-    reason = "Thin wrapper over init_pfifo_engine_with; reserved for call sites that use default PFIFO config only."
-)]
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
 }

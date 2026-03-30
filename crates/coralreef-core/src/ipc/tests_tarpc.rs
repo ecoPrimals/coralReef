@@ -313,9 +313,12 @@ async fn test_tarpc_capabilities() {
         .capabilities(tarpc::context::current())
         .await
         .unwrap();
-    assert!(!caps.is_empty(), "capabilities must list at least one arch");
     assert!(
-        caps.iter().any(|a| a == "sm_70"),
+        !caps.supported_archs.is_empty(),
+        "capabilities must list at least one arch"
+    );
+    assert!(
+        caps.supported_archs.iter().any(|a| a == "sm_70"),
         "must include sm_70 baseline"
     );
 }
@@ -592,7 +595,10 @@ async fn test_tarpc_unix_capabilities_roundtrip() {
         .capabilities(tarpc::context::current())
         .await
         .unwrap();
-    assert!(!caps.is_empty(), "should list at least one architecture");
+    assert!(
+        !caps.supported_archs.is_empty(),
+        "should list at least one architecture"
+    );
 
     let _ = std::fs::remove_file(&sock_path);
 }

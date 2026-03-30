@@ -4,6 +4,7 @@
 mod fd;
 mod handlers_device;
 mod handlers_journal;
+mod handlers_livepatch;
 mod helpers;
 mod jsonrpc;
 
@@ -120,6 +121,21 @@ pub fn handle_client(
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
         }
+        "ember.mmio.read" => {
+            handlers_device::mmio_read(stream, id, params)?;
+        }
+        "ember.fecs.state" => {
+            handlers_device::fecs_state(stream, id, params)?;
+        }
+        "ember.livepatch.status" => {
+            handlers_livepatch::status(stream, id, params)?;
+        }
+        "ember.livepatch.enable" => {
+            handlers_livepatch::enable(stream, id, params)?;
+        }
+        "ember.livepatch.disable" => {
+            handlers_livepatch::disable(stream, id, params)?;
+        }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
                 .map_err(ipc_io_error_string)?;
@@ -218,6 +234,21 @@ pub fn handle_client_tcp(
         }
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
+        }
+        "ember.mmio.read" => {
+            handlers_device::mmio_read(stream, id, params)?;
+        }
+        "ember.fecs.state" => {
+            handlers_device::fecs_state(stream, id, params)?;
+        }
+        "ember.livepatch.status" => {
+            handlers_livepatch::status(stream, id, params)?;
+        }
+        "ember.livepatch.enable" => {
+            handlers_livepatch::enable(stream, id, params)?;
+        }
+        "ember.livepatch.disable" => {
+            handlers_livepatch::disable(stream, id, params)?;
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))

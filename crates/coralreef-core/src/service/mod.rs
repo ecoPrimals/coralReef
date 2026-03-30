@@ -4,11 +4,13 @@
 //! Follows wateringHole semantic method naming: `shader.compile.{operation}`.
 
 mod compile;
+pub mod cpu;
 pub mod types;
 
 pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
+pub use cpu::{handle_compile_cpu, handle_execute_cpu, handle_validate};
 pub use types::{
     CompileCapabilitiesResponse, CompileRequest, CompileResponse, CompileSpirvRequestTarpc,
     CompileWgslRequest, F64TranscendentalCapabilities, HealthCheckResponse, HealthResponse,
@@ -85,6 +87,9 @@ pub fn handle_compile_capabilities() -> CompileCapabilitiesResponse {
             log: true,
             composite_lowering: true,
         },
+        cpu_archs: vec![std::env::consts::ARCH.to_string()],
+        supports_cpu_execution: true,
+        supports_validation: true,
     }
 }
 

@@ -80,6 +80,7 @@ pub async fn health_loop<S: crate::sysfs_ops::SysfsOps>(
             let prev_power = slot.health.power;
 
             slot.check_health();
+            slot.enrich_fecs_via_ember();
 
             let dead_count = consecutive_dead.entry(bdf.clone()).or_insert(0);
 

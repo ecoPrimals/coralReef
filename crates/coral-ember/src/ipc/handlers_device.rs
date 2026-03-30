@@ -6,6 +6,8 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, RwLock};
 
+use coral_driver::gsp::RegisterAccess;
+
 use crate::hold::HeldDevice;
 use crate::journal::{Journal, JournalEntry};
 use crate::swap;
@@ -416,4 +418,125 @@ pub(crate) fn ring_meta_set(
         write_jsonrpc_error(stream, id, -32000, &format!("{bdf}: not held by ember"))
             .map_err(ipc_io_error_string)
     }
+}
+
+/// `ember.mmio.read` — read a single BAR0 register via mmap.
+pub(crate) fn mmio_read(
+    stream: &mut impl Write,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), String> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or("missing 'bdf' parameter")?;
+    let offset = parse_hex_or_dec(params.get("offset"), "offset")?;
+
+    let resource0 = format!(
+        "{}/resource0",
+        coral_driver::linux_paths::sysfs_pci_device_path(bdf)
+    );
+    let bar0 = match coral_driver::nv::bar0::Bar0Access::open_resource_readonly(&resource0) {
+        Ok(b) => b,
+        Err(e) => {
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("BAR0 open failed for {bdf}: {e}"),
+            )
+            .map_err(ipc_io_error_string);
+        }
+    };
+
+    match bar0.read_u32(offset) {
+        Ok(value) => write_jsonrpc_ok(
+            stream,
+            id,
+            serde_json::json!({
+                "value": format!("{value:#010x}"),
+                "offset": format!("{offset:#010x}"),
+            }),
+        )
+        .map_err(ipc_io_error_string),
+        Err(e) => write_jsonrpc_error(
+            stream,
+            id,
+            -32000,
+            &format!("mmio read at {offset:#x}: {e}"),
+        )
+        .map_err(ipc_io_error_string),
+    }
+}
+
+/// `ember.fecs.state` — structured FECS register snapshot via BAR0 mmap.
+pub(crate) fn fecs_state(
+    stream: &mut impl Write,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), String> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or("missing 'bdf' parameter")?;
+
+    let resource0 = format!(
+        "{}/resource0",
+        coral_driver::linux_paths::sysfs_pci_device_path(bdf)
+    );
+    let bar0 = match coral_driver::nv::bar0::Bar0Access::open_resource_readonly(&resource0) {
+        Ok(b) => b,
+        Err(e) => {
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("BAR0 open failed for {bdf}: {e}"),
+            )
+            .map_err(ipc_io_error_string);
+        }
+    };
+
+    use coral_driver::nv::bar0::{FECS_CPUCTL, FECS_EXCI, FECS_MB0, FECS_MB1, FECS_PC, FECS_SCTL};
+
+    let read = |off: u32| -> u32 { bar0.read_u32(off).unwrap_or(0xDEAD_DEAD) };
+
+    let cpuctl = read(FECS_CPUCTL);
+    let sctl = read(FECS_SCTL);
+    let pc = read(FECS_PC);
+    let mb0 = read(FECS_MB0);
+    let mb1 = read(FECS_MB1);
+    let exci = read(FECS_EXCI);
+
+    let halted = cpuctl & (1 << 4) != 0;
+    let stopped = cpuctl & (1 << 5) != 0;
+    let hs_mode = sctl & 0x2 != 0;
+
+    write_jsonrpc_ok(
+        stream,
+        id,
+        serde_json::json!({
+            "cpuctl": format!("{cpuctl:#010x}"),
+            "sctl": format!("{sctl:#010x}"),
+            "pc": format!("{pc:#010x}"),
+            "mb0": format!("{mb0:#010x}"),
+            "mb1": format!("{mb1:#010x}"),
+            "exci": format!("{exci:#010x}"),
+            "halted": halted,
+            "stopped": stopped,
+            "hs_mode": hs_mode,
+        }),
+    )
+    .map_err(ipc_io_error_string)
+}
+
+pub(crate) fn parse_hex_or_dec(val: Option<&serde_json::Value>, name: &str) -> Result<u32, String> {
+    let v = val.ok_or(format!("missing '{name}' parameter"))?;
+    if let Some(n) = v.as_u64() {
+        return u32::try_from(n).map_err(|_| format!("{name} exceeds u32"));
+    }
+    if let Some(s) = v.as_str() {
+        return coral_driver::parse_hex_u32(s).map_err(|e| format!("{name}: {e}"));
+    }
+    Err(format!("{name}: expected number or hex string"))
 }

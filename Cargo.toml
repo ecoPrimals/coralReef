@@ -13,6 +13,7 @@ members = [
     "crates/coral-gpu",
     "crates/coral-glowplug",
     "crates/coral-ember",
+    "crates/coral-reef-cpu",
 ]
 exclude = [
     "fuzz",
@@ -75,6 +76,7 @@ proptest = "1"
 coral-reef = { path = "crates/coral-reef" }
 coral-reef-isa = { path = "crates/coral-reef-isa" }
 coral-reef-stubs = { path = "crates/coral-reef-stubs" }
+coral-reef-cpu = { path = "crates/coral-reef-cpu" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

@@ -154,6 +154,15 @@ pub struct CompileCapabilitiesResponse {
     /// f64 transcendental lowering capabilities — which ops the sovereign
     /// compiler can polyfill into pure f64 arithmetic (DFMA/DMUL/DADD).
     pub f64_transcendentals: F64TranscendentalCapabilities,
+    /// CPU architectures available for `shader.compile.cpu` / `shader.execute.cpu`.
+    #[serde(default)]
+    pub cpu_archs: Vec<String>,
+    /// Whether `shader.execute.cpu` is available (naga IR interpreter or Cranelift).
+    #[serde(default)]
+    pub supports_cpu_execution: bool,
+    /// Whether `shader.validate` is available.
+    #[serde(default)]
+    pub supports_validation: bool,
 }
 
 /// Per-operation f64 transcendental capabilities that the sovereign compiler

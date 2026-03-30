@@ -188,8 +188,8 @@ fn exp114_ls_mailbox_pipeline() {
         .read_u32(freg114::GPCCS_BASE + freg114::EXCI)
         .unwrap_or(0);
 
-    let fecs_running = fecs_cpuctl & (freg114::CPUCTL_HALTED | freg114::CPUCTL_STOPPED) == 0;
-    let gpccs_running = gpccs_cpuctl & (freg114::CPUCTL_HALTED | freg114::CPUCTL_STOPPED) == 0;
+    let fecs_running = fecs_cpuctl & (freg114::CPUCTL_HRESET | freg114::CPUCTL_HALTED) == 0;
+    let gpccs_running = gpccs_cpuctl & (freg114::CPUCTL_HRESET | freg114::CPUCTL_HALTED) == 0;
     let fecs_no_exci = fecs_exci == 0 || (fecs_exci >> 24) < 0x10;
     let gpccs_no_exci = gpccs_exci == 0 || (gpccs_exci >> 24) < 0x10;
 

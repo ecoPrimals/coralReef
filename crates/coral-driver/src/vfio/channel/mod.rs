@@ -163,7 +163,7 @@ impl VfioChannel {
             );
         };
 
-        let (runq, _runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
+        let (runq, runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
         pfifo_trace(bar0, "after-pfifo-init");
 
         // Configure BAR2 in PHYSICAL mode targeting system memory.

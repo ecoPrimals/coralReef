@@ -91,6 +91,27 @@ trait CoralReefRpc {
     /// `capabilities.list` — list capability IDs this primal provides.
     #[method(name = "capabilities.list")]
     async fn capabilities_list(&self) -> Result<Vec<String>, ErrorObjectOwned>;
+
+    /// `shader.compile.cpu` — compile/validate WGSL for CPU execution.
+    #[method(name = "shader.compile.cpu")]
+    async fn shader_compile_cpu(
+        &self,
+        request: coral_reef_cpu::CompileCpuRequest,
+    ) -> Result<service::CompileResponse, ErrorObjectOwned>;
+
+    /// `shader.execute.cpu` — execute WGSL on the CPU interpreter.
+    #[method(name = "shader.execute.cpu")]
+    async fn shader_execute_cpu(
+        &self,
+        request: coral_reef_cpu::ExecuteCpuRequest,
+    ) -> Result<coral_reef_cpu::ExecuteCpuResponse, ErrorObjectOwned>;
+
+    /// `shader.validate` — execute on CPU and compare against expected values.
+    #[method(name = "shader.validate")]
+    async fn shader_validate(
+        &self,
+        request: coral_reef_cpu::ValidateRequest,
+    ) -> Result<coral_reef_cpu::ValidateResponse, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
@@ -148,6 +169,27 @@ impl CoralReefRpcServer for RpcImpl {
     async fn capabilities_list(&self) -> Result<Vec<String>, ErrorObjectOwned> {
         let desc = crate::capability::self_description();
         Ok(desc.provides.iter().map(|c| c.id.to_string()).collect())
+    }
+
+    async fn shader_compile_cpu(
+        &self,
+        request: coral_reef_cpu::CompileCpuRequest,
+    ) -> Result<service::CompileResponse, ErrorObjectOwned> {
+        service::handle_compile_cpu(&request).map_err(|e| compile_error_to_rpc(&e))
+    }
+
+    async fn shader_execute_cpu(
+        &self,
+        request: coral_reef_cpu::ExecuteCpuRequest,
+    ) -> Result<coral_reef_cpu::ExecuteCpuResponse, ErrorObjectOwned> {
+        service::handle_execute_cpu(&request).map_err(|e| compile_error_to_rpc(&e))
+    }
+
+    async fn shader_validate(
+        &self,
+        request: coral_reef_cpu::ValidateRequest,
+    ) -> Result<coral_reef_cpu::ValidateResponse, ErrorObjectOwned> {
+        service::handle_validate(&request).map_err(|e| compile_error_to_rpc(&e))
     }
 }
 

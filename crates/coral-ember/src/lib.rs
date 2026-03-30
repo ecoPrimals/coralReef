@@ -9,7 +9,7 @@
 //! dies, ember's fds prevent the kernel from performing a PM reset.
 //!
 //! Usage:
-//!   `coral-ember server` / `coral-ember server --port PORT` / `$CORALREEF_EMBER_PORT` when `--port` is omitted
+//!   `coral-ember server` / `coral-ember server --port 9000`
 //!   `coral-ember /etc/coralreef/glowplug.toml` (legacy: same as `server` with a config path)
 //!   Auto-discovers config from XDG/system paths when omitted; override system path with
 //!   `$CORALREEF_GLOWPLUG_CONFIG`.
@@ -97,8 +97,7 @@ impl EmberDeviceConfig {
     }
 }
 
-/// Environment variable for the optional TCP JSON-RPC listen port when `--port` is not passed.
-/// CLI `--port` takes precedence over this value.
+/// Environment variable for the optional TCP JSON-RPC listen port (set when `--port` is used).
 pub const EMBER_LISTEN_PORT_ENV: &str = "CORALREEF_EMBER_PORT";
 
 /// Options for [`run_with_options`] (UniBin `server` entry).
@@ -110,38 +109,11 @@ pub struct EmberRunOptions {
     pub listen_port: Option<u16>,
 }
 
-fn ecosystem_namespace() -> &'static str {
-    use std::sync::OnceLock;
-    static NS: OnceLock<String> = OnceLock::new();
-    NS.get_or_init(|| {
-        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
-    })
-    .as_str()
-}
-
-fn family_id() -> String {
-    std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
-}
-
-fn default_ember_ipc_socket_path() -> String {
-    let base = std::env::var("XDG_RUNTIME_DIR")
-        .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
-    let sock_name = format!("{}-{}.sock", env!("CARGO_PKG_NAME"), family_id());
-    base.join(ecosystem_namespace())
-        .join(sock_name)
-        .display()
-        .to_string()
-}
-
-/// Default Unix socket path for ember IPC (wateringHole `<CARGO_PKG_NAME>-<BIOMEOS_FAMILY_ID>.sock`).
-///
-/// Override with `$CORALREEF_EMBER_SOCKET` when set and non-empty.
+/// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
 #[must_use]
 pub fn ember_socket_path() -> String {
     std::env::var("CORALREEF_EMBER_SOCKET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(default_ember_ipc_socket_path)
+        .unwrap_or_else(|_| "/run/coralreef/ember.sock".to_string())
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).
@@ -219,9 +191,9 @@ pub fn run() -> Result<(), i32> {
 
 /// Same as [`run`] but accepts explicit config and optional TCP listen port (see [`EmberRunOptions`]).
 ///
-/// TCP port: [`EmberRunOptions::listen_port`] if set, otherwise [`EMBER_LISTEN_PORT_ENV`] when it
-/// parses as `u16`. When a port is active, a TCP listener is started on `127.0.0.1` in addition to
-/// the Unix socket.
+/// When `listen_port` is set, a TCP listener is started on `127.0.0.1` in addition to the Unix socket.
+/// ([`EMBER_LISTEN_PORT_ENV`] names the conventional env var for documenting the chosen port; it is
+/// not written by this crate — Rust 2024 treats concurrent `set_var` as `unsafe`.)
 ///
 /// # Errors
 ///
@@ -233,13 +205,6 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
-
-    let listen_port = opts.listen_port.or_else(|| {
-        std::env::var(EMBER_LISTEN_PORT_ENV)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .and_then(|s| s.trim().parse().ok())
-    });
 
     let config_path = match opts.config_path.or_else(find_config) {
         Some(p) => p,
@@ -394,7 +359,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         }
     }
     tracing::info!("║ Socket: {socket_path}");
-    if let Some(port) = listen_port {
+    if let Some(port) = opts.listen_port {
         tracing::info!("║ TCP JSON-RPC: 127.0.0.1:{port} (vfio_fds unavailable over TCP)");
     }
     tracing::info!("╚══════════════════════════════════════════════════════════╝");
@@ -407,7 +372,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     spawn_watchdog(Arc::clone(&held));
     spawn_req_watcher(Arc::clone(&held));
 
-    if let Some(port) = listen_port {
+    if let Some(port) = opts.listen_port {
         let tcp_addr = format!("127.0.0.1:{port}");
         let tcp_listener = match TcpListener::bind(&tcp_addr) {
             Ok(l) => l,
@@ -530,11 +495,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                     let mut fds = Vec::new();
                     let mut names = Vec::new();
                     for (bdf, dev) in map.iter() {
-                        if let Some(ref req_fd) = dev.req_eventfd
-                            && let Ok(cloned) = req_fd.try_clone()
-                        {
-                            fds.push(cloned);
-                            names.push(bdf.clone());
+                        if let Some(ref req_fd) = dev.req_eventfd {
+                            if let Ok(cloned) = req_fd.try_clone() {
+                                fds.push(cloned);
+                                names.push(bdf.clone());
+                            }
                         }
                     }
                     (fds, names)

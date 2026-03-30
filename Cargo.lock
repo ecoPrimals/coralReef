@@ -377,6 +377,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "coral-reef-cpu"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "naga",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "coral-reef-isa"
 version = "0.1.0"
 dependencies = [
@@ -395,6 +407,7 @@ dependencies = [
  "clap",
  "coral-driver",
  "coral-reef",
+ "coral-reef-cpu",
  "futures",
  "jsonrpsee",
  "jsonrpsee-core",

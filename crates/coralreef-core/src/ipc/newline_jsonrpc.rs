@@ -125,6 +125,33 @@ pub fn dispatch_jsonrpc(
             let caps: Vec<&str> = desc.provides.iter().map(|c| c.id.as_ref()).collect();
             serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
+        "shader.compile.cpu" => {
+            let req: coral_reef_cpu::CompileCpuRequest = extract_params(params)?;
+            match service::handle_compile_cpu(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "shader.execute.cpu" => {
+            let req: coral_reef_cpu::ExecuteCpuRequest = extract_params(params)?;
+            match service::handle_execute_cpu(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "shader.validate" => {
+            let req: coral_reef_cpu::ValidateRequest = extract_params(params)?;
+            match service::handle_validate(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"
         ))),

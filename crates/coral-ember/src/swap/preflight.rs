@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 use crate::drm_isolation;
 use crate::sysfs;
+use coral_driver::gsp::RegisterAccess;
 use coral_driver::linux_paths;
 
 pub(super) fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
@@ -262,9 +263,16 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
 /// On an initialized GPU this returns the chipset ID (e.g. `0x108000a1` for
 /// GK210). On cold/un-POSTed hardware it returns a hardware-default sentinel
 /// (e.g. `0x0f22d0a1` for cold GK210).
+///
+/// Uses `Bar0Access` (mmap-based) for real PCI BAR0 resources, with a
+/// fallback to `File::read` for unit tests that use regular tempfiles.
 pub(crate) fn read_boot0(resource0_path: &str) -> Option<u32> {
+    if let Ok(bar0) = coral_driver::nv::bar0::Bar0Access::open_resource_readonly(resource0_path) {
+        return bar0.read_u32(0).ok();
+    }
+    // Fallback for unit tests using regular files (mmap of PCI resources
+    // has different semantics than mmap of tmpfs files).
     use std::io::{Read, Seek, SeekFrom};
-
     let mut file = std::fs::OpenOptions::new()
         .read(true)
         .open(resource0_path)
@@ -282,32 +290,50 @@ pub(crate) fn read_boot0(resource0_path: &str) -> Option<u32> {
 /// - BOOT0 doesn't match known initialized chipset patterns
 ///
 /// Logs diagnostic details (BOOT0 value, PTIMER readings) for debugging.
+///
+/// Uses `Bar0Access` (mmap) for real PCI resources, with a `File::read`
+/// fallback for unit tests on tmpfs.
 pub(super) fn is_gpu_cold_via_ptimer(resource0_path: &str) -> bool {
+    const PTIMER_LOW: u32 = 0x9400;
+
+    let boot0 = read_boot0(resource0_path);
+
+    // Try mmap-based BAR0 access first (works on real PCI resources).
+    if let Ok(bar0) = coral_driver::nv::bar0::Bar0Access::open_resource_readonly(resource0_path) {
+        let Some(t1) = bar0.read_u32(PTIMER_LOW).ok() else {
+            return false;
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let Some(t2) = bar0.read_u32(PTIMER_LOW).ok() else {
+            return false;
+        };
+        return is_cold_from_readings(resource0_path, boot0, t1, t2);
+    }
+
+    // Fallback: File::read for unit tests with regular files.
     use std::io::{Read, Seek, SeekFrom};
-
-    const PTIMER_LOW: u64 = 0x9400;
-
     let mut file = match std::fs::OpenOptions::new().read(true).open(resource0_path) {
         Ok(f) => f,
         Err(_) => return false,
     };
-
     let read_u32_at = |f: &mut std::fs::File, offset: u64| -> Option<u32> {
         f.seek(SeekFrom::Start(offset)).ok()?;
         let mut buf = [0u8; 4];
         f.read_exact(&mut buf).ok()?;
         Some(u32::from_le_bytes(buf))
     };
-
-    let boot0 = read_boot0(resource0_path);
-    let Some(t1) = read_u32_at(&mut file, PTIMER_LOW) else {
+    let Some(t1) = read_u32_at(&mut file, PTIMER_LOW as u64) else {
         return false;
     };
     std::thread::sleep(std::time::Duration::from_millis(50));
-    let Some(t2) = read_u32_at(&mut file, PTIMER_LOW) else {
+    let Some(t2) = read_u32_at(&mut file, PTIMER_LOW as u64) else {
         return false;
     };
 
+    is_cold_from_readings(resource0_path, boot0, t1, t2)
+}
+
+fn is_cold_from_readings(resource0_path: &str, boot0: Option<u32>, t1: u32, t2: u32) -> bool {
     let ptimer_frozen = t1 == t2;
 
     if let Some(b0) = boot0 {

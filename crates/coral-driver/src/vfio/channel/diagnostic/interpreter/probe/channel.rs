@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![allow(missing_docs)]
 //! Channel config — Layer 5 probing.
 
 use crate::vfio::channel::registers::{

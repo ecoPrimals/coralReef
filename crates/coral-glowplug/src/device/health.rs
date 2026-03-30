@@ -371,6 +371,57 @@ impl<S: SysfsOps> DeviceSlot<S> {
         };
     }
 
+    /// Enrich firmware health via `ember.fecs.state` (mmap-based BAR0 reads).
+    ///
+    /// Devices with `health_policy = "active"` get live FECS register data
+    /// from ember, which uses mmap rather than the (broken) File::read path.
+    /// Called from the periodic health loop after `check_health`.
+    pub fn enrich_fecs_via_ember(&mut self) {
+        if !self.config.is_health_active() {
+            return;
+        }
+        let Some(ember) = crate::ember::EmberClient::connect() else {
+            return;
+        };
+        match ember.fecs_state(&self.bdf) {
+            Ok(state) => {
+                let parse = |key: &str| -> Option<u32> {
+                    state
+                        .get(key)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| coral_driver::parse_hex_u32(s).ok())
+                };
+                if let Some(cpuctl) = parse("cpuctl") {
+                    self.health.firmware.fecs_cpuctl = cpuctl;
+                }
+                if let Some(sctl) = parse("sctl") {
+                    self.health.firmware.fecs_sctl = sctl;
+                }
+                self.health.firmware.fecs_halted = state
+                    .get("halted")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                self.health.firmware.fecs_stopped = state
+                    .get("stopped")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                tracing::debug!(
+                    bdf = %self.bdf,
+                    cpuctl = format_args!("{:#010x}", self.health.firmware.fecs_cpuctl),
+                    halted = self.health.firmware.fecs_halted,
+                    "FECS state enriched via ember"
+                );
+            }
+            Err(e) => {
+                tracing::debug!(
+                    bdf = %self.bdf,
+                    error = %e,
+                    "ember.fecs.state unavailable for health enrichment"
+                );
+            }
+        }
+    }
+
     /// Resurrect HBM2 by cycling through nouveau via ember.
     ///
     /// Delegates all driver transitions to ember's `swap_device` RPC:
