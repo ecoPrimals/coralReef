@@ -30,9 +30,11 @@ fn default_ember_socket_respects_env() {
     unsafe {
         std::env::remove_var("CORALREEF_EMBER_SOCKET");
     }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let expected = format!("{runtime_dir}/biomeos/coral-ember-default.sock");
     assert_eq!(
         coral_glowplug::test_support_default_ember_socket(),
-        "/run/coralreef/ember.sock"
+        expected
     );
     // SAFETY: same as above.
     unsafe {

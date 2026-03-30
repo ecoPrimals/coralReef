@@ -19,6 +19,7 @@
 mod deploy;
 mod handlers_device;
 mod handlers_diag;
+mod onboard;
 mod oracle;
 mod rpc;
 
@@ -31,9 +32,10 @@ use clap::{Parser, Subcommand};
 ///
 /// `default_socket` passes `std::env::var("CORALREEF_GLOWPLUG_SOCKET").ok().as_deref()`.
 fn resolve_glowplug_socket_path(env_value: Option<&str>) -> String {
-    env_value
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| "/run/coralreef/glowplug.sock".into())
+    env_value.map(|s| s.to_owned()).unwrap_or_else(|| {
+        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+        format!("{runtime}/biomeos/coral-glowplug-default.sock")
+    })
 }
 
 /// Default socket path, overridable via `$CORALREEF_GLOWPLUG_SOCKET`.
@@ -191,6 +193,42 @@ enum Command {
         /// Seconds to wait for nouveau GR init (default: 12).
         #[arg(long, default_value_t = 12)]
         settle: u64,
+        /// Poll FECS CPUCTL via BAR0 sysfs and swap as soon as FECS is
+        /// running (bit4=0). Overrides --settle with a minimum init wait
+        /// of 2s followed by 50ms polling intervals.
+        #[arg(long)]
+        poll_fecs: bool,
+        /// Keep FECS busy by spawning a GPU workload process that holds
+        /// an active DRM channel during the swap. The process is killed
+        /// after vfio-pci binds.
+        #[arg(long)]
+        keepalive: bool,
+    },
+
+    /// Warm FECS via nvidia proprietary driver round-trip.
+    ///
+    /// Like warm-fecs but uses the nvidia proprietary driver instead of nouveau.
+    /// RM initializes FECS differently (no HS+ lockdown for host interface).
+    /// Captures BAR0 register state before/after for diff analysis.
+    WarmFecsNvidia {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Seconds to wait for nvidia driver init (default: 5).
+        #[arg(long, default_value_t = 5)]
+        settle: u64,
+    },
+
+    /// Onboard a new GPU — run firmware census, recommend boot path, probe protocols.
+    ///
+    /// Produces a structured report suitable for feeding into the firmware
+    /// learning matrix. Run on any VFIO-bound device to discover its
+    /// firmware capabilities.
+    Onboard {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Write report to file (default: stdout).
+        #[arg(short, long)]
+        output: Option<String>,
     },
 
     /// Generate udev rules for /dev/vfio/* from glowplug.toml.
@@ -476,8 +514,17 @@ fn main() {
                 output_dir.as_deref(),
             );
         }
-        Command::WarmFecs { bdf, settle } => {
-            handlers_device::rpc_warm_fecs(&cli.socket, &bdf, settle)
+        Command::WarmFecs {
+            bdf,
+            settle,
+            poll_fecs,
+            keepalive,
+        } => handlers_device::rpc_warm_fecs(&cli.socket, &bdf, settle, poll_fecs, keepalive),
+        Command::WarmFecsNvidia { bdf, settle } => {
+            handlers_device::rpc_warm_fecs_nvidia(&cli.socket, &bdf, settle)
+        }
+        Command::Onboard { bdf, output } => {
+            onboard::run_onboard(&cli.socket, &bdf, output.as_deref())
         }
         Command::DeployUdev {
             config: config_path,

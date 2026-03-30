@@ -584,6 +584,14 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Relational { argument, .. } => {
                 self.resolve_expr_type_handle(argument)
             }
+            naga::Expression::CallResult(func) => {
+                let callee = &self.module.functions[func];
+                callee
+                    .result
+                    .as_ref()
+                    .map(|r| r.ty)
+                    .ok_or_else(|| CompileError::InvalidInput("CallResult on void function".into()))
+            }
             _ => self.any_type_handle(),
         }
     }

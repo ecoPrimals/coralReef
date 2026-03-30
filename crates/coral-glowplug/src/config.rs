@@ -277,6 +277,16 @@ fn default_socket() -> String {
         default_tcp_fallback()
     }
 }
+
+/// Default Unix socket path for this daemon (wateringHole `<CARGO_PKG_NAME>-<family_id>.sock`).
+///
+/// Same value as [`DaemonConfig::default`]. Tools such as `coralctl` use this so their default
+/// `--socket` matches the daemon. Per-primal override: set `daemon.socket` in `glowplug.toml` or
+/// `$CORALREEF_GLOWPLUG_SOCKET` for clients.
+#[must_use]
+pub fn default_ipc_socket_path() -> String {
+    default_socket()
+}
 fn default_log_level() -> String {
     "info".into()
 }

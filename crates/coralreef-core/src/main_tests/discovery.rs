@@ -3,6 +3,8 @@ use super::*;
 
 use coralreef_core::capability::{Capability, SelfDescription, Transport};
 
+static DISCOVERY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn discovery_dir_returns_path() {
     let dir = discovery_dir().unwrap();
@@ -11,6 +13,7 @@ fn discovery_dir_returns_path() {
 
 #[test]
 fn write_and_remove_discovery_file() {
+    let _lock = DISCOVERY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let desc = SelfDescription {
         provides: vec![Capability {
             id: "test.provide".into(),
@@ -64,6 +67,7 @@ fn write_and_remove_discovery_file() {
 
 #[test]
 fn remove_discovery_file_idempotent() {
+    let _lock = DISCOVERY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     remove_discovery_file();
     remove_discovery_file();
 }
@@ -76,4 +80,43 @@ fn discovery_dir_leaf_is_ecosystem_namespace() {
         Some(crate::config::ECOSYSTEM_NAMESPACE),
         "expected .../<namespace> with final segment biomeos"
     );
+}
+
+#[test]
+fn write_discovery_file_includes_jsonrpc_line_bind_when_transport_present() {
+    let _lock = DISCOVERY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    const JSONRPC_LINE_ADDR: &str = "127.0.0.1:54321";
+    let desc = SelfDescription {
+        provides: vec![Capability {
+            id: "test.provide".into(),
+            version: "1.0".into(),
+            metadata: serde_json::Value::Null,
+        }],
+        requires: vec![],
+        transports: vec![
+            Transport {
+                protocol: "jsonrpc".into(),
+                address: "127.0.0.1:11111".into(),
+            },
+            Transport {
+                protocol: "jsonrpc-line".into(),
+                address: JSONRPC_LINE_ADDR.into(),
+            },
+            Transport {
+                protocol: "tarpc+tcp".into(),
+                address: "127.0.0.1:22222".into(),
+            },
+        ],
+    };
+
+    write_discovery_file(&desc).unwrap();
+    let dir = discovery_dir().unwrap();
+    let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+    assert_eq!(
+        json["transports"]["jsonrpc_line"]["bind"].as_str().unwrap(),
+        JSONRPC_LINE_ADDR
+    );
+    remove_discovery_file();
 }

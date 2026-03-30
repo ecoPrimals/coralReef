@@ -50,8 +50,8 @@ mod freg115 {
 
     pub const CPUCTL_IINVAL: u32 = 1 << 0;
     pub const CPUCTL_STARTCPU: u32 = 1 << 1;
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 
     pub const PMC_ENABLE: usize = 0x0000_0200;
     pub const PMC_UNK260: usize = 0x0000_0260;
@@ -94,11 +94,11 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     let exci = r(freg115::EXCI);
     let mb0 = r(freg115::MAILBOX0);
     let bootvec = r(freg115::BOOTVEC);
-    let hreset = cpuctl & freg115::CPUCTL_HRESET != 0;
     let halted = cpuctl & freg115::CPUCTL_HALTED != 0;
-    let running = !hreset && !halted && cpuctl != 0xDEAD;
+    let stopped = cpuctl & freg115::CPUCTL_STOPPED != 0;
+    let running = !halted && !stopped && cpuctl != 0xDEAD;
     eprintln!(
-        "  {name:6}: cpuctl={cpuctl:#010x} HRESET={hreset:<5} HALTED={halted:<5} RUNNING={running:<5} \
+        "  {name:6}: cpuctl={cpuctl:#010x} HALTED={halted:<5} STOPPED={stopped:<5} RUNNING={running:<5} \
          SCTL={sctl:#06x} PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} BOOTVEC={bootvec:#06x}"
     );
 }
@@ -177,11 +177,11 @@ fn poll_falcon(bar0: &MappedBar, name: &str, base: usize, timeout_ms: u64) -> (u
         let exci = bar0.read_u32(base + freg115::EXCI).unwrap_or(0);
         let mb0 = bar0.read_u32(base + freg115::MAILBOX0).unwrap_or(0);
 
-        let hreset = cpuctl & freg115::CPUCTL_HRESET != 0;
         let halted = cpuctl & freg115::CPUCTL_HALTED != 0;
-        let running = !hreset && !halted;
+        let stopped = cpuctl & freg115::CPUCTL_STOPPED != 0;
+        let running = !halted && !stopped;
 
-        if mb0 != 0 || running || halted || start.elapsed() > timeout {
+        if mb0 != 0 || running || stopped || start.elapsed() > timeout {
             eprintln!(
                 "  {name:6} poll: cpuctl={cpuctl:#010x} PC={pc:#06x} EXCI={exci:#010x} \
                  MB0={mb0:#010x} ({}ms)",
@@ -255,16 +255,16 @@ fn exp115_direct_boot() {
     eprintln!("  GPCCS CPUCTL after PMC reset: {gpccs_cpuctl:#010x}");
     let _ = bar0.write_u32(
         freg115::GPCCS_BASE + freg115::CPUCTL,
-        freg115::CPUCTL_HRESET,
+        freg115::CPUCTL_HALTED,
     );
     let gpccs_cpuctl_rb = bar0
         .read_u32(freg115::GPCCS_BASE + freg115::CPUCTL)
         .unwrap_or(0xDEAD);
     let writable =
-        gpccs_cpuctl_rb == freg115::CPUCTL_HRESET || gpccs_cpuctl_rb & freg115::CPUCTL_HRESET != 0;
+        gpccs_cpuctl_rb == freg115::CPUCTL_HALTED || gpccs_cpuctl_rb & freg115::CPUCTL_HALTED != 0;
     eprintln!(
         "  GPCCS CPUCTL write test: wrote={:#010x} read={gpccs_cpuctl_rb:#010x} writable={writable}",
-        freg115::CPUCTL_HRESET
+        freg115::CPUCTL_HALTED
     );
 
     eprintln!("\n── A2: Upload GPCCS firmware (inst+data, no BL) ──");
@@ -492,8 +492,8 @@ fn exp115_direct_boot() {
         .read_u32(freg115::SEC2_BASE + freg115::CPUCTL)
         .unwrap_or(0);
     let sec2_alive = sec2_pc > 0x100
-        && sec2_cpuctl & freg115::CPUCTL_HRESET == 0
-        && sec2_cpuctl & freg115::CPUCTL_HALTED == 0;
+        && sec2_cpuctl & freg115::CPUCTL_HALTED == 0
+        && sec2_cpuctl & freg115::CPUCTL_STOPPED == 0;
 
     if !sec2_alive {
         eprintln!("  SEC2 not in idle loop (PC={sec2_pc:#x}). Proceeding anyway...");
@@ -539,8 +539,8 @@ fn exp115_direct_boot() {
         .read_u32(freg115::GPCCS_BASE + freg115::EXCI)
         .unwrap_or(0);
 
-    let fecs_e_running = fecs_e_cpuctl & (freg115::CPUCTL_HRESET | freg115::CPUCTL_HALTED) == 0;
-    let gpccs_e_running = gpccs_e_cpuctl & (freg115::CPUCTL_HRESET | freg115::CPUCTL_HALTED) == 0;
+    let fecs_e_running = fecs_e_cpuctl & (freg115::CPUCTL_HALTED | freg115::CPUCTL_STOPPED) == 0;
+    let gpccs_e_running = gpccs_e_cpuctl & (freg115::CPUCTL_HALTED | freg115::CPUCTL_STOPPED) == 0;
     let fecs_e_mthd = bar0
         .read_u32(freg115::FECS_BASE + freg115::MTHD_STATUS)
         .unwrap_or(0);

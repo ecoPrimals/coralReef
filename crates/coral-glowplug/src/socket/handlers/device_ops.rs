@@ -181,6 +181,11 @@ fn handle_health(
         power: slot.health.power.to_string(),
         domains_alive: slot.health.domains_alive,
         domains_faulted: slot.health.domains_faulted,
+        fecs_cpuctl: slot.health.firmware.fecs_cpuctl,
+        fecs_stopped: slot.health.firmware.fecs_stopped,
+        fecs_halted: slot.health.firmware.fecs_halted,
+        fecs_sctl: slot.health.firmware.fecs_sctl,
+        gpccs_cpuctl: slot.health.firmware.gpccs_cpuctl,
     })
     .map_err(|e| RpcError::internal(e.to_string()))
 }

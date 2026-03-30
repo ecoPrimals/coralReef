@@ -300,7 +300,7 @@ pub(crate) fn device_reset(
         "sbr" => sysfs::pci_device_reset(bdf),
         "bridge-sbr" => sysfs::pci_bridge_reset(bdf),
         "remove-rescan" => sysfs::pci_remove_rescan(bdf),
-        "auto" => try_reset_methods(bdf, &methods),
+        "auto" => try_reset_methods(bdf, &methods).map_err(|e| e.to_string()),
         other => Err(format!(
             "unknown reset method: {other} (use 'auto', 'sbr', 'bridge-sbr', 'remove-rescan')"
         )),

@@ -33,6 +33,39 @@ pub struct SwapObservation {
     pub lifecycle_description: String,
     /// Reset method used during the swap, if any.
     pub reset_method_used: Option<String>,
+    /// Pre-swap firmware state (FECS/GPCCS/PMU falcon registers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_pre: Option<FirmwareState>,
+    /// Post-swap firmware state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_post: Option<FirmwareState>,
+}
+
+/// Lightweight firmware state captured during swaps.
+///
+/// A subset of the full `FirmwareSnapshot` from coral-driver, capturing
+/// the key registers needed to understand what a driver transition changed.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FirmwareState {
+    /// FECS CPUCTL register.
+    pub fecs_cpuctl: u32,
+    /// FECS CPU stopped/idle (CPUCTL bit 5).
+    pub fecs_stopped: bool,
+    /// FECS firmware halted via HALT instruction (CPUCTL bit 4).
+    #[serde(alias = "fecs_hreset")]
+    pub fecs_halted: bool,
+    /// FECS SCTL (security mode).
+    pub fecs_sctl: u32,
+    /// FECS mailbox0.
+    pub fecs_mailbox0: u32,
+    /// FECS method status.
+    pub fecs_mthd_status: u32,
+    /// GPCCS CPUCTL.
+    pub gpccs_cpuctl: u32,
+    /// PMU CPUCTL.
+    pub pmu_cpuctl: u32,
+    /// PMC_ENABLE (which engines are powered).
+    pub pmc_enable: u32,
 }
 
 /// Per-phase timing breakdown of a swap operation (all values in milliseconds).
@@ -115,6 +148,8 @@ mod tests {
             health: HealthResult::Ok,
             lifecycle_description: "NVIDIA (bus reset kills HBM2)".into(),
             reset_method_used: None,
+            firmware_pre: None,
+            firmware_post: None,
         };
         let json = serde_json::to_string(&obs).expect("serialize");
         let back: SwapObservation = serde_json::from_str(&json).expect("deserialize");
@@ -165,6 +200,134 @@ mod tests {
     }
 
     #[test]
+    fn firmware_state_default_is_all_zeros() {
+        let fs = FirmwareState::default();
+        assert_eq!(fs.fecs_cpuctl, 0);
+        assert!(!fs.fecs_stopped);
+        assert!(!fs.fecs_halted);
+        assert_eq!(fs.fecs_sctl, 0);
+        assert_eq!(fs.pmc_enable, 0);
+    }
+
+    #[test]
+    fn firmware_state_json_roundtrip() {
+        let fs = FirmwareState {
+            fecs_cpuctl: 0x0000_0030,
+            fecs_stopped: false,
+            fecs_halted: false,
+            fecs_sctl: 0x0000_2000,
+            fecs_mailbox0: 0x0000_0001,
+            fecs_mthd_status: 0,
+            gpccs_cpuctl: 0x0000_0030,
+            pmu_cpuctl: 0x0000_0020,
+            pmc_enable: 0x0000_1100,
+        };
+        let json = serde_json::to_string(&fs).expect("serialize");
+        let back: FirmwareState = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.fecs_cpuctl, 0x30);
+        assert_eq!(back.fecs_sctl, 0x2000);
+        assert_eq!(back.pmc_enable, 0x1100);
+    }
+
+    #[test]
+    fn swap_observation_without_firmware_fields_deserializes() {
+        let json = r#"{
+            "bdf": "0000:03:00.0",
+            "from_personality": null,
+            "to_personality": "vfio",
+            "timestamp_epoch_ms": 0,
+            "timing": {"prepare_ms":0,"unbind_ms":0,"bind_ms":0,"stabilize_ms":0,"total_ms":0},
+            "trace_path": null,
+            "health": {"status":"Ok"},
+            "lifecycle_description": "test",
+            "reset_method_used": null
+        }"#;
+        let obs: SwapObservation = serde_json::from_str(json).expect("deserialize legacy JSON");
+        assert!(obs.firmware_pre.is_none());
+        assert!(obs.firmware_post.is_none());
+        assert_eq!(obs.bdf, "0000:03:00.0");
+    }
+
+    #[test]
+    fn swap_observation_with_firmware_roundtrips() {
+        let obs = SwapObservation {
+            bdf: "0000:03:00.0".into(),
+            from_personality: Some("nouveau".into()),
+            to_personality: "vfio".into(),
+            timestamp_epoch_ms: 1700000000000,
+            timing: SwapTiming {
+                prepare_ms: 10,
+                unbind_ms: 100,
+                bind_ms: 3000,
+                stabilize_ms: 50,
+                total_ms: 3160,
+            },
+            trace_path: None,
+            health: HealthResult::Ok,
+            lifecycle_description: "test".into(),
+            reset_method_used: None,
+            firmware_pre: Some(FirmwareState {
+                fecs_cpuctl: 0x30,
+                fecs_stopped: false,
+                fecs_halted: false,
+                fecs_sctl: 0x2000,
+                fecs_mailbox0: 0,
+                fecs_mthd_status: 0,
+                gpccs_cpuctl: 0x30,
+                pmu_cpuctl: 0x20,
+                pmc_enable: 0x1100,
+            }),
+            firmware_post: Some(FirmwareState {
+                fecs_cpuctl: 0x10,
+                fecs_stopped: false,
+                fecs_halted: true,
+                fecs_sctl: 0x2000,
+                fecs_mailbox0: 0,
+                fecs_mthd_status: 0,
+                gpccs_cpuctl: 0x10,
+                pmu_cpuctl: 0x10,
+                pmc_enable: 0x1100,
+            }),
+        };
+        let json = serde_json::to_string(&obs).expect("serialize");
+        let back: SwapObservation = serde_json::from_str(&json).expect("deserialize");
+        assert!(back.firmware_pre.is_some());
+        assert!(back.firmware_post.is_some());
+        let pre = back.firmware_pre.unwrap();
+        assert_eq!(pre.fecs_cpuctl, 0x30);
+        let post = back.firmware_post.unwrap();
+        assert!(post.fecs_halted);
+    }
+
+    #[test]
+    fn firmware_none_fields_omitted_in_json() {
+        let obs = SwapObservation {
+            bdf: "0000:03:00.0".into(),
+            from_personality: None,
+            to_personality: "vfio".into(),
+            timestamp_epoch_ms: 0,
+            timing: SwapTiming {
+                prepare_ms: 0,
+                unbind_ms: 0,
+                bind_ms: 0,
+                stabilize_ms: 0,
+                total_ms: 0,
+            },
+            trace_path: None,
+            health: HealthResult::Ok,
+            lifecycle_description: "test".into(),
+            reset_method_used: None,
+            firmware_pre: None,
+            firmware_post: None,
+        };
+        let json = serde_json::to_string(&obs).expect("serialize");
+        assert!(
+            !json.contains("firmware_pre"),
+            "None firmware fields should be omitted"
+        );
+    }
+
+    #[test]
     fn swap_observation_backward_compat_has_bdf_and_personality() {
         let obs = SwapObservation {
             bdf: "0000:03:00.0".into(),
@@ -182,6 +345,8 @@ mod tests {
             health: HealthResult::Ok,
             lifecycle_description: "test".into(),
             reset_method_used: None,
+            firmware_pre: None,
+            firmware_post: None,
         };
         let json = serde_json::to_value(&obs).expect("to_value");
         assert_eq!(json["bdf"], "0000:03:00.0");

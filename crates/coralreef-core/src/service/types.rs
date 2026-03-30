@@ -163,7 +163,7 @@ pub struct CompileCapabilitiesResponse {
 /// polynomial/Newton-Raphson software implementation using only basic f64
 /// arithmetic, bypassing broken driver JIT (e.g. NVVM) entirely.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "1:1 map of f64 transcendental functions"
 )]

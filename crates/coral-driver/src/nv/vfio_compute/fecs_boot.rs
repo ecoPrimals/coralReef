@@ -235,13 +235,13 @@ pub fn falcon_boot(
         "falcon boot: starting firmware upload"
     );
 
-    if cpuctl & falcon::CPUCTL_HRESET == 0 && cpuctl != 0xDEAD_DEAD {
+    if cpuctl & falcon::CPUCTL_HALTED == 0 && cpuctl != 0xDEAD_DEAD {
         tracing::warn!(
             name,
             cpuctl = format!("{cpuctl:#010x}"),
             "falcon not in HRESET — forcing halt before upload"
         );
-        w(falcon::CPUCTL, falcon::CPUCTL_HRESET)?;
+        w(falcon::CPUCTL, falcon::CPUCTL_HALTED)?;
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 
@@ -302,11 +302,11 @@ pub fn falcon_boot(
         result.mailbox1 = r(falcon::MAILBOX1);
         result.boot_time_us = start.elapsed().as_micros() as u64;
 
-        let halted = result.cpuctl_after & falcon::CPUCTL_HALTED != 0;
-        let hreset = result.cpuctl_after & falcon::CPUCTL_HRESET != 0;
+        let stopped = result.cpuctl_after & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = result.cpuctl_after & falcon::CPUCTL_HALTED != 0;
 
         if result.mailbox0 != 0 {
-            result.running = !halted && !hreset;
+            result.running = !stopped && !fw_halted;
             tracing::info!(
                 name,
                 boot_time_us = result.boot_time_us,
@@ -317,13 +317,13 @@ pub fn falcon_boot(
             break;
         }
 
-        if halted && !hreset {
+        if stopped && !fw_halted {
             result.running = false;
             tracing::warn!(
                 name,
                 boot_time_us = result.boot_time_us,
                 cpuctl = format!("{:#010x}", result.cpuctl_after),
-                "falcon boot: halted without mailbox response"
+                "falcon boot: stopped without mailbox response"
             );
             break;
         }

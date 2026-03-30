@@ -114,7 +114,7 @@ fn resolve_group_gid(group_name: &str) -> Option<u32> {
 /// Platform-agnostic JSON-RPC socket server (`ecoBin` compliant).
 ///
 /// Binds to either a Unix domain socket path or a TCP address.
-/// Use `SocketServer::bind` with a path (e.g. `/run/coralreef/glowplug.sock`)
+/// Use `SocketServer::bind` with a path (e.g. [`crate::config::default_ipc_socket_path`])
 /// or TCP address (e.g. `127.0.0.1:0`).
 pub struct SocketServer {
     transport: Transport,

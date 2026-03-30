@@ -479,8 +479,8 @@ pub fn attempt_dual_phase_boot_cfg(
         let cpuctl = r(falcon::CPUCTL);
         let mb0 = r(falcon::MAILBOX0);
         let pc = r(falcon::PC);
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
 
         if all_pcs.last() != Some(&pc) {
             all_pcs.push(pc);
@@ -489,7 +489,7 @@ pub fn attempt_dual_phase_boot_cfg(
             settled_count += 1;
         }
 
-        if mb0 != 0 || halted || hreset {
+        if mb0 != 0 || stopped || fw_halted {
             notes.push(format!(
                 "SEC2: cpuctl={cpuctl:#010x} mb0={mb0:#010x} pc={pc:#06x} ({}ms)",
                 start_time.elapsed().as_millis()

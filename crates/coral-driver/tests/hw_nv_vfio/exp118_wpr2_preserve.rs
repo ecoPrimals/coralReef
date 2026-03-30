@@ -45,8 +45,8 @@ mod r118 {
     pub const MAILBOX0: u32 = 0x040;
     pub const MAILBOX1: u32 = 0x044;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
     pub const INDEXED_WPR: u32 = 0x100CD4;
 }
 
@@ -92,9 +92,9 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) -> (u32, u32, u32) {
     let mb0 = bar0
         .read_u32(base + r118::MAILBOX0 as usize)
         .unwrap_or(0xDEAD);
-    let hreset = cpuctl & r118::CPUCTL_HRESET != 0;
     let halted = cpuctl & r118::CPUCTL_HALTED != 0;
-    let alive = !hreset && !halted && cpuctl != 0xDEAD;
+    let stopped = cpuctl & r118::CPUCTL_STOPPED != 0;
+    let alive = !halted && !stopped && cpuctl != 0xDEAD;
     eprintln!(
         "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x} PC={pc:#06x} EXCI={exci:#010x} \
          MB0={mb0:#010x} alive={alive}"
@@ -227,14 +227,14 @@ fn exp118_wpr2_preserve() {
     let (w2s_a, w2e_a, w2v_a) = read_wpr2(&bar0);
     eprintln!("  WPR2 (post-swap): start={w2s_a:#x} end={w2e_a:#x} valid={w2v_a}");
 
-    let sec2_alive = sec2_cpu_a & r118::CPUCTL_HRESET == 0
-        && sec2_cpu_a & r118::CPUCTL_HALTED == 0
+    let sec2_alive = sec2_cpu_a & r118::CPUCTL_HALTED == 0
+        && sec2_cpu_a & r118::CPUCTL_STOPPED == 0
         && sec2_cpu_a != 0xDEAD;
-    let fecs_alive = fecs_cpu_a & r118::CPUCTL_HRESET == 0
-        && fecs_cpu_a & r118::CPUCTL_HALTED == 0
+    let fecs_alive = fecs_cpu_a & r118::CPUCTL_HALTED == 0
+        && fecs_cpu_a & r118::CPUCTL_STOPPED == 0
         && fecs_cpu_a != 0xDEAD;
-    let gpccs_alive = gpccs_cpu_a & r118::CPUCTL_HRESET == 0
-        && gpccs_cpu_a & r118::CPUCTL_HALTED == 0
+    let gpccs_alive = gpccs_cpu_a & r118::CPUCTL_HALTED == 0
+        && gpccs_cpu_a & r118::CPUCTL_STOPPED == 0
         && gpccs_cpu_a != 0xDEAD;
 
     eprintln!("\n  ┌─────────────────────────────────────────────┐");

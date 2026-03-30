@@ -16,10 +16,15 @@ use std::os::unix::net::UnixStream;
 use coral_driver::vfio::ReceivedVfioFds;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
 
-const DEFAULT_EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
-
 fn ember_socket_path() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| DEFAULT_EMBER_SOCKET.to_string())
+    std::env::var("CORALREEF_EMBER_SOCKET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let runtime_dir =
+                std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+            format!("{runtime_dir}/biomeos/coral-ember-default.sock")
+        })
 }
 
 /// Request a PCI device reset from Ember (which runs as root).

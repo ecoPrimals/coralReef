@@ -107,13 +107,11 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
                     // unblocks. A blocking wait() here would hang this thread
                     // indefinitely. Brief try_wait loop, then abandon the zombie
                     // — it is reaped when the D-state eventually resolves.
-                    let reaped = (0..10).any(|_| {
-                        match child.try_wait() {
-                            Ok(Some(_)) | Err(_) => true,
-                            Ok(None) => {
-                                std::thread::sleep(Duration::from_millis(100));
-                                false
-                            }
+                    let reaped = (0..10).any(|_| match child.try_wait() {
+                        Ok(Some(_)) | Err(_) => true,
+                        Ok(None) => {
+                            std::thread::sleep(Duration::from_millis(100));
+                            false
                         }
                     });
                     if !reaped {
@@ -152,7 +150,11 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
 /// this, writes like `reset_method = ""` silently do nothing and the
 /// device retains its previous reset method.
 pub fn sysfs_write_direct(path: &str, value: &str) -> Result<(), String> {
-    let bytes: &[u8] = if value.is_empty() { b"\n" } else { value.as_bytes() };
+    let bytes: &[u8] = if value.is_empty() {
+        b"\n"
+    } else {
+        value.as_bytes()
+    };
     std::fs::write(path, bytes).map_err(|e| format!("sysfs write {path}: {e}"))
 }
 
@@ -687,8 +689,7 @@ mod tests {
     fn pci_remove_rescan_targeted_accepts_some_target() {
         // With a target driver, the function should still fail on
         // invalid BDF but exercise the autoprobe-disable path.
-        let err =
-            pci_remove_rescan_targeted("9999:99:99.9", Some("nouveau")).unwrap_err();
+        let err = pci_remove_rescan_targeted("9999:99:99.9", Some("nouveau")).unwrap_err();
         assert!(
             err.contains("sysfs write"),
             "expected sysfs error, got: {err}"

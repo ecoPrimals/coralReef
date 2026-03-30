@@ -473,8 +473,9 @@ impl NvUvmComputeDevice {
 
         // Flush GPFIFO entry from CPU cache so GPU DMA sees it.
         // SAFETY: gpfifo_slot..+8 is within the valid GPFIFO mapping.
+        #[cfg(target_arch = "x86_64")]
         unsafe {
-            crate::vfio::cache_ops::cache_line_flush(gpfifo_slot as *const u8);
+            core::arch::x86_64::_mm_clflush(gpfifo_slot as *const u8);
         }
 
         let doorbell = (self.userd_cpu_addr + USERD_GP_PUT_OFFSET as u64) as *mut u32;
@@ -485,8 +486,9 @@ impl NvUvmComputeDevice {
 
         // Flush USERD page from CPU cache so GPU sees GP_PUT update.
         // SAFETY: doorbell points within the valid USERD mapping.
+        #[cfg(target_arch = "x86_64")]
         unsafe {
-            crate::vfio::cache_ops::cache_line_flush(doorbell as *const u8);
+            core::arch::x86_64::_mm_clflush(doorbell as *const u8);
         }
 
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);

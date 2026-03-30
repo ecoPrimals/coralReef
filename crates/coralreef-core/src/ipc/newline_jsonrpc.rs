@@ -5,6 +5,7 @@
 
 use std::net::SocketAddr;
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -130,12 +131,14 @@ pub fn dispatch_jsonrpc(
     }
 }
 
-/// Serialize a JSON-RPC 2.0 response from a handler result.
-pub fn make_response(
+const JSONRPC_INTERNAL_ERROR: &[u8] =
+    br#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#;
+
+fn jsonrpc_response_struct(
     id: serde_json::Value,
     result: Result<serde_json::Value, IpcServiceError>,
-) -> String {
-    let resp = match result {
+) -> JsonRpcResponse {
+    match result {
         Ok(val) => JsonRpcResponse {
             jsonrpc: "2.0",
             result: Some(val),
@@ -151,11 +154,36 @@ pub fn make_response(
             }),
             id,
         },
-    };
-    serde_json::to_string(&resp).unwrap_or_else(|_| {
-        r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"},"id":null}"#
-            .to_owned()
-    })
+    }
+}
+
+/// Serialize a JSON-RPC 2.0 response from a handler result into `buf`, reusing capacity.
+fn serialize_jsonrpc_response_into(
+    id: serde_json::Value,
+    result: Result<serde_json::Value, IpcServiceError>,
+    buf: &mut Vec<u8>,
+) {
+    buf.clear();
+    let resp = jsonrpc_response_struct(id, result);
+    if serde_json::to_writer(&mut *buf, &resp).is_err() {
+        buf.clear();
+        buf.extend_from_slice(JSONRPC_INTERNAL_ERROR);
+    }
+}
+
+/// Serialize a JSON-RPC 2.0 response from a handler result.
+#[allow(
+    dead_code,
+    reason = "called from integration tests and re-exported via `unix_jsonrpc`"
+)]
+pub fn make_response(
+    id: serde_json::Value,
+    result: Result<serde_json::Value, IpcServiceError>,
+) -> String {
+    let mut buf = Vec::with_capacity(256);
+    serialize_jsonrpc_response_into(id, result, &mut buf);
+    String::from_utf8(buf)
+        .unwrap_or_else(|_| String::from_utf8_lossy(JSONRPC_INTERNAL_ERROR).into_owned())
 }
 
 /// Legacy name for `dispatch_jsonrpc` — kept for integration tests and fuzzing.
@@ -182,36 +210,47 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        let line = line.trim().to_owned();
+    let mut reader = BufReader::new(reader);
+    let mut line_buf = String::new();
+    let mut out_buf = Vec::with_capacity(4096);
+    loop {
+        line_buf.clear();
+        match reader.read_line(&mut line_buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = line_buf.trim();
         if line.is_empty() {
             continue;
         }
-        let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
+        match serde_json::from_str::<JsonRpcRequest>(line) {
             Ok(req) => {
                 if req.jsonrpc == "2.0" {
                     let result = dispatch_jsonrpc(&req.method, req.params);
-                    make_response(req.id, result)
+                    serialize_jsonrpc_response_into(req.id, result, &mut out_buf);
                 } else {
-                    make_response(
+                    serialize_jsonrpc_response_into(
                         req.id,
                         Err(IpcServiceError::dispatch(format!(
                             "invalid jsonrpc version: {}",
                             req.jsonrpc
                         ))),
-                    )
+                        &mut out_buf,
+                    );
                 }
             }
-            Err(e) => make_response(
+            Err(e) => serialize_jsonrpc_response_into(
                 serde_json::Value::Null,
                 Err(IpcServiceError::transport(format!("parse error: {e}"))),
+                &mut out_buf,
             ),
-        };
-        let msg = format!("{resp}\n");
-        if writer.write_all(msg.as_bytes()).await.is_err() {
+        }
+        out_buf.push(b'\n');
+        let wire: Bytes = Bytes::from(std::mem::take(&mut out_buf));
+        if writer.write_all(&wire).await.is_err() {
             break;
         }
+        out_buf = Vec::from(wire);
     }
 }
 

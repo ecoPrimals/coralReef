@@ -117,7 +117,7 @@ fn classify_sec2(cpuctl: u32, sctl: u32, mailbox0: u32) -> Sec2State {
     if pri::is_pri_error(cpuctl) || cpuctl == 0xBADF_DEAD {
         return Sec2State::Inaccessible;
     }
-    if mailbox0 != 0 && (cpuctl & falcon::CPUCTL_HALTED == 0) {
+    if mailbox0 != 0 && (cpuctl & falcon::CPUCTL_STOPPED == 0) {
         return Sec2State::Running;
     }
     // SCTL bit 0 indicates HS authentication state. This is informational —
@@ -333,7 +333,7 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
         let hreset_timeout = std::time::Duration::from_millis(3000);
         loop {
             let cpuctl_now = r(falcon::CPUCTL);
-            if cpuctl_now & falcon::CPUCTL_HRESET == 0 {
+            if cpuctl_now & falcon::CPUCTL_HALTED == 0 {
                 tracing::info!(
                     cpuctl = format!("{cpuctl_now:#010x}"),
                     elapsed_us = hreset_start.elapsed().as_micros(),
@@ -414,15 +414,15 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
     let boot0 = bar0.read_u32(0x000).unwrap_or(0);
     w(0x084, boot0)?;
 
-    // Step 7: Wait for CPUCTL_HALTED — the ROM scrubs IMEM/DMEM then HALTs.
+    // Step 7: Wait for CPUCTL_STOPPED — the ROM scrubs IMEM/DMEM then stops.
     // Nouveau: nvkm_falcon_v1_wait_for_halt(). This is CRITICAL: registers
-    // like 0x668 (instance block binding) can only be written while HALTED.
+    // like 0x668 (instance block binding) can only be written while stopped.
     let halt_start = std::time::Instant::now();
     let halt_timeout = std::time::Duration::from_millis(500);
     let mut halted = false;
     loop {
         let cpuctl = r(falcon::CPUCTL);
-        if cpuctl & falcon::CPUCTL_HALTED != 0 {
+        if cpuctl & falcon::CPUCTL_STOPPED != 0 {
             halted = true;
             tracing::info!(
                 cpuctl = format!("{cpuctl:#010x}"),
@@ -690,7 +690,7 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
     let halt_start = std::time::Instant::now();
     loop {
         let cpuctl = r(falcon::CPUCTL);
-        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+        if cpuctl & falcon::CPUCTL_HALTED != 0 {
             notes.push(format!(
                 "ROM halted in {:?} cpuctl={cpuctl:#010x}",
                 halt_start.elapsed()
@@ -822,7 +822,7 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
     let mut halted = false;
     loop {
         let cpuctl = r(falcon::CPUCTL);
-        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+        if cpuctl & falcon::CPUCTL_HALTED != 0 {
             notes.push(format!(
                 "ROM halted in {:?} cpuctl={cpuctl:#010x}",
                 halt_start.elapsed()

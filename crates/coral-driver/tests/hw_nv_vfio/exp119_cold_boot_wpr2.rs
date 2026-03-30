@@ -40,8 +40,8 @@ mod r119 {
     pub const MAILBOX0: usize = 0x040;
     pub const HWCFG: usize = 0x108;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
     pub const INDEXED_WPR: usize = 0x100CD4;
 
     pub const PMC_BOOT0: usize = 0x000000;
@@ -66,9 +66,9 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     let exci = bar0.read_u32(base + r119::EXCI).unwrap_or(0xDEAD);
     let mb0 = bar0.read_u32(base + r119::MAILBOX0).unwrap_or(0xDEAD);
     let hwcfg = bar0.read_u32(base + r119::HWCFG).unwrap_or(0xDEAD);
-    let hreset = cpuctl & r119::CPUCTL_HRESET != 0;
     let halted = cpuctl & r119::CPUCTL_HALTED != 0;
-    let alive = !hreset && !halted && cpuctl != 0xDEAD;
+    let stopped = cpuctl & r119::CPUCTL_STOPPED != 0;
+    let alive = !halted && !stopped && cpuctl != 0xDEAD;
     let sctl_mode = match sctl {
         0x3000 => "LS (fuse-enforced)",
         0x3002 => "HS (authenticated)",
@@ -78,7 +78,7 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     eprintln!(
         "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x}={sctl_mode} \
          PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} HWCFG={hwcfg:#010x} \
-         alive={alive} hreset={hreset}"
+         alive={alive} halted={halted}"
     );
 }
 

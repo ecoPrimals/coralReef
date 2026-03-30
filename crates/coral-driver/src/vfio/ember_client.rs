@@ -21,9 +21,39 @@ use crate::vfio::{ReceivedVfioFds, VfioDevice};
 
 const MAX_RESPONSE: usize = 4096;
 
+/// Socket filename stem for the coral-ember daemon. Must match coral-ember's `CARGO_PKG_NAME`
+/// (known integration point; coral-driver cannot depend on coral-ember — dependency cycle).
+const EMBER_DAEMON_PKG_NAME: &str = "coral-ember";
+
+fn ecosystem_namespace() -> &'static str {
+    use std::sync::OnceLock;
+    static NS: OnceLock<String> = OnceLock::new();
+    NS.get_or_init(|| {
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
+    })
+    .as_str()
+}
+
+fn family_id() -> String {
+    std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+}
+
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
+///
+/// Kept aligned with `coral_ember::ember_socket_path()` (same layout as coral-glowplug / wateringHole).
 fn default_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    std::env::var("CORALREEF_EMBER_SOCKET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let base = std::env::var("XDG_RUNTIME_DIR")
+                .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
+            let sock_name = format!("{}-{}.sock", EMBER_DAEMON_PKG_NAME, family_id());
+            base.join(ecosystem_namespace())
+                .join(sock_name)
+                .display()
+                .to_string()
+        })
 }
 
 /// A VFIO session obtained from coral-ember via FD sharing.

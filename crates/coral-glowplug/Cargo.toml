@@ -26,6 +26,14 @@ no-ember = []
 base64 = "0.22"
 clap.workspace = true
 coral-driver = { path = "../coral-driver", features = ["vfio", "cuda"] }
+# Intra-primal workspace crate (coralReef), not a separate primal — wateringHole’s
+# “no cross-primal imports” rule applies to distinct primals coordinating via IPC.
+#
+# glowplug does not call ember’s runtime (no `handle_swap_device`, server loop, etc.).
+# It uses coral-ember only for: (1) serde-stable JSON-RPC payload types (`observation`,
+# `journal`, ring metadata re-exports) shared with the ember process; (2) `ember_socket_path`
+# so both binaries agree on `$CORALREEF_EMBER_SOCKET` / default Unix path. Coordination
+# remains JSON-RPC over the socket; this dependency is the shared wire contract.
 coral-ember = { path = "../coral-ember" }
 rustix = { version = "1.1.4", features = ["net"] }
 serde = { version = "1", features = ["derive"] }

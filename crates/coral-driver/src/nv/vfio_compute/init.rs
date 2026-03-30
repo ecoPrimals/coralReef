@@ -236,7 +236,9 @@ impl NvVfioComputeDevice {
         use std::borrow::Cow;
 
         let r = |a: usize| self.bar0.read_u32(a).unwrap_or(0xDEAD_DEAD);
-        let w = |a: usize, v: u32| { let _ = self.bar0.write_u32(a, v); };
+        let w = |a: usize, v: u32| {
+            let _ = self.bar0.write_u32(a, v);
+        };
 
         let fecs_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
         let fecs_sctl = r(falcon::FECS_BASE + falcon::SCTL);
@@ -246,7 +248,7 @@ impl NvVfioComputeDevice {
         let fecs_exci = r(falcon::FECS_BASE + falcon::EXCI);
 
         let halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
+        let stopped = fecs_cpuctl & falcon::CPUCTL_STOPPED != 0;
         let hs_mode = (fecs_sctl >> 12) & 3 >= 2;
 
         tracing::info!(
@@ -256,26 +258,21 @@ impl NvVfioComputeDevice {
             fecs_exci = format_args!("{fecs_exci:#010x}"),
             fecs_mb0 = format_args!("{fecs_mb0:#010x}"),
             gr_enable = format_args!("{gr_enable:#010x}"),
-            halted, hreset, hs_mode,
+            halted,
+            stopped,
+            hs_mode,
             "warm restart: FECS state"
         );
 
-        let fecs_dead =
-            fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
+        let fecs_dead = fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
         if fecs_dead {
             return Err(DriverError::SubmitFailed(Cow::Borrowed(
                 "FECS unreachable (PRI timeout) — GPU is cold",
             )));
         }
 
-        if hreset {
-            tracing::warn!(
-                "FECS in HRESET — livepatch did not prevent self-reset. \
-                 Ensure livepatch is ENABLED after nouveau init and BEFORE teardown."
-            );
-        }
-
-        // Re-apply GR engine enable and interrupt registers
+        // Re-apply GR engine enable and interrupt registers before
+        // starting falcons — FECS checks these during init.
         w(0x400100, 0xFFFF_FFFF);
         w(0x40013c, 0xFFFF_FFFF);
         w(0x400124, 0x0000_0002);
@@ -288,13 +285,103 @@ impl NvVfioComputeDevice {
             "GR engine enable after re-apply"
         );
 
-        // If FECS is HALTED (not HRESET), the method interface should
-        // work — FECS is in its context-switch handler waiting for work.
-        // With the runlist-frozen livepatch, FECS thinks channels still
-        // exist and stays responsive.
-        if halted && !hreset {
-            tracing::info!("FECS HALTED (not HRESET) — method interface should be available");
+        // On warm handoff, FECS firmware is HALT'd (bit 4) — it ran during
+        // nouveau and entered its idle HALT loop. On HS+ Volta, a HALT'd
+        // falcon cannot be woken via STARTCPU. We try SWGEN0 first,
+        // then STARTCPU as fallback.
+        //
+        // If ENGCTL = 1 (engine-local reset), we clear it first.
+
+        let engctl = r(falcon::FECS_BASE + falcon::ENGCTL);
+        if engctl & 1 != 0 {
+            tracing::info!("FECS ENGCTL reset active — releasing");
+            w(falcon::FECS_BASE + falcon::ENGCTL, 0x00);
+            w(falcon::GPCCS_BASE + falcon::ENGCTL, 0x00);
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
+
+        if halted {
+            // CPUCTL bit 4: firmware executed HALT instruction (idle loop).
+            // Try multiple wake strategies in order:
+
+            tracing::info!("FECS firmware HALTED (bit4) — attempting wake strategies");
+
+            // Strategy 1: Trigger SWGEN0 interrupt to wake firmware from HALT.
+            // DON'T touch IRQMCLR — the firmware configured its own interrupt
+            // mask during ACR boot. Clearing it would disable all interrupts
+            // and prevent the firmware from waking.
+            // Only clear pending interrupts, re-enable the mask, then trigger.
+            w(falcon::FECS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
+            // Re-enable all interrupt sources in the mask (IRQMSET).
+            w(falcon::FECS_BASE + 0x010, 0xFFFF_FFFF); // IRQMSET
+            w(falcon::FECS_BASE + falcon::IRQMODE, 0xFC24);
+            w(falcon::GPCCS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
+            w(falcon::GPCCS_BASE + 0x010, 0xFFFF_FFFF); // IRQMSET
+            w(falcon::GPCCS_BASE + falcon::IRQMODE, 0xFC24);
+
+            // Trigger SWGEN0 (bit 6) — host→falcon interrupt.
+            w(falcon::FECS_BASE + falcon::IRQSSET, 1 << 6);
+            w(falcon::GPCCS_BASE + falcon::IRQSSET, 1 << 6);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            let fecs_cpuctl_1 = r(falcon::FECS_BASE + falcon::CPUCTL);
+            let fecs_irq_1 = r(falcon::FECS_BASE + falcon::IRQSTAT);
+            let fecs_pc_1 = r(falcon::FECS_BASE + falcon::PC);
+            let fecs_mb0_1 = r(falcon::FECS_BASE + falcon::MAILBOX0);
+
+            tracing::info!(
+                fecs_cpuctl = format_args!("{fecs_cpuctl_1:#010x}"),
+                fecs_irq = format_args!("{fecs_irq_1:#010x}"),
+                fecs_pc = format_args!("{fecs_pc_1:#06x}"),
+                fecs_mb0 = format_args!("{fecs_mb0_1:#010x}"),
+                "after SWGEN0 interrupt trigger"
+            );
+
+            // Strategy 2: If still halted, try STARTCPU via CPUCTL_ALIAS
+            // (works on some falcons where CPUCTL is locked in HS mode).
+            if fecs_cpuctl_1 & falcon::CPUCTL_HALTED != 0 {
+                tracing::info!("FECS still halted — trying STARTCPU via CPUCTL_ALIAS");
+                Self::warm_start_falcon(&self.bar0, falcon::GPCCS_BASE);
+                Self::warm_start_falcon(&self.bar0, falcon::FECS_BASE);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+
+            let fecs_cpuctl_post = r(falcon::FECS_BASE + falcon::CPUCTL);
+            let fecs_mb0_post = r(falcon::FECS_BASE + falcon::MAILBOX0);
+            let fecs_pc_post = r(falcon::FECS_BASE + falcon::PC);
+            let gpccs_cpuctl_post = r(falcon::GPCCS_BASE + falcon::CPUCTL);
+
+            tracing::info!(
+                fecs_cpuctl = format_args!("{fecs_cpuctl_post:#010x}"),
+                fecs_mb0 = format_args!("{fecs_mb0_post:#010x}"),
+                fecs_pc = format_args!("{fecs_pc_post:#06x}"),
+                gpccs_cpuctl = format_args!("{gpccs_cpuctl_post:#010x}"),
+                "post-wake falcon state"
+            );
+        } else if stopped {
+            tracing::info!("FECS STOPPED (bit5) — method interface should be available");
+        } else {
+            tracing::info!("FECS running — proceeding directly");
+        }
+
+        // Clear stale PBDMA interrupts accumulated while FECS was halted.
+        let pbdma_map = r(0x2004);
+        for pid in 0..32_usize {
+            if pbdma_map & (1 << pid) == 0 {
+                continue;
+            }
+            let b = 0x0004_0000 + pid * 0x2000;
+            let intr = r(b + 0x108);
+            if intr != 0 {
+                tracing::info!(
+                    pbdma = pid,
+                    intr = format_args!("{intr:#010x}"),
+                    "clearing stale PBDMA interrupt"
+                );
+                w(b + 0x108, 0xFFFF_FFFF);
+            }
+        }
+        w(0x2100, 0xFFFF_FFFF);
 
         self.setup_gr_context_warm()
     }
@@ -331,7 +418,10 @@ impl NvVfioComputeDevice {
         // Step 1: Release engine from local reset if ENGCTL has reset bit set.
         // This is the gate that prevents STARTCPU from working.
         if engctl & 1 != 0 {
-            tracing::info!(base = format_args!("{base:#x}"), "ENGCTL reset active — releasing");
+            tracing::info!(
+                base = format_args!("{base:#x}"),
+                "ENGCTL reset active — releasing"
+            );
             let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -390,9 +480,7 @@ impl NvVfioComputeDevice {
         };
 
         if image_size == 0 {
-            tracing::warn!(
-                "FECS returned image_size=0 — method interface not responsive yet"
-            );
+            tracing::warn!("FECS returned image_size=0 — method interface not responsive yet");
             return Ok(());
         }
 
@@ -433,8 +521,8 @@ impl NvVfioComputeDevice {
             .read_u32(falcon::FECS_BASE + falcon::MAILBOX0)
             .unwrap_or(0);
         let fecs_halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
-        let fecs_hreset = fecs_cpuctl & falcon::CPUCTL_HRESET != 0;
-        let fecs_running = !fecs_halted && !fecs_hreset && fecs_cpuctl != 0xDEAD_DEAD;
+        let fecs_stopped = fecs_cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fecs_running = !fecs_halted && !fecs_stopped && fecs_cpuctl != 0xDEAD_DEAD;
 
         if fecs_running || fecs_mailbox0 != 0 {
             tracing::info!(

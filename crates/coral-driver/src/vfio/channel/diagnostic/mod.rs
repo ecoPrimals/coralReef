@@ -3,7 +3,9 @@
 
 pub mod boot_follower;
 mod experiments;
+pub mod firmware_probe;
 pub mod interpreter;
+pub mod k80_cold_boot;
 mod matrix;
 pub mod replay;
 mod runner;

@@ -193,7 +193,11 @@ impl SSARef {
     /// fit in an SSARef.
     fn from_iter(mut it: impl ExactSizeIterator<Item = SSAValue>) -> Self {
         let len = it.len();
-        assert!(len > 0 && len <= Self::LARGE_SIZE);
+        assert!(
+            len > 0 && len <= Self::LARGE_SIZE,
+            "SSARef::from_iter: len={len} (expected 1..={LARGE})",
+            LARGE = Self::LARGE_SIZE
+        );
         let v: [SSAValue; Self::LARGE_SIZE] = array::from_fn(|_| {
             it.next().unwrap_or(SSAValue {
                 packed: NonZeroU32::MAX,
@@ -347,7 +351,16 @@ impl SSAValueAllocator {
     }
 
     /// Allocates multiple SSA values and returns them as an SSA reference.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `comps` is 0 or greater than `SSARef::LARGE_SIZE`.
     pub fn alloc_vec(&mut self, file: RegFile, comps: u8) -> SSARef {
+        assert!(
+            comps > 0 && (comps as usize) <= SSARef::LARGE_SIZE,
+            "alloc_vec: comps={comps}, expected 1..={LARGE}",
+            LARGE = SSARef::LARGE_SIZE,
+        );
         SSARef::from_iter((0..comps).map(|_| self.alloc(file)))
     }
 }

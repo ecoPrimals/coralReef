@@ -19,8 +19,9 @@ fn resolve_glowplug_socket_path_matches_env_set_semantics() {
 
 #[test]
 fn resolve_glowplug_socket_path_matches_env_unset_semantics() {
-    const FALLBACK_SOCKET: &str = "/run/coralreef/glowplug.sock";
-    assert_eq!(resolve_glowplug_socket_path(None), FALLBACK_SOCKET);
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let expected = format!("{runtime_dir}/biomeos/coral-glowplug-default.sock");
+    assert_eq!(resolve_glowplug_socket_path(None), expected);
 }
 
 #[test]

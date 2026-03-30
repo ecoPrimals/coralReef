@@ -23,14 +23,14 @@ pub fn attempt_direct_hreset(bar0: &MappedBar) -> AcrBootResult {
     let fecs_cpuctl_before = fecs_r(falcon::CPUCTL);
     notes.push(format!("FECS cpuctl before: {fecs_cpuctl_before:#010x}"));
 
-    if fecs_cpuctl_before & falcon::CPUCTL_HRESET != 0 {
+    if fecs_cpuctl_before & falcon::CPUCTL_HALTED != 0 {
         // Try writing 0 to CPUCTL (clear all bits including HRESET)
         let _ = bar0.write_u32(falcon::FECS_BASE + falcon::CPUCTL, 0);
         std::thread::sleep(std::time::Duration::from_millis(5));
         let after = fecs_r(falcon::CPUCTL);
         notes.push(format!("FECS cpuctl after direct clear: {after:#010x}"));
 
-        if after & falcon::CPUCTL_HRESET == 0 {
+        if after & falcon::CPUCTL_HALTED == 0 {
             notes.push("Direct HRESET clear SUCCEEDED".to_string());
         } else {
             notes.push("Direct HRESET clear failed (expected — ACR-managed)".to_string());

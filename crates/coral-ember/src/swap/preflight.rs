@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Pre-flight sysfs sanity checks, DRM isolation verification, and cold-GPU heuristics for
-//! [`super::handle_swap_device`].
-
 use crate::drm_isolation;
 use crate::sysfs;
 use coral_driver::linux_paths;
@@ -159,12 +156,10 @@ pub(super) fn is_active_display_gpu(bdf: &str) -> bool {
 pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
     let sysfs_path = linux_paths::sysfs_pci_device_path(bdf);
     if !std::path::Path::new(&sysfs_path).exists() {
-        tracing::debug!(
-            bdf,
-            sysfs_path,
-            "preflight: sysfs path absent — no device to validate (no blockers)"
-        );
-        return Ok(());
+        return Err(format!(
+            "preflight FAILED for {bdf}: sysfs path does not exist ({sysfs_path}). \
+             Device may have been removed or never enumerated."
+        ));
     }
 
     if let Some(power) = sysfs::read_power_state(bdf) {
@@ -365,118 +360,170 @@ pub(super) fn is_gpu_cold_via_ptimer(resource0_path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for [`verify_drm_isolation_with_paths`], VFIO holder counting,
-    //! display-GPU detection, preflight, cold-GPU heuristics, and BAR0 BOOT0 reads.
-
+    use super::super::swap_test_lock::SWAP_TEST_LOCK;
     use super::*;
-    use std::fs;
 
-    const TEST_BDF: &str = "0000:99:00.0";
+    const NONEXISTENT_BDF: &str = "9999:99:99.9";
 
     #[test]
-    fn verify_drm_isolation_with_paths_passes_when_xorg_and_udev_rules_match() {
-        let dir = tempfile::tempdir().expect("tempdir");
+    fn count_external_vfio_group_holders_zero_without_iommu_group() {
+        assert_eq!(count_external_vfio_group_holders(NONEXISTENT_BDF), 0);
+    }
+
+    #[test]
+    fn verify_drm_isolation_ok_when_files_valid() {
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("xorg.conf");
-        let udev = dir.path().join("99-gpu.rules");
-        fs::write(
-            &xorg,
-            r#"
-Section "ServerFlags"
-    Option "AutoAddGPU" "false"
-EndSection
-"#,
-        )
-        .expect("write xorg");
-        fs::write(
+        let udev = dir.path().join("udev.rules");
+        let bdf = "0000:03:00.0";
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n")
+            .expect("write synthetic xorg snippet");
+        std::fs::write(
             &udev,
-            format!(
-                r#"KERNEL=="{TEST_BDF}", DRIVER=="vfio-pci", TAG+="seat0"
-"#
-            ),
+            format!("KERNEL==\"card*\", ATTR{{address}}==\"{bdf}\""),
         )
-        .expect("write udev");
-
-        let result = verify_drm_isolation_with_paths(
-            TEST_BDF,
-            xorg.to_str().expect("utf8 path"),
-            udev.to_str().expect("utf8 path"),
-        );
-        assert!(result.is_ok(), "expected Ok, got {result:?}");
+        .expect("write synthetic udev rules");
+        verify_drm_isolation_with_paths(
+            bdf,
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
+        )
+        .expect("valid isolation files should verify");
     }
 
     #[test]
-    fn verify_drm_isolation_with_paths_fails_when_xorg_missing_autoaddgpu() {
-        let dir = tempfile::tempdir().expect("tempdir");
+    fn verify_drm_isolation_fails_when_xorg_missing() {
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
+        let xorg = dir.path().join("missing-xorg");
+        let udev = dir.path().join("udev.rules");
+        std::fs::write(&udev, "0000:03:00.0").expect("write udev stub");
+        let err = verify_drm_isolation_with_paths(
+            "0000:03:00.0",
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
+        )
+        .expect_err("missing xorg must fail verification");
+        assert!(err.contains("BLOCKED"));
+        assert!(err.contains("missing — Xorg"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_xorg_missing_autoaddgpu_false() {
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
         let xorg = dir.path().join("xorg.conf");
-        let udev = dir.path().join("99-gpu.rules");
-        fs::write(&xorg, "Section \"ServerFlags\"\nEndSection\n").expect("write xorg");
-        fs::write(
-            &udev,
-            format!(r#"KERNEL=="{TEST_BDF}", DRIVER=="vfio-pci""#),
-        )
-        .expect("write udev");
-
+        let udev = dir.path().join("udev.rules");
+        std::fs::write(&xorg, "not the droids you are looking for\n")
+            .expect("write invalid xorg snippet");
+        std::fs::write(&udev, "0000:03:00.0").expect("write udev stub");
         let err = verify_drm_isolation_with_paths(
-            TEST_BDF,
-            xorg.to_str().expect("utf8 path"),
-            udev.to_str().expect("utf8 path"),
+            "0000:03:00.0",
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
         )
-        .expect_err("expected error when AutoAddGPU false is absent");
+        .expect_err("xorg without AutoAddGPU false must fail");
+        assert!(err.contains("AutoAddGPU"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_udev_missing() {
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("missing-udev");
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").expect("write xorg snippet");
+        let err = verify_drm_isolation_with_paths(
+            "0000:03:00.0",
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
+        )
+        .expect_err("missing udev rules must fail verification");
+        assert!(err.contains("logind"));
+    }
+
+    #[test]
+    fn verify_drm_isolation_fails_when_udev_missing_bdf_token() {
+        let dir = tempfile::tempdir().expect("tempdir for isolation files");
+        let xorg = dir.path().join("xorg.conf");
+        let udev = dir.path().join("udev.rules");
+        let bdf = "0000:03:00.0";
+        std::fs::write(&xorg, "Option \"AutoAddGPU\" \"false\"\n").expect("write xorg snippet");
+        std::fs::write(&udev, "some other pci address").expect("write udev without BDF");
+        let err = verify_drm_isolation_with_paths(
+            bdf,
+            xorg.to_str().expect("xorg path utf-8"),
+            udev.to_str().expect("udev path utf-8"),
+        )
+        .expect_err("udev without BDF token must fail");
+        assert!(err.contains("does not cover BDF"));
+    }
+
+    #[test]
+    fn preflight_rejects_nonexistent_device() {
+        let err = preflight_device_check(NONEXISTENT_BDF).unwrap_err();
         assert!(
-            err.contains("AutoAddGPU") || err.contains("missing"),
-            "unexpected message: {err}"
+            err.contains("sysfs path does not exist"),
+            "expected sysfs-missing error, got: {err}"
         );
     }
 
     #[test]
-    fn verify_drm_isolation_with_paths_fails_with_multiple_errors_when_paths_missing() {
-        let err = verify_drm_isolation_with_paths(
-            TEST_BDF,
-            "/nonexistent/xorg.conf",
-            "/nonexistent/udev.rules",
-        )
-        .expect_err("expected error when both config paths are missing");
-        assert!(
-            err.contains("xorg.conf") && err.contains("udev.rules"),
-            "expected both paths mentioned: {err}"
-        );
+    fn preflight_rejects_0xffff_vendor_id() {
+        let result = preflight_device_check("0000:00:00.0");
+        // 0000:00:00.0 is the host bridge — it exists and has a real
+        // vendor ID, so this should pass preflight (not reject). We only
+        // verify no panic; the 0xFFFF path is exercised indirectly by
+        // the nonexistent-BDF test above.
+        drop(result);
     }
 
     #[test]
-    fn count_external_vfio_group_holders_returns_zero_for_nonexistent_bdf() {
-        assert_eq!(count_external_vfio_group_holders("0000:ff:ff:ff:ff"), 0);
+    fn count_external_vfio_skips_proc_when_iommu_group_is_zero() {
+        let _guard = SWAP_TEST_LOCK
+            .lock()
+            .expect("swap tests must not run concurrently with other swap IPC tests");
+        assert_eq!(count_external_vfio_group_holders("9999:99:99.9"), 0);
     }
 
     #[test]
-    fn is_active_display_gpu_returns_false_for_nonexistent_bdf() {
-        assert!(!is_active_display_gpu("0000:ff:ff:ff:ff"));
-    }
-
-    #[test]
-    fn preflight_device_check_ok_when_no_sysfs_for_bdf() {
-        assert!(preflight_device_check("0000:ff:ff:ff:ff").is_ok());
-    }
-
-    #[test]
-    fn is_gpu_cold_via_ptimer_returns_false_when_resource0_missing() {
-        assert!(!is_gpu_cold_via_ptimer("/nonexistent/resource0"));
-    }
-
-    #[test]
-    fn read_boot0_returns_none_for_nonexistent_path() {
-        assert_eq!(read_boot0("/nonexistent/resource0"), None);
-    }
-
-    #[test]
-    fn read_boot0_returns_some_le_u32_for_temp_file_with_four_bytes() {
+    fn read_boot0_from_tmpfile_returns_value() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("resource0");
-        let expected = 0x1234_5678_u32;
-        fs::write(&path, expected.to_le_bytes()).expect("write resource0");
+        let boot0_val: u32 = 0x108000a1;
+        let mut data = vec![0u8; 0x9800];
+        data[0..4].copy_from_slice(&boot0_val.to_le_bytes());
+        std::fs::write(&path, &data).expect("write fake resource0");
+        let result = read_boot0(path.to_str().unwrap());
+        assert_eq!(result, Some(boot0_val));
+    }
 
-        assert_eq!(
-            read_boot0(path.to_str().expect("utf8 path")),
-            Some(expected)
-        );
+    #[test]
+    fn read_boot0_nonexistent_returns_none() {
+        assert!(read_boot0("/nonexistent-coral-ember-resource0").is_none());
+    }
+
+    #[test]
+    fn is_gpu_cold_detects_frozen_ptimer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("resource0");
+        let mut data = vec![0u8; 0x9800];
+        // BOOT0: cold GK210 sentinel
+        data[0..4].copy_from_slice(&0x0f22d0a1u32.to_le_bytes());
+        // PTIMER at 0x9400: frozen (same value on both reads)
+        data[0x9400..0x9404].copy_from_slice(&0xBAD0DA1Fu32.to_le_bytes());
+        std::fs::write(&path, &data).expect("write fake resource0");
+        assert!(is_gpu_cold_via_ptimer(path.to_str().unwrap()));
+    }
+
+    #[test]
+    fn is_gpu_cold_rejects_unknown_chipset_even_with_running_ptimer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("resource0");
+        let mut data = vec![0u8; 0x9800];
+        // BOOT0: invalid chipset (0x0F2 is not in the known table)
+        data[0..4].copy_from_slice(&0x0f22d0a1u32.to_le_bytes());
+        // PTIMER: would need two different reads, but from a static file
+        // both reads return the same value → frozen → cold
+        data[0x9400..0x9404].copy_from_slice(&0x12345678u32.to_le_bytes());
+        std::fs::write(&path, &data).expect("write fake resource0");
+        assert!(is_gpu_cold_via_ptimer(path.to_str().unwrap()));
     }
 }

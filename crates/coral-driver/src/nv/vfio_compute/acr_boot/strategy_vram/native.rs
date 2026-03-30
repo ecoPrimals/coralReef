@@ -387,8 +387,8 @@ pub fn attempt_vram_native_acr_boot(
             settled_count += 1;
         }
 
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset_back = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let halted = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let hreset_back = cpuctl & falcon::CPUCTL_HALTED != 0;
 
         if mb0 != 0 || halted || hreset_back {
             notes.push(format!(

@@ -172,11 +172,11 @@ pub fn attempt_acr_chain(
         let mb0 = r(falcon::MAILBOX0);
         let mb1 = r(falcon::MAILBOX1);
 
-        // Success: falcon halted (HRESET re-asserted) and mailbox indicates completion
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset_back = cpuctl & falcon::CPUCTL_HRESET != 0;
+        // Success: firmware-halted bit set (HALTED) and cpuctl changed vs pre-boot
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
 
-        if hreset_back && cpuctl != sec2_before.cpuctl {
+        if fw_halted && cpuctl != sec2_before.cpuctl {
             notes.push(format!(
                 "SEC2 halted: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} ({}ms)",
                 start.elapsed().as_millis()
@@ -190,9 +190,9 @@ pub fn attempt_acr_chain(
             ));
             break;
         }
-        if halted {
+        if stopped {
             notes.push(format!(
-                "SEC2 halted (no mailbox): cpuctl={cpuctl:#010x} ({}ms)",
+                "SEC2 stopped (no mailbox): cpuctl={cpuctl:#010x} ({}ms)",
                 start.elapsed().as_millis()
             ));
             break;
@@ -324,16 +324,16 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
     // Method B: HALT the running ROM, then upload + restart.
     // cpuctl=0 means the ROM is running. If we can HALT it (set bit 5),
     // then upload code and STARTCPU to restart with our code.
-    w(falcon::CPUCTL, falcon::CPUCTL_HALTED);
+    w(falcon::CPUCTL, falcon::CPUCTL_STOPPED);
     std::thread::sleep(std::time::Duration::from_millis(1));
     let cpuctl_after_halt = r(falcon::CPUCTL);
     notes.push(format!(
         "CANARY B: halt attempt: cpuctl={cpuctl_after_halt:#010x} (bit5={})",
-        cpuctl_after_halt & falcon::CPUCTL_HALTED != 0
+        cpuctl_after_halt & falcon::CPUCTL_STOPPED != 0
     ));
 
     // Also try writing to CPUCTL_ALIAS to halt
-    w(falcon::CPUCTL_ALIAS, falcon::CPUCTL_HALTED);
+    w(falcon::CPUCTL_ALIAS, falcon::CPUCTL_STOPPED);
     std::thread::sleep(std::time::Duration::from_millis(1));
     let alias_after_halt = r(falcon::CPUCTL_ALIAS);
     let cpuctl_after_alias_halt = r(falcon::CPUCTL);
@@ -342,8 +342,8 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
     ));
 
     // If halted, try to upload and start
-    if cpuctl_after_halt & falcon::CPUCTL_HALTED != 0
-        || cpuctl_after_alias_halt & falcon::CPUCTL_HALTED != 0
+    if cpuctl_after_halt & falcon::CPUCTL_STOPPED != 0
+        || cpuctl_after_alias_halt & falcon::CPUCTL_STOPPED != 0
     {
         w(falcon::CPUCTL, falcon::CPUCTL_IINVAL);
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -474,10 +474,10 @@ pub fn attempt_direct_acr_load(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoot
         let mb0 = r(falcon::MAILBOX0);
         let mb1 = r(falcon::MAILBOX1);
 
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset_back = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
 
-        if mb0 != 0 || halted || hreset_back {
+        if mb0 != 0 || stopped || fw_halted {
             notes.push(format!(
                 "SEC2 stopped: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} ({}ms)",
                 start.elapsed().as_millis()

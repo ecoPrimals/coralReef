@@ -111,7 +111,7 @@ impl fmt::Display for AcrBootResult {
 ///
 /// Requires: FECS not in HRESET, GPCCS EXCI == 0, and GPCCS PC != 0.
 pub(crate) fn evaluate_boot_success(fecs_cpuctl: u32, gpccs_pc: u32, gpccs_exci: u32) -> bool {
-    let fecs_not_reset = fecs_cpuctl & falcon::CPUCTL_HRESET == 0;
+    let fecs_not_reset = fecs_cpuctl & falcon::CPUCTL_HALTED == 0;
     let gpccs_healthy = gpccs_exci == 0 && gpccs_pc != 0;
     fecs_not_reset && gpccs_healthy
 }
@@ -194,8 +194,8 @@ pub(crate) fn poll_falcon_boot(
         let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
         let mb0 = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
 
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
 
         if mb0 != 0 {
             notes.push(format!(
@@ -205,9 +205,9 @@ pub(crate) fn poll_falcon_boot(
             return (cpuctl, mb0);
         }
 
-        if halted && !hreset {
+        if stopped && !fw_halted {
             notes.push(format!(
-                "{name}: halted without mailbox: cpuctl={cpuctl:#010x} ({}ms)",
+                "{name}: stopped without mailbox: cpuctl={cpuctl:#010x} ({}ms)",
                 start.elapsed().as_millis()
             ));
             return (cpuctl, mb0);
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn evaluate_boot_success_fecs_in_hreset_fails() {
-        assert!(!evaluate_boot_success(falcon::CPUCTL_HRESET, 0x100, 0x00));
+        assert!(!evaluate_boot_success(falcon::CPUCTL_HALTED, 0x100, 0x00));
     }
 
     #[test]

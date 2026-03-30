@@ -353,11 +353,11 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
             settled_count += 1;
         }
 
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset_back = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
         let mb0_changed = mb0 != 0xcafe_beef && mb0 != 0;
 
-        if mb0_changed || halted || hreset_back {
+        if mb0_changed || stopped || fw_halted {
             notes.push(format!(
                 "SEC2 response: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} pc={pc:#010x} ({}ms)",
                 start_time.elapsed().as_millis()

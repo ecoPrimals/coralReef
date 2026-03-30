@@ -254,13 +254,18 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         base_handle: Handle<naga::Expression>,
     ) -> Result<SSARef, CompileError> {
         let base_ty = self.resolve_expr_type_handle(base_handle)?;
-        if matches!(
-            self.module.types[base_ty].inner,
-            naga::TypeInner::Vector { .. }
-        ) {
-            let comp = index as u8;
-            if comp < base.comps() {
-                return Ok(base[comp as usize].into());
+        if let naga::TypeInner::Vector { scalar, .. } = self.module.types[base_ty].inner {
+            let regs_per_elem: u8 = if scalar.width == 8 { 2 } else { 1 };
+            let reg_offset = index as u8 * regs_per_elem;
+            if reg_offset + regs_per_elem <= base.comps() {
+                if regs_per_elem == 1 {
+                    return Ok(base[reg_offset as usize].into());
+                }
+                return Ok(SSARef::new(
+                    &(0..regs_per_elem)
+                        .map(|i| base[(reg_offset + i) as usize])
+                        .collect::<Vec<_>>(),
+                ));
             }
         }
 

@@ -97,9 +97,7 @@ fn handle_swap_non_drm_native_target_skips_drm_gate() {
     );
     let msg = err.to_string();
     assert!(
-        msg.contains("preflight")
-            || msg.contains("swap_device")
-            || msg.contains("sysfs"),
+        msg.contains("preflight") || msg.contains("swap_device") || msg.contains("sysfs"),
         "expected preflight, sysfs, or swap error for nonexistent device: {err}"
     );
 }

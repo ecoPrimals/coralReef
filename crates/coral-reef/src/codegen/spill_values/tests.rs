@@ -394,6 +394,58 @@ fn test_spill_values_with_pinned() {
     assert!(!func.blocks[0].instrs.is_empty());
 }
 
+/// Two `OpPin` instructions mark multiple destination SSA values as pinned (`b.p`) so `SpillChooser`
+/// skips them when evicting under register pressure (`spiller.rs` post-instr `OpPin` handling).
+#[test]
+fn test_spill_values_two_pins_mark_multiple_pinned_ssa() {
+    let mut ssa_alloc = SSAValueAllocator::new();
+    let mut instrs = Vec::new();
+    let base = ssa_alloc.alloc(RegFile::GPR);
+    instrs.push(Instr::new(OpCopy {
+        dst: base.into(),
+        src: Src::ZERO,
+    }));
+    let pin_a = ssa_alloc.alloc(RegFile::GPR);
+    let pin_b = ssa_alloc.alloc(RegFile::GPR);
+    instrs.push(Instr::new(Op::Pin(Box::new(OpPin {
+        dst: pin_a.into(),
+        src: base.into(),
+    }))));
+    instrs.push(Instr::new(Op::Pin(Box::new(OpPin {
+        dst: pin_b.into(),
+        src: base.into(),
+    }))));
+    for _ in 0..12 {
+        let next = ssa_alloc.alloc(RegFile::GPR);
+        instrs.push(Instr::new(OpCopy {
+            dst: next.into(),
+            src: base.into(),
+        }));
+    }
+    instrs.push(Instr::new(OpCopy {
+        dst: ssa_alloc.alloc(RegFile::GPR).into(),
+        src: pin_a.into(),
+    }));
+    instrs.push(Instr::new(OpExit {}));
+
+    let mut label_alloc = LabelAllocator::new();
+    let mut cfg_builder = CFGBuilder::new();
+    cfg_builder.add_block(BasicBlock {
+        label: label_alloc.alloc(),
+        uniform: false,
+        instrs,
+    });
+    let mut func = Function {
+        ssa_alloc,
+        phi_alloc: PhiAllocator::new(),
+        blocks: cfg_builder.build(),
+    };
+    let mut info = default_shader_info();
+    func.to_cssa();
+    func.spill_values(RegFile::GPR, 4, &mut info).unwrap();
+    assert!(!func.blocks[0].instrs.is_empty());
+}
+
 /// Bar register file spilling (RegFile::Bar path) — spills Bar to GPR.
 #[test]
 fn test_spill_values_bar_with_high_pressure() {

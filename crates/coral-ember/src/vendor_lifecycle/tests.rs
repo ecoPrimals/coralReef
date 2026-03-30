@@ -159,8 +159,10 @@ fn amd_rdna_lifecycle_basics() {
 fn intel_xe_description_and_settle() {
     let lc = IntelXeLifecycle { device_id: 0x56a0 };
     assert!(lc.description().contains("Intel"));
-    assert_eq!(lc.settle_secs("i915"), 5);
-    assert_eq!(lc.settle_secs("xe"), 5);
+    assert!(lc.description().contains("xe") || lc.description().contains("i915"));
+    assert_eq!(lc.settle_secs("i915"), 2);
+    assert_eq!(lc.settle_secs("xe"), 2);
+    assert_eq!(lc.settle_secs("vfio-pci"), 2);
 }
 
 #[test]
@@ -235,9 +237,29 @@ fn intel_amd_rdna_brainchip_verify_health_ok_without_d3cold_sysfs() {
     let intel = IntelXeLifecycle { device_id: 0x56a0 };
     let rdna = AmdRdnaLifecycle { device_id: 0x73bf };
     let brain = BrainChipLifecycle { device_id: 1 };
-    intel.verify_health("9999:99:99.9", "xe").unwrap();
+    intel
+        .verify_health("9999:99:99.9", "vfio-pci")
+        .expect("VFIO has no DRM node");
     rdna.verify_health("9999:99:99.9", "amdgpu").unwrap();
     brain.verify_health("9999:99:99.9", "akida-pcie").unwrap();
+}
+
+#[test]
+fn intel_verify_health_requires_drm_sysfs_for_native_drivers() {
+    let intel = IntelXeLifecycle { device_id: 0x56a0 };
+    let err = intel
+        .verify_health("9999:99:99.9", "xe")
+        .expect_err("missing drm/card on fake BDF");
+    assert!(err.contains("DRM") || err.contains("drm"), "{err}");
+}
+
+#[test]
+fn intel_uses_trait_default_reset_methods() {
+    let lc = IntelXeLifecycle { device_id: 0x56a0 };
+    let methods = lc.available_reset_methods();
+    assert_eq!(methods.len(), 2);
+    assert_eq!(methods[0], ResetMethod::VfioFlr);
+    assert_eq!(methods[1], ResetMethod::SysfsSbr);
 }
 
 #[test]

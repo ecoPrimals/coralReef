@@ -51,9 +51,15 @@ pub const DEFAULT_REGISTER_DUMP_OFFSETS: &[usize] = &[
     0x40_0100, 0x40_0108, 0x40_0110, // FECS Falcon
     0x40_9028, 0x40_9030, 0x40_9034, 0x40_9038, 0x40_9040, 0x40_9044, 0x40_904C, 0x40_9080,
     0x40_9084, 0x40_9100, 0x40_9104, 0x40_9108, 0x40_9110, 0x40_9210, 0x40_9380,
+    // FECS diagnostic (SCTL, PC, EXCI, BOOTVEC, MTHD_DATA, MTHD_STATUS, FBIF_TRANSCFG)
+    0x40_9240, 0x40_9030, 0x40_9148, 0x40_9104, 0x40_9500, 0x40_9800, 0x40_9624,
     // GPCCS Falcon
     0x41_A028, 0x41_A030, 0x41_A034, 0x41_A038, 0x41_A040, 0x41_A044, 0x41_A04C, 0x41_A080,
-    0x41_A084, 0x41_A100, 0x41_A108, // MMU Fault buffer
+    0x41_A084, 0x41_A100, 0x41_A108,
+    // GPCCS diagnostic (SCTL, PC, EXCI, BOOTVEC, FBIF_TRANSCFG)
+    0x41_A240, 0x41_A030, 0x41_A148, 0x41_A104, 0x41_A624,
+    // SEC2 Falcon (base 0x87000)
+    0x08_7100, 0x08_7240, 0x08_7040, 0x08_7044, // MMU Fault buffer
     0x10_0E24, 0x10_0E28, 0x10_0E2C, 0x10_0E30, // LTC (L2 cache)
     0x17_E200, 0x17_E204, 0x17_E210, // FBPA0
     0x9A_0000, 0x9A_0004, 0x9A_0200, // THERM
@@ -108,4 +114,133 @@ pub struct DeviceHealth {
     pub pci_link_width: Option<u8>,
     pub domains_alive: usize,
     pub domains_faulted: usize,
+    pub firmware: FirmwareHealth,
+}
+
+/// Falcon firmware health summary for FECS and GPCCS.
+#[derive(Debug, Clone, Default)]
+pub struct FirmwareHealth {
+    /// FECS CPUCTL — 0 if unreachable.
+    pub fecs_cpuctl: u32,
+    /// FECS CPU stopped / idle (CPUCTL bit 5).
+    pub fecs_stopped: bool,
+    /// FECS firmware halted (HALT instruction; CPUCTL bit 4).
+    pub fecs_halted: bool,
+    /// FECS SCTL security mode.
+    pub fecs_sctl: u32,
+    /// FECS mailbox0 (firmware communication).
+    pub fecs_mailbox0: u32,
+    /// GPCCS CPUCTL.
+    pub gpccs_cpuctl: u32,
+    /// GPCCS CPU stopped / idle (CPUCTL bit 5).
+    pub gpccs_stopped: bool,
+    /// PMU CPUCTL.
+    pub pmu_cpuctl: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_faulted_read_dead() {
+        assert!(is_faulted_read(PCI_READ_DEAD));
+    }
+
+    #[test]
+    fn is_faulted_read_all_ones() {
+        assert!(is_faulted_read(PCI_READ_ALL_ONES));
+    }
+
+    #[test]
+    fn is_faulted_read_badf_prefix() {
+        assert!(is_faulted_read(0xBADF_0000));
+        assert!(is_faulted_read(0xBADF_1234));
+    }
+
+    #[test]
+    fn is_faulted_read_bad0_prefix() {
+        assert!(is_faulted_read(0xBAD0_0000));
+        assert!(is_faulted_read(0xBAD0_FFFF));
+    }
+
+    #[test]
+    fn is_faulted_read_bad1_prefix() {
+        assert!(is_faulted_read(0xBAD1_0000));
+    }
+
+    #[test]
+    fn is_faulted_read_normal_values() {
+        assert!(!is_faulted_read(0));
+        assert!(!is_faulted_read(1));
+        assert!(!is_faulted_read(0x5FEC_DFF1));
+        assert!(!is_faulted_read(0x1640_00A1));
+    }
+
+    #[test]
+    fn power_state_display() {
+        assert_eq!(PowerState::D0.to_string(), "D0");
+        assert_eq!(PowerState::D3Hot.to_string(), "D3hot");
+        assert_eq!(PowerState::D3Cold.to_string(), "D3cold");
+        assert_eq!(PowerState::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn power_state_eq() {
+        assert_eq!(PowerState::D0, PowerState::D0);
+        assert_ne!(PowerState::D0, PowerState::D3Hot);
+    }
+
+    #[test]
+    fn firmware_health_default() {
+        let fw = FirmwareHealth::default();
+        assert_eq!(fw.fecs_cpuctl, 0);
+        assert!(!fw.fecs_stopped);
+        assert!(!fw.fecs_halted);
+        assert_eq!(fw.fecs_sctl, 0);
+        assert_eq!(fw.fecs_mailbox0, 0);
+        assert_eq!(fw.gpccs_cpuctl, 0);
+        assert!(!fw.gpccs_stopped);
+        assert_eq!(fw.pmu_cpuctl, 0);
+    }
+
+    #[test]
+    fn register_dump_offsets_non_empty() {
+        assert!(!DEFAULT_REGISTER_DUMP_OFFSETS.is_empty());
+        assert!(DEFAULT_REGISTER_DUMP_OFFSETS.len() > 50);
+    }
+
+    #[test]
+    fn register_dump_offsets_all_aligned() {
+        for &offset in DEFAULT_REGISTER_DUMP_OFFSETS {
+            assert_eq!(
+                offset % 4,
+                0,
+                "BAR0 register offset {offset:#x} must be 4-byte aligned"
+            );
+        }
+    }
+
+    #[test]
+    fn quiescence_timeout_reasonable() {
+        assert!(QUIESCENCE_TIMEOUT.as_secs() >= 1);
+        assert!(QUIESCENCE_TIMEOUT.as_secs() <= 60);
+    }
+
+    #[test]
+    fn device_health_construction() {
+        let health = DeviceHealth {
+            vram_alive: true,
+            boot0: 0x1640_00A1,
+            pmc_enable: 0x5FEC_DFF1,
+            power: PowerState::D0,
+            pci_link_width: Some(16),
+            domains_alive: 6,
+            domains_faulted: 0,
+            firmware: FirmwareHealth::default(),
+        };
+        assert!(health.vram_alive);
+        assert_eq!(health.power, PowerState::D0);
+        assert_eq!(health.domains_alive, 6);
+    }
 }

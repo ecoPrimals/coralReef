@@ -301,8 +301,8 @@ pub fn attempt_acr_mailbox_command(
             fecs_ready = true;
             break;
         }
-        // Also check if FECS is running (HRESET cleared, not halted)
-        if fecs_cpu & (falcon::CPUCTL_HRESET | falcon::CPUCTL_HALTED) == 0 {
+        // Also check if FECS is running (HALTED cleared, not stopped)
+        if fecs_cpu & (falcon::CPUCTL_HALTED | falcon::CPUCTL_STOPPED) == 0 {
             notes.push(format!(
                 "FECS RUNNING (no ready signal yet): MTHD_STATUS={status:#010x} cpuctl={fecs_cpu:#010x} ({}ms)",
                 poll_start.elapsed().as_millis()

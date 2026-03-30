@@ -354,6 +354,21 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
         self.health.domains_alive = alive;
         self.health.domains_faulted = faulted;
+
+        // Firmware health: FECS, GPCCS, PMU falcon state
+        let fecs_cpuctl = r(0x40_9100);
+        let gpccs_cpuctl = r(0x41_A100);
+        let pmu_cpuctl = r(0x10_A100);
+        self.health.firmware = super::types::FirmwareHealth {
+            fecs_cpuctl,
+            fecs_stopped: fecs_cpuctl & (1 << 5) != 0,
+            fecs_halted: fecs_cpuctl & (1 << 4) != 0,
+            fecs_sctl: r(0x40_9240),
+            fecs_mailbox0: r(0x40_9040),
+            gpccs_cpuctl,
+            gpccs_stopped: gpccs_cpuctl & (1 << 5) != 0,
+            pmu_cpuctl,
+        };
     }
 
     /// Resurrect HBM2 by cycling through nouveau via ember.

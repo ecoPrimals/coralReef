@@ -41,8 +41,8 @@ mod freg {
     pub const ITFEN: usize = 0x048;
 
     pub const CPUCTL_STARTCPU: u32 = 1 << 1;
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 
     pub fn imem_size(hwcfg: u32) -> usize {
         ((hwcfg & 0x1FF) as usize) << 8
@@ -109,12 +109,12 @@ fn post_nouveau_falcon_state() {
         let imem_sz = freg::imem_size(hwcfg);
         let dmem_sz = freg::dmem_size(hwcfg);
         let hs = sctl & 0x02 != 0;
-        let hreset = cpuctl & freg::CPUCTL_HRESET != 0;
         let halted = cpuctl & freg::CPUCTL_HALTED != 0;
+        let stopped = cpuctl & freg::CPUCTL_STOPPED != 0;
 
         eprintln!("  {name}:");
         eprintln!(
-            "    cpuctl={cpuctl:#010x} sctl={sctl:#010x} HS={hs} HRESET={hreset} HALTED={halted}"
+            "    cpuctl={cpuctl:#010x} sctl={sctl:#010x} HS={hs} HALTED={halted} STOPPED={stopped}"
         );
         eprintln!("    PC={pc:#06x} EXCI={exci:#010x} BOOTVEC={bootvec:#06x}");
         eprintln!("    mb0={mb0:#010x} mb1={mb1:#010x}");
@@ -200,7 +200,7 @@ fn post_nouveau_falcon_state() {
             imem_nonzero,
             dmem_nonzero,
             hs,
-            hreset,
+            halted,
         )
     };
 
@@ -217,7 +217,7 @@ fn post_nouveau_falcon_state() {
         fecs_imem_nz,
         fecs_dmem_nz,
         fecs_hs,
-        fecs_hreset,
+        fecs_halted,
     ) = dump_falcon("FECS", FECS_BASE);
     let (
         gpccs_cpuctl,
@@ -228,7 +228,7 @@ fn post_nouveau_falcon_state() {
         gpccs_imem_nz,
         gpccs_dmem_nz,
         gpccs_hs,
-        gpccs_hreset,
+        gpccs_halted,
     ) = dump_falcon("GPCCS", GPCCS_BASE);
 
     // ── Phase 3: Summary and decision ──
@@ -246,7 +246,7 @@ fn post_nouveau_falcon_state() {
     eprintln!("  SEC2 HS: {sec2_hs} FECS HS: {fecs_hs} GPCCS HS: {gpccs_hs}");
 
     // ── Phase 4: Try STARTCPU on FECS ──
-    if fecs_has_code && fecs_hreset {
+    if fecs_has_code && fecs_halted {
         eprintln!("\n── Phase 4: FECS STARTCPU ──");
         let w = |off: usize, val: u32| {
             let _ = bar0.write_u32(FECS_BASE + off, val);
@@ -278,13 +278,14 @@ fn post_nouveau_falcon_state() {
                 last_pc = pc;
             }
 
+            let stopped = cpuctl & freg::CPUCTL_STOPPED != 0;
             let halted = cpuctl & freg::CPUCTL_HALTED != 0;
-            let hreset = cpuctl & freg::CPUCTL_HRESET != 0;
 
-            if halted || hreset || mb0 != 0 || start.elapsed() > std::time::Duration::from_secs(2) {
+            if stopped || halted || mb0 != 0 || start.elapsed() > std::time::Duration::from_secs(2)
+            {
                 eprintln!("  cpuctl={cpuctl:#010x} PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}");
                 eprintln!(
-                    "  HALTED={halted} HRESET={hreset} ({}ms)",
+                    "  STOPPED={stopped} HALTED={halted} ({}ms)",
                     start.elapsed().as_millis()
                 );
                 if !pc_trace.is_empty() {
@@ -303,11 +304,11 @@ fn post_nouveau_falcon_state() {
         eprintln!("  Post-start: sctl={post_sctl:#010x} cpuctl={post_cpuctl:#010x}");
         eprintln!("  PC={post_pc:#06x} mb0={post_mb0:#010x} mb1={post_mb1:#010x}");
 
-        let fecs_running = post_cpuctl & (freg::CPUCTL_HALTED | freg::CPUCTL_HRESET) == 0;
+        let fecs_running = post_cpuctl & (freg::CPUCTL_STOPPED | freg::CPUCTL_HALTED) == 0;
         eprintln!("  FECS RUNNING: {fecs_running}");
 
-        // If FECS is running/halted (not HRESET), check GPCCS too
-        if post_cpuctl & freg::CPUCTL_HRESET == 0 {
+        // If FECS is running (HALT and STOP bits clear), check GPCCS too
+        if post_cpuctl & freg::CPUCTL_HALTED == 0 && post_cpuctl & freg::CPUCTL_STOPPED == 0 {
             eprintln!("\n  *** FECS STARTED! Checking GPCCS...");
 
             let gr = |off: usize| bar0.read_u32(GPCCS_BASE + off).unwrap_or(0xDEAD_DEAD);
@@ -329,11 +330,11 @@ fn post_nouveau_falcon_state() {
     } else if !fecs_has_code {
         eprintln!("\n── Phase 4: SKIPPED — FECS has no firmware in IMEM ──");
     } else {
-        eprintln!("\n── Phase 4: SKIPPED — FECS not in HRESET (cpuctl={fecs_cpuctl:#010x}) ──");
+        eprintln!("\n── Phase 4: SKIPPED — FECS HALT bit clear (cpuctl={fecs_cpuctl:#010x}) ──");
     }
 
     // ── Phase 5: Try STARTCPU on GPCCS ──
-    if gpccs_has_code && gpccs_hreset {
+    if gpccs_has_code && gpccs_halted {
         eprintln!("\n── Phase 5: GPCCS STARTCPU ──");
         let w = |off: usize, val: u32| {
             let _ = bar0.write_u32(GPCCS_BASE + off, val);

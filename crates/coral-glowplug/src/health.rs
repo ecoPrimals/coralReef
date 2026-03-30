@@ -222,6 +222,7 @@ mod tests {
             pci_link_width: None,
             domains_alive: 0,
             domains_faulted: 0,
+            firmware: crate::device::types::FirmwareHealth::default(),
         };
         assert!(!health.vram_alive);
         assert_eq!(health.boot0, 0);
@@ -242,6 +243,7 @@ mod tests {
             pci_link_width: Some(16),
             domains_alive: 8,
             domains_faulted: 1,
+            firmware: crate::device::types::FirmwareHealth::default(),
         };
         assert_eq!(health.power.to_string(), "D0");
         assert!(health.vram_alive);

@@ -49,8 +49,8 @@ mod regs {
     pub const MAILBOX1: u32 = 0x044;
     pub const BOOTVEC: u32 = 0x104;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 
     pub const PFB_WPR2_BEG: u32 = 0x100CEC;
     pub const PFB_WPR2_END: u32 = 0x100CF0;
@@ -133,11 +133,11 @@ impl GpuSnapshot {
     }
 
     fn falcon_desc(&self, name: &str, cpuctl: u32, sctl: u32, pc: u32, exci: u32) -> String {
-        let hreset = cpuctl & regs::CPUCTL_HRESET != 0;
         let halted = cpuctl & regs::CPUCTL_HALTED != 0;
-        let running = !hreset && !halted && cpuctl != 0xDEAD;
+        let stopped = cpuctl & regs::CPUCTL_STOPPED != 0;
+        let running = !halted && !stopped && cpuctl != 0xDEAD;
         format!(
-            "{name:6}: cpuctl={cpuctl:#010x} HRESET={hreset:<5} HALTED={halted:<5} \
+            "{name:6}: cpuctl={cpuctl:#010x} HALTED={halted:<5} STOPPED={stopped:<5} \
              RUNNING={running:<5} SCTL={sctl:#06x} PC={pc:#06x} EXCI={exci:#010x}"
         )
     }
@@ -554,8 +554,8 @@ fn exp117_wpr2_state_tracking() {
     // ══════════════════════════════════════════════════════════════════════
     let sec2_alive_post_swap = {
         let cpuctl = snap_vfio.sec2_cpuctl;
-        cpuctl & regs::CPUCTL_HRESET == 0
-            && cpuctl & regs::CPUCTL_HALTED == 0
+        cpuctl & regs::CPUCTL_HALTED == 0
+            && cpuctl & regs::CPUCTL_STOPPED == 0
             && cpuctl != 0xDEAD_DEAD
             && snap_vfio.sec2_pc > 0x100
     };
@@ -590,9 +590,9 @@ fn exp117_wpr2_state_tracking() {
         let snap_c = snapshot_vfio(&bar0, "post-bootstrap-on-surviving-sec2");
         snap_c.print();
 
-        let fecs_running = snap_c.fecs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        let fecs_running = snap_c.fecs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_c.fecs_cpuctl != 0xDEAD_DEAD;
-        let gpccs_running = snap_c.gpccs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        let gpccs_running = snap_c.gpccs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_c.gpccs_cpuctl != 0xDEAD_DEAD;
 
         if fecs_running && gpccs_running {
@@ -748,12 +748,12 @@ fn exp117_wpr2_state_tracking() {
     eprintln!("  SEC2 SCTL post-swap:       {:#06x}", snap_vfio.sec2_sctl);
     eprintln!(
         "  FECS running (nouveau):    {}",
-        snap_nouveau.fecs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        snap_nouveau.fecs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_nouveau.fecs_cpuctl != 0xDEAD_DEAD
     );
     eprintln!(
         "  GPCCS running (nouveau):   {}",
-        snap_nouveau.gpccs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        snap_nouveau.gpccs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_nouveau.gpccs_cpuctl != 0xDEAD_DEAD
     );
     eprintln!("{sep}");

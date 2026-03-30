@@ -41,8 +41,8 @@ mod r120 {
     pub const MAILBOX0: usize = 0x040;
     pub const HWCFG: usize = 0x108;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
     pub const INDEXED_WPR: usize = 0x100CD4;
 
     pub const PMC_BOOT0: usize = 0x000000;
@@ -67,8 +67,8 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     let pc = bar0.read_u32(base + r120::PC).unwrap_or(0xDEAD);
     let exci = bar0.read_u32(base + r120::EXCI).unwrap_or(0xDEAD);
     let mb0 = bar0.read_u32(base + r120::MAILBOX0).unwrap_or(0xDEAD);
-    let hreset = cpuctl & r120::CPUCTL_HRESET != 0;
     let halted = cpuctl & r120::CPUCTL_HALTED != 0;
+    let stopped = cpuctl & r120::CPUCTL_STOPPED != 0;
     let sctl_mode = match sctl {
         0x3000 => "LS",
         0x3002 => "HS",
@@ -77,7 +77,7 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     };
     eprintln!(
         "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x}({sctl_mode}) \
-         PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} hreset={hreset} halted={halted}"
+         PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} halted={halted} stopped={stopped}"
     );
 }
 

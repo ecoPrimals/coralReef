@@ -5,7 +5,7 @@
 //! FECS (Front-End Command Scheduler) and GPCCS (GPC Command Scheduler)
 //! are Falcon-class microcontrollers that manage the GR (graphics/compute)
 //! engine. Without signed firmware loaded via ACR secure boot, FECS stays
-//! in HRESET and the PFIFO scheduler refuses to schedule channels on the
+//! halted and the PFIFO scheduler refuses to schedule channels on the
 //! GR runlist — the root cause of Layer 7 dispatch failures on cold VFIO.
 //!
 //! PMU falcon is at 0x10A000 (separate from GR, documented in `devinit/pmu.rs`).
@@ -53,7 +53,7 @@ pub const OS: usize = 0x080;
 pub const DEBUG1: usize = 0x090;
 /// CPUCTL — CPU control: start, halt, reset.
 /// v0-v3: Bit 0=STARTCPU. v4+ (GM200+): Bit 0=IINVAL, Bit 1=STARTCPU.
-/// Bit 4: HRESET (read), Bit 5: HALTED (read).
+/// Bit 4: HALTED (firmware executed HALT instruction), Bit 5: STOPPED (CPU idle).
 /// Use [`FalconCapabilities::startcpu_value`] for version-correct access.
 pub const CPUCTL: usize = 0x100;
 /// BOOTVEC — boot vector address (PC on start).
@@ -135,10 +135,12 @@ pub const CPUCTL_IINVAL: u32 = 1 << 0;
 /// Falcon v4+ CPUCTL: bit 1 = STARTCPU (release from HRESET).
 /// nouveau `gm200_flcn_fw_boot` writes 0x02 to start the CPU.
 pub const CPUCTL_STARTCPU: u32 = 1 << 1;
-/// CPUCTL bit: falcon is in hard reset state.
-pub const CPUCTL_HRESET: u32 = 1 << 4;
-/// CPUCTL bit: falcon is halted.
-pub const CPUCTL_HALTED: u32 = 1 << 5;
+/// CPUCTL bit 4: falcon CPU halted (firmware executed a HALT instruction).
+/// On warm handoff, FECS enters this state during its idle loop.
+/// On HS+ Volta, host STARTCPU cannot resume from this state.
+pub const CPUCTL_HALTED: u32 = 1 << 4;
+/// CPUCTL bit 5: falcon CPU stopped/idle.
+pub const CPUCTL_STOPPED: u32 = 1 << 5;
 /// HWCFG bit: security mode — signed firmware required.
 pub const HWCFG_SECURITY_MODE: u32 = 1 << 8;
 

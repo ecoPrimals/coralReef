@@ -55,10 +55,9 @@ fn with_env_cleared<F: FnOnce()>(vars: &[&str], f: F) {
 #[test]
 fn ember_socket_path_default_without_env() {
     with_env_cleared(&["CORALREEF_EMBER_SOCKET"], || {
-        assert_eq!(
-            coral_ember::ember_socket_path(),
-            "/run/coralreef/ember.sock"
-        );
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+        let expected = format!("{runtime_dir}/biomeos/coral-ember-default.sock");
+        assert_eq!(coral_ember::ember_socket_path(), expected);
     });
 }
 

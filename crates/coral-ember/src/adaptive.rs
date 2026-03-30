@@ -269,6 +269,8 @@ mod tests {
             health: HealthResult::Ok,
             lifecycle_description: "test".to_string(),
             reset_method_used: None,
+            firmware_pre: None,
+            firmware_post: None,
         })
     }
 

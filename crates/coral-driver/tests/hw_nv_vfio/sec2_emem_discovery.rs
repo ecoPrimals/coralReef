@@ -37,8 +37,8 @@ mod falcon_reg {
     pub const EMEMD0: usize = 0xAC4;
 
     pub const CPUCTL_STARTCPU: u32 = 1 << 1;
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 
     pub fn dmem_size_bytes(hwcfg: u32) -> usize {
         (((hwcfg >> 9) & 0x1FF) as usize) << 8
@@ -90,7 +90,7 @@ fn sec2_full_init_conversation() {
 
     let r = |off: usize| bar0.read_u32(SEC2_BASE + off).unwrap_or(0xDEAD_DEAD);
 
-    // Check state after nouveau cycle (should be HS from nouveau, then HRESET after unbind)
+    // Check state after nouveau cycle (should be HS from nouveau, then HALTED after unbind)
     let sctl_pre = r(falcon::SCTL);
     let cpuctl_pre = r(falcon::CPUCTL);
     let exci_pre = r(falcon::EXCI);
@@ -99,9 +99,9 @@ fn sec2_full_init_conversation() {
     eprintln!("  sctl={sctl_pre:#010x} cpuctl={cpuctl_pre:#010x}");
     eprintln!("  PC={pc_pre:#06x} EXCI={exci_pre:#010x}");
     eprintln!(
-        "  HS={} HRESET={}",
+        "  HS={} HALTED={}",
         sctl_pre & 0x02 != 0,
-        cpuctl_pre & falcon::CPUCTL_HRESET != 0
+        cpuctl_pre & falcon::CPUCTL_HALTED != 0
     );
 
     // Phase 2: Run the FULL sysmem boot (blob_size preserved)
@@ -127,7 +127,7 @@ fn sec2_full_init_conversation() {
     let pc_post = r(falcon::PC);
     let exci_post = r(falcon::EXCI);
 
-    let running = cpuctl_post & (falcon::CPUCTL_HALTED | falcon::CPUCTL_HRESET) == 0;
+    let running = cpuctl_post & (falcon::CPUCTL_STOPPED | falcon::CPUCTL_HALTED) == 0;
     let hs = sctl_post & 0x02 != 0;
 
     eprintln!("  cpuctl={cpuctl_post:#010x} sctl={sctl_post:#010x} PC={pc_post:#06x}");
@@ -281,12 +281,12 @@ fn sec2_emem_discovery_after_hs() {
     let irqmask = r(falcon::IRQMASK);
 
     let hs = sctl & 0x02 != 0;
-    let stopped = cpuctl & falcon::CPUCTL_HALTED != 0;
-    let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
+    let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+    let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
 
     eprintln!("── Phase 1: SEC2 State ──");
     eprintln!("  cpuctl={cpuctl:#010x} sctl={sctl:#010x} HS={hs}");
-    eprintln!("  pc={pc:#06x} exci={exci:#010x} stopped={stopped} hreset={hreset}");
+    eprintln!("  pc={pc:#06x} exci={exci:#010x} stopped={stopped} halted={halted}");
     eprintln!("  mb0={mb0:#010x} mb1={mb1:#010x}");
     eprintln!("  irqstat={irqstat:#010x} irqmask={irqmask:#010x}");
     eprintln!("  hwcfg={hwcfg:#010x}");

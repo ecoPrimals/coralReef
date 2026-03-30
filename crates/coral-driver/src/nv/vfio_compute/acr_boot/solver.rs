@@ -29,7 +29,7 @@ use super::strategy_vram::attempt_vram_acr_boot;
 pub enum FecsState {
     /// FECS executing: mailbox non-zero and `HRESET` clear.
     Running,
-    /// FECS held in hardware reset (`CPUCTL_HRESET` set).
+    /// FECS firmware halted (`CPUCTL_HALTED` set).
     InHreset,
     /// FECS idle: not in `HRESET`, mailbox not indicating run.
     Halted,
@@ -88,9 +88,9 @@ impl FalconProbe {
 
         let fecs_state = if crate::vfio::channel::registers::pri::is_pri_error(fecs_cpuctl) {
             FecsState::Inaccessible
-        } else if fecs_mailbox0 != 0 && fecs_cpuctl & falcon::CPUCTL_HRESET == 0 {
+        } else if fecs_mailbox0 != 0 && fecs_cpuctl & falcon::CPUCTL_HALTED == 0 {
             FecsState::Running
-        } else if fecs_cpuctl & falcon::CPUCTL_HRESET != 0 {
+        } else if fecs_cpuctl & falcon::CPUCTL_HALTED != 0 {
             FecsState::InHreset
         } else {
             FecsState::Halted
@@ -117,9 +117,9 @@ impl FalconProbe {
     pub fn gpccs_state_label(&self) -> &'static str {
         if self.gpccs_cpuctl == 0xDEAD_DEAD {
             "UNREACHABLE"
-        } else if self.gpccs_cpuctl & falcon::CPUCTL_HRESET != 0 {
-            "HRESET"
         } else if self.gpccs_cpuctl & falcon::CPUCTL_HALTED != 0 {
+            "HRESET"
+        } else if self.gpccs_cpuctl & falcon::CPUCTL_STOPPED != 0 {
             "HALTED"
         } else if self.gpccs_exci != 0 {
             "FAULTED"
@@ -134,9 +134,9 @@ impl FalconProbe {
     pub fn fecs_state_label(&self) -> &'static str {
         if self.fecs_cpuctl == 0xDEAD_DEAD {
             "UNREACHABLE"
-        } else if self.fecs_cpuctl & falcon::CPUCTL_HRESET != 0 {
-            "HRESET"
         } else if self.fecs_cpuctl & falcon::CPUCTL_HALTED != 0 {
+            "HRESET"
+        } else if self.fecs_cpuctl & falcon::CPUCTL_STOPPED != 0 {
             "HALTED"
         } else if self.fecs_exci != 0 {
             "FAULTED"
@@ -344,7 +344,7 @@ impl FalconBootSolver {
         // try the method interface directly before proceeding with more
         // strategies that would reset the falcons.
         let post5_probe = FalconProbe::capture(bar0);
-        if post5_probe.fecs_cpuctl & falcon::CPUCTL_HRESET == 0
+        if post5_probe.fecs_cpuctl & falcon::CPUCTL_HALTED == 0
             && post5_probe.fecs_cpuctl != 0xDEAD_DEAD
         {
             tracing::info!(

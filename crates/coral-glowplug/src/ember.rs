@@ -22,7 +22,7 @@ use crate::error::EmberError;
 
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
 fn default_ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    coral_ember::ember_socket_path()
 }
 
 /// Returns the resolved ember socket path (for integration tests that set `CORALREEF_EMBER_SOCKET`).
@@ -100,7 +100,8 @@ impl EmberClient {
 
     /// Try to connect to the ember. Returns None if the ember is not running.
     ///
-    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
+    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: [`coral_ember::ember_socket_path`]
+    /// — wateringHole `<coral-ember>-<family>.sock` under the runtime dir).
     pub fn connect() -> Option<Self> {
         #[cfg(test)]
         if EMBER_DISABLED.with(|c| c.get()) {
@@ -308,6 +309,8 @@ impl EmberClient {
                 health: coral_ember::observation::HealthResult::Ok,
                 lifecycle_description: "unknown (legacy response)".to_string(),
                 reset_method_used: None,
+                firmware_pre: None,
+                firmware_post: None,
             })
         })
     }

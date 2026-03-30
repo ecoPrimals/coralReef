@@ -302,4 +302,106 @@ mod tests {
         std::fs::write(&path, "not-json").expect("write");
         assert!(registry_bind_from_json_file(&path).is_none());
     }
+
+    #[test]
+    fn jsonrpc_bind_to_unix_path_trims_outer_whitespace() {
+        assert_eq!(
+            jsonrpc_bind_to_unix_path("  unix:///run/biomeos/reg.sock  ").as_deref(),
+            Some(Path::new("/run/biomeos/reg.sock"))
+        );
+    }
+
+    #[test]
+    fn jsonrpc_bind_to_unix_path_rejects_empty_path_after_unix_scheme() {
+        assert!(jsonrpc_bind_to_unix_path("unix://").is_none());
+    }
+
+    #[test]
+    fn registry_bind_from_json_file_returns_none_when_provides_is_not_array() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("bad-provides.json");
+        let j = serde_json::json!({
+            "provides": "capability.register",
+            "transports": { "jsonrpc": { "bind": "unix:///run/x.sock" } }
+        });
+        std::fs::write(&path, j.to_string()).expect("write");
+        assert!(registry_bind_from_json_file(&path).is_none());
+    }
+
+    #[test]
+    fn registry_bind_from_json_file_prefers_transports_jsonrpc_over_endpoint() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("prefer-transports.json");
+        const FROM_TRANSPORT: &str = "unix:///from/transports.sock";
+        const FROM_ENDPOINT: &str = "unix:///from/endpoint.sock";
+        let j = serde_json::json!({
+            "provides": ["capability.register"],
+            "transports": { "jsonrpc": { "bind": FROM_TRANSPORT } },
+            "endpoint": FROM_ENDPOINT
+        });
+        std::fs::write(&path, j.to_string()).expect("write");
+        let bind = registry_bind_from_json_file(&path).expect("bind");
+        assert_eq!(bind, FROM_TRANSPORT);
+    }
+
+    #[test]
+    fn ecosystem_error_transport_formats_with_message() {
+        let err = EcosystemError::Transport("connection refused".into());
+        let text = format!("{err}");
+        assert!(
+            text.contains("connection refused"),
+            "expected transport message in Display: {text}"
+        );
+    }
+}
+
+#[cfg(all(unix, test))]
+mod ecosystem_unix_transport_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn send_jsonrpc_line_returns_transport_error_when_socket_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("missing.sock");
+        let result = send_jsonrpc_line(&path, "ipc.heartbeat", serde_json::json!({}), 1_u64).await;
+        assert!(result.is_err(), "connect to missing socket should fail");
+        match result.expect_err("expected transport error") {
+            EcosystemError::Transport(msg) => {
+                assert!(!msg.is_empty(), "error should carry OS message fragment");
+            }
+            other => panic!("expected Transport error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_jsonrpc_line_completes_when_peer_accepts_and_closes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::UnixListener;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(format!("echo-{}.sock", std::process::id()));
+        let listener = UnixListener::bind(&path).expect("bind test listener");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0_u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let _ = stream
+                .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n")
+                .await;
+        });
+
+        let client = send_jsonrpc_line(
+            path.as_path(),
+            "ipc.heartbeat",
+            serde_json::json!({"name": "test"}),
+            1_u64,
+        );
+        let outcome = client.await;
+        let _ = server.await;
+        assert!(
+            outcome.is_ok(),
+            "happy path should ignore response body: {outcome:?}"
+        );
+    }
 }

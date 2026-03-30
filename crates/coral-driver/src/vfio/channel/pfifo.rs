@@ -118,6 +118,10 @@ impl PfifoInitConfig {
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
+#[allow(
+    dead_code,
+    reason = "Thin wrapper over init_pfifo_engine_with; reserved for call sites that use default PFIFO config only."
+)]
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
 }
@@ -206,35 +210,59 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
         tracing::info!("PMC PFIFO reset skipped (warm handoff)");
     }
 
-    // Initialize PFIFO — verify the enable write takes effect.
-    let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
-    w(pfifo::ENABLE, 0)?;
-    std::thread::sleep(std::time::Duration::from_millis(1));
-    w(pfifo::ENABLE, 1)?;
-    std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
-    let mut readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
-
-    if readback == 0 && cfg.retry_on_priv_fault {
-        tracing::warn!("PFIFO_ENABLE=0 after first write — retrying with PRI fault re-clear");
-        let priv_st = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
-        if priv_st != 0 {
-            for _ in 0..5 {
-                w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                if bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0) == 0 {
-                    break;
-                }
-            }
+    // On GV100+ (Volta), NV_PFIFO_ENGINE (0x2200) does NOT exist — it reads 0
+    // and writes are silently ignored. PFIFO is controlled purely via PMC_ENABLE
+    // bit 8, and liveness is confirmed by checking PBDMA_MAP (non-zero = PBDMAs
+    // discovered). Pre-Volta GPUs use the 0x2200 toggle normally.
+    let is_volta_plus = (boot0 >> 20) & 0x1FF >= 0x140; // GV100 = 0x140
+    if is_volta_plus {
+        let pmc_cur = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
+        let pmc_pfifo_alive = pmc_cur & (1 << 8) != 0;
+        let pbdma_map = bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
+        let pbdma_alive = pbdma_map != 0 && pbdma_map != 0xBAD0_DA00;
+        tracing::info!(
+            pmc = format_args!("{pmc_cur:#010x}"),
+            pmc_pfifo_bit8 = pmc_pfifo_alive,
+            pbdma_map = format_args!("{pbdma_map:#010x}"),
+            pbdma_alive,
+            "PFIFO enable (Volta+: PMC bit 8 + PBDMA_MAP, 0x2200 does not exist)"
+        );
+        if !pmc_pfifo_alive {
+            tracing::warn!("PMC bit 8 (PFIFO) not set — enabling");
+            let with_bit8 = pmc_cur | (1 << 8);
+            w(pmc::ENABLE, with_bit8)?;
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
+    } else {
+        let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
+        w(pfifo::ENABLE, 0)?;
+        std::thread::sleep(std::time::Duration::from_millis(1));
         w(pfifo::ENABLE, 1)?;
         std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
-        readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+        let mut readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+
+        if readback == 0 && cfg.retry_on_priv_fault {
+            tracing::warn!("PFIFO_ENABLE=0 after first write — retrying with PRI fault re-clear");
+            let priv_st = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
+            if priv_st != 0 {
+                for _ in 0..5 {
+                    w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    if bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0) == 0 {
+                        break;
+                    }
+                }
+            }
+            w(pfifo::ENABLE, 1)?;
+            std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
+            readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+        }
+        tracing::info!(
+            pfifo_before = format_args!("{pfifo_en:#010x}"),
+            pfifo_after = format_args!("{readback:#010x}"),
+            "PFIFO enable (pre-Volta: 0x2200 toggle)"
+        );
     }
-    tracing::info!(
-        pfifo_before = format_args!("{pfifo_en:#010x}"),
-        pfifo_after = format_args!("{readback:#010x}"),
-        "PFIFO enable"
-    );
 
     let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
 
@@ -276,7 +304,9 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             );
         }
     } else {
-        tracing::info!("runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)");
+        tracing::info!(
+            "runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)"
+        );
     }
 
     // Force-clear PBDMA registers to remove nouveau's stale channel context.
@@ -443,7 +473,9 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
         }
     } else {
-        tracing::info!("empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)");
+        tracing::info!(
+            "empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)"
+        );
     }
     if cfg.post_flush_settle_ms > 0 {
         std::thread::sleep(std::time::Duration::from_millis(cfg.post_flush_settle_ms));

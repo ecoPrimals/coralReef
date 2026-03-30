@@ -63,9 +63,9 @@ pub fn fecs_is_alive(bar0: &MappedBar) -> bool {
     let cpuctl = bar0
         .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
         .unwrap_or(0xDEAD_DEAD);
-    let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-    let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
-    !halted && !hreset && cpuctl != 0xDEAD_DEAD
+    let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+    let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
+    !stopped && !fw_halted && cpuctl != 0xDEAD_DEAD
 }
 
 /// Discover all GR context sizes from FECS.

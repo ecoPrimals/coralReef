@@ -18,8 +18,9 @@
 //!   unbind. Native driver rebind needs PCI remove/rescan to avoid
 //!   sysfs EEXIST from stale kobjects.
 //!
-//! - **Intel Xe/Arc**: FLR typically available, expected to be well-behaved.
-//!   Stubbed with conservative defaults until empirically validated.
+//! - **Intel Xe/Arc**: `xe`/`i915` DRM drivers start quickly; simple bind without
+//!   `reset_method` sysfs overrides. Post-bind health checks require a DRM
+//!   `card*` sysfs node when the target is a native Intel DRM driver.
 
 mod amd;
 mod brainchip;
