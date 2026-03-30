@@ -101,7 +101,7 @@ fn pmc_gr_reset(bar0: &MappedBar) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
 fn exp121_minimal_acr() {
     init_tracing();
     let eq = "=".repeat(70);

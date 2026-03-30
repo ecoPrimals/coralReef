@@ -316,4 +316,17 @@ mod identity_tests {
         assert!(r.transports.is_empty());
         assert!(!r.provides.is_empty());
     }
+
+    #[test]
+    fn default_arch_matches_gpu_arch_default() {
+        let arch = default_arch();
+        assert_eq!(arch, coral_reef::GpuArch::default().to_string());
+        assert!(!arch.is_empty(), "default arch must not be empty");
+    }
+
+    #[test]
+    fn default_opt_level_is_valid() {
+        let level = default_opt_level();
+        assert!(level <= 3, "opt level must be 0-3, got {level}");
+    }
 }

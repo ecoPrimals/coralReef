@@ -243,7 +243,7 @@ mod tests {
         let bar0 =
             Bar0Access::from_render_node("/dev/dri/renderD128").expect("BAR0 access (needs root)");
         let boot_id = bar0.read_boot_id().expect("read NV_PMC_BOOT_0");
-        eprintln!("NV_PMC_BOOT_0 = {boot_id:#010x}");
+        tracing::debug!(boot_id = format!("{boot_id:#010x}"), "NV_PMC_BOOT_0");
         assert_ne!(boot_id, 0, "boot ID should not be zero");
         assert_ne!(
             boot_id, 0xFFFF_FFFF,

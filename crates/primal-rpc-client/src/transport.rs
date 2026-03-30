@@ -27,7 +27,10 @@ impl Transport {
     /// Send `body` as an HTTP POST and return the response body bytes.
     pub(crate) async fn roundtrip(&self, body: &[u8]) -> Result<Bytes, RpcError> {
         match self {
-            Self::Tcp(addr) => tcp_roundtrip(*addr, "localhost", "/", body).await,
+            Self::Tcp(addr) => {
+                let host = addr.ip().to_string();
+                tcp_roundtrip(*addr, &host, "/", body).await
+            }
             Self::Unix(path) => unix_roundtrip(path, body).await,
             Self::DelegatedTlsProxy {
                 proxy_addr,

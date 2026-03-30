@@ -6,7 +6,7 @@
 
 #[test]
 fn held_device_bdf_field_is_public_for_ipc_clients() {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "compile-time check that HeldDevice.bdf is public")]
     fn read_bdf(h: &coral_ember::HeldDevice) -> &str {
         &h.bdf
     }

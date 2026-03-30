@@ -83,7 +83,7 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
 fn exp119_cold_boot_wpr2() {
     init_tracing();
     let eq = "=".repeat(70);

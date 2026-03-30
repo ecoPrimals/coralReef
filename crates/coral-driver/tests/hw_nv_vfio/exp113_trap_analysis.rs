@@ -34,7 +34,10 @@ mod freg113 {
     pub const PC: usize = 0x030;
     pub const EXCI: usize = 0x148;
     pub const MAILBOX0: usize = 0x040;
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "register constant for future trap analysis experiments"
+    )]
     pub const BOOT0: usize = 0x0000_0000;
 }
 

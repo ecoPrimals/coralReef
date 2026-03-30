@@ -69,8 +69,11 @@ impl NvDrmDevice {
                 Some(dev)
             }
             Err(e) => {
-                tracing::warn!(error = %e, sm, "UVM compute device failed to open — dispatch will fail");
-                eprintln!("[coral-driver] UVM init failed for SM{sm}: {e}");
+                tracing::error!(
+                    error = %e,
+                    sm,
+                    "UVM compute device failed to open — dispatch will fail"
+                );
                 None
             }
         };
@@ -98,8 +101,11 @@ impl NvDrmDevice {
         let compute = match NvUvmComputeDevice::open(0, sm) {
             Ok(dev) => Some(dev),
             Err(e) => {
-                tracing::warn!(error = %e, "UVM compute device failed for nvidia-drm at {path}");
-                eprintln!("[coral-driver] UVM init failed for {path}: {e}");
+                tracing::error!(
+                    error = %e,
+                    path,
+                    "UVM compute device failed for nvidia-drm"
+                );
                 None
             }
         };

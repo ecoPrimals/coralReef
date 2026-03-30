@@ -183,7 +183,10 @@ pub fn diff_page_tables(left: &PageTableDump, right: &PageTableDump) -> PageTabl
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "recursive page-table comparison needs all context"
+)]
 fn compare_pd_entries(
     level: &str,
     left: &[PageEntry],

@@ -143,8 +143,19 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
 /// `power/control`, `d3cold_allowed`, `reset_method`,
 /// `power/autosuspend_delay_ms`. These are memory-mapped config-space
 /// attributes that complete synchronously.
+///
+/// Sysfs caveat: the kernel ignores 0-byte writes (the store function
+/// is never invoked). When `value` is empty we write `"\n"` instead,
+/// which the kernel's `sysfs_streq` treats as an empty string. Without
+/// this, writes like `reset_method = ""` silently do nothing and the
+/// device retains its previous reset method.
 pub fn sysfs_write_direct(path: &str, value: &str) -> Result<(), String> {
-    std::fs::write(path, value).map_err(|e| format!("sysfs write {path}: {e}"))
+    let bytes: &[u8] = if value.is_empty() {
+        b"\n"
+    } else {
+        value.as_bytes()
+    };
+    std::fs::write(path, bytes).map_err(|e| format!("sysfs write {path}: {e}"))
 }
 
 pub fn read_current_driver(bdf: &str) -> Option<String> {

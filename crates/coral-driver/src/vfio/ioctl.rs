@@ -273,6 +273,8 @@ pub(crate) fn device_get_irq_info<T>(fd: BorrowedFd<'_>, arg: &mut T) -> Result<
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_GET_IRQ_INFO }, _> {
         ptr: std::ptr::from_mut(arg),
     };
+    // SAFETY: `fd` is a valid VFIO device fd; `arg` is a mutable reference to a repr(C) struct
+    // matching the kernel's vfio_irq_info layout. The kernel reads/writes within the struct bounds.
     unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_GET_IRQ_INFO", e))
 }
 
@@ -282,5 +284,7 @@ pub(crate) fn device_set_irqs<T>(fd: BorrowedFd<'_>, arg: &mut T) -> Result<(), 
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_SET_IRQS }, _> {
         ptr: std::ptr::from_mut(arg),
     };
+    // SAFETY: `fd` is a valid VFIO device fd; `arg` is a mutable reference to a repr(C) struct
+    // matching the kernel's vfio_irq_set layout. The kernel reads within the struct bounds.
     unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_SET_IRQS", e))
 }

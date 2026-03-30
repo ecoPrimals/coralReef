@@ -294,12 +294,13 @@ mod tests {
                 assert!(result.dry_run);
                 assert!(result.success());
                 assert!(result.bar0_writes > 0, "should have BAR0 writes");
-                eprintln!(
-                    "GV100 dry run: {} BAR0 writes, {} FECS entries",
-                    result.bar0_writes, result.fecs_entries
+                tracing::debug!(
+                    bar0_writes = result.bar0_writes,
+                    fecs_entries = result.fecs_entries,
+                    "GV100 dry run"
                 );
             }
-            Err(e) => eprintln!("GV100 firmware not present: {e}"),
+            Err(e) => tracing::debug!(error = %e, "GV100 firmware not present"),
         }
     }
 
@@ -318,7 +319,7 @@ mod tests {
                 let errs = verify_pre_init(&regs);
                 assert!(errs.is_empty(), "verification should pass: {errs:?}");
             }
-            Err(e) => eprintln!("GV100 firmware not present: {e}"),
+            Err(e) => tracing::debug!(error = %e, "GV100 firmware not present"),
         }
     }
 
@@ -452,14 +453,14 @@ mod tests {
 
                 let total = bar0.len() + fecs.len();
                 assert_eq!(total, seq.len());
-                eprintln!(
-                    "Split: {} BAR0 (pre-init) + {} FECS (channel) = {} total",
-                    bar0.len(),
-                    fecs.len(),
-                    total
+                tracing::debug!(
+                    bar0 = bar0.len(),
+                    fecs = fecs.len(),
+                    total,
+                    "split_for_application"
                 );
             }
-            Err(e) => eprintln!("GV100 firmware not present: {e}"),
+            Err(e) => tracing::debug!(error = %e, "GV100 firmware not present"),
         }
     }
 

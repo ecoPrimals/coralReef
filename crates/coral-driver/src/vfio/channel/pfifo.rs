@@ -103,10 +103,7 @@ impl PfifoInitConfig {
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
-#[allow(
-    dead_code,
-    reason = "public API for standalone PFIFO init; called from experiment tests"
-)]
+#[allow(dead_code, reason = "public API for standalone PFIFO init; called from experiment tests")]
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
 }
@@ -289,7 +286,27 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
         std::thread::sleep(std::time::Duration::from_millis(2));
         tracing::info!("PBDMA registers force-cleared");
     } else {
-        tracing::info!("PBDMA force-clear skipped (warm handoff)");
+        // Warm handoff: don't nuke PBDMA register state, but DO clear
+        // stale interrupt flags left by nouveau's teardown. Without this,
+        // latched errors (GPPTR_INVALID, DEVICE, HCE) prevent the PBDMA
+        // from scheduling our new channel after the runlist update.
+        let cur_map = r(pfifo::PBDMA_MAP);
+        for pid in 0..32_usize {
+            if cur_map & (1 << pid) == 0 {
+                continue;
+            }
+            let b = 0x0004_0000 + pid * 0x2000;
+            let intr = bar0.read_u32(b + 0x108).unwrap_or(0);
+            if intr != 0 {
+                tracing::info!(
+                    pbdma = pid,
+                    intr = format_args!("{intr:#010x}"),
+                    "warm handoff: clearing stale PBDMA interrupts"
+                );
+                let _ = w(b + 0x108, 0xFFFF_FFFF);
+            }
+        }
+        tracing::info!("PBDMA force-clear skipped (warm handoff), interrupts cleared");
     }
 
     // Discover PBDMAs and their runlist assignments.

@@ -209,7 +209,10 @@ fn build_matrix() -> Vec<(u32, BootConfig, &'static str)> {
     ]
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "fields read via Debug formatting in experiment output"
+)]
 struct RunResult {
     combo: u32,
     label: String,

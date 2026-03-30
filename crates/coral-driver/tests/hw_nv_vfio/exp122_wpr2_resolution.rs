@@ -153,7 +153,7 @@ fn probe_register_writability(bar0: &MappedBar, name: &str, addr: usize, test_va
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore]
+#[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
 fn exp122a_wpr2_register_write_probe() {
     init_tracing();
     let eq = "=".repeat(70);
@@ -334,7 +334,7 @@ fn exp122a_wpr2_register_write_probe() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore]
+#[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
 fn exp122b_parasitic_nouveau() {
     init_tracing();
     let eq = "=".repeat(70);
@@ -564,7 +564,7 @@ fn exp122b_parasitic_nouveau() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore]
+#[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
 fn exp122c_fwsec_extraction() {
     init_tracing();
     let eq = "=".repeat(70);

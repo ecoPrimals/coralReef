@@ -359,7 +359,10 @@ pub fn build_wpr(fw: &AcrFirmwareSet, wpr_vram_base: u64) -> Vec<u8> {
     buf
 }
 /// Write a `flcn_bl_dmem_desc_v2` (84 bytes packed, padded to 256) into `buf` at `off`.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches flcn_bl_dmem_desc_v2 firmware struct layout"
+)]
 fn write_bl_dmem_desc_v2(
     buf: &mut [u8],
     off: usize,

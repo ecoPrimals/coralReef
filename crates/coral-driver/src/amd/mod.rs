@@ -168,37 +168,46 @@ impl ComputeDevice for AmdDevice {
             .filter_map(|bh| self.buffers.get(&bh.0).map(|g| g.gpu_va))
             .collect();
 
-        eprintln!("[coral-driver AMD] dispatch diagnostics:");
-        eprintln!(
-            "  shader_va    = 0x{shader_va:016X}  (pgm_lo=0x{:08X}, pgm_hi=0x{:08X})",
-            (shader_va >> 8) as u32,
-            (shader_va >> 40) as u32
+        tracing::debug!(
+            shader_va,
+            shader_pgm_lo = (shader_va >> 8) as u32,
+            shader_pgm_hi = (shader_va >> 40) as u32,
+            shader_size = shader.len(),
+            "AMD dispatch diagnostics: shader"
         );
-        eprintln!("  shader_size  = {} bytes", shader.len());
         for (i, va) in buffer_vas.iter().enumerate() {
-            eprintln!(
-                "  buffer[{i}] va = 0x{va:016X}  (lo=0x{:08X}, hi=0x{:08X})",
-                *va as u32,
-                (*va >> 32) as u32
+            tracing::debug!(
+                index = i,
+                buffer_va = *va,
+                va_lo = *va as u32,
+                va_hi = (*va >> 32) as u32,
+                "AMD dispatch diagnostics: buffer"
             );
         }
-        eprintln!("  dims         = {}x{}x{}", dims.x, dims.y, dims.z);
-        eprintln!("  gfx_major    = {}", self.gfx_major);
-        eprintln!(
-            "  workgroup    = {:?}, wave_size={}",
-            info.workgroup, info.wave_size
+        tracing::debug!(
+            dims_x = dims.x,
+            dims_y = dims.y,
+            dims_z = dims.z,
+            gfx_major = self.gfx_major,
+            workgroup = ?info.workgroup,
+            wave_size = info.wave_size,
+            "AMD dispatch diagnostics: grid"
         );
 
         let pm4_words =
             pm4::build_compute_dispatch(shader_va, dims, info, &buffer_vas, self.gfx_major);
 
-        eprintln!(
-            "  PM4 stream ({} dwords, {} bytes):",
-            pm4_words.len(),
-            pm4_words.len() * 4
+        tracing::debug!(
+            dwords = pm4_words.len(),
+            bytes = pm4_words.len() * 4,
+            "AMD dispatch: PM4 stream"
         );
         for (i, &w) in pm4_words.iter().enumerate() {
-            eprintln!("    [{i:3}] 0x{w:08X}");
+            tracing::debug!(
+                index = i,
+                dword = format!("{w:#010x}"),
+                "AMD dispatch: PM4 dword"
+            );
         }
 
         let pm4_bytes = u32_slice_as_bytes(&pm4_words);

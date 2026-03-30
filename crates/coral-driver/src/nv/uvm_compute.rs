@@ -390,6 +390,8 @@ impl NvUvmComputeDevice {
         let nop_cpu =
             dev.client
                 .rm_map_memory_on_fd(nop_fd.as_raw_fd(), h_device, nop_h_mem, 0, 4096)?;
+        // SAFETY: `nop_cpu` is a valid user-space mapping of `nop_h_mem` (4096 bytes, page-aligned)
+        // returned by `rm_map_memory_on_fd`. Writing a single u32 NOP command is within bounds.
         unsafe { VolatilePtr::new(nop_cpu as *mut u32).write(0) };
         dev.submit_gpfifo(nop_gpu_va, 1)?;
         dev.poll_gpfifo_completion()?;

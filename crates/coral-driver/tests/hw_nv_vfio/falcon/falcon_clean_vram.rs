@@ -502,7 +502,10 @@ fn vfio_clean_vram_acr_boot() {
     // ── Phase 3: ACR boot (VRAM DMA, v2 desc) — DEFERRED ──
     // Phase 2.75 leaves SEC2 in HS mode, which PMC reset cannot clear.
     // Running Phase 3 on a post-HS SEC2 gives misleading results.
-    #[allow(unreachable_code)]
+    #[allow(
+        unreachable_code,
+        reason = "early return guards above may make cleanup unreachable"
+    )]
     if false {
         crate::falcon_exp095_phase3::exp095_phase3_deferred(&dev);
     }

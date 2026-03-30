@@ -189,16 +189,16 @@ mod tests {
                 let bundle = seq.category_writes(RegCategory::BundleInit);
                 assert_eq!(bundle.len(), blobs.bundle_count());
 
-                eprintln!(
-                    "GV100 init sequence: {} total writes ({} master, {} fifo, {} bundle, {} method)",
-                    seq.len(),
-                    master.len(),
-                    seq.category_writes(RegCategory::Fifo).len(),
-                    bundle.len(),
-                    seq.category_writes(RegCategory::MethodInit).len(),
+                tracing::debug!(
+                    total_writes = seq.len(),
+                    master = master.len(),
+                    fifo = seq.category_writes(RegCategory::Fifo).len(),
+                    bundle = bundle.len(),
+                    method = seq.category_writes(RegCategory::MethodInit).len(),
+                    "GV100 init sequence"
                 );
             }
-            Err(e) => eprintln!("GV100 firmware not present: {e}"),
+            Err(e) => tracing::debug!(error = %e, "GV100 firmware not present"),
         }
     }
 
@@ -208,9 +208,9 @@ mod tests {
             Ok(blobs) => {
                 let seq = GrInitSequence::from_blobs(&blobs);
                 assert!(!seq.is_empty());
-                eprintln!("GA102 init sequence: {} writes", seq.len());
+                tracing::debug!(writes = seq.len(), "GA102 init sequence");
             }
-            Err(e) => eprintln!("GA102 firmware not present: {e}"),
+            Err(e) => tracing::debug!(error = %e, "GA102 firmware not present"),
         }
     }
 }

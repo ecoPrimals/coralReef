@@ -376,18 +376,18 @@ mod tests {
                 assert_eq!(blobs.format, FirmwareFormat::Legacy);
                 assert!(blobs.bundle_count() > 0);
                 assert!(blobs.method_count() > 0);
-                eprintln!(
-                    "GV100 (legacy): {} bundle writes, {} method inits, ctx={}B, nonctx={}B",
-                    blobs.bundle_count(),
-                    blobs.method_count(),
-                    blobs.ctx_data.len(),
-                    blobs.nonctx_data.len()
+                tracing::debug!(
+                    bundle_writes = blobs.bundle_count(),
+                    method_inits = blobs.method_count(),
+                    ctx_bytes = blobs.ctx_data.len(),
+                    nonctx_bytes = blobs.nonctx_data.len(),
+                    "GV100 (legacy) firmware parse"
                 );
                 let addrs = blobs.unique_bundle_addrs();
-                eprintln!("  {} unique registers", addrs.len());
+                tracing::debug!(unique_registers = addrs.len(), "GV100 bundle addrs");
             }
             Err(e) => {
-                eprintln!("GV100 firmware not present (expected in CI): {e}");
+                tracing::debug!(error = %e, "GV100 firmware not present (expected in CI)");
             }
         }
     }
@@ -403,17 +403,17 @@ mod tests {
                     "GA102 NET_img should have register init data"
                 );
                 let addrs = blobs.unique_bundle_addrs();
-                eprintln!(
-                    "GA102 (NET_img): {} bundle writes ({} unique regs), {} method inits, ctx={}B, nonctx={}B",
-                    blobs.bundle_count(),
-                    addrs.len(),
-                    blobs.method_count(),
-                    blobs.ctx_data.len(),
-                    blobs.nonctx_data.len()
+                tracing::debug!(
+                    bundle_writes = blobs.bundle_count(),
+                    unique_regs = addrs.len(),
+                    method_inits = blobs.method_count(),
+                    ctx_bytes = blobs.ctx_data.len(),
+                    nonctx_bytes = blobs.nonctx_data.len(),
+                    "GA102 (NET_img) firmware parse"
                 );
             }
             Err(e) => {
-                eprintln!("GA102 firmware not present: {e}");
+                tracing::debug!(error = %e, "GA102 firmware not present");
             }
         }
     }
@@ -654,7 +654,7 @@ mod tests {
         let root = nvidia_firmware_root();
         let base = std::path::Path::new(&root);
         let Ok(entries) = std::fs::read_dir(base) else {
-            eprintln!("No NVIDIA firmware directory");
+            tracing::debug!("No NVIDIA firmware directory");
             return;
         };
         let mut chips: Vec<String> = entries
@@ -673,15 +673,16 @@ mod tests {
         for chip in &chips {
             match GrFirmwareBlobs::parse(chip) {
                 Ok(blobs) => {
-                    eprintln!(
-                        "{chip:8} ({:?}): {:5} bundle, {:5} method, {:4} unique regs",
-                        blobs.format,
-                        blobs.bundle_count(),
-                        blobs.method_count(),
-                        blobs.unique_bundle_addrs().len()
+                    tracing::debug!(
+                        chip,
+                        format = ?blobs.format,
+                        bundle = blobs.bundle_count(),
+                        method = blobs.method_count(),
+                        unique_regs = blobs.unique_bundle_addrs().len(),
+                        "firmware chip parse"
                     );
                 }
-                Err(e) => eprintln!("{chip:8}: parse error: {e}"),
+                Err(e) => tracing::debug!(chip, error = %e, "firmware parse error"),
             }
         }
     }
