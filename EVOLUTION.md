@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 25, 2026 (Phase 10 — Iteration 66)
-**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity & hotSpring Wiring
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70e)
+**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, CoralIR JIT & hotSpring Wiring
 
 ---
 
@@ -29,6 +29,15 @@ VFIO PFIFO channel creation via BAR0 — full Volta hardware channel init with
 V2 MMU 5-level page tables, RAMFC population, TSG+channel runlist, PCCSR
 bind/enable. RAMUSERD offsets corrected (GP_GET@0x88, GP_PUT@0x8C).
 USERMODE doorbell at BAR0+0x810090.
+
+**Iteration 70d–70e**: CPU shader execution — coral-reef-cpu (Naga IR interpreter,
+Path A) + coral-reef-jit (Cranelift JIT backend for CoralIR, Path B). Dual-path
+tolerance-based validation. `shader.compile.cpu`, `shader.execute.cpu`, `shader.validate`
+JSON-RPC methods. JIT covers arithmetic, comparisons, memory, control flow, type
+conversions, system registers, transcendentals via `libm`, phi nodes via Cranelift
+`Variable` system. 27 JIT tests. Idiomatic polish: translate.rs 1101→994 lines,
+extracted `cmp_codes.rs`, unified `call_libm` with `Result`, `unify_int_widths`,
+dead `BindingLayout` removed, `tracing` instrumentation.
 
 **Iteration 63–66**: ACR boot solver (multi-strategy SEC2→ACR→FECS chain),
 falcon diagnostics, comprehensive audit closure, coralctl handler refactor
@@ -455,14 +464,16 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 60 | Deep Audit Execution + Code Quality: unwrap→expect, 14+ #[allow]→#[expect] across 11 files, tex.rs smart refactor (986→505+484), +24 tests (lib preambles/emit/compile, main shutdown_timeout), 8 SAFETY comments on unsafe, 9 unreachable→ice in encoder, hardcoding evolution (ember socket + socket group → env vars), amd-isa-gen template evolution | **3062+** (102 ignored), 65.8% line / 79.6% non-hw |
 | 10 iter 62 | Deep Audit + Coverage + Hardcoding Evolution: 3460+ workspace tests, 68.7% line coverage, 108 ignored hardware-gated, quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC) | **3460+** (108 ignored), 68.7% line |
 | 10 iter 65 | Deep Debt Solutions + Ecosystem Integration: comprehensive audit closure (20 items), coralctl handlers refactor (1519→4 modules), `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird ecosystem registration, `CORALREEF_DATA_DIR` env evolution | **3956** (119 ignored), ~66% line |
-| 10 iter 66 (current) | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
+| 10 iter 66 | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
+| 10 iter 70d | CPU Backend + barraCuda Shader Validation: coral-reef-cpu (Naga IR interpreter), `shader.compile.cpu` + `shader.execute.cpu` + `shader.validate` JSON-RPC methods, tolerance-based CPU vs GPU validation, 12 unit tests | **4047+** (~121 ignored), ~66% line |
+| 10 iter 70e (current) | CoralIR Cranelift JIT Backend: `coral-reef-jit` crate (Cranelift → x86-64/aarch64), dual-path validation (JIT Path B vs Naga interpreter Path A), translate.rs 1101→994 lines, `cmp_codes.rs` extraction, phi node support, transcendentals via `libm`, 27 JIT tests (23 integration + 4 unit) | **4070+** (~122 ignored), ~66% line |
 | 10 iter 52 | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 66: 4047 tests passing, 121 ignored. ~66% line coverage (8 crates above 90%).
+Iteration 70e: 4070+ tests passing, ~122 ignored. ~66% line coverage (8 crates above 90%).
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).

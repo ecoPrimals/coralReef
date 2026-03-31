@@ -17,6 +17,7 @@
 pub mod adaptive;
 pub mod drm_isolation;
 pub(crate) mod error;
+mod guarded_open;
 mod hold;
 mod ipc;
 pub mod journal;
@@ -117,7 +118,8 @@ pub fn ember_socket_path() -> String {
     if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
         return p;
     }
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let runtime_dir =
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let family = std::env::var("CORALREEF_FAMILY_ID")
         .or_else(|_| std::env::var("FAMILY_ID"))
         .unwrap_or_else(|_| "default".to_string());
@@ -278,8 +280,17 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         }
     }
 
+    let mut deferred_bdfs: Vec<String> = Vec::new();
+
     for dev_config in &compute_devices {
-        tracing::info!(bdf = %dev_config.bdf, "opening VFIO device for ember hold");
+        let lifecycle = vendor_lifecycle::detect_lifecycle(&dev_config.bdf);
+        let cold_sensitive = lifecycle.is_cold_sensitive();
+
+        tracing::info!(
+            bdf = %dev_config.bdf,
+            cold_sensitive,
+            "opening VFIO device for ember hold"
+        );
 
         let group_id = sysfs::read_iommu_group(&dev_config.bdf);
         if group_id != 0 {
@@ -288,7 +299,18 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
         sysfs::pin_power(&dev_config.bdf);
 
-        match coral_driver::vfio::VfioDevice::open(&dev_config.bdf) {
+        let open_result = if cold_sensitive {
+            guarded_open::guarded_vfio_open(
+                &dev_config.bdf,
+                guarded_open::GUARDED_OPEN_TIMEOUT,
+            )
+            .map_err(|e| e.to_string())
+        } else {
+            coral_driver::vfio::VfioDevice::open(&dev_config.bdf)
+                .map_err(|e| e.to_string())
+        };
+
+        match open_result {
             Ok(device) => {
                 let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
                 tracing::info!(
@@ -310,18 +332,41 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 );
             }
             Err(e) => {
-                tracing::error!(
-                    bdf = %dev_config.bdf,
-                    error = %e,
-                    "failed to open VFIO device — ember will not hold this device"
-                );
+                if cold_sensitive {
+                    tracing::warn!(
+                        bdf = %dev_config.bdf,
+                        error = %e,
+                        "cold-sensitive device deferred — will be available after POST \
+                         (use ember.open_device to retry)"
+                    );
+                    deferred_bdfs.push(dev_config.bdf.clone());
+                } else {
+                    tracing::error!(
+                        bdf = %dev_config.bdf,
+                        error = %e,
+                        "failed to open VFIO device — ember will not hold this device"
+                    );
+                }
             }
         }
     }
 
-    if held_init.is_empty() {
-        tracing::error!("no devices held — ember cannot provide fd keepalive");
+    if !deferred_bdfs.is_empty() {
+        tracing::info!(
+            deferred = ?deferred_bdfs,
+            "cold-sensitive devices deferred at startup"
+        );
+    }
+
+    if held_init.is_empty() && deferred_bdfs.is_empty() {
+        tracing::error!("no devices held or deferred — ember cannot provide fd keepalive");
         return Err(1);
+    }
+    if held_init.is_empty() {
+        tracing::warn!(
+            "no devices held at startup (all cold-sensitive devices deferred) — \
+             ember is running but cannot serve fds until devices are POSTed"
+        );
     }
 
     let held: Arc<RwLock<HashMap<String, HeldDevice>>> = Arc::new(RwLock::new(held_init));
@@ -458,7 +503,10 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 /// "No device request channel registered, blocked until released by user".
 /// The [`spawn_req_watcher`] thread monitors all active eventfds and
 /// auto-releases the VFIO fd before the kernel enters D-state.
-fn arm_req_irq(device: &coral_driver::vfio::VfioDevice, bdf: &str) -> Option<std::os::fd::OwnedFd> {
+fn arm_req_irq(
+    device: &coral_driver::vfio::VfioDevice,
+    bdf: &str,
+) -> Option<std::os::fd::OwnedFd> {
     use coral_driver::vfio::irq::{VfioIrqIndex, arm_irq_eventfd};
 
     match arm_irq_eventfd(device.device_as_fd(), VfioIrqIndex::Req, 0) {
@@ -503,11 +551,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                     let mut fds = Vec::new();
                     let mut names = Vec::new();
                     for (bdf, dev) in map.iter() {
-                        if let Some(ref req_fd) = dev.req_eventfd
-                            && let Ok(cloned) = req_fd.try_clone()
-                        {
-                            fds.push(cloned);
-                            names.push(bdf.clone());
+                        if let Some(ref req_fd) = dev.req_eventfd {
+                            if let Ok(cloned) = req_fd.try_clone() {
+                                fds.push(cloned);
+                                names.push(bdf.clone());
+                            }
                         }
                     }
                     (fds, names)

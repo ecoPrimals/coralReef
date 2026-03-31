@@ -2,19 +2,19 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70d.
+**Current position**: Phase 10 — Iteration 70e.
 
-**Last completed**: coral-reef-cpu crate (Naga IR tree-walk interpreter), `shader.compile.cpu` + `shader.execute.cpu` + `shader.validate` JSON-RPC methods, tolerance-based CPU vs GPU validation, barraCuda evolution path complete.
+**Last completed**: `coral-reef-jit` crate (Cranelift JIT backend for CoralIR), dual-path CPU validation (Path B JIT vs Path A Naga interpreter), idiomatic polish of IR translation layer (translate.rs 1101→994 lines, extracted `cmp_codes.rs`, unified `call_libm` helper, phi node support via Cranelift `Variable` system), 27 JIT tests (23 integration + 4 unit).
 
-**Tests**: 3270+ passing, 2 pre-existing upstream failures (SSA regression).
+**Tests**: 4070+ passing, ~122 ignored hardware-gated.
 
-**Next focus**: Cranelift JIT backend (cpu-jit feature flag), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle typed errors, coverage push toward 90%, toadStool E2E pipeline, socket name alignment to wateringHole convention.
+**Next focus**: Local scratch memory emulation for JIT (unblocks `for` loop patterns), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle typed errors, coverage push toward 90%, toadStool E2E pipeline, socket name alignment to wateringHole convention.
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70d — CPU Backend. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70e — CoralIR Cranelift JIT. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
 
 ---
 
-## Team Evolution Priorities (Iteration 70d+)
+## Team Evolution Priorities (Iteration 70e+)
 
 ### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–70)**
 

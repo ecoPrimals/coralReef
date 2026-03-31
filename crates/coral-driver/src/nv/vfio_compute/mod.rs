@@ -40,7 +40,7 @@ pub use gr_status::GrEngineStatus;
 pub use raw_device::RawVfioDevice;
 
 use crate::error::{DriverError, DriverResult};
-use crate::vfio::channel::VfioChannel;
+use crate::vfio::channel::{GpuChannel, KeplerChannel, VfioChannel};
 use crate::vfio::device::{DmaBackend, MappedBar, VfioDevice};
 use crate::vfio::dma::DmaBuffer;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
@@ -112,7 +112,7 @@ pub struct NvVfioComputeDevice {
     gpfifo_ring: DmaBuffer,
     gpfifo_put: u32,
     userd: DmaBuffer,
-    channel: VfioChannel,
+    channel: GpuChannel,
     next_handle: u32,
     next_iova: u64,
     container: DmaBackend,
@@ -120,6 +120,7 @@ pub struct NvVfioComputeDevice {
     inflight: Vec<BufferHandle>,
     device: VfioDevice,
 }
+
 
 impl NvVfioComputeDevice {
     /// The SM architecture version of this device (auto-detected or validated).
@@ -218,13 +219,13 @@ impl NvVfioComputeDevice {
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = VfioChannel::create(
+        let channel = Self::create_channel(
+            sm_version,
             container.clone(),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
             USERD_IOVA,
-            0,
         )?;
 
         let mut dev = Self {
@@ -273,13 +274,13 @@ impl NvVfioComputeDevice {
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = VfioChannel::create(
+        let channel = Self::create_channel(
+            sm_version,
             container.clone(),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
             USERD_IOVA,
-            0,
         )?;
 
         let mut dev = Self {
@@ -302,17 +303,62 @@ impl NvVfioComputeDevice {
         Ok(dev)
     }
 
+    /// Create the appropriate GPU channel based on SM version.
+    ///
+    /// SM >= 70 (Volta+): 5-level V2 page tables, doorbell, GV100 runlists.
+    /// SM < 70 (Kepler): 2-level V1 page tables, USERD polling, GK104 runlists.
+    fn create_channel(
+        sm_version: u32,
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+    ) -> DriverResult<GpuChannel> {
+        if sm_version >= 70 {
+            let ch = VfioChannel::create(
+                container,
+                bar0,
+                gpfifo_iova,
+                gpfifo_entries,
+                userd_iova,
+                0,
+            )?;
+            Ok(GpuChannel::Volta(ch))
+        } else {
+            tracing::info!(sm_version, "using Kepler channel path (GF100 V1 page tables)");
+            let ch = KeplerChannel::create(
+                container,
+                bar0,
+                gpfifo_iova,
+                gpfifo_entries,
+                userd_iova,
+                0,
+            )?;
+            Ok(GpuChannel::Kepler(ch))
+        }
+    }
+
     /// Open from ember FDs in warm handoff mode.
     ///
     /// After `coralctl warm-fecs` + livepatch, FECS/GPCCS firmware is
     /// preserved in IMEM. This path skips GR BAR0 init (already done by
     /// nouveau) and uses a lighter PFIFO init that preserves PMC/engine state.
+    ///
+    /// Warm-specific steps (Exp 126):
+    /// 1. Clear ALL stale PCCSR entries left by nouveau before channel creation
+    /// 2. Verify BAR2 PHYSICAL mode readback after channel creation
+    /// 3. Verify MMU fault buffers are fresh (GET == 0, PUT enabled)
+    /// 4. Clear stale PFIFO interrupts
+    /// 5. Restart falcons with improved wake sequence
     pub fn open_warm(
         bdf: &str,
         fds: crate::vfio::ReceivedVfioFds,
         sm_version: u32,
         compute_class: u32,
     ) -> DriverResult<Self> {
+        use crate::vfio::channel::registers::{misc, mmu, pccsr};
+
         let device = VfioDevice::from_received(bdf, fds)?;
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
@@ -321,6 +367,14 @@ impl NvVfioComputeDevice {
 
         tracing::info!("warm handoff mode: skipping GR BAR0 init (nouveau already configured)");
 
+        // Exp 126 fix: clear ALL stale PCCSR entries before creating our channel.
+        // Nouveau leaves channels in various states; stale entries can confuse the
+        // scheduler and block our new channel from being scheduled.
+        Self::clear_stale_pccsr_all(&bar0);
+
+        // Clear any accumulated PFIFO interrupts from nouveau's teardown.
+        let _ = bar0.write_u32(0x2100, 0xFFFF_FFFF);
+
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
 
@@ -328,14 +382,44 @@ impl NvVfioComputeDevice {
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = VfioChannel::create_warm(
+        let channel = GpuChannel::Volta(VfioChannel::create_warm(
             container.clone(),
             &bar0,
             GPFIFO_IOVA,
             gpfifo::ENTRIES as u32,
             USERD_IOVA,
             0,
-        )?;
+        )?);
+
+        // Verify BAR2 and fault buffer state after channel creation.
+        let bar2_readback = bar0.read_u32(misc::PBUS_BAR2_BLOCK).unwrap_or(0xDEAD);
+        let bar2_target = (bar2_readback >> 28) & 0x3;
+        tracing::info!(
+            bar2_block = format_args!("{bar2_readback:#010x}"),
+            target = bar2_target,
+            "warm: BAR2_BLOCK verification (expect target=2 COH, mode=PHYS)"
+        );
+
+        let fb0_get = bar0.read_u32(mmu::FAULT_BUF0_GET).unwrap_or(0xDEAD);
+        let fb0_put = bar0.read_u32(mmu::FAULT_BUF0_PUT).unwrap_or(0xDEAD);
+        if fb0_get != 0 {
+            tracing::warn!(
+                get = format_args!("{fb0_get:#010x}"),
+                put = format_args!("{fb0_put:#010x}"),
+                "warm: fault buffer 0 has non-zero GET — resetting"
+            );
+            let _ = bar0.write_u32(mmu::FAULT_BUF0_GET, 0);
+            let _ = bar0.write_u32(mmu::FAULT_BUF1_GET, 0);
+        }
+
+        // Verify our channel is properly bound in PCCSR.
+        let our_pccsr = bar0.read_u32(pccsr::channel(0)).unwrap_or(0);
+        let our_inst = bar0.read_u32(pccsr::inst(0)).unwrap_or(0);
+        tracing::info!(
+            pccsr_inst = format_args!("{our_inst:#010x}"),
+            pccsr_chan = format_args!("{our_pccsr:#010x}"),
+            "warm: our channel (ch0) PCCSR state"
+        );
 
         let mut dev = Self {
             device,
@@ -356,6 +440,38 @@ impl NvVfioComputeDevice {
         dev.restart_warm_falcons()?;
 
         Ok(dev)
+    }
+
+    /// Clear stale PCCSR entries for all 512 channels.
+    ///
+    /// Nouveau may leave channels enabled with bound instance blocks. After
+    /// warm handoff, these stale entries can confuse the PFIFO scheduler
+    /// and block our new channel from being scheduled on the GR runlist.
+    fn clear_stale_pccsr_all(bar0: &MappedBar) {
+        use crate::vfio::channel::registers::pccsr;
+
+        let mut cleared = 0u32;
+        for ch in 0..512u32 {
+            let chan_val = bar0.read_u32(pccsr::channel(ch)).unwrap_or(0);
+            let inst_val = bar0.read_u32(pccsr::inst(ch)).unwrap_or(0);
+            if chan_val == 0 && inst_val == 0 {
+                continue;
+            }
+            // Disable channel if enabled.
+            if chan_val & 1 != 0 {
+                let _ = bar0.write_u32(pccsr::channel(ch), pccsr::CHANNEL_ENABLE_CLR);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            // Clear fault flags.
+            let _ = bar0.write_u32(
+                pccsr::channel(ch),
+                pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET,
+            );
+            // Clear instance block binding.
+            let _ = bar0.write_u32(pccsr::inst(ch), 0);
+            cleared += 1;
+        }
+        tracing::info!(cleared, "warm: cleared stale PCCSR entries (nouveau residue)");
     }
 
     /// Reads GR engine diagnostic status from BAR0 registers.
@@ -787,4 +903,5 @@ mod tests {
     fn local_mem_window_legacy() {
         assert_eq!(LOCAL_MEM_WINDOW_LEGACY, 0xFF00_0000);
     }
+
 }

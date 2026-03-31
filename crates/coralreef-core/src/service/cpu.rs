@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! CPU compilation and validation service handlers.
 //!
-//! Delegates to `coral_reef_cpu` for interpretation and validation.
+//! Delegates to `coral_reef_cpu` for interpretation and `coral_reef_jit` for
+//! Cranelift JIT execution. When both paths are available, `shader.validate`
+//! runs dual-path validation comparing the Naga interpreter (Path A) against
+//! the `CoralIR` → Cranelift pipeline (Path B).
 
 use coral_reef::CompileError;
 use coral_reef_cpu::types::{
-    CompileCpuRequest, CpuError, ExecuteCpuRequest, ExecuteCpuResponse, ValidateRequest,
-    ValidateResponse,
+    CompileCpuRequest, CpuError, DualPathResult, ExecuteCpuRequest, ExecuteCpuResponse, Mismatch,
+    Tolerance, ValidateRequest, ValidateResponse,
 };
 
 use super::types::CompileResponse;
@@ -62,11 +65,146 @@ pub fn handle_execute_cpu(request: &ExecuteCpuRequest) -> Result<ExecuteCpuRespo
 
 /// `shader.validate` — execute on CPU and compare against expected values.
 ///
+/// Runs dual-path validation when the Cranelift JIT backend is available:
+/// - **Path A** (Naga interpreter): reference oracle via `coral_reef_cpu`
+/// - **Path B** (Cranelift JIT): optimized `CoralIR` → native code via `coral_reef_jit`
+///
+/// Both paths execute independently; if Path B fails (unsupported ops, etc.),
+/// validation still succeeds based on Path A alone with a note in `dual_path`.
+///
 /// # Errors
 ///
 /// Returns [`CompileError`] wrapping the underlying [`CpuError`].
 pub fn handle_validate(request: &ValidateRequest) -> Result<ValidateResponse, CompileError> {
-    coral_reef_cpu::validate(request).map_err(cpu_error_to_compile_error)
+    let mut response =
+        coral_reef_cpu::validate(request).map_err(cpu_error_to_compile_error)?;
+
+    let dual_path = run_dual_path_validation(request, &response);
+    response.dual_path = Some(dual_path);
+
+    Ok(response)
+}
+
+/// Run both execution paths and compare their outputs.
+fn run_dual_path_validation(
+    request: &ValidateRequest,
+    path_a_response: &ValidateResponse,
+) -> DualPathResult {
+    let exec_request = ExecuteCpuRequest {
+        wgsl_source: request.wgsl_source.clone(),
+        entry_point: request.entry_point.clone(),
+        workgroups: request.workgroups,
+        bindings: request.bindings.clone(),
+        uniforms: request.uniforms.clone(),
+    };
+
+    let path_a_result = coral_reef_cpu::execute_cpu(&exec_request);
+    let path_b_result = coral_reef_jit::execute_jit(&exec_request);
+
+    let path_a_ns = path_a_result
+        .as_ref()
+        .map_or(0, |r| r.execution_time_ns);
+
+    match (path_a_result, path_b_result) {
+        (Ok(a_resp), Ok(b_resp)) => {
+            let tolerance = Tolerance {
+                abs: 1e-5,
+                rel: 1e-5,
+            };
+            let mismatches =
+                compare_path_outputs(&a_resp.bindings, &b_resp.bindings, &tolerance);
+            DualPathResult {
+                paths_agree: mismatches.is_empty(),
+                path_mismatches: mismatches,
+                path_a_ns,
+                path_b_ns: b_resp.execution_time_ns,
+                note: None,
+            }
+        }
+        (Ok(_), Err(jit_err)) => DualPathResult {
+            paths_agree: path_a_response.passed,
+            path_mismatches: vec![],
+            path_a_ns,
+            path_b_ns: 0,
+            note: Some(format!("Path B (Cranelift) failed: {jit_err}")),
+        },
+        (Err(cpu_err), _) => DualPathResult {
+            paths_agree: false,
+            path_mismatches: vec![],
+            path_a_ns: 0,
+            path_b_ns: 0,
+            note: Some(format!("Path A (interpreter) re-execution failed: {cpu_err}")),
+        },
+    }
+}
+
+/// Compare binding outputs from Path A and Path B element-wise as f32.
+fn compare_path_outputs(
+    path_a: &[coral_reef_cpu::BindingData],
+    path_b: &[coral_reef_cpu::BindingData],
+    tolerance: &Tolerance,
+) -> Vec<Mismatch> {
+    let mut mismatches = Vec::new();
+
+    for a_binding in path_a {
+        let b_binding = path_b
+            .iter()
+            .find(|b| b.group == a_binding.group && b.binding == a_binding.binding);
+
+        let Some(b_binding) = b_binding else {
+            mismatches.push(Mismatch {
+                group: a_binding.group,
+                binding: a_binding.binding,
+                index: 0,
+                got: f64::NAN,
+                expected: f64::NAN,
+                abs_error: f64::INFINITY,
+                rel_error: f64::INFINITY,
+            });
+            continue;
+        };
+
+        let a_data = &a_binding.data[..];
+        let b_data = &b_binding.data[..];
+        let element_count = a_data.len().min(b_data.len()) / 4;
+
+        for i in 0..element_count {
+            let offset = i * 4;
+            let a_val = f64::from(f32::from_le_bytes([
+                a_data[offset],
+                a_data[offset + 1],
+                a_data[offset + 2],
+                a_data[offset + 3],
+            ]));
+            let b_val = f64::from(f32::from_le_bytes([
+                b_data[offset],
+                b_data[offset + 1],
+                b_data[offset + 2],
+                b_data[offset + 3],
+            ]));
+
+            let abs_error = (a_val - b_val).abs();
+            let rel_error = if a_val.abs() > f64::EPSILON {
+                abs_error / a_val.abs()
+            } else {
+                abs_error
+            };
+
+            if abs_error > tolerance.abs && rel_error > tolerance.rel {
+                mismatches.push(Mismatch {
+                    group: a_binding.group,
+                    binding: a_binding.binding,
+                    index: i,
+                    got: b_val,
+                    expected: a_val,
+                    abs_error,
+                    rel_error,
+                });
+            }
+        }
+    }
+
+    mismatches
 }
 
 fn cpu_error_to_compile_error(e: CpuError) -> CompileError {

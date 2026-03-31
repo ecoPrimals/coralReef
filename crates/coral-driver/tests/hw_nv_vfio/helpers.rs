@@ -52,21 +52,67 @@ pub fn open_vfio() -> NvVfioComputeDevice {
     }
 }
 
-/// Open VFIO device in warm handoff mode — skips GR init and uses
-/// lighter PFIFO init to preserve falcon state from nouveau.
+/// Orchestrate a full warm handoff via glowplug, then open in warm mode.
+///
+/// 1. Connects to glowplug and calls `device.warm_handoff` — this swaps to
+///    nouveau (FECS boots), waits, then swaps back to `vfio-pci`.
+/// 2. Requests fresh VFIO fds from ember via SCM_RIGHTS.
+/// 3. Opens the device with `open_warm` to preserve falcon state.
+///
+/// No `sudo` required — ember/glowplug run as root and handle all
+/// privileged operations (livepatch, driver swap, VFIO fd management).
 pub fn open_vfio_warm() -> NvVfioComputeDevice {
     init_tracing();
     let bdf = vfio_bdf();
     let sm = vfio_sm();
 
-    match ember_client::request_fds(&bdf) {
+    // Step 1: trigger warm handoff through glowplug (nouveau → fecs boot → vfio-pci)
+    match crate::glowplug_client::GlowPlugClient::connect() {
+        Ok(mut gp) => {
+            eprintln!("glowplug: orchestrating warm handoff for {bdf}...");
+            match gp.warm_handoff(&bdf, "nouveau", 2000, true, 15000) {
+                Ok(result) => {
+                    let fecs_running = result
+                        .get("fecs_ever_running")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let total_ms = result
+                        .get("total_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    eprintln!(
+                        "glowplug: warm handoff complete (fecs_running={fecs_running}, {total_ms}ms)"
+                    );
+                    if !fecs_running {
+                        eprintln!(
+                            "glowplug: WARNING — FECS never seen running during poll window"
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("glowplug: warm_handoff RPC failed: {e}");
+                    eprintln!("glowplug: falling back — assuming warm handoff was done externally (coralctl warm-fecs)");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("glowplug: not available ({e})");
+            eprintln!("glowplug: assuming warm handoff was done externally (coralctl warm-fecs)");
+        }
+    }
+
+    // Step 2: get VFIO fds from ember
+    let fds = match ember_client::request_fds(&bdf) {
         Ok(fds) => {
             eprintln!("ember: received VFIO fds for {bdf} (WARM MODE)");
-            NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0)
-                .expect("NvVfioComputeDevice::open_warm()")
+            fds
         }
         Err(e) => {
             panic!("warm handoff requires ember for VFIO fds (ember unavailable: {e})");
         }
-    }
+    };
+
+    // Step 3: open in warm mode (preserves falcon state from nouveau)
+    NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0)
+        .expect("NvVfioComputeDevice::open_warm()")
 }

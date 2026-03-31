@@ -34,7 +34,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 4047 passing, 0 failed (~121 ignored hardware-gated)
+cargo test --workspace     # 4070+ passing, 0 failed (~122 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -75,6 +75,7 @@ coralReef/
 │   ├── coral-gpu/               Unified GPU compute abstraction
 │   ├── coral-reef-bitview/     Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/         ISA tables, latency model
+│   ├── coral-reef-jit/        Cranelift JIT backend for CPU shader execution
 │   ├── coral-reef-stubs/       Pure-Rust dependency replacements
 │   └── nak-ir-proc/           Proc-macro derives for IR types
 ├── tools/
@@ -126,10 +127,12 @@ Key modules in `crates/coral-reef/src/codegen/`:
 
 This primal starts with zero knowledge. It advertises its capabilities
 (`shader.compile`, `shader.health`) via the universal adapter and discovers
-peers by capability, not by name. **Iteration 65** added `identity.get` (per
+peers by capability, not by name. Iteration 65 added `identity.get` (per
 CAPABILITY_BASED_DISCOVERY_STANDARD), fire-and-forget `capability.register` with
 ecosystem integration, and periodic `ipc.heartbeat` registration (45s) toward
-Songbird.
+Songbird. Iteration 70d–70e added CPU shader execution (`shader.compile.cpu`,
+`shader.execute.cpu`, `shader.validate`) via Naga interpreter (Path A) and
+Cranelift JIT (`coral-reef-jit`, Path B) for dual-path validation.
 
 ---
 

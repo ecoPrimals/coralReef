@@ -170,7 +170,20 @@ pub(crate) fn reacquire(
         drop(map);
         write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf})).map_err(ipc_io_error_string)
     } else {
-        match coral_driver::vfio::VfioDevice::open(bdf) {
+        // Use guarded open: reacquire can be called for any device including
+        // cold-sensitive ones. The guarded path protects the IPC handler
+        // thread from entering D-state on unresponsive hardware.
+        let lifecycle = crate::vendor_lifecycle::detect_lifecycle(bdf);
+        let open_result = if lifecycle.is_cold_sensitive() {
+            crate::guarded_open::guarded_vfio_open(
+                bdf,
+                crate::guarded_open::GUARDED_OPEN_TIMEOUT,
+            )
+            .map_err(|e| e.to_string())
+        } else {
+            coral_driver::vfio::VfioDevice::open(bdf).map_err(|e| e.to_string())
+        };
+        match open_result {
             Ok(device) => {
                 let req_eventfd = crate::arm_req_irq(&device, bdf);
                 tracing::info!(
@@ -459,13 +472,8 @@ pub(crate) fn mmio_read(
             }),
         )
         .map_err(ipc_io_error_string),
-        Err(e) => write_jsonrpc_error(
-            stream,
-            id,
-            -32000,
-            &format!("mmio read at {offset:#x}: {e}"),
-        )
-        .map_err(ipc_io_error_string),
+        Err(e) => write_jsonrpc_error(stream, id, -32000, &format!("mmio read at {offset:#x}: {e}"))
+            .map_err(ipc_io_error_string),
     }
 }
 
@@ -497,7 +505,9 @@ pub(crate) fn fecs_state(
         }
     };
 
-    use coral_driver::nv::bar0::{FECS_CPUCTL, FECS_EXCI, FECS_MB0, FECS_MB1, FECS_PC, FECS_SCTL};
+    use coral_driver::nv::bar0::{
+        FECS_CPUCTL, FECS_EXCI, FECS_MB0, FECS_MB1, FECS_PC, FECS_SCTL,
+    };
 
     let read = |off: u32| -> u32 { bar0.read_u32(off).unwrap_or(0xDEAD_DEAD) };
 
@@ -536,7 +546,8 @@ pub(crate) fn parse_hex_or_dec(val: Option<&serde_json::Value>, name: &str) -> R
         return u32::try_from(n).map_err(|_| format!("{name} exceeds u32"));
     }
     if let Some(s) = v.as_str() {
-        return coral_driver::parse_hex_u32(s).map_err(|e| format!("{name}: {e}"));
+        return coral_driver::parse_hex_u32(s)
+            .map_err(|e| format!("{name}: {e}"));
     }
     Err(format!("{name}: expected number or hex string"))
 }

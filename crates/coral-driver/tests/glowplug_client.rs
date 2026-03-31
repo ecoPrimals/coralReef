@@ -121,6 +121,31 @@ impl GlowPlugClient {
             serde_json::json!({ "bdf": bdf, "method": method }),
         )
     }
+
+    /// Orchestrate a warm handoff via GlowPlug → Ember.
+    ///
+    /// Swaps device to `driver` (typically "nouveau"), waits for FECS to boot,
+    /// swaps back to `vfio-pci`, and returns the handoff summary. This is the
+    /// programmatic equivalent of `coralctl warm-fecs`.
+    pub fn warm_handoff(
+        &mut self,
+        bdf: &str,
+        driver: &str,
+        settle_ms: u64,
+        poll_fecs: bool,
+        poll_timeout_ms: u64,
+    ) -> Result<serde_json::Value, String> {
+        self.call(
+            "device.warm_handoff",
+            serde_json::json!({
+                "bdf": bdf,
+                "driver": driver,
+                "settle_ms": settle_ms,
+                "poll_fecs": poll_fecs,
+                "poll_timeout_ms": poll_timeout_ms,
+            }),
+        )
+    }
 }
 
 /// RAII guard that lends a VFIO device from glowPlug and reclaims on drop.

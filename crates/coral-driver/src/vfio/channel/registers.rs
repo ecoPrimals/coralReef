@@ -127,10 +127,7 @@ pub(crate) mod pbdma {
     pub const STRIDE: usize = 0x2000;
 
     /// Base address for a specific PBDMA in BAR0.
-    #[allow(
-        dead_code,
-        reason = "used by `#[cfg(test)]` register map tests in this module"
-    )]
+    #[allow(dead_code, reason = "used by `#[cfg(test)]` register map tests in this module")]
     pub const fn base(id: usize) -> usize {
         BASE + id * STRIDE
     }
@@ -227,7 +224,7 @@ pub(crate) mod pfb {
 }
 
 /// MMU fault buffer registers (BAR0 + 0x10_0E00).
-pub(crate) mod mmu {
+pub mod mmu {
     pub const FAULT_BUF0_LO: usize = 0x0010_0E24;
     pub const FAULT_BUF0_HI: usize = 0x0010_0E28;
     pub const FAULT_BUF0_SIZE: usize = 0x0010_0E2C;
@@ -468,10 +465,10 @@ pub mod pclock {
     ];
 }
 
-pub(crate) mod falcon;
+pub mod falcon;
 
 /// Miscellaneous BAR0 registers.
-pub(crate) mod misc {
+pub mod misc {
     /// BOOT0 — chip identification register.
     pub const BOOT0: usize = 0x0000_0000;
     /// PRI ring interrupt status.
@@ -481,7 +478,7 @@ pub(crate) mod misc {
     /// BAR0 window control register.
     pub const BAR0_WINDOW: usize = 0x0000_1700;
     /// L2 cache flush trigger.
-    #[expect(dead_code, reason = "hardware register map — used in diagnostics")]
+    #[allow(dead_code, reason = "hardware register map — used in diagnostics")]
     pub const L2_FLUSH: usize = 0x0007_0010;
     /// NV_PMC_UNK260 — clock-gating restore. Nouveau: `nvkm_mc_unk260(device, 1)`.
     pub const PMC_UNK260: usize = 0x0000_0260;
@@ -489,10 +486,7 @@ pub(crate) mod misc {
     /// Bit 12: GR, Bit 22: SEC2, etc. Some bits are hardware-locked (e.g. SEC2 on GV100).
     pub const PMC_ENABLE: usize = 0x0000_0200;
     /// NV_PMC_DEVICE_ENABLE — extended engine enable.
-    #[expect(
-        dead_code,
-        reason = "hardware register map — used as reference during bring-up"
-    )]
+    #[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
     pub const PMC_DEVICE_ENABLE: usize = 0x0000_0204;
     /// NV_PGRAPH_PRI — PGRAPH status register (read-only).
     pub const PGRAPH_STATUS: usize = 0x0040_0700;
@@ -512,7 +506,7 @@ pub(crate) mod misc {
 }
 
 /// `NV_PCCSR` — per-channel control/status registers (BAR0 + 0x80_0000).
-pub(crate) mod pccsr {
+pub mod pccsr {
     /// Instance block pointer register for channel `id`.
     /// Contains `INST_PTR[27:0]`, `INST_TARGET[29:28]`, `INST_BIND[31]`.
     pub const fn inst(id: u32) -> usize {
@@ -534,10 +528,7 @@ pub(crate) mod pccsr {
     }
 
     /// `INST_TARGET` = `SYS_MEM_NONCOHERENT` (bits [29:28] = 3).
-    #[allow(
-        dead_code,
-        reason = "used by `#[cfg(test)]` PCCSR encoding tests in page_tables"
-    )]
+    #[allow(dead_code, reason = "used by `#[cfg(test)]` PCCSR encoding tests in page_tables")]
     pub const INST_TARGET_SYS_MEM_NCOH: u32 = 3 << 28;
     /// `INST_BIND` = TRUE (bit 31).
     pub const INST_BIND_TRUE: u32 = 1 << 31;
@@ -576,6 +567,76 @@ pub(crate) mod pccsr {
 pub(crate) mod usermode {
     /// Write channel ID here to notify Host that a channel has new work.
     pub const NOTIFY_CHANNEL_PENDING: usize = 0x0081_0090;
+}
+
+/// GK104/GK110 (Kepler) PFIFO constants.
+///
+/// Kepler uses global runlist registers (stride 0x08) instead of Volta's
+/// per-runlist stride 0x10. Runlist entries are 8 bytes (chid + flags),
+/// not the 16-byte TSG + 16-byte channel entries used by Volta.
+pub mod kepler_pfifo {
+    /// GK104 per-runlist base register (stride 0x08).
+    pub const fn runlist_base(id: u32) -> usize {
+        0x0000_2270 + (id as usize) * 0x08
+    }
+
+    /// GK104 per-runlist submit register (stride 0x08).
+    pub const fn runlist_submit(id: u32) -> usize {
+        0x0000_2274 + (id as usize) * 0x08
+    }
+
+    /// Encode GK104 runlist BASE value (same encoding as GV100).
+    #[must_use]
+    pub const fn gk104_runlist_base_value(iova: u64) -> u32 {
+        (iova >> 12) as u32
+    }
+
+    /// Encode GK104 runlist SUBMIT value (same encoding as GV100).
+    #[must_use]
+    pub const fn gk104_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
+        ((iova >> 44) as u32) | (entry_count << 16)
+    }
+}
+
+/// GF100/GK104 (Kepler) `NV_RAMIN` page directory encoding.
+///
+/// Key differences from Volta (GP100+):
+/// - **No** `USE_VER2_PT_FORMAT` bit — always uses V1 two-level page tables
+/// - **No** subcontext page directories (SC0/SC1)
+/// - **No** `ENGINE_WFI_VEID`
+/// - VA space is 40-bit (1 TB), not 47-bit (128 TB)
+pub(super) mod kepler_ramin {
+    /// Page directory base — low word (DW128, offset 0x200).
+    pub const PAGE_DIR_BASE_LO: usize = 0x200;
+    /// Page directory base — high word (DW129, offset 0x204).
+    pub const PAGE_DIR_BASE_HI: usize = 0x204;
+    /// VA space address limit — low word (DW130, offset 0x208).
+    pub const ADDR_LIMIT_LO: usize = 0x208;
+    /// VA space address limit — high word (DW131, offset 0x20C).
+    pub const ADDR_LIMIT_HI: usize = 0x20C;
+}
+
+/// GK104 RAMFC offsets.
+///
+/// Same physical layout as Volta RAMFC but a few fields behave differently.
+/// On GK104, RAMFC CONFIG (0xA8) **exists** (unlike Volta where it PRI-faults).
+pub(super) mod kepler_ramfc {
+    pub const USERD_LO: usize = 0x008;
+    pub const USERD_HI: usize = 0x00C;
+    pub const SIGNATURE: usize = 0x010;
+    pub const ACQUIRE: usize = 0x030;
+    pub const GP_BASE_LO: usize = 0x048;
+    pub const GP_BASE_HI: usize = 0x04C;
+    pub const GP_FETCH: usize = 0x050;
+    pub const GP_PUT: usize = 0x054;
+    pub const GP_GET: usize = 0x058;
+    pub const PB_HEADER: usize = 0x084;
+    pub const SUBDEVICE: usize = 0x094;
+    /// PBDMA CONFIG — exists on GK104, not on GV100.
+    pub const CONFIG: usize = 0x0A8;
+    pub const CHANNEL_INFO: usize = 0x0AC;
+    pub const HCE_CTRL: usize = 0x0E4;
+    pub const CHID: usize = 0x0E8;
 }
 
 /// Volta RAMUSERD (User-Driver State Descriptor) offsets within a 512-byte
@@ -686,6 +747,24 @@ pub(super) const PBDMA_TARGET_SYS_MEM_COHERENT: u32 = 2;
 
 /// Number of 4 KiB pages identity-mapped in PT0.
 pub(super) const PT_ENTRIES: usize = 512;
+
+// ── Kepler (GF100 V1) IOVA layout for 2-level page tables ─────────────
+//
+// Kepler uses a simpler 2-level hierarchy: PDB (page directory block)
+// → SPT (small page table). Only 2 buffers instead of Volta's 5.
+//
+// IOVA map (distinct from Volta to avoid overlap):
+//   0x1000  GPFIFO ring       (shared with Volta layout)
+//   0x2000  USERD page        (shared with Volta layout)
+//   0x3000  Instance block    (shared with Volta layout)
+//   0x4000  Runlist            (shared with Volta layout)
+//   0x5000  PDB (page directory block, V1 dual-PDEs)
+//   0x6000  SPT (small page table, 512 × 8-byte V1 PTEs)
+
+/// GF100 V1 Page Directory Block IOVA (replaces PD3 for Kepler).
+pub(super) const KEPLER_PDB_IOVA: u64 = 0x5000;
+/// GF100 V1 Small Page Table IOVA (replaces PT0 for Kepler).
+pub(super) const KEPLER_SPT_IOVA: u64 = 0x6000;
 
 // ── BAR2 VRAM page table layout (for glow plug self-warm) ──────────────
 // All structures live in VRAM, written via PRAMIN.  BAR0_WINDOW is set to

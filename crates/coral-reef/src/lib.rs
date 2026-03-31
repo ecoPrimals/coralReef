@@ -54,11 +54,34 @@ pub mod ir;
 pub mod tol;
 pub mod tolerances;
 
-// Codegen module — evolved from upstream NAK into idiomatic Rust.
-// ISA domain types intentionally use naming conventions that mirror
-// hardware documentation (e.g. OpFAdd, SrcType, UGPR). dead_code covers
-// builder traits and ISA variants reserved for future use.
-mod codegen;
+/// Codegen module — evolved from upstream NAK into idiomatic Rust.
+///
+/// ISA domain types intentionally use naming conventions that mirror
+/// hardware documentation (e.g. `OpFAdd`, `SrcType`, `UGPR`). `dead_code` covers
+/// builder traits and ISA variants reserved for future use.
+///
+/// Exposed publicly for `coral-reef-jit` (Cranelift JIT backend) to access the IR
+/// types needed for `Op` → CLIF translation. Most users should use the high-level
+/// `compile_wgsl` / `compile_wgsl_to_ir` APIs instead.
+#[allow(
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown,
+    clippy::return_self_not_must_use,
+    clippy::too_long_first_doc_paragraph,
+    clippy::new_without_default,
+    clippy::iter_without_into_iter,
+    clippy::implicit_hasher,
+    clippy::items_after_statements,
+    clippy::module_name_repetitions,
+    clippy::redundant_closure_for_method_calls,
+    clippy::missing_const_for_fn,
+    clippy::option_if_let_else,
+    clippy::doc_link_with_quotes,
+    missing_docs
+)]
+pub mod codegen;
 
 pub use backend::{AmdBackend, Backend, CompiledBinary, NvidiaBackend};
 pub use codegen::ir::{Shader, ShaderModel};
@@ -191,9 +214,13 @@ impl Default for CompileOptions {
 
 /// Build the appropriate `ShaderModel` for the target and return it boxed.
 ///
-/// This replaces the old `ShaderModelInfo::new(sm, warps_per_sm)` approach
-/// with direct construction of the vendor-specific model.
-fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
+/// Used internally and by `coral-reef-jit` to construct the shader model
+/// needed for `CoralIR` optimization passes.
+///
+/// # Errors
+///
+/// Returns [`CompileError::UnsupportedArch`] if the target is Intel (not yet supported).
+pub fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
     match target {
         GpuTarget::Nvidia(nv) => {
             #[expect(
@@ -215,6 +242,43 @@ fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderMode
         }
         GpuTarget::Intel(_) => Err(CompileError::UnsupportedArch(target.to_string().into())),
     }
+}
+
+/// Compile WGSL to optimized `CoralIR` without GPU-specific encoding.
+///
+/// Runs all architecture-independent optimization passes (copy propagation,
+/// DCE, constant folding, FMA lowering, pre-RA scheduling) but stops before
+/// GPU-specific legalization, register allocation, and binary encoding.
+///
+/// This is the entry point for the Cranelift JIT backend (`coral-reef-jit`),
+/// producing the "optimized IR" that the JIT translator compiles to native CPU code.
+///
+/// The caller must provide a [`ShaderModel`] reference (constructed via
+/// [`shader_model_for`]) that parameterizes the optimization passes.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or optimization fails.
+pub fn compile_wgsl_to_ir<'a>(
+    wgsl: &str,
+    options: &CompileOptions,
+    sm: &'a dyn codegen::ir::ShaderModel,
+) -> Result<codegen::ir::Shader<'a>, CompileError> {
+    if wgsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty WGSL source".into()));
+    }
+    let prepared = prepare_wgsl(wgsl, options);
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_wgsl_to_ir (for JIT)"
+    );
+
+    let frontend = NagaFrontend;
+    let mut shader = frontend.compile_wgsl(&prepared, sm)?;
+    shader.fma_policy = options.fma_policy;
+    codegen::pipeline::optimize_shader(&mut shader)?;
+    Ok(shader)
 }
 
 /// Compile SPIR-V to native GPU binary.

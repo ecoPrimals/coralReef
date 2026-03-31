@@ -87,6 +87,10 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
         }
         Ok(())
     }
+
+    fn is_cold_sensitive(&self) -> bool {
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------

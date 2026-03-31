@@ -63,6 +63,7 @@ pub fn validate(request: &ValidateRequest) -> Result<ValidateResponse, CpuError>
     Ok(ValidateResponse {
         passed: all_mismatches.is_empty(),
         mismatches: all_mismatches,
+        dual_path: None,
     })
 }
 

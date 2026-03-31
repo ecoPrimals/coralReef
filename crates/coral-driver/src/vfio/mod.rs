@@ -45,7 +45,7 @@ pub mod pci_discovery;
 pub mod sysfs_bar0;
 pub mod types;
 
-pub use channel::VfioChannel;
+pub use channel::{GpuChannel, KeplerChannel, VfioChannel};
 pub use device::{DmaBackend, ReceivedVfioFds, VfioBackendKind, VfioDevice};
 pub use dma::DmaBuffer;
 pub use gpu_vendor::GpuMetal;

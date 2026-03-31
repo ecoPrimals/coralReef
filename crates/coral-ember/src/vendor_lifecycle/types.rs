@@ -115,4 +115,18 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     fn available_reset_methods(&self) -> Vec<ResetMethod> {
         vec![ResetMethod::VfioFlr, ResetMethod::SysfsSbr]
     }
+
+    /// Whether this hardware can be in a cold/unPOSTed state where any PCI
+    /// config-space or BAR access causes a PCIe completion timeout, putting
+    /// the calling thread into uninterruptible D-state.
+    ///
+    /// When true, VFIO opens must be performed in a timeout-guarded context
+    /// (separate thread/process) so the daemon stays responsive if the device
+    /// is cold. Devices that time out are marked deferred and can be opened
+    /// later once POSTed.
+    ///
+    /// Default: false.
+    fn is_cold_sensitive(&self) -> bool {
+        false
+    }
 }

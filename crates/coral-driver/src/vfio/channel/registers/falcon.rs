@@ -32,10 +32,7 @@ pub const IRQSTAT: usize = 0x008;
 /// IRQMODE — interrupt routing/enable. Nouveau sets 0xfc24 for FECS/GPCCS.
 pub const IRQMODE: usize = 0x00C;
 /// IRQMSET — interrupt mask set.
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
+#[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
 pub const IRQMSET: usize = 0x010;
 /// IRQMCLR — interrupt mask clear.
 pub const IRQMCLR: usize = 0x014;
@@ -105,28 +102,16 @@ pub const EMEMC0: usize = 0xAC0;
 /// EMEMD — EMEM data port 0.
 pub const EMEMD0: usize = 0xAC4;
 /// Falcon DMA transfer base (external address, shifted >>8).
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
+#[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
 pub const DMATRFBASE: usize = 0x110;
 /// Falcon DMA transfer IMEM/DMEM offset.
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
+#[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
 pub const DMATRFMOFFS: usize = 0x114;
 /// Falcon DMA transfer command: bit 1=IMEM(1)/DMEM(0), bit 2=SIZE(0=256B,1=4B), bit 4=direction.
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
+#[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
 pub const DMATRFCMD: usize = 0x118;
 /// Falcon DMA transfer framebuffer/external offset.
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
+#[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
 pub const DMATRFFBOFFS: usize = 0x11C;
 
 /// Falcon v4+ CPUCTL: bit 0 = IINVAL (instruction cache invalidate).
@@ -169,10 +154,7 @@ pub const GR_CLASS_CFG: usize = 0x802C;
 /// or the physical override bit (0x80) breaks this dependency.
 pub const FBIF_TRANSCFG: usize = 0x624;
 /// FBIF target mode: virtual addressing (requires active instance block bind).
-#[expect(
-    dead_code,
-    reason = "hardware register map — VIRT mode is the reset default, documented for reference"
-)]
+#[allow(dead_code, reason = "hardware register map — VIRT mode is the reset default, documented for reference")]
 pub const FBIF_TARGET_VIRT: u32 = 0x00;
 /// FBIF target mode: physical video memory (bypasses MMU).
 pub const FBIF_TARGET_PHYS_VID: u32 = 0x01;

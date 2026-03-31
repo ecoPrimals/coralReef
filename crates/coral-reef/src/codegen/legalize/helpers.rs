@@ -53,7 +53,7 @@ fn src_is_imm(src: &Src) -> bool {
 
 pub enum PadValue {
     Zero,
-    #[expect(dead_code, reason = "variant reserved for completeness / future use")]
+    #[allow(dead_code, reason = "variant reserved for completeness / future use")]
     Undefined,
 }
 

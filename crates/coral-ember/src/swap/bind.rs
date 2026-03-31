@@ -40,7 +40,16 @@ pub(super) fn bind_vfio(
     lifecycle.stabilize_after_bind(bdf, "vfio-pci");
     lifecycle.verify_health(bdf, "vfio-pci")?;
 
-    match coral_driver::vfio::VfioDevice::open(bdf) {
+    let open_result = if lifecycle.is_cold_sensitive() {
+        crate::guarded_open::guarded_vfio_open(
+            bdf,
+            crate::guarded_open::GUARDED_OPEN_TIMEOUT,
+        )
+        .map_err(|e| e.to_string())
+    } else {
+        coral_driver::vfio::VfioDevice::open(bdf).map_err(|e| e.to_string())
+    };
+    match open_result {
         Ok(device) => {
             let req_eventfd = crate::arm_req_irq(&device, bdf);
             tracing::info!(

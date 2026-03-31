@@ -236,9 +236,7 @@ impl NvVfioComputeDevice {
         use std::borrow::Cow;
 
         let r = |a: usize| self.bar0.read_u32(a).unwrap_or(0xDEAD_DEAD);
-        let w = |a: usize, v: u32| {
-            let _ = self.bar0.write_u32(a, v);
-        };
+        let w = |a: usize, v: u32| { let _ = self.bar0.write_u32(a, v); };
 
         let fecs_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
         let fecs_sctl = r(falcon::FECS_BASE + falcon::SCTL);
@@ -258,13 +256,12 @@ impl NvVfioComputeDevice {
             fecs_exci = format_args!("{fecs_exci:#010x}"),
             fecs_mb0 = format_args!("{fecs_mb0:#010x}"),
             gr_enable = format_args!("{gr_enable:#010x}"),
-            halted,
-            stopped,
-            hs_mode,
+            halted, stopped, hs_mode,
             "warm restart: FECS state"
         );
 
-        let fecs_dead = fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
+        let fecs_dead =
+            fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
         if fecs_dead {
             return Err(DriverError::SubmitFailed(Cow::Borrowed(
                 "FECS unreachable (PRI timeout) — GPU is cold",
@@ -313,10 +310,10 @@ impl NvVfioComputeDevice {
             // Only clear pending interrupts, re-enable the mask, then trigger.
             w(falcon::FECS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
             // Re-enable all interrupt sources in the mask (IRQMSET).
-            w(falcon::FECS_BASE + 0x010, 0xFFFF_FFFF); // IRQMSET
+            w(falcon::FECS_BASE + 0x010, 0xFFFF_FFFF);  // IRQMSET
             w(falcon::FECS_BASE + falcon::IRQMODE, 0xFC24);
             w(falcon::GPCCS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
-            w(falcon::GPCCS_BASE + 0x010, 0xFFFF_FFFF); // IRQMSET
+            w(falcon::GPCCS_BASE + 0x010, 0xFFFF_FFFF);  // IRQMSET
             w(falcon::GPCCS_BASE + falcon::IRQMODE, 0xFC24);
 
             // Trigger SWGEN0 (bit 6) — host→falcon interrupt.
@@ -383,6 +380,13 @@ impl NvVfioComputeDevice {
         }
         w(0x2100, 0xFFFF_FFFF);
 
+        // Exp 126: Reset FECS method interface status registers before
+        // attempting GR context setup. Stale status from nouveau's last
+        // method call can cause our first method to misinterpret the response.
+        w(falcon::FECS_BASE + falcon::MTHD_STATUS, 0);
+        w(falcon::FECS_BASE + falcon::MTHD_STATUS2, 0);
+        tracing::info!("warm: cleared FECS method interface status registers");
+
         self.setup_gr_context_warm()
     }
 
@@ -418,10 +422,7 @@ impl NvVfioComputeDevice {
         // Step 1: Release engine from local reset if ENGCTL has reset bit set.
         // This is the gate that prevents STARTCPU from working.
         if engctl & 1 != 0 {
-            tracing::info!(
-                base = format_args!("{base:#x}"),
-                "ENGCTL reset active — releasing"
-            );
+            tracing::info!(base = format_args!("{base:#x}"), "ENGCTL reset active — releasing");
             let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -480,7 +481,9 @@ impl NvVfioComputeDevice {
         };
 
         if image_size == 0 {
-            tracing::warn!("FECS returned image_size=0 — method interface not responsive yet");
+            tracing::warn!(
+                "FECS returned image_size=0 — method interface not responsive yet"
+            );
             return Ok(());
         }
 

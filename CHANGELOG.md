@@ -4,11 +4,34 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70d
+**Current status**: Phase 10 — Iteration 70e
 
 ---
 
 ## [Unreleased]
+
+### Iteration 70e — CoralIR Cranelift JIT Backend + Dual-Path Validation (2026-03-30)
+
+#### Added
+- **coral-reef-jit** crate: Cranelift-based JIT backend translating CoralIR → native x86-64/aarch64 machine code for CPU shader execution
+- `execute_jit()` entry point with workgroup dispatch (1D/2D/3D), `BindingBuffers` ownership model for mutable buffer management
+- `FunctionTranslator` converts CoralIR `Op` instructions to Cranelift CLIF: arithmetic (FAdd/FSub/FMul/FFma/IAdd/IMul), comparisons (FSetP/ISetP with all comparison operators), memory (Ld/St via binding buffer pointers), control flow (Bra/Exit), type conversions (F2F/F2I/I2F/I2I), system registers (GlobalInvocationId, WorkGroupId, LocalInvocationId)
+- Float rounding mode support: `FRndMode` → Cranelift `nearest`/`trunc`/`floor`/`ceil`
+- Transcendental operations via `libm`: `exp2f`, `log2f`, `sinf`, `cosf`, `tanhf`, `sqrtf` with unified `call_libm` helper returning `Result`
+- Phi node translation via Cranelift `Variable` system (`get_or_create_phi_var`, `PhiSrcs`/`PhiDsts` → `def_var`/`use_var`)
+- Comparison code extraction: `cmp_codes.rs` module with `#[must_use]` `float_cmp_to_cc` and `int_cmp_to_cc`
+- 27 tests (23 integration + 4 unit): arithmetic, control flow, workgroup dispatch (1D/2D/3D), in-place ops, dual-path consistency, barraCuda-style leaky ReLU validation, empty shader edge cases, execution metrics
+- `tracing::instrument` on `execute_jit`, `tracing::debug` for binding count, workgroup dimensions, invocation count, execution time
+
+#### Changed
+- `translate.rs` refactored from 1101 to 994 lines: extracted `cmp_codes.rs`, added `entry_block_params()`/`bindings_ptr()`/`offset_ptr()` helpers, unified `call_libm` with `Result` error handling, `unify_int_widths` helper for mixed i32/i64 arithmetic
+- Dead `BindingLayout` struct removed from `memory.rs`
+- JIT function pointer hoisted outside dispatch loop (avoids redundant `transmute` per invocation)
+- `SysRegMapping` enum derives `Debug, Clone, Copy`
+- `builtins.rs`, `memory.rs`, `lib.rs` documentation improved
+
+#### Fixed
+- Cranelift 0.130.0 API migration: `Variable::new` → `builder.declare_var(ty)` (Cranelift now manages variable IDs internally)
 
 ### Iteration 70d — CPU Backend + barraCuda Shader Validation (2026-03-30)
 

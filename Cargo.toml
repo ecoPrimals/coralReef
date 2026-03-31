@@ -14,6 +14,7 @@ members = [
     "crates/coral-glowplug",
     "crates/coral-ember",
     "crates/coral-reef-cpu",
+    "crates/coral-reef-jit",
 ]
 exclude = [
     "fuzz",
@@ -72,11 +73,19 @@ nak_ir_proc = { path = "crates/nak-ir-proc" }
 # Testing
 proptest = "1"
 
+# Cranelift JIT backend
+cranelift-codegen = "0.130"
+cranelift-frontend = "0.130"
+cranelift-module = "0.130"
+cranelift-jit = "0.130"
+cranelift-native = "0.130"
+
 # Internal crates
 coral-reef = { path = "crates/coral-reef" }
 coral-reef-isa = { path = "crates/coral-reef-isa" }
 coral-reef-stubs = { path = "crates/coral-reef-stubs" }
 coral-reef-cpu = { path = "crates/coral-reef-cpu" }
+coral-reef-jit = { path = "crates/coral-reef-jit" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

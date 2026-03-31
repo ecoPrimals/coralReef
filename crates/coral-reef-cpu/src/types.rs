@@ -115,6 +115,27 @@ pub struct ValidateResponse {
     pub passed: bool,
     /// Per-element mismatches (empty when `passed == true`).
     pub mismatches: Vec<Mismatch>,
+    /// Dual-path validation result (Path A: Naga interpreter vs Path B: Cranelift JIT).
+    /// Present only when both paths successfully execute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dual_path: Option<DualPathResult>,
+}
+
+/// Result of dual-path validation comparing Naga interpreter (Path A) against
+/// Cranelift JIT (Path B) to prove optimization pipeline correctness.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DualPathResult {
+    /// Whether Path A and Path B agree within tolerance.
+    pub paths_agree: bool,
+    /// Per-element mismatches between the two paths.
+    pub path_mismatches: Vec<Mismatch>,
+    /// Execution time of Path A (Naga interpreter) in nanoseconds.
+    pub path_a_ns: u64,
+    /// Execution time of Path B (Cranelift JIT) in nanoseconds.
+    pub path_b_ns: u64,
+    /// Human-readable note if one path failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Expected output binding with per-element tolerance.
@@ -229,6 +250,7 @@ mod tests {
         let resp = ValidateResponse {
             passed: true,
             mismatches: vec![],
+            dual_path: None,
         };
         let json = serde_json::to_string(&resp).expect("serialize");
         let deser: ValidateResponse = serde_json::from_str(&json).expect("deserialize");

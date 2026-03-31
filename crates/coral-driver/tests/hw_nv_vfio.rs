@@ -134,3 +134,7 @@ mod exp121_minimal_acr;
 #[cfg(feature = "vfio")]
 #[path = "hw_nv_vfio/exp122_wpr2_resolution.rs"]
 mod exp122_wpr2_resolution;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp126_warm_dispatch_diagnostic.rs"]
+mod exp126_warm_dispatch_diagnostic;

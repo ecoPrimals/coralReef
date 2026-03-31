@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: March 30, 2026  
-**Phase**: 10 — Iteration 70d (CPU Backend + barraCuda Shader Validation)
+**Phase**: 10 — Iteration 70e (CoralIR Cranelift JIT Backend + Dual-Path Validation)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
-| Tests | A+ | 3258+ passing, 2 pre-existing upstream failures, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 4070+ passing, ~122 ignored hardware-gated, ~66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, 27 JIT integration+unit tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
@@ -42,6 +42,20 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+
+### Iteration 70e: CoralIR Cranelift JIT Backend + Dual-Path Validation (Mar 30, 2026)
+
+**Theme**: Cranelift JIT backend for CoralIR, idiomatic polish of IR translation layer, expanded test suite.
+
+| Area | Change |
+|------|--------|
+| coral-reef-jit | New crate: Cranelift-based JIT translating CoralIR → native x86-64/aarch64 machine code |
+| `FunctionTranslator` | Full CoralIR Op → CLIF translation: arithmetic, comparisons, memory, control flow, type conversions, system registers, transcendentals via `libm`, phi nodes via Cranelift `Variable` system |
+| `cmp_codes.rs` | Extracted comparison code conversion (`float_cmp_to_cc`, `int_cmp_to_cc`) with `#[must_use]` |
+| `translate.rs` | Refactored 1101→994 lines: `entry_block_params()`/`bindings_ptr()`/`offset_ptr()` helpers, unified `call_libm` with `Result`, `unify_int_widths`, `apply_rnd_mode` for all `FRndMode` variants |
+| `memory.rs` | Dead `BindingLayout` struct removed, documentation improved |
+| `lib.rs` | JIT fn pointer hoisted outside dispatch loop, `tracing` instrumentation added |
+| Tests | 27 tests (23 integration + 4 unit): arithmetic, workgroup dispatch 1D/2D/3D, dual-path consistency, barraCuda-style leaky ReLU, execution metrics |
 
 ### Iteration 70d: CPU Backend + barraCuda Shader Validation (Mar 30, 2026)
 

@@ -34,6 +34,7 @@ workspace = true
 [dependencies]
 coral-reef = { workspace = true }
 coral-reef-cpu = { workspace = true }
+coral-reef-jit = { workspace = true }
 coral-driver = { path = "../coral-driver" }
 naga = { version = "28", features = ["wgsl-in"] }
 tokio = { workspace = true, features = ["process", "fs", "net", "io-util", "time"] }

@@ -21,7 +21,7 @@ pub mod validate;
 
 pub use interpret::execute_cpu;
 pub use types::{
-    BindingData, CompileCpuRequest, ExecuteCpuRequest, ExecuteCpuResponse, ExpectedBinding,
-    Mismatch, Tolerance, ValidateRequest, ValidateResponse,
+    BindingData, CompileCpuRequest, DualPathResult, ExecuteCpuRequest, ExecuteCpuResponse,
+    ExpectedBinding, Mismatch, Tolerance, ValidateRequest, ValidateResponse,
 };
 pub use validate::validate;

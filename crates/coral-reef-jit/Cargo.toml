@@ -1,0 +1,28 @@
+[package]
+name = "coral-reef-jit"
+description = "Cranelift JIT backend for CoralIR — CPU execution of optimized GPU shader IR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+coral-reef = { workspace = true }
+coral-reef-cpu = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-frontend = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-jit = { workspace = true }
+cranelift-native = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+coralreef-core = { path = "../coralreef-core", features = ["e2e"] }
