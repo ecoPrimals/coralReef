@@ -35,8 +35,8 @@ workspace = true
 coral-reef = { workspace = true }
 coral-reef-cpu = { workspace = true }
 coral-reef-jit = { workspace = true }
-coral-driver = { path = "../coral-driver" }
-naga = { version = "28", features = ["wgsl-in"] }
+coral-driver = { workspace = true }
+naga = { workspace = true }
 tokio = { workspace = true, features = ["process", "fs", "net", "io-util", "time"] }
 clap = { workspace = true }
 serde = { workspace = true }
@@ -60,8 +60,8 @@ name = "unix_jsonrpc_default_socket_path_env"
 required-features = ["e2e"]
 
 [dev-dependencies]
-naga = { version = "28", features = ["wgsl-in", "spv-out"] }
-primal-rpc-client = { path = "../primal-rpc-client" }
-tempfile = "3"
-jsonrpsee-http-client = { version = "0.26", default-features = false }
-jsonrpsee-core = { version = "0.26", default-features = false, features = ["client", "http-helpers"] }
+naga = { workspace = true, features = ["spv-out"] }
+primal-rpc-client = { workspace = true }
+tempfile = { workspace = true }
+jsonrpsee-http-client = { workspace = true }
+jsonrpsee-core = { workspace = true }

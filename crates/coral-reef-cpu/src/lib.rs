@@ -3,25 +3,43 @@
 #![warn(missing_docs)]
 //! CPU compilation backend and shader validation for coralReef.
 //!
-//! Provides a naga IR tree-walk interpreter for executing WGSL compute shaders
-//! on the CPU (with native `f64` support), plus a tolerance-based validation
-//! engine for comparing GPU and CPU outputs.
+//! Provides two execution paths for WGSL compute shaders on the CPU:
 //!
-//! # Architecture
+//! - **Naga interpreter** ([`interpret`]) — walks a `naga::Module` directly.
+//! - **`CoralIR` reference executor** ([`coral_ir_exec`]) — walks optimized `CoralIR`
+//!   ops, mirroring the exact semantics the GPU and JIT backends execute.
 //!
-//! The interpreter reads a `naga::Module` directly — no code generation step
-//! required. This makes it suitable as a reference oracle against which JIT
-//! backends (e.g. Cranelift) can be validated.
+//! Both paths share the tolerance-based validation engine ([`validate`]) for
+//! comparing outputs within numerical tolerance.
 //!
 //! Wire types in [`types`] are shared with `coralreef-core` for IPC.
 
+pub mod coral_ir_exec;
 pub mod interpret;
 pub mod types;
 pub mod validate;
 
+pub use coral_ir_exec::execute_coral_ir;
 pub use interpret::execute_cpu;
 pub use types::{
     BindingData, CompileCpuRequest, DualPathResult, ExecuteCpuRequest, ExecuteCpuResponse,
     ExpectedBinding, Mismatch, Tolerance, ValidateRequest, ValidateResponse,
 };
 pub use validate::validate;
+
+/// Extract workgroup size from a compiled `CoralIR` shader.
+///
+/// Shared utility used by both the `CoralIR` interpreter and the JIT backend
+/// to read the declared `@workgroup_size` from the shader metadata.
+#[must_use]
+pub fn extract_workgroup_size(shader: &coral_reef::codegen::ir::Shader<'_>) -> [u32; 3] {
+    if let coral_reef::codegen::ir::ShaderStageInfo::Compute(cs) = &shader.info.stage {
+        [
+            u32::from(cs.local_size[0]),
+            u32::from(cs.local_size[1]),
+            u32::from(cs.local_size[2]),
+        ]
+    } else {
+        [1, 1, 1]
+    }
+}

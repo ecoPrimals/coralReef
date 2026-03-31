@@ -1,17 +1,25 @@
-# coral-glowplug configuration — biomeGate: Titan V + Radeon VII + RTX 5060
+# coral-glowplug configuration — biomeGate sovereign compute rig
 #
-# This file is the reference config. Install to:
-#   ~/.config/coralreef/glowplug.toml  (user service)
+# Hardware:
+#   03:00.0  Titan V (GV100)   — Volta, 12 GB HBM2, SM 7.0
+#   4c:00.0  K80 die 0 (GK210) — Kepler, 12 GB GDDR5, SM 3.7
+#   4d:00.0  K80 die 1 (GK210) — Kepler, 12 GB GDDR5, SM 3.7
+#   21:00.0  RTX 5060 (nvidia)  — display GPU, leave alone
+#
+# Install to:
+#   ~/.config/coralreef/glowplug.toml  (user service / dev)
 #   /etc/coralreef/glowplug.toml       (system service)
 
 [daemon]
-socket = "$XDG_RUNTIME_DIR/coralreef/glowplug.sock"
+# Let socket path default to wateringHole convention:
+#   $XDG_RUNTIME_DIR/biomeos/coral-glowplug-default.sock
 log_level = "info"
 health_interval_ms = 5000
 
-# Titan V — NVIDIA GV100, 12 GB HBM2, VFIO at boot
-# CRITICAL: do NOT boot on nouveau — desktop apps (Cursor/Xorg) will grab
-# renderD* and block during shutdown, causing kernel oops on GV100.
+# Titan V — NVIDIA GV100, 12 GB HBM2, VFIO at boot.
+# Warm handoff target: ember keeps FECS alive across driver swaps.
+# CRITICAL: do NOT boot on nouveau — desktop apps grab renderD* and
+# block during shutdown, causing kernel oops on GV100.
 [[device]]
 bdf = "0000:03:00.0"
 name = "titan-v"
@@ -19,12 +27,21 @@ boot_personality = "vfio"
 power_policy = "always_on"
 role = "oracle"
 
-# Radeon VII — AMD Vega 20 (GFX906), 16 GB HBM2
-# Solo IOMMU group (no companion audio device).
-# Boots on amdgpu — switch to vfio for sovereign experiments.
+# K80 die 0 — NVIDIA GK210, 12 GB GDDR5, Kepler SM 3.7.
+# No firmware security (no WPR, no ACR) — full sovereign access.
+# Cold-sensitive: PCIe completion timeout risk on first BAR0 touch.
 [[device]]
 bdf = "0000:4c:00.0"
-name = "radeon-vii"
-boot_personality = "amdgpu"
+name = "k80-die0"
+boot_personality = "vfio"
+power_policy = "always_on"
+role = "compute"
+
+# K80 die 1 — NVIDIA GK210, 12 GB GDDR5, Kepler SM 3.7.
+# Same silicon, second die on same PCIe card.
+[[device]]
+bdf = "0000:4d:00.0"
+name = "k80-die1"
+boot_personality = "vfio"
 power_policy = "always_on"
 role = "compute"

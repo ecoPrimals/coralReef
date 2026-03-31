@@ -41,9 +41,23 @@ impl RawVfioDevice {
             tracing::warn!(bdf, error = %e, "force_pci_d0 failed (may already be in D0)");
         }
         let device = VfioDevice::open(bdf)?;
+        Self::from_vfio(device)
+    }
+
+    /// Open from pre-received VFIO fds (e.g. from ember via SCM_RIGHTS).
+    pub fn open_from_fds(
+        bdf: &str,
+        fds: crate::vfio::ReceivedVfioFds,
+    ) -> DriverResult<Self> {
+        let device = VfioDevice::from_received(bdf, fds)?;
+        Self::from_vfio(device)
+    }
+
+    fn from_vfio(device: VfioDevice) -> DriverResult<Self> {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
-        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, super::GPFIFO_IOVA)?;
+        let gpfifo_ring =
+            DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, super::GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, super::USERD_IOVA)?;
         Ok(Self {
             device,

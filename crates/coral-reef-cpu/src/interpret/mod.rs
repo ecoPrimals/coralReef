@@ -66,6 +66,9 @@ pub fn execute_cpu(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, Cp
     Ok(ExecuteCpuResponse {
         bindings: output_bindings,
         execution_time_ns: u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX),
+        strategy_used: None,
+        cache_hit: false,
+        revalidated: false,
     })
 }
 
@@ -577,6 +580,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 usage: BindingUsage::ReadWrite,
             }],
             uniforms: vec![],
+            strategy: crate::types::ExecutionStrategy::Interpret,
         };
         let result = execute_cpu(&request);
         assert!(result.is_ok(), "execute_cpu failed: {result:?}");
@@ -590,6 +594,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             workgroups: [1, 1, 1],
             bindings: vec![],
             uniforms: vec![],
+            strategy: crate::types::ExecutionStrategy::Interpret,
         };
         let result = execute_cpu(&request);
         assert!(matches!(result, Err(CpuError::Parse(_))));
@@ -604,6 +609,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             workgroups: [1, 1, 1],
             bindings: vec![],
             uniforms: vec![],
+            strategy: crate::types::ExecutionStrategy::Interpret,
         };
         let result = execute_cpu(&request);
         assert!(matches!(result, Err(CpuError::EntryPointNotFound(_))));

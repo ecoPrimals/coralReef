@@ -8,6 +8,10 @@
 mod glowplug_client;
 
 #[cfg(feature = "vfio")]
+#[path = "ember_client.rs"]
+mod ember_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
     use super::glowplug_client::VfioLease;
 
@@ -26,22 +30,35 @@ mod tests {
         }
     }
 
+    fn open_raw(bdf: &str) -> coral_driver::nv::RawVfioDevice {
+        match super::ember_client::request_fds(bdf) {
+            Ok(fds) => {
+                eprintln!("ember: received VFIO fds for {bdf}");
+                coral_driver::nv::RawVfioDevice::open_from_fds(bdf, fds)
+                    .expect("RawVfioDevice::open_from_fds()")
+            }
+            Err(e) => {
+                eprintln!("ember unavailable ({e}), opening VFIO directly");
+                coral_driver::nv::RawVfioDevice::open(bdf)
+                    .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?")
+            }
+        }
+    }
+
     fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
         let bdf = vfio_bdf();
         let lease = try_lease(&bdf);
-        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
-            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        let raw = open_raw(&bdf);
         (lease, raw)
     }
 
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_hbm2_phy_probe() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::hbm2_training::{snapshot_fbpa, volta_hbm2};
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let raw = open_raw(&bdf);
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ HBM2 PHY PROBE — FBPA Partition Status                    ║");

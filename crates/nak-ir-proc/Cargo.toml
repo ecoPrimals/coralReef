@@ -1,21 +1,21 @@
 [package]
 name = "nak_ir_proc"
 description = "Proc-macro derives for NAK IR types — SrcsAsSlice, DstsAsSlice, DisplayOp, FromVariants, Encode"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-only"
-publish = false
-rust-version = "1.85"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1"
-quote = "1"
-syn = { version = "2", features = ["full"] }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
 
 [dev-dependencies]
-bitview = { path = "../coral-reef-bitview" }
-coral-reef-stubs = { path = "../coral-reef-stubs" }
-trybuild = "1.0.101"
+bitview = { workspace = true }
+coral-reef-stubs = { workspace = true }
+trybuild = { workspace = true }

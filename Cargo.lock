@@ -402,6 +402,7 @@ name = "coral-reef-cpu"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "coral-reef",
  "naga",
  "serde",
  "serde_json",
@@ -429,6 +430,8 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "libm",
+ "rustix",
  "thiserror",
  "tracing",
 ]

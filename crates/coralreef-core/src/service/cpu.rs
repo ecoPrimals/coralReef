@@ -2,17 +2,25 @@
 //! CPU compilation and validation service handlers.
 //!
 //! Delegates to `coral_reef_cpu` for interpretation and `coral_reef_jit` for
-//! Cranelift JIT execution. When both paths are available, `shader.validate`
-//! runs dual-path validation comparing the Naga interpreter (Path A) against
-//! the `CoralIR` → Cranelift pipeline (Path B).
+//! Cranelift JIT execution. Supports the progressive trust model:
+//! - **Interpret**: reference executor only
+//! - **Jit**: Cranelift JIT only (default)
+//! - **`ValidatedJit`**: interpret-validate first, JIT-cache on success,
+//!   periodic re-validation for drift detection
+
+use std::sync::LazyLock;
 
 use coral_reef::CompileError;
 use coral_reef_cpu::types::{
-    CompileCpuRequest, CpuError, DualPathResult, ExecuteCpuRequest, ExecuteCpuResponse, Mismatch,
-    Tolerance, ValidateRequest, ValidateResponse,
+    CompileCpuRequest, CpuError, DualPathResult, ExecuteCpuRequest, ExecuteCpuResponse,
+    ExecutionStrategy, Mismatch, Tolerance, ValidateRequest, ValidateResponse,
 };
+use coral_reef_jit::cache::JitCache;
 
 use super::types::CompileResponse;
+
+/// Global JIT compilation cache for the progressive trust model.
+static JIT_CACHE: LazyLock<JitCache> = LazyLock::new(JitCache::new);
 
 /// `shader.compile.cpu` — compile WGSL for CPU execution.
 ///
@@ -54,13 +62,95 @@ pub fn handle_compile_cpu(request: &CompileCpuRequest) -> Result<CompileResponse
     })
 }
 
-/// `shader.execute.cpu` — execute a WGSL compute shader on the CPU interpreter.
+/// `shader.execute.cpu` — execute a WGSL compute shader on the CPU.
+///
+/// Dispatches based on the request's [`ExecutionStrategy`]:
+/// - `Interpret`: Naga IR reference interpreter
+/// - `Jit`: Cranelift JIT (default)
+/// - `ValidatedJit`: interpret-validate first, then JIT-cache on success
 ///
 /// # Errors
 ///
-/// Returns [`CompileError`] wrapping the underlying [`CpuError`].
+/// Returns [`CompileError`] wrapping the underlying execution error.
 pub fn handle_execute_cpu(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, CompileError> {
-    coral_reef_cpu::execute_cpu(request).map_err(cpu_error_to_compile_error)
+    match request.strategy {
+        ExecutionStrategy::Interpret => execute_interpret(request),
+        ExecutionStrategy::Jit => execute_jit_direct(request),
+        ExecutionStrategy::ValidatedJit => execute_validated_jit(request),
+    }
+}
+
+/// Pure interpreter path — no JIT, no caching.
+fn execute_interpret(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, CompileError> {
+    let mut resp = coral_reef_cpu::execute_cpu(request).map_err(cpu_error_to_compile_error)?;
+    resp.strategy_used = Some(ExecutionStrategy::Interpret);
+    Ok(resp)
+}
+
+/// Direct JIT path — compile and execute without validation.
+fn execute_jit_direct(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, CompileError> {
+    let mut resp = coral_reef_jit::execute_jit(request).map_err(jit_error_to_compile_error)?;
+    resp.strategy_used = Some(ExecutionStrategy::Jit);
+    Ok(resp)
+}
+
+/// Validated-JIT path: interpret-validate first, then JIT-cache on success.
+///
+/// 1. Check the JIT cache for a previously validated kernel.
+/// 2. If cached + validated: execute via JIT, periodically re-validate.
+/// 3. If not cached: interpret first, JIT second, compare within tolerance.
+///    On success, cache the JIT kernel as validated.
+fn execute_validated_jit(
+    request: &ExecuteCpuRequest,
+) -> Result<ExecuteCpuResponse, CompileError> {
+    let cache = &*JIT_CACHE;
+
+    let (kernel, cache_hit, needs_revalidation) =
+        coral_reef_jit::cache::compile_cached(cache, request)
+            .map_err(jit_error_to_compile_error)?;
+
+    if cache_hit && !needs_revalidation {
+        let mut resp = coral_reef_jit::execute_kernel(&kernel, request)
+            .map_err(jit_error_to_compile_error)?;
+        resp.strategy_used = Some(ExecutionStrategy::ValidatedJit);
+        resp.cache_hit = true;
+        return Ok(resp);
+    }
+
+    let interp_result = coral_reef_cpu::execute_cpu(request).map_err(cpu_error_to_compile_error)?;
+
+    let jit_result = coral_reef_jit::execute_kernel(&kernel, request)
+        .map_err(jit_error_to_compile_error)?;
+
+    let tolerance = Tolerance {
+        abs: 1e-5,
+        rel: 1e-5,
+    };
+    let mismatches = compare_path_outputs(&interp_result.bindings, &jit_result.bindings, &tolerance);
+
+    if mismatches.is_empty() {
+        cache.mark_validated(request);
+        tracing::info!(
+            cache_hit,
+            revalidated = needs_revalidation,
+            "validated-jit: paths agree, caching kernel"
+        );
+        let mut resp = jit_result;
+        resp.strategy_used = Some(ExecutionStrategy::ValidatedJit);
+        resp.cache_hit = cache_hit;
+        resp.revalidated = needs_revalidation;
+        Ok(resp)
+    } else {
+        cache.invalidate(request);
+        tracing::warn!(
+            mismatches = mismatches.len(),
+            "validated-jit: paths diverge, falling back to interpreter"
+        );
+        let mut resp = interp_result;
+        resp.strategy_used = Some(ExecutionStrategy::Interpret);
+        resp.revalidated = needs_revalidation;
+        Ok(resp)
+    }
 }
 
 /// `shader.validate` — execute on CPU and compare against expected values.
@@ -96,6 +186,7 @@ fn run_dual_path_validation(
         workgroups: request.workgroups,
         bindings: request.bindings.clone(),
         uniforms: request.uniforms.clone(),
+        strategy: ExecutionStrategy::Jit,
     };
 
     let path_a_result = coral_reef_cpu::execute_cpu(&exec_request);
@@ -207,6 +298,11 @@ fn compare_path_outputs(
     mismatches
 }
 
+#[expect(clippy::needless_pass_by_value, reason = "used as map_err closure")]
+fn jit_error_to_compile_error(e: coral_reef_jit::error::JitError) -> CompileError {
+    CompileError::Internal(e.to_string().into())
+}
+
 fn cpu_error_to_compile_error(e: CpuError) -> CompileError {
     match e {
         CpuError::Parse(msg) | CpuError::Validation(msg) => CompileError::InvalidInput(msg.into()),
@@ -258,9 +354,38 @@ mod tests {
             workgroups: [1, 1, 1],
             bindings: vec![],
             uniforms: vec![],
+            strategy: ExecutionStrategy::Jit,
         };
         let resp = handle_execute_cpu(&req).expect("should execute");
         assert!(resp.execution_time_ns > 0 || resp.bindings.is_empty());
+    }
+
+    #[test]
+    fn execute_validated_jit_trivial() {
+        let req = ExecuteCpuRequest {
+            wgsl_source: "@compute @workgroup_size(1) fn main() {}".into(),
+            entry_point: None,
+            workgroups: [1, 1, 1],
+            bindings: vec![],
+            uniforms: vec![],
+            strategy: ExecutionStrategy::ValidatedJit,
+        };
+        let resp = handle_execute_cpu(&req).expect("should execute");
+        assert_eq!(resp.strategy_used, Some(ExecutionStrategy::ValidatedJit));
+    }
+
+    #[test]
+    fn execute_interpret_strategy() {
+        let req = ExecuteCpuRequest {
+            wgsl_source: "@compute @workgroup_size(1) fn main() {}".into(),
+            entry_point: None,
+            workgroups: [1, 1, 1],
+            bindings: vec![],
+            uniforms: vec![],
+            strategy: ExecutionStrategy::Interpret,
+        };
+        let resp = handle_execute_cpu(&req).expect("should execute");
+        assert_eq!(resp.strategy_used, Some(ExecutionStrategy::Interpret));
     }
 
     #[test]

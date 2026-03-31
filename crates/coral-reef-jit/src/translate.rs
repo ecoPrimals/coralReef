@@ -8,13 +8,13 @@
 use std::collections::HashMap;
 
 use coral_reef::codegen::ir::{
-    self, Dst, FRndMode, LogicOp2, MemSpace, Op, Phi, Pred, PredRef, Shader, Src, SrcMod, SrcRef,
+    self, Dst, FRndMode, LogicOp2, MemSpace, Op, Phi, Pred, PredRef, Src, SrcMod, SrcRef,
 };
-use cranelift_codegen::ir::{AbiParam, Block, InstBuilder, MemFlags, Value, types};
-use cranelift_codegen::settings::{self, Configurable};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{Linkage, Module};
+use cranelift_codegen::ir::{
+    AbiParam, Block, ExtFuncData, ExternalName, InstBuilder, MemFlags, Value, types,
+};
+use cranelift_codegen::isa::CallConv;
+use cranelift_frontend::{FunctionBuilder, Variable};
 
 use crate::builtins::{self, SysRegMapping};
 use crate::cmp_codes::{float_cmp_to_cc, int_cmp_to_cc};
@@ -41,9 +41,36 @@ pub type KernelFn = unsafe extern "C" fn(
 );
 
 /// Compiled JIT module containing the kernel function pointer.
+///
+/// Owns either a `JITModule` (legacy cranelift-jit path) or a `JitMemory`
+/// (sovereign rustix path) to keep the backing code alive.
 pub struct CompiledKernel {
-    _module: JITModule,
+    _backing: CompiledBacking,
     fn_ptr: *const u8,
+}
+
+impl CompiledKernel {
+    /// Create a new `CompiledKernel` from a backing and function pointer.
+    pub(crate) const fn new(backing: CompiledBacking, fn_ptr: *const u8) -> Self {
+        Self {
+            _backing: backing,
+            fn_ptr,
+        }
+    }
+}
+
+// SAFETY: The backing memory (JITModule or JitMemory) owns the code region
+// exclusively. The fn_ptr is derived from that owned region and remains valid
+// for the struct's lifetime. No mutable aliasing is possible.
+#[expect(unsafe_code, reason = "CompiledKernel owns its code region exclusively")]
+unsafe impl Send for CompiledKernel {}
+#[expect(unsafe_code, reason = "fn_ptr is read-only and backed by owned memory")]
+unsafe impl Sync for CompiledKernel {}
+
+/// Owns the compiled code memory so it lives as long as the kernel pointer.
+pub(crate) enum CompiledBacking {
+    #[expect(dead_code, reason = "holds JitMemory ownership for fn_ptr lifetime")]
+    Sovereign(crate::runtime::JitMemory),
 }
 
 impl CompiledKernel {
@@ -57,6 +84,7 @@ impl CompiledKernel {
         unsafe_code,
         reason = "JIT function pointer transmute is inherent to JIT"
     )]
+    #[must_use]
     pub unsafe fn as_fn(&self) -> KernelFn {
         // SAFETY: fn_ptr was produced by Cranelift JIT and has the correct signature.
         // The caller is responsible for argument correctness and lifetime.
@@ -64,75 +92,20 @@ impl CompiledKernel {
     }
 }
 
-/// Translate an optimized `CoralIR` `Shader` to a JIT-compiled native function.
-///
-/// # Errors
-///
-/// Returns [`JitError`] if the shader contains unsupported ops or translation fails.
-pub fn translate_and_compile(shader: &Shader<'_>) -> Result<CompiledKernel, JitError> {
-    let mut flag_builder = settings::builder();
-    flag_builder
-        .set("use_colocated_libcalls", "false")
-        .map_err(|e| JitError::Setup(e.to_string()))?;
-    flag_builder
-        .set("is_pic", "false")
-        .map_err(|e| JitError::Setup(e.to_string()))?;
-    let isa_builder = cranelift_native::builder()
-        .map_err(|msg| JitError::Setup(format!("unsupported host: {msg}")))?;
-    let isa = isa_builder
-        .finish(settings::Flags::new(flag_builder))
-        .map_err(|e| JitError::Setup(e.to_string()))?;
-
-    let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-    let mut module = JITModule::new(builder);
-    let mut ctx = module.make_context();
-    let mut fb_ctx = FunctionBuilderContext::new();
-
-    build_kernel_signature(&module, &mut ctx);
-
-    if shader.functions.is_empty() {
-        return Err(JitError::Translation("shader has no functions".into()));
-    }
-
-    {
-        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
-        let mut translator = FunctionTranslator::new(&mut builder, &mut module);
-        translator.translate_function(&shader.functions[0])?;
-        builder.finalize();
-    }
-
-    let func_id = module
-        .declare_function("kernel", Linkage::Export, &ctx.func.signature)
-        .map_err(|e| JitError::Setup(e.to_string()))?;
-
-    module
-        .define_function(func_id, &mut ctx)
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
-
-    module.clear_context(&mut ctx);
-    module
-        .finalize_definitions()
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
-
-    let fn_ptr = module.get_finalized_function(func_id);
-
-    Ok(CompiledKernel {
-        _module: module,
-        fn_ptr,
-    })
+/// How libm function imports are resolved — directly via
+/// `Function::import_function` for sovereign compilation.
+enum LibmResolver<'c> {
+    /// Sovereign path: import functions directly into the `Function`, recording
+    /// names for later relocation resolution.
+    Sovereign {
+        call_conv: CallConv,
+        names: &'c mut Vec<(&'static str, cranelift_codegen::ir::FuncRef)>,
+    },
 }
 
-fn build_kernel_signature(module: &JITModule, ctx: &mut cranelift_codegen::Context) {
-    let ptr_type = module.target_config().pointer_type();
-    ctx.func.signature.params.push(AbiParam::new(ptr_type)); // bindings_ptr
-    for _ in 1..builtins::params::PARAM_COUNT {
-        ctx.func.signature.params.push(AbiParam::new(types::I32));
-    }
-}
-
-struct FunctionTranslator<'a, 'b, 'c> {
+pub(crate) struct FunctionTranslator<'a, 'b, 'c> {
     builder: &'a mut FunctionBuilder<'b>,
-    module: &'c mut JITModule,
+    resolver: LibmResolver<'c>,
     ssa_map: HashMap<u32, Value>,
     entry_block: Option<Block>,
     block_map: HashMap<usize, Block>,
@@ -145,11 +118,18 @@ struct FunctionTranslator<'a, 'b, 'c> {
 }
 
 impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
-    fn new(builder: &'a mut FunctionBuilder<'b>, module: &'c mut JITModule) -> Self {
-        let ptr_type = module.target_config().pointer_type();
+    pub(crate) fn new_sovereign(
+        builder: &'a mut FunctionBuilder<'b>,
+        ptr_type: types::Type,
+        call_conv: CallConv,
+        libm_names: &'c mut Vec<(&'static str, cranelift_codegen::ir::FuncRef)>,
+    ) -> Self {
         Self {
             builder,
-            module,
+            resolver: LibmResolver::Sovereign {
+                call_conv,
+                names: libm_names,
+            },
             ssa_map: HashMap::new(),
             entry_block: None,
             block_map: HashMap::new(),
@@ -161,7 +141,7 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
         }
     }
 
-    fn translate_function(&mut self, func: &ir::Function) -> Result<(), JitError> {
+    pub(crate) fn translate_function(&mut self, func: &ir::Function) -> Result<(), JitError> {
         if func.blocks.is_empty() {
             return Ok(());
         }
@@ -333,22 +313,22 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
             }
             Op::F64Exp2(op) => {
                 let a = self.resolve_src_f64(&op.src)?;
-                let result = self.call_f64_libm("exp2", a)?;
+                let result = self.call_f64_libm("exp2", a);
                 self.def_dst_f64(&op.dst, result);
             }
             Op::F64Log2(op) => {
                 let a = self.resolve_src_f64(&op.src)?;
-                let result = self.call_f64_libm("log2", a)?;
+                let result = self.call_f64_libm("log2", a);
                 self.def_dst_f64(&op.dst, result);
             }
             Op::F64Sin(op) => {
                 let a = self.resolve_src_f64(&op.src)?;
-                let result = self.call_f64_libm("sin", a)?;
+                let result = self.call_f64_libm("sin", a);
                 self.def_dst_f64(&op.dst, result);
             }
             Op::F64Cos(op) => {
                 let a = self.resolve_src_f64(&op.src)?;
-                let result = self.call_f64_libm("cos", a)?;
+                let result = self.call_f64_libm("cos", a);
                 self.def_dst_f64(&op.dst, result);
             }
             Op::IAdd3(op) => {
@@ -631,11 +611,11 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
                 self.builder.ins().fdiv(one, sq)
             }
             TranscendentalOp::Sqrt => self.builder.ins().sqrt(src),
-            TranscendentalOp::Log2 => self.call_f32_libm("log2f", src)?,
-            TranscendentalOp::Exp2 => self.call_f32_libm("exp2f", src)?,
-            TranscendentalOp::Sin => self.call_f32_libm("sinf", src)?,
-            TranscendentalOp::Cos => self.call_f32_libm("cosf", src)?,
-            TranscendentalOp::Tanh => self.call_f32_libm("tanhf", src)?,
+            TranscendentalOp::Log2 => self.call_f32_libm("log2f", src),
+            TranscendentalOp::Exp2 => self.call_f32_libm("exp2f", src),
+            TranscendentalOp::Sin => self.call_f32_libm("sinf", src),
+            TranscendentalOp::Cos => self.call_f32_libm("cosf", src),
+            TranscendentalOp::Tanh => self.call_f32_libm("tanhf", src),
             _ => {
                 return Err(JitError::UnsupportedOp(format!(
                     "transcendental {:?}",
@@ -952,22 +932,17 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
     }
 
     /// Call a single-argument libm function, returning its result.
-    fn call_libm(
-        &mut self,
-        name: &'static str,
-        ty: types::Type,
-        arg: Value,
-    ) -> Result<Value, JitError> {
-        let func_ref = self.get_or_create_libm_fn(name, ty, ty)?;
+    fn call_libm(&mut self, name: &'static str, ty: types::Type, arg: Value) -> Value {
+        let func_ref = self.get_or_create_libm_fn(name, ty, ty);
         let call = self.builder.ins().call(func_ref, &[arg]);
-        Ok(self.builder.inst_results(call)[0])
+        self.builder.inst_results(call)[0]
     }
 
-    fn call_f32_libm(&mut self, name: &'static str, arg: Value) -> Result<Value, JitError> {
+    fn call_f32_libm(&mut self, name: &'static str, arg: Value) -> Value {
         self.call_libm(name, types::F32, arg)
     }
 
-    fn call_f64_libm(&mut self, name: &'static str, arg: Value) -> Result<Value, JitError> {
+    fn call_f64_libm(&mut self, name: &'static str, arg: Value) -> Value {
         self.call_libm(name, types::F64, arg)
     }
 
@@ -976,19 +951,31 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
         name: &'static str,
         param_ty: types::Type,
         ret_ty: types::Type,
-    ) -> Result<cranelift_codegen::ir::FuncRef, JitError> {
+    ) -> cranelift_codegen::ir::FuncRef {
         if let Some(func_ref) = self.libm_fns.get(name) {
-            return Ok(*func_ref);
+            return *func_ref;
         }
-        let mut sig = self.module.make_signature();
+        let LibmResolver::Sovereign { call_conv, names } = &mut self.resolver;
+        let mut sig = cranelift_codegen::ir::Signature::new(*call_conv);
         sig.params.push(AbiParam::new(param_ty));
         sig.returns.push(AbiParam::new(ret_ty));
-        let func_id = self
-            .module
-            .declare_function(name, Linkage::Import, &sig)
-            .map_err(|e| JitError::Setup(format!("libm declare {name}: {e}")))?;
-        let func_ref = self.module.declare_func_in_func(func_id, self.builder.func);
+        let sig_ref = self.builder.import_signature(sig);
+        let user_ref = self.builder.func.declare_imported_user_function(
+            cranelift_codegen::ir::UserExternalName::new(
+                1,
+                #[expect(clippy::cast_possible_truncation, reason = "libm fn count fits u32")]
+                { self.libm_fns.len() as u32 },
+            ),
+        );
+        let func_ref = self.builder.import_function(ExtFuncData {
+            name: ExternalName::user(user_ref),
+            signature: sig_ref,
+            colocated: false,
+            patchable: false,
+        });
+        names.push((name, func_ref));
         self.libm_fns.insert(name, func_ref);
-        Ok(func_ref)
+        func_ref
     }
 }
+

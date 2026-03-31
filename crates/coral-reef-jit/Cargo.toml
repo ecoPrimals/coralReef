@@ -20,9 +20,11 @@ cranelift-frontend = { workspace = true }
 cranelift-module = { workspace = true }
 cranelift-jit = { workspace = true }
 cranelift-native = { workspace = true }
+rustix = { workspace = true }
+libm = { workspace = true }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-coralreef-core = { path = "../coralreef-core", features = ["e2e"] }
+coralreef-core = { workspace = true, features = ["e2e"] }

@@ -2,8 +2,8 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Iteration 70e (CoralIR Cranelift JIT Backend + Dual-Path Validation)  
-**Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary + CPU shader execution via Cranelift JIT
+**Status**: Phase 10+ — Iteration 70f (CoralIR Coevolution + Sovereign JIT + Progressive Trust)  
+**Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary + CPU shader execution via sovereign Cranelift JIT
 
 ---
 
@@ -84,11 +84,13 @@ WGSL / SPIR-V / GLSL input
 │ Unified compile + dispatch   │
 └───────────────────────────────┘
 
-         ┌──── CPU JIT path (Path B) ────┐
-         │ CoralIR → Cranelift → x86-64  │
-         │ coral-reef-jit                 │
-         │ Dual-path validation vs Path A │
-         └────────────────────────────────┘
+         ┌──── CPU execution paths ───────────────────┐
+         │ Path A: CoralIR interpreter (reference)     │
+         │ Path B: Sovereign JIT (Cranelift → x86-64)  │
+         │ Path C: Naga interpreter (best-effort)      │
+         │ Progressive trust: interpret → cache → JIT  │
+         │ coral-reef-cpu + coral-reef-jit              │
+         └─────────────────────────────────────────────┘
 ```
 
 ## Structure
@@ -152,7 +154,7 @@ coralReef/
 | `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal communication (tests + production) |
 | `coral-glowplug` | GPU device broker — VFIO device management, JSON-RPC socket, health monitoring, hot-swap, circuit breaker, boot sovereignty, posted-command `MailboxSet` (FECS/GPCCS/SEC2/PMU engines), `MultiRing` command dispatch (ordered, timed, fence-based). `coralctl` CLI |
 | `coral-ember` | VFIO fd holder + ring-keeper — `SCM_RIGHTS` fd passing (fully safe via `rustix` `AsFd`), `RingMeta` persistence (mailbox/ring state across glowplug restarts), vendor lifecycle hooks, systemd watchdog, D3cold pre-checks, Xorg/udev isolation |
-| `coral-reef-jit` | Cranelift JIT backend — `CoralIR` → native x86-64/aarch64 code for CPU shader execution, dual-path validation (Path B vs Naga interpreter Path A) |
+| `coral-reef-jit` | Sovereign Cranelift JIT backend — `CoralIR` → native x86-64/aarch64 code for CPU shader execution. Pure-Rust runtime (`rustix` mmap/mprotect), `JitCache` for compiled kernels, triple-path validation (JIT vs CoralIR interpreter vs Naga interpreter) |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs (replaces Python scaffold) |
 
 ## f64 Transcendental Support
@@ -247,7 +249,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
-| 10+ | Kepler/Blackwell ISA, Cranelift JIT, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, `coral-reef-jit` Cranelift JIT backend for CPU shader execution + dual-path validation, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4070+ tests, ~66% workspace line coverage |
+| 10+ | Kepler/Blackwell ISA, sovereign JIT, progressive trust, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, sovereign Cranelift JIT pipeline (`rustix` mmap, zero `cranelift-jit` crate, pure-Rust `libm` transcendentals), CoralIR reference interpreter, progressive trust model (`ExecutionStrategy`: Interpret/Jit/ValidatedJit with `JitCache`), workspace dependency consolidation (WORKSPACE_DEPENDENCY_STANDARD), per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4070+ tests, ~66% workspace line coverage |
 
 ---
 

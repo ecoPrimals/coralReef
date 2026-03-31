@@ -23,27 +23,27 @@ default = []
 no-ember = []
 
 [dependencies]
-base64 = "0.22"
-clap.workspace = true
-coral-driver = { path = "../coral-driver", features = ["vfio", "cuda"] }
-# Intra-primal workspace crate (coralReef), not a separate primal — wateringHole’s
-# “no cross-primal imports” rule applies to distinct primals coordinating via IPC.
+base64 = { workspace = true }
+clap = { workspace = true }
+coral-driver = { workspace = true, features = ["vfio", "cuda"] }
+# Intra-primal workspace crate (coralReef), not a separate primal — wateringHole's
+# "no cross-primal imports" rule applies to distinct primals coordinating via IPC.
 #
-# glowplug does not call ember’s runtime (no `handle_swap_device`, server loop, etc.).
+# glowplug does not call ember's runtime (no `handle_swap_device`, server loop, etc.).
 # It uses coral-ember only for: (1) serde-stable JSON-RPC payload types (`observation`,
 # `journal`, ring metadata re-exports) shared with the ember process; (2) `ember_socket_path`
 # so both binaries agree on `$CORALREEF_EMBER_SOCKET` / default Unix path. Coordination
 # remains JSON-RPC over the socket; this dependency is the shared wire contract.
-coral-ember = { path = "../coral-ember" }
-rustix = { version = "1.1.4", features = ["net"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror.workspace = true
-toml = "0.8"
-tracing.workspace = true
-tracing-subscriber.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
+coral-ember = { workspace = true }
+rustix = { workspace = true, features = ["net"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
-coral-driver = { path = "../coral-driver", features = ["vfio"] }
-tempfile = "3"
+coral-driver = { workspace = true, features = ["vfio"] }
+tempfile = { workspace = true }

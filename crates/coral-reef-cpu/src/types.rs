@@ -19,6 +19,26 @@ pub struct CompileCpuRequest {
     pub entry_point: Option<String>,
 }
 
+/// CPU execution strategy for the progressive trust model.
+///
+/// Controls how `shader.execute.cpu` dispatches work:
+/// - `Interpret`: always use the reference interpreter (slow, inspectable)
+/// - `Jit`: always use the Cranelift JIT (fast, opaque)
+/// - `ValidatedJit`: interpret once to prove correctness, then cache and use
+///   JIT for subsequent calls. Periodic re-validation detects drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionStrategy {
+    /// Reference interpreter only (Naga IR walker). Slow but transparent.
+    Interpret,
+    /// Cranelift JIT only. Fast but opaque — no correctness proof.
+    #[default]
+    Jit,
+    /// Interpret-validate first, then JIT-cache on success. Re-validates
+    /// at the configured interval to detect Cranelift update drift.
+    ValidatedJit,
+}
+
 /// Request to execute a WGSL compute shader on the CPU interpreter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecuteCpuRequest {
@@ -35,6 +55,9 @@ pub struct ExecuteCpuRequest {
     /// Uniform buffer bindings.
     #[serde(default)]
     pub uniforms: Vec<UniformData>,
+    /// Execution strategy (defaults to `jit` for backward compatibility).
+    #[serde(default)]
+    pub strategy: ExecutionStrategy,
 }
 
 /// Request to validate GPU output against CPU reference execution.
@@ -106,6 +129,15 @@ pub struct ExecuteCpuResponse {
     pub bindings: Vec<BindingData>,
     /// Wall-clock execution time in nanoseconds.
     pub execution_time_ns: u64,
+    /// Which strategy was actually used for this execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_used: Option<ExecutionStrategy>,
+    /// Whether this result came from a cached JIT compilation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cache_hit: bool,
+    /// Whether re-validation was performed on this call.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub revalidated: bool,
 }
 
 /// Result of validation: pass/fail with detailed mismatches.
@@ -240,6 +272,7 @@ mod tests {
             workgroups: [1, 1, 1],
             bindings: vec![],
             uniforms: vec![],
+            strategy: ExecutionStrategy::Jit,
         };
         let json = serde_json::to_string(&req).expect("serialize");
         let _: ExecuteCpuRequest = serde_json::from_str(&json).expect("deserialize");

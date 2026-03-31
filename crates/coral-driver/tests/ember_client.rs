@@ -12,6 +12,7 @@ use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
 use coral_driver::vfio::ReceivedVfioFds;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
@@ -27,33 +28,30 @@ fn ember_socket_path() -> String {
         })
 }
 
-/// Request a PCI device reset from Ember (which runs as root).
-///
-/// `method` is one of: `"auto"`, `"sbr"`, `"bridge-sbr"`, `"remove-rescan"`.
-/// Bridge-SBR resets all devices behind the parent PCI bridge — the only
-/// reset mechanism available on GV100 Titan V (no FLR capability).
-///
-/// After a bridge-SBR, existing BAR mappings become invalid. Callers must
-/// re-acquire VFIO fds and re-map BARs.
-pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
+fn simple_rpc(
+    method: &str,
+    params: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
     let socket_path = ember_socket_path();
-    let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
+    let stream =
+        UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .set_read_timeout(Some(timeout))
         .map_err(|e| format!("set timeout: {e}"))?;
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
-        "method": "ember.device_reset",
-        "params": {"bdf": bdf, "method": method},
-        "id": 2
+        "method": method,
+        "params": params,
+        "id": 1,
     });
-    let req_bytes = format!("{req}\n");
+    let line = format!("{req}\n");
     (&stream)
-        .write_all(req_bytes.as_bytes())
+        .write_all(line.as_bytes())
         .map_err(|e| format!("write: {e}"))?;
 
-    let mut buf = [0u8; 4096];
+    let mut buf = [0u8; 16384];
     let n = std::io::Read::read(&mut &stream, &mut buf).map_err(|e| format!("read: {e}"))?;
 
     let resp: serde_json::Value =
@@ -64,10 +62,113 @@ pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
             .get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("unknown error");
-        return Err(format!("ember.device_reset: {msg}"));
+        return Err(format!("{method}: {msg}"));
     }
 
+    resp.get("result")
+        .cloned()
+        .ok_or_else(|| format!("{method}: response has no result"))
+}
+
+/// Request a PCI device reset from Ember (which runs as root).
+///
+/// `method` is one of: `"auto"`, `"sbr"`, `"bridge-sbr"`, `"remove-rescan"`.
+pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
+    simple_rpc(
+        "ember.device_reset",
+        serde_json::json!({"bdf": bdf, "method": method}),
+        Duration::from_secs(30),
+    )?;
     Ok(())
+}
+
+/// List BDFs of all devices currently held by ember.
+pub fn list() -> Result<Vec<String>, String> {
+    let result = simple_rpc("ember.list", serde_json::json!({}), Duration::from_secs(5))?;
+    let devices = result
+        .get("devices")
+        .and_then(|v| v.as_array())
+        .ok_or("ember.list: missing devices array")?;
+    Ok(devices
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect())
+}
+
+/// Get ember daemon status (held devices + uptime).
+pub fn status() -> Result<serde_json::Value, String> {
+    simple_rpc("ember.status", serde_json::json!({}), Duration::from_secs(5))
+}
+
+/// Release ember's hold on a device's VFIO fds (for VM passthrough or swap).
+pub fn release(bdf: &str) -> Result<(), String> {
+    simple_rpc(
+        "ember.release",
+        serde_json::json!({"bdf": bdf}),
+        Duration::from_secs(10),
+    )?;
+    Ok(())
+}
+
+/// Swap a device to a different driver personality via ember.
+pub fn swap(bdf: &str, target: &str) -> Result<serde_json::Value, String> {
+    simple_rpc(
+        "ember.swap",
+        serde_json::json!({"bdf": bdf, "target": target}),
+        Duration::from_secs(60),
+    )
+}
+
+/// Read a single BAR0 MMIO register via ember (sysfs resource0 mmap).
+/// Returns the raw u32 value. `offset` is in bytes.
+pub fn mmio_read(bdf: &str, offset: u32) -> Result<u32, String> {
+    let result = simple_rpc(
+        "ember.mmio.read",
+        serde_json::json!({"bdf": bdf, "offset": offset}),
+        Duration::from_secs(5),
+    )?;
+    let value_str = result
+        .get("value")
+        .and_then(|v| v.as_str())
+        .ok_or("ember.mmio.read: missing value")?;
+    u32::from_str_radix(value_str.trim_start_matches("0x"), 16)
+        .map_err(|e| format!("ember.mmio.read: parse hex: {e}"))
+}
+
+/// Snapshot FECS falcon state via ember BAR0 reads.
+pub fn fecs_state(bdf: &str) -> Result<serde_json::Value, String> {
+    simple_rpc(
+        "ember.fecs.state",
+        serde_json::json!({"bdf": bdf}),
+        Duration::from_secs(5),
+    )
+}
+
+/// Get kernel livepatch status (loaded, enabled, transition, patched_funcs).
+pub fn livepatch_status() -> Result<serde_json::Value, String> {
+    simple_rpc(
+        "ember.livepatch.status",
+        serde_json::json!({}),
+        Duration::from_secs(5),
+    )
+}
+
+/// Enable the kernel livepatch (modprobe if needed, enable, wait for transition).
+pub fn livepatch_enable() -> Result<serde_json::Value, String> {
+    simple_rpc(
+        "ember.livepatch.enable",
+        serde_json::json!({}),
+        Duration::from_secs(15),
+    )
+}
+
+/// Disable the kernel livepatch.
+pub fn livepatch_disable() -> Result<serde_json::Value, String> {
+    simple_rpc(
+        "ember.livepatch.disable",
+        serde_json::json!({}),
+        Duration::from_secs(15),
+    )
 }
 
 pub fn request_fds(bdf: &str) -> Result<ReceivedVfioFds, String> {

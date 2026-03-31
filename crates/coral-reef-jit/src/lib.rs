@@ -33,9 +33,12 @@
 //! ```
 
 pub mod builtins;
+pub mod cache;
 pub mod cmp_codes;
 pub mod error;
 pub mod memory;
+pub mod runtime;
+pub mod sovereign;
 pub mod translate;
 
 use coral_reef::CompileOptions;
@@ -45,7 +48,77 @@ use tracing::instrument;
 
 use error::JitError;
 use memory::BindingBuffers;
-use translate::{CompiledKernel, KernelFn, translate_and_compile};
+use sovereign::translate_and_compile_sovereign;
+use translate::{CompiledKernel, KernelFn};
+
+/// Compile a WGSL shader to a JIT kernel without executing it.
+///
+/// Separating compilation from execution enables caching in the progressive
+/// trust model — compile once, execute many times.
+///
+/// # Errors
+///
+/// Returns [`JitError`] if WGSL parsing, `CoralIR` compilation, or Cranelift
+/// code generation fails.
+pub fn compile_to_kernel(request: &ExecuteCpuRequest) -> Result<CompiledKernel, JitError> {
+    let options = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm86),
+        ..Default::default()
+    };
+    let sm = coral_reef::shader_model_for(options.target)
+        .map_err(|e| JitError::Compilation(e.to_string()))?;
+
+    let shader = coral_reef::compile_wgsl_to_ir(&request.wgsl_source, &options, sm.as_ref())
+        .map_err(|e| JitError::Compilation(e.to_string()))?;
+
+    translate_and_compile_sovereign(&shader)
+}
+
+/// Execute a pre-compiled kernel against the given request's bindings.
+///
+/// # Errors
+///
+/// Returns [`JitError`] if WGSL source cannot be compiled to `CoralIR` (for
+/// workgroup size extraction).
+pub fn execute_kernel(
+    compiled: &CompiledKernel,
+    request: &ExecuteCpuRequest,
+) -> Result<ExecuteCpuResponse, JitError> {
+    let start = std::time::Instant::now();
+
+    let options = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm86),
+        ..Default::default()
+    };
+    let sm = coral_reef::shader_model_for(options.target)
+        .map_err(|e| JitError::Compilation(e.to_string()))?;
+    let shader = coral_reef::compile_wgsl_to_ir(&request.wgsl_source, &options, sm.as_ref())
+        .map_err(|e| JitError::Compilation(e.to_string()))?;
+
+    let mut buffers = BindingBuffers::from_bindings(&request.bindings);
+    let mut ptrs = buffers.as_mut_ptrs();
+
+    let workgroup_size = coral_reef_cpu::extract_workgroup_size(&shader);
+    let [wg_x, wg_y, wg_z] = request.workgroups;
+
+    dispatch_workgroups(compiled, &mut ptrs, [wg_x, wg_y, wg_z], workgroup_size);
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "elapsed nanoseconds will not exceed u64 in practice"
+    )]
+    let elapsed_ns = start.elapsed().as_nanos() as u64;
+
+    let output_bindings = buffers.into_binding_data(&request.bindings);
+
+    Ok(ExecuteCpuResponse {
+        bindings: output_bindings,
+        execution_time_ns: elapsed_ns,
+        strategy_used: None,
+        cache_hit: false,
+        revalidated: false,
+    })
+}
 
 /// Execute a WGSL compute shader on the CPU via the Cranelift JIT backend.
 ///
@@ -62,68 +135,8 @@ use translate::{CompiledKernel, KernelFn, translate_and_compile};
 /// Returns [`JitError`] if compilation or execution fails.
 #[instrument(skip_all, fields(bindings = request.bindings.len(), workgroups = ?request.workgroups))]
 pub fn execute_jit(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, JitError> {
-    let start = std::time::Instant::now();
-
-    let options = CompileOptions {
-        target: GpuTarget::Nvidia(NvArch::Sm86),
-        ..Default::default()
-    };
-    let sm = coral_reef::shader_model_for(options.target)
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
-
-    let shader = coral_reef::compile_wgsl_to_ir(&request.wgsl_source, &options, sm.as_ref())
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
-
-    let compiled = translate_and_compile(&shader)?;
-
-    let mut buffers = BindingBuffers::from_bindings(&request.bindings);
-    let mut ptrs = buffers.as_mut_ptrs();
-
-    let workgroup_size = extract_workgroup_size(&shader);
-    let [wg_x, wg_y, wg_z] = request.workgroups;
-
-    let total_invocations = u64::from(wg_x)
-        * u64::from(wg_y)
-        * u64::from(wg_z)
-        * u64::from(workgroup_size[0])
-        * u64::from(workgroup_size[1])
-        * u64::from(workgroup_size[2]);
-
-    tracing::debug!(
-        workgroup_size = ?workgroup_size,
-        total_invocations,
-        "dispatching JIT kernel"
-    );
-
-    dispatch_workgroups(&compiled, &mut ptrs, [wg_x, wg_y, wg_z], workgroup_size);
-
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "elapsed nanoseconds will not exceed u64 in practice"
-    )]
-    let elapsed_ns = start.elapsed().as_nanos() as u64;
-
-    tracing::debug!(elapsed_ns, total_invocations, "JIT execution complete");
-
-    let output_bindings = buffers.into_binding_data(&request.bindings);
-
-    Ok(ExecuteCpuResponse {
-        bindings: output_bindings,
-        execution_time_ns: elapsed_ns,
-    })
-}
-
-/// Extract workgroup size from the shader info.
-fn extract_workgroup_size(shader: &coral_reef::codegen::ir::Shader<'_>) -> [u32; 3] {
-    if let coral_reef::codegen::ir::ShaderStageInfo::Compute(cs) = &shader.info.stage {
-        [
-            u32::from(cs.local_size[0]),
-            u32::from(cs.local_size[1]),
-            u32::from(cs.local_size[2]),
-        ]
-    } else {
-        [1, 1, 1]
-    }
+    let compiled = compile_to_kernel(request)?;
+    execute_kernel(&compiled, request)
 }
 
 /// Dispatch all workgroups, invoking the JIT'd kernel for each invocation.
@@ -196,6 +209,7 @@ mod tests {
             workgroups: [1, 1, 1],
             bindings: vec![],
             uniforms: vec![],
+            strategy: coral_reef_cpu::types::ExecutionStrategy::Jit,
         };
         let result = execute_jit(&request);
         assert!(result.is_ok(), "trivial shader should execute: {result:?}");
@@ -214,7 +228,7 @@ mod tests {
             sm.as_ref(),
         )
         .unwrap();
-        let size = extract_workgroup_size(&shader);
+        let size = coral_reef_cpu::extract_workgroup_size(&shader);
         assert_eq!(size, [4, 2, 1]);
     }
 }

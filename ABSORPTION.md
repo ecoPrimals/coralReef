@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70e: CoralIR Cranelift JIT Backend + Dual-Path Validation — 4070+ tests, ~66% line coverage, ~122 ignored hardware-gated)
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70f: CoralIR Coevolution + Sovereign JIT + Progressive Trust — 4070+ tests, ~66% line coverage, ~122 ignored hardware-gated)
 
 ---
 

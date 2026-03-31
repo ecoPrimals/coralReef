@@ -23,6 +23,7 @@ pub fn validate(request: &ValidateRequest) -> Result<ValidateResponse, CpuError>
         workgroups: request.workgroups,
         bindings: request.bindings.clone(),
         uniforms: request.uniforms.clone(),
+        strategy: crate::types::ExecutionStrategy::Interpret,
     };
 
     let exec_result = execute_cpu(&exec_request)?;

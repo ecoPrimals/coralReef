@@ -7,12 +7,12 @@ publish.workspace = true
 description = "Unified GPU compute abstraction — compile + dispatch in one API"
 
 [dependencies]
-bytes.workspace = true
-coral-reef = { path = "../coral-reef" }
-coral-driver = { path = "../coral-driver" }
-serde = { workspace = true, features = ["derive"] }
-thiserror.workspace = true
-tracing.workspace = true
+bytes = { workspace = true }
+coral-reef = { workspace = true }
+coral-driver = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [features]
 default = ["nouveau", "nvidia-drm"]
@@ -22,6 +22,6 @@ vfio = ["coral-driver/vfio"]
 cuda = ["coral-driver/cuda"]
 
 [dev-dependencies]
-coral-driver = { path = "../coral-driver", features = ["test-utils"] }
-naga = { version = "28", features = ["wgsl-in", "spv-out"] }
-serde_json.workspace = true
+coral-driver = { workspace = true, features = ["test-utils"] }
+naga = { workspace = true, features = ["spv-out"] }
+serde_json = { workspace = true }

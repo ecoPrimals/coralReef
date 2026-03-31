@@ -2,19 +2,19 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70e.
+**Current position**: Phase 10 — Iteration 70f.
 
-**Last completed**: `coral-reef-jit` crate (Cranelift JIT backend for CoralIR), dual-path CPU validation (Path B JIT vs Path A Naga interpreter), idiomatic polish of IR translation layer (translate.rs 1101→994 lines, extracted `cmp_codes.rs`, unified `call_libm` helper, phi node support via Cranelift `Variable` system), 27 JIT tests (23 integration + 4 unit).
+**Last completed**: CoralIR coevolution (4-phase plan): (1) CoralIR reference interpreter in `coral-reef-cpu`, (2) triple-path test infrastructure (JIT vs CoralIR interpreter vs Naga interpreter), (3) sovereign JIT runtime via `rustix` mmap/mprotect eliminating `cranelift-jit` crate + `libm`-based transcendentals, (4) progressive trust model (`ExecutionStrategy`: Interpret/Jit/ValidatedJit with `JitCache`). Workspace dependency consolidation — all 13 crate manifests use `{ workspace = true }`, codified as `WORKSPACE_DEPENDENCY_STANDARD.md` in wateringHole.
 
 **Tests**: 4070+ passing, ~122 ignored hardware-gated.
 
-**Next focus**: Local scratch memory emulation for JIT (unblocks `for` loop patterns), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle typed errors, coverage push toward 90%, toadStool E2E pipeline, socket name alignment to wateringHole convention.
+**Next focus**: Local scratch memory emulation for JIT (unblocks `for` loop patterns), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), coverage push toward 90%, toadStool E2E pipeline.
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70e — CoralIR Cranelift JIT. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
+**Last updated**: March 30, 2026 (Phase 10 — Iteration 70f — CoralIR Coevolution + Sovereign JIT + Progressive Trust + Workspace Dep Standard. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
 
 ---
 
-## Team Evolution Priorities (Iteration 70e+)
+## Team Evolution Priorities (Iteration 70f+)
 
 ### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–70)**
 

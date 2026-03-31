@@ -4,11 +4,32 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70e
+**Current status**: Phase 10 — Iteration 70f
 
 ---
 
 ## [Unreleased]
+
+### Iteration 70f — CoralIR Coevolution + Sovereign JIT + Progressive Trust (2026-03-30)
+
+#### Added
+- **CoralIR reference interpreter** in `coral-reef-cpu/src/coral_ir_exec/`: direct evaluation of CoralIR `Op` instructions (arithmetic, memory, control flow, transcendentals) with synthetic buffer addressing scheme — acts as trusted oracle for JIT validation
+- **Sovereign JIT runtime** (`coral-reef-jit/src/runtime.rs`): pure-Rust `JitMemory` allocator using `rustix` mmap/mprotect/munmap — replaces `cranelift-jit`'s `region`/`wasmtime-jit-icache-coherence` dependency chain. aarch64 icache flush via inline assembly
+- **Sovereign compilation pipeline** (`coral-reef-jit/src/sovereign.rs`): `cranelift-codegen` direct compilation + manual `libm` relocation patching — eliminates `cranelift-jit` crate from the hot path
+- **Progressive trust model**: `ExecutionStrategy` enum (`Interpret`, `Jit`, `ValidatedJit`) in `coral-reef-cpu/src/types.rs` — tiered execution where shaders are first validated by interpreter, then cached as JIT-compiled kernels
+- **`JitCache`** (`coral-reef-jit/src/cache.rs`): thread-safe cache for compiled kernels with configurable re-validation policy, hash-keyed by shader request
+- `compile_to_kernel()` / `execute_kernel()` split in `coral-reef-jit/src/lib.rs` — separates compilation from execution for cache integration
+- Strategy dispatch in `coralreef-core/src/service/cpu.rs`: `Interpret` → CoralIR interpreter, `Jit` → direct JIT, `ValidatedJit` → interpret-validate-then-JIT-cache with periodic re-validation
+- Triple-path test infrastructure in `coral-reef-jit/tests/jit_validation.rs`: every test runs through JIT, CoralIR interpreter, and Naga interpreter (best-effort) and compares results within tolerance
+
+#### Changed
+- **Workspace dependency consolidation**: all inline version pins migrated to `[workspace.dependencies]` in root `Cargo.toml` — 13 crate manifests updated to `{ workspace = true }`. Eliminates version skew and duplicate compilations. `nak-ir-proc` package metadata now workspace-inherited
+- `translate.rs` refactored: `CompiledBacking` simplified to `Sovereign`-only variant, `LibmResolver` unified, `get_or_create_libm_fn`/`call_libm`/`call_f32_libm`/`call_f64_libm` no longer return `Result` (legacy error path removed)
+- `translate.rs` reduced from 1277 to 981 lines by extracting `sovereign.rs` (207 lines)
+- `ExecuteCpuResponse` extended with `strategy_used`, `cache_hit`, `revalidated` metadata fields
+
+#### Removed
+- **`cranelift-jit` runtime dependency** from the sovereign compilation path: `JITModule`, `JITBuilder`, `Linkage`, `region` crate, `wasmtime-jit-icache-coherence` — all replaced by `rustix`-based sovereign runtime
 
 ### Iteration 70e — CoralIR Cranelift JIT Backend + Dual-Path Validation (2026-03-30)
 

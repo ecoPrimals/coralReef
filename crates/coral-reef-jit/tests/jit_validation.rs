@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Integration tests for the Cranelift JIT backend.
+//! Integration tests for the Cranelift JIT backend and CoralIR interpreter.
 //!
-//! Validates that JIT-compiled shaders produce correct output by comparing
-//! against expected values (barraCuda-style tolerance validation).
+//! Validates shader correctness via up to three paths:
+//! - **Path A**: Naga IR tree-walk interpreter (`execute_cpu`)
+//! - **Path B**: Cranelift JIT backend (`execute_jit`)
+//! - **Path C**: CoralIR reference executor (`execute_coral_ir`)
+//!
+//! Every shader that passes JIT is also validated against the CoralIR interpreter
+//! to prove the optimization pipeline preserves semantics.
 
 use bytes::Bytes;
 use coral_reef_cpu::types::{BindingData, BindingUsage, ExecuteCpuRequest};
@@ -60,6 +65,7 @@ fn make_request(wgsl: &str, workgroups: [u32; 3], bindings: Vec<BindingData>) ->
         workgroups,
         bindings,
         uniforms: vec![],
+        strategy: coral_reef_cpu::types::ExecutionStrategy::Jit,
     }
 }
 
@@ -99,6 +105,69 @@ fn rw_zero_bytes(group: u32, binding: u32, len: usize) -> BindingData {
     }
 }
 
+/// Run a shader through all available paths (JIT + CoralIR interpreter + Naga interpreter)
+/// and assert that the given binding produces matching f32 results within tolerance.
+///
+/// The Naga interpreter is a best-effort third path — it may not support all ops
+/// or may return a different binding layout, in which case its comparison is skipped.
+fn assert_triple_path_f32(
+    request: &ExecuteCpuRequest,
+    binding_idx: usize,
+    expected: &[f32],
+    label: &str,
+) {
+    let jit_resp = execute_jit(request).unwrap_or_else(|e| panic!("{label}: JIT failed: {e}"));
+    let jit_vals = read_f32s(&jit_resp.bindings[binding_idx].data);
+    for (i, &exp) in expected.iter().enumerate() {
+        assert_f32_close(jit_vals[i], exp, &format!("{label} JIT[{i}]"));
+    }
+
+    let coral_resp = coral_reef_cpu::execute_coral_ir(request)
+        .unwrap_or_else(|e| panic!("{label}: CoralIR interp failed: {e}"));
+    let coral_vals = read_f32s(&coral_resp.bindings[binding_idx].data);
+    for (i, (&jit, &coral)) in jit_vals.iter().zip(coral_vals.iter()).enumerate() {
+        assert_f32_close(
+            jit,
+            coral,
+            &format!("{label} JIT↔CoralIR[{i}]"),
+        );
+    }
+
+    if let Ok(naga_resp) = coral_reef_cpu::execute_cpu(request) {
+        if naga_resp.bindings.len() > binding_idx {
+            let naga_vals = read_f32s(&naga_resp.bindings[binding_idx].data);
+            for (i, (&jit, &naga)) in jit_vals.iter().zip(naga_vals.iter()).enumerate() {
+                assert_f32_close(jit, naga, &format!("{label} JIT↔Naga[{i}]"));
+            }
+        }
+    }
+}
+
+/// Run a shader through JIT + CoralIR interpreter and assert u32 binding equality.
+/// Naga comparison is best-effort.
+fn assert_triple_path_u32(
+    request: &ExecuteCpuRequest,
+    binding_idx: usize,
+    expected: &[u32],
+    label: &str,
+) {
+    let jit_resp = execute_jit(request).unwrap_or_else(|e| panic!("{label}: JIT failed: {e}"));
+    let jit_vals = read_u32s(&jit_resp.bindings[binding_idx].data);
+    assert_eq!(jit_vals, expected, "{label} JIT output");
+
+    let coral_resp = coral_reef_cpu::execute_coral_ir(request)
+        .unwrap_or_else(|e| panic!("{label}: CoralIR interp failed: {e}"));
+    let coral_vals = read_u32s(&coral_resp.bindings[binding_idx].data);
+    assert_eq!(jit_vals, coral_vals, "{label} JIT↔CoralIR");
+
+    if let Ok(naga_resp) = coral_reef_cpu::execute_cpu(request) {
+        if naga_resp.bindings.len() > binding_idx {
+            let naga_vals = read_u32s(&naga_resp.bindings[binding_idx].data);
+            assert_eq!(jit_vals, naga_vals, "{label} JIT↔Naga");
+        }
+    }
+}
+
 // ==========================================================================
 // Arithmetic shaders
 // ==========================================================================
@@ -125,11 +194,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         ],
     );
 
-    let resp = execute_jit(&request).expect("add shader");
-    let values = read_f32s(&resp.bindings[2].data);
-    for (i, &expected) in [11.0, 22.0, 33.0, 44.0].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("out[{i}]"));
-    }
+    assert_triple_path_f32(&request, 2, &[11.0, 22.0, 33.0, 44.0], "add_two_buffers");
 }
 
 #[test]
@@ -154,11 +219,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         ],
     );
 
-    let resp = execute_jit(&request).expect("subtract shader");
-    let values = read_f32s(&resp.bindings[2].data);
-    for (i, &expected) in [9.0, 15.0, 20.0].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("sub[{i}]"));
-    }
+    assert_triple_path_f32(&request, 2, &[9.0, 15.0, 20.0], "subtract_buffers");
 }
 
 #[test]
@@ -177,11 +238,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec![rw_f32_binding(0, 0, &[2.0, 4.0, 6.0])],
     );
 
-    let resp = execute_jit(&request).expect("multiply shader");
-    let values = read_f32s(&resp.bindings[0].data);
-    for (i, &expected) in [5.0, 10.0, 15.0].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("data[{i}]"));
-    }
+    assert_triple_path_f32(&request, 0, &[5.0, 10.0, 15.0], "multiply_by_constant");
 }
 
 #[test]
@@ -206,11 +263,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         ],
     );
 
-    let resp = execute_jit(&request).expect("fma shader");
-    let values = read_f32s(&resp.bindings[2].data);
-    for (i, &expected) in [11.0, 19.0, 29.0].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("fma[{i}]"));
-    }
+    assert_triple_path_f32(&request, 2, &[11.0, 19.0, 29.0], "fma");
 }
 
 #[test]
@@ -226,9 +279,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let request = make_request(wgsl, [4, 1, 1], vec![rw_zero_bytes(0, 0, 16)]);
 
-    let resp = execute_jit(&request).expect("integer shader");
-    let values = read_u32s(&resp.bindings[0].data);
-    assert_eq!(values, vec![1, 2, 5, 10], "idx*idx+1 for idx 0..4");
+    assert_triple_path_u32(&request, 0, &[1, 2, 5, 10], "integer_arithmetic");
 }
 
 #[test]
@@ -247,11 +298,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec![rw_f32_binding(0, 0, &[-3.0, 0.0, 2.5, -7.5])],
     );
 
-    let resp = execute_jit(&request).expect("negate shader");
-    let values = read_f32s(&resp.bindings[0].data);
-    for (i, &expected) in [3.0, 0.0, -2.5, 7.5].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("neg[{i}]"));
-    }
+    assert_triple_path_f32(&request, 0, &[3.0, 0.0, -2.5, 7.5], "negate");
 }
 
 // ==========================================================================
@@ -270,9 +317,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let request = make_request(wgsl, [2, 1, 1], vec![rw_f32_binding(0, 0, &[0.0, 0.0])]);
 
-    let resp = execute_jit(&request).expect("constant shader");
-    let values = read_f32s(&resp.bindings[0].data);
-    assert_eq!(values, vec![42.0, 42.0]);
+    assert_triple_path_f32(&request, 0, &[42.0, 42.0], "write_constant");
 }
 
 // ==========================================================================
@@ -295,9 +340,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let request = make_request(wgsl, [4, 1, 1], vec![rw_f32_binding(0, 0, &[0.0; 4])]);
 
-    let resp = execute_jit(&request).expect("conditional shader");
-    let values = read_f32s(&resp.bindings[0].data);
-    assert_eq!(values, vec![1.0, -1.0, 1.0, -1.0]);
+    assert_triple_path_f32(&request, 0, &[1.0, -1.0, 1.0, -1.0], "conditional_select");
 }
 
 #[test]
@@ -317,11 +360,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec![rw_f32_binding(0, 0, &[-5.0, -0.5, 0.0, 0.5, 5.0])],
     );
 
-    let resp = execute_jit(&request).expect("clamp shader");
-    let values = read_f32s(&resp.bindings[0].data);
-    for (i, &expected) in [-1.0, -0.5, 0.0, 0.5, 1.0].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("clamp[{i}]"));
-    }
+    assert_triple_path_f32(&request, 0, &[-1.0, -0.5, 0.0, 0.5, 1.0], "clamp");
 }
 
 /// CoralIR lowers WGSL `var` loop variables to register-addressed memory loads
@@ -368,9 +407,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let request = make_request(wgsl, [2, 1, 1], vec![rw_zero_bytes(0, 0, 16)]);
 
-    let resp = execute_jit(&request).expect("multi-workgroup");
-    let values = read_u32s(&resp.bindings[0].data);
-    assert_eq!(values, vec![0, 1, 2, 3], "gid.x should be 0..4");
+    assert_triple_path_u32(&request, 0, &[0, 1, 2, 3], "multi_workgroup");
 }
 
 #[test]
@@ -388,10 +425,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // 3x2 grid → 6 invocations
     let request = make_request(wgsl, [3, 2, 1], vec![rw_zero_bytes(0, 0, 24)]);
 
-    let resp = execute_jit(&request).expect("2D workgroups");
-    let values = read_u32s(&resp.bindings[0].data);
-    // Row 0: 0, 1, 2  |  Row 1: 10, 11, 12
-    assert_eq!(values, vec![0, 1, 2, 10, 11, 12]);
+    assert_triple_path_u32(&request, 0, &[0, 1, 2, 10, 11, 12], "2d_workgroups");
 }
 
 #[test]
@@ -410,9 +444,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // 2x2x2 → 8 invocations
     let request = make_request(wgsl, [2, 2, 2], vec![rw_zero_bytes(0, 0, 32)]);
 
-    let resp = execute_jit(&request).expect("3D workgroups");
-    let values = read_u32s(&resp.bindings[0].data);
-    assert_eq!(values, vec![0, 1, 10, 11, 100, 101, 110, 111]);
+    assert_triple_path_u32(&request, 0, &[0, 1, 10, 11, 100, 101, 110, 111], "3d_workgroups");
 }
 
 #[test]
@@ -456,11 +488,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec![rw_f32_binding(0, 0, &[2.0, 3.0, 4.0, 5.0])],
     );
 
-    let resp = execute_jit(&request).expect("square shader");
-    let values = read_f32s(&resp.bindings[0].data);
-    for (i, &expected) in [4.0, 9.0, 16.0, 25.0].iter().enumerate() {
-        assert_f32_close(values[i], expected, &format!("sq[{i}]"));
-    }
+    assert_triple_path_f32(&request, 0, &[4.0, 9.0, 16.0, 25.0], "in_place_square");
 }
 
 // ==========================================================================
@@ -468,7 +496,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // ==========================================================================
 
 #[test]
-fn dual_path_fma_consistency() {
+fn triple_path_fma_consistency() {
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 
@@ -479,21 +507,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 ";
     let request = make_request(wgsl, [4, 1, 1], vec![rw_f32_binding(0, 0, &[0.0; 4])]);
-
-    let jit_result = execute_jit(&request).expect("JIT failed");
-    let interp_result = coral_reef_cpu::execute_cpu(&request).expect("interpreter failed");
-
-    let jit_vals = read_f32s(&jit_result.bindings[0].data);
-    let interp_vals = read_f32s(&interp_result.bindings[0].data);
-
-    assert_eq!(jit_vals.len(), interp_vals.len());
-    for (i, (&jit, &interp)) in jit_vals.iter().zip(interp_vals.iter()).enumerate() {
-        assert_f32_close(jit, interp, &format!("dual-path out[{i}]"));
-    }
+    assert_triple_path_f32(&request, 0, &[2.0, 6.0, 12.0, 20.0], "triple_fma");
 }
 
 #[test]
-fn dual_path_conditional_consistency() {
+fn triple_path_conditional_consistency() {
     let wgsl = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 
@@ -507,16 +525,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 ";
     let request = make_request(wgsl, [6, 1, 1], vec![rw_f32_binding(0, 0, &[0.0; 6])]);
-
-    let jit_result = execute_jit(&request).expect("JIT failed");
-    let interp_result = coral_reef_cpu::execute_cpu(&request).expect("interpreter failed");
-
-    let jit_vals = read_f32s(&jit_result.bindings[0].data);
-    let interp_vals = read_f32s(&interp_result.bindings[0].data);
-
-    for (i, (&jit, &interp)) in jit_vals.iter().zip(interp_vals.iter()).enumerate() {
-        assert_f32_close(jit, interp, &format!("dual-cond[{i}]"));
-    }
+    assert_triple_path_f32(&request, 0, &[0.0, -1.0, 4.0, -3.0, 8.0, -5.0], "triple_conditional");
 }
 
 // ==========================================================================

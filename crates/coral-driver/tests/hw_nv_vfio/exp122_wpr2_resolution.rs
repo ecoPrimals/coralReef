@@ -359,13 +359,28 @@ fn exp122b_parasitic_nouveau() {
     eprintln!("  nouveau bound, waiting for initialization...");
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Phase 2: Open sysfs BAR0
-    eprintln!("\n  ── Phase 2: Open sysfs BAR0 ──");
-    let mut bar0 =
-        coral_driver::nv::bar0::Bar0Access::from_sysfs_device(&sysfs_dev).expect("sysfs BAR0");
+    // Phase 2: Open BAR0 — try ember parasitic reads first, sysfs fallback
+    eprintln!("\n  ── Phase 2: Open BAR0 access ──");
+    let ember_available = crate::ember_client::mmio_read(&bdf, 0).is_ok();
+    if ember_available {
+        eprintln!("  ember.mmio.read: available (parasitic reads, no root needed)");
+    } else {
+        eprintln!("  ember.mmio.read: unavailable, using sysfs BAR0 fallback");
+    }
+    let mut bar0 = coral_driver::nv::bar0::Bar0Access::from_sysfs_device(&sysfs_dev)
+        .expect("sysfs BAR0 (needed for indexed writes + PRAMIN window)");
     eprintln!("  BAR0 sysfs: {} MiB", bar0.size() / (1024 * 1024));
 
-    let boot0 = bar0.read_u32(0).unwrap_or(0xDEAD);
+    // Parasitic read: ember first, sysfs fallback
+    fn parasitic_rd(bdf: &str, bar0: &coral_driver::nv::bar0::Bar0Access, ember_ok: bool, off: u32) -> u32 {
+        if ember_ok {
+            crate::helpers::ember_mmio_read(bdf, off).unwrap_or(0xDEAD_DEAD)
+        } else {
+            bar0.read_u32(off).unwrap_or(0xDEAD_DEAD)
+        }
+    }
+
+    let boot0 = parasitic_rd(&bdf, &bar0, ember_available, 0);
     eprintln!("  BOOT0={boot0:#010x}");
 
     // Phase 3: Read ALL WPR2 registers while nouveau is active
@@ -388,18 +403,18 @@ fn exp122b_parasitic_nouveau() {
         s > 0 && e > s
     );
 
-    // Direct registers
-    let cec = r(&bar0, 0x100CEC);
-    let cf0 = r(&bar0, 0x100CF0);
+    // Direct registers (ember parasitic reads where available)
+    let cec = parasitic_rd(&bdf, &bar0, ember_available, 0x100CEC);
+    let cf0 = parasitic_rd(&bdf, &bar0, ember_available, 0x100CF0);
     eprintln!("  Direct (CEC/CF0): {cec:#010x} / {cf0:#010x}");
 
     // FBPA registers
-    let fbpa_lo = r(&bar0, 0x1FA824);
-    let fbpa_hi = r(&bar0, 0x1FA828);
+    let fbpa_lo = parasitic_rd(&bdf, &bar0, ember_available, 0x1FA824);
+    let fbpa_hi = parasitic_rd(&bdf, &bar0, ember_available, 0x1FA828);
     eprintln!("  FBPA (1FA824/828): lo={fbpa_lo:#010x} hi={fbpa_hi:#010x}");
 
     // WPR config register
-    let wpr_cfg = r(&bar0, 0x100CD0);
+    let wpr_cfg = parasitic_rd(&bdf, &bar0, ember_available, 0x100CD0);
     eprintln!("  WPR_CFG (100CD0): {wpr_cfg:#010x}");
 
     // Full indexed scan
@@ -412,14 +427,14 @@ fn exp122b_parasitic_nouveau() {
         }
     }
 
-    // Phase 4: Falcon state under nouveau
+    // Phase 4: Falcon state under nouveau (ember parasitic reads)
     eprintln!("\n  ── Phase 4: Falcon state (nouveau active) ──");
     let sysfs_falcon = |name: &str, base: u32| {
-        let cpuctl = r(&bar0, base + 0x100);
-        let sctl = r(&bar0, base + 0x240);
-        let pc = r(&bar0, base + 0x030);
-        let exci = r(&bar0, base + 0x148);
-        let mb0 = r(&bar0, base + 0x040);
+        let cpuctl = parasitic_rd(&bdf, &bar0, ember_available, base + 0x100);
+        let sctl = parasitic_rd(&bdf, &bar0, ember_available, base + 0x240);
+        let pc = parasitic_rd(&bdf, &bar0, ember_available, base + 0x030);
+        let exci = parasitic_rd(&bdf, &bar0, ember_available, base + 0x148);
+        let mb0 = parasitic_rd(&bdf, &bar0, ember_available, base + 0x040);
         let hreset = cpuctl & 0x10 != 0;
         let halted = cpuctl & 0x20 != 0;
         let mode = match sctl {
