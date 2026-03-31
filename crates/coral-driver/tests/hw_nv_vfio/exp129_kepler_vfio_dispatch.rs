@@ -126,7 +126,8 @@ fn exp129_phase3_kepler_data_compute() {
         .expect("alloc output buffer");
 
     let zeros = vec![0u8; 4096];
-    dev.upload(out_handle, 0, &zeros).expect("zero output buffer");
+    dev.upload(out_handle, 0, &zeros)
+        .expect("zero output buffer");
 
     let readback = dev
         .readback(out_handle, 0, 4096)

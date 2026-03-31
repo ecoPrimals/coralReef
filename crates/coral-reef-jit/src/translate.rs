@@ -62,7 +62,10 @@ impl CompiledKernel {
 // SAFETY: The backing memory (JITModule or JitMemory) owns the code region
 // exclusively. The fn_ptr is derived from that owned region and remains valid
 // for the struct's lifetime. No mutable aliasing is possible.
-#[expect(unsafe_code, reason = "CompiledKernel owns its code region exclusively")]
+#[expect(
+    unsafe_code,
+    reason = "CompiledKernel owns its code region exclusively"
+)]
 unsafe impl Send for CompiledKernel {}
 #[expect(unsafe_code, reason = "fn_ptr is read-only and backed by owned memory")]
 unsafe impl Sync for CompiledKernel {}
@@ -475,6 +478,11 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
                 }
             }
             Op::Ld(op) => {
+                if matches!(op.access.space, MemSpace::Shared) {
+                    return Err(JitError::UnsupportedOp(
+                        "Ld from shared memory (use interpreter for workgroup shaders)".into(),
+                    ));
+                }
                 if !matches!(op.access.space, MemSpace::Global(_)) {
                     return Err(JitError::UnsupportedOp(
                         "Ld from non-global memory space".into(),
@@ -489,6 +497,11 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
                 self.def_dst(&op.dst, result);
             }
             Op::St(op) => {
+                if matches!(op.access.space, MemSpace::Shared) {
+                    return Err(JitError::UnsupportedOp(
+                        "St to shared memory (use interpreter for workgroup shaders)".into(),
+                    ));
+                }
                 if !matches!(op.access.space, MemSpace::Global(_)) {
                     return Err(JitError::UnsupportedOp(
                         "St to non-global memory space".into(),
@@ -561,9 +574,20 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
             Op::PhiSrcs(op) => {
                 for (phi, src) in op.srcs.iter() {
                     let val = self.resolve_src_any(src)?;
-                    let ty = self.builder.func.dfg.value_type(val);
-                    let var = self.get_or_create_phi_var(*phi, ty);
-                    self.builder.def_var(var, val);
+                    let src_type = self.builder.func.dfg.value_type(val);
+                    let var = self.get_or_create_phi_var(*phi, src_type);
+                    let declared_type = {
+                        let probe = self.builder.use_var(var);
+                        self.builder.func.dfg.value_type(probe)
+                    };
+                    let coerced = if declared_type == src_type {
+                        val
+                    } else {
+                        self.builder
+                            .ins()
+                            .bitcast(declared_type, MemFlags::new(), val)
+                    };
+                    self.builder.def_var(var, coerced);
                 }
             }
             Op::PhiDsts(op) => {
@@ -964,7 +988,9 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
             cranelift_codegen::ir::UserExternalName::new(
                 1,
                 #[expect(clippy::cast_possible_truncation, reason = "libm fn count fits u32")]
-                { self.libm_fns.len() as u32 },
+                {
+                    self.libm_fns.len() as u32
+                },
             ),
         );
         let func_ref = self.builder.import_function(ExtFuncData {
@@ -978,4 +1004,3 @@ impl<'a, 'b, 'c> FunctionTranslator<'a, 'b, 'c> {
         func_ref
     }
 }
-

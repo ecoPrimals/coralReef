@@ -5,8 +5,22 @@ use std::io::Write;
 
 use super::jsonrpc::{ipc_io_error_string, write_jsonrpc_error, write_jsonrpc_ok};
 
-const LIVEPATCH_MODULE: &str = "livepatch_nvkm_mc_reset";
-const LIVEPATCH_SYSFS: &str = "/sys/kernel/livepatch/livepatch_nvkm_mc_reset";
+const DEFAULT_LIVEPATCH_MODULE: &str = "livepatch_nvkm_mc_reset";
+
+fn livepatch_module() -> &'static str {
+    static MODULE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    MODULE.get_or_init(|| {
+        std::env::var("CORALREEF_LIVEPATCH_MODULE")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_LIVEPATCH_MODULE.to_string())
+    })
+}
+
+fn livepatch_sysfs() -> &'static str {
+    static SYSFS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SYSFS.get_or_init(|| format!("/sys/kernel/livepatch/{}", livepatch_module()))
+}
 
 /// `ember.livepatch.status` — returns the livepatch module state.
 pub(crate) fn status(
@@ -14,7 +28,8 @@ pub(crate) fn status(
     id: serde_json::Value,
     _params: &serde_json::Value,
 ) -> Result<(), String> {
-    let loaded = std::path::Path::new(LIVEPATCH_SYSFS).exists();
+    let sysfs = livepatch_sysfs();
+    let loaded = std::path::Path::new(sysfs).exists();
     if !loaded {
         return write_jsonrpc_ok(
             stream,
@@ -29,8 +44,8 @@ pub(crate) fn status(
         .map_err(ipc_io_error_string);
     }
 
-    let enabled = read_sysfs_bool(&format!("{LIVEPATCH_SYSFS}/enabled"));
-    let transition = read_sysfs_bool(&format!("{LIVEPATCH_SYSFS}/transition"));
+    let enabled = read_sysfs_bool(&format!("{sysfs}/enabled"));
+    let transition = read_sysfs_bool(&format!("{sysfs}/transition"));
     let patched_funcs = list_patched_funcs();
 
     write_jsonrpc_ok(
@@ -54,11 +69,13 @@ pub(crate) fn enable(
     id: serde_json::Value,
     _params: &serde_json::Value,
 ) -> Result<(), String> {
-    let loaded = std::path::Path::new(LIVEPATCH_SYSFS).exists();
+    let sysfs = livepatch_sysfs();
+    let module = livepatch_module();
+    let loaded = std::path::Path::new(sysfs).exists();
     if !loaded {
-        tracing::info!("livepatch module not loaded — running modprobe {LIVEPATCH_MODULE}");
+        tracing::info!("livepatch module not loaded — running modprobe {module}");
         let output = std::process::Command::new("modprobe")
-            .arg(LIVEPATCH_MODULE)
+            .arg(module)
             .output()
             .map_err(|e| format!("modprobe exec failed: {e}"))?;
         if !output.status.success() {
@@ -67,14 +84,14 @@ pub(crate) fn enable(
                 stream,
                 id,
                 -32000,
-                &format!("modprobe {LIVEPATCH_MODULE} failed: {stderr}"),
+                &format!("modprobe {module} failed: {stderr}"),
             )
             .map_err(ipc_io_error_string);
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
-    if !std::path::Path::new(LIVEPATCH_SYSFS).exists() {
+    if !std::path::Path::new(sysfs).exists() {
         return write_jsonrpc_error(
             stream,
             id,
@@ -84,7 +101,7 @@ pub(crate) fn enable(
         .map_err(ipc_io_error_string);
     }
 
-    let enabled_path = format!("{LIVEPATCH_SYSFS}/enabled");
+    let enabled_path = format!("{sysfs}/enabled");
     let already_enabled = read_sysfs_bool(&enabled_path);
     if already_enabled {
         tracing::debug!("livepatch already enabled — idempotent no-op");
@@ -118,7 +135,8 @@ pub(crate) fn disable(
     id: serde_json::Value,
     _params: &serde_json::Value,
 ) -> Result<(), String> {
-    if !std::path::Path::new(LIVEPATCH_SYSFS).exists() {
+    let sysfs = livepatch_sysfs();
+    if !std::path::Path::new(sysfs).exists() {
         tracing::debug!("livepatch module not loaded — nothing to disable");
         return write_jsonrpc_ok(
             stream,
@@ -132,7 +150,7 @@ pub(crate) fn disable(
         .map_err(ipc_io_error_string);
     }
 
-    let enabled_path = format!("{LIVEPATCH_SYSFS}/enabled");
+    let enabled_path = format!("{sysfs}/enabled");
     let was_enabled = read_sysfs_bool(&enabled_path);
     if was_enabled {
         std::fs::write(&enabled_path, "0").map_err(|e| format!("write {enabled_path}: {e}"))?;
@@ -165,7 +183,7 @@ fn read_sysfs_bool(path: &str) -> bool {
 }
 
 fn wait_transition_complete(timeout: std::time::Duration) -> Result<(), String> {
-    let transition_path = format!("{LIVEPATCH_SYSFS}/transition");
+    let transition_path = format!("{}/transition", livepatch_sysfs());
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if !read_sysfs_bool(&transition_path) {
@@ -182,7 +200,7 @@ fn wait_transition_complete(timeout: std::time::Duration) -> Result<(), String> 
 }
 
 fn list_patched_funcs() -> Vec<String> {
-    let funcs_dir = format!("{LIVEPATCH_SYSFS}/nouveau/funcs");
+    let funcs_dir = format!("{}/nouveau/funcs", livepatch_sysfs());
     let Ok(entries) = std::fs::read_dir(&funcs_dir) else {
         return vec![];
     };

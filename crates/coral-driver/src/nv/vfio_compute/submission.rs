@@ -4,8 +4,8 @@
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::cache_ops::{clflush_range, memory_fence};
 use crate::vfio::channel::mmu_fault;
-use crate::vfio::channel::registers::{misc, pccsr, pfifo};
 use crate::vfio::channel::ramuserd;
+use crate::vfio::channel::registers::{misc, pccsr, pfifo};
 
 use std::borrow::Cow;
 

@@ -527,7 +527,9 @@ fn exp117_wpr2_state_tracking() {
                     eprintln!("  Cannot read state while nouveau is active — aborting Phase A");
                     gp.swap(&bdf, "vfio-pci").expect("swap→vfio-pci");
                     std::thread::sleep(std::time::Duration::from_millis(500));
-                    panic!("Phase A requires BAR0 access while nouveau is bound (try running with ember)");
+                    panic!(
+                        "Phase A requires BAR0 access while nouveau is bound (try running with ember)"
+                    );
                 }
             };
             let snap = snapshot_bar0access(&mut bar0_sysfs, "nouveau-active-sysfs");
@@ -552,8 +554,10 @@ fn exp117_wpr2_state_tracking() {
     } else {
         eprintln!("  WPR2 is INVALID during nouveau session too");
         eprintln!("  This means FWSEC did not set up WPR2 (or different register layout)");
-        eprintln!("  (check direct WPR2 registers: beg={:#010x} end={:#010x})",
-            snap_nouveau.wpr2_direct_beg, snap_nouveau.wpr2_direct_end);
+        eprintln!(
+            "  (check direct WPR2 registers: beg={:#010x} end={:#010x})",
+            snap_nouveau.wpr2_direct_beg, snap_nouveau.wpr2_direct_end
+        );
     }
 
     let pramin_base_raw = snap_nouveau.bar0_window;

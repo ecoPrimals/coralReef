@@ -63,9 +63,7 @@ impl ProbeBar0 {
 
     fn read(&self, offset: u32) -> u32 {
         match self {
-            ProbeBar0::Ember(bdf) => {
-                ember_client::mmio_read(bdf, offset).unwrap_or(0xDEAD_DEAD)
-            }
+            ProbeBar0::Ember(bdf) => ember_client::mmio_read(bdf, offset).unwrap_or(0xDEAD_DEAD),
             ProbeBar0::Sysfs(bar0) => bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD),
         }
     }

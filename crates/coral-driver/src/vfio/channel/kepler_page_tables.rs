@@ -130,8 +130,7 @@ pub(super) fn populate_kepler_instance_block(
 
     // ── NV_RAMIN page directory base (GF100 V1 encoding) ────────────
     // No VER2 bit (bit 10), no BIG_PAGE_SIZE (bit 11 = 0 → 128K large pages).
-    let pdb_lo: u32 =
-        ((pdb_iova >> 12) as u32) << 12
+    let pdb_lo: u32 = ((pdb_iova >> 12) as u32) << 12
         | (1 << 2)  // VOL = TRUE
         | TARGET_SYS_MEM_COHERENT;
     write_u32_le(inst, ramin::PAGE_DIR_BASE_LO, pdb_lo);

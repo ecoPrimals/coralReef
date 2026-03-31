@@ -195,7 +195,9 @@ impl Src {
     pub fn as_imm_not_i20(&self) -> Option<u32> {
         match self.reference {
             SrcRef::Imm32(i) => {
-                assert!(self.is_unmodified());
+                if !self.is_unmodified() {
+                    return Some(i);
+                }
                 let top = i & 0xfff8_0000;
                 if top == 0 || top == 0xfff8_0000 {
                     None
@@ -210,7 +212,9 @@ impl Src {
     pub fn as_imm_not_f20(&self) -> Option<u32> {
         match self.reference {
             SrcRef::Imm32(i) => {
-                assert!(self.is_unmodified());
+                if !self.is_unmodified() {
+                    return Some(i);
+                }
                 if (i & 0xfff) == 0 { None } else { Some(i) }
             }
             _ => None,

@@ -2,19 +2,19 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70f.
+**Current position**: Phase 10 — Iteration 70i.
 
-**Last completed**: CoralIR coevolution (4-phase plan): (1) CoralIR reference interpreter in `coral-reef-cpu`, (2) triple-path test infrastructure (JIT vs CoralIR interpreter vs Naga interpreter), (3) sovereign JIT runtime via `rustix` mmap/mprotect eliminating `cranelift-jit` crate + `libm`-based transcendentals, (4) progressive trust model (`ExecutionStrategy`: Interpret/Jit/ValidatedJit with `JitCache`). Workspace dependency consolidation — all 13 crate manifests use `{ workspace = true }`, codified as `WORKSPACE_DEPENDENCY_STANDARD.md` in wateringHole.
+**Last completed**: Deep debt evolution across all crates — full unwrap audit (zero violations), hardcoded path elimination (all configurable paths use `$CORALREEF_*` env-var overrides), unsafe code SAFETY documentation (all blocks annotated), bind address agnosticism (`$CORALREEF_BIND_ADDR`), large file smart refactoring (device_ops.rs, jit_validation.rs), barraCuda math validation (sigmoid/relu/elu/silu/fma/reduction/layer_norm/tiled_matmul), IPC compliance (wateringHole Conformant), dispatch boundary documentation.
 
-**Tests**: 4070+ passing, ~122 ignored hardware-gated.
+**Tests**: 4232+ passing, ~155 ignored hardware-gated.
 
-**Next focus**: Local scratch memory emulation for JIT (unblocks `for` loop patterns), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), coverage push toward 90%, toadStool E2E pipeline.
+**Next focus**: Local scratch memory emulation for JIT (unblocks `for` loop patterns), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), coverage push toward 90%, toadStool E2E pipeline, dispatch handoff to toadStool when GPU development stabilizes.
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70f — CoralIR Coevolution + Sovereign JIT + Progressive Trust + Workspace Dep Standard. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
+**Last updated**: March 31, 2026 (Phase 10 — Iteration 70i — Deep Debt Evolution + Safety Audit + Path Agnosticism. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC; zero `.unwrap()` in library code)
 
 ---
 
-## Team Evolution Priorities (Iteration 70f+)
+## Team Evolution Priorities (Iteration 70i+)
 
 ### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–70)**
 

@@ -220,7 +220,9 @@ impl Default for CompileOptions {
 /// # Errors
 ///
 /// Returns [`CompileError::UnsupportedArch`] if the target is Intel (not yet supported).
-pub fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
+pub fn shader_model_for(
+    target: GpuTarget,
+) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
     match target {
         GpuTarget::Nvidia(nv) => {
             #[expect(

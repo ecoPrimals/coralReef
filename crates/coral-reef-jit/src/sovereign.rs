@@ -65,12 +65,18 @@ pub fn translate_and_compile_sovereign(
     }
 
     let mut ctx = cranelift_codegen::Context::for_function(func);
-    #[expect(clippy::default_trait_access, reason = "ControlPlane is not re-exported from cranelift-codegen")]
+    #[expect(
+        clippy::default_trait_access,
+        reason = "ControlPlane is not re-exported from cranelift-codegen"
+    )]
     let (mut code_buf, relocs) = {
         let compiled = ctx
             .compile(&*isa, &mut Default::default())
             .map_err(|e| JitError::Compilation(format!("{e:?}")))?;
-        (compiled.code_buffer().to_vec(), compiled.buffer.relocs().to_vec())
+        (
+            compiled.code_buffer().to_vec(),
+            compiled.buffer.relocs().to_vec(),
+        )
     };
 
     apply_sovereign_relocations(&mut code_buf, &relocs, &ctx.func, &libm_names)?;
@@ -81,11 +87,17 @@ pub fn translate_and_compile_sovereign(
 
     let fn_ptr = memory.code_ptr()?;
 
-    Ok(CompiledKernel::new(CompiledBacking::Sovereign(memory), fn_ptr))
+    Ok(CompiledKernel::new(
+        CompiledBacking::Sovereign(memory),
+        fn_ptr,
+    ))
 }
 
 /// Resolve relocations in compiled code, patching in actual function addresses.
-#[expect(clippy::cast_possible_wrap, reason = "pointer arithmetic for relocations")]
+#[expect(
+    clippy::cast_possible_wrap,
+    reason = "pointer arithmetic for relocations"
+)]
 fn apply_sovereign_relocations(
     code: &mut [u8],
     relocs: &[cranelift_codegen::FinalizedMachReloc],
@@ -128,21 +140,22 @@ fn apply_sovereign_relocations(
 
         let target_addr = resolve_libm_address(name)?;
 
-        #[expect(unsafe_code, reason = "pointer arithmetic for code patching")]
-        let call_site = unsafe { code.as_ptr().add(reloc.offset as usize) } as usize;
+        let call_site = (code.as_ptr() as usize) + reloc.offset as usize;
 
         match reloc.kind {
             cranelift_codegen::binemit::Reloc::Abs8 => {
                 let off = reloc.offset as usize;
                 if off + 8 <= code.len() {
-                    code[off..off + 8]
-                        .copy_from_slice(&(target_addr as u64).to_le_bytes());
+                    code[off..off + 8].copy_from_slice(&(target_addr as u64).to_le_bytes());
                 }
             }
             cranelift_codegen::binemit::Reloc::X86PCRel4 => {
                 let pc = call_site + 4;
                 let rel = (target_addr as isize) - (pc as isize);
-                #[expect(clippy::cast_possible_truncation, reason = "x86 PC-relative relocations are 32-bit by definition")]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "x86 PC-relative relocations are 32-bit by definition"
+                )]
                 let rel32 = rel as i32;
                 let off = reloc.offset as usize;
                 if off + 4 <= code.len() {

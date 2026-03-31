@@ -182,9 +182,8 @@ fn exp118_wpr2_preserve() {
     eprintln!("\n── A2: Read WPR2 while nouveau active ──");
     eprintln!("  Trying ember.mmio.read (parasitic, no root needed)...");
 
-    let ember_rd = |off: u32| -> u32 {
-        crate::helpers::ember_mmio_read(&bdf, off).unwrap_or(0xDEAD_DEAD)
-    };
+    let ember_rd =
+        |off: u32| -> u32 { crate::helpers::ember_mmio_read(&bdf, off).unwrap_or(0xDEAD_DEAD) };
 
     // Indexed WPR reads require write-then-read; try sysfs for those, ember for rest
     let (wpr2_s_raw, wpr2_e_raw, sec2_sctl_nouveau, fecs_sctl_nouveau, gpccs_sctl_nouveau) =
@@ -207,9 +206,15 @@ fn exp118_wpr2_preserve() {
             let s = bar0_sysfs.read_u32(r118::INDEXED_WPR).unwrap_or(0);
             let _ = bar0_sysfs.write_u32(r118::INDEXED_WPR, 3);
             let e = bar0_sysfs.read_u32(r118::INDEXED_WPR).unwrap_or(0);
-            let sec2 = bar0_sysfs.read_u32(r118::SEC2_BASE + r118::SCTL).unwrap_or(0);
-            let fecs = bar0_sysfs.read_u32(r118::FECS_BASE + r118::SCTL).unwrap_or(0);
-            let gpccs = bar0_sysfs.read_u32(r118::GPCCS_BASE + r118::SCTL).unwrap_or(0);
+            let sec2 = bar0_sysfs
+                .read_u32(r118::SEC2_BASE + r118::SCTL)
+                .unwrap_or(0);
+            let fecs = bar0_sysfs
+                .read_u32(r118::FECS_BASE + r118::SCTL)
+                .unwrap_or(0);
+            let gpccs = bar0_sysfs
+                .read_u32(r118::GPCCS_BASE + r118::SCTL)
+                .unwrap_or(0);
             drop(bar0_sysfs);
             (s, e, sec2, fecs, gpccs)
         };
@@ -517,17 +522,29 @@ fn exp118_wpr2_preserve() {
                 eprintln!("\n  WPR2 header analysis:");
                 for i in 0..11u32 {
                     let base = (i * 6) as usize;
-                    if base + 5 >= wpr2_data.len() { break; }
+                    if base + 5 >= wpr2_data.len() {
+                        break;
+                    }
                     let falcon_id = wpr2_data[base];
-                    if falcon_id == 0xFFFF_FFFF { break; }
+                    if falcon_id == 0xFFFF_FFFF {
+                        break;
+                    }
                     let lsb_off = wpr2_data[base + 1];
                     let status = wpr2_data[base + 5];
                     let fname = match falcon_id {
-                        0 => "PMU", 2 => "FECS", 3 => "GPCCS", 7 => "SEC2", _ => "???",
+                        0 => "PMU",
+                        2 => "FECS",
+                        3 => "GPCCS",
+                        7 => "SEC2",
+                        _ => "???",
                     };
                     let sname = match status {
-                        0 => "NONE", 1 => "COPY", 4 => "VALID_DONE",
-                        5 => "VALID_SKIP", 6 => "BOOT_READY", _ => "?",
+                        0 => "NONE",
+                        1 => "COPY",
+                        4 => "VALID_DONE",
+                        5 => "VALID_SKIP",
+                        6 => "BOOT_READY",
+                        _ => "?",
                     };
                     eprintln!(
                         "    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({sname})"
@@ -591,8 +608,7 @@ fn exp118_wpr2_preserve() {
                         let _ = sbar0.write_u32(0x1700, window_val);
 
                         let chunk_start = chunk_idx * (1024 * 1024 / 4);
-                        let chunk_words =
-                            ((wpr2_size / 4) - chunk_start).min(1024 * 1024 / 4);
+                        let chunk_words = ((wpr2_size / 4) - chunk_start).min(1024 * 1024 / 4);
 
                         for i in 0..chunk_words {
                             let offset_in_window =

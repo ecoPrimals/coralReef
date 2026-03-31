@@ -134,6 +134,16 @@ pub struct ShaderInfo {
     pub io: ShaderIoInfo,
 }
 
+impl ShaderInfo {
+    /// Total shared (workgroup) memory in bytes, as declared by the compute shader.
+    pub fn shared_mem_bytes(&self) -> u32 {
+        match &self.stage {
+            ShaderStageInfo::Compute(cs) => u32::from(cs.shared_mem_size),
+            _ => 0,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shader struct and ISBE analysis
 // ---------------------------------------------------------------------------

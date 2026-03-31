@@ -349,11 +349,7 @@ impl GlowPlugClient {
         )
     }
 
-    pub fn mailbox_drain(
-        &mut self,
-        bdf: &str,
-        engine: &str,
-    ) -> Result<serde_json::Value, String> {
+    pub fn mailbox_drain(&mut self, bdf: &str, engine: &str) -> Result<serde_json::Value, String> {
         self.call(
             "mailbox.drain",
             serde_json::json!({"bdf": bdf, "engine": engine}),
@@ -387,11 +383,7 @@ impl GlowPlugClient {
         )
     }
 
-    pub fn ring_consume(
-        &mut self,
-        bdf: &str,
-        ring: &str,
-    ) -> Result<serde_json::Value, String> {
+    pub fn ring_consume(&mut self, bdf: &str, ring: &str) -> Result<serde_json::Value, String> {
         self.call(
             "ring.consume",
             serde_json::json!({"bdf": bdf, "ring": ring}),

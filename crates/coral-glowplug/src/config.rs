@@ -238,6 +238,15 @@ pub fn default_tcp_fallback() -> String {
     std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
 
+/// TCP bind address for `--port` listeners (`$CORALREEF_BIND_ADDR`, default `127.0.0.1`).
+#[must_use]
+pub fn tcp_bind_addr() -> String {
+    std::env::var("CORALREEF_BIND_ADDR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
 /// Runtime filesystem segment for IPC socket layout per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
 ///
 /// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`).

@@ -127,7 +127,10 @@ pub(crate) mod pbdma {
     pub const STRIDE: usize = 0x2000;
 
     /// Base address for a specific PBDMA in BAR0.
-    #[allow(dead_code, reason = "used by `#[cfg(test)]` register map tests in this module")]
+    #[allow(
+        dead_code,
+        reason = "used by `#[cfg(test)]` register map tests in this module"
+    )]
     pub const fn base(id: usize) -> usize {
         BASE + id * STRIDE
     }
@@ -486,7 +489,10 @@ pub mod misc {
     /// Bit 12: GR, Bit 22: SEC2, etc. Some bits are hardware-locked (e.g. SEC2 on GV100).
     pub const PMC_ENABLE: usize = 0x0000_0200;
     /// NV_PMC_DEVICE_ENABLE — extended engine enable.
-    #[allow(dead_code, reason = "hardware register map — used as reference during bring-up")]
+    #[allow(
+        dead_code,
+        reason = "hardware register map — used as reference during bring-up"
+    )]
     pub const PMC_DEVICE_ENABLE: usize = 0x0000_0204;
     /// NV_PGRAPH_PRI — PGRAPH status register (read-only).
     pub const PGRAPH_STATUS: usize = 0x0040_0700;
@@ -528,7 +534,10 @@ pub mod pccsr {
     }
 
     /// `INST_TARGET` = `SYS_MEM_NONCOHERENT` (bits [29:28] = 3).
-    #[allow(dead_code, reason = "used by `#[cfg(test)]` PCCSR encoding tests in page_tables")]
+    #[allow(
+        dead_code,
+        reason = "used by `#[cfg(test)]` PCCSR encoding tests in page_tables"
+    )]
     pub const INST_TARGET_SYS_MEM_NCOH: u32 = 3 << 28;
     /// `INST_BIND` = TRUE (bit 31).
     pub const INST_BIND_TRUE: u32 = 1 << 31;

@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 30, 2026  
-**Phase**: 10 — Iteration 70e (CoralIR Cranelift JIT Backend + Dual-Path Validation)
+**Last updated**: March 31, 2026  
+**Phase**: 10 — Iteration 70i (Deep Debt Evolution + Safety Audit + Path Agnosticism)
 
 ---
 
@@ -22,11 +22,11 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
-| Tests | A+ | 4070+ passing, ~122 ignored hardware-gated, ~66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, 27 JIT integration+unit tests |
-| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
+| Tests | A+ | 4232+ passing, ~155 ignored hardware-gated, ~66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, 85+ JIT/interpreter integration+unit tests |
+| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()` (audited Iter 70i); `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver + JIT codegen only (all SAFETY-documented), all ioctl via `rustix`, `libc` eliminated from direct deps, all configurable paths use `$CORALREEF_*` env-var overrides |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |

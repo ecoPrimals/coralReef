@@ -93,11 +93,7 @@ pub fn ember_mmio_read(bdf: &str, offset: u32) -> Option<u32> {
 
 /// Bulk BAR0 read via glowplug (returns offset→value map).
 /// Useful for register-level diagnostics without sysfs root access.
-pub fn glowplug_bar0_range(
-    bdf: &str,
-    offset: u64,
-    count: u64,
-) -> Option<serde_json::Value> {
+pub fn glowplug_bar0_range(bdf: &str, offset: u64, count: u64) -> Option<serde_json::Value> {
     match crate::glowplug_client::GlowPlugClient::connect() {
         Ok(mut gp) => match gp.read_bar0_range(bdf, offset, count) {
             Ok(v) => Some(v),
@@ -137,22 +133,19 @@ pub fn open_vfio_warm() -> NvVfioComputeDevice {
                         .get("fecs_ever_running")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let total_ms = result
-                        .get("total_ms")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
+                    let total_ms = result.get("total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
                     eprintln!(
                         "glowplug: warm handoff complete (fecs_running={fecs_running}, {total_ms}ms)"
                     );
                     if !fecs_running {
-                        eprintln!(
-                            "glowplug: WARNING — FECS never seen running during poll window"
-                        );
+                        eprintln!("glowplug: WARNING — FECS never seen running during poll window");
                     }
                 }
                 Err(e) => {
                     eprintln!("glowplug: warm_handoff RPC failed: {e}");
-                    eprintln!("glowplug: falling back — assuming warm handoff was done externally (coralctl warm-fecs)");
+                    eprintln!(
+                        "glowplug: falling back — assuming warm handoff was done externally (coralctl warm-fecs)"
+                    );
                 }
             }
         }
@@ -174,8 +167,7 @@ pub fn open_vfio_warm() -> NvVfioComputeDevice {
     };
 
     // Step 3: open in warm mode (preserves falcon state from nouveau)
-    NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0)
-        .expect("NvVfioComputeDevice::open_warm()")
+    NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0).expect("NvVfioComputeDevice::open_warm()")
 }
 
 /// Post-warm-handoff falcon state snapshot for regression testing.
@@ -212,10 +204,7 @@ pub fn open_vfio_warm_diagnostic() -> (NvVfioComputeDevice, WarmHandoffReport) {
                         .get("fecs_ever_running")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    report.total_ms = result
-                        .get("total_ms")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
+                    report.total_ms = result.get("total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
                     report.handoff_result = result;
                     eprintln!(
                         "glowplug: warm handoff complete (fecs_running={}, {}ms)",
@@ -247,8 +236,8 @@ pub fn open_vfio_warm_diagnostic() -> (NvVfioComputeDevice, WarmHandoffReport) {
         .unwrap_or_else(|e| panic!("warm handoff diagnostic requires ember for VFIO fds ({e})"));
     eprintln!("ember: received VFIO fds for {bdf} (WARM DIAGNOSTIC)");
 
-    let dev = NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0)
-        .expect("NvVfioComputeDevice::open_warm()");
+    let dev =
+        NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0).expect("NvVfioComputeDevice::open_warm()");
 
     (dev, report)
 }
@@ -350,14 +339,8 @@ pub fn replay_k80_bios_recipe(
             .get("offset")
             .and_then(|v| v.as_u64())
             .unwrap_or(u64::MAX);
-        let value = entry
-            .get("value")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let region = entry
-            .get("region")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let value = entry.get("value").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let region = entry.get("region").and_then(|v| v.as_str()).unwrap_or("");
 
         if offset == u64::MAX {
             result.skipped += 1;

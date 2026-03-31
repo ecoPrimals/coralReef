@@ -111,6 +111,46 @@ fn resolve_group_gid(group_name: &str) -> Option<u32> {
     coral_glowplug::group_unix::gid_for_group_name(group_name)
 }
 
+/// Create a `device.sock` domain symlink next to the bound socket path.
+///
+/// Enables capability-based discovery: consumers scan `$XDG_RUNTIME_DIR/biomeos/`
+/// for `device.sock` to find the glowplug daemon without knowing the instance name.
+/// The domain name is overridable via `CORALREEF_GLOWPLUG_DOMAIN` (default: `device`).
+#[cfg(unix)]
+fn install_domain_symlink(bound_path: &str) {
+    let bound = std::path::Path::new(bound_path);
+    let parent = match bound.parent() {
+        Some(p) if p.to_str().is_some_and(|s| s.contains("biomeos")) => p,
+        _ => return,
+    };
+    let domain = std::env::var("CORALREEF_GLOWPLUG_DOMAIN")
+        .ok()
+        .filter(|s| !s.is_empty() && !s.contains('/'))
+        .unwrap_or_else(|| "device".into());
+    let link = parent.join(format!("{domain}.sock"));
+    if link.as_path() == bound {
+        return;
+    }
+    let Some(target_name) = bound.file_name() else {
+        return;
+    };
+    if link.exists() || link.is_symlink() {
+        let _ = std::fs::remove_file(&link);
+    }
+    match std::os::unix::fs::symlink(target_name, &link) {
+        Ok(()) => tracing::info!(
+            link = %link.display(),
+            target = %target_name.to_string_lossy(),
+            "domain symlink installed"
+        ),
+        Err(e) => tracing::warn!(
+            link = %link.display(),
+            error = %e,
+            "failed to create domain symlink"
+        ),
+    }
+}
+
 /// Platform-agnostic JSON-RPC socket server (`ecoBin` compliant).
 ///
 /// Binds to either a Unix domain socket path or a TCP address.
@@ -175,6 +215,8 @@ impl SocketServer {
                 let group =
                     std::env::var("CORALREEF_SOCKET_GROUP").unwrap_or_else(|_| "coralreef".into());
                 set_socket_group(addr, &group);
+
+                install_domain_symlink(addr);
 
                 tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
                 Ok(Self {

@@ -372,7 +372,12 @@ fn exp122b_parasitic_nouveau() {
     eprintln!("  BAR0 sysfs: {} MiB", bar0.size() / (1024 * 1024));
 
     // Parasitic read: ember first, sysfs fallback
-    fn parasitic_rd(bdf: &str, bar0: &coral_driver::nv::bar0::Bar0Access, ember_ok: bool, off: u32) -> u32 {
+    fn parasitic_rd(
+        bdf: &str,
+        bar0: &coral_driver::nv::bar0::Bar0Access,
+        ember_ok: bool,
+        off: u32,
+    ) -> u32 {
         if ember_ok {
             crate::helpers::ember_mmio_read(bdf, off).unwrap_or(0xDEAD_DEAD)
         } else {

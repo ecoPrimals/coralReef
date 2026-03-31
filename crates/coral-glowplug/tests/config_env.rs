@@ -21,6 +21,7 @@ fn config_search_paths_prefers_coralreef_config() {
         std::env::set_var("CORALREEF_CONFIG", &path_str);
     }
     let paths = config_search_paths();
+    // SAFETY: serialized by `ENV_LOCK`; restoring env to clean state.
     unsafe {
         std::env::remove_var("CORALREEF_CONFIG");
     }
@@ -37,6 +38,7 @@ fn config_search_paths_uses_xdg_when_coralreef_config_unset() {
         std::env::set_var("HOME", "/tmp/home_test_glowplug");
     }
     let paths = config_search_paths();
+    // SAFETY: serialized by `ENV_LOCK`; restoring env to clean state.
     unsafe {
         std::env::remove_var("XDG_CONFIG_HOME");
         std::env::remove_var("HOME");
@@ -52,10 +54,12 @@ fn config_search_paths_uses_xdg_when_coralreef_config_unset() {
 #[test]
 fn default_tcp_fallback_respects_coralreef_tcp_bind() {
     let _guard = ENV_LOCK.lock().expect("env test lock");
+    // SAFETY: serialized by `ENV_LOCK`; no concurrent env access in this process.
     unsafe {
         std::env::set_var("CORALREEF_TCP_BIND", "127.0.0.1:4242");
     }
     let bind = default_tcp_fallback();
+    // SAFETY: serialized by `ENV_LOCK`; restoring env to clean state.
     unsafe {
         std::env::remove_var("CORALREEF_TCP_BIND");
     }
@@ -66,11 +70,13 @@ fn default_tcp_fallback_respects_coralreef_tcp_bind() {
 #[test]
 fn default_daemon_socket_includes_biomeos_family_id() {
     let _guard = ENV_LOCK.lock().expect("env test lock");
+    // SAFETY: serialized by `ENV_LOCK`; no concurrent env access in this process.
     unsafe {
         std::env::set_var("BIOMEOS_FAMILY_ID", "unit-test-family");
         std::env::set_var("XDG_RUNTIME_DIR", "/tmp/rt_glowplug_test");
     }
     let sock = DaemonConfig::default().socket;
+    // SAFETY: serialized by `ENV_LOCK`; restoring env to clean state.
     unsafe {
         std::env::remove_var("BIOMEOS_FAMILY_ID");
         std::env::remove_var("XDG_RUNTIME_DIR");

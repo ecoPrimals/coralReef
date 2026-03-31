@@ -81,11 +81,11 @@ impl JitCache {
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned.
-    #[expect(clippy::significant_drop_tightening, reason = "MutexGuard must live while entry is borrowed")]
-    pub fn get(
-        &self,
-        request: &ExecuteCpuRequest,
-    ) -> Option<(Arc<CompiledKernel>, bool)> {
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "MutexGuard must live while entry is borrowed"
+    )]
+    pub fn get(&self, request: &ExecuteCpuRequest) -> Option<(Arc<CompiledKernel>, bool)> {
         let key = shader_cache_key(request);
         let mut entries = self.entries.lock().expect("cache lock poisoned");
         let entry = entries.get_mut(&key)?;
@@ -103,12 +103,7 @@ impl JitCache {
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned.
-    pub fn insert(
-        &self,
-        request: &ExecuteCpuRequest,
-        kernel: CompiledKernel,
-        validated: bool,
-    ) {
+    pub fn insert(&self, request: &ExecuteCpuRequest, kernel: CompiledKernel, validated: bool) {
         self.insert_arc(request, Arc::new(kernel), validated);
     }
 
@@ -258,10 +253,7 @@ mod tests {
             if i % 3 == 0 {
                 assert!(needs_reval, "should trigger revalidation at exec #{i}");
             } else {
-                assert!(
-                    !needs_reval,
-                    "should NOT trigger revalidation at exec #{i}"
-                );
+                assert!(!needs_reval, "should NOT trigger revalidation at exec #{i}");
             }
         }
     }

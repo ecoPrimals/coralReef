@@ -95,23 +95,38 @@ impl WarmDiagnosticSnapshot {
             bar2_target,
             if bar2_mode == 0 { "PHYS" } else { "VIRTUAL" }
         );
-        eprintln!("║ PMC_ENABLE  = {:#010x} (GR={}, PFIFO={})",
+        eprintln!(
+            "║ PMC_ENABLE  = {:#010x} (GR={}, PFIFO={})",
             self.pmc_enable,
-            if self.pmc_enable & (1 << 12) != 0 { "ON" } else { "OFF" },
-            if self.pmc_enable & (1 << 8) != 0 { "ON" } else { "OFF" },
+            if self.pmc_enable & (1 << 12) != 0 {
+                "ON"
+            } else {
+                "OFF"
+            },
+            if self.pmc_enable & (1 << 8) != 0 {
+                "ON"
+            } else {
+                "OFF"
+            },
         );
         eprintln!("║ SCHED_EN    = {:#010x}", self.pfifo_sched_en);
 
         eprintln!("║");
         eprintln!("║ ── MMU Fault Buffers ──");
-        eprintln!("║ FB0: lo={:#010x} get={:#010x} put={:#010x}",
-            self.fault_buf0_lo, self.fault_buf0_get, self.fault_buf0_put);
-        eprintln!("║ FB1: lo={:#010x} get={:#010x} put={:#010x}",
-            self.fault_buf1_lo, self.fault_buf1_get, self.fault_buf1_put);
+        eprintln!(
+            "║ FB0: lo={:#010x} get={:#010x} put={:#010x}",
+            self.fault_buf0_lo, self.fault_buf0_get, self.fault_buf0_put
+        );
+        eprintln!(
+            "║ FB1: lo={:#010x} get={:#010x} put={:#010x}",
+            self.fault_buf1_lo, self.fault_buf1_get, self.fault_buf1_put
+        );
         let fb0_overflow = self.fault_buf0_get != (self.fault_buf0_put & 0x7FFF_FFFF);
         let fault_pending = self.fault_status != 0;
-        eprintln!("║ FAULT_STATUS={:#010x} FAULT_ADDR={:#010x}:{:#010x}",
-            self.fault_status, self.fault_addr_hi, self.fault_addr_lo);
+        eprintln!(
+            "║ FAULT_STATUS={:#010x} FAULT_ADDR={:#010x}:{:#010x}",
+            self.fault_status, self.fault_addr_hi, self.fault_addr_lo
+        );
         if fb0_overflow {
             eprintln!("║ ⚠ FB0 GET≠PUT — faults have been logged");
         }
@@ -123,15 +138,23 @@ impl WarmDiagnosticSnapshot {
         eprintln!("║ ── Falcon State ──");
         let fecs_halted = self.fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
         let fecs_stopped = self.fecs_cpuctl & falcon::CPUCTL_STOPPED != 0;
-        eprintln!("║ FECS: cpuctl={:#010x} pc={:#06x} mb0={:#010x} mb1={:#010x}",
-            self.fecs_cpuctl, self.fecs_pc, self.fecs_mailbox0, self.fecs_mailbox1);
-        eprintln!("║   halted={fecs_halted} stopped={fecs_stopped} exci={:#010x} irq={:#010x}",
-            self.fecs_exci, self.fecs_irqstat);
-        eprintln!("║   mthd_status={:#010x} mthd_status2={:#010x}",
-            self.fecs_mthd_status, self.fecs_mthd_status2);
+        eprintln!(
+            "║ FECS: cpuctl={:#010x} pc={:#06x} mb0={:#010x} mb1={:#010x}",
+            self.fecs_cpuctl, self.fecs_pc, self.fecs_mailbox0, self.fecs_mailbox1
+        );
+        eprintln!(
+            "║   halted={fecs_halted} stopped={fecs_stopped} exci={:#010x} irq={:#010x}",
+            self.fecs_exci, self.fecs_irqstat
+        );
+        eprintln!(
+            "║   mthd_status={:#010x} mthd_status2={:#010x}",
+            self.fecs_mthd_status, self.fecs_mthd_status2
+        );
         let gpccs_halted = self.gpccs_cpuctl & falcon::CPUCTL_HALTED != 0;
-        eprintln!("║ GPCCS: cpuctl={:#010x} pc={:#06x} mb0={:#010x} halted={gpccs_halted}",
-            self.gpccs_cpuctl, self.gpccs_pc, self.gpccs_mailbox0);
+        eprintln!(
+            "║ GPCCS: cpuctl={:#010x} pc={:#06x} mb0={:#010x} halted={gpccs_halted}",
+            self.gpccs_cpuctl, self.gpccs_pc, self.gpccs_mailbox0
+        );
 
         eprintln!("║");
         eprintln!("║ ── PCCSR Channels 0..7 ──");
@@ -218,10 +241,7 @@ fn exp126_warm_dispatch_diagnostic() {
                         .get("fecs_ever_running")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let total_ms = result
-                        .get("total_ms")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
+                    let total_ms = result.get("total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
                     eprintln!(
                         "  glowplug: warm handoff complete (fecs_running={fecs_running}, {total_ms}ms)"
                     );
@@ -239,7 +259,9 @@ fn exp126_warm_dispatch_diagnostic() {
         }
         Err(e) => {
             eprintln!("  glowplug not available ({e})");
-            eprintln!("  Continuing — assuming warm handoff was done externally (coralctl warm-fecs)");
+            eprintln!(
+                "  Continuing — assuming warm handoff was done externally (coralctl warm-fecs)"
+            );
         }
     }
 
@@ -276,7 +298,11 @@ fn exp126_warm_dispatch_diagnostic() {
     let fecs_responsive = fecs_probe.ctx_size.is_ok();
     eprintln!(
         "FECS method interface: {}",
-        if fecs_responsive { "RESPONSIVE" } else { "NOT RESPONDING" }
+        if fecs_responsive {
+            "RESPONSIVE"
+        } else {
+            "NOT RESPONDING"
+        }
     );
 
     // Phase 6: If FECS methods failed, try recovery strategies
@@ -312,11 +338,15 @@ fn exp126_warm_dispatch_diagnostic() {
             eprintln!("\n[Strategy D] Attempting full GR context setup...");
             match dev.setup_gr_context() {
                 Ok(ctx) => {
-                    eprintln!("  GR context ready: image={}B iova={:#x}", ctx.image_size, ctx.iova);
+                    eprintln!(
+                        "  GR context ready: image={}B iova={:#x}",
+                        ctx.image_size, ctx.iova
+                    );
                 }
                 Err(e) => {
                     eprintln!("  GR context setup failed: {e}");
-                    let snap_d = WarmDiagnosticSnapshot::capture(dev.bar0_ref(), "POST-GR-CONTEXT-FAIL");
+                    let snap_d =
+                        WarmDiagnosticSnapshot::capture(dev.bar0_ref(), "POST-GR-CONTEXT-FAIL");
                     snap_d.print();
                 }
             }
@@ -382,7 +412,8 @@ fn exp126_warm_dispatch_diagnostic() {
         }
         Err(e) => {
             eprintln!("sync failed: {e}");
-            let snap_timeout = WarmDiagnosticSnapshot::capture(dev.bar0_ref(), "POST-FENCE-TIMEOUT");
+            let snap_timeout =
+                WarmDiagnosticSnapshot::capture(dev.bar0_ref(), "POST-FENCE-TIMEOUT");
             snap_timeout.print();
 
             let diag_post = dev.layer7_diagnostics("EXP126-POST-TIMEOUT");
@@ -411,15 +442,22 @@ fn analyze_timeout_root_cause(pre: &WarmDiagnosticSnapshot, post: &WarmDiagnosti
             eprintln!("  → FECS has exception: exci={:#010x}", post.fecs_exci);
         }
     } else {
-        eprintln!("  → FECS appears running (cpuctl={:#010x})", post.fecs_cpuctl);
-        eprintln!("    Method interface status: {:#010x}/{:#010x}",
-            post.fecs_mthd_status, post.fecs_mthd_status2);
+        eprintln!(
+            "  → FECS appears running (cpuctl={:#010x})",
+            post.fecs_cpuctl
+        );
+        eprintln!(
+            "    Method interface status: {:#010x}/{:#010x}",
+            post.fecs_mthd_status, post.fecs_mthd_status2
+        );
     }
 
     // Check if MMU fault occurred
     if post.fault_status != 0 {
-        eprintln!("  → MMU fault detected! status={:#010x} addr={:#010x}:{:#010x}",
-            post.fault_status, post.fault_addr_hi, post.fault_addr_lo);
+        eprintln!(
+            "  → MMU fault detected! status={:#010x} addr={:#010x}:{:#010x}",
+            post.fault_status, post.fault_addr_hi, post.fault_addr_lo
+        );
     }
 
     // Check PCCSR state change
@@ -481,11 +519,9 @@ fn exp126_warm_with_pccsr_cleanup() {
         }
     }
 
-    let fds = crate::ember_client::request_fds(&bdf)
-        .expect("warm diagnostic requires ember");
+    let fds = crate::ember_client::request_fds(&bdf).expect("warm diagnostic requires ember");
 
-    let mut dev = NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0)
-        .expect("open_warm");
+    let mut dev = NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0).expect("open_warm");
 
     // Proactive cleanup: clear ALL stale PCCSR
     clear_all_stale_pccsr(dev.bar0_ref());
@@ -520,8 +556,13 @@ fn exp126_warm_with_pccsr_cleanup() {
         wave_size: 32,
     };
 
-    dev.dispatch(&compiled.binary, &[], coral_driver::DispatchDims::linear(1), &info)
-        .expect("dispatch");
+    dev.dispatch(
+        &compiled.binary,
+        &[],
+        coral_driver::DispatchDims::linear(1),
+        &info,
+    )
+    .expect("dispatch");
 
     use coral_driver::ComputeDevice;
     match dev.sync() {

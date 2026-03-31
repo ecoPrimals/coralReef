@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Iteration 70f (CoralIR Coevolution + Sovereign JIT + Progressive Trust)  
+**Status**: Phase 10+ — Iteration 70i (Deep Debt Evolution + Hardcoded Path Elimination + Full Safety Audit)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary + CPU shader execution via sovereign Cranelift JIT
 
 ---
@@ -12,6 +12,7 @@
 coralReef is a pure-Rust GPU shader compiler. It compiles WGSL,
 SPIR-V, and GLSL 450 compute shaders to native GPU binaries, with
 full f64 transcendental support. Zero C dependencies, zero libc, FxHashMap internalized, zero vendor lock-in.
+All configurable paths use env-var overrides with sane defaults — zero hardcoded system paths in production code.
 
 NVIDIA backend complete (SM35–SM120: Kepler through Blackwell). AMD backend operational
 (RDNA2/GFX1030 — RX 6950 XT on-site, GCN5/GFX906 — MI50 E2E verified). Both share the same IR,
@@ -36,7 +37,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 4070+ passing, 0 failed (~122 ignored hardware-gated)
+cargo test --workspace     # 4232+ passing, 0 failed (~155 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

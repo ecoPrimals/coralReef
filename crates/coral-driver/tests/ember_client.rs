@@ -34,8 +34,7 @@ fn simple_rpc(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let socket_path = ember_socket_path();
-    let stream =
-        UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
+    let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
     stream
         .set_read_timeout(Some(timeout))
         .map_err(|e| format!("set timeout: {e}"))?;
@@ -97,7 +96,11 @@ pub fn list() -> Result<Vec<String>, String> {
 
 /// Get ember daemon status (held devices + uptime).
 pub fn status() -> Result<serde_json::Value, String> {
-    simple_rpc("ember.status", serde_json::json!({}), Duration::from_secs(5))
+    simple_rpc(
+        "ember.status",
+        serde_json::json!({}),
+        Duration::from_secs(5),
+    )
 }
 
 /// Release ember's hold on a device's VFIO fds (for VM passthrough or swap).

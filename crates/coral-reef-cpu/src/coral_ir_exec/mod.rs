@@ -10,11 +10,17 @@
 //! gap. Clippy's exhaustive-match lint enforces parity.
 
 mod eval_ops;
+pub(crate) mod mem_ops;
+mod workgroup;
 
 use std::collections::HashMap;
 
 use coral_reef::codegen::ir::{
-    self, Dst, LogicOp2, MemSpace, Op, Phi, Pred, PredRef, Shader, Src, SrcMod, SrcRef,
+    self, Dst, LogicOp2, MemSpace, Op, Phi, Pred, PredRef, Src, SrcMod, SrcRef,
+};
+use mem_ops::{
+    BUFFER_STRIDE, eval_atomic, read_u32_from_buffers, read_u32_from_shared, write_u32_to_buffers,
+    write_u32_to_shared,
 };
 
 use crate::types::{BindingData, CpuError, ExecuteCpuResponse};
@@ -41,7 +47,10 @@ impl RegValue {
         }
     }
 
-    #[expect(clippy::cast_possible_wrap, reason = "register-width reinterpret u32↔i32")]
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "register-width reinterpret u32↔i32"
+    )]
     fn as_i32(&self) -> i32 {
         self.as_u32() as i32
     }
@@ -97,8 +106,8 @@ struct InvocationCtx {
 
 /// Execute a compiled `CoralIR` shader on the CPU, returning modified bindings.
 ///
-/// This is the reference executor entry point. It compiles WGSL to `CoralIR` via
-/// the same pipeline the GPU backends use, then interprets the resulting ops.
+/// Uses cooperative scheduling: all invocations within a workgroup advance to
+/// each barrier before any invocation proceeds past it, matching GPU semantics.
 ///
 /// # Errors
 ///
@@ -124,24 +133,21 @@ pub fn execute_coral_ir(
     let mut buffers: Vec<Vec<u8>> = request.bindings.iter().map(|b| b.data.to_vec()).collect();
 
     let workgroup_size = crate::extract_workgroup_size(&shader);
+    let shared_mem_bytes = shader.info.shared_mem_bytes();
     let [wg_count_x, wg_count_y, wg_count_z] = request.workgroups;
 
     for wg_z in 0..wg_count_z {
         for wg_y in 0..wg_count_y {
             for wg_x in 0..wg_count_x {
-                for tz in 0..workgroup_size[2] {
-                    for ty in 0..workgroup_size[1] {
-                        for tx in 0..workgroup_size[0] {
-                            let ctx = InvocationCtx {
-                                workgroup_id: [wg_x, wg_y, wg_z],
-                                local_id: [tx, ty, tz],
-                                num_workgroups: [wg_count_x, wg_count_y, wg_count_z],
-                                workgroup_size,
-                            };
-                            execute_invocation(&shader, &mut buffers, &ctx)?;
-                        }
-                    }
-                }
+                let mut shared_mem = vec![0u8; shared_mem_bytes as usize];
+                workgroup::execute_workgroup(
+                    &shader,
+                    &mut buffers,
+                    &mut shared_mem,
+                    [wg_x, wg_y, wg_z],
+                    [wg_count_x, wg_count_y, wg_count_z],
+                    workgroup_size,
+                )?;
             }
         }
     }
@@ -172,88 +178,30 @@ pub fn execute_coral_ir(
     })
 }
 
-fn execute_invocation(
-    shader: &Shader<'_>,
-    buffers: &mut [Vec<u8>],
-    ctx: &InvocationCtx,
-) -> Result<(), CpuError> {
-    if shader.functions.is_empty() {
-        return Ok(());
-    }
-
-    let func = &shader.functions[0];
-    let mut regs: HashMap<u32, RegValue> = HashMap::new();
-    let mut phi_state: HashMap<Phi, RegValue> = HashMap::new();
-
-    let label_to_block: HashMap<String, usize> = func
-        .blocks
-        .iter()
-        .enumerate()
-        .map(|(i, bb)| (format!("{}", bb.label), i))
-        .collect();
-
-    let mut block_idx = 0;
-    while block_idx < func.blocks.len() {
-        let bb = &func.blocks[block_idx];
-        let mut next_block = Some(block_idx + 1);
-
-        for instr in &bb.instrs {
-            if instr.pred.is_false() {
-                continue;
-            }
-            if !instr.pred.is_true() && !eval_pred(&instr.pred, &regs) {
-                continue;
-            }
-            match eval_op(
-                &instr.op,
-                &mut regs,
-                &mut phi_state,
-                buffers,
-                ctx,
-                &label_to_block,
-            )? {
-                OpEffect::Continue => {}
-                OpEffect::Branch(target_idx) => {
-                    next_block = Some(target_idx);
-                    break;
-                }
-                OpEffect::Exit => {
-                    return Ok(());
-                }
-            }
-        }
-
-        match next_block {
-            Some(idx) if idx < func.blocks.len() => block_idx = idx,
-            _ => return Ok(()),
-        }
-    }
-
-    Ok(())
-}
-
 enum OpEffect {
     Continue,
     Branch(usize),
     Exit,
+    Barrier,
 }
 
 fn eval_pred(pred: &Pred, regs: &HashMap<u32, RegValue>) -> bool {
     let raw = match &pred.predicate {
-        PredRef::SSA(ssa) => regs
-            .get(&ssa.idx())
-            .is_some_and(RegValue::as_bool),
+        PredRef::SSA(ssa) => regs.get(&ssa.idx()).is_some_and(RegValue::as_bool),
         PredRef::None | PredRef::Reg(_) => true,
     };
     if pred.inverted { !raw } else { raw }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn eval_op(
     op: &Op,
     regs: &mut HashMap<u32, RegValue>,
     phi_state: &mut HashMap<Phi, RegValue>,
     buffers: &mut [Vec<u8>],
+    shared_mem: &mut [u8],
+    shared_snapshot: &[u8],
+    shared_writes: &mut HashMap<usize, u32>,
     ctx: &InvocationCtx,
     label_to_block: &HashMap<String, usize>,
 ) -> Result<OpEffect, CpuError> {
@@ -346,7 +294,11 @@ fn eval_op(
             let a = resolve_u32(&op.srcs[0], regs, buffers, ctx)?;
             let b = resolve_u32(&op.srcs[1], regs, buffers, ctx)?;
             let c = resolve_u32(&op.srcs[2], regs, buffers, ctx)?;
-            def_dst(&op.dsts[0], RegValue::I32(a.wrapping_add(b).wrapping_add(c)), regs);
+            def_dst(
+                &op.dsts[0],
+                RegValue::I32(a.wrapping_add(b).wrapping_add(c)),
+                regs,
+            );
         }
         Op::IAdd2(op) => {
             let a = resolve_u32(&op.srcs[0], regs, buffers, ctx)?;
@@ -357,7 +309,11 @@ fn eval_op(
             let a = resolve_u32(&op.srcs[0], regs, buffers, ctx)?;
             let b = resolve_u32(&op.srcs[1], regs, buffers, ctx)?;
             let c = resolve_u32(&op.srcs[2], regs, buffers, ctx)?;
-            def_dst(&op.dst, RegValue::I32(a.wrapping_mul(b).wrapping_add(c)), regs);
+            def_dst(
+                &op.dst,
+                RegValue::I32(a.wrapping_mul(b).wrapping_add(c)),
+                regs,
+            );
         }
         Op::IMul(op) => {
             let a = resolve_u32(&op.srcs[0], regs, buffers, ctx)?;
@@ -413,6 +369,24 @@ fn eval_op(
             };
             def_dst(&op.dst, RegValue::I32(result), regs);
         }
+        Op::Shf(op) => {
+            let low = resolve_u32(&op.srcs[0], regs, buffers, ctx)?;
+            let high = resolve_u32(&op.srcs[1], regs, buffers, ctx)?;
+            let shift = resolve_u32(&op.srcs[2], regs, buffers, ctx)? & 0x1f;
+            let combined = (u64::from(high) << 32) | u64::from(low);
+            let shifted = if op.right {
+                combined >> shift
+            } else {
+                combined << shift
+            };
+            #[expect(clippy::cast_possible_truncation, reason = "extract 32-bit half")]
+            let result = if op.dst_high {
+                (shifted >> 32) as u32
+            } else {
+                shifted as u32
+            };
+            def_dst(&op.dst, RegValue::I32(result), regs);
+        }
         Op::PopC(op) => {
             let a = resolve_u32_unary(&op.src, regs, buffers, ctx)?;
             def_dst(&op.dst, RegValue::I32(a.count_ones()), regs);
@@ -451,7 +425,10 @@ fn eval_op(
             };
             def_dst(&op.dst, RegValue::F32(result), regs);
         }
-        #[expect(clippy::cast_possible_truncation, reason = "f64→f32 demotion mirrors GPU semantics")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "f64→f32 demotion mirrors GPU semantics"
+        )]
         Op::F2F(op) => {
             let src = resolve_float(&op.src, op.src_type, regs, buffers, ctx)?;
             match op.dst_type {
@@ -463,7 +440,10 @@ fn eval_op(
             let src = resolve_u32_unary(&op.src, regs, buffers, ctx)?;
             def_dst(&op.dst, RegValue::I32(src), regs);
         }
-        #[expect(clippy::cast_possible_truncation, reason = "f64→f32 demotion mirrors GPU semantics")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "f64→f32 demotion mirrors GPU semantics"
+        )]
         Op::FRnd(op) => {
             let src = resolve_float(&op.src, op.src_type, regs, buffers, ctx)?;
             let rounded = eval_ops::apply_rnd_mode(src, op.rnd_mode);
@@ -474,26 +454,55 @@ fn eval_op(
         }
 
         // --- Memory ---
-        Op::Ld(op) => {
-            if !matches!(op.access.space, MemSpace::Global(_)) {
-                return Err(CpuError::Unsupported("Ld from non-global memory".into()));
+        Op::Ld(op) => match op.access.space {
+            MemSpace::Shared => {
+                let base = resolve_u32(&op.addr, regs, buffers, ctx)?;
+                #[expect(
+                    clippy::cast_sign_loss,
+                    reason = "shared memory offsets reinterpreted as unsigned"
+                )]
+                let byte_off = (base as usize).wrapping_add(op.offset as usize);
+                let val = shared_writes
+                    .get(&byte_off)
+                    .copied()
+                    .unwrap_or_else(|| read_u32_from_shared(shared_snapshot, byte_off));
+                def_dst(&op.dst, RegValue::I32(val), regs);
             }
-            let addr = resolve_addr(&op.addr, regs, buffers, ctx)?;
-            #[expect(clippy::cast_sign_loss, reason = "memory offsets reinterpreted as unsigned")]
-            let final_addr = addr.wrapping_add(op.offset as usize);
-            let val = read_u32_from_buffers(buffers, final_addr);
-            def_dst(&op.dst, RegValue::I32(val), regs);
-        }
-        Op::St(op) => {
-            if !matches!(op.access.space, MemSpace::Global(_)) {
-                return Err(CpuError::Unsupported("St to non-global memory".into()));
+            MemSpace::Global(_) => {
+                let addr = resolve_addr(&op.addr, regs, buffers, ctx)?;
+                #[expect(
+                    clippy::cast_sign_loss,
+                    reason = "memory offsets reinterpreted as unsigned"
+                )]
+                let final_addr = addr.wrapping_add(op.offset as usize);
+                let val = read_u32_from_buffers(buffers, final_addr);
+                def_dst(&op.dst, RegValue::I32(val), regs);
             }
-            let addr = resolve_addr(&op.srcs[0], regs, buffers, ctx)?;
-            let data = resolve_u32(&op.srcs[1], regs, buffers, ctx)?;
-            #[expect(clippy::cast_sign_loss, reason = "memory offsets reinterpreted as unsigned")]
-            let final_addr = addr.wrapping_add(op.offset as usize);
-            write_u32_to_buffers(buffers, final_addr, data);
-        }
+            MemSpace::Local => return Err(CpuError::Unsupported("Ld from local memory".into())),
+        },
+        Op::St(op) => match op.access.space {
+            MemSpace::Shared => {
+                let base = resolve_u32(&op.srcs[0], regs, buffers, ctx)?;
+                let data = resolve_u32(&op.srcs[1], regs, buffers, ctx)?;
+                #[expect(
+                    clippy::cast_sign_loss,
+                    reason = "shared memory offsets reinterpreted as unsigned"
+                )]
+                let byte_off = (base as usize).wrapping_add(op.offset as usize);
+                shared_writes.insert(byte_off, data);
+            }
+            MemSpace::Global(_) => {
+                let addr = resolve_addr(&op.srcs[0], regs, buffers, ctx)?;
+                let data = resolve_u32(&op.srcs[1], regs, buffers, ctx)?;
+                #[expect(
+                    clippy::cast_sign_loss,
+                    reason = "memory offsets reinterpreted as unsigned"
+                )]
+                let final_addr = addr.wrapping_add(op.offset as usize);
+                write_u32_to_buffers(buffers, final_addr, data);
+            }
+            MemSpace::Local => return Err(CpuError::Unsupported("St to local memory".into())),
+        },
 
         // --- Control flow ---
         Op::Bra(op) => {
@@ -555,10 +564,7 @@ fn eval_op(
         }
         Op::PhiDsts(op) => {
             for (phi, dst) in op.dsts.iter() {
-                let val = phi_state
-                    .get(phi)
-                    .cloned()
-                    .unwrap_or(RegValue::I32(0));
+                let val = phi_state.get(phi).cloned().unwrap_or(RegValue::I32(0));
                 def_dst(dst, val, regs);
             }
         }
@@ -567,12 +573,46 @@ fn eval_op(
             def_dst(&op.dst, RegValue::I32(0), regs);
         }
 
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "atomic offset reinterpreted as unsigned"
+        )]
+        Op::Atom(op) => {
+            let data = resolve_u32(&op.srcs[2], regs, buffers, ctx)?;
+            let old = match op.mem_space {
+                MemSpace::Shared => {
+                    let off = (resolve_u32(&op.srcs[0], regs, buffers, ctx)? as usize)
+                        .wrapping_add(op.addr_offset as usize);
+                    let cur = read_u32_from_shared(shared_mem, off);
+                    write_u32_to_shared(shared_mem, off, eval_atomic(op.atom_op, cur, data));
+                    cur
+                }
+                MemSpace::Global(_) => {
+                    let off = resolve_addr(&op.srcs[0], regs, buffers, ctx)?
+                        .wrapping_add(op.addr_offset as usize);
+                    let cur = read_u32_from_buffers(buffers, off);
+                    write_u32_to_buffers(buffers, off, eval_atomic(op.atom_op, cur, data));
+                    cur
+                }
+                MemSpace::Local => return Err(CpuError::Unsupported("Atom in local".into())),
+            };
+            def_dst(&op.dst, RegValue::I32(old), regs);
+        }
+
         // --- No-ops ---
-        Op::Nop(_) | Op::Annotate(_) | Op::Bar(_) | Op::MemBar(_) => {}
+        Op::Nop(_) | Op::Annotate(_) | Op::MemBar(_) => {}
+        Op::Bar(_) => return Ok(OpEffect::Barrier),
 
         // --- Unsupported categories ---
-        Op::Tex(_) | Op::Tld(_) | Op::Tld4(_) | Op::Tmml(_) | Op::Txd(_) | Op::Txq(_)
-        | Op::SuLd(_) | Op::SuSt(_) | Op::SuAtom(_) => {
+        Op::Tex(_)
+        | Op::Tld(_)
+        | Op::Tld4(_)
+        | Op::Tmml(_)
+        | Op::Txd(_)
+        | Op::Txq(_)
+        | Op::SuLd(_)
+        | Op::SuSt(_)
+        | Op::SuAtom(_) => {
             return Err(CpuError::Unsupported("texture operations".into()));
         }
         Op::Vote(_) | Op::Match(_) | Op::Redux(_) | Op::Shfl(_) => {
@@ -588,7 +628,7 @@ fn eval_op(
 
 fn eval_sys_reg(idx: u8, ctx: &InvocationCtx) -> Result<u32, CpuError> {
     use coral_reef_jit_builtins::{
-        SR_CTAID_X, SR_CTAID_Y, SR_CTAID_Z, SR_CLOCK_LO, SR_LANEID, SR_NCTAID_X, SR_NCTAID_Y,
+        SR_CLOCK_LO, SR_CTAID_X, SR_CTAID_Y, SR_CTAID_Z, SR_LANEID, SR_NCTAID_X, SR_NCTAID_Y,
         SR_NCTAID_Z, SR_NTID_X, SR_NTID_Y, SR_NTID_Z, SR_TID_X, SR_TID_Y, SR_TID_Z,
     };
     match idx {
@@ -654,10 +694,6 @@ fn resolve_src_ref(
         )),
     }
 }
-
-/// Each buffer gets a unique 1 MB address region so that `Ld`/`St` addresses
-/// can be decoded back into (buffer index, byte offset) pairs.
-const BUFFER_STRIDE: u32 = 0x10_0000;
 
 #[expect(clippy::cast_possible_truncation, reason = "buffer index fits in u32")]
 fn resolve_cbuf(cbuf: &ir::CBufRef, buffers: &[Vec<u8>]) -> Result<RegValue, CpuError> {
@@ -847,37 +883,5 @@ fn def_dst_f64(dst: &Dst, val: f64, regs: &mut HashMap<u32, RegValue>) {
             regs.insert(ssa_ref[1].idx(), RegValue::F64(val));
         }
         regs.insert(ssa_ref[0].idx(), RegValue::F64(val));
-    }
-}
-
-// --- Buffer memory helpers ---
-
-/// Decode a synthetic address into (buffer index, byte offset).
-const fn decode_addr(addr: usize) -> (usize, usize) {
-    let stride = BUFFER_STRIDE as usize;
-    (addr / stride, addr % stride)
-}
-
-fn read_u32_from_buffers(buffers: &[Vec<u8>], addr: usize) -> u32 {
-    let (buf_idx, byte_off) = decode_addr(addr);
-    if let Some(buf) = buffers.get(buf_idx) {
-        if byte_off + 4 <= buf.len() {
-            return u32::from_le_bytes([
-                buf[byte_off],
-                buf[byte_off + 1],
-                buf[byte_off + 2],
-                buf[byte_off + 3],
-            ]);
-        }
-    }
-    0
-}
-
-fn write_u32_to_buffers(buffers: &mut [Vec<u8>], addr: usize, val: u32) {
-    let (buf_idx, byte_off) = decode_addr(addr);
-    if let Some(buf) = buffers.get_mut(buf_idx) {
-        if byte_off + 4 <= buf.len() {
-            buf[byte_off..byte_off + 4].copy_from_slice(&val.to_le_bytes());
-        }
     }
 }

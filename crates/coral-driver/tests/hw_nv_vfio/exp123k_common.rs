@@ -10,9 +10,7 @@ use coral_driver::nv::kepler_falcon;
 /// the exp123k tests use, enabling root-free register diagnostics.
 pub enum K80Bar0 {
     /// Daemon-backed: reads via ember.mmio.read, writes via glowplug.write_register.
-    Daemon {
-        bdf: String,
-    },
+    Daemon { bdf: String },
     /// Direct sysfs mmap (requires root or BAR0 permissions).
     Sysfs(Bar0Access),
 }
@@ -33,7 +31,10 @@ impl K80Bar0 {
             eprintln!("  K80Bar0: ember unavailable, trying sysfs for {sysfs_dev}");
             match Bar0Access::from_sysfs_device(sysfs_dev) {
                 Ok(bar0) => {
-                    eprintln!("  K80Bar0: sysfs BAR0 open OK ({} MiB)", bar0.size() / (1024 * 1024));
+                    eprintln!(
+                        "  K80Bar0: sysfs BAR0 open OK ({} MiB)",
+                        bar0.size() / (1024 * 1024)
+                    );
                     K80Bar0::Sysfs(bar0)
                 }
                 Err(e) => panic!("K80Bar0: cannot open BAR0 (no ember, no sysfs): {e}"),
@@ -65,11 +66,12 @@ impl RegisterAccess for K80Bar0 {
     fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {
         match self {
             K80Bar0::Daemon { bdf } => {
-                let mut gp = crate::glowplug_client::GlowPlugClient::connect()
-                    .map_err(|e| ApplyError::MmioFailed {
+                let mut gp = crate::glowplug_client::GlowPlugClient::connect().map_err(|e| {
+                    ApplyError::MmioFailed {
                         offset,
                         detail: format!("glowplug connect: {e}"),
-                    })?;
+                    }
+                })?;
                 gp.write_register(bdf, offset as u64, value, true)
                     .map_err(|e| ApplyError::MmioFailed {
                         offset,
@@ -320,7 +322,10 @@ pub fn find_bit_init_tables(rom: &[u8]) -> (usize, usize) {
 }
 
 /// Minimal VBIOS init script interpreter using `Bar0Access`.
-pub fn interpret_vbios_scripts(bar0: &mut impl RegisterAccess, rom: &[u8]) -> (usize, usize, usize) {
+pub fn interpret_vbios_scripts(
+    bar0: &mut impl RegisterAccess,
+    rom: &[u8],
+) -> (usize, usize, usize) {
     let (init_tables_base, cond_table) = find_bit_init_tables(rom);
     // init_tables_base is a pointer to a list of u16 script pointers (direct from BIT 'I' offset 0)
     let script_table = init_tables_base;

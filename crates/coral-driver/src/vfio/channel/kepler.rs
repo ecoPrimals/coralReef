@@ -98,10 +98,7 @@ impl KeplerChannel {
             channel_id,
             KEPLER_PDB_IOVA,
         );
-        kepler_page_tables::populate_kepler_runlist(
-            chan.runlist.as_mut_slice(),
-            channel_id,
-        );
+        kepler_page_tables::populate_kepler_runlist(chan.runlist.as_mut_slice(), channel_id);
 
         Self::invalidate_kepler_tlb(bar0)?;
 
@@ -140,8 +137,9 @@ impl KeplerChannel {
     /// Toggle 0x2200 to reset PFIFO, enable scheduler, discover GR runlist.
     fn init_kepler_pfifo(bar0: &MappedBar) -> DriverResult<u32> {
         let w = |reg: usize, val: u32| -> DriverResult<()> {
-            bar0.write_u32(reg, val)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {e}"))))
+            bar0.write_u32(reg, val).map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {e}")))
+            })
         };
 
         // Clear any pending PFIFO interrupts.
@@ -194,9 +192,12 @@ impl KeplerChannel {
 
         let pdb_inv = ((KEPLER_PDB_IOVA >> 12) << 4) | 2; // SYS_MEM_COH
         bar0.write_u32(pfb::MMU_INVALIDATE_PDB, pdb_inv as u32)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB: {e}"))))?;
-        bar0.write_u32(pfb::MMU_INVALIDATE_PDB_HI, 0)
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB_HI: {e}"))))?;
+            .map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB: {e}")))
+            })?;
+        bar0.write_u32(pfb::MMU_INVALIDATE_PDB_HI, 0).map_err(|e| {
+            DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB_HI: {e}")))
+        })?;
 
         // Trigger: PAGE_ALL | HUB_ONLY | trigger.
         bar0.write_u32(pfb::MMU_INVALIDATE, 0x8000_0005)
@@ -218,7 +219,9 @@ impl KeplerChannel {
     fn clear_stale_pccsr(bar0: &MappedBar, channel_id: u32, stale: u32) -> DriverResult<()> {
         if stale & 1 != 0 {
             bar0.write_u32(pccsr::channel(channel_id), pccsr::CHANNEL_ENABLE_CLR)
-                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR disable: {e}"))))?;
+                .map_err(|e| {
+                    DriverError::SubmitFailed(Cow::Owned(format!("PCCSR disable: {e}")))
+                })?;
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         bar0.write_u32(
@@ -273,8 +276,8 @@ impl KeplerChannel {
 
     /// Submit runlist using GK104 registers (stride 0x08).
     fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
-        let rl_base = kepler_pfifo::gk104_runlist_base_value(RUNLIST_IOVA)
-            | (TARGET_SYS_MEM_COHERENT << 28);
+        let rl_base =
+            kepler_pfifo::gk104_runlist_base_value(RUNLIST_IOVA) | (TARGET_SYS_MEM_COHERENT << 28);
         // GK104 runlist has 1 entry (one channel, no TSG header).
         let rl_submit = kepler_pfifo::gk104_runlist_submit_value(RUNLIST_IOVA, 1);
 

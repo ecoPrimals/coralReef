@@ -15,7 +15,10 @@ use crate::types::CpuError;
 /// `OrdEq`/`OrdNe`). Using approximate comparison here would be incorrect —
 /// tolerance belongs in the validation layer, not the executor.
 #[must_use]
-#[expect(clippy::float_cmp, reason = "GPU comparison semantics require exact IEEE 754 equality")]
+#[expect(
+    clippy::float_cmp,
+    reason = "GPU comparison semantics require exact IEEE 754 equality"
+)]
 pub fn float_cmp(a: f32, b: f32, cmp: FloatCmpOp) -> bool {
     match cmp {
         FloatCmpOp::OrdEq => a == b,
@@ -37,7 +40,10 @@ pub fn float_cmp(a: f32, b: f32, cmp: FloatCmpOp) -> bool {
 
 /// Evaluate an f64 comparison.
 #[must_use]
-#[expect(clippy::float_cmp, reason = "GPU comparison semantics require exact IEEE 754 equality")]
+#[expect(
+    clippy::float_cmp,
+    reason = "GPU comparison semantics require exact IEEE 754 equality"
+)]
 pub fn float_cmp_f64(a: f64, b: f64, cmp: FloatCmpOp) -> bool {
     match cmp {
         FloatCmpOp::OrdEq => a == b,
@@ -59,7 +65,10 @@ pub fn float_cmp_f64(a: f64, b: f64, cmp: FloatCmpOp) -> bool {
 
 /// Evaluate an integer comparison.
 #[must_use]
-#[expect(clippy::cast_sign_loss, reason = "unsigned comparison reinterprets i32 bit pattern")]
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "unsigned comparison reinterprets i32 bit pattern"
+)]
 pub const fn int_cmp(a: i32, b: i32, cmp: IntCmpOp, signed: bool) -> bool {
     if signed {
         match cmp {

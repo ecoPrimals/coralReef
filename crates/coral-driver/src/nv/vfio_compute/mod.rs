@@ -121,7 +121,6 @@ pub struct NvVfioComputeDevice {
     device: VfioDevice,
 }
 
-
 impl NvVfioComputeDevice {
     /// The SM architecture version of this device (auto-detected or validated).
     #[must_use]
@@ -316,25 +315,16 @@ impl NvVfioComputeDevice {
         userd_iova: u64,
     ) -> DriverResult<GpuChannel> {
         if sm_version >= 70 {
-            let ch = VfioChannel::create(
-                container,
-                bar0,
-                gpfifo_iova,
-                gpfifo_entries,
-                userd_iova,
-                0,
-            )?;
+            let ch =
+                VfioChannel::create(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, 0)?;
             Ok(GpuChannel::Volta(ch))
         } else {
-            tracing::info!(sm_version, "using Kepler channel path (GF100 V1 page tables)");
-            let ch = KeplerChannel::create(
-                container,
-                bar0,
-                gpfifo_iova,
-                gpfifo_entries,
-                userd_iova,
-                0,
-            )?;
+            tracing::info!(
+                sm_version,
+                "using Kepler channel path (GF100 V1 page tables)"
+            );
+            let ch =
+                KeplerChannel::create(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, 0)?;
             Ok(GpuChannel::Kepler(ch))
         }
     }
@@ -471,7 +461,10 @@ impl NvVfioComputeDevice {
             let _ = bar0.write_u32(pccsr::inst(ch), 0);
             cleared += 1;
         }
-        tracing::info!(cleared, "warm: cleared stale PCCSR entries (nouveau residue)");
+        tracing::info!(
+            cleared,
+            "warm: cleared stale PCCSR entries (nouveau residue)"
+        );
     }
 
     /// Reads GR engine diagnostic status from BAR0 registers.
@@ -903,5 +896,4 @@ mod tests {
     fn local_mem_window_legacy() {
         assert_eq!(LOCAL_MEM_WINDOW_LEGACY, 0xFF00_0000);
     }
-
 }

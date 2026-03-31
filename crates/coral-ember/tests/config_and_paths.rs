@@ -133,8 +133,8 @@ fn find_config_prefers_xdg_over_system_path() {
     let found = coral_ember::find_config();
     assert_eq!(found.as_deref(), Some(xdg_cfg.to_str().expect("utf8 xdg")));
 
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = saved_home {
-        // SAFETY: `ENV_LOCK` held.
         unsafe { env_set_var("HOME", &v) };
     } else {
         unsafe { env_remove_var("HOME") };
@@ -165,6 +165,7 @@ fn find_config_falls_back_to_system_when_xdg_missing() {
     let saved_xdg = std::env::var("XDG_CONFIG_HOME").ok();
     let saved_glow = std::env::var("CORALREEF_GLOWPLUG_CONFIG").ok();
 
+    // SAFETY: `ENV_LOCK` held; setting up test env.
     unsafe {
         env_remove_var("XDG_CONFIG_HOME");
         env_set_var("HOME", home.to_str().expect("utf8 home"));
@@ -177,6 +178,7 @@ fn find_config_falls_back_to_system_when_xdg_missing() {
     let found = coral_ember::find_config();
     assert_eq!(found.as_deref(), Some(system.to_str().expect("utf8 path")));
 
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = saved_home {
         unsafe { env_set_var("HOME", &v) };
     } else {
@@ -205,6 +207,7 @@ fn find_config_none_when_no_candidates_exist() {
     let saved_xdg = std::env::var("XDG_CONFIG_HOME").ok();
     let saved_glow = std::env::var("CORALREEF_GLOWPLUG_CONFIG").ok();
 
+    // SAFETY: `ENV_LOCK` held; setting up test env.
     unsafe {
         env_remove_var("XDG_CONFIG_HOME");
         env_set_var("HOME", home.to_str().expect("utf8 home"));
@@ -216,6 +219,7 @@ fn find_config_none_when_no_candidates_exist() {
 
     assert!(coral_ember::find_config().is_none());
 
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = saved_home {
         unsafe { env_set_var("HOME", &v) };
     } else {
@@ -317,6 +321,7 @@ fn find_config_prefers_explicit_xdg_config_home() {
     let saved_home = std::env::var("HOME").ok();
     let saved_glow = std::env::var("CORALREEF_GLOWPLUG_CONFIG").ok();
 
+    // SAFETY: `ENV_LOCK` held; setting up test env.
     unsafe {
         env_set_var("XDG_CONFIG_HOME", xdg_base.to_str().expect("utf8 xdg base"));
         env_set_var("HOME", "/nonexistent-coral-ember-home-for-test");
@@ -332,6 +337,7 @@ fn find_config_prefers_explicit_xdg_config_home() {
     let found = coral_ember::find_config();
     assert_eq!(found.as_deref(), Some(xdg_cfg.to_str().expect("utf8 path")));
 
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = saved_xdg {
         unsafe { env_set_var("XDG_CONFIG_HOME", &v) };
     } else {
@@ -354,6 +360,7 @@ fn default_xorg_path_respects_coralreef_x11_conf_dir_env() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let prev = std::env::var("CORALREEF_X11_CONF_DIR").ok();
+    // SAFETY: `ENV_LOCK` held; setting up test env.
     unsafe {
         env_set_var(
             "CORALREEF_X11_CONF_DIR",
@@ -361,6 +368,7 @@ fn default_xorg_path_respects_coralreef_x11_conf_dir_env() {
         );
     }
     let path = default_xorg_path();
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = prev {
         unsafe { env_set_var("CORALREEF_X11_CONF_DIR", &v) };
     } else {
@@ -379,6 +387,7 @@ fn default_udev_path_respects_coralreef_udev_rules_dir_env() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = TempDir::new().expect("tempdir");
     let prev = std::env::var("CORALREEF_UDEV_RULES_DIR").ok();
+    // SAFETY: `ENV_LOCK` held; setting up test env.
     unsafe {
         env_set_var(
             "CORALREEF_UDEV_RULES_DIR",
@@ -386,6 +395,7 @@ fn default_udev_path_respects_coralreef_udev_rules_dir_env() {
         );
     }
     let path = default_udev_path();
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = prev {
         unsafe { env_set_var("CORALREEF_UDEV_RULES_DIR", &v) };
     } else {
@@ -406,10 +416,12 @@ fn journal_open_default_respects_coralreef_journal_path_env() {
     let journal_path = dir.path().join("from-env.jsonl");
     let path_str = journal_path.to_str().expect("utf8 journal path");
     let prev = std::env::var("CORALREEF_JOURNAL_PATH").ok();
+    // SAFETY: `ENV_LOCK` held; setting up test env.
     unsafe {
         env_set_var("CORALREEF_JOURNAL_PATH", path_str);
     }
     let journal = Journal::open_default();
+    // SAFETY: `ENV_LOCK` held; restoring saved env state.
     if let Some(v) = prev {
         unsafe { env_set_var("CORALREEF_JOURNAL_PATH", &v) };
     } else {

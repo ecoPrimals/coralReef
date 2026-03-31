@@ -143,9 +143,7 @@ impl JitMemory {
     /// Returns [`JitError::Execution`] if the memory hasn't been made executable yet.
     pub fn code_ptr(&self) -> Result<*const u8, JitError> {
         if !self.executable {
-            return Err(JitError::Execution(
-                "memory not yet executable".into(),
-            ));
+            return Err(JitError::Execution("memory not yet executable".into()));
         }
         Ok(self.ptr.as_ptr())
     }

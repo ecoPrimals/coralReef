@@ -4,11 +4,46 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70f
+**Current status**: Phase 10 — Iteration 70i
 
 ---
 
 ## [Unreleased]
+
+### Iteration 70i — Deep Debt Evolution + Safety Audit + Path Agnosticism (2026-03-31)
+
+#### Changed
+- **Hardcoded livepatch paths evolved**: `LIVEPATCH_MODULE` / `LIVEPATCH_SYSFS` constants → `livepatch_module()` / `livepatch_sysfs()` functions with `$CORALREEF_LIVEPATCH_MODULE` env-var override (`coral-ember/src/ipc/handlers_livepatch.rs`)
+- **Hardcoded debugfs paths evolved**: remaining `TRACE_PATH` / `TRACER_PATH` constant refs → `trace_path()` / `tracer_path()` functions with `$CORALREEF_DEBUGFS_TRACING` override (`coral-ember/src/trace.rs`)
+- **TCP bind address configurable**: `$CORALREEF_BIND_ADDR` (default `127.0.0.1`) replaces hardcoded loopback in `coral-ember` and `coral-glowplug` `--port` listeners
+- **SAFETY comments gap closed**: all bare `unsafe` blocks in test files (`config_and_paths.rs`, `config_env.rs`, `unix_jsonrpc_default_socket_path_env.rs`) now have `// SAFETY:` documentation
+- **HTTP Host header documented**: `primal-rpc-client` Unix socket `localhost` header documented as HTTP/1.1 protocol compliance (not meaningful hardcoding)
+
+#### Audited (clean)
+- **Zero `.unwrap()` in library code** — full audit across all crates, zero violations
+- **Zero `todo!()` / `unimplemented!()` in production** — confirmed clean
+- **All mocks isolated to `#[cfg(test)]`** — no production mock leakage
+- **All `unsafe` blocks have SAFETY comments** — production and test code
+- **No direct `libc`/`-sys`/`cc`/`build.rs`** in any crate — transitive only via Cranelift JIT + tokio
+- **`HOTSPRING_DATA_DIR` already evolved** — `CORALREEF_DATA_DIR` is primary, legacy fallback in place
+- **All hardcoded paths use env-var-with-default** — `config.rs`, `group_unix.rs`, `journal.rs`, `drm_isolation.rs`, `trace.rs`, `handlers_livepatch.rs`
+
+### Iteration 70h — IPC Audit + Dispatch Boundary + Deep Debt (2026-03-31)
+
+#### Changed
+- **`device_ops.rs` refactored** (1020→791 lines): extracted register handlers to `register_ops.rs` submodule
+- **`jit_validation.rs` refactored** (1538→613 lines): split into `jit_barracuda.rs` (454), `jit_shared_memory.rs` (315), `tests/common/mod.rs` (169)
+- **Unsafe pointer arithmetic → safe Rust**: `sovereign.rs` `call_site` computation uses `usize` arithmetic instead of `unsafe` `ptr.add()`
+- **wateringHole documentation updated**: IPC_COMPLIANCE_MATRIX (coralReef→Conformant), PRIMAL_RESPONSIBILITY_MATRIX (Tier 3 resolved), CORALREEF_LEVERAGE_GUIDE (corrected "zero FFI" claim), ECOBIN_ARCHITECTURE_STANDARD (added coralReef to plasmidBin), README (iteration 70h)
+
+### Iteration 70g — barraCuda Math Validation + Interpreter/JIT Gap Closure (2026-03-31)
+
+#### Added
+- **barraCuda activation tests**: sigmoid, relu, leaky_relu, elu, hardsigmoid, hardtanh, silu — all triple-path validated (JIT + CoralIR interpreter + Naga interpreter)
+- **barraCuda elementwise tests**: add, sub, mul, fma — f32 dual-buffer operations
+- **barraCuda unary tests**: abs, sqrt, sign
+- **Shared memory tests**: `var<workgroup>` + `workgroupBarrier()` swap, tree reduction sum, workgroup reductions (sum/max), layer norm, tiled matmul 2×2
+- **Workgroup size 256 test**: `barracuda_workgroup_size_256_relu` (stress test for real workgroup sizes)
 
 ### Iteration 70f — CoralIR Coevolution + Sovereign JIT + Progressive Trust (2026-03-30)
 

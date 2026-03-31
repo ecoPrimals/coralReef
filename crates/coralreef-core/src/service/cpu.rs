@@ -100,9 +100,7 @@ fn execute_jit_direct(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse,
 /// 2. If cached + validated: execute via JIT, periodically re-validate.
 /// 3. If not cached: interpret first, JIT second, compare within tolerance.
 ///    On success, cache the JIT kernel as validated.
-fn execute_validated_jit(
-    request: &ExecuteCpuRequest,
-) -> Result<ExecuteCpuResponse, CompileError> {
+fn execute_validated_jit(request: &ExecuteCpuRequest) -> Result<ExecuteCpuResponse, CompileError> {
     let cache = &*JIT_CACHE;
 
     let (kernel, cache_hit, needs_revalidation) =
@@ -110,8 +108,8 @@ fn execute_validated_jit(
             .map_err(jit_error_to_compile_error)?;
 
     if cache_hit && !needs_revalidation {
-        let mut resp = coral_reef_jit::execute_kernel(&kernel, request)
-            .map_err(jit_error_to_compile_error)?;
+        let mut resp =
+            coral_reef_jit::execute_kernel(&kernel, request).map_err(jit_error_to_compile_error)?;
         resp.strategy_used = Some(ExecutionStrategy::ValidatedJit);
         resp.cache_hit = true;
         return Ok(resp);
@@ -119,14 +117,15 @@ fn execute_validated_jit(
 
     let interp_result = coral_reef_cpu::execute_cpu(request).map_err(cpu_error_to_compile_error)?;
 
-    let jit_result = coral_reef_jit::execute_kernel(&kernel, request)
-        .map_err(jit_error_to_compile_error)?;
+    let jit_result =
+        coral_reef_jit::execute_kernel(&kernel, request).map_err(jit_error_to_compile_error)?;
 
     let tolerance = Tolerance {
         abs: 1e-5,
         rel: 1e-5,
     };
-    let mismatches = compare_path_outputs(&interp_result.bindings, &jit_result.bindings, &tolerance);
+    let mismatches =
+        compare_path_outputs(&interp_result.bindings, &jit_result.bindings, &tolerance);
 
     if mismatches.is_empty() {
         cache.mark_validated(request);
@@ -166,8 +165,7 @@ fn execute_validated_jit(
 ///
 /// Returns [`CompileError`] wrapping the underlying [`CpuError`].
 pub fn handle_validate(request: &ValidateRequest) -> Result<ValidateResponse, CompileError> {
-    let mut response =
-        coral_reef_cpu::validate(request).map_err(cpu_error_to_compile_error)?;
+    let mut response = coral_reef_cpu::validate(request).map_err(cpu_error_to_compile_error)?;
 
     let dual_path = run_dual_path_validation(request, &response);
     response.dual_path = Some(dual_path);
@@ -192,9 +190,7 @@ fn run_dual_path_validation(
     let path_a_result = coral_reef_cpu::execute_cpu(&exec_request);
     let path_b_result = coral_reef_jit::execute_jit(&exec_request);
 
-    let path_a_ns = path_a_result
-        .as_ref()
-        .map_or(0, |r| r.execution_time_ns);
+    let path_a_ns = path_a_result.as_ref().map_or(0, |r| r.execution_time_ns);
 
     match (path_a_result, path_b_result) {
         (Ok(a_resp), Ok(b_resp)) => {
@@ -202,8 +198,7 @@ fn run_dual_path_validation(
                 abs: 1e-5,
                 rel: 1e-5,
             };
-            let mismatches =
-                compare_path_outputs(&a_resp.bindings, &b_resp.bindings, &tolerance);
+            let mismatches = compare_path_outputs(&a_resp.bindings, &b_resp.bindings, &tolerance);
             DualPathResult {
                 paths_agree: mismatches.is_empty(),
                 path_mismatches: mismatches,
@@ -224,7 +219,9 @@ fn run_dual_path_validation(
             path_mismatches: vec![],
             path_a_ns: 0,
             path_b_ns: 0,
-            note: Some(format!("Path A (interpreter) re-execution failed: {cpu_err}")),
+            note: Some(format!(
+                "Path A (interpreter) re-execution failed: {cpu_err}"
+            )),
         },
     }
 }
