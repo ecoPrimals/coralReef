@@ -175,9 +175,9 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&capture).unwrap_or_default();
-        let out_dir = std::env::var("HOTSPRING_DATA_DIR")
+        let out_dir = coral_driver::linux_paths::optional_data_dir()
             .map(|d| format!("{d}/metal_maps"))
-            .unwrap_or_else(|_| "/tmp/coralreef/metal_maps".into());
+            .unwrap_or_else(|| "/tmp/coralreef/metal_maps".into());
         let out_path = format!("{out_dir}/titan_v_hbm2_timing_capture.json");
         if let Err(e) = std::fs::create_dir_all(&out_dir) {
             eprintln!("║ WARNING: cannot create {out_dir}: {e}");

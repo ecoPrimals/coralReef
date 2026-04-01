@@ -113,7 +113,7 @@ fn main() {
     println!("Layer 2: Orchestration (toadStool)");
     println!();
 
-    let toadstool_sock = ecosystem_socket("toadstool.jsonrpc");
+    let toadstool_sock = ecosystem_socket("toadstool");
     let toadstool_available = toadstool_sock.exists();
 
     if toadstool_available {

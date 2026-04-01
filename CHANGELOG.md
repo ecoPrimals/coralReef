@@ -28,6 +28,12 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - **`HOTSPRING_DATA_DIR` already evolved** — `CORALREEF_DATA_DIR` is primary, legacy fallback in place
 - **All hardcoded paths use env-var-with-default** — `config.rs`, `group_unix.rs`, `journal.rs`, `drm_isolation.rs`, `trace.rs`, `handlers_livepatch.rs`
 
+### Cross-Primal Rewiring (2026-03-31)
+
+#### Changed
+- **Test metal map output paths**: `hw_nv_vfio_hbm2.rs` and `hw_nv_vfio_advanced.rs` use `optional_data_dir()` instead of stale `HOTSPRING_DATA_DIR`-only / hardcoded `hotSpring/data/` paths
+- **Showcase socket alignment**: `02-full-compute-triangle` uses `toadstool` socket name (not `toadstool.jsonrpc`); `01-toadstool-discovery` references `shader.dispatch` (not stale `shader.compile`)
+
 ### Iteration 70h — IPC Audit + Dispatch Boundary + Deep Debt (2026-03-31)
 
 #### Changed

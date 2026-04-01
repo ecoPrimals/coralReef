@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70e)
-**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, CoralIR JIT & hotSpring Wiring
+**Last updated**: March 31, 2026 (Phase 10 — Iteration 70i)
+**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, CoralIR JIT & Daemon Architecture
 
 ---
 
@@ -11,12 +11,14 @@
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-4047 tests (121 ignored), ~66% line coverage (8 crates above 90%),
+4232+ tests (~155 ignored hardware-gated), ~66% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
 UVM delegation, ecosystem discovery, cross-vendor parity testing, zero DEBT
-markers, zero libc dependency. Multi-device compile API
+markers, zero libc dependency. Cross-primal rewiring: `optional_data_dir()`
+for env-configurable test data, wateringHole socket convention alignment,
+daemon-backed register access via ember/glowplug. Multi-device compile API
 (`shader.compile.wgsl.multi`), FMA contraction enforcement
 (`FmaPolicy::Separate` splits FFma→FMul+FAdd), `PCIe` topology awareness,
 FMA hardware capability reporting per architecture.
