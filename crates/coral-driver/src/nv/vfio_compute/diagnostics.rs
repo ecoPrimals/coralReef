@@ -69,14 +69,21 @@ impl FalconState {
         }
     }
 
-    /// Returns true if `CPUCTL` has `HALTED` asserted (bit 4 — firmware halted).
-    pub fn is_in_reset(&self) -> bool {
-        self.cpuctl & falcon::CPUCTL_HALTED != 0
+    /// Returns true if `CPUCTL` is a PRI fault or read failure — the falcon is unreachable.
+    pub fn is_inaccessible(&self) -> bool {
+        crate::vfio::channel::registers::pri::is_pri_error(self.cpuctl)
+            || self.cpuctl == 0xDEAD_DEAD
     }
 
-    /// Returns true if `CPUCTL` reports stopped (bit 5) or the read failed (`0xDEAD_DEAD`).
+    /// Returns true if `CPUCTL` has `HALTED` asserted (bit 4 — firmware halted).
+    /// Returns false for PRI faults (use `is_inaccessible` instead).
+    pub fn is_in_reset(&self) -> bool {
+        !self.is_inaccessible() && self.cpuctl & falcon::CPUCTL_HALTED != 0
+    }
+
+    /// Returns true if `CPUCTL` reports stopped (bit 5), the read failed, or PRI fault.
     pub fn is_halted(&self) -> bool {
-        self.cpuctl & falcon::CPUCTL_STOPPED != 0 || self.cpuctl == 0xDEAD_DEAD
+        self.is_inaccessible() || self.cpuctl & falcon::CPUCTL_STOPPED != 0
     }
 
     /// Returns true if `HWCFG` requires signed (ACR) firmware for this falcon.

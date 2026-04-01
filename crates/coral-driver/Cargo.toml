@@ -8,6 +8,7 @@ description = "Sovereign GPU driver — DRM ioctl dispatch for AMD (amdgpu) and 
 
 [dependencies]
 bytemuck = { workspace = true }
+libc = { workspace = true }
 rustix = { workspace = true, features = ["time", "process", "net", "event"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

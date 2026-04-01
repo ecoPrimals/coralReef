@@ -101,7 +101,7 @@ pub fn handle_client(
             handlers_device::swap(stream, held, managed_bdfs, id, params, journal)?;
         }
         "ember.device_reset" => {
-            handlers_device::device_reset(stream, managed_bdfs, id, params, journal)?;
+            handlers_device::device_reset(stream, held, managed_bdfs, id, params, journal)?;
         }
         "ember.status" => {
             handlers_device::status(stream, held, id, started_at)?;
@@ -215,7 +215,7 @@ pub fn handle_client_tcp(
             handlers_device::swap(stream, held, managed_bdfs, id, params, journal)?;
         }
         "ember.device_reset" => {
-            handlers_device::device_reset(stream, managed_bdfs, id, params, journal)?;
+            handlers_device::device_reset(stream, held, managed_bdfs, id, params, journal)?;
         }
         "ember.status" => {
             handlers_device::status(stream, held, id, started_at)?;

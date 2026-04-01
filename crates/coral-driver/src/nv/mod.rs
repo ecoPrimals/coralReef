@@ -31,6 +31,10 @@ pub use nvidia_drm::NvDrmDevice;
 #[cfg(feature = "nvidia-drm")]
 pub mod uvm;
 #[cfg(feature = "nvidia-drm")]
+mod uvm_rm_setup;
+#[cfg(feature = "nvidia-drm")]
+mod uvm_channel;
+#[cfg(feature = "nvidia-drm")]
 pub mod uvm_compute;
 #[cfg(feature = "nvidia-drm")]
 pub use uvm_compute::NvUvmComputeDevice;
@@ -38,7 +42,7 @@ pub use uvm_compute::NvUvmComputeDevice;
 #[cfg(feature = "vfio")]
 pub mod vfio_compute;
 #[cfg(feature = "vfio")]
-pub use vfio_compute::{GrEngineStatus, NvVfioComputeDevice, RawVfioDevice};
+pub use vfio_compute::{GrEngineStatus, NvVfioComputeDevice, RawVfioDevice, pmc_soft_reset};
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};

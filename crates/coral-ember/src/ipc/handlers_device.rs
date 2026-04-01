@@ -14,7 +14,10 @@ use crate::swap;
 use crate::sysfs;
 
 use super::fd::send_with_fds;
-use super::helpers::{require_managed_bdf, try_reset_methods};
+use super::helpers::{
+    device_has_flr, require_managed_bdf, try_pmc_soft_reset, try_reset_methods_with_flr,
+    try_vfio_flr,
+};
 use super::jsonrpc::{ipc_io_error_string, make_jsonrpc_ok, write_jsonrpc_error, write_jsonrpc_ok};
 
 pub(crate) fn vfio_fds(
@@ -270,6 +273,7 @@ pub(crate) fn swap(
 
 pub(crate) fn device_reset(
     stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
     managed_bdfs: &HashSet<String>,
     id: serde_json::Value,
     params: &serde_json::Value,
@@ -307,14 +311,32 @@ pub(crate) fn device_reset(
         "ember.device_reset: starting"
     );
 
+    let has_flr = device_has_flr(bdf);
+    tracing::info!(bdf, method, has_flr, "ember.device_reset: FLR capability check");
+
     let reset_start = std::time::Instant::now();
     let result = match method {
+        "flr" => {
+            if !has_flr {
+                Err(format!("{bdf} does not support PCIe FLR — use 'pmc', 'sbr', or 'auto'"))
+            } else {
+                try_vfio_flr(bdf, held)
+            }
+        }
+        "pmc" => try_pmc_soft_reset(bdf),
         "sbr" => sysfs::pci_device_reset(bdf),
         "bridge-sbr" => sysfs::pci_bridge_reset(bdf),
         "remove-rescan" => sysfs::pci_remove_rescan(bdf),
-        "auto" => try_reset_methods(bdf, &methods).map_err(|e| e.to_string()),
+        "auto" => {
+            if has_flr {
+                try_reset_methods_with_flr(bdf, &methods, held).map_err(|e| e.to_string())
+            } else {
+                tracing::info!(bdf, "no FLR — auto-selecting PMC soft-reset");
+                try_pmc_soft_reset(bdf)
+            }
+        }
         other => Err(format!(
-            "unknown reset method: {other} (use 'auto', 'sbr', 'bridge-sbr', 'remove-rescan')"
+            "unknown reset method: {other} (use 'auto', 'flr', 'pmc', 'sbr', 'bridge-sbr', 'remove-rescan')"
         )),
     };
     let duration_ms = reset_start.elapsed().as_millis() as u64;
@@ -518,9 +540,11 @@ pub(crate) fn fecs_state(
     let mb1 = read(FECS_MB1);
     let exci = read(FECS_EXCI);
 
-    let halted = cpuctl & (1 << 4) != 0;
-    let stopped = cpuctl & (1 << 5) != 0;
-    let hs_mode = sctl & 0x2 != 0;
+    let pri_fault = coral_driver::vfio::channel::registers::pri::is_pri_error(cpuctl)
+        || cpuctl == 0xDEAD_DEAD;
+    let halted = !pri_fault && cpuctl & (1 << 4) != 0;
+    let stopped = !pri_fault && cpuctl & (1 << 5) != 0;
+    let hs_mode = !pri_fault && sctl & 0x2 != 0;
 
     write_jsonrpc_ok(
         stream,
@@ -535,6 +559,7 @@ pub(crate) fn fecs_state(
             "halted": halted,
             "stopped": stopped,
             "hs_mode": hs_mode,
+            "pri_fault": pri_fault,
         }),
     )
     .map_err(ipc_io_error_string)

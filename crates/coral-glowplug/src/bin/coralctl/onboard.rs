@@ -83,13 +83,13 @@ struct DispatchReadiness {
 fn decode_architecture(boot0: u32) -> (&'static str, u32) {
     let chip = (boot0 >> 20) & 0x1FF;
     let name = match chip {
-        0x0E0..=0x0EF => "Kepler",
-        0x100..=0x10F => "Maxwell",
-        0x120..=0x13F => "Pascal",
-        0x140..=0x14F => "Volta",
-        0x160..=0x16F => "Turing",
-        0x170..=0x17F => "Ampere",
-        0x190..=0x19F => "Ada",
+        0x0E0..=0x10F => "Kepler",  // GK104-GK208 (NVE4-NV108, includes GK110/GK210)
+        0x110..=0x12F => "Maxwell", // GM107-GM20B (NV117-NV12B)
+        0x130..=0x13F => "Pascal",  // GP100-GP108 (NV130-NV138)
+        0x140..=0x14F => "Volta",   // GV100-GV10B (NV140-NV14C)
+        0x160..=0x16F => "Turing",  // TU102-TU117 (NV162-NV168)
+        0x170..=0x17F => "Ampere",  // GA100-GA107 (NV170-NV177)
+        0x190..=0x19F => "Ada",     // AD102-AD107 (NV192-NV197)
         0x1B0..=0x1BF => "Blackwell",
         _ => "Unknown",
     };
@@ -336,17 +336,41 @@ mod tests {
     // ── Architecture decode ─────────────────────────────────────────────
 
     #[test]
-    fn decode_kepler() {
+    fn decode_kepler_gk104() {
         let (arch, chip) = decode_architecture(0x0EA0_00A1);
         assert_eq!(arch, "Kepler");
         assert_eq!(chip, 0x0EA);
     }
 
     #[test]
+    fn decode_kepler_gk210_k80() {
+        // K80 cold BOOT0 = 0x0F22D0A1 → chip 0x0F2 (GK210)
+        let (arch, chip) = decode_architecture(0x0F22_D0A1);
+        assert_eq!(arch, "Kepler");
+        assert_eq!(chip, 0x0F2);
+    }
+
+    #[test]
+    fn decode_kepler_gk110() {
+        let (arch, chip) = decode_architecture(0x0F00_00A1);
+        assert_eq!(arch, "Kepler");
+        assert_eq!(chip, 0x0F0);
+    }
+
+    #[test]
     fn decode_maxwell() {
-        let (arch, chip) = decode_architecture(0x1000_00A1);
+        // GM107 = NV117
+        let (arch, chip) = decode_architecture(0x1170_00A1);
         assert_eq!(arch, "Maxwell");
-        assert!((0x100..=0x10F).contains(&chip));
+        assert_eq!(chip, 0x117);
+    }
+
+    #[test]
+    fn decode_maxwell_second_gen() {
+        // GM200 = NV120
+        let (arch, chip) = decode_architecture(0x1200_00A1);
+        assert_eq!(arch, "Maxwell");
+        assert_eq!(chip, 0x120);
     }
 
     #[test]

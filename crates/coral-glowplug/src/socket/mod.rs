@@ -17,7 +17,7 @@
 //! | `device.swap`      | Hot-swap driver personality                 |
 //! | `device.health`    | Query device health registers               |
 //! | `device.resurrect` | Attempt HBM2 resurrection via nouveau warm swap |
-//! | `device.reset`     | PCIe Function Level Reset via VFIO              |
+//! | `device.reset`     | Reset device (method: flr, pmc, sbr, auto)      |
 //! | `device.write_register` | Write a single BAR0 register            |
 //! | `device.read_bar0_range` | Read contiguous BAR0 register range    |
 //! | `device.pramin_read` | Read VRAM via PRAMIN window                |

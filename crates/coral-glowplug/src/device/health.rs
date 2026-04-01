@@ -80,6 +80,31 @@ impl<S: SysfsOps> DeviceSlot<S> {
             })
     }
 
+    /// PMC soft-reset via BAR0: disables then re-enables all GPU engines.
+    ///
+    /// This is the universal recovery path for GPUs without FLR (K80, Titan V).
+    /// After this call, all engines return to power-on state: falcons halt,
+    /// PFIFO resets, firmware must be re-loaded.
+    pub fn pmc_soft_reset(&self) -> Result<(), DeviceError> {
+        let holder = self
+            .vfio_holder
+            .as_ref()
+            .ok_or_else(|| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — PMC soft-reset requires VFIO personality".into(),
+            })?;
+
+        coral_driver::nv::vfio_compute::pmc_soft_reset(&holder.bar0).map_err(|e| {
+            DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: format!("PMC soft-reset failed: {e}"),
+            }
+        })?;
+
+        tracing::info!(bdf = %self.bdf, "PMC soft-reset completed (no FLR needed)");
+        Ok(())
+    }
+
     /// Read a contiguous range of BAR0 registers.
     ///
     /// Returns up to `count` u32 values starting at `offset` (4-byte aligned).
@@ -397,6 +422,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
                 if let Some(sctl) = parse("sctl") {
                     self.health.firmware.fecs_sctl = sctl;
                 }
+                let pri_fault = state
+                    .get("pri_fault")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 self.health.firmware.fecs_halted = state
                     .get("halted")
                     .and_then(|v| v.as_bool())
@@ -409,6 +438,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     bdf = %self.bdf,
                     cpuctl = format_args!("{:#010x}", self.health.firmware.fecs_cpuctl),
                     halted = self.health.firmware.fecs_halted,
+                    pri_fault,
                     "FECS state enriched via ember"
                 );
             }

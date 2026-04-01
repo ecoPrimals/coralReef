@@ -328,7 +328,7 @@ fn main() {
         Err(e) => {
             eprintln!("  FATAL: Cannot open nouveau device: {e}");
             eprintln!("  Is the Titan V bound to nouveau?");
-            eprintln!("  Run: sudo bash scripts/rebind-titanv-nouveau.sh");
+            eprintln!("  Run: sudo coralctl swap 0000:03:00.0 nouveau");
             std::process::exit(1);
         }
     };

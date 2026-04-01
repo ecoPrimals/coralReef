@@ -41,7 +41,8 @@ pub mod error;
 pub mod linux_paths;
 
 #[cfg(target_os = "linux")]
-pub(crate) mod mmio;
+/// MMIO volatile access primitives and the `RegisterMap` typed wrapper.
+pub mod mmio;
 
 #[cfg(target_os = "linux")]
 pub mod drm;

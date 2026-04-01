@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! GPU telemetry and quota management via nvidia-smi.
+//! GPU telemetry and quota management via NVML (libnvidia-ml).
 //!
-//! These handlers isolate the nvidia-smi vendor tool dependency so it can
-//! be replaced with a pure-Rust NVML implementation when available.
+//! Uses the `nvml-wrapper` crate for direct NVML API access, avoiding
+//! the overhead and fragility of spawning `nvidia-smi` subprocesses.
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -40,9 +40,9 @@ pub(crate) async fn compute_info_async(
     };
 
     let bdf2 = bdf.clone();
-    let info = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf2))
+    let info = tokio::task::spawn_blocking(move || query_nvml(&bdf2))
         .await
-        .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
+        .map_err(|e| RpcError::internal(format!("NVML query task panicked: {e}")))?;
 
     let render_node = coral_glowplug::sysfs::find_render_node(&bdf);
     Ok(serde_json::json!({
@@ -86,9 +86,9 @@ pub(crate) async fn quota_info_async(
     };
 
     let bdf2 = bdf.clone();
-    let current = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf2))
+    let current = tokio::task::spawn_blocking(move || query_nvml(&bdf2))
         .await
-        .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
+        .map_err(|e| RpcError::internal(format!("NVML query task panicked: {e}")))?;
 
     Ok(serde_json::json!({
         "bdf": bdf,
@@ -170,19 +170,40 @@ pub(crate) async fn set_quota_async(
     }))
 }
 
-/// Apply quota settings to a GPU via nvidia-smi.
+/// Apply quota settings to a GPU via NVML.
 fn apply_quota(bdf: &str, quota: &coral_glowplug::config::SharedQuota) -> serde_json::Value {
     let pci_bus_id = bdf.trim_start_matches("0000:");
     let mut results = serde_json::Map::new();
 
+    let nvml = match nvml_wrapper::Nvml::init() {
+        Ok(n) => n,
+        Err(e) => {
+            results.insert(
+                "nvml_init".into(),
+                serde_json::json!({"ok": false, "message": format!("NVML init failed: {e}")}),
+            );
+            return serde_json::Value::Object(results);
+        }
+    };
+
+    let mut device = match nvml.device_by_pci_bus_id(pci_bus_id) {
+        Ok(d) => d,
+        Err(e) => {
+            results.insert(
+                "device".into(),
+                serde_json::json!({"ok": false, "message": format!("NVML device lookup failed for {pci_bus_id}: {e}")}),
+            );
+            return serde_json::Value::Object(results);
+        }
+    };
+
     if let Some(pl) = quota.power_limit_w {
-        let out = std::process::Command::new("nvidia-smi")
-            .args(["-i", pci_bus_id, &format!("--power-limit={pl}")])
-            .output();
-        let ok = out.as_ref().is_ok_and(|o| o.status.success());
-        let msg = out
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|e| e.to_string());
+        let milliwatts = pl * 1000;
+        let result = device.set_power_management_limit(milliwatts);
+        let (ok, msg) = match result {
+            Ok(()) => (true, format!("power limit set to {pl}W")),
+            Err(e) => (false, format!("{e}")),
+        };
         results.insert(
             "power_limit".into(),
             serde_json::json!({"ok": ok, "message": msg}),
@@ -191,19 +212,17 @@ fn apply_quota(bdf: &str, quota: &coral_glowplug::config::SharedQuota) -> serde_
 
     match quota.compute_mode.as_str() {
         "default" | "exclusive_process" | "prohibited" => {
-            let mode_id = match quota.compute_mode.as_str() {
-                "default" => "0",
-                "exclusive_process" => "3",
-                "prohibited" => "2",
-                _ => "0",
+            use nvml_wrapper::enum_wrappers::device::ComputeMode;
+            let mode = match quota.compute_mode.as_str() {
+                "exclusive_process" => ComputeMode::ExclusiveProcess,
+                "prohibited" => ComputeMode::Prohibited,
+                _ => ComputeMode::Default,
             };
-            let out = std::process::Command::new("nvidia-smi")
-                .args(["-i", pci_bus_id, &format!("--compute-mode={mode_id}")])
-                .output();
-            let ok = out.as_ref().is_ok_and(|o| o.status.success());
-            let msg = out
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_else(|e| e.to_string());
+            let result = device.set_compute_mode(mode);
+            let (ok, msg) = match result {
+                Ok(()) => (true, format!("compute mode set to {}", quota.compute_mode)),
+                Err(e) => (false, format!("{e}")),
+            };
             results.insert(
                 "compute_mode".into(),
                 serde_json::json!({"ok": ok, "message": msg}),
@@ -220,48 +239,71 @@ fn apply_quota(bdf: &str, quota: &coral_glowplug::config::SharedQuota) -> serde_
     serde_json::Value::Object(results)
 }
 
-/// Query nvidia-smi for GPU compute info.
+/// Query GPU compute info via NVML.
 ///
 /// Returns a JSON object with memory, clocks, power, temp.
-/// Returns null fields if nvidia-smi is unavailable or the BDF doesn't match.
-fn query_nvidia_smi(bdf: &str) -> serde_json::Value {
+/// Falls back to error JSON if NVML is unavailable (e.g., nvidia driver not loaded).
+fn query_nvml(bdf: &str) -> serde_json::Value {
     let pci_bus_id = bdf.trim_start_matches("0000:");
-    let output = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=gpu_name,memory.total,memory.free,memory.used,temperature.gpu,power.draw,power.limit,clocks.current.sm,clocks.current.memory,compute_cap,pcie.link.width.current",
-            "--format=csv,noheader,nounits",
-            &format!("--id={pci_bus_id}"),
-        ])
-        .output();
 
-    match output {
-        Ok(out) if out.status.success() => {
-            let text = String::from_utf8_lossy(&out.stdout);
-            let fields: Vec<&str> = text.trim().splitn(11, ", ").collect();
-            if fields.len() >= 11 {
-                serde_json::json!({
-                    "gpu_name": fields[0],
-                    "memory_total_mib": fields[1].trim().parse::<f64>().unwrap_or(0.0),
-                    "memory_free_mib": fields[2].trim().parse::<f64>().unwrap_or(0.0),
-                    "memory_used_mib": fields[3].trim().parse::<f64>().unwrap_or(0.0),
-                    "temperature_c": fields[4].trim().parse::<u32>().unwrap_or(0),
-                    "power_draw_w": fields[5].trim().parse::<f64>().unwrap_or(0.0),
-                    "power_limit_w": fields[6].trim().parse::<f64>().unwrap_or(0.0),
-                    "clock_sm_mhz": fields[7].trim().parse::<u32>().unwrap_or(0),
-                    "clock_mem_mhz": fields[8].trim().parse::<u32>().unwrap_or(0),
-                    "compute_cap": fields[9].trim(),
-                    "pcie_width": fields[10].trim().parse::<u32>().unwrap_or(0),
-                })
-            } else {
-                serde_json::json!({"error": "unexpected nvidia-smi output format"})
-            }
+    let nvml = match nvml_wrapper::Nvml::init() {
+        Ok(n) => n,
+        Err(e) => return serde_json::json!({"error": format!("NVML not available: {e}")}),
+    };
+
+    let device = match nvml.device_by_pci_bus_id(pci_bus_id) {
+        Ok(d) => d,
+        Err(e) => {
+            return serde_json::json!({"error": format!("device not found in NVML for {pci_bus_id}: {e}")});
         }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            serde_json::json!({"error": format!("nvidia-smi failed: {}", stderr.trim())})
-        }
-        Err(e) => serde_json::json!({"error": format!("nvidia-smi not available: {e}")}),
-    }
+    };
+
+    let gpu_name = device.name().unwrap_or_else(|_| "unknown".into());
+    let mem = device
+        .memory_info()
+        .map(|m| {
+            (
+                m.total / (1024 * 1024),
+                m.free / (1024 * 1024),
+                m.used / (1024 * 1024),
+            )
+        })
+        .unwrap_or((0, 0, 0));
+    let temp = device
+        .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+        .unwrap_or(0);
+    let power_draw = device.power_usage().unwrap_or(0) as f64 / 1000.0;
+    let power_limit = device
+        .enforced_power_limit()
+        .or_else(|_| device.power_management_limit())
+        .unwrap_or(0) as f64
+        / 1000.0;
+    let clock_sm = device
+        .clock_info(nvml_wrapper::enum_wrappers::device::Clock::Graphics)
+        .unwrap_or(0);
+    let clock_mem = device
+        .clock_info(nvml_wrapper::enum_wrappers::device::Clock::Memory)
+        .unwrap_or(0);
+    let cc = device
+        .cuda_compute_capability()
+        .map(|c| (c.major, c.minor))
+        .unwrap_or((0, 0));
+    let (major, minor) = cc;
+    let pcie_width = device.current_pcie_link_width().unwrap_or(0);
+
+    serde_json::json!({
+        "gpu_name": gpu_name,
+        "memory_total_mib": mem.0 as f64,
+        "memory_free_mib": mem.1 as f64,
+        "memory_used_mib": mem.2 as f64,
+        "temperature_c": temp,
+        "power_draw_w": power_draw,
+        "power_limit_w": power_limit,
+        "clock_sm_mhz": clock_sm,
+        "clock_mem_mhz": clock_mem,
+        "compute_cap": format!("{major}.{minor}"),
+        "pcie_width": pcie_width,
+    })
 }
 
 #[cfg(test)]
@@ -354,8 +396,8 @@ mod tests {
     }
 
     #[test]
-    fn query_nvidia_smi_returns_json_object() {
-        let v = query_nvidia_smi("0000:ff:00.0");
+    fn query_nvml_returns_json_object() {
+        let v = query_nvml("0000:ff:00.0");
         assert!(
             v.get("error").is_some() || v.get("gpu_name").is_some(),
             "expected error or metrics: {v}"

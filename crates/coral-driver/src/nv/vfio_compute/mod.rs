@@ -248,6 +248,78 @@ impl NvVfioComputeDevice {
         Ok(dev)
     }
 
+    /// Opens from pre-existing VFIO fds with a cold-boot recipe applied first.
+    ///
+    /// For non-POST-ed Kepler GPUs (K80), the nvidia-470 cold→warm recipe
+    /// must be applied before engines are accessible. This method:
+    /// 1. Reconstructs the VFIO device from ember fds
+    /// 2. Applies the recipe (engine enable + register writes)
+    /// 3. Proceeds with normal GR init + channel creation
+    ///
+    /// The recipe is a slice of `(BAR0_offset, value)` pairs. Pass an empty
+    /// slice to skip recipe application (equivalent to `open_from_fds`).
+    pub fn open_from_fds_with_recipe(
+        bdf: &str,
+        fds: crate::vfio::ReceivedVfioFds,
+        sm_version: u32,
+        compute_class: u32,
+        recipe: &[(u32, u32)],
+    ) -> DriverResult<Self> {
+        let device = VfioDevice::from_received(bdf, fds)?;
+        let container = device.dma_backend();
+        let bar0 = device.map_bar(0)?;
+
+        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
+
+        if !recipe.is_empty() {
+            let (applied, failed) = bar0.apply_gr_bar0_writes(recipe);
+            tracing::info!(
+                applied,
+                failed,
+                total = recipe.len(),
+                "cold-boot recipe applied"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
+
+        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "GPFIFO entries constant always fits u32"
+        )]
+        let channel = Self::create_channel(
+            sm_version,
+            container.clone(),
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+        )?;
+
+        let mut dev = Self {
+            device,
+            bar0,
+            sm_version,
+            compute_class,
+            gpfifo_ring,
+            gpfifo_put: 0,
+            userd,
+            channel,
+            next_handle: 1,
+            next_iova: USER_IOVA_BASE,
+            container,
+            buffers: HashMap::new(),
+            inflight: Vec::new(),
+        };
+
+        dev.apply_fecs_channel_init();
+        Ok(dev)
+    }
+
     /// Opens from pre-existing VFIO fds (received from coral-ember via `SCM_RIGHTS`).
     ///
     /// Pass `sm_version=0` and `compute_class=0` to auto-detect from BOOT0.
@@ -528,6 +600,10 @@ impl NvVfioComputeDevice {
     ///
     /// Fully resets the GPU hardware, clearing all falcon state including
     /// secure mode. BAR0 MMIO mapping remains valid after FLR.
+    ///
+    /// **Not available on K80 (Kepler) or Titan V (Volta)** — these GPUs
+    /// lack FLR hardware. Use [`pmc_soft_reset`] or ember's `device.reset`
+    /// (bridge SBR / remove-rescan) instead.
     pub fn vfio_device_reset(&self) -> DriverResult<()> {
         self.device.reset()
     }
@@ -539,6 +615,26 @@ impl NvVfioComputeDevice {
     /// Titan V which lacks FLR. Bus master is re-enabled after reset.
     pub fn vfio_pci_hot_reset(&self) -> DriverResult<()> {
         self.device.pci_hot_reset()
+    }
+
+    /// PMC soft-reset: toggle engine enable bits via BAR0 to reset GPU
+    /// sub-engines without any PCI-level reset.
+    ///
+    /// This is the only reliable recovery path for GPUs without FLR
+    /// (K80/Kepler, Titan V/Volta). The sequence:
+    ///
+    /// 1. Read current PMC_ENABLE
+    /// 2. Write 0 (disable all engines)
+    /// 3. Wait for engines to drain
+    /// 4. Restore PMC_ENABLE (re-enable all engines)
+    ///
+    /// After PMC soft-reset, falcon firmware is lost (FECS/GPCCS return
+    /// to PRI fault or HALTED state) and must be re-booted. PFIFO and
+    /// PBDMA also reset to initial state.
+    ///
+    /// Returns the PMC_ENABLE value after reset.
+    pub fn pmc_soft_reset(&self) -> DriverResult<u32> {
+        pmc_soft_reset(&self.bar0)
     }
 
     /// Attempt sovereign FECS falcon boot from firmware files.
@@ -832,6 +928,46 @@ impl std::fmt::Debug for NvVfioComputeDevice {
             .field("gpfifo_put", &self.gpfifo_put)
             .finish_non_exhaustive()
     }
+}
+
+/// PMC soft-reset via BAR0 — the universal GPU recovery path.
+///
+/// Works on ALL NVIDIA GPUs regardless of FLR support. Toggles
+/// PMC_ENABLE to reset all engine clock domains. After this call,
+/// engines return to their power-on state (FECS halted/PRI-fault,
+/// PFIFO disabled). Firmware must be re-loaded.
+///
+/// This is the correct recovery for K80 (no FLR) and Titan V (no FLR).
+/// For GPUs with FLR, prefer `VfioDevice::reset()` through ember.
+pub fn pmc_soft_reset(bar0: &MappedBar) -> DriverResult<u32> {
+    use crate::vfio::channel::registers::misc;
+    use std::borrow::Cow;
+
+    let pmc_before = bar0.read_u32(misc::PMC_ENABLE).map_err(|e| {
+        DriverError::SubmitFailed(Cow::Owned(format!("PMC_ENABLE read: {e}")))
+    })?;
+
+    bar0.write_u32(misc::PMC_ENABLE, 0).map_err(|e| {
+        DriverError::SubmitFailed(Cow::Owned(format!("PMC_ENABLE disable: {e}")))
+    })?;
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    bar0.write_u32(misc::PMC_ENABLE, pmc_before).map_err(|e| {
+        DriverError::SubmitFailed(Cow::Owned(format!("PMC_ENABLE restore: {e}")))
+    })?;
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let pmc_after = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0xDEAD_DEAD);
+
+    tracing::info!(
+        pmc_before = format_args!("{pmc_before:#010x}"),
+        pmc_after = format_args!("{pmc_after:#010x}"),
+        "PMC soft-reset complete (all engines toggled)"
+    );
+
+    Ok(pmc_after)
 }
 
 #[cfg(test)]

@@ -10,6 +10,8 @@ mod device_ops;
 pub(crate) mod mailbox_ring;
 mod quota;
 mod register_ops;
+mod resurrect;
+mod warm_handoff;
 
 pub(crate) use compute::{compute_dispatch_async, oracle_capture_async};
 pub(crate) use device_ops::dispatch;

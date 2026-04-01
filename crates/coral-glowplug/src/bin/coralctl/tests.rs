@@ -99,6 +99,47 @@ bdf = "0000:ff:00.0"
 }
 
 #[test]
+fn deploy_boot_config_cli_accepts_config_and_dry_run() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("gp.toml");
+    std::fs::write(
+        &path,
+        r#"
+[[device]]
+bdf = "0000:ff:00.0"
+boot_personality = "vfio"
+"#,
+    )
+    .expect("write");
+    let path_str = path.to_str().expect("utf8 path");
+    let cli = Cli::try_parse_from([
+        "coralctl",
+        "--socket",
+        "/tmp/x.sock",
+        "deploy-boot-config",
+        "--config",
+        path_str,
+        "--dry-run",
+        "--modprobe-output",
+        "/tmp/modprobe.conf",
+    ])
+    .expect("parse");
+    let Command::DeployBootConfig {
+        config,
+        dry_run,
+        modprobe_output,
+        vfio_ids_output,
+    } = cli.command
+    else {
+        panic!("expected DeployBootConfig");
+    };
+    assert!(dry_run);
+    assert_eq!(modprobe_output, "/tmp/modprobe.conf");
+    assert!(vfio_ids_output.is_none());
+    assert_eq!(config.as_deref(), Some(path_str));
+}
+
+#[test]
 fn cli_parses_probe_subcommand() {
     let cli = Cli::try_parse_from(["coralctl", "probe", "0000:03:00.0"]).expect("parse probe");
     let Command::Probe { bdf } = cli.command else {

@@ -59,13 +59,16 @@ impl std::fmt::Display for GrContextStatus {
 
 /// Check if FECS is alive and responding to methods.
 pub fn fecs_is_alive(bar0: &MappedBar) -> bool {
-    use crate::vfio::channel::registers::falcon;
+    use crate::vfio::channel::registers::{falcon, pri};
     let cpuctl = bar0
         .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
         .unwrap_or(0xDEAD_DEAD);
+    if pri::is_pri_error(cpuctl) || cpuctl == 0xDEAD_DEAD {
+        return false;
+    }
     let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
     let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-    !stopped && !fw_halted && cpuctl != 0xDEAD_DEAD
+    !stopped && !fw_halted
 }
 
 /// Discover all GR context sizes from FECS.

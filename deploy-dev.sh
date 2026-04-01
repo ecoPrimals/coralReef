@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # deploy-dev.sh — Start coral-ember + coral-glowplug for development testing.
 #
-# Run after reboot. No sudo needed for daemon startup — daemons bind
-# devices via vfio-pci (group fds are 666). Binding unbound devices
-# requires pkexec (one-shot).
+# Run after reboot. No sudo/pkexec needed — binding routes through ember
+# (which runs as root via systemd). For production, use systemd services.
 #
 # Usage:
 #   ./deploy-dev.sh          # start daemons
@@ -63,14 +62,27 @@ bind_to_vfio() {
 
     echo "  Binding $name ($bdf) to vfio-pci..."
 
-    if [ "$driver" != "none" ]; then
-        echo "$bdf" | pkexec tee "/sys/bus/pci/drivers/$driver/unbind" > /dev/null 2>&1 || true
-        sleep 0.5
+    # Route through ember (runs as root, no sudo/pkexec needed)
+    if [ -S "$EMBER_SOCK" ]; then
+        local result
+        result=$(echo "{\"jsonrpc\":\"2.0\",\"method\":\"ember.swap\",\"params\":{\"bdf\":\"$bdf\",\"target\":\"vfio\"},\"id\":1}" | \
+            timeout 15 socat - UNIX-CONNECT:"$EMBER_SOCK" 2>/dev/null | head -1)
+        if echo "$result" | grep -q '"result"'; then
+            ok "$name bound to vfio-pci via ember"
+            return 0
+        else
+            warn "$name ember swap failed: $result"
+        fi
     fi
 
-    echo "vfio-pci" | pkexec tee "/sys/bus/pci/devices/$bdf/driver_override" > /dev/null
-    echo "$bdf" | pkexec tee /sys/bus/pci/drivers/vfio-pci/bind > /dev/null 2>&1 || \
-        echo "$bdf" | pkexec tee /sys/bus/pci/drivers_probe > /dev/null
+    # Fallback: direct sysfs (needs appropriate permissions)
+    if [ "$driver" != "none" ]; then
+        echo "$bdf" > "/sys/bus/pci/drivers/$driver/unbind" 2>/dev/null || true
+        sleep 0.5
+    fi
+    echo "vfio-pci" > "/sys/bus/pci/devices/$bdf/driver_override" 2>/dev/null
+    echo "$bdf" > /sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null || \
+        echo "$bdf" > /sys/bus/pci/drivers_probe 2>/dev/null
 
     sleep 1
     local new_driver

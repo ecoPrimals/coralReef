@@ -23,10 +23,21 @@ pub struct GrEngineStatus {
 }
 
 impl GrEngineStatus {
+    /// Returns `true` if FECS is inaccessible (PRI fault or read failure).
+    #[must_use]
+    pub fn fecs_inaccessible(&self) -> bool {
+        crate::vfio::channel::registers::pri::is_pri_error(self.fecs_cpuctl)
+            || self.fecs_cpuctl == 0xDEAD_DEAD
+    }
+
     /// Returns `true` if the FECS (Firmware Engine Control Subsystem) is halted.
+    /// PRI fault values are treated as inaccessible, not halted.
     #[must_use]
     pub fn fecs_halted(&self) -> bool {
-        self.fecs_cpuctl & 0x20 != 0 || self.fecs_cpuctl == 0xDEAD_DEAD
+        if self.fecs_inaccessible() {
+            return true;
+        }
+        self.fecs_cpuctl & 0x20 != 0
     }
 
     /// Returns `true` if the GR (Graphics) engine is enabled in PMC.
@@ -145,5 +156,27 @@ mod tests {
         assert!(badf.to_string().contains("pgraph=0xbadfcafe"));
         assert!(bad0.to_string().contains("pgraph=0xbad01234"));
         assert!(badf.to_string().contains("gr_en=true"));
+    }
+
+    #[test]
+    fn fecs_pri_fault_is_inaccessible_not_running() {
+        for val in [0xBADF_1201u32, 0xBAD0_011F, 0xBAD1_0000] {
+            let s = GrEngineStatus {
+                fecs_cpuctl: val,
+                ..default_status()
+            };
+            assert!(s.fecs_inaccessible(), "PRI {val:#010x} should be inaccessible");
+            assert!(s.fecs_halted(), "PRI {val:#010x} should report halted");
+        }
+    }
+
+    #[test]
+    fn fecs_running_is_not_inaccessible() {
+        let s = GrEngineStatus {
+            fecs_cpuctl: 0x0000_0000,
+            ..default_status()
+        };
+        assert!(!s.fecs_inaccessible());
+        assert!(!s.fecs_halted());
     }
 }

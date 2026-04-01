@@ -9,6 +9,13 @@ use crate::vfio::device::MappedBar;
 use super::super::pushbuf::PushBuf;
 use super::{NvVfioComputeDevice, sm_to_chip};
 
+/// Returns true if `val` matches an NVIDIA PRI ring error pattern.
+/// These values appear when the target engine is unreachable (not POST-ed,
+/// clock-gated, or PRI ring corrupted). Must not be treated as valid data.
+fn is_pri_fault_value(val: u32) -> bool {
+    crate::vfio::channel::registers::pri::is_pri_error(val)
+}
+
 impl NvVfioComputeDevice {
     /// Apply BAR0 GR init writes from NVIDIA firmware blobs.
     ///
@@ -527,11 +534,30 @@ impl NvVfioComputeDevice {
             .bar0
             .read_u32(falcon::FECS_BASE + falcon::MAILBOX0)
             .unwrap_or(0);
+
+        // PRI faults (0xbad0xxxx / 0xbadfxxxx) indicate the register read
+        // went through the PRI ring but the target engine is unreachable
+        // (clock gated, not POST-ed, or ring corrupted). These must NOT
+        // be interpreted as valid CPUCTL/mailbox values.
+        let fecs_pri_fault = is_pri_fault_value(fecs_cpuctl);
+        let mb0_pri_fault = is_pri_fault_value(fecs_mailbox0);
+
+        if fecs_pri_fault || fecs_cpuctl == 0xDEAD_DEAD {
+            tracing::warn!(
+                fecs_cpuctl = format!("{fecs_cpuctl:#010x}"),
+                fecs_mailbox0 = format!("{fecs_mailbox0:#010x}"),
+                "FECS registers return PRI fault — GPU needs initialization \
+                 (nvidia recipe or VBIOS devinit via glowplug)"
+            );
+            return;
+        }
+
         let fecs_halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
         let fecs_stopped = fecs_cpuctl & falcon::CPUCTL_STOPPED != 0;
-        let fecs_running = !fecs_halted && !fecs_stopped && fecs_cpuctl != 0xDEAD_DEAD;
+        let fecs_running = !fecs_halted && !fecs_stopped;
+        let mb0_valid = !mb0_pri_fault && fecs_mailbox0 != 0;
 
-        if fecs_running || fecs_mailbox0 != 0 {
+        if fecs_running || mb0_valid {
             tracing::info!(
                 fecs_cpuctl = format!("{fecs_cpuctl:#010x}"),
                 fecs_mailbox0 = format!("{fecs_mailbox0:#010x}"),

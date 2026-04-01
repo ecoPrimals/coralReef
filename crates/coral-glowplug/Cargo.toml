@@ -35,6 +35,7 @@ coral-driver = { workspace = true, features = ["vfio", "cuda"] }
 # so both binaries agree on `$CORALREEF_EMBER_SOCKET` / default Unix path. Coordination
 # remains JSON-RPC over the socket; this dependency is the shared wire contract.
 coral-ember = { workspace = true }
+nvml-wrapper = { workspace = true }
 rustix = { workspace = true, features = ["net"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

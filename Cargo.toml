@@ -79,6 +79,9 @@ rustix = { version = "1.1", features = ["mm"] }
 # Pure-Rust math (replaces libc libm for JIT transcendentals)
 libm = "0.2"
 
+# System calls (fork, waitpid) not yet covered by rustix
+libc = "0.2"
+
 # Cranelift JIT backend
 cranelift-codegen = "0.130"
 cranelift-frontend = "0.130"
@@ -94,6 +97,9 @@ bytemuck = { version = "1", features = ["derive"] }
 
 # CUDA (optional, feature-gated)
 cudarc = { version = "0.19", features = ["driver", "cuda-12060"] }
+
+# NVML telemetry (replaces nvidia-smi process spawning)
+nvml-wrapper = "0.10"
 
 # Config files
 toml = "0.8"

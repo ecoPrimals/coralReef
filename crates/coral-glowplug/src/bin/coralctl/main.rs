@@ -13,12 +13,14 @@
 //!   vram-probe    Check HBM2/VRAM accessibility via PRAMIN
 //!   mmio          Read or write a single BAR0 register
 //!   snapshot      Save or diff register snapshots
-//!   deploy-udev   Generate /dev/vfio/* udev rules from glowplug.toml
+//!   deploy-udev        Generate /dev/vfio/* udev rules from glowplug.toml
+//!   deploy-boot-config modprobe.d + vfio-pci.ids snippet from glowplug.toml
 #![forbid(unsafe_code)]
 
 mod deploy;
 mod handlers_device;
 mod handlers_diag;
+mod handlers_trace;
 mod onboard;
 mod oracle;
 mod rpc;
@@ -53,6 +55,14 @@ fn default_udev_rules_path() -> String {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "/etc/udev/rules.d/70-coralreef-vfio.rules".to_string())
+}
+
+/// Default path for generated modprobe.d (`$CORALREEF_MODPROBE_CONF` overrides).
+fn default_modprobe_conf_path() -> String {
+    std::env::var("CORALREEF_MODPROBE_CONF")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/etc/modprobe.d/coralreef-glowplug.conf".to_string())
 }
 
 #[derive(Parser)]
@@ -247,6 +257,19 @@ enum Command {
         group: String,
     },
 
+    /// Generate modprobe.d config and vfio-pci.ids comma list from glowplug.toml.
+    DeployBootConfig {
+        #[arg(short, long)]
+        config: Option<String>,
+        #[arg(long, default_value_t = default_modprobe_conf_path())]
+        modprobe_output: String,
+        /// Write the comma-separated vfio-pci.ids value to this file (one line). Omit to only print the value on stderr after writing modprobe.d.
+        #[arg(long)]
+        vfio_ids_output: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Query the experiment journal for swap, reset, and boot observations.
     Journal {
         #[command(subcommand)]
@@ -257,6 +280,28 @@ enum Command {
     Experiment {
         #[command(subcommand)]
         action: ExperimentAction,
+    },
+
+    /// Parse an mmiotrace file into a domain-classified boot sequence summary.
+    ///
+    /// Uses coral-driver's BootTrace parser to extract all MMIO writes/reads,
+    /// classify them by GPU domain, and optionally emit a replay recipe.
+    TraceParse {
+        /// Path to the mmiotrace file (text format from /sys/kernel/debug/tracing).
+        file: String,
+        /// Emit the recipe as JSON to stdout instead of a human-readable summary.
+        #[arg(long)]
+        recipe_json: bool,
+    },
+
+    /// Replay VBIOS devinit scripts on a cold GPU.
+    ///
+    /// Reads the GPU's PROM, locates VBIOS init scripts, and executes them
+    /// via BAR0 writes to bring up clock domains and basic GPU state.
+    /// Requires direct VFIO group access (runs locally, not via RPC).
+    Devinit {
+        #[command(subcommand)]
+        action: DevinitAction,
     },
 }
 
@@ -379,6 +424,34 @@ enum OracleAction {
         /// Right (comparison) capture file.
         right: String,
     },
+    /// Apply a recipe JSON to a GPU via BAR0 register writes.
+    ///
+    /// Reads a cold→warm diff JSON (or recipe JSON) and replays the register
+    /// writes through the daemon. Requires the GPU to be on vfio-pci.
+    Apply {
+        /// PCI BDF address (e.g. 0000:4c:00.0).
+        bdf: String,
+        /// Path to the recipe JSON file.
+        recipe: String,
+        /// Apply directly via VFIO BAR0 (requires VFIO group access).
+        #[arg(long)]
+        local: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum DevinitAction {
+    /// Replay VBIOS devinit scripts on a cold GPU.
+    ///
+    /// Reads PROM from BAR0, parses BIT tables, locates init scripts, and
+    /// executes them to bring up clock domains. Requires direct VFIO access.
+    Replay {
+        /// PCI BDF address (e.g. 0000:4c:00.0).
+        bdf: String,
+        /// Run with enhanced diagnostics (slower but more detailed output).
+        #[arg(long)]
+        diagnostics: bool,
+    },
 }
 
 fn parse_hex_or_dec(s: &str) -> Result<u64, String> {
@@ -473,6 +546,13 @@ fn main() {
                 }
             }
             OracleAction::Diff { left, right } => oracle::oracle_diff(&left, &right),
+            OracleAction::Apply { bdf, recipe, local } => {
+                if local {
+                    handlers_trace::oracle_apply_local(&bdf, &recipe);
+                } else {
+                    handlers_trace::oracle_apply_rpc(&cli.socket, &bdf, &recipe);
+                }
+            }
         },
         Command::ComputeInfo { bdf } => handlers_device::rpc_compute_info(&cli.socket, &bdf),
         Command::ComputeQuota {
@@ -533,6 +613,19 @@ fn main() {
         } => {
             deploy::deploy_udev(config_path, &output, dry_run, &group);
         }
+        Command::DeployBootConfig {
+            config: config_path,
+            modprobe_output,
+            vfio_ids_output,
+            dry_run,
+        } => {
+            deploy::deploy_boot_config(
+                config_path,
+                &modprobe_output,
+                vfio_ids_output.as_deref(),
+                dry_run,
+            );
+        }
         Command::Journal { action } => match action {
             JournalAction::Query {
                 bdf,
@@ -562,6 +655,14 @@ fn main() {
                     trace,
                     repeat,
                 );
+            }
+        },
+        Command::TraceParse { file, recipe_json } => {
+            handlers_trace::trace_parse(&file, recipe_json);
+        }
+        Command::Devinit { action } => match action {
+            DevinitAction::Replay { bdf, diagnostics } => {
+                handlers_trace::devinit_replay(&bdf, diagnostics);
             }
         },
     }

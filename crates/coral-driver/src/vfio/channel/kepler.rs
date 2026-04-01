@@ -135,44 +135,80 @@ impl KeplerChannel {
     /// Initialize Kepler PFIFO engine.
     ///
     /// Toggle 0x2200 to reset PFIFO, enable scheduler, discover GR runlist.
+    ///
+    /// On K80 (GK210) with nvidia-470 recipe, the PFIFO register block
+    /// (0x2000-0x2FFF) is partially PRI-faulted. Writing to faulted PFIFO
+    /// registers (INTR at 0x2100, ENABLE at 0x2200) crashes the PRI ring
+    /// and kills FECS. This function detects faulted PFIFO and skips
+    /// dangerous writes, falling back to direct PBDMA probing.
     fn init_kepler_pfifo(bar0: &MappedBar) -> DriverResult<u32> {
+        use super::registers::pri;
+
         let w = |reg: usize, val: u32| -> DriverResult<()> {
             bar0.write_u32(reg, val).map_err(|e| {
                 DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {e}")))
             })
         };
 
-        // Clear any pending PFIFO interrupts.
-        w(pfifo::INTR, 0xFFFF_FFFF)?;
+        let pfifo_intr = bar0.read_u32(pfifo::INTR).unwrap_or(0xDEAD_DEAD);
+        let pfifo_faulted = pri::is_pri_error(pfifo_intr) || pfifo_intr == 0xDEAD_DEAD;
 
-        // Enable PFIFO engine via PMC_ENABLE bit 8.
-        let pmc = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
-        if pmc & (1 << 8) == 0 {
-            w(misc::PMC_ENABLE, pmc | (1 << 8))?;
-            std::thread::sleep(std::time::Duration::from_millis(10));
+        if pfifo_faulted {
+            tracing::warn!(
+                pfifo_intr = format_args!("{pfifo_intr:#010x}"),
+                "PFIFO INTR register PRI-faulted — skipping dangerous PFIFO \
+                 writes (INTR clear, ENABLE toggle, SCHED_EN) to protect PRI ring"
+            );
+        } else {
+            w(pfifo::INTR, 0xFFFF_FFFF)?;
+
+            let pmc = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
+            if pmc & (1 << 8) == 0 {
+                w(misc::PMC_ENABLE, pmc | (1 << 8))?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+
+            let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
+            if pfifo_en & 1 == 0 {
+                w(pfifo::ENABLE, 0)?;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                w(pfifo::ENABLE, 1)?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+
+            w(pfifo::SCHED_EN, 1)?;
+            w(pfifo::INTR, 0xFFFF_FFFF)?;
         }
 
-        // PFIFO enable toggle (0→1 resets scheduler + PBDMAs).
-        let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
-        if pfifo_en & 1 == 0 {
-            w(pfifo::ENABLE, 0)?;
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            w(pfifo::ENABLE, 1)?;
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        // Discover active PBDMAs — try canonical register first, then probe
+        // PBDMA STATUS registers directly when PBDMA_MAP is PRI-faulted.
+        let pbdma_map_raw = bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
+        let pbdma_map = if pri::is_pri_error(pbdma_map_raw) {
+            let mut probed: u32 = 0;
+            for pid in 0..4u32 {
+                let status = bar0
+                    .read_u32(0x0004_0000 + (pid as usize) * 0x2000 + 0x100)
+                    .unwrap_or(0);
+                if !pri::is_pri_error(status) && status != 0 && status != 0xDEAD_DEAD {
+                    probed |= 1 << pid;
+                }
+            }
+            tracing::info!(
+                pbdma_map_reg = format_args!("{pbdma_map_raw:#010x}"),
+                probed_map = format_args!("{probed:#010x}"),
+                "PBDMA_MAP PRI-faulted, probed PBDMA STATUS registers directly"
+            );
+            probed
+        } else {
+            pbdma_map_raw
+        };
 
-        // Enable scheduler.
-        w(pfifo::SCHED_EN, 1)?;
-        w(pfifo::INTR, 0xFFFF_FFFF)?;
-
-        // Discover active PBDMAs.
-        let pbdma_map = bar0.read_u32(pfifo::PBDMA_MAP).unwrap_or(0);
         tracing::info!(
             pbdma_map = format_args!("{pbdma_map:#010x}"),
+            pfifo_faulted,
             "Kepler PFIFO initialized"
         );
 
-        // GR is typically runlist 0 on Kepler.
         Ok(0)
     }
 
