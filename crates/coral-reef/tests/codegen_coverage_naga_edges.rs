@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Targeted WGSL fixtures for `naga_translate` codegen paths: `translate_switch`,
 //! `emit_atomic`, `translate_array_length`, and additional f64 builtins.
 //!

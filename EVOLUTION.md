@@ -2,18 +2,20 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 31, 2026 (Phase 10 — Iteration 70i)
-**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, CoralIR JIT & Daemon Architecture
+**Last updated**: March 30, 2026 (Phase 11 — Iteration 71)
+**Phase**: 11 — Sovereign Compiler Frontend + Deep Debt Resolution
 
 ---
 
 ## Current Position
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
-(SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-4232+ tests (~155 ignored hardware-gated), ~66% line coverage (8 crates above 90%),
-84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
-compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
+(SM35–SM120) and AMD (GFX906+RDNA2). Zero C dependencies, zero FFI.
+Sovereign `coral-parse` frontend replaces naga for all parsing — naga now optional
+feature for diff-testing. 4200+ tests (~155 ignored hardware-gated), 1264 sovereign-only
+tests (zero naga), ~66% line coverage (8 crates above 90%), 84/93 cross-spring
+WGSL shaders compile to SM70 SASS, plus 5/5 GLSL compute shaders and 10/10 SPIR-V
+roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
 UVM delegation, ecosystem discovery, cross-vendor parity testing, zero DEBT
 markers, zero libc dependency. Cross-primal rewiring: `optional_data_dir()`
@@ -94,8 +96,8 @@ with 28 categorized DEBT comments. SM30 delay clamping fix.
 
 ## Compiler Evolution — Expression & Statement Coverage
 
-These are the naga IR expression and statement types. Checked items compile
-through the full pipeline (naga → SSA IR → optimize → legalize → RA → encode).
+These are the expression and statement types. Checked items compile through
+the full pipeline (coral-parse AST or naga IR → CoralIR → optimize → legalize → RA → encode).
 
 ### Expressions
 
@@ -175,7 +177,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [ ] Pack/Unpack (2x16float, 4x8snorm, etc.)
 - [x] CountOneBits, ReverseBits, FirstLeadingBit, CountLeadingZeros
 - [x] FirstTrailingBit
-- [ ] ExtractBits, InsertBits
+- [x] ExtractBits (OpBfe), InsertBits (OpShl + OpLop2(Or))
 
 ---
 
@@ -257,32 +259,30 @@ early returns with standard control flow to ensure expr_map insertion.
 ### Evolution Path
 
 ```
-Current state:
-  WGSL/SPIR-V/GLSL → naga → coralReef → native binary (SASS/GFX)
+Current state (Iteration 71 — Sovereign Frontend):
+  WGSL/SPIR-V/GLSL → coral-parse (sovereign) → CoralIR → native binary (SASS/GFX)
+  Alternative:  → NagaFrontend (optional feature) → naga_translate → CoralIR → same pipeline
   ↓
   coralDriver: AMD amdgpu fully wired (GEM+PM4+CS+fence)
   coralDriver: NVIDIA nouveau fully wired (channel+GEM+pushbuf+QMD)
   coral-gpu: auto-detect DRM → alloc/dispatch/sync/readback
 
-P0 blockers resolved (Iteration 9):
-  Push buffer mthd_incr field swap, QMD CBUF binding, GPR count, NVIF constants, binding layout mapping
+coral-parse (Iteration 71):
+  Pure-Rust WGSL lexer + recursive-descent parser
+  Pure-Rust SPIR-V binary reader (two-pass)
+  Pure-Rust GLSL 450/460 lexer + parser
+  Sovereign AST → CoralIR lowering (6 submodules: math, binary, convert, stmt, builtin)
+  naga eliminated from default dependency tree (28 transitive deps removed)
+  1264 tests pass with --no-default-features (zero naga)
 
-Next milestone (AMD):
-  ... → binary → GEM BO → PM4 IB → CS submit → fence wait → readback
-  Hardware: RX 6950 XT (RDNA2, on-site) — driver path ready
-
-Next milestone (NVIDIA):
-  Fence wait → E2E test (pushbuf + CBUF binding fixed Iteration 9)
-  Hardware: Titan V (SM70) + RTX 3090 (SM86, on-site)
-
-Iteration 22 — Multi-Language Frontends:
-  GLSL 450 compute → naga glsl-in → coralReef pipeline (5/5 fixtures passing)
-  SPIR-V roundtrip: WGSL → naga spv-out → compile() (4/10 passing, 6 blocked on Discriminant/const init)
-  Fixtures reorganized: corpus/ (86 spring snapshots) vs compiler-owned (21 shaders)
+Hardware validation (Active):
+  Tesla K80 (SM35, Kepler) — cold boot sovereign pipeline
+  Titan V (SM70, Volta) — VFIO sovereign dispatch
+  RX 6950 XT (RDNA2) — E2E verified
 
 Endgame:
-  WGSL/SPIR-V/GLSL → coralReef → coralDriver → GPU execution → result
-  No vendor SDK. No CUDA. No ROCm. Pure Rust sovereign compute.
+  WGSL/SPIR-V/GLSL → coral-parse → coralDriver → GPU execution → result
+  No vendor SDK. No CUDA. No ROCm. No naga. Pure Rust sovereign compute.
 ```
 
 ---
@@ -389,8 +389,9 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 | Crate | Direct FFI | Pure Rust | Notes |
 |-------|-----------|-----------|-------|
+| coral-parse | — | thiserror | Sovereign frontend — zero external parser deps |
 | coral-driver | — | rustix | Pure Rust syscalls via rustix; libc eliminated (Iter 30) |
-| coral-reef | — | naga, thiserror, tracing | Zero FFI |
+| coral-reef | — | thiserror; naga (optional) | naga feature-gated since Iter 71 |
 | coral-reef-stubs | — | (none) | Zero dependencies |
 | coral-reef-bitview | — | (none) | Zero dependencies |
 | coralreef-core | — | tokio, tarpc, jsonrpsee, serde | Transitive libc via tokio |
@@ -475,20 +476,17 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 70e: 4070+ tests passing, ~122 ignored. ~66% line coverage (8 crates above 90%).
+Iteration 71: Sovereign compiler frontend (coral-parse). 4200+ tests, ~155 ignored.
+1264 sovereign-only tests (zero naga). ~66% line coverage (8 crates above 90%).
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
-Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).
-OrExit\<T\> for zero-panic binary validation. IpcServiceError for structured IPC errors.
-coral-glowplug JSON-RPC 2.0 compliant with `device.lend`/`device.reclaim` VFIO broker,
-`mailbox.*` posted-command firmware interaction, `ring.*` multi-ring GPU dispatch.
-Ember ring-keeper: `RingMeta` persistence across glowplug restarts.
-GpuPersonality trait-based system. `VfioLease` RAII test harness.
+Sovereign `coral-parse` frontend: pure-Rust WGSL/SPIR-V/GLSL parsers, AST,
+6-module lowering pass. naga now optional feature. 28 transitive deps eliminated.
+Production unwrap() removed, magic constants named, ShaderInfo metrics computed dynamically.
 VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
-GP_PUT H1 cache flush experiment: proven insufficient — root cause is cold silicon (PFIFO/GPCCS not initialized).
 NVIDIA UVM dispatch: GPFIFO submission, USERD doorbell, completion polling.
 IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
-Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM, dedicated display GPU).
+Hardware: Tesla K80 (SM35) + 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 8 of 9 crates enforce #[deny(unsafe_code)].
 All pure Rust. Sovereignty is a runtime choice.*
 

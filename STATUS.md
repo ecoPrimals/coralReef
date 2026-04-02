@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 31, 2026  
-**Phase**: 10 — Iteration 70i (Deep Debt Evolution + Safety Audit + Path Agnosticism)
+**Last updated**: March 30, 2026  
+**Phase**: 11 — Iteration 71 (Sovereign Compiler Frontend + Deep Debt Resolution)
 
 ---
 
@@ -14,7 +14,7 @@
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling |
 | IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `shader.compile.cpu` + `shader.execute.cpu` + `shader.validate` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
-| NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
+| NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → coral-parse (sovereign) or naga (optional) → CoralIR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
@@ -22,13 +22,13 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
-| Tests | A+ | 4232+ passing, ~155 ignored hardware-gated, ~66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, 85+ JIT/interpreter integration+unit tests |
+| Tests | A+ | 4200+ passing, ~155 ignored hardware-gated, 1264 sovereign-only (zero naga), ~66% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, 85+ JIT/interpreter integration+unit tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()` (audited Iter 70i); `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver + JIT codegen only (all SAFETY-documented), all ioctl via `rustix`, `libc` eliminated from direct deps, all configurable paths use `$CORALREEF_*` env-var overrides |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
-| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
+| Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized, naga eliminated (optional feature). Sovereign `coral-parse` frontend: 28 transitive deps removed from default build |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
@@ -41,7 +41,8 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Complete** |
+| 11 — Sovereign Frontend | `coral-parse` replaces naga, deep debt resolution | **Iteration 71** |
 
 ### Iteration 70e: CoralIR Cranelift JIT Backend + Dual-Path Validation (Mar 30, 2026)
 
@@ -1075,7 +1076,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4047 passing, 0 failed, 121 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4200+ passing, 0 failed, ~155 ignored hardware-gated) |
+| `cargo test --no-default-features` | PASS (1264 sovereign-only — zero naga) |
 | `cargo llvm-cov` | ~66% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

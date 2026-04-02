@@ -150,22 +150,10 @@ fn uvm_compute_bind() {
 }
 
 fn detect_sm_from_smi() -> u32 {
-    std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
-        .output()
-        .ok()
-        .and_then(|out| {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<&str> = s.trim().split('.').collect();
-            if parts.len() == 2 {
-                let major: u32 = parts[0].parse().ok()?;
-                let minor: u32 = parts[1].parse().ok()?;
-                Some(major * 10 + minor)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(86)
+    let nvml = nvml_wrapper::Nvml::init().expect("NVML init (is nvidia driver loaded?)");
+    let dev = nvml.device_by_index(0).expect("NVML device 0");
+    let cap = dev.cuda_compute_capability().expect("compute capability");
+    cap.major as u32 * 10 + cap.minor as u32
 }
 
 #[test]

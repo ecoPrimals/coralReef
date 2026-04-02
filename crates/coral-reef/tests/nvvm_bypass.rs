@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! NVVM Poisoning Bypass Tests — sovereign compilation of shaders
 //! that permanently poison the NVIDIA proprietary driver through wgpu.
 //!

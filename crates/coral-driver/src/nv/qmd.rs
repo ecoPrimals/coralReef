@@ -196,11 +196,89 @@ pub fn build_qmd_v30(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     q
 }
 
+/// Build a Kepler QMD v1.7 (GK110/GK210, SM 35-37) for compute dispatch.
+///
+/// Field layout from NVIDIA open-gpu-doc `cla1c0qmd.h` (QMDV01_07).
+/// Kepler QMD differs from Volta/Pascal in almost every field position.
+///
+/// `program_offset` is relative to the program region base set via
+/// `SET_PROGRAM_REGION_A/B` in the push buffer — typically 0 when the
+/// region base equals the shader VA.
+#[must_use]
+pub fn build_qmd_kepler(params: &QmdParams, program_offset: u32) -> [u32; QMD_SIZE_WORDS] {
+    let mut q = [0u32; QMD_SIZE_WORDS];
+
+    // QMD_VERSION [579:576] = 7, QMD_MAJOR_VERSION [583:580] = 1
+    qmd_set_field(&mut q, 576, 4, 7);
+    qmd_set_field(&mut q, 580, 4, 1);
+
+    // INVALIDATE_INSTRUCTION_CACHE [254] = 1, INVALIDATE_SHADER_DATA_CACHE [253] = 1
+    qmd_set_field(&mut q, 254, 1, 1);
+    qmd_set_field(&mut q, 253, 1, 1);
+
+    // PROGRAM_OFFSET [287:256] (32-bit, relative to program region base)
+    qmd_set_field(&mut q, 256, 32, u64::from(program_offset));
+
+    // CTA_RASTER_WIDTH [415:384], HEIGHT [431:416], DEPTH [447:432]
+    qmd_set_field(&mut q, 384, 32, u64::from(params.grid.x));
+    qmd_set_field(&mut q, 416, 16, u64::from(params.grid.y));
+    qmd_set_field(&mut q, 432, 16, u64::from(params.grid.z));
+
+    // SHARED_MEMORY_SIZE [561:544] (18 bits, 256-byte aligned)
+    let shared_aligned = (params.shared_mem_bytes + 255) & !255;
+    qmd_set_field(&mut q, 544, 18, u64::from(shared_aligned));
+
+    // CTA_THREAD_DIMENSION0 [607:592], DIM1 [623:608], DIM2 [639:624]
+    qmd_set_field(&mut q, 592, 16, u64::from(params.workgroup[0]));
+    qmd_set_field(&mut q, 608, 16, u64::from(params.workgroup[1]));
+    qmd_set_field(&mut q, 624, 16, u64::from(params.workgroup[2]));
+
+    // CONSTANT_BUFFER_VALID(i) [640+i : 640+i] (1-bit each, up to 8)
+    for cb in &params.cbufs {
+        let idx = cb.index as usize;
+        if idx < MAX_CBUFS {
+            qmd_set_field(&mut q, 640 + idx, 1, 1);
+        }
+    }
+
+    // CONSTANT_BUFFER(i): ADDR_LOWER at 928+i*64, ADDR_UPPER at 960+i*64 (8 bits),
+    // SIZE at 975+i*64 (17 bits)
+    for cb in &params.cbufs {
+        let idx = cb.index as usize;
+        if idx < MAX_CBUFS {
+            let base = 928 + idx * 64;
+            qmd_set_field(&mut q, base, 32, cb.addr & 0xFFFF_FFFF);
+            qmd_set_field(&mut q, base + 32, 8, cb.addr >> 32);
+            // SIZE [991+i*64 : 975+i*64] = 17 bits (raw bytes, not shifted)
+            qmd_set_field(&mut q, base + 47, 17, u64::from(cb.size));
+        }
+    }
+
+    // SHADER_LOCAL_MEMORY_LOW_SIZE [1463:1440] (24 bits)
+    // BARRIER_COUNT [1471:1467] (5 bits)
+    qmd_set_field(&mut q, 1467, 5, u64::from(params.barrier_count));
+
+    // SHADER_LOCAL_MEMORY_HIGH_SIZE [1495:1472] (24 bits) — leave 0
+    // REGISTER_COUNT [1503:1496] (8 bits)
+    let reg_count = params.gpr_count.min(255);
+    qmd_set_field(&mut q, 1496, 8, u64::from(reg_count));
+
+    // API_VISIBLE_CALL_LIMIT [378] = NO_CHECK (1) for compute
+    qmd_set_field(&mut q, 378, 1, 1);
+
+    q
+}
+
 /// Select the appropriate QMD builder for a given SM architecture.
+///
+/// For Kepler (SM 35-37), returns a QMD v1.7 with `program_offset` = 0.
+/// The caller must set `SET_PROGRAM_REGION_A/B` in the push buffer to
+/// the shader's base VA.
 #[must_use]
 pub fn build_qmd_for_sm(sm: u32, params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     match sm {
-        0..=69 => build_qmd_v21(params),
+        0..=37 => build_qmd_kepler(params, 0),
+        38..=69 => build_qmd_v21(params),
         70..=79 => build_qmd_v22(params),
         _ => build_qmd_v30(params),
     }
@@ -459,10 +537,14 @@ mod tests {
     #[test]
     fn build_qmd_for_sm_selects_version() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
-        // SM 0..=69 → v2.1
-        let q_69 = build_qmd_for_sm(69, &params);
-        assert_eq!(get_field(&q_69, 0, 4), 2);
-        assert_eq!(get_field(&q_69, 4, 4), 1);
+        // SM 0..=37 → Kepler v1.7
+        let q_37 = build_qmd_for_sm(37, &params);
+        assert_eq!(get_field(&q_37, 576, 4), 7, "SM 37 Kepler version");
+        assert_eq!(get_field(&q_37, 580, 4), 1, "SM 37 Kepler major");
+        // SM 38..=69 → v2.1
+        let q_50 = build_qmd_for_sm(50, &params);
+        assert_eq!(get_field(&q_50, 0, 4), 2);
+        assert_eq!(get_field(&q_50, 4, 4), 1);
         // SM 70..=79 → v2.2
         let q_70 = build_qmd_for_sm(70, &params);
         assert_eq!(get_field(&q_70, 0, 4), 2);
@@ -508,6 +590,124 @@ mod tests {
         assert_eq!(params.gpr_count, 4, "simple() clamps gpr_count to min 4");
     }
 
+    // --- Kepler QMD v1.7 tests (cla1c0qmd.h QMDV01_07 layout) ---
+
+    #[test]
+    fn qmd_kepler_version() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 576, 4), 7, "QMD_VERSION = 7");
+        assert_eq!(get_field(&q, 580, 4), 1, "QMD_MAJOR_VERSION = 1");
+    }
+
+    #[test]
+    fn qmd_kepler_grid_dimensions() {
+        let params = QmdParams::simple(0, DispatchDims::new(64, 8, 2), 32);
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 384, 32), 64, "CTA_RASTER_WIDTH");
+        assert_eq!(get_field(&q, 416, 16), 8, "CTA_RASTER_HEIGHT");
+        assert_eq!(get_field(&q, 432, 16), 2, "CTA_RASTER_DEPTH");
+    }
+
+    #[test]
+    fn qmd_kepler_thread_dimensions() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.workgroup = [128, 4, 2];
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 592, 16), 128, "CTA_THREAD_DIMENSION0");
+        assert_eq!(get_field(&q, 608, 16), 4, "CTA_THREAD_DIMENSION1");
+        assert_eq!(get_field(&q, 624, 16), 2, "CTA_THREAD_DIMENSION2");
+    }
+
+    #[test]
+    fn qmd_kepler_program_offset() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_kepler(&params, 0x200);
+        assert_eq!(get_field(&q, 256, 32), 0x200, "PROGRAM_OFFSET");
+    }
+
+    #[test]
+    fn qmd_kepler_register_count() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 48);
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 1496, 8), 48, "REGISTER_COUNT");
+    }
+
+    #[test]
+    fn qmd_kepler_register_count_clamped() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 300);
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 1496, 8), 255, "REGISTER_COUNT clamped");
+    }
+
+    #[test]
+    fn qmd_kepler_barrier_count() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.barrier_count = 3;
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 1467, 5), 3, "BARRIER_COUNT");
+    }
+
+    #[test]
+    fn qmd_kepler_shared_memory() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.shared_mem_bytes = 100;
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 544, 18), 256, "SHARED_MEMORY_SIZE aligned");
+    }
+
+    #[test]
+    fn qmd_kepler_cbuf_valid_and_addr() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.cbufs.push(CbufBinding {
+            index: 0,
+            addr: 0x2_0000_0000,
+            size: 4096,
+        });
+        let q = build_qmd_kepler(&params, 0);
+
+        assert_eq!(get_field(&q, 640, 1), 1, "CBUF 0 valid");
+        let lo = get_field(&q, 928, 32);
+        let hi = get_field(&q, 960, 8);
+        assert_eq!(lo | (hi << 32), 0x2_0000_0000, "CBUF 0 addr");
+        assert_eq!(get_field(&q, 975, 17), 4096, "CBUF 0 size");
+    }
+
+    #[test]
+    fn qmd_kepler_cache_invalidation() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 254, 1), 1, "INVALIDATE_INSTRUCTION_CACHE");
+        assert_eq!(get_field(&q, 253, 1), 1, "INVALIDATE_SHADER_DATA_CACHE");
+    }
+
+    #[test]
+    fn qmd_kepler_api_call_limit() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_kepler(&params, 0);
+        assert_eq!(get_field(&q, 378, 1), 1, "API_VISIBLE_CALL_LIMIT = NO_CHECK");
+    }
+
+    #[test]
+    fn qmd_for_sm_kepler_route() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q35 = build_qmd_for_sm(35, &params);
+        let q37 = build_qmd_for_sm(37, &params);
+        // Both should use Kepler v1.7
+        assert_eq!(get_field(&q35, 576, 4), 7, "SM 35 → v1.7");
+        assert_eq!(get_field(&q35, 580, 4), 1, "SM 35 → major 1");
+        assert_eq!(get_field(&q37, 576, 4), 7, "SM 37 → v1.7");
+        assert_eq!(get_field(&q37, 580, 4), 1, "SM 37 → major 1");
+    }
+
+    #[test]
+    fn qmd_for_sm_maxwell_still_v21() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q50 = build_qmd_for_sm(50, &params);
+        assert_eq!(get_field(&q50, 0, 4), 2, "SM 50 → v2.1 major");
+        assert_eq!(get_field(&q50, 4, 4), 1, "SM 50 → v2.1 minor");
+    }
+
     #[test]
     fn qmd_shared_memory_zero() {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
@@ -525,7 +725,18 @@ mod tests {
     }
 
     #[test]
-    fn qmd_build_for_sm_boundary_70() {
+    fn qmd_build_for_sm_boundary_37_38() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q_37 = build_qmd_for_sm(37, &params);
+        let q_50 = build_qmd_for_sm(50, &params);
+        // Kepler v1.7 has version at bits 576-583; Volta v2.1 at bits 0-7.
+        // Entirely different layouts — q_37 word 0 should be 0 (reserved).
+        assert_eq!(get_field(&q_37, 0, 8), 0, "Kepler QMD word 0 bits 0-7 are reserved");
+        assert_eq!(get_field(&q_50, 0, 4), 2, "Maxwell QMD major = 2");
+    }
+
+    #[test]
+    fn qmd_build_for_sm_boundary_69_70() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q_69 = build_qmd_for_sm(69, &params);
         let q_70 = build_qmd_for_sm(70, &params);

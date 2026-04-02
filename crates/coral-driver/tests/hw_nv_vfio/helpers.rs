@@ -170,6 +170,81 @@ pub fn open_vfio_warm() -> NvVfioComputeDevice {
     NvVfioComputeDevice::open_warm(&bdf, fds, sm, 0).expect("NvVfioComputeDevice::open_warm()")
 }
 
+/// Orchestrate a full warm handoff with FECS freeze context (Exp 132).
+///
+/// Like `open_vfio_warm()` but uses `open_warm_with_context` to pass the
+/// handoff result's FECS freeze status and PFIFO snapshot to the device
+/// open, enabling the hybrid PFIFO init that rebuilds scheduler state.
+pub fn open_vfio_warm_with_context() -> NvVfioComputeDevice {
+    use coral_driver::nv::vfio_compute::{PfifoSnapshot, WarmHandoffContext};
+
+    init_tracing();
+    let bdf = vfio_bdf();
+    let sm = vfio_sm();
+
+    let mut ctx = WarmHandoffContext::default();
+
+    match crate::glowplug_client::GlowPlugClient::connect() {
+        Ok(mut gp) => {
+            eprintln!("glowplug: orchestrating warm handoff (with context) for {bdf}...");
+            match gp.warm_handoff(&bdf, "nouveau", 2000, true, 15000) {
+                Ok(result) => {
+                    ctx.fecs_alive = result
+                        .get("fecs_ever_running")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    ctx.fecs_frozen = result
+                        .get("fecs_frozen")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
+                    if let Some(snap) = result.get("pfifo_snapshot") {
+                        let parse_hex = |key: &str| -> u32 {
+                            snap.get(key)
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                                .unwrap_or(0)
+                        };
+                        ctx.pfifo_snapshot = Some(PfifoSnapshot {
+                            pmc_enable: parse_hex("pmc_enable"),
+                            pbdma_map: parse_hex("pbdma_map"),
+                            pfifo_sched_en: parse_hex("pfifo_sched_en"),
+                            runlist_base: parse_hex("runlist_base"),
+                            runlist_submit: parse_hex("runlist_submit"),
+                        });
+                    }
+
+                    let total_ms = result.get("total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                    eprintln!(
+                        "glowplug: warm handoff complete (fecs_alive={}, fecs_frozen={}, {total_ms}ms)",
+                        ctx.fecs_alive, ctx.fecs_frozen
+                    );
+                }
+                Err(e) => {
+                    eprintln!("glowplug: warm_handoff RPC failed: {e}");
+                    eprintln!("glowplug: falling back to default context");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("glowplug: not available ({e}), using default context");
+        }
+    }
+
+    let fds = match ember_client::request_fds(&bdf) {
+        Ok(fds) => {
+            eprintln!("ember: received VFIO fds for {bdf} (WARM+CONTEXT)");
+            fds
+        }
+        Err(e) => {
+            panic!("warm handoff with context requires ember for VFIO fds ({e})");
+        }
+    };
+
+    NvVfioComputeDevice::open_warm_with_context(&bdf, fds, sm, 0, &ctx)
+        .expect("NvVfioComputeDevice::open_warm_with_context()")
+}
+
 /// Post-warm-handoff falcon state snapshot for regression testing.
 #[derive(Debug)]
 pub struct WarmHandoffReport {

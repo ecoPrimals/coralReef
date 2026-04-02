@@ -42,7 +42,10 @@ pub use uvm_compute::NvUvmComputeDevice;
 #[cfg(feature = "vfio")]
 pub mod vfio_compute;
 #[cfg(feature = "vfio")]
-pub use vfio_compute::{GrEngineStatus, NvVfioComputeDevice, RawVfioDevice, pmc_soft_reset};
+pub use vfio_compute::{
+    GrEngineStatus, NvVfioComputeDevice, PfifoSnapshot, RawVfioDevice, WarmHandoffContext,
+    pmc_soft_reset,
+};
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};

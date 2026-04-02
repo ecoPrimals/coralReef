@@ -514,6 +514,94 @@ impl NvVfioComputeDevice {
         Ok(())
     }
 
+    /// Restart FECS from frozen scheduling state (Exp 132 diesel engine).
+    ///
+    /// After `STOP_CTXSW` via ember, FECS is alive but not scheduling.
+    /// PFIFO has been rebuilt with `warm_fecs` config and our new channel
+    /// is on the runlist. This method:
+    ///
+    /// 1. Clears stale PBDMA interrupts
+    /// 2. Resets FECS method interface status
+    /// 3. Sends `START_CTXSW` (method 0x02) to resume scheduling
+    /// 4. Sets up GR context (discover sizes, bind, golden save)
+    pub fn restart_frozen_fecs(&mut self) -> DriverResult<()> {
+        use crate::vfio::channel::registers::falcon;
+        use super::acr_boot::fecs_method;
+
+        let r = |a: usize| self.bar0.read_u32(a).unwrap_or(0xDEAD_DEAD);
+        let w = |a: usize, v: u32| {
+            let _ = self.bar0.write_u32(a, v);
+        };
+
+        let fecs_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
+        let fecs_pc = r(falcon::FECS_BASE + falcon::PC);
+        let fecs_mb0 = r(falcon::FECS_BASE + falcon::MAILBOX0);
+
+        tracing::info!(
+            fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"),
+            fecs_pc = format_args!("{fecs_pc:#06x}"),
+            fecs_mb0 = format_args!("{fecs_mb0:#010x}"),
+            "restart_frozen_fecs: FECS state before START_CTXSW"
+        );
+
+        // Clear stale PBDMA interrupts accumulated during the swap.
+        let pbdma_map = r(0x2004);
+        for pid in 0..32_usize {
+            if pbdma_map & (1 << pid) == 0 {
+                continue;
+            }
+            let b = 0x0004_0000 + pid * 0x2000;
+            let intr = r(b + 0x108);
+            if intr != 0 {
+                tracing::info!(
+                    pbdma = pid,
+                    intr = format_args!("{intr:#010x}"),
+                    "clearing stale PBDMA interrupt"
+                );
+                w(b + 0x108, 0xFFFF_FFFF);
+            }
+        }
+        w(0x2100, 0xFFFF_FFFF);
+
+        // Reset FECS method interface status registers.
+        w(falcon::FECS_BASE + falcon::MTHD_STATUS, 0);
+        w(falcon::FECS_BASE + falcon::MTHD_STATUS2, 0);
+
+        // Re-apply GR engine enable and interrupt registers.
+        w(0x400100, 0xFFFF_FFFF);
+        w(0x40013c, 0xFFFF_FFFF);
+        w(0x400124, 0x0000_0002);
+        w(0x409C24, 0x000E_0002);
+        w(0x400500, 0x0001_0001);
+
+        // Resume FECS scheduling — method 0x02 (START_CTXSW).
+        // FECS will process the new runlist and schedule our channel.
+        tracing::info!("restart_frozen_fecs: sending START_CTXSW (method 0x02)");
+        match fecs_method::fecs_start_ctxsw(&self.bar0) {
+            Ok(()) => {
+                tracing::info!("restart_frozen_fecs: START_CTXSW success — scheduling resumed");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "restart_frozen_fecs: START_CTXSW failed — FECS may need full restart"
+                );
+                return self.restart_warm_falcons();
+            }
+        }
+
+        let fecs_cpuctl_post = r(falcon::FECS_BASE + falcon::CPUCTL);
+        let fecs_mb0_post = r(falcon::FECS_BASE + falcon::MAILBOX0);
+        tracing::info!(
+            fecs_cpuctl = format_args!("{fecs_cpuctl_post:#010x}"),
+            fecs_mb0 = format_args!("{fecs_mb0_post:#010x}"),
+            "restart_frozen_fecs: post-START_CTXSW state"
+        );
+
+        // Set up GR context using the now-running FECS method interface.
+        self.setup_gr_context_warm()
+    }
+
     /// Submit FECS channel init methods via GPFIFO after channel creation.
     ///
     /// Builds a push buffer containing the GR context setup methods

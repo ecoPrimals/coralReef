@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Targeted coverage tests for specific codegen paths.
 //!
 //! Each test targets a gap identified via `cargo llvm-cov`:

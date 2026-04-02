@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! WGSL cross-spring corpus — shaders from all ecosystem springs.
 //!
 //! Each shader is compiled for SM70 (Volta) with f64 software lowering enabled.

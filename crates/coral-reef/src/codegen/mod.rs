@@ -157,4 +157,5 @@ mod union_find;
 #[cfg(test)]
 pub mod test_shader_helpers;
 
+#[cfg(feature = "naga")]
 pub mod naga_translate;

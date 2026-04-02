@@ -303,6 +303,37 @@ enum Command {
         #[command(subcommand)]
         action: DevinitAction,
     },
+
+    /// Sovereign cold boot a Tesla K80 (GK210 Kepler) from fully powered-off state.
+    ///
+    /// Replays the BIOS init recipe (PLLs, clocks, engine domains) via BAR0,
+    /// then PIO-boots FECS/GPCCS firmware. The GPU ends up in a state ready
+    /// for compute channel creation — no nouveau or nvidia driver needed.
+    /// Requires direct VFIO group access (runs locally, not via RPC).
+    ColdBoot {
+        /// PCI BDF address of the K80 (e.g. 0000:4c:00.0).
+        bdf: String,
+        /// Path to the BIOS init recipe JSON (captured from nvidia470 VM session).
+        #[arg(long)]
+        recipe: String,
+        /// Directory containing FECS/GPCCS firmware blobs
+        /// (fecs_inst.bin, fecs_data.bin, gpccs_inst.bin, gpccs_data.bin).
+        /// Default: built-in data/firmware/nvidia/gk110/ relative to the binary.
+        #[arg(long)]
+        firmware_dir: Option<String>,
+        /// Include PGRAPH registers in the recipe replay (needed for GR engine).
+        #[arg(long, default_value_t = true)]
+        pgraph: bool,
+        /// Include PCCSR registers in the recipe replay (channel status).
+        #[arg(long)]
+        pccsr: bool,
+        /// Include PRAMIN registers in the recipe replay (instance memory).
+        #[arg(long)]
+        pramin: bool,
+        /// Skip FECS/GPCCS firmware upload (clock + devinit only).
+        #[arg(long)]
+        skip_firmware: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -665,5 +696,24 @@ fn main() {
                 handlers_trace::devinit_replay(&bdf, diagnostics);
             }
         },
+        Command::ColdBoot {
+            bdf,
+            recipe,
+            firmware_dir,
+            pgraph,
+            pccsr,
+            pramin,
+            skip_firmware,
+        } => {
+            handlers_trace::cold_boot_replay(
+                &bdf,
+                &recipe,
+                firmware_dir.as_deref(),
+                pgraph,
+                pccsr,
+                pramin,
+                skip_firmware,
+            );
+        }
     }
 }

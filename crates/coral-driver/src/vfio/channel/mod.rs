@@ -175,6 +175,31 @@ impl VfioChannel {
         )
     }
 
+    /// Create a channel for FECS-frozen warm handoff (Exp 132 diesel engine).
+    ///
+    /// After `coralctl warm-fecs` with STOP_CTXSW, FECS firmware is alive
+    /// but scheduling is frozen. PFIFO infrastructure (channels, PBDMA,
+    /// runlists) was destroyed by nouveau's teardown. This config rebuilds
+    /// everything while preserving falcon state.
+    pub fn create_warm_fecs(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+    ) -> DriverResult<Self> {
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::warm_fecs(),
+        )
+    }
+
     fn create_with_config(
         container: DmaBackend,
         bar0: &MappedBar,

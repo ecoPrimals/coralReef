@@ -27,6 +27,7 @@ rdna2-buffer-read = []
 
 [dev-dependencies]
 coral-reef = { workspace = true }
+nvml-wrapper = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }

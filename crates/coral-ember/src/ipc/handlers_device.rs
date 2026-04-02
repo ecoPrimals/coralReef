@@ -501,6 +501,81 @@ pub(crate) fn mmio_read(
     }
 }
 
+/// `ember.mmio.write` — write a single BAR0 register via mmap.
+///
+/// Required for warm handoff FECS freeze: glowplug sends `STOP_CTXSW`
+/// through BAR0 while nouveau is still bound, freezing FECS scheduling
+/// before the driver teardown destroys channels and runlists.
+pub(crate) fn mmio_write(
+    stream: &mut impl Write,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), String> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or("missing 'bdf' parameter")?;
+    let offset = parse_hex_or_dec(params.get("offset"), "offset")?;
+    let value = parse_hex_or_dec(params.get("value"), "value")?;
+
+    if offset % 4 != 0 {
+        return write_jsonrpc_error(
+            stream,
+            id,
+            -32602,
+            &format!("offset {offset:#x} is not 4-byte aligned"),
+        )
+        .map_err(ipc_io_error_string);
+    }
+
+    let resource0 = format!(
+        "{}/resource0",
+        coral_driver::linux_paths::sysfs_pci_device_path(bdf)
+    );
+    let mut bar0 = match coral_driver::nv::bar0::Bar0Access::open_resource(&resource0) {
+        Ok(b) => b,
+        Err(e) => {
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("BAR0 open (rw) failed for {bdf}: {e}"),
+            )
+            .map_err(ipc_io_error_string);
+        }
+    };
+
+    tracing::info!(
+        bdf,
+        offset = format_args!("{offset:#010x}"),
+        value = format_args!("{value:#010x}"),
+        "ember.mmio.write"
+    );
+
+    match bar0.write_u32(offset, value) {
+        Ok(()) => {
+            let readback = bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD);
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({
+                    "offset": format!("{offset:#010x}"),
+                    "value": format!("{value:#010x}"),
+                    "readback": format!("{readback:#010x}"),
+                }),
+            )
+            .map_err(ipc_io_error_string)
+        }
+        Err(e) => write_jsonrpc_error(
+            stream,
+            id,
+            -32000,
+            &format!("mmio write at {offset:#x}: {e}"),
+        )
+        .map_err(ipc_io_error_string),
+    }
+}
+
 /// `ember.fecs.state` — structured FECS register snapshot via BAR0 mmap.
 pub(crate) fn fecs_state(
     stream: &mut impl Write,

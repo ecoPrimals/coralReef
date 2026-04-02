@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Full-pipeline WGSL compilation tests across all [`coral_reef::NvArch`] targets.
 //!
 //! Each fixture exercises naga translate → IR → optimization → legalization → NV encoding.

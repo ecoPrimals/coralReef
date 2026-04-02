@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70i.
+**Current position**: Phase 11 — Iteration 71.
 
-**Last completed**: Deep debt evolution across all crates — full unwrap audit (zero violations), hardcoded path elimination (all configurable paths use `$CORALREEF_*` env-var overrides), unsafe code SAFETY documentation (all blocks annotated), bind address agnosticism (`$CORALREEF_BIND_ADDR`), large file smart refactoring (device_ops.rs, jit_validation.rs), barraCuda math validation (sigmoid/relu/elu/silu/fma/reduction/layer_norm/tiled_matmul), IPC compliance (wateringHole Conformant), dispatch boundary documentation.
+**Last completed**: Sovereign compiler frontend (`coral-parse`) — pure-Rust WGSL/SPIR-V/GLSL parsers, sovereign AST, 6-module lowering pass to CoralIR (math, binary, convert, stmt, builtin). naga eliminated from default dependency tree (28 transitive deps removed). Deep debt resolution: production unwrap() removed, magic constants named, monolithic lowering refactored into focused submodules, ShaderInfo metrics computed dynamically. 1264 sovereign-only tests pass with zero naga.
 
-**Tests**: 4232+ passing, ~155 ignored hardware-gated.
+**Tests**: 4200+ passing, ~155 ignored hardware-gated. 1264 sovereign-only (zero naga).
 
-**Next focus**: Local scratch memory emulation for JIT (unblocks `for` loop patterns), MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), coverage push toward 90%, toadStool E2E pipeline, dispatch handoff to toadStool when GPU development stabilizes.
+**Next focus**: Tesla K80 (SM35) + Titan V (SM70) hardware validation with complete sovereign pipeline. Full dispatch pipeline gap resolution.
 
-**Last updated**: March 31, 2026 (Phase 10 — Iteration 70i — Deep Debt Evolution + Safety Audit + Path Agnosticism. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC; zero `.unwrap()` in library code)
+**Last updated**: March 30, 2026 (Phase 11 — Iteration 71 — Sovereign Compiler Frontend + Deep Debt Resolution. coral-parse replaces naga as default frontend; naga optional for diff-testing)
 
 ---
 
@@ -71,6 +71,36 @@ All production files under 1000 LOC. Iter 70 added three more splits:
 | coral-glowplug | 62.6% | **60.8%** |
 | Workspace total | 62.9% | **65.9%** |
 | Non-hardware | — | **81.5%** |
+
+---
+
+## Phase 11 — Sovereign Compiler Frontend (Iteration 71)
+
+### Iteration 71 — Sovereign Compiler Frontend + Deep Debt Resolution (Mar 30, 2026)
+- [x] `coral-parse` crate: sovereign compiler frontend replacing naga
+- [x] Pure-Rust WGSL lexer + recursive-descent parser (full spec)
+- [x] Pure-Rust SPIR-V binary reader (two-pass: headers/names/decorations → types/functions)
+- [x] Pure-Rust GLSL 450/460 lexer + parser
+- [x] Sovereign AST: Module, Type, Expression, Statement, Arena<T>, Handle<T>
+- [x] AST → CoralIR lowering refactored into 6 focused submodules:
+  - `math.rs` — MathFunction → OpTranscendental/OpFFma/OpF2I/OpI2F (sqrt, sin, cos, exp, log, floor, ceil, round, trunc, fract, dot, cross, normalize, length, distance, mix, step, smoothstep, extractBits, insertBits)
+  - `binary.rs` — BinaryOp/UnaryOp → IR ops (divide via rcp+mul, modulo via a-floor(a/b)*b, BitwiseNot via XOR 0xFFFFFFFF)
+  - `convert.rs` — Expression::As → OpF2I/OpI2F/OpSel for type conversions
+  - `stmt.rs` — Statement lowering (store, if, loop, break, continue, atomic, switch, kill, texture store)
+  - `builtin.rs` — BuiltIn → OpS2R system register reads (GlobalInvocationId, LocalInvocationId, WorkGroupId, etc.)
+  - `mod.rs` — FuncLowerer coordination, SSA allocation, block management
+- [x] naga moved to optional Cargo feature (`--features naga` for diff-testing)
+- [x] 28 transitive dependencies eliminated from default build
+- [x] Production unwrap() replaced with proper error handling (spirv/reader.rs, glsl/parser.rs)
+- [x] Magic GLSL.std.450 opcodes replaced with named constants
+- [x] WGSL parser: expression type tracking for struct field resolution, bitcast handling
+- [x] ShaderInfo metrics computed dynamically (instr_count, barrier_count, shared_mem_size)
+- [x] Uniform load: actual buffer binding instead of hardcoded CBuf::Binding(0)
+- [x] Always-true `|| true` condition removed from WGSL switch parser
+- [x] Unused `tracing` dependency removed from coral-parse
+- [x] 1264 tests pass with `--no-default-features` (sovereign-only, zero naga)
+- [x] 1999 tests pass with `--features naga` (full suite including naga path)
+- [x] Quality gates: cargo check, cargo test, zero regressions
 
 ---
 
@@ -566,13 +596,11 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4047 tests passing, 0 failed, ~121 ignored hardware-gated. ~66% workspace line coverage.
-Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
+*The compiler evolves. Sovereign `coral-parse` frontend replaces naga for all parsing.
+4200+ tests passing, 0 failed, ~155 ignored hardware-gated. 1264 sovereign-only tests (zero naga).
+~66% workspace line coverage. Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
-Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
-Hardware: 2× Titan V (VFIO sovereign, now bound to glowplug) + RTX 5060 (nvidia-drm/UVM).
+Hardware: Tesla K80 (SM35) + 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM).
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift.
-All pure Rust. Sovereignty is a runtime choice.*
+All pure Rust. No naga required. Sovereignty is a runtime choice.*

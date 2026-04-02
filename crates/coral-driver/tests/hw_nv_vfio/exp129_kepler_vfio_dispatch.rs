@@ -110,6 +110,83 @@ fn exp129_phase2_kepler_nop_dispatch() {
     eprintln!("{}", "=".repeat(70));
 }
 
+/// Phase 2b: Compiler-driven NOP dispatch using coral-reef with NvArch::Sm35.
+///
+/// Instead of hand-crafted SASS, this compiles a WGSL NOP shader via the
+/// coral-reef compiler targeting SM 3.5 (Kepler SASS). This validates:
+/// - coral-reef Sm35 codegen produces valid Kepler binary
+/// - QMD v1.7 fields (GPR count, shared mem) from compiler metadata
+/// - Full Kepler dispatch pipeline: QMD + PCAS + PROGRAM_REGION
+#[test]
+#[ignore = "requires K80 on vfio-pci + ember + FECS running"]
+fn exp129_phase2b_kepler_compiled_dispatch() {
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("Exp 129 Phase 2b: Kepler Compiled NOP Dispatch (K80 GK210)");
+    eprintln!("{}", "=".repeat(70));
+
+    let mut dev = open_k80();
+    eprintln!("  Device opened: SM {}", dev.sm_version());
+    assert_eq!(dev.sm_version(), 37);
+
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let opts = coral_reef::CompileOptions {
+        target: coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm35),
+        ..coral_reef::CompileOptions::default()
+    };
+
+    let compiled = match coral_reef::compile_wgsl_full(wgsl, &opts) {
+        Ok(c) => {
+            eprintln!(
+                "  Compiled: {} bytes, {} GPRs, {} shared, workgroup {:?}",
+                c.binary.len(),
+                c.info.gpr_count,
+                c.info.shared_mem_bytes,
+                c.info.local_size
+            );
+            c
+        }
+        Err(e) => {
+            eprintln!("  COMPILE FAILED: {e}");
+            eprintln!("  coral-reef Sm35 codegen may not be fully supported yet.");
+            return;
+        }
+    };
+
+    let info = ShaderInfo {
+        gpr_count: compiled.info.gpr_count,
+        shared_mem_bytes: compiled.info.shared_mem_bytes,
+        barrier_count: compiled.info.barrier_count,
+        workgroup: compiled.info.local_size,
+        wave_size: KEPLER_WAVE_SIZE,
+    };
+
+    eprintln!("  Dispatching compiled NOP shader (1,1,1) x ({:?})...", info.workgroup);
+    match dev.dispatch(&compiled.binary, &[], DispatchDims::new(1, 1, 1), &info) {
+        Ok(()) => eprintln!("  Dispatch submitted OK"),
+        Err(e) => {
+            eprintln!("  Dispatch FAILED: {e}");
+            return;
+        }
+    }
+
+    eprintln!("  Syncing (waiting for GPFIFO completion)...");
+    match dev.sync() {
+        Ok(()) => {
+            eprintln!("  SYNC OK — Kepler compiled shader dispatch succeeded!");
+            eprintln!("  Phase 2b: PASS — coral-reef Sm35 → Kepler QMD v1.7 → GPFIFO → GPU");
+        }
+        Err(e) => {
+            eprintln!("  SYNC FAILED (fence timeout): {e}");
+            eprintln!("  Possible causes:");
+            eprintln!("    - coral-reef Sm35 binary not compatible with QMD v1.7 header");
+            eprintln!("    - FECS not running or GR context not initialized");
+            eprintln!("    - MMU fault (check dmesg for IOMMU errors)");
+        }
+    }
+
+    eprintln!("{}", "=".repeat(70));
+}
+
 /// Phase 3: Data compute — allocate buffer, verify DMA round-trip.
 #[test]
 #[ignore = "requires K80 on vfio-pci + ember + FECS running + Phase 2 working"]

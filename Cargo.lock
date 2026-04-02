@@ -325,6 +325,7 @@ dependencies = [
  "coral-reef",
  "cudarc",
  "libc",
+ "nvml-wrapper",
  "rustix",
  "serde",
  "serde_json",
@@ -382,6 +383,15 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "coral-parse"
+version = "0.1.0"
+dependencies = [
+ "coral-reef",
+ "coral-reef-stubs",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

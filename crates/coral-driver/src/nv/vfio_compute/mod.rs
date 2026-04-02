@@ -100,6 +100,39 @@ struct VfioBuffer {
     size: u64,
 }
 
+/// Context from glowplug's warm handoff that informs PFIFO init strategy.
+///
+/// Passed from `coralctl warm-fecs` result to `open_warm_with_context`
+/// so the device open can select the optimal PFIFO init config based
+/// on what ember observed during the handoff.
+#[derive(Debug, Clone, Default)]
+pub struct WarmHandoffContext {
+    /// FECS was seen running during the poll window.
+    pub fecs_alive: bool,
+    /// STOP_CTXSW was sent via ember.mmio.write before nouveau teardown.
+    /// When true, FECS is alive but scheduling is frozen — safe to rebuild
+    /// PFIFO infrastructure without FECS interfering.
+    pub fecs_frozen: bool,
+    /// PFIFO register snapshot captured while nouveau was still bound.
+    /// Contains PMC_ENABLE, PBDMA_MAP, PFIFO_SCHED_EN values.
+    pub pfifo_snapshot: Option<PfifoSnapshot>,
+}
+
+/// PFIFO register values captured from ember before the warm handoff swap-back.
+#[derive(Debug, Clone)]
+pub struct PfifoSnapshot {
+    /// PMC_ENABLE (0x200) — engine clock gating bits.
+    pub pmc_enable: u32,
+    /// PBDMA_MAP (0x2004) — bitmask of present PBDMA engines.
+    pub pbdma_map: u32,
+    /// PFIFO_SCHED_EN (0x2504) — scheduler enable state.
+    pub pfifo_sched_en: u32,
+    /// RUNLIST_BASE (0x2270) — runlist DMA base for runlist 0.
+    pub runlist_base: u32,
+    /// RUNLIST_SUBMIT (0x2274) — runlist submit config for runlist 0.
+    pub runlist_submit: u32,
+}
+
 /// NVIDIA compute device via VFIO — direct BAR0 + DMA dispatch.
 ///
 /// Field order matters: DMA buffers and channel must drop (and unmap)
@@ -500,6 +533,107 @@ impl NvVfioComputeDevice {
         };
 
         dev.restart_warm_falcons()?;
+
+        Ok(dev)
+    }
+
+    /// Open from ember FDs with warm handoff context (Exp 132 diesel engine).
+    ///
+    /// Like `open_warm` but informed by the handoff result from glowplug.
+    /// When `ctx.fecs_frozen` is true, uses the hybrid `warm_fecs` PFIFO
+    /// config that rebuilds PFIFO infrastructure while preserving falcon
+    /// state, then sends FECS `START_CTXSW` to resume scheduling.
+    pub fn open_warm_with_context(
+        bdf: &str,
+        fds: crate::vfio::ReceivedVfioFds,
+        sm_version: u32,
+        compute_class: u32,
+        ctx: &WarmHandoffContext,
+    ) -> DriverResult<Self> {
+        use crate::vfio::channel::registers::{misc, mmu, pccsr};
+
+        let device = VfioDevice::from_received(bdf, fds)?;
+        let container = device.dma_backend();
+        let bar0 = device.map_bar(0)?;
+
+        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
+
+        tracing::info!(
+            fecs_alive = ctx.fecs_alive,
+            fecs_frozen = ctx.fecs_frozen,
+            has_snapshot = ctx.pfifo_snapshot.is_some(),
+            "warm handoff with context: skipping GR BAR0 init"
+        );
+
+        Self::clear_stale_pccsr_all(&bar0);
+        let _ = bar0.write_u32(0x2100, 0xFFFF_FFFF);
+
+        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "GPFIFO entries constant always fits u32"
+        )]
+        let channel = if ctx.fecs_frozen {
+            tracing::info!("warm_fecs path: rebuilding PFIFO with frozen FECS");
+            GpuChannel::Volta(VfioChannel::create_warm_fecs(
+                container.clone(),
+                &bar0,
+                GPFIFO_IOVA,
+                gpfifo::ENTRIES as u32,
+                USERD_IOVA,
+                0,
+            )?)
+        } else {
+            tracing::info!("warm_handoff path: conservative PFIFO (no FECS freeze)");
+            GpuChannel::Volta(VfioChannel::create_warm(
+                container.clone(),
+                &bar0,
+                GPFIFO_IOVA,
+                gpfifo::ENTRIES as u32,
+                USERD_IOVA,
+                0,
+            )?)
+        };
+
+        let bar2_readback = bar0.read_u32(misc::PBUS_BAR2_BLOCK).unwrap_or(0xDEAD);
+        let bar2_target = (bar2_readback >> 28) & 0x3;
+        tracing::info!(
+            bar2_block = format_args!("{bar2_readback:#010x}"),
+            target = bar2_target,
+            "warm ctx: BAR2_BLOCK verification"
+        );
+
+        let fb0_get = bar0.read_u32(mmu::FAULT_BUF0_GET).unwrap_or(0xDEAD);
+        if fb0_get != 0 {
+            let _ = bar0.write_u32(mmu::FAULT_BUF0_GET, 0);
+            let _ = bar0.write_u32(mmu::FAULT_BUF1_GET, 0);
+        }
+
+        let mut dev = Self {
+            device,
+            bar0,
+            sm_version,
+            compute_class,
+            gpfifo_ring,
+            gpfifo_put: 0,
+            userd,
+            channel,
+            next_handle: 1,
+            next_iova: USER_IOVA_BASE,
+            container,
+            buffers: HashMap::new(),
+            inflight: Vec::new(),
+        };
+
+        if ctx.fecs_frozen {
+            // FECS was frozen via STOP_CTXSW. After PFIFO rebuild, restart
+            // scheduling so FECS processes our new channel on the runlist.
+            dev.restart_frozen_fecs()?;
+        } else {
+            dev.restart_warm_falcons()?;
+        }
 
         Ok(dev)
     }

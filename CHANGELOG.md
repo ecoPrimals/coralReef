@@ -4,11 +4,35 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70i
+**Current status**: Phase 11 — Iteration 71
 
 ---
 
 ## [Unreleased]
+
+### Iteration 71 — Sovereign Compiler Frontend + Deep Debt Resolution (2026-03-30)
+
+#### Added
+- `coral-parse` sovereign compiler frontend: pure-Rust WGSL/SPIR-V/GLSL parsers
+- Sovereign AST: Module, Type, Expression, Statement, Arena<T>, Handle<T>
+- AST → CoralIR lowering in 6 submodules (math, binary, convert, stmt, builtin)
+- 1264 tests pass with `--no-default-features` (zero naga dependency)
+- ExtractBits (OpBfe) and InsertBits (OpShl + OpLop2(Or)) in math lowering
+- GLSL.std.450 named constants replacing magic numbers in SPIR-V reader
+- Expression type tracking in WGSL parser for struct field resolution
+
+#### Changed
+- naga moved to optional Cargo feature (28 transitive deps eliminated from default build)
+- `CoralFrontend` (from coral-parse) is now the default frontend
+- `lower/mod.rs` refactored from 1439-line monolith into 6 focused submodules (2225 lines total)
+- ShaderInfo metrics computed dynamically (instr_count, barrier_count, shared_mem_size)
+- Uniform load uses actual buffer binding instead of hardcoded CBuf::Binding(0)
+- `bitcast` emits proper Expression::As instead of passthrough
+
+#### Fixed
+- Production unwrap() in spirv/reader.rs and glsl/parser.rs replaced with proper error handling
+- Always-true `|| true` condition removed from WGSL switch parser
+- Unused `tracing` dependency removed from coral-parse
 
 ### Iteration 70i — Deep Debt Evolution + Safety Audit + Path Agnosticism (2026-03-31)
 

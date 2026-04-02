@@ -699,6 +699,12 @@ pub const NVIDIA470_DIFF: &str = concat!(
 
 /// Apply register writes from nvidia-470 cold→warm diff to BAR0.
 /// Skips PMC_ENABLE, PRI-fault sentinel values, and addresses above BAR0 range.
+///
+/// **Note (Exp 132 audit)**: Skipping PMC_ENABLE (0x200) means the PFIFO clock
+/// domain (bit 8) is not enabled, causing PFIFO registers to PRI-fault.
+/// `init_kepler_pfifo` now auto-enables bit 8 as a prerequisite, but for
+/// sovereign K80 dispatch, prefer the full cold boot path via
+/// `k80_cold_boot::cold_boot()` which includes proper PMC writes.
 pub fn apply_nvidia470_recipe(bar0: &mut impl RegisterAccess) -> (usize, usize) {
     let data = std::fs::read_to_string(NVIDIA470_DIFF)
         .unwrap_or_else(|e| panic!("Cannot read nvidia-470 diff: {e}"));

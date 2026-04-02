@@ -51,9 +51,14 @@ pub trait Frontend {
     ) -> Result<Shader<'a>, CompileError>;
 }
 
-/// Default frontend backed by the `naga` crate (WGSL + SPIR-V + GLSL).
+/// Legacy frontend backed by the `naga` crate (WGSL + SPIR-V + GLSL).
+///
+/// Only available when the `naga` feature is enabled. The sovereign
+/// `CoralFrontend` (from `coral-parse`) is the recommended replacement.
+#[cfg(feature = "naga")]
 pub struct NagaFrontend;
 
+#[cfg(feature = "naga")]
 impl Frontend for NagaFrontend {
     fn compile_wgsl<'a>(
         &self,
@@ -83,6 +88,7 @@ impl Frontend for NagaFrontend {
     }
 }
 
+#[cfg(feature = "naga")]
 fn translate_first_entry<'sm>(
     module: &naga::Module,
     sm: &'sm dyn ShaderModel,

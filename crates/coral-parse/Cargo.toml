@@ -1,0 +1,21 @@
+[package]
+name = "coral-parse"
+description = "Sovereign shader parser — WGSL/SPIR-V/GLSL to CoralIR without naga"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+coral-reef = { workspace = true }
+coral-reef-stubs = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+coral-reef = { workspace = true }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Multi-architecture and legacy SM encoder coverage tests.
 //!
 //! Tests compile WGSL shaders across multiple NVIDIA architectures

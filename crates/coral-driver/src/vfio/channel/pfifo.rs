@@ -104,6 +104,42 @@ impl PfifoInitConfig {
             post_flush_settle_ms: 10,
         }
     }
+
+    /// Hybrid config for FECS-frozen warm handoff (Exp 132 diesel engine).
+    ///
+    /// After `coralctl warm-fecs` with STOP_CTXSW, FECS firmware is alive
+    /// in IMEM but scheduling is frozen. Nouveau's normal teardown has
+    /// destroyed all channel, PBDMA, and runlist state (channels freed,
+    /// runlists flushed, memory deallocated). `mc_reset` was NOPed by
+    /// livepatch, preserving falcon IMEM.
+    ///
+    /// This config rebuilds the PFIFO infrastructure while preserving
+    /// falcon state:
+    /// - PMC_ENABLE: untouched (FECS/GPCCS engine bits stay enabled)
+    /// - PMC PFIFO reset: skipped (would reset PFIFO clock domain)
+    /// - PRIV ring: cleared (swap may leave stale faults)
+    /// - PBDMA: force-cleared (nouveau's addresses are unmapped)
+    /// - Runlists: flushed empty (clears stale nouveau entries)
+    /// - Preempt: skipped (FECS scheduling is already frozen)
+    /// - Scheduler: enabled (needed for dispatch after START_CTXSW)
+    ///
+    /// After channel creation with this config, send FECS `START_CTXSW`
+    /// (method 0x02) to resume scheduling with the new channel.
+    #[must_use]
+    pub fn warm_fecs() -> Self {
+        Self {
+            clear_priv_ring: true,
+            pmc_glow_plug: false,
+            pfifo_settle_ms: 20,
+            retry_on_priv_fault: true,
+            pmc_pfifo_reset: false,
+            pbdma_force_clear: true,
+            flush_empty_runlists: true,
+            preempt_runlists: false,
+            use_sched_en: true,
+            post_flush_settle_ms: 20,
+        }
+    }
 }
 
 /// Enable the PFIFO engine in PMC, discover PBDMAs, and initialize.

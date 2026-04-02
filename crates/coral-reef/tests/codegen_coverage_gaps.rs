@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Targeted tests for llvm-cov gaps: `emit`, `op_conv`, `calc_instr_deps`,
 //! debug metadata, cross-target fixtures, and legacy SM paths.
 

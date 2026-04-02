@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Iteration 70i (Deep Debt Evolution + Hardcoded Path Elimination + Full Safety Audit)  
+**Status**: Phase 10+ — Iteration 71 (Sovereign Compiler Frontend + Deep Debt Resolution)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary + CPU shader execution via sovereign Cranelift JIT
 
 ---
@@ -11,8 +11,9 @@
 
 coralReef is a pure-Rust GPU shader compiler. It compiles WGSL,
 SPIR-V, and GLSL 450 compute shaders to native GPU binaries, with
-full f64 transcendental support. Zero C dependencies, zero libc, FxHashMap internalized, zero vendor lock-in.
-All configurable paths use env-var overrides with sane defaults — zero hardcoded system paths in production code.
+full f64 transcendental support. Zero C dependencies, zero libc, zero vendor lock-in.
+Sovereign `coral-parse` frontend replaces naga for WGSL/SPIR-V/GLSL parsing (naga
+available as optional feature for diff-testing). 28 transitive dependencies eliminated.
 
 NVIDIA backend complete (SM35–SM120: Kepler through Blackwell). AMD backend operational
 (RDNA2/GFX1030 — RX 6950 XT on-site, GCN5/GFX906 — MI50 E2E verified). Both share the same IR,
@@ -37,7 +38,8 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 4232+ passing, 0 failed (~155 ignored hardware-gated)
+cargo test --workspace     # 4200+ passing, 0 failed (~155 ignored hardware-gated)
+cargo test -p coral-parse -p coral-reef --no-default-features  # 1264 tests, zero naga
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -48,13 +50,23 @@ cargo fmt --check
 WGSL / SPIR-V / GLSL input
        │
        ▼
-┌──────────────────┐
-│  Frontend (naga)  │  Parse WGSL/SPIR-V/GLSL → naga IR (pluggable)
-└────────┬─────────┘
+┌─────────────────────────────────────────────┐
+│  Frontend (pluggable — trait object)         │
+│                                              │
+│  ┌─ coral-parse (sovereign, default) ──────┐│
+│  │  Pure-Rust WGSL lexer + parser          ││
+│  │  Pure-Rust SPIR-V reader                ││
+│  │  Pure-Rust GLSL 450 lexer + parser      ││
+│  │  AST → CoralIR lowering (6 modules)     ││
+│  └─────────────────────────────────────────┘│
+│                                              │
+│  ┌─ NagaFrontend (optional, feature-gated) ┐│
+│  │  naga crate → naga_translate → CoralIR  ││
+│  └─────────────────────────────────────────┘│
+└────────┬────────────────────────────────────┘
          ▼
 ┌──────────────────────────────────────────┐
 │  codegen (shared)                         │
-│  ├ naga_translate  naga IR → SSA IR      │
 │  ├ lower_f64       f64 transcendentals   │
 │  ├ lower_fma       FMA contraction ctrl  │
 │  ├ optimize        copy prop, DCE, ...   │
@@ -101,14 +113,27 @@ coralReef/
 ├── Cargo.toml                    # Workspace root
 ├── crates/
 │   ├── coralreef-core/            # Primal lifecycle + IPC (JSON-RPC, tarpc)
-│   ├── coral-reef/                # Shader compiler (WGSL + SPIR-V + GLSL)
+│   ├── coral-parse/                # Sovereign compiler frontend (pure Rust)
+│   │   └── src/
+│   │       ├── ast/              # Sovereign AST (Module, Type, Expression, Statement)
+│   │       ├── wgsl/             # WGSL lexer + recursive-descent parser
+│   │       ├── spirv/            # SPIR-V binary reader (two-pass)
+│   │       ├── glsl/             # GLSL 450/460 lexer + parser
+│   │       └── lower/            # AST → CoralIR lowering (6 submodules)
+│   │           ├── mod.rs        # Coordination + FuncLowerer
+│   │           ├── math.rs       # MathFunction → IR ops
+│   │           ├── binary.rs     # BinaryOp/UnaryOp → IR ops
+│   │           ├── convert.rs    # Type conversions (As)
+│   │           ├── stmt.rs       # Statement lowering (store/if/loop/atomic/switch)
+│   │           └── builtin.rs    # BuiltIn → system register reads
+│   ├── coral-reef/                # Shader compiler core (IR + backends)
 │   │   ├── src/
 │   │   │   ├── backend.rs        # Backend trait (vendor-agnostic)
-│   │   │   ├── frontend.rs       # Frontend trait (WGSL, SPIR-V, GLSL)
+│   │   │   ├── frontend.rs       # Frontend trait (pluggable: CoralFrontend / NagaFrontend)
 │   │   │   ├── gpu_arch.rs       # GpuTarget: Nvidia/Amd/Intel
 │   │   │   └── codegen/          # Compiler core
 │   │   │       ├── ir/           # SSA IR types
-│   │   │       ├── naga_translate/ # naga → codegen IR translation
+│   │   │       ├── naga_translate/ # naga → codegen IR (feature-gated, optional)
 │   │   │       ├── lower_f64/    # f64 transcendental lowering
 │   │   │       ├── nv/           # NVIDIA vendor backend
 │   │   │       ├── amd/          # AMD vendor backend
@@ -145,7 +170,8 @@ coralReef/
 | Crate | Purpose |
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control, multi-device compile API |
-| `coral-reef` | Shader compiler — spring absorption tests, f64 lowering, optimizers, RA, vendor encoding (78.6% coverage) |
+| `coral-parse` | Sovereign compiler frontend — pure-Rust WGSL/SPIR-V/GLSL parsers + AST + lowering to CoralIR (6 submodules: math, binary, convert, stmt, builtin). Eliminates naga dependency for parsing |
+| `coral-reef` | Shader compiler core — IR, f64 lowering, optimizers, RA, vendor encoding. Frontend is pluggable: `CoralFrontend` (sovereign) or `NagaFrontend` (optional feature) |
 | `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
 | `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: vfio > nouveau > amdgpu > nvidia-drm), `from_vfio()` convenience API, FMA capability reporting, `PCIe` topology discovery |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
@@ -186,7 +212,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4047 passing, 0 failed, ~121 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4200+ passing, 0 failed, ~155 ignored hardware-gated) |
+| `cargo test --no-default-features` | PASS (1264 tests — zero naga, sovereign-only) |
 | `cargo llvm-cov` | ~66% workspace line coverage |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -250,7 +277,9 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
-| 10+ | Kepler/Blackwell ISA, sovereign JIT, progressive trust, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, sovereign Cranelift JIT pipeline (`rustix` mmap, zero `cranelift-jit` crate, pure-Rust `libm` transcendentals), CoralIR reference interpreter, progressive trust model (`ExecutionStrategy`: Interpret/Jit/ValidatedJit with `JitCache`), workspace dependency consolidation (WORKSPACE_DEPENDENCY_STANDARD), per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4070+ tests, ~66% workspace line coverage |
+| 10+ | Kepler/Blackwell ISA, sovereign JIT, progressive trust, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Complete** — SM35 (Kepler) + SM120 (Blackwell) arches, sovereign Cranelift JIT pipeline, CoralIR reference interpreter, progressive trust model, glowPlug mailbox/ring + ember ring-keeper |
+| 11 | Sovereign compiler frontend (`coral-parse`), naga elimination, deep debt resolution | **Complete** — Pure-Rust WGSL/SPIR-V/GLSL parsers, sovereign AST, 6-module lowering pass (math/binary/convert/stmt/builtin), naga now optional feature, 28 transitive deps eliminated, production unwrap() removed, magic constants named, monolithic lowering refactored into focused submodules, ShaderInfo metrics computed dynamically, 1264 sovereign-only tests |
+| 11+ | Tesla K80 (SM35) + Titan V (SM70) hardware validation, full dispatch pipeline | **Active** — GPU solving with complete sovereign pipeline |
 
 ---
 

@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 31, Iter 70i)  
+**Generated:** March 10, 2026 (metrics updated March 30, Iter 71 — Sovereign Frontend)  
 **Workspace:** coralReef
 
 ---

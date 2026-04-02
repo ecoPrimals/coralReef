@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Evolution coverage tests — targets low-coverage codegen paths.
 //!
 //! Each test exercises a specific codegen module:

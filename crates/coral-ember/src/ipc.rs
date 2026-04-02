@@ -124,6 +124,9 @@ pub fn handle_client(
         "ember.mmio.read" => {
             handlers_device::mmio_read(stream, id, params)?;
         }
+        "ember.mmio.write" => {
+            handlers_device::mmio_write(stream, id, params)?;
+        }
         "ember.fecs.state" => {
             handlers_device::fecs_state(stream, id, params)?;
         }
@@ -237,6 +240,9 @@ pub fn handle_client_tcp(
         }
         "ember.mmio.read" => {
             handlers_device::mmio_read(stream, id, params)?;
+        }
+        "ember.mmio.write" => {
+            handlers_device::mmio_write(stream, id, params)?;
         }
         "ember.fecs.state" => {
             handlers_device::fecs_state(stream, id, params)?;

@@ -16,9 +16,10 @@ Vendor-agnostic architecture with pluggable frontends and backends.
 NVIDIA SM70+ and AMD RDNA2 (GFX1030) backends are operational. Both
 share the same `ShaderModel` trait via Rust trait dispatch.
 
-Three input languages feed the same pipeline via the naga frontend:
-WGSL (primary), SPIR-V (binary intermediate), and GLSL 450 compute
-(for absorbing existing GPU compute libraries).
+Three input languages feed the same pipeline via the sovereign `coral-parse`
+frontend (pure Rust): WGSL (primary), SPIR-V (binary intermediate), and
+GLSL 450 compute (for absorbing existing GPU compute libraries). The legacy
+naga frontend is available as an optional Cargo feature for diff-testing.
 
 coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
 NVIDIA nouveau). coralGpu wraps both into a unified compile + dispatch
@@ -34,7 +35,8 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 4070+ passing, 0 failed (~122 ignored hardware-gated)
+cargo test --workspace     # 4200+ passing, 0 failed (~155 ignored hardware-gated)
+cargo test -p coral-parse -p coral-reef --no-default-features  # 1264 sovereign-only tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -45,44 +47,47 @@ cargo fmt --check
 coralReef/
 ├── crates/
 │   ├── coralreef-core/         Primal lifecycle + IPC (JSON-RPC, tarpc)
-│   ├── coral-reef/             Shader compiler (WGSL + SPIR-V + GLSL)
+│   ├── coral-parse/            Sovereign compiler frontend (pure Rust)
+│   │   └── src/
+│   │       ├── ast/            Sovereign AST (Module, Type, Expression, Statement)
+│   │       ├── wgsl/           WGSL lexer + recursive-descent parser
+│   │       ├── spirv/          SPIR-V binary reader (two-pass)
+│   │       ├── glsl/           GLSL 450/460 lexer + parser
+│   │       └── lower/          AST → CoralIR lowering (6 submodules)
+│   ├── coral-reef/             Shader compiler core (IR + backends)
 │   │   └── src/
 │   │       ├── backend.rs      Backend trait (vendor-agnostic)
-│   │       ├── frontend.rs     Frontend trait (WGSL, SPIR-V, GLSL)
+│   │       ├── frontend.rs     Frontend trait (pluggable)
 │   │       ├── gpu_arch.rs     GpuTarget: Nvidia/Amd/Intel
 │   │       └── codegen/        Compiler core
 │   │           ├── ir/            SSA IR types
-│   │           ├── naga_translate/ naga → codegen IR translation
+│   │           ├── naga_translate/ naga → codegen IR (optional feature)
 │   │           ├── lower_f64/     f64 transcendental expansion
-│   │           ├── nv/            NVIDIA vendor backend (SM20–SM89)
-│   │           ├── amd/           AMD vendor backend (RDNA2 GFX1030)
-│   │           │   ├── shader_model.rs  ShaderModelRdna2 (trait impl)
-│   │           │   ├── encoding.rs      instruction encoding
-│   │           │   ├── isa_generated/   1,446 opcodes (Rust-generated)
-│   │           │   └── reg.rs           VGPR/SGPR register model
-│   │           ├── assign_regs/   Register allocation — 5 files
+│   │           ├── nv/            NVIDIA vendor backend (SM35–SM120)
+│   │           ├── amd/           AMD vendor backend (GFX906+RDNA2)
+│   │           ├── assign_regs/   Register allocation
 │   │           ├── calc_instr_deps/ Instruction dependency analysis
 │   │           ├── spill_values/  Register spilling
 │   │           ├── builder/       IR construction helpers
 │   │           └── pipeline.rs    Full compilation pipeline
 │   ├── coral-driver/            Userspace GPU dispatch (DRM ioctl)
 │   │   └── src/
-│   │       ├── drm.rs           Pure Rust DRM interface (inline asm syscalls)
+│   │       ├── drm.rs           Pure Rust DRM interface (rustix syscalls)
 │   │       ├── amd/             amdgpu: GEM, PM4, command submission, fence
 │   │       └── nv/              nouveau: channel, GEM, QMD, pushbuf submit
 │   ├── coral-glowplug/         GPU device broker (VFIO, mailbox, multi-ring)
 │   ├── coral-ember/            VFIO fd holder + ring-keeper (restart persistence)
-│   ├── coral-gpu/               Unified GPU compute abstraction
+│   ├── coral-gpu/              Unified GPU compute abstraction
 │   ├── coral-reef-bitview/     Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/         ISA tables, latency model
-│   ├── coral-reef-jit/        Cranelift JIT backend for CPU shader execution
+│   ├── coral-reef-jit/         Cranelift JIT backend for CPU shader execution
 │   ├── coral-reef-stubs/       Pure-Rust dependency replacements
-│   └── nak-ir-proc/           Proc-macro derives for IR types
+│   └── nak-ir-proc/            Proc-macro derives for IR types
 ├── tools/
-│   └── amd-isa-gen/           Pure Rust ISA table generator
-├── specs/                     Architecture specification
-├── whitePaper/                Theory docs (f64 lowering, transcendentals)
-└── genomebin/                 Deployment scaffolding
+│   └── amd-isa-gen/            Pure Rust ISA table generator
+├── specs/                      Architecture specification
+├── whitePaper/                 Theory docs (f64 lowering, transcendentals)
+└── genomebin/                  Deployment scaffolding
 ```
 
 ## Key Documents
@@ -100,19 +105,29 @@ coralReef/
 ## How the Compiler Works
 
 ```
-WGSL / SPIR-V / GLSL  →  Frontend (naga)  →  naga_translate (codegen IR)
+WGSL / SPIR-V / GLSL  →  coral-parse (sovereign)  →  AST → CoralIR lowering
     →  lower_f64  →  optimize (copy prop, DCE, bar prop, scheduling)
     →  legalize  →  assign_regs  →  Backend (encode)  →  native binary
+
+Alternative path (feature-gated):
+    →  NagaFrontend  →  naga_translate (codegen IR)  →  same pipeline
 ```
 
 Key architecture: `Shader<'a>` holds `&'a dyn ShaderModel`. Each GPU
 architecture implements `ShaderModel` directly — the Rust compiler
 drives vendor dispatch via trait objects. No manual vtables.
 
+Key crates:
+
+- **`coral-parse`** — Sovereign compiler frontend. Pure-Rust WGSL lexer +
+  parser, SPIR-V binary reader, GLSL 450 lexer + parser. AST → CoralIR
+  lowering via 6 focused submodules (math, binary, convert, stmt, builtin).
+  Replaces naga for all parsing — zero external parser dependencies.
+
 Key modules in `crates/coral-reef/src/codegen/`:
 
-- **`naga_translate/`** — Translates naga's IR into the codegen SSA IR.
-  Handles expressions, statements, control flow, memory operations, builtins.
+- **`naga_translate/`** — (Optional, `naga` feature) Translates naga IR into
+  the codegen SSA IR. Available for diff-testing against coral-parse.
 - **`lower_f64/`** — Expands f64 transcendental placeholder ops into
   hardware instruction sequences. NVIDIA: Newton-Raphson for sqrt/rcp,
   Horner polynomial for exp2. AMD: native v_sqrt_f64/v_rcp_f64 passthrough.
@@ -120,8 +135,8 @@ Key modules in `crates/coral-reef/src/codegen/`:
   lower_f64 → legalize → register allocation → encode.
 - **`ir/`** — SSA intermediate representation with typed registers,
   predication, memory access descriptors, and shader metadata.
-- **`nv/`** — NVIDIA vendor backend: SM20–SM89 instruction encoders.
-- **`amd/`** — AMD vendor backend: RDNA2 GFX1030 encoder.
+- **`nv/`** — NVIDIA vendor backend: SM35–SM120 instruction encoders.
+- **`amd/`** — AMD vendor backend: GFX906 + RDNA2 GFX1030 encoder.
 
 ## Architecture
 

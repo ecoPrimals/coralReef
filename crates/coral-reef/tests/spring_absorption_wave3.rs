@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Spring absorption wave 3 — hotSpring v0.6.25 + healthSpring v14.
 //!
 //! New domains: fluid dynamics, pharmacology, ecology.

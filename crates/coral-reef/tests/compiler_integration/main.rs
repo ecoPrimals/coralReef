@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 #![forbid(unsafe_code)]
 //! Integration tests for the coral-reef compiler pipeline.
 //!

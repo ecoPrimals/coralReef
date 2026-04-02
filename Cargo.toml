@@ -15,6 +15,7 @@ members = [
     "crates/coral-ember",
     "crates/coral-reef-cpu",
     "crates/coral-reef-jit",
+    "crates/coral-parse",
 ]
 exclude = [
     "fuzz",
@@ -129,6 +130,7 @@ coral-reef-cpu = { path = "crates/coral-reef-cpu" }
 coral-reef-jit = { path = "crates/coral-reef-jit" }
 coral-driver = { path = "crates/coral-driver" }
 coral-ember = { path = "crates/coral-ember" }
+coral-parse = { path = "crates/coral-parse" }
 coralreef-core = { path = "crates/coralreef-core" }
 primal-rpc-client = { path = "crates/primal-rpc-client" }
 

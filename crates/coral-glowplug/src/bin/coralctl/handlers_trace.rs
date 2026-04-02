@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! coralctl handlers for trace parsing, recipe application, and devinit replay.
+//! coralctl handlers for trace parsing, recipe application, devinit replay,
+//! and K80 sovereign cold boot.
 //!
 //! These absorb functionality that previously lived in Python scripts
 //! (`parse_mmiotrace.py`, `apply_recipe.py`, `replay_devinit.py`) into
@@ -8,6 +9,7 @@
 use std::path::Path;
 
 use coral_driver::vfio::channel::diagnostic::boot_follower::BootTrace;
+use coral_driver::vfio::channel::diagnostic::k80_cold_boot;
 use coral_driver::vfio::channel::diagnostic::replay;
 
 use crate::rpc::rpc_call;
@@ -209,4 +211,172 @@ pub(crate) fn devinit_replay(bdf: &str, diagnostics: bool) {
     let boot0_post = bar0.read_u32(0x0).unwrap_or(0xDEAD_DEAD);
     let ptimer = bar0.read_u32(0x9400).unwrap_or(0xDEAD_DEAD);
     println!("Post-devinit: BOOT0={boot0_post:#010x} PTIMER={ptimer:#010x}");
+}
+
+/// Sovereign cold boot a Tesla K80 (GK210) from fully powered-off state.
+///
+/// Orchestrates the full boot sequence: clock init, devinit replay,
+/// optional PGRAPH/PCCSR/PRAMIN setup, and FECS/GPCCS PIO firmware upload.
+#[expect(clippy::fn_params_excessive_bools)]
+pub(crate) fn cold_boot_replay(
+    bdf: &str,
+    recipe_path: &str,
+    firmware_dir: Option<&str>,
+    pgraph: bool,
+    pccsr: bool,
+    pramin: bool,
+    skip_firmware: bool,
+) {
+    use coral_driver::vfio::VfioDevice;
+
+    println!("=== K80 Sovereign Cold Boot ===");
+    println!("  device:   {bdf}");
+    println!("  recipe:   {recipe_path}");
+    println!("  pgraph:   {pgraph}  pccsr: {pccsr}  pramin: {pramin}");
+    println!("  firmware: {}", if skip_firmware { "skip" } else { "upload" });
+    println!();
+
+    let device = match VfioDevice::open(bdf) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: failed to open VFIO device {bdf}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let bar0 = match device.map_bar(0) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: failed to map BAR0 for {bdf}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let boot0 = bar0.read_u32(0x0).unwrap_or(0xDEAD_DEAD);
+    println!("BOOT0={boot0:#010x}");
+
+    let config = k80_cold_boot::ColdBootConfig {
+        include_pgraph: pgraph,
+        include_pccsr: pccsr,
+        include_pramin: pramin,
+    };
+
+    let (fecs_code, fecs_data, gpccs_code, gpccs_data) = if skip_firmware {
+        (None, None, None, None)
+    } else {
+        let fw_dir = firmware_dir
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(default_firmware_dir);
+
+        println!("Loading firmware from {}", fw_dir.display());
+
+        let fc = load_fw_file(&fw_dir, "fecs_inst.bin");
+        let fd = load_fw_file(&fw_dir, "fecs_data.bin");
+        let gc = load_fw_file(&fw_dir, "gpccs_inst.bin");
+        let gd = load_fw_file(&fw_dir, "gpccs_data.bin");
+
+        println!(
+            "  fecs_inst={}B  fecs_data={}B  gpccs_inst={}B  gpccs_data={}B",
+            fc.len(), fd.len(), gc.len(), gd.len()
+        );
+
+        (Some(fc), Some(fd), Some(gc), Some(gd))
+    };
+
+    let recipe = Path::new(recipe_path);
+    let result = k80_cold_boot::cold_boot(
+        &bar0,
+        recipe,
+        &config,
+        fecs_code.as_deref(),
+        fecs_data.as_deref(),
+        gpccs_code.as_deref(),
+        gpccs_data.as_deref(),
+    );
+
+    match result {
+        Ok(boot) => {
+            println!();
+            println!("=== Cold Boot Log ===");
+            for line in &boot.log {
+                println!("  {line}");
+            }
+            println!();
+            println!("=== Results ===");
+            println!(
+                "  clock:    applied={} failed={}  ptimer={}",
+                boot.clock_replay.applied,
+                boot.clock_replay.failed,
+                if boot.clock_replay.ptimer_ticking { "ticking" } else { "stopped" }
+            );
+            if let Some(ref devinit) = boot.devinit_replay {
+                println!(
+                    "  devinit:  applied={} failed={}",
+                    devinit.applied, devinit.failed
+                );
+            }
+            if let Some(ref pgraph_r) = boot.pgraph_replay {
+                println!(
+                    "  extended: applied={} failed={}",
+                    pgraph_r.applied, pgraph_r.failed
+                );
+            }
+            println!("  fecs:     {}", if boot.fecs_running { "RUNNING" } else { "NOT RUNNING" });
+            println!(
+                "  BOOT0:    {:#010x}  arch={}",
+                boot.firmware_snapshot.boot0, boot.firmware_snapshot.architecture
+            );
+
+            if boot.fecs_running {
+                println!();
+                println!(">>> SOVEREIGN COLD BOOT SUCCESS — FECS is alive");
+                println!(">>> GPU is ready for compute channel creation via NvVfioComputeDevice");
+            } else {
+                println!();
+                eprintln!("warning: FECS did not start — GPU may need additional initialization");
+                eprintln!("  Try: coralctl cold-boot {bdf} --recipe {recipe_path} --pccsr --pramin");
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: cold boot failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn default_firmware_dir() -> std::path::PathBuf {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let crate_root = exe
+        .ancestors()
+        .find(|p| p.join("Cargo.toml").exists())
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let candidates = [
+        crate_root.join("../../data/firmware/nvidia/gk110"),
+        crate_root.join("data/firmware/nvidia/gk110"),
+        std::path::PathBuf::from("/usr/share/coralreef/firmware/nvidia/gk110"),
+    ];
+
+    for c in &candidates {
+        if c.join("fecs_inst.bin").exists() {
+            return c.clone();
+        }
+    }
+
+    eprintln!("warning: firmware directory not found, tried:");
+    for c in &candidates {
+        eprintln!("  {}", c.display());
+    }
+    eprintln!("specify --firmware-dir explicitly");
+    std::process::exit(1);
+}
+
+fn load_fw_file(dir: &std::path::Path, name: &str) -> Vec<u8> {
+    let path = dir.join(name);
+    std::fs::read(&path).unwrap_or_else(|e| {
+        eprintln!("error: cannot read firmware {}: {e}", path.display());
+        std::process::exit(1);
+    })
 }

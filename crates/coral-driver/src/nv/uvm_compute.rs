@@ -581,7 +581,11 @@ impl Drop for NvUvmComputeDevice {
 mod tests {
     use super::*;
     use super::super::uvm::{
-        NvGpuDevice, NvUvmDevice, RmClient, ADA_COMPUTE_A, HOPPER_COMPUTE_A,
+        NvGpuDevice, NvUvmDevice, RmClient,
+        ADA_COMPUTE_A, HOPPER_COMPUTE_A,
+        VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
+        AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
+        BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, BLACKWELL_CHANNEL_GPFIFO_B,
     };
     use super::super::uvm_channel::{gpfifo_entry, GPFIFO_SIZE, USERD_SIZE};
     use super::super::uvm_rm_setup::GpuGen;
@@ -652,22 +656,10 @@ mod tests {
     }
 
     fn detect_sm_version() -> u32 {
-        std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
-            .output()
-            .ok()
-            .and_then(|out| {
-                let s = String::from_utf8_lossy(&out.stdout);
-                let parts: Vec<&str> = s.trim().split('.').collect();
-                if parts.len() == 2 {
-                    let major: u32 = parts[0].parse().ok()?;
-                    let minor: u32 = parts[1].parse().ok()?;
-                    Some(major * 10 + minor)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(86)
+        let nvml = nvml_wrapper::Nvml::init().expect("NVML init (is nvidia driver loaded?)");
+        let dev = nvml.device_by_index(0).expect("NVML device 0");
+        let cap = dev.cuda_compute_capability().expect("compute capability");
+        cap.major as u32 * 10 + cap.minor as u32
     }
 
     #[test]

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Deep integration coverage — scheduling, spilling, copy propagation, CFG, memory,
 //! integer/float ALU, barriers, phi lowering, legalization, textures, and legacy SM paths.
 //!

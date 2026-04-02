@@ -12,6 +12,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+naga = ["dep:naga"]
+
 [dependencies]
 coral-reef-isa = { workspace = true }
 coral-reef-stubs = { workspace = true }
@@ -19,7 +23,7 @@ bitview = { workspace = true }
 nak_ir_proc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-naga = { workspace = true, features = ["spv-in", "spv-out", "glsl-in"] }
+naga = { workspace = true, features = ["spv-in", "spv-out", "glsl-in"], optional = true }
 
 [[bench]]
 name = "compile_bench"

@@ -397,6 +397,33 @@ impl EmberClient {
         })
     }
 
+    /// Write a single BAR0 register via ember's mmap-based MMIO access.
+    ///
+    /// Used during warm handoff to send FECS `STOP_CTXSW` before nouveau
+    /// teardown, freezing FECS scheduling so it doesn't notice channels
+    /// being freed. Returns the readback value for verification.
+    pub fn mmio_write(&self, bdf: &str, offset: u32, value: u32) -> Result<u32, EmberError> {
+        let result = self.simple_rpc(
+            "ember.mmio.write",
+            serde_json::json!({
+                "bdf": bdf,
+                "offset": format!("{offset:#x}"),
+                "value": format!("{value:#x}"),
+            }),
+        )?;
+        let hex = result
+            .get("readback")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EmberError::Rpc {
+                code: -32000,
+                message: "mmio.write response missing 'readback'".into(),
+            })?;
+        parse_hex_u32(hex).map_err(|e| EmberError::Rpc {
+            code: -32000,
+            message: format!("mmio.write readback: {e}"),
+        })
+    }
+
     /// Read a structured FECS register snapshot via ember.
     pub fn fecs_state(&self, bdf: &str) -> Result<serde_json::Value, EmberError> {
         self.simple_rpc("ember.fecs.state", serde_json::json!({"bdf": bdf}))

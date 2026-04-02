@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: March 31, 2026 (Phase 10 — Iteration 70i: Deep Debt Evolution + Cross-Primal Rewiring — 4232+ tests, ~66% line coverage, ~155 ignored hardware-gated)
+**Last updated**: March 30, 2026 (Phase 11 — Iteration 71: Sovereign Compiler Frontend + Deep Debt Resolution — 4200+ tests, 1264 sovereign-only (zero naga), ~66% line coverage, ~155 ignored hardware-gated)
 
 ---
 

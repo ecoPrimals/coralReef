@@ -141,6 +141,15 @@ impl KeplerChannel {
     /// registers (INTR at 0x2100, ENABLE at 0x2200) crashes the PRI ring
     /// and kills FECS. This function detects faulted PFIFO and skips
     /// dangerous writes, falling back to direct PBDMA probing.
+    ///
+    /// **Prerequisite**: PMC_ENABLE bit 8 (PFIFO clock domain) must be set
+    /// before calling this function. The full cold boot recipe
+    /// (`k80_cold_boot::cold_boot`) includes PMC writes at priority 3
+    /// which enable the PFIFO clock domain. The delta recipe
+    /// (`exp123k_common::apply_nvidia470_recipe`) skips PMC_ENABLE,
+    /// leaving the PFIFO clock domain gated — causing the PRI-fault
+    /// fallback path here. For sovereign K80 dispatch, use the full
+    /// cold boot path.
     fn init_kepler_pfifo(bar0: &MappedBar) -> DriverResult<u32> {
         use super::registers::pri;
 
@@ -149,6 +158,18 @@ impl KeplerChannel {
                 DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {e}")))
             })
         };
+
+        // Ensure PFIFO clock domain is enabled in PMC. Without this,
+        // PFIFO registers read as PRI faults (0xBAD0xxxx).
+        let pmc = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
+        if pmc & (1 << 8) == 0 {
+            tracing::info!(
+                pmc = format_args!("{pmc:#010x}"),
+                "PFIFO clock domain (PMC bit 8) not set — enabling"
+            );
+            let _ = bar0.write_u32(misc::PMC_ENABLE, pmc | (1 << 8));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
 
         let pfifo_intr = bar0.read_u32(pfifo::INTR).unwrap_or(0xDEAD_DEAD);
         let pfifo_faulted = pri::is_pri_error(pfifo_intr) || pfifo_intr == 0xDEAD_DEAD;
