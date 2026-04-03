@@ -40,6 +40,7 @@ pub fn optimize_shader(shader: &mut Shader<'_>) -> Result<(), crate::CompileErro
     }
 
     shader.lower_fma_contractions();
+    shader.lower_pre_volta_ops();
     shader.opt_instr_sched_prepass();
     Ok(())
 }
@@ -76,6 +77,11 @@ pub fn compile_shader(
     // internally require FMA for convergence, so we only split user-originating
     // FMA instructions, not the ones we emit for f64 lowering.
     shader.lower_fma_contractions();
+
+    // Convert pre-Volta ops to SM70+ equivalents before scheduling.
+    // Must run before opt_instr_sched_prepass because the scheduler's latency
+    // tables (SM80+) don't handle pre-Volta ops like OpIAdd2, OpIMul, etc.
+    shader.lower_pre_volta_ops();
 
     // Pre-RA scheduling
     shader.opt_instr_sched_prepass();

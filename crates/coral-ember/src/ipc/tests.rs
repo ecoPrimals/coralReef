@@ -630,6 +630,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
             device,
             ring_meta: crate::hold::RingMeta::default(),
             req_eventfd: None,
+            experiment_dirty: false,
         },
     );
     let held = Arc::new(RwLock::new(map));

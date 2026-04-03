@@ -89,14 +89,51 @@ impl MappedBar {
         self.size
     }
 
-    /// Apply a GR init sequence's BAR0 writes.
+    /// Check whether BAR0 is responsive by reading BOOT0 (offset 0x0).
     ///
-    /// Implements the `RegisterAccess` trait bridge so the GSP applicator
-    /// can write directly through the VFIO-mapped BAR0.
+    /// Returns `false` if BOOT0 reads as 0xFFFFFFFF (PCIe bus error — GPU
+    /// completely unresponsive) or if the read itself fails. This is the
+    /// cheapest possible liveness check.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        self.read_u32(0).is_ok_and(|v| v != 0xFFFF_FFFF)
+    }
+
+    /// Check PRI ring health by reading PRI_RING_INTR (0x120100).
+    ///
+    /// Returns `Ok(intr_val)` if readable. Returns `Err` if the read itself
+    /// returns a PRI fault pattern (0xbadfXXXX) or 0xFFFFFFFF, indicating the
+    /// PRI ring is corrupt or BAR0 is dead.
+    pub fn pri_ring_check(&self) -> Result<u32, DriverError> {
+        let val = self.read_u32(0x12_0100)?;
+        if val == 0xFFFF_FFFF || (val & 0xFFFF_0000 == 0xBADF_0000) {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "PRI ring dead: 0x120100={val:#010x}"
+            ))));
+        }
+        Ok(val)
+    }
+
+    /// Apply a GR init sequence's BAR0 writes with periodic health checks.
+    ///
+    /// Every `CHECK_INTERVAL` writes, reads BOOT0 to verify the GPU is still
+    /// responsive. If BOOT0 returns 0xFFFFFFFF, aborts immediately — continuing
+    /// would cascade PRI faults and risk host D-state on VFIO fd close.
     pub fn apply_gr_bar0_writes(&self, writes: &[(u32, u32)]) -> (usize, usize) {
+        const CHECK_INTERVAL: usize = 64;
+
         let mut applied = 0;
         let mut failed = 0;
-        for &(offset, value) in writes {
+        for (i, &(offset, value)) in writes.iter().enumerate() {
+            if i > 0 && i % CHECK_INTERVAL == 0 && !self.is_alive() {
+                tracing::error!(
+                    applied,
+                    remaining = writes.len() - i,
+                    "BAR0 health check failed mid-write — aborting to prevent cascade"
+                );
+                failed += writes.len() - i;
+                return (applied, failed);
+            }
             if self.write_u32(offset as usize, value).is_ok() {
                 applied += 1;
             } else {

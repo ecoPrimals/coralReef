@@ -400,6 +400,9 @@ where
                 } else if req.method == "device.dispatch" {
                     let result = handlers::compute_dispatch_async(&req.params, &devices).await;
                     make_response(req.id, result)
+                } else if req.method == "device.dispatch_sovereign" {
+                    let result = handlers::sovereign_dispatch_async(&req.params, &devices).await;
+                    make_response(req.id, result)
                 } else if req.method == "device.compute_info" {
                     let result = handlers::compute_info_async(&req.params, &devices).await;
                     make_response(req.id, result)

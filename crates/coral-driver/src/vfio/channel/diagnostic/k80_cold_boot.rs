@@ -15,12 +15,14 @@
 //! where the GPU completed full BIOS initialization. We replay those register
 //! values to bring a bare-metal cold GPU to the same state.
 
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::DriverError;
 use crate::vfio::device::MappedBar;
 
-use super::boot_follower::RecipeStep;
+use super::boot_follower::{DomainMap, KeplerDomainMap, RecipeStep};
 use super::firmware_probe::{self, FirmwareSnapshot};
 use super::replay;
 
@@ -42,60 +44,73 @@ struct BiosWrite {
     region: String,
 }
 
-/// Domain classification for K80 BIOS recipe writes, with replay priority.
-///
-/// Priority ordering ensures clock/PLL registers are written first (they must
-/// be stable before any falcon CPU can execute), followed by infrastructure
-/// (PMC, PBUS, PTIMER), then memory controller, then PFIFO/PBDMA.
-///
-/// Offsets are classified by BAR0 address range first, falling back to the
-/// JSON `region` tag for addresses that don't match a known range.
+/// Domain classification for K80 BIOS recipe writes — delegates to
+/// [`KeplerDomainMap`] which owns the canonical Kepler address table.
 fn classify_k80_domain(offset: usize, region: &str) -> (&'static str, u32) {
-    match offset {
-        0x136000..0x137000 => ("ROOT_PLL", 0),
-        0x137000..0x138000 => ("PCLOCK", 1),
-        0x130000..0x136000 => ("CLK", 2),
-        0x000000..0x001000 => ("PMC", 3),
-        0x122000..0x123000 => ("PRI_MASTER", 4),
-        0x001000..0x002000 => ("PBUS", 5),
-        0x009000..0x00A000 => ("PTIMER", 6),
-        0x020000..0x024000 => ("PTOP", 7),
-        0x100000..0x101000 => ("PFB", 10),
-        0x9A0000..0x9B0000 => ("FBPA", 15),
-        0x17E000..0x190000 => ("LTC", 16),
-        0x10A000..0x10C000 => ("PMU", 20),
-        0x002000..0x004000 => ("PFIFO", 25),
-        0x040000..0x0A0000 => ("PBDMA", 26),
-        0x400000..0x420000 => ("PGRAPH", 30),
-        0x800000..0x900000 => ("PCCSR", 35),
-        0x700000..0x710000 => ("PRAMIN", 40),
-        _ => match region {
-            "PCLOCK" => ("PCLOCK", 1),
-            "PMC" => ("PMC", 3),
-            "PTIMER" => ("PTIMER", 6),
-            "PFB" => ("PFB", 10),
-            "PFIFO" => ("PFIFO", 25),
-            "PGRAPH" => ("PGRAPH", 30),
-            "PCOPY" => ("PCOPY", 27),
-            "PBUS" => ("PBUS", 5),
-            "PROM" => ("PROM", 50),
-            "PPCI" => ("PPCI", 8),
-            _ => ("UNKNOWN", 99),
-        },
+    KeplerDomainMap.classify(offset, region)
+}
+
+/// Load a wrapped recipe (object with a `"recipe"` array field).
+///
+/// Handles hex-string offsets/values (`"0x000160"`) in addition to numeric values.
+fn load_wrapped_recipe(val: &serde_json::Value) -> Result<Vec<RecipeStep>, DriverError> {
+    let recipe_array = val
+        .get("recipe")
+        .or_else(|| val.get("steps"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            DriverError::DeviceNotFound(Cow::Borrowed("missing 'recipe' or 'steps' array"))
+        })?;
+
+    let mut steps = Vec::with_capacity(recipe_array.len());
+    for entry in recipe_array {
+        let domain = entry
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN")
+            .to_string();
+        let offset = parse_hex_or_int(entry.get("offset")).unwrap_or(0);
+        let value = parse_hex_or_int(entry.get("value")).unwrap_or(0) as u32;
+        let priority = entry
+            .get("priority")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(99) as u32;
+        steps.push(RecipeStep {
+            domain,
+            offset,
+            value,
+            priority,
+        });
     }
+
+    tracing::info!(
+        steps = steps.len(),
+        "loaded wrapped recipe"
+    );
+    Ok(steps)
+}
+
+fn parse_hex_or_int(val: Option<&serde_json::Value>) -> Option<usize> {
+    let v = val?;
+    if let Some(n) = v.as_u64() {
+        return Some(n as usize);
+    }
+    let s = v.as_str()?;
+    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    usize::from_str_radix(s, 16).ok()
 }
 
 /// Load a GK210 BIOS recipe and convert to prioritized RecipeSteps.
 pub fn load_bios_recipe(path: &Path) -> Result<Vec<RecipeStep>, DriverError> {
     let content = std::fs::read_to_string(path).map_err(|e| {
-        DriverError::DeviceNotFound(std::borrow::Cow::Owned(format!(
+        DriverError::DeviceNotFound(Cow::Owned(format!(
             "cannot read BIOS recipe {}: {e}",
             path.display()
         )))
     })?;
 
     let recipe: BiosRecipe = serde_json::from_str(&content).map_err(|e| {
-        DriverError::DeviceNotFound(std::borrow::Cow::Owned(format!(
+        DriverError::DeviceNotFound(Cow::Owned(format!(
             "cannot parse BIOS recipe {}: {e}",
             path.display()
         )))
@@ -129,6 +144,277 @@ pub fn load_bios_recipe(path: &Path) -> Result<Vec<RecipeStep>, DriverError> {
 /// Extract only the clock/PLL registers from a recipe (priority 0-2).
 pub fn filter_clock_registers(steps: &[RecipeStep]) -> Vec<RecipeStep> {
     steps.iter().filter(|s| s.priority <= 2).cloned().collect()
+}
+
+// ── Reagent capture format adapters ─────────────────────────────────────
+//
+// agentReagents produces two JSON capture formats from VM passthrough sessions:
+//
+// 1. **Snapshot** (`cold_bar0.json`, `warm_bar0.json`):
+//    `{ "bdf": "...", "regions": { "CLK": { "0x130000": "0x98010000", ... }, ... } }`
+//
+// 2. **Diff** (`nvidia470_cold_warm_diff.json`):
+//    `{ "added": { "CLK": { "0x130000": "0x98010000" } },
+//       "changed": { "PBUS": { "0x001100": { "cold": "0x0e", "warm": "0x0c" } } },
+//       "removed": { ... }, "summary": { ... } }`
+//
+// Both use hex-string keys/values and nested domain grouping, unlike BiosRecipe
+// which uses decimal numbers and a flat writes array.
+
+/// Reagent BAR0 snapshot format (as captured by `snapshot-bar0.py` in reagent VMs).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ReagentSnapshot {
+    #[allow(unused)]
+    bdf: Option<String>,
+    regions: HashMap<String, HashMap<String, String>>,
+}
+
+/// Reagent cold/warm diff format (produced by diffing cold vs warm snapshots).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ReagentDiff {
+    #[serde(default)]
+    added: HashMap<String, HashMap<String, String>>,
+    #[serde(default)]
+    changed: HashMap<String, HashMap<String, serde_json::Value>>,
+}
+
+fn parse_hex(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).ok()
+    } else {
+        s.parse::<u64>().ok()
+    }
+}
+
+/// Load a reagent diff JSON and convert to prioritized RecipeSteps.
+///
+/// Extracts writes from both `added` (new registers in warm state) and
+/// `changed` (registers whose value differs, using the `warm` value).
+/// Applies `classify_k80_domain` for priority ordering.
+pub fn load_reagent_diff(path: &Path) -> Result<Vec<RecipeStep>, DriverError> {
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!(
+            "cannot read reagent diff {}: {e}",
+            path.display()
+        )))
+    })?;
+
+    let diff: ReagentDiff = serde_json::from_str(&content).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!(
+            "cannot parse reagent diff {}: {e}",
+            path.display()
+        )))
+    })?;
+
+    let mut steps = Vec::new();
+
+    for (domain, registers) in &diff.added {
+        for (offset_hex, value_hex) in registers {
+            let offset = match parse_hex(offset_hex) {
+                Some(v) => v as usize,
+                None => continue,
+            };
+            let value = match parse_hex(value_hex) {
+                Some(v) => v as u32,
+                None => continue,
+            };
+            let (classified_domain, priority) = classify_k80_domain(offset, domain);
+            steps.push(RecipeStep {
+                domain: classified_domain.to_string(),
+                offset,
+                value,
+                priority,
+            });
+        }
+    }
+
+    for (domain, registers) in &diff.changed {
+        for (offset_hex, val) in registers {
+            let offset = match parse_hex(offset_hex) {
+                Some(v) => v as usize,
+                None => continue,
+            };
+            // `changed` entries are `{ "cold": "0x...", "warm": "0x..." }` — use warm value
+            let warm_hex = match val.get("warm").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            let value = match parse_hex(warm_hex) {
+                Some(v) => v as u32,
+                None => continue,
+            };
+            let (classified_domain, priority) = classify_k80_domain(offset, domain);
+            steps.push(RecipeStep {
+                domain: classified_domain.to_string(),
+                offset,
+                value,
+                priority,
+            });
+        }
+    }
+
+    steps.sort_by_key(|s| (s.priority, s.offset));
+
+    tracing::info!(
+        total = steps.len(),
+        clock = steps.iter().filter(|s| s.priority <= 2).count(),
+        "loaded K80 reagent diff recipe"
+    );
+
+    Ok(steps)
+}
+
+/// Load a reagent BAR0 snapshot JSON and convert to prioritized RecipeSteps.
+///
+/// Every register in the snapshot becomes a write step, classified by domain
+/// and sorted by priority. Useful for replaying a full warm-state snapshot
+/// onto a cold card.
+pub fn load_reagent_snapshot(path: &Path) -> Result<Vec<RecipeStep>, DriverError> {
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!(
+            "cannot read reagent snapshot {}: {e}",
+            path.display()
+        )))
+    })?;
+
+    let snap: ReagentSnapshot = serde_json::from_str(&content).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!(
+            "cannot parse reagent snapshot {}: {e}",
+            path.display()
+        )))
+    })?;
+
+    let mut steps = Vec::new();
+
+    for (domain, registers) in &snap.regions {
+        for (offset_hex, value_hex) in registers {
+            let offset = match parse_hex(offset_hex) {
+                Some(v) => v as usize,
+                None => continue,
+            };
+            let value = match parse_hex(value_hex) {
+                Some(v) => v as u32,
+                None => continue,
+            };
+            let (classified_domain, priority) = classify_k80_domain(offset, domain);
+            steps.push(RecipeStep {
+                domain: classified_domain.to_string(),
+                offset,
+                value,
+                priority,
+            });
+        }
+    }
+
+    steps.sort_by_key(|s| (s.priority, s.offset));
+
+    tracing::info!(
+        total = steps.len(),
+        clock = steps.iter().filter(|s| s.priority <= 2).count(),
+        "loaded K80 reagent snapshot recipe"
+    );
+
+    Ok(steps)
+}
+
+/// Detected recipe format based on JSON structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeFormat {
+    /// `BiosRecipe` format: `{ "type": "...", "writes": [...] }`
+    BiosRecipe,
+    /// Reagent diff format: `{ "added": {...}, "changed": {...} }`
+    ReagentDiff,
+    /// Reagent snapshot format: `{ "bdf": "...", "regions": {...} }`
+    ReagentSnapshot,
+    /// Flat `Vec<RecipeStep>` format: `[{ "domain": "...", "offset": ... }]`
+    FlatRecipe,
+    /// Wrapped format: `{ "recipe": [...], "source": "...", ... }` (mmiotrace distilled)
+    WrappedRecipe,
+}
+
+/// Returns `true` if a register value is a PRI fault sentinel captured from
+/// cold/dead hardware. These leak into recipes when the capture was taken from
+/// an un-POST'd GPU and must be stripped before replay.
+pub fn is_pri_fault_value(value: u32) -> bool {
+    use crate::vfio::channel::registers::pri;
+    pri::is_pri_error(value)
+}
+
+/// Strip PRI fault values from a loaded recipe. Logs the count of removed
+/// entries so the operator knows how much capture garbage was present.
+pub fn filter_pri_faults(steps: Vec<RecipeStep>) -> Vec<RecipeStep> {
+    let before = steps.len();
+    let clean: Vec<RecipeStep> = steps
+        .into_iter()
+        .filter(|s| !is_pri_fault_value(s.value))
+        .collect();
+    let removed = before - clean.len();
+    if removed > 0 {
+        tracing::warn!(
+            removed,
+            remaining = clean.len(),
+            "recipe: stripped PRI fault values from capture"
+        );
+    }
+    clean
+}
+
+/// Auto-detect recipe format from a JSON file and load as RecipeSteps.
+///
+/// Probes the JSON structure to determine which format the file uses,
+/// then delegates to the appropriate loader. PRI fault values (0xBADx_xxxx)
+/// are automatically stripped from all formats — they are capture artifacts
+/// from cold hardware that would poison the replay.
+pub fn load_recipe_auto(path: &Path) -> Result<Vec<RecipeStep>, DriverError> {
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!(
+            "cannot read recipe {}: {e}",
+            path.display()
+        )))
+    })?;
+
+    let val: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!(
+            "cannot parse recipe JSON {}: {e}",
+            path.display()
+        )))
+    })?;
+
+    let format = detect_recipe_format(&val);
+    tracing::info!(format = ?format, path = %path.display(), "auto-detected recipe format");
+
+    let steps = match format {
+        RecipeFormat::BiosRecipe => load_bios_recipe(path),
+        RecipeFormat::ReagentDiff => load_reagent_diff(path),
+        RecipeFormat::ReagentSnapshot => load_reagent_snapshot(path),
+        RecipeFormat::FlatRecipe => replay::load_recipe(path),
+        RecipeFormat::WrappedRecipe => load_wrapped_recipe(&val),
+    }?;
+
+    Ok(filter_pri_faults(steps))
+}
+
+fn detect_recipe_format(val: &serde_json::Value) -> RecipeFormat {
+    if val.is_array() {
+        return RecipeFormat::FlatRecipe;
+    }
+    if val.get("type").is_some() && val.get("writes").is_some() {
+        return RecipeFormat::BiosRecipe;
+    }
+    if val.get("added").is_some() || val.get("changed").is_some() {
+        return RecipeFormat::ReagentDiff;
+    }
+    if val.get("regions").is_some() {
+        return RecipeFormat::ReagentSnapshot;
+    }
+    if val.get("recipe").is_some_and(|v| v.is_array()) {
+        return RecipeFormat::WrappedRecipe;
+    }
+    if val.get("steps").is_some_and(|v| v.is_array()) {
+        return RecipeFormat::WrappedRecipe;
+    }
+    RecipeFormat::FlatRecipe
 }
 
 /// Configuration for which register domains to include in cold boot replay.
@@ -213,26 +499,26 @@ pub fn cold_boot(
         pre_snap.boot0, pre_snap.architecture
     ));
 
-    // Verify this is actually a Kepler GPU
+    // Verify this is actually a Kepler GPU (GK1xx = 0xE0..0xFF: GK104=0xE4, GK110=0xF0, GK210=0xF2)
     let chip = (pre_snap.boot0 >> 20) & 0x1FF;
-    if !(0x0E0..=0x0EF).contains(&chip) {
-        return Err(DriverError::DeviceNotFound(std::borrow::Cow::Owned(
-            format!(
-                "K80 cold boot requires Kepler GPU, got chip={chip:#05x} ({})",
-                pre_snap.architecture
-            ),
-        )));
+    if !(0x0E0..=0x0FF).contains(&chip) {
+        return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
+            "K80 cold boot requires Kepler GPU, got chip={chip:#05x} ({})",
+            pre_snap.architecture
+        ))));
     }
 
-    // Phase 1: Load recipe and replay clocks first
-    let full_recipe = load_bios_recipe(recipe_path)?;
+    // Phase 1: Load recipe (auto-detects BiosRecipe, reagent diff, or snapshot format)
+    // PRI fault values are automatically stripped by load_recipe_auto().
+    let full_recipe = load_recipe_auto(recipe_path)?;
     let clock_steps = filter_clock_registers(&full_recipe);
     log.push(format!(
         "clock init: {} registers (ROOT_PLL + PCLOCK + CLK)",
         clock_steps.len()
     ));
 
-    let clock_result = replay::apply_recipe_to_bar0(bar0, &clock_steps)?;
+    let pll_hooks = replay::KeplerPllHooks::default();
+    let clock_result = replay::apply_recipe_phased(bar0, &clock_steps, &pll_hooks)?;
     log.push(format!(
         "clock replay: applied={} failed={} ptimer_ticking={}",
         clock_result.applied, clock_result.failed, clock_result.ptimer_ticking
@@ -485,6 +771,130 @@ mod tests {
     // ── Recipe loading and filtering ────────────────────────────────────
 
     #[test]
+    fn reagent_diff_json_deserializes() {
+        let json = r#"{
+            "added": {
+                "CLK": {
+                    "0x130000": "0x98010000",
+                    "0x130004": "0x00011001"
+                },
+                "PTIMER": {}
+            },
+            "changed": {
+                "PBUS": {
+                    "0x001100": { "cold": "0x0000000e", "warm": "0x0000000c" }
+                }
+            },
+            "summary": { "CLK": { "added": 2 } }
+        }"#;
+        let diff: ReagentDiff = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(diff.added.get("CLK").unwrap().len(), 2);
+        assert_eq!(diff.changed.get("PBUS").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reagent_diff_to_recipe_steps() {
+        let json = r#"{
+            "added": {
+                "CLK": { "0x130000": "0x98010000" },
+                "PMC": { "0x000200": "0x11001100" }
+            },
+            "changed": {
+                "PBUS": {
+                    "0x001100": { "cold": "0x0e", "warm": "0x0c" }
+                }
+            }
+        }"#;
+        let tmp = std::env::temp_dir().join("test_reagent_diff.json");
+        std::fs::write(&tmp, json).unwrap();
+        let steps = load_reagent_diff(&tmp).unwrap();
+        std::fs::remove_file(&tmp).ok();
+
+        assert_eq!(steps.len(), 3);
+        // Clock domain should sort first (priority 2)
+        assert_eq!(steps[0].domain, "CLK");
+        assert_eq!(steps[0].offset, 0x130000);
+        assert_eq!(steps[0].value, 0x98010000);
+        // PMC next (priority 3)
+        assert_eq!(steps[1].domain, "PMC");
+        // PBUS (priority 5), warm value
+        assert_eq!(steps[2].domain, "PBUS");
+        assert_eq!(steps[2].value, 0x0c);
+    }
+
+    #[test]
+    fn reagent_snapshot_json_deserializes() {
+        let json = r#"{
+            "bdf": "0000:05:00.0",
+            "regions": {
+                "CLK": {
+                    "0x130000": "0xbadf3000",
+                    "0x130004": "0xbadf3000"
+                }
+            }
+        }"#;
+        let snap: ReagentSnapshot = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(snap.bdf.as_deref(), Some("0000:05:00.0"));
+        assert_eq!(snap.regions.get("CLK").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reagent_snapshot_to_recipe_steps() {
+        let json = r#"{
+            "bdf": "0000:05:00.0",
+            "regions": {
+                "CLK": { "0x130000": "0x98010000" },
+                "PMC": { "0x000200": "0x11001100" }
+            }
+        }"#;
+        let tmp = std::env::temp_dir().join("test_reagent_snapshot.json");
+        std::fs::write(&tmp, json).unwrap();
+        let steps = load_reagent_snapshot(&tmp).unwrap();
+        std::fs::remove_file(&tmp).ok();
+
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].domain, "CLK");
+        assert_eq!(steps[1].domain, "PMC");
+    }
+
+    #[test]
+    fn parse_hex_values() {
+        assert_eq!(parse_hex("0x130000"), Some(0x130000));
+        assert_eq!(parse_hex("0X0C"), Some(0x0c));
+        assert_eq!(parse_hex("0xbadf3000"), Some(0xbadf3000));
+        assert_eq!(parse_hex("65536"), Some(65536));
+        assert_eq!(parse_hex(""), None);
+    }
+
+    #[test]
+    fn detect_format_bios_recipe() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{"type": "gk210", "source": "test", "writes": [], "description": "", "total_writes": 0}"#
+        ).unwrap();
+        assert_eq!(detect_recipe_format(&json), RecipeFormat::BiosRecipe);
+    }
+
+    #[test]
+    fn detect_format_reagent_diff() {
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"added": {}, "changed": {}}"#).unwrap();
+        assert_eq!(detect_recipe_format(&json), RecipeFormat::ReagentDiff);
+    }
+
+    #[test]
+    fn detect_format_reagent_snapshot() {
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"bdf": "0:0:0.0", "regions": {}}"#).unwrap();
+        assert_eq!(detect_recipe_format(&json), RecipeFormat::ReagentSnapshot);
+    }
+
+    #[test]
+    fn detect_format_flat_recipe() {
+        let json: serde_json::Value = serde_json::from_str(r#"[]"#).unwrap();
+        assert_eq!(detect_recipe_format(&json), RecipeFormat::FlatRecipe);
+    }
+
+    #[test]
     fn bios_recipe_json_deserializes() {
         let json = r#"{
             "type": "gk210_bios_init_recipe",
@@ -551,5 +961,71 @@ mod tests {
             priority: 3,
         }];
         assert!(filter_clock_registers(&steps).is_empty());
+    }
+
+    // ── PRI fault filtering ─────────────────────────────────────────────
+
+    #[test]
+    fn is_pri_fault_detects_bad_values() {
+        assert!(is_pri_fault_value(0xBADF_1234));
+        assert!(is_pri_fault_value(0xBAD0_DA1F));
+        assert!(is_pri_fault_value(0xBAD1_0000));
+        assert!(!is_pri_fault_value(0x9801_0000));
+        assert!(!is_pri_fault_value(0x0000_0000));
+        assert!(!is_pri_fault_value(0xFFFF_FFFF));
+    }
+
+    #[test]
+    fn filter_pri_faults_strips_bad_values() {
+        let steps = vec![
+            RecipeStep {
+                domain: "ROOT_PLL".to_string(),
+                offset: 0x136400,
+                value: 0x0001_0000,
+                priority: 0,
+            },
+            RecipeStep {
+                domain: "PTIMER".to_string(),
+                offset: 0x009400,
+                value: 0xBAD0_DA1F,
+                priority: 6,
+            },
+            RecipeStep {
+                domain: "CLK".to_string(),
+                offset: 0x130000,
+                value: 0x9801_0000,
+                priority: 2,
+            },
+            RecipeStep {
+                domain: "PMC".to_string(),
+                offset: 0x000200,
+                value: 0xBADF_5040,
+                priority: 3,
+            },
+        ];
+        let clean = filter_pri_faults(steps);
+        assert_eq!(clean.len(), 2);
+        assert_eq!(clean[0].domain, "ROOT_PLL");
+        assert_eq!(clean[1].domain, "CLK");
+    }
+
+    #[test]
+    fn filter_pri_faults_preserves_clean_recipe() {
+        let steps = vec![
+            RecipeStep {
+                domain: "ROOT_PLL".to_string(),
+                offset: 0x136400,
+                value: 0x0001_0000,
+                priority: 0,
+            },
+            RecipeStep {
+                domain: "CLK".to_string(),
+                offset: 0x130000,
+                value: 0x9801_0000,
+                priority: 2,
+            },
+        ];
+        let clean = filter_pri_faults(steps);
+        assert_eq!(clean.len(), 2);
     }
 }

@@ -1,0 +1,14 @@
+# coralReef workspace cargo configuration
+#
+# Zero-root deploy workflow (run from workspace root):
+#   cargo cr-deploy          # build + deploy all (coralctl + daemons via ember)
+#   cargo cr-deploy-self     # build + deploy coralctl only (~/.cargo/bin/)
+#   cargo cr-deploy-safe     # build + deploy all, skip service restart
+#
+# If running from Cursor's integrated terminal, prefix with:
+#   env -u RUSTUP_TOOLCHAIN cargo cr-deploy
+
+[alias]
+cr-deploy = ["run", "--release", "-p", "coral-glowplug", "--bin", "coralctl", "--", "deploy"]
+cr-deploy-self = ["run", "--release", "-p", "coral-glowplug", "--bin", "coralctl", "--", "deploy", "--self-only"]
+cr-deploy-safe = ["run", "--release", "-p", "coral-glowplug", "--bin", "coralctl", "--", "deploy", "--no-restart"]

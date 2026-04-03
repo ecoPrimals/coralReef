@@ -59,7 +59,6 @@ pub(crate) fn mem_access_shared_b32() -> MemAccess {
 
 /// Per-function lowering state.
 pub(crate) struct FuncLowerer<'a, 'sm> {
-    #[allow(unused)]
     pub(crate) sm: &'sm dyn ShaderModel,
     pub(crate) module: &'a ast::Module,
     pub(crate) ssa_alloc: SSAValueAllocator,
@@ -369,7 +368,12 @@ impl<'a, 'sm> FuncLowerer<'a, 'sm> {
                     Ok(result.into())
                 } else if base_ssa.comps() >= 2 {
                     let result = self.alloc_ssa_vec(RegFile::GPR, 2);
-                    let carry = self.alloc_ssa(RegFile::Pred);
+                    let carry_file = if self.sm.sm() >= 70 {
+                        RegFile::Pred
+                    } else {
+                        RegFile::Carry
+                    };
+                    let carry = self.alloc_ssa(carry_file);
                     self.push_instr(Instr::new(OpIAdd2 {
                         dsts: [result[0].into(), carry.into()],
                         srcs: [Src::from(base_ssa[0]), Src::from(offset)],

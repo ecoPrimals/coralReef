@@ -1,6 +1,6 @@
 # Dispatch Boundary — coral-glowplug / coral-ember / toadStool
 
-## Status: Transitional (deferred until GPU development stabilizes)
+## Status: Sovereign path implemented; CUDA path transitional
 
 Per `wateringHole/PRIMAL_RESPONSIBILITY_MATRIX.md` V2, the compile-vs-dispatch
 boundary between coralReef and toadStool is **acknowledged and deferred**.
@@ -10,14 +10,20 @@ boundary between coralReef and toadStool is **acknowledged and deferred**.
 ```
 WGSL Source
     │
-    ▼
-coralreef-core ─── shader.compile.* / shader.execute.cpu / shader.validate
-    │
-    ├──▶ coral-glowplug ─── device.dispatch (CUDA PTX, transitional)
-    │        │                device.swap / device.health / device.lend
-    │        │                mailbox.* / ring.* (firmware IPC)
+    ├──▶ device.dispatch_sovereign (SOVEREIGN — no CUDA)
+    │        │  coral-parse → CoralIR → SASS binary
+    │        │  NvVfioComputeDevice::dispatch (VFIO BAR0 + DMA)
+    │        │  Readback via DMA → base64 outputs
+    │        │
+    ├──▶ device.dispatch (CUDA PTX, transitional)
+    │        │  CudaComputeDevice (CUDA driver JIT)
+    │        │
+    │        ├── device.swap / device.health / device.lend
+    │        ├── device.cold_boot (K80 sovereign boot, auto-detect recipe format)
+    │        ├── device.warm_handoff (nouveau→FECS freeze→PFIFO snap→vfio)
+    │        └── mailbox.* / ring.* (firmware IPC)
     │        ▼
-    │    coral-driver ─── CudaComputeDevice / NvVfioComputeDevice / GpuChannel
+    │    coral-driver ─── NvVfioComputeDevice / CudaComputeDevice / GpuChannel
     │        ▲
     │        │
     └──▶ coral-ember ─── ember.vfio_fds / ember.swap / ember.diagnostics
@@ -39,27 +45,30 @@ When `toadStool` absorbs GPU dispatch responsibility:
   - firmware mailbox/ring IPC
 - `coral-ember` continues as the immortal VFIO fd holder
 
-## Why Transitional
+## Sovereign vs Transitional
 
-`device.dispatch` exists in glowplug because sovereign GPU development
-requires a direct dispatch path while hotSpring stabilizes the VFIO compute
-pipeline. The dispatch implementation uses `coral-driver::cuda::CudaComputeDevice`
-(CUDA path) and will eventually use `coral-driver::vfio::NvVfioComputeDevice`
-(sovereign VFIO path).
+**`device.dispatch_sovereign`** is the full sovereign pipeline:
+WGSL → coral-parse → CoralIR → SASS → NvVfioComputeDevice (VFIO BAR0/DMA).
+No CUDA driver, no proprietary code. Accepts WGSL source directly.
 
-The boundary is deferred because:
+**`device.dispatch`** is the transitional CUDA path: accepts pre-compiled PTX,
+dispatches via `CudaComputeDevice` (requires CUDA driver). Will be deprecated
+once sovereign path is validated across all hardware.
 
-1. The sovereign VFIO compute path (`NvVfioComputeDevice` + GPFIFO/USERD)
-   is still under active development
-2. Warm handoff semantics (`PfifoInitConfig::warm_handoff()`) need validation
-   across GPU generations
-3. toadStool's S169 cleanup removed its shader compilation proxies;
+**`device.cold_boot`** orchestrates K80 sovereign boot from the daemon,
+auto-detecting recipe format from agentReagents captures.
+
+The boundary with toadStool is deferred because:
+
+1. toadStool's S169 cleanup removed shader compilation proxies;
    dispatch absorption is the next phase
+2. Warm handoff semantics need validation across GPU generations
 
 ## Capability Advertisement
 
-`device.dispatch` is included in `capabilities.list` with a `"transitional"`
-annotation. Consumers should:
+`device.dispatch_sovereign` and `device.cold_boot` are in `capabilities.list`
+under the `"sovereign"` key. `device.dispatch` remains under `"transitional"`.
+Consumers should:
 
 1. Discover via `device.sock` domain symlink
 2. Check `capabilities.list` for `device.dispatch`

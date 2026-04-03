@@ -52,17 +52,22 @@ pub fn handle_swap_device(
     held: &mut HashMap<String, HeldDevice>,
     enable_trace: bool,
 ) -> Result<SwapObservation, String> {
-    handle_swap_device_with_journal(bdf, target, held, enable_trace, None)
+    handle_swap_device_with_journal(bdf, target, held, enable_trace, None, false)
 }
 
 /// Inner swap implementation that optionally wraps the lifecycle in [`AdaptiveLifecycle`](crate::adaptive::AdaptiveLifecycle)
 /// when a journal is provided.
+///
+/// When `allow_cold` is `true`, the preflight check permits swapping a
+/// cold/un-POSTed device as long as BAR0 is readable. This enables the
+/// cold-POST path where nouveau is bound to a cold Kepler GPU to POST it.
 pub fn handle_swap_device_with_journal(
     bdf: &str,
     target: &str,
     held: &mut HashMap<String, HeldDevice>,
     enable_trace: bool,
     journal: Option<&Arc<Journal>>,
+    allow_cold: bool,
 ) -> Result<SwapObservation, String> {
     let swap_start = Instant::now();
     let timestamp = observation::epoch_ms();
@@ -124,7 +129,7 @@ pub fn handle_swap_device_with_journal(
         return Err(msg);
     }
 
-    preflight_device_check(bdf)?;
+    preflight_device_check(bdf, allow_cold)?;
 
     let base_lifecycle = vendor_lifecycle::detect_lifecycle_for_target(bdf, target);
     let lifecycle: Box<dyn VendorLifecycle> = if let Some(j) = journal {
@@ -169,22 +174,109 @@ pub fn handle_swap_device_with_journal(
     }
     let prepare_ms = prepare_start.elapsed().as_millis() as u64;
 
+    // --- Phase 1b: Pre-unbind BAR0 safety (Exp 138) ---
+    //
+    // Before releasing VFIO fds, restore known-dangerous BAR0 registers
+    // that may have been modified by experiments (coralctl mmio write).
+    // PRAMIN window (0x1700) is the most critical: if it points to the
+    // wrong VRAM address, kernel teardown reads garbage and can hang.
+    if let Some(held_dev) = held.get(bdf) {
+        if held_dev.experiment_dirty {
+            tracing::warn!(
+                bdf,
+                "pre-unbind: device is experiment-dirty — applying full BAR0 safety sweep"
+            );
+        }
+        if let Ok(bar0) = held_dev.device.map_bar(0) {
+            // Restore PRAMIN window to default (disabled)
+            let pramin = bar0.read_u32(0x1700).unwrap_or(0);
+            if pramin != 0 {
+                tracing::warn!(
+                    bdf,
+                    pramin = format_args!("{pramin:#010x}"),
+                    "pre-unbind: PRAMIN window was non-default, restoring to 0x0"
+                );
+                let _ = bar0.write_u32(0x1700, 0);
+            }
+
+            // BAR0 health check: BOOT0 must return a valid chip ID
+            let boot0 = bar0.read_u32(0x0).unwrap_or(0xFFFF_FFFF);
+            if boot0 == 0xFFFF_FFFF || boot0 == 0xBADF_1100 {
+                tracing::error!(
+                    bdf,
+                    boot0 = format_args!("{boot0:#010x}"),
+                    "pre-unbind: BAR0 is NOT responsive — device in bad state. \
+                     Proceeding with guarded close but D-state risk is HIGH."
+                );
+            } else {
+                tracing::info!(
+                    bdf,
+                    boot0 = format_args!("{boot0:#010x}"),
+                    "pre-unbind: BAR0 responsive"
+                );
+            }
+        }
+    }
+
     // --- Phase 2: Unbind ---
     let unbind_start = Instant::now();
 
     // Release held VFIO fds (reset_method already cleared).
+    //
+    // The fd close is performed in an isolated thread because
+    // `vfio_pci_core_disable` (triggered by the last fd close) accesses
+    // PCI config space. If the device is in a bad state (e.g. from
+    // register experiments), this can cause a PCIe completion timeout
+    // that puts the thread into uninterruptible D-state. Thread isolation
+    // ensures the main ember thread stays responsive. (Exp 138)
     if let Some(device) = held.remove(bdf) {
         let dev_fd = device.device.device_fd();
-        tracing::info!(bdf, device_fd = dev_fd, "swap_device: dropping VFIO fds");
-        drop(device);
-        let fd_path = linux_paths::proc_self_fd(dev_fd);
-        if std::path::Path::new(&fd_path).exists() {
-            tracing::warn!(
-                bdf,
-                fd = dev_fd,
-                "swap_device: fd still in proc self fd table after drop!"
-            );
+        tracing::info!(bdf, device_fd = dev_fd, "swap_device: dropping VFIO fds (guarded)");
+
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let close_bdf = bdf.to_string();
+        let handle = std::thread::Builder::new()
+            .name(format!("vfio-close-{bdf}"))
+            .spawn(move || {
+                drop(device);
+                let _ = tx.send(());
+            });
+
+        match handle {
+            Ok(h) => {
+                const VFIO_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+                match rx.recv_timeout(VFIO_CLOSE_TIMEOUT) {
+                    Ok(()) => {
+                        let _ = h.join();
+                        let fd_path = linux_paths::proc_self_fd(dev_fd);
+                        if std::path::Path::new(&fd_path).exists() {
+                            tracing::warn!(
+                                bdf = %close_bdf,
+                                fd = dev_fd,
+                                "swap_device: fd still in proc self fd table after drop!"
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            bdf = %close_bdf,
+                            device_fd = dev_fd,
+                            "swap_device: VFIO fd close TIMED OUT after {}s — \
+                             thread likely in D-state, leaked. Device may be in bad state \
+                             from register experiments (see Exp 138).",
+                            VFIO_CLOSE_TIMEOUT.as_secs()
+                        );
+                        std::mem::forget(h);
+                    }
+                }
+            }
+            Err(e) => {
+                // spawn failed — the closure (and `device` inside it) was dropped
+                // by the runtime when Builder::spawn returned Err.
+                tracing::error!(bdf, error = %e, "swap_device: failed to spawn vfio-close thread — device dropped with closure");
+            }
         }
+
         std::thread::sleep(std::time::Duration::from_millis(100));
     } else {
         tracing::info!(

@@ -322,6 +322,7 @@ name = "coral-driver"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "coral-parse",
  "coral-reef",
  "cudarc",
  "libc",
@@ -359,6 +360,8 @@ dependencies = [
  "clap",
  "coral-driver",
  "coral-ember",
+ "coral-parse",
+ "coral-reef",
  "nvml-wrapper",
  "rustix",
  "serde",

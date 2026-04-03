@@ -63,6 +63,7 @@ pub(super) fn bind_vfio(
                     device,
                     ring_meta: crate::hold::RingMeta::default(),
                     req_eventfd,
+                    experiment_dirty: false,
                 },
             );
         }

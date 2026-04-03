@@ -88,7 +88,292 @@ pub struct RecipeStep {
     pub priority: u32,
 }
 
-/// Domain ranges and their dependency priority (lower = write first).
+// ── DomainMap trait — architecture-parameterized register classification ──
+
+/// A contiguous BAR0 address range belonging to a named hardware domain.
+#[derive(Debug, Clone, Copy)]
+pub struct DomainRange {
+    pub name: &'static str,
+    pub start: usize,
+    pub end: usize,
+    pub priority: u32,
+}
+
+/// Classify BAR0 offsets into named hardware domains with replay priority.
+///
+/// Each GPU architecture has different register layouts. Kepler's PGRAPH
+/// occupies 0x400000..0x420000 while Volta's extends to 0x420000+. By
+/// parameterizing classification behind a trait, the replay engine and
+/// recipe loaders work identically across architectures — only the
+/// domain table changes.
+pub trait DomainMap: Send + Sync + std::fmt::Debug {
+    fn classify(&self, offset: usize, region_hint: &str) -> (&'static str, u32);
+    fn domain_table(&self) -> &[DomainRange];
+}
+
+/// Classify an offset using a `DomainRange` table, falling back to "UNKNOWN".
+pub fn classify_from_table(table: &[DomainRange], offset: usize) -> (&'static str, u32) {
+    for range in table {
+        if offset >= range.start && offset < range.end {
+            return (range.name, range.priority);
+        }
+    }
+    ("UNKNOWN", 99)
+}
+
+// ── Kepler domain map ────────────────────────────────────────────────────
+
+/// Kepler (GK1xx) BAR0 domain layout — includes PTIMER, PPCI, PCOPY
+/// region-tag fallbacks for offsets outside known ranges.
+#[derive(Debug, Clone, Copy)]
+pub struct KeplerDomainMap;
+
+/// Kepler BAR0 domain ranges with replay priority ordering.
+pub const KEPLER_DOMAINS: &[DomainRange] = &[
+    DomainRange { name: "ROOT_PLL",   start: 0x136000, end: 0x137000, priority: 0 },
+    DomainRange { name: "PCLOCK",     start: 0x137000, end: 0x138000, priority: 1 },
+    DomainRange { name: "CLK",        start: 0x130000, end: 0x136000, priority: 2 },
+    DomainRange { name: "PMC",        start: 0x000000, end: 0x001000, priority: 3 },
+    DomainRange { name: "PRI_MASTER", start: 0x122000, end: 0x123000, priority: 4 },
+    DomainRange { name: "PBUS",       start: 0x001000, end: 0x002000, priority: 5 },
+    DomainRange { name: "PTIMER",     start: 0x009000, end: 0x00A000, priority: 6 },
+    DomainRange { name: "PTOP",       start: 0x020000, end: 0x024000, priority: 7 },
+    DomainRange { name: "PPCI",       start: 0x008800, end: 0x009000, priority: 8 },
+    DomainRange { name: "PFB",        start: 0x100000, end: 0x100800, priority: 10 },
+    DomainRange { name: "FBHUB",      start: 0x100800, end: 0x100C00, priority: 11 },
+    DomainRange { name: "PFB_NISO",   start: 0x100C00, end: 0x101000, priority: 12 },
+    DomainRange { name: "FBPA",       start: 0x9A0000, end: 0x9B0000, priority: 15 },
+    DomainRange { name: "LTC",        start: 0x17E000, end: 0x190000, priority: 16 },
+    DomainRange { name: "PMU",        start: 0x10A000, end: 0x10C000, priority: 20 },
+    DomainRange { name: "PFIFO",      start: 0x002000, end: 0x004000, priority: 25 },
+    DomainRange { name: "PBDMA",      start: 0x040000, end: 0x0A0000, priority: 26 },
+    DomainRange { name: "PCOPY",      start: 0x104000, end: 0x105000, priority: 27 },
+    DomainRange { name: "PGRAPH",     start: 0x400000, end: 0x420000, priority: 30 },
+    DomainRange { name: "PCCSR",      start: 0x800000, end: 0x900000, priority: 35 },
+    DomainRange { name: "PRAMIN",     start: 0x700000, end: 0x710000, priority: 40 },
+];
+
+impl DomainMap for KeplerDomainMap {
+    fn classify(&self, offset: usize, region_hint: &str) -> (&'static str, u32) {
+        let (name, prio) = classify_from_table(KEPLER_DOMAINS, offset);
+        if name != "UNKNOWN" {
+            return (name, prio);
+        }
+        match region_hint {
+            "PCLOCK" => ("PCLOCK", 1),
+            "PMC" => ("PMC", 3),
+            "PTIMER" => ("PTIMER", 6),
+            "PFB" => ("PFB", 10),
+            "PFIFO" => ("PFIFO", 25),
+            "PGRAPH" => ("PGRAPH", 30),
+            "PCOPY" => ("PCOPY", 27),
+            "PBUS" => ("PBUS", 5),
+            "PROM" => ("PROM", 50),
+            "PPCI" => ("PPCI", 8),
+            _ => ("UNKNOWN", 99),
+        }
+    }
+
+    fn domain_table(&self) -> &[DomainRange] {
+        KEPLER_DOMAINS
+    }
+}
+
+// ── Volta domain map ─────────────────────────────────────────────────────
+
+/// Volta (GV100) BAR0 domain layout — wider PGRAPH, SEC2 at 0x087000,
+/// per-runlist PFIFO, no PMC DEVICE_ENABLE at 0x600.
+#[derive(Debug, Clone, Copy)]
+pub struct VoltaDomainMap;
+
+/// Volta BAR0 domain ranges with replay priority ordering.
+pub const VOLTA_DOMAINS: &[DomainRange] = &[
+    DomainRange { name: "ROOT_PLL",   start: 0x136000, end: 0x137000, priority: 0 },
+    DomainRange { name: "PCLOCK",     start: 0x137000, end: 0x138000, priority: 1 },
+    DomainRange { name: "CLK",        start: 0x130000, end: 0x136000, priority: 2 },
+    DomainRange { name: "PMC",        start: 0x000000, end: 0x001000, priority: 3 },
+    DomainRange { name: "PRI_MASTER", start: 0x122000, end: 0x123000, priority: 4 },
+    DomainRange { name: "PBUS",       start: 0x001000, end: 0x002000, priority: 5 },
+    DomainRange { name: "PTIMER",     start: 0x009000, end: 0x00A000, priority: 6 },
+    DomainRange { name: "PTOP",       start: 0x020000, end: 0x024000, priority: 7 },
+    DomainRange { name: "SEC2",       start: 0x087000, end: 0x088000, priority: 9 },
+    DomainRange { name: "PFB",        start: 0x100000, end: 0x102000, priority: 10 },
+    DomainRange { name: "FBPA",       start: 0x9A0000, end: 0x9B0000, priority: 15 },
+    DomainRange { name: "LTC",        start: 0x17E000, end: 0x190000, priority: 16 },
+    DomainRange { name: "PMU",        start: 0x10A000, end: 0x10C000, priority: 20 },
+    DomainRange { name: "PFIFO",      start: 0x002000, end: 0x004000, priority: 25 },
+    DomainRange { name: "PBDMA",      start: 0x040000, end: 0x0A0000, priority: 26 },
+    DomainRange { name: "FECS",       start: 0x409000, end: 0x40A000, priority: 31 },
+    DomainRange { name: "GPCCS",      start: 0x41A000, end: 0x41B000, priority: 32 },
+    DomainRange { name: "PGRAPH",     start: 0x400000, end: 0x420000, priority: 30 },
+    DomainRange { name: "PCCSR",      start: 0x800000, end: 0x900000, priority: 35 },
+    DomainRange { name: "PRAMIN",     start: 0x700000, end: 0x710000, priority: 40 },
+];
+
+impl DomainMap for VoltaDomainMap {
+    fn classify(&self, offset: usize, region_hint: &str) -> (&'static str, u32) {
+        let (name, prio) = classify_from_table(VOLTA_DOMAINS, offset);
+        if name != "UNKNOWN" {
+            return (name, prio);
+        }
+        match region_hint {
+            "PCLOCK" => ("PCLOCK", 1),
+            "PMC" => ("PMC", 3),
+            "PTIMER" => ("PTIMER", 6),
+            "SEC2" => ("SEC2", 9),
+            "PFB" => ("PFB", 10),
+            "PFIFO" => ("PFIFO", 25),
+            "PGRAPH" => ("PGRAPH", 30),
+            "PBUS" => ("PBUS", 5),
+            _ => ("UNKNOWN", 99),
+        }
+    }
+
+    fn domain_table(&self) -> &[DomainRange] {
+        VOLTA_DOMAINS
+    }
+}
+
+// ── BootSequence trait — architecture-parameterized boot phase ordering ──
+
+/// A discrete phase in a GPU sovereign boot sequence.
+#[derive(Debug, Clone)]
+pub struct BootPhase {
+    pub name: &'static str,
+    /// Minimum recipe priority to include in this phase.
+    pub priority_min: u32,
+    /// Maximum recipe priority (exclusive) for this phase.
+    pub priority_max: u32,
+    /// Whether this phase is mandatory for boot to proceed.
+    pub required: bool,
+}
+
+impl BootPhase {
+    /// Filter recipe steps belonging to this phase.
+    pub fn filter_steps<'a>(&self, recipe: &'a [RecipeStep]) -> Vec<&'a RecipeStep> {
+        recipe
+            .iter()
+            .filter(|s| s.priority >= self.priority_min && s.priority < self.priority_max)
+            .collect()
+    }
+}
+
+/// Ordered boot sequence for a GPU architecture.
+///
+/// Each architecture defines its phases (clock init, devinit, falcon boot)
+/// and a set of replay hooks for inter-phase hardware polling.
+pub trait BootSequence: Send + Sync + std::fmt::Debug {
+    fn phases(&self) -> &[BootPhase];
+    fn domain_map(&self) -> &dyn DomainMap;
+    fn description(&self) -> &str;
+}
+
+/// Kepler boot sequence: Clock -> Devinit -> PGRAPH -> FECS PIO.
+#[derive(Debug)]
+pub struct KeplerBootSequence;
+
+/// Kepler boot phases in dependency order.
+pub const KEPLER_PHASES: &[BootPhase] = &[
+    BootPhase {
+        name: "clock",
+        priority_min: 0,
+        priority_max: 3,
+        required: true,
+    },
+    BootPhase {
+        name: "devinit",
+        priority_min: 3,
+        priority_max: 30,
+        required: true,
+    },
+    BootPhase {
+        name: "pgraph",
+        priority_min: 30,
+        priority_max: 35,
+        required: false,
+    },
+    BootPhase {
+        name: "extended",
+        priority_min: 35,
+        priority_max: 100,
+        required: false,
+    },
+];
+
+impl BootSequence for KeplerBootSequence {
+    fn phases(&self) -> &[BootPhase] {
+        KEPLER_PHASES
+    }
+
+    fn domain_map(&self) -> &dyn DomainMap {
+        &KeplerDomainMap
+    }
+
+    fn description(&self) -> &str {
+        "Kepler (GK1xx): PLL clock -> devinit -> PGRAPH -> FECS PIO boot"
+    }
+}
+
+/// Volta boot sequence: (clock probe) -> Devinit -> ACR/SEC2 -> FECS/GPCCS.
+///
+/// Volta has HS+ firmware security — FECS/GPCCS require signed firmware
+/// loaded via the ACR (Authenticated Code Runtime) through SEC2. The clock
+/// phase is conditional: if PTIMER is already ticking (warm from previous
+/// driver session), clock writes are skipped.
+#[derive(Debug)]
+pub struct VoltaBootSequence;
+
+/// Volta boot phases in dependency order.
+pub const VOLTA_PHASES: &[BootPhase] = &[
+    BootPhase {
+        name: "clock",
+        priority_min: 0,
+        priority_max: 3,
+        required: false, // Often already alive from prior nvidia session
+    },
+    BootPhase {
+        name: "devinit",
+        priority_min: 3,
+        priority_max: 30,
+        required: true,
+    },
+    BootPhase {
+        name: "pgraph",
+        priority_min: 30,
+        priority_max: 33,
+        required: true,
+    },
+    BootPhase {
+        name: "acr_boot",
+        priority_min: 33,
+        priority_max: 35,
+        required: true,
+    },
+    BootPhase {
+        name: "extended",
+        priority_min: 35,
+        priority_max: 100,
+        required: false,
+    },
+];
+
+impl BootSequence for VoltaBootSequence {
+    fn phases(&self) -> &[BootPhase] {
+        VOLTA_PHASES
+    }
+
+    fn domain_map(&self) -> &dyn DomainMap {
+        &VoltaDomainMap
+    }
+
+    fn description(&self) -> &str {
+        "Volta (GV1xx): clock probe -> devinit -> PGRAPH -> ACR/SEC2 -> FECS signed boot"
+    }
+}
+
+// ── Legacy compatibility ─────────────────────────────────────────────────
+
+/// Legacy domain table used by boot_follower (subset of Kepler, no PTIMER/PPCI/PCOPY/PGRAPH).
 const DOMAIN_PRIORITY: &[(&str, usize, usize, u32)] = &[
     ("ROOT_PLL", 0x136000, 0x137000, 0),
     ("PCLOCK", 0x137000, 0x138000, 1),
@@ -390,5 +675,135 @@ mod tests {
         assert_eq!(recipe[0].domain, "ROOT_PLL");
         assert_eq!(recipe[1].domain, "PMC");
         assert_eq!(recipe[2].domain, "PFIFO");
+    }
+
+    // ── DomainMap trait tests ───────────────────────────────────────────
+
+    #[test]
+    fn kepler_domain_map_classifies_all_known_ranges() {
+        let map = KeplerDomainMap;
+        assert_eq!(map.classify(0x136400, "").0, "ROOT_PLL");
+        assert_eq!(map.classify(0x137020, "").0, "PCLOCK");
+        assert_eq!(map.classify(0x132000, "").0, "CLK");
+        assert_eq!(map.classify(0x000200, "").0, "PMC");
+        assert_eq!(map.classify(0x009400, "").0, "PTIMER");
+        assert_eq!(map.classify(0x002504, "").0, "PFIFO");
+        assert_eq!(map.classify(0x400100, "").0, "PGRAPH");
+    }
+
+    #[test]
+    fn kepler_domain_map_falls_back_to_region_hint() {
+        let map = KeplerDomainMap;
+        assert_eq!(map.classify(0xFFF000, "PCLOCK").0, "PCLOCK");
+        assert_eq!(map.classify(0xFFF000, "PROM").0, "PROM");
+        assert_eq!(map.classify(0xFFF000, "MYSTERY").0, "UNKNOWN");
+    }
+
+    #[test]
+    fn kepler_domain_table_is_nonempty() {
+        let map = KeplerDomainMap;
+        assert!(map.domain_table().len() >= 17);
+    }
+
+    #[test]
+    fn classify_from_table_returns_unknown_for_gap() {
+        let result = classify_from_table(KEPLER_DOMAINS, 0xFFF_FFFF);
+        assert_eq!(result.0, "UNKNOWN");
+        assert_eq!(result.1, 99);
+    }
+
+    // ── BootSequence trait tests ────────────────────────────────────────
+
+    #[test]
+    fn kepler_boot_sequence_has_four_phases() {
+        let seq = KeplerBootSequence;
+        assert_eq!(seq.phases().len(), 4);
+        assert_eq!(seq.phases()[0].name, "clock");
+        assert_eq!(seq.phases()[1].name, "devinit");
+        assert_eq!(seq.phases()[2].name, "pgraph");
+        assert_eq!(seq.phases()[3].name, "extended");
+    }
+
+    #[test]
+    fn boot_phase_filter_steps() {
+        let recipe = vec![
+            RecipeStep { domain: "ROOT_PLL".into(), offset: 0x136400, value: 0xFF, priority: 0 },
+            RecipeStep { domain: "CLK".into(), offset: 0x130000, value: 0x01, priority: 2 },
+            RecipeStep { domain: "PMC".into(), offset: 0x000200, value: 0x1100, priority: 3 },
+            RecipeStep { domain: "PFIFO".into(), offset: 0x002504, value: 0x01, priority: 25 },
+            RecipeStep { domain: "PGRAPH".into(), offset: 0x400100, value: 0x01, priority: 30 },
+        ];
+
+        let clock_phase = &KEPLER_PHASES[0];
+        let clock_steps = clock_phase.filter_steps(&recipe);
+        assert_eq!(clock_steps.len(), 2);
+        assert_eq!(clock_steps[0].domain, "ROOT_PLL");
+        assert_eq!(clock_steps[1].domain, "CLK");
+
+        let devinit_phase = &KEPLER_PHASES[1];
+        let devinit_steps = devinit_phase.filter_steps(&recipe);
+        assert_eq!(devinit_steps.len(), 2);
+        assert_eq!(devinit_steps[0].domain, "PMC");
+        assert_eq!(devinit_steps[1].domain, "PFIFO");
+
+        let pgraph_phase = &KEPLER_PHASES[2];
+        let pgraph_steps = pgraph_phase.filter_steps(&recipe);
+        assert_eq!(pgraph_steps.len(), 1);
+        assert_eq!(pgraph_steps[0].domain, "PGRAPH");
+    }
+
+    #[test]
+    fn kepler_boot_sequence_is_object_safe() {
+        let seq: &dyn BootSequence = &KeplerBootSequence;
+        assert!(!seq.description().is_empty());
+        assert!(!seq.phases().is_empty());
+    }
+
+    // ── Volta tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn volta_domain_map_classifies_all_known_ranges() {
+        let map = VoltaDomainMap;
+        assert_eq!(map.classify(0x136400, "").0, "ROOT_PLL");
+        assert_eq!(map.classify(0x137020, "").0, "PCLOCK");
+        assert_eq!(map.classify(0x132000, "").0, "CLK");
+        assert_eq!(map.classify(0x000200, "").0, "PMC");
+        assert_eq!(map.classify(0x009400, "").0, "PTIMER");
+        assert_eq!(map.classify(0x087500, "").0, "SEC2");
+        assert_eq!(map.classify(0x409100, "").0, "FECS");
+        assert_eq!(map.classify(0x41A100, "").0, "GPCCS");
+        assert_eq!(map.classify(0x400100, "").0, "PGRAPH");
+    }
+
+    #[test]
+    fn volta_domain_map_sec2_at_087000() {
+        let map = VoltaDomainMap;
+        let (name, prio) = map.classify(0x087000, "");
+        assert_eq!(name, "SEC2");
+        assert!(prio < 10, "SEC2 should be early in boot");
+    }
+
+    #[test]
+    fn volta_boot_sequence_has_five_phases() {
+        let seq = VoltaBootSequence;
+        assert_eq!(seq.phases().len(), 5);
+        assert_eq!(seq.phases()[0].name, "clock");
+        assert_eq!(seq.phases()[3].name, "acr_boot");
+    }
+
+    #[test]
+    fn volta_boot_sequence_clock_not_required() {
+        let seq = VoltaBootSequence;
+        assert!(
+            !seq.phases()[0].required,
+            "Volta clock phase should be optional (often warm)"
+        );
+    }
+
+    #[test]
+    fn volta_boot_sequence_is_object_safe() {
+        let seq: &dyn BootSequence = &VoltaBootSequence;
+        assert!(seq.description().contains("Volta"));
+        assert!(!seq.phases().is_empty());
     }
 }

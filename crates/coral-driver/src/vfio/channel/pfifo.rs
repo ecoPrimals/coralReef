@@ -119,12 +119,11 @@ impl PfifoInitConfig {
     /// - PMC PFIFO reset: skipped (would reset PFIFO clock domain)
     /// - PRIV ring: cleared (swap may leave stale faults)
     /// - PBDMA: force-cleared (nouveau's addresses are unmapped)
-    /// - Runlists: flushed empty (clears stale nouveau entries)
+    /// - Runlists: NOT flushed empty — submitting count=0 tells FECS
+    ///   "no channels" which causes it to disable GR and halt in HS
+    ///   mode; our channel submit_runlist() overwrites stale entries.
     /// - Preempt: skipped (FECS scheduling is already frozen)
-    /// - Scheduler: enabled (needed for dispatch after START_CTXSW)
-    ///
-    /// After channel creation with this config, send FECS `START_CTXSW`
-    /// (method 0x02) to resume scheduling with the new channel.
+    /// - Scheduler: enabled (needed for dispatch)
     #[must_use]
     pub fn warm_fecs() -> Self {
         Self {
@@ -134,7 +133,7 @@ impl PfifoInitConfig {
             retry_on_priv_fault: true,
             pmc_pfifo_reset: false,
             pbdma_force_clear: true,
-            flush_empty_runlists: true,
+            flush_empty_runlists: false,
             preempt_runlists: false,
             use_sched_en: true,
             post_flush_settle_ms: 20,

@@ -76,6 +76,92 @@ impl std::fmt::Debug for EmberSession {
     }
 }
 
+/// Request VFIO fds from ember for `bdf` without building a full device.
+///
+/// Returns [`ReceivedVfioFds`] suitable for passing to
+/// [`NvVfioComputeDevice::open_from_fds`] or [`VfioDevice::from_received`].
+pub fn request_vfio_fds(bdf: &str) -> DriverResult<ReceivedVfioFds> {
+    let socket_path = default_socket();
+    let stream = UnixStream::connect(&socket_path).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!("ember socket {socket_path}: {e}")))
+    })?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(e.to_string())))?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "ember.vfio_fds",
+        "params": { "bdf": bdf },
+        "id": 1,
+    });
+    let payload = format!("{req}\n");
+    std::io::Write::write_all(&mut &stream, payload.as_bytes())
+        .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("ember send: {e}"))))?;
+
+    let mut buf = [0u8; MAX_RESPONSE];
+    let (n, fds) = recv_with_fds(&stream, &mut buf)?;
+
+    let resp: serde_json::Value = serde_json::from_slice(&buf[..n]).map_err(|e| {
+        DriverError::DeviceNotFound(Cow::Owned(format!("ember response parse: {e}")))
+    })?;
+
+    if let Some(err) = resp.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown ember error");
+        return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
+            "ember error: {msg}"
+        ))));
+    }
+
+    let result = resp
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let backend = result
+        .get("backend")
+        .and_then(|b| b.as_str())
+        .unwrap_or("legacy");
+
+    match backend {
+        "iommufd" => {
+            if fds.len() < 2 {
+                return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
+                    "ember: expected 2 fds for iommufd, got {}",
+                    fds.len()
+                ))));
+            }
+            let ioas_id = result.get("ioas_id").and_then(|v| v.as_u64()).ok_or(
+                DriverError::DeviceNotFound(Cow::Borrowed(
+                    "ember: iommufd response missing ioas_id",
+                )),
+            )? as u32;
+            let mut it = fds.into_iter();
+            Ok(ReceivedVfioFds::Iommufd {
+                iommufd: it.next().expect("checked len"),
+                device: it.next().expect("checked len"),
+                ioas_id,
+            })
+        }
+        _ => {
+            if fds.len() < 3 {
+                return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
+                    "ember: expected 3 fds for legacy, got {}",
+                    fds.len()
+                ))));
+            }
+            let mut it = fds.into_iter();
+            Ok(ReceivedVfioFds::Legacy {
+                container: it.next().expect("checked len"),
+                group: it.next().expect("checked len"),
+                device: it.next().expect("checked len"),
+            })
+        }
+    }
+}
+
 impl EmberSession {
     /// Connect to ember and obtain BAR0 access for `bdf`.
     ///
@@ -83,87 +169,14 @@ impl EmberSession {
     ///
     /// Returns `DriverError` if ember is unreachable, the BDF is not
     /// held by ember, or BAR0 mapping fails.
+    /// Connect to ember and obtain BAR0 access for `bdf`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DriverError` if ember is unreachable, the BDF is not
+    /// held by ember, or BAR0 mapping fails.
     pub fn connect(bdf: &str) -> DriverResult<Self> {
-        let socket_path = default_socket();
-        let stream = UnixStream::connect(&socket_path).map_err(|e| {
-            DriverError::DeviceNotFound(Cow::Owned(format!("ember socket {socket_path}: {e}")))
-        })?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(e.to_string())))?;
-
-        let req = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "ember.vfio_fds",
-            "params": { "bdf": bdf },
-            "id": 1,
-        });
-        let payload = format!("{req}\n");
-        std::io::Write::write_all(&mut &stream, payload.as_bytes())
-            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("ember send: {e}"))))?;
-
-        let mut buf = [0u8; MAX_RESPONSE];
-        let (n, fds) = recv_with_fds(&stream, &mut buf)?;
-
-        let resp: serde_json::Value = serde_json::from_slice(&buf[..n]).map_err(|e| {
-            DriverError::DeviceNotFound(Cow::Owned(format!("ember response parse: {e}")))
-        })?;
-
-        if let Some(err) = resp.get("error") {
-            let msg = err
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown ember error");
-            return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
-                "ember error: {msg}"
-            ))));
-        }
-
-        let result = resp
-            .get("result")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
-        let backend = result
-            .get("backend")
-            .and_then(|b| b.as_str())
-            .unwrap_or("legacy");
-
-        let received = match backend {
-            "iommufd" => {
-                if fds.len() < 2 {
-                    return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
-                        "ember: expected 2 fds for iommufd, got {}",
-                        fds.len()
-                    ))));
-                }
-                let ioas_id = result.get("ioas_id").and_then(|v| v.as_u64()).ok_or(
-                    DriverError::DeviceNotFound(Cow::Borrowed(
-                        "ember: iommufd response missing ioas_id",
-                    )),
-                )? as u32;
-                let mut it = fds.into_iter();
-                ReceivedVfioFds::Iommufd {
-                    iommufd: it.next().expect("checked len"),
-                    device: it.next().expect("checked len"),
-                    ioas_id,
-                }
-            }
-            _ => {
-                if fds.len() < 3 {
-                    return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
-                        "ember: expected 3 fds for legacy, got {}",
-                        fds.len()
-                    ))));
-                }
-                let mut it = fds.into_iter();
-                ReceivedVfioFds::Legacy {
-                    container: it.next().expect("checked len"),
-                    group: it.next().expect("checked len"),
-                    device: it.next().expect("checked len"),
-                }
-            }
-        };
-
+        let received = request_vfio_fds(bdf)?;
         let device = VfioDevice::from_received(bdf, received)?;
         let bar0 = device.map_bar(0)?;
 

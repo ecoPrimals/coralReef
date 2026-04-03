@@ -163,7 +163,29 @@ pub(crate) fn disable(
         return write_jsonrpc_error(stream, id, -32000, &msg).map_err(ipc_io_error_string);
     }
 
-    tracing::info!(was_enabled, "livepatch disabled");
+    // rmmod after disable so the next enable cycle gets a clean klp state.
+    // Without this, the module stays loaded in "unpatched" state and
+    // subsequent modprobe is a no-op — but klp_enable_patch won't re-run,
+    // leaving the sysfs entry in a stale state where writes to `enabled`
+    // silently fail.
+    let module = livepatch_module();
+    let rmmod_output = std::process::Command::new("rmmod")
+        .arg(module)
+        .output();
+    match rmmod_output {
+        Ok(o) if o.status.success() => {
+            tracing::info!("rmmod {module} succeeded — clean slate for next enable");
+        }
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            tracing::warn!("rmmod {module} failed (non-fatal): {stderr}");
+        }
+        Err(e) => {
+            tracing::warn!("rmmod exec failed (non-fatal): {e}");
+        }
+    }
+
+    tracing::info!(was_enabled, "livepatch disabled and unloaded");
     write_jsonrpc_ok(
         stream,
         id,

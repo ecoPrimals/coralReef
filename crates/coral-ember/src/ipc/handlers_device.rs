@@ -105,6 +105,52 @@ pub(crate) fn list(
         .map_err(ipc_io_error_string)
 }
 
+/// `ember.shutdown` — graceful shutdown: drain all held devices with guarded close.
+///
+/// This is the ONLY safe way to stop ember when GPUs may be in a degraded
+/// state (BAR0 = 0xFFFFFFFF from prior experiments). Direct SIGTERM causes
+/// the kernel to close VFIO fds synchronously, which can D-state the host
+/// if the PCIe endpoint is unresponsive.
+///
+/// Called by `ExecStop=` in the systemd service file before SIGTERM.
+pub(crate) fn shutdown(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+) -> Result<(), String> {
+    tracing::info!("ember.shutdown: draining all held devices with guarded close");
+
+    let devices: Vec<(String, HeldDevice)> = match held.write() {
+        Ok(mut map) => map.drain().collect(),
+        Err(e) => {
+            tracing::error!(error = %e, "shutdown: held lock poisoned");
+            return write_jsonrpc_error(stream, id, -32000, "held lock poisoned")
+                .map_err(ipc_io_error_string);
+        }
+    };
+
+    let count = devices.len();
+    for (bdf, device) in devices {
+        tracing::info!(bdf = %bdf, "shutdown: guarded close");
+        crate::guarded_open::guarded_vfio_close(device, &bdf);
+    }
+
+    tracing::info!(count, "ember.shutdown: all devices released");
+
+    write_jsonrpc_ok(
+        stream,
+        id,
+        serde_json::json!({"status": "shutdown_complete", "devices_released": count}),
+    )
+    .map_err(ipc_io_error_string)?;
+
+    // Flush the response, then exit cleanly. std::process::exit runs
+    // atexit handlers but not Rust destructors — which is fine since
+    // we've already drained the held map.
+    tracing::info!("ember exiting cleanly after shutdown");
+    std::process::exit(0);
+}
+
 pub(crate) fn release(
     stream: &mut impl Write,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -123,10 +169,11 @@ pub(crate) fn release(
     let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
     match map.remove(bdf) {
         Some(device) => {
-            drop(device);
-            tracing::info!(bdf, "ember released VFIO fds for swap");
+            let bdf_owned = bdf.to_string();
             drop(map);
-            write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))
+            crate::guarded_open::guarded_vfio_close(device, &bdf_owned);
+            tracing::info!(bdf = %bdf_owned, "ember released VFIO fds for swap");
+            write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf_owned}))
                 .map_err(ipc_io_error_string)
         }
         None => {
@@ -200,6 +247,7 @@ pub(crate) fn reacquire(
                         device,
                         ring_meta: crate::hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
                     },
                 );
                 drop(map);
@@ -236,6 +284,10 @@ pub(crate) fn swap(
         .get("trace")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let allow_cold = params
+        .get("allow_cold")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
         Ok(()) => {}
         Err(early) => return early.map_err(ipc_io_error_string),
@@ -251,7 +303,7 @@ pub(crate) fn swap(
         return Ok(());
     }
     let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
-    match swap::handle_swap_device_with_journal(bdf, target, &mut map, enable_trace, journal) {
+    match swap::handle_swap_device_with_journal(bdf, target, &mut map, enable_trace, journal, allow_cold) {
         Ok(obs) => {
             drop(map);
             if let Some(j) = journal
@@ -506,6 +558,12 @@ pub(crate) fn mmio_read(
 /// Required for warm handoff FECS freeze: glowplug sends `STOP_CTXSW`
 /// through BAR0 while nouveau is still bound, freezing FECS scheduling
 /// before the driver teardown destroys channels and runlists.
+///
+/// # Safety architecture (Exp 140)
+///
+/// Pre-write: BOOT0 health gate — refuses writes if GPU is unresponsive.
+/// Post-write: PRI ring check — detects if the write caused a PRI fault.
+/// Both checks prevent the write-cascade → BAR0-death → D-state chain.
 pub(crate) fn mmio_write(
     stream: &mut impl Write,
     id: serde_json::Value,
@@ -545,16 +603,53 @@ pub(crate) fn mmio_write(
         }
     };
 
+    // Pre-write BOOT0 health gate: refuse to write if GPU is not responding.
+    let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+    if boot0 == 0xFFFF_FFFF {
+        tracing::error!(bdf, "mmio_write: BOOT0=0xFFFFFFFF — GPU dead, refusing write");
+        return write_jsonrpc_error(
+            stream,
+            id,
+            -32000,
+            &format!("{bdf}: GPU not responding (BOOT0=0xFFFFFFFF) — write refused to prevent cascade"),
+        )
+        .map_err(ipc_io_error_string);
+    }
+
     tracing::info!(
         bdf,
         offset = format_args!("{offset:#010x}"),
         value = format_args!("{value:#010x}"),
+        boot0 = format_args!("{boot0:#010x}"),
         "ember.mmio.write"
     );
 
     match bar0.write_u32(offset, value) {
         Ok(()) => {
             let readback = bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD);
+
+            // Post-write health check: verify BOOT0 is still alive.
+            let boot0_post = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+            let pri_ring = bar0.read_u32(0x12_0100).unwrap_or(0xDEAD_DEAD);
+            let gpu_alive = boot0_post != 0xFFFF_FFFF;
+            let pri_faulted = pri_ring & 0xFFFF_0000 == 0xBADF_0000;
+
+            if !gpu_alive {
+                tracing::error!(
+                    bdf,
+                    offset = format_args!("{offset:#010x}"),
+                    value = format_args!("{value:#010x}"),
+                    "mmio_write KILLED BAR0 — BOOT0 went 0xFFFFFFFF after write"
+                );
+            } else if pri_faulted {
+                tracing::warn!(
+                    bdf,
+                    offset = format_args!("{offset:#010x}"),
+                    pri_ring = format_args!("{pri_ring:#010x}"),
+                    "mmio_write caused PRI ring fault — GPU partially degraded"
+                );
+            }
+
             write_jsonrpc_ok(
                 stream,
                 id,
@@ -562,6 +657,8 @@ pub(crate) fn mmio_write(
                     "offset": format!("{offset:#010x}"),
                     "value": format!("{value:#010x}"),
                     "readback": format!("{readback:#010x}"),
+                    "gpu_alive": gpu_alive,
+                    "pri_ring": format!("{pri_ring:#010x}"),
                 }),
             )
             .map_err(ipc_io_error_string)

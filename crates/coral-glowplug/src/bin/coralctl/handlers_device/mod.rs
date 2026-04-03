@@ -148,9 +148,10 @@ pub(crate) fn rpc_warm_fecs(
     settle_secs: u64,
     poll_fecs: bool,
     keepalive: bool,
+    allow_cold: bool,
 ) {
     println!("=== Warm FECS via device.warm_handoff ===");
-    let params = json!({
+    let mut params = json!({
         "bdf": bdf,
         "driver": "nouveau",
         "settle_ms": settle_secs * 1000,
@@ -158,6 +159,9 @@ pub(crate) fn rpc_warm_fecs(
         "poll_timeout_ms": 30_000u64,
         "keepalive": keepalive,
     });
+    if allow_cold {
+        params["allow_cold"] = json!(true);
+    }
 
     let response = rpc_call(socket, "device.warm_handoff", params);
     check_rpc_error(&response);
@@ -168,17 +172,26 @@ pub(crate) fn rpc_warm_fecs(
     println!("=== warm-fecs complete ===");
 }
 
-/// Warm FECS via nvidia proprietary driver round-trip (thin wrapper).
-pub(crate) fn rpc_warm_fecs_nvidia(socket: &str, bdf: &str, settle_secs: u64) {
+/// Warm FECS via nvidia proprietary driver round-trip.
+pub(crate) fn rpc_warm_fecs_nvidia(
+    socket: &str,
+    bdf: &str,
+    settle_secs: u64,
+    keepalive: bool,
+    allow_cold: bool,
+) {
     println!("=== Warm FECS via nvidia device.warm_handoff ===");
-    let params = json!({
+    let mut params = json!({
         "bdf": bdf,
         "driver": "nvidia",
         "settle_ms": settle_secs * 1000,
         "poll_fecs": true,
         "poll_timeout_ms": 10_000u64,
-        "keepalive": false,
+        "keepalive": keepalive,
     });
+    if allow_cold {
+        params["allow_cold"] = json!(true);
+    }
 
     let response = rpc_call(socket, "device.warm_handoff", params);
     check_rpc_error(&response);
@@ -187,6 +200,28 @@ pub(crate) fn rpc_warm_fecs_nvidia(socket: &str, bdf: &str, settle_secs: u64) {
         print_warm_handoff_result(result);
     }
     println!("=== warm-fecs-nvidia complete ===");
+}
+
+/// Cold-POST a GPU via driver round-trip (allow_cold + keepalive enabled).
+pub(crate) fn rpc_cold_post(socket: &str, bdf: &str, settle_secs: u64, driver: &str) {
+    println!("=== Cold POST via device.warm_handoff (allow_cold=true) ===");
+    let params = json!({
+        "bdf": bdf,
+        "driver": driver,
+        "settle_ms": settle_secs * 1000,
+        "poll_fecs": true,
+        "poll_timeout_ms": 30_000u64,
+        "keepalive": true,
+        "allow_cold": true,
+    });
+
+    let response = rpc_call(socket, "device.warm_handoff", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        print_warm_handoff_result(result);
+    }
+    println!("=== cold-post complete ===");
 }
 
 fn print_warm_handoff_result(result: &serde_json::Value) {
@@ -252,10 +287,24 @@ fn print_warm_handoff_result(result: &serde_json::Value) {
         );
     }
 
+    let fecs_initialized = result
+        .get("fecs_initialized")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let fecs_frozen = result
+        .get("fecs_frozen")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     if fecs_running {
         println!("  >>> FECS was caught running during handoff!");
+    } else if fecs_initialized {
+        println!("  FECS initialized (idle-halted) — STOP_CTXSW attempted");
     } else {
-        println!("  FECS was NOT seen running (HS+ lockdown or idle halt)");
+        println!("  FECS was NOT seen running or initialized (HS+ lockdown or cold)");
+    }
+    if fecs_frozen {
+        println!("  >>> FECS scheduling frozen (STOP_CTXSW success)");
     }
 }
 
@@ -533,6 +582,117 @@ pub(crate) fn rpc_dispatch(
                 }
             }
         }
+    }
+}
+
+#[expect(clippy::too_many_arguments)]
+pub(crate) fn rpc_dispatch_sovereign(
+    socket: &str,
+    bdf: &str,
+    shader_path: &str,
+    input_paths: &[String],
+    output_sizes: &[u64],
+    workgroups: &str,
+    output_dir: Option<&str>,
+    sm: u32,
+) {
+    use base64::engine::general_purpose::STANDARD;
+    let b64 = STANDARD;
+
+    let wgsl_source = std::fs::read_to_string(shader_path).unwrap_or_else(|e| {
+        eprintln!("error: cannot read WGSL shader {shader_path}: {e}");
+        std::process::exit(1);
+    });
+
+    let inputs_b64: Vec<String> = input_paths
+        .iter()
+        .map(|p| {
+            let data = std::fs::read(p).unwrap_or_else(|e| {
+                eprintln!("error: cannot read input {p}: {e}");
+                std::process::exit(1);
+            });
+            b64.encode(&data)
+        })
+        .collect();
+
+    let dims = parse_triple(workgroups);
+
+    let mut params = json!({
+        "bdf": bdf,
+        "wgsl": wgsl_source,
+        "inputs": inputs_b64,
+        "output_sizes": output_sizes,
+        "dims": dims,
+    });
+    if sm > 0 {
+        params["sm"] = json!(sm);
+    }
+
+    eprintln!(
+        "=== Sovereign dispatch on {bdf} ===\n  shader: {shader_path}\n  \
+         inputs: {}\n  outputs: {}\n  grid: {}x{}x{}",
+        input_paths.len(),
+        output_sizes.len(),
+        dims[0], dims[1], dims[2],
+    );
+
+    let response = rpc_call(socket, "device.dispatch_sovereign", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let pipeline = result.get("pipeline").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let sm_used = result.get("sm").and_then(|v| v.as_u64()).unwrap_or(0);
+        eprintln!("  pipeline: {pipeline}");
+        eprintln!("  sm: sm_{sm_used}");
+
+        if let Some(comp) = result.get("compilation") {
+            if let Some(sass_bytes) = comp.get("sass_bytes").and_then(|v| v.as_u64()) {
+                eprintln!("  sass: {sass_bytes} bytes");
+            }
+            if let Some(ir_time) = comp.get("ir_time_ms").and_then(|v| v.as_f64()) {
+                let sass_time = comp.get("sass_time_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                eprintln!("  compile: {ir_time:.1}ms IR + {sass_time:.1}ms SASS");
+            }
+        }
+
+        let outputs: Vec<serde_json::Value> = result
+            .get("outputs")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        eprintln!("  outputs: {} buffer(s)", outputs.len());
+
+        for (i, out) in outputs.iter().enumerate() {
+            if let Some(encoded) = out.as_str() {
+                let data = b64.decode(encoded).unwrap_or_else(|e| {
+                    eprintln!("error: base64 decode output {i}: {e}");
+                    std::process::exit(1);
+                });
+                eprintln!("  output[{i}]: {} bytes", data.len());
+
+                // Print first few f32 values as a quick check.
+                if data.len() >= 4 {
+                    let n = (data.len() / 4).min(8);
+                    let floats: Vec<f32> = (0..n)
+                        .map(|j| {
+                            let off = j * 4;
+                            f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
+                        })
+                        .collect();
+                    eprintln!("    first {n}: {floats:?}");
+                }
+
+                if let Some(dir) = output_dir {
+                    let path = format!("{dir}/output_{i}.bin");
+                    std::fs::write(&path, &data).unwrap_or_else(|e| {
+                        eprintln!("error: write {path}: {e}");
+                        std::process::exit(1);
+                    });
+                    eprintln!("    written to {path}");
+                }
+            }
+        }
+        eprintln!("=== SOVEREIGN DISPATCH OK ===");
     }
 }
 

@@ -154,6 +154,60 @@ pub fn guarded_vfio_open(bdf: &str, timeout: Duration) -> Result<VfioDevice, Gua
     }
 }
 
+/// Close/drop a `HeldDevice` in a timeout-guarded thread.
+///
+/// Same D-state isolation pattern as `guarded_vfio_open`: the `drop(device)`
+/// runs on a dedicated thread with a deadline. If the kernel's
+/// `vfio_pci_core_disable` path hangs (e.g. PCIe endpoint in bus error
+/// state from prior register experiments), the thread is leaked rather
+/// than blocking the caller.
+///
+/// Used by `ember.release` IPC and the REQ IRQ auto-release path —
+/// both of which previously ran `drop(device)` on their own threads
+/// without isolation, risking D-state propagation to the IPC/watcher
+/// event loop.
+pub fn guarded_vfio_close(device: crate::hold::HeldDevice, bdf: &str) {
+    const VFIO_CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
+
+    let bdf_owned = bdf.to_string();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+    let handle = std::thread::Builder::new()
+        .name(format!("vfio-close-{bdf_owned}"))
+        .spawn(move || {
+            drop(device);
+            let _ = tx.send(());
+        });
+
+    match handle {
+        Ok(h) => match rx.recv_timeout(VFIO_CLOSE_TIMEOUT) {
+            Ok(()) => {
+                let _ = h.join();
+                tracing::info!(bdf = %bdf_owned, "guarded VFIO close completed normally");
+            }
+            Err(_) => {
+                tracing::error!(
+                    bdf = %bdf_owned,
+                    "guarded VFIO close TIMED OUT after {}s — \
+                     thread likely in D-state, leaked. \
+                     Device fd teardown stuck in kernel (Exp 140).",
+                    VFIO_CLOSE_TIMEOUT.as_secs()
+                );
+                std::mem::forget(h);
+            }
+        },
+        Err(e) => {
+            tracing::error!(
+                bdf = %bdf_owned,
+                error = %e,
+                "failed to spawn VFIO close thread — dropping on current thread (D-state risk)"
+            );
+            // Last resort: drop here. If this hangs, the caller hangs.
+            // This is better than leaking without cleanup.
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

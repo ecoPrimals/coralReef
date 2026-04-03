@@ -332,6 +332,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                         device,
                         ring_meta: hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
                     },
                 );
             }
@@ -595,9 +596,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                                 match held.try_write() {
                                     Ok(mut map) => {
                                         if let Some(device) = map.remove(bdf) {
-                                            drop(device);
+                                            let bdf_owned = bdf.to_string();
+                                            drop(map);
+                                            guarded_open::guarded_vfio_close(device, &bdf_owned);
                                             tracing::info!(
-                                                bdf,
+                                                bdf = %bdf_owned,
                                                 "device auto-released (kernel REQ IRQ)"
                                             );
                                         }

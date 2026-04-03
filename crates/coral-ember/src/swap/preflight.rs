@@ -154,7 +154,13 @@ pub(super) fn is_active_display_gpu(bdf: &str) -> bool {
 /// Pre-flight check: verify the device is in a sane state before any
 /// sysfs unbind/bind. Rejects early if the device would cause the kernel
 /// to hang on a driver transition (D3cold, unreachable config space, etc.).
-pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
+///
+/// When `allow_cold` is `true`, a cold/un-POSTed device with a readable
+/// BAR0 (BOOT0 returns a valid chipset ID) is allowed through with a
+/// warning instead of an error. D3cold is always rejected regardless of
+/// this flag. This enables the cold-POST path: swap to nouveau on a cold
+/// Kepler GPU so that nouveau can POST the device.
+pub(super) fn preflight_device_check(bdf: &str, allow_cold: bool) -> Result<(), String> {
     let sysfs_path = linux_paths::sysfs_pci_device_path(bdf);
     if !std::path::Path::new(&sysfs_path).exists() {
         return Err(format!(
@@ -239,17 +245,73 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
             let resource0_path = linux_paths::sysfs_pci_device_file(bdf, "resource0");
             let is_cold = is_gpu_cold_via_ptimer(&resource0_path);
             if is_cold {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: device is cold/un-POSTed (empty reset_method, \
-                     PTIMER frozen). Unbinding vfio-pci will cause kernel D-state. \
-                     Boot with nouveau first to POST the device, then swap to vfio-pci."
-                ));
+                if allow_cold {
+                    let bar0_readable = read_boot0(&resource0_path).is_some();
+                    if bar0_readable {
+                        tracing::warn!(
+                            bdf,
+                            "preflight: cold/un-POSTed device but BAR0 readable and \
+                             allow_cold=true — proceeding with swap (cold-POST path)"
+                        );
+                    } else {
+                        return Err(format!(
+                            "preflight FAILED for {bdf}: device is cold/un-POSTed AND \
+                             BAR0 is unreadable — refusing even with allow_cold. \
+                             Device may be physically dead."
+                        ));
+                    }
+                } else {
+                    return Err(format!(
+                        "preflight FAILED for {bdf}: device is cold/un-POSTed (empty reset_method, \
+                         PTIMER frozen). Unbinding vfio-pci will cause kernel D-state. \
+                         Boot with nouveau first to POST the device, then swap to vfio-pci. \
+                         Or use allow_cold=true if BAR0 is responsive (cold-POST path)."
+                    ));
+                }
             }
             tracing::warn!(
                 bdf,
                 "preflight: empty reset_method but PTIMER appears alive — \
                  proceeding cautiously"
             );
+        }
+    }
+
+    // BAR0 register health check (Exp 138): verify BOOT0 is responsive.
+    //
+    // After register experiments (coralctl mmio write), the GPU may be in
+    // a state where PCI config space looks fine (vendor=0x10DE) but BAR0
+    // MMIO is non-responsive. Kernel driver transitions access BAR0 and
+    // will D-state if the GPU doesn't respond to MMIO reads.
+    if current_driver.as_deref() == Some("vfio-pci") {
+        let resource0_path = linux_paths::sysfs_pci_device_file(bdf, "resource0");
+        match read_boot0(&resource0_path) {
+            Some(0xFFFF_FFFF) => {
+                return Err(format!(
+                    "preflight FAILED for {bdf}: BAR0 BOOT0 = 0xFFFFFFFF — \
+                     device not responding to MMIO. Likely in PCIe hung state \
+                     from register experiments. Reboot required."
+                ));
+            }
+            Some(boot0) if (boot0 & 0xBADF_0000) == 0xBADF_0000 => {
+                return Err(format!(
+                    "preflight FAILED for {bdf}: BAR0 BOOT0 = {boot0:#010x} (PRI fault) — \
+                     GPU engines in fault state. Reboot required."
+                ));
+            }
+            Some(boot0) => {
+                tracing::debug!(
+                    bdf,
+                    boot0 = format_args!("{boot0:#010x}"),
+                    "preflight: BAR0 BOOT0 responsive"
+                );
+            }
+            None => {
+                tracing::warn!(
+                    bdf,
+                    "preflight: could not read BAR0 BOOT0 via resource0 (non-fatal)"
+                );
+            }
         }
     }
 
@@ -484,7 +546,7 @@ mod tests {
 
     #[test]
     fn preflight_rejects_nonexistent_device() {
-        let err = preflight_device_check(NONEXISTENT_BDF).unwrap_err();
+        let err = preflight_device_check(NONEXISTENT_BDF, false).unwrap_err();
         assert!(
             err.contains("sysfs path does not exist"),
             "expected sysfs-missing error, got: {err}"
@@ -493,7 +555,7 @@ mod tests {
 
     #[test]
     fn preflight_rejects_0xffff_vendor_id() {
-        let result = preflight_device_check("0000:00:00.0");
+        let result = preflight_device_check("0000:00:00.0", false);
         // 0000:00:00.0 is the host bridge — it exists and has a real
         // vendor ID, so this should pass preflight (not reject). We only
         // verify no panic; the 0xFFFF path is exercised indirectly by

@@ -281,6 +281,24 @@ impl Shader<'_> {
         }
     }
 
+    /// Convert pre-Volta integer/logic/shift ops to SM70+ equivalents.
+    ///
+    /// Must run before the instruction scheduler since latency tables for SM80+
+    /// do not handle pre-Volta ops like OpIAdd2, OpIMul, OpLop2, etc.
+    /// No-op when targeting SM < 70.
+    pub fn lower_pre_volta_ops(&mut self) {
+        if self.sm.sm() < 70 {
+            return;
+        }
+        for f in &mut self.functions {
+            for b in &mut f.blocks {
+                for instr in &mut b.instrs {
+                    crate::codegen::nv::sm70::lower_pre_volta_op(&mut instr.op);
+                }
+            }
+        }
+    }
+
     /// Remove all annotations, presumably before encoding the shader.
     pub fn remove_annotations(&mut self) {
         self.map_instrs(|instr: Instr, _| -> MappedInstrs {

@@ -9,6 +9,7 @@ pub mod k80_cold_boot;
 mod matrix;
 pub mod replay;
 mod runner;
+pub mod sovereign_boot;
 mod types;
 
 pub use experiments::context::GpuCapabilities;

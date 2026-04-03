@@ -26,6 +26,8 @@ no-ember = []
 base64 = { workspace = true }
 clap = { workspace = true }
 coral-driver = { workspace = true, features = ["vfio", "cuda"] }
+coral-parse = { workspace = true }
+coral-reef = { workspace = true }
 # Intra-primal workspace crate (coralReef), not a separate primal — wateringHole's
 # "no cross-primal imports" rule applies to distinct primals coordinating via IPC.
 #

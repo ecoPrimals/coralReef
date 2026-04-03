@@ -2,6 +2,7 @@
 //! JSON-RPC 2.0 IPC handler and SCM_RIGHTS fd passing.
 
 mod fd;
+mod handlers_deploy;
 mod handlers_device;
 mod handlers_journal;
 mod handlers_livepatch;
@@ -85,6 +86,9 @@ pub fn handle_client(
     let params = &req.params;
 
     match req.method.as_str() {
+        "ember.shutdown" => {
+            handlers_device::shutdown(stream, held, id)?;
+        }
         "ember.vfio_fds" => {
             handlers_device::vfio_fds(stream, held, managed_bdfs, id, params)?;
         }
@@ -126,6 +130,7 @@ pub fn handle_client(
         }
         "ember.mmio.write" => {
             handlers_device::mmio_write(stream, id, params)?;
+            mark_experiment_dirty(held, params);
         }
         "ember.fecs.state" => {
             handlers_device::fecs_state(stream, id, params)?;
@@ -139,6 +144,9 @@ pub fn handle_client(
         "ember.livepatch.disable" => {
             handlers_livepatch::disable(stream, id, params)?;
         }
+        "ember.deploy" => {
+            handlers_deploy::deploy(stream, id, params)?;
+        }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
                 .map_err(ipc_io_error_string)?;
@@ -146,6 +154,28 @@ pub fn handle_client(
     }
 
     Ok(())
+}
+
+/// Mark a device as experiment-dirty after a BAR0 write (Exp 138).
+///
+/// This triggers extra safety checks (PRAMIN restore, BAR0 health gate)
+/// before the next driver swap, reducing D-state risk from experiments.
+fn mark_experiment_dirty(
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    params: &serde_json::Value,
+) {
+    let Some(bdf) = params.get("bdf").and_then(|v| v.as_str()) else {
+        return;
+    };
+    let Ok(mut held_map) = held.write() else {
+        return;
+    };
+    if let Some(device) = held_map.get_mut(bdf) {
+        if !device.experiment_dirty {
+            tracing::info!(bdf, "marking device experiment-dirty after mmio write");
+        }
+        device.experiment_dirty = true;
+    }
 }
 
 /// Same JSON-RPC surface as [`handle_client`], but over TCP (`ember.vfio_fds` cannot pass fds).
@@ -202,6 +232,9 @@ pub fn handle_client_tcp(
     let params = &req.params;
 
     match req.method.as_str() {
+        "ember.shutdown" => {
+            handlers_device::shutdown(stream, held, id)?;
+        }
         "ember.vfio_fds" => {
             handlers_device::vfio_fds_unavailable(stream, id)?;
         }
@@ -243,6 +276,7 @@ pub fn handle_client_tcp(
         }
         "ember.mmio.write" => {
             handlers_device::mmio_write(stream, id, params)?;
+            mark_experiment_dirty(held, params);
         }
         "ember.fecs.state" => {
             handlers_device::fecs_state(stream, id, params)?;
@@ -255,6 +289,9 @@ pub fn handle_client_tcp(
         }
         "ember.livepatch.disable" => {
             handlers_livepatch::disable(stream, id, params)?;
+        }
+        "ember.deploy" => {
+            handlers_deploy::deploy(stream, id, params)?;
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))

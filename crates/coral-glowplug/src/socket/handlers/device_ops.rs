@@ -12,6 +12,7 @@ use super::{DeviceInfo, device_to_info};
 use crate::socket::protocol::HealthInfo;
 
 pub(crate) use super::resurrect::handle_resurrect;
+pub(crate) use super::cold_boot::handle_cold_boot;
 pub(crate) use super::warm_handoff::handle_warm_handoff;
 
 pub(crate) fn dispatch(
@@ -45,6 +46,8 @@ pub(crate) fn dispatch(
         }
         "device.swap" => handle_swap(params, devices),
         "device.warm_handoff" => handle_warm_handoff(params, devices),
+        "device.cold_boot" => handle_cold_boot(params, devices),
+        "ember.deploy" => handle_ember_deploy(params),
         "device.health" => handle_health(params, devices),
         "device.register_dump" => super::register_ops::handle_register_dump(params, devices),
         "device.register_snapshot" => {
@@ -83,8 +86,10 @@ pub(crate) fn dispatch(
                 "device.get",
                 "device.swap",
                 "device.warm_handoff",
+                "device.cold_boot",
                 "device.health",
                 "device.dispatch",
+                "device.dispatch_sovereign",
                 "device.oracle_capture",
                 "device.register_dump",
                 "device.register_snapshot",
@@ -118,6 +123,7 @@ pub(crate) fn dispatch(
                 "daemon.status",
                 "daemon.shutdown",
             ],
+            "sovereign": ["device.dispatch_sovereign", "device.cold_boot"],
             "transitional": ["device.dispatch"],
         })),
         "daemon.status" => Ok(serde_json::json!({
@@ -345,7 +351,8 @@ fn handle_reset(
         "flr" | "pmc" | "sbr" | "bridge-sbr" | "remove-rescan" | "auto" => {
             let ember = coral_glowplug::ember::EmberClient::connect().ok_or_else(|| {
                 RpcError::device_error(
-                    "ember not available — all resets route through ember (FD holder)".to_string(),
+                    "ember not available — all resets route through ember (FD holder)"
+                        .to_string(),
                 )
             })?;
             ember
@@ -362,6 +369,27 @@ fn handle_reset(
             "unknown reset method '{other}' (use: auto, flr, pmc, sbr, bridge-sbr, remove-rescan)"
         ))),
     }
+}
+
+/// Forward `ember.deploy` RPC to ember. Glowplug acts as a proxy since
+/// coralctl connects to glowplug's socket (ember's socket is sandboxed).
+fn handle_ember_deploy(
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let ember = coral_glowplug::ember::EmberClient::connect().ok_or_else(|| {
+        RpcError::device_error("ember not available — deploy requires ember")
+    })?;
+
+    let restart = params
+        .get("restart")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    ember
+        .deploy("/run/coralreef/staging", restart)
+        .map_err(|e| RpcError::device_error(format!("ember deploy: {e}")))
 }
 
 #[cfg(test)]

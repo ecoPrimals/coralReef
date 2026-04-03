@@ -26,6 +26,7 @@ test-utils = []
 rdna2-buffer-read = []
 
 [dev-dependencies]
+coral-parse = { workspace = true }
 coral-reef = { workspace = true }
 nvml-wrapper = { workspace = true }
 serde_json = { workspace = true }

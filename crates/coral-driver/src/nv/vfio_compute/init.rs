@@ -22,7 +22,34 @@ impl NvVfioComputeDevice {
     /// Parses `sw_bundle_init.bin` etc. from `/lib/firmware/nvidia/{chip}/gr/`,
     /// builds the init sequence, then applies the BAR0-targeted writes
     /// (PMC engine enable, FIFO enable, PGRAPH register programming).
+    ///
+    /// Exp 140: pre-flight BOOT0 + PMC_ENABLE check prevents writing to
+    /// dead or cold GPUs. A cold GPU has valid BOOT0 (PCIe link up) but
+    /// engines are clock-gated (PMC_ENABLE missing PGRAPH/PFIFO). Writing
+    /// GR registers to gated engines causes PRI fault cascades that kill
+    /// BAR0 entirely.
     pub(super) fn apply_gr_bar0_init(bar0: &MappedBar, sm_version: u32) {
+        if !bar0.is_alive() {
+            tracing::error!(
+                "apply_gr_bar0_init: BOOT0=0xFFFFFFFF — GPU not responding, skipping all writes"
+            );
+            return;
+        }
+
+        let pmc_enable = bar0.read_u32(0x200).unwrap_or(0);
+        let pgraph_on = pmc_enable & (1 << 12) != 0;
+        let pfifo_on = pmc_enable & (1 << 8) != 0;
+        if !pgraph_on || !pfifo_on {
+            tracing::warn!(
+                pmc_enable = format_args!("{pmc_enable:#010x}"),
+                pgraph = pgraph_on,
+                pfifo = pfifo_on,
+                "apply_gr_bar0_init: GPU engines not enabled (cold/un-POSTed) — \
+                 skipping GR init to prevent PRI fault cascade"
+            );
+            return;
+        }
+
         let chip = sm_to_chip(sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,
@@ -112,6 +139,10 @@ impl NvVfioComputeDevice {
             tracing::debug!(chip, "no sw_nonctx data — skipping");
             return;
         }
+        if !bar0.is_alive() {
+            tracing::error!(chip, "apply_nonctx_writes: GPU dead (BOOT0=0xFFFFFFFF) — skipping");
+            return;
+        }
 
         let bar0_size = bar0.size() as u32;
         let mut applied = 0u32;
@@ -151,6 +182,10 @@ impl NvVfioComputeDevice {
     /// - SWDX PES mask from GPC topology
     /// - Interrupt/trap enables
     fn apply_dynamic_gr_init(bar0: &MappedBar, sm_version: u32) {
+        if !bar0.is_alive() {
+            tracing::error!("apply_dynamic_gr_init: GPU dead (BOOT0=0xFFFFFFFF) — skipping");
+            return;
+        }
         let r = |addr: usize| bar0.read_u32(addr).unwrap_or(0);
 
         // gm200_gr_init_gpc_mmu (GV100 path):
@@ -278,8 +313,87 @@ impl NvVfioComputeDevice {
             )));
         }
 
-        // Re-apply GR engine enable and interrupt registers before
-        // starting falcons — FECS checks these during init.
+        // Exp 139: On HS-mode Volta, ACR lockdown (SCTL bits 12:13 >= 2)
+        // prevents all host writes to falcon control registers. Our previous
+        // SWGEN0/STARTCPU/IRQSSET attempts cause PRI ring faults that
+        // poison subsequent PFIFO register accesses (runlist submit, GPFIFO
+        // doorbell), making dispatch impossible.
+        //
+        // Strategy: skip all direct falcon register pokes. Only clear PRI
+        // faults and PFIFO interrupts. Then re-submit the runlist so the
+        // hardware scheduler can wake FECS via its internal interrupt path
+        // (which bypasses PRI ring lockdown).
+        if hs_mode && halted {
+            tracing::info!(
+                "FECS in HS idle-halt — skipping falcon register pokes \
+                 (ACR lockdown, would cause PRI faults). \
+                 Using HOST registers + runlist doorbell to wake scheduler."
+            );
+
+            // Clear any accumulated PRI ring faults.
+            let priv_intr = r(0x12_0100);
+            if priv_intr != 0 && !is_pri_fault_value(priv_intr) {
+                w(0x12_0100, priv_intr);
+                tracing::info!(
+                    priv_intr = format_args!("{priv_intr:#010x}"),
+                    "cleared PRI ring faults"
+                );
+            }
+
+            // GR HOST registers (0x400xxx) are NOT protected by ACR lockdown
+            // (only falcon registers 0x409xxx/0x41Axxx are). Clear GR
+            // interrupts and ensure GR_ENABLE is set — without it the GR
+            // engine won't accept work even if FECS wakes.
+            w(0x400100, 0xFFFF_FFFF); // GR_INTR: clear all
+            w(0x40013C, 0xFFFF_FFFF); // GR_INTR_NONSTALL: clear
+            w(0x400500, 0x0001_0001); // GR_ENABLE: enable GR engine
+
+            let gr_enable_rb = r(0x400500);
+            let pri_check = r(0x12_0100);
+            tracing::info!(
+                gr_enable = format_args!("{gr_enable_rb:#010x}"),
+                pri_ring = format_args!("{pri_check:#010x}"),
+                "GR HOST register writes (0x400500 etc.)"
+            );
+
+            // If GR_ENABLE write caused a PRI fault, clear it — the
+            // register is gated and we'll need a different approach.
+            if pri_check != 0 && !is_pri_fault_value(pri_check) {
+                w(0x12_0100, pri_check);
+                tracing::warn!("GR HOST writes caused PRI fault — cleared, GR may be gated");
+            }
+
+            // Clear PFIFO interrupts (SCHED_ERROR from stale state).
+            w(0x2100, 0xFFFF_FFFF);
+
+            // Re-submit the runlist to trigger the hardware scheduler's
+            // wake interrupt to FECS.
+            if let crate::vfio::channel::GpuChannel::Volta(ref ch) = self.channel {
+                ch.submit_runlist(&self.bar0)?;
+                tracing::info!("re-submitted runlist after GR enable + PRI fault clear");
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            let fecs_post = r(falcon::FECS_BASE + falcon::CPUCTL);
+            let gr_post = r(0x400500);
+            let pfifo_intr_post = r(0x2100);
+            tracing::info!(
+                fecs_cpuctl = format_args!("{fecs_post:#010x}"),
+                gr_enable = format_args!("{gr_post:#010x}"),
+                pfifo_intr = format_args!("{pfifo_intr_post:#010x}"),
+                "post GR-enable + runlist-resubmit state"
+            );
+            return Ok(());
+        }
+
+        // Non-HS path: direct register manipulation is safe.
+        // But first verify BAR0 is still alive after reading FECS state.
+        if !self.bar0.is_alive() {
+            return Err(DriverError::SubmitFailed(Cow::Borrowed(
+                "BAR0 died during warm restart probe — GPU not responding"
+            )));
+        }
         w(0x400100, 0xFFFF_FFFF);
         w(0x40013c, 0xFFFF_FFFF);
         w(0x400124, 0x0000_0002);
@@ -292,13 +406,6 @@ impl NvVfioComputeDevice {
             "GR engine enable after re-apply"
         );
 
-        // On warm handoff, FECS firmware is HALT'd (bit 4) — it ran during
-        // nouveau and entered its idle HALT loop. On HS+ Volta, a HALT'd
-        // falcon cannot be woken via STARTCPU. We try SWGEN0 first,
-        // then STARTCPU as fallback.
-        //
-        // If ENGCTL = 1 (engine-local reset), we clear it first.
-
         let engctl = r(falcon::FECS_BASE + falcon::ENGCTL);
         if engctl & 1 != 0 {
             tracing::info!("FECS ENGCTL reset active — releasing");
@@ -308,44 +415,20 @@ impl NvVfioComputeDevice {
         }
 
         if halted {
-            // CPUCTL bit 4: firmware executed HALT instruction (idle loop).
-            // Try multiple wake strategies in order:
-
             tracing::info!("FECS firmware HALTED (bit4) — attempting wake strategies");
 
-            // Strategy 1: Trigger SWGEN0 interrupt to wake firmware from HALT.
-            // DON'T touch IRQMCLR — the firmware configured its own interrupt
-            // mask during ACR boot. Clearing it would disable all interrupts
-            // and prevent the firmware from waking.
-            // Only clear pending interrupts, re-enable the mask, then trigger.
             w(falcon::FECS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
-            // Re-enable all interrupt sources in the mask (IRQMSET).
             w(falcon::FECS_BASE + 0x010, 0xFFFF_FFFF); // IRQMSET
             w(falcon::FECS_BASE + falcon::IRQMODE, 0xFC24);
             w(falcon::GPCCS_BASE + falcon::IRQSCLR, 0xFFFF_FFFF);
             w(falcon::GPCCS_BASE + 0x010, 0xFFFF_FFFF); // IRQMSET
             w(falcon::GPCCS_BASE + falcon::IRQMODE, 0xFC24);
 
-            // Trigger SWGEN0 (bit 6) — host→falcon interrupt.
             w(falcon::FECS_BASE + falcon::IRQSSET, 1 << 6);
             w(falcon::GPCCS_BASE + falcon::IRQSSET, 1 << 6);
             std::thread::sleep(std::time::Duration::from_millis(50));
 
             let fecs_cpuctl_1 = r(falcon::FECS_BASE + falcon::CPUCTL);
-            let fecs_irq_1 = r(falcon::FECS_BASE + falcon::IRQSTAT);
-            let fecs_pc_1 = r(falcon::FECS_BASE + falcon::PC);
-            let fecs_mb0_1 = r(falcon::FECS_BASE + falcon::MAILBOX0);
-
-            tracing::info!(
-                fecs_cpuctl = format_args!("{fecs_cpuctl_1:#010x}"),
-                fecs_irq = format_args!("{fecs_irq_1:#010x}"),
-                fecs_pc = format_args!("{fecs_pc_1:#06x}"),
-                fecs_mb0 = format_args!("{fecs_mb0_1:#010x}"),
-                "after SWGEN0 interrupt trigger"
-            );
-
-            // Strategy 2: If still halted, try STARTCPU via CPUCTL_ALIAS
-            // (works on some falcons where CPUCTL is locked in HS mode).
             if fecs_cpuctl_1 & falcon::CPUCTL_HALTED != 0 {
                 tracing::info!("FECS still halted — trying STARTCPU via CPUCTL_ALIAS");
                 Self::warm_start_falcon(&self.bar0, falcon::GPCCS_BASE);
@@ -354,15 +437,8 @@ impl NvVfioComputeDevice {
             }
 
             let fecs_cpuctl_post = r(falcon::FECS_BASE + falcon::CPUCTL);
-            let fecs_mb0_post = r(falcon::FECS_BASE + falcon::MAILBOX0);
-            let fecs_pc_post = r(falcon::FECS_BASE + falcon::PC);
-            let gpccs_cpuctl_post = r(falcon::GPCCS_BASE + falcon::CPUCTL);
-
             tracing::info!(
                 fecs_cpuctl = format_args!("{fecs_cpuctl_post:#010x}"),
-                fecs_mb0 = format_args!("{fecs_mb0_post:#010x}"),
-                fecs_pc = format_args!("{fecs_pc_post:#06x}"),
-                gpccs_cpuctl = format_args!("{gpccs_cpuctl_post:#010x}"),
                 "post-wake falcon state"
             );
         } else if stopped {
@@ -371,7 +447,7 @@ impl NvVfioComputeDevice {
             tracing::info!("FECS running — proceeding directly");
         }
 
-        // Clear stale PBDMA interrupts accumulated while FECS was halted.
+        // Clear stale PBDMA interrupts.
         let pbdma_map = r(0x2004);
         for pid in 0..32_usize {
             if pbdma_map & (1 << pid) == 0 {
@@ -390,9 +466,6 @@ impl NvVfioComputeDevice {
         }
         w(0x2100, 0xFFFF_FFFF);
 
-        // Exp 126: Reset FECS method interface status registers before
-        // attempting GR context setup. Stale status from nouveau's last
-        // method call can cause our first method to misinterpret the response.
         w(falcon::FECS_BASE + falcon::MTHD_STATUS, 0);
         w(falcon::FECS_BASE + falcon::MTHD_STATUS2, 0);
         tracing::info!("warm: cleared FECS method interface status registers");
@@ -645,11 +718,18 @@ impl NvVfioComputeDevice {
         let fecs_running = !fecs_halted && !fecs_stopped;
         let mb0_valid = !mb0_pri_fault && fecs_mailbox0 != 0;
 
-        if fecs_running || mb0_valid {
+        // Detect warm FECS: either actively running, has valid mailbox,
+        // or is idle-halted with firmware loaded (cpuctl != 0 and not PRI fault).
+        // In all these cases, the firmware is present and channel init methods
+        // would either conflict with or fail against the existing firmware.
+        let fecs_warm = fecs_running || mb0_valid || (fecs_halted && !fecs_stopped);
+        if fecs_warm {
             tracing::info!(
                 fecs_cpuctl = format!("{fecs_cpuctl:#010x}"),
                 fecs_mailbox0 = format!("{fecs_mailbox0:#010x}"),
-                "FECS firmware already running — skipping channel init (warm handoff)"
+                halted = fecs_halted,
+                running = fecs_running,
+                "FECS firmware present — skipping channel init (warm handoff)"
             );
             return;
         }

@@ -84,6 +84,13 @@ enum Command {
     /// List all managed devices and their current personalities.
     Status,
 
+    /// Graceful shutdown: drain all held VFIO devices with guarded close.
+    ///
+    /// Used by systemd ExecStop to safely release GPUs before SIGTERM.
+    /// Each device fd is closed in an isolated thread with a 10s timeout
+    /// to prevent D-state propagation from degraded GPUs.
+    Shutdown,
+
     /// Hot-swap a device to a new driver personality.
     Swap {
         /// PCI BDF address (e.g. 0000:03:00.0).
@@ -173,10 +180,13 @@ enum Command {
     },
 
     /// Submit compute work through the daemon pipeline (shader + buffers).
+    ///
+    /// By default uses the CUDA/PTX path (--shader takes a PTX binary).
+    /// With --sovereign, uses the VFIO sovereign path (--shader takes a WGSL file).
     Dispatch {
         /// PCI BDF address of the target GPU (e.g. 0000:21:00.0).
         bdf: String,
-        /// Path to PTX shader file.
+        /// Path to shader file (PTX binary or WGSL source with --sovereign).
         #[arg(long)]
         shader: String,
         /// Input buffer files (raw binary, order = kernel arg order).
@@ -185,15 +195,22 @@ enum Command {
         /// Output buffer sizes in bytes.
         #[arg(long)]
         output_size: Vec<u64>,
-        /// Workgroup grid dimensions (X,Y,Z). Default: "256,1,1".
-        #[arg(long, default_value = "256,1,1")]
+        /// Workgroup grid dimensions (X,Y,Z). Default: "1,1,1".
+        #[arg(long, default_value = "1,1,1")]
         workgroups: String,
-        /// Threads per workgroup (X,Y,Z). Default: "64,1,1".
-        #[arg(long, default_value = "64,1,1")]
+        /// Threads per workgroup (X,Y,Z). Default: "256,1,1".
+        #[arg(long, default_value = "256,1,1")]
         threads: String,
         /// Write output buffers to files (output_0.bin, output_1.bin, ...).
         #[arg(long)]
         output_dir: Option<String>,
+        /// Use sovereign VFIO dispatch (WGSL→SASS via coralReef compiler).
+        /// Shader file must contain WGSL source text.
+        #[arg(long)]
+        sovereign: bool,
+        /// SM version override for sovereign dispatch (0 = auto-detect).
+        #[arg(long, default_value_t = 0)]
+        sm: u32,
     },
 
     /// Warm FECS firmware via nouveau round-trip.
@@ -217,6 +234,10 @@ enum Command {
         /// after vfio-pci binds.
         #[arg(long)]
         keepalive: bool,
+        /// Allow swapping a cold/un-POSTed device (bypasses PTIMER-frozen
+        /// preflight check). Required for the cold-POST path on Kepler.
+        #[arg(long)]
+        allow_cold: bool,
     },
 
     /// Warm FECS via nvidia proprietary driver round-trip.
@@ -230,6 +251,48 @@ enum Command {
         /// Seconds to wait for nvidia driver init (default: 5).
         #[arg(long, default_value_t = 5)]
         settle: u64,
+        /// Spawn a CUDA workload to keep FECS active during the swap.
+        #[arg(long)]
+        keepalive: bool,
+        /// Allow cold/un-POSTed device (bypasses preflight check).
+        #[arg(long)]
+        allow_cold: bool,
+    },
+
+    /// Cold-POST a GPU via nouveau.
+    ///
+    /// For cold/un-POSTed GPUs (e.g. Tesla K80 claimed by vfio-pci at boot
+    /// without a prior VBIOS POST). Swaps to nouveau with allow_cold to POST
+    /// the device, waits for GR init, then swaps back to VFIO.
+    ColdPost {
+        /// PCI BDF address (e.g. 0000:4c:00.0).
+        bdf: String,
+        /// Seconds to wait for nouveau GR init (default: 20).
+        #[arg(long, default_value_t = 20)]
+        settle: u64,
+        /// Target driver for POST (default: nouveau).
+        #[arg(long, default_value = "nouveau")]
+        driver: String,
+    },
+
+    /// Deploy new binaries — zero pkexec, pure Rust.
+    ///
+    /// `coralctl` is deployed to `~/.cargo/bin/` (user-local, no root).
+    /// Daemon binaries (`coral-ember`, `coral-glowplug`) are deployed via
+    /// the `ember.deploy` RPC (ember runs as root and handles the copy).
+    ///
+    /// Workflow: `cargo build --release && coralctl deploy`
+    Deploy {
+        /// Path to directory containing built binaries.
+        /// Default: auto-detect from cargo workspace target/release/.
+        #[arg(long)]
+        source_dir: Option<String>,
+        /// Skip service restart after deploy.
+        #[arg(long)]
+        no_restart: bool,
+        /// Only deploy coralctl locally (skip daemon binaries).
+        #[arg(long)]
+        self_only: bool,
     },
 
     /// Onboard a new GPU — run firmware census, recommend boot path, probe protocols.
@@ -302,6 +365,39 @@ enum Command {
     Devinit {
         #[command(subcommand)]
         action: DevinitAction,
+    },
+
+    /// Run the Falcon Boot Solver (ACR strategies) on a Volta+ GPU.
+    ///
+    /// Tries all available boot strategies (nouveau-style SEC2, VRAM ACR,
+    /// sysmem DMA, hybrid, direct HRESET, etc.) to authenticate and start
+    /// FECS/GPCCS firmware. Required for Volta and later GPUs where falcon
+    /// code signing prevents PIO upload.
+    AcrBoot {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+    },
+
+    /// Sovereign boot a GPU from cold state — no kernel driver needed.
+    ///
+    /// Auto-detects GPU architecture (Kepler, Volta, ...) from BOOT0, then:
+    ///   Volta: replays init recipe (PMC, PRIV ring, PFIFO) → ACR boot → FECS
+    ///   Kepler: replays devinit recipe (clocks, engines) → PIO FECS boot
+    ///
+    /// This is the primary path for ember-owned GPUs on vfio-pci.
+    SovereignBoot {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Path to the init recipe JSON. Auto-detected from data/ if omitted.
+        #[arg(long)]
+        recipe: Option<String>,
+        /// Skip the ACR boot phase (recipe replay only).
+        #[arg(long)]
+        skip_acr: bool,
+        /// PIO-only mode: only run safe PIO-based strategies (4, 6, 10).
+        /// Avoids DMA operations that can hang GPUs with uninitialized PRIV ring.
+        #[arg(long)]
+        pio_only: bool,
     },
 
     /// Sovereign cold boot a Tesla K80 (GK210 Kepler) from fully powered-off state.
@@ -482,6 +578,9 @@ enum DevinitAction {
         /// Run with enhanced diagnostics (slower but more detailed output).
         #[arg(long)]
         diagnostics: bool,
+        /// Path to a pre-captured VBIOS ROM file (overrides PROM read).
+        #[arg(long)]
+        vbios: Option<String>,
     },
 }
 
@@ -489,11 +588,184 @@ fn parse_hex_or_dec(s: &str) -> Result<u64, String> {
     coral_driver::parse_hex_u64(s)
 }
 
+fn find_release_dir(hint: Option<String>) -> String {
+    if let Some(d) = hint {
+        return d;
+    }
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let mut search = Some(cwd.as_path());
+    while let Some(dir) = search {
+        let candidate = dir.join("target/release");
+        if candidate.join("coralctl").exists() || candidate.join("coral-ember").exists() {
+            return candidate.to_string_lossy().to_string();
+        }
+        search = dir.parent();
+    }
+    String::from("target/release")
+}
+
+fn deploy_local_coralctl(source: &std::path::Path) -> bool {
+    let src = source.join("coralctl");
+    if !src.exists() {
+        eprintln!("  skip coralctl: not found in {}", source.display());
+        return false;
+    }
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => {
+            eprintln!("  $HOME not set, cannot determine user-local bin dir");
+            return false;
+        }
+    };
+
+    let targets = [
+        format!("{home}/.cargo/bin"),
+        format!("{home}/.local/bin"),
+    ];
+
+    let target_dir = targets.iter().find(|d| {
+        std::path::Path::new(d).is_dir()
+    });
+
+    let target_dir = match target_dir {
+        Some(d) => d.clone(),
+        None => {
+            let d = &targets[0];
+            if let Err(e) = std::fs::create_dir_all(d) {
+                eprintln!("  cannot create {d}: {e}");
+                return false;
+            }
+            d.clone()
+        }
+    };
+
+    let dst = std::path::Path::new(&target_dir).join("coralctl");
+    let tmp = dst.with_extension("deploy.tmp");
+
+    match std::fs::copy(&src, &tmp) {
+        Ok(bytes) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
+            }
+            match std::fs::rename(&tmp, &dst) {
+                Ok(()) => {
+                    println!("  coralctl → {} ({bytes} bytes)", dst.display());
+                    true
+                }
+                Err(e) => {
+                    eprintln!("  rename failed: {e}");
+                    let _ = std::fs::remove_file(&tmp);
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("  copy coralctl: {e}");
+            false
+        }
+    }
+}
+
+fn deploy_daemons_via_ember(socket: &str, source: &std::path::Path, no_restart: bool) -> bool {
+    let staging = std::path::Path::new("/run/coralreef/staging");
+    if let Err(e) = std::fs::create_dir_all(staging) {
+        eprintln!("  cannot create staging dir: {e}");
+        eprintln!("  hint: ensure /run/coralreef/ exists (created by ember.service)");
+        return false;
+    }
+
+    let daemon_names = ["coral-ember", "coral-glowplug"];
+    let mut staged = Vec::new();
+    for name in &daemon_names {
+        let src = source.join(name);
+        if src.exists() {
+            match std::fs::copy(&src, staging.join(name)) {
+                Ok(bytes) => {
+                    println!("  staged {name} ({bytes} bytes)");
+                    staged.push(*name);
+                }
+                Err(e) => eprintln!("  stage {name}: {e}"),
+            }
+        }
+    }
+
+    if staged.is_empty() {
+        eprintln!("  no daemon binaries found — skipping ember.deploy");
+        return false;
+    }
+
+    let params = serde_json::json!({ "restart": !no_restart });
+    let response = rpc::rpc_call(socket, "ember.deploy", params);
+    if let Some(err) = response.get("error") {
+        let msg = err.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
+        eprintln!("  ember.deploy error: {msg}");
+        return false;
+    }
+
+    if let Some(result) = response.get("result") {
+        if let Some(deployed) = result.get("deployed").and_then(|v| v.as_array()) {
+            for d in deployed {
+                let name = d.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                let size = d.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                println!("  {name} → /usr/local/bin/{name} ({size} bytes) via ember");
+            }
+        }
+        if result.get("restart_pending").and_then(|v| v.as_bool()).unwrap_or(false) {
+            println!("  services restarting...");
+        }
+    }
+    true
+}
+
+fn deploy_binaries(socket: &str, source_dir: Option<String>, no_restart: bool, self_only: bool) {
+    let dir = find_release_dir(source_dir);
+    let source = std::path::Path::new(&dir);
+    println!("=== deploy ({dir}) ===");
+
+    let ctl_ok = deploy_local_coralctl(source);
+
+    if !self_only {
+        let daemon_ok = deploy_daemons_via_ember(socket, source, no_restart);
+        if !daemon_ok && !ctl_ok {
+            eprintln!("nothing deployed");
+            std::process::exit(1);
+        }
+    } else if !ctl_ok {
+        eprintln!("nothing deployed");
+        std::process::exit(1);
+    }
+
+    println!("=== done ===");
+}
+
 fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
 
     match cli.command {
         Command::Status => handlers_device::rpc_status(&cli.socket),
+        Command::Shutdown => {
+            let ember = handlers_device::ember_socket();
+            println!("Sending graceful shutdown to ember...");
+            let resp = rpc::rpc_call(&ember, "ember.shutdown", serde_json::json!({}));
+            if resp.get("error").is_some() {
+                eprintln!("shutdown error: {resp}");
+                std::process::exit(1);
+            }
+            if let Some(result) = resp.get("result") {
+                println!("  {result}");
+            }
+        }
         Command::Swap { bdf, target, trace } => {
             handlers_device::rpc_swap(&cli.socket, &bdf, &target, trace)
         }
@@ -612,26 +884,48 @@ fn main() {
             workgroups,
             threads,
             output_dir,
+            sovereign,
+            sm,
         } => {
-            handlers_device::rpc_dispatch(
-                &cli.socket,
-                &bdf,
-                &shader,
-                &input,
-                &output_size,
-                &workgroups,
-                &threads,
-                output_dir.as_deref(),
-            );
+            if sovereign {
+                handlers_device::rpc_dispatch_sovereign(
+                    &cli.socket,
+                    &bdf,
+                    &shader,
+                    &input,
+                    &output_size,
+                    &workgroups,
+                    output_dir.as_deref(),
+                    sm,
+                );
+            } else {
+                handlers_device::rpc_dispatch(
+                    &cli.socket,
+                    &bdf,
+                    &shader,
+                    &input,
+                    &output_size,
+                    &workgroups,
+                    &threads,
+                    output_dir.as_deref(),
+                );
+            }
         }
         Command::WarmFecs {
             bdf,
             settle,
             poll_fecs,
             keepalive,
-        } => handlers_device::rpc_warm_fecs(&cli.socket, &bdf, settle, poll_fecs, keepalive),
-        Command::WarmFecsNvidia { bdf, settle } => {
-            handlers_device::rpc_warm_fecs_nvidia(&cli.socket, &bdf, settle)
+            allow_cold,
+        } => handlers_device::rpc_warm_fecs(&cli.socket, &bdf, settle, poll_fecs, keepalive, allow_cold),
+        Command::WarmFecsNvidia { bdf, settle, keepalive, allow_cold } => {
+            handlers_device::rpc_warm_fecs_nvidia(&cli.socket, &bdf, settle, keepalive, allow_cold)
+        }
+        Command::ColdPost { bdf, settle, driver } => {
+            handlers_device::rpc_cold_post(&cli.socket, &bdf, settle, &driver)
+        }
+        Command::Deploy { source_dir, no_restart, self_only } => {
+            deploy_binaries(&cli.socket, source_dir, no_restart, self_only);
         }
         Command::Onboard { bdf, output } => {
             onboard::run_onboard(&cli.socket, &bdf, output.as_deref())
@@ -692,10 +986,16 @@ fn main() {
             handlers_trace::trace_parse(&file, recipe_json);
         }
         Command::Devinit { action } => match action {
-            DevinitAction::Replay { bdf, diagnostics } => {
-                handlers_trace::devinit_replay(&bdf, diagnostics);
+            DevinitAction::Replay { bdf, diagnostics, vbios } => {
+                handlers_trace::devinit_replay(&bdf, diagnostics, vbios.as_deref());
             }
         },
+        Command::AcrBoot { bdf } => {
+            handlers_trace::acr_boot(&bdf);
+        }
+        Command::SovereignBoot { bdf, recipe, skip_acr, pio_only } => {
+            handlers_trace::sovereign_boot(&bdf, recipe.as_deref(), skip_acr, pio_only);
+        }
         Command::ColdBoot {
             bdf,
             recipe,

@@ -230,7 +230,7 @@ impl EmberClient {
     /// times with backoff. Driver swaps can stall briefly while the kernel
     /// settles sysfs state after unbind.
     pub fn swap_device(&self, bdf: &str, target: &str) -> Result<SwapObservation, EmberError> {
-        self.swap_device_traced(bdf, target, false)
+        self.swap_device_full(bdf, target, false, false)
     }
 
     /// Like [`swap_device`](Self::swap_device) but with optional mmiotrace capture.
@@ -239,6 +239,28 @@ impl EmberClient {
         bdf: &str,
         target: &str,
         trace: bool,
+    ) -> Result<SwapObservation, EmberError> {
+        self.swap_device_full(bdf, target, trace, false)
+    }
+
+    /// Like [`swap_device`](Self::swap_device) but allows swapping a cold/un-POSTed
+    /// device (bypasses the PTIMER-frozen preflight check in ember). Used by the
+    /// cold-POST path to bind nouveau to a cold Kepler GPU.
+    pub fn swap_device_cold(
+        &self,
+        bdf: &str,
+        target: &str,
+        trace: bool,
+    ) -> Result<SwapObservation, EmberError> {
+        self.swap_device_full(bdf, target, trace, true)
+    }
+
+    fn swap_device_full(
+        &self,
+        bdf: &str,
+        target: &str,
+        trace: bool,
+        allow_cold: bool,
     ) -> Result<SwapObservation, EmberError> {
         const MAX_RETRIES: u32 = 3;
         const SWAP_TIMEOUT_SECS: u64 = 60;
@@ -257,7 +279,7 @@ impl EmberClient {
                 std::thread::sleep(backoff);
             }
 
-            match self.try_swap_device(bdf, target, trace, SWAP_TIMEOUT_SECS) {
+            match self.try_swap_device(bdf, target, trace, allow_cold, SWAP_TIMEOUT_SECS) {
                 Ok(obs) => return Ok(obs),
                 Err(EmberError::Io(ref e)) if is_transient_io(e) && attempt < MAX_RETRIES => {
                     tracing::warn!(
@@ -279,6 +301,7 @@ impl EmberClient {
         bdf: &str,
         target: &str,
         trace: bool,
+        allow_cold: bool,
         timeout_secs: u64,
     ) -> Result<SwapObservation, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
@@ -287,6 +310,9 @@ impl EmberClient {
         let mut params = serde_json::json!({"bdf": bdf, "target": target});
         if trace {
             params["trace"] = serde_json::json!(true);
+        }
+        if allow_cold {
+            params["allow_cold"] = serde_json::json!(true);
         }
         let req = make_rpc_request("ember.swap", params);
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
@@ -376,6 +402,24 @@ impl EmberClient {
             serde_json::json!({"bdf": bdf, "ring_meta": meta_val}),
         )?;
         Ok(())
+    }
+
+    /// Deploy new binaries via ember (runs as root, no pkexec needed).
+    ///
+    /// Copies binaries from `source_dir` to `/usr/local/bin/` and optionally
+    /// restarts both coral-ember and coral-glowplug systemd services.
+    pub fn deploy(
+        &self,
+        source_dir: &str,
+        restart: bool,
+    ) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc(
+            "ember.deploy",
+            serde_json::json!({
+                "source_dir": source_dir,
+                "restart": restart,
+            }),
+        )
     }
 
     /// Read a single BAR0 register via ember's mmap-based MMIO access.

@@ -133,6 +133,76 @@ pub struct PfifoSnapshot {
     pub runlist_submit: u32,
 }
 
+impl PfifoSnapshot {
+    /// Read current PFIFO register values from BAR0 and compare against
+    /// this snapshot (captured by glowplug during warm handoff).
+    ///
+    /// Logs warnings for each mismatch but never fails — PFIFO state may
+    /// legitimately drift during the driver swap window. The comparison
+    /// serves as a diagnostic guardrail, not a gating check.
+    pub fn crosscheck(&self, bar0: &MappedBar) -> PfifoCrosscheckResult {
+        let r = |off: usize| bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+
+        let actual = PfifoSnapshot {
+            pmc_enable: r(0x200),
+            pbdma_map: r(0x2004),
+            pfifo_sched_en: r(0x2504),
+            runlist_base: r(0x2270),
+            runlist_submit: r(0x2274),
+        };
+
+        let mut mismatches = Vec::new();
+
+        let check = |name: &str, expected: u32, got: u32, mismatches: &mut Vec<String>| {
+            if expected != got {
+                let msg = format!(
+                    "{name}: snapshot={expected:#010x} actual={got:#010x}",
+                );
+                tracing::warn!(
+                    register = name,
+                    snapshot = format_args!("{expected:#010x}"),
+                    actual = format_args!("{got:#010x}"),
+                    "PFIFO crosscheck mismatch"
+                );
+                mismatches.push(msg);
+            }
+        };
+
+        check("PMC_ENABLE", self.pmc_enable, actual.pmc_enable, &mut mismatches);
+        check("PBDMA_MAP", self.pbdma_map, actual.pbdma_map, &mut mismatches);
+        check("PFIFO_SCHED_EN", self.pfifo_sched_en, actual.pfifo_sched_en, &mut mismatches);
+        check("RUNLIST_BASE", self.runlist_base, actual.runlist_base, &mut mismatches);
+        check("RUNLIST_SUBMIT", self.runlist_submit, actual.runlist_submit, &mut mismatches);
+
+        if mismatches.is_empty() {
+            tracing::info!("PFIFO crosscheck: all registers match snapshot");
+        } else {
+            tracing::warn!(
+                count = mismatches.len(),
+                "PFIFO crosscheck: {} register(s) differ from handoff snapshot",
+                mismatches.len()
+            );
+        }
+
+        PfifoCrosscheckResult {
+            snapshot: self.clone(),
+            actual,
+            mismatches,
+        }
+    }
+}
+
+/// Result of comparing handoff PfifoSnapshot against live register state.
+#[derive(Debug, Clone)]
+pub struct PfifoCrosscheckResult {
+    /// The snapshot from glowplug's warm handoff.
+    pub snapshot: PfifoSnapshot,
+    /// The actual register values read post-vfio-bind.
+    pub actual: PfifoSnapshot,
+    /// Human-readable mismatch descriptions (empty = all matched).
+    pub mismatches: Vec<String>,
+}
+
 /// NVIDIA compute device via VFIO — direct BAR0 + DMA dispatch.
 ///
 /// Field order matters: DMA buffers and channel must drop (and unmap)
@@ -302,6 +372,25 @@ impl NvVfioComputeDevice {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
+        let boot0 = bar0.read_u32(0x0000_0000).unwrap_or(0xFFFF_FFFF);
+        if boot0 == 0xFFFF_FFFF {
+            return Err(DriverError::DeviceNotFound(
+                format!("{bdf}: BAR0 BOOT0=0xFFFFFFFF — GPU not responding, cannot cold-open with recipe").into(),
+            ));
+        }
+        let pmc_enable = bar0.read_u32(0x200).unwrap_or(0);
+        let pgraph_on = pmc_enable & (1 << 12) != 0;
+        let pfifo_on = pmc_enable & (1 << 8) != 0;
+        if !pgraph_on || !pfifo_on {
+            return Err(DriverError::OpenFailed(
+                format!(
+                    "{bdf}: GPU is cold/un-POSTed (PMC_ENABLE={pmc_enable:#010x}, \
+                     PGRAPH={pgraph_on}, PFIFO={pfifo_on}). \
+                     Engines must be enabled before recipe/GR init."
+                ).into(),
+            ));
+        }
+
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         if !recipe.is_empty() {
@@ -366,6 +455,28 @@ impl NvVfioComputeDevice {
         let device = VfioDevice::from_received(bdf, fds)?;
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
+
+        let boot0 = bar0.read_u32(0x0000_0000).unwrap_or(0xFFFF_FFFF);
+        if boot0 == 0xFFFF_FFFF {
+            return Err(DriverError::DeviceNotFound(
+                format!("{bdf}: BAR0 BOOT0=0xFFFFFFFF — GPU not responding, cannot cold-open").into(),
+            ));
+        }
+
+        // Exp 140: PMC_ENABLE cold-GPU guard — same as open_warm.
+        let pmc_enable = bar0.read_u32(0x200).unwrap_or(0);
+        let pgraph_on = pmc_enable & (1 << 12) != 0;
+        let pfifo_on = pmc_enable & (1 << 8) != 0;
+        if !pgraph_on || !pfifo_on {
+            return Err(DriverError::OpenFailed(
+                format!(
+                    "{bdf}: GPU is cold/un-POSTed (PMC_ENABLE={pmc_enable:#010x}, \
+                     PGRAPH={pgraph_on}, PFIFO={pfifo_on}). \
+                     Engines must be enabled before GR init. \
+                     Use devinit, nouveau, or nvidia-470 to POST first."
+                ).into(),
+            ));
+        }
 
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
@@ -458,9 +569,42 @@ impl NvVfioComputeDevice {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
+        // BOOT0 health gate (Exp 139): bail before ANY channel/PFIFO operations
+        // if the GPU is unresponsive. Proceeding with 0xFFFFFFFF causes kernel
+        // D-state when VFIO tries to access dead PCI config space on drop.
+        let boot0 = bar0.read_u32(0x0000_0000).unwrap_or(0xFFFF_FFFF);
+        if boot0 == 0xFFFF_FFFF {
+            return Err(DriverError::DeviceNotFound(
+                format!("{bdf}: BAR0 BOOT0=0xFFFFFFFF — GPU not responding, cannot warm-open").into(),
+            ));
+        }
+
+        // Exp 140: Cold-GPU guard — detect un-POSTed GPUs before any register
+        // writes. On cold GPUs (vfio-pci from boot, never driver-initialized),
+        // PGRAPH is clock-gated and writing Volta PCCSR/PFIFO registers causes
+        // PRI fault cascades that kill BAR0 entirely (bus error → 0xFFFFFFFF).
+        let pmc_enable = bar0.read_u32(0x200).unwrap_or(0);
+        let pgraph_enabled = pmc_enable & (1 << 12) != 0;
+        let pfifo_enabled = pmc_enable & (1 << 8) != 0;
+        if !pgraph_enabled || !pfifo_enabled {
+            return Err(DriverError::OpenFailed(
+                format!(
+                    "{bdf}: GPU is cold/un-POSTed (PMC_ENABLE={pmc_enable:#010x}, \
+                     PGRAPH={pgraph_enabled}, PFIFO={pfifo_enabled}). \
+                     warm-open requires a driver-initialized GPU. \
+                     Use cold-boot path (devinit or nvidia-470 recipe) instead."
+                ).into(),
+            ));
+        }
+
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
-        tracing::info!("warm handoff mode: skipping GR BAR0 init (nouveau already configured)");
+        tracing::info!(
+            boot0 = format_args!("{boot0:#010x}"),
+            pmc_enable = format_args!("{pmc_enable:#010x}"),
+            sm_version,
+            "warm handoff mode: skipping GR BAR0 init (driver already configured)"
+        );
 
         // Exp 126 fix: clear ALL stale PCCSR entries before creating our channel.
         // Nouveau leaves channels in various states; stale entries can confuse the
@@ -477,44 +621,60 @@ impl NvVfioComputeDevice {
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = GpuChannel::Volta(VfioChannel::create_warm(
-            container.clone(),
-            &bar0,
-            GPFIFO_IOVA,
-            gpfifo::ENTRIES as u32,
-            USERD_IOVA,
-            0,
-        )?);
+        let channel = if sm_version >= 70 {
+            // Volta+: V2 page tables, doorbell, warm_fecs PFIFO config.
+            GpuChannel::Volta(VfioChannel::create_warm_fecs(
+                container.clone(),
+                &bar0,
+                GPFIFO_IOVA,
+                gpfifo::ENTRIES as u32,
+                USERD_IOVA,
+                0,
+            )?)
+        } else {
+            // Kepler: V1 page tables, USERD polling.
+            tracing::info!(sm_version, "warm: using Kepler channel path");
+            GpuChannel::Kepler(KeplerChannel::create(
+                container.clone(),
+                &bar0,
+                GPFIFO_IOVA,
+                gpfifo::ENTRIES as u32,
+                USERD_IOVA,
+                0,
+            )?)
+        };
 
-        // Verify BAR2 and fault buffer state after channel creation.
-        let bar2_readback = bar0.read_u32(misc::PBUS_BAR2_BLOCK).unwrap_or(0xDEAD);
-        let bar2_target = (bar2_readback >> 28) & 0x3;
-        tracing::info!(
-            bar2_block = format_args!("{bar2_readback:#010x}"),
-            target = bar2_target,
-            "warm: BAR2_BLOCK verification (expect target=2 COH, mode=PHYS)"
-        );
-
-        let fb0_get = bar0.read_u32(mmu::FAULT_BUF0_GET).unwrap_or(0xDEAD);
-        let fb0_put = bar0.read_u32(mmu::FAULT_BUF0_PUT).unwrap_or(0xDEAD);
-        if fb0_get != 0 {
-            tracing::warn!(
-                get = format_args!("{fb0_get:#010x}"),
-                put = format_args!("{fb0_put:#010x}"),
-                "warm: fault buffer 0 has non-zero GET — resetting"
+        if sm_version >= 70 {
+            // Volta-specific post-channel verification.
+            let bar2_readback = bar0.read_u32(misc::PBUS_BAR2_BLOCK).unwrap_or(0xDEAD);
+            let bar2_target = (bar2_readback >> 28) & 0x3;
+            tracing::info!(
+                bar2_block = format_args!("{bar2_readback:#010x}"),
+                target = bar2_target,
+                "warm: BAR2_BLOCK verification (expect target=2 COH, mode=PHYS)"
             );
-            let _ = bar0.write_u32(mmu::FAULT_BUF0_GET, 0);
-            let _ = bar0.write_u32(mmu::FAULT_BUF1_GET, 0);
-        }
 
-        // Verify our channel is properly bound in PCCSR.
-        let our_pccsr = bar0.read_u32(pccsr::channel(0)).unwrap_or(0);
-        let our_inst = bar0.read_u32(pccsr::inst(0)).unwrap_or(0);
-        tracing::info!(
-            pccsr_inst = format_args!("{our_inst:#010x}"),
-            pccsr_chan = format_args!("{our_pccsr:#010x}"),
-            "warm: our channel (ch0) PCCSR state"
-        );
+            let fb0_get = bar0.read_u32(mmu::FAULT_BUF0_GET).unwrap_or(0xDEAD);
+            let fb0_put = bar0.read_u32(mmu::FAULT_BUF0_PUT).unwrap_or(0xDEAD);
+            if fb0_get != 0 {
+                tracing::warn!(
+                    get = format_args!("{fb0_get:#010x}"),
+                    put = format_args!("{fb0_put:#010x}"),
+                    "warm: fault buffer 0 has non-zero GET — resetting"
+                );
+                let _ = bar0.write_u32(mmu::FAULT_BUF0_GET, 0);
+                let _ = bar0.write_u32(mmu::FAULT_BUF1_GET, 0);
+            }
+
+            // Verify our channel is properly bound in PCCSR.
+            let our_pccsr = bar0.read_u32(pccsr::channel(0)).unwrap_or(0);
+            let our_inst = bar0.read_u32(pccsr::inst(0)).unwrap_or(0);
+            tracing::info!(
+                pccsr_inst = format_args!("{our_inst:#010x}"),
+                pccsr_chan = format_args!("{our_pccsr:#010x}"),
+                "warm: our channel (ch0) PCCSR state"
+            );
+        }
 
         let mut dev = Self {
             device,
@@ -556,6 +716,25 @@ impl NvVfioComputeDevice {
         let container = device.dma_backend();
         let bar0 = device.map_bar(0)?;
 
+        let boot0 = bar0.read_u32(0x0000_0000).unwrap_or(0xFFFF_FFFF);
+        if boot0 == 0xFFFF_FFFF {
+            return Err(DriverError::DeviceNotFound(
+                format!("{bdf}: BAR0 BOOT0=0xFFFFFFFF — GPU not responding, cannot warm-open with context").into(),
+            ));
+        }
+        let pmc_enable = bar0.read_u32(0x200).unwrap_or(0);
+        let pgraph_on = pmc_enable & (1 << 12) != 0;
+        let pfifo_on = pmc_enable & (1 << 8) != 0;
+        if !pgraph_on || !pfifo_on {
+            return Err(DriverError::OpenFailed(
+                format!(
+                    "{bdf}: GPU is cold/un-POSTed (PMC_ENABLE={pmc_enable:#010x}, \
+                     PGRAPH={pgraph_on}, PFIFO={pfifo_on}). \
+                     warm-open requires a driver-initialized GPU."
+                ).into(),
+            ));
+        }
+
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         tracing::info!(
@@ -596,6 +775,11 @@ impl NvVfioComputeDevice {
                 0,
             )?)
         };
+
+        // Crosscheck PFIFO registers against warm handoff snapshot.
+        if let Some(snap) = &ctx.pfifo_snapshot {
+            snap.crosscheck(&bar0);
+        }
 
         let bar2_readback = bar0.read_u32(misc::PBUS_BAR2_BLOCK).unwrap_or(0xDEAD);
         let bar2_target = (bar2_readback >> 28) & 0x3;

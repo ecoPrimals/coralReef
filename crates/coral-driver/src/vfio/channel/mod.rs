@@ -573,7 +573,7 @@ impl VfioChannel {
     ///   SUBMIT(rl) = 0x2274 + rl*0x10 → upper_32(iova >> 12) | (count << 16)
     /// Writing SUBMIT triggers the scheduler.
     /// Source: nouveau `gv100_runl_commit()`.
-    fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
+    pub fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
         let rl_base = registers::pfifo::gv100_runlist_base_value(RUNLIST_IOVA)
             | (TARGET_SYS_MEM_COHERENT << 28);
         let rl_submit = registers::pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 2);
