@@ -5,6 +5,7 @@ mod cli;
 mod cmd_compile;
 mod cmd_doctor;
 mod cmd_server;
+mod config_defaults;
 mod discovery;
 mod exit_unibin;
 mod shutdown;

@@ -3,6 +3,38 @@
 
 use std::fmt;
 
+use thiserror::Error;
+
+/// Errors from vendor-specific lifecycle hooks (`prepare_for_unbind`, `verify_health`, etc.).
+#[derive(Debug, Error)]
+pub enum VendorError {
+    /// Sysfs read or write failed (message from the underlying operation).
+    #[error("sysfs operation failed: {0}")]
+    Sysfs(String),
+    /// Post-bind verification failed (power state, DRM presence, etc.).
+    #[error("{bdf}: {detail}")]
+    HealthCheck {
+        /// PCI bus/device/function.
+        bdf: String,
+        /// Human-readable failure detail.
+        detail: String,
+    },
+    /// Intel DRM bind path: no `drm/card*` node under the PCI device.
+    #[error("{bdf}: no DRM card sysfs node for {driver} (expected drm/card*)")]
+    DrmCardNotFound {
+        /// PCI bus/device/function.
+        bdf: String,
+        /// Bound DRM driver name (e.g. `xe`, `i915`).
+        driver: String,
+    },
+}
+
+impl From<VendorError> for String {
+    fn from(e: VendorError) -> Self {
+        e.to_string()
+    }
+}
+
 /// Available PCI reset methods for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetMethod {
@@ -55,7 +87,7 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     /// methods, pinning power rails, or quiescing vendor-specific firmware.
     ///
     /// `current_driver` is the driver currently bound (e.g. "vfio-pci", "amdgpu").
-    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), String>;
+    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), VendorError>;
 
     /// How to rebind a native driver after the device is in unbound state.
     /// `target_driver` is the intended destination (e.g. "amdgpu", "nouveau").
@@ -74,7 +106,7 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
 
     /// Post-bind health check. Called after the target driver appears in sysfs.
     /// Should verify the device is actually functional (temp sensors, VRAM, etc.)
-    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String>;
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), VendorError>;
 
     /// Which reset methods are safe/available for this hardware, in priority order.
     /// The caller should try methods in order and stop at the first success.
@@ -82,5 +114,19 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     /// Default: try VFIO FLR first, then sysfs SBR.
     fn available_reset_methods(&self) -> Vec<ResetMethod> {
         vec![ResetMethod::VfioFlr, ResetMethod::SysfsSbr]
+    }
+
+    /// Whether this hardware can be in a cold/unPOSTed state where any PCI
+    /// config-space or BAR access causes a PCIe completion timeout, putting
+    /// the calling thread into uninterruptible D-state.
+    ///
+    /// When true, VFIO opens must be performed in a timeout-guarded context
+    /// (separate thread/process) so the daemon stays responsive if the device
+    /// is cold. Devices that time out are marked deferred and can be opened
+    /// later once POSTed.
+    ///
+    /// Default: false.
+    fn is_cold_sensitive(&self) -> bool {
+        false
     }
 }

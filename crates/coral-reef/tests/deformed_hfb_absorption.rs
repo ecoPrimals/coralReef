@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Absorption tests for hotSpring's deformed HFB (Hartree-Fock-Bogoliubov)
 //! nuclear structure shaders.
 //!

@@ -16,6 +16,8 @@
 
 pub mod adaptive;
 pub mod drm_isolation;
+pub(crate) mod error;
+mod guarded_open;
 mod hold;
 mod ipc;
 pub mod journal;
@@ -35,7 +37,9 @@ use serde::Deserialize;
 pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};
-pub use observation::{HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms};
+pub use observation::{
+    FirmwareState, HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms,
+};
 pub use swap::{
     handle_swap_device, handle_swap_device_with_journal, verify_drm_isolation_with_paths,
 };
@@ -102,15 +106,32 @@ pub const EMBER_LISTEN_PORT_ENV: &str = "CORALREEF_EMBER_PORT";
 pub struct EmberRunOptions {
     /// Path to `glowplug.toml`; when `None`, uses [`find_config`] (XDG then system).
     pub config_path: Option<String>,
-    /// When `Some`, also listens on `127.0.0.1:port` for JSON-RPC over TCP.
+    /// When `Some`, also listens on `{bind_addr}:port` for JSON-RPC over TCP.
     pub listen_port: Option<u16>,
 }
 
+/// TCP bind address for `--port` listeners (`$CORALREEF_BIND_ADDR`, default `127.0.0.1`).
+#[must_use]
+pub fn tcp_bind_addr() -> String {
+    std::env::var("CORALREEF_BIND_ADDR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
+///
+/// Follows the wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 #[must_use]
 pub fn ember_socket_path() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .unwrap_or_else(|_| "/run/coralreef/ember.sock".to_string())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).
@@ -188,7 +209,7 @@ pub fn run() -> Result<(), i32> {
 
 /// Same as [`run`] but accepts explicit config and optional TCP listen port (see [`EmberRunOptions`]).
 ///
-/// When `listen_port` is set, a TCP listener is started on `127.0.0.1` in addition to the Unix socket.
+/// When `listen_port` is set, a TCP listener is started on `$CORALREEF_BIND_ADDR` (default `127.0.0.1`) in addition to the Unix socket.
 /// ([`EMBER_LISTEN_PORT_ENV`] names the conventional env var for documenting the chosen port; it is
 /// not written by this crate — Rust 2024 treats concurrent `set_var` as `unsafe`.)
 ///
@@ -267,8 +288,17 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         }
     }
 
+    let mut deferred_bdfs: Vec<String> = Vec::new();
+
     for dev_config in &compute_devices {
-        tracing::info!(bdf = %dev_config.bdf, "opening VFIO device for ember hold");
+        let lifecycle = vendor_lifecycle::detect_lifecycle(&dev_config.bdf);
+        let cold_sensitive = lifecycle.is_cold_sensitive();
+
+        tracing::info!(
+            bdf = %dev_config.bdf,
+            cold_sensitive,
+            "opening VFIO device for ember hold"
+        );
 
         let group_id = sysfs::read_iommu_group(&dev_config.bdf);
         if group_id != 0 {
@@ -277,7 +307,14 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
         sysfs::pin_power(&dev_config.bdf);
 
-        match coral_driver::vfio::VfioDevice::open(&dev_config.bdf) {
+        let open_result = if cold_sensitive {
+            guarded_open::guarded_vfio_open(&dev_config.bdf, guarded_open::GUARDED_OPEN_TIMEOUT)
+                .map_err(|e| e.to_string())
+        } else {
+            coral_driver::vfio::VfioDevice::open(&dev_config.bdf).map_err(|e| e.to_string())
+        };
+
+        match open_result {
             Ok(device) => {
                 let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
                 tracing::info!(
@@ -295,22 +332,46 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                         device,
                         ring_meta: hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
                     },
                 );
             }
             Err(e) => {
-                tracing::error!(
-                    bdf = %dev_config.bdf,
-                    error = %e,
-                    "failed to open VFIO device — ember will not hold this device"
-                );
+                if cold_sensitive {
+                    tracing::warn!(
+                        bdf = %dev_config.bdf,
+                        error = %e,
+                        "cold-sensitive device deferred — will be available after POST \
+                         (use ember.open_device to retry)"
+                    );
+                    deferred_bdfs.push(dev_config.bdf.clone());
+                } else {
+                    tracing::error!(
+                        bdf = %dev_config.bdf,
+                        error = %e,
+                        "failed to open VFIO device — ember will not hold this device"
+                    );
+                }
             }
         }
     }
 
-    if held_init.is_empty() {
-        tracing::error!("no devices held — ember cannot provide fd keepalive");
+    if !deferred_bdfs.is_empty() {
+        tracing::info!(
+            deferred = ?deferred_bdfs,
+            "cold-sensitive devices deferred at startup"
+        );
+    }
+
+    if held_init.is_empty() && deferred_bdfs.is_empty() {
+        tracing::error!("no devices held or deferred — ember cannot provide fd keepalive");
         return Err(1);
+    }
+    if held_init.is_empty() {
+        tracing::warn!(
+            "no devices held at startup (all cold-sensitive devices deferred) — \
+             ember is running but cannot serve fds until devices are POSTed"
+        );
     }
 
     let held: Arc<RwLock<HashMap<String, HeldDevice>>> = Arc::new(RwLock::new(held_init));
@@ -357,7 +418,8 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     }
     tracing::info!("║ Socket: {socket_path}");
     if let Some(port) = opts.listen_port {
-        tracing::info!("║ TCP JSON-RPC: 127.0.0.1:{port} (vfio_fds unavailable over TCP)");
+        let addr = tcp_bind_addr();
+        tracing::info!("║ TCP JSON-RPC: {addr}:{port} (vfio_fds unavailable over TCP)");
     }
     tracing::info!("╚══════════════════════════════════════════════════════════╝");
 
@@ -370,7 +432,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     spawn_req_watcher(Arc::clone(&held));
 
     if let Some(port) = opts.listen_port {
-        let tcp_addr = format!("127.0.0.1:{port}");
+        let tcp_addr = format!("{}:{port}", tcp_bind_addr());
         let tcp_listener = match TcpListener::bind(&tcp_addr) {
             Ok(l) => l,
             Err(e) => {
@@ -447,10 +509,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 /// "No device request channel registered, blocked until released by user".
 /// The [`spawn_req_watcher`] thread monitors all active eventfds and
 /// auto-releases the VFIO fd before the kernel enters D-state.
-fn arm_req_irq(
-    device: &coral_driver::vfio::VfioDevice,
-    bdf: &str,
-) -> Option<std::os::fd::OwnedFd> {
+fn arm_req_irq(device: &coral_driver::vfio::VfioDevice, bdf: &str) -> Option<std::os::fd::OwnedFd> {
     use coral_driver::vfio::irq::{VfioIrqIndex, arm_irq_eventfd};
 
     match arm_irq_eventfd(device.device_as_fd(), VfioIrqIndex::Req, 0) {
@@ -537,9 +596,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                                 match held.try_write() {
                                     Ok(mut map) => {
                                         if let Some(device) = map.remove(bdf) {
-                                            drop(device);
+                                            let bdf_owned = bdf.to_string();
+                                            drop(map);
+                                            guarded_open::guarded_vfio_close(device, &bdf_owned);
                                             tracing::info!(
-                                                bdf,
+                                                bdf = %bdf_owned,
                                                 "device auto-released (kernel REQ IRQ)"
                                             );
                                         }

@@ -69,14 +69,21 @@ impl FalconState {
         }
     }
 
-    /// Returns true if `CPUCTL` has `HRESET` asserted (falcon held in hardware reset).
-    pub fn is_in_reset(&self) -> bool {
-        self.cpuctl & falcon::CPUCTL_HRESET != 0
+    /// Returns true if `CPUCTL` is a PRI fault or read failure — the falcon is unreachable.
+    pub fn is_inaccessible(&self) -> bool {
+        crate::vfio::channel::registers::pri::is_pri_error(self.cpuctl)
+            || self.cpuctl == 0xDEAD_DEAD
     }
 
-    /// Returns true if `CPUCTL` reports halted or the read failed (`0xDEAD_DEAD`).
+    /// Returns true if `CPUCTL` has `HALTED` asserted (bit 4 — firmware halted).
+    /// Returns false for PRI faults (use `is_inaccessible` instead).
+    pub fn is_in_reset(&self) -> bool {
+        !self.is_inaccessible() && self.cpuctl & falcon::CPUCTL_HALTED != 0
+    }
+
+    /// Returns true if `CPUCTL` reports stopped (bit 5), the read failed, or PRI fault.
     pub fn is_halted(&self) -> bool {
-        self.cpuctl & falcon::CPUCTL_HALTED != 0 || self.cpuctl == 0xDEAD_DEAD
+        self.is_inaccessible() || self.cpuctl & falcon::CPUCTL_STOPPED != 0
     }
 
     /// Returns true if `HWCFG` requires signed (ACR) firmware for this falcon.
@@ -98,11 +105,11 @@ impl FalconState {
         if self.cpuctl == 0xDEAD_DEAD {
             "UNREACHABLE"
         } else if self.is_in_reset() && self.is_halted() {
-            "HRESET+HALTED"
+            "HALTED+STOPPED"
         } else if self.is_in_reset() {
-            "HRESET"
-        } else if self.is_halted() {
             "HALTED"
+        } else if self.is_halted() {
+            "STOPPED"
         } else if self.exci != 0 {
             "FAULTED (exci != 0)"
         } else if self.pc == 0 && self.mailbox0 == 0 && self.mailbox1 == 0 {
@@ -640,7 +647,7 @@ mod tests {
 
     #[test]
     fn falcon_state_reset_and_signed_firmware() {
-        let s = sample_falcon("FECS", falcon::CPUCTL_HRESET, falcon::HWCFG_SECURITY_MODE);
+        let s = sample_falcon("FECS", falcon::CPUCTL_HALTED, falcon::HWCFG_SECURITY_MODE);
         assert!(s.is_in_reset());
         assert!(s.requires_signed_firmware());
     }

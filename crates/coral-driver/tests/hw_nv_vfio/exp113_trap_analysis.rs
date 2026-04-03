@@ -27,7 +27,6 @@ use coral_driver::nv::vfio_compute::acr_boot::{
     AcrFirmwareSet, DualPhaseConfig, attempt_dual_phase_boot_cfg,
 };
 use coral_driver::vfio::memory::MemoryRegion;
-
 mod freg113 {
     pub const SEC2_BASE: usize = 0x087000;
     pub const SCTL: usize = 0x240;
@@ -51,10 +50,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }
@@ -139,6 +138,7 @@ fn run_variant(bdf: &str, fw: &AcrFirmwareSet, label: &str, cfg: DualPhaseConfig
 
 #[test]
 #[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
+#[allow(clippy::vec_init_then_push)]
 fn exp113_trap_analysis() {
     init_tracing();
 

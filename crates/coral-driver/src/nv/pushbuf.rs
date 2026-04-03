@@ -43,12 +43,13 @@ pub const fn mthd_immd(subchan: u32, method: u32, value: u32) -> u32 {
 pub mod class {
     pub use super::super::ioctl::{
         NVIF_CLASS_AMPERE_COMPUTE_A as AMPERE_COMPUTE_A,
+        NVIF_CLASS_KEPLER_COMPUTE_B as KEPLER_COMPUTE_B,
         NVIF_CLASS_TURING_COMPUTE_A as TURING_COMPUTE_A,
         NVIF_CLASS_VOLTA_COMPUTE_A as VOLTA_COMPUTE_A,
     };
 }
 
-/// NVIDIA compute class method registers (offsets in bytes).
+/// Volta+ (SM70+) compute class method registers (offsets from `clc3c0.h`).
 pub mod method {
     /// Set the target object (compute class).
     pub const SET_OBJECT: u32 = 0x0000;
@@ -65,6 +66,29 @@ pub mod method {
 
     /// Invalidate instruction + data caches (bits 0 + 4).
     pub const INVALIDATE_INSTR_AND_DATA: u32 = 0x11;
+}
+
+/// Kepler (SM35-37, class 0xA1C0) compute method registers (offsets from `cla1c0.h`).
+pub mod kepler_method {
+    /// Set the target object (compute class). Same offset across all gens.
+    pub const SET_OBJECT: u32 = 0x0000;
+    /// Invalidate shader caches (instruction + data + constant).
+    pub const INVALIDATE_SHADER_CACHES: u32 = 0x021C;
+    /// Set shader local memory window base (32-bit, not an A/B pair).
+    pub const SET_SHADER_LOCAL_MEMORY_WINDOW: u32 = 0x077C;
+    /// QMD address shifted right by 8. QMD must be 256-byte aligned.
+    pub const SEND_PCAS_A: u32 = 0x02B4;
+    /// Launch flags: bit 0 = INVALIDATE, bit 1 = SCHEDULE.
+    pub const SEND_SIGNALING_PCAS_B: u32 = 0x02BC;
+    /// Program region base address upper 8 bits.
+    pub const SET_PROGRAM_REGION_A: u32 = 0x1608;
+    /// Program region base address lower 32 bits.
+    pub const SET_PROGRAM_REGION_B: u32 = 0x160C;
+
+    /// Invalidate instruction + data + constant caches (bits 0, 4, 12).
+    pub const INVALIDATE_ALL: u32 = (1 << 0) | (1 << 4) | (1 << 12);
+    /// SEND_SIGNALING_PCAS_B: SCHEDULE=1 (bit 1).
+    pub const PCAS_B_SCHEDULE: u32 = 1 << 1;
 }
 
 /// Default word capacity for push buffers — sufficient for most
@@ -181,6 +205,66 @@ impl PushBuf {
             pb.push_1(sub, method::SEND_PCAS_A, (qmd_addr >> 32) as u32);
             pb.push_1(sub, method::SEND_SIGNALING_PCAS_B, qmd_addr as u32);
         }
+
+        pb
+    }
+
+    /// Build a compute dispatch push buffer for Kepler (SM35-37, class 0xA1C0).
+    ///
+    /// Kepler uses different method offsets and PCAS semantics from Volta+:
+    /// - `SEND_PCAS_A` takes `qmd_addr >> 8` (not raw upper 32 bits)
+    /// - `SEND_SIGNALING_PCAS_B` takes flags (SCHEDULE=1), not lower 32 bits
+    /// - `SET_PROGRAM_REGION_A/B` sets the shader code base address
+    /// - `SET_SHADER_LOCAL_MEMORY_WINDOW` is a single 32-bit register
+    ///
+    /// `qmd_addr` must be 256-byte aligned (low 8 bits zero).
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "deliberate split into 32-bit halves for GPU registers"
+    )]
+    pub fn compute_dispatch_kepler(
+        compute_class: u32,
+        qmd_addr: u64,
+        shader_base_addr: u64,
+        local_mem_window: u32,
+    ) -> Self {
+        debug_assert_eq!(
+            qmd_addr & 0xFF,
+            0,
+            "Kepler QMD address must be 256-byte aligned"
+        );
+
+        let mut pb = Self::new();
+        let sub = 0_u32;
+
+        pb.push_1(sub, kepler_method::SET_OBJECT, compute_class);
+
+        pb.push_1(
+            sub,
+            kepler_method::INVALIDATE_SHADER_CACHES,
+            kepler_method::INVALIDATE_ALL,
+        );
+
+        pb.push_1(
+            sub,
+            kepler_method::SET_PROGRAM_REGION_A,
+            (shader_base_addr >> 32) as u32,
+        );
+        pb.push_1(
+            sub,
+            kepler_method::SET_PROGRAM_REGION_B,
+            shader_base_addr as u32,
+        );
+
+        pb.push_1(sub, kepler_method::SET_SHADER_LOCAL_MEMORY_WINDOW, local_mem_window);
+
+        pb.push_1(sub, kepler_method::SEND_PCAS_A, (qmd_addr >> 8) as u32);
+        pb.push_1(
+            sub,
+            kepler_method::SEND_SIGNALING_PCAS_B,
+            kepler_method::PCAS_B_SCHEDULE,
+        );
 
         pb
     }
@@ -453,6 +537,79 @@ mod tests {
         assert_eq!(bytes[5], 0x56);
         assert_eq!(bytes[6], 0x34);
         assert_eq!(bytes[7], 0x12);
+    }
+
+    // --- Kepler compute_dispatch_kepler tests ---
+
+    #[test]
+    fn pushbuf_kepler_dispatch_structure() {
+        let qmd_addr = 0x1_0000_0100_u64; // 256-byte aligned
+        let shader_base = 0x2_0000_0000_u64;
+        let pb = PushBuf::compute_dispatch_kepler(0xA1C0, qmd_addr, shader_base, 0xFF00_0000);
+        let words = pb.as_words();
+
+        // SET_OBJECT(2) + INVALIDATE(2) + PROGRAM_REGION_A(2) + PROGRAM_REGION_B(2)
+        // + LOCAL_MEM_WINDOW(2) + SEND_PCAS_A(2) + SEND_SIGNALING_PCAS_B(2) = 14 words
+        assert_eq!(words.len(), 14);
+
+        // First pair: SET_OBJECT = 0xA1C0
+        assert_eq!(words[0], mthd_incr(0, kepler_method::SET_OBJECT, 1));
+        assert_eq!(words[1], 0xA1C0);
+    }
+
+    #[test]
+    fn pushbuf_kepler_dispatch_invalidate_method() {
+        let pb = PushBuf::compute_dispatch_kepler(0xA1C0, 0x100, 0, 0xFF00_0000);
+        let words = pb.as_words();
+        // INVALIDATE_SHADER_CACHES at offset 0x021C
+        let inv_hdr = mthd_incr(0, kepler_method::INVALIDATE_SHADER_CACHES, 1);
+        let inv_idx = words.iter().position(|&w| w == inv_hdr)
+            .expect("must emit INVALIDATE_SHADER_CACHES at 0x021C");
+        assert_eq!(words[inv_idx + 1], kepler_method::INVALIDATE_ALL);
+    }
+
+    #[test]
+    fn pushbuf_kepler_dispatch_program_region() {
+        let shader_base = 0x3_DEAD_0000_u64;
+        let pb = PushBuf::compute_dispatch_kepler(0xA1C0, 0x100, shader_base, 0xFF00_0000);
+        let words = pb.as_words();
+
+        let region_a_hdr = mthd_incr(0, kepler_method::SET_PROGRAM_REGION_A, 1);
+        let region_a_idx = words.iter().position(|&w| w == region_a_hdr)
+            .expect("must emit SET_PROGRAM_REGION_A");
+        assert_eq!(words[region_a_idx + 1], 0x3, "upper 8 bits of shader_base");
+
+        let region_b_hdr = mthd_incr(0, kepler_method::SET_PROGRAM_REGION_B, 1);
+        let region_b_idx = words.iter().position(|&w| w == region_b_hdr)
+            .expect("must emit SET_PROGRAM_REGION_B");
+        assert_eq!(words[region_b_idx + 1], 0xDEAD_0000, "lower 32 bits of shader_base");
+    }
+
+    #[test]
+    fn pushbuf_kepler_dispatch_pcas_shifted() {
+        let qmd_addr = 0x80_0000_1200_u64; // aligned to 256
+        let pb = PushBuf::compute_dispatch_kepler(0xA1C0, qmd_addr, 0, 0xFF00_0000);
+        let words = pb.as_words();
+
+        let pcas_a_hdr = mthd_incr(0, kepler_method::SEND_PCAS_A, 1);
+        let pcas_a_idx = words.iter().position(|&w| w == pcas_a_hdr)
+            .expect("must emit SEND_PCAS_A");
+        assert_eq!(words[pcas_a_idx + 1], (qmd_addr >> 8) as u32, "QMD addr >> 8");
+
+        let pcas_b_hdr = mthd_incr(0, kepler_method::SEND_SIGNALING_PCAS_B, 1);
+        let pcas_b_idx = words.iter().position(|&w| w == pcas_b_hdr)
+            .expect("must emit SEND_SIGNALING_PCAS_B");
+        assert_eq!(words[pcas_b_idx + 1], kepler_method::PCAS_B_SCHEDULE, "SCHEDULE=1");
+    }
+
+    #[test]
+    fn pushbuf_kepler_dispatch_local_mem_window() {
+        let pb = PushBuf::compute_dispatch_kepler(0xA1C0, 0x100, 0, 0xFF00_0000);
+        let words = pb.as_words();
+        let lmw_hdr = mthd_incr(0, kepler_method::SET_SHADER_LOCAL_MEMORY_WINDOW, 1);
+        let lmw_idx = words.iter().position(|&w| w == lmw_hdr)
+            .expect("must emit SET_SHADER_LOCAL_MEMORY_WINDOW");
+        assert_eq!(words[lmw_idx + 1], 0xFF00_0000);
     }
 
     #[test]

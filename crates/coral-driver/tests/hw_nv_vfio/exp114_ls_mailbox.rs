@@ -37,8 +37,8 @@ mod freg114 {
     pub const MAILBOX0: usize = 0x040;
     pub const MTHD_STATUS: usize = 0xC18;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 }
 
 fn discover_bdf() -> String {
@@ -51,10 +51,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }
@@ -77,11 +77,11 @@ fn falcon_state(bar0: &coral_driver::vfio::device::MappedBar, name: &str, base: 
     let pc = r(freg114::PC);
     let exci = r(freg114::EXCI);
     let mb0 = r(freg114::MAILBOX0);
-    let hreset = cpuctl & freg114::CPUCTL_HRESET != 0;
     let halted = cpuctl & freg114::CPUCTL_HALTED != 0;
+    let stopped = cpuctl & freg114::CPUCTL_STOPPED != 0;
     let hs = sctl & 0x02 != 0;
     eprintln!(
-        "  {name:6}: cpuctl={cpuctl:#010x} HRESET={hreset:<5} HALTED={halted:<5} HS={hs:<5} \
+        "  {name:6}: cpuctl={cpuctl:#010x} HALTED={halted:<5} STOPPED={stopped:<5} HS={hs:<5} \
          PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x}"
     );
 }
@@ -135,12 +135,12 @@ fn exp114_ls_mailbox_pipeline() {
         .read_u32(freg114::SEC2_BASE + freg114::CPUCTL)
         .unwrap_or(0);
     let sec2_alive = sec2_pc > 0x100
-        && sec2_cpuctl & freg114::CPUCTL_HRESET == 0
-        && sec2_cpuctl & freg114::CPUCTL_HALTED == 0;
+        && sec2_cpuctl & freg114::CPUCTL_HALTED == 0
+        && sec2_cpuctl & freg114::CPUCTL_STOPPED == 0;
 
     if !sec2_alive {
-        let sec2_halted = sec2_cpuctl & freg114::CPUCTL_HALTED != 0;
-        eprintln!("\n  SEC2 not in idle loop (PC={sec2_pc:#x}, halted={sec2_halted}).");
+        let sec2_stopped = sec2_cpuctl & freg114::CPUCTL_STOPPED != 0;
+        eprintln!("\n  SEC2 not in idle loop (PC={sec2_pc:#x}, stopped={sec2_stopped}).");
         eprintln!("  ACR boot may have completed and halted (normal for LS mode).");
         eprintln!("  Proceeding to mailbox command anyway...");
     }
@@ -188,8 +188,8 @@ fn exp114_ls_mailbox_pipeline() {
         .read_u32(freg114::GPCCS_BASE + freg114::EXCI)
         .unwrap_or(0);
 
-    let fecs_running = fecs_cpuctl & (freg114::CPUCTL_HRESET | freg114::CPUCTL_HALTED) == 0;
-    let gpccs_running = gpccs_cpuctl & (freg114::CPUCTL_HRESET | freg114::CPUCTL_HALTED) == 0;
+    let fecs_running = fecs_cpuctl & (freg114::CPUCTL_HALTED | freg114::CPUCTL_STOPPED) == 0;
+    let gpccs_running = gpccs_cpuctl & (freg114::CPUCTL_HALTED | freg114::CPUCTL_STOPPED) == 0;
     let fecs_no_exci = fecs_exci == 0 || (fecs_exci >> 24) < 0x10;
     let gpccs_no_exci = gpccs_exci == 0 || (gpccs_exci >> 24) < 0x10;
 

@@ -106,13 +106,16 @@ impl DriverObserver for VfioObserver {
         // Try parsing as JSON diagnostic dump (falcon probe, GR status)
         if let Ok(diag) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(fecs_cpuctl) = diag.get("fecs_cpuctl").and_then(|v| v.as_u64()) {
-                let halted = fecs_cpuctl & 0x20 != 0;
-                let hreset = fecs_cpuctl & 0x10 != 0;
-                let running = !halted && !hreset && fecs_cpuctl != 0xDEAD_DEAD;
+                let val = fecs_cpuctl as u32;
+                let pri_fault = coral_driver::vfio::channel::registers::pri::is_pri_error(val)
+                    || val == 0xDEAD_DEAD;
+                let stopped = !pri_fault && val & 0x20 != 0;
+                let halted = !pri_fault && val & 0x10 != 0;
+                let running = !pri_fault && !stopped && !halted;
                 findings.push(Finding {
                     category: FindingCategory::FalconBoot,
                     description: format!(
-                        "FECS cpuctl={fecs_cpuctl:#010x} running={running} halted={halted} hreset={hreset}"
+                        "FECS cpuctl={fecs_cpuctl:#010x} running={running} stopped={stopped} halted={halted} pri_fault={pri_fault}"
                     ),
                     register_offset: Some(0x409100),
                     count: Some(if running { 1 } else { 0 }),
@@ -120,13 +123,16 @@ impl DriverObserver for VfioObserver {
             }
 
             if let Some(gpccs_cpuctl) = diag.get("gpccs_cpuctl").and_then(|v| v.as_u64()) {
-                let halted = gpccs_cpuctl & 0x20 != 0;
-                let hreset = gpccs_cpuctl & 0x10 != 0;
-                let running = !halted && !hreset && gpccs_cpuctl != 0xDEAD_DEAD;
+                let val = gpccs_cpuctl as u32;
+                let pri_fault = coral_driver::vfio::channel::registers::pri::is_pri_error(val)
+                    || val == 0xDEAD_DEAD;
+                let stopped = !pri_fault && val & 0x20 != 0;
+                let halted = !pri_fault && val & 0x10 != 0;
+                let running = !pri_fault && !stopped && !halted;
                 findings.push(Finding {
                     category: FindingCategory::FalconBoot,
                     description: format!(
-                        "GPCCS cpuctl={gpccs_cpuctl:#010x} running={running} halted={halted} hreset={hreset}"
+                        "GPCCS cpuctl={gpccs_cpuctl:#010x} running={running} stopped={stopped} halted={halted} pri_fault={pri_fault}"
                     ),
                     register_offset: Some(0x41a100),
                     count: Some(if running { 1 } else { 0 }),

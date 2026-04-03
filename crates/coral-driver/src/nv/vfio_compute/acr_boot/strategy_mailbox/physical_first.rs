@@ -128,7 +128,7 @@ pub fn attempt_physical_first_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> Acr
         let mb0 = r(falcon::MAILBOX0);
         let mb1 = r(falcon::MAILBOX1);
 
-        if cpuctl & falcon::CPUCTL_HRESET != 0 && cpuctl != sec2_before.cpuctl {
+        if cpuctl & falcon::CPUCTL_HALTED != 0 && cpuctl != sec2_before.cpuctl {
             notes.push(format!(
                 "SEC2 halted: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} ({}ms)",
                 start.elapsed().as_millis()

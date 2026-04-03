@@ -154,7 +154,7 @@ targets:
 git clone git@github.com:ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace  # 4047 passing, should complete in ~60s
+cargo test --workspace  # 4200+ passing, should complete in ~60s
 ```
 
 ### Step 1: Nouveau EINVAL Diagnostics (Titan V)

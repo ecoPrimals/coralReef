@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! GLSL compute shader corpus — tests the GLSL frontend path.
 //!
 //! These are coralReef-owned fixtures (not spring copies) designed to exercise

@@ -41,7 +41,8 @@ pub mod error;
 pub mod linux_paths;
 
 #[cfg(target_os = "linux")]
-pub(crate) mod mmio;
+/// MMIO volatile access primitives and the `RegisterMap` typed wrapper.
+pub mod mmio;
 
 #[cfg(target_os = "linux")]
 pub mod drm;
@@ -61,6 +62,33 @@ pub mod cuda;
 pub mod gsp;
 
 pub use error::{DriverError, DriverResult};
+
+/// Parse a string as either `0x`-prefixed hex or decimal into `u32`.
+///
+/// Accepts `"0x1234"`, `"0X1234"`, and `"4660"`. Returns an error
+/// description on overflow or invalid digits.
+pub fn parse_hex_u32(s: &str) -> Result<u32, String> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).map_err(|e| format!("invalid hex '{s}': {e}"))
+    } else {
+        s.parse::<u32>()
+            .map_err(|e| format!("invalid number '{s}': {e}"))
+    }
+}
+
+/// Parse a string as either `0x`-prefixed hex or decimal into `u64`.
+///
+/// Same as [`parse_hex_u32`] but for 64-bit values.
+pub fn parse_hex_u64(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).map_err(|e| format!("invalid hex '{s}': {e}"))
+    } else {
+        s.parse::<u64>()
+            .map_err(|e| format!("invalid number '{s}': {e}"))
+    }
+}
 
 /// An opaque GPU buffer handle.
 ///
@@ -215,6 +243,39 @@ pub trait ComputeDevice: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_hex_u32_with_0x_prefix() {
+        assert_eq!(parse_hex_u32("0x409100").unwrap(), 0x409100);
+        assert_eq!(parse_hex_u32("0X00000010").unwrap(), 0x10);
+    }
+
+    #[test]
+    fn parse_hex_u32_decimal() {
+        assert_eq!(parse_hex_u32("12345").unwrap(), 12345);
+    }
+
+    #[test]
+    fn parse_hex_u32_whitespace_trimmed() {
+        assert_eq!(parse_hex_u32("  0xff  ").unwrap(), 0xff);
+    }
+
+    #[test]
+    fn parse_hex_u32_invalid_returns_error() {
+        assert!(parse_hex_u32("not_a_number").is_err());
+        assert!(parse_hex_u32("0xGGGG").is_err());
+    }
+
+    #[test]
+    fn parse_hex_u64_large_values() {
+        assert_eq!(parse_hex_u64("0xFFFFFFFFFFFFFFFF").unwrap(), u64::MAX);
+        assert_eq!(parse_hex_u64("18446744073709551615").unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn parse_hex_u64_overflow_fails() {
+        assert!(parse_hex_u64("0x1FFFFFFFFFFFFFFFF").is_err());
+    }
 
     #[test]
     fn buffer_handle_equality() {

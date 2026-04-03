@@ -168,7 +168,10 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "json") {
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        {
             if let Ok(contents) = std::fs::read_to_string(&path) {
                 if let Ok(discovery) = serde_json::from_str::<DiscoveryEntry>(&contents) {
                     let provides_ids: Vec<String> =

@@ -362,3 +362,102 @@ mod tests {
         assert!(path.starts_with(sysfs_root()));
     }
 }
+
+/// Process-isolated sysfs write with D-state timeout protection.
+///
+/// Forks a child process that performs `std::fs::write(path, value)`.
+/// If the write enters D-state (uninterruptible sleep), the child is killed
+/// after `timeout` without affecting the parent. This replaces the previous
+/// `sh -c "printf '%s' VALUE > PATH"` approach, eliminating the shell dependency.
+///
+/// # Safety rationale
+///
+/// `libc::fork()` is unsafe because the child inherits the parent's address space
+/// and any multi-threaded state can be inconsistent. We mitigate this by:
+/// - Only calling async-signal-safe functions in the child (`open`, `write`, `_exit`)
+/// - Using `std::fs::write` which is effectively `open` + `write` + `close`
+/// - Exiting via `libc::_exit` (not `std::process::exit`) to avoid running destructors
+pub fn isolated_sysfs_write(
+    path: &str,
+    value: &str,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    // Path validation: only allow writes under /sys/
+    if !path.starts_with("/sys/bus/pci/")
+        && !path.starts_with("/sys/module/")
+        && !path.starts_with("/sys/devices/")
+    {
+        return Err(format!(
+            "refused sysfs write to path outside allowed prefixes: {path}"
+        ));
+    }
+
+    // SAFETY: fork() is safe here because:
+    // 1. The child immediately does a single file write and exits
+    // 2. We only call async-signal-safe operations in the child
+    // 3. The parent monitors the child via waitpid with timeout
+    let pid = unsafe { libc::fork() };
+
+    match pid {
+        -1 => Err(format!(
+            "sysfs write {path}: fork failed: {}",
+            std::io::Error::last_os_error()
+        )),
+        0 => {
+            // Child: write and exit immediately
+            let code = match std::fs::write(path, value.as_bytes()) {
+                Ok(()) => 0,
+                Err(_) => 1,
+            };
+            unsafe { libc::_exit(code) };
+        }
+        child_pid => {
+            // Parent: wait with timeout
+            let deadline = std::time::Instant::now() + timeout;
+            loop {
+                let mut status: libc::c_int = 0;
+                let ret = unsafe { libc::waitpid(child_pid, &mut status, libc::WNOHANG) };
+
+                if ret == child_pid {
+                    if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
+                        return Ok(());
+                    }
+                    let exit_code = if libc::WIFEXITED(status) {
+                        libc::WEXITSTATUS(status)
+                    } else {
+                        -1
+                    };
+                    return Err(format!(
+                        "sysfs write {path}: child exited with code {exit_code}"
+                    ));
+                }
+
+                if ret == -1 {
+                    return Err(format!(
+                        "sysfs write {path}: waitpid failed: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+
+                if std::time::Instant::now() >= deadline {
+                    unsafe { libc::kill(child_pid, libc::SIGKILL) };
+                    // Brief reap attempt — child may be in D-state and ignore SIGKILL
+                    for _ in 0..10 {
+                        let mut s: libc::c_int = 0;
+                        let r = unsafe { libc::waitpid(child_pid, &mut s, libc::WNOHANG) };
+                        if r == child_pid || r == -1 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    return Err(format!(
+                        "sysfs write {path}: timed out after {}s (child likely in D-state)",
+                        timeout.as_secs()
+                    ));
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+}

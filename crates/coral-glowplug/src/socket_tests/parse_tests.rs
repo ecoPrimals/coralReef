@@ -121,6 +121,11 @@ fn test_health_info_serialization_roundtrip() {
         power: "D3hot".into(),
         domains_alive: 7,
         domains_faulted: 1,
+        fecs_cpuctl: 0,
+        fecs_stopped: false,
+        fecs_halted: false,
+        fecs_sctl: 0,
+        gpccs_cpuctl: 0,
     };
     let json = match serde_json::to_string(&info) {
         Ok(j) => j,
@@ -137,6 +142,68 @@ fn test_health_info_serialization_roundtrip() {
     assert_eq!(parsed.power, info.power);
     assert_eq!(parsed.domains_alive, info.domains_alive);
     assert_eq!(parsed.domains_faulted, info.domains_faulted);
+}
+
+#[test]
+fn health_info_firmware_fields_roundtrip() {
+    let info = HealthInfo {
+        bdf: "0000:03:00.0".into(),
+        boot0: 0x1400_00A1,
+        pmc_enable: 0x0000_1100,
+        vram_alive: true,
+        power: "D0".into(),
+        domains_alive: 5,
+        domains_faulted: 0,
+        fecs_cpuctl: 0x30,
+        fecs_stopped: false,
+        fecs_halted: false,
+        fecs_sctl: 0x2000,
+        gpccs_cpuctl: 0x30,
+    };
+    let json = serde_json::to_string(&info).expect("serialize");
+    let parsed: HealthInfo = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(parsed.fecs_cpuctl, 0x30);
+    assert!(!parsed.fecs_stopped);
+    assert!(!parsed.fecs_halted);
+    assert_eq!(parsed.fecs_sctl, 0x2000);
+    assert_eq!(parsed.gpccs_cpuctl, 0x30);
+}
+
+#[test]
+fn health_info_deserializes_fecs_hreset_alias_to_fecs_halted() {
+    let json = r#"{
+        "bdf": "0000:03:00.0",
+        "boot0": 0,
+        "pmc_enable": 0,
+        "vram_alive": true,
+        "power": "D0",
+        "domains_alive": 0,
+        "domains_faulted": 0,
+        "fecs_hreset": true
+    }"#;
+    let parsed: HealthInfo = serde_json::from_str(json).expect("deserialize");
+    assert!(parsed.fecs_halted);
+    assert!(!parsed.fecs_stopped);
+}
+
+#[test]
+fn health_info_backward_compat_without_firmware_fields() {
+    let json = r#"{
+        "bdf": "0000:03:00.0",
+        "boot0": 335544481,
+        "pmc_enable": 4352,
+        "vram_alive": true,
+        "power": "D0",
+        "domains_alive": 5,
+        "domains_faulted": 0
+    }"#;
+    let parsed: HealthInfo = serde_json::from_str(json).expect("deserialize legacy HealthInfo");
+    assert_eq!(parsed.fecs_cpuctl, 0);
+    assert!(!parsed.fecs_stopped);
+    assert!(!parsed.fecs_halted);
+    assert_eq!(parsed.fecs_sctl, 0);
+    assert_eq!(parsed.gpccs_cpuctl, 0);
+    assert_eq!(parsed.bdf, "0000:03:00.0");
 }
 
 #[test]

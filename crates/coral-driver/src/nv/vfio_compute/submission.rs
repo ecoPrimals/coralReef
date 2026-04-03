@@ -4,8 +4,8 @@
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::cache_ops::{clflush_range, memory_fence};
 use crate::vfio::channel::mmu_fault;
+use crate::vfio::channel::ramuserd;
 use crate::vfio::channel::registers::{misc, pccsr, pfifo};
-use crate::vfio::channel::{VfioChannel, ramuserd};
 
 use std::borrow::Cow;
 
@@ -42,19 +42,20 @@ impl NvVfioComputeDevice {
         self.userd
             .volatile_write_u32(ramuserd::GP_PUT, self.gpfifo_put);
 
-        // H1 hypothesis: CPU writes GP_PUT to DMA-mapped USERD page, but the write
-        // sits in CPU cache. PBDMA reads via IOMMU DMA and sees stale zero, so
-        // GP_GET never advances. Fix: flush both GPFIFO entry and USERD from CPU
-        // cache before the doorbell, so PBDMA sees the latest values when it
-        // reads after the doorbell notification.
+        // Flush GPFIFO entry and USERD from CPU cache before notification.
+        // On non-coherent platforms, PBDMA reads via IOMMU DMA and may see
+        // stale data without explicit flushes.
         clflush_range(&self.gpfifo_ring.as_slice()[offset..offset + gpfifo::ENTRY_SIZE]);
         clflush_range(self.userd.as_slice());
         memory_fence();
 
-        // Notify the GPU via NV_USERMODE_NOTIFY_CHANNEL_PENDING.
-        self.bar0
-            .write_u32(VfioChannel::doorbell_offset(), self.channel.id())
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
+        if self.channel.has_doorbell() {
+            // Volta+: notify via NV_USERMODE_NOTIFY_CHANNEL_PENDING.
+            self.bar0
+                .write_u32(self.channel.doorbell_offset(), self.channel.id())
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
+        }
+        // Kepler: PBDMA polls USERD GP_PUT directly — the write above is sufficient.
 
         Ok(())
     }

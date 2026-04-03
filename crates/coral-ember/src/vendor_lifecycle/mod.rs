@@ -18,8 +18,9 @@
 //!   unbind. Native driver rebind needs PCI remove/rescan to avoid
 //!   sysfs EEXIST from stale kobjects.
 //!
-//! - **Intel Xe/Arc**: FLR typically available, expected to be well-behaved.
-//!   Stubbed with conservative defaults until empirically validated.
+//! - **Intel Xe/Arc**: `xe`/`i915` DRM drivers start quickly; simple bind without
+//!   `reset_method` sysfs overrides. Post-bind health checks require a DRM
+//!   `card*` sysfs node when the target is a native Intel DRM driver.
 
 mod amd;
 mod brainchip;
@@ -40,7 +41,7 @@ pub use intel::IntelXeLifecycle;
 pub use nvidia::{
     NvidiaKeplerLifecycle, NvidiaLifecycle, NvidiaOpenLifecycle, NvidiaOracleLifecycle,
 };
-pub use types::{RebindStrategy, ResetMethod, VendorLifecycle};
+pub use types::{RebindStrategy, ResetMethod, VendorError, VendorLifecycle};
 
 #[cfg(test)]
 pub(crate) use detect::{is_amd_vega20, is_nvidia_kepler, lifecycle_from_pci_ids};

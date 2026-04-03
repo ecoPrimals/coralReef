@@ -393,6 +393,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         }
     }
 
+    /// Try to extract a compile-time u32 constant from a Naga expression handle.
+    pub(super) fn const_u32(&self, expr: Handle<naga::Expression>) -> Option<u32> {
+        match self.func.expressions[expr] {
+            naga::Expression::Literal(naga::Literal::U32(v)) => Some(v),
+            naga::Expression::Literal(naga::Literal::I32(v)) => Some(v as u32),
+            _ => None,
+        }
+    }
+
     /// Number of 32-bit GPR components needed to represent a type in registers.
     /// Returns 0 for types not eligible for register promotion.
     pub(super) fn type_reg_comps(&self, ty: Handle<naga::Type>) -> u8 {
@@ -488,6 +497,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.dead_code = false;
 
         self.pre_allocate_local_vars();
+        self.apply_local_var_inits()?;
 
         let body = &module.functions[function].body;
         self.translate_block(body)?;

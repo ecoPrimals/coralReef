@@ -80,6 +80,31 @@ impl<S: SysfsOps> DeviceSlot<S> {
             })
     }
 
+    /// PMC soft-reset via BAR0: disables then re-enables all GPU engines.
+    ///
+    /// This is the universal recovery path for GPUs without FLR (K80, Titan V).
+    /// After this call, all engines return to power-on state: falcons halt,
+    /// PFIFO resets, firmware must be re-loaded.
+    pub fn pmc_soft_reset(&self) -> Result<(), DeviceError> {
+        let holder = self
+            .vfio_holder
+            .as_ref()
+            .ok_or_else(|| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — PMC soft-reset requires VFIO personality".into(),
+            })?;
+
+        coral_driver::nv::vfio_compute::pmc_soft_reset(&holder.bar0).map_err(|e| {
+            DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: format!("PMC soft-reset failed: {e}"),
+            }
+        })?;
+
+        tracing::info!(bdf = %self.bdf, "PMC soft-reset completed (no FLR needed)");
+        Ok(())
+    }
+
     /// Read a contiguous range of BAR0 registers.
     ///
     /// Returns up to `count` u32 values starting at `offset` (4-byte aligned).
@@ -354,6 +379,77 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
         self.health.domains_alive = alive;
         self.health.domains_faulted = faulted;
+
+        // Firmware health: FECS, GPCCS, PMU falcon state
+        let fecs_cpuctl = r(0x40_9100);
+        let gpccs_cpuctl = r(0x41_A100);
+        let pmu_cpuctl = r(0x10_A100);
+        self.health.firmware = super::types::FirmwareHealth {
+            fecs_cpuctl,
+            fecs_stopped: fecs_cpuctl & (1 << 5) != 0,
+            fecs_halted: fecs_cpuctl & (1 << 4) != 0,
+            fecs_sctl: r(0x40_9240),
+            fecs_mailbox0: r(0x40_9040),
+            gpccs_cpuctl,
+            gpccs_stopped: gpccs_cpuctl & (1 << 5) != 0,
+            pmu_cpuctl,
+        };
+    }
+
+    /// Enrich firmware health via `ember.fecs.state` (mmap-based BAR0 reads).
+    ///
+    /// Devices with `health_policy = "active"` get live FECS register data
+    /// from ember, which uses mmap rather than the (broken) File::read path.
+    /// Called from the periodic health loop after `check_health`.
+    pub fn enrich_fecs_via_ember(&mut self) {
+        if !self.config.is_health_active() {
+            return;
+        }
+        let Some(ember) = crate::ember::EmberClient::connect() else {
+            return;
+        };
+        match ember.fecs_state(&self.bdf) {
+            Ok(state) => {
+                let parse = |key: &str| -> Option<u32> {
+                    state
+                        .get(key)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| coral_driver::parse_hex_u32(s).ok())
+                };
+                if let Some(cpuctl) = parse("cpuctl") {
+                    self.health.firmware.fecs_cpuctl = cpuctl;
+                }
+                if let Some(sctl) = parse("sctl") {
+                    self.health.firmware.fecs_sctl = sctl;
+                }
+                let pri_fault = state
+                    .get("pri_fault")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                self.health.firmware.fecs_halted = state
+                    .get("halted")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                self.health.firmware.fecs_stopped = state
+                    .get("stopped")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                tracing::debug!(
+                    bdf = %self.bdf,
+                    cpuctl = format_args!("{:#010x}", self.health.firmware.fecs_cpuctl),
+                    halted = self.health.firmware.fecs_halted,
+                    pri_fault,
+                    "FECS state enriched via ember"
+                );
+            }
+            Err(e) => {
+                tracing::debug!(
+                    bdf = %self.bdf,
+                    error = %e,
+                    "ember.fecs.state unavailable for health enrichment"
+                );
+            }
+        }
     }
 
     /// Resurrect HBM2 by cycling through nouveau via ember.

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! WGSL integration saturation — full pipeline (`naga` → IR → opt → legalize → RA → encode)
 //! across every [`NvArch`], plus legacy [`compile_wgsl_raw_sm`] paths for SM20/SM50 encoders.
 //!

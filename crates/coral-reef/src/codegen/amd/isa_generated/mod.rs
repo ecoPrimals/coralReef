@@ -8,52 +8,52 @@
 //! DO NOT EDIT BY HAND. Regenerate with:
 //!   cargo run -p amd-isa-gen
 
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod isa_types;
 
-#[expect(
+#[allow(
     dead_code,
     unused_imports,
     reason = "generated ISA tables from amd-isa-gen"
 )]
 pub mod ds;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod flat;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod flat_glbl;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod flat_scratch;
-#[expect(
+#[allow(
     dead_code,
     unused_imports,
     reason = "generated ISA tables from amd-isa-gen"
 )]
 pub mod mimg;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod mtbuf;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod mubuf;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod smem;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod sop1;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod sop2;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod sopc;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod sopk;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod sopp;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop1;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop2;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop3;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop3p;
-#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
+#[allow(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vopc;
 
 /// Total instruction count across all compute-relevant encodings: 1446

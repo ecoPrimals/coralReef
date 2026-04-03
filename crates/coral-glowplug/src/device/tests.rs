@@ -129,6 +129,7 @@ fn test_device_health_struct() {
         pci_link_width: Some(16),
         domains_alive: 9,
         domains_faulted: 0,
+        firmware: super::types::FirmwareHealth::default(),
     };
     assert!(health.vram_alive);
     assert_eq!(health.boot0, 0x1234_5678);
@@ -137,6 +138,65 @@ fn test_device_health_struct() {
     assert_eq!(health.pci_link_width, Some(16));
     assert_eq!(health.domains_alive, 9);
     assert_eq!(health.domains_faulted, 0);
+}
+
+#[test]
+fn firmware_health_default_is_all_zeros() {
+    let fw = super::types::FirmwareHealth::default();
+    assert_eq!(fw.fecs_cpuctl, 0);
+    assert!(!fw.fecs_stopped);
+    assert!(!fw.fecs_halted);
+    assert_eq!(fw.fecs_sctl, 0);
+    assert_eq!(fw.fecs_mailbox0, 0);
+    assert_eq!(fw.gpccs_cpuctl, 0);
+    assert!(!fw.gpccs_stopped);
+    assert_eq!(fw.pmu_cpuctl, 0);
+}
+
+#[test]
+fn firmware_health_populates_halted_flags() {
+    let fw = super::types::FirmwareHealth {
+        fecs_cpuctl: 0x30, // bit 4 + bit 5 set → firmware halted + CPU stopped
+        fecs_stopped: true,
+        fecs_halted: true,
+        fecs_sctl: 0x2000,
+        fecs_mailbox0: 1,
+        gpccs_cpuctl: 0x20, // bit 5 set → stopped only
+        gpccs_stopped: true,
+        pmu_cpuctl: 0x00, // running
+    };
+    assert!(fw.fecs_stopped);
+    assert!(fw.fecs_halted);
+    assert!(fw.gpccs_stopped);
+    assert_eq!(fw.pmu_cpuctl, 0);
+}
+
+#[test]
+fn device_health_firmware_field_accessible() {
+    let health = DeviceHealth {
+        vram_alive: true,
+        boot0: 0x1400_00A1,
+        pmc_enable: 0x1100,
+        power: PowerState::D0,
+        pci_link_width: Some(16),
+        domains_alive: 5,
+        domains_faulted: 0,
+        firmware: super::types::FirmwareHealth {
+            fecs_cpuctl: 0x30,
+            fecs_stopped: false,
+            fecs_halted: false,
+            fecs_sctl: 0x2000,
+            fecs_mailbox0: 0xABCD,
+            gpccs_cpuctl: 0x30,
+            gpccs_stopped: false,
+            pmu_cpuctl: 0x20,
+        },
+    };
+    assert_eq!(health.firmware.fecs_cpuctl, 0x30);
+    assert_eq!(health.firmware.fecs_sctl, 0x2000);
+    assert_eq!(health.firmware.fecs_mailbox0, 0xABCD);
+    assert_eq!(health.firmware.gpccs_cpuctl, 0x30);
+    assert_eq!(health.firmware.pmu_cpuctl, 0x20);
 }
 
 #[test]

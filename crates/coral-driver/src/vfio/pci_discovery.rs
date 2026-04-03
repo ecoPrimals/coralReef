@@ -291,7 +291,6 @@ pub(crate) fn parse_pci_bdf(bdf: &str) -> Option<(u32, u8, u8, u8)> {
 
 /// PCI base class code (byte 2 of the 3-byte class tuple: class, subclass, prog-if).
 #[must_use]
-#[allow(dead_code, reason = "Reserved for upcoming sysfs topology wiring")]
 pub(crate) fn pci_class_base(class_code_24: u32) -> u8 {
     ((class_code_24 >> 16) & 0xFF) as u8
 }

@@ -36,6 +36,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod regs {
     pub const SEC2_BASE: u32 = 0x087000;
     pub const FECS_BASE: u32 = 0x409000;
@@ -49,8 +50,8 @@ mod regs {
     pub const MAILBOX1: u32 = 0x044;
     pub const BOOTVEC: u32 = 0x104;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 
     pub const PFB_WPR2_BEG: u32 = 0x100CEC;
     pub const PFB_WPR2_END: u32 = 0x100CF0;
@@ -63,6 +64,8 @@ mod regs {
     pub const NV_PMC_ENABLE: u32 = 0x000200;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;
@@ -133,11 +136,11 @@ impl GpuSnapshot {
     }
 
     fn falcon_desc(&self, name: &str, cpuctl: u32, sctl: u32, pc: u32, exci: u32) -> String {
-        let hreset = cpuctl & regs::CPUCTL_HRESET != 0;
         let halted = cpuctl & regs::CPUCTL_HALTED != 0;
-        let running = !hreset && !halted && cpuctl != 0xDEAD;
+        let stopped = cpuctl & regs::CPUCTL_STOPPED != 0;
+        let running = !halted && !stopped && cpuctl != 0xDEAD;
         format!(
-            "{name:6}: cpuctl={cpuctl:#010x} HRESET={hreset:<5} HALTED={halted:<5} \
+            "{name:6}: cpuctl={cpuctl:#010x} HALTED={halted:<5} STOPPED={stopped:<5} \
              RUNNING={running:<5} SCTL={sctl:#06x} PC={pc:#06x} EXCI={exci:#010x}"
         )
     }
@@ -276,6 +279,47 @@ fn snapshot_bar0access(bar0: &mut Bar0Access, label: &str) -> GpuSnapshot {
         wpr2_direct_end,
         wpr1_direct_beg,
         wpr1_direct_end,
+    }
+}
+
+/// Capture snapshot via ember.mmio.read RPC — parasitic BAR0 reads while
+/// nouveau (or any other driver) owns the device. No root access needed.
+///
+/// NOTE: Indexed WPR reads require write-then-read, which ember.mmio.read
+/// cannot do. Those fields are set to 0xDEAD_DEAD; use the direct WPR
+/// registers (PFB_WPR2_BEG/END) for WPR boundary analysis instead.
+fn snapshot_via_ember(bdf: &str, label: &str) -> GpuSnapshot {
+    let rd = |off: u32| crate::helpers::ember_mmio_read(bdf, off).unwrap_or(0xDEAD_DEAD);
+
+    let sec2 = regs::SEC2_BASE;
+    let fecs = regs::FECS_BASE;
+    let gpccs = regs::GPCCS_BASE;
+
+    GpuSnapshot {
+        label: label.to_string(),
+        boot_id: rd(regs::NV_PMC_BOOT_0),
+        pmc_enable: rd(regs::NV_PMC_ENABLE),
+        bar0_window: rd(regs::BAR0_WINDOW),
+        sec2_cpuctl: rd(sec2 + regs::CPUCTL),
+        sec2_sctl: rd(sec2 + regs::SCTL),
+        sec2_pc: rd(sec2 + regs::PC),
+        sec2_exci: rd(sec2 + regs::EXCI),
+        sec2_mb0: rd(sec2 + regs::MAILBOX0),
+        sec2_mb1: rd(sec2 + regs::MAILBOX1),
+        fecs_cpuctl: rd(fecs + regs::CPUCTL),
+        fecs_sctl: rd(fecs + regs::SCTL),
+        fecs_pc: rd(fecs + regs::PC),
+        fecs_exci: rd(fecs + regs::EXCI),
+        gpccs_cpuctl: rd(gpccs + regs::CPUCTL),
+        gpccs_sctl: rd(gpccs + regs::SCTL),
+        gpccs_pc: rd(gpccs + regs::PC),
+        gpccs_exci: rd(gpccs + regs::EXCI),
+        wpr2_idx_start_raw: 0xDEAD_DEAD,
+        wpr2_idx_end_raw: 0xDEAD_DEAD,
+        wpr2_direct_beg: rd(regs::PFB_WPR2_BEG),
+        wpr2_direct_end: rd(regs::PFB_WPR2_END),
+        wpr1_direct_beg: rd(regs::PFB_WPR1_BEG),
+        wpr1_direct_end: rd(regs::PFB_WPR1_END),
     }
 }
 
@@ -462,24 +506,39 @@ fn exp117_wpr2_state_tracking() {
     gp.swap(&bdf, "nouveau").expect("swap→nouveau");
     std::thread::sleep(std::time::Duration::from_secs(4));
 
-    eprintln!("\n── A2: Open BAR0 via sysfs while nouveau is bound ──");
-    let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
-    let mut bar0_sysfs = match Bar0Access::from_sysfs_device(&sysfs_dev) {
-        Ok(b) => {
-            eprintln!("  BAR0 sysfs open: OK ({} MiB)", b.size() / (1024 * 1024));
-            b
+    eprintln!("\n── A2: Read BAR0 while nouveau is bound ──");
+    eprintln!("  Trying ember.mmio.read (parasitic, no root needed)...");
+
+    let snap_nouveau = match crate::ember_client::mmio_read(&bdf, regs::NV_PMC_BOOT_0) {
+        Ok(_) => {
+            eprintln!("  ember.mmio.read: available — using parasitic path");
+            snapshot_via_ember(&bdf, "nouveau-active-ember")
         }
-        Err(e) => {
-            eprintln!("  BAR0 sysfs open FAILED: {e}");
-            eprintln!("  Cannot read state while nouveau is active — aborting Phase A");
-            gp.swap(&bdf, "vfio-pci").expect("swap→vfio-pci");
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            panic!("Phase A requires BAR0 access while nouveau is bound");
+        Err(_) => {
+            eprintln!("  ember.mmio.read: not available, falling back to sysfs BAR0");
+            let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
+            let mut bar0_sysfs = match Bar0Access::from_sysfs_device(&sysfs_dev) {
+                Ok(b) => {
+                    eprintln!("  BAR0 sysfs open: OK ({} MiB)", b.size() / (1024 * 1024));
+                    b
+                }
+                Err(e) => {
+                    eprintln!("  BAR0 sysfs open FAILED: {e}");
+                    eprintln!("  Cannot read state while nouveau is active — aborting Phase A");
+                    gp.swap(&bdf, "vfio-pci").expect("swap→vfio-pci");
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    panic!(
+                        "Phase A requires BAR0 access while nouveau is bound (try running with ember)"
+                    );
+                }
+            };
+            let snap = snapshot_bar0access(&mut bar0_sysfs, "nouveau-active-sysfs");
+            drop(bar0_sysfs);
+            snap
         }
     };
 
     eprintln!("\n── A3: Capture nouveau-active snapshot ──");
-    let snap_nouveau = snapshot_bar0access(&mut bar0_sysfs, "nouveau-active");
     snap_nouveau.print();
 
     eprintln!("\n── A4: WPR2 Analysis ──");
@@ -495,16 +554,16 @@ fn exp117_wpr2_state_tracking() {
     } else {
         eprintln!("  WPR2 is INVALID during nouveau session too");
         eprintln!("  This means FWSEC did not set up WPR2 (or different register layout)");
+        eprintln!(
+            "  (check direct WPR2 registers: beg={:#010x} end={:#010x})",
+            snap_nouveau.wpr2_direct_beg, snap_nouveau.wpr2_direct_end
+        );
     }
 
-    // Read PRAMIN base to understand where nouveau's instance memory is
-    let pramin_base_raw = bar0_sysfs.read_u32(regs::BAR0_WINDOW).unwrap_or(0);
+    let pramin_base_raw = snap_nouveau.bar0_window;
     let pramin_vram_base = (pramin_base_raw as u64) << 16;
     eprintln!("\n── A5: PRAMIN window info ──");
     eprintln!("  BAR0_WINDOW raw={pramin_base_raw:#010x} → VRAM base={pramin_vram_base:#010x}");
-
-    // Drop sysfs BAR0 before driver swap
-    drop(bar0_sysfs);
 
     // ══════════════════════════════════════════════════════════════════════
     // PHASE B: Read GPU state after vfio-pci swap (baseline)
@@ -554,8 +613,8 @@ fn exp117_wpr2_state_tracking() {
     // ══════════════════════════════════════════════════════════════════════
     let sec2_alive_post_swap = {
         let cpuctl = snap_vfio.sec2_cpuctl;
-        cpuctl & regs::CPUCTL_HRESET == 0
-            && cpuctl & regs::CPUCTL_HALTED == 0
+        cpuctl & regs::CPUCTL_HALTED == 0
+            && cpuctl & regs::CPUCTL_STOPPED == 0
             && cpuctl != 0xDEAD_DEAD
             && snap_vfio.sec2_pc > 0x100
     };
@@ -590,9 +649,9 @@ fn exp117_wpr2_state_tracking() {
         let snap_c = snapshot_vfio(&bar0, "post-bootstrap-on-surviving-sec2");
         snap_c.print();
 
-        let fecs_running = snap_c.fecs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        let fecs_running = snap_c.fecs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_c.fecs_cpuctl != 0xDEAD_DEAD;
-        let gpccs_running = snap_c.gpccs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        let gpccs_running = snap_c.gpccs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_c.gpccs_cpuctl != 0xDEAD_DEAD;
 
         if fecs_running && gpccs_running {
@@ -748,12 +807,12 @@ fn exp117_wpr2_state_tracking() {
     eprintln!("  SEC2 SCTL post-swap:       {:#06x}", snap_vfio.sec2_sctl);
     eprintln!(
         "  FECS running (nouveau):    {}",
-        snap_nouveau.fecs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        snap_nouveau.fecs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_nouveau.fecs_cpuctl != 0xDEAD_DEAD
     );
     eprintln!(
         "  GPCCS running (nouveau):   {}",
-        snap_nouveau.gpccs_cpuctl & (regs::CPUCTL_HRESET | regs::CPUCTL_HALTED) == 0
+        snap_nouveau.gpccs_cpuctl & (regs::CPUCTL_HALTED | regs::CPUCTL_STOPPED) == 0
             && snap_nouveau.gpccs_cpuctl != 0xDEAD_DEAD
     );
     eprintln!("{sep}");

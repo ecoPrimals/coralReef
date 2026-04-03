@@ -134,6 +134,16 @@ pub struct ShaderInfo {
     pub io: ShaderIoInfo,
 }
 
+impl ShaderInfo {
+    /// Total shared (workgroup) memory in bytes, as declared by the compute shader.
+    pub fn shared_mem_bytes(&self) -> u32 {
+        match &self.stage {
+            ShaderStageInfo::Compute(cs) => u32::from(cs.shared_mem_size),
+            _ => 0,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shader struct and ISBE analysis
 // ---------------------------------------------------------------------------
@@ -268,6 +278,24 @@ impl Shader<'_> {
     ) {
         for f in &mut self.functions {
             f.map_instrs(&mut map);
+        }
+    }
+
+    /// Convert pre-Volta integer/logic/shift ops to SM70+ equivalents.
+    ///
+    /// Must run before the instruction scheduler since latency tables for SM80+
+    /// do not handle pre-Volta ops like OpIAdd2, OpIMul, OpLop2, etc.
+    /// No-op when targeting SM < 70.
+    pub fn lower_pre_volta_ops(&mut self) {
+        if self.sm.sm() < 70 {
+            return;
+        }
+        for f in &mut self.functions {
+            for b in &mut f.blocks {
+                for instr in &mut b.instrs {
+                    crate::codegen::nv::sm70::lower_pre_volta_op(&mut instr.op);
+                }
+            }
         }
     }
 

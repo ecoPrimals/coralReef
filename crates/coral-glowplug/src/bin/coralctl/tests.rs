@@ -19,8 +19,9 @@ fn resolve_glowplug_socket_path_matches_env_set_semantics() {
 
 #[test]
 fn resolve_glowplug_socket_path_matches_env_unset_semantics() {
-    const FALLBACK_SOCKET: &str = "/run/coralreef/glowplug.sock";
-    assert_eq!(resolve_glowplug_socket_path(None), FALLBACK_SOCKET);
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let expected = format!("{runtime_dir}/biomeos/coral-glowplug-default.sock");
+    assert_eq!(resolve_glowplug_socket_path(None), expected);
 }
 
 #[test]
@@ -94,6 +95,47 @@ bdf = "0000:ff:00.0"
     };
     assert!(dry_run);
     assert_eq!(group, "coralreef");
+    assert_eq!(config.as_deref(), Some(path_str));
+}
+
+#[test]
+fn deploy_boot_config_cli_accepts_config_and_dry_run() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("gp.toml");
+    std::fs::write(
+        &path,
+        r#"
+[[device]]
+bdf = "0000:ff:00.0"
+boot_personality = "vfio"
+"#,
+    )
+    .expect("write");
+    let path_str = path.to_str().expect("utf8 path");
+    let cli = Cli::try_parse_from([
+        "coralctl",
+        "--socket",
+        "/tmp/x.sock",
+        "deploy-boot-config",
+        "--config",
+        path_str,
+        "--dry-run",
+        "--modprobe-output",
+        "/tmp/modprobe.conf",
+    ])
+    .expect("parse");
+    let Command::DeployBootConfig {
+        config,
+        dry_run,
+        modprobe_output,
+        vfio_ids_output,
+    } = cli.command
+    else {
+        panic!("expected DeployBootConfig");
+    };
+    assert!(dry_run);
+    assert_eq!(modprobe_output, "/tmp/modprobe.conf");
+    assert!(vfio_ids_output.is_none());
     assert_eq!(config.as_deref(), Some(path_str));
 }
 

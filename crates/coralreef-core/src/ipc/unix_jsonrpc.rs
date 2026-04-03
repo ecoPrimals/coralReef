@@ -145,3 +145,82 @@ pub use super::newline_jsonrpc::make_response;
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};
+
+#[cfg(all(unix, test))]
+mod unix_jsonrpc_unit_tests {
+    //! Focused coverage for socket path construction and bind lifecycle in this module.
+
+    use std::path::Path;
+
+    use super::{start_unix_jsonrpc_server, unix_socket_path_for_base};
+    use crate::config;
+    use crate::ipc::test_helpers;
+
+    const TEMP_RUNTIME_LEAF: &str = "coralreef_unix_jsonrpc_unit_tests";
+
+    #[test]
+    fn unix_socket_path_for_base_joins_ecosystem_namespace_and_primal_socket_filename() {
+        let base = std::env::temp_dir().join(TEMP_RUNTIME_LEAF);
+        let path = unix_socket_path_for_base(Some(base.clone()));
+        assert!(path.starts_with(&base));
+        assert!(
+            path.ends_with(Path::new(&config::primal_socket_name())),
+            "expected .../<namespace>/{}",
+            config::primal_socket_name()
+        );
+        let ns = path
+            .parent()
+            .and_then(std::path::Path::file_name)
+            .and_then(|n| n.to_str());
+        assert_eq!(ns, Some(config::ecosystem_namespace()));
+    }
+
+    #[test]
+    fn unix_socket_path_for_base_with_none_uses_temp_dir_fallback() {
+        let path = unix_socket_path_for_base(None);
+        assert!(
+            path.ends_with(Path::new(&config::primal_socket_name())),
+            "fallback base should still end with primal socket name"
+        );
+    }
+
+    #[tokio::test]
+    async fn start_unix_jsonrpc_server_removes_stale_socket_file_before_bind() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sock_path = dir
+            .path()
+            .join(format!("stale-socket-{}.sock", std::process::id()));
+        std::fs::write(&sock_path, b"stale").expect("seed stale socket path");
+        let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+        let (_bound, handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+            .await
+            .expect("bind after removing stale file");
+        let _: Result<(), _> = shutdown_tx.send(());
+        handle.await.ok();
+    }
+
+    #[tokio::test]
+    async fn start_unix_jsonrpc_server_installs_capability_symlink_when_under_biomeos() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let biomeos = dir.path().join(config::ecosystem_namespace());
+        let sock_path = biomeos.join(format!("instance-{}.sock", std::process::id()));
+        let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+        let (_bound, handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+            .await
+            .expect("bind under biomeos layout");
+        let domain_link = biomeos.join(config::capability_domain_socket_filename());
+        if domain_link != sock_path {
+            assert!(
+                domain_link.is_symlink() || domain_link.exists(),
+                "expected capability-domain symlink at {}",
+                domain_link.display()
+            );
+        }
+        let _: Result<(), _> = shutdown_tx.send(());
+        handle.await.ok();
+        assert!(
+            !sock_path.exists(),
+            "instance socket path should be removed on shutdown"
+        );
+    }
+}

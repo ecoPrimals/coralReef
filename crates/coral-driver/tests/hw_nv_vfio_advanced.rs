@@ -8,6 +8,10 @@
 mod glowplug_client;
 
 #[cfg(feature = "vfio")]
+#[path = "ember_client.rs"]
+mod ember_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
     use super::glowplug_client::VfioLease;
 
@@ -29,9 +33,20 @@ mod tests {
     fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
         let bdf = vfio_bdf();
         let lease = try_lease(&bdf);
-        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
-            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
-        (lease, raw)
+        match super::ember_client::request_fds(&bdf) {
+            Ok(fds) => {
+                eprintln!("ember: received VFIO fds for {bdf}");
+                let raw = coral_driver::nv::RawVfioDevice::open_from_fds(&bdf, fds)
+                    .expect("RawVfioDevice::open_from_fds()");
+                (lease, raw)
+            }
+            Err(e) => {
+                eprintln!("ember unavailable ({e}), opening VFIO directly");
+                let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
+                    .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+                (lease, raw)
+            }
+        }
     }
 
     #[test]
@@ -427,7 +442,7 @@ mod tests {
     }
 
     /// Scan a VBIOS ROM file for init script register writes.
-    /// Works without hardware — uses a pre-dumped VBIOS from hotSpring/data/.
+    /// Works without hardware — uses a pre-dumped VBIOS from `$CORALREEF_DATA_DIR`.
     #[test]
     #[ignore = "requires VBIOS dump file"]
     fn vbios_script_scanner() {
@@ -727,12 +742,10 @@ mod tests {
         });
 
         let json_str = serde_json::to_string_pretty(&full_result).unwrap();
-        let output_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("hotSpring/data/metal_maps");
+        let output_dir = coral_driver::linux_paths::optional_data_dir()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp/coralreef"))
+            .join("metal_maps");
         let _ = std::fs::create_dir_all(&output_dir);
         let output_path = output_dir.join("titan_v_gv100_metal_map.json");
         let _ = std::fs::write(&output_path, &json_str);

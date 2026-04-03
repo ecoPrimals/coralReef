@@ -65,19 +65,8 @@ impl NvVfioComputeDevice {
             barrier_count: info.barrier_count,
             cbufs,
         };
-        let qmd_words = qmd::build_qmd_for_sm(self.sm_version, &qmd_params);
-        let qmd_bytes: &[u8] = bytemuck::cast_slice(&qmd_words);
 
-        let (qmd_handle, qmd_iova) = self.alloc_dma(qmd_bytes.len())?;
-        temps.push(qmd_handle);
-        self.upload(qmd_handle, 0, qmd_bytes)?;
-
-        let local_mem_window = if self.sm_version >= 70 {
-            LOCAL_MEM_WINDOW_VOLTA
-        } else {
-            LOCAL_MEM_WINDOW_LEGACY
-        };
-        let pb = PushBuf::compute_dispatch(self.compute_class, qmd_iova, local_mem_window);
+        let pb = self.build_dispatch_pushbuf(&qmd_params, shader_iova, temps)?;
         let pb_bytes = pb.as_bytes();
 
         let (pb_handle, pb_iova) = self.alloc_dma(pb_bytes.len())?;
@@ -146,19 +135,8 @@ impl NvVfioComputeDevice {
             barrier_count: info.barrier_count,
             cbufs,
         };
-        let qmd_words = qmd::build_qmd_for_sm(self.sm_version, &qmd_params);
-        let qmd_bytes: &[u8] = bytemuck::cast_slice(&qmd_words);
 
-        let (qmd_handle, qmd_iova) = self.alloc_dma(qmd_bytes.len())?;
-        temps.push(qmd_handle);
-        self.upload(qmd_handle, 0, qmd_bytes)?;
-
-        let local_mem_window = if self.sm_version >= 70 {
-            LOCAL_MEM_WINDOW_VOLTA
-        } else {
-            LOCAL_MEM_WINDOW_LEGACY
-        };
-        let pb = PushBuf::compute_dispatch(self.compute_class, qmd_iova, local_mem_window);
+        let pb = self.build_dispatch_pushbuf(&qmd_params, shader_iova, temps)?;
         let pb_bytes = pb.as_bytes();
 
         let (pb_handle, pb_iova) = self.alloc_dma(pb_bytes.len())?;
@@ -168,5 +146,48 @@ impl NvVfioComputeDevice {
         let pb_size = u32::try_from(pb_bytes.len())
             .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
         self.submit_pushbuf_traced(pb_iova, pb_size)
+    }
+
+    /// Build the architecture-specific QMD + push buffer for dispatch.
+    ///
+    /// Kepler (SM <= 37) uses `cla1c0qmd.h` layout with `PROGRAM_OFFSET`
+    /// relative to `SET_PROGRAM_REGION_A/B`, and different PCAS semantics.
+    /// Volta+ (SM >= 50) uses `clc3c0qmd.h` with absolute `PROGRAM_ADDRESS`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "LOCAL_MEM_WINDOW_LEGACY fits in u32"
+    )]
+    fn build_dispatch_pushbuf(
+        &mut self,
+        qmd_params: &qmd::QmdParams,
+        shader_iova: u64,
+        temps: &mut Vec<BufferHandle>,
+    ) -> DriverResult<PushBuf> {
+        let qmd_words = qmd::build_qmd_for_sm(self.sm_version, qmd_params);
+        let qmd_bytes: &[u8] = bytemuck::cast_slice(&qmd_words);
+
+        let (qmd_handle, qmd_iova) = self.alloc_dma(qmd_bytes.len())?;
+        temps.push(qmd_handle);
+        self.upload(qmd_handle, 0, qmd_bytes)?;
+
+        if self.sm_version <= 37 {
+            Ok(PushBuf::compute_dispatch_kepler(
+                self.compute_class,
+                qmd_iova,
+                shader_iova,
+                LOCAL_MEM_WINDOW_LEGACY as u32,
+            ))
+        } else {
+            let local_mem_window = if self.sm_version >= 70 {
+                LOCAL_MEM_WINDOW_VOLTA
+            } else {
+                LOCAL_MEM_WINDOW_LEGACY
+            };
+            Ok(PushBuf::compute_dispatch(
+                self.compute_class,
+                qmd_iova,
+                local_mem_window,
+            ))
+        }
     }
 }

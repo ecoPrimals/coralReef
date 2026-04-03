@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Deep architecture-specific coverage tests.
 //!
 //! Targets coverage gaps in f64, texture, memory, and control encoding

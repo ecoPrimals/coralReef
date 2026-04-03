@@ -11,7 +11,7 @@
 ///
 /// Construction is `unsafe`; once created, `read()` and `write()` are safe.
 #[derive(Clone, Copy)]
-pub(crate) struct VolatilePtr<T> {
+pub struct VolatilePtr<T> {
     ptr: *mut T,
 }
 
@@ -21,7 +21,7 @@ impl<T: Copy> VolatilePtr<T> {
     /// For MMIO from mmap'd raw pointers, use [`Self::new`].
     #[cfg(test)]
     #[inline]
-    pub(crate) fn from_mut(r: &mut T) -> Self {
+    pub fn from_mut(r: &mut T) -> Self {
         Self {
             ptr: std::ptr::from_mut(r),
         }
@@ -35,24 +35,109 @@ impl<T: Copy> VolatilePtr<T> {
     /// to volatile MMIO (e.g. mmap'd BAR0/BAR region). The caller must ensure
     /// bounds were checked before computing the pointer.
     #[inline]
-    pub(crate) unsafe fn new(ptr: *mut T) -> Self {
+    pub unsafe fn new(ptr: *mut T) -> Self {
         Self { ptr }
     }
 
     /// Volatile read. Safe because validity/alignment were established at construction.
     #[inline]
-    pub(crate) fn read(&self) -> T {
+    pub fn read(&self) -> T {
         // SAFETY: ptr was validated in new(); volatile required for MMIO.
         unsafe { std::ptr::read_volatile(self.ptr) }
     }
 
     /// Volatile write. Safe because validity/alignment were established at construction.
     #[inline]
-    pub(crate) fn write(&self, value: T) {
+    pub fn write(&self, value: T) {
         // SAFETY: ptr was validated in new(); volatile required for MMIO.
         unsafe { std::ptr::write_volatile(self.ptr, value) }
     }
 }
+
+/// Typed MMIO register map — bounds-checked volatile access over a contiguous
+/// memory-mapped region (BAR0, sysfs resource0, etc.).
+///
+/// All unsafe volatile pointer arithmetic is confined to this struct's methods.
+/// Callers construct a `RegisterMap` once (the only unsafe step), then perform
+/// reads and writes through safe APIs.
+///
+/// This eliminates the duplicate bounds-check + `VolatilePtr::new` pattern across
+/// `MappedBar`, `SysfsBar0`, `Bar0Access`, `NouveauOracleBar0`, and `Bar0Capture`.
+pub struct RegisterMap {
+    base: *mut u8,
+    size: usize,
+}
+
+impl RegisterMap {
+    /// Create a `RegisterMap` over a memory-mapped region.
+    ///
+    /// # Safety
+    ///
+    /// `base` must point to a valid mmap'd region of at least `size` bytes.
+    /// The region must remain mapped for the lifetime of this `RegisterMap`.
+    /// The caller is responsible for unmapping (typically via `Drop` on the owning struct).
+    #[inline]
+    pub unsafe fn new(base: *mut u8, size: usize) -> Self {
+        Self { base, size }
+    }
+
+    /// Size of the mapped region in bytes.
+    #[inline]
+    #[must_use]
+    pub const fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Read a 32-bit register at the given byte offset.
+    ///
+    /// Returns `None` if offset is out of bounds or not 4-byte aligned.
+    #[inline]
+    #[must_use]
+    pub fn read_u32(&self, offset: usize) -> Option<u32> {
+        if !offset.is_multiple_of(4) || offset + 4 > self.size {
+            return None;
+        }
+        // SAFETY: base is valid mmap; offset is bounds-checked and aligned.
+        let vol = unsafe { VolatilePtr::new(self.base.add(offset).cast::<u32>()) };
+        Some(vol.read())
+    }
+
+    /// Write a 32-bit register at the given byte offset.
+    ///
+    /// Returns `false` if offset is out of bounds or not 4-byte aligned.
+    #[inline]
+    pub fn write_u32(&self, offset: usize, value: u32) -> bool {
+        if !offset.is_multiple_of(4) || offset + 4 > self.size {
+            return false;
+        }
+        // SAFETY: base is valid mmap; offset is bounds-checked and aligned.
+        let vol = unsafe { VolatilePtr::new(self.base.add(offset).cast::<u32>()) };
+        vol.write(value);
+        true
+    }
+
+    /// Read a 32-bit register, returning 0xDEAD_DEAD for out-of-bounds access.
+    ///
+    /// Useful in diagnostic contexts where sentinel values are acceptable.
+    #[inline]
+    #[must_use]
+    pub fn read_u32_or_dead(&self, offset: usize) -> u32 {
+        self.read_u32(offset).unwrap_or(0xDEAD_DEAD)
+    }
+
+    /// Base pointer (for callers that need to construct sub-regions).
+    #[inline]
+    #[must_use]
+    pub const fn base_ptr(&self) -> *mut u8 {
+        self.base
+    }
+}
+
+// SAFETY: RegisterMap holds a raw pointer to mmap'd memory. Access is through
+// volatile reads/writes which are inherently atomic for 32-bit aligned access
+// on x86_64. The mmap lifetime is managed by the owning struct.
+unsafe impl Send for RegisterMap {}
+unsafe impl Sync for RegisterMap {}
 
 #[cfg(test)]
 mod tests {

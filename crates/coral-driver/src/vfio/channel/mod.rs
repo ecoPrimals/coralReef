@@ -18,6 +18,8 @@
 pub mod devinit;
 pub mod glowplug;
 pub mod hbm2_training;
+pub mod kepler;
+mod kepler_page_tables;
 #[expect(
     missing_docs,
     reason = "diagnostic oracle — struct fields are self-documenting"
@@ -38,6 +40,7 @@ pub use diagnostic::{
     build_experiment_matrix, build_metal_discovery_matrix, diagnostic_matrix,
     interpreter::{ProbeInterpreter, ProbeReport, memory_probe},
 };
+pub use kepler::KeplerChannel;
 pub use pfifo::PfifoInitConfig;
 pub use registers::ramuserd;
 
@@ -48,6 +51,56 @@ use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::dma::DmaBuffer;
 
 use registers::*;
+
+/// GPU hardware channel — wraps either a Volta+ or Kepler channel.
+///
+/// The channel type is selected based on SM version during device open:
+/// - SM >= 70 (Volta+): 5-level V2 page tables, USERMODE doorbell, GV100 runlists
+/// - SM < 70 (Kepler): 2-level V1 page tables, USERD polling, GK104 runlists
+pub enum GpuChannel {
+    /// Volta / Turing / Ampere / Ada channel (SM >= 70).
+    Volta(VfioChannel),
+    /// Kepler channel (SM 30–37).
+    Kepler(KeplerChannel),
+}
+
+impl GpuChannel {
+    /// Channel ID used for PCCSR/submission reference.
+    #[must_use]
+    pub fn id(&self) -> u32 {
+        match self {
+            Self::Volta(ch) => ch.id(),
+            Self::Kepler(ch) => ch.id(),
+        }
+    }
+
+    /// Whether this channel uses a USERMODE doorbell (Volta+) or
+    /// relies on PBDMA polling USERD (Kepler).
+    #[must_use]
+    pub const fn has_doorbell(&self) -> bool {
+        matches!(self, Self::Volta(_))
+    }
+
+    /// BAR0 offset for the USERMODE doorbell register (Volta+ only).
+    ///
+    /// Panics if called on a Kepler channel.
+    #[must_use]
+    pub fn doorbell_offset(&self) -> usize {
+        match self {
+            Self::Volta(_) => VfioChannel::doorbell_offset(),
+            Self::Kepler(_) => panic!("Kepler channels do not have a USERMODE doorbell"),
+        }
+    }
+}
+
+impl std::fmt::Debug for GpuChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Volta(ch) => ch.fmt(f),
+            Self::Kepler(ch) => ch.fmt(f),
+        }
+    }
+}
 
 /// PFIFO hardware channel — owns all DMA resources for a single GPU channel.
 ///
@@ -90,7 +143,15 @@ impl VfioChannel {
         userd_iova: u64,
         channel_id: u32,
     ) -> DriverResult<Self> {
-        Self::create_with_config(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id, &pfifo::PfifoInitConfig::default())
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::default(),
+        )
     }
 
     /// Create a VFIO channel in warm handoff mode — preserves PFIFO/PMC
@@ -103,7 +164,40 @@ impl VfioChannel {
         userd_iova: u64,
         channel_id: u32,
     ) -> DriverResult<Self> {
-        Self::create_with_config(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id, &pfifo::PfifoInitConfig::warm_handoff())
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::warm_handoff(),
+        )
+    }
+
+    /// Create a channel for FECS-frozen warm handoff (Exp 132 diesel engine).
+    ///
+    /// After `coralctl warm-fecs` with STOP_CTXSW, FECS firmware is alive
+    /// but scheduling is frozen. PFIFO infrastructure (channels, PBDMA,
+    /// runlists) was destroyed by nouveau's teardown. This config rebuilds
+    /// everything while preserving falcon state.
+    pub fn create_warm_fecs(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+    ) -> DriverResult<Self> {
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::warm_fecs(),
+        )
     }
 
     fn create_with_config(
@@ -147,7 +241,8 @@ impl VfioChannel {
             );
         };
 
-        let (runq, runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
+        let (runq, discovered_runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
+        chan.runlist_id = discovered_runlist_id;
         pfifo_trace(bar0, "after-pfifo-init");
 
         // Configure BAR2 in PHYSICAL mode targeting system memory.
@@ -478,7 +573,7 @@ impl VfioChannel {
     ///   SUBMIT(rl) = 0x2274 + rl*0x10 → upper_32(iova >> 12) | (count << 16)
     /// Writing SUBMIT triggers the scheduler.
     /// Source: nouveau `gv100_runl_commit()`.
-    fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
+    pub fn submit_runlist(&self, bar0: &MappedBar) -> DriverResult<()> {
         let rl_base = registers::pfifo::gv100_runlist_base_value(RUNLIST_IOVA)
             | (TARGET_SYS_MEM_COHERENT << 28);
         let rl_submit = registers::pfifo::gv100_runlist_submit_value(RUNLIST_IOVA, 2);

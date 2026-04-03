@@ -23,11 +23,10 @@ use coral_driver::nv::vfio_compute::acr_boot::{
     AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
     attempt_sysmem_acr_boot_with_config,
 };
-use coral_driver::vfio::channel::devinit::{
-    DevinitStatus, FalconDiagnostic, execute_devinit_with_diagnostics,
-};
+use coral_driver::vfio::channel::devinit::{DevinitStatus, execute_devinit_with_diagnostics};
 use coral_driver::vfio::device::MappedBar;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod r120 {
     pub const SEC2_BASE: usize = 0x087000;
     pub const FECS_BASE: usize = 0x409000;
@@ -41,8 +40,8 @@ mod r120 {
     pub const MAILBOX0: usize = 0x040;
     pub const HWCFG: usize = 0x108;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
     pub const INDEXED_WPR: usize = 0x100CD4;
 
     pub const PMC_BOOT0: usize = 0x000000;
@@ -67,8 +66,8 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     let pc = bar0.read_u32(base + r120::PC).unwrap_or(0xDEAD);
     let exci = bar0.read_u32(base + r120::EXCI).unwrap_or(0xDEAD);
     let mb0 = bar0.read_u32(base + r120::MAILBOX0).unwrap_or(0xDEAD);
-    let hreset = cpuctl & r120::CPUCTL_HRESET != 0;
     let halted = cpuctl & r120::CPUCTL_HALTED != 0;
+    let stopped = cpuctl & r120::CPUCTL_STOPPED != 0;
     let sctl_mode = match sctl {
         0x3000 => "LS",
         0x3002 => "HS",
@@ -77,7 +76,7 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     };
     eprintln!(
         "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x}({sctl_mode}) \
-         PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} hreset={hreset} halted={halted}"
+         PC={pc:#06x} EXCI={exci:#010x} MB0={mb0:#010x} halted={halted} stopped={stopped}"
     );
 }
 
@@ -144,7 +143,7 @@ fn exp120_sovereign_devinit() {
 
     eprintln!("\n  ── WPR2 (post-DEVINIT) ──");
     let (w_s2, w_e2, w_v2) = read_wpr2(bar0);
-    let w_sz2 = if w_e2 > w_s2 { w_e2 - w_s2 } else { 0 };
+    let w_sz2 = w_e2.saturating_sub(w_s2);
     eprintln!("  WPR2: start={w_s2:#012x} end={w_e2:#012x} size={w_sz2:#x} valid={w_v2}");
 
     let status2 = DevinitStatus::probe(bar0);

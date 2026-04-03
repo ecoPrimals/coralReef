@@ -12,6 +12,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+naga = ["dep:naga"]
+
 [dependencies]
 coral-reef-isa = { workspace = true }
 coral-reef-stubs = { workspace = true }
@@ -19,13 +23,13 @@ bitview = { workspace = true }
 nak_ir_proc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-naga = { version = "28", features = ["wgsl-in", "spv-in", "spv-out", "glsl-in"] }
+naga = { workspace = true, features = ["spv-in", "spv-out", "glsl-in"], optional = true }
 
 [[bench]]
 name = "compile_bench"
 harness = false
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { workspace = true }
 proptest = { workspace = true }
-naga = { version = "28", features = ["wgsl-in", "spv-out"] }
+naga = { workspace = true, features = ["spv-out"] }

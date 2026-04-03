@@ -40,6 +40,11 @@ struct Cli {
     /// Auto-discover GPUs on the PCI bus.
     #[arg(long)]
     auto: bool,
+
+    /// Optional TCP port for raw newline-delimited JSON-RPC (ecoBin IPC standard).
+    /// Binds `$CORALREEF_BIND_ADDR:{port}` (default `127.0.0.1`) alongside the primary Unix socket.
+    #[arg(long)]
+    port: Option<u16>,
 }
 
 fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
@@ -227,8 +232,8 @@ async fn main() {
     // If ember is reachable but unresponsive (stuck in D-state from a
     // previous swap), skip it entirely to avoid blocking all device
     // activations behind a 5s timeout per device.
-    let ember_client = ember::EmberClient::connect().and_then(|client| {
-        match client.list_devices() {
+    let ember_client =
+        ember::EmberClient::connect().and_then(|client| match client.list_devices() {
             Ok(ember_devices) => {
                 tracing::info!(
                     devices = ?ember_devices,
@@ -244,8 +249,7 @@ async fn main() {
                 );
                 None
             }
-        }
-    });
+        });
     if ember_client.is_none() {
         tracing::info!(
             "ember not available — VFIO fds will be opened directly \
@@ -383,6 +387,28 @@ async fn main() {
             .await;
     });
 
+    let tcp_handle = if let Some(port) = cli.port {
+        let tcp_addr = format!("{}:{port}", config::tcp_bind_addr());
+        match socket::SocketServer::bind(&tcp_addr).await {
+            Ok(tcp_server) => {
+                tracing::info!(port, "║ TCP (newline JSON-RPC): {}", tcp_server.bound_addr());
+                let tcp_devices = devices.clone();
+                let mut tcp_shutdown = shutdown_rx.clone();
+                Some(tokio::spawn(async move {
+                    tcp_server
+                        .accept_loop(tcp_devices, &mut tcp_shutdown)
+                        .await;
+                }))
+            }
+            Err(e) => {
+                tracing::error!(port, error = %e, "failed to bind TCP listener");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
     else {
         tracing::error!("failed to register SIGTERM handler");
@@ -402,8 +428,10 @@ async fn main() {
     tracing::info!("shutting down — signalling background tasks to stop");
     let _ = shutdown_tx.send(true);
 
-    // Give background tasks up to 2s to release the mutex gracefully
     accept_handle.abort();
+    if let Some(h) = tcp_handle {
+        h.abort();
+    }
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let shutdown_timeout = std::time::Duration::from_secs(5);

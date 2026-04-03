@@ -181,6 +181,32 @@ pub fn fecs_wfi_golden_save(bar0: &MappedBar, inst_addr: u64) -> DriverResult<()
     Ok(())
 }
 
+/// Stop context switching on the GR engine.
+///
+/// FECS method `0x01` — tells FECS to stop scheduling contexts. After this
+/// method completes, FECS will not switch between channels but remains
+/// running (not halted). This is useful for the warm handoff window: freeze
+/// FECS scheduling so it won't idle-halt due to an empty runlist, then swap.
+///
+/// Nouveau uses this in `gf100_gr_fecs_stop_ctxsw()`.
+pub fn fecs_stop_ctxsw(bar0: &MappedBar) -> DriverResult<()> {
+    tracing::info!("FECS: stop context switching (method 0x01)");
+    fecs_ctrl_ctxsw(bar0, 0x01, 0, 2000)?;
+    Ok(())
+}
+
+/// Start (resume) context switching on the GR engine.
+///
+/// FECS method `0x02` — tells FECS to resume scheduling contexts. Called
+/// after channel setup or after a stop_ctxsw to re-enable scheduling.
+///
+/// Nouveau uses this in `gf100_gr_fecs_start_ctxsw()`.
+pub fn fecs_start_ctxsw(bar0: &MappedBar) -> DriverResult<()> {
+    tracing::info!("FECS: start context switching (method 0x02)");
+    fecs_ctrl_ctxsw(bar0, 0x02, 0, 2000)?;
+    Ok(())
+}
+
 /// Apply GP100+ FECS exception configuration.
 ///
 /// Nouveau's `gp100_gr_init_fecs_exceptions` writes `0x409c24 = 0x000e0002`.

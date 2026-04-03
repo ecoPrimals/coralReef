@@ -51,9 +51,15 @@ pub const DEFAULT_REGISTER_DUMP_OFFSETS: &[usize] = &[
     0x40_0100, 0x40_0108, 0x40_0110, // FECS Falcon
     0x40_9028, 0x40_9030, 0x40_9034, 0x40_9038, 0x40_9040, 0x40_9044, 0x40_904C, 0x40_9080,
     0x40_9084, 0x40_9100, 0x40_9104, 0x40_9108, 0x40_9110, 0x40_9210, 0x40_9380,
+    // FECS diagnostic (SCTL, PC, EXCI, BOOTVEC, MTHD_DATA, MTHD_STATUS, FBIF_TRANSCFG)
+    0x40_9240, 0x40_9030, 0x40_9148, 0x40_9104, 0x40_9500, 0x40_9800, 0x40_9624,
     // GPCCS Falcon
     0x41_A028, 0x41_A030, 0x41_A034, 0x41_A038, 0x41_A040, 0x41_A044, 0x41_A04C, 0x41_A080,
-    0x41_A084, 0x41_A100, 0x41_A108, // MMU Fault buffer
+    0x41_A084, 0x41_A100, 0x41_A108,
+    // GPCCS diagnostic (SCTL, PC, EXCI, BOOTVEC, FBIF_TRANSCFG)
+    0x41_A240, 0x41_A030, 0x41_A148, 0x41_A104, 0x41_A624,
+    // SEC2 Falcon (base 0x87000)
+    0x08_7100, 0x08_7240, 0x08_7040, 0x08_7044, // MMU Fault buffer
     0x10_0E24, 0x10_0E28, 0x10_0E2C, 0x10_0E30, // LTC (L2 cache)
     0x17_E200, 0x17_E204, 0x17_E210, // FBPA0
     0x9A_0000, 0x9A_0004, 0x9A_0200, // THERM
@@ -108,4 +114,26 @@ pub struct DeviceHealth {
     pub pci_link_width: Option<u8>,
     pub domains_alive: usize,
     pub domains_faulted: usize,
+    pub firmware: FirmwareHealth,
+}
+
+/// Falcon firmware health summary for FECS and GPCCS.
+#[derive(Debug, Clone, Default)]
+pub struct FirmwareHealth {
+    /// FECS CPUCTL — 0 if unreachable.
+    pub fecs_cpuctl: u32,
+    /// FECS CPU stopped / idle (CPUCTL bit 5).
+    pub fecs_stopped: bool,
+    /// FECS firmware halted (HALT instruction; CPUCTL bit 4).
+    pub fecs_halted: bool,
+    /// FECS SCTL security mode.
+    pub fecs_sctl: u32,
+    /// FECS mailbox0 (firmware communication).
+    pub fecs_mailbox0: u32,
+    /// GPCCS CPUCTL.
+    pub gpccs_cpuctl: u32,
+    /// GPCCS CPU stopped / idle (CPUCTL bit 5).
+    pub gpccs_stopped: bool,
+    /// PMU CPUCTL.
+    pub pmu_cpuctl: u32,
 }

@@ -170,3 +170,26 @@ fn cmd_compile_opt_levels_above_documented_range() {
         );
     }
 }
+
+#[test]
+fn cmd_compile_empty_wgsl_file_produces_error_exit() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("empty.wgsl");
+    std::fs::write(&input, "").expect("write empty wgsl");
+    let result = cmd_compile(&input, None, GpuArch::Sm70, 2, true);
+    assert!(
+        matches!(result, UniBinExit::GeneralError | UniBinExit::ConfigError),
+        "empty WGSL should not succeed as a valid shader"
+    );
+}
+
+#[test]
+fn cmd_compile_explicit_output_with_extension_replaces_stem() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("shader.wgsl");
+    std::fs::write(&input, "@compute @workgroup_size(1)\nfn main() {}").expect("write wgsl");
+    let output = dir.path().join("out.custom.bin");
+    let result = cmd_compile(&input, Some(output.as_path()), GpuArch::Sm70, 2, true);
+    assert!(matches!(result, UniBinExit::Success));
+    assert!(output.exists(), "output path should be honored exactly");
+}

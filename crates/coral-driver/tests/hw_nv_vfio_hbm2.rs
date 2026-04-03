@@ -8,6 +8,10 @@
 mod glowplug_client;
 
 #[cfg(feature = "vfio")]
+#[path = "ember_client.rs"]
+mod ember_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
     use super::glowplug_client::VfioLease;
 
@@ -26,22 +30,35 @@ mod tests {
         }
     }
 
+    fn open_raw(bdf: &str) -> coral_driver::nv::RawVfioDevice {
+        match super::ember_client::request_fds(bdf) {
+            Ok(fds) => {
+                eprintln!("ember: received VFIO fds for {bdf}");
+                coral_driver::nv::RawVfioDevice::open_from_fds(bdf, fds)
+                    .expect("RawVfioDevice::open_from_fds()")
+            }
+            Err(e) => {
+                eprintln!("ember unavailable ({e}), opening VFIO directly");
+                coral_driver::nv::RawVfioDevice::open(bdf)
+                    .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?")
+            }
+        }
+    }
+
     fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
         let bdf = vfio_bdf();
         let lease = try_lease(&bdf);
-        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
-            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+        let raw = open_raw(&bdf);
         (lease, raw)
     }
 
     #[test]
     #[ignore = "requires VFIO-bound GPU hardware"]
     fn vfio_hbm2_phy_probe() {
-        use coral_driver::nv::RawVfioDevice;
         use coral_driver::vfio::channel::hbm2_training::{snapshot_fbpa, volta_hbm2};
 
         let bdf = vfio_bdf();
-        let raw = RawVfioDevice::open(&bdf).expect("RawVfioDevice::open()");
+        let raw = open_raw(&bdf);
 
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║ HBM2 PHY PROBE — FBPA Partition Status                    ║");
@@ -158,9 +175,9 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&capture).unwrap_or_default();
-        let out_dir = std::env::var("HOTSPRING_DATA_DIR")
+        let out_dir = coral_driver::linux_paths::optional_data_dir()
             .map(|d| format!("{d}/metal_maps"))
-            .unwrap_or_else(|_| "/tmp/coralreef/metal_maps".into());
+            .unwrap_or_else(|| "/tmp/coralreef/metal_maps".into());
         let out_path = format!("{out_dir}/titan_v_hbm2_timing_capture.json");
         if let Err(e) = std::fs::create_dir_all(&out_dir) {
             eprintln!("║ WARNING: cannot create {out_dir}: {e}");

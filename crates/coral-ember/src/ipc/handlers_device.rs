@@ -6,13 +6,18 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, RwLock};
 
+use coral_driver::gsp::RegisterAccess;
+
 use crate::hold::HeldDevice;
 use crate::journal::{Journal, JournalEntry};
 use crate::swap;
 use crate::sysfs;
 
 use super::fd::send_with_fds;
-use super::helpers::{require_managed_bdf, try_reset_methods};
+use super::helpers::{
+    device_has_flr, require_managed_bdf, try_pmc_soft_reset, try_reset_methods_with_flr,
+    try_vfio_flr,
+};
 use super::jsonrpc::{ipc_io_error_string, make_jsonrpc_ok, write_jsonrpc_error, write_jsonrpc_ok};
 
 pub(crate) fn vfio_fds(
@@ -100,6 +105,52 @@ pub(crate) fn list(
         .map_err(ipc_io_error_string)
 }
 
+/// `ember.shutdown` — graceful shutdown: drain all held devices with guarded close.
+///
+/// This is the ONLY safe way to stop ember when GPUs may be in a degraded
+/// state (BAR0 = 0xFFFFFFFF from prior experiments). Direct SIGTERM causes
+/// the kernel to close VFIO fds synchronously, which can D-state the host
+/// if the PCIe endpoint is unresponsive.
+///
+/// Called by `ExecStop=` in the systemd service file before SIGTERM.
+pub(crate) fn shutdown(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+) -> Result<(), String> {
+    tracing::info!("ember.shutdown: draining all held devices with guarded close");
+
+    let devices: Vec<(String, HeldDevice)> = match held.write() {
+        Ok(mut map) => map.drain().collect(),
+        Err(e) => {
+            tracing::error!(error = %e, "shutdown: held lock poisoned");
+            return write_jsonrpc_error(stream, id, -32000, "held lock poisoned")
+                .map_err(ipc_io_error_string);
+        }
+    };
+
+    let count = devices.len();
+    for (bdf, device) in devices {
+        tracing::info!(bdf = %bdf, "shutdown: guarded close");
+        crate::guarded_open::guarded_vfio_close(device, &bdf);
+    }
+
+    tracing::info!(count, "ember.shutdown: all devices released");
+
+    write_jsonrpc_ok(
+        stream,
+        id,
+        serde_json::json!({"status": "shutdown_complete", "devices_released": count}),
+    )
+    .map_err(ipc_io_error_string)?;
+
+    // Flush the response, then exit cleanly. std::process::exit runs
+    // atexit handlers but not Rust destructors — which is fine since
+    // we've already drained the held map.
+    tracing::info!("ember exiting cleanly after shutdown");
+    std::process::exit(0);
+}
+
 pub(crate) fn release(
     stream: &mut impl Write,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -118,10 +169,11 @@ pub(crate) fn release(
     let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
     match map.remove(bdf) {
         Some(device) => {
-            drop(device);
-            tracing::info!(bdf, "ember released VFIO fds for swap");
+            let bdf_owned = bdf.to_string();
             drop(map);
-            write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf}))
+            crate::guarded_open::guarded_vfio_close(device, &bdf_owned);
+            tracing::info!(bdf = %bdf_owned, "ember released VFIO fds for swap");
+            write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf_owned}))
                 .map_err(ipc_io_error_string)
         }
         None => {
@@ -168,7 +220,17 @@ pub(crate) fn reacquire(
         drop(map);
         write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf})).map_err(ipc_io_error_string)
     } else {
-        match coral_driver::vfio::VfioDevice::open(bdf) {
+        // Use guarded open: reacquire can be called for any device including
+        // cold-sensitive ones. The guarded path protects the IPC handler
+        // thread from entering D-state on unresponsive hardware.
+        let lifecycle = crate::vendor_lifecycle::detect_lifecycle(bdf);
+        let open_result = if lifecycle.is_cold_sensitive() {
+            crate::guarded_open::guarded_vfio_open(bdf, crate::guarded_open::GUARDED_OPEN_TIMEOUT)
+                .map_err(|e| e.to_string())
+        } else {
+            coral_driver::vfio::VfioDevice::open(bdf).map_err(|e| e.to_string())
+        };
+        match open_result {
             Ok(device) => {
                 let req_eventfd = crate::arm_req_irq(&device, bdf);
                 tracing::info!(
@@ -185,6 +247,7 @@ pub(crate) fn reacquire(
                         device,
                         ring_meta: crate::hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
                     },
                 );
                 drop(map);
@@ -221,6 +284,10 @@ pub(crate) fn swap(
         .get("trace")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let allow_cold = params
+        .get("allow_cold")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     match require_managed_bdf(bdf, managed_bdfs, stream, id.clone()) {
         Ok(()) => {}
         Err(early) => return early.map_err(ipc_io_error_string),
@@ -236,7 +303,7 @@ pub(crate) fn swap(
         return Ok(());
     }
     let mut map = held.write().map_err(|e| format!("lock poisoned: {e}"))?;
-    match swap::handle_swap_device_with_journal(bdf, target, &mut map, enable_trace, journal) {
+    match swap::handle_swap_device_with_journal(bdf, target, &mut map, enable_trace, journal, allow_cold) {
         Ok(obs) => {
             drop(map);
             if let Some(j) = journal
@@ -258,6 +325,7 @@ pub(crate) fn swap(
 
 pub(crate) fn device_reset(
     stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
     managed_bdfs: &HashSet<String>,
     id: serde_json::Value,
     params: &serde_json::Value,
@@ -295,14 +363,32 @@ pub(crate) fn device_reset(
         "ember.device_reset: starting"
     );
 
+    let has_flr = device_has_flr(bdf);
+    tracing::info!(bdf, method, has_flr, "ember.device_reset: FLR capability check");
+
     let reset_start = std::time::Instant::now();
     let result = match method {
+        "flr" => {
+            if !has_flr {
+                Err(format!("{bdf} does not support PCIe FLR — use 'pmc', 'sbr', or 'auto'"))
+            } else {
+                try_vfio_flr(bdf, held)
+            }
+        }
+        "pmc" => try_pmc_soft_reset(bdf),
         "sbr" => sysfs::pci_device_reset(bdf),
         "bridge-sbr" => sysfs::pci_bridge_reset(bdf),
         "remove-rescan" => sysfs::pci_remove_rescan(bdf),
-        "auto" => try_reset_methods(bdf, &methods),
+        "auto" => {
+            if has_flr {
+                try_reset_methods_with_flr(bdf, &methods, held).map_err(|e| e.to_string())
+            } else {
+                tracing::info!(bdf, "no FLR — auto-selecting PMC soft-reset");
+                try_pmc_soft_reset(bdf)
+            }
+        }
         other => Err(format!(
-            "unknown reset method: {other} (use 'auto', 'sbr', 'bridge-sbr', 'remove-rescan')"
+            "unknown reset method: {other} (use 'auto', 'flr', 'pmc', 'sbr', 'bridge-sbr', 'remove-rescan')"
         )),
     };
     let duration_ms = reset_start.elapsed().as_millis() as u64;
@@ -416,4 +502,248 @@ pub(crate) fn ring_meta_set(
         write_jsonrpc_error(stream, id, -32000, &format!("{bdf}: not held by ember"))
             .map_err(ipc_io_error_string)
     }
+}
+
+/// `ember.mmio.read` — read a single BAR0 register via mmap.
+pub(crate) fn mmio_read(
+    stream: &mut impl Write,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), String> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or("missing 'bdf' parameter")?;
+    let offset = parse_hex_or_dec(params.get("offset"), "offset")?;
+
+    let resource0 = format!(
+        "{}/resource0",
+        coral_driver::linux_paths::sysfs_pci_device_path(bdf)
+    );
+    let bar0 = match coral_driver::nv::bar0::Bar0Access::open_resource_readonly(&resource0) {
+        Ok(b) => b,
+        Err(e) => {
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("BAR0 open failed for {bdf}: {e}"),
+            )
+            .map_err(ipc_io_error_string);
+        }
+    };
+
+    match bar0.read_u32(offset) {
+        Ok(value) => write_jsonrpc_ok(
+            stream,
+            id,
+            serde_json::json!({
+                "value": format!("{value:#010x}"),
+                "offset": format!("{offset:#010x}"),
+            }),
+        )
+        .map_err(ipc_io_error_string),
+        Err(e) => write_jsonrpc_error(
+            stream,
+            id,
+            -32000,
+            &format!("mmio read at {offset:#x}: {e}"),
+        )
+        .map_err(ipc_io_error_string),
+    }
+}
+
+/// `ember.mmio.write` — write a single BAR0 register via mmap.
+///
+/// Required for warm handoff FECS freeze: glowplug sends `STOP_CTXSW`
+/// through BAR0 while nouveau is still bound, freezing FECS scheduling
+/// before the driver teardown destroys channels and runlists.
+///
+/// # Safety architecture (Exp 140)
+///
+/// Pre-write: BOOT0 health gate — refuses writes if GPU is unresponsive.
+/// Post-write: PRI ring check — detects if the write caused a PRI fault.
+/// Both checks prevent the write-cascade → BAR0-death → D-state chain.
+pub(crate) fn mmio_write(
+    stream: &mut impl Write,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), String> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or("missing 'bdf' parameter")?;
+    let offset = parse_hex_or_dec(params.get("offset"), "offset")?;
+    let value = parse_hex_or_dec(params.get("value"), "value")?;
+
+    if offset % 4 != 0 {
+        return write_jsonrpc_error(
+            stream,
+            id,
+            -32602,
+            &format!("offset {offset:#x} is not 4-byte aligned"),
+        )
+        .map_err(ipc_io_error_string);
+    }
+
+    let resource0 = format!(
+        "{}/resource0",
+        coral_driver::linux_paths::sysfs_pci_device_path(bdf)
+    );
+    let mut bar0 = match coral_driver::nv::bar0::Bar0Access::open_resource(&resource0) {
+        Ok(b) => b,
+        Err(e) => {
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("BAR0 open (rw) failed for {bdf}: {e}"),
+            )
+            .map_err(ipc_io_error_string);
+        }
+    };
+
+    // Pre-write BOOT0 health gate: refuse to write if GPU is not responding.
+    let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+    if boot0 == 0xFFFF_FFFF {
+        tracing::error!(bdf, "mmio_write: BOOT0=0xFFFFFFFF — GPU dead, refusing write");
+        return write_jsonrpc_error(
+            stream,
+            id,
+            -32000,
+            &format!("{bdf}: GPU not responding (BOOT0=0xFFFFFFFF) — write refused to prevent cascade"),
+        )
+        .map_err(ipc_io_error_string);
+    }
+
+    tracing::info!(
+        bdf,
+        offset = format_args!("{offset:#010x}"),
+        value = format_args!("{value:#010x}"),
+        boot0 = format_args!("{boot0:#010x}"),
+        "ember.mmio.write"
+    );
+
+    match bar0.write_u32(offset, value) {
+        Ok(()) => {
+            let readback = bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD);
+
+            // Post-write health check: verify BOOT0 is still alive.
+            let boot0_post = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+            let pri_ring = bar0.read_u32(0x12_0100).unwrap_or(0xDEAD_DEAD);
+            let gpu_alive = boot0_post != 0xFFFF_FFFF;
+            let pri_faulted = pri_ring & 0xFFFF_0000 == 0xBADF_0000;
+
+            if !gpu_alive {
+                tracing::error!(
+                    bdf,
+                    offset = format_args!("{offset:#010x}"),
+                    value = format_args!("{value:#010x}"),
+                    "mmio_write KILLED BAR0 — BOOT0 went 0xFFFFFFFF after write"
+                );
+            } else if pri_faulted {
+                tracing::warn!(
+                    bdf,
+                    offset = format_args!("{offset:#010x}"),
+                    pri_ring = format_args!("{pri_ring:#010x}"),
+                    "mmio_write caused PRI ring fault — GPU partially degraded"
+                );
+            }
+
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({
+                    "offset": format!("{offset:#010x}"),
+                    "value": format!("{value:#010x}"),
+                    "readback": format!("{readback:#010x}"),
+                    "gpu_alive": gpu_alive,
+                    "pri_ring": format!("{pri_ring:#010x}"),
+                }),
+            )
+            .map_err(ipc_io_error_string)
+        }
+        Err(e) => write_jsonrpc_error(
+            stream,
+            id,
+            -32000,
+            &format!("mmio write at {offset:#x}: {e}"),
+        )
+        .map_err(ipc_io_error_string),
+    }
+}
+
+/// `ember.fecs.state` — structured FECS register snapshot via BAR0 mmap.
+pub(crate) fn fecs_state(
+    stream: &mut impl Write,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), String> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or("missing 'bdf' parameter")?;
+
+    let resource0 = format!(
+        "{}/resource0",
+        coral_driver::linux_paths::sysfs_pci_device_path(bdf)
+    );
+    let bar0 = match coral_driver::nv::bar0::Bar0Access::open_resource_readonly(&resource0) {
+        Ok(b) => b,
+        Err(e) => {
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("BAR0 open failed for {bdf}: {e}"),
+            )
+            .map_err(ipc_io_error_string);
+        }
+    };
+
+    use coral_driver::nv::bar0::{FECS_CPUCTL, FECS_EXCI, FECS_MB0, FECS_MB1, FECS_PC, FECS_SCTL};
+
+    let read = |off: u32| -> u32 { bar0.read_u32(off).unwrap_or(0xDEAD_DEAD) };
+
+    let cpuctl = read(FECS_CPUCTL);
+    let sctl = read(FECS_SCTL);
+    let pc = read(FECS_PC);
+    let mb0 = read(FECS_MB0);
+    let mb1 = read(FECS_MB1);
+    let exci = read(FECS_EXCI);
+
+    let pri_fault = coral_driver::vfio::channel::registers::pri::is_pri_error(cpuctl)
+        || cpuctl == 0xDEAD_DEAD;
+    let halted = !pri_fault && cpuctl & (1 << 4) != 0;
+    let stopped = !pri_fault && cpuctl & (1 << 5) != 0;
+    let hs_mode = !pri_fault && sctl & 0x2 != 0;
+
+    write_jsonrpc_ok(
+        stream,
+        id,
+        serde_json::json!({
+            "cpuctl": format!("{cpuctl:#010x}"),
+            "sctl": format!("{sctl:#010x}"),
+            "pc": format!("{pc:#010x}"),
+            "mb0": format!("{mb0:#010x}"),
+            "mb1": format!("{mb1:#010x}"),
+            "exci": format!("{exci:#010x}"),
+            "halted": halted,
+            "stopped": stopped,
+            "hs_mode": hs_mode,
+            "pri_fault": pri_fault,
+        }),
+    )
+    .map_err(ipc_io_error_string)
+}
+
+pub(crate) fn parse_hex_or_dec(val: Option<&serde_json::Value>, name: &str) -> Result<u32, String> {
+    let v = val.ok_or(format!("missing '{name}' parameter"))?;
+    if let Some(n) = v.as_u64() {
+        return u32::try_from(n).map_err(|_| format!("{name} exceeds u32"));
+    }
+    if let Some(s) = v.as_str() {
+        return coral_driver::parse_hex_u32(s).map_err(|e| format!("{name}: {e}"));
+    }
+    Err(format!("{name}: expected number or hex string"))
 }

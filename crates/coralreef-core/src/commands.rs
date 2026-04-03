@@ -61,7 +61,10 @@ pub fn compile_file(
         ..CompileOptions::default()
     };
 
-    if input.extension().is_some_and(|e| e == "wgsl") {
+    if input
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("wgsl"))
+    {
         let source = String::from_utf8(input_bytes).map_err(|e| {
             (
                 ExitStatus::ConfigError,

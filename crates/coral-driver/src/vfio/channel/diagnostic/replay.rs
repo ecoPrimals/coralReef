@@ -17,11 +17,187 @@ use std::path::Path;
 use super::boot_follower;
 
 /// PTIMER register offsets (NV_PTIMER_TIME_0 / TIME_1)
-const PTIMER_TIME_0: usize = 0x9400;
-const PTIMER_TIME_1: usize = 0x9410;
+pub const PTIMER_TIME_0: usize = 0x9400;
+pub const PTIMER_TIME_1: usize = 0x9410;
 
 /// PMC_BOOT_0 — chipset identification register
-const PMC_BOOT_0: usize = 0x0;
+pub const PMC_BOOT_0: usize = 0x0;
+
+/// PCLOCK status register — non-PRI response means PLLs are locking.
+pub const PCLOCK_STATUS: usize = 0x13_7004;
+
+// ── Phased replay with inter-domain hooks ──────────────────────────────
+
+/// Callback invoked between domain boundaries during phased recipe replay.
+///
+/// Implementors can poll hardware (PLL lock, PTIMER ticking) and decide
+/// whether to proceed or abort. This is the extension point that lets
+/// Kepler cold boot insert PLL lock delays without hardcoding them into
+/// the replay engine.
+pub trait ReplayHooks: Send + Sync + std::fmt::Debug {
+    /// Called after all steps for `domain` have been written.
+    /// Return `Ok(true)` to continue, `Ok(false)` to abort gracefully,
+    /// or `Err` to fail.
+    fn on_domain_complete(
+        &self,
+        bar0: &MappedBar,
+        domain: &str,
+        priority: u32,
+    ) -> Result<bool, DriverError>;
+}
+
+/// No-op hooks — proceed unconditionally between domains.
+#[derive(Debug)]
+pub struct NoHooks;
+
+impl ReplayHooks for NoHooks {
+    fn on_domain_complete(
+        &self,
+        _bar0: &MappedBar,
+        _domain: &str,
+        _priority: u32,
+    ) -> Result<bool, DriverError> {
+        Ok(true)
+    }
+}
+
+/// Kepler PLL lock hooks — polls PCLOCK and PTIMER between clock domains.
+#[derive(Debug)]
+pub struct KeplerPllHooks {
+    pub pll_settle_ms: u64,
+    pub poll_timeout_ms: u64,
+}
+
+impl Default for KeplerPllHooks {
+    fn default() -> Self {
+        Self {
+            pll_settle_ms: 50,
+            poll_timeout_ms: 500,
+        }
+    }
+}
+
+impl ReplayHooks for KeplerPllHooks {
+    fn on_domain_complete(
+        &self,
+        bar0: &MappedBar,
+        domain: &str,
+        _priority: u32,
+    ) -> Result<bool, DriverError> {
+        match domain {
+            "ROOT_PLL" => {
+                tracing::info!(
+                    settle_ms = self.pll_settle_ms,
+                    "kepler PLL: settling after ROOT_PLL writes"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(self.pll_settle_ms));
+
+                let status = bar0.read_u32(PCLOCK_STATUS).unwrap_or(0xDEAD_DEAD);
+                let is_pri = crate::vfio::channel::registers::pri::is_pri_error(status);
+                tracing::info!(
+                    status = format_args!("{status:#010x}"),
+                    is_pri,
+                    "kepler PLL: PCLOCK_STATUS after ROOT_PLL settle"
+                );
+                Ok(true)
+            }
+            "CLK" => {
+                tracing::info!("kepler PLL: polling PCLOCK + PTIMER after CLK writes");
+                let deadline = std::time::Instant::now()
+                    + std::time::Duration::from_millis(self.poll_timeout_ms);
+
+                let mut pclock_alive = false;
+                while std::time::Instant::now() < deadline {
+                    let status = bar0.read_u32(PCLOCK_STATUS).unwrap_or(0xDEAD_DEAD);
+                    if !crate::vfio::channel::registers::pri::is_pri_error(status) {
+                        pclock_alive = true;
+                        tracing::info!(
+                            status = format_args!("{status:#010x}"),
+                            "kepler PLL: PCLOCK responding"
+                        );
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+
+                if !pclock_alive {
+                    tracing::warn!("kepler PLL: PCLOCK still PRI-faulting after CLK writes");
+                }
+
+                let ptimer_alive = poll_ptimer_ticking(bar0, self.poll_timeout_ms);
+                tracing::info!(
+                    pclock_alive,
+                    ptimer_alive,
+                    "kepler PLL: clock status after CLK domain"
+                );
+
+                if !ptimer_alive {
+                    tracing::warn!(
+                        "kepler PLL: PTIMER not ticking — devinit may fail"
+                    );
+                }
+
+                Ok(true)
+            }
+            _ => Ok(true),
+        }
+    }
+}
+
+/// Volta replay hooks — checks if clocks are already alive and skips
+/// PLL settling. Volta GPUs often retain clocks from a previous driver
+/// session; this hook detects that and only inserts delays when PLLs
+/// actually needed to be programmed.
+#[derive(Debug)]
+pub struct VoltaReplayHooks {
+    pub poll_timeout_ms: u64,
+}
+
+impl Default for VoltaReplayHooks {
+    fn default() -> Self {
+        Self {
+            poll_timeout_ms: 500,
+        }
+    }
+}
+
+impl ReplayHooks for VoltaReplayHooks {
+    fn on_domain_complete(
+        &self,
+        bar0: &MappedBar,
+        domain: &str,
+        _priority: u32,
+    ) -> Result<bool, DriverError> {
+        match domain {
+            "ROOT_PLL" | "CLK" => {
+                let ptimer_alive = poll_ptimer_ticking(bar0, self.poll_timeout_ms);
+                tracing::info!(
+                    ptimer_alive,
+                    domain,
+                    "volta replay: clock domain check"
+                );
+                Ok(true)
+            }
+            _ => Ok(true),
+        }
+    }
+}
+
+/// Poll PTIMER_TIME_0 for evidence of ticking (two reads differ).
+pub fn poll_ptimer_ticking(bar0: &MappedBar, timeout_ms: u64) -> bool {
+    let t0_initial = bar0.read_u32(PTIMER_TIME_0).unwrap_or(0);
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let t0_now = bar0.read_u32(PTIMER_TIME_0).unwrap_or(0);
+        if t0_now != t0_initial {
+            return true;
+        }
+    }
+    false
+}
 
 /// A single VBIOS DEVINIT instruction.
 ///
@@ -91,10 +267,7 @@ pub fn load_devinit_recipe(path: &Path) -> Result<Vec<DevinitScript>, DriverErro
 }
 
 /// Apply DEVINIT scripts to a cold GPU via VFIO BAR0.
-pub fn apply_devinit(
-    bdf: &str,
-    scripts: &[DevinitScript],
-) -> Result<ReplayResult, DriverError> {
+pub fn apply_devinit(bdf: &str, scripts: &[DevinitScript]) -> Result<ReplayResult, DriverError> {
     tracing::info!(bdf, scripts = scripts.len(), "devinit: opening VFIO device");
 
     let device = VfioDevice::open(bdf)?;
@@ -259,11 +432,26 @@ pub fn apply_recipe_to_bar0(
     bar0: &MappedBar,
     recipe: &[RecipeStep],
 ) -> Result<ReplayResult, DriverError> {
+    apply_recipe_phased(bar0, recipe, &NoHooks)
+}
+
+/// Apply a recipe with inter-domain hook callbacks.
+///
+/// Same as `apply_recipe_to_bar0` but invokes `hooks.on_domain_complete()`
+/// at each domain boundary. This lets callers insert PLL lock polling,
+/// clock settling delays, or any hardware-specific sequencing without
+/// modifying the replay engine itself.
+pub fn apply_recipe_phased(
+    bar0: &MappedBar,
+    recipe: &[RecipeStep],
+    hooks: &dyn ReplayHooks,
+) -> Result<ReplayResult, DriverError> {
     let mut applied: usize = 0;
     let mut failed: usize = 0;
     let mut domain_counts: std::collections::BTreeMap<String, (usize, usize)> =
         std::collections::BTreeMap::new();
     let mut last_domain = String::new();
+    let mut last_priority: u32 = 0;
 
     tracing::info!(steps = recipe.len(), "replay: applying recipe to BAR0");
 
@@ -275,8 +463,17 @@ pub fn apply_recipe_to_bar0(
                     applied = domain_counts.get(&last_domain).map_or(0, |c| c.0),
                     "replay: domain complete"
                 );
+                let proceed = hooks.on_domain_complete(bar0, &last_domain, last_priority)?;
+                if !proceed {
+                    tracing::warn!(
+                        domain = %last_domain,
+                        "replay: hooks signalled abort after domain"
+                    );
+                    return validate_gpu(bar0, applied, failed, domain_counts);
+                }
             }
             last_domain = step.domain.clone();
+            last_priority = step.priority;
         }
 
         let entry = domain_counts.entry(step.domain.clone()).or_insert((0, 0));
@@ -298,6 +495,10 @@ pub fn apply_recipe_to_bar0(
                 entry.1 += 1;
             }
         }
+    }
+
+    if !last_domain.is_empty() {
+        let _ = hooks.on_domain_complete(bar0, &last_domain, last_priority);
     }
 
     tracing::info!(applied, failed, "replay: writes complete, validating GPU");
@@ -405,7 +606,10 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].ops.len(), 4);
-        assert!(matches!(parsed[0].ops[0], DevinitOp::ZmReg { reg: 0x200, .. }));
+        assert!(matches!(
+            parsed[0].ops[0],
+            DevinitOp::ZmReg { reg: 0x200, .. }
+        ));
         assert!(matches!(parsed[0].ops[3], DevinitOp::Time { usec: 10000 }));
     }
 

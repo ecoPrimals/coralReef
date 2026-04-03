@@ -21,6 +21,23 @@ use std::ptr::NonNull;
 use crate::gsp::{ApplyError, RegisterAccess};
 use crate::mmio::VolatilePtr;
 
+// ── Well-known BAR0 register offsets ────────────────────────────────
+// Canonical source for FECS/GPCCS/PMC offsets used by ember, glowplug,
+// and diagnostics. Avoids scattering magic numbers across crates.
+
+/// FECS Falcon CPU control register.
+pub const FECS_CPUCTL: u32 = 0x0040_9100;
+/// FECS Falcon secure control register.
+pub const FECS_SCTL: u32 = 0x0040_9240;
+/// FECS Falcon program counter.
+pub const FECS_PC: u32 = 0x0040_9030;
+/// FECS Falcon mailbox 0.
+pub const FECS_MB0: u32 = 0x0040_9040;
+/// FECS Falcon mailbox 1.
+pub const FECS_MB1: u32 = 0x0040_9044;
+/// FECS Falcon exception cause.
+pub const FECS_EXCI: u32 = 0x0040_904C;
+
 /// GPU BAR0 MMIO mapping for direct register access.
 ///
 /// Wraps an mmap of the PCI BAR0 resource file. All reads and writes are
@@ -72,8 +89,24 @@ impl Bar0Access {
         Self::open_resource(&path)
     }
 
-    /// Open BAR0 from an explicit resource file path.
-    fn open_resource(path: &str) -> Result<Self, ApplyError> {
+    /// Open BAR0 read-only from an explicit resource file path.
+    ///
+    /// Suitable for diagnostics and preflight checks where no register
+    /// writes are needed. Uses `PROT_READ`-only mmap.
+    pub fn open_resource_readonly(path: &str) -> Result<Self, ApplyError> {
+        let file =
+            OpenOptions::new()
+                .read(true)
+                .open(path)
+                .map_err(|e| ApplyError::MmioFailed {
+                    offset: 0,
+                    detail: format!("open {path}: {e}"),
+                })?;
+        Self::mmap_file(file, path, rustix::mm::ProtFlags::READ)
+    }
+
+    /// Open BAR0 read-write from an explicit resource file path.
+    pub fn open_resource(path: &str) -> Result<Self, ApplyError> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -82,7 +115,25 @@ impl Bar0Access {
                 offset: 0,
                 detail: format!("open {path}: {e}"),
             })?;
+        let this = Self::mmap_file(
+            file,
+            path,
+            rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
+        )?;
+        tracing::info!(
+            path,
+            size_mib = this.size / (1024 * 1024),
+            "BAR0 MMIO mapped for sovereign register access"
+        );
+        Ok(this)
+    }
 
+    /// Shared mmap logic for both read-only and read-write BAR0 mappings.
+    fn mmap_file(
+        file: std::fs::File,
+        path: &str,
+        prot: rustix::mm::ProtFlags,
+    ) -> Result<Self, ApplyError> {
         let size = usize::try_from(
             file.metadata()
                 .map_err(|e| ApplyError::MmioFailed {
@@ -104,13 +155,13 @@ impl Bar0Access {
         }
 
         // SAFETY: resource0 is a PCI BAR sysfs file. mmap with SHARED gives
-        // direct MMIO access to GPU registers. file.as_raw_fd() is valid (open File);
-        // BorrowedFd::borrow_raw requires valid fd for the duration of the call.
+        // direct MMIO access to GPU registers. file.as_raw_fd() is valid (open
+        // File); BorrowedFd::borrow_raw requires valid fd for the call duration.
         let raw_ptr = unsafe {
             rustix::mm::mmap(
                 std::ptr::null_mut(),
                 size,
-                rustix::mm::ProtFlags::READ | rustix::mm::ProtFlags::WRITE,
+                prot,
                 rustix::mm::MapFlags::SHARED,
                 std::os::unix::io::BorrowedFd::borrow_raw(file.as_raw_fd()),
                 0,
@@ -125,12 +176,6 @@ impl Bar0Access {
             offset: 0,
             detail: format!("mmap {path}: returned null"),
         })?;
-
-        tracing::info!(
-            path,
-            size_mib = size / (1024 * 1024),
-            "BAR0 MMIO mapped for sovereign register access"
-        );
 
         Ok(Self {
             ptr,
@@ -228,13 +273,64 @@ mod tests {
     #[test]
     fn bar0_parse_node_name() {
         let result = Bar0Access::from_render_node("/dev/dri/renderD128");
-        // Will fail without root/permissions, but should parse the path correctly
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("resource0") || err.contains("renderD128"),
             "error should reference the sysfs path: {err}"
         );
+    }
+
+    #[test]
+    fn open_resource_readonly_nonexistent_fails() {
+        let result = Bar0Access::open_resource_readonly("/nonexistent/resource0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_resource_readonly_zero_size_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("resource0");
+        std::fs::write(&path, b"").expect("write empty file");
+        let result = Bar0Access::open_resource_readonly(path.to_str().unwrap());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("zero size"), "should mention zero size: {err}");
+    }
+
+    #[test]
+    fn fecs_register_offsets_are_in_pgraph_range() {
+        for offset in [
+            FECS_CPUCTL,
+            FECS_SCTL,
+            FECS_PC,
+            FECS_MB0,
+            FECS_MB1,
+            FECS_EXCI,
+        ] {
+            assert!(
+                (0x0040_0000..0x0050_0000).contains(&offset),
+                "FECS offset {offset:#010x} should be in PGRAPH BAR0 range"
+            );
+        }
+    }
+
+    #[test]
+    fn fecs_register_offsets_are_aligned() {
+        for offset in [
+            FECS_CPUCTL,
+            FECS_SCTL,
+            FECS_PC,
+            FECS_MB0,
+            FECS_MB1,
+            FECS_EXCI,
+        ] {
+            assert_eq!(
+                offset % 4,
+                0,
+                "FECS offset {offset:#010x} must be 4-byte aligned"
+            );
+        }
     }
 
     #[test]

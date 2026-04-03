@@ -35,6 +35,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg116 {
     pub const SEC2_BASE: usize = 0x087000;
     pub const FECS_BASE: usize = 0x409000;
@@ -49,10 +50,12 @@ mod freg116 {
     pub const HWCFG: usize = 0x108;
     pub const MTHD_STATUS: usize = 0xC18;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;
@@ -90,11 +93,11 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) {
     let exci = r(freg116::EXCI);
     let mb0 = r(freg116::MAILBOX0);
     let bootvec = r(freg116::BOOTVEC);
-    let hreset = cpuctl & freg116::CPUCTL_HRESET != 0;
     let halted = cpuctl & freg116::CPUCTL_HALTED != 0;
-    let running = !hreset && !halted && cpuctl != 0xDEAD;
+    let stopped = cpuctl & freg116::CPUCTL_STOPPED != 0;
+    let running = !halted && !stopped && cpuctl != 0xDEAD;
     eprintln!(
-        "  {name:6}: cpuctl={cpuctl:#010x} HRESET={hreset:<5} HALTED={halted:<5} \
+        "  {name:6}: cpuctl={cpuctl:#010x} HALTED={halted:<5} STOPPED={stopped:<5} \
          RUNNING={running:<5} SCTL={sctl:#06x} PC={pc:#06x} EXCI={exci:#010x} \
          MB0={mb0:#010x} BOOTVEC={bootvec:#06x}"
     );
@@ -200,11 +203,7 @@ fn exp116_wpr_reuse() {
 
     eprintln!("\n── A3: WPR2 Hardware Boundaries ──");
     let (wpr2_start, wpr2_end) = read_wpr2_boundaries(&bar0);
-    let wpr2_size = if wpr2_end > wpr2_start {
-        wpr2_end - wpr2_start
-    } else {
-        0
-    };
+    let wpr2_size = wpr2_end.saturating_sub(wpr2_start);
     eprintln!(
         "  WPR2: start={wpr2_start:#x} end={wpr2_end:#x} size={wpr2_size:#x} ({} KiB)",
         wpr2_size / 1024
@@ -291,8 +290,8 @@ fn exp116_wpr_reuse() {
         .read_u32(freg116::SEC2_BASE + freg116::CPUCTL)
         .unwrap_or(0);
     let sec2_alive = sec2_pc > 0x100
-        && sec2_cpuctl & freg116::CPUCTL_HRESET == 0
-        && sec2_cpuctl & freg116::CPUCTL_HALTED == 0;
+        && sec2_cpuctl & freg116::CPUCTL_HALTED == 0
+        && sec2_cpuctl & freg116::CPUCTL_STOPPED == 0;
     eprintln!("  SEC2 alive (idle loop): {sec2_alive} (PC={sec2_pc:#x})");
 
     eprintln!("\n── B3: BOOTSTRAP_FALCON via mailbox ──");
@@ -334,9 +333,9 @@ fn exp116_wpr_reuse() {
         .read_u32(freg116::GPCCS_BASE + freg116::EXCI)
         .unwrap_or(0);
     let fecs_b_running =
-        fecs_b & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && fecs_b != 0xDEAD;
+        fecs_b & (freg116::CPUCTL_HALTED | freg116::CPUCTL_STOPPED) == 0 && fecs_b != 0xDEAD;
     let gpccs_b_running =
-        gpccs_b & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && gpccs_b != 0xDEAD;
+        gpccs_b & (freg116::CPUCTL_HALTED | freg116::CPUCTL_STOPPED) == 0 && gpccs_b != 0xDEAD;
 
     // Check WPR status in VRAM after ACR
     eprintln!("\n── B5: WPR Header Status After ACR (VRAM) ──");
@@ -395,8 +394,8 @@ fn exp116_wpr_reuse() {
         .read_u32(freg116::SEC2_BASE + freg116::CPUCTL)
         .unwrap_or(0);
     let sec2_c_alive = sec2_c_pc > 0x100
-        && sec2_c_cpuctl & freg116::CPUCTL_HRESET == 0
-        && sec2_c_cpuctl & freg116::CPUCTL_HALTED == 0;
+        && sec2_c_cpuctl & freg116::CPUCTL_HALTED == 0
+        && sec2_c_cpuctl & freg116::CPUCTL_STOPPED == 0;
     eprintln!("  SEC2: alive={sec2_c_alive} SCTL={sec2_c_sctl:#06x} PC={sec2_c_pc:#x}");
 
     eprintln!("\n── C3: WPR Header Status After HS ACR (VRAM) ──");
@@ -565,8 +564,8 @@ fn exp116_wpr_reuse() {
             .read_u32(freg116::GPCCS_BASE + freg116::CPUCTL)
             .unwrap_or(0xDEAD);
         (
-            fd & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && fd != 0xDEAD,
-            gd & (freg116::CPUCTL_HRESET | freg116::CPUCTL_HALTED) == 0 && gd != 0xDEAD,
+            fd & (freg116::CPUCTL_HALTED | freg116::CPUCTL_STOPPED) == 0 && fd != 0xDEAD,
+            gd & (freg116::CPUCTL_HALTED | freg116::CPUCTL_STOPPED) == 0 && gd != 0xDEAD,
         )
     } else {
         eprintln!("\n  VARIANT D: SKIPPED (no valid WPR2 boundaries)");

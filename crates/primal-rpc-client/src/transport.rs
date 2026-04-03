@@ -56,6 +56,7 @@ async fn tcp_roundtrip(
 
 async fn unix_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Bytes, RpcError> {
     let mut stream = tokio::net::UnixStream::connect(path).await?;
+    // HTTP/1.1 requires Host; value is irrelevant over UDS (no DNS routing).
     send_http_request(&mut stream, "localhost", "/", body).await?;
     read_http_response_body(&mut stream).await
 }

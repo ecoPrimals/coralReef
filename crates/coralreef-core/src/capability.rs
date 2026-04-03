@@ -81,6 +81,29 @@ pub fn self_description() -> SelfDescription {
                 version: env!("CARGO_PKG_VERSION").into(),
                 metadata: serde_json::Value::Null,
             },
+            Capability {
+                id: "shader.compile.cpu".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                metadata: serde_json::json!({
+                    "cpu_archs": [std::env::consts::ARCH],
+                    "backend": "interpreter",
+                }),
+            },
+            Capability {
+                id: "shader.execute.cpu".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                metadata: serde_json::json!({
+                    "cpu_archs": [std::env::consts::ARCH],
+                    "f64_native": true,
+                }),
+            },
+            Capability {
+                id: "shader.validate".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                metadata: serde_json::json!({
+                    "tolerance_modes": ["abs", "rel", "abs+rel"],
+                }),
+            },
         ],
         requires: vec![Capability {
             id: "gpu.dispatch".into(),

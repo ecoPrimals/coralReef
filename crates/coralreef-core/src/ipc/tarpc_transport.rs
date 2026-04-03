@@ -31,8 +31,8 @@ pub trait ShaderCompileTarpc {
     /// Health/status check (`shader.compile.status`).
     async fn status() -> service::HealthResponse;
 
-    /// List supported GPU architectures (`shader.compile.capabilities`).
-    async fn capabilities() -> Vec<String>;
+    /// Full capabilities response (`shader.compile.capabilities`).
+    async fn capabilities() -> service::CompileCapabilitiesResponse;
 
     /// Compile WGSL to multiple GPU targets (`shader.compile.wgsl.multi`).
     async fn wgsl_multi(
@@ -47,6 +47,21 @@ pub trait ShaderCompileTarpc {
 
     /// Ready to accept work (`health.readiness`).
     async fn health_readiness() -> service::ReadinessResponse;
+
+    /// Compile/validate WGSL for CPU execution (`shader.compile.cpu`).
+    async fn compile_cpu(
+        request: coral_reef_cpu::CompileCpuRequest,
+    ) -> Result<service::CompileResponse, String>;
+
+    /// Execute WGSL on the CPU interpreter (`shader.execute.cpu`).
+    async fn execute_cpu(
+        request: coral_reef_cpu::ExecuteCpuRequest,
+    ) -> Result<coral_reef_cpu::ExecuteCpuResponse, String>;
+
+    /// Execute on CPU and compare against expected (`shader.validate`).
+    async fn validate(
+        request: coral_reef_cpu::ValidateRequest,
+    ) -> Result<coral_reef_cpu::ValidateResponse, String>;
 }
 
 /// tarpc server implementation.
@@ -80,8 +95,11 @@ impl ShaderCompileTarpc for TarpcServer {
         service::handle_health()
     }
 
-    async fn capabilities(self, _ctx: tarpc::context::Context) -> Vec<String> {
-        service::handle_health().supported_archs
+    async fn capabilities(
+        self,
+        _ctx: tarpc::context::Context,
+    ) -> service::CompileCapabilitiesResponse {
+        service::handle_compile_capabilities()
     }
 
     async fn wgsl_multi(
@@ -102,6 +120,30 @@ impl ShaderCompileTarpc for TarpcServer {
 
     async fn health_readiness(self, _ctx: tarpc::context::Context) -> service::ReadinessResponse {
         service::handle_health_readiness()
+    }
+
+    async fn compile_cpu(
+        self,
+        _ctx: tarpc::context::Context,
+        request: coral_reef_cpu::CompileCpuRequest,
+    ) -> Result<service::CompileResponse, String> {
+        service::handle_compile_cpu(&request).map_err(|e| e.to_string())
+    }
+
+    async fn execute_cpu(
+        self,
+        _ctx: tarpc::context::Context,
+        request: coral_reef_cpu::ExecuteCpuRequest,
+    ) -> Result<coral_reef_cpu::ExecuteCpuResponse, String> {
+        service::handle_execute_cpu(&request).map_err(|e| e.to_string())
+    }
+
+    async fn validate(
+        self,
+        _ctx: tarpc::context::Context,
+        request: coral_reef_cpu::ValidateRequest,
+    ) -> Result<coral_reef_cpu::ValidateResponse, String> {
+        service::handle_validate(&request).map_err(|e| e.to_string())
     }
 }
 

@@ -9,6 +9,87 @@ use super::sm80_instr_latencies::SM80Latency;
 use super::sm120_instr_latencies::SM120Latency;
 use crate::codegen::ir::*;
 use crate::codegen::legalize::LegalizeBuilder;
+
+/// Convert pre-Volta integer/logic/shift ops to SM70+ equivalents.
+///
+/// Frontends like coral-parse emit architecture-neutral IR using pre-Volta
+/// forms (OpIMul, OpIAdd2, OpLop2, OpShl, OpShr). The naga translator already
+/// branches on SM version, but the sovereign path needs this conversion.
+///
+/// Called both as an early pipeline pass (before scheduling) and defensively
+/// during legalization.
+pub fn lower_pre_volta_op(op: &mut Op) {
+    match op {
+        Op::IMul(imul) if !imul.high => {
+            let signed = imul.signed[0] || imul.signed[1];
+            *op = Op::IMad(Box::new(OpIMad {
+                dst: imul.dst.clone(),
+                srcs: [imul.srcs[0].clone(), imul.srcs[1].clone(), Src::ZERO],
+                signed,
+            }));
+        }
+        Op::IAdd2(iadd2) => {
+            *op = Op::IAdd3(Box::new(OpIAdd3 {
+                dsts: [
+                    iadd2.dsts[0].clone(),
+                    iadd2.dsts[1].clone(),
+                    Dst::None,
+                ],
+                srcs: [iadd2.srcs[0].clone(), iadd2.srcs[1].clone(), Src::ZERO],
+            }));
+        }
+        Op::IAdd2X(iadd2x) => {
+            *op = Op::IAdd3X(Box::new(OpIAdd3X {
+                dsts: [
+                    iadd2x.dsts[0].clone(),
+                    iadd2x.dsts[1].clone(),
+                    Dst::None,
+                ],
+                srcs: [
+                    iadd2x.srcs[0].clone(),
+                    iadd2x.srcs[1].clone(),
+                    Src::ZERO,
+                    iadd2x.srcs[2].clone(),
+                    Src::new_imm_bool(false),
+                ],
+            }));
+        }
+        Op::Lop2(lop2) => {
+            *op = Op::Lop3(Box::new(OpLop3 {
+                dst: lop2.dst.clone(),
+                srcs: [lop2.srcs[0].clone(), lop2.srcs[1].clone(), Src::ZERO],
+                op: lop2.op.to_lut(),
+            }));
+        }
+        Op::Shl(shl) => {
+            *op = Op::Shf(Box::new(OpShf {
+                dst: shl.dst.clone(),
+                srcs: [shl.srcs[0].clone(), Src::ZERO, shl.srcs[1].clone()],
+                right: false,
+                wrap: shl.wrap,
+                data_type: IntType::I32,
+                dst_high: false,
+            }));
+        }
+        Op::Shr(shr) => {
+            let data_type = if shr.signed {
+                IntType::I32
+            } else {
+                IntType::U32
+            };
+            *op = Op::Shf(Box::new(OpShf {
+                dst: shr.dst.clone(),
+                srcs: [Src::ZERO, shr.srcs[0].clone(), shr.srcs[1].clone()],
+                right: true,
+                wrap: shr.wrap,
+                data_type,
+                dst_high: true,
+            }));
+        }
+        _ => {}
+    }
+}
+
 pub struct ShaderModel70 {
     sm: u8,
 }
@@ -287,6 +368,8 @@ impl ShaderModel for ShaderModel70 {
     }
 
     fn legalize_op(&self, b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), crate::CompileError> {
+        lower_pre_volta_op(op);
+
         if let Op::PixLd(pixld) = op {
             match pixld.val {
                 PixVal::Covered | PixVal::Offset => {

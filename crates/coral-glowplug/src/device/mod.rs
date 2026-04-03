@@ -78,6 +78,7 @@ impl<S: SysfsOps> DeviceSlot<S> {
                 pci_link_width: None,
                 domains_alive: 0,
                 domains_faulted: 0,
+                firmware: types::FirmwareHealth::default(),
             },
             vendor_id,
             device_id,

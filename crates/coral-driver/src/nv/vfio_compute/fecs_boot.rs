@@ -63,15 +63,27 @@ pub struct GpccsFirmware {
 impl FecsFirmware {
     /// Load FECS firmware from the standard Linux firmware path.
     ///
-    /// The BL file is parsed through [`GrBlFirmware`] to extract the code
-    /// section and `bl_imem_off`. Raw inst/data files are loaded as-is.
+    /// For GM200+ (Maxwell2+), the BL file is parsed through [`GrBlFirmware`]
+    /// to extract the code section and `bl_imem_off`.
+    ///
+    /// For Kepler (gk20a/gk210), no BL file exists — firmware is loaded
+    /// directly to IMEM\[0\] with BOOTVEC=0.
     pub fn load(chip: &str) -> DriverResult<Self> {
         let base = format!("/lib/firmware/nvidia/{chip}/gr");
-        let bl_raw = read_firmware(&base, "fecs_bl.bin")?;
-        let bl = GrBlFirmware::parse(&bl_raw, "fecs_bl")?;
-        let bl_imem_off = bl.bl_imem_off();
+        let bl_path = format!("{base}/fecs_bl.bin");
+
+        let (bootloader, bl_imem_off) = if Path::new(&bl_path).exists() {
+            let bl_raw = read_firmware(&base, "fecs_bl.bin")?;
+            let bl = GrBlFirmware::parse(&bl_raw, "fecs_bl")?;
+            let off = bl.bl_imem_off();
+            (bl.code, off)
+        } else {
+            tracing::info!(chip, "no fecs_bl.bin — Kepler direct-load mode (BOOTVEC=0)");
+            (Vec::new(), 0)
+        };
+
         Ok(Self {
-            bootloader: bl.code,
+            bootloader,
             bl_imem_off,
             inst: read_firmware(&base, "fecs_inst.bin")?,
             data: read_firmware(&base, "fecs_data.bin")?,
@@ -82,14 +94,23 @@ impl FecsFirmware {
 impl GpccsFirmware {
     /// Load GPCCS firmware from the standard Linux firmware path.
     ///
-    /// Same [`GrBlFirmware`] parsing as [`FecsFirmware`].
+    /// Same BL-optional handling as [`FecsFirmware`].
     pub fn load(chip: &str) -> DriverResult<Self> {
         let base = format!("/lib/firmware/nvidia/{chip}/gr");
-        let bl_raw = read_firmware(&base, "gpccs_bl.bin")?;
-        let bl = GrBlFirmware::parse(&bl_raw, "gpccs_bl")?;
-        let bl_imem_off = bl.bl_imem_off();
+        let bl_path = format!("{base}/gpccs_bl.bin");
+
+        let (bootloader, bl_imem_off) = if Path::new(&bl_path).exists() {
+            let bl_raw = read_firmware(&base, "gpccs_bl.bin")?;
+            let bl = GrBlFirmware::parse(&bl_raw, "gpccs_bl")?;
+            let off = bl.bl_imem_off();
+            (bl.code, off)
+        } else {
+            tracing::info!(chip, "no gpccs_bl.bin — Kepler direct-load mode (BOOTVEC=0)");
+            (Vec::new(), 0)
+        };
+
         Ok(Self {
-            bootloader: bl.code,
+            bootloader,
             bl_imem_off,
             inst: read_firmware(&base, "gpccs_inst.bin")?,
             data: read_firmware(&base, "gpccs_data.bin")?,
@@ -235,13 +256,13 @@ pub fn falcon_boot(
         "falcon boot: starting firmware upload"
     );
 
-    if cpuctl & falcon::CPUCTL_HRESET == 0 && cpuctl != 0xDEAD_DEAD {
+    if cpuctl & falcon::CPUCTL_HALTED == 0 && cpuctl != 0xDEAD_DEAD {
         tracing::warn!(
             name,
             cpuctl = format!("{cpuctl:#010x}"),
             "falcon not in HRESET — forcing halt before upload"
         );
-        w(falcon::CPUCTL, falcon::CPUCTL_HRESET)?;
+        w(falcon::CPUCTL, falcon::CPUCTL_HALTED)?;
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 
@@ -302,11 +323,11 @@ pub fn falcon_boot(
         result.mailbox1 = r(falcon::MAILBOX1);
         result.boot_time_us = start.elapsed().as_micros() as u64;
 
-        let halted = result.cpuctl_after & falcon::CPUCTL_HALTED != 0;
-        let hreset = result.cpuctl_after & falcon::CPUCTL_HRESET != 0;
+        let stopped = result.cpuctl_after & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = result.cpuctl_after & falcon::CPUCTL_HALTED != 0;
 
         if result.mailbox0 != 0 {
-            result.running = !halted && !hreset;
+            result.running = !stopped && !fw_halted;
             tracing::info!(
                 name,
                 boot_time_us = result.boot_time_us,
@@ -317,13 +338,13 @@ pub fn falcon_boot(
             break;
         }
 
-        if halted && !hreset {
+        if stopped && !fw_halted {
             result.running = false;
             tracing::warn!(
                 name,
                 boot_time_us = result.boot_time_us,
                 cpuctl = format!("{:#010x}", result.cpuctl_after),
-                "falcon boot: halted without mailbox response"
+                "falcon boot: stopped without mailbox response"
             );
             break;
         }

@@ -6,7 +6,7 @@ use crate::vfio::device::MappedBar;
 use crate::vfio::memory::{MemoryRegion, PraminRegion};
 
 /// Write a byte slice to VRAM via PRAMIN in 48 KiB chunks.
-pub(super) fn write_to_vram(
+pub(crate) fn write_to_vram(
     bar0: &MappedBar,
     vram_addr: u32,
     data: &[u8],

@@ -111,7 +111,7 @@ impl fmt::Display for AcrBootResult {
 ///
 /// Requires: FECS not in HRESET, GPCCS EXCI == 0, and GPCCS PC != 0.
 pub(crate) fn evaluate_boot_success(fecs_cpuctl: u32, gpccs_pc: u32, gpccs_exci: u32) -> bool {
-    let fecs_not_reset = fecs_cpuctl & falcon::CPUCTL_HRESET == 0;
+    let fecs_not_reset = fecs_cpuctl & falcon::CPUCTL_HALTED == 0;
     let gpccs_healthy = gpccs_exci == 0 && gpccs_pc != 0;
     fecs_not_reset && gpccs_healthy
 }
@@ -194,8 +194,8 @@ pub(crate) fn poll_falcon_boot(
         let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
         let mb0 = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
 
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
-        let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
 
         if mb0 != 0 {
             notes.push(format!(
@@ -205,9 +205,9 @@ pub(crate) fn poll_falcon_boot(
             return (cpuctl, mb0);
         }
 
-        if halted && !hreset {
+        if stopped && !fw_halted {
             notes.push(format!(
-                "{name}: halted without mailbox: cpuctl={cpuctl:#010x} ({}ms)",
+                "{name}: stopped without mailbox: cpuctl={cpuctl:#010x} ({}ms)",
                 start.elapsed().as_millis()
             ));
             return (cpuctl, mb0);
@@ -245,6 +245,42 @@ pub(crate) fn dmem_nonzero_summary(dmem: &[u32]) -> String {
         "NONE".to_string()
     } else {
         ranges.join(", ")
+    }
+}
+
+/// Dump first N words of DMEM as non-zero detail lines for diagnostics.
+pub(crate) fn dmem_detail(dmem: &[u32], word_offset: usize, count: usize) -> Vec<String> {
+    dmem.iter()
+        .skip(word_offset)
+        .take(count)
+        .enumerate()
+        .filter(|&(_, &word)| word != 0)
+        .map(|(i, &word)| format!("[{:#05x}]={word:#010x}", (i + word_offset) * 4))
+        .collect()
+}
+
+pub(crate) fn make_fail_result(
+    strategy: &'static str,
+    sec2_before: Sec2Probe,
+    bar0: &MappedBar,
+    notes: Vec<String>,
+) -> AcrBootResult {
+    let sec2_after = Sec2Probe::capture(bar0);
+    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
+    let gpccs_r = |off: usize| bar0.read_u32(falcon::GPCCS_BASE + off).unwrap_or(0xDEAD);
+    AcrBootResult {
+        strategy,
+        sec2_before,
+        sec2_after,
+        fecs_cpuctl_after: fecs_r(falcon::CPUCTL),
+        fecs_mailbox0_after: fecs_r(falcon::MAILBOX0),
+        gpccs_cpuctl_after: gpccs_r(falcon::CPUCTL),
+        fecs_pc_after: fecs_r(falcon::PC),
+        fecs_exci_after: fecs_r(falcon::EXCI),
+        gpccs_pc_after: gpccs_r(falcon::PC),
+        gpccs_exci_after: gpccs_r(falcon::EXCI),
+        success: false,
+        notes,
     }
 }
 
@@ -332,7 +368,7 @@ mod tests {
 
     #[test]
     fn evaluate_boot_success_fecs_in_hreset_fails() {
-        assert!(!evaluate_boot_success(falcon::CPUCTL_HRESET, 0x100, 0x00));
+        assert!(!evaluate_boot_success(falcon::CPUCTL_HALTED, 0x100, 0x00));
     }
 
     #[test]
@@ -359,41 +395,5 @@ mod tests {
         let s = dmem_nonzero_summary(&buf);
         assert!(s.contains("[0x010..0x018]"));
         assert!(s.contains("[0x028..0x02c]"));
-    }
-}
-
-/// Dump first N words of DMEM as non-zero detail lines for diagnostics.
-pub(crate) fn dmem_detail(dmem: &[u32], word_offset: usize, count: usize) -> Vec<String> {
-    dmem.iter()
-        .skip(word_offset)
-        .take(count)
-        .enumerate()
-        .filter(|&(_, &word)| word != 0)
-        .map(|(i, &word)| format!("[{:#05x}]={word:#010x}", (i + word_offset) * 4))
-        .collect()
-}
-
-pub(crate) fn make_fail_result(
-    strategy: &'static str,
-    sec2_before: Sec2Probe,
-    bar0: &MappedBar,
-    notes: Vec<String>,
-) -> AcrBootResult {
-    let sec2_after = Sec2Probe::capture(bar0);
-    let fecs_r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD);
-    let gpccs_r = |off: usize| bar0.read_u32(falcon::GPCCS_BASE + off).unwrap_or(0xDEAD);
-    AcrBootResult {
-        strategy,
-        sec2_before,
-        sec2_after,
-        fecs_cpuctl_after: fecs_r(falcon::CPUCTL),
-        fecs_mailbox0_after: fecs_r(falcon::MAILBOX0),
-        gpccs_cpuctl_after: gpccs_r(falcon::CPUCTL),
-        fecs_pc_after: fecs_r(falcon::PC),
-        fecs_exci_after: fecs_r(falcon::EXCI),
-        gpccs_pc_after: gpccs_r(falcon::PC),
-        gpccs_exci_after: gpccs_r(falcon::EXCI),
-        success: false,
-        notes,
     }
 }

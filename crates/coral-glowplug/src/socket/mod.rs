@@ -17,7 +17,7 @@
 //! | `device.swap`      | Hot-swap driver personality                 |
 //! | `device.health`    | Query device health registers               |
 //! | `device.resurrect` | Attempt HBM2 resurrection via nouveau warm swap |
-//! | `device.reset`     | PCIe Function Level Reset via VFIO              |
+//! | `device.reset`     | Reset device (method: flr, pmc, sbr, auto)      |
 //! | `device.write_register` | Write a single BAR0 register            |
 //! | `device.read_bar0_range` | Read contiguous BAR0 register range    |
 //! | `device.pramin_read` | Read VRAM via PRAMIN window                |
@@ -111,10 +111,50 @@ fn resolve_group_gid(group_name: &str) -> Option<u32> {
     coral_glowplug::group_unix::gid_for_group_name(group_name)
 }
 
+/// Create a `device.sock` domain symlink next to the bound socket path.
+///
+/// Enables capability-based discovery: consumers scan `$XDG_RUNTIME_DIR/biomeos/`
+/// for `device.sock` to find the glowplug daemon without knowing the instance name.
+/// The domain name is overridable via `CORALREEF_GLOWPLUG_DOMAIN` (default: `device`).
+#[cfg(unix)]
+fn install_domain_symlink(bound_path: &str) {
+    let bound = std::path::Path::new(bound_path);
+    let parent = match bound.parent() {
+        Some(p) if p.to_str().is_some_and(|s| s.contains("biomeos")) => p,
+        _ => return,
+    };
+    let domain = std::env::var("CORALREEF_GLOWPLUG_DOMAIN")
+        .ok()
+        .filter(|s| !s.is_empty() && !s.contains('/'))
+        .unwrap_or_else(|| "device".into());
+    let link = parent.join(format!("{domain}.sock"));
+    if link.as_path() == bound {
+        return;
+    }
+    let Some(target_name) = bound.file_name() else {
+        return;
+    };
+    if link.exists() || link.is_symlink() {
+        let _ = std::fs::remove_file(&link);
+    }
+    match std::os::unix::fs::symlink(target_name, &link) {
+        Ok(()) => tracing::info!(
+            link = %link.display(),
+            target = %target_name.to_string_lossy(),
+            "domain symlink installed"
+        ),
+        Err(e) => tracing::warn!(
+            link = %link.display(),
+            error = %e,
+            "failed to create domain symlink"
+        ),
+    }
+}
+
 /// Platform-agnostic JSON-RPC socket server (`ecoBin` compliant).
 ///
 /// Binds to either a Unix domain socket path or a TCP address.
-/// Use `SocketServer::bind` with a path (e.g. `/run/coralreef/glowplug.sock`)
+/// Use `SocketServer::bind` with a path (e.g. [`crate::config::default_ipc_socket_path`])
 /// or TCP address (e.g. `127.0.0.1:0`).
 pub struct SocketServer {
     transport: Transport,
@@ -175,6 +215,8 @@ impl SocketServer {
                 let group =
                     std::env::var("CORALREEF_SOCKET_GROUP").unwrap_or_else(|_| "coralreef".into());
                 set_socket_group(addr, &group);
+
+                install_domain_symlink(addr);
 
                 tracing::info!(path = %addr, "JSON-RPC 2.0 Unix socket server listening");
                 Ok(Self {
@@ -357,6 +399,9 @@ where
                     make_response(req.id, result)
                 } else if req.method == "device.dispatch" {
                     let result = handlers::compute_dispatch_async(&req.params, &devices).await;
+                    make_response(req.id, result)
+                } else if req.method == "device.dispatch_sovereign" {
+                    let result = handlers::sovereign_dispatch_async(&req.params, &devices).await;
                     make_response(req.id, result)
                 } else if req.method == "device.compute_info" {
                     let result = handlers::compute_info_async(&req.params, &devices).await;

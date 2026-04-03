@@ -10,6 +10,13 @@ pub const NVIDIA_VENDOR_ID: u16 = 0x10de;
 /// PCI device ID: GV100 (Titan V) — consumer Volta, no GSP, requires vfio-pci at boot.
 pub const TITAN_V_DEVICE_ID: u16 = 0x1d81;
 
+/// PCI device ID: Tesla K80 (GK210) — Kepler dual-GPU board.
+///
+/// Boot binding is managed by ember via `driver_override` + udev, **not** via the kernel
+/// `vfio-pci.ids` match table, so this ID must be omitted from generated `vfio-pci.ids`
+/// and modprobe `options vfio-pci ids=` lines when following the sovereign fleet layout.
+pub const TESLA_K80_GK210_DEVICE_ID: u16 = 0x102d;
+
 /// vfio-pci.ids string for Titan V (vendor:device) — used in kernel cmdline and modprobe.
 pub const TITAN_V_VFIO_IDS: &str = "10de:1d81";
 

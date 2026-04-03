@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::ember_client;
-use crate::helpers::{init_tracing, open_vfio, vfio_bdf};
-use coral_driver::{ComputeDevice, DispatchDims, ShaderInfo};
+use crate::helpers::{init_tracing, open_vfio};
 
 /// Exp 091d: Direct ACR IMEM load — bypass BL DMA.
 ///
@@ -35,9 +33,8 @@ fn vfio_fecs_acr_boot_and_probe() {
     const EXCI: usize = 0x148;
     const IMEMC: usize = 0x180;
     const IMEMD: usize = 0x184;
-    // Bit 4 (0x10): Despite the constant name CPUCTL_HRESET in the crate,
-    // this is actually the HALTED bit — nouveau's wait_for_halt checks it.
-    const CPUCTL_HRESET: u32 = 0x10;
+    // Bit 4 (0x10): HALTED — firmware halted via HALT; nouveau's wait_for_halt checks this bit.
+    const CPUCTL_HALTED: u32 = 0x10;
 
     init_tracing();
     let dev = open_vfio();
@@ -233,7 +230,7 @@ fn vfio_fecs_acr_boot_and_probe() {
     // If CPU is already running (cpuctl bit 4 = 0), HALT it first.
     // Writing STARTCPU to a running CPU doesn't restart from BOOTVEC.
     let cpuctl_pre = bar0.read_u32(base + CPUCTL).unwrap_or(0xDEAD);
-    if cpuctl_pre & CPUCTL_HRESET == 0 && cpuctl_pre != 0xDEAD_DEAD {
+    if cpuctl_pre & CPUCTL_HALTED == 0 && cpuctl_pre != 0xDEAD_DEAD {
         eprintln!("CPU running (cpuctl={cpuctl_pre:#010x}), halting before BOOTVEC/STARTCPU");
         // 0x3C0 local reset pulse to halt + clear exception state
         let _ = bar0.write_u32(base + 0x3C0, 0x01);
@@ -243,7 +240,7 @@ fn vfio_fecs_acr_boot_and_probe() {
         let halt_start = std::time::Instant::now();
         loop {
             let c = bar0.read_u32(base + CPUCTL).unwrap_or(0);
-            if c & CPUCTL_HRESET != 0 {
+            if c & CPUCTL_HALTED != 0 {
                 eprintln!("CPU halted: cpuctl={c:#010x} ({:?})", halt_start.elapsed());
                 break;
             }
@@ -279,8 +276,7 @@ fn vfio_fecs_acr_boot_and_probe() {
     acr_boot::falcon_start_cpu(bar0, base);
 
     // Poll for ACR to settle.
-    // Bit 4 (0x10, our CPUCTL_HRESET constant) is actually the HALTED bit
-    // on GV100 — nouveau's nvkm_falcon_v1_wait_for_halt checks this same bit.
+    // Bit 4 (0x10): HALTED — nouveau's nvkm_falcon_v1_wait_for_halt checks this bit.
     let start = std::time::Instant::now();
     let mut last_pc = 0u32;
     let mut settled = 0u32;
@@ -298,7 +294,7 @@ fn vfio_fecs_acr_boot_and_probe() {
             settled += 1;
         }
 
-        if mb0 != 0 || cpuctl & CPUCTL_HRESET != 0 {
+        if mb0 != 0 || cpuctl & CPUCTL_HALTED != 0 {
             eprintln!(
                 "SEC2 response: cpuctl={cpuctl:#010x} mb0={mb0:#010x} pc={pc:#06x} exci={exci:#010x} ({}ms)",
                 start.elapsed().as_millis()
@@ -338,7 +334,7 @@ fn vfio_fecs_acr_boot_and_probe() {
     let sec2_cpuctl = bar0.read_u32(base + CPUCTL).unwrap_or(0xDEAD);
     let sec2_mb0 = bar0.read_u32(base + MAILBOX0).unwrap_or(0);
     let sec2_exci = bar0.read_u32(base + EXCI).unwrap_or(0);
-    let sec2_alive = sec2_cpuctl & CPUCTL_HRESET == 0 && sec2_cpuctl != 0xDEAD_DEAD;
+    let sec2_alive = sec2_cpuctl & CPUCTL_HALTED == 0 && sec2_cpuctl != 0xDEAD_DEAD;
     eprintln!(
         "SEC2 alive for BOOTSTRAP: {sec2_alive} (cpuctl={sec2_cpuctl:#010x} mb0={sec2_mb0:#010x} exci={sec2_exci:#010x})"
     );
@@ -362,7 +358,7 @@ fn vfio_fecs_acr_boot_and_probe() {
     let probe5 = dev.falcon_probe();
     eprintln!("\nFinal state:\n{probe5}");
 
-    let fecs_running = probe5.fecs_cpuctl & CPUCTL_HRESET == 0 && probe5.fecs_cpuctl != 0xDEAD_DEAD;
+    let fecs_running = probe5.fecs_cpuctl & CPUCTL_HALTED == 0 && probe5.fecs_cpuctl != 0xDEAD_DEAD;
 
     if fecs_running {
         eprintln!("\n--- Step 6: FECS method probe ---");

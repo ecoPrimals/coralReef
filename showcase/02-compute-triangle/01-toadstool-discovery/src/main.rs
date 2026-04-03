@@ -119,7 +119,7 @@ fn main() {
     println!();
     println!("  coralReef          toadStool         barraCuda");
     println!("  (compile)    -->   (orchestrate) --> (execute)");
-    println!("  shader.compile     gpu.dispatch      compute.submit");
+    println!("  shader.dispatch    gpu.dispatch      compute.submit");
     println!();
     println!("  coralReef discovers gpu.dispatch providers at runtime.");
     println!("  It never knows WHO provides them — only WHAT it needs.");

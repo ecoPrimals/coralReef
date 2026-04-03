@@ -13,6 +13,9 @@ members = [
     "crates/coral-gpu",
     "crates/coral-glowplug",
     "crates/coral-ember",
+    "crates/coral-reef-cpu",
+    "crates/coral-reef-jit",
+    "crates/coral-parse",
 ]
 exclude = [
     "fuzz",
@@ -71,10 +74,65 @@ nak_ir_proc = { path = "crates/nak-ir-proc" }
 # Testing
 proptest = "1"
 
+# Sovereign syscalls (direct Linux syscalls, zero libc)
+rustix = { version = "1.1", features = ["mm"] }
+
+# Pure-Rust math (replaces libc libm for JIT transcendentals)
+libm = "0.2"
+
+# System calls (fork, waitpid) not yet covered by rustix
+libc = "0.2"
+
+# Cranelift JIT backend
+cranelift-codegen = "0.130"
+cranelift-frontend = "0.130"
+cranelift-module = "0.130"
+cranelift-jit = "0.130"
+cranelift-native = "0.130"
+
+# Shader frontend
+naga = { version = "28", features = ["wgsl-in"] }
+
+# GPU buffer layouts
+bytemuck = { version = "1", features = ["derive"] }
+
+# CUDA (optional, feature-gated)
+cudarc = { version = "0.19", features = ["driver", "cuda-12060"] }
+
+# NVML telemetry (replaces nvidia-smi process spawning)
+nvml-wrapper = "0.10"
+
+# Config files
+toml = "0.8"
+
+# Encoding
+base64 = "0.22"
+
+# Proc-macro tooling
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+
+# JSON-RPC client (test-only)
+jsonrpsee-http-client = { version = "0.26", default-features = false }
+jsonrpsee-core = { version = "0.26", default-features = false, features = ["client", "http-helpers"] }
+
+# Testing
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+trybuild = "1"
+
 # Internal crates
 coral-reef = { path = "crates/coral-reef" }
 coral-reef-isa = { path = "crates/coral-reef-isa" }
 coral-reef-stubs = { path = "crates/coral-reef-stubs" }
+coral-reef-cpu = { path = "crates/coral-reef-cpu" }
+coral-reef-jit = { path = "crates/coral-reef-jit" }
+coral-driver = { path = "crates/coral-driver" }
+coral-ember = { path = "crates/coral-ember" }
+coral-parse = { path = "crates/coral-parse" }
+coralreef-core = { path = "crates/coralreef-core" }
+primal-rpc-client = { path = "crates/primal-rpc-client" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

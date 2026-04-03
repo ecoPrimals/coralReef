@@ -161,7 +161,7 @@ pub struct AmdOpcode {
 //
 // All encoding modules are exported even if not yet consumed internally;
 // they form the public API for the AMD backend's ISA layer.
-#[expect(
+#[allow(
     unused_imports,
     reason = "encoding modules re-exported for public API; some unused depending on target"
 )]

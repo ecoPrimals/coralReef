@@ -550,11 +550,18 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
         .find(b'I')
         .ok_or("BIT 'I' entry not found — cannot locate devinit scripts")?;
 
-    if bit_i.version != 1 || bit_i.data_size < 0x1c {
+    if bit_i.version != 1 {
         return Err(format!(
-            "BIT 'I' entry: unexpected version {} or size {} (need ver=1, size>=0x1c)",
-            bit_i.version, bit_i.data_size
+            "BIT 'I' entry: unexpected version {} (need ver=1)",
+            bit_i.version
         ));
+    }
+    if bit_i.data_size < 0x1c {
+        tracing::warn!(
+            data_size = bit_i.data_size,
+            "BIT 'I' table smaller than 0x1c — opcode/script upload will be skipped \
+             (Kepler-era VBIOS with shorter table)"
+        );
     }
 
     let pmu_fws = parse_pmu_table(rom, &bit)?;
@@ -639,55 +646,63 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
     );
 
     let i_data_off = bit_i.data_offset as usize;
-    let opcode_img = u16::from_le_bytes([
-        rom.get(i_data_off + 0x14).copied().unwrap_or(0),
-        rom.get(i_data_off + 0x15).copied().unwrap_or(0),
-    ]) as u32;
-    let opcode_len = u16::from_le_bytes([
-        rom.get(i_data_off + 0x16).copied().unwrap_or(0),
-        rom.get(i_data_off + 0x17).copied().unwrap_or(0),
-    ]) as u32;
 
-    if opcode_len > 0 && opcode_img + opcode_len <= rom_len {
-        let pmu_opcode_addr = pmu_read_args(bar0, devinit_fw.args_addr_pmu + 0x08, 0x08);
-        tracing::trace!(
-            bytes = opcode_len,
-            rom_offset = format!("{:#x}", opcode_img),
-            dmem = format!("{:#x}", pmu_opcode_addr),
-            "uploading opcode tables"
-        );
-        pmu_upload_data(bar0, rom, pmu_opcode_addr, opcode_img, opcode_len);
+    if bit_i.data_size >= 0x1c {
+        let opcode_img = u16::from_le_bytes([
+            rom.get(i_data_off + 0x14).copied().unwrap_or(0),
+            rom.get(i_data_off + 0x15).copied().unwrap_or(0),
+        ]) as u32;
+        let opcode_len = u16::from_le_bytes([
+            rom.get(i_data_off + 0x16).copied().unwrap_or(0),
+            rom.get(i_data_off + 0x17).copied().unwrap_or(0),
+        ]) as u32;
+
+        if opcode_len > 0 && opcode_img + opcode_len <= rom_len {
+            let pmu_opcode_addr = pmu_read_args(bar0, devinit_fw.args_addr_pmu + 0x08, 0x08);
+            tracing::trace!(
+                bytes = opcode_len,
+                rom_offset = format!("{:#x}", opcode_img),
+                dmem = format!("{:#x}", pmu_opcode_addr),
+                "uploading opcode tables"
+            );
+            pmu_upload_data(bar0, rom, pmu_opcode_addr, opcode_img, opcode_len);
+        } else {
+            tracing::debug!(
+                img = format!("{opcode_img:#x}"),
+                len = opcode_len,
+                "no opcode table found"
+            );
+        }
+
+        let script_img = u16::from_le_bytes([
+            rom.get(i_data_off + 0x18).copied().unwrap_or(0),
+            rom.get(i_data_off + 0x19).copied().unwrap_or(0),
+        ]) as u32;
+        let script_len = u16::from_le_bytes([
+            rom.get(i_data_off + 0x1a).copied().unwrap_or(0),
+            rom.get(i_data_off + 0x1b).copied().unwrap_or(0),
+        ]) as u32;
+
+        if script_len > 0 && script_img + script_len <= rom_len {
+            let pmu_script_addr = pmu_read_args(bar0, devinit_fw.args_addr_pmu + 0x08, 0x10);
+            tracing::trace!(
+                bytes = script_len,
+                rom_offset = format!("{:#x}", script_img),
+                dmem = format!("{:#x}", pmu_script_addr),
+                "uploading boot scripts"
+            );
+            pmu_upload_data(bar0, rom, pmu_script_addr, script_img, script_len);
+        } else {
+            tracing::debug!(
+                img = format!("{script_img:#x}"),
+                len = script_len,
+                "no boot script found"
+            );
+        }
     } else {
-        tracing::debug!(
-            img = format!("{opcode_img:#x}"),
-            len = opcode_len,
-            "no opcode table found"
-        );
-    }
-
-    let script_img = u16::from_le_bytes([
-        rom.get(i_data_off + 0x18).copied().unwrap_or(0),
-        rom.get(i_data_off + 0x19).copied().unwrap_or(0),
-    ]) as u32;
-    let script_len = u16::from_le_bytes([
-        rom.get(i_data_off + 0x1a).copied().unwrap_or(0),
-        rom.get(i_data_off + 0x1b).copied().unwrap_or(0),
-    ]) as u32;
-
-    if script_len > 0 && script_img + script_len <= rom_len {
-        let pmu_script_addr = pmu_read_args(bar0, devinit_fw.args_addr_pmu + 0x08, 0x10);
-        tracing::trace!(
-            bytes = script_len,
-            rom_offset = format!("{:#x}", script_img),
-            dmem = format!("{:#x}", pmu_script_addr),
-            "uploading boot scripts"
-        );
-        pmu_upload_data(bar0, rom, pmu_script_addr, script_img, script_len);
-    } else {
-        tracing::debug!(
-            img = format!("{script_img:#x}"),
-            len = script_len,
-            "no boot script found"
+        tracing::info!(
+            data_size = bit_i.data_size,
+            "BIT 'I' table too small for opcode/script fields — skipping supplementary uploads"
         );
     }
 
@@ -701,11 +716,20 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
     pmu_exec(bar0, devinit_fw.init_addr_pmu);
 
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(2);
+    let timeout = std::time::Duration::from_secs(10);
     let mut completed = false;
+    let mut last_mbox = 0u32;
 
     while start.elapsed() < timeout {
         let mbox = r(pmu_reg::FALCON_MBOX0);
+        if mbox != last_mbox {
+            tracing::debug!(
+                mbox0 = format!("{mbox:#010x}"),
+                elapsed_ms = start.elapsed().as_millis(),
+                "DEVINIT MBOX0 changed"
+            );
+            last_mbox = mbox;
+        }
         if mbox & 0x2000 != 0 {
             completed = true;
             tracing::info!(
@@ -715,19 +739,33 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
             );
             break;
         }
+        let ctrl = r(pmu_reg::FALCON_CTRL);
+        if ctrl & 0x10 != 0 && start.elapsed().as_millis() > 500 {
+            tracing::warn!(
+                ctrl = format!("{ctrl:#010x}"),
+                mbox0 = format!("{mbox:#010x}"),
+                elapsed_ms = start.elapsed().as_millis(),
+                "PMU falcon halted unexpectedly during devinit"
+            );
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     if !completed {
         let mbox = r(pmu_reg::FALCON_MBOX0);
         let ctrl = r(pmu_reg::FALCON_CTRL);
+        let pc = r(pmu_reg::FALCON_PC);
         tracing::error!(
             mbox0 = format!("{mbox:#010x}"),
             ctrl = format!("{ctrl:#010x}"),
-            "DEVINIT timeout"
+            pc = format!("{pc:#010x}"),
+            elapsed_ms = start.elapsed().as_millis(),
+            "DEVINIT timeout or halt"
         );
         return Err(format!(
-            "PMU DEVINIT timed out after 2s (MBOX0={mbox:#010x})"
+            "PMU DEVINIT timed out after {:.1}s (MBOX0={mbox:#010x} CTRL={ctrl:#010x} PC={pc:#010x})",
+            start.elapsed().as_secs_f64()
         ));
     }
 

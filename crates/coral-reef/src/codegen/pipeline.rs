@@ -16,6 +16,35 @@ pub struct CompiledShader {
     pub code: Vec<u32>,
 }
 
+/// Run architecture-independent optimization passes without legalization or encoding.
+///
+/// Produces an optimized SSA-form IR suitable for Cranelift JIT translation.
+/// Stops before GPU-specific legalization, register allocation, and binary encoding.
+///
+/// # Errors
+///
+/// Returns [`CompileError`](crate::CompileError) if SSA dominance repair fails.
+pub fn optimize_shader(shader: &mut Shader<'_>) -> Result<(), crate::CompileError> {
+    shader.opt_copy_prop();
+    shader.opt_dce();
+    shader.opt_crs();
+    shader.opt_lop();
+    shader.opt_prmt();
+    shader.opt_out();
+    shader.opt_jump_thread();
+    shader.opt_bar_prop();
+    shader.opt_uniform_instrs();
+
+    for f in &mut shader.functions {
+        f.fix_entry_live_in()?;
+    }
+
+    shader.lower_fma_contractions();
+    shader.lower_pre_volta_ops();
+    shader.opt_instr_sched_prepass();
+    Ok(())
+}
+
 /// Run the full optimization and encoding pipeline on a shader.
 pub fn compile_shader(
     shader: &mut Shader<'_>,
@@ -48,6 +77,11 @@ pub fn compile_shader(
     // internally require FMA for convergence, so we only split user-originating
     // FMA instructions, not the ones we emit for f64 lowering.
     shader.lower_fma_contractions();
+
+    // Convert pre-Volta ops to SM70+ equivalents before scheduling.
+    // Must run before opt_instr_sched_prepass because the scheduler's latency
+    // tables (SM80+) don't handle pre-Volta ops like OpIAdd2, OpIMul, etc.
+    shader.lower_pre_volta_ops();
 
     // Pre-RA scheduling
     shader.opt_instr_sched_prepass();

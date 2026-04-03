@@ -70,6 +70,17 @@ pub struct HealthInfo {
     pub power: String,
     pub domains_alive: usize,
     pub domains_faulted: usize,
+    #[serde(default)]
+    pub fecs_cpuctl: u32,
+    #[serde(default)]
+    pub fecs_stopped: bool,
+    /// CPUCTL bit 4 (firmware HALT). `fecs_hreset` was the legacy JSON key for this bit.
+    #[serde(default, alias = "fecs_hreset")]
+    pub fecs_halted: bool,
+    #[serde(default)]
+    pub fecs_sctl: u32,
+    #[serde(default)]
+    pub gpccs_cpuctl: u32,
 }
 
 pub(super) fn make_response(

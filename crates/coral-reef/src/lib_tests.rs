@@ -1,41 +1,43 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 use super::*;
 
-#[test]
-fn test_compile_empty_spirv_rejected() {
-    let result = compile(&[], &CompileOptions::default());
-    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
-}
+#[cfg(feature = "naga")]
+mod naga_frontend_tests {
+    use super::*;
 
-#[test]
-fn test_compile_invalid_spirv_rejected() {
-    let result = compile(&[0x0723_0203], &CompileOptions::default());
-    assert!(result.is_err(), "invalid SPIR-V should fail: {result:?}");
-}
+    #[test]
+    fn test_compile_empty_spirv_rejected() {
+        let result = compile(&[], &CompileOptions::default());
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
 
-#[test]
-fn test_compile_wgsl_empty_rejected() {
-    let result = compile_wgsl("", &CompileOptions::default());
-    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
-}
+    #[test]
+    fn test_compile_invalid_spirv_rejected() {
+        let result = compile(&[0x0723_0203], &CompileOptions::default());
+        assert!(result.is_err(), "invalid SPIR-V should fail: {result:?}");
+    }
 
-#[test]
-fn test_compile_wgsl_minimal_compute() {
-    let result = compile_wgsl(
-        "@compute @workgroup_size(1) fn main() {}",
-        &CompileOptions::default(),
-    );
-    assert!(
-        result.is_ok() || result.is_err(),
-        "should parse and attempt compilation"
-    );
-}
+    #[test]
+    fn test_compile_wgsl_empty_rejected() {
+        let result = compile_wgsl("", &CompileOptions::default());
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
 
-#[test]
-fn test_compile_wgsl_f64_min_max_abs_clamp() {
-    // Exercises f64 min/max/abs/clamp lowering (SSARef must have 2 components).
-    // Pattern from deformed_potentials_f64: max(rho, 0.0), clamp(v, lo, hi).
-    let wgsl = r"
+    #[test]
+    fn test_compile_wgsl_minimal_compute() {
+        let result = compile_wgsl(
+            "@compute @workgroup_size(1) fn main() {}",
+            &CompileOptions::default(),
+        );
+        assert!(
+            result.is_ok() || result.is_err(),
+            "should parse and attempt compilation"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_f64_min_max_abs_clamp() {
+        let wgsl = r"
 @compute @workgroup_size(1)
 fn main() {
     let rho = f64(1.5);
@@ -45,44 +47,210 @@ fn main() {
     let a = abs(v);
 }
 ";
-    let opts = CompileOptions {
-        target: GpuTarget::Nvidia(NvArch::Sm70),
-        fp64_software: true,
-        ..CompileOptions::default()
-    };
-    let result = compile_wgsl(wgsl, &opts);
-    assert!(
-        result.is_ok(),
-        "f64 min/max/abs/clamp should compile: {result:?}"
-    );
-}
+        let opts = CompileOptions {
+            target: GpuTarget::Nvidia(NvArch::Sm70),
+            fp64_software: true,
+            ..CompileOptions::default()
+        };
+        let result = compile_wgsl(wgsl, &opts);
+        assert!(
+            result.is_ok(),
+            "f64 min/max/abs/clamp should compile: {result:?}"
+        );
+    }
 
-#[test]
-fn test_compile_glsl_empty_rejected() {
-    let result = compile_glsl("", &CompileOptions::default());
-    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
-}
+    #[test]
+    fn test_compile_glsl_empty_rejected() {
+        let result = compile_glsl("", &CompileOptions::default());
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
 
-#[test]
-fn test_compile_glsl_minimal_compute() {
-    let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
-    let result = compile_glsl(glsl, &CompileOptions::default());
-    assert!(
-        result.is_ok(),
-        "minimal GLSL compute should compile: {result:?}"
-    );
-}
+    #[test]
+    fn test_compile_glsl_minimal_compute() {
+        let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
+        let result = compile_glsl(glsl, &CompileOptions::default());
+        assert!(
+            result.is_ok(),
+            "minimal GLSL compute should compile: {result:?}"
+        );
+    }
 
-#[test]
-fn test_compile_glsl_malformed_returns_error() {
-    let result = compile_glsl(
-        "#version 450\nvoid main() { int x = ; }",
-        &CompileOptions::default(),
-    );
-    assert!(
-        result.is_err(),
-        "malformed GLSL should return error: {result:?}"
-    );
+    #[test]
+    fn test_compile_glsl_malformed_returns_error() {
+        let result = compile_glsl(
+            "#version 450\nvoid main() { int x = ; }",
+            &CompileOptions::default(),
+        );
+        assert!(
+            result.is_err(),
+            "malformed GLSL should return error: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_with_all_archs() {
+        for arch in [
+            GpuArch::Sm70,
+            GpuArch::Sm75,
+            GpuArch::Sm80,
+            GpuArch::Sm86,
+            GpuArch::Sm89,
+        ] {
+            let opts = CompileOptions {
+                target: arch.into(),
+                ..CompileOptions::default()
+            };
+            let result = compile(&[0x0723_0203], &opts);
+            assert!(result.is_err(), "should be not-implemented for {arch}");
+        }
+    }
+
+    #[test]
+    fn test_amd_compile_wgsl_minimal() {
+        let opts = CompileOptions {
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+            ..CompileOptions::default()
+        };
+        let result = compile_wgsl("@compute @workgroup_size(1) fn main() {}", &opts);
+        assert!(
+            result.is_ok() || result.is_err(),
+            "should parse and attempt AMD compilation"
+        );
+    }
+
+    #[test]
+    fn test_cross_vendor_both_compile_same_wgsl() {
+        let wgsl = "@compute @workgroup_size(1) fn main() {}";
+        let nv_opts = CompileOptions {
+            target: GpuTarget::Nvidia(NvArch::Sm70),
+            ..CompileOptions::default()
+        };
+        let amd_opts = CompileOptions {
+            target: GpuTarget::Amd(AmdArch::Rdna2),
+            ..CompileOptions::default()
+        };
+        let nv_result = compile_wgsl(wgsl, &nv_opts);
+        let amd_result = compile_wgsl(wgsl, &amd_opts);
+
+        assert!(
+            nv_result.is_ok(),
+            "NVIDIA compilation failed: {nv_result:?}"
+        );
+        assert!(amd_result.is_ok(), "AMD compilation failed: {amd_result:?}");
+
+        let nv_bin = nv_result.unwrap();
+        let amd_bin = amd_result.unwrap();
+
+        assert!(
+            nv_bin.len() > amd_bin.len(),
+            "NVIDIA binary should be larger (includes SPH)"
+        );
+        assert!(
+            !amd_bin.is_empty(),
+            "AMD binary should contain at least s_endpgm"
+        );
+        assert!(
+            nv_bin.len() >= 32,
+            "NVIDIA binary should have at least 32 bytes (SPH header)"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_malformed_returns_error() {
+        let opts = CompileOptions::default();
+        let result = compile_wgsl("not valid wgsl", &opts);
+        assert!(
+            result.is_err(),
+            "malformed WGSL should return error: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_intel_returns_unsupported_arch() {
+        let opts = CompileOptions {
+            target: GpuTarget::Intel(IntelArch::XeHpg),
+            ..CompileOptions::default()
+        };
+        let result = compile_wgsl("@compute @workgroup_size(1) fn main() {}", &opts);
+        assert!(
+            matches!(result, Err(CompileError::UnsupportedArch(_))),
+            "compile_wgsl with Intel target should return UnsupportedArch: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_intel_returns_unsupported_arch() {
+        let opts = CompileOptions {
+            target: GpuTarget::Intel(IntelArch::XeHpg),
+            ..CompileOptions::default()
+        };
+        let result = compile(&[0x0723_0203], &opts);
+        assert!(
+            matches!(result, Err(CompileError::UnsupportedArch(_))),
+            "compile with Intel target should return UnsupportedArch: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_full_empty_rejected() {
+        let opts = CompileOptions::default();
+        let result = compile_wgsl_full("", &opts);
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_compile_glsl_full_empty_rejected() {
+        let opts = CompileOptions::default();
+        let result = compile_glsl_full("", &opts);
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_compile_wgsl_raw_sm_empty_rejected() {
+        let result = compile_wgsl_raw_sm("", 70);
+        assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn test_compile_wgsl_raw_sm_70() {
+        let result = compile_wgsl_raw_sm("@compute @workgroup_size(1) fn main() {}", 70);
+        assert!(result.is_ok(), "raw sm70 should compile: {result:?}");
+    }
+
+    #[test]
+    fn test_compile_glsl_intel_returns_unsupported() {
+        let opts = CompileOptions {
+            target: GpuTarget::Intel(IntelArch::XeHpg),
+            ..CompileOptions::default()
+        };
+        let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
+        let result = compile_glsl(glsl, &opts);
+        assert!(
+            matches!(result, Err(CompileError::UnsupportedArch(_))),
+            "compile_glsl with Intel should return UnsupportedArch: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_glsl_full_minimal() {
+        let opts = CompileOptions::default();
+        let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
+        let result = compile_glsl_full(glsl, &opts);
+        assert!(
+            result.is_ok(),
+            "minimal GLSL full compile should succeed: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_compile_wgsl_full_minimal() {
+        let opts = CompileOptions::default();
+        let result = compile_wgsl_full("@compute @workgroup_size(1) fn main() {}", &opts);
+        assert!(
+            result.is_ok(),
+            "minimal WGSL full compile should succeed: {result:?}"
+        );
+    }
 }
 
 #[test]
@@ -118,24 +286,6 @@ fn test_options_debug() {
 }
 
 #[test]
-fn test_compile_with_all_archs() {
-    for arch in [
-        GpuArch::Sm70,
-        GpuArch::Sm75,
-        GpuArch::Sm80,
-        GpuArch::Sm86,
-        GpuArch::Sm89,
-    ] {
-        let opts = CompileOptions {
-            target: arch.into(),
-            ..CompileOptions::default()
-        };
-        let result = compile(&[0x0723_0203], &opts);
-        assert!(result.is_err(), "should be not-implemented for {arch}");
-    }
-}
-
-#[test]
 fn test_shader_model_for_nvidia() {
     let sm = shader_model_for(GpuTarget::Nvidia(NvArch::Sm86));
     assert!(sm.is_ok());
@@ -156,59 +306,9 @@ fn test_shader_model_for_intel_unsupported() {
 }
 
 #[test]
-fn test_amd_compile_wgsl_minimal() {
-    let opts = CompileOptions {
-        target: GpuTarget::Amd(AmdArch::Rdna2),
-        ..CompileOptions::default()
-    };
-    let result = compile_wgsl("@compute @workgroup_size(1) fn main() {}", &opts);
-    assert!(
-        result.is_ok() || result.is_err(),
-        "should parse and attempt AMD compilation"
-    );
-}
-
-#[test]
 fn test_backend_for_resolves_amd() {
     let be = backend::backend_for(GpuTarget::Amd(AmdArch::Rdna2));
     assert!(be.is_ok());
-}
-
-#[test]
-fn test_cross_vendor_both_compile_same_wgsl() {
-    let wgsl = "@compute @workgroup_size(1) fn main() {}";
-    let nv_opts = CompileOptions {
-        target: GpuTarget::Nvidia(NvArch::Sm70),
-        ..CompileOptions::default()
-    };
-    let amd_opts = CompileOptions {
-        target: GpuTarget::Amd(AmdArch::Rdna2),
-        ..CompileOptions::default()
-    };
-    let nv_result = compile_wgsl(wgsl, &nv_opts);
-    let amd_result = compile_wgsl(wgsl, &amd_opts);
-
-    assert!(
-        nv_result.is_ok(),
-        "NVIDIA compilation failed: {nv_result:?}"
-    );
-    assert!(amd_result.is_ok(), "AMD compilation failed: {amd_result:?}");
-
-    let nv_bin = nv_result.unwrap();
-    let amd_bin = amd_result.unwrap();
-
-    assert!(
-        nv_bin.len() > amd_bin.len(),
-        "NVIDIA binary should be larger (includes SPH)"
-    );
-    assert!(
-        !amd_bin.is_empty(),
-        "AMD binary should contain at least s_endpgm"
-    );
-    assert!(
-        nv_bin.len() >= 32,
-        "NVIDIA binary should have at least 32 bytes (SPH header)"
-    );
 }
 
 #[test]
@@ -272,42 +372,6 @@ fn test_compile_options_arch_returns_err_for_amd() {
         ..CompileOptions::default()
     };
     assert!(opts.arch().is_err());
-}
-
-#[test]
-fn test_compile_wgsl_malformed_returns_error() {
-    let opts = CompileOptions::default();
-    let result = compile_wgsl("not valid wgsl", &opts);
-    assert!(
-        result.is_err(),
-        "malformed WGSL should return error: {result:?}"
-    );
-}
-
-#[test]
-fn test_compile_wgsl_intel_returns_unsupported_arch() {
-    let opts = CompileOptions {
-        target: GpuTarget::Intel(IntelArch::XeHpg),
-        ..CompileOptions::default()
-    };
-    let result = compile_wgsl("@compute @workgroup_size(1) fn main() {}", &opts);
-    assert!(
-        matches!(result, Err(CompileError::UnsupportedArch(_))),
-        "compile_wgsl with Intel target should return UnsupportedArch: {result:?}"
-    );
-}
-
-#[test]
-fn test_compile_intel_returns_unsupported_arch() {
-    let opts = CompileOptions {
-        target: GpuTarget::Intel(IntelArch::XeHpg),
-        ..CompileOptions::default()
-    };
-    let result = compile(&[0x0723_0203], &opts);
-    assert!(
-        matches!(result, Err(CompileError::UnsupportedArch(_))),
-        "compile with Intel target should return UnsupportedArch: {result:?}"
-    );
 }
 
 #[test]
@@ -441,65 +505,4 @@ fn test_emit_binary_amd_no_header() {
     };
     let binary = emit_binary(&compiled, GpuTarget::Amd(AmdArch::Rdna2));
     assert_eq!(binary.len(), 4, "AMD skips header, only code words");
-}
-
-#[test]
-fn test_compile_wgsl_full_empty_rejected() {
-    let opts = CompileOptions::default();
-    let result = compile_wgsl_full("", &opts);
-    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
-}
-
-#[test]
-fn test_compile_glsl_full_empty_rejected() {
-    let opts = CompileOptions::default();
-    let result = compile_glsl_full("", &opts);
-    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
-}
-
-#[test]
-fn test_compile_wgsl_raw_sm_empty_rejected() {
-    let result = compile_wgsl_raw_sm("", 70);
-    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
-}
-
-#[test]
-fn test_compile_wgsl_raw_sm_70() {
-    let result = compile_wgsl_raw_sm("@compute @workgroup_size(1) fn main() {}", 70);
-    assert!(result.is_ok(), "raw sm70 should compile: {result:?}");
-}
-
-#[test]
-fn test_compile_glsl_intel_returns_unsupported() {
-    let opts = CompileOptions {
-        target: GpuTarget::Intel(IntelArch::XeHpg),
-        ..CompileOptions::default()
-    };
-    let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
-    let result = compile_glsl(glsl, &opts);
-    assert!(
-        matches!(result, Err(CompileError::UnsupportedArch(_))),
-        "compile_glsl with Intel should return UnsupportedArch: {result:?}"
-    );
-}
-
-#[test]
-fn test_compile_glsl_full_minimal() {
-    let opts = CompileOptions::default();
-    let glsl = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}";
-    let result = compile_glsl_full(glsl, &opts);
-    assert!(
-        result.is_ok(),
-        "minimal GLSL full compile should succeed: {result:?}"
-    );
-}
-
-#[test]
-fn test_compile_wgsl_full_minimal() {
-    let opts = CompileOptions::default();
-    let result = compile_wgsl_full("@compute @workgroup_size(1) fn main() {}", &opts);
-    assert!(
-        result.is_ok(),
-        "minimal WGSL full compile should succeed: {result:?}"
-    );
 }

@@ -19,6 +19,7 @@ const SEC2_BASE: usize = 0x087000;
 const FECS_BASE: usize = 0x409000;
 const GPCCS_BASE: usize = 0x41a000;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg {
     pub const CPUCTL: usize = 0x100;
     pub const HWCFG: usize = 0x108;
@@ -31,8 +32,8 @@ mod freg {
     pub const IMEMC: usize = 0x180;
     pub const IMEMD: usize = 0x184;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 
     pub fn imem_size(hwcfg: u32) -> usize {
         ((hwcfg & 0x1FF) as usize) << 8
@@ -79,9 +80,9 @@ fn exp100_full_iommu_acr_boot() {
         let sctl = r(freg::SCTL);
         let pc = r(freg::PC);
         let exci = r(freg::EXCI);
-        let hreset = cpuctl & freg::CPUCTL_HRESET != 0;
+        let halted = cpuctl & freg::CPUCTL_HALTED != 0;
         eprintln!(
-            "  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} sctl={sctl:#010x} PC={pc:#06x} EXCI={exci:#010x}"
+            "  {name}: cpuctl={cpuctl:#010x} HALTED={halted} sctl={sctl:#010x} PC={pc:#06x} EXCI={exci:#010x}"
         );
     }
 
@@ -114,18 +115,18 @@ fn exp100_full_iommu_acr_boot() {
         let exci = r(freg::EXCI);
         let mb0 = r(freg::MAILBOX0);
         let mb1 = r(freg::MAILBOX1);
-        let hwcfg = r(freg::HWCFG);
-        let hreset = cpuctl & freg::CPUCTL_HRESET != 0;
+        let _hwcfg = r(freg::HWCFG);
         let halted = cpuctl & freg::CPUCTL_HALTED != 0;
+        let stopped = cpuctl & freg::CPUCTL_STOPPED != 0;
         let hs = sctl == 0x3002;
-        eprintln!("  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HALTED={halted} HS={hs}");
+        eprintln!("  {name}: cpuctl={cpuctl:#010x} HALTED={halted} STOPPED={stopped} HS={hs}");
         eprintln!("    PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x} mb1={mb1:#010x}");
 
         // IMEM probe
         let w = |off: usize, val: u32| {
             let _ = bar0.write_u32(base + off, val);
         };
-        w(freg::IMEMC, (1u32 << 25) | 0);
+        w(freg::IMEMC, 1u32 << 25);
         let imem: Vec<u32> = (0..32).map(|_| r(freg::IMEMD)).collect();
         let nz = imem.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD).count();
         eprintln!("    IMEM[0..128]: {nz}/32 non-zero");
@@ -146,7 +147,7 @@ fn exp100_full_iommu_acr_boot() {
     let fecs_pc = bar0.read_u32(FECS_BASE + freg::PC).unwrap_or(0xDEAD);
     let fecs_exci = bar0.read_u32(FECS_BASE + freg::EXCI).unwrap_or(0xDEAD);
 
-    if fecs_cpuctl & freg::CPUCTL_HRESET == 0 && fecs_exci == 0 {
+    if fecs_cpuctl & freg::CPUCTL_HALTED == 0 && fecs_exci == 0 {
         eprintln!("\n── Phase 5: FECS ALIVE — Testing GR Readiness ──");
         let pgraph = bar0.read_u32(0x400700).unwrap_or(0xDEAD);
         let gr_class = bar0.read_u32(0x410004).unwrap_or(0xDEAD);
@@ -164,7 +165,7 @@ fn exp100_full_iommu_acr_boot() {
 
         eprintln!("\n  *** SOVEREIGN COMPUTE PIPELINE POTENTIALLY UNLOCKED ***");
     } else {
-        eprintln!("\n── Phase 5: FECS still in HRESET/faulted ──");
+        eprintln!("\n── Phase 5: FECS still halted/faulted ──");
         eprintln!("  FECS: cpuctl={fecs_cpuctl:#010x} PC={fecs_pc:#06x} EXCI={fecs_exci:#010x}");
 
         // Check SEC2 state more carefully
@@ -175,7 +176,7 @@ fn exp100_full_iommu_acr_boot() {
             "  SEC2: cpuctl={sec2_cpuctl:#010x} EXCI={sec2_exci:#010x} SCTL={sec2_sctl:#010x}"
         );
 
-        if sec2_exci == 0 && sec2_cpuctl & freg::CPUCTL_HALTED == 0 {
+        if sec2_exci == 0 && sec2_cpuctl & freg::CPUCTL_STOPPED == 0 {
             eprintln!("  SEC2 completed WITHOUT DMA trap — progress! Check WPR state.");
         }
     }

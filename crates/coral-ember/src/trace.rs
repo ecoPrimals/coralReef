@@ -17,9 +17,26 @@ use crate::error::{SwapError, TraceError};
 use std::path::Path;
 use std::time::SystemTime;
 
-const TRACER_PATH: &str = "/sys/kernel/debug/tracing/current_tracer";
-const TRACING_ON_PATH: &str = "/sys/kernel/debug/tracing/tracing_on";
-const TRACE_PATH: &str = "/sys/kernel/debug/tracing/trace";
+const DEFAULT_DEBUGFS_TRACING: &str = "/sys/kernel/debug/tracing";
+
+fn debugfs_tracing_base() -> String {
+    std::env::var("CORALREEF_DEBUGFS_TRACING")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_DEBUGFS_TRACING.to_string())
+}
+
+fn tracer_path() -> String {
+    format!("{}/current_tracer", debugfs_tracing_base())
+}
+
+fn tracing_on_path() -> String {
+    format!("{}/tracing_on", debugfs_tracing_base())
+}
+
+fn trace_path() -> String {
+    format!("{}/trace", debugfs_tracing_base())
+}
 
 fn trace_data_dir() -> String {
     std::env::var("CORALREEF_TRACE_DIR")
@@ -36,16 +53,16 @@ pub fn enable_mmiotrace() -> Result<(), TraceError> {
     tracing::info!("enabling kernel mmiotrace");
 
     // Clear any previous trace data
-    std::fs::write(TRACE_PATH, "").ok();
+    std::fs::write(trace_path(), "").ok();
 
-    std::fs::write(TRACER_PATH, "mmiotrace").map_err(|e| {
+    std::fs::write(tracer_path(), "mmiotrace").map_err(|e| {
         TraceError::Enable(format!("failed to set current_tracer to mmiotrace: {e}"))
     })?;
 
-    std::fs::write(TRACING_ON_PATH, "1")
+    std::fs::write(tracing_on_path(), "1")
         .map_err(|e| TraceError::Enable(format!("failed to enable tracing_on: {e}")))?;
 
-    let verify = std::fs::read_to_string(TRACER_PATH)
+    let verify = std::fs::read_to_string(tracer_path())
         .unwrap_or_default()
         .trim()
         .to_string();
@@ -67,9 +84,9 @@ pub fn disable_mmiotrace() -> Result<(), TraceError> {
     tracing::info!("disabling kernel mmiotrace");
 
     // Idempotent: stop recording if not already stopped
-    let _ = std::fs::write(TRACING_ON_PATH, "0");
+    let _ = std::fs::write(tracing_on_path(), "0");
 
-    std::fs::write(TRACER_PATH, "nop")
+    std::fs::write(tracer_path(), "nop")
         .map_err(|e| TraceError::Disable(format!("failed to reset current_tracer to nop: {e}")))?;
 
     tracing::info!("mmiotrace disabled");
@@ -97,7 +114,7 @@ pub fn capture_trace(bdf: &str, driver: &str) -> Result<String, TraceError> {
     let filename = format!("{safe_bdf}_{driver}_{timestamp}.mmiotrace");
     let output_path = format!("{data_dir}/{filename}");
 
-    let trace_data = std::fs::read_to_string(TRACE_PATH).map_err(|e| TraceError::Capture {
+    let trace_data = std::fs::read_to_string(trace_path()).map_err(|e| TraceError::Capture {
         bdf: bdf.to_string(),
         reason: format!("failed to read trace buffer: {e}"),
     })?;
@@ -140,7 +157,7 @@ where
 
     // Stop recording new events but keep the tracer active so the
     // ring buffer is preserved for reading.
-    let _ = std::fs::write(TRACING_ON_PATH, "0");
+    let _ = std::fs::write(tracing_on_path(), "0");
 
     // Capture the trace while mmiotrace is still the active tracer —
     // the ring buffer is only valid while current_tracer == "mmiotrace".
@@ -163,12 +180,12 @@ where
 
 /// Check whether mmiotrace is available on this kernel.
 pub fn is_mmiotrace_available() -> bool {
-    Path::new(TRACER_PATH).exists()
+    Path::new(&tracer_path()).exists()
 }
 
 /// Read the current tracer name (e.g. "nop", "mmiotrace").
 pub fn current_tracer() -> Option<String> {
-    std::fs::read_to_string(TRACER_PATH)
+    std::fs::read_to_string(tracer_path())
         .ok()
         .map(|s| s.trim().to_string())
 }

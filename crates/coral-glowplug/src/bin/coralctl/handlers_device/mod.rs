@@ -139,68 +139,173 @@ pub(crate) fn rpc_reset(socket: &str, bdf: &str, method: &str) {
     }
 }
 
-pub(crate) fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
-    println!("=== Warm FECS via nouveau round-trip ===");
-
-    // Livepatch must be DISABLED before nouveau loads so gk104_runl_commit
-    // (and other functions) run normally during init. If it's enabled and
-    // nouveau loads, the NOP would prevent runlist submission and break init.
-    let lp_enabled = "/sys/kernel/livepatch/livepatch_nvkm_mc_reset/enabled";
-    if std::path::Path::new(lp_enabled).exists() {
-        let cur = std::fs::read_to_string(lp_enabled).unwrap_or_default();
-        if cur.trim() == "1" {
-            println!("step 0: disabling livepatch before nouveau load...");
-            sysfs_write_privileged(lp_enabled, "0");
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        }
+/// Warm FECS via a full driver round-trip, orchestrated by glowplug's
+/// `device.warm_handoff` RPC. All livepatch management, BAR0 polling,
+/// and driver swaps are handled server-side.
+pub(crate) fn rpc_warm_fecs(
+    socket: &str,
+    bdf: &str,
+    settle_secs: u64,
+    poll_fecs: bool,
+    keepalive: bool,
+    allow_cold: bool,
+) {
+    println!("=== Warm FECS via device.warm_handoff ===");
+    let mut params = json!({
+        "bdf": bdf,
+        "driver": "nouveau",
+        "settle_ms": settle_secs * 1000,
+        "poll_fecs": poll_fecs,
+        "poll_timeout_ms": 30_000u64,
+        "keepalive": keepalive,
+    });
+    if allow_cold {
+        params["allow_cold"] = json!(true);
     }
 
-    println!("step 1: swapping {bdf} -> nouveau (loads ACR → FECS firmware)...");
+    let response = rpc_call(socket, "device.warm_handoff", params);
+    check_rpc_error(&response);
 
-    let resp1 = rpc_call(
-        socket,
-        "device.swap",
-        json!({"bdf": bdf, "target": "nouveau"}),
-    );
-    check_rpc_error(&resp1);
+    if let Some(result) = response.get("result") {
+        print_warm_handoff_result(result);
+    }
+    println!("=== warm-fecs complete ===");
+}
 
-    let personality = resp1
-        .get("result")
-        .and_then(|r| r.get("personality"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("?");
-    println!("  now on {personality}");
-
-    println!("step 2: waiting {settle_secs}s for nouveau GR init...");
-    std::thread::sleep(std::time::Duration::from_secs(settle_secs));
-
-    // Enable livepatch AFTER init, BEFORE teardown — NOPs freeze the
-    // runlist, prevent falcon halts, and skip engine resets so FECS
-    // stays alive in its context-switch-ready HALT state.
-    if std::path::Path::new(lp_enabled).exists() {
-        println!("step 2b: enabling livepatch (freezing runlist for warm handoff)...");
-        sysfs_write_privileged(lp_enabled, "1");
-        std::thread::sleep(std::time::Duration::from_millis(500));
+/// Warm FECS via nvidia proprietary driver round-trip.
+pub(crate) fn rpc_warm_fecs_nvidia(
+    socket: &str,
+    bdf: &str,
+    settle_secs: u64,
+    keepalive: bool,
+    allow_cold: bool,
+) {
+    println!("=== Warm FECS via nvidia device.warm_handoff ===");
+    let mut params = json!({
+        "bdf": bdf,
+        "driver": "nvidia",
+        "settle_ms": settle_secs * 1000,
+        "poll_fecs": true,
+        "poll_timeout_ms": 10_000u64,
+        "keepalive": keepalive,
+    });
+    if allow_cold {
+        params["allow_cold"] = json!(true);
     }
 
-    println!(
-        "step 3: swapping {bdf} -> vfio (Ember disables reset_method to preserve FECS IMEM)..."
-    );
-    let resp2 = rpc_call(socket, "device.swap", json!({"bdf": bdf, "target": "vfio"}));
-    check_rpc_error(&resp2);
+    let response = rpc_call(socket, "device.warm_handoff", params);
+    check_rpc_error(&response);
 
-    let personality = resp2
-        .get("result")
-        .and_then(|r| r.get("personality"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("?");
-    let vram = resp2
-        .get("result")
-        .and_then(|r| r.get("vram_alive"))
+    if let Some(result) = response.get("result") {
+        print_warm_handoff_result(result);
+    }
+    println!("=== warm-fecs-nvidia complete ===");
+}
+
+/// Cold-POST a GPU via driver round-trip (allow_cold + keepalive enabled).
+pub(crate) fn rpc_cold_post(socket: &str, bdf: &str, settle_secs: u64, driver: &str) {
+    println!("=== Cold POST via device.warm_handoff (allow_cold=true) ===");
+    let params = json!({
+        "bdf": bdf,
+        "driver": driver,
+        "settle_ms": settle_secs * 1000,
+        "poll_fecs": true,
+        "poll_timeout_ms": 30_000u64,
+        "keepalive": true,
+        "allow_cold": true,
+    });
+
+    let response = rpc_call(socket, "device.warm_handoff", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        print_warm_handoff_result(result);
+    }
+    println!("=== cold-post complete ===");
+}
+
+fn print_warm_handoff_result(result: &serde_json::Value) {
+    let bdf = result.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
+    let driver = result.get("driver").and_then(|v| v.as_str()).unwrap_or("?");
+    let total_ms = result.get("total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+    let fecs_running = result
+        .get("fecs_ever_running")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    println!("  now on {personality} (vram_alive={vram})");
-    println!("=== warm-fecs complete — run vfio_dispatch_warm_handoff test ===");
+    let poll_count = result
+        .get("poll_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let personality = result
+        .get("personality")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let vram = result
+        .get("vram_alive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    println!("  device:     {bdf}");
+    println!("  driver:     {driver}");
+    println!("  total:      {total_ms}ms");
+    println!("  fecs_ran:   {fecs_running}");
+    println!("  poll_count: {poll_count}");
+    println!("  personality: {personality} (vram_alive={vram})");
+
+    if let Some(pre) = result.get("pre_fecs") {
+        println!(
+            "  pre_fecs:   cpuctl={} halted={} stopped={}",
+            pre.get("cpuctl").and_then(|v| v.as_str()).unwrap_or("?"),
+            pre.get("halted").and_then(|v| v.as_bool()).unwrap_or(false),
+            pre.get("stopped")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        );
+    }
+    if let Some(post) = result.get("post_fecs") {
+        println!(
+            "  post_fecs:  cpuctl={} halted={} stopped={}",
+            post.get("cpuctl").and_then(|v| v.as_str()).unwrap_or("?"),
+            post.get("halted")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            post.get("stopped")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        );
+    }
+    if let Some(last) = result.get("last_fecs_during_poll") {
+        println!(
+            "  last_poll:  cpuctl={} halted={} stopped={}",
+            last.get("cpuctl").and_then(|v| v.as_str()).unwrap_or("?"),
+            last.get("halted")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            last.get("stopped")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        );
+    }
+
+    let fecs_initialized = result
+        .get("fecs_initialized")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let fecs_frozen = result
+        .get("fecs_frozen")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if fecs_running {
+        println!("  >>> FECS was caught running during handoff!");
+    } else if fecs_initialized {
+        println!("  FECS initialized (idle-halted) — STOP_CTXSW attempted");
+    } else {
+        println!("  FECS was NOT seen running or initialized (HS+ lockdown or cold)");
+    }
+    if fecs_frozen {
+        println!("  >>> FECS scheduling frozen (STOP_CTXSW success)");
+    }
 }
 
 pub(crate) fn rpc_compute_info(socket: &str, bdf: &str) {
@@ -480,6 +585,117 @@ pub(crate) fn rpc_dispatch(
     }
 }
 
+#[expect(clippy::too_many_arguments)]
+pub(crate) fn rpc_dispatch_sovereign(
+    socket: &str,
+    bdf: &str,
+    shader_path: &str,
+    input_paths: &[String],
+    output_sizes: &[u64],
+    workgroups: &str,
+    output_dir: Option<&str>,
+    sm: u32,
+) {
+    use base64::engine::general_purpose::STANDARD;
+    let b64 = STANDARD;
+
+    let wgsl_source = std::fs::read_to_string(shader_path).unwrap_or_else(|e| {
+        eprintln!("error: cannot read WGSL shader {shader_path}: {e}");
+        std::process::exit(1);
+    });
+
+    let inputs_b64: Vec<String> = input_paths
+        .iter()
+        .map(|p| {
+            let data = std::fs::read(p).unwrap_or_else(|e| {
+                eprintln!("error: cannot read input {p}: {e}");
+                std::process::exit(1);
+            });
+            b64.encode(&data)
+        })
+        .collect();
+
+    let dims = parse_triple(workgroups);
+
+    let mut params = json!({
+        "bdf": bdf,
+        "wgsl": wgsl_source,
+        "inputs": inputs_b64,
+        "output_sizes": output_sizes,
+        "dims": dims,
+    });
+    if sm > 0 {
+        params["sm"] = json!(sm);
+    }
+
+    eprintln!(
+        "=== Sovereign dispatch on {bdf} ===\n  shader: {shader_path}\n  \
+         inputs: {}\n  outputs: {}\n  grid: {}x{}x{}",
+        input_paths.len(),
+        output_sizes.len(),
+        dims[0], dims[1], dims[2],
+    );
+
+    let response = rpc_call(socket, "device.dispatch_sovereign", params);
+    check_rpc_error(&response);
+
+    if let Some(result) = response.get("result") {
+        let pipeline = result.get("pipeline").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let sm_used = result.get("sm").and_then(|v| v.as_u64()).unwrap_or(0);
+        eprintln!("  pipeline: {pipeline}");
+        eprintln!("  sm: sm_{sm_used}");
+
+        if let Some(comp) = result.get("compilation") {
+            if let Some(sass_bytes) = comp.get("sass_bytes").and_then(|v| v.as_u64()) {
+                eprintln!("  sass: {sass_bytes} bytes");
+            }
+            if let Some(ir_time) = comp.get("ir_time_ms").and_then(|v| v.as_f64()) {
+                let sass_time = comp.get("sass_time_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                eprintln!("  compile: {ir_time:.1}ms IR + {sass_time:.1}ms SASS");
+            }
+        }
+
+        let outputs: Vec<serde_json::Value> = result
+            .get("outputs")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        eprintln!("  outputs: {} buffer(s)", outputs.len());
+
+        for (i, out) in outputs.iter().enumerate() {
+            if let Some(encoded) = out.as_str() {
+                let data = b64.decode(encoded).unwrap_or_else(|e| {
+                    eprintln!("error: base64 decode output {i}: {e}");
+                    std::process::exit(1);
+                });
+                eprintln!("  output[{i}]: {} bytes", data.len());
+
+                // Print first few f32 values as a quick check.
+                if data.len() >= 4 {
+                    let n = (data.len() / 4).min(8);
+                    let floats: Vec<f32> = (0..n)
+                        .map(|j| {
+                            let off = j * 4;
+                            f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
+                        })
+                        .collect();
+                    eprintln!("    first {n}: {floats:?}");
+                }
+
+                if let Some(dir) = output_dir {
+                    let path = format!("{dir}/output_{i}.bin");
+                    std::fs::write(&path, &data).unwrap_or_else(|e| {
+                        eprintln!("error: write {path}: {e}");
+                        std::process::exit(1);
+                    });
+                    eprintln!("    written to {path}");
+                }
+            }
+        }
+        eprintln!("=== SOVEREIGN DISPATCH OK ===");
+    }
+}
+
 pub(crate) fn rpc_health(socket: &str) {
     let response = rpc_call(socket, "health.check", json!({}));
     check_rpc_error(&response);
@@ -513,11 +729,19 @@ pub(crate) fn rpc_health(socket: &str) {
 }
 
 /// Resolve the ember socket path for direct journal access.
+///
+/// Follows wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 pub(super) fn ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/run/coralreef/ember.sock".to_string())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET")
+        && !p.is_empty()
+    {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 pub(crate) fn rpc_journal_query(
@@ -704,26 +928,6 @@ pub(crate) fn rpc_journal_stats(_glowplug_socket: &str, bdf: Option<String>) {
                     avg_ms
                 );
             }
-        }
-    }
-}
-
-/// Write to a privileged sysfs path via `sudo -n coralreef-sysfs-write`.
-/// Falls back to direct write if the helper is not installed.
-fn sysfs_write_privileged(path: &str, value: &str) {
-    let status = std::process::Command::new("sudo")
-        .args(["-n", "/usr/local/bin/coralreef-sysfs-write", path, value])
-        .status();
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => {
-            eprintln!(
-                "warning: coralreef-sysfs-write {path} exited with {s}, trying direct write"
-            );
-            let _ = std::fs::write(path, value);
-        }
-        Err(_) => {
-            let _ = std::fs::write(path, value);
         }
     }
 }

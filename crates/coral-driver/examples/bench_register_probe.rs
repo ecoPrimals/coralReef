@@ -36,7 +36,7 @@ fn main() {
 
     let pmc = r(0x000200);
     println!("\n--- PMC bits ---");
-    println!("  PFIFO (bit 0)  = {}", (pmc >> 0) & 1);
+    println!("  PFIFO (bit 0)  = {}", pmc & 1);
     println!("  PFIFO (bit 1)  = {}", (pmc >> 1) & 1);
     println!("  PGRAPH (bit 12)= {}", (pmc >> 12) & 1);
     println!("  CE0 (bit 6)    = {}", (pmc >> 6) & 1);

@@ -43,7 +43,7 @@ pub fn attempt_direct_fecs_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoo
         "GPCCS: cpuctl={gpccs_cpuctl:#010x} hwcfg={gpccs_hwcfg:#010x}"
     ));
 
-    if fecs_cpuctl & falcon::CPUCTL_HRESET == 0 {
+    if fecs_cpuctl & falcon::CPUCTL_HALTED == 0 {
         notes.push("FECS is NOT in HRESET — cannot use STARTCPU".to_string());
         return make_fail_result("Direct FECS boot: not in HRESET", sec2_before, bar0, notes);
     }
@@ -78,7 +78,7 @@ pub fn attempt_direct_fecs_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoo
     falcon_dmem_upload(bar0, fecs_base, 0, &fw.fecs_data);
 
     // Also do GPCCS if it's in HRESET
-    if gpccs_cpuctl & falcon::CPUCTL_HRESET != 0 {
+    if gpccs_cpuctl & falcon::CPUCTL_HALTED != 0 {
         notes.push(format!(
             "Uploading gpccs_inst ({} bytes) to GPCCS IMEM@0",
             fw.gpccs_inst.len()
@@ -92,7 +92,7 @@ pub fn attempt_direct_fecs_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoo
     }
 
     // Boot GPCCS first (FECS expects GPCCS to be running)
-    if gpccs_cpuctl & falcon::CPUCTL_HRESET != 0 {
+    if gpccs_cpuctl & falcon::CPUCTL_HALTED != 0 {
         fw_(gpccs_base, falcon::MAILBOX0, 0);
         fw_(gpccs_base, falcon::MAILBOX1, 0);
         fw_(gpccs_base, falcon::BOOTVEC, 0);
@@ -121,10 +121,10 @@ pub fn attempt_direct_fecs_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBoo
         let mb0 = fr(fecs_base, falcon::MAILBOX0);
         let mb1 = fr(fecs_base, falcon::MAILBOX1);
 
-        let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
-        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
+        let fw_halted = cpuctl & falcon::CPUCTL_HALTED != 0;
+        let stopped = cpuctl & falcon::CPUCTL_STOPPED != 0;
 
-        if mb0 != 0 || halted || !hreset {
+        if mb0 != 0 || stopped || !fw_halted {
             notes.push(format!(
                 "FECS responded: cpuctl={cpuctl:#010x} mb0={mb0:#010x} mb1={mb1:#010x} ({}ms)",
                 start.elapsed().as_millis()

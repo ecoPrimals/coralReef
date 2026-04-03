@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Texture, memory, and shader I/O coverage tests.
 //!
 //! Targets tex.rs (sm20/32/50/70), mem.rs load/store patterns,

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! SPIR-V roundtrip tests — WGSL → naga → SPIR-V → `compile()`.
 //!
 //! Verifies the SPIR-V frontend path by converting existing WGSL fixtures

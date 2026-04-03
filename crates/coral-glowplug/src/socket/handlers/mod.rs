@@ -5,12 +5,16 @@
 //! - [`compute`]: async compute dispatch and MMU oracle capture
 //! - [`quota`]: nvidia-smi telemetry and quota management
 
+mod cold_boot;
 mod compute;
 mod device_ops;
 pub(crate) mod mailbox_ring;
 mod quota;
+mod register_ops;
+mod resurrect;
+mod warm_handoff;
 
-pub(crate) use compute::{compute_dispatch_async, oracle_capture_async};
+pub(crate) use compute::{compute_dispatch_async, oracle_capture_async, sovereign_dispatch_async};
 pub(crate) use device_ops::dispatch;
 pub(crate) use quota::{compute_info_async, quota_info_async, set_quota_async};
 

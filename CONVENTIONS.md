@@ -20,11 +20,12 @@ This primal follows the ecoPrimals coding conventions (modeled on wateringHole s
 
 Compiler-derived code follows additional conventions:
 
-- Large files are split into directory modules with logical submodules (`ir/`, `nv/sm70_encode/`, `naga_translate/`, `lower_f64/`)
+- Large files are split into directory modules with logical submodules (`ir/`, `nv/sm70_encode/`, `naga_translate/`, `lower_f64/`, `lower/`)
 - Submodules use `use super::*;` to access parent scope
 - Proc macros in `nak-ir-proc` generate trait impls — prefer derives over manual impls
 - `#[repr(C)]` is required on op structs for contiguous memory layout (used by `AsSlice`)
-- `naga_translate/` translates naga IR to codegen IR
+- `coral-parse` provides the sovereign frontend: WGSL/SPIR-V/GLSL → AST → CoralIR lowering (in `lower/` submodules: math, binary, convert, stmt, builtin)
+- `naga_translate/` translates naga IR to codegen IR (optional, feature-gated)
 - `lower_f64/` expands f64 transcendental ops before legalization
 
 ## Vendor Backend Conventions

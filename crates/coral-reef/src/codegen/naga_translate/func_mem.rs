@@ -55,12 +55,18 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             .cloned()
             .ok_or_else(|| CompileError::InvalidInput("store value not resolved".into()))?;
 
+        let access = if self.shared_ptrs.contains(&pointer) {
+            super::mem_access_shared_b32()
+        } else {
+            super::mem_access_global_b32()
+        };
+
         for c in 0..val.comps() as usize {
             self.push_instr(Instr::new(OpSt {
                 srcs: [addr.clone().into(), val[c].into()],
                 offset: (c as i32) * 4,
                 stride: OffsetStride::X1,
-                access: super::mem_access_global_b32(),
+                access: access.clone(),
             }));
         }
         Ok(())
@@ -74,6 +80,18 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             offset: 0,
             stride: OffsetStride::X1,
             access: super::mem_access_global_b32(),
+        }));
+        Ok(dst.into())
+    }
+
+    pub(super) fn emit_load_shared(&mut self, addr: SSARef) -> Result<SSARef, CompileError> {
+        let dst = self.alloc_ssa(RegFile::GPR);
+        self.push_instr(Instr::new(OpLd {
+            dst: dst.into(),
+            addr: addr.into(),
+            offset: 0,
+            stride: OffsetStride::X1,
+            access: super::mem_access_shared_b32(),
         }));
         Ok(dst.into())
     }
@@ -93,6 +111,25 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             offset: 4,
             stride: OffsetStride::X1,
             access: super::mem_access_global_b32(),
+        }));
+        Ok(dst)
+    }
+
+    pub(super) fn emit_load_shared_f64(&mut self, addr: SSARef) -> Result<SSARef, CompileError> {
+        let dst = self.alloc_ssa_vec(RegFile::GPR, 2);
+        self.push_instr(Instr::new(OpLd {
+            dst: dst[0].into(),
+            addr: addr.clone().into(),
+            offset: 0,
+            stride: OffsetStride::X1,
+            access: super::mem_access_shared_b32(),
+        }));
+        self.push_instr(Instr::new(OpLd {
+            dst: dst[1].into(),
+            addr: addr.into(),
+            offset: 4,
+            stride: OffsetStride::X1,
+            access: super::mem_access_shared_b32(),
         }));
         Ok(dst)
     }
@@ -254,13 +291,18 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         base_handle: Handle<naga::Expression>,
     ) -> Result<SSARef, CompileError> {
         let base_ty = self.resolve_expr_type_handle(base_handle)?;
-        if matches!(
-            self.module.types[base_ty].inner,
-            naga::TypeInner::Vector { .. }
-        ) {
-            let comp = index as u8;
-            if comp < base.comps() {
-                return Ok(base[comp as usize].into());
+        if let naga::TypeInner::Vector { scalar, .. } = self.module.types[base_ty].inner {
+            let regs_per_elem: u8 = if scalar.width == 8 { 2 } else { 1 };
+            let reg_offset = index as u8 * regs_per_elem;
+            if reg_offset + regs_per_elem <= base.comps() {
+                if regs_per_elem == 1 {
+                    return Ok(base[reg_offset as usize].into());
+                }
+                return Ok(SSARef::new(
+                    &(0..regs_per_elem)
+                        .map(|i| base[(reg_offset + i) as usize])
+                        .collect::<Vec<_>>(),
+                ));
             }
         }
 
@@ -340,6 +382,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             None
         };
 
+        let mem_space = if self.shared_ptrs.contains(&pointer) {
+            MemSpace::Shared
+        } else {
+            MemSpace::Global(MemAddrType::A64)
+        };
+
         self.push_instr(Instr::new(OpAtom {
             dst: result_ssa.map_or(Dst::None, Dst::from),
             srcs: [addr.into(), Src::ZERO, data_src], // addr, cmpr, data
@@ -347,7 +395,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             atom_type: AtomType::U32,
             addr_offset: 0,
             addr_stride: OffsetStride::X1,
-            mem_space: MemSpace::Global(MemAddrType::A64),
+            mem_space,
             mem_order: MemOrder::Weak,
             mem_eviction_priority: MemEvictionPriority::Normal,
         }));

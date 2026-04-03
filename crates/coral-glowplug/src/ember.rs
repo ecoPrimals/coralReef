@@ -21,8 +21,17 @@ use coral_ember::observation::SwapObservation;
 use crate::error::EmberError;
 
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
+///
+/// Follows wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 fn default_ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 /// Returns the resolved ember socket path (for integration tests that set `CORALREEF_EMBER_SOCKET`).
@@ -100,7 +109,7 @@ impl EmberClient {
 
     /// Try to connect to the ember. Returns None if the ember is not running.
     ///
-    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
+    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`).
     pub fn connect() -> Option<Self> {
         #[cfg(test)]
         if EMBER_DISABLED.with(|c| c.get()) {
@@ -221,7 +230,7 @@ impl EmberClient {
     /// times with backoff. Driver swaps can stall briefly while the kernel
     /// settles sysfs state after unbind.
     pub fn swap_device(&self, bdf: &str, target: &str) -> Result<SwapObservation, EmberError> {
-        self.swap_device_traced(bdf, target, false)
+        self.swap_device_full(bdf, target, false, false)
     }
 
     /// Like [`swap_device`](Self::swap_device) but with optional mmiotrace capture.
@@ -230,6 +239,28 @@ impl EmberClient {
         bdf: &str,
         target: &str,
         trace: bool,
+    ) -> Result<SwapObservation, EmberError> {
+        self.swap_device_full(bdf, target, trace, false)
+    }
+
+    /// Like [`swap_device`](Self::swap_device) but allows swapping a cold/un-POSTed
+    /// device (bypasses the PTIMER-frozen preflight check in ember). Used by the
+    /// cold-POST path to bind nouveau to a cold Kepler GPU.
+    pub fn swap_device_cold(
+        &self,
+        bdf: &str,
+        target: &str,
+        trace: bool,
+    ) -> Result<SwapObservation, EmberError> {
+        self.swap_device_full(bdf, target, trace, true)
+    }
+
+    fn swap_device_full(
+        &self,
+        bdf: &str,
+        target: &str,
+        trace: bool,
+        allow_cold: bool,
     ) -> Result<SwapObservation, EmberError> {
         const MAX_RETRIES: u32 = 3;
         const SWAP_TIMEOUT_SECS: u64 = 60;
@@ -248,7 +279,7 @@ impl EmberClient {
                 std::thread::sleep(backoff);
             }
 
-            match self.try_swap_device(bdf, target, trace, SWAP_TIMEOUT_SECS) {
+            match self.try_swap_device(bdf, target, trace, allow_cold, SWAP_TIMEOUT_SECS) {
                 Ok(obs) => return Ok(obs),
                 Err(EmberError::Io(ref e)) if is_transient_io(e) && attempt < MAX_RETRIES => {
                     tracing::warn!(
@@ -270,6 +301,7 @@ impl EmberClient {
         bdf: &str,
         target: &str,
         trace: bool,
+        allow_cold: bool,
         timeout_secs: u64,
     ) -> Result<SwapObservation, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
@@ -278,6 +310,9 @@ impl EmberClient {
         let mut params = serde_json::json!({"bdf": bdf, "target": target});
         if trace {
             params["trace"] = serde_json::json!(true);
+        }
+        if allow_cold {
+            params["allow_cold"] = serde_json::json!(true);
         }
         let req = make_rpc_request("ember.swap", params);
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
@@ -308,6 +343,8 @@ impl EmberClient {
                 health: coral_ember::observation::HealthResult::Ok,
                 lifecycle_description: "unknown (legacy response)".to_string(),
                 reset_method_used: None,
+                firmware_pre: None,
+                firmware_post: None,
             })
         })
     }
@@ -365,6 +402,90 @@ impl EmberClient {
             serde_json::json!({"bdf": bdf, "ring_meta": meta_val}),
         )?;
         Ok(())
+    }
+
+    /// Deploy new binaries via ember (runs as root, no pkexec needed).
+    ///
+    /// Copies binaries from `source_dir` to `/usr/local/bin/` and optionally
+    /// restarts both coral-ember and coral-glowplug systemd services.
+    pub fn deploy(
+        &self,
+        source_dir: &str,
+        restart: bool,
+    ) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc(
+            "ember.deploy",
+            serde_json::json!({
+                "source_dir": source_dir,
+                "restart": restart,
+            }),
+        )
+    }
+
+    /// Read a single BAR0 register via ember's mmap-based MMIO access.
+    pub fn mmio_read(&self, bdf: &str, offset: u32) -> Result<u32, EmberError> {
+        let result = self.simple_rpc(
+            "ember.mmio.read",
+            serde_json::json!({"bdf": bdf, "offset": format!("{offset:#x}")}),
+        )?;
+        let hex = result
+            .get("value")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EmberError::Rpc {
+                code: -32000,
+                message: "mmio.read response missing 'value'".into(),
+            })?;
+        parse_hex_u32(hex).map_err(|e| EmberError::Rpc {
+            code: -32000,
+            message: format!("mmio.read: {e}"),
+        })
+    }
+
+    /// Write a single BAR0 register via ember's mmap-based MMIO access.
+    ///
+    /// Used during warm handoff to send FECS `STOP_CTXSW` before nouveau
+    /// teardown, freezing FECS scheduling so it doesn't notice channels
+    /// being freed. Returns the readback value for verification.
+    pub fn mmio_write(&self, bdf: &str, offset: u32, value: u32) -> Result<u32, EmberError> {
+        let result = self.simple_rpc(
+            "ember.mmio.write",
+            serde_json::json!({
+                "bdf": bdf,
+                "offset": format!("{offset:#x}"),
+                "value": format!("{value:#x}"),
+            }),
+        )?;
+        let hex = result
+            .get("readback")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EmberError::Rpc {
+                code: -32000,
+                message: "mmio.write response missing 'readback'".into(),
+            })?;
+        parse_hex_u32(hex).map_err(|e| EmberError::Rpc {
+            code: -32000,
+            message: format!("mmio.write readback: {e}"),
+        })
+    }
+
+    /// Read a structured FECS register snapshot via ember.
+    pub fn fecs_state(&self, bdf: &str) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc("ember.fecs.state", serde_json::json!({"bdf": bdf}))
+    }
+
+    /// Query livepatch module status.
+    pub fn livepatch_status(&self) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc("ember.livepatch.status", serde_json::json!({}))
+    }
+
+    /// Enable the livepatch module (loading it if necessary).
+    pub fn livepatch_enable(&self) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc("ember.livepatch.enable", serde_json::json!({}))
+    }
+
+    /// Disable the livepatch module.
+    pub fn livepatch_disable(&self) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc("ember.livepatch.disable", serde_json::json!({}))
     }
 
     /// Generic one-shot RPC call to ember.
@@ -517,6 +638,10 @@ fn read_full_response(stream: &UnixStream, buf: &mut [u8]) -> std::io::Result<us
     Ok(total)
 }
 
+fn parse_hex_u32(s: &str) -> Result<u32, String> {
+    coral_driver::parse_hex_u32(s)
+}
+
 // ── BootJournal bridge ───────────────────────────────────────────────
 
 /// Bridges coral-driver's [`BootJournal`](coral_driver::nv::vfio_compute::acr_boot::BootJournal) trait to Ember's JSONL journal
@@ -583,142 +708,5 @@ impl Drop for EmberTestGuard {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ember_client_connect_returns_none_when_no_socket() {
-        let client = EmberClient::connect();
-        // In test environment, ember is not running
-        // This may or may not return None depending on test environment
-        drop(client);
-    }
-
-    #[test]
-    fn parse_rpc_response_ok_with_null_result() {
-        let line = br#"{"jsonrpc":"2.0","id":1,"result":null}"#;
-        let v = parse_rpc_response(line).expect("parse");
-        assert!(v.is_null());
-    }
-
-    #[test]
-    fn parse_rpc_response_err_returns_rpc_variant() {
-        let line = br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"fail"}}"#;
-        let err = parse_rpc_response(line).expect_err("rpc error");
-        match err {
-            EmberError::Rpc { code, message } => {
-                assert_eq!(code, -32000);
-                assert_eq!(message, "fail");
-            }
-            other => panic!("expected Rpc, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parse_rpc_response_invalid_json_returns_parse_error() {
-        let line = b"{ not json";
-        let err = parse_rpc_response(line).expect_err("parse error");
-        assert!(matches!(err, EmberError::Parse(_)));
-    }
-
-    #[test]
-    fn make_rpc_request_includes_method_and_jsonrpc() {
-        let req = make_rpc_request("ember.list", serde_json::json!({}));
-        assert!(req.contains("ember.list"));
-        assert!(req.contains("\"jsonrpc\":\"2.0\""));
-        assert!(req.contains("\"id\":"));
-    }
-
-    #[test]
-    fn next_request_id_increments() {
-        let a = next_request_id();
-        let b = next_request_id();
-        assert_eq!(b, a + 1);
-    }
-
-    #[test]
-    fn parse_rpc_response_ok_when_result_key_omitted() {
-        let line = br#"{"jsonrpc":"2.0","id":1}"#;
-        let v = super::parse_rpc_response(line).expect("parse");
-        assert!(v.is_null());
-    }
-
-    #[test]
-    fn parse_rpc_response_error_with_extra_null_data_field() {
-        let line = br#"{"jsonrpc":"2.0","id":1,"error":{"code":-5,"message":"nope","data":null}}"#;
-        let err = super::parse_rpc_response(line).expect_err("rpc");
-        match err {
-            EmberError::Rpc { code, message } => {
-                assert_eq!(code, -5);
-                assert_eq!(message, "nope");
-            }
-            other => panic!("unexpected {other:?}"),
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn is_transient_io_matches_would_block_and_interrupted() {
-        assert!(is_transient_io(&std::io::Error::new(
-            std::io::ErrorKind::WouldBlock,
-            "test"
-        )));
-        assert!(is_transient_io(&std::io::Error::new(
-            std::io::ErrorKind::Interrupted,
-            "test"
-        )));
-        assert!(!is_transient_io(&std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "test"
-        )));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn read_full_response_reads_until_newline() {
-        let (mut sender, receiver) =
-            std::os::unix::net::UnixStream::pair().expect("unix stream pair");
-        let t = std::thread::spawn(move || {
-            std::io::Write::write_all(&mut sender, br#"{"ok":true}"#).expect("partial write");
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            std::io::Write::write_all(&mut sender, b"\n").expect("newline");
-        });
-        let mut buf = [0u8; 256];
-        let n = read_full_response(&receiver, &mut buf).expect("read response");
-        t.join().expect("writer thread");
-        assert_eq!(&buf[..n], b"{\"ok\":true}\n");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn read_full_response_eof_is_error() {
-        let (sender, receiver) = std::os::unix::net::UnixStream::pair().expect("unix stream pair");
-        drop(sender);
-        let mut buf = [0u8; 64];
-        let err = read_full_response(&receiver, &mut buf).expect_err("closed without data");
-        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
-    }
-
-    // ── EmberBootJournal ─────────────────────────────────────────────
-
-    #[test]
-    fn ember_boot_journal_construction() {
-        let j = EmberBootJournal::new("0000:3b:00.0", "/tmp/test.sock");
-        assert_eq!(j.bdf, "0000:3b:00.0");
-        assert_eq!(j.socket_path, "/tmp/test.sock");
-    }
-
-    #[test]
-    fn ember_boot_journal_default_socket() {
-        let j = EmberBootJournal::with_default_socket("0000:01:00.0");
-        assert_eq!(j.bdf, "0000:01:00.0");
-        assert_eq!(j.socket_path, default_ember_socket());
-    }
-
-    #[test]
-    fn ember_boot_journal_implements_boot_journal() {
-        use coral_driver::nv::vfio_compute::acr_boot::BootJournal;
-        let j = EmberBootJournal::new("test", "/nonexistent.sock");
-        let _: &dyn BootJournal = &j;
-    }
-}
+#[path = "ember_test_server.rs"]
+mod tests;

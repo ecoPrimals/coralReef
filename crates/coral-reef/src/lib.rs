@@ -28,7 +28,7 @@
 //!
 //! ## Public API
 //!
-//! ```rust
+//! ```rust,no_run
 //! use coral_reef::{compile_wgsl, CompileOptions, GpuTarget, NvArch, AmdArch};
 //!
 //! let wgsl = "@compute @workgroup_size(1) fn main() {}";
@@ -54,17 +54,42 @@ pub mod ir;
 pub mod tol;
 pub mod tolerances;
 
-// Codegen module — evolved from upstream NAK into idiomatic Rust.
-// ISA domain types intentionally use naming conventions that mirror
-// hardware documentation (e.g. OpFAdd, SrcType, UGPR). dead_code covers
-// builder traits and ISA variants reserved for future use.
-mod codegen;
+/// Codegen module — evolved from upstream NAK into idiomatic Rust.
+///
+/// ISA domain types intentionally use naming conventions that mirror
+/// hardware documentation (e.g. `OpFAdd`, `SrcType`, `UGPR`). `dead_code` covers
+/// builder traits and ISA variants reserved for future use.
+///
+/// Exposed publicly for `coral-reef-jit` (Cranelift JIT backend) to access the IR
+/// types needed for `Op` → CLIF translation. Most users should use the high-level
+/// `compile_wgsl` / `compile_wgsl_to_ir` APIs instead.
+#[allow(
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown,
+    clippy::return_self_not_must_use,
+    clippy::too_long_first_doc_paragraph,
+    clippy::new_without_default,
+    clippy::iter_without_into_iter,
+    clippy::implicit_hasher,
+    clippy::items_after_statements,
+    clippy::module_name_repetitions,
+    clippy::redundant_closure_for_method_calls,
+    clippy::missing_const_for_fn,
+    clippy::option_if_let_else,
+    clippy::doc_link_with_quotes,
+    missing_docs
+)]
+pub mod codegen;
 
 pub use backend::{AmdBackend, Backend, CompiledBinary, NvidiaBackend};
 pub use codegen::ir::{Shader, ShaderModel};
 pub use codegen::pipeline::CompiledShader;
 pub use error::CompileError;
-pub use frontend::{Frontend, NagaFrontend};
+pub use frontend::Frontend;
+#[cfg(feature = "naga")]
+pub use frontend::NagaFrontend;
 pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
 
 /// df64 (double-float) WGSL preamble — Dekker/Knuth pair arithmetic.
@@ -191,9 +216,15 @@ impl Default for CompileOptions {
 
 /// Build the appropriate `ShaderModel` for the target and return it boxed.
 ///
-/// This replaces the old `ShaderModelInfo::new(sm, warps_per_sm)` approach
-/// with direct construction of the vendor-specific model.
-fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
+/// Used internally and by `coral-reef-jit` to construct the shader model
+/// needed for `CoralIR` optimization passes.
+///
+/// # Errors
+///
+/// Returns [`CompileError::UnsupportedArch`] if the target is Intel (not yet supported).
+pub fn shader_model_for(
+    target: GpuTarget,
+) -> Result<Box<dyn codegen::ir::ShaderModel>, CompileError> {
     match target {
         GpuTarget::Nvidia(nv) => {
             #[expect(
@@ -217,6 +248,43 @@ fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderMode
     }
 }
 
+/// Compile WGSL to optimized `CoralIR` without GPU-specific encoding.
+///
+/// Runs all architecture-independent optimization passes (copy propagation,
+/// DCE, constant folding, FMA lowering, pre-RA scheduling) but stops before
+/// GPU-specific legalization, register allocation, and binary encoding.
+///
+/// This is the entry point for the Cranelift JIT backend (`coral-reef-jit`),
+/// producing the "optimized IR" that the JIT translator compiles to native CPU code.
+///
+/// The caller must provide a [`ShaderModel`] reference (constructed via
+/// [`shader_model_for`]) that parameterizes the optimization passes.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if parsing or optimization fails.
+pub fn compile_wgsl_to_ir<'a>(
+    wgsl: &str,
+    options: &CompileOptions,
+    sm: &'a dyn codegen::ir::ShaderModel,
+) -> Result<codegen::ir::Shader<'a>, CompileError> {
+    if wgsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty WGSL source".into()));
+    }
+    let prepared = prepare_wgsl(wgsl, options);
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_wgsl_to_ir (for JIT)"
+    );
+
+    let frontend = default_frontend()?;
+    let mut shader = frontend.compile_wgsl(&prepared, sm)?;
+    shader.fma_policy = options.fma_policy;
+    codegen::pipeline::optimize_shader(&mut shader)?;
+    Ok(shader)
+}
+
 /// Compile SPIR-V to native GPU binary.
 ///
 /// This is the primary entry point for the compiler. Supports both
@@ -226,7 +294,8 @@ fn shader_model_for(target: GpuTarget) -> Result<Box<dyn codegen::ir::ShaderMode
 ///
 /// Returns [`CompileError`] if compilation fails.
 pub fn compile(spirv: &[u32], options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
-    compile_with(&NagaFrontend, spirv, options)
+    let frontend = default_frontend()?;
+    compile_with(frontend.as_ref(), spirv, options)
 }
 
 /// Compile SPIR-V to native GPU binary using a custom [`Frontend`].
@@ -409,7 +478,8 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
 
 /// Compile WGSL source to native GPU binary.
 ///
-/// Convenience wrapper using the default [`NagaFrontend`].
+/// Convenience wrapper using the default frontend (requires `naga` feature or
+/// use [`compile_wgsl_with`] with `coral_parse::CoralFrontend`).
 /// Auto-prepends preambles (Complex64, PRNG, SU3, df64, f32 transcendental)
 /// when the source uses their respective types or functions.
 ///
@@ -417,7 +487,8 @@ fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> std::borrow::Cow
 ///
 /// Returns [`CompileError`] if parsing or compilation fails.
 pub fn compile_wgsl(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
-    compile_wgsl_with(&NagaFrontend, wgsl, options)
+    let frontend = default_frontend()?;
+    compile_wgsl_with(frontend.as_ref(), wgsl, options)
 }
 
 /// Compile WGSL source to [`CompiledBinary`] with full metadata.
@@ -432,7 +503,8 @@ pub fn compile_wgsl_full(
     wgsl: &str,
     options: &CompileOptions,
 ) -> Result<CompiledBinary, CompileError> {
-    compile_wgsl_full_with(&NagaFrontend, wgsl, options)
+    let frontend = default_frontend()?;
+    compile_wgsl_full_with(frontend.as_ref(), wgsl, options)
 }
 
 /// Compile WGSL source to [`CompiledBinary`] using a custom [`Frontend`].
@@ -498,7 +570,8 @@ pub fn compile_wgsl_with(
 ///
 /// Returns [`CompileError`] if parsing or compilation fails.
 pub fn compile_glsl(glsl: &str, options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
-    compile_glsl_with(&NagaFrontend, glsl, options)
+    let frontend = default_frontend()?;
+    compile_glsl_with(frontend.as_ref(), glsl, options)
 }
 
 /// Compile GLSL compute shader source to native GPU binary using a custom [`Frontend`].
@@ -536,7 +609,8 @@ pub fn compile_glsl_full(
     glsl: &str,
     options: &CompileOptions,
 ) -> Result<CompiledBinary, CompileError> {
-    compile_glsl_full_with(&NagaFrontend, glsl, options)
+    let frontend = default_frontend()?;
+    compile_glsl_full_with(frontend.as_ref(), glsl, options)
 }
 
 /// Compile GLSL compute shader to [`CompiledBinary`] using a custom [`Frontend`].
@@ -563,6 +637,26 @@ pub fn compile_glsl_full_with(
     shader.fma_policy = options.fma_policy;
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
+}
+
+/// Returns the default frontend for convenience functions.
+///
+/// When the `naga` feature is enabled, returns `NagaFrontend`.
+/// Without `naga`, returns an error directing users to the `_with` variants
+/// and `coral_parse::CoralFrontend`.
+fn default_frontend() -> Result<Box<dyn Frontend>, CompileError> {
+    #[cfg(feature = "naga")]
+    {
+        Ok(Box::new(NagaFrontend))
+    }
+    #[cfg(not(feature = "naga"))]
+    {
+        Err(CompileError::NotImplemented(
+            "no default frontend: use the `_with` variants with `coral_parse::CoralFrontend`, \
+             or enable the `naga` feature for legacy `NagaFrontend` support"
+                .into(),
+        ))
+    }
 }
 
 fn emit_binary(compiled: &CompiledShader, target: GpuTarget) -> Vec<u8> {
@@ -600,7 +694,7 @@ pub fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) -> Result<Vec<u8>, CompileError> 
     let warps: u8 = if sm >= 70 { 64 } else { 32 };
     let sm_info: Box<dyn codegen::ir::ShaderModel> =
         Box::new(codegen::ir::ShaderModelInfo::new(sm, warps));
-    let frontend = NagaFrontend;
+    let frontend = default_frontend()?;
     let mut shader = frontend.compile_wgsl(wgsl, sm_info.as_ref())?;
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, GpuTarget::Nvidia(NvArch::Sm70)))

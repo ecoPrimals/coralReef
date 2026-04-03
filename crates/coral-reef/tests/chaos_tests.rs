@@ -87,6 +87,7 @@ fn chaos_large_wgsl_input() {
 
 /// Multiple architectures should produce non-overlapping binaries.
 #[test]
+#[cfg(feature = "naga")]
 fn chaos_cross_arch_no_collision() {
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
     let mut results = Vec::new();

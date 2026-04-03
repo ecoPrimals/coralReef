@@ -4,11 +4,142 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70c
+**Current status**: Phase 11 — Iteration 71
 
 ---
 
 ## [Unreleased]
+
+### Iteration 71 — Sovereign Compiler Frontend + Deep Debt Resolution (2026-03-30)
+
+#### Added
+- `coral-parse` sovereign compiler frontend: pure-Rust WGSL/SPIR-V/GLSL parsers
+- Sovereign AST: Module, Type, Expression, Statement, Arena<T>, Handle<T>
+- AST → CoralIR lowering in 6 submodules (math, binary, convert, stmt, builtin)
+- 1264 tests pass with `--no-default-features` (zero naga dependency)
+- ExtractBits (OpBfe) and InsertBits (OpShl + OpLop2(Or)) in math lowering
+- GLSL.std.450 named constants replacing magic numbers in SPIR-V reader
+- Expression type tracking in WGSL parser for struct field resolution
+
+#### Changed
+- naga moved to optional Cargo feature (28 transitive deps eliminated from default build)
+- `CoralFrontend` (from coral-parse) is now the default frontend
+- `lower/mod.rs` refactored from 1439-line monolith into 6 focused submodules (2225 lines total)
+- ShaderInfo metrics computed dynamically (instr_count, barrier_count, shared_mem_size)
+- Uniform load uses actual buffer binding instead of hardcoded CBuf::Binding(0)
+- `bitcast` emits proper Expression::As instead of passthrough
+
+#### Fixed
+- Production unwrap() in spirv/reader.rs and glsl/parser.rs replaced with proper error handling
+- Always-true `|| true` condition removed from WGSL switch parser
+- Unused `tracing` dependency removed from coral-parse
+
+### Iteration 70i — Deep Debt Evolution + Safety Audit + Path Agnosticism (2026-03-31)
+
+#### Changed
+- **Hardcoded livepatch paths evolved**: `LIVEPATCH_MODULE` / `LIVEPATCH_SYSFS` constants → `livepatch_module()` / `livepatch_sysfs()` functions with `$CORALREEF_LIVEPATCH_MODULE` env-var override (`coral-ember/src/ipc/handlers_livepatch.rs`)
+- **Hardcoded debugfs paths evolved**: remaining `TRACE_PATH` / `TRACER_PATH` constant refs → `trace_path()` / `tracer_path()` functions with `$CORALREEF_DEBUGFS_TRACING` override (`coral-ember/src/trace.rs`)
+- **TCP bind address configurable**: `$CORALREEF_BIND_ADDR` (default `127.0.0.1`) replaces hardcoded loopback in `coral-ember` and `coral-glowplug` `--port` listeners
+- **SAFETY comments gap closed**: all bare `unsafe` blocks in test files (`config_and_paths.rs`, `config_env.rs`, `unix_jsonrpc_default_socket_path_env.rs`) now have `// SAFETY:` documentation
+- **HTTP Host header documented**: `primal-rpc-client` Unix socket `localhost` header documented as HTTP/1.1 protocol compliance (not meaningful hardcoding)
+
+#### Audited (clean)
+- **Zero `.unwrap()` in library code** — full audit across all crates, zero violations
+- **Zero `todo!()` / `unimplemented!()` in production** — confirmed clean
+- **All mocks isolated to `#[cfg(test)]`** — no production mock leakage
+- **All `unsafe` blocks have SAFETY comments** — production and test code
+- **No direct `libc`/`-sys`/`cc`/`build.rs`** in any crate — transitive only via Cranelift JIT + tokio
+- **`HOTSPRING_DATA_DIR` already evolved** — `CORALREEF_DATA_DIR` is primary, legacy fallback in place
+- **All hardcoded paths use env-var-with-default** — `config.rs`, `group_unix.rs`, `journal.rs`, `drm_isolation.rs`, `trace.rs`, `handlers_livepatch.rs`
+
+### Cross-Primal Rewiring (2026-03-31)
+
+#### Changed
+- **Test metal map output paths**: `hw_nv_vfio_hbm2.rs` and `hw_nv_vfio_advanced.rs` use `optional_data_dir()` instead of stale `HOTSPRING_DATA_DIR`-only / hardcoded `hotSpring/data/` paths
+- **Showcase socket alignment**: `02-full-compute-triangle` uses `toadstool` socket name (not `toadstool.jsonrpc`); `01-toadstool-discovery` references `shader.dispatch` (not stale `shader.compile`)
+
+### Iteration 70h — IPC Audit + Dispatch Boundary + Deep Debt (2026-03-31)
+
+#### Changed
+- **`device_ops.rs` refactored** (1020→791 lines): extracted register handlers to `register_ops.rs` submodule
+- **`jit_validation.rs` refactored** (1538→613 lines): split into `jit_barracuda.rs` (454), `jit_shared_memory.rs` (315), `tests/common/mod.rs` (169)
+- **Unsafe pointer arithmetic → safe Rust**: `sovereign.rs` `call_site` computation uses `usize` arithmetic instead of `unsafe` `ptr.add()`
+- **wateringHole documentation updated**: IPC_COMPLIANCE_MATRIX (coralReef→Conformant), PRIMAL_RESPONSIBILITY_MATRIX (Tier 3 resolved), CORALREEF_LEVERAGE_GUIDE (corrected "zero FFI" claim), ECOBIN_ARCHITECTURE_STANDARD (added coralReef to plasmidBin), README (iteration 70h)
+
+### Iteration 70g — barraCuda Math Validation + Interpreter/JIT Gap Closure (2026-03-31)
+
+#### Added
+- **barraCuda activation tests**: sigmoid, relu, leaky_relu, elu, hardsigmoid, hardtanh, silu — all triple-path validated (JIT + CoralIR interpreter + Naga interpreter)
+- **barraCuda elementwise tests**: add, sub, mul, fma — f32 dual-buffer operations
+- **barraCuda unary tests**: abs, sqrt, sign
+- **Shared memory tests**: `var<workgroup>` + `workgroupBarrier()` swap, tree reduction sum, workgroup reductions (sum/max), layer norm, tiled matmul 2×2
+- **Workgroup size 256 test**: `barracuda_workgroup_size_256_relu` (stress test for real workgroup sizes)
+
+### Iteration 70f — CoralIR Coevolution + Sovereign JIT + Progressive Trust (2026-03-30)
+
+#### Added
+- **CoralIR reference interpreter** in `coral-reef-cpu/src/coral_ir_exec/`: direct evaluation of CoralIR `Op` instructions (arithmetic, memory, control flow, transcendentals) with synthetic buffer addressing scheme — acts as trusted oracle for JIT validation
+- **Sovereign JIT runtime** (`coral-reef-jit/src/runtime.rs`): pure-Rust `JitMemory` allocator using `rustix` mmap/mprotect/munmap — replaces `cranelift-jit`'s `region`/`wasmtime-jit-icache-coherence` dependency chain. aarch64 icache flush via inline assembly
+- **Sovereign compilation pipeline** (`coral-reef-jit/src/sovereign.rs`): `cranelift-codegen` direct compilation + manual `libm` relocation patching — eliminates `cranelift-jit` crate from the hot path
+- **Progressive trust model**: `ExecutionStrategy` enum (`Interpret`, `Jit`, `ValidatedJit`) in `coral-reef-cpu/src/types.rs` — tiered execution where shaders are first validated by interpreter, then cached as JIT-compiled kernels
+- **`JitCache`** (`coral-reef-jit/src/cache.rs`): thread-safe cache for compiled kernels with configurable re-validation policy, hash-keyed by shader request
+- `compile_to_kernel()` / `execute_kernel()` split in `coral-reef-jit/src/lib.rs` — separates compilation from execution for cache integration
+- Strategy dispatch in `coralreef-core/src/service/cpu.rs`: `Interpret` → CoralIR interpreter, `Jit` → direct JIT, `ValidatedJit` → interpret-validate-then-JIT-cache with periodic re-validation
+- Triple-path test infrastructure in `coral-reef-jit/tests/jit_validation.rs`: every test runs through JIT, CoralIR interpreter, and Naga interpreter (best-effort) and compares results within tolerance
+
+#### Changed
+- **Workspace dependency consolidation**: all inline version pins migrated to `[workspace.dependencies]` in root `Cargo.toml` — 13 crate manifests updated to `{ workspace = true }`. Eliminates version skew and duplicate compilations. `nak-ir-proc` package metadata now workspace-inherited
+- `translate.rs` refactored: `CompiledBacking` simplified to `Sovereign`-only variant, `LibmResolver` unified, `get_or_create_libm_fn`/`call_libm`/`call_f32_libm`/`call_f64_libm` no longer return `Result` (legacy error path removed)
+- `translate.rs` reduced from 1277 to 981 lines by extracting `sovereign.rs` (207 lines)
+- `ExecuteCpuResponse` extended with `strategy_used`, `cache_hit`, `revalidated` metadata fields
+
+#### Removed
+- **`cranelift-jit` runtime dependency** from the sovereign compilation path: `JITModule`, `JITBuilder`, `Linkage`, `region` crate, `wasmtime-jit-icache-coherence` — all replaced by `rustix`-based sovereign runtime
+
+### Iteration 70e — CoralIR Cranelift JIT Backend + Dual-Path Validation (2026-03-30)
+
+#### Added
+- **coral-reef-jit** crate: Cranelift-based JIT backend translating CoralIR → native x86-64/aarch64 machine code for CPU shader execution
+- `execute_jit()` entry point with workgroup dispatch (1D/2D/3D), `BindingBuffers` ownership model for mutable buffer management
+- `FunctionTranslator` converts CoralIR `Op` instructions to Cranelift CLIF: arithmetic (FAdd/FSub/FMul/FFma/IAdd/IMul), comparisons (FSetP/ISetP with all comparison operators), memory (Ld/St via binding buffer pointers), control flow (Bra/Exit), type conversions (F2F/F2I/I2F/I2I), system registers (GlobalInvocationId, WorkGroupId, LocalInvocationId)
+- Float rounding mode support: `FRndMode` → Cranelift `nearest`/`trunc`/`floor`/`ceil`
+- Transcendental operations via `libm`: `exp2f`, `log2f`, `sinf`, `cosf`, `tanhf`, `sqrtf` with unified `call_libm` helper returning `Result`
+- Phi node translation via Cranelift `Variable` system (`get_or_create_phi_var`, `PhiSrcs`/`PhiDsts` → `def_var`/`use_var`)
+- Comparison code extraction: `cmp_codes.rs` module with `#[must_use]` `float_cmp_to_cc` and `int_cmp_to_cc`
+- 27 tests (23 integration + 4 unit): arithmetic, control flow, workgroup dispatch (1D/2D/3D), in-place ops, dual-path consistency, barraCuda-style leaky ReLU validation, empty shader edge cases, execution metrics
+- `tracing::instrument` on `execute_jit`, `tracing::debug` for binding count, workgroup dimensions, invocation count, execution time
+
+#### Changed
+- `translate.rs` refactored from 1101 to 994 lines: extracted `cmp_codes.rs`, added `entry_block_params()`/`bindings_ptr()`/`offset_ptr()` helpers, unified `call_libm` with `Result` error handling, `unify_int_widths` helper for mixed i32/i64 arithmetic
+- Dead `BindingLayout` struct removed from `memory.rs`
+- JIT function pointer hoisted outside dispatch loop (avoids redundant `transmute` per invocation)
+- `SysRegMapping` enum derives `Debug, Clone, Copy`
+- `builtins.rs`, `memory.rs`, `lib.rs` documentation improved
+
+#### Fixed
+- Cranelift 0.130.0 API migration: `Variable::new` → `builder.declare_var(ty)` (Cranelift now manages variable IDs internally)
+
+### Iteration 70d — CPU Backend + barraCuda Shader Validation (2026-03-30)
+
+#### Added
+- **coral-reef-cpu** crate: Naga IR tree-walk interpreter for CPU execution of WGSL compute shaders
+- `shader.compile.cpu` JSON-RPC method: compile WGSL to Naga IR for CPU execution
+- `shader.execute.cpu` JSON-RPC method: execute compiled shaders on the CPU with native f64 arithmetic
+- `shader.validate` JSON-RPC method: tolerance-based comparison of CPU vs GPU shader outputs
+- All three methods wired to newline-delimited JSON-RPC, jsonrpsee HTTP, and tarpc transports
+- `CompileCapabilitiesResponse` extended: `cpu_archs`, `supports_cpu_execution`, `supports_validation`
+- Capability advertisements for `shader.compile.cpu`, `shader.execute.cpu`, `shader.validate`
+- 12 unit tests in coral-reef-cpu (interpreter + validator)
+
+#### Changed
+- `interpret.rs` (1170 lines) split into `interpret/mod.rs` (612) + `interpret/eval.rs` (687)
+- `cargo fmt` applied to 126 files across workspace
+- 54 clippy errors resolved in coral-reef-cpu (pedantic casts, idiomatic patterns, `#[expect]` annotations)
+- tarpc `capabilities()` now returns full `CompileCapabilitiesResponse` (parity with JSON-RPC)
+
+#### Fixed
+- Socket path regression: restored XDG_RUNTIME_DIR resolution for glowplug and ember sockets
+- Unfulfilled `#[expect(missing_docs)]` in coral-driver diagnostic module
 
 ### Iteration 70c — Deep Evolution (2026-03-30)
 

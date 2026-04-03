@@ -97,6 +97,9 @@ pub const NVIF_CLASS_FERMI_TWOD_A: u32 = 0x902D;
 /// Kernel class: `KEPLER_INLINE_TO_MEMORY_B`.
 pub const NVIF_CLASS_KEPLER_INLINE_TO_MEMORY_B: u32 = 0xA0B5;
 
+/// Kepler compute engine (GK110/GK210). Kernel class: `KEPLER_COMPUTE_B`.
+pub const NVIF_CLASS_KEPLER_COMPUTE_B: u32 = 0xA1C0;
+
 /// Volta compute engine (GV100). Kernel class: `VOLTA_COMPUTE_A`.
 pub const NVIF_CLASS_VOLTA_COMPUTE_A: u32 = 0xC3C0;
 
@@ -561,6 +564,7 @@ mod tests {
     fn nvif_compute_class_definitions() {
         assert_eq!(NVIF_CLASS_FERMI_TWOD_A, 0x902D);
         assert_eq!(NVIF_CLASS_KEPLER_INLINE_TO_MEMORY_B, 0xA0B5);
+        assert_eq!(NVIF_CLASS_KEPLER_COMPUTE_B, 0xA1C0);
         assert_eq!(NVIF_CLASS_VOLTA_COMPUTE_A, 0xC3C0);
         assert_eq!(NVIF_CLASS_TURING_COMPUTE_A, 0xC5C0);
         assert_eq!(NVIF_CLASS_AMPERE_COMPUTE_A, 0xC6C0);

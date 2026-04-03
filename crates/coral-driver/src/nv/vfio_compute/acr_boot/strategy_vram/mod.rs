@@ -10,7 +10,7 @@
 mod dual_phase;
 mod legacy_acr;
 mod native;
-mod pramin_write;
+pub(crate) mod pramin_write;
 
 pub use dual_phase::{DualPhaseConfig, attempt_dual_phase_boot, attempt_dual_phase_boot_cfg};
 pub use legacy_acr::attempt_vram_acr_boot;

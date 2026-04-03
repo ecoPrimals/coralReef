@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Parity compilation tests — same WGSL compiled for multiple targets.
 //!
 //! Validates that the compiler produces valid, non-empty binaries with

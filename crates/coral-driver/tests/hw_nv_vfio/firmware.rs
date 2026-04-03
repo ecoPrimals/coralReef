@@ -41,17 +41,34 @@ fn vfio_acr_firmware_inventory() {
     eprintln!("\n=== End Firmware Inventory ===");
 }
 
-/// Read SEC2 falcon registers via SysfsBar0 — works regardless of driver.
-/// Use this to capture Nouveau-warm state after a driver swap.
+/// Read SEC2 falcon registers via ember or SysfsBar0 — works regardless of driver.
+/// Primary: ember.mmio.read (no root). Fallback: SysfsBar0 (root).
 #[test]
-#[ignore = "reads BAR0 via sysfs — run with appropriate BDF"]
+#[ignore = "reads BAR0 — requires ember (or root for sysfs fallback)"]
 fn sysfs_sec2_register_dump() {
     let bdf = std::env::var("CORALREEF_VFIO_BDF").unwrap_or_else(|_| "0000:03:00.0".to_string());
 
-    eprintln!("\n=== SEC2 Register Dump via SysfsBar0 ({bdf}) ===\n");
+    eprintln!("\n=== SEC2 Register Dump ({bdf}) ===\n");
 
-    let bar0 =
-        coral_driver::vfio::sysfs_bar0::SysfsBar0::open(&bdf, 0x100_0000).expect("SysfsBar0::open");
+    let ember_available = crate::ember_client::mmio_read(&bdf, 0).is_ok();
+    let bar0 = if !ember_available {
+        eprintln!("  ember.mmio.read: unavailable, using SysfsBar0");
+        Some(
+            coral_driver::vfio::sysfs_bar0::SysfsBar0::open(&bdf, 0x100_0000)
+                .expect("SysfsBar0::open"),
+        )
+    } else {
+        eprintln!("  ember.mmio.read: available (no root needed)");
+        None
+    };
+
+    let rd = |offset: usize| -> u32 {
+        if ember_available {
+            crate::helpers::ember_mmio_read(&bdf, offset as u32).unwrap_or(0xDEAD_DEAD)
+        } else {
+            bar0.as_ref().unwrap().read_u32(offset)
+        }
+    };
 
     let driver_path = format!("/sys/bus/pci/devices/{bdf}/driver");
     let driver = std::fs::read_link(&driver_path)
@@ -65,15 +82,15 @@ fn sysfs_sec2_register_dump() {
     let gpccs: usize = 0x41A800;
 
     for (name, base) in [("SEC2", sec2), ("FECS", fecs), ("GPCCS", gpccs)] {
-        let cpuctl = bar0.read_u32(base + 0x100);
-        let sctl = bar0.read_u32(base + 0x240);
-        let hwcfg = bar0.read_u32(base + 0x108);
-        let bootvec = bar0.read_u32(base + 0x104);
-        let mb0 = bar0.read_u32(base + 0x040);
-        let mb1 = bar0.read_u32(base + 0x044);
-        let dmactl = bar0.read_u32(base + 0x10C);
-        let tracepc = bar0.read_u32(base + 0x030);
-        let exci = bar0.read_u32(base + 0x148);
+        let cpuctl = rd(base + 0x100);
+        let sctl = rd(base + 0x240);
+        let hwcfg = rd(base + 0x108);
+        let bootvec = rd(base + 0x104);
+        let mb0 = rd(base + 0x040);
+        let mb1 = rd(base + 0x044);
+        let dmactl = rd(base + 0x10C);
+        let tracepc = rd(base + 0x030);
+        let exci = rd(base + 0x148);
 
         eprintln!("{name} @ {base:#08x}:");
         eprintln!("  cpuctl={cpuctl:#010x} sctl={sctl:#010x} hwcfg={hwcfg:#010x}");
@@ -87,20 +104,19 @@ fn sysfs_sec2_register_dump() {
         );
 
         if name == "SEC2" {
-            let bind_inst = bar0.read_u32(base + 0x668);
-            let fbif_624 = bar0.read_u32(base + 0x624);
-            let dma_base = bar0.read_u32(base + 0x110);
-            let dma_moffs = bar0.read_u32(base + 0x114);
-            let dma_cmd = bar0.read_u32(base + 0x118);
-            let dma_fboffs = bar0.read_u32(base + 0x11C);
+            let bind_inst = rd(base + 0x668);
+            let fbif_624 = rd(base + 0x624);
+            let dma_base = rd(base + 0x110);
+            let dma_moffs = rd(base + 0x114);
+            let dma_cmd = rd(base + 0x118);
+            let dma_fboffs = rd(base + 0x11C);
             eprintln!("  0x668={bind_inst:#010x} 0x624={fbif_624:#010x}");
             eprintln!(
                 "  dma_base={dma_base:#010x} dma_moffs={dma_moffs:#010x} dma_cmd={dma_cmd:#010x} dma_fboffs={dma_fboffs:#010x}"
             );
 
-            // Also read some additional SEC2-specific registers
             for off in [0x480, 0x484, 0x488, 0x48C, 0x490, 0x494] {
-                let v = bar0.read_u32(base + off);
+                let v = rd(base + off);
                 if v != 0 {
                     eprintln!("  +{off:#05x}={v:#010x}");
                 }
@@ -109,8 +125,7 @@ fn sysfs_sec2_register_dump() {
         eprintln!();
     }
 
-    // Check PMC
-    let pmc_enable = bar0.read_u32(0x200);
+    let pmc_enable = rd(0x200);
     let sec2_bit = 22;
     eprintln!(
         "PMC_ENABLE={pmc_enable:#010x} SEC2_enabled={}",

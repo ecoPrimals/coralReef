@@ -134,3 +134,29 @@ mod exp121_minimal_acr;
 #[cfg(feature = "vfio")]
 #[path = "hw_nv_vfio/exp122_wpr2_resolution.rs"]
 mod exp122_wpr2_resolution;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp126_warm_dispatch_diagnostic.rs"]
+mod exp126_warm_dispatch_diagnostic;
+
+// K80 sovereign compute experiments (Kepler — unsigned firmware, direct PIO boot)
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp123k_common.rs"]
+mod exp123k_common;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp123k_k80_sovereign.rs"]
+mod exp123k_k80_sovereign;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp123k_k80_sovereign_gk110_boot.rs"]
+mod exp123k_k80_sovereign_gk110_boot;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp123k_k80_sovereign_devinit.rs"]
+mod exp123k_k80_sovereign_devinit;
+
+// K80 Kepler compute dispatch (GF100 page tables, GK104 PFIFO)
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp129_kepler_vfio_dispatch.rs"]
+mod exp129_kepler_vfio_dispatch;

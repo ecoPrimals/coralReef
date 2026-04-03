@@ -5,7 +5,7 @@
 //! # Prerequisites
 //!
 //! - `coral-glowplug` daemon running with VFIO-bound GPU(s)
-//! - Socket at `/run/coralreef/glowplug.sock` (or `CORALREEF_GLOWPLUG_SOCK`)
+//! - Socket at `$XDG_RUNTIME_DIR/biomeos/coral-glowplug-<family>.sock` (or `CORALREEF_GLOWPLUG_SOCK`)
 //! - User has socket and VFIO group permissions
 //!
 //! Run: `cargo test --test hw_hotswap -p coral-glowplug -- --ignored --test-threads=1`
@@ -20,8 +20,10 @@ use std::time::Duration;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn socket_path() -> String {
-    std::env::var("CORALREEF_GLOWPLUG_SOCK")
-        .unwrap_or_else(|_| "/run/coralreef/glowplug.sock".to_owned())
+    std::env::var("CORALREEF_GLOWPLUG_SOCK").unwrap_or_else(|_| {
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+        format!("{runtime_dir}/biomeos/coral-glowplug-default.sock")
+    })
 }
 
 fn connect() -> BufReader<UnixStream> {

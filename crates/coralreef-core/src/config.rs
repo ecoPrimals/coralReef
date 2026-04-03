@@ -155,7 +155,11 @@ mod tests {
     #[test]
     fn test_capability_domain_socket_filename_suffix() {
         let name = capability_domain_socket_filename();
-        assert!(name.ends_with(".sock"));
+        assert!(
+            std::path::Path::new(&name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("sock"))
+        );
         assert!(!name.trim().is_empty());
     }
 

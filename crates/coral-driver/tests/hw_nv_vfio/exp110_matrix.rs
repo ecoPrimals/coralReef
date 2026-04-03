@@ -39,11 +39,11 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        eprintln!("Auto-discovered VFIO GPU: {name}");
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    eprintln!("Auto-discovered VFIO GPU: {name}");
+                    return name;
                 }
             }
         }
@@ -374,7 +374,7 @@ fn exp110_consolidation_matrix() {
     eprintln!("  CONSOLIDATION MATRIX RESULTS");
     eprintln!("{sep120}");
     eprintln!(
-        "{:>3} | {:>5} {:>8} {:>5} {:>5} {:>4} {:>3} | {:>3} | {:>10} | {:>4} | {:>3} | {:>5} | {:>4} | {}",
+        "{:>3} | {:>5} {:>8} {:>5} {:>5} {:>4} {:>3} | {:>3} | {:>10} | {:>4} | {:>3} | {:>5} | {:>4} | Why",
         "#",
         "pde",
         "vram_pte",
@@ -387,8 +387,7 @@ fn exp110_consolidation_matrix() {
         "EXCI",
         "TPC",
         "PC",
-        "MB0=0",
-        "Why"
+        "MB0=0"
     );
     eprintln!("{}", "-".repeat(120));
 

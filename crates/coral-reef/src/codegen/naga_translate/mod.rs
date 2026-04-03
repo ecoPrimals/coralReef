@@ -36,6 +36,15 @@ fn mem_access_global_b32() -> MemAccess {
     }
 }
 
+fn mem_access_shared_b32() -> MemAccess {
+    MemAccess {
+        mem_type: MemType::B32,
+        space: MemSpace::Shared,
+        order: MemOrder::Strong(MemScope::CTA),
+        eviction_priority: MemEvictionPriority::Normal,
+    }
+}
+
 fn lit_scalar(lit: &naga::Literal) -> naga::Scalar {
     match lit {
         naga::Literal::F32(_) => naga::Scalar {
@@ -118,7 +127,7 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
             entry_point.workgroup_size[1] as u16,
             entry_point.workgroup_size[2] as u16,
         ];
-        let shared_mem_size = self.compute_shared_mem_size();
+        let (shared_mem_size, _) = self.compute_shared_mem_layout();
 
         let info = ShaderInfo {
             max_warps_per_sm: 0,
@@ -150,15 +159,22 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
         })
     }
 
-    fn compute_shared_mem_size(&self) -> u16 {
+    fn compute_shared_mem_layout(
+        &self,
+    ) -> (
+        u16,
+        coral_reef_stubs::fxhash::FxHashMap<naga::Handle<naga::GlobalVariable>, u32>,
+    ) {
         let mut total = 0u32;
-        for (_, gv) in self.module.global_variables.iter() {
+        let mut offsets = coral_reef_stubs::fxhash::FxHashMap::default();
+        for (gv_handle, gv) in self.module.global_variables.iter() {
             if gv.space == naga::AddressSpace::WorkGroup {
+                offsets.insert(gv_handle, total);
                 let ty = &self.module.types[gv.ty];
                 total += ty.inner.size(self.module.to_ctx());
             }
         }
-        total.min(u32::from(u16::MAX)) as u16
+        (total.min(u32::from(u16::MAX)) as u16, offsets)
     }
 
     fn translate_function(
@@ -168,8 +184,12 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
     ) -> Result<Function, CompileError> {
         let mut ft = func::FuncTranslator::new(self.sm, self.module, func);
 
+        let (_, shared_offsets) = self.compute_shared_mem_layout();
+        ft.shared_mem_offsets = shared_offsets;
+
         ft.start_block();
         ft.pre_allocate_local_vars();
+        ft.apply_local_var_inits()?;
 
         if let Some(ep) = entry_point {
             if ep.stage == naga::ShaderStage::Compute {

@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
+#
+# FOSSIL RECORD: springs/hotSpring/scripts/boot/install-boot-config.sh is the
+# canonical fleet boot installer (sysfs helper, sudoers, permissions udev,
+# dual vfio-pci IDs, K80/oracle layout). This script is an older coralReef-local
+# subset (modprobe + vfio udev + single-ID cmdline + initramfs). Prefer
+# install-boot-config.sh where hotSpring is the source of truth; keep deploy-boot
+# only for minimal coralReef-only bring-up.
+#
 # coralReef boot configuration deployer
 #
 # Installs modprobe.d, udev rules, kernel cmdline, and rebuilds initramfs

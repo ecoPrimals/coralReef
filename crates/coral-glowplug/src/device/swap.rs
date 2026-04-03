@@ -25,8 +25,23 @@ impl<S: SysfsOps> DeviceSlot<S> {
         self.swap_traced(target, false)
     }
 
+    /// Like [`swap`](Self::swap) but allows swapping a cold/un-POSTed device.
+    /// Used by the cold-POST path to bind nouveau to a cold Kepler GPU.
+    pub fn swap_cold(&mut self, target: &str) -> Result<(), DeviceError> {
+        self.swap_inner(target, false, true)
+    }
+
     /// Like [`swap`](Self::swap) but with optional mmiotrace capture.
     pub fn swap_traced(&mut self, target: &str, trace: bool) -> Result<(), DeviceError> {
+        self.swap_inner(target, trace, false)
+    }
+
+    /// Like [`swap_traced`](Self::swap_traced) but allows cold devices.
+    pub fn swap_cold_traced(&mut self, target: &str, trace: bool) -> Result<(), DeviceError> {
+        self.swap_inner(target, trace, true)
+    }
+
+    fn swap_inner(&mut self, target: &str, trace: bool, allow_cold: bool) -> Result<(), DeviceError> {
         if self.config.is_protected() {
             tracing::error!(
                 bdf = %self.bdf,
@@ -90,13 +105,16 @@ impl<S: SysfsOps> DeviceSlot<S> {
                     .into(),
             })?;
 
-        let swap_obs = client
-            .swap_device_traced(&self.bdf, target, trace)
-            .map_err(|e| DeviceError::DriverBind {
-                bdf: self.bdf.clone(),
-                driver: target.into(),
-                reason: format!("ember swap_device: {e}"),
-            })?;
+        let swap_obs = if allow_cold {
+            client.swap_device_cold(&self.bdf, target, trace)
+        } else {
+            client.swap_device_traced(&self.bdf, target, trace)
+        }
+        .map_err(|e| DeviceError::DriverBind {
+            bdf: self.bdf.clone(),
+            driver: target.into(),
+            reason: format!("ember swap_device: {e}"),
+        })?;
 
         tracing::info!(
             bdf = %self.bdf,

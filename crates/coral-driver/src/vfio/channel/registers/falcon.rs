@@ -5,7 +5,7 @@
 //! FECS (Front-End Command Scheduler) and GPCCS (GPC Command Scheduler)
 //! are Falcon-class microcontrollers that manage the GR (graphics/compute)
 //! engine. Without signed firmware loaded via ACR secure boot, FECS stays
-//! in HRESET and the PFIFO scheduler refuses to schedule channels on the
+//! halted and the PFIFO scheduler refuses to schedule channels on the
 //! GR runlist — the root cause of Layer 7 dispatch failures on cold VFIO.
 //!
 //! PMU falcon is at 0x10A000 (separate from GR, documented in `devinit/pmu.rs`).
@@ -32,7 +32,7 @@ pub const IRQSTAT: usize = 0x008;
 /// IRQMODE — interrupt routing/enable. Nouveau sets 0xfc24 for FECS/GPCCS.
 pub const IRQMODE: usize = 0x00C;
 /// IRQMSET — interrupt mask set.
-#[expect(
+#[allow(
     dead_code,
     reason = "hardware register map — used as reference during bring-up"
 )]
@@ -53,7 +53,7 @@ pub const OS: usize = 0x080;
 pub const DEBUG1: usize = 0x090;
 /// CPUCTL — CPU control: start, halt, reset.
 /// v0-v3: Bit 0=STARTCPU. v4+ (GM200+): Bit 0=IINVAL, Bit 1=STARTCPU.
-/// Bit 4: HRESET (read), Bit 5: HALTED (read).
+/// Bit 4: HALTED (firmware executed HALT instruction), Bit 5: STOPPED (CPU idle).
 /// Use [`FalconCapabilities::startcpu_value`] for version-correct access.
 pub const CPUCTL: usize = 0x100;
 /// BOOTVEC — boot vector address (PC on start).
@@ -105,25 +105,25 @@ pub const EMEMC0: usize = 0xAC0;
 /// EMEMD — EMEM data port 0.
 pub const EMEMD0: usize = 0xAC4;
 /// Falcon DMA transfer base (external address, shifted >>8).
-#[expect(
+#[allow(
     dead_code,
     reason = "hardware register map — used as reference during bring-up"
 )]
 pub const DMATRFBASE: usize = 0x110;
 /// Falcon DMA transfer IMEM/DMEM offset.
-#[expect(
+#[allow(
     dead_code,
     reason = "hardware register map — used as reference during bring-up"
 )]
 pub const DMATRFMOFFS: usize = 0x114;
 /// Falcon DMA transfer command: bit 1=IMEM(1)/DMEM(0), bit 2=SIZE(0=256B,1=4B), bit 4=direction.
-#[expect(
+#[allow(
     dead_code,
     reason = "hardware register map — used as reference during bring-up"
 )]
 pub const DMATRFCMD: usize = 0x118;
 /// Falcon DMA transfer framebuffer/external offset.
-#[expect(
+#[allow(
     dead_code,
     reason = "hardware register map — used as reference during bring-up"
 )]
@@ -135,10 +135,12 @@ pub const CPUCTL_IINVAL: u32 = 1 << 0;
 /// Falcon v4+ CPUCTL: bit 1 = STARTCPU (release from HRESET).
 /// nouveau `gm200_flcn_fw_boot` writes 0x02 to start the CPU.
 pub const CPUCTL_STARTCPU: u32 = 1 << 1;
-/// CPUCTL bit: falcon is in hard reset state.
-pub const CPUCTL_HRESET: u32 = 1 << 4;
-/// CPUCTL bit: falcon is halted.
-pub const CPUCTL_HALTED: u32 = 1 << 5;
+/// CPUCTL bit 4: falcon CPU halted (firmware executed a HALT instruction).
+/// On warm handoff, FECS enters this state during its idle loop.
+/// On HS+ Volta, host STARTCPU cannot resume from this state.
+pub const CPUCTL_HALTED: u32 = 1 << 4;
+/// CPUCTL bit 5: falcon CPU stopped/idle.
+pub const CPUCTL_STOPPED: u32 = 1 << 5;
 /// HWCFG bit: security mode — signed firmware required.
 pub const HWCFG_SECURITY_MODE: u32 = 1 << 8;
 
@@ -167,7 +169,7 @@ pub const GR_CLASS_CFG: usize = 0x802C;
 /// or the physical override bit (0x80) breaks this dependency.
 pub const FBIF_TRANSCFG: usize = 0x624;
 /// FBIF target mode: virtual addressing (requires active instance block bind).
-#[expect(
+#[allow(
     dead_code,
     reason = "hardware register map — VIRT mode is the reset default, documented for reference"
 )]

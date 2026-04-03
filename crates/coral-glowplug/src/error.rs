@@ -36,10 +36,6 @@ pub enum DeviceError {
     NotManaged { bdf: Arc<str> },
 
     #[error("sysfs I/O error at {path}: {source}")]
-    #[allow(
-        dead_code,
-        reason = "reserved for upcoming sysfs evolution; used in tests — lint suppressed in test cfgs"
-    )]
     SysfsIo {
         path: String,
         source: std::io::Error,

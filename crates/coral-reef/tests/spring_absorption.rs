@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Regression tests from Spring ecosystem shader absorption.
 //!
 //! These shaders are the production workloads that exposed coralReef bugs

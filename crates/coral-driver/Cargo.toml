@@ -7,13 +7,14 @@ publish.workspace = true
 description = "Sovereign GPU driver — DRM ioctl dispatch for AMD (amdgpu) and NVIDIA (nouveau)"
 
 [dependencies]
-bytemuck = { version = "1", features = ["derive"] }
-rustix = { version = "1.1.4", features = ["mm", "time", "process", "net", "event"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror.workspace = true
-tracing.workspace = true
-cudarc = { version = "0.19.3", features = ["driver", "cuda-12060"], optional = true }
+bytemuck = { workspace = true }
+libc = { workspace = true }
+rustix = { workspace = true, features = ["time", "process", "net", "event"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+cudarc = { workspace = true, optional = true }
 
 [features]
 default = ["nouveau", "nvidia-drm"]
@@ -25,7 +26,9 @@ test-utils = []
 rdna2-buffer-read = []
 
 [dev-dependencies]
-coral-reef.workspace = true
-serde_json = "1"
-tempfile = "3"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+coral-parse = { workspace = true }
+coral-reef = { workspace = true }
+nvml-wrapper = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }

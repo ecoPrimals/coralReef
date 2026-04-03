@@ -19,11 +19,12 @@ KillMode=mixed
 KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=RUST_LOG=info
+Environment=CORALREEF_EMBER_SOCKET=/run/coralreef/ember.sock
 SupplementaryGroups=coralreef
 UMask=0117
 RuntimeDirectory=coralreef
 RuntimeDirectoryMode=0750
-ExecStartPost=/bin/chgrp coralreef /run/coralreef
+ExecStartPost=/bin/sh -c 'chgrp coralreef /run/coralreef && mkdir -p /run/coralreef/staging && chgrp coralreef /run/coralreef/staging && chmod 770 /run/coralreef/staging'
 
 # Privilege hardening: drop all capabilities except the minimum required set.
 # CAP_SYS_ADMIN   — VFIO container/group ioctls, sysfs driver bind/unbind
@@ -36,7 +37,7 @@ NoNewPrivileges=true
 
 # Filesystem isolation
 ProtectSystem=strict
-ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc /sys/kernel/debug/tracing /var/lib/coralreef
+ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc /sys/kernel/debug/tracing /var/lib/coralreef /usr/local/bin
 ReadOnlyPaths=/lib/modules /etc/modprobe.d /lib/modprobe.d
 PrivateTmp=true
 ProtectHome=true

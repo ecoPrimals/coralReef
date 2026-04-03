@@ -622,8 +622,12 @@ mod tests {
     #[test]
     fn kepler_qmd_shared_mem_and_l1_fields() {
         use classes::cla0c0::qmd;
-        assert!(qmd::QMDV00_06_SHARED_MEMORY_SIZE.end <= qmd::QMDV00_06_MAX_BIT + 1);
-        assert!(qmd::QMDV00_06_L1_CONFIGURATION.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        const {
+            assert!(qmd::QMDV00_06_SHARED_MEMORY_SIZE.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        }
+        const {
+            assert!(qmd::QMDV00_06_L1_CONFIGURATION.end <= qmd::QMDV00_06_MAX_BIT + 1);
+        }
         assert_eq!(
             qmd::QMDV00_06_L1_CONFIGURATION_DIRECTLY_ADDRESSABLE_MEMORY_SIZE_48KB,
             3
@@ -633,24 +637,44 @@ mod tests {
     #[test]
     fn pascal_qmd_sm_global_caching_and_program_offset() {
         use classes::clc0c0::qmd;
-        assert!(qmd::QMDV02_01_SM_GLOBAL_CACHING_ENABLE.end <= qmd::QMDV02_01_MAX_BIT + 1);
-        assert!(qmd::QMDV02_01_PROGRAM_OFFSET.end <= qmd::QMDV02_01_MAX_BIT + 1);
+        const {
+            assert!(qmd::QMDV02_01_SM_GLOBAL_CACHING_ENABLE.end <= qmd::QMDV02_01_MAX_BIT + 1);
+        }
+        const {
+            assert!(qmd::QMDV02_01_PROGRAM_OFFSET.end <= qmd::QMDV02_01_MAX_BIT + 1);
+        }
     }
 
     #[test]
     fn blackwell_qmd_type_and_program_address_fields() {
         use classes::clcdc0::qmd;
-        assert!(qmd::QMDV05_00_QMD_TYPE.end <= qmd::QMDV05_00_MAX_BIT + 1);
-        assert!(qmd::QMDV05_00_PROGRAM_ADDRESS_LOWER_SHIFTED4.end <= qmd::QMDV05_00_MAX_BIT + 1);
-        assert!(qmd::QMDV05_00_PROGRAM_ADDRESS_UPPER_SHIFTED4.end <= qmd::QMDV05_00_MAX_BIT + 1);
+        const {
+            assert!(qmd::QMDV05_00_QMD_TYPE.end <= qmd::QMDV05_00_MAX_BIT + 1);
+        }
+        const {
+            assert!(
+                qmd::QMDV05_00_PROGRAM_ADDRESS_LOWER_SHIFTED4.end <= qmd::QMDV05_00_MAX_BIT + 1
+            );
+        }
+        const {
+            assert!(
+                qmd::QMDV05_00_PROGRAM_ADDRESS_UPPER_SHIFTED4.end <= qmd::QMDV05_00_MAX_BIT + 1
+            );
+        }
     }
 
     #[test]
     fn hopper_qmd_grid_fields_cover_header_region() {
         use classes::clcbc0::qmd;
-        assert!(qmd::QMDV04_00_GRID_WIDTH.end <= 64);
-        assert!(qmd::QMDV04_00_GRID_HEIGHT.start >= 32);
-        assert!(qmd::QMDV04_00_QMD_MAJOR_VERSION.end <= qmd::QMDV04_00_MAX_BIT + 1);
+        const {
+            assert!(qmd::QMDV04_00_GRID_WIDTH.end <= 64);
+        }
+        const {
+            assert!(qmd::QMDV04_00_GRID_HEIGHT.start >= 32);
+        }
+        const {
+            assert!(qmd::QMDV04_00_QMD_MAJOR_VERSION.end <= qmd::QMDV04_00_MAX_BIT + 1);
+        }
     }
 
     #[test]

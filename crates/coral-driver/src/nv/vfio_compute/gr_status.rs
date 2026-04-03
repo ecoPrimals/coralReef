@@ -23,10 +23,21 @@ pub struct GrEngineStatus {
 }
 
 impl GrEngineStatus {
+    /// Returns `true` if FECS is inaccessible (PRI fault or read failure).
+    #[must_use]
+    pub fn fecs_inaccessible(&self) -> bool {
+        crate::vfio::channel::registers::pri::is_pri_error(self.fecs_cpuctl)
+            || self.fecs_cpuctl == 0xDEAD_DEAD
+    }
+
     /// Returns `true` if the FECS (Firmware Engine Control Subsystem) is halted.
+    /// PRI fault values are treated as inaccessible, not halted.
     #[must_use]
     pub fn fecs_halted(&self) -> bool {
-        self.fecs_cpuctl & 0x20 != 0 || self.fecs_cpuctl == 0xDEAD_DEAD
+        if self.fecs_inaccessible() {
+            return true;
+        }
+        self.fecs_cpuctl & 0x20 != 0
     }
 
     /// Returns `true` if the GR (Graphics) engine is enabled in PMC.
@@ -57,56 +68,10 @@ impl std::fmt::Display for GrEngineStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::GrEngineStatus;
+    use super::*;
 
-    #[test]
-    fn gr_engine_status_fecs_halted_bit5() {
-        let s = GrEngineStatus {
-            pgraph_status: 0,
-            fecs_cpuctl: 0x20,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 0,
-            pfifo_enable: 0,
-        };
-        assert!(s.fecs_halted());
-    }
-
-    #[test]
-    fn gr_engine_status_fecs_halted_dead_pattern() {
-        let s = GrEngineStatus {
-            pgraph_status: 0,
-            fecs_cpuctl: 0xDEAD_DEAD,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 0,
-            pfifo_enable: 0,
-        };
-        assert!(s.fecs_halted());
-    }
-
-    #[test]
-    fn gr_engine_status_fecs_not_halted() {
-        let s = GrEngineStatus {
-            pgraph_status: 0,
-            fecs_cpuctl: 0x10,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 0,
-            pfifo_enable: 0,
-        };
-        assert!(!s.fecs_halted());
-    }
-
-    #[test]
-    fn gr_engine_status_gr_enabled_pmc_bit12() {
-        let off = GrEngineStatus {
+    fn default_status() -> GrEngineStatus {
+        GrEngineStatus {
             pgraph_status: 0,
             fecs_cpuctl: 0,
             fecs_mailbox0: 0,
@@ -115,17 +80,49 @@ mod tests {
             gpccs_cpuctl: 0,
             pmc_enable: 0,
             pfifo_enable: 0,
+        }
+    }
+
+    #[test]
+    fn fecs_halted_bit5() {
+        let s = GrEngineStatus {
+            fecs_cpuctl: 0x20,
+            ..default_status()
         };
+        assert!(s.fecs_halted());
+    }
+
+    #[test]
+    fn fecs_halted_dead_pattern() {
+        let s = GrEngineStatus {
+            fecs_cpuctl: 0xDEAD_DEAD,
+            ..default_status()
+        };
+        assert!(s.fecs_halted());
+    }
+
+    #[test]
+    fn fecs_not_halted() {
+        let s = GrEngineStatus {
+            fecs_cpuctl: 0x10,
+            ..default_status()
+        };
+        assert!(!s.fecs_halted());
+    }
+
+    #[test]
+    fn gr_enabled_pmc_bit12() {
+        let off = default_status();
         let on = GrEngineStatus {
             pmc_enable: 1 << 12,
             ..off
         };
-        assert!(!off.gr_enabled());
+        assert!(!default_status().gr_enabled());
         assert!(on.gr_enabled());
     }
 
     #[test]
-    fn gr_engine_status_display_substrings() {
+    fn display_substrings() {
         let s = GrEngineStatus {
             pgraph_status: 0xA,
             fecs_cpuctl: 0x20,
@@ -143,31 +140,43 @@ mod tests {
     }
 
     #[test]
-    fn gr_engine_status_cold_silicon_badf_bad0() {
+    fn cold_silicon_badf_bad0() {
         let badf = GrEngineStatus {
             pgraph_status: 0xBADF_CAFE,
             fecs_cpuctl: 0x10,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
             pmc_enable: 1 << 12,
-            pfifo_enable: 0,
+            ..default_status()
         };
         let bad0 = GrEngineStatus {
             pgraph_status: 0xBAD0_1234,
             fecs_cpuctl: 0x10,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
             pmc_enable: 1 << 12,
-            pfifo_enable: 0,
+            ..default_status()
         };
-        let t_badf = badf.to_string();
-        let t_bad0 = bad0.to_string();
-        assert!(t_badf.contains("pgraph=0xbadfcafe"));
-        assert!(t_bad0.contains("pgraph=0xbad01234"));
-        assert!(t_badf.contains("gr_en=true"));
+        assert!(badf.to_string().contains("pgraph=0xbadfcafe"));
+        assert!(bad0.to_string().contains("pgraph=0xbad01234"));
+        assert!(badf.to_string().contains("gr_en=true"));
+    }
+
+    #[test]
+    fn fecs_pri_fault_is_inaccessible_not_running() {
+        for val in [0xBADF_1201u32, 0xBAD0_011F, 0xBAD1_0000] {
+            let s = GrEngineStatus {
+                fecs_cpuctl: val,
+                ..default_status()
+            };
+            assert!(s.fecs_inaccessible(), "PRI {val:#010x} should be inaccessible");
+            assert!(s.fecs_halted(), "PRI {val:#010x} should report halted");
+        }
+    }
+
+    #[test]
+    fn fecs_running_is_not_inaccessible() {
+        let s = GrEngineStatus {
+            fecs_cpuctl: 0x0000_0000,
+            ..default_status()
+        };
+        assert!(!s.fecs_inaccessible());
+        assert!(!s.fecs_halted());
     }
 }

@@ -10,6 +10,10 @@
 mod glowplug_client;
 
 #[cfg(feature = "vfio")]
+#[path = "ember_client.rs"]
+mod ember_client;
+
+#[cfg(feature = "vfio")]
 mod tests {
     use super::glowplug_client::VfioLease;
 
@@ -31,9 +35,20 @@ mod tests {
     fn open_vfio() -> (Option<VfioLease>, coral_driver::nv::RawVfioDevice) {
         let bdf = vfio_bdf();
         let lease = try_lease(&bdf);
-        let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
-            .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
-        (lease, raw)
+        match super::ember_client::request_fds(&bdf) {
+            Ok(fds) => {
+                eprintln!("ember: received VFIO fds for {bdf}");
+                let raw = coral_driver::nv::RawVfioDevice::open_from_fds(&bdf, fds)
+                    .expect("RawVfioDevice::open_from_fds()");
+                (lease, raw)
+            }
+            Err(e) => {
+                eprintln!("ember unavailable ({e}), opening VFIO directly");
+                let raw = coral_driver::nv::RawVfioDevice::open(&bdf)
+                    .expect("RawVfioDevice::open() — is GPU bound to vfio-pci?");
+                (lease, raw)
+            }
+        }
     }
 
     #[test]

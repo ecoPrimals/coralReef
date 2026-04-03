@@ -103,7 +103,16 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }
             naga::Expression::GlobalVariable(gv) => {
                 let global = &self.module.global_variables[gv];
-                if let Some(binding) = &global.binding {
+                if global.space == naga::AddressSpace::WorkGroup {
+                    let offset = self.shared_mem_offsets.get(&gv).copied().unwrap_or(0);
+                    let addr = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: addr.into(),
+                        src: Src::new_imm_u32(offset),
+                    }));
+                    self.shared_ptrs.insert(handle);
+                    Ok(addr.into())
+                } else if let Some(binding) = &global.binding {
                     let is_uniform = global.space == naga::AddressSpace::Uniform;
                     let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
                     let buf_idx = binding.group as u8;
@@ -171,6 +180,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
             }
             naga::Expression::Load { pointer } => {
+                self.ensure_expr(pointer)?;
                 if let Some(var_ref) = self.expr_to_var.get(&pointer).copied() {
                     let result = match var_ref {
                         super::func::VarRef::Full(slot) => self.var_storage[slot].clone(),
@@ -184,6 +194,22 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 }
                 if let Some((addr, offset)) = self.uniform_refs.get(&pointer).cloned() {
                     self.emit_uniform_load(pointer, addr, offset)
+                } else if self.shared_ptrs.contains(&pointer) {
+                    let addr = self.ensure_expr(pointer)?;
+                    let ptr_ty = self.resolve_expr_type_handle(pointer)?;
+                    let load_ty = match &self.module.types[ptr_ty].inner {
+                        naga::TypeInner::Pointer { base, .. } => *base,
+                        _ => ptr_ty,
+                    };
+                    let is_64bit = match &self.module.types[load_ty].inner {
+                        naga::TypeInner::Scalar(s) => s.width == 8,
+                        _ => false,
+                    };
+                    if is_64bit {
+                        self.emit_load_shared_f64(addr)
+                    } else {
+                        self.emit_load_shared(addr)
+                    }
                 } else {
                     let addr = self.ensure_expr(pointer)?;
                     let ptr_ty = self.resolve_expr_type_handle(pointer)?;
@@ -209,11 +235,17 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                         "dynamic indexing into uniform buffers via memory load".into(),
                     ));
                 }
+                if self.shared_ptrs.contains(&base) {
+                    self.shared_ptrs.insert(handle);
+                }
                 let idx_val = self.ensure_expr(index)?;
                 self.emit_access(base_val, idx_val, base)
             }
             naga::Expression::AccessIndex { base, index } => {
                 let base_val = self.ensure_expr(base)?;
+                if self.shared_ptrs.contains(&base) {
+                    self.shared_ptrs.insert(handle);
+                }
                 if let Some((addr, base_offset)) = self.uniform_refs.get(&base).cloned() {
                     let field_offset = self.uniform_field_byte_offset(base, index)?;
                     let total_offset = base_offset + field_offset;
@@ -583,6 +615,14 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             naga::Expression::Swizzle { vector, .. } => self.resolve_expr_type_handle(vector),
             naga::Expression::Relational { argument, .. } => {
                 self.resolve_expr_type_handle(argument)
+            }
+            naga::Expression::CallResult(func) => {
+                let callee = &self.module.functions[func];
+                callee
+                    .result
+                    .as_ref()
+                    .map(|r| r.ty)
+                    .ok_or_else(|| CompileError::InvalidInput("CallResult on void function".into()))
             }
             _ => self.any_type_handle(),
         }

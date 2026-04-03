@@ -23,27 +23,39 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
     let _ = ctx.w(pccsr::inst(ctx.channel_id), ctx.pccsr_inst_val);
     std::thread::sleep(std::time::Duration::from_millis(5));
     let post_bind = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!(
-        "║   N post-INST_BIND: {post_bind:#010x} (inst_val={:#010x})",
-        ctx.pccsr_inst_val
+    tracing::info!(
+        post_bind = format_args!("{:#010x}", post_bind),
+        inst_val = format_args!("{:#010x}", ctx.pccsr_inst_val),
+        "║   N post-INST_BIND"
     );
 
     if post_bind & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0 {
         let bind_err = ctx.r(0x252C);
         let pfifo_intr = ctx.r(pfifo::INTR);
-        eprintln!("║   N FAULT DIAG: BIND_ERR={bind_err:#010x} PFIFO_INTR={pfifo_intr:#010x}");
+        tracing::info!(
+            bind_err = format_args!("{:#010x}", bind_err),
+            pfifo_intr = format_args!("{:#010x}", pfifo_intr),
+            "║   N FAULT DIAG"
+        );
         let mmu_fault_status = ctx.r(0x100E34);
         let mmu_fault_addr_lo = ctx.r(0x100E38);
         let mmu_fault_addr_hi = ctx.r(0x100E3C);
-        eprintln!(
-            "║   N FAULT DIAG: MMU_STATUS={mmu_fault_status:#010x} ADDR={mmu_fault_addr_hi:#010x}_{mmu_fault_addr_lo:#010x}"
+        tracing::info!(
+            mmu_fault_status = format_args!("{:#010x}", mmu_fault_status),
+            mmu_fault_addr_hi = format_args!("{:#010x}", mmu_fault_addr_hi),
+            mmu_fault_addr_lo = format_args!("{:#010x}", mmu_fault_addr_lo),
+            "║   N FAULT DIAG MMU"
         );
         for pid in [1_usize, 2] {
             let intr = ctx.r(pbdma::intr(pid));
             let status = ctx.r(0x40000 + pid * 0x2000 + 0xB0);
             let method = ctx.r(0x40000 + pid * 0x2000 + 0x1C0);
-            eprintln!(
-                "║   N PBDMA{pid} INTR={intr:#010x} STATE={status:#010x} METHOD={method:#010x}"
+            tracing::info!(
+                pid,
+                intr = format_args!("{:#010x}", intr),
+                state = format_args!("{:#010x}", status),
+                method = format_args!("{:#010x}", method),
+                "║   N PBDMA"
             );
         }
     }
@@ -56,7 +68,11 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
     let scheduled = (post_rl & 2) != 0;
-    eprintln!("║   N post-runlist: {post_rl:#010x} scheduled={scheduled}");
+    tracing::info!(
+        post_rl = format_args!("{:#010x}", post_rl),
+        scheduled,
+        "║   N post-runlist"
+    );
 
     let pbdma_userd = ctx.r(pb + 0xD0);
     let pbdma_gpbase = ctx.r(pb + 0x40);
@@ -64,8 +80,14 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
     let pbdma_gp_put = ctx.r(pb + 0x54);
     let pbdma_gp_fetch = ctx.r(pb + 0x48);
     let pbdma_state = ctx.r(pb + 0xB0);
-    eprintln!(
-        "║   N pre-doorbell PBDMA: USERD={pbdma_userd:#010x} GP_BASE={pbdma_gpbase:#010x} SIG={pbdma_sig:#010x} GP_PUT={pbdma_gp_put} GP_FETCH={pbdma_gp_fetch} STATE={pbdma_state:#010x}"
+    tracing::info!(
+        pbdma_userd = format_args!("{:#010x}", pbdma_userd),
+        pbdma_gpbase = format_args!("{:#010x}", pbdma_gpbase),
+        pbdma_sig = format_args!("{:#010x}", pbdma_sig),
+        pbdma_gp_put,
+        pbdma_gp_fetch,
+        pbdma_state = format_args!("{:#010x}", pbdma_state),
+        "║   N pre-doorbell PBDMA"
     );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
@@ -79,11 +101,19 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
     let db_gp_fetch = ctx.r(pb + 0x48);
     let db_state = ctx.r(pb + 0xB0);
     let db_gp_state = ctx.r(pb + 0x4C);
-    eprintln!(
-        "║   N post-doorbell: PCCSR={post_db:#010x} USERD={db_userd:#010x} GP_BASE={db_gpbase:#010x} SIG={db_sig:#010x}"
+    tracing::info!(
+        post_db = format_args!("{:#010x}", post_db),
+        db_userd = format_args!("{:#010x}", db_userd),
+        db_gpbase = format_args!("{:#010x}", db_gpbase),
+        db_sig = format_args!("{:#010x}", db_sig),
+        "║   N post-doorbell"
     );
-    eprintln!(
-        "║   N post-doorbell: GP_PUT={db_gp_put} GP_FETCH={db_gp_fetch} STATE={db_state:#010x} GP_STATE={db_gp_state:#010x}"
+    tracing::info!(
+        db_gp_put,
+        db_gp_fetch,
+        db_state = format_args!("{:#010x}", db_state),
+        db_gp_state = format_args!("{:#010x}", db_gp_state),
+        "║   N post-doorbell"
     );
 
     let mut seq = 0_usize;
@@ -103,8 +133,15 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
         let gp_put = ctx.r(pbx + 0x54);
         let gp_fetch = ctx.r(pbx + 0x48);
         let state = ctx.r(pbx + 0xB0);
-        eprintln!(
-            "║   N PBDMA{pid}: USERD={userd:#010x} GP_BASE={gpbase:#010x} SIG={sig:#010x} GP_PUT={gp_put} GP_FETCH={gp_fetch} STATE={state:#010x}"
+        tracing::info!(
+            pid,
+            userd = format_args!("{:#010x}", userd),
+            gpbase = format_args!("{:#010x}", gpbase),
+            sig = format_args!("{:#010x}", sig),
+            gp_put,
+            gp_fetch,
+            state = format_args!("{:#010x}", state),
+            "║   N PBDMA"
         );
     }
 
@@ -132,12 +169,19 @@ pub(super) fn full_dispatch_with_inst_bind(ctx: &mut ExperimentContext<'_>) -> D
             if gp_fetch != 0 {
                 any_fetch = true;
             }
-            eprintln!(
-                "║   N retry PBDMA{pid}: GP_FETCH={gp_fetch} USERD={userd:#010x} STATE={state:#010x}"
+            tracing::info!(
+                pid,
+                gp_fetch,
+                userd = format_args!("{:#010x}", userd),
+                state = format_args!("{:#010x}", state),
+                "║   N retry PBDMA"
             );
         }
-        eprintln!(
-            "║   N retry: PCCSR={final_pccsr:#010x} PFIFO_INTR={final_intr:#010x} any_fetch={any_fetch}"
+        tracing::info!(
+            final_pccsr = format_args!("{:#010x}", final_pccsr),
+            final_intr = format_args!("{:#010x}", final_intr),
+            any_fetch,
+            "║   N retry"
         );
     }
     Ok(())
@@ -161,9 +205,11 @@ pub(super) fn full_dispatch_with_preempt(ctx: &mut ExperimentContext<'_>) -> Dri
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!(
-        "║   O post-runlist: {post_rl:#010x} sched={}",
-        post_rl & 2 != 0
+    let sched = post_rl & 2 != 0;
+    tracing::info!(
+        post_rl = format_args!("{:#010x}", post_rl),
+        sched,
+        "║   O post-runlist"
     );
 
     let preempt_ch = (1_u32 << 24) | ctx.channel_id;
@@ -172,16 +218,22 @@ pub(super) fn full_dispatch_with_preempt(ctx: &mut ExperimentContext<'_>) -> Dri
 
     let post_preempt = ctx.r(pccsr::channel(ctx.channel_id));
     let preempt_rb = ctx.r(0x2634);
-    eprintln!("║   O post-preempt(ch): PCCSR={post_preempt:#010x} PREEMPT={preempt_rb:#010x}");
+    tracing::info!(
+        post_preempt = format_args!("{:#010x}", post_preempt),
+        preempt_rb = format_args!("{:#010x}", preempt_rb),
+        "║   O post-preempt(ch)"
+    );
 
     let preempt_rl = (1_u32 << 20) | (ctx.target_runlist << 16);
     let _ = ctx.w(0x2634, preempt_rl);
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let post_rl_preempt = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!(
-        "║   O post-preempt(rl): PCCSR={post_rl_preempt:#010x} PREEMPT={:#010x}",
-        ctx.r(0x2634)
+    let preempt_reg = ctx.r(0x2634);
+    tracing::info!(
+        post_rl_preempt = format_args!("{:#010x}", post_rl_preempt),
+        preempt = format_args!("{:#010x}", preempt_reg),
+        "║   O post-preempt(rl)"
     );
 
     let _ = ctx.w(usermode::NOTIFY_CHANNEL_PENDING, ctx.channel_id);
@@ -194,8 +246,15 @@ pub(super) fn full_dispatch_with_preempt(ctx: &mut ExperimentContext<'_>) -> Dri
     let sig = ctx.r(pb + 0xC0);
     let state = ctx.r(pb + 0xB0);
     let gpbase = ctx.r(pb + 0x40);
-    eprintln!(
-        "║   O final: PCCSR={post_db:#010x} GP_PUT={gp_put} GP_FETCH={gp_fetch} USERD={userd_lo:#010x} GP_BASE={gpbase:#010x} SIG={sig:#010x} STATE={state:#010x}"
+    tracing::info!(
+        post_db = format_args!("{:#010x}", post_db),
+        gp_put,
+        gp_fetch,
+        userd_lo = format_args!("{:#010x}", userd_lo),
+        gpbase = format_args!("{:#010x}", gpbase),
+        sig = format_args!("{:#010x}", sig),
+        state = format_args!("{:#010x}", state),
+        "║   O final"
     );
     Ok(())
 }
@@ -225,9 +284,12 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
-    eprintln!(
-        "║   P phase2: post_bind={post_bind:#010x} post_rl={post_rl:#010x} sched={}",
-        post_rl & 2 != 0
+    let sched = post_rl & 2 != 0;
+    tracing::info!(
+        post_bind = format_args!("{:#010x}", post_bind),
+        post_rl = format_args!("{:#010x}", post_rl),
+        sched,
+        "║   P phase2"
     );
 
     for pid in [1_usize, 2] {
@@ -239,8 +301,16 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
         let gp_fetch = ctx.r(pbx + 0x48);
         let state = ctx.r(pbx + 0xB0);
         let intr = ctx.r(pbdma::intr(pid));
-        eprintln!(
-            "║   P pre-db PBDMA{pid}: USERD={userd:#010x} GP_BASE={gpbase:#010x} SIG={sig:#010x} GP_PUT={gp_put} GP_FETCH={gp_fetch} STATE={state:#010x} INTR={intr:#010x}"
+        tracing::info!(
+            pid,
+            userd = format_args!("{:#010x}", userd),
+            gpbase = format_args!("{:#010x}", gpbase),
+            sig = format_args!("{:#010x}", sig),
+            gp_put,
+            gp_fetch,
+            state = format_args!("{:#010x}", state),
+            intr = format_args!("{:#010x}", intr),
+            "║   P pre-db PBDMA"
         );
     }
 
@@ -249,15 +319,24 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
 
     let post_db = ctx.r(pccsr::channel(ctx.channel_id));
     let pfifo_intr = ctx.r(pfifo::INTR);
-    eprintln!("║   P post-doorbell: PCCSR={post_db:#010x} PFIFO_INTR={pfifo_intr:#010x}");
+    tracing::info!(
+        post_db = format_args!("{:#010x}", post_db),
+        pfifo_intr = format_args!("{:#010x}", pfifo_intr),
+        "║   P post-doorbell"
+    );
 
     let mmu_fault_status = ctx.r(0x100E34);
     let mmu_fault_lo = ctx.r(0x100E38);
     let mmu_fault_hi = ctx.r(0x100E3C);
     let mmu_fault_inst_lo = ctx.r(0x100E40);
     let bind_err = ctx.r(0x252C);
-    eprintln!(
-        "║   P FAULT: MMU_STATUS={mmu_fault_status:#010x} ADDR={mmu_fault_hi:#010x}_{mmu_fault_lo:#010x} INST={mmu_fault_inst_lo:#010x} BIND_ERR={bind_err:#010x}"
+    tracing::info!(
+        mmu_fault_status = format_args!("{:#010x}", mmu_fault_status),
+        mmu_fault_hi = format_args!("{:#010x}", mmu_fault_hi),
+        mmu_fault_lo = format_args!("{:#010x}", mmu_fault_lo),
+        mmu_fault_inst_lo = format_args!("{:#010x}", mmu_fault_inst_lo),
+        bind_err = format_args!("{:#010x}", bind_err),
+        "║   P FAULT"
     );
 
     for pid in [1_usize, 2] {
@@ -270,9 +349,21 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
         let gp_fetch = ctx.r(pbx + 0x48);
         let state = ctx.r(pbx + 0xB0);
         let gp_state = ctx.r(pbx + 0x4C);
-        eprintln!("║   P PBDMA{pid}: INTR={intr:#010x} HCE_INTR={hce_intr:#010x}");
-        eprintln!(
-            "║   P PBDMA{pid}: USERD={userd:#010x} GP_BASE={gpbase:#010x} GP_PUT={gp_put} GP_FETCH={gp_fetch} STATE={state:#010x} GP_STATE={gp_state:#010x}"
+        tracing::info!(
+            pid,
+            intr = format_args!("{:#010x}", intr),
+            hce_intr = format_args!("{:#010x}", hce_intr),
+            "║   P PBDMA intr"
+        );
+        tracing::info!(
+            pid,
+            userd = format_args!("{:#010x}", userd),
+            gpbase = format_args!("{:#010x}", gpbase),
+            gp_put,
+            gp_fetch,
+            state = format_args!("{:#010x}", state),
+            gp_state = format_args!("{:#010x}", gp_state),
+            "║   P PBDMA regs"
         );
     }
 
@@ -280,8 +371,12 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
     let nrfb_put = ctx.r(0x100E50);
     let rfb_get = ctx.r(0x100E30);
     let rfb_put = ctx.r(0x100E34);
-    eprintln!(
-        "║   P FAULTBUF: NR_GET={nrfb_get:#010x} NR_PUT={nrfb_put:#010x} R_GET={rfb_get:#010x} R_PUT={rfb_put:#010x}"
+    tracing::info!(
+        nrfb_get = format_args!("{:#010x}", nrfb_get),
+        nrfb_put = format_args!("{:#010x}", nrfb_put),
+        rfb_get = format_args!("{:#010x}", rfb_get),
+        rfb_put = format_args!("{:#010x}", rfb_put),
+        "║   P FAULTBUF"
     );
 
     let _ = ctx.w(
@@ -298,8 +393,12 @@ pub(super) fn scheduled_plus_direct_pbdma(ctx: &mut ExperimentContext<'_>) -> Dr
     let final_fetch1 = ctx.r(pb + 0x48);
     let final_fetch2 = ctx.r(0x44000 + 0x48);
     let final_pfifo_intr = ctx.r(pfifo::INTR);
-    eprintln!(
-        "║   P retry: PCCSR={final_pccsr:#010x} PBDMA1_FETCH={final_fetch1} PBDMA2_FETCH={final_fetch2} PFIFO_INTR={final_pfifo_intr:#010x}"
+    tracing::info!(
+        final_pccsr = format_args!("{:#010x}", final_pccsr),
+        final_fetch1,
+        final_fetch2,
+        final_pfifo_intr = format_args!("{:#010x}", final_pfifo_intr),
+        "║   P retry"
     );
     Ok(())
 }

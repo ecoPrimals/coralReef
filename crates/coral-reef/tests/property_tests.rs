@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#![cfg(feature = "naga")]
 //! Property-based tests for the coral-reef compiler.
 
 use coral_reef::{CompileOptions, GpuArch, compile, compile_wgsl};

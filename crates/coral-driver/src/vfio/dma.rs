@@ -28,6 +28,69 @@ use super::types::{IommuIoasMap, IommuIoasUnmap, VfioDmaMap, VfioDmaUnmap};
 
 const PAGE_SIZE: usize = 4096;
 
+/// Page-aligned, mlock'd memory allocation.
+///
+/// Owns the allocation lifecycle: `alloc_zeroed` + `mlock` on creation,
+/// `munlock` + `dealloc` on drop. Extracted from `DmaBuffer` to confine
+/// raw alloc/dealloc/mlock unsafe into a single RAII type.
+struct LockedAlloc {
+    ptr: NonNull<u8>,
+    layout: std::alloc::Layout,
+}
+
+impl LockedAlloc {
+    /// Allocate `size` bytes (rounded up to page alignment) and mlock.
+    fn new(size: usize) -> Result<Self, DriverError> {
+        let aligned_size = size.div_ceil(PAGE_SIZE) * PAGE_SIZE;
+
+        let layout =
+            std::alloc::Layout::from_size_align(aligned_size, PAGE_SIZE).map_err(|e| {
+                DriverError::MmapFailed(Cow::Owned(format!("Invalid DMA buffer layout: {e}")))
+            })?;
+
+        // SAFETY: Layout validated above (size>0, align=4096 power-of-two).
+        let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) })
+            .ok_or_else(|| DriverError::MmapFailed("Failed to allocate DMA buffer".into()))?;
+
+        // SAFETY: ptr valid for layout.size() bytes from alloc above.
+        if let Err(e) = unsafe { mlock(ptr.as_ptr().cast(), aligned_size) } {
+            // SAFETY: Cleanup — ptr allocated above with same layout.
+            unsafe { std::alloc::dealloc(ptr.as_ptr(), layout) };
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "Failed to lock DMA memory: {e}"
+            ))));
+        }
+
+        Ok(Self { ptr, layout })
+    }
+
+    fn as_ptr(&self) -> *mut u8 {
+        self.ptr.as_ptr()
+    }
+
+    fn size(&self) -> usize {
+        self.layout.size()
+    }
+
+    /// Consume without running Drop (ownership transferred to DmaBuffer).
+    fn into_raw(self) -> (NonNull<u8>, std::alloc::Layout) {
+        let ptr = self.ptr;
+        let layout = self.layout;
+        std::mem::forget(self);
+        (ptr, layout)
+    }
+}
+
+impl Drop for LockedAlloc {
+    fn drop(&mut self) {
+        // SAFETY: munlock + dealloc match the mlock + alloc from new().
+        unsafe {
+            let _ = munlock(self.ptr.as_ptr().cast(), self.layout.size());
+            std::alloc::dealloc(self.ptr.as_ptr(), self.layout);
+        }
+    }
+}
+
 /// IOMMU-mapped DMA buffer for VFIO GPU operations.
 ///
 /// Allocated page-aligned, mlock'd to prevent swapping, and mapped through the
@@ -62,33 +125,10 @@ impl DmaBuffer {
             ));
         }
 
-        let aligned_size = size.div_ceil(PAGE_SIZE) * PAGE_SIZE;
+        let alloc = LockedAlloc::new(size)?;
+        let aligned_size = alloc.size();
+        let ptr = alloc.as_ptr();
 
-        let layout = std::alloc::Layout::from_size_align(aligned_size, PAGE_SIZE).map_err(|e| {
-            DriverError::MmapFailed(Cow::Owned(format!("Invalid DMA buffer layout: {e}")))
-        })?;
-
-        // SAFETY: Layout validated above (size>0, align=4096 power-of-two).
-        // Returns null on OOM (checked below). Dealloc'd in Drop with same layout.
-        // Note: Vec<u8> cannot replace this — VFIO DMA map requires page-aligned
-        // (4096) virtual addresses; Vec does not guarantee alignment.
-        let vaddr = {
-            let raw = unsafe { std::alloc::alloc_zeroed(layout) };
-            NonNull::new(raw)
-                .ok_or_else(|| DriverError::MmapFailed("Failed to allocate DMA buffer".into()))?
-        };
-
-        // SAFETY: mlock prevents page-out, required for VFIO DMA correctness.
-        // vaddr valid for aligned_size bytes from alloc above.
-        if let Err(e) = unsafe { mlock(vaddr.as_ptr().cast(), aligned_size) } {
-            // SAFETY: Cleanup — vaddr allocated above with same layout.
-            unsafe { std::alloc::dealloc(vaddr.as_ptr(), layout) };
-            return Err(DriverError::MmapFailed(Cow::Owned(format!(
-                "Failed to lock DMA memory: {e}"
-            ))));
-        }
-
-        let ptr = vaddr.as_ptr();
         tracing::debug!(
             vaddr = format_args!("{ptr:p}"),
             iova = format_args!("{iova:#x}"),
@@ -96,17 +136,15 @@ impl DmaBuffer {
             "VFIO DMA map attempt"
         );
 
-        let map_result = Self::dma_map_with_retry(&backend, ptr as u64, iova, aligned_size as u64);
+        Self::dma_map_with_retry(&backend, ptr as u64, iova, aligned_size as u64).inspect_err(
+            |e| {
+                tracing::warn!("VFIO DMA map failed: {e}");
+                // LockedAlloc::drop handles munlock + dealloc
+            },
+        )?;
 
-        if let Err(e) = map_result {
-            tracing::warn!("VFIO DMA map failed: {e}");
-            // SAFETY: Cleanup — vaddr allocated and mlock'd above.
-            unsafe {
-                let _ = munlock(ptr.cast(), aligned_size);
-                std::alloc::dealloc(ptr, layout);
-            };
-            return Err(e);
-        }
+        // Transfer ownership from LockedAlloc to DmaBuffer
+        let (vaddr, _layout) = alloc.into_raw();
 
         tracing::debug!(
             vaddr = format_args!("{ptr:p}"),

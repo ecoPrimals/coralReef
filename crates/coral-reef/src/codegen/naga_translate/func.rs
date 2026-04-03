@@ -67,6 +67,11 @@ pub(super) struct FuncTranslator<'a, 'b> {
     /// `global_invocation_id` and `local_invocation_index` without system
     /// register reads (RDNA2 lacks hardware registers for workgroup size).
     pub(super) workgroup_size: [u32; 3],
+    /// Expression handles that reference `var<workgroup>` shared memory.
+    /// Loads/stores through these pointers use `MemSpace::Shared` instead of `Global`.
+    pub(super) shared_ptrs: std::collections::HashSet<Handle<naga::Expression>>,
+    /// Byte offsets of each workgroup global variable within the shared memory region.
+    pub(super) shared_mem_offsets: FxHashMap<Handle<naga::GlobalVariable>, u32>,
 }
 
 impl<'a, 'b> FuncTranslator<'a, 'b> {
@@ -100,6 +105,8 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             next_block_id: 0,
             dead_code: false,
             workgroup_size: [1, 1, 1],
+            shared_ptrs: std::collections::HashSet::default(),
+            shared_mem_offsets: FxHashMap::default(),
         }
     }
 
@@ -206,6 +213,30 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 self.local_var_slots.insert(lv_handle, slot_id);
             }
         }
+    }
+
+    /// Apply `LocalVariable::init` values via standard expression translation.
+    /// Naga omits Store statements for `for`-loop initializers, relying on
+    /// `LocalVariable::init` instead. We translate the init expression and
+    /// point `var_storage` directly at the result without emitting extra copies
+    /// (avoiding SM50 encoder assertion on dead immediates).
+    pub(super) fn apply_local_var_inits(&mut self) -> Result<(), CompileError> {
+        let inits: Vec<_> = self
+            .func
+            .local_variables
+            .iter()
+            .filter_map(|(h, lv)| {
+                let slot = *self.local_var_slots.get(&h)?;
+                Some((slot, lv.init?))
+            })
+            .collect();
+        for (slot, init_handle) in inits {
+            let init_ssa = self.ensure_expr(init_handle)?;
+            if init_ssa.comps() == self.var_storage[slot].comps() {
+                self.var_storage[slot] = init_ssa;
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn emit_compute_prologue(

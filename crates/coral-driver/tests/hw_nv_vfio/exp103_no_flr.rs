@@ -17,6 +17,7 @@ const SEC2_BASE: usize = 0x087000;
 const FECS_BASE: usize = 0x409000;
 const GPCCS_BASE: usize = 0x41a000;
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod freg103 {
     pub const CPUCTL: usize = 0x100;
     pub const SCTL: usize = 0x240;
@@ -24,8 +25,8 @@ mod freg103 {
     pub const EXCI: usize = 0x148;
     pub const MAILBOX0: usize = 0x040;
     pub const MAILBOX1: usize = 0x044;
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
 }
 
 fn disable_pci_reset(bdf: &str) -> Result<(), String> {
@@ -88,20 +89,20 @@ fn exp103_no_flr_acr_boot() {
         let pc = r(freg103::PC);
         let exci = r(freg103::EXCI);
         let mb0 = r(freg103::MAILBOX0);
-        let hreset = cpuctl & freg103::CPUCTL_HRESET != 0;
         let halted = cpuctl & freg103::CPUCTL_HALTED != 0;
+        let stopped = cpuctl & freg103::CPUCTL_STOPPED != 0;
         let hs = sctl & 0x02 != 0;
         eprintln!(
-            "  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HALTED={halted} HS={hs} sctl={sctl:#010x}"
+            "  {name}: cpuctl={cpuctl:#010x} HALTED={halted} STOPPED={stopped} HS={hs} sctl={sctl:#010x}"
         );
         eprintln!("    PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}");
 
-        if name == "SEC2" && hs && !halted && !hreset {
+        if name == "SEC2" && hs && !stopped && !halted {
             eprintln!("  *** SEC2 is alive in HS mode from nouveau! ***");
             sec2_already_hs = true;
         }
-        if name == "SEC2" && hs && (halted || exci != 0) {
-            eprintln!("  SEC2 in HS but halted/faulted — will need fresh boot");
+        if name == "SEC2" && hs && (stopped || exci != 0) {
+            eprintln!("  SEC2 in HS but stopped/faulted — will need fresh boot");
         }
     }
 
@@ -166,10 +167,10 @@ fn exp103_no_flr_acr_boot() {
         let pc = r(freg103::PC);
         let exci = r(freg103::EXCI);
         let mb0 = r(freg103::MAILBOX0);
-        let hreset = cpuctl & freg103::CPUCTL_HRESET != 0;
+        let halted = cpuctl & freg103::CPUCTL_HALTED != 0;
         let hs = sctl & 0x02 != 0;
         eprintln!(
-            "  {name}: cpuctl={cpuctl:#010x} HRESET={hreset} HS={hs} PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}"
+            "  {name}: cpuctl={cpuctl:#010x} HALTED={halted} HS={hs} PC={pc:#06x} EXCI={exci:#010x} mb0={mb0:#010x}"
         );
     }
 

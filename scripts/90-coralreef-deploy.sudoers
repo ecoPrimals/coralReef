@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Passwordless deploy for coralreef group members.
+#
+# Install:
+#   sudo cp scripts/90-coralreef-deploy.sudoers /etc/sudoers.d/90-coralreef-deploy
+#   sudo chmod 0440 /etc/sudoers.d/90-coralreef-deploy
+#   sudo visudo -c   # verify syntax
+#
+# Grants: stop/start/restart coral services, cp binaries to /usr/local/bin
+%coralreef ALL=(root) NOPASSWD: /usr/bin/systemctl stop coral-ember
+%coralreef ALL=(root) NOPASSWD: /usr/bin/systemctl stop coral-glowplug
+%coralreef ALL=(root) NOPASSWD: /usr/bin/systemctl start coral-ember
+%coralreef ALL=(root) NOPASSWD: /usr/bin/systemctl start coral-glowplug
+%coralreef ALL=(root) NOPASSWD: /usr/bin/systemctl restart coral-ember
+%coralreef ALL=(root) NOPASSWD: /usr/bin/systemctl restart coral-glowplug
+%coralreef ALL=(root) NOPASSWD: /usr/bin/cp * /usr/local/bin/coral-ember
+%coralreef ALL=(root) NOPASSWD: /usr/bin/cp * /usr/local/bin/coral-glowplug
+%coralreef ALL=(root) NOPASSWD: /usr/bin/cp * /usr/local/bin/coralctl

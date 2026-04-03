@@ -33,6 +33,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
 use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};
 
+#[allow(dead_code, reason = "hardware register map — reference for bring-up")]
 mod r118 {
     pub const SEC2_BASE: u32 = 0x087000;
     pub const FECS_BASE: u32 = 0x409000;
@@ -45,11 +46,16 @@ mod r118 {
     pub const MAILBOX0: u32 = 0x040;
     pub const MAILBOX1: u32 = 0x044;
 
-    pub const CPUCTL_HRESET: u32 = 1 << 4;
-    pub const CPUCTL_HALTED: u32 = 1 << 5;
+    pub const CPUCTL_HALTED: u32 = 1 << 4;
+    pub const CPUCTL_STOPPED: u32 = 1 << 5;
+    pub const NV_PMC_BOOT_0: u32 = 0x000000;
+    pub const PFB_WPR2_BEG: u32 = 0x100CEC;
+    pub const PFB_WPR2_END: u32 = 0x100CF0;
     pub const INDEXED_WPR: u32 = 0x100CD4;
 }
 
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::manual_is_variant_and)]
 fn discover_bdf() -> String {
     if let Ok(bdf) = std::env::var("CORALREEF_VFIO_BDF") {
         return bdf;
@@ -92,9 +98,9 @@ fn falcon_state(bar0: &MappedBar, name: &str, base: usize) -> (u32, u32, u32) {
     let mb0 = bar0
         .read_u32(base + r118::MAILBOX0 as usize)
         .unwrap_or(0xDEAD);
-    let hreset = cpuctl & r118::CPUCTL_HRESET != 0;
     let halted = cpuctl & r118::CPUCTL_HALTED != 0;
-    let alive = !hreset && !halted && cpuctl != 0xDEAD;
+    let stopped = cpuctl & r118::CPUCTL_STOPPED != 0;
+    let alive = !halted && !stopped && cpuctl != 0xDEAD;
     eprintln!(
         "  {name:6}: cpuctl={cpuctl:#010x} SCTL={sctl:#06x} PC={pc:#06x} EXCI={exci:#010x} \
          MB0={mb0:#010x} alive={alive}"
@@ -146,6 +152,7 @@ fn dump_wpr_headers(bar0: &MappedBar, vram_base: u64, label: &str) {
 
 #[test]
 #[ignore = "requires VFIO-bound GPU hardware + GlowPlug + Ember"]
+#[allow(clippy::collapsible_if)]
 fn exp118_wpr2_preserve() {
     init_tracing();
 
@@ -172,36 +179,54 @@ fn exp118_wpr2_preserve() {
     gp.swap(&bdf, "nouveau").expect("swap→nouveau");
     std::thread::sleep(std::time::Duration::from_secs(4));
 
-    eprintln!("\n── A2: Read WPR2 via sysfs while nouveau active ──");
-    let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
-    let mut bar0_sysfs =
-        Bar0Access::from_sysfs_device(&sysfs_dev).expect("BAR0 sysfs while nouveau is bound");
+    eprintln!("\n── A2: Read WPR2 while nouveau active ──");
+    eprintln!("  Trying ember.mmio.read (parasitic, no root needed)...");
 
-    // Indexed WPR2 read
-    let _ = bar0_sysfs.write_u32(r118::INDEXED_WPR, 2);
-    let wpr2_s_raw = bar0_sysfs.read_u32(r118::INDEXED_WPR).unwrap_or(0);
-    let _ = bar0_sysfs.write_u32(r118::INDEXED_WPR, 3);
-    let wpr2_e_raw = bar0_sysfs.read_u32(r118::INDEXED_WPR).unwrap_or(0);
+    let ember_rd =
+        |off: u32| -> u32 { crate::helpers::ember_mmio_read(&bdf, off).unwrap_or(0xDEAD_DEAD) };
+
+    // Indexed WPR reads require write-then-read; try sysfs for those, ember for rest
+    let (wpr2_s_raw, wpr2_e_raw, sec2_sctl_nouveau, fecs_sctl_nouveau, gpccs_sctl_nouveau) =
+        if crate::ember_client::mmio_read(&bdf, r118::NV_PMC_BOOT_0).is_ok() {
+            eprintln!("  ember.mmio.read: available — using parasitic reads");
+            // Direct WPR registers (no indexed write needed)
+            let wpr2_beg = ember_rd(r118::PFB_WPR2_BEG);
+            let wpr2_end = ember_rd(r118::PFB_WPR2_END);
+            let sec2 = ember_rd(r118::SEC2_BASE + r118::SCTL);
+            let fecs = ember_rd(r118::FECS_BASE + r118::SCTL);
+            let gpccs = ember_rd(r118::GPCCS_BASE + r118::SCTL);
+            // Use direct registers as raw values (different encoding from indexed)
+            (wpr2_beg, wpr2_end, sec2, fecs, gpccs)
+        } else {
+            eprintln!("  ember: not available, falling back to sysfs BAR0");
+            let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
+            let mut bar0_sysfs = Bar0Access::from_sysfs_device(&sysfs_dev)
+                .expect("BAR0 sysfs while nouveau is bound");
+            let _ = bar0_sysfs.write_u32(r118::INDEXED_WPR, 2);
+            let s = bar0_sysfs.read_u32(r118::INDEXED_WPR).unwrap_or(0);
+            let _ = bar0_sysfs.write_u32(r118::INDEXED_WPR, 3);
+            let e = bar0_sysfs.read_u32(r118::INDEXED_WPR).unwrap_or(0);
+            let sec2 = bar0_sysfs
+                .read_u32(r118::SEC2_BASE + r118::SCTL)
+                .unwrap_or(0);
+            let fecs = bar0_sysfs
+                .read_u32(r118::FECS_BASE + r118::SCTL)
+                .unwrap_or(0);
+            let gpccs = bar0_sysfs
+                .read_u32(r118::GPCCS_BASE + r118::SCTL)
+                .unwrap_or(0);
+            drop(bar0_sysfs);
+            (s, e, sec2, fecs, gpccs)
+        };
+
     let wpr2_start = ((wpr2_s_raw as u64) & 0xFFFF_FF00) << 8;
     let wpr2_end = ((wpr2_e_raw as u64) & 0xFFFF_FF00) << 8;
     let wpr2_valid = wpr2_start > 0 && wpr2_end > wpr2_start;
     eprintln!("  WPR2 (nouveau): start={wpr2_start:#x} end={wpr2_end:#x} valid={wpr2_valid}");
 
-    // Falcon state during nouveau
-    let sec2_sctl_nouveau = bar0_sysfs
-        .read_u32(r118::SEC2_BASE + r118::SCTL)
-        .unwrap_or(0);
-    let fecs_sctl_nouveau = bar0_sysfs
-        .read_u32(r118::FECS_BASE + r118::SCTL)
-        .unwrap_or(0);
-    let gpccs_sctl_nouveau = bar0_sysfs
-        .read_u32(r118::GPCCS_BASE + r118::SCTL)
-        .unwrap_or(0);
     eprintln!("  SEC2  SCTL={sec2_sctl_nouveau:#06x} (during nouveau)");
     eprintln!("  FECS  SCTL={fecs_sctl_nouveau:#06x} (during nouveau)");
     eprintln!("  GPCCS SCTL={gpccs_sctl_nouveau:#06x} (during nouveau)");
-
-    drop(bar0_sysfs);
 
     eprintln!("\n── A3: Disable PCI reset, swap to vfio-pci ──");
     match disable_pci_reset(&bdf) {
@@ -227,14 +252,14 @@ fn exp118_wpr2_preserve() {
     let (w2s_a, w2e_a, w2v_a) = read_wpr2(&bar0);
     eprintln!("  WPR2 (post-swap): start={w2s_a:#x} end={w2e_a:#x} valid={w2v_a}");
 
-    let sec2_alive = sec2_cpu_a & r118::CPUCTL_HRESET == 0
-        && sec2_cpu_a & r118::CPUCTL_HALTED == 0
+    let sec2_alive = sec2_cpu_a & r118::CPUCTL_HALTED == 0
+        && sec2_cpu_a & r118::CPUCTL_STOPPED == 0
         && sec2_cpu_a != 0xDEAD;
-    let fecs_alive = fecs_cpu_a & r118::CPUCTL_HRESET == 0
-        && fecs_cpu_a & r118::CPUCTL_HALTED == 0
+    let fecs_alive = fecs_cpu_a & r118::CPUCTL_HALTED == 0
+        && fecs_cpu_a & r118::CPUCTL_STOPPED == 0
         && fecs_cpu_a != 0xDEAD;
-    let gpccs_alive = gpccs_cpu_a & r118::CPUCTL_HRESET == 0
-        && gpccs_cpu_a & r118::CPUCTL_HALTED == 0
+    let gpccs_alive = gpccs_cpu_a & r118::CPUCTL_HALTED == 0
+        && gpccs_cpu_a & r118::CPUCTL_STOPPED == 0
         && gpccs_cpu_a != 0xDEAD;
 
     eprintln!("\n  ┌─────────────────────────────────────────────┐");
@@ -452,11 +477,7 @@ fn exp118_wpr2_preserve() {
         eprintln!("  PHASE D: Capture nouveau's WPR2 content from VRAM");
         eprintln!("{eq}");
 
-        // Need fresh nouveau cycle with sysfs BAR0 for PRAMIN access
-        // (We need write access to BAR0_WINDOW for PRAMIN sliding)
         eprintln!("\n── D1: Swap to nouveau to capture WPR2 ──");
-        // If we still have VFIO bar0 from previous phases, drop it
-        // Since we might have dropped and re-acquired, check if we can still swap
         let swap_ok = {
             let mut gp2 = GlowPlugClient::connect().expect("GlowPlug");
             gp2.swap(&bdf, "nouveau").is_ok()
@@ -465,18 +486,120 @@ fn exp118_wpr2_preserve() {
         if swap_ok {
             std::thread::sleep(std::time::Duration::from_secs(4));
 
+            // Try glowplug.pramin_read first (daemon-backed, no root needed)
+            let gp_pramin = crate::glowplug_client::GlowPlugClient::connect().ok();
+
             let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
-            match Bar0Access::from_sysfs_device(&sysfs_dev) {
-                Ok(mut sbar0) => {
+            let sbar0_opt = if gp_pramin.is_some() {
+                eprintln!("  Using glowplug.pramin_read for VRAM access");
+                None
+            } else {
+                eprintln!("  glowplug: not available, falling back to sysfs BAR0");
+                Bar0Access::from_sysfs_device(&sysfs_dev).ok()
+            };
+
+            // Scope for either path
+            let wpr2_size = (wpr2_end - wpr2_start) as usize;
+
+            // Shared analysis closure applied to captured data
+            let analyze_wpr2 = |wpr2_data: &[u32], read_ok: bool| {
+                eprintln!(
+                    "  WPR2 capture: {} words ({} KiB), read_ok={read_ok}",
+                    wpr2_data.len(),
+                    wpr2_data.len() * 4 / 1024
+                );
+                eprintln!("\n  WPR2 first 64 bytes:");
+                for row in 0..4u32 {
+                    let mut hex = String::new();
+                    for col in 0..4u32 {
+                        let idx = (row * 4 + col) as usize;
+                        if idx < wpr2_data.len() {
+                            hex.push_str(&format!("{:08x} ", wpr2_data[idx]));
+                        }
+                    }
+                    eprintln!("    {:#010x}: {hex}", wpr2_start + (row as u64) * 16);
+                }
+                eprintln!("\n  WPR2 header analysis:");
+                for i in 0..11u32 {
+                    let base = (i * 6) as usize;
+                    if base + 5 >= wpr2_data.len() {
+                        break;
+                    }
+                    let falcon_id = wpr2_data[base];
+                    if falcon_id == 0xFFFF_FFFF {
+                        break;
+                    }
+                    let lsb_off = wpr2_data[base + 1];
+                    let status = wpr2_data[base + 5];
+                    let fname = match falcon_id {
+                        0 => "PMU",
+                        2 => "FECS",
+                        3 => "GPCCS",
+                        7 => "SEC2",
+                        _ => "???",
+                    };
+                    let sname = match status {
+                        0 => "NONE",
+                        1 => "COPY",
+                        4 => "VALID_DONE",
+                        5 => "VALID_SKIP",
+                        6 => "BOOT_READY",
+                        _ => "?",
+                    };
                     eprintln!(
-                        "  Reading WPR2 region from VRAM ({wpr2_start:#x}..{wpr2_end:#x})..."
+                        "    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({sname})"
                     );
-                    let wpr2_size = (wpr2_end - wpr2_start) as usize;
+                }
+                let nz = wpr2_data.iter().filter(|&&v| v != 0).count();
+                eprintln!(
+                    "\n  Non-zero words: {nz}/{} ({:.1}%)",
+                    wpr2_data.len(),
+                    nz as f64 / wpr2_data.len() as f64 * 100.0
+                );
+            };
+
+            match (gp_pramin, sbar0_opt) {
+                (Some(mut gp_conn), _) => {
+                    eprintln!(
+                        "  Reading WPR2 via glowplug.pramin_read ({wpr2_start:#x}..{wpr2_end:#x})..."
+                    );
+                    let words_total = wpr2_size / 4;
+                    let mut wpr2_data = Vec::with_capacity(words_total);
+                    let mut read_ok = true;
+                    let chunk_size: u64 = 4096;
+
+                    let mut offset = wpr2_start;
+                    while wpr2_data.len() < words_total {
+                        let remaining = (words_total - wpr2_data.len()) as u64;
+                        let count = remaining.min(chunk_size);
+                        match gp_conn.pramin_read(&bdf, offset, count) {
+                            Ok(resp) => {
+                                if let Some(vals) = resp.get("values").and_then(|v| v.as_array()) {
+                                    for v in vals {
+                                        wpr2_data.push(v.as_u64().unwrap_or(0xDEAD_DEAD) as u32);
+                                    }
+                                } else {
+                                    wpr2_data.resize(wpr2_data.len() + count as usize, 0xDEAD_DEAD);
+                                    read_ok = false;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("  pramin_read error at {offset:#x}: {e}");
+                                wpr2_data.resize(wpr2_data.len() + count as usize, 0xDEAD_DEAD);
+                                read_ok = false;
+                            }
+                        }
+                        offset += count * 4;
+                    }
+                    wpr2_data.truncate(words_total);
+                    analyze_wpr2(&wpr2_data, read_ok);
+                }
+                (_, Some(mut sbar0)) => {
+                    eprintln!(
+                        "  Reading WPR2 via sysfs PRAMIN ({wpr2_start:#x}..{wpr2_end:#x})..."
+                    );
                     let mut wpr2_data = vec![0u32; wpr2_size / 4];
                     let mut read_ok = true;
-
-                    // PRAMIN window is at BAR0 + 0x700000 (1 MiB aperture).
-                    // BAR0_WINDOW register (0x1700) selects which 1 MiB of VRAM is visible.
                     let pramin_base: usize = 0x700000;
 
                     for chunk_idx in 0..(wpr2_size / (1024 * 1024) + 1) {
@@ -501,70 +624,10 @@ fn exp118_wpr2_preserve() {
                             }
                         }
                     }
-
-                    eprintln!(
-                        "  WPR2 capture: {} words ({} KiB), read_ok={read_ok}",
-                        wpr2_data.len(),
-                        wpr2_data.len() * 4 / 1024
-                    );
-
-                    // Display first 64 bytes of WPR2 content
-                    eprintln!("\n  WPR2 first 64 bytes:");
-                    for row in 0..4u32 {
-                        let mut hex = String::new();
-                        for col in 0..4u32 {
-                            let idx = (row * 4 + col) as usize;
-                            if idx < wpr2_data.len() {
-                                hex.push_str(&format!("{:08x} ", wpr2_data[idx]));
-                            }
-                        }
-                        eprintln!("    {:#010x}: {hex}", wpr2_start + (row as u64) * 16);
-                    }
-
-                    // WPR header analysis
-                    eprintln!("\n  WPR2 header analysis:");
-                    for i in 0..11u32 {
-                        let base = (i * 6) as usize; // 24 bytes = 6 u32s per header
-                        if base + 5 >= wpr2_data.len() {
-                            break;
-                        }
-                        let falcon_id = wpr2_data[base];
-                        if falcon_id == 0xFFFF_FFFF {
-                            break;
-                        }
-                        let lsb_off = wpr2_data[base + 1];
-                        let status = wpr2_data[base + 5];
-                        let fname = match falcon_id {
-                            0 => "PMU",
-                            2 => "FECS",
-                            3 => "GPCCS",
-                            7 => "SEC2",
-                            _ => "???",
-                        };
-                        let sname = match status {
-                            0 => "NONE",
-                            1 => "COPY",
-                            4 => "VALID_DONE",
-                            5 => "VALID_SKIP",
-                            6 => "BOOT_READY",
-                            _ => "?",
-                        };
-                        eprintln!(
-                            "    [{i}] falcon={falcon_id}({fname}) lsb={lsb_off:#x} status={status}({sname})"
-                        );
-                    }
-
-                    // Count non-zero words
-                    let nz = wpr2_data.iter().filter(|&&v| v != 0).count();
-                    eprintln!(
-                        "\n  Non-zero words: {nz}/{} ({:.1}%)",
-                        wpr2_data.len(),
-                        nz as f64 / wpr2_data.len() as f64 * 100.0
-                    );
-
+                    analyze_wpr2(&wpr2_data, read_ok);
                     drop(sbar0);
                 }
-                Err(e) => eprintln!("  BAR0 sysfs failed: {e}"),
+                _ => eprintln!("  No VRAM access path available"),
             }
 
             // Swap back to vfio
