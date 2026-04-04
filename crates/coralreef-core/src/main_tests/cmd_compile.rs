@@ -28,15 +28,14 @@ fn cmd_compile_config_error_nonexistent_file() {
 
 #[test]
 fn cmd_compile_write_failure_output_is_directory() {
-    let tmp = std::env::temp_dir().join("coralreef_test_compile_input.wgsl");
-    std::fs::write(&tmp, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
-    let out_dir = std::env::temp_dir().join("coralreef_test_output_dir");
-    let _ = std::fs::create_dir_all(&out_dir);
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("input.wgsl");
+    std::fs::write(&input, "@compute @workgroup_size(1)\nfn main() {}").unwrap();
+    let out_dir = dir.path().join("output_dir");
+    std::fs::create_dir_all(&out_dir).unwrap();
 
-    let result = cmd_compile(&tmp, Some(out_dir.as_path()), GpuArch::Sm70, 2, true);
+    let result = cmd_compile(&input, Some(out_dir.as_path()), GpuArch::Sm70, 2, true);
 
-    let _ = std::fs::remove_file(&tmp);
-    let _ = std::fs::remove_dir(&out_dir);
     assert!(
         matches!(result, UniBinExit::GeneralError),
         "writing to directory path should fail with GeneralError"

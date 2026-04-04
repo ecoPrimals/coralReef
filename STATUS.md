@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: March 30, 2026  
-**Phase**: 10 — Iteration 70c (Deep Evolution — Typed Errors, Observer Split, Tracing)
+**Last updated**: April 4, 2026  
+**Phase**: 10 — Iteration 73 (Logic/IO Untangling + Test Consolidation)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
-| Tests | A+ | 3258+ passing, 2 pre-existing upstream failures, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 4318 passing, 0 failed, ~153 ignored hardware-gated, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
@@ -41,7 +41,21 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 65** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 73** |
+
+### Iteration 73: Logic/IO Untangling + Test Consolidation (Apr 4, 2026)
+
+**Theme**: Separate pure planning/decoding from hardware I/O in coral-driver; consolidate oversized test modules; improve test isolation across crates.
+
+| Area | Change |
+|------|--------|
+| Architecture | Plan for untangling logic from I/O (5 entanglement patterns, 3 separation strategies) |
+| coral-driver (pure) | `AcrBufferLayout` + `Sec2PollState` (`acr_buffer_layout.rs`); `sysmem_decode.rs` (WPR status, ACR success); `sysmem_vram.rs`; `init_plan.rs` (`DynamicGrInitPlan`, `WarmRestartDecision`, `fecs_init_methods`); `channel_layout.rs` (`ChannelLayout::compute`); `pci_config.rs`; sec2_hal tests extracted |
+| Test consolidation | `opt_copy_prop/tests.rs` → `opt_copy_prop/tests/` (mod + part_a + part_b); `spill_values/tests.rs` → `spill_values/tests/` (mod + cases_a + cases_b + fixtures); `codegen_coverage_saturation` split into 3 parts + helpers |
+| coral-glowplug | Boot safety evaluation, health decisions, config classification extracted |
+| coral-ember | Startup decomposition, reset plan, lifecycle steps |
+| coralreef-core | `cmd_compile` tests use `tempfile::tempdir` instead of fixed `/tmp` paths |
+| Metrics | 4318 tests passing, 0 failed, 153 ignored (hardware-gated); 0 clippy warnings (pedantic + nursery); 0 files >1000 LOC; ~72,000 Rust LOC |
 
 ### Iteration 70c: Deep Evolution (Mar 30, 2026)
 

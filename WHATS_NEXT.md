@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 72.
+**Current position**: Phase 10 — Iteration 73.
 
-**Last completed**: GPU-agnostic auto-detection (any NVIDIA SM35–SM120 + any AMD GCN5–RDNA4), Ada Lovelace PCI identity fix (RTX 4070 0x2786 → SM89), AMD arch auto-detect from sysfs, nvidia-drm fallback uses sysfs SM instead of hardcoded Sm86, GPU-agnostic test infrastructure, `local_gpu_discovery` tests.
+**Last completed**: Logic/IO untangling plan; pure extractions across coral-driver (`acr_buffer_layout`, `sysmem_decode`, `sysmem_vram`, `init_plan`, `channel_layout`, `pci_config`); test consolidation (`opt_copy_prop/tests/`, `spill_values/tests/`, codegen coverage saturation split); `cmd_compile` tempfile isolation; coral-glowplug boot safety / health / config extraction; coral-ember startup, reset plan, lifecycle steps. Prior: Iter 72 GPU-agnostic detection + Ada PCI fix; Iter 71 MmioRegion/MockBar0.
 
-**Tests**: 4269 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4318 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation.
 
-**Last updated**: April 4, 2026 (Phase 10 — Iteration 72 — GPU-Agnostic Evolution. Auto-detection works with any NVIDIA or AMD GPU. RTX 4070 confirmed SM89. `sm_to_nvarch` covers Maxwell–Blackwell. AMD auto-detect from sysfs PCI identity. Test infrastructure discovers local GPU and adapts.)
+**Last updated**: April 4, 2026 (Phase 10 — Iteration 73 — Logic/IO Untangling + Test Consolidation. Architectural separation patterns documented; driver-side pure modules and split test modules keep suites under 1000 LOC per file.)
 
 ---
 
@@ -30,7 +30,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `codegen_coverage_saturation.rs` (982), `spill_values/tests.rs` (979), `opt_copy_prop/tests.rs` (973), `sysmem_impl.rs` (973), `uvm_compute.rs` (969), `pci_discovery.rs` (966).
+**Approaching 1000 (monitor):** `sysmem_impl.rs`, `uvm_compute.rs`, `pci_discovery.rs` and similar — `codegen_coverage_saturation`, `opt_copy_prop/tests`, and `spill_values/tests` were split in Iter 73 into submodules/parts under 1000 LOC each.
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
@@ -63,7 +63,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 5. **Any-GPU hardware CI** — RTX 4070 confirmed working (SM89 auto-detected); tests no longer Titan V-specific
 6. **Remaining**: `VfioHardware`/`PciSysfs` traits for VFIO ioctl and sysfs path mocking
 
-### Coverage (Iter 72 — per-crate line coverage)
+### Coverage (Iter 73 — per-crate line coverage; same measurement as Iter 72 unless re-run)
 
 | Crate | Lines | Missed | Coverage |
 |-------|-------|--------|----------|
@@ -160,6 +160,15 @@ Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now
 ---
 
 ## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 60)
+
+### Iteration 73 — Logic/IO Untangling + Test Consolidation
+- [x] **Architectural plan**: Five entanglement patterns, three separation strategies for logic vs I/O
+- [x] **coral-driver pure modules**: `AcrBufferLayout` + `Sec2PollState`; WPR decode + ACR success in `sysmem_decode`; VRAM ops in `sysmem_vram`; `DynamicGrInitPlan`, `WarmRestartDecision`, `fecs_init_methods` in `init_plan`; `ChannelLayout::compute` in `channel_layout`; `pci_config.rs`; sec2_hal tests extracted
+- [x] **Test consolidation**: `opt_copy_prop/tests/` (mod + part_a + part_b); `spill_values/tests/` (mod + cases_a + cases_b + fixtures); codegen coverage saturation → 3 parts + helpers
+- [x] **coralreef-core**: `cmd_compile` tests use `tempfile::tempdir` (no fixed `/tmp`)
+- [x] **coral-glowplug**: Boot safety evaluation, health decisions, config classification extracted
+- [x] **coral-ember**: Startup decomposition, reset plan, lifecycle steps
+- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (4318 pass, 0 fail, 153 ignored), doc ✅
 
 ### Iteration 72 — GPU-Agnostic Evolution
 - [x] **Ada Lovelace PCI identity fix**: Device IDs 0x2600–0x28FF correctly map to SM89 (was misclassifying RTX 4070/4080/4060 as Ampere SM86)
@@ -606,7 +615,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4269 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
+4318 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.

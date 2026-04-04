@@ -21,7 +21,8 @@ WGSL (primary), SPIR-V (binary intermediate), and GLSL 450 compute
 (for absorbing existing GPU compute libraries).
 
 coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
-NVIDIA nouveau). coralGpu wraps both into a unified compile + dispatch
+NVIDIA nouveau) and VFIO (direct BAR0/MMIO and DMA for maximum sovereignty).
+coralGpu wraps both into a unified compile + dispatch
 API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 
 ## Prerequisites
@@ -34,7 +35,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 4047 passing, 0 failed (~121 ignored hardware-gated)
+cargo test --workspace     # 4318 passing, 0 failed (~153 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```

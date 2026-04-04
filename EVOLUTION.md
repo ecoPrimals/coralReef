@@ -2,7 +2,7 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: March 25, 2026 (Phase 10 — Iteration 66)
+**Last updated**: April 4, 2026 (Phase 10 — Iteration 73)
 **Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity & hotSpring Wiring
 
 ---
@@ -10,8 +10,8 @@
 ## Current Position
 
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
-(SM70–SM89) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
-4047 tests (121 ignored), ~66% line coverage (8 crates above 90%),
+(SM35–SM120, including Blackwell) and AMD (RDNA2 GFX1030). Zero C dependencies, zero FFI.
+4318 tests (153 ignored), ~64% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -462,7 +462,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 66: 4047 tests passing, 121 ignored. ~66% line coverage (8 crates above 90%).
+Iteration 73: 4318 tests passing, 153 ignored. ~64% line coverage (8 crates above 90%).
 
 Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).

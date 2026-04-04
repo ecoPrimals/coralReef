@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated April 4, Iter 72)  
+**Generated:** March 10, 2026 (metrics updated April 4, Iter 73)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,9 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 72):** 4269 tests passing with 0 failures, ~153 ignored (hardware-gated + diagnostic + VFIO HW). GPU-agnostic auto-detection confirmed (RTX 4070 SM89). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 73):** 4318 tests passing with 0 failures, ~153 ignored (hardware-gated + diagnostic + VFIO HW). GPU-agnostic auto-detection confirmed (RTX 4070 SM89). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+
+**Iteration 73 note:** Pure logic extractions in coral-driver (`acr_buffer_layout`, `sysmem_decode`, `sysmem_vram`, `init_plan`, `channel_layout`, `pci_config`) and test-module splits (`opt_copy_prop/tests/`, `spill_values/tests/`, codegen coverage saturation parts) keep I/O boundaries explicit without changing behavior.
 
 ---
 
@@ -217,9 +219,9 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 72) |
+| Metric | Value (as of Iter 73) |
 |--------|-------|
-| Tests passing | 4269 passing, 0 failures workspace-wide |
+| Tests passing | 4318 passing, 0 failures workspace-wide |
 | Ignored tests | ~153 (hardware-gated) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |

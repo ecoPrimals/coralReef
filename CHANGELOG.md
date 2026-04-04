@@ -4,11 +4,38 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 70c
+**Current status**: Phase 10 — Iteration 73
 
 ---
 
 ## [Unreleased]
+
+### Iteration 73 — Logic/IO Untangling + Test Consolidation (2026-04-04)
+
+#### Added
+- Architectural plan for separating logic from I/O (5 entanglement patterns, 3 strategies)
+- Pure modules in coral-driver: `acr_buffer_layout` (`AcrBufferLayout`, `Sec2PollState`), `sysmem_decode`, `sysmem_vram`, `init_plan` (`DynamicGrInitPlan`, `WarmRestartDecision`, `fecs_init_methods`), `channel_layout` (`ChannelLayout::compute`), `pci_config`; sec2_hal tests extracted
+- Split test directories: `opt_copy_prop/tests/`, `spill_values/tests/`; `codegen_coverage_saturation` tests in 3 parts + helpers
+
+#### Changed
+- coral-glowplug: boot safety evaluation, health decisions, config classification extracted
+- coral-ember: startup decomposition, reset plan, lifecycle steps
+- coralreef-core: `cmd_compile` tests isolated with `tempfile::tempdir` (no fixed `/tmp` paths)
+
+#### Metrics
+- 4318 tests passing, 0 failed, 153 ignored (hardware-gated); clippy 0 warnings (pedantic + nursery); 0 files >1000 LOC; ~72,000 Rust LOC
+
+### Iteration 72 — GPU-Agnostic Detection + Ada PCI Fix (2026-04-04)
+
+#### Changed
+- GPU-agnostic auto-detection (NVIDIA SM35–SM120, AMD GCN5–RDNA4); Ada Lovelace PCI identity range fix (e.g. RTX 4070 → SM89)
+- nvidia-drm fallback uses sysfs SM detection; VFIO SM detection extended for Ada range
+
+### Iteration 71 — MmioRegion, MockBar0, Sovereign Frontend (2026-03)
+
+#### Added
+- `MmioRegion` RAII for bounds-checked BAR0 volatile access; `MockBar0` and `NvidiaFirmwareSource` for hardware-free tests
+- Workspace dependency centralization; CUDA opt-in on coral-glowplug; coverage infrastructure expansion
 
 ### Iteration 70c — Deep Evolution (2026-03-30)
 
