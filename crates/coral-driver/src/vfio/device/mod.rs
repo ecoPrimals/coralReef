@@ -5,7 +5,7 @@
 //! container → group → device fd → BAR mmap. DMA buffers are allocated
 //! separately via [`super::DmaBuffer`].
 
-use crate::error::{DriverError, DriverResult};
+use crate::error::DriverError;
 use std::borrow::Cow;
 use std::ffi::CStr;
 use std::fs::OpenOptions;
@@ -19,7 +19,7 @@ use super::types::{
     VfioGroupStatus, VfioRegionInfo,
 };
 use crate::gsp::{ApplyError, RegisterAccess};
-use crate::mmio_region::MmioRegion;
+use crate::mmio::VolatilePtr;
 
 /// A mapped BAR region from a VFIO device.
 ///
@@ -33,7 +33,8 @@ use crate::mmio_region::MmioRegion;
 /// therefore `Send` + `Sync` for the same reasons as other mmap-backed BAR
 /// wrappers in this crate.
 pub struct MappedBar {
-    region: MmioRegion,
+    base_ptr: *mut u8,
+    size: usize,
 }
 
 impl MappedBar {
@@ -42,13 +43,26 @@ impl MappedBar {
     /// # Errors
     ///
     /// Returns error if offset is out of range or not 4-byte aligned.
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
+    )]
     pub fn read_u32(&self, offset: usize) -> Result<u32, DriverError> {
         if !offset.is_multiple_of(4) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} is not 4-byte aligned"
             ))));
         }
-        self.region.read_u32(offset)
+        if offset + 4 > self.size {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "BAR offset {offset:#x} out of range (size {:#x})",
+                self.size
+            ))));
+        }
+        // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
+        // bounds checked above; volatile for MMIO.
+        let vol = unsafe { VolatilePtr::new(self.base_ptr.add(offset).cast::<u32>()) };
+        Ok(vol.read())
     }
 
     /// Write a 32-bit register at the given byte offset.
@@ -56,29 +70,80 @@ impl MappedBar {
     /// # Errors
     ///
     /// Returns error if offset is out of range or not 4-byte aligned.
+    #[expect(
+        clippy::cast_ptr_alignment,
+        reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
+    )]
     pub fn write_u32(&self, offset: usize, value: u32) -> Result<(), DriverError> {
         if !offset.is_multiple_of(4) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} is not 4-byte aligned"
             ))));
         }
-        self.region.write_u32(offset, value)
+        if offset + 4 > self.size {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "BAR offset {offset:#x} out of range (size {:#x})",
+                self.size
+            ))));
+        }
+        // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
+        // bounds checked above; volatile for MMIO.
+        let vol = unsafe { VolatilePtr::new(self.base_ptr.add(offset).cast::<u32>()) };
+        vol.write(value);
+        Ok(())
     }
 
     /// Size of this BAR region in bytes.
     #[must_use]
     pub const fn size(&self) -> usize {
-        self.region.len()
+        self.size
     }
 
-    /// Apply a GR init sequence's BAR0 writes.
+    /// Check whether BAR0 is responsive by reading BOOT0 (offset 0x0).
     ///
-    /// Implements the `RegisterAccess` trait bridge so the GSP applicator
-    /// can write directly through the VFIO-mapped BAR0.
+    /// Returns `false` if BOOT0 reads as 0xFFFFFFFF (PCIe bus error — GPU
+    /// completely unresponsive) or if the read itself fails. This is the
+    /// cheapest possible liveness check.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        self.read_u32(0).is_ok_and(|v| v != 0xFFFF_FFFF)
+    }
+
+    /// Check PRI ring health by reading PRI_RING_INTR (0x120100).
+    ///
+    /// Returns `Ok(intr_val)` if readable. Returns `Err` if the read itself
+    /// returns a PRI fault pattern (0xbadfXXXX) or 0xFFFFFFFF, indicating the
+    /// PRI ring is corrupt or BAR0 is dead.
+    pub fn pri_ring_check(&self) -> Result<u32, DriverError> {
+        let val = self.read_u32(0x12_0100)?;
+        if val == 0xFFFF_FFFF || (val & 0xFFFF_0000 == 0xBADF_0000) {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "PRI ring dead: 0x120100={val:#010x}"
+            ))));
+        }
+        Ok(val)
+    }
+
+    /// Apply a GR init sequence's BAR0 writes with periodic health checks.
+    ///
+    /// Every `CHECK_INTERVAL` writes, reads BOOT0 to verify the GPU is still
+    /// responsive. If BOOT0 returns 0xFFFFFFFF, aborts immediately — continuing
+    /// would cascade PRI faults and risk host D-state on VFIO fd close.
     pub fn apply_gr_bar0_writes(&self, writes: &[(u32, u32)]) -> (usize, usize) {
+        const CHECK_INTERVAL: usize = 64;
+
         let mut applied = 0;
         let mut failed = 0;
-        for &(offset, value) in writes {
+        for (i, &(offset, value)) in writes.iter().enumerate() {
+            if i > 0 && i % CHECK_INTERVAL == 0 && !self.is_alive() {
+                tracing::error!(
+                    applied,
+                    remaining = writes.len() - i,
+                    "BAR0 health check failed mid-write — aborting to prevent cascade"
+                );
+                failed += writes.len() - i;
+                return (applied, failed);
+            }
             if self.write_u32(offset as usize, value).is_ok() {
                 applied += 1;
             } else {
@@ -91,7 +156,7 @@ impl MappedBar {
     /// Raw pointer to the BAR base (for callers that need ptr arithmetic).
     #[must_use]
     pub const fn base_ptr(&self) -> *mut u8 {
-        self.region.as_ptr()
+        self.base_ptr
     }
 }
 
@@ -112,14 +177,25 @@ impl RegisterAccess for MappedBar {
     }
 }
 
+impl Drop for MappedBar {
+    fn drop(&mut self) {
+        // SAFETY: base_ptr from mmap; size unchanged since mapping.
+        unsafe {
+            let _ = rustix::mm::munmap(self.base_ptr.cast(), self.size);
+        }
+    }
+}
+
 // SAFETY: Matches the `Send` / `Sync` rationale in the [`MappedBar`] docs.
 unsafe impl Send for MappedBar {}
 
 // SAFETY: Matches the `Send` / `Sync` rationale in the [`MappedBar`] docs.
 unsafe impl Sync for MappedBar {}
 
+pub mod aer;
 mod bus_master;
 mod dma;
+pub mod dma_safety;
 use dma::VfioBackend;
 pub use dma::{DmaBackend, ReceivedVfioFds, VfioBackendKind};
 
@@ -250,7 +326,10 @@ impl VfioDevice {
             },
         };
 
-        dev.enable_bus_master()?;
+        // Bus master is NOT enabled here — callers opt-in explicitly via
+        // enable_bus_master() after they have confirmed the GPU's DMA state
+        // is safe.  After driver→vfio swaps, stale DMA engines can fire
+        // requests to invalid IOMMU mappings if bus master is set too early.
 
         Ok(dev)
     }
@@ -336,7 +415,7 @@ impl VfioDevice {
             },
         };
 
-        dev.enable_bus_master()?;
+        // Bus master is NOT enabled here — see open_iommufd comment.
 
         Ok(dev)
     }
@@ -406,10 +485,10 @@ impl VfioDevice {
             "VFIO BAR mapped"
         );
 
-        // SAFETY: `base_ptr`/`region_size` come from the successful `mmap` above.
-        let region = unsafe { MmioRegion::new(base_ptr, region_size) };
-
-        Ok(MappedBar { region })
+        Ok(MappedBar {
+            base_ptr,
+            size: region_size,
+        })
     }
 
     /// Reset the device via VFIO (FLR).
@@ -613,15 +692,16 @@ impl VfioDevice {
     ///
     /// Prefer [`sendable_fds`](Self::sendable_fds) for backend-agnostic fd passing.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no legacy container fd).
-    pub fn container_fd(&self) -> DriverResult<RawFd> {
+    /// Panics if called on an iommufd-backed device.
+    #[must_use]
+    pub fn container_fd(&self) -> RawFd {
         match &self.backend {
-            VfioBackend::LegacyGroup { container, .. } => Ok(container.as_raw_fd()),
-            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
-                "container_fd() not available on iommufd backend".into(),
-            )),
+            VfioBackend::LegacyGroup { container, .. } => container.as_raw_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("container_fd() not available on iommufd backend")
+            }
         }
     }
 
@@ -629,15 +709,16 @@ impl VfioDevice {
     ///
     /// Prefer [`sendable_fds`](Self::sendable_fds) for backend-agnostic fd passing.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no legacy container fd).
-    pub fn container_as_fd(&self) -> DriverResult<BorrowedFd<'_>> {
+    /// Panics if called on an iommufd-backed device.
+    #[must_use]
+    pub fn container_as_fd(&self) -> BorrowedFd<'_> {
         match &self.backend {
-            VfioBackend::LegacyGroup { container, .. } => Ok(container.as_fd()),
-            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
-                "container_as_fd() not available on iommufd backend".into(),
-            )),
+            VfioBackend::LegacyGroup { container, .. } => container.as_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("container_as_fd() not available on iommufd backend")
+            }
         }
     }
 
@@ -679,29 +760,31 @@ impl VfioDevice {
 
     /// Raw fd of the VFIO group (legacy path only, for ember `SCM_RIGHTS`).
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no VFIO group fd).
-    pub fn group_fd(&self) -> DriverResult<RawFd> {
+    /// Panics if called on an iommufd-backed device.
+    #[must_use]
+    pub fn group_fd(&self) -> RawFd {
         match &self.backend {
-            VfioBackend::LegacyGroup { group, .. } => Ok(group.as_raw_fd()),
-            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
-                "group_fd() not available on iommufd backend".into(),
-            )),
+            VfioBackend::LegacyGroup { group, .. } => group.as_raw_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("group_fd() not available on iommufd backend")
+            }
         }
     }
 
     /// Borrowed handle to the VFIO group fd (legacy path only).
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no VFIO group fd).
-    pub fn group_as_fd(&self) -> DriverResult<BorrowedFd<'_>> {
+    /// Panics if called on an iommufd-backed device.
+    #[must_use]
+    pub fn group_as_fd(&self) -> BorrowedFd<'_> {
         match &self.backend {
-            VfioBackend::LegacyGroup { group, .. } => Ok(group.as_fd()),
-            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
-                "group_as_fd() not available on iommufd backend".into(),
-            )),
+            VfioBackend::LegacyGroup { group, .. } => group.as_fd(),
+            VfioBackend::Iommufd { .. } => {
+                panic!("group_as_fd() not available on iommufd backend")
+            }
         }
     }
 
@@ -770,7 +853,7 @@ impl VfioDevice {
             backend,
         };
 
-        dev.enable_bus_master()?;
+        // Bus master is NOT enabled here — see open_iommufd comment.
 
         Ok(dev)
     }

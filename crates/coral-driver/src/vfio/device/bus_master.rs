@@ -12,6 +12,57 @@ use crate::error::DriverError;
 use super::VfioDevice;
 
 impl VfioDevice {
+    /// Disable PCI Bus Master — prevent the GPU from initiating DMA.
+    ///
+    /// After a driver swap (e.g. nouveau → vfio), the GPU's DMA engines
+    /// may be in stale states. With bus mastering enabled, those engines can
+    /// fire DMA requests to invalid IOMMU mappings, causing IOMMU faults that
+    /// cascade through PCIe AER to hard-lock the system.
+    ///
+    /// Call this immediately after opening a post-swap VFIO device, then
+    /// re-enable with [`enable_bus_master`] only when the GPU's DMA engines
+    /// have been explicitly set up (e.g. after SEC2 falcon binding).
+    pub fn disable_bus_master(&self) -> Result<(), DriverError> {
+        const VFIO_PCI_CONFIG_REGION_INDEX: u32 = 7;
+        const PCI_COMMAND: u64 = 0x04;
+        const PCI_COMMAND_BUS_MASTER: u16 = 0x0004;
+
+        let mut region_info = VfioRegionInfo {
+            argsz: std::mem::size_of::<VfioRegionInfo>() as u32,
+            index: VFIO_PCI_CONFIG_REGION_INDEX,
+            ..Default::default()
+        };
+        ioctl::device_get_region_info(self.device.as_fd(), &mut region_info)?;
+        let config_offset = region_info.offset;
+
+        let mut cmd_buf = [0u8; 2];
+        let n = rustix::io::pread(
+            self.device.as_fd(),
+            &mut cmd_buf,
+            config_offset + PCI_COMMAND,
+        )
+        .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCI config read: {e}"))))?;
+        if n != 2 {
+            return Err(DriverError::SubmitFailed("PCI config read short".into()));
+        }
+        let cmd = u16::from_le_bytes(cmd_buf);
+        let new_cmd = cmd & !PCI_COMMAND_BUS_MASTER;
+        let new_buf = new_cmd.to_le_bytes();
+        let n = rustix::io::pwrite(self.device.as_fd(), &new_buf, config_offset + PCI_COMMAND)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCI config write: {e}"))))?;
+        if n != 2 {
+            return Err(DriverError::SubmitFailed("PCI config write short".into()));
+        }
+
+        tracing::info!(
+            pci_command_before = format_args!("{cmd:#06x}"),
+            pci_command_after = format_args!("{new_cmd:#06x}"),
+            "PCI Bus Master DISABLED — GPU DMA suppressed"
+        );
+
+        Ok(())
+    }
+
     /// Enable PCI Bus Master and transition to D0 power state.
     ///
     /// After VFIO FLR the GPU's bus master bit is cleared and the device
@@ -21,7 +72,7 @@ impl VfioDevice {
     ///
     /// PCI config space is accessed via pread/pwrite on the VFIO device fd
     /// at region index 7 (VFIO_PCI_CONFIG_REGION_INDEX).
-    pub(super) fn enable_bus_master(&self) -> Result<(), DriverError> {
+    pub fn enable_bus_master(&self) -> Result<(), DriverError> {
         const VFIO_PCI_CONFIG_REGION_INDEX: u32 = 7;
         const PCI_COMMAND: u64 = 0x04;
         const PCI_COMMAND_BUS_MASTER: u16 = 0x0004;

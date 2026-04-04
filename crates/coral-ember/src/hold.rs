@@ -20,6 +20,15 @@ pub struct HeldDevice {
     /// chance to close the VFIO fd before the unbind blocks in D-state.
     /// The [`super::spawn_req_watcher`] thread monitors all active eventfds.
     pub(crate) req_eventfd: Option<std::os::fd::OwnedFd>,
+    /// Set `true` when BAR0 registers have been written via `coralctl mmio write`
+    /// or any experiment path. A dirty device may be in an inconsistent state
+    /// that causes D-state during driver swaps. The pre-unbind safety layer
+    /// (Exp 138) uses this to apply extra caution (PRAMIN restore, BAR0 health
+    /// check) before releasing VFIO fds.
+    pub experiment_dirty: bool,
+    /// Saved DMA prepare state from `ember.prepare_dma` — holds AER mask state
+    /// needed by `ember.cleanup_dma` to restore masks after an experiment.
+    pub dma_prepare_state: Option<coral_driver::vfio::device::dma_safety::DmaPrepareState>,
 }
 
 impl HeldDevice {
@@ -33,6 +42,8 @@ impl HeldDevice {
             device,
             ring_meta: RingMeta::default(),
             req_eventfd: None,
+            experiment_dirty: false,
+            dma_prepare_state: None,
         }
     }
 }

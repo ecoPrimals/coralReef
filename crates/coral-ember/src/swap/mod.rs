@@ -235,10 +235,17 @@ pub fn handle_swap_device_with_journal(
     let personality = bind_result?;
     let bind_ms = bind_start.elapsed().as_millis() as u64;
 
-    // --- Phase 4: Stabilize (already done inside bind_vfio/bind_native, measure residual) ---
+    // --- Phase 4: Stabilize + post-swap cleanup ---
     let stabilize_start = Instant::now();
-    // bind_vfio and bind_native already call stabilize_after_bind + verify_health,
-    // so this phase captures any additional overhead.
+
+    // After driver→vfio swaps, unload the previous driver module to remove
+    // stale timers, workqueues, and IRQ handlers that can fire GPU accesses.
+    if matches!(target, "vfio" | "vfio-pci") {
+        if let Some(ref from) = from_personality {
+            try_rmmod_stale_driver(from);
+        }
+    }
+
     let stabilize_ms = stabilize_start.elapsed().as_millis() as u64;
 
     let total_ms = swap_start.elapsed().as_millis() as u64;
@@ -272,6 +279,49 @@ pub fn handle_swap_device_with_journal(
     );
 
     Ok(obs)
+}
+
+/// Best-effort `rmmod` of the previous driver module after a swap to vfio.
+///
+/// After nouveau→vfio (or nvidia→vfio), the old kernel module may still be
+/// loaded with stale state, timers, and workqueues.  Unloading it removes
+/// any background activity that could fire GPU accesses to a device that is
+/// now under VFIO control.  Non-fatal: if other devices still use the module,
+/// rmmod will fail with EBUSY and we just log a warning.
+fn try_rmmod_stale_driver(from_driver: &str) {
+    let modules: &[&str] = match from_driver {
+        "nouveau" => &["nouveau"],
+        "nvidia" | "nvidia-open" => &[
+            "nvidia_uvm",
+            "nvidia_drm",
+            "nvidia_modeset",
+            "nvidia",
+        ],
+        _ => return,
+    };
+
+    for module in modules {
+        let sysfs_mod = format!("/sys/module/{}", module.replace('-', "_"));
+        if !std::path::Path::new(&sysfs_mod).exists() {
+            continue;
+        }
+        match std::process::Command::new("rmmod").arg(module).output() {
+            Ok(out) if out.status.success() => {
+                tracing::info!(module, "post-swap rmmod succeeded — stale module unloaded");
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::debug!(
+                    module,
+                    %stderr,
+                    "post-swap rmmod failed (module may be in use by other devices)"
+                );
+            }
+            Err(e) => {
+                tracing::debug!(module, error = %e, "rmmod not available");
+            }
+        }
+    }
 }
 
 #[cfg(test)]

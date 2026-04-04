@@ -25,6 +25,14 @@ impl VfioHolder {
     pub(crate) fn reset(&self) -> Result<(), coral_driver::error::DriverError> {
         self.device.reset()
     }
+
+    /// Disable PCI Bus Master — suppress GPU-initiated DMA.
+    ///
+    /// After nouveau→vfio swaps, stale DMA engines can fire requests to
+    /// invalid IOMMU mappings, causing AER cascades that hard-lock the system.
+    pub(crate) fn disable_bus_master(&self) -> Result<(), coral_driver::error::DriverError> {
+        self.device.disable_bus_master()
+    }
 }
 
 /// Comprehensive BAR0 register offsets for NVIDIA GV100 (Titan V / V100).
@@ -78,6 +86,21 @@ pub(crate) const fn is_faulted_read(val: u32) -> bool {
         || (val >> 16) as u16 == PCI_FAULT_BADF
         || (val >> 16) as u16 == PCI_FAULT_BAD0
         || (val >> 16) as u16 == PCI_FAULT_BAD1
+}
+
+/// Graduated health probing phase after a driver swap.
+///
+/// GPU hardware needs time to settle after driver transitions. Probing
+/// too many registers too early can hit powered-down engines and trigger
+/// PCIe completion timeouts that cascade to system lockups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthPhase {
+    /// 0-30s post-swap: only BOOT0 + PMC_ENABLE (always safe).
+    Minimal,
+    /// 30-120s: add PTIMER and PRI_RING_STATUS.
+    Intermediate,
+    /// 120s+ or no recent swap: full domain probe.
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

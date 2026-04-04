@@ -216,6 +216,7 @@ fn exp118_wpr2_preserve() {
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
     let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    vfio_dev.enable_bus_master().expect("enable bus_master");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── A4: Post-swap state (NO RESET) ──");
@@ -363,6 +364,7 @@ fn exp118_wpr2_preserve() {
                 Ok(fds) => {
                     match coral_driver::vfio::VfioDevice::from_received(&bdf, fds) {
                         Ok(vfio_dev) => {
+                            let _ = vfio_dev.enable_bus_master();
                             match vfio_dev.map_bar(0) {
                                 Ok(bar0) => {
                                     let (ws, we, wv) = read_wpr2(&bar0);
@@ -429,6 +431,7 @@ fn exp118_wpr2_preserve() {
                     if let Ok(fds) = ember_client::request_fds(&bdf)
                         && let Ok(vfio_dev) =
                             coral_driver::vfio::VfioDevice::from_received(&bdf, fds)
+                        && vfio_dev.enable_bus_master().is_ok()
                         && let Ok(bar0) = vfio_dev.map_bar(0)
                     {
                         let (ws, we, wv) = read_wpr2(&bar0);

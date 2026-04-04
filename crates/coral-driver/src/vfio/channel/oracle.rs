@@ -120,7 +120,8 @@ fn is_dangerous_register(off: usize) -> bool {
         0x10A040..=0x10A048 |  // PMU mailboxes (dynamic)
         0x10A100             | // PMU CPUCTL
         0x10A10C             | // PMU CPUCTL_ALIAS
-        0x10A104..=0x10A108    // PMU FALCON IMEM/DMEM triggers
+        0x10A104..=0x10A108  | // PMU FALCON IMEM/DMEM triggers
+        0x120058               // PRI_RING_INTR_STATUS — blocks CPU forever post-nouveau
     )
 }
 

@@ -85,4 +85,10 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     fn available_reset_methods(&self) -> Vec<ResetMethod> {
         vec![ResetMethod::VfioFlr, ResetMethod::SysfsSbr]
     }
+
+    /// Whether this GPU family is sensitive to cold boot (no VBIOS POST).
+    /// When true, the startup sequence should be more cautious with resets.
+    fn is_cold_sensitive(&self) -> bool {
+        false
+    }
 }

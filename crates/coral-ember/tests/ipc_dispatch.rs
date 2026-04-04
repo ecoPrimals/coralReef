@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use coral_ember::{
-    HeldDevice, JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds,
+    HeldDevice, JsonRpcError, JsonRpcRequest, JsonRpcResponse, PolicyStore, handle_client,
+    new_policy_store, send_with_fds,
 };
 
 static IPC_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -23,6 +24,10 @@ fn empty_held() -> Arc<RwLock<HashMap<String, HeldDevice>>> {
 
 fn managed(bdfs: &[&str]) -> HashSet<String> {
     bdfs.iter().map(|s| (*s).to_string()).collect()
+}
+
+fn policies() -> PolicyStore {
+    new_policy_store()
 }
 
 fn drain_json_line(stream: &mut UnixStream) -> serde_json::Value {
@@ -46,7 +51,7 @@ fn dispatch_invalid_json_parse_error() {
     client.write_all(b"not json\n").expect("write");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32700);
 }
@@ -60,7 +65,7 @@ fn dispatch_wrong_jsonrpc_version() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32600);
 }
@@ -74,7 +79,7 @@ fn dispatch_ember_list_empty() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["devices"], serde_json::json!([]));
 }
@@ -89,7 +94,7 @@ fn dispatch_ember_status_uptime() {
     let started = Instant::now() - Duration::from_secs(10);
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, started, None).expect("handler");
+    handle_client(&mut server, &held, &m, started, None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     let uptime = v["result"]["uptime_secs"].as_u64().expect("uptime");
     assert!(uptime >= 10);
@@ -106,7 +111,7 @@ fn dispatch_unknown_method() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32601);
 }
@@ -121,7 +126,7 @@ fn dispatch_ember_vfio_fds_missing_device() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
 }
@@ -135,8 +140,8 @@ fn dispatch_ember_release_missing_bdf_errors() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
-    assert!(err.to_string().contains("bdf"));
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
+    assert!(err.contains("bdf"));
 }
 
 #[test]
@@ -149,7 +154,7 @@ fn dispatch_ember_release_not_held() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
 }
@@ -164,7 +169,7 @@ fn dispatch_ember_reacquire_open_failure() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
     let msg = v["error"]["message"].as_str().expect("msg");
@@ -181,8 +186,8 @@ fn dispatch_ember_swap_missing_target() {
     let held = empty_held();
     let m = managed(&[]);
     let err =
-        handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing target");
-    assert!(err.to_string().contains("target"));
+        handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing target");
+    assert!(err.contains("target"));
 }
 
 #[test]
@@ -194,7 +199,7 @@ fn dispatch_ember_swap_unknown_target() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
     let msg = v["error"]["message"].as_str().expect("msg");
@@ -213,8 +218,8 @@ fn dispatch_ember_vfio_fds_missing_bdf_param() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
-    assert!(err.to_string().contains("bdf"));
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
+    assert!(err.contains("bdf"));
 }
 
 #[test]
@@ -226,8 +231,8 @@ fn dispatch_ember_reacquire_missing_bdf_param() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
-    assert!(err.to_string().contains("bdf"));
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
+    assert!(err.contains("bdf"));
 }
 
 #[test]
@@ -239,8 +244,8 @@ fn dispatch_ember_swap_missing_bdf_param() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None).expect_err("missing bdf");
-    assert!(err.to_string().contains("bdf"));
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
+    assert!(err.contains("bdf"));
 }
 
 #[test]
@@ -294,7 +299,7 @@ fn dispatch_ember_vfio_fds_with_hardware() {
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
 }
 
 #[test]
@@ -316,7 +321,7 @@ fn dispatch_ember_release_success_when_held() {
     );
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["bdf"].as_str().expect("bdf"), bdf.as_str());
     assert!(held.read().unwrap().is_empty());
@@ -341,7 +346,7 @@ fn dispatch_ember_reacquire_skips_open_when_already_held() {
     );
     client.write_all(req.as_bytes()).expect("write");
     client.write_all(b"\n").expect("newline");
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handler");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["bdf"].as_str().expect("bdf"), bdf.as_str());
     assert_eq!(held.read().unwrap().len(), 1);

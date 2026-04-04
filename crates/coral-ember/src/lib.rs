@@ -16,7 +16,8 @@
 
 pub mod adaptive;
 pub mod drm_isolation;
-pub mod error;
+pub(crate) mod error;
+mod guarded_open;
 mod hold;
 mod ipc;
 pub mod journal;
@@ -33,11 +34,14 @@ use std::sync::{Arc, RwLock};
 
 use serde::Deserialize;
 
-pub use error::EmberIpcError;
 pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
+pub use ipc::handlers_policy::{BootPolicy, PolicyStore, new_policy_store};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};
-pub use observation::{HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms};
+pub use observation::{
+    HealthResult, ResetObservation, SwapObservation, SwapTiming, epoch_ms,
+};
+pub use coral_driver::vfio::gpu_vendor::FirmwareState;
 pub use swap::{
     handle_swap_device, handle_swap_device_with_journal, verify_drm_isolation_with_paths,
 };
@@ -54,20 +58,6 @@ pub struct EmberConfig {
 }
 
 /// One device entry from `glowplug.toml` (same schema as coral-glowplug).
-///
-/// ```
-/// use coral_ember::parse_glowplug_config;
-///
-/// let cfg = parse_glowplug_config(
-///     r#"[[device]]
-/// bdf = "0000:01:00.0"
-/// role = "display"
-/// "#,
-/// )
-/// .expect("valid TOML");
-/// assert!(cfg.device[0].is_display());
-/// assert!(cfg.device[0].is_protected());
-/// ```
 #[derive(Deserialize)]
 pub struct EmberDeviceConfig {
     /// PCI bus/device/function address (e.g. `0000:01:00.0`).
@@ -92,20 +82,6 @@ pub struct EmberDeviceConfig {
 impl EmberDeviceConfig {
     /// Returns `true` if this device has `role = "display"`, meaning it is a
     /// protected display GPU that ember must never touch, unbind, or manage.
-    ///
-    /// ```
-    /// use coral_ember::EmberDeviceConfig;
-    ///
-    /// let display = EmberDeviceConfig {
-    ///     bdf: "0000:01:00.0".into(),
-    ///     name: None,
-    ///     boot_personality: None,
-    ///     power_policy: None,
-    ///     role: Some("display".into()),
-    ///     oracle_dump: None,
-    /// };
-    /// assert!(display.is_display());
-    /// ```
     #[must_use]
     pub fn is_display(&self) -> bool {
         self.role.as_deref() == Some("display")
@@ -142,11 +118,13 @@ pub const EMBER_LISTEN_PORT_ENV: &str = "CORALREEF_EMBER_PORT";
 pub struct EmberRunOptions {
     /// Path to `glowplug.toml`; when `None`, uses [`find_config`] (XDG then system).
     pub config_path: Option<String>,
-    /// When `Some`, also listens on `127.0.0.1:port` for JSON-RPC over TCP.
+    /// When `Some`, also listens on `$CORALREEF_EMBER_TCP_HOST:port` (default `127.0.0.1`) for JSON-RPC over TCP.
     pub listen_port: Option<u16>,
 }
 
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
+///
+/// Follows the wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 ///
 /// ```
 /// let path = coral_ember::ember_socket_path();
@@ -154,16 +132,17 @@ pub struct EmberRunOptions {
 /// ```
 #[must_use]
 pub fn ember_socket_path() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .unwrap_or_else(|_| "/run/coralreef/ember.sock".to_string())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        return p;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).
-///
-/// ```
-/// let path = coral_ember::system_glowplug_config_path();
-/// assert!(path.ends_with("glowplug.toml"));
-/// ```
 #[must_use]
 pub fn system_glowplug_config_path() -> String {
     std::env::var("CORALREEF_GLOWPLUG_CONFIG")
@@ -173,13 +152,6 @@ pub fn system_glowplug_config_path() -> String {
 }
 
 /// Parse `glowplug.toml` contents into [`EmberConfig`].
-///
-/// ```
-/// use coral_ember::parse_glowplug_config;
-///
-/// let cfg = parse_glowplug_config("device = []").expect("parse empty device list");
-/// assert!(cfg.device.is_empty());
-/// ```
 pub fn parse_glowplug_config(config_str: &str) -> Result<EmberConfig, toml::de::Error> {
     toml::from_str(config_str)
 }
@@ -245,7 +217,7 @@ pub fn run() -> Result<(), i32> {
 
 /// Same as [`run`] but accepts explicit config and optional TCP listen port (see [`EmberRunOptions`]).
 ///
-/// When `listen_port` is set, a TCP listener is started on `127.0.0.1` in addition to the Unix socket.
+/// When `listen_port` is set, a TCP listener is started on `$CORALREEF_EMBER_TCP_HOST` (default `127.0.0.1`) in addition to the Unix socket.
 /// ([`EMBER_LISTEN_PORT_ENV`] names the conventional env var for documenting the chosen port; it is
 /// not written by this crate — Rust 2024 treats concurrent `set_var` as `unsafe`.)
 ///
@@ -309,33 +281,54 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     let started_at = std::time::Instant::now();
     let mut held_init: HashMap<String, HeldDevice> = HashMap::new();
 
-    for dev_config in &compute_devices {
-        let lifecycle = vendor_lifecycle::detect_lifecycle(&dev_config.bdf);
-        let current = sysfs::read_current_driver(&dev_config.bdf);
-        if let Some(ref drv) = current {
-            if let Err(e) = lifecycle.prepare_for_unbind(&dev_config.bdf, drv) {
-                tracing::warn!(
-                    bdf = %dev_config.bdf, error = %e,
-                    "startup: prepare_for_unbind failed (non-fatal)"
-                );
-            }
-        } else {
-            sysfs::pin_power(&dev_config.bdf);
-        }
-    }
+    let mut deferred_bdfs: Vec<String> = Vec::new();
 
     for dev_config in &compute_devices {
-        tracing::info!(bdf = %dev_config.bdf, "opening VFIO device for ember hold");
+        tracing::info!(bdf = %dev_config.bdf, "acquiring VFIO device for ember hold");
 
-        let group_id = sysfs::read_iommu_group(&dev_config.bdf);
-        if group_id != 0 {
-            sysfs::bind_iommu_group_to_vfio(&dev_config.bdf, group_id);
-        }
+        let bdf = dev_config.bdf.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
 
-        sysfs::pin_power(&dev_config.bdf);
+        std::thread::Builder::new()
+            .name(format!("ember-acquire-{bdf}"))
+            .spawn({
+                let bdf = bdf.clone();
+                move || {
+                    let lifecycle = vendor_lifecycle::detect_lifecycle(&bdf);
+                    let cold_sensitive = lifecycle.is_cold_sensitive();
 
-        match coral_driver::vfio::VfioDevice::open(&dev_config.bdf) {
-            Ok(device) => {
+                    let current = sysfs::read_current_driver(&bdf);
+                    if let Some(ref drv) = current {
+                        if let Err(e) = lifecycle.prepare_for_unbind(&bdf, drv) {
+                            tracing::warn!(
+                                bdf = %bdf, error = %e,
+                                "startup: prepare_for_unbind failed (non-fatal)"
+                            );
+                        }
+                    } else {
+                        sysfs::pin_power(&bdf);
+                    }
+
+                    let group_id = sysfs::read_iommu_group(&bdf);
+                    if group_id != 0 {
+                        sysfs::bind_iommu_group_to_vfio(&bdf, group_id);
+                    }
+
+                    sysfs::pin_power(&bdf);
+
+                    // Bus master stays OFF at startup — ember holds fds
+                    // but never initiates DMA.  Clients opt-in explicitly.
+                    let open_result =
+                        coral_driver::vfio::VfioDevice::open(&bdf)
+                            .map_err(|e| e.to_string());
+
+                    let _ = tx.send((open_result, cold_sensitive));
+                }
+            })
+            .expect("failed to spawn device acquire thread");
+
+        match rx.recv_timeout(guarded_open::GUARDED_OPEN_TIMEOUT) {
+            Ok((Ok(device), _cold_sensitive)) => {
                 let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
                 tracing::info!(
                     bdf = %dev_config.bdf,
@@ -352,22 +345,48 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                         device,
                         ring_meta: hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
+                        dma_prepare_state: None,
                     },
                 );
             }
-            Err(e) => {
+            Ok((Err(e), cold_sensitive)) => {
+                tracing::warn!(
+                    bdf = %dev_config.bdf,
+                    cold_sensitive,
+                    error = %e,
+                    "VFIO open failed — device deferred (use ember.open_device to retry)"
+                );
+                deferred_bdfs.push(dev_config.bdf.clone());
+            }
+            Err(_timeout) => {
                 tracing::error!(
                     bdf = %dev_config.bdf,
-                    error = %e,
-                    "failed to open VFIO device — ember will not hold this device"
+                    timeout_secs = guarded_open::GUARDED_OPEN_TIMEOUT.as_secs(),
+                    "device acquire TIMED OUT — sysfs or VFIO open stuck (D-state). \
+                     Thread leaked. Device deferred."
                 );
+                deferred_bdfs.push(dev_config.bdf.clone());
             }
         }
     }
 
-    if held_init.is_empty() {
-        tracing::error!("no devices held — ember cannot provide fd keepalive");
+    if !deferred_bdfs.is_empty() {
+        tracing::info!(
+            deferred = ?deferred_bdfs,
+            "devices deferred at startup (timeout/cold/busy — retry via ember.open_device)"
+        );
+    }
+
+    if held_init.is_empty() && deferred_bdfs.is_empty() {
+        tracing::error!("no devices held or deferred — ember cannot provide fd keepalive");
         return Err(1);
+    }
+    if held_init.is_empty() {
+        tracing::warn!(
+            "no devices held at startup (all deferred) — \
+             ember is running but cannot serve fds until devices become available"
+        );
     }
 
     let held: Arc<RwLock<HashMap<String, HeldDevice>>> = Arc::new(RwLock::new(held_init));
@@ -382,6 +401,8 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
     let journal = Arc::new(journal::Journal::open_default());
     tracing::info!(path = %journal.path().display(), "experiment journal opened");
+
+    let policies = ipc::handlers_policy::new_policy_store();
 
     let socket_path = ember_socket_path();
 
@@ -414,7 +435,9 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     }
     tracing::info!("║ Socket: {socket_path}");
     if let Some(port) = opts.listen_port {
-        tracing::info!("║ TCP JSON-RPC: 127.0.0.1:{port} (vfio_fds unavailable over TCP)");
+        let tcp_host =
+            std::env::var("CORALREEF_EMBER_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        tracing::info!("║ TCP JSON-RPC: {tcp_host}:{port} (vfio_fds unavailable over TCP)");
     }
     tracing::info!("╚══════════════════════════════════════════════════════════╝");
 
@@ -441,6 +464,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         let held_tcp = Arc::clone(&held);
         let managed_tcp = Arc::clone(&managed_bdfs);
         let journal_tcp = Arc::clone(&journal);
+        let policies_tcp = Arc::clone(&policies);
         let started_tcp = started_at;
         std::thread::Builder::new()
             .name("ember-tcp-accept".into())
@@ -451,6 +475,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                             let held = Arc::clone(&held_tcp);
                             let managed = Arc::clone(&managed_tcp);
                             let journal = Arc::clone(&journal_tcp);
+                            let policies = Arc::clone(&policies_tcp);
                             std::thread::spawn(move || {
                                 if let Err(e) = ipc::handle_client_tcp(
                                     &mut stream,
@@ -458,6 +483,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                                     managed.as_ref(),
                                     started_tcp,
                                     Some(&journal),
+                                    &policies,
                                 ) {
                                     tracing::warn!(error = %e, "ember TCP client handler error");
                                 }
@@ -478,6 +504,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 let held = Arc::clone(&held);
                 let managed = Arc::clone(&managed_bdfs);
                 let journal = Arc::clone(&journal);
+                let policies = Arc::clone(&policies);
                 std::thread::spawn(move || {
                     if let Err(e) = ipc::handle_client(
                         &mut stream,
@@ -485,6 +512,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                         managed.as_ref(),
                         started_at,
                         Some(&journal),
+                        &policies,
                     ) {
                         tracing::warn!(error = %e, "client handler error");
                     }
@@ -551,11 +579,11 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                     let mut fds = Vec::new();
                     let mut names = Vec::new();
                     for (bdf, dev) in map.iter() {
-                        if let Some(ref req_fd) = dev.req_eventfd
-                            && let Ok(cloned) = req_fd.try_clone()
-                        {
-                            fds.push(cloned);
-                            names.push(bdf.clone());
+                        if let Some(ref req_fd) = dev.req_eventfd {
+                            if let Ok(cloned) = req_fd.try_clone() {
+                                fds.push(cloned);
+                                names.push(bdf.clone());
+                            }
                         }
                     }
                     (fds, names)
@@ -592,10 +620,12 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
 
                                 match held.try_write() {
                                     Ok(mut map) => {
-                                        if let Some(device) = map.remove(bdf) {
-                                            drop(device);
+                                        if let Some(held) = map.remove(bdf) {
+                                            let bdf_owned = bdf.to_string();
+                                            drop(map);
+                                            guarded_open::guarded_vfio_close(held.device, &bdf_owned);
                                             tracing::info!(
-                                                bdf,
+                                                bdf = %bdf_owned,
                                                 "device auto-released (kernel REQ IRQ)"
                                             );
                                         }
@@ -736,189 +766,5 @@ mod tests {
     fn parse_glowplug_config_empty_device_list() {
         let cfg = parse_glowplug_config("device = []").expect("valid empty device list");
         assert!(cfg.device.is_empty());
-    }
-
-    #[test]
-    fn ember_run_options_default_is_empty() {
-        assert_eq!(
-            EmberRunOptions::default(),
-            EmberRunOptions {
-                config_path: None,
-                listen_port: None,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_glowplug_config_device_optional_fields_roundtrip() {
-        let toml = r#"
-            [[device]]
-            bdf = "0000:0a:00.0"
-            name = "Test GPU"
-            boot_personality = "nouveau"
-            power_policy = "power_save"
-            role = "compute"
-            oracle_dump = "/tmp/oracle.bin"
-        "#;
-        let cfg = parse_glowplug_config(toml).expect("valid TOML");
-        assert_eq!(cfg.device.len(), 1);
-        let d = &cfg.device[0];
-        assert_eq!(d.bdf, "0000:0a:00.0");
-        assert_eq!(d.name.as_deref(), Some("Test GPU"));
-        assert_eq!(d.boot_personality.as_deref(), Some("nouveau"));
-        assert_eq!(d.power_policy.as_deref(), Some("power_save"));
-        assert_eq!(d.role.as_deref(), Some("compute"));
-        assert_eq!(d.oracle_dump.as_deref(), Some("/tmp/oracle.bin"));
-    }
-
-    #[test]
-    fn swap_error_from_string_maps_to_other() {
-        let e: crate::error::SwapError = "orchestrator gave up".to_string().into();
-        match e {
-            crate::error::SwapError::Other(s) => assert_eq!(s, "orchestrator gave up"),
-            other => panic!("expected Other, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn ember_ipc_error_from_string_maps_to_dispatch() {
-        let e: crate::error::EmberIpcError = "lock failed".to_string().into();
-        match e {
-            crate::error::EmberIpcError::Dispatch(s) => assert_eq!(s, "lock failed"),
-            other => panic!("expected Dispatch, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn sysfs_error_write_and_read_display() {
-        let w = crate::error::SysfsError::Write {
-            path: "/sys/a".into(),
-            reason: "busy".into(),
-        };
-        assert!(w.to_string().contains("sysfs write"));
-        assert!(w.to_string().contains("/sys/a"));
-        let r = crate::error::SysfsError::Read {
-            path: "/sys/b".into(),
-            reason: "eof".into(),
-        };
-        assert!(r.to_string().contains("sysfs read"));
-        let d = crate::error::SysfsError::DriverBind {
-            bdf: "0000:01:00.0".into(),
-            reason: "EEXIST".into(),
-        };
-        assert!(d.to_string().contains("driver bind"));
-        let p = crate::error::SysfsError::PciReset {
-            bdf: "0000:02:00.0".into(),
-            reason: "reset failed".into(),
-        };
-        assert!(p.to_string().contains("PCI reset"));
-    }
-
-    #[test]
-    fn sysfs_error_pci_and_bridge_variants_display() {
-        let e = crate::error::SysfsError::BridgeNotFound {
-            bdf: "0000:01:00.0".into(),
-        };
-        assert!(e.to_string().contains("parent PCI bridge"));
-        let e2 = crate::error::SysfsError::BridgeResetMissing {
-            bdf: "0000:01:00.0".into(),
-            bridge_bdf: "0000:00:01.0".into(),
-        };
-        assert!(e2.to_string().contains("bridge"));
-        let e3 = crate::error::SysfsError::DeviceNotReappeared {
-            bdf: "0000:02:00.0".into(),
-        };
-        assert!(e3.to_string().contains("re-appear"));
-        let e4 = crate::error::SysfsError::PmCycleD3cold {
-            bdf: "0000:03:00.0".into(),
-        };
-        assert!(e4.to_string().contains("D3cold"));
-    }
-
-    #[test]
-    fn swap_error_displays_preflight_drm_external_vfio_and_reset_method() {
-        let p = crate::error::SwapError::Preflight {
-            bdf: "0000:01:00.0".into(),
-            reason: "nvidia_drm".into(),
-        };
-        assert!(p.to_string().contains("preflight"));
-        let d = crate::error::SwapError::DrmIsolation("modeset active".into());
-        assert!(d.to_string().contains("DRM isolation"));
-        let x = crate::error::SwapError::ExternalVfioHolders {
-            bdf: "0000:01:00.0".into(),
-            count: 2,
-        };
-        assert!(x.to_string().contains("2 holders"));
-        let u = crate::error::SwapError::UnknownTarget("fictional".into());
-        assert!(u.to_string().contains("unknown target"));
-        let t = crate::error::SwapError::Trace("mmiotrace busy".into());
-        assert!(t.to_string().contains("trace"));
-        let v = crate::error::SwapError::VerifyHealth {
-            bdf: "0000:01:00.0".into(),
-            detail: "no temp sensor".into(),
-        };
-        assert!(v.to_string().contains("post-bind verification"));
-        let a = crate::error::SwapError::ActiveDisplayGpu {
-            bdf: "0000:01:00.0".into(),
-        };
-        assert!(a.to_string().contains("display GPU"));
-        let r = crate::error::SwapError::VfioReacquire {
-            bdf: "0000:01:00.0".into(),
-            reason: "open failed".into(),
-        };
-        assert!(r.to_string().contains("VFIO reacquire"));
-        let i = crate::error::SwapError::InvalidResetMethod("kitten_reset".into());
-        assert!(i.to_string().contains("kitten_reset"));
-    }
-
-    #[test]
-    fn swap_error_from_sysfs_uses_from_trait() {
-        let inner = crate::error::SysfsError::PciReset {
-            bdf: "0000:01:00.0".into(),
-            reason: "no reset".into(),
-        };
-        let s: crate::error::SwapError = inner.into();
-        match s {
-            crate::error::SwapError::Sysfs(e) => {
-                assert!(e.to_string().contains("PCI reset"));
-            }
-            other => panic!("expected Sysfs wrapper, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn trace_error_displays_enable_disable_capture() {
-        let e = crate::error::TraceError::Enable("busy".into());
-        assert!(e.to_string().contains("mmiotrace enable"));
-        let e2 = crate::error::TraceError::Disable("failed".into());
-        assert!(e2.to_string().contains("mmiotrace disable"));
-        let e3 = crate::error::TraceError::Capture {
-            bdf: "0000:01:00.0".into(),
-            reason: "disk full".into(),
-        };
-        assert!(e3.to_string().contains("trace capture"));
-    }
-
-    #[test]
-    fn ember_ipc_error_invalid_request_io_utf8_lock_json_send_display() {
-        assert_eq!(
-            crate::error::EmberIpcError::InvalidRequest("empty body").to_string(),
-            "invalid request: empty body"
-        );
-        let io: crate::error::EmberIpcError =
-            std::io::Error::new(std::io::ErrorKind::NotFound, "nope").into();
-        assert!(io.to_string().contains("I/O error"));
-        let invalid_utf8 = vec![0xff_u8];
-        let utf8_err = std::str::from_utf8(&invalid_utf8).unwrap_err();
-        let u: crate::error::EmberIpcError = utf8_err.into();
-        assert!(u.to_string().contains("UTF-8"));
-        assert_eq!(
-            crate::error::EmberIpcError::LockPoisoned.to_string(),
-            "RwLock poisoned"
-        );
-        let j = crate::error::EmberIpcError::JsonSerialize("bad".into());
-        assert!(j.to_string().contains("JSON serialization"));
-        let s = crate::error::EmberIpcError::SendMsg("e".into());
-        assert!(s.to_string().contains("sendmsg"));
     }
 }

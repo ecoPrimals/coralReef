@@ -27,6 +27,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Active experiment session — while set, health probes are paused and
+/// a watchdog timer can auto-expire the session.
+#[derive(Debug, Clone)]
+pub struct ExperimentSession {
+    pub name: String,
+    pub started_at: std::time::Instant,
+    pub watchdog_secs: u64,
+}
+
 pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     pub config: DeviceConfig,
     pub bdf: Arc<str>,
@@ -46,11 +55,16 @@ pub struct DeviceSlot<S: SysfsOps = RealSysfs> {
     pub rings: MultiRing,
     /// Most recent swap observation from ember, available for observers and diagnostics.
     pub last_swap_observation: Option<SwapObservation>,
+    /// Timestamp of most recent driver swap completion.  Used by the graduated
+    /// health model to gate which BAR0 registers are safe to probe.
+    last_swap_at: Option<std::time::Instant>,
     /// Set while a long-running `spawn_blocking` task (oracle capture, compute
     /// dispatch) holds a borrowed reference to this slot's VFIO mapping or GPU
     /// context.  Mutating operations (`swap`, `reclaim`, `resurrect`) must
     /// refuse while this flag is set to prevent use-after-unmap.
     busy: Arc<AtomicBool>,
+    /// Active experiment session — health checks are paused while set.
+    experiment: Option<ExperimentSession>,
     /// When `Some`, overrides [`Self::has_vfio`] for unit tests (circuit breaker, etc.).
     #[cfg(test)]
     test_vfio_override: Option<bool>,
@@ -88,11 +102,34 @@ impl<S: SysfsOps> DeviceSlot<S> {
             mailboxes: MailboxSet::new(),
             rings: MultiRing::new(),
             last_swap_observation: None,
+            last_swap_at: None,
             busy: Arc::new(AtomicBool::new(false)),
+            experiment: None,
             #[cfg(test)]
             test_vfio_override: None,
             #[cfg(test)]
             test_quiescence_override: None,
+        }
+    }
+
+    /// Returns the graduated health phase based on time since last swap.
+    ///
+    /// - Minimal  (0–120s):  BOOT0 + PMC_ENABLE only — safe even if PRI ring
+    ///   has uncleared faults from the previous driver teardown.
+    /// - Intermediate (120–300s): Add PTIMER — still avoids PRI ring reads.
+    /// - Full     (300s+):  Domain probes, PRAMIN write-readback, PRI ring.
+    #[must_use]
+    pub fn health_phase(&self) -> HealthPhase {
+        let Some(swap_at) = self.last_swap_at else {
+            return HealthPhase::Full;
+        };
+        let elapsed = swap_at.elapsed();
+        if elapsed < std::time::Duration::from_secs(120) {
+            HealthPhase::Minimal
+        } else if elapsed < std::time::Duration::from_secs(300) {
+            HealthPhase::Intermediate
+        } else {
+            HealthPhase::Full
         }
     }
 
@@ -131,6 +168,69 @@ impl<S: SysfsOps> DeviceSlot<S> {
                 bdf: self.bdf.clone(),
                 reason: format!("VFIO_DEVICE_RESET ioctl failed: {e}"),
             })
+    }
+
+    /// Returns `true` if an experiment session is active on this device.
+    #[must_use]
+    pub fn is_in_experiment(&self) -> bool {
+        self.experiment.is_some()
+    }
+
+    /// Returns the active experiment session, if any.
+    #[must_use]
+    pub fn experiment(&self) -> Option<&ExperimentSession> {
+        self.experiment.as_ref()
+    }
+
+    /// Start an experiment session — pauses health probes and sets a watchdog.
+    ///
+    /// Returns `Err` if an experiment is already active on this device.
+    pub fn experiment_start(
+        &mut self,
+        name: &str,
+        watchdog_secs: u64,
+    ) -> Result<&ExperimentSession, crate::error::DeviceError> {
+        if let Some(ref existing) = self.experiment {
+            return Err(crate::error::DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: format!(
+                    "experiment '{}' already active (started {}s ago)",
+                    existing.name,
+                    existing.started_at.elapsed().as_secs()
+                ),
+            });
+        }
+        self.experiment = Some(ExperimentSession {
+            name: name.to_string(),
+            started_at: std::time::Instant::now(),
+            watchdog_secs,
+        });
+        Ok(self.experiment.as_ref().unwrap())
+    }
+
+    /// End the active experiment session. Returns the session or `None` if none was active.
+    pub fn experiment_end(&mut self) -> Option<ExperimentSession> {
+        self.experiment.take()
+    }
+
+    /// Check and expire the experiment watchdog if the deadline has passed.
+    /// Returns `true` if the watchdog fired and the experiment was auto-ended.
+    pub fn check_experiment_watchdog(&mut self) -> bool {
+        let expired = self
+            .experiment
+            .as_ref()
+            .is_some_and(|e| e.started_at.elapsed().as_secs() >= e.watchdog_secs);
+        if expired {
+            let session = self.experiment.take().unwrap();
+            tracing::warn!(
+                bdf = %self.bdf,
+                experiment = %session.name,
+                elapsed_secs = session.started_at.elapsed().as_secs(),
+                watchdog_secs = session.watchdog_secs,
+                "WATCHDOG: experiment session auto-expired"
+            );
+        }
+        expired
     }
 
     /// Returns `true` if a `spawn_blocking` task currently holds a reference

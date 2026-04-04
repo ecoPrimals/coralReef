@@ -68,6 +68,16 @@ pub async fn health_loop<S: crate::sysfs_ops::SysfsOps>(
             let bdf = slot.bdf.clone();
             let is_tripped = tripped.get(&bdf).copied().unwrap_or(false);
 
+            if slot.is_in_experiment() {
+                slot.check_experiment_watchdog();
+                if slot.is_in_experiment() {
+                    tracing::trace!(bdf = %bdf, "health: skipping BAR0 probes — experiment active");
+                    slot.refresh_power_state();
+                    continue;
+                }
+                tracing::info!(bdf = %bdf, "health: experiment watchdog expired — resuming probes");
+            }
+
             if !slot.config.is_health_active() || is_tripped {
                 // Passive policy OR circuit breaker open — sysfs only, no BAR0.
                 // BAR0 reads on uninitialized hardware can cause PCIe completion
@@ -79,7 +89,17 @@ pub async fn health_loop<S: crate::sysfs_ops::SysfsOps>(
             let prev_vram = slot.health.vram_alive;
             let prev_power = slot.health.power;
 
-            slot.check_health();
+            match slot.health_phase() {
+                crate::device::HealthPhase::Minimal => {
+                    slot.check_health_minimal();
+                }
+                crate::device::HealthPhase::Intermediate => {
+                    slot.check_health_intermediate();
+                }
+                crate::device::HealthPhase::Full => {
+                    slot.check_health();
+                }
+            }
 
             let dead_count = consecutive_dead.entry(bdf.clone()).or_insert(0);
 

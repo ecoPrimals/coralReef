@@ -123,7 +123,21 @@ impl<S: SysfsOps> DeviceSlot<S> {
                             bdf: self.bdf.clone(),
                             reason: format!("BAR0 map after swap: {e}"),
                         })?;
-                        self.vfio_holder = Some(VfioHolder::new(device, bar0));
+                        let holder = VfioHolder::new(device, bar0);
+
+                        // Bus master is no longer auto-enabled by VfioDevice::open /
+                        // from_received, so it stays off after construction.
+                        // Explicitly disable as a safety belt in case the previous
+                        // driver left it enabled in PCI config space.
+                        if let Err(e) = holder.disable_bus_master() {
+                            tracing::warn!(
+                                bdf = %self.bdf,
+                                error = %e,
+                                "failed to disable bus_master after swap (non-fatal)"
+                            );
+                        }
+
+                        self.vfio_holder = Some(holder);
                         self.personality = Personality::Vfio { group_id };
 
                         // Restore ring/mailbox state from ember after VFIO reacquire
@@ -198,7 +212,17 @@ impl<S: SysfsOps> DeviceSlot<S> {
             }
         }
 
-        self.check_health();
+        self.last_swap_at = Some(std::time::Instant::now());
+
+        // Post-swap health: always start with minimal probing (BOOT0 + PMC).
+        // The graduated health model in the background loop will expand to
+        // intermediate → full probing as time passes without faults.
+        self.refresh_power_state();
+        if let Some(holder) = self.vfio_holder.as_ref() {
+            self.health.boot0 = holder.bar0.read_u32(0).unwrap_or(0xDEAD_DEAD);
+            self.health.pmc_enable = holder.bar0.read_u32(0x200).unwrap_or(0);
+            self.health.vram_alive = self.health.pmc_enable > 0x1000_0000;
+        }
         tracing::info!(
             bdf = %self.bdf,
             personality = %self.personality,

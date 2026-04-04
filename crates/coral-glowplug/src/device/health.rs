@@ -14,10 +14,13 @@ use super::types::{
 impl<S: SysfsOps> DeviceSlot<S> {
     /// Read a single BAR0 register via the VFIO holder.
     ///
-    /// Returns `None` if no VFIO holder is active or if the offset is
-    /// out of the BAR0 mapping range.
+    /// Returns `None` if no VFIO holder is active, if the offset is
+    /// out of the BAR0 mapping range, or if the offset is poisonous.
     #[must_use]
     pub fn read_register(&self, offset: usize) -> Option<u32> {
+        if coral_driver::vfio::device::dma_safety::is_poisonous_read(offset) {
+            return None;
+        }
         self.vfio_holder.as_ref()?.bar0.read_u32(offset).ok()
     }
 
@@ -26,6 +29,9 @@ impl<S: SysfsOps> DeviceSlot<S> {
     /// If `offsets` is empty, uses the default comprehensive register set
     /// covering PMC, PBUS, PFIFO, PBDMA, PFB, FBHUB, PMU, PCLOCK, GR, FECS,
     /// GPCCS, LTC, FBPA, PRAMIN, and thermal domains.
+    ///
+    /// Poisonous registers (known to cause silent CPU hangs post-nouveau)
+    /// are silently skipped — they are never read through this path.
     #[must_use]
     pub fn dump_registers(&self, offsets: &[usize]) -> BTreeMap<usize, u32> {
         let offsets = if offsets.is_empty() {
@@ -36,6 +42,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
         let mut result = BTreeMap::new();
         if let Some(holder) = &self.vfio_holder {
             for &off in offsets {
+                if coral_driver::vfio::device::dma_safety::is_poisonous_read(off) {
+                    tracing::debug!(offset = format_args!("{off:#x}"), "dump_registers: skipped poisonous offset");
+                    continue;
+                }
                 if let Ok(val) = holder.bar0.read_u32(off) {
                     result.insert(off, val);
                 }
@@ -84,15 +94,24 @@ impl<S: SysfsOps> DeviceSlot<S> {
     ///
     /// Returns up to `count` u32 values starting at `offset` (4-byte aligned).
     /// Stops early if an offset falls outside the BAR0 mapping.
+    ///
+    /// Poisonous registers (known to cause silent CPU hangs post-nouveau)
+    /// are replaced with `0xDEAD_SKIP` and never actually read.
     #[must_use]
     pub fn read_bar0_range(&self, offset: usize, count: usize) -> Vec<u32> {
+        const SKIP_SENTINEL: u32 = 0xDEAD_5C1B;
         let count = count.min(4096);
         let Some(holder) = &self.vfio_holder else {
             return Vec::new();
         };
         let mut values = Vec::with_capacity(count);
         for i in 0..count {
-            match holder.bar0.read_u32(offset + i * 4) {
+            let addr = offset + i * 4;
+            if coral_driver::vfio::device::dma_safety::is_poisonous_read(addr) {
+                values.push(SKIP_SENTINEL);
+                continue;
+            }
+            match holder.bar0.read_u32(addr) {
                 Ok(val) => values.push(val),
                 Err(_) => break,
             }
@@ -311,6 +330,45 @@ impl<S: SysfsOps> DeviceSlot<S> {
         }
     }
 
+    /// Minimal health check (0-30s post-swap): BOOT0 + PMC_ENABLE only.
+    ///
+    /// Safe even when GPU engines are in partial shutdown after driver teardown.
+    pub fn check_health_minimal(&mut self) {
+        self.refresh_power_state();
+        let Some(holder) = self.vfio_holder.as_ref() else {
+            return;
+        };
+        self.health.boot0 = holder.bar0.read_u32(0).unwrap_or(PCI_READ_DEAD);
+        self.health.pmc_enable = holder.bar0.read_u32(0x200).unwrap_or(0);
+        self.health.vram_alive = self.health.pmc_enable > 0x1000_0000;
+    }
+
+    /// Intermediate health check (post-swap cooldown): BOOT0 + PMC + PTIMER.
+    ///
+    /// Avoids PRI ring status reads (0x120058) which can hang the CPU if the
+    /// PRI hub has an uncleared fault from a previous driver teardown. Also
+    /// avoids domain probes (PFB, FBHUB, etc.) that hit powered-down engines.
+    pub fn check_health_intermediate(&mut self) {
+        self.refresh_power_state();
+        let Some(holder) = self.vfio_holder.as_ref() else {
+            return;
+        };
+        let r = |off: usize| holder.bar0.read_u32(off).unwrap_or(PCI_READ_DEAD);
+
+        self.health.boot0 = r(0);
+        self.health.pmc_enable = r(0x200);
+        self.health.vram_alive = self.health.pmc_enable > 0x1000_0000;
+
+        let ptimer = r(0x00_9400);
+        if is_faulted_read(ptimer) {
+            tracing::warn!(
+                bdf = %self.bdf,
+                ptimer = format_args!("{ptimer:#010x}"),
+                "intermediate health: PTIMER faulted"
+            );
+        }
+    }
+
     /// Check device health by probing key registers.
     pub fn check_health(&mut self) {
         self.refresh_power_state();
@@ -333,6 +391,19 @@ impl<S: SysfsOps> DeviceSlot<S> {
 
         self.health.boot0 = r(0x00_0000);
         self.health.pmc_enable = r(0x00_0200);
+
+        if is_faulted_read(self.health.boot0) || is_faulted_read(self.health.pmc_enable) {
+            self.health.vram_alive = false;
+            self.health.domains_alive = 0;
+            self.health.domains_faulted = 0;
+            tracing::warn!(
+                bdf = %self.bdf,
+                boot0 = format_args!("{:#010x}", self.health.boot0),
+                pmc = format_args!("{:#010x}", self.health.pmc_enable),
+                "full health: BOOT0/PMC faulted — skipping domain probes to avoid MMIO hang"
+            );
+            return;
+        }
 
         self.health.vram_alive = Self::pramin_write_readback(holder);
 

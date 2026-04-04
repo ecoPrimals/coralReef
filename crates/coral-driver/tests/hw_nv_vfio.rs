@@ -134,3 +134,15 @@ mod exp121_minimal_acr;
 #[cfg(feature = "vfio")]
 #[path = "hw_nv_vfio/exp122_wpr2_resolution.rs"]
 mod exp122_wpr2_resolution;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp144_warm_acr_no_gr_reset.rs"]
+mod exp144_warm_acr_no_gr_reset;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp145_v1_acr_boot.rs"]
+mod exp145_v1_acr_boot;
+
+#[cfg(feature = "vfio")]
+#[path = "hw_nv_vfio/exp146_cold_fabric_init.rs"]
+mod exp146_cold_fabric_init;

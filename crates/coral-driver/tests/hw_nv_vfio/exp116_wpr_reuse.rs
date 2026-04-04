@@ -191,6 +191,7 @@ fn exp116_wpr_reuse() {
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
     let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    vfio_dev.enable_bus_master().expect("enable bus_master");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── A2: Post-Nouveau Falcon State ──");
@@ -252,6 +253,7 @@ fn exp116_wpr_reuse() {
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
     let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    vfio_dev.enable_bus_master().expect("enable bus_master");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let container = vfio_dev.dma_backend();
 
@@ -357,6 +359,7 @@ fn exp116_wpr_reuse() {
     nouveau_cycle(&bdf);
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
     let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    vfio_dev.enable_bus_master().expect("enable bus_master");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
     let container_c = vfio_dev.dma_backend();
 
@@ -421,6 +424,7 @@ fn exp116_wpr_reuse() {
         let fds = ember_client::request_fds(&bdf).expect("ember fds");
         let vfio_dev =
             coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+        vfio_dev.enable_bus_master().expect("enable bus_master");
         let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
         let container_d = vfio_dev.dma_backend();
 

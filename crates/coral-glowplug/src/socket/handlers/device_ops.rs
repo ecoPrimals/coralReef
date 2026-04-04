@@ -52,6 +52,8 @@ pub(crate) fn dispatch(
         "device.reclaim" => handle_reclaim(params, devices),
         "device.resurrect" => handle_resurrect(params, devices),
         "device.reset" => handle_reset(params, devices),
+        "device.experiment_start" => handle_experiment_start(params, devices),
+        "device.experiment_end" => handle_experiment_end(params, devices),
         "health.check" | "health.liveness" => Ok(serde_json::json!({
             "alive": true,
             "name": "coral-glowplug",
@@ -566,6 +568,93 @@ fn handle_reset(
         other => Err(RpcError::invalid_params(format!(
             "unknown reset method '{other}' (use: auto, flr, sbr, bridge-sbr, remove-rescan)"
         ))),
+    }
+}
+
+fn handle_experiment_start(
+    params: &serde_json::Value,
+    devices: &mut [coral_glowplug::device::DeviceSlot],
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let bdf = validate_bdf(bdf)?;
+    let name = params
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unnamed");
+    let watchdog_secs = params
+        .get("watchdog_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(300);
+    let slot = devices
+        .iter_mut()
+        .find(|d| d.bdf.as_ref() == bdf)
+        .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+            bdf: Arc::from(bdf),
+        })
+        .map_err(RpcError::from)?;
+
+    slot.experiment_start(name, watchdog_secs)
+        .map_err(|e| RpcError::device_error(e.to_string()))?;
+
+    tracing::info!(
+        bdf = %bdf,
+        experiment = name,
+        watchdog_secs,
+        "experiment session started — health probes paused"
+    );
+
+    Ok(serde_json::json!({
+        "bdf": bdf,
+        "experiment": name,
+        "watchdog_secs": watchdog_secs,
+        "status": "active",
+    }))
+}
+
+fn handle_experiment_end(
+    params: &serde_json::Value,
+    devices: &mut [coral_glowplug::device::DeviceSlot],
+) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
+    use coral_glowplug::error::RpcError;
+
+    let bdf = params
+        .get("bdf")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
+    let bdf = validate_bdf(bdf)?;
+    let slot = devices
+        .iter_mut()
+        .find(|d| d.bdf.as_ref() == bdf)
+        .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
+            bdf: Arc::from(bdf),
+        })
+        .map_err(RpcError::from)?;
+
+    match slot.experiment_end() {
+        Some(session) => {
+            let elapsed = session.started_at.elapsed().as_secs();
+            tracing::info!(
+                bdf = %bdf,
+                experiment = %session.name,
+                elapsed_secs = elapsed,
+                "experiment session ended — health probes resuming"
+            );
+            Ok(serde_json::json!({
+                "bdf": bdf,
+                "experiment": session.name,
+                "elapsed_secs": elapsed,
+                "status": "ended",
+            }))
+        }
+        None => Ok(serde_json::json!({
+            "bdf": bdf,
+            "status": "no_active_experiment",
+        })),
     }
 }
 

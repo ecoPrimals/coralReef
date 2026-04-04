@@ -4,6 +4,7 @@
 mod fd;
 mod handlers_device;
 mod handlers_journal;
+pub(crate) mod handlers_policy;
 mod helpers;
 mod jsonrpc;
 
@@ -41,6 +42,7 @@ pub fn handle_client(
     managed_bdfs: &HashSet<String>,
     started_at: std::time::Instant,
     journal: Option<&Arc<Journal>>,
+    policies: &handlers_policy::PolicyStore,
 ) -> Result<(), EmberIpcError> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -120,6 +122,24 @@ pub fn handle_client(
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
         }
+        "ember.prepare_dma" => {
+            handlers_device::prepare_dma(stream, held, id, params)?;
+        }
+        "ember.cleanup_dma" => {
+            handlers_device::cleanup_dma(stream, held, id, params)?;
+        }
+        "ember.policy.get" => {
+            handlers_policy::get(stream, policies, id, params)?;
+        }
+        "ember.policy.set" => {
+            handlers_policy::set(stream, policies, id, params)?;
+        }
+        "ember.policy.list" => {
+            handlers_policy::list(stream, policies, id)?;
+        }
+        "ember.policy.matrix" => {
+            handlers_policy::matrix(stream, id, params)?;
+        }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
                 .map_err(EmberIpcError::from)?;
@@ -140,6 +160,7 @@ pub fn handle_client_tcp(
     managed_bdfs: &HashSet<String>,
     started_at: std::time::Instant,
     journal: Option<&Arc<Journal>>,
+    policies: &handlers_policy::PolicyStore,
 ) -> Result<(), EmberIpcError> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -218,6 +239,24 @@ pub fn handle_client_tcp(
         }
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
+        }
+        "ember.prepare_dma" => {
+            handlers_device::prepare_dma(stream, held, id, params)?;
+        }
+        "ember.cleanup_dma" => {
+            handlers_device::cleanup_dma(stream, held, id, params)?;
+        }
+        "ember.policy.get" => {
+            handlers_policy::get(stream, policies, id, params)?;
+        }
+        "ember.policy.set" => {
+            handlers_policy::set(stream, policies, id, params)?;
+        }
+        "ember.policy.list" => {
+            handlers_policy::list(stream, policies, id)?;
+        }
+        "ember.policy.matrix" => {
+            handlers_policy::matrix(stream, id, params)?;
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))

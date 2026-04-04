@@ -202,13 +202,44 @@ impl<'a> VbiosInterpreter<'a> {
         0
     }
 
-    /// Find the condition table offset from the init tables base.
-    fn find_condition_table(&self) -> usize {
+    /// Find a table pointer from the init tables base at the given byte offset.
+    fn find_init_table(&self, table_offset: usize) -> usize {
         let base = self.find_init_tables_base();
-        if base == 0 || base + 8 > self.rom.len() {
+        if base == 0 || base + table_offset + 2 > self.rom.len() {
             return 0;
         }
-        self.rd16(base + 0x06) as usize
+        self.rd16(base + table_offset) as usize
+    }
+
+    /// Find the condition table offset from the init tables base.
+    fn find_condition_table(&self) -> usize {
+        self.find_init_table(0x06)
+    }
+
+    /// Look up a script address by index from the script table.
+    fn find_script_by_index(&self, index: u8) -> usize {
+        let script_table = self.find_init_table(0x00);
+        if script_table == 0 {
+            return 0;
+        }
+        let entry_off = script_table + (index as usize) * 2;
+        if entry_off + 2 > self.rom.len() {
+            return 0;
+        }
+        self.rd16(entry_off) as usize
+    }
+
+    /// Look up a macro table entry: returns (register, data).
+    fn find_macro_entry(&self, index: u8) -> Option<(u32, u32)> {
+        let macro_table = self.find_init_table(0x04);
+        if macro_table == 0 {
+            return None;
+        }
+        let entry_off = macro_table + (index as usize) * 8;
+        if entry_off + 8 > self.rom.len() {
+            return None;
+        }
+        Some((self.rd32(entry_off), self.rd32(entry_off + 4)))
     }
 
     fn run(&mut self) -> Result<(), String> {
@@ -275,9 +306,18 @@ impl<'a> VbiosInterpreter<'a> {
                     }
                 }
                 0x6B => {
-                    // INIT_SUB: index(u8) — call indexed sub-script
+                    // INIT_SUB: index(u8) — call indexed sub-script from script table
+                    let index = self.rd08(self.offset + 1);
                     self.offset += 2;
-                    self.stats.ops_skipped += 1;
+                    if self.execute {
+                        let sub_addr = self.find_script_by_index(index);
+                        if sub_addr != 0 && sub_addr < self.rom.len() {
+                            let saved = self.offset;
+                            self.offset = sub_addr;
+                            self.run()?;
+                            self.offset = saved;
+                        }
+                    }
                 }
 
                 // ── Conditions ──────────────────────────────────────
@@ -435,8 +475,13 @@ impl<'a> VbiosInterpreter<'a> {
                 }
                 0x90 => {
                     // INIT_COPY_ZM_REG: src_reg(u32) + dst_reg(u32)
+                    let sreg = self.rd32(self.offset + 1);
+                    let dreg = self.rd32(self.offset + 5);
                     self.offset += 9;
-                    self.stats.ops_skipped += 1;
+                    if sreg < 0x0100_0000 && dreg < 0x0100_0000 {
+                        let val = self.bar0_rd32(sreg);
+                        self.bar0_wr32(dreg, val);
+                    }
                 }
                 0x91 => {
                     // INIT_ZM_REG_GROUP: addr(u32) + count(u8) + count×data(u32)
@@ -477,9 +522,25 @@ impl<'a> VbiosInterpreter<'a> {
                     self.offset += 9;
                 }
                 0x5F => {
-                    // INIT_COPY_NV_REG: 22 bytes total
+                    // INIT_COPY_NV_REG: sreg(u32) shift(u8) smask(u32) sxor(u32)
+                    //                   dreg(u32) dmask(u32) — 22 bytes total
+                    let sreg = self.rd32(self.offset + 1);
+                    let shift = self.rd08(self.offset + 5);
+                    let smask = self.rd32(self.offset + 6);
+                    let sxor = self.rd32(self.offset + 10);
+                    let dreg = self.rd32(self.offset + 14);
+                    let dmask = self.rd32(self.offset + 18);
                     self.offset += 22;
-                    self.stats.ops_skipped += 1;
+                    if sreg < 0x0100_0000 && dreg < 0x0100_0000 {
+                        let sval = self.bar0_rd32(sreg);
+                        let shifted = if shift & 0x80 != 0 {
+                            sval << (0x100u16.wrapping_sub(shift as u16) as u32)
+                        } else {
+                            sval >> (shift as u32)
+                        };
+                        let data = (shifted & smask) ^ sxor;
+                        self.bar0_mask(dreg, dmask, data);
+                    }
                 }
 
                 // ── PLL programming ─────────────────────────────────
@@ -616,7 +677,16 @@ impl<'a> VbiosInterpreter<'a> {
                 0x63 => self.offset += 1,
                 0x65 => self.offset += 3,
                 0x66..=0x68 => self.offset += 1,
-                0x6F => self.offset += 2,
+                0x6F => {
+                    // INIT_MACRO: index(u8) — look up macro table entry, write reg
+                    let index = self.rd08(self.offset + 1);
+                    self.offset += 2;
+                    if let Some((addr, data)) = self.find_macro_entry(index) {
+                        if addr < 0x0100_0000 {
+                            self.bar0_wr32(addr, data);
+                        }
+                    }
+                }
                 0x8C | 0x8D | 0x8E | 0x92 | 0xAA => self.offset += 1,
 
                 // ── Unknown opcodes ─────────────────────────────────

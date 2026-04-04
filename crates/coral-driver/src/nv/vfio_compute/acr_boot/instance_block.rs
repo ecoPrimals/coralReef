@@ -158,6 +158,108 @@ pub fn falcon_bind_context(
     (bind_ok, notes)
 }
 
+// ── Falcon v1 binding (GP102+/GV100 SEC2) ─────────────────────────────
+
+/// Execute the falcon v1 + SEC2-specific bind sequence matching nouveau exactly.
+///
+/// Nouveau's `nvkm_falcon_v1_bind_context` + `gp102_sec2_flcn_bind_context`:
+/// 1. Set ITFEN (0x048) bits [5:4] = 0x30
+/// 2. Write instance block to falcon v1 register (0x480):
+///    `target << 28 | (addr >> 12)` (NO bit 30, unlike gm200)
+/// 3. Set ITFEN bits [5:4] = 0x10 (clear bit 5, keep bit 4)
+/// 4. Poll IRQSTAT (0x008) bit 3 AND bind_stat (0x0dc) [14:12] == 5
+/// 5. Ack interrupt (0x004) bit 3
+/// 6. Trigger channel load (0x058) bit 1
+/// 7. Poll bind_stat [14:12] == 0
+pub fn falcon_v1_bind_context(
+    r: &dyn Fn(usize) -> u32,
+    w: &dyn Fn(usize, u32),
+    inst_addr: u64,
+    target: u32,
+) -> (bool, Vec<String>) {
+    use crate::vfio::channel::registers::falcon;
+    let mut notes = Vec::new();
+
+    // Step 1: ITFEN bits [5:4] = 0x30 (enable both DMA bits)
+    let itfen = r(falcon::ITFEN);
+    w(falcon::ITFEN, (itfen & !0x30) | 0x30);
+    notes.push(format!(
+        "v1 ITFEN: {itfen:#010x} → {:#010x}",
+        r(falcon::ITFEN)
+    ));
+
+    // Step 2: Write instance block to 0x480
+    let bind_val = (target << 28) | ((inst_addr >> 12) as u32);
+    w(falcon::FALCON_V1_INST, bind_val);
+    notes.push(format!(
+        "v1 inst: wrote {bind_val:#010x} to 0x480 (addr={inst_addr:#x} target={target})"
+    ));
+
+    // Step 3: ITFEN bits [5:4] = 0x10 (clear bit 5, keep bit 4)
+    w(falcon::ITFEN, (itfen & !0x30) | 0x10);
+    notes.push(format!(
+        "v1 ITFEN→{:#010x} (bit4 only)",
+        r(falcon::ITFEN)
+    ));
+
+    // Step 4: Poll IRQSTAT bit 3 + bind_stat [14:12] == 5
+    let start = std::time::Instant::now();
+    let mut bind_ok = false;
+    let mut last_irq;
+    let mut last_stat;
+    loop {
+        last_irq = r(falcon::IRQSTAT);
+        last_stat = r(FALCON_BIND_STAT);
+        if (last_irq & 0x0000_0008 != 0) && ((last_stat & 0x0000_7000) == 0x0000_5000) {
+            bind_ok = true;
+            break;
+        }
+        if start.elapsed() > std::time::Duration::from_millis(10) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(10));
+    }
+
+    if bind_ok {
+        notes.push(format!(
+            "v1 bind_stat→5 OK in {:?} (irq={last_irq:#010x} stat={last_stat:#010x})",
+            start.elapsed()
+        ));
+
+        // Step 5: Ack interrupt bit 3
+        let mask = r(falcon::IRQSCLR);
+        w(falcon::IRQSCLR, mask | 0x08);
+
+        // Step 6: Trigger channel load bit 1
+        let trigger = r(FALCON_CHANNEL_TRIGGER);
+        w(FALCON_CHANNEL_TRIGGER, trigger | 0x02);
+
+        // Step 7: Poll bind_stat → 0
+        let start2 = std::time::Instant::now();
+        loop {
+            let stat = r(FALCON_BIND_STAT);
+            if (stat & 0x0000_7000) == 0 {
+                notes.push(format!(
+                    "v1 bind_stat→0 OK in {:?} ({stat:#010x})",
+                    start2.elapsed()
+                ));
+                break;
+            }
+            if start2.elapsed() > std::time::Duration::from_millis(10) {
+                notes.push(format!("v1 bind_stat→0 TIMEOUT ({stat:#010x})"));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(10));
+        }
+    } else {
+        notes.push(format!(
+            "v1 bind_stat→5 TIMEOUT (irq={last_irq:#010x} stat={last_stat:#010x})"
+        ));
+    }
+
+    (bind_ok, notes)
+}
+
 // ── VRAM Instance Block for Falcon DMA ────────────────────────────────
 // VRAM addresses for the page table chain (below our ACR/WPR region)
 /// VRAM address of the falcon instance block.

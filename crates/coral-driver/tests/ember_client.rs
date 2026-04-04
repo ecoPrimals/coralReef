@@ -65,6 +65,84 @@ pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Ask ember to safely prepare a device for DMA experiments.
+///
+/// Ember maps BAR0 server-side, quiesces stale DMA engines (PFIFO reset,
+/// scheduler stop, blind PRI ring ACK), masks AER, and enables bus mastering.
+/// Call [`cleanup_dma`] when the experiment is done.
+pub fn prepare_dma(bdf: &str) -> Result<serde_json::Value, String> {
+    let socket_path = ember_socket_path();
+    let stream =
+        UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .map_err(|e| format!("set timeout: {e}"))?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "ember.prepare_dma",
+        "params": {"bdf": bdf},
+        "id": 3
+    });
+    let req_bytes = format!("{req}\n");
+    (&stream)
+        .write_all(req_bytes.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
+
+    let mut buf = [0u8; 4096];
+    let n = std::io::Read::read(&mut &stream, &mut buf).map_err(|e| format!("read: {e}"))?;
+
+    let resp: serde_json::Value =
+        serde_json::from_slice(&buf[..n]).map_err(|e| format!("parse: {e}"))?;
+
+    if let Some(err) = resp.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("ember.prepare_dma: {msg}"));
+    }
+
+    Ok(resp.get("result").cloned().unwrap_or_default())
+}
+
+/// Ask ember to clean up after a DMA experiment — disables bus master, restores AER.
+pub fn cleanup_dma(bdf: &str) -> Result<(), String> {
+    let socket_path = ember_socket_path();
+    let stream =
+        UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .map_err(|e| format!("set timeout: {e}"))?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "ember.cleanup_dma",
+        "params": {"bdf": bdf},
+        "id": 4
+    });
+    let req_bytes = format!("{req}\n");
+    (&stream)
+        .write_all(req_bytes.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
+
+    let mut buf = [0u8; 4096];
+    let n = std::io::Read::read(&mut &stream, &mut buf).map_err(|e| format!("read: {e}"))?;
+
+    let resp: serde_json::Value =
+        serde_json::from_slice(&buf[..n]).map_err(|e| format!("parse: {e}"))?;
+
+    if let Some(err) = resp.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("ember.cleanup_dma: {msg}"));
+    }
+
+    Ok(())
+}
+
 pub fn request_fds(bdf: &str) -> Result<ReceivedVfioFds, String> {
     let socket_path = ember_socket_path();
     let stream = UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;

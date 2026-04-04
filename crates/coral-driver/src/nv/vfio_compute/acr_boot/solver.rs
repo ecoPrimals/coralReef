@@ -12,7 +12,10 @@ use super::boot_result::{AcrBootResult, BootJournal};
 use super::fecs_method;
 use super::firmware::AcrFirmwareSet;
 use super::sec2_hal::Sec2Probe;
-use super::strategy_chain::{attempt_acr_chain, attempt_direct_acr_load};
+use super::strategy_chain::{
+    attempt_acr_chain, attempt_direct_acr_load, attempt_pio_acr_with_sysmem_wpr,
+    attempt_pio_acr_with_vram_wpr,
+};
 use super::strategy_hybrid::attempt_hybrid_acr_boot;
 use super::strategy_mailbox::{
     FalconBootvecOffsets, attempt_acr_mailbox_command, attempt_direct_falcon_upload,
@@ -20,16 +23,27 @@ use super::strategy_mailbox::{
     attempt_physical_first_boot,
 };
 use super::strategy_sysmem::attempt_sysmem_acr_boot;
-use super::strategy_vram::attempt_vram_acr_boot;
+use super::strategy_vram::{
+    DualPhaseConfig, attempt_dual_phase_boot_cfg, attempt_vram_acr_boot,
+};
 
 // ── Falcon Boot Solver (top-level orchestrator) ──────────────────────
+//
+// POST-DEVINIT CLEANUP (pending Exp 142 confirmation):
+// Once sovereign_boot() runs VBIOS DEVINIT as Phase 0 and ACR HS auth
+// succeeds, the strategy chain can be simplified:
+//   - Strategy 7c (PIO ACR + sysmem WPR) becomes the primary path
+//   - Strategies 1-3d (that work around uninitialized hardware) may be
+//     simplified or removed
+//   - The warm-up STARTCPU and FBIF hacks in earlier strategies become
+//     unnecessary with properly initialized hardware
 
 /// Classified FECS state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FecsState {
     /// FECS executing: mailbox non-zero and `HRESET` clear.
     Running,
-    /// FECS held in hardware reset (`CPUCTL_HRESET` set).
+    /// FECS firmware halted (`CPUCTL_HALTED` set).
     InHreset,
     /// FECS idle: not in `HRESET`, mailbox not indicating run.
     Halted,
@@ -88,9 +102,9 @@ impl FalconProbe {
 
         let fecs_state = if crate::vfio::channel::registers::pri::is_pri_error(fecs_cpuctl) {
             FecsState::Inaccessible
-        } else if fecs_mailbox0 != 0 && fecs_cpuctl & falcon::CPUCTL_HRESET == 0 {
+        } else if fecs_mailbox0 != 0 && fecs_cpuctl & falcon::CPUCTL_HALTED == 0 {
             FecsState::Running
-        } else if fecs_cpuctl & falcon::CPUCTL_HRESET != 0 {
+        } else if fecs_cpuctl & falcon::CPUCTL_HALTED != 0 {
             FecsState::InHreset
         } else {
             FecsState::Halted
@@ -117,9 +131,9 @@ impl FalconProbe {
     pub fn gpccs_state_label(&self) -> &'static str {
         if self.gpccs_cpuctl == 0xDEAD_DEAD {
             "UNREACHABLE"
-        } else if self.gpccs_cpuctl & falcon::CPUCTL_HRESET != 0 {
-            "HRESET"
         } else if self.gpccs_cpuctl & falcon::CPUCTL_HALTED != 0 {
+            "HRESET"
+        } else if self.gpccs_cpuctl & falcon::CPUCTL_STOPPED != 0 {
             "HALTED"
         } else if self.gpccs_exci != 0 {
             "FAULTED"
@@ -134,9 +148,9 @@ impl FalconProbe {
     pub fn fecs_state_label(&self) -> &'static str {
         if self.fecs_cpuctl == 0xDEAD_DEAD {
             "UNREACHABLE"
-        } else if self.fecs_cpuctl & falcon::CPUCTL_HRESET != 0 {
-            "HRESET"
         } else if self.fecs_cpuctl & falcon::CPUCTL_HALTED != 0 {
+            "HRESET"
+        } else if self.fecs_cpuctl & falcon::CPUCTL_STOPPED != 0 {
             "HALTED"
         } else if self.fecs_exci != 0 {
             "FAULTED"
@@ -213,9 +227,32 @@ impl FalconBootSolver {
         container: Option<DmaBackend>,
         journal: Option<&dyn BootJournal>,
     ) -> DriverResult<Vec<AcrBootResult>> {
+        Self::boot_inner(bar0, chip, container, journal, false)
+    }
+
+    /// PIO-only boot: skip all DMA-based strategies to avoid hangs on GPUs
+    /// whose PRIV ring or FBHUB is not fully initialized.
+    pub fn boot_pio_only(
+        bar0: &MappedBar,
+        chip: &str,
+        journal: Option<&dyn BootJournal>,
+    ) -> DriverResult<Vec<AcrBootResult>> {
+        Self::boot_inner(bar0, chip, None, journal, true)
+    }
+
+    fn boot_inner(
+        bar0: &MappedBar,
+        chip: &str,
+        container: Option<DmaBackend>,
+        journal: Option<&dyn BootJournal>,
+        pio_only: bool,
+    ) -> DriverResult<Vec<AcrBootResult>> {
         let mut results = Vec::new();
         let probe = FalconProbe::capture(bar0);
         tracing::info!("{probe}");
+        if pio_only {
+            tracing::info!("PIO-only mode: skipping all DMA-based strategies");
+        }
 
         let record = |r: &AcrBootResult| {
             if let Some(j) = journal {
@@ -240,74 +277,99 @@ impl FalconBootSolver {
             }
         };
 
-        // ── Strategy 1: Nouveau-style SEC2 boot ──
-        // Most faithful reproduction of Nouveau's gm200_flcn_enable +
-        // gm200_flcn_fw_load + gm200_flcn_fw_boot. Uses corrected reset
-        // sequence (0x3C0 → PMC enable → scrub → BOOT_0), physical DMA prep,
-        // and ALIAS_EN-aware STARTCPU.
-        tracing::info!("Strategy 1: Nouveau-style SEC2 boot (corrected sequence)...");
-        let nouveau_result = attempt_nouveau_boot(bar0, &fw);
-        tracing::info!("{nouveau_result}");
-        record(&nouveau_result);
-        let nouveau_success = nouveau_result.success;
-        results.push(nouveau_result);
-        if nouveau_success {
-            return Ok(results);
-        }
-
-        // ── Strategy 1b: Physical-first SEC2 boot ──
-        // Eliminates the instance block bind that stalls Strategy 1.
-        // Uses PMC reset + physical DMA only, matching nouveau's actual
-        // bootloader load path (no virtual addressing until ACR is running).
-        tracing::info!("Strategy 1b: Physical-first SEC2 boot (no instance block)...");
-        let physical_result = attempt_physical_first_boot(bar0, &fw);
-        tracing::info!("{physical_result}");
-        record(&physical_result);
-        let physical_success = physical_result.success;
-        results.push(physical_result);
-        if physical_success {
-            return Ok(results);
-        }
-
-        // ── Strategy 2: VRAM-based ACR boot ──
-        // Write ACR payload to VRAM via PRAMIN, then have the BL
-        // DMA-load from VRAM addresses (physical DMA stays on-GPU).
-        tracing::info!("Strategy 2: VRAM-based ACR boot (PRAMIN→VRAM→falcon DMA)...");
-        let vram_result = attempt_vram_acr_boot(bar0, &fw);
-        tracing::info!("{vram_result}");
-        record(&vram_result);
-        let vram_success = vram_result.success;
-        results.push(vram_result);
-        if vram_success {
-            return Ok(results);
-        }
-
-        // ── Strategy 3: System-memory ACR boot (Exp 083) ──
-        // Matches Nouveau's actual architecture: WPR, instance block, and
-        // page tables all in IOMMU-mapped system memory DMA buffers.
-        if let Some(ref dma_backend) = container {
-            tracing::info!("Strategy 3: System-memory ACR boot (IOMMU DMA)...");
-            let sysmem_result = attempt_sysmem_acr_boot(bar0, &fw, dma_backend.clone());
-            tracing::info!("{sysmem_result}");
-            record(&sysmem_result);
-            let sysmem_success = sysmem_result.success;
-            results.push(sysmem_result);
-            if sysmem_success {
+        // ── Strategies 1–3d: DMA-based SEC2/ACR boot paths ──
+        // Skipped entirely in PIO-only mode to avoid DMA hangs on GPUs
+        // with uninitialized PRIV ring / FBHUB.
+        if pio_only {
+            tracing::info!("PIO-only: skipping strategies 1–3d (DMA-based)");
+        } else {
+            // ── Strategy 1: Nouveau-style SEC2 boot ──
+            tracing::info!("Strategy 1: Nouveau-style SEC2 boot (corrected sequence)...");
+            let nouveau_result = attempt_nouveau_boot(bar0, &fw);
+            tracing::info!("{nouveau_result}");
+            record(&nouveau_result);
+            let nouveau_success = nouveau_result.success;
+            results.push(nouveau_result);
+            if nouveau_success {
                 return Ok(results);
             }
-        } else {
-            tracing::info!("No DMA backend — skipping system-memory ACR boot");
-        }
 
-        // ── Strategy 3b: Hybrid ACR boot (VRAM pages + sysmem data) ──
-        if let Some(ref dma_backend) = container {
-            tracing::info!("Strategy 3b: Hybrid ACR boot (VRAM pages + sysmem data)...");
-            let hybrid_result = attempt_hybrid_acr_boot(bar0, &fw, dma_backend.clone());
-            tracing::info!("{hybrid_result}");
-            record(&hybrid_result);
-            let hybrid_success = hybrid_result.success;
-            results.push(hybrid_result);
-            if hybrid_success {
+            // ── Strategy 1b: Physical-first SEC2 boot ──
+            tracing::info!("Strategy 1b: Physical-first SEC2 boot (no instance block)...");
+            let physical_result = attempt_physical_first_boot(bar0, &fw);
+            tracing::info!("{physical_result}");
+            record(&physical_result);
+            let physical_success = physical_result.success;
+            results.push(physical_result);
+            if physical_success {
+                return Ok(results);
+            }
+
+            // ── Strategy 2: VRAM-based ACR boot ──
+            tracing::info!("Strategy 2: VRAM-based ACR boot (PRAMIN→VRAM→falcon DMA)...");
+            let vram_result = attempt_vram_acr_boot(bar0, &fw);
+            tracing::info!("{vram_result}");
+            record(&vram_result);
+            let vram_success = vram_result.success;
+            results.push(vram_result);
+            if vram_success {
+                return Ok(results);
+            }
+
+            // ── Strategy 3: System-memory ACR boot ──
+            if let Some(ref dma_backend) = container {
+                tracing::info!("Strategy 3: System-memory ACR boot (IOMMU DMA)...");
+                let sysmem_result = attempt_sysmem_acr_boot(bar0, &fw, dma_backend.clone());
+                tracing::info!("{sysmem_result}");
+                record(&sysmem_result);
+                let sysmem_success = sysmem_result.success;
+                results.push(sysmem_result);
+                if sysmem_success {
+                    return Ok(results);
+                }
+            } else {
+                tracing::info!("No DMA backend — skipping system-memory ACR boot");
+            }
+
+            // ── Strategy 3b: Hybrid ACR boot (VRAM pages + sysmem data) ──
+            if let Some(ref dma_backend) = container {
+                tracing::info!("Strategy 3b: Hybrid ACR boot (VRAM pages + sysmem data)...");
+                let hybrid_result = attempt_hybrid_acr_boot(bar0, &fw, dma_backend.clone());
+                tracing::info!("{hybrid_result}");
+                record(&hybrid_result);
+                let hybrid_success = hybrid_result.success;
+                results.push(hybrid_result);
+                if hybrid_success {
+                    return Ok(results);
+                }
+            }
+
+            // ── Strategy 3c: Dual-phase VRAM ACR boot (default WPR2 off) ──
+            tracing::info!("Strategy 3c: Dual-phase VRAM ACR boot (legacy PDEs)...");
+            let dp_default = attempt_dual_phase_boot_cfg(bar0, &fw, &DualPhaseConfig::default());
+            tracing::info!("{dp_default}");
+            record(&dp_default);
+            let dp_default_success = dp_default.success;
+            results.push(dp_default);
+            if dp_default_success {
+                return Ok(results);
+            }
+
+            // ── Strategy 3d: Dual-phase with WPR2 hardware boundaries set ──
+            tracing::info!("Strategy 3d: Dual-phase VRAM ACR boot + WPR2 set...");
+            let dp_wpr2 = attempt_dual_phase_boot_cfg(
+                bar0,
+                &fw,
+                &DualPhaseConfig {
+                    set_wpr2: true,
+                    ..DualPhaseConfig::default()
+                },
+            );
+            tracing::info!("{dp_wpr2}");
+            record(&dp_wpr2);
+            let dp_wpr2_success = dp_wpr2.success;
+            results.push(dp_wpr2);
+            if dp_wpr2_success {
                 return Ok(results);
             }
         }
@@ -325,43 +387,46 @@ impl FalconBootSolver {
             }
         }
 
-        // ── Strategy 5: ACR mailbox command ──
-        tracing::info!("Strategy 5: ACR mailbox command (live SEC2)...");
-        let bootvec = FalconBootvecOffsets {
-            gpccs: fw.gpccs_bl.bl_imem_off(),
-            fecs: fw.fecs_bl.bl_imem_off(),
-        };
-        let mailbox_result = attempt_acr_mailbox_command(bar0, &bootvec);
-        tracing::info!("{mailbox_result}");
-        record(&mailbox_result);
-        let mailbox_success = mailbox_result.success;
-        results.push(mailbox_result);
-        if mailbox_success {
-            return Ok(results);
-        }
-
-        // Check if FECS is running even without the ready signal — if so,
-        // try the method interface directly before proceeding with more
-        // strategies that would reset the falcons.
-        let post5_probe = FalconProbe::capture(bar0);
-        if post5_probe.fecs_cpuctl & falcon::CPUCTL_HRESET == 0
-            && post5_probe.fecs_cpuctl != 0xDEAD_DEAD
-        {
-            tracing::info!(
-                pc = format!("{:#06x}", post5_probe.fecs_pc),
-                cpuctl = format!("{:#010x}", post5_probe.fecs_cpuctl),
-                "FECS is RUNNING after Strategy 5 — probing method interface"
-            );
-            let method_probe = fecs_method::fecs_probe_methods(bar0);
-            tracing::info!("{method_probe}");
-
-            if method_probe.ctx_size.is_ok() {
-                tracing::info!("*** FECS METHOD INTERFACE ALIVE — GR ENGINE ACCESSIBLE ***");
+        // ── Strategies 5, 7–9: SEC2 mailbox / DMA-heavy paths ──
+        if pio_only {
+            tracing::info!("PIO-only: skipping strategies 5, 7–9 (DMA / mailbox)");
+        } else {
+            // ── Strategy 5: ACR mailbox command ──
+            tracing::info!("Strategy 5: ACR mailbox command (live SEC2)...");
+            let bootvec = FalconBootvecOffsets {
+                gpccs: fw.gpccs_bl.bl_imem_off(),
+                fecs: fw.fecs_bl.bl_imem_off(),
+            };
+            let mailbox_result = attempt_acr_mailbox_command(bar0, &bootvec);
+            tracing::info!("{mailbox_result}");
+            record(&mailbox_result);
+            let mailbox_success = mailbox_result.success;
+            results.push(mailbox_result);
+            if mailbox_success {
                 return Ok(results);
+            }
+
+            // Check if FECS is running even without the ready signal.
+            let post5_probe = FalconProbe::capture(bar0);
+            if post5_probe.fecs_cpuctl & falcon::CPUCTL_HALTED == 0
+                && post5_probe.fecs_cpuctl != 0xDEAD_DEAD
+            {
+                tracing::info!(
+                    pc = format!("{:#06x}", post5_probe.fecs_pc),
+                    cpuctl = format!("{:#010x}", post5_probe.fecs_cpuctl),
+                    "FECS is RUNNING after Strategy 5 — probing method interface"
+                );
+                let method_probe = fecs_method::fecs_probe_methods(bar0);
+                tracing::info!("{method_probe}");
+
+                if method_probe.ctx_size.is_ok() {
+                    tracing::info!("*** FECS METHOD INTERFACE ALIVE — GR ENGINE ACCESSIBLE ***");
+                    return Ok(results);
+                }
             }
         }
 
-        // ── Strategy 6: Direct HRESET experiments ──
+        // ── Strategy 6: Direct HRESET experiments ── (PIO-safe)
         tracing::info!("Strategy 6: Direct HRESET experiments...");
         let direct_result = attempt_direct_hreset(bar0);
         tracing::info!("{direct_result}");
@@ -372,40 +437,75 @@ impl FalconBootSolver {
             return Ok(results);
         }
 
-        // ── Strategy 7: Direct ACR IMEM load ──
-        tracing::info!("Strategy 7: Direct ACR IMEM load (canary + firmware)...");
-        let direct_acr_result = attempt_direct_acr_load(bar0, &fw);
-        tracing::info!("{direct_acr_result}");
-        record(&direct_acr_result);
-        let direct_acr_success = direct_acr_result.success;
-        results.push(direct_acr_result);
-        if direct_acr_success {
-            return Ok(results);
-        }
-
-        // ── Strategy 8: Full ACR chain with DMA (legacy — physical addressing) ──
-        if let Some(dma_backend) = container {
-            tracing::info!("Strategy 8: Full ACR chain boot (DMA-backed, legacy)...");
-            let chain_result = attempt_acr_chain(bar0, &fw, dma_backend);
-            tracing::info!("{chain_result}");
-            record(&chain_result);
-            let chain_success = chain_result.success;
-            results.push(chain_result);
-            if chain_success {
+        // ── Strategy 7c: PIO ACR + system memory WPR (DMA-backed WPR in host RAM) ──
+        // Runs BEFORE 7b to avoid state pollution from 7b's falcon_prepare_physical_dma.
+        if let Some(ref dma_backend) = container {
+            tracing::info!(
+                "Strategy 7c: PIO ACR + sysmem WPR (DMA buffer, unmodified ACR code)..."
+            );
+            let sysmem_wpr_result =
+                attempt_pio_acr_with_sysmem_wpr(bar0, &fw, dma_backend.clone());
+            tracing::info!("{sysmem_wpr_result}");
+            record(&sysmem_wpr_result);
+            let sysmem_wpr_success = sysmem_wpr_result.success;
+            results.push(sysmem_wpr_result);
+            if sysmem_wpr_success {
                 return Ok(results);
             }
         } else {
-            tracing::info!("No DMA backend — skipping ACR chain");
+            tracing::info!("Strategy 7c: skipped (no DMA backend)");
         }
 
-        // ── Strategy 9: EMEM-based boot fallback ──
-        tracing::info!("Strategy 9: EMEM-based SEC2 boot (fallback)...");
-        let emem_result = attempt_emem_boot(bar0, &fw);
-        tracing::info!("{emem_result}");
-        record(&emem_result);
-        results.push(emem_result);
+        // ── Strategy 7b: PIO ACR + VRAM WPR (safe — all PIO, pre-populated WPR) ──
+        // Runs in both normal and PIO-only mode since it avoids BL DMA entirely.
+        tracing::info!("Strategy 7b: PIO ACR + VRAM WPR (no BL DMA, pre-populated WPR)...");
+        let pio_wpr_result = attempt_pio_acr_with_vram_wpr(bar0, &fw);
+        tracing::info!("{pio_wpr_result}");
+        record(&pio_wpr_result);
+        let pio_wpr_success = pio_wpr_result.success;
+        results.push(pio_wpr_result);
+        if pio_wpr_success {
+            return Ok(results);
+        }
 
-        // ── Strategy 10: Direct host IMEM/DMEM upload (bypass ACR DMA) ──
+        if pio_only {
+            tracing::info!("PIO-only: skipping strategies 7–9 (DMA / EMEM)");
+        } else {
+            // ── Strategy 7: Direct ACR IMEM load ──
+            tracing::info!("Strategy 7: Direct ACR IMEM load (canary + firmware)...");
+            let direct_acr_result = attempt_direct_acr_load(bar0, &fw);
+            tracing::info!("{direct_acr_result}");
+            record(&direct_acr_result);
+            let direct_acr_success = direct_acr_result.success;
+            results.push(direct_acr_result);
+            if direct_acr_success {
+                return Ok(results);
+            }
+
+            // ── Strategy 8: Full ACR chain with DMA ──
+            if let Some(dma_backend) = container {
+                tracing::info!("Strategy 8: Full ACR chain boot (DMA-backed, legacy)...");
+                let chain_result = attempt_acr_chain(bar0, &fw, dma_backend);
+                tracing::info!("{chain_result}");
+                record(&chain_result);
+                let chain_success = chain_result.success;
+                results.push(chain_result);
+                if chain_success {
+                    return Ok(results);
+                }
+            } else {
+                tracing::info!("No DMA backend — skipping ACR chain");
+            }
+
+            // ── Strategy 9: EMEM-based boot fallback ──
+            tracing::info!("Strategy 9: EMEM-based SEC2 boot (fallback)...");
+            let emem_result = attempt_emem_boot(bar0, &fw);
+            tracing::info!("{emem_result}");
+            record(&emem_result);
+            results.push(emem_result);
+        }
+
+        // ── Strategy 10: Direct host IMEM/DMEM upload (bypass ACR DMA) ── (PIO-safe)
         tracing::info!("Strategy 10: Direct host GPCCS/FECS firmware upload (Exp 091b)...");
         let direct_upload_result = attempt_direct_falcon_upload(bar0, &fw);
         tracing::info!("{direct_upload_result}");

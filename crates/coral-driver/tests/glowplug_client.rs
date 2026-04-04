@@ -117,6 +117,27 @@ impl GlowPlugClient {
             serde_json::json!({ "bdf": bdf, "method": method }),
         )
     }
+
+    /// Start an experiment session — pauses health probes and sets a watchdog.
+    pub fn experiment_start(
+        &mut self,
+        bdf: &str,
+        name: &str,
+        watchdog_secs: u64,
+    ) -> Result<serde_json::Value, String> {
+        self.call(
+            "device.experiment_start",
+            serde_json::json!({ "bdf": bdf, "name": name, "watchdog_secs": watchdog_secs }),
+        )
+    }
+
+    /// End an experiment session — resumes health probes.
+    pub fn experiment_end(&mut self, bdf: &str) -> Result<serde_json::Value, String> {
+        self.call(
+            "device.experiment_end",
+            serde_json::json!({ "bdf": bdf }),
+        )
+    }
 }
 
 /// RAII guard that lends a VFIO device from glowPlug and reclaims on drop.

@@ -41,6 +41,9 @@ pub(super) fn bind_vfio(
 
     match coral_driver::vfio::VfioDevice::open(bdf) {
         Ok(device) => {
+            // Bus master stays OFF — ember holds fds but never does DMA.
+            // Clients (experiments, glowplug) enable bus_master explicitly
+            // when they need GPU DMA, AFTER quiescing stale engines.
             let req_eventfd = crate::arm_req_irq(&device, bdf);
             tracing::info!(
                 bdf,
@@ -56,6 +59,8 @@ pub(super) fn bind_vfio(
                     device,
                     ring_meta: crate::hold::RingMeta::default(),
                     req_eventfd,
+                    experiment_dirty: false,
+                    dma_prepare_state: None,
                 },
             );
         }

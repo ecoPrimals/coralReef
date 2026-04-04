@@ -530,6 +530,7 @@ fn is_dangerous_offset(offset: usize) -> bool {
         | 0x0061_0000..=0x0061_0FFF // PDISP
         | 0x0000_2200              // PFIFO_ENABLE
         | 0x0000_0200              // PMC_ENABLE
+        | 0x0012_0058              // PRI_RING_INTR_STATUS — blocks CPU forever post-nouveau
     )
 }
 

@@ -163,6 +163,7 @@ pub(crate) fn reacquire(
     } else {
         match coral_driver::vfio::VfioDevice::open(bdf) {
             Ok(device) => {
+                // Bus master stays OFF — ember never does DMA.
                 let req_eventfd = crate::arm_req_irq(&device, bdf);
                 tracing::info!(
                     bdf,
@@ -178,6 +179,8 @@ pub(crate) fn reacquire(
                         device,
                         ring_meta: crate::hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
+                        dma_prepare_state: None,
                     },
                 );
                 drop(map);
@@ -399,5 +402,157 @@ pub(crate) fn ring_meta_set(
         drop(map);
         write_jsonrpc_error(stream, id, -32000, &format!("{bdf}: not held by ember"))
             .map_err(EmberIpcError::from)
+    }
+}
+
+/// Safely prepare a device for DMA experiments.
+///
+/// Maps BAR0 server-side, runs the centralized quiesce sequence
+/// (PFIFO reset, scheduler stop, blind PRI ACK), masks AER, and
+/// enables bus mastering. Stores the DMA state for later cleanup.
+pub(crate) fn prepare_dma(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), EmberIpcError> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
+
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    let dev = match map.get_mut(bdf) {
+        Some(d) => d,
+        None => {
+            drop(map);
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("{bdf}: not held by ember"),
+            )
+            .map_err(EmberIpcError::from);
+        }
+    };
+
+    if dev.dma_prepare_state.is_some() {
+        drop(map);
+        return write_jsonrpc_error(
+            stream,
+            id,
+            -32001,
+            &format!("{bdf}: DMA already prepared (call ember.cleanup_dma first)"),
+        )
+        .map_err(EmberIpcError::from);
+    }
+
+    let bar0 = match dev.device.map_bar(0) {
+        Ok(b) => b,
+        Err(e) => {
+            drop(map);
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("{bdf}: BAR0 map failed: {e}"),
+            )
+            .map_err(EmberIpcError::from);
+        }
+    };
+
+    let result =
+        coral_driver::vfio::device::dma_safety::prepare_dma(&bar0, &dev.device);
+    drop(bar0);
+
+    match result {
+        Ok(state) => {
+            let pmc_before = state.pmc_before;
+            let pmc_after = state.pmc_after;
+            dev.dma_prepare_state = Some(state);
+            dev.experiment_dirty = true;
+            drop(map);
+            tracing::info!(bdf, "ember.prepare_dma: complete");
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({
+                    "bdf": bdf,
+                    "ok": true,
+                    "pmc_before": format!("{pmc_before:#010x}"),
+                    "pmc_after": format!("{pmc_after:#010x}"),
+                }),
+            )
+            .map_err(EmberIpcError::from)
+        }
+        Err(e) => {
+            drop(map);
+            tracing::error!(bdf, error = %e, "ember.prepare_dma: failed");
+            write_jsonrpc_error(stream, id, -32000, &format!("prepare_dma: {e}"))
+                .map_err(EmberIpcError::from)
+        }
+    }
+}
+
+/// Clean up after a DMA experiment — disable bus master, restore AER masks.
+pub(crate) fn cleanup_dma(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), EmberIpcError> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
+
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    let dev = match map.get_mut(bdf) {
+        Some(d) => d,
+        None => {
+            drop(map);
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32000,
+                &format!("{bdf}: not held by ember"),
+            )
+            .map_err(EmberIpcError::from);
+        }
+    };
+
+    let state = match dev.dma_prepare_state.take() {
+        Some(s) => s,
+        None => {
+            drop(map);
+            return write_jsonrpc_error(
+                stream,
+                id,
+                -32001,
+                &format!("{bdf}: no DMA prepare state (call ember.prepare_dma first)"),
+            )
+            .map_err(EmberIpcError::from);
+        }
+    };
+
+    let result =
+        coral_driver::vfio::device::dma_safety::cleanup_dma(&dev.device, &state);
+    drop(map);
+
+    match result {
+        Ok(()) => {
+            tracing::info!(bdf, "ember.cleanup_dma: complete");
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({"bdf": bdf, "ok": true}),
+            )
+            .map_err(EmberIpcError::from)
+        }
+        Err(e) => {
+            tracing::error!(bdf, error = %e, "ember.cleanup_dma: failed");
+            write_jsonrpc_error(stream, id, -32000, &format!("cleanup_dma: {e}"))
+                .map_err(EmberIpcError::from)
+        }
     }
 }

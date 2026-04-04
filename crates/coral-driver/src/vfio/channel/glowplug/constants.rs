@@ -29,6 +29,7 @@ pub(crate) fn is_dangerous_register(off: usize) -> bool {
         0x100CBC | 0x100CB8 | 0x100CEC |  // MMU invalidation triggers
         0x100E24..=0x100E54 |  // Fault buffer registers
         0x10A040..=0x10A048 |  // PMU mailboxes — dynamic
-        0x10A100             // PMU CPUCTL — don't stop the PMU
+        0x10A100             | // PMU CPUCTL — don't stop the PMU
+        0x120058               // PRI_RING_INTR_STATUS — blocks CPU forever post-nouveau
     )
 }

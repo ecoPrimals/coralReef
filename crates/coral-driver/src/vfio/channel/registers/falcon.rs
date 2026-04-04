@@ -135,10 +135,16 @@ pub const CPUCTL_IINVAL: u32 = 1 << 0;
 /// Falcon v4+ CPUCTL: bit 1 = STARTCPU (release from HRESET).
 /// nouveau `gm200_flcn_fw_boot` writes 0x02 to start the CPU.
 pub const CPUCTL_STARTCPU: u32 = 1 << 1;
-/// CPUCTL bit: falcon is in hard reset state.
-pub const CPUCTL_HRESET: u32 = 1 << 4;
-/// CPUCTL bit: falcon is halted.
-pub const CPUCTL_HALTED: u32 = 1 << 5;
+/// CPUCTL bit 4: falcon has halted (exit instruction, ROM done, or fault).
+/// Nouveau `gm200_flcn_fw_boot` waits for `CPUCTL & 0x10` after STARTCPU.
+/// **NOTE**: this was previously named `CPUCTL_HRESET` — that name was wrong.
+pub const CPUCTL_HALTED: u32 = 1 << 4;
+/// Legacy alias — use [`CPUCTL_HALTED`] instead. Bit 4 is HALTED, not HRESET.
+pub const CPUCTL_HRESET: u32 = CPUCTL_HALTED;
+/// CPUCTL bit 5: falcon is stopped (hard reset state, or secondary stop).
+/// **NOTE**: this was previously named `CPUCTL_HALTED` — that name was wrong.
+/// Old code checking `CPUCTL_HALTED` was actually checking bit 5 (STOPPED).
+pub const CPUCTL_STOPPED: u32 = 1 << 5;
 /// HWCFG bit: security mode — signed firmware required.
 pub const HWCFG_SECURITY_MODE: u32 = 1 << 8;
 
@@ -154,6 +160,20 @@ pub const MTHD_STATUS2: usize = 0x804;
 pub const EXCEPTION_REG: usize = 0xC24;
 /// GR class configuration register (base-relative within PGRAPH).
 pub const GR_CLASS_CFG: usize = 0x802C;
+
+// ── Falcon v1 binding registers (GP102+/GV100 SEC2) ──────────────────
+// Used by nvkm_falcon_v1_bind_context + gp102_sec2_flcn_bind_context.
+// These replace the gm200-era CHANNEL_NEXT (0x054) / DMAIDX (0x604) path.
+
+/// Falcon v1 instance block address register.
+/// Format: `target << 28 | (vram_addr >> 12)`. Target 0 = VRAM.
+/// Nouveau: `nvkm_falcon_v1_bind_context` writes to `falcon_base + 0x480`.
+pub const FALCON_V1_INST: usize = 0x480;
+
+/// SEC2 debug register offset (from falcon_base).
+/// Nouveau: `gp102_sec2_flcn.debug = 0x408`.
+/// `nvkm_falcon_v1_enable` writes `device->boot0` to this register.
+pub const SEC2_DEBUG: usize = 0x408;
 
 /// FBIF_TRANSCFG — falcon bus interface configuration register.
 ///

@@ -117,7 +117,7 @@ fn classify_sec2(cpuctl: u32, sctl: u32, mailbox0: u32) -> Sec2State {
     if pri::is_pri_error(cpuctl) || cpuctl == 0xBADF_DEAD {
         return Sec2State::Inaccessible;
     }
-    if mailbox0 != 0 && (cpuctl & falcon::CPUCTL_HALTED == 0) {
+    if mailbox0 != 0 && (cpuctl & falcon::CPUCTL_STOPPED == 0) {
         return Sec2State::Running;
     }
     // SCTL bit 0 indicates HS authentication state. This is informational —
@@ -273,8 +273,9 @@ pub fn sec2_exit_diagnostics(bar0: &MappedBar, notes: &mut Vec<String>) {
 /// then the falcon-local ENGCTL toggle. Without the PMC reset, the falcon
 /// may not enter proper HRESET state and CPUCTL_STARTCPU has no effect.
 ///
-/// For SEC2 on GV100: PMC_ENABLE (0x200) bit 22 = SEC2 engine.
-/// Reset a Falcon microcontroller, matching Nouveau's `gm200_flcn_enable` sequence.
+/// For SEC2 on GV100 the PMC bit is read from PTOP (engine type 0x0d);
+/// fallback to bit 22 if PTOP lookup fails.
+/// Resets a Falcon microcontroller, matching Nouveau's `gm200_flcn_enable` sequence.
 ///
 /// Order is critical — Nouveau does:
 ///   1. Falcon-local reset via ENGCTL pulse
@@ -327,17 +328,19 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
     if base == falcon::SEC2_BASE {
         pmc_reset_sec2(bar0)?;
 
-        // Wait for ROM to exit HRESET. The ROM runs automatically after
-        // PMC enable but takes variable time to start executing.
+        // Wait for ROM to exit STOPPED state after PMC enable.
+        // The ROM runs automatically; CPUCTL bit 5 (STOPPED) clears when
+        // execution begins. After the ROM finishes scrubbing it halts
+        // (bit 4 = HALTED), which Step 7 below waits for.
         let hreset_start = std::time::Instant::now();
         let hreset_timeout = std::time::Duration::from_millis(3000);
         loop {
             let cpuctl_now = r(falcon::CPUCTL);
-            if cpuctl_now & falcon::CPUCTL_HRESET == 0 {
+            if cpuctl_now & falcon::CPUCTL_STOPPED == 0 {
                 tracing::info!(
                     cpuctl = format!("{cpuctl_now:#010x}"),
                     elapsed_us = hreset_start.elapsed().as_micros(),
-                    "SEC2 exited HRESET after PMC reset"
+                    "SEC2 exited STOPPED state after PMC reset"
                 );
                 break;
             }
@@ -346,7 +349,7 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
                     cpuctl = format!("{cpuctl_now:#010x}"),
                     sctl = format!("{:#010x}", r(falcon::SCTL)),
                     pc = format!("{:#010x}", r(falcon::PC)),
-                    "SEC2 did not exit HRESET after PMC reset (3s)"
+                    "SEC2 stuck in STOPPED state after PMC reset (3s)"
                 );
                 break;
             }
@@ -414,9 +417,10 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
     let boot0 = bar0.read_u32(0x000).unwrap_or(0);
     w(0x084, boot0)?;
 
-    // Step 7: Wait for CPUCTL_HALTED — the ROM scrubs IMEM/DMEM then HALTs.
-    // Nouveau: nvkm_falcon_v1_wait_for_halt(). This is CRITICAL: registers
-    // like 0x668 (instance block binding) can only be written while HALTED.
+    // Step 7: Wait for CPUCTL_HALTED (bit 4) — the ROM scrubs IMEM/DMEM
+    // then halts. Nouveau `nvkm_falcon_v1_wait_for_halt` checks `cpuctl & 0x10`.
+    // Registers like 0x668 (instance block binding) can only be written while
+    // the falcon is halted/stopped.
     let halt_start = std::time::Instant::now();
     let halt_timeout = std::time::Duration::from_millis(500);
     let mut halted = false;
@@ -427,7 +431,7 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
             tracing::info!(
                 cpuctl = format!("{cpuctl:#010x}"),
                 elapsed_us = halt_start.elapsed().as_micros(),
-                "falcon HALTED after scrub"
+                "falcon HALTED after scrub (bit 4 set)"
             );
             break;
         }
@@ -466,7 +470,13 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
 /// Only ENABLES the engine — does not disable first. A full PMC
 /// disable+enable cycle is a separate, more invasive operation.
 pub(crate) fn pmc_enable_sec2(bar0: &MappedBar) -> DriverResult<()> {
-    let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
+    let sec2_bit = match find_sec2_pmc_bit(bar0) {
+        Some(b) => b,
+        None => {
+            tracing::warn!("SEC2 PMC bit unknown — skipping PMC enable");
+            return Ok(());
+        }
+    };
     let sec2_mask = 1u32 << sec2_bit;
 
     let val = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
@@ -491,7 +501,13 @@ pub(crate) fn pmc_enable_sec2(bar0: &MappedBar) -> DriverResult<()> {
 /// Full PMC disable+enable cycle for SEC2 (more invasive than `pmc_enable_sec2`).
 /// Used by strategies that need a complete engine power cycle.
 pub(crate) fn pmc_reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
-    let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
+    let sec2_bit = match find_sec2_pmc_bit(bar0) {
+        Some(b) => b,
+        None => {
+            tracing::warn!("SEC2 PMC bit unknown — skipping PMC reset");
+            return Ok(());
+        }
+    };
     let sec2_mask = 1u32 << sec2_bit;
 
     let val = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
@@ -523,97 +539,139 @@ pub(crate) fn pmc_reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
     Ok(())
 }
 
-/// Scan PTOP table at 0x22700 to find SEC2's PMC reset/enable bits.
+/// Scan PTOP device info table at `0x22700` to find SEC2's PMC reset bit.
 ///
-/// GV100 PTOP uses multi-entry sequences:
+/// Matches nouveau's `gk104_top_parse` (GK104+ including GV100 Volta).
+/// The table at `0x22700 + i*4` uses multi-entry sequences terminated by
+/// bit 31 clear. Entry types (bits [1:0]):
 ///
-///   - type 0b01: engine definition (bits [11:2] = engine type, bits [15:12] = instance)
-///   - type 0b10: fault info
-///   - type 0b11: reset/enable info (bits [20:16] = reset bit, bits [25:21] = enable bit)
+///   - `0b00`: NOT_VALID (skip)
+///   - `0b01`: DATA — bits [23:12] = MMIO addr, bit 2 set → bits [9:3] = fault ID
+///   - `0b10`: ENUM — bit 2 set → bits [13:9] = PMC reset bit;
+///                     bit 3 set → bits [18:15] = intr leaf;
+///                     bit 4 set → bits [25:21] = runlist;
+///                     bit 5 set → bits [29:26] = engine ID
+///   - `0b11`: ENGINE_TYPE — bits [29:2] = engine type code
+///             (bit 31 is the continuation flag, NOT part of the type)
 ///
-/// SEC2 = engine type 0x15 (decimal 21).
+/// Engine types (from nouveau `gk104_top_parse`):
+///   0x00=GR, 0x01..0x03=CE, 0x0c=VIC, **0x0d=SEC2**, 0x14=GSP, 0x15=NVJPG
+///
+/// The PMC reset bit is `1 << info.reset` in NV_PMC_ENABLE (0x200).
+///
+/// **GV100 note**: SEC2 is NOT listed in PTOP on GV100 Titan V. When PTOP
+/// lookup fails, [`sec2_pmc_bit_by_chip`] provides a per-generation fallback.
 pub(crate) fn find_sec2_pmc_bit(bar0: &MappedBar) -> Option<u32> {
-    let mut found_sec2 = false;
-    let mut reset_bit = None;
-    let mut enable_bit = None;
+    if let Some(bit) = find_sec2_pmc_bit_ptop(bar0) {
+        return Some(bit);
+    }
+    let fallback = sec2_pmc_bit_by_chip(bar0);
+    tracing::info!(
+        bit = ?fallback,
+        "SEC2 not in PTOP — using chip-ID fallback"
+    );
+    fallback
+}
+
+/// PTOP scan for SEC2 engine (type 0x0d).
+fn find_sec2_pmc_bit_ptop(bar0: &MappedBar) -> Option<u32> {
+    const SEC2_ENGINE_TYPE: u32 = 0x0d;
+
+    let mut current_type: u32 = 0xFFFF_FFFF;
+    let mut current_reset: Option<u32> = None;
 
     for idx in 0..64u32 {
         let entry = bar0.read_u32(0x22700 + idx as usize * 4).unwrap_or(0);
-        if entry == 0 || entry == 0xFFFFFFFF {
-            if found_sec2 && (reset_bit.is_some() || enable_bit.is_some()) {
-                break;
-            }
-            found_sec2 = false;
-            continue;
+        if entry == 0 {
+            break;
         }
+        let entry_kind = entry & 0x3;
 
-        let entry_type = entry & 0x3;
-
-        if entry_type == 1 {
-            // Engine definition entry
-            let engine_type = (entry >> 2) & 0x3FF;
-            if engine_type == 0x15 {
-                found_sec2 = true;
-                let instance = (entry >> 12) & 0xF;
-                tracing::info!(
+        match entry_kind {
+            0 => continue, // NOT_VALID
+            1 => {
+                // DATA: addr/fault — nothing we need for PMC bit
+            }
+            2 => {
+                // ENUM: engine/runlist/intr/reset
+                if entry & (1 << 2) != 0 {
+                    let reset_bit = (entry >> 9) & 0x1F;
+                    current_reset = Some(reset_bit);
+                    tracing::trace!(
+                        ptop_idx = idx,
+                        entry = format!("{entry:#010x}"),
+                        reset_bit,
+                        "PTOP ENUM: reset bit"
+                    );
+                }
+            }
+            3 => {
+                // ENGINE_TYPE: mask out bit 31 (continuation flag)
+                current_type = (entry >> 2) & 0x1FFF_FFFF;
+                tracing::trace!(
                     ptop_idx = idx,
                     entry = format!("{entry:#010x}"),
-                    engine_type = format!("{engine_type:#x}"),
-                    instance,
-                    "PTOP: Found SEC2 engine entry"
+                    engine_type = format!("{current_type:#x}"),
+                    "PTOP ENGINE_TYPE"
                 );
-            } else if found_sec2 {
-                break; // next engine, stop
             }
-        } else if entry_type == 3 && found_sec2 {
-            // Reset/enable info entry (follows engine def)
-            let has_reset = entry & (1 << 14) != 0;
-            let has_enable = entry & (1 << 15) != 0;
-            let r_bit = (entry >> 16) & 0x1F;
-            let e_bit = (entry >> 21) & 0x1F;
-            tracing::info!(
-                ptop_idx = idx,
-                entry = format!("{entry:#010x}"),
-                has_reset,
-                reset_bit = r_bit,
-                has_enable,
-                enable_bit = e_bit,
-                "PTOP: SEC2 reset/enable info"
-            );
-            if has_reset {
-                reset_bit = Some(r_bit);
+            _ => unreachable!(),
+        }
+
+        // Bit 31 clear = end of this device's entries → commit
+        if entry & 0x8000_0000 == 0 {
+            if current_type == SEC2_ENGINE_TYPE {
+                if let Some(bit) = current_reset {
+                    tracing::info!(
+                        ptop_idx = idx,
+                        engine_type = format!("{SEC2_ENGINE_TYPE:#x}"),
+                        reset_bit = bit,
+                        "PTOP: found SEC2 PMC reset bit"
+                    );
+                    return Some(bit);
+                }
+                tracing::warn!(
+                    ptop_idx = idx,
+                    "PTOP: found SEC2 engine but no reset bit in ENUM"
+                );
             }
-            if has_enable {
-                enable_bit = Some(e_bit);
-            }
-        } else if entry_type == 2 && found_sec2 {
-            // Fault info entry
-            let fault_id = (entry >> 2) & 0x1FF;
-            tracing::info!(
-                ptop_idx = idx,
-                entry = format!("{entry:#010x}"),
-                fault_id,
-                "PTOP: SEC2 fault info"
-            );
+            // Reset per-device state for next device
+            current_type = 0xFFFF_FFFF;
+            current_reset = None;
         }
     }
 
-    // Dump ALL PTOP entries for debugging
-    tracing::info!("PTOP table dump (entries 0-31):");
-    for idx in 0..32u32 {
-        let entry = bar0.read_u32(0x22700 + idx as usize * 4).unwrap_or(0);
-        if entry != 0 && entry != 0xFFFFFFFF {
-            let etype = entry & 0x3;
-            tracing::info!(idx, entry = format!("{entry:#010x}"), etype, "PTOP[{idx}]");
+    tracing::debug!("SEC2 (engine type {SEC2_ENGINE_TYPE:#x}) not found in PTOP table");
+    None
+}
+
+/// Per-chip-family SEC2 PMC bit lookup for GPUs where SEC2 is absent from PTOP.
+///
+/// BOOT0 bits [31:20] encode the chip ID. Verified by live register probing:
+/// - GV100 (Titan V): SEC2 at PMC bit 5 (confirmed: clearing bit 5 causes
+///   SEC2 registers to return PRI errors `0xbad0da00`).
+///
+/// GP10x family uses bit 22 per envytools / community documentation.
+fn sec2_pmc_bit_by_chip(bar0: &MappedBar) -> Option<u32> {
+    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    let chip_id = (boot0 >> 20) & 0xFFF;
+    tracing::debug!(boot0 = format!("{boot0:#010x}"), chip_id = format!("{chip_id:#x}"), "chip ID for SEC2 PMC fallback");
+
+    match chip_id {
+        // GV100 (Titan V) — confirmed via live probe
+        0x140 => Some(5),
+        // GP102..GP108 (Pascal) — conventional bit 22
+        0x132..=0x138 => Some(22),
+        // TU10x (Turing)
+        0x164..=0x168 => Some(5),
+        _ => {
+            tracing::warn!(
+                chip_id = format!("{chip_id:#x}"),
+                "unknown chip — no SEC2 PMC bit fallback"
+            );
+            None
         }
     }
-
-    // Prefer enable_bit, fall back to reset_bit
-    let result = enable_bit.or(reset_bit);
-    if result.is_none() {
-        tracing::warn!("SEC2 PMC bit not found in PTOP, using fallback bit 22");
-    }
-    result
 }
 
 /// Reset SEC2 falcon specifically.
@@ -629,9 +687,9 @@ pub fn reset_sec2(bar0: &MappedBar) -> DriverResult<()> {
 /// (BIT(24) for write, BIT(25) for read). A PMC-level reset clears the
 /// falcon execution state (CPUCTL, EXCI, firmware) but does not clear SCTL.
 ///
-/// Sequence (matching nouveau's gm200_flcn_enable + gm200_flcn_fw_load):
-/// 1. PMC disable/enable — full hardware reset, clears execution state
-/// 2. ENGCTL local reset — extra cleanup (nouveau does both)
+/// Sequence (matching nouveau's gm200_flcn_enable order):
+/// 1. ENGCTL local reset (falcon-local engine reset, must come BEFORE PMC)
+/// 2. PMC disable/enable — full hardware reset, ROM starts fresh
 /// 3. Wait for memory scrub completion (DMACTL `bits[2:1]`)
 /// 4. Wait for ROM to halt (cpuctl bit 4)
 /// 5. Enable ITFEN ACCESS_EN for DMA
@@ -659,18 +717,23 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
         "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x} exci={pre_exci:#010x}"
     ));
 
-    // 1. PMC-level reset: clears falcon execution state (CPUCTL, EXCI, firmware).
-    //    SCTL (security mode) is fuse-enforced on GV100 and survives PMC reset.
-    match pmc_reset_sec2(bar0) {
-        Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
-        Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
-    }
-
+    // 1. ENGCTL local reset FIRST (nouveau: gp102_flcn_reset_eng, step 1).
+    //    Must come BEFORE PMC enable — doing PMC first causes the ROM to
+    //    auto-start, and the subsequent ENGCTL kills it mid-execution.
     w(falcon::ENGCTL, 0x01);
     std::thread::sleep(std::time::Duration::from_micros(10));
     w(falcon::ENGCTL, 0x00);
     notes.push("ENGCTL local reset pulse".to_string());
 
+    // 2. PMC-level reset: clears falcon execution state (CPUCTL, EXCI, firmware).
+    //    SCTL (security mode) is fuse-enforced on GV100 and survives PMC reset.
+    //    After this, the ROM runs automatically through scrub → halt.
+    match pmc_reset_sec2(bar0) {
+        Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
+        Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
+    }
+
+    // 3. Wait for memory scrub (DMACTL bits [2:1] = 0).
     let scrub_start = std::time::Instant::now();
     loop {
         let scrub = r(falcon::DMACTL);
@@ -690,7 +753,7 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
     let halt_start = std::time::Instant::now();
     loop {
         let cpuctl = r(falcon::CPUCTL);
-        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+        if cpuctl & falcon::CPUCTL_HALTED != 0 {
             notes.push(format!(
                 "ROM halted in {:?} cpuctl={cpuctl:#010x}",
                 halt_start.elapsed()
@@ -765,9 +828,9 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
 /// circular dependency (the MMU bind walker needs FBIF in physical mode to read the
 /// page tables it's trying to bind).
 ///
-/// Sequence:
-/// 1. PMC-level reset (clears secure mode from prior primer)
-/// 2. ENGCTL local reset (extra cleanup)
+/// Sequence (matching nouveau `gm200_flcn_enable` order):
+/// 1. ENGCTL local reset (falcon-local engine reset)
+/// 2. PMC-level reset (clears secure mode from prior primer, restarts ROM)
 /// 3. Wait for memory scrub completion
 /// 4. Wait for ROM halt
 /// 5. Write BOOT_0 chip ID
@@ -791,16 +854,17 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
         "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x} exci={pre_exci:#010x}"
     ));
 
-    // 1. PMC-level reset
-    match pmc_reset_sec2(bar0) {
-        Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
-        Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
-    }
-
+    // 1. ENGCTL local reset FIRST (nouveau: gp102_flcn_reset_eng, step 1).
     w(falcon::ENGCTL, 0x01);
     std::thread::sleep(std::time::Duration::from_micros(10));
     w(falcon::ENGCTL, 0x00);
     notes.push("ENGCTL local reset pulse".to_string());
+
+    // 2. PMC-level reset (after ENGCTL — ROM starts fresh on a properly reset falcon)
+    match pmc_reset_sec2(bar0) {
+        Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
+        Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
+    }
 
     // 3. Wait for memory scrub (DMACTL bits [2:1] = 0)
     let scrub_start = std::time::Instant::now();
@@ -822,7 +886,7 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
     let mut halted = false;
     loop {
         let cpuctl = r(falcon::CPUCTL);
-        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+        if cpuctl & falcon::CPUCTL_HALTED != 0 {
             notes.push(format!(
                 "ROM halted in {:?} cpuctl={cpuctl:#010x}",
                 halt_start.elapsed()
@@ -916,6 +980,150 @@ pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
             cpuctl_after
         );
     }
+}
+
+/// Prepare SEC2 for ACR boot using the correct falcon v1 register interface.
+///
+/// Matches nouveau's GV100 SEC2 ACR boot sequence exactly:
+///   `nvkm_falcon_reset` → `gp102_sec2_flcn_enable` + `nvkm_falcon_v1_disable`
+///   `nvkm_falcon_bind_context` → `nvkm_falcon_v1_bind_context` + SEC2 WAR
+///
+/// Corrects prior versions that used the gm200 register interface (0x054, 0x604)
+/// which is wrong for falcon v1 (GP102+/GV100). The v1 interface uses:
+///   - Instance block at register 0x480 (not 0x054)
+///   - ITFEN bits [5:4] for DMA control (not DMAIDX at 0x604)
+///   - Debug register at 0x408 (not 0x084)
+pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
+    let base = falcon::SEC2_BASE;
+    let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(base + off, val);
+    };
+    let mut notes = Vec::new();
+
+    let pre_cpuctl = r(falcon::CPUCTL);
+    let pre_sctl = r(falcon::SCTL);
+    notes.push(format!(
+        "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x}"
+    ));
+
+    // ── Phase 1: nvkm_falcon_reset (disable + enable) ──
+
+    // Step 1a: nvkm_falcon_v1_disable → MC disable
+    let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(5);
+    let sec2_mask = 1u32 << sec2_bit;
+    let pmc = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
+    if pmc & sec2_mask != 0 {
+        let _ = bar0.write_u32(misc::PMC_ENABLE, pmc & !sec2_mask);
+        let _ = bar0.read_u32(misc::PMC_ENABLE);
+        std::thread::sleep(std::time::Duration::from_micros(20));
+    }
+    notes.push(format!("MC disable: PMC bit {sec2_bit}"));
+
+    // Step 1b: gp102_sec2_flcn_enable — ENGCTL toggle (SEC2-specific WAR)
+    w(falcon::ENGCTL, r(falcon::ENGCTL) | 0x01);
+    std::thread::sleep(std::time::Duration::from_micros(10));
+    w(falcon::ENGCTL, r(falcon::ENGCTL) & !0x01);
+    notes.push("ENGCTL toggle (SEC2 pre-enable WAR)".to_string());
+
+    // Step 1c: nvkm_falcon_v1_enable → MC enable
+    let _ = bar0.write_u32(misc::PMC_ENABLE, pmc | sec2_mask);
+    let _ = bar0.read_u32(misc::PMC_ENABLE);
+    std::thread::sleep(std::time::Duration::from_micros(20));
+    notes.push("MC enable".to_string());
+
+    // Step 1d: nvkm_falcon_v1_wait_idle (wait for DMACTL scrub)
+    let scrub_start = std::time::Instant::now();
+    loop {
+        let dmactl = r(falcon::DMACTL);
+        if dmactl & 0x06 == 0 {
+            notes.push(format!(
+                "Scrub done in {:?} DMACTL={dmactl:#010x}",
+                scrub_start.elapsed()
+            ));
+            break;
+        }
+        if scrub_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("Scrub timeout DMACTL={dmactl:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // Step 1e: Write device boot0 to SEC2 debug register at 0x408
+    let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    w(falcon::SEC2_DEBUG, boot0);
+    notes.push(format!(
+        "Debug reg 0x408 ← {boot0:#010x}"
+    ));
+
+    // Wait for ROM to halt
+    let halt_start = std::time::Instant::now();
+    let mut halted = false;
+    loop {
+        let cpuctl = r(falcon::CPUCTL);
+        if cpuctl & falcon::CPUCTL_HALTED != 0 {
+            halted = true;
+            notes.push(format!(
+                "ROM halted in {:?} cpuctl={cpuctl:#010x}",
+                halt_start.elapsed()
+            ));
+            break;
+        }
+        if halt_start.elapsed() > std::time::Duration::from_millis(3000) {
+            notes.push(format!(
+                "HALT timeout (3s) cpuctl={:#010x}",
+                r(falcon::CPUCTL)
+            ));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    let post_cpuctl = r(falcon::CPUCTL);
+    let post_sctl = r(falcon::SCTL);
+    notes.push(format!(
+        "Post-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted}"
+    ));
+
+    // ── Phase 2: FBIF_TRANSCFG → VRAM routing ──
+    //
+    // Before binding the instance block, route FBIF DMA to physical VRAM.
+    // This breaks the circular dependency where the MMU walker needs FBIF to
+    // read page tables from VRAM, but FBIF defaults to VIRT (which requires
+    // the bind that hasn't completed yet). This matches nouveau's sequence:
+    // nvkm_falcon_mask(falcon, 0x624, 0x03, 0x01)  [PHYS_VID]
+    let fbif_before = r(falcon::FBIF_TRANSCFG);
+    w(
+        falcon::FBIF_TRANSCFG,
+        (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID,
+    );
+    let fbif_after = r(falcon::FBIF_TRANSCFG);
+    notes.push(format!(
+        "FBIF_TRANSCFG: {fbif_before:#010x} → {fbif_after:#010x} (PHYS_VID for VRAM PT walk)"
+    ));
+
+    // ── Phase 3: nvkm_falcon_bind_context (v1 path) ──
+
+    // Build VRAM page tables first
+    let pt_ok = instance_block::build_vram_falcon_inst_block(bar0);
+    notes.push(format!("VRAM page tables: ok={pt_ok}"));
+
+    let (bind_ok, bind_notes) = instance_block::falcon_v1_bind_context(
+        &|off| r(off),
+        &|off, val| w(off, val),
+        FALCON_INST_VRAM as u64,
+        0, // target = VRAM
+    );
+    notes.extend(bind_notes);
+
+    notes.push(format!(
+        "Bind: ok={bind_ok} ITFEN={:#010x} stat={:#010x}",
+        r(falcon::ITFEN),
+        r(instance_block::FALCON_BIND_STAT)
+    ));
+
+    (bind_ok && halted, notes)
 }
 
 /// Prepare a falcon for no-instance-block DMA (physical mode).

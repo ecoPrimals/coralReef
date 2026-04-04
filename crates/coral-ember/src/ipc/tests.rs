@@ -12,6 +12,7 @@ use crate::hold::HeldDevice;
 use crate::journal::{Journal, JournalEntry};
 
 use super::handlers_journal;
+use super::handlers_policy::{PolicyStore, new_policy_store};
 use super::jsonrpc::{make_jsonrpc_ok, write_jsonrpc_error};
 use super::{JsonRpcRequest, handle_client, send_with_fds};
 
@@ -23,6 +24,10 @@ fn empty_held() -> Arc<RwLock<HashMap<String, HeldDevice>>> {
 
 fn managed(bdfs: &[&str]) -> HashSet<String> {
     bdfs.iter().map(|s| (*s).to_string()).collect()
+}
+
+fn policies() -> PolicyStore {
+    new_policy_store()
 }
 
 const TEST_BDF: &str = "0000:01:00.0";
@@ -54,7 +59,7 @@ fn handle_client_empty_read_returns_ok() {
     drop(b);
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut a, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut a, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     drop(a);
 }
 
@@ -67,7 +72,7 @@ fn handle_client_invalid_json_emits_parse_error() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -88,7 +93,7 @@ fn handle_client_wrong_jsonrpc_version() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -109,7 +114,7 @@ fn handle_client_ember_list_empty() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["devices"], serde_json::json!([]));
 }
@@ -128,7 +133,7 @@ fn handle_client_ember_status_reports_uptime() {
     let started = Instant::now() - Duration::from_secs(10);
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, started, None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, started, None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     let uptime = v["result"]["uptime_secs"].as_u64().expect("uptime field");
     assert!(uptime >= 10);
@@ -147,7 +152,7 @@ fn handle_client_unknown_method() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -169,7 +174,7 @@ fn handle_client_ember_vfio_fds_missing_device() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -190,9 +195,9 @@ fn handle_client_ember_vfio_fds_missing_bdf_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None)
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.to_string().contains("bdf"), "{err}");
+    assert!(err.contains("bdf"), "{err}");
 }
 
 #[test]
@@ -208,9 +213,9 @@ fn handle_client_ember_reacquire_missing_bdf_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None)
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.to_string().contains("bdf"), "{err}");
+    assert!(err.contains("bdf"), "{err}");
 }
 
 #[test]
@@ -226,9 +231,9 @@ fn handle_client_ember_release_missing_bdf_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None)
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.to_string().contains("bdf"));
+    assert!(err.contains("bdf"));
 }
 
 #[test]
@@ -245,7 +250,7 @@ fn handle_client_ember_release_not_held() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -266,9 +271,9 @@ fn handle_client_ember_swap_missing_params() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None)
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.to_string().contains("target"));
+    assert!(err.contains("target"));
 }
 
 #[test]
@@ -285,7 +290,7 @@ fn handle_client_ember_reacquire_open_failure_returns_jsonrpc_error() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -310,7 +315,7 @@ fn handle_client_ember_swap_unbound_success() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["to_personality"], "unbound");
     assert_eq!(v["id"], serde_json::json!(42));
@@ -325,13 +330,9 @@ fn handle_client_non_utf8_request_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None)
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    let es = err.to_string();
-    assert!(
-        es.to_lowercase().contains("utf"),
-        "expected UTF-8 decode in error: {es}"
-    );
+    assert!(err.contains("utf8"), "{err}");
 }
 
 #[test]
@@ -357,7 +358,7 @@ fn handle_client_ember_swap_reports_error_from_swap() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -385,7 +386,7 @@ fn handle_client_swap_rejects_unmanaged_bdf() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -411,7 +412,7 @@ fn handle_client_reacquire_rejects_unmanaged_bdf() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -433,7 +434,7 @@ fn handle_client_ember_vfio_fds_rejects_unmanaged_bdf() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -487,6 +488,138 @@ fn send_with_fds_unix_stream() {
     send_with_fds(&a, b"ok", &fds).expect("send_with_fds with /dev/null fd");
 }
 
+// ── ember.mmio.read tests ────────────────────────────────────────────
+
+#[test]
+fn handle_client_mmio_read_missing_bdf() {
+    let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+    let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
+    let req = r#"{"jsonrpc":"2.0","method":"ember.mmio.read","params":{"offset":"0x0"},"id":800}"#;
+    client.write_all(req.as_bytes()).expect("write");
+    client.write_all(b"\n").expect("write newline");
+    let held = empty_held();
+    let m = managed(&[]);
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+        .expect_err("missing bdf should error");
+    assert!(err.contains("bdf"), "{err}");
+}
+
+#[test]
+fn handle_client_mmio_read_missing_offset() {
+    let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+    let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
+    let req =
+        r#"{"jsonrpc":"2.0","method":"ember.mmio.read","params":{"bdf":"0000:01:00.0"},"id":801}"#;
+    client.write_all(req.as_bytes()).expect("write");
+    client.write_all(b"\n").expect("write newline");
+    let held = empty_held();
+    let m = managed(&[]);
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+        .expect_err("missing offset should error");
+    assert!(err.contains("offset"), "{err}");
+}
+
+#[test]
+fn handle_client_mmio_read_nonexistent_device_returns_error() {
+    let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+    let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
+    let req = r#"{"jsonrpc":"2.0","method":"ember.mmio.read","params":{"bdf":"9999:99:99.9","offset":"0x0"},"id":802}"#;
+    client.write_all(req.as_bytes()).expect("write");
+    client.write_all(b"\n").expect("write newline");
+    let held = empty_held();
+    let m = managed(&[]);
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler completes");
+    let v = drain_json_line(&mut client);
+    assert!(
+        v["error"]["code"].as_i64().is_some(),
+        "should be error response"
+    );
+}
+
+// ── ember.fecs.state tests ───────────────────────────────────────────
+
+#[test]
+fn handle_client_fecs_state_missing_bdf() {
+    let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+    let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
+    let req = r#"{"jsonrpc":"2.0","method":"ember.fecs.state","params":{},"id":810}"#;
+    client.write_all(req.as_bytes()).expect("write");
+    client.write_all(b"\n").expect("write newline");
+    let held = empty_held();
+    let m = managed(&[]);
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+        .expect_err("missing bdf should error");
+    assert!(err.contains("bdf"), "{err}");
+}
+
+#[test]
+fn handle_client_fecs_state_nonexistent_device_returns_error() {
+    let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+    let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
+    let req =
+        r#"{"jsonrpc":"2.0","method":"ember.fecs.state","params":{"bdf":"9999:99:99.9"},"id":811}"#;
+    client.write_all(req.as_bytes()).expect("write");
+    client.write_all(b"\n").expect("write newline");
+    let held = empty_held();
+    let m = managed(&[]);
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler completes");
+    let v = drain_json_line(&mut client);
+    assert!(
+        v["error"]["code"].as_i64().is_some(),
+        "should be error response"
+    );
+}
+
+// ── ember.livepatch.* tests ─────────────────────────────────────────
+
+#[test]
+fn handle_client_livepatch_status_returns_result() {
+    let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
+    let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
+    let req = r#"{"jsonrpc":"2.0","method":"ember.livepatch.status","params":{},"id":820}"#;
+    client.write_all(req.as_bytes()).expect("write");
+    client.write_all(b"\n").expect("write newline");
+    let held = empty_held();
+    let m = managed(&[]);
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler completes");
+    let v = drain_json_line(&mut client);
+    let result = &v["result"];
+    assert!(result.get("loaded").is_some(), "should have 'loaded' field");
+    assert!(
+        result.get("enabled").is_some(),
+        "should have 'enabled' field"
+    );
+}
+
+// ── parse_hex_or_dec tests ──────────────────────────────────────────
+
+#[test]
+fn parse_hex_or_dec_numeric() {
+    let val = serde_json::json!(4198656u64);
+    let result = super::handlers_device::parse_hex_or_dec(Some(&val), "test");
+    assert_eq!(result.unwrap(), 4198656);
+}
+
+#[test]
+fn parse_hex_or_dec_hex_string() {
+    let val = serde_json::json!("0x409100");
+    let result = super::handlers_device::parse_hex_or_dec(Some(&val), "test");
+    assert_eq!(result.unwrap(), 0x409100);
+}
+
+#[test]
+fn parse_hex_or_dec_decimal_string() {
+    let val = serde_json::json!("12345");
+    let result = super::handlers_device::parse_hex_or_dec(Some(&val), "test");
+    assert_eq!(result.unwrap(), 12345);
+}
+
+#[test]
+fn parse_hex_or_dec_missing() {
+    let result = super::handlers_device::parse_hex_or_dec(None, "test");
+    assert!(result.is_err());
+}
+
 #[test]
 #[ignore = "requires GPU bound to vfio-pci and a real BDF"]
 fn handle_client_ember_vfio_fds_with_hardware() {
@@ -502,6 +635,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
         .write_all(b"\n")
         .expect("write request to test socket");
     let device = coral_driver::vfio::VfioDevice::open(&bdf).expect("open vfio device for hw test");
+    device.enable_bus_master().expect("enable bus_master for hw test");
     let mut map = HashMap::new();
     map.insert(
         bdf.clone(),
@@ -510,11 +644,13 @@ fn handle_client_ember_vfio_fds_with_hardware() {
             device,
             ring_meta: crate::hold::RingMeta::default(),
             req_eventfd: None,
+            experiment_dirty: false,
+            dma_prepare_state: None,
         },
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
-    handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
 }
 
 #[test]

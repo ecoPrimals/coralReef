@@ -105,6 +105,7 @@ fn exp114_ls_mailbox_pipeline() {
 
     let fds = ember_client::request_fds(&bdf).expect("ember fds");
     let vfio_dev = coral_driver::vfio::VfioDevice::from_received(&bdf, fds).expect("VfioDevice");
+    vfio_dev.enable_bus_master().expect("enable bus_master");
     let bar0 = vfio_dev.map_bar(0).expect("map_bar(0)");
 
     eprintln!("\n── Phase 1b: Post-Nouveau State ──");

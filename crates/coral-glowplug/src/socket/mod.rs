@@ -28,6 +28,8 @@
 //! | `device.reclaim`   | Reclaim a previously lent VFIO fd           |
 //! | `health.check`     | Daemon health check                         |
 //! | `health.liveness`  | Lightweight alive probe                     |
+//! | `device.experiment_start` | Start an experiment session — pause health probes, set watchdog |
+//! | `device.experiment_end` | End an experiment session — resume health probes |
 //! | `device.oracle_capture` | Capture MMU page tables via daemon (no VFIO access needed) |
 //! | `device.dispatch`  | Submit compute work (shader + buffers) through the daemon |
 //! | `device.compute_info` | Query NVML telemetry for a GPU            |

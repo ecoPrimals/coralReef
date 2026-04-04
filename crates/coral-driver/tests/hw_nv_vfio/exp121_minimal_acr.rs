@@ -119,6 +119,7 @@ fn exp121_minimal_acr() {
     eprintln!("  ember: received VFIO fds for {bdf}");
 
     let device = VfioDevice::from_received(&bdf, fds).expect("VfioDevice::from_received");
+    device.enable_bus_master().expect("enable bus_master");
     let dma = device.dma_backend();
     let bar0 = device.map_bar(0).expect("map BAR0");
 
