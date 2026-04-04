@@ -21,6 +21,9 @@ nvidia-drm = ["coral-driver/nvidia-drm"]
 vfio = ["coral-driver/vfio"]
 cuda = ["coral-driver/cuda"]
 
+[lints]
+workspace = true
+
 [dev-dependencies]
 coral-driver = { path = "../coral-driver", features = ["test-utils"] }
 naga = { version = "28", features = ["wgsl-in", "spv-out"] }

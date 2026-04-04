@@ -9,7 +9,9 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::hold::HeldDevice;
+use crate::journal::{Journal, JournalEntry};
 
+use super::handlers_journal;
 use super::jsonrpc::{make_jsonrpc_ok, write_jsonrpc_error};
 use super::{JsonRpcRequest, handle_client, send_with_fds};
 
@@ -25,6 +27,12 @@ fn managed(bdfs: &[&str]) -> HashSet<String> {
 
 const TEST_BDF: &str = "0000:01:00.0";
 const BOGUS_BDF: &str = "9999:99:99.9";
+
+fn first_json_line_bytes(buf: &[u8]) -> serde_json::Value {
+    let s = std::str::from_utf8(buf).expect("utf8 response");
+    let line = s.trim_end_matches('\n');
+    serde_json::from_str(line).expect("one json line")
+}
 
 fn drain_json_line(stream: &mut UnixStream) -> serde_json::Value {
     let mut buf = Vec::new();
@@ -507,4 +515,107 @@ fn handle_client_ember_vfio_fds_with_hardware() {
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
     handle_client(&mut server, &held, &m, Instant::now(), None).expect("handle_client completes");
+}
+
+#[test]
+fn handlers_journal_query_without_journal_returns_not_available() {
+    let mut buf = Vec::new();
+    handlers_journal::query(
+        &mut buf,
+        serde_json::json!(901),
+        &serde_json::json!({}),
+        None,
+    )
+    .expect("handler writes JSON-RPC line");
+    let v = first_json_line_bytes(&buf);
+    assert_eq!(v["error"]["code"], -32000);
+    let msg = v["error"]["message"].as_str().expect("message");
+    assert!(
+        msg.contains("journal not available"),
+        "unexpected message: {msg}"
+    );
+}
+
+#[test]
+fn handlers_journal_stats_without_journal_returns_not_available() {
+    let mut buf = Vec::new();
+    handlers_journal::stats(
+        &mut buf,
+        serde_json::json!(902),
+        &serde_json::json!({}),
+        None,
+    )
+    .expect("handler writes JSON-RPC line");
+    let v = first_json_line_bytes(&buf);
+    assert_eq!(v["error"]["code"], -32000);
+}
+
+#[test]
+fn handlers_journal_append_without_journal_returns_not_available() {
+    let mut buf = Vec::new();
+    handlers_journal::append(
+        &mut buf,
+        serde_json::json!(903),
+        &serde_json::json!({}),
+        None,
+    )
+    .expect("handler writes JSON-RPC line");
+    let v = first_json_line_bytes(&buf);
+    assert_eq!(v["error"]["code"], -32000);
+}
+
+#[test]
+fn handlers_journal_query_empty_file_returns_empty_entries() {
+    let tmp = tempfile::NamedTempFile::new().expect("temp journal");
+    let journal = Arc::new(Journal::open(tmp.path()));
+    let mut buf = Vec::new();
+    handlers_journal::query(
+        &mut buf,
+        serde_json::json!(904),
+        &serde_json::json!({}),
+        Some(&journal),
+    )
+    .expect("handler writes JSON-RPC line");
+    let v = first_json_line_bytes(&buf);
+    assert_eq!(v["result"]["entries"], serde_json::json!([]));
+}
+
+#[test]
+fn handlers_journal_append_rejects_malformed_entry() {
+    let tmp = tempfile::NamedTempFile::new().expect("temp journal");
+    let journal = Arc::new(Journal::open(tmp.path()));
+    let mut buf = Vec::new();
+    handlers_journal::append(
+        &mut buf,
+        serde_json::json!(905),
+        &serde_json::json!({}),
+        Some(&journal),
+    )
+    .expect("handler writes JSON-RPC line");
+    let v = first_json_line_bytes(&buf);
+    assert_eq!(v["error"]["code"], -32602);
+    let msg = v["error"]["message"].as_str().expect("message");
+    assert!(msg.contains("invalid journal entry"), "unexpected: {msg}");
+}
+
+#[test]
+fn handlers_journal_append_boot_attempt_succeeds() {
+    let tmp = tempfile::NamedTempFile::new().expect("temp journal");
+    let journal = Arc::new(Journal::open(tmp.path()));
+    let entry = JournalEntry::BootAttempt {
+        bdf: "0000:01:00.0".into(),
+        strategy: "unit-test".into(),
+        success: true,
+        sec2_exci: 0,
+        fecs_pc: 0,
+        gpccs_exci: 0,
+        notes: vec![],
+        timestamp_epoch_ms: 99,
+    };
+    let params = serde_json::to_value(&entry).expect("serialize entry");
+    let mut buf = Vec::new();
+    handlers_journal::append(&mut buf, serde_json::json!(906), &params, Some(&journal))
+        .expect("handler writes JSON-RPC line");
+    let v = first_json_line_bytes(&buf);
+    assert_eq!(v["result"]["ok"], true);
 }

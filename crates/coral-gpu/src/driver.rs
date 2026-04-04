@@ -47,14 +47,11 @@ pub fn default_nv_sm_nouveau() -> u32 {
 /// Blackwell SM100 use the nearest available variants with a warning. Any
 /// still-unmapped SM falls back to [`NvArch::Sm70`] with a warning.
 #[must_use]
-pub(crate) fn sm_to_nvarch(sm: u32) -> NvArch {
+pub fn sm_to_nvarch(sm: u32) -> NvArch {
     match sm {
-        35 | 37 => NvArch::Sm35,
-        50 | 52 | 53 => NvArch::Sm35,
-        60..=62 => NvArch::Sm75,
+        35 | 37 | 50 | 52 | 53 => NvArch::Sm35,
+        60..=62 | 75..=79 => NvArch::Sm75,
         70..=74 => NvArch::Sm70,
-        75 => NvArch::Sm75,
-        76..=79 => NvArch::Sm75,
         80..=85 => NvArch::Sm80,
         86..=88 => NvArch::Sm86,
         89 => NvArch::Sm89,
@@ -65,13 +62,6 @@ pub(crate) fn sm_to_nvarch(sm: u32) -> NvArch {
             );
             NvArch::Sm89
         }
-        91..=99 => {
-            tracing::warn!(
-                sm,
-                "unmapped NVIDIA SM version; using NvArch::Sm70 for codegen"
-            );
-            NvArch::Sm70
-        }
         100 => {
             tracing::warn!(
                 sm,
@@ -79,7 +69,7 @@ pub(crate) fn sm_to_nvarch(sm: u32) -> NvArch {
             );
             NvArch::Sm120
         }
-        101..=119 => {
+        91..=99 | 101..=119 => {
             tracing::warn!(
                 sm,
                 "unmapped NVIDIA SM version; using NvArch::Sm70 for codegen"
@@ -100,7 +90,7 @@ pub(crate) fn sm_to_nvarch(sm: u32) -> NvArch {
 /// Map `amd_arch()` / PCI-derived strings to [`AmdArch`] for the given render node.
 #[cfg(target_os = "linux")]
 #[must_use]
-pub(crate) fn amd_arch_from_sysfs(path: &str) -> AmdArch {
+pub fn amd_arch_from_sysfs(path: &str) -> AmdArch {
     use coral_driver::nv::ioctl::probe_gpu_identity;
 
     let Some(id) = probe_gpu_identity(path) else {
@@ -121,15 +111,14 @@ pub(crate) fn amd_arch_from_sysfs(path: &str) -> AmdArch {
         Some("rdna3") => AmdArch::Rdna3,
         Some("rdna4") => AmdArch::Rdna4,
         Some(other) => {
-            if let Some(parsed) = AmdArch::parse(other) {
-                parsed
-            } else {
+            let Some(parsed) = AmdArch::parse(other) else {
                 tracing::warn!(
                     arch = other,
                     "unknown AMD architecture string from sysfs; defaulting to Rdna2"
                 );
-                AmdArch::Rdna2
-            }
+                return AmdArch::Rdna2;
+            };
+            parsed
         }
         None => {
             tracing::warn!(
@@ -143,7 +132,7 @@ pub(crate) fn amd_arch_from_sysfs(path: &str) -> AmdArch {
 /// Detect the NVIDIA SM version from any available render node.
 /// Falls back to the provided default if detection fails.
 #[cfg(all(target_os = "linux", feature = "nvidia-drm"))]
-pub(crate) fn sm_from_sysfs_or(default: u32) -> u32 {
+pub fn sm_from_sysfs_or(default: u32) -> u32 {
     use coral_driver::drm::enumerate_render_nodes;
     for node in enumerate_render_nodes() {
         if node.driver == preference::DRIVER_NVIDIA_DRM {
@@ -157,7 +146,7 @@ pub(crate) fn sm_from_sysfs_or(default: u32) -> u32 {
 
 /// Detect the NVIDIA SM version from sysfs for a render node path.
 #[cfg(target_os = "linux")]
-pub(crate) fn sm_from_sysfs(path: &str) -> u32 {
+pub fn sm_from_sysfs(path: &str) -> u32 {
     coral_driver::nv::ioctl::probe_gpu_identity(path)
         .and_then(|id| id.nvidia_sm())
         .unwrap_or_else(default_nv_sm_nouveau)
@@ -165,7 +154,7 @@ pub(crate) fn sm_from_sysfs(path: &str) -> u32 {
 
 /// Detect the GPU target from sysfs for an nvidia-drm render node.
 #[cfg(all(target_os = "linux", feature = "nvidia-drm"))]
-pub(crate) fn sm_target_from_sysfs(path: &str) -> GpuTarget {
+pub fn sm_target_from_sysfs(path: &str) -> GpuTarget {
     let sm = coral_driver::nv::ioctl::probe_gpu_identity(path)
         .and_then(|id| id.nvidia_sm())
         .unwrap_or_else(default_nv_sm);
@@ -178,7 +167,7 @@ pub(crate) fn sm_target_from_sysfs(path: &str) -> GpuTarget {
 /// through Blackwell use the same constants as BAR0 / VFIO paths.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
 #[must_use]
-pub(crate) fn sm_to_compute_class(sm: u32) -> u32 {
+pub const fn sm_to_compute_class(sm: u32) -> u32 {
     coral_driver::nv::identity::sm_to_compute_class(sm)
 }
 
@@ -186,7 +175,7 @@ pub(crate) fn sm_to_compute_class(sm: u32) -> u32 {
 ///
 /// Returns the first BDF address of an NVIDIA GPU bound to `vfio-pci`, or `None`.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
-pub(crate) fn discover_vfio_nvidia_bdf() -> Option<String> {
+pub fn discover_vfio_nvidia_bdf() -> Option<String> {
     let vfio_dir_path = linux_paths::sysfs_join(&["bus", "pci", "drivers", "vfio-pci"]);
     let vfio_dir = std::path::Path::new(&vfio_dir_path);
     let entries = std::fs::read_dir(vfio_dir).ok()?;
@@ -216,14 +205,13 @@ pub(crate) fn discover_vfio_nvidia_bdf() -> Option<String> {
 ///
 /// Used by [`vfio_detect_sm`] and unit-tested without sysfs I/O.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
-pub(crate) fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
+pub fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
     match device_id {
         Some(0x1003 | 0x1004 | 0x1023 | 0x1024) => 35, // GK110/GK210 (K80, K40)
         Some(0x1D81) => 70,                            // Titan V
         Some(0x1E00..=0x1E8F) => 75,                   // Turing (TU10x)
         Some(0x2200..=0x2203 | 0x2207..=0x22FF) => 80, // GA100
-        Some(0x2204..=0x2206) => 86,                   // GA102 (RTX 3090/3080)
-        Some(0x2300..=0x23FF) => 86,                   // GA10x
+        Some(0x2204..=0x2206 | 0x2300..=0x23FF) => 86, // GA102/GA10x (RTX 3090/3080)
         Some(0x2400..=0x28FF) => 89,                   // Ada Lovelace (AD102-AD107)
         Some(0x2900..=0x29FF) => 120,                  // Blackwell (GB20x)
         _ => default_nv_sm(),
@@ -232,7 +220,7 @@ pub(crate) fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
 
 /// Detect SM version for a VFIO-bound GPU from sysfs device ID.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
-pub(crate) fn vfio_detect_sm(bdf: &str) -> u32 {
+pub fn vfio_detect_sm(bdf: &str) -> u32 {
     let device_path = linux_paths::sysfs_pci_device_file(bdf, "device");
     let device_id = std::fs::read_to_string(&device_path)
         .ok()

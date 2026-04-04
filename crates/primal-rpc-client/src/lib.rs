@@ -29,6 +29,32 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! Unix socket and [`no_params`](crate::no_params) for methods that take no arguments:
+//!
+//! ```no_run
+//! # async fn example() -> Result<(), primal_rpc_client::RpcError> {
+//! use primal_rpc_client::{no_params, RpcClient};
+//!
+//! let client = RpcClient::unix("/run/coralreef/primal.sock");
+//! let _: String = client.request("gpu.health", no_params()).await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Delegated TLS (HTTP to a local edge proxy) and notifications:
+//!
+//! ```no_run
+//! # async fn example() -> Result<(), primal_rpc_client::RpcError> {
+//! use primal_rpc_client::RpcClient;
+//! use std::net::SocketAddr;
+//!
+//! let proxy: SocketAddr = "127.0.0.1:8443".parse().unwrap();
+//! let client = RpcClient::delegated_tls_proxy(proxy, "reef.example.com");
+//! client.notify("telemetry.heartbeat", serde_json::json!({ "ok": true })).await?;
+//! # Ok(())
+//! # }
+//! ```
 
 mod error;
 mod transport;
@@ -69,6 +95,14 @@ struct JsonRpcResponse<R> {
 
 impl RpcClient {
     /// Create a client that connects via TCP to the given address.
+    ///
+    /// ```
+    /// use primal_rpc_client::RpcClient;
+    /// use std::net::SocketAddr;
+    ///
+    /// let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse");
+    /// let _ = RpcClient::tcp(addr);
+    /// ```
     #[must_use]
     pub const fn tcp(addr: std::net::SocketAddr) -> Self {
         Self {
@@ -77,6 +111,12 @@ impl RpcClient {
     }
 
     /// Create a client that connects via Unix domain socket.
+    ///
+    /// ```
+    /// use primal_rpc_client::RpcClient;
+    ///
+    /// let _ = RpcClient::unix("/run/coralreef/primal.sock");
+    /// ```
     #[must_use]
     pub fn unix(path: impl Into<std::path::PathBuf>) -> Self {
         Self {
@@ -88,6 +128,14 @@ impl RpcClient {
     ///
     /// `proxy_addr` is the local HTTP listen address of the TLS edge. `target_host`
     /// is the upstream hostname the edge uses for the TLS 1.3 connection.
+    ///
+    /// ```
+    /// use primal_rpc_client::RpcClient;
+    /// use std::net::SocketAddr;
+    ///
+    /// let proxy: SocketAddr = "127.0.0.1:8443".parse().expect("parse");
+    /// let _ = RpcClient::delegated_tls_proxy(proxy, "upstream.local");
+    /// ```
     #[must_use]
     pub fn delegated_tls_proxy(
         proxy_addr: std::net::SocketAddr,
@@ -158,6 +206,13 @@ impl RpcClient {
 }
 
 /// Convenience: empty params for methods that take none.
+///
+/// ```
+/// use primal_rpc_client::no_params;
+///
+/// let params = no_params();
+/// assert_eq!(params.len(), 0);
+/// ```
 #[must_use]
 pub const fn no_params() -> [(); 0] {
     []

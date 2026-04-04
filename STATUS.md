@@ -1006,6 +1006,23 @@
 | Test expansion | ✅ | 1721 passing (+52), 0 failed, 61 ignored (−13 from fixed doctests + test consolidation) |
 | Coverage | ✅ | 65.74% line, 73.48% function (up from 64%) |
 
+### Iteration 74: Deep Debt Execution — Lint Evolution + Coverage + Refactoring (Apr 4, 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `.cargo/config.toml` build optimization | ✅ | LTO=thin, codegen-units=1, strip=symbols (release); split-debuginfo (dev) |
+| coral-gpu workspace lint inheritance | ✅ | `[lints] workspace = true` + all 33 pedantic/nursery findings fixed |
+| `#[allow]` → `#[expect]` evolution | ✅ | coral-ember error.rs, SAFETY comment on vfio ioctl gap |
+| ORC license component | ✅ | LICENSE-ORC added, LICENSE updated with scyBorg trio section |
+| Unsafe code evolution | ✅ | `DmaBufferBytes` abstraction, Send/Sync type docs on 6 types, SAFETY audit (3 gaps fixed) |
+| Smart refactoring | ✅ | `pci_discovery.rs` (966→7 files), `uvm_compute.rs` (969→5 files) — cohesive submodules |
+| Hardcoding evolution | ✅ | `CORALREEF_EMBER_TCP_HOST`, `CORALREEF_NEWLINE_TCP_HOST` env overrides |
+| Coverage expansion | ✅ | +89 tests: coral-driver (gsp, linux_paths, identity, qmd + 3 integration), coral-glowplug (error, sec2_bridge), coral-ember (handlers_journal, error), doctests (4 crates) |
+| External dependency analysis | ✅ | cudarc only C/FFI (optional), libc via tokio tracked, deny.toml sound |
+| Clone reduction analysis | ✅ | SSARef has Box variant (not Copy) — clones structurally required; arena/interning for future |
+| Debris cleanup | ✅ | tests.rs.bak removed, stale doc references updated |
+| Test expansion | ✅ | 4318 → 4407 passing (+89), 153 ignored (stable) |
+
 ### Iteration 44: USERD_TARGET + INST_TARGET Runlist Fix (Mar 13 2026)
 
 | Item | Status | Detail |
@@ -1060,8 +1077,8 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4047 passing, 0 failed, 121 ignored hardware-gated) |
-| `cargo llvm-cov` | ~66% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
+| `cargo test --workspace` | PASS (4407 passing, 0 failed, 153 ignored hardware-gated) |
+| `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |

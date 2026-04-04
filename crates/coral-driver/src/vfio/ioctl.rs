@@ -173,6 +173,7 @@ pub(crate) fn device_pci_hot_reset(
     let ioctl = VfioIoctlPtr::<{ ioctls::OP_DEVICE_PCI_HOT_RESET }, _> {
         ptr: std::ptr::from_mut(arg),
     };
+    // SAFETY: fd is a valid VFIO device fd; arg has kernel-expected layout for PCI hot reset.
     unsafe { rustix::ioctl::ioctl(fd, ioctl) }.map_err(|e| vfio_err("DEVICE_PCI_HOT_RESET", e))
 }
 

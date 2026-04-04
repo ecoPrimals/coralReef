@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Typed errors for sysfs, swap, trace, and IPC transport.
-#![allow(missing_docs)] // Variants are self-describing via `#[error]` and thiserror `Display`.
+#![expect(
+    missing_docs,
+    reason = "Variants are self-describing via `#[error]` and thiserror `Display`."
+)]
 
 /// Errors from sysfs driver operations.
 #[derive(Debug, thiserror::Error)]

@@ -553,4 +553,51 @@ mod tests {
         assert_eq!(get_field(&q, 256, 16), 1);
         assert_eq!(get_field(&q, 272, 16), 1);
     }
+
+    #[test]
+    fn qmd_v22_sets_minor_version_two() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_v22(&params);
+        assert_eq!(get_field(&q, 0, 4), 2);
+        assert_eq!(get_field(&q, 4, 4), 2);
+    }
+
+    #[test]
+    fn qmd_set_field_width_32_fits_single_word() {
+        let mut q = [0u32; QMD_SIZE_WORDS];
+        qmd_set_field(&mut q, 0, 32, 0xDEAD_BEEF);
+        assert_eq!(q[0], 0xDEAD_BEEF);
+    }
+
+    #[test]
+    fn qmd_shared_memory_size_field_truncates_to_18_bits() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.shared_mem_bytes = 262_144;
+        let q = build_qmd_v21(&params);
+        let aligned = (262_144_u32 + 255) & !255;
+        assert_eq!(aligned, 262_144);
+        let masked = u64::from(aligned) & ((1u64 << 18) - 1);
+        assert_eq!(get_field(&q, 640, 18), masked);
+    }
+
+    #[test]
+    fn qmd_duplicate_cbuf_slot_last_binding_wins() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.cbufs.push(CbufBinding {
+            index: 0,
+            addr: 0x1_0000_0000,
+            size: 1024,
+        });
+        params.cbufs.push(CbufBinding {
+            index: 0,
+            addr: 0x5_0000_0000,
+            size: 2048,
+        });
+        let q = build_qmd_v21(&params);
+        let lo = get_field(&q, 1536, 32);
+        let hi = get_field(&q, 1536 + 32, 8);
+        let addr = lo | (hi << 32);
+        assert_eq!(addr, 0x5_0000_0000);
+        assert_eq!(get_field(&q, 1536 + 40, 17), u64::from(2048_u32 >> 4));
+    }
 }

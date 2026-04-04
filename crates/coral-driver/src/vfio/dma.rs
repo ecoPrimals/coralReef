@@ -28,18 +28,72 @@ use super::types::{IommuIoasMap, IommuIoasUnmap, VfioDmaMap, VfioDmaUnmap};
 
 const PAGE_SIZE: usize = 4096;
 
+/// Provenance for the host-visible bytes backing a [`DmaBuffer`].
+///
+/// **Invariants** (established only in [`DmaBuffer::new`] after successful
+/// `alloc_zeroed` with page alignment, `mlock`, and DMA map):
+///
+/// - `ptr` is non-null and `PAGE_SIZE`-aligned.
+/// - `len` is a positive multiple of `PAGE_SIZE` and matches the allocation.
+/// - The range is valid for reads and writes, zero-initialized, and exclusively
+///   owned by the enclosing [`DmaBuffer`] until [`Drop`].
+///
+/// Slice views use `from_raw_parts` only inside this module; callers do not repeat
+/// pointer/length safety reasoning on every access.
+struct DmaBufferBytes {
+    ptr: NonNull<u8>,
+    len: usize,
+}
+
+impl DmaBufferBytes {
+    fn new(ptr: NonNull<u8>, len: usize) -> Self {
+        debug_assert!(len > 0 && len.is_multiple_of(PAGE_SIZE));
+        Self { ptr, len }
+    }
+
+    #[inline]
+    fn as_slice(&self) -> &[u8] {
+        // SAFETY: Invariants are documented on `DmaBufferBytes`. Only
+        // `DmaBuffer::new` constructs this after `alloc_zeroed` with matching
+        // layout. `&self` means no concurrent host mutation.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+
+    #[inline]
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: Same allocation as `as_slice`; `&mut self` grants exclusive
+        // access for host-side writes.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+
+    #[inline]
+    const fn ptr(&self) -> NonNull<u8> {
+        self.ptr
+    }
+
+    #[inline]
+    const fn len(&self) -> usize {
+        self.len
+    }
+}
+
 /// IOMMU-mapped DMA buffer for VFIO GPU operations.
 ///
 /// Allocated page-aligned, mlock'd to prevent swapping, and mapped through the
 /// IOMMU so the GPU can read/write via the assigned IOVA. Automatically
 /// unmapped and freed on drop.
 ///
-/// `vaddr` is `NonNull` — the non-null invariant is guaranteed at construction
-/// and upheld through the lifetime of the buffer.
+/// ## Thread safety (`Send` / `Sync`)
+///
+/// The host pointer refers to a dedicated allocation that is only accessed
+/// through `&self` / `&mut self` on this type (Rust borrow rules). The VFIO
+/// container / iommufd handles behind [`DmaBackend`] are `Send` + `Sync`. It is
+/// therefore sound to move or share a [`DmaBuffer`] across threads when the
+/// device DMA mapping contract allows concurrent device access to the same IOVA
+/// (as enforced by the caller’s queueing model).
 pub struct DmaBuffer {
-    vaddr: NonNull<u8>,
+    bytes: DmaBufferBytes,
     iova: u64,
-    size: usize,
     /// DMA mapping backend (legacy container or iommufd IOAS).
     backend: DmaBackend,
 }
@@ -116,25 +170,20 @@ impl DmaBuffer {
         );
 
         Ok(Self {
-            vaddr,
+            bytes: DmaBufferBytes::new(vaddr, aligned_size),
             iova,
-            size: aligned_size,
             backend,
         })
     }
 
     /// Immutable slice view of the buffer contents.
     pub fn as_slice(&self) -> &[u8] {
-        // SAFETY: NonNull guarantees non-null; new() guarantees valid for `size` bytes
-        // and size > 0; &self prevents concurrent mutation.
-        unsafe { std::slice::from_raw_parts(self.vaddr.as_ptr(), self.size) }
+        self.bytes.as_slice()
     }
 
     /// Mutable slice view for writing data into the buffer.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: NonNull guarantees non-null; new() guarantees valid for `size` bytes;
-        // &mut self guarantees exclusive access.
-        unsafe { std::slice::from_raw_parts_mut(self.vaddr.as_ptr(), self.size) }
+        self.bytes.as_mut_slice()
     }
 
     /// Device-visible I/O virtual address.
@@ -146,7 +195,7 @@ impl DmaBuffer {
     /// Buffer size in bytes (page-aligned).
     #[must_use]
     pub const fn size(&self) -> usize {
-        self.size
+        self.bytes.len()
     }
 
     /// Map a user VA into the IOMMU, with EEXIST retry for stale mappings.
@@ -240,18 +289,20 @@ impl DmaBuffer {
     /// Host virtual address pointer (for volatile MMIO writes referencing this buffer).
     #[must_use]
     pub fn vaddr(&self) -> *const u8 {
-        self.vaddr.as_ptr()
+        self.bytes.ptr().as_ptr()
     }
 
     /// Volatile write a u32 at the given byte offset.
     ///
     /// Panics if offset + 4 exceeds the buffer size.
     pub fn volatile_write_u32(&self, offset: usize, value: u32) {
-        assert!(offset + 4 <= self.size, "DMA volatile write out of bounds");
+        let len = self.bytes.len();
+        assert!(offset + 4 <= len, "DMA volatile write out of bounds");
         // SAFETY: NonNull guarantees non-null; bounds checked above; DmaBuffer
         // is mlock'd and page-aligned, so aligned u32 writes are valid.
-        let vol =
-            unsafe { crate::mmio::VolatilePtr::new(self.vaddr.as_ptr().add(offset).cast::<u32>()) };
+        let vol = unsafe {
+            crate::mmio::VolatilePtr::new(self.bytes.ptr().as_ptr().add(offset).cast::<u32>())
+        };
         vol.write(value);
     }
 
@@ -260,10 +311,12 @@ impl DmaBuffer {
     /// Panics if offset + 4 exceeds the buffer size.
     #[must_use]
     pub fn volatile_read_u32(&self, offset: usize) -> u32 {
-        assert!(offset + 4 <= self.size, "DMA volatile read out of bounds");
+        let len = self.bytes.len();
+        assert!(offset + 4 <= len, "DMA volatile read out of bounds");
         // SAFETY: NonNull guarantees non-null; bounds checked above.
-        let vol =
-            unsafe { crate::mmio::VolatilePtr::new(self.vaddr.as_ptr().add(offset).cast::<u32>()) };
+        let vol = unsafe {
+            crate::mmio::VolatilePtr::new(self.bytes.ptr().as_ptr().add(offset).cast::<u32>())
+        };
         vol.read()
     }
 
@@ -271,27 +324,30 @@ impl DmaBuffer {
     ///
     /// Panics if offset + 8 exceeds the buffer size.
     pub fn volatile_write_u64(&self, offset: usize, value: u64) {
-        assert!(offset + 8 <= self.size, "DMA volatile write out of bounds");
+        let len = self.bytes.len();
+        assert!(offset + 8 <= len, "DMA volatile write out of bounds");
         // SAFETY: NonNull guarantees non-null; bounds checked above.
-        let vol =
-            unsafe { crate::mmio::VolatilePtr::new(self.vaddr.as_ptr().add(offset).cast::<u64>()) };
+        let vol = unsafe {
+            crate::mmio::VolatilePtr::new(self.bytes.ptr().as_ptr().add(offset).cast::<u64>())
+        };
         vol.write(value);
     }
 }
 
 impl Drop for DmaBuffer {
     fn drop(&mut self) {
-        let ptr = self.vaddr.as_ptr();
+        let ptr = self.bytes.ptr().as_ptr();
+        let size = self.bytes.len();
 
         // SAFETY: munlock matches mlock from new(); must unlock before dealloc.
         unsafe {
-            let _ = munlock(ptr.cast(), self.size);
+            let _ = munlock(ptr.cast(), size);
         };
 
-        let _ = Self::dma_unmap_backend(&self.backend, self.iova, self.size as u64);
+        let _ = Self::dma_unmap_backend(&self.backend, self.iova, size as u64);
 
-        // SAFETY: self.size and PAGE_SIZE are identical to those used in new().
-        let layout = std::alloc::Layout::from_size_align(self.size, PAGE_SIZE)
+        // SAFETY: `size` and `PAGE_SIZE` are identical to those used in new().
+        let layout = std::alloc::Layout::from_size_align(size, PAGE_SIZE)
             .expect("Layout valid: matches alloc in new()");
         // SAFETY: dealloc matches alloc_zeroed from new(); layout identical.
         unsafe { std::alloc::dealloc(ptr, layout) };
@@ -303,14 +359,10 @@ impl Drop for DmaBuffer {
     }
 }
 
-// SAFETY: The raw pointer (`vaddr`) is obtained from a dedicated allocation, is only
-// accessed through `&self`/`&mut self` (Rust borrow rules apply), and is freed in
-// Drop. The shared container handle is thread-safe.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`DmaBuffer`] docs.
 unsafe impl Send for DmaBuffer {}
 
-// SAFETY: The raw pointer (`vaddr`) is obtained from a dedicated allocation, is only
-// accessed through `&self`/`&mut self` (Rust borrow rules apply), and is freed in
-// Drop. The shared container handle is thread-safe.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`DmaBuffer`] docs.
 unsafe impl Sync for DmaBuffer {}
 
 #[cfg(test)]

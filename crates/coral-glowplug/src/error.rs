@@ -515,4 +515,184 @@ mod tests {
         let err: EmberError = json_err.into();
         assert!(matches!(err, EmberError::Parse(_)));
     }
+
+    #[test]
+    fn sysfs_error_io_display_includes_path_and_source() {
+        let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let err = SysfsError::Io {
+            path: "/sys/class/foo".into(),
+            source: io,
+        };
+        let s = err.to_string();
+        assert!(s.contains("/sys/class/foo"));
+        assert!(s.contains("denied"));
+    }
+
+    #[test]
+    fn sysfs_error_mock_writes_mutex_poisoned_display() {
+        let err = SysfsError::MockWritesMutexPoisoned {
+            detail: "poison detail".into(),
+        };
+        let s = err.to_string();
+        assert!(s.contains("mock sysfs"));
+        assert!(s.contains("poison detail"));
+    }
+
+    #[test]
+    fn socket_server_error_bind_tcp_display() {
+        let err = SocketServerError::BindTcp {
+            addr: "127.0.0.1:9".into(),
+            source: std::io::Error::other("address already in use"),
+        };
+        assert!(err.to_string().contains("127.0.0.1:9"));
+        assert!(err.to_string().contains("bind TCP"));
+    }
+
+    #[test]
+    fn socket_server_error_tcp_local_addr_display() {
+        let err = SocketServerError::TcpLocalAddr {
+            source: std::io::Error::other("not bound"),
+        };
+        assert!(err.to_string().contains("get TCP local addr"));
+    }
+
+    #[test]
+    fn socket_server_error_bind_unix_display() {
+        let err = SocketServerError::BindUnix {
+            path: "/run/coral.sock".into(),
+            source: std::io::Error::other("permission denied"),
+        };
+        assert!(err.to_string().contains("/run/coral.sock"));
+        assert!(err.to_string().contains("bind Unix"));
+    }
+
+    #[test]
+    fn socket_server_error_unix_not_supported_display() {
+        let err = SocketServerError::UnixNotSupported {
+            fallback: "127.0.0.1:0".into(),
+        };
+        let s = err.to_string();
+        assert!(s.contains("Unix socket path not supported"));
+        assert!(s.contains("127.0.0.1:0"));
+    }
+
+    #[test]
+    fn parse_error_hex_display() {
+        let source = u64::from_str_radix("zz", 16).unwrap_err();
+        let err = ParseError::Hex {
+            input: "0xzz".into(),
+            source,
+        };
+        assert!(err.to_string().contains("invalid hex"));
+        assert!(err.to_string().contains("0xzz"));
+    }
+
+    #[test]
+    fn parse_error_dec_display() {
+        let source = "not-a-number".parse::<u64>().unwrap_err();
+        let err = ParseError::Dec {
+            input: "not-a-number".into(),
+            source,
+        };
+        assert!(err.to_string().contains("invalid number"));
+    }
+
+    #[test]
+    fn config_load_error_display_joins_paths() {
+        let err = ConfigLoadError {
+            paths: vec!["/first.toml".into(), "/second.toml".into()],
+        };
+        assert_eq!(
+            err.to_string(),
+            "no valid configuration found (tried: /first.toml, /second.toml)"
+        );
+    }
+
+    #[test]
+    fn compute_dispatch_error_shader_base64_display() {
+        use base64::Engine;
+        let decode_err = base64::engine::general_purpose::STANDARD
+            .decode("!!!")
+            .unwrap_err();
+        let err = ComputeDispatchError::ShaderBase64(decode_err);
+        assert!(err.to_string().contains("base64 decode shader"));
+    }
+
+    #[test]
+    fn compute_dispatch_error_input_base64_display() {
+        use base64::Engine;
+        let decode_err = base64::engine::general_purpose::STANDARD
+            .decode("@@@")
+            .unwrap_err();
+        let err = ComputeDispatchError::InputBase64(decode_err);
+        assert!(err.to_string().contains("base64 decode input"));
+    }
+
+    #[test]
+    fn compute_dispatch_error_cuda_feature_disabled_display() {
+        assert_eq!(
+            ComputeDispatchError::CudaFeatureDisabled.to_string(),
+            "CUDA compute dispatch requires building coral-glowplug with `--features cuda`"
+        );
+    }
+
+    #[test]
+    fn compute_dispatch_error_message_variants_display() {
+        let e = ComputeDispatchError::CudaOpen {
+            bdf: "0000:01:00.0".into(),
+            message: "no device".into(),
+        };
+        assert!(e.to_string().contains("CUDA open"));
+        assert!(e.to_string().contains("0000:01:00.0"));
+
+        assert!(
+            ComputeDispatchError::AllocInput {
+                message: "oom".into()
+            }
+            .to_string()
+            .contains("alloc input")
+        );
+        assert!(
+            ComputeDispatchError::Upload {
+                message: "fail".into()
+            }
+            .to_string()
+            .contains("upload")
+        );
+        assert!(
+            ComputeDispatchError::AllocOutput {
+                message: "fail".into()
+            }
+            .to_string()
+            .contains("alloc output")
+        );
+        assert!(
+            ComputeDispatchError::Dispatch {
+                message: "bad".into()
+            }
+            .to_string()
+            .contains("dispatch")
+        );
+        assert!(
+            ComputeDispatchError::Sync {
+                message: "timeout".into()
+            }
+            .to_string()
+            .contains("sync")
+        );
+        assert!(
+            ComputeDispatchError::Readback {
+                message: "zero".into()
+            }
+            .to_string()
+            .contains("readback")
+        );
+    }
+
+    #[test]
+    fn compute_dispatch_error_converts_to_rpc_error() {
+        let rpc: RpcError = ComputeDispatchError::CudaFeatureDisabled.into();
+        assert_eq!(rpc.code, RpcErrorCode::DEVICE_ERROR);
+        assert!(rpc.message.contains("CUDA"));
+    }
 }

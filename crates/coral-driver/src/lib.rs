@@ -70,6 +70,25 @@ pub use error::{DriverError, DriverResult};
 /// Handles are created by [`ComputeDevice::alloc`] and consumed by other
 /// device operations. The raw ID is not exposed — callers cannot forge
 /// handles, ensuring the driver owns the validity invariant.
+///
+/// Together with [`DispatchDims`] and [`ShaderInfo`], handles describe what to
+/// run and which GPU buffers are bound for a [`ComputeDevice::dispatch`] call:
+///
+/// ```
+/// use coral_driver::{BufferHandle, DispatchDims, MemoryDomain, ShaderInfo};
+///
+/// // Handles come from `ComputeDevice::alloc`; here we only show the types.
+/// let buffers: &[BufferHandle] = &[];
+/// let dims = DispatchDims::linear(256);
+/// let info = ShaderInfo {
+///     gpr_count: 32,
+///     shared_mem_bytes: 256,
+///     barrier_count: 1,
+///     workgroup: [64, 1, 1],
+///     wave_size: 32,
+/// };
+/// let _ = (buffers, dims, info, MemoryDomain::Vram);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferHandle(pub(crate) u32);
 
@@ -94,6 +113,16 @@ pub enum MemoryDomain {
 }
 
 /// Compute dispatch dimensions.
+///
+/// ```
+/// use coral_driver::DispatchDims;
+///
+/// let grid = DispatchDims::new(8, 4, 2);
+/// assert_eq!((grid.x, grid.y, grid.z), (8, 4, 2));
+///
+/// let line = DispatchDims::linear(1024);
+/// assert_eq!((line.x, line.y, line.z), (1024, 1, 1));
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct DispatchDims {
     /// Number of workgroups in the X dimension.
@@ -108,6 +137,21 @@ pub struct DispatchDims {
 ///
 /// Without this, the driver must guess register counts and shared memory
 /// sizing, leading to incorrect hardware configuration.
+///
+/// ```
+/// use coral_driver::ShaderInfo;
+///
+/// let custom = ShaderInfo {
+///     gpr_count: 64,
+///     shared_mem_bytes: 4096,
+///     barrier_count: 2,
+///     workgroup: [128, 1, 1],
+///     wave_size: 32,
+/// };
+/// let defaults: ShaderInfo = ShaderInfo::default();
+/// assert_eq!(defaults.workgroup, [1, 1, 1]);
+/// let _ = (custom, defaults.wave_size);
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct ShaderInfo {
     /// General-purpose register count (from compiler RA).

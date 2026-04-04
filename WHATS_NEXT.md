@@ -6,7 +6,7 @@
 
 **Last completed**: Logic/IO untangling plan; pure extractions across coral-driver (`acr_buffer_layout`, `sysmem_decode`, `sysmem_vram`, `init_plan`, `channel_layout`, `pci_config`); test consolidation (`opt_copy_prop/tests/`, `spill_values/tests/`, codegen coverage saturation split); `cmd_compile` tempfile isolation; coral-glowplug boot safety / health / config extraction; coral-ember startup, reset plan, lifecycle steps. Prior: Iter 72 GPU-agnostic detection + Ada PCI fix; Iter 71 MmioRegion/MockBar0.
 
-**Tests**: 4318 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4407 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation.
 
@@ -30,7 +30,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `sysmem_impl.rs`, `uvm_compute.rs`, `pci_discovery.rs` and similar — `codegen_coverage_saturation`, `opt_copy_prop/tests`, and `spill_values/tests` were split in Iter 73 into submodules/parts under 1000 LOC each.
+**Approaching 1000 (monitor):** `sysmem_impl.rs`; former `uvm_compute.rs` is split into `nv/uvm_compute/` (`types.rs`, `device.rs`, `compute_trait.rs`, `mod.rs`, `tests.rs`); former `pci_discovery.rs` is split into `vfio/pci_discovery/` (`types.rs`, `parse.rs`, `config_space.rs`, `device_info.rs`, `power_mgmt.rs`, `mod.rs`, `tests.rs`) — `codegen_coverage_saturation`, `opt_copy_prop/tests`, and `spill_values/tests` were split in Iter 73 into submodules/parts under 1000 LOC each.
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
@@ -50,7 +50,6 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 2. Verify PMC disable+enable cycle fixes DMA engine state
 3. If ACR boot succeeds: construct WPR with FECS/GPCCS LS images
 4. Warm handoff path: capture Nouveau's FECS state via Ember swap
-5. Split `acr_boot.rs` after strategies stabilize
 
 ### Untestable Code — Hardware Abstraction Plan
 
@@ -168,7 +167,7 @@ Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now
 - [x] **coralreef-core**: `cmd_compile` tests use `tempfile::tempdir` (no fixed `/tmp`)
 - [x] **coral-glowplug**: Boot safety evaluation, health decisions, config classification extracted
 - [x] **coral-ember**: Startup decomposition, reset plan, lifecycle steps
-- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (4318 pass, 0 fail, 153 ignored), doc ✅
+- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (4407 pass, 0 fail, 153 ignored), doc ✅
 
 ### Iteration 72 — GPU-Agnostic Evolution
 - [x] **Ada Lovelace PCI identity fix**: Device IDs 0x2600–0x28FF correctly map to SM89 (was misclassifying RTX 4070/4080/4060 as Ampere SM86)
@@ -615,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4318 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
+4407 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.

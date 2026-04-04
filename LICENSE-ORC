@@ -1,0 +1,44 @@
+Open RPG Creative License (ORC) Notice — coralReef
+====================================================
+
+This file is part of the ecoPrimals scyBorg Provenance Trio.
+
+scyBorg = AGPL-3.0 (code) + ORC (game mechanics) + CC-BY-SA 4.0 (creative content)
+
+ORC License: https://azoralaw.com/orclicense/
+
+ORC Licensed Material
+---------------------
+
+coralReef is primarily a GPU shader compiler. As such, the ORC layer has
+limited applicability. The following categories of content produced by or
+in conjunction with coralReef fall under ORC Licensed Material:
+
+  - GPU compute dispatch patterns used for game simulation mechanics
+    (e.g. encounter math kernels, stat-block compute shaders)
+  - Numerical method implementations when used as game-rule engines
+    (e.g. f64 transcendental lowering applied to progression math)
+
+ORC Reserved Material
+---------------------
+
+The following are expressly reserved and NOT licensed under ORC:
+
+  - "coralReef" name and logo
+  - "ecoPrimals" name and logo
+  - "scyBorg" name and framework identity
+  - All primal names (BearDog, Songbird, NestGate, etc.)
+
+Attribution Notice
+------------------
+
+This material is licensed under the ORC License located at
+https://azoralaw.com/orclicense/ and is available for use under
+the terms of that license.
+
+If you use ORC Licensed Material from this project, you must give
+the following attribution:
+
+  coralReef GPU Compiler — ecoPrimals Project
+  Copyright © 2025-2026 ecoPrimals
+  Licensed under AGPL-3.0-only (code), ORC (mechanics), CC-BY-SA 4.0 (creative)

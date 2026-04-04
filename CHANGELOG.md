@@ -10,6 +10,39 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Iteration 74 — Deep Debt Execution (2026-04-04)
+
+#### Build & Tooling
+- Added `.cargo/config.toml`: LTO=thin, codegen-units=1, strip=symbols (release); split-debuginfo (dev)
+- coral-gpu: `[lints] workspace = true` + all 33 pedantic/nursery findings resolved
+
+#### Code Quality
+- `#[allow]` → `#[expect]` evolution (coral-ember error.rs)
+- SAFETY comment added to vfio `device_pci_hot_reset`
+- `DmaBufferBytes` safe abstraction wrapping raw DMA pointer+length
+- Send/Sync documentation on 6 hardware types (DmaBuffer, MappedBar, Bar0Access, SysfsBar0, NvUvmComputeDevice, Bar0Handle)
+- SAFETY audit: all unsafe blocks verified, 3 gaps fixed
+
+#### Refactoring
+- `pci_discovery.rs` (966 LOC) → 7 cohesive submodules: types, parse, config_space, device_info, power_mgmt, mod, tests
+- `uvm_compute.rs` (969 LOC) → 5 cohesive submodules: types, device, compute_trait, mod, tests
+- Removed `tests.rs.bak` debris
+
+#### Hardcoding Evolution
+- `CORALREEF_EMBER_TCP_HOST` env override (was hardcoded 127.0.0.1)
+- `CORALREEF_NEWLINE_TCP_HOST` env override (was hardcoded 127.0.0.1)
+
+#### Licensing
+- Added `LICENSE-ORC` for scyBorg Provenance Trio (AGPL + ORC + CC-BY-SA)
+- Updated `LICENSE` with scyBorg trio section
+
+#### Test Coverage
+- +89 tests (4318 → 4407), 0 failures, 153 ignored
+- coral-driver: gsp parser, linux_paths, nv/identity, nv/qmd + 3 integration tests
+- coral-glowplug: error.rs Display/conversion, sec2_bridge
+- coral-ember: handlers_journal (0%→77%), error.rs (0%→50%)
+- Doctests added to coral-driver, coral-ember, coral-glowplug, primal-rpc-client
+
 ### Iteration 73 — Logic/IO Untangling + Test Consolidation (2026-04-04)
 
 #### Added

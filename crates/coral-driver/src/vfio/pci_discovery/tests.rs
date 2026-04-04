@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
+use super::parse::{
+    parse_pci_bdf, parse_pci_resource_file, parse_pci_resource_line, parse_pci_sysfs_hex_id,
+    parse_sysfs_pcie_speed, parse_sysfs_pcie_width, parse_sysfs_power_state, pci_class_base,
+};
 use super::*;
 
 fn make_config_bytes(vendor_id: u16, device_id: u16, class_code: u32) -> Vec<u8> {

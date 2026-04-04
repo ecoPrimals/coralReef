@@ -5,17 +5,17 @@ use coral_reef::GpuTarget;
 
 use crate::driver;
 
-/// PCIe topology information for multi-GPU device grouping.
+/// `PCIe` topology information for multi-GPU device grouping.
 ///
 /// Used by `shader.compile.wgsl.multi` to communicate device affinity.
-/// Devices on the same PCIe switch have lower inter-device latency.
+/// Devices on the same `PCIe` switch have lower inter-device latency.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PcieDeviceInfo {
     /// Render node path (e.g. `/dev/dri/renderD128`).
     pub render_node: String,
-    /// PCIe bus address (e.g. `0000:01:00.0`).
+    /// `PCIe` bus address (e.g. `0000:01:00.0`).
     pub pcie_address: Option<String>,
-    /// PCIe switch group (devices sharing a switch get the same ID).
+    /// `PCIe` switch group (devices sharing a switch get the same ID).
     pub switch_group: Option<u32>,
     /// GPU target architecture.
     pub target: GpuTarget,
@@ -29,23 +29,24 @@ fn dri_base_path() -> std::path::PathBuf {
     std::env::var("CORALREEF_DRI_PATH")
         .ok()
         .filter(|s| !s.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_DRI_PATH))
+        .map_or_else(
+            || std::path::PathBuf::from(DEFAULT_DRI_PATH),
+            std::path::PathBuf::from,
+        )
 }
 
-/// Probe PCIe topology for all available GPU render nodes.
+/// Probe `PCIe` topology for all available GPU render nodes.
 ///
-/// Reads sysfs to discover render nodes, their PCIe addresses, and
-/// groups them by shared PCIe switch (based on common bus prefix).
+/// Reads sysfs to discover render nodes, their `PCIe` addresses, and
+/// groups them by shared `PCIe` switch (based on common bus prefix).
 #[cfg(target_os = "linux")]
 #[must_use]
 pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
     let dri_path = dri_base_path();
     let mut devices = Vec::new();
 
-    let entries = match std::fs::read_dir(&dri_path) {
-        Ok(e) => e,
-        Err(_) => return devices,
+    let Ok(entries) = std::fs::read_dir(&dri_path) else {
+        return devices;
     };
 
     for entry in entries.flatten() {
@@ -89,8 +90,9 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
     devices
 }
 
-/// Group devices by shared PCIe switch based on bus address prefix.
+/// Group devices by shared `PCIe` switch based on bus address prefix.
 #[cfg(target_os = "linux")]
+#[expect(clippy::redundant_pub_crate, reason = "needed by crate::tests::pcie")]
 pub(crate) fn assign_switch_groups(devices: &mut [PcieDeviceInfo]) {
     let mut group_map: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut next_group = 0u32;

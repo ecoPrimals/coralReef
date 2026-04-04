@@ -7,6 +7,43 @@
 //! [`DeviceError`](error::DeviceError), [`Config`](config::Config),
 //! [`EmberClient`](ember::EmberClient), [`SysfsOps`],
 //! and sysfs helpers for consumption by ecosystem crates.
+//!
+//! # Examples
+//!
+//! Parse a minimal [`Config`](config::Config) and inspect search paths (no hardware I/O):
+//!
+//! ```
+//! use coral_glowplug::config::{config_search_paths, Config};
+//!
+//! let toml = r#"[[device]]
+//! bdf = "0000:01:00.0"
+//! "#;
+//! let cfg: Config = toml::from_str(toml).expect("deserialize config");
+//! assert_eq!(cfg.device.len(), 1);
+//! let _paths = config_search_paths();
+//! ```
+//!
+//! Build a [`DeviceSlot`](device::DeviceSlot) with the real sysfs backend (touches `/sys`; not run in docs):
+//!
+//! ```no_run
+//! use coral_glowplug::config::Config;
+//! use coral_glowplug::device::DeviceSlot;
+//! use coral_glowplug::RealSysfs;
+//!
+//! let toml = r#"[[device]]
+//! bdf = "0000:01:00.0"
+//! "#;
+//! let cfg: Config = toml::from_str(toml).expect("deserialize config");
+//! let _slot = DeviceSlot::with_sysfs(cfg.device[0].clone(), RealSysfs::default());
+//! ```
+//!
+//! Probe for [`EmberClient`](ember::EmberClient) (returns `None` if the ember socket is absent):
+//!
+//! ```
+//! use coral_glowplug::ember::EmberClient;
+//!
+//! let _maybe = EmberClient::connect();
+//! ```
 
 pub mod config;
 pub mod device;

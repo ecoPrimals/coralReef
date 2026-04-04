@@ -27,7 +27,7 @@ impl FmaCapability {
     /// Derives from architecture specifications — does not require
     /// a live device connection.
     #[must_use]
-    pub fn for_target(target: GpuTarget) -> Self {
+    pub const fn for_target(target: GpuTarget) -> Self {
         match target {
             GpuTarget::Nvidia(nv) => Self::nvidia(nv),
             GpuTarget::Amd(amd) => Self::amd(amd),
@@ -40,7 +40,7 @@ impl FmaCapability {
         }
     }
 
-    fn nvidia(nv: NvArch) -> Self {
+    const fn nvidia(nv: NvArch) -> Self {
         Self {
             f32_fma: true,
             f64_fma: nv.has_dfma(),
@@ -50,7 +50,7 @@ impl FmaCapability {
         }
     }
 
-    fn amd(amd: AmdArch) -> Self {
+    const fn amd(amd: AmdArch) -> Self {
         Self {
             f32_fma: true,
             f64_fma: amd.has_native_f64(),

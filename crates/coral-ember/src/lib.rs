@@ -54,6 +54,20 @@ pub struct EmberConfig {
 }
 
 /// One device entry from `glowplug.toml` (same schema as coral-glowplug).
+///
+/// ```
+/// use coral_ember::parse_glowplug_config;
+///
+/// let cfg = parse_glowplug_config(
+///     r#"[[device]]
+/// bdf = "0000:01:00.0"
+/// role = "display"
+/// "#,
+/// )
+/// .expect("valid TOML");
+/// assert!(cfg.device[0].is_display());
+/// assert!(cfg.device[0].is_protected());
+/// ```
 #[derive(Deserialize)]
 pub struct EmberDeviceConfig {
     /// PCI bus/device/function address (e.g. `0000:01:00.0`).
@@ -78,6 +92,20 @@ pub struct EmberDeviceConfig {
 impl EmberDeviceConfig {
     /// Returns `true` if this device has `role = "display"`, meaning it is a
     /// protected display GPU that ember must never touch, unbind, or manage.
+    ///
+    /// ```
+    /// use coral_ember::EmberDeviceConfig;
+    ///
+    /// let display = EmberDeviceConfig {
+    ///     bdf: "0000:01:00.0".into(),
+    ///     name: None,
+    ///     boot_personality: None,
+    ///     power_policy: None,
+    ///     role: Some("display".into()),
+    ///     oracle_dump: None,
+    /// };
+    /// assert!(display.is_display());
+    /// ```
     #[must_use]
     pub fn is_display(&self) -> bool {
         self.role.as_deref() == Some("display")
@@ -100,6 +128,16 @@ impl EmberDeviceConfig {
 pub const EMBER_LISTEN_PORT_ENV: &str = "CORALREEF_EMBER_PORT";
 
 /// Options for [`run_with_options`] (UniBin `server` entry).
+///
+/// ```
+/// use coral_ember::EmberRunOptions;
+///
+/// let opts = EmberRunOptions {
+///     config_path: Some("/etc/coralreef/glowplug.toml".into()),
+///     listen_port: Some(9000),
+/// };
+/// assert_eq!(opts.listen_port, Some(9000));
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmberRunOptions {
     /// Path to `glowplug.toml`; when `None`, uses [`find_config`] (XDG then system).
@@ -109,6 +147,11 @@ pub struct EmberRunOptions {
 }
 
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
+///
+/// ```
+/// let path = coral_ember::ember_socket_path();
+/// assert!(path.ends_with("ember.sock"));
+/// ```
 #[must_use]
 pub fn ember_socket_path() -> String {
     std::env::var("CORALREEF_EMBER_SOCKET")
@@ -116,6 +159,11 @@ pub fn ember_socket_path() -> String {
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).
+///
+/// ```
+/// let path = coral_ember::system_glowplug_config_path();
+/// assert!(path.ends_with("glowplug.toml"));
+/// ```
 #[must_use]
 pub fn system_glowplug_config_path() -> String {
     std::env::var("CORALREEF_GLOWPLUG_CONFIG")
@@ -125,6 +173,13 @@ pub fn system_glowplug_config_path() -> String {
 }
 
 /// Parse `glowplug.toml` contents into [`EmberConfig`].
+///
+/// ```
+/// use coral_ember::parse_glowplug_config;
+///
+/// let cfg = parse_glowplug_config("device = []").expect("parse empty device list");
+/// assert!(cfg.device.is_empty());
+/// ```
 pub fn parse_glowplug_config(config_str: &str) -> Result<EmberConfig, toml::de::Error> {
     toml::from_str(config_str)
 }
@@ -372,7 +427,9 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     spawn_req_watcher(Arc::clone(&held));
 
     if let Some(port) = opts.listen_port {
-        let tcp_addr = format!("127.0.0.1:{port}");
+        let tcp_host =
+            std::env::var("CORALREEF_EMBER_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let tcp_addr = format!("{tcp_host}:{port}");
         let tcp_listener = match TcpListener::bind(&tcp_addr) {
             Ok(l) => l,
             Err(e) => {
@@ -679,5 +736,189 @@ mod tests {
     fn parse_glowplug_config_empty_device_list() {
         let cfg = parse_glowplug_config("device = []").expect("valid empty device list");
         assert!(cfg.device.is_empty());
+    }
+
+    #[test]
+    fn ember_run_options_default_is_empty() {
+        assert_eq!(
+            EmberRunOptions::default(),
+            EmberRunOptions {
+                config_path: None,
+                listen_port: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_glowplug_config_device_optional_fields_roundtrip() {
+        let toml = r#"
+            [[device]]
+            bdf = "0000:0a:00.0"
+            name = "Test GPU"
+            boot_personality = "nouveau"
+            power_policy = "power_save"
+            role = "compute"
+            oracle_dump = "/tmp/oracle.bin"
+        "#;
+        let cfg = parse_glowplug_config(toml).expect("valid TOML");
+        assert_eq!(cfg.device.len(), 1);
+        let d = &cfg.device[0];
+        assert_eq!(d.bdf, "0000:0a:00.0");
+        assert_eq!(d.name.as_deref(), Some("Test GPU"));
+        assert_eq!(d.boot_personality.as_deref(), Some("nouveau"));
+        assert_eq!(d.power_policy.as_deref(), Some("power_save"));
+        assert_eq!(d.role.as_deref(), Some("compute"));
+        assert_eq!(d.oracle_dump.as_deref(), Some("/tmp/oracle.bin"));
+    }
+
+    #[test]
+    fn swap_error_from_string_maps_to_other() {
+        let e: crate::error::SwapError = "orchestrator gave up".to_string().into();
+        match e {
+            crate::error::SwapError::Other(s) => assert_eq!(s, "orchestrator gave up"),
+            other => panic!("expected Other, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ember_ipc_error_from_string_maps_to_dispatch() {
+        let e: crate::error::EmberIpcError = "lock failed".to_string().into();
+        match e {
+            crate::error::EmberIpcError::Dispatch(s) => assert_eq!(s, "lock failed"),
+            other => panic!("expected Dispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sysfs_error_write_and_read_display() {
+        let w = crate::error::SysfsError::Write {
+            path: "/sys/a".into(),
+            reason: "busy".into(),
+        };
+        assert!(w.to_string().contains("sysfs write"));
+        assert!(w.to_string().contains("/sys/a"));
+        let r = crate::error::SysfsError::Read {
+            path: "/sys/b".into(),
+            reason: "eof".into(),
+        };
+        assert!(r.to_string().contains("sysfs read"));
+        let d = crate::error::SysfsError::DriverBind {
+            bdf: "0000:01:00.0".into(),
+            reason: "EEXIST".into(),
+        };
+        assert!(d.to_string().contains("driver bind"));
+        let p = crate::error::SysfsError::PciReset {
+            bdf: "0000:02:00.0".into(),
+            reason: "reset failed".into(),
+        };
+        assert!(p.to_string().contains("PCI reset"));
+    }
+
+    #[test]
+    fn sysfs_error_pci_and_bridge_variants_display() {
+        let e = crate::error::SysfsError::BridgeNotFound {
+            bdf: "0000:01:00.0".into(),
+        };
+        assert!(e.to_string().contains("parent PCI bridge"));
+        let e2 = crate::error::SysfsError::BridgeResetMissing {
+            bdf: "0000:01:00.0".into(),
+            bridge_bdf: "0000:00:01.0".into(),
+        };
+        assert!(e2.to_string().contains("bridge"));
+        let e3 = crate::error::SysfsError::DeviceNotReappeared {
+            bdf: "0000:02:00.0".into(),
+        };
+        assert!(e3.to_string().contains("re-appear"));
+        let e4 = crate::error::SysfsError::PmCycleD3cold {
+            bdf: "0000:03:00.0".into(),
+        };
+        assert!(e4.to_string().contains("D3cold"));
+    }
+
+    #[test]
+    fn swap_error_displays_preflight_drm_external_vfio_and_reset_method() {
+        let p = crate::error::SwapError::Preflight {
+            bdf: "0000:01:00.0".into(),
+            reason: "nvidia_drm".into(),
+        };
+        assert!(p.to_string().contains("preflight"));
+        let d = crate::error::SwapError::DrmIsolation("modeset active".into());
+        assert!(d.to_string().contains("DRM isolation"));
+        let x = crate::error::SwapError::ExternalVfioHolders {
+            bdf: "0000:01:00.0".into(),
+            count: 2,
+        };
+        assert!(x.to_string().contains("2 holders"));
+        let u = crate::error::SwapError::UnknownTarget("fictional".into());
+        assert!(u.to_string().contains("unknown target"));
+        let t = crate::error::SwapError::Trace("mmiotrace busy".into());
+        assert!(t.to_string().contains("trace"));
+        let v = crate::error::SwapError::VerifyHealth {
+            bdf: "0000:01:00.0".into(),
+            detail: "no temp sensor".into(),
+        };
+        assert!(v.to_string().contains("post-bind verification"));
+        let a = crate::error::SwapError::ActiveDisplayGpu {
+            bdf: "0000:01:00.0".into(),
+        };
+        assert!(a.to_string().contains("display GPU"));
+        let r = crate::error::SwapError::VfioReacquire {
+            bdf: "0000:01:00.0".into(),
+            reason: "open failed".into(),
+        };
+        assert!(r.to_string().contains("VFIO reacquire"));
+        let i = crate::error::SwapError::InvalidResetMethod("kitten_reset".into());
+        assert!(i.to_string().contains("kitten_reset"));
+    }
+
+    #[test]
+    fn swap_error_from_sysfs_uses_from_trait() {
+        let inner = crate::error::SysfsError::PciReset {
+            bdf: "0000:01:00.0".into(),
+            reason: "no reset".into(),
+        };
+        let s: crate::error::SwapError = inner.into();
+        match s {
+            crate::error::SwapError::Sysfs(e) => {
+                assert!(e.to_string().contains("PCI reset"));
+            }
+            other => panic!("expected Sysfs wrapper, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn trace_error_displays_enable_disable_capture() {
+        let e = crate::error::TraceError::Enable("busy".into());
+        assert!(e.to_string().contains("mmiotrace enable"));
+        let e2 = crate::error::TraceError::Disable("failed".into());
+        assert!(e2.to_string().contains("mmiotrace disable"));
+        let e3 = crate::error::TraceError::Capture {
+            bdf: "0000:01:00.0".into(),
+            reason: "disk full".into(),
+        };
+        assert!(e3.to_string().contains("trace capture"));
+    }
+
+    #[test]
+    fn ember_ipc_error_invalid_request_io_utf8_lock_json_send_display() {
+        assert_eq!(
+            crate::error::EmberIpcError::InvalidRequest("empty body").to_string(),
+            "invalid request: empty body"
+        );
+        let io: crate::error::EmberIpcError =
+            std::io::Error::new(std::io::ErrorKind::NotFound, "nope").into();
+        assert!(io.to_string().contains("I/O error"));
+        let invalid_utf8 = vec![0xff_u8];
+        let utf8_err = std::str::from_utf8(&invalid_utf8).unwrap_err();
+        let u: crate::error::EmberIpcError = utf8_err.into();
+        assert!(u.to_string().contains("UTF-8"));
+        assert_eq!(
+            crate::error::EmberIpcError::LockPoisoned.to_string(),
+            "RwLock poisoned"
+        );
+        let j = crate::error::EmberIpcError::JsonSerialize("bad".into());
+        assert!(j.to_string().contains("JSON serialization"));
+        let s = crate::error::EmberIpcError::SendMsg("e".into());
+        assert!(s.to_string().contains("sendmsg"));
     }
 }

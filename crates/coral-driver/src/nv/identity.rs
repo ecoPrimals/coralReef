@@ -755,4 +755,172 @@ mod tests {
         assert_eq!(chip_name(99), "gv100");
         assert_eq!(chip_name(u32::MAX), "gv100");
     }
+
+    #[test]
+    fn boot0_to_sm_maxwell_gm200_range() {
+        assert_eq!(boot0_to_sm(0x1200_00A1), Some(50));
+    }
+
+    #[test]
+    fn boot0_to_sm_pascal_gp100_range() {
+        assert_eq!(boot0_to_sm(0x1300_00A1), Some(60));
+    }
+
+    #[test]
+    fn boot0_to_sm_turing_tu104_tu106() {
+        assert_eq!(boot0_to_sm(0x1660_00A1), Some(75));
+        assert_eq!(boot0_to_sm(0x1670_00A1), Some(75));
+    }
+
+    #[test]
+    fn boot0_to_sm_ampere_ga107_top_of_range() {
+        assert_eq!(boot0_to_sm(0x1770_00A1), Some(86));
+    }
+
+    #[test]
+    fn boot0_to_sm_blackwell_gb102_variant() {
+        assert_eq!(boot0_to_sm(0x1A20_00A1), Some(100));
+    }
+
+    #[test]
+    fn boot0_to_sm_blackwell_gb206_gb207() {
+        assert_eq!(boot0_to_sm(0x1B60_00A1), Some(120));
+        assert_eq!(boot0_to_sm(0x1B70_00A1), Some(120));
+    }
+
+    #[test]
+    fn chipset_variant_unknown_chip_id() {
+        assert_eq!(chipset_variant(0x9990_00A1), "unknown");
+    }
+
+    #[test]
+    fn chipset_variant_tu116_and_ga103() {
+        assert_eq!(chipset_variant(0x1680_00A1), "tu116");
+        assert_eq!(chipset_variant(0x1730_00A1), "ga103");
+    }
+
+    #[test]
+    fn sm_to_compute_class_volta_upper_bound_inclusive() {
+        assert_eq!(sm_to_compute_class(74), 0xC3C0);
+    }
+
+    #[test]
+    fn sm_to_compute_class_ampere_non_multiple_of_ten() {
+        assert_eq!(sm_to_compute_class(81), 0xC6C0);
+        assert_eq!(sm_to_compute_class(88), 0xC6C0);
+    }
+
+    #[test]
+    fn sm_to_compute_class_blackwell_above_120() {
+        assert_eq!(sm_to_compute_class(121), 0xC8C0);
+    }
+
+    #[test]
+    fn nvidia_sm_hopper_device_in_range() {
+        let h100 = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x2321,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(h100.nvidia_sm(), Some(90));
+        let h200 = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x233A,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(h200.nvidia_sm(), Some(90));
+    }
+
+    #[test]
+    fn nvidia_sm_blackwell_consumer_range() {
+        let rtx = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x2900,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(rtx.nvidia_sm(), Some(120));
+        let hi = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x2999,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(hi.nvidia_sm(), Some(120));
+    }
+
+    #[test]
+    fn nvidia_sm_blackwell_outside_range_is_none() {
+        let oob = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x29A0,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(oob.nvidia_sm(), None);
+    }
+
+    #[test]
+    fn amd_arch_gfx9_vega_range() {
+        let v = GpuIdentity {
+            vendor_id: PCI_VENDOR_AMD,
+            device_id: 0x687F,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(v.amd_arch(), Some("gfx9"));
+    }
+
+    #[test]
+    fn amd_arch_rdna1_navi10() {
+        let navi = GpuIdentity {
+            vendor_id: PCI_VENDOR_AMD,
+            device_id: 0x7310,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(navi.amd_arch(), Some("rdna1"));
+    }
+
+    #[test]
+    fn amd_arch_unknown_device_returns_none() {
+        let u = GpuIdentity {
+            vendor_id: PCI_VENDOR_AMD,
+            device_id: 0x0001,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(u.amd_arch(), None);
+    }
+
+    #[test]
+    fn firmware_inventory_compute_blockers_gr_missing_lists_gr_only() {
+        let inv = FirmwareInventory {
+            chip: "x".into(),
+            acr: FwStatus::Present,
+            gr: FwStatus::Missing,
+            sec2: FwStatus::Present,
+            nvdec: FwStatus::Present,
+            pmu: FwStatus::Present,
+            gsp: FwStatus::Present,
+        };
+        let b = inv.compute_blockers();
+        assert_eq!(b.len(), 1);
+        assert!(b[0].contains("GR"));
+    }
+
+    #[test]
+    fn firmware_inventory_compute_blockers_pmu_gsp_missing_lists_init_firmware() {
+        let inv = FirmwareInventory {
+            chip: "x".into(),
+            acr: FwStatus::Present,
+            gr: FwStatus::Present,
+            sec2: FwStatus::Present,
+            nvdec: FwStatus::Present,
+            pmu: FwStatus::Missing,
+            gsp: FwStatus::Missing,
+        };
+        let b = inv.compute_blockers();
+        assert_eq!(b.len(), 1);
+        assert!(b[0].contains("PMU"));
+    }
+
+    #[test]
+    fn pci_vendor_intel_constant() {
+        assert_eq!(PCI_VENDOR_INTEL, 0x8086);
+    }
 }

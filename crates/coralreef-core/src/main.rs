@@ -237,7 +237,9 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
         }
     };
 
-    let newline_bind = port.map(|p| format!("127.0.0.1:{p}"));
+    let newline_host =
+        std::env::var("CORALREEF_NEWLINE_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let newline_bind = port.map(|p| format!("{newline_host}:{p}"));
     let (newline_addr, newline_handle) = if let Some(ref bind) = newline_bind {
         match ipc::start_newline_tcp_jsonrpc(bind, shutdown_rx.clone()).await {
             Ok(x) => (Some(x.0), Some(x.1)),

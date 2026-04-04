@@ -218,4 +218,13 @@ mod tests {
         let bridge = Sec2Bridge::new(make_test_queues(), "0000:01:00.0");
         assert_eq!(bridge.bdf, "0000:01:00.0");
     }
+
+    #[test]
+    fn queues_accessor_matches_constructed_layout() {
+        let bridge = Sec2Bridge::new(make_test_queues(), "0000:01:00.0");
+        assert_eq!(bridge.queues().info().cmdq_offset, 0x1000);
+        assert_eq!(bridge.queues().info().msgq_offset, 0x1100);
+        assert_eq!(bridge.queues().info().cmdq_size, 256);
+        assert_eq!(bridge.queues().info().msgq_size, 256);
+    }
 }

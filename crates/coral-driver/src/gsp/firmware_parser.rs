@@ -650,6 +650,123 @@ mod tests {
     }
 
     #[test]
+    fn read_u32_le_roundtrip_offsets() {
+        let data: Vec<u8> = (0u32..=3).flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(read_u32_le(&data, 0), 0);
+        assert_eq!(read_u32_le(&data, 4), 1);
+        assert_eq!(read_u32_le(&data, 8), 2);
+        assert_eq!(read_u32_le(&data, 12), 3);
+    }
+
+    #[test]
+    fn parse_u32_pairs_from_bytes_empty_and_exact_multiple() {
+        assert!(parse_u32_pairs_from_bytes(&[]).is_empty());
+        let mut eight = Vec::new();
+        eight.extend_from_slice(&0xABCD_u32.to_le_bytes());
+        eight.extend_from_slice(&0x1234_u32.to_le_bytes());
+        let pairs = parse_u32_pairs_from_bytes(&eight);
+        assert_eq!(pairs, vec![(0xABCD, 0x1234)]);
+    }
+
+    #[test]
+    fn parse_u32_pairs_from_bytes_trailing_partial_word_ignored() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&2u32.to_le_bytes());
+        data.extend_from_slice(&3u32.to_le_bytes());
+        assert_eq!(parse_u32_pairs_from_bytes(&data), vec![(1, 2)]);
+    }
+
+    #[test]
+    fn from_legacy_bytes_keeps_addresses_outside_gpu_register_window() {
+        let mut bundle = Vec::new();
+        bundle.extend_from_slice(&0x100u32.to_le_bytes());
+        bundle.extend_from_slice(&0x42u32.to_le_bytes());
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(&bundle, &[], &[], &[], "chip");
+        assert_eq!(blobs.bundle_init.len(), 1);
+        assert_eq!(blobs.bundle_init[0].addr, 0x100);
+    }
+
+    #[test]
+    fn parse_net_img_register_pair_outside_bar_window_excluded() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&0x05u32.to_le_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes());
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.resize(20, 0);
+        data.extend_from_slice(&0x100u32.to_le_bytes());
+        data.extend_from_slice(&0x42u32.to_le_bytes());
+        let blobs = GrFirmwareBlobs::parse_net_img_bytes(&data, "t").unwrap();
+        assert!(
+            blobs.bundle_init.is_empty(),
+            "parse_register_pairs filters non-GPU-range addresses"
+        );
+    }
+
+    #[test]
+    fn parse_net_img_unknown_section_type_is_ignored() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes());
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.resize(20, 0);
+        data.extend_from_slice(&0x0040_3000u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        let blobs = GrFirmwareBlobs::parse_net_img_bytes(&data, "t").unwrap();
+        assert!(blobs.bundle_init.is_empty());
+    }
+
+    #[test]
+    fn parse_net_img_alternate_register_section_type_0x30() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&0x30u32.to_le_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes());
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.resize(20, 0);
+        data.extend_from_slice(&0x0040_4000u32.to_le_bytes());
+        data.extend_from_slice(&0x99u32.to_le_bytes());
+        let blobs = GrFirmwareBlobs::parse_net_img_bytes(&data, "t").unwrap();
+        assert_eq!(blobs.bundle_init.len(), 1);
+        assert_eq!(blobs.bundle_init[0].addr, 0x0040_4000);
+    }
+
+    #[test]
+    fn parse_net_img_method_section_drops_trailing_partial_pairs() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&0x07u32.to_le_bytes());
+        data.extend_from_slice(&9u32.to_le_bytes());
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.resize(20, 0);
+        data.extend_from_slice(&0x10u32.to_le_bytes());
+        data.extend_from_slice(&0x20u32.to_le_bytes());
+        data.push(0xFF);
+        let blobs = GrFirmwareBlobs::parse_net_img_bytes(&data, "t").unwrap();
+        assert_eq!(blobs.method_init.len(), 1);
+        assert_eq!(blobs.method_init[0].addr, 0x10);
+        assert_eq!(blobs.method_init[0].value, 0x20);
+    }
+
+    #[test]
+    fn bundle_writes_to_empty_when_no_match() {
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(&[], &[], &[], &[], "empty");
+        assert!(blobs.bundle_writes_to(0x0040_0000).is_empty());
+    }
+
+    #[test]
+    fn parse_net_img_bytes_too_small_error_message() {
+        let err = GrFirmwareBlobs::parse_net_img_bytes(&[0, 1, 2, 3], "x").unwrap_err();
+        assert!(err.to_string().contains("too small"));
+    }
+
+    #[test]
     fn parse_all_available_firmware() {
         let root = nvidia_firmware_root();
         let base = std::path::Path::new(&root);

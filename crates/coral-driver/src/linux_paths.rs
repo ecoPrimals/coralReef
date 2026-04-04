@@ -322,17 +322,20 @@ mod tests {
         }
         assert!(optional_data_dir().is_none());
 
+        // SAFETY: Same mutex and test-only env contract as above.
         unsafe {
             std::env::set_var("CORALREEF_DATA_DIR", "/var/coral");
         }
         assert_eq!(optional_data_dir().as_deref(), Some("/var/coral"));
 
+        // SAFETY: Same mutex and test-only env contract as above.
         unsafe {
             std::env::set_var("CORALREEF_DATA_DIR", "");
             std::env::set_var("HOTSPRING_DATA_DIR", "/var/hot");
         }
         assert_eq!(optional_data_dir().as_deref(), Some("/var/hot"));
 
+        // SAFETY: Same mutex and test-only env contract as above.
         unsafe {
             std::env::remove_var("CORALREEF_DATA_DIR");
             std::env::remove_var("HOTSPRING_DATA_DIR");
@@ -360,5 +363,34 @@ mod tests {
         let path = sysfs_join(&["", "bus", "pci"]);
         assert!(path.contains("/bus/pci"));
         assert!(path.starts_with(sysfs_root()));
+    }
+
+    #[test]
+    fn sysfs_join_single_segment() {
+        let path = sysfs_join(&["kernel"]);
+        assert_eq!(path, format!("{}/kernel", sysfs_root()));
+    }
+
+    #[test]
+    fn sysfs_pci_device_file_tail_only_slash_strips_to_relative_segment() {
+        let bdf = "0000:05:00.0";
+        let p = sysfs_pci_device_file(bdf, "/config");
+        assert!(p.ends_with("/config"));
+    }
+
+    #[test]
+    fn optional_data_dir_whitespace_only_not_treated_as_unset() {
+        let _guard = OPTIONAL_DATA_DIR_TEST_LOCK.lock().expect("lock");
+        // SAFETY: `OPTIONAL_DATA_DIR_TEST_LOCK` serializes tests that touch these
+        // process environment variables; no concurrent readers elsewhere in tests.
+        unsafe {
+            std::env::set_var("CORALREEF_DATA_DIR", "   ");
+            std::env::remove_var("HOTSPRING_DATA_DIR");
+        }
+        assert_eq!(optional_data_dir().as_deref(), Some("   "));
+        // SAFETY: Same mutex and test-only env contract as above.
+        unsafe {
+            std::env::remove_var("CORALREEF_DATA_DIR");
+        }
     }
 }

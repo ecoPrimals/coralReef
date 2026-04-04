@@ -1,0 +1,11 @@
+# coralReef — Cargo build configuration
+# Applied workspace-wide by Cargo.
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.dev]
+# Faster incremental builds via split debuginfo
+split-debuginfo = "unpacked"

@@ -629,6 +629,7 @@ pub fn diagnostic_matrix(
         let vol_get = unsafe {
             VolatilePtr::new((userd_page.as_ptr().add(ramuserd::GP_GET) as *mut u8).cast::<u32>())
         };
+        // SAFETY: Same as `vol_get`: in-bounds offset within `userd_page`.
         let vol_put = unsafe {
             VolatilePtr::new((userd_page.as_ptr().add(ramuserd::GP_PUT) as *mut u8).cast::<u32>())
         };

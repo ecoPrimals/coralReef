@@ -24,6 +24,14 @@ use std::os::unix::io::AsRawFd;
 ///
 /// Wraps an mmap of the PCI BAR0 resource file. All reads and writes are
 /// volatile, matching hardware MMIO semantics.
+///
+/// ## Thread safety (`Send` / `Sync`)
+///
+/// The mapping is owned together with the open `resource0` [`std::fs::File`]; the
+/// kernel keeps the mmap valid for the file’s lifetime. Volatile MMIO accesses
+/// are performed through [`crate::mmio_region::MmioRegion`] and are safe to use
+/// across threads for aligned 32-bit operations when hardware access ordering is
+/// respected by callers—matching other BAR0 wrappers in this crate.
 pub struct Bar0Access {
     _file: std::fs::File,
     region: MmioRegion,
@@ -197,13 +205,10 @@ impl RegisterAccess for Bar0Access {
     }
 }
 
-// SAFETY: MMIO mapping lifetime is tied to `_file`; access is via [`MmioRegion`]
-// volatile reads/writes (atomic for aligned `u32` on x86/aarch64). `Bar0Access`
-// is used across async/thread boundaries for GSP init.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`Bar0Access`] docs.
 unsafe impl Send for Bar0Access {}
 
-// SAFETY: Same as `Send` — mapping valid while `_file` lives; volatile MMIO
-// access is thread-safe for aligned 32-bit operations.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`Bar0Access`] docs.
 unsafe impl Sync for Bar0Access {}
 
 #[cfg(test)]

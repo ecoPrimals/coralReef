@@ -673,3 +673,18 @@ Provenance Trio guidance: the NAK-derived IR, register allocation,
 spiller, instruction scheduling, and NVIDIA encoder code retains its
 upstream MIT license while the surrounding coralReef codebase is
 AGPL-3.0-only. New code and AMD-specific modules are AGPL-3.0-only.
+
+---
+
+scyBorg Provenance Trio
+-----------------------
+
+coralReef participates in the ecoPrimals scyBorg triple-copyleft framework:
+
+  1. Code: AGPL-3.0-only (this file)
+  2. Game Mechanics: ORC License (see LICENSE-ORC)
+  3. Creative Content: CC-BY-SA 4.0 (see LICENSE-CC-BY-SA in ecoPrimals root)
+
+Each license is governed by an independent nonprofit. No single entity
+can revoke any layer. See wateringHole/SCYBORG_PROVENANCE_TRIO_GUIDANCE.md
+for the full framework.

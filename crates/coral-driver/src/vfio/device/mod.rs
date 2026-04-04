@@ -22,6 +22,16 @@ use crate::gsp::{ApplyError, RegisterAccess};
 use crate::mmio_region::MmioRegion;
 
 /// A mapped BAR region from a VFIO device.
+///
+/// ## Thread safety (`Send` / `Sync`)
+///
+/// The region wraps a [`crate::mmio_region::MmioRegion`] whose pointer refers to a `MAP_SHARED` MMIO
+/// mapping tied to the VFIO device fd lifetime. Access is performed only through
+/// volatile operations (`read_u32` / `write_u32`), which are safe to use from
+/// multiple threads for aligned 32-bit MMIO on supported architectures when the
+/// mapping is shared read-only or callers coordinate writes. The owning struct is
+/// therefore `Send` + `Sync` for the same reasons as other mmap-backed BAR
+/// wrappers in this crate.
 pub struct MappedBar {
     region: MmioRegion,
 }
@@ -102,14 +112,10 @@ impl RegisterAccess for MappedBar {
     }
 }
 
-// SAFETY: The base_ptr points to MMIO-mapped memory via mmap. Access is through
-// volatile reads/writes which are inherently atomic for 32-bit aligned access on
-// x86_64. The mmap lifetime is tied to the struct.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`MappedBar`] docs.
 unsafe impl Send for MappedBar {}
 
-// SAFETY: The base_ptr points to MMIO-mapped memory via mmap. Access is through
-// volatile reads/writes which are inherently atomic for 32-bit aligned access on
-// x86_64. The mmap lifetime is tied to the struct.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`MappedBar`] docs.
 unsafe impl Sync for MappedBar {}
 
 mod bus_master;

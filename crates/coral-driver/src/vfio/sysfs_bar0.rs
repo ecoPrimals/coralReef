@@ -10,6 +10,13 @@ use crate::mmio_region::MmioRegion;
 ///
 /// Provides safe, bounds-checked volatile reads for register probing.
 /// The mapping is automatically unmapped on drop.
+///
+/// ## Thread safety (`Send` / `Sync`)
+///
+/// The [`std::fs::File`] keeps the sysfs mapping alive; [`crate::mmio_region::MmioRegion`]
+/// holds the base pointer and length. Read-only volatile `u32` loads are safe to
+/// share across threads for aligned MMIO access on the supported platforms, in line
+/// with other BAR0 readers in this crate.
 pub struct SysfsBar0 {
     _file: std::fs::File,
     region: MmioRegion,
@@ -18,12 +25,10 @@ pub struct SysfsBar0 {
 /// 16 MiB — standard BAR0 size for NVIDIA Volta-class GPUs.
 pub const DEFAULT_BAR0_SIZE: usize = 16 * 1024 * 1024;
 
-// SAFETY: ptr points to read-only mmap'd BAR0; _file keeps the mapping valid.
-// Volatile reads are atomic for aligned u32 on x86/aarch64. SysfsBar0 is used
-// for register probing across threads (e.g. oracle modules).
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`SysfsBar0`] docs.
 unsafe impl Send for SysfsBar0 {}
 
-// SAFETY: Same as Send — no mutable state; volatile reads are thread-safe.
+// SAFETY: Matches the `Send` / `Sync` rationale in the [`SysfsBar0`] docs.
 unsafe impl Sync for SysfsBar0 {}
 
 impl SysfsBar0 {

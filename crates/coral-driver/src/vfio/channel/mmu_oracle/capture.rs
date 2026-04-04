@@ -679,6 +679,14 @@ pub fn capture_page_tables_via_mapped_bar(
 ///
 /// Wraps a raw pointer + size so it can be moved into `spawn_blocking` tasks.
 /// The caller must ensure the underlying mapping outlives this handle.
+///
+/// ## Thread safety (`Send`)
+///
+/// The underlying BAR0 window is process-global MMIO: volatile reads are defined
+/// for any thread once the mapping is established. This handle does **not**
+/// implement [`Sync`]: sharing `&Bar0Handle` across threads without external
+/// synchronization would duplicate the same unsafety as sharing raw pointers.
+/// Use one handle per task or wrap externally if shared access is required.
 pub struct Bar0Handle {
     ptr: *mut u8,
     size: usize,
@@ -693,8 +701,8 @@ impl std::fmt::Debug for Bar0Handle {
     }
 }
 
-// SAFETY: The underlying BAR0 mmap is process-global and volatile reads are
-// safe from any thread. The caller guarantees the mapping stays alive.
+// SAFETY: Matches the `Send` rationale in the [`Bar0Handle`] docs; the caller
+// must keep the mapping alive.
 unsafe impl Send for Bar0Handle {}
 
 impl Bar0Handle {
