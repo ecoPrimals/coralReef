@@ -2,7 +2,7 @@
 
 # Hardware Testing Guide — coralReef GPU Parity
 
-**Last updated**: March 21, 2026 (Phase 10 — Iteration 67)
+**Last updated**: April 4, 2026 (Phase 10 — Iteration 72)
 
 ## Hardware Inventory
 
@@ -10,7 +10,7 @@
 |------|-----|-------------|--------|--------|
 | — | NVIDIA Titan V #1 | GV100 SM70 (Volta) | `vfio-pci` | VFIO sovereign — VRAM healthy, boot preemption active |
 | — | NVIDIA Titan V #2 | GV100 SM70 (Volta) | `vfio-pci` | VFIO sovereign — VRAM healthy, boot preemption active |
-| `renderD128` | NVIDIA RTX 5060 | SM89 (Ada) | `nvidia-drm` | Desktop display + UVM dispatch |
+| `renderD128` | NVIDIA RTX 4070 | AD104 SM89 (Ada) | `nvidia-drm` | Desktop display + UVM dispatch |
 
 ### Boot Sovereignty (Iteration 56)
 

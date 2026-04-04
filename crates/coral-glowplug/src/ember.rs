@@ -154,10 +154,6 @@ impl EmberClient {
     ///
     /// Superseded by `swap_device` for normal swaps; retained for manual
     /// debugging via socat or targeted fd release.
-    #[allow(
-        dead_code,
-        reason = "retained for manual debugging via socat — used via test harness"
-    )]
     pub fn release_device(&self, bdf: &str) -> Result<(), EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
@@ -175,10 +171,6 @@ impl EmberClient {
     ///
     /// Superseded by `swap_device` which handles reacquisition internally;
     /// retained for manual debugging.
-    #[allow(
-        dead_code,
-        reason = "retained for manual debugging via socat — used via test harness"
-    )]
     pub fn reacquire_device(&self, bdf: &str) -> Result<(), EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
@@ -633,7 +625,8 @@ mod tests {
     fn next_request_id_increments() {
         let a = next_request_id();
         let b = next_request_id();
-        assert_eq!(b, a + 1);
+        // Global counter is shared across parallel unit tests — only monotonicity is guaranteed.
+        assert!(b > a, "request ids must increase: {a} then {b}");
     }
 
     #[test]

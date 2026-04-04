@@ -90,7 +90,15 @@ impl VfioChannel {
         userd_iova: u64,
         channel_id: u32,
     ) -> DriverResult<Self> {
-        Self::create_with_config(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id, &pfifo::PfifoInitConfig::default())
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::default(),
+        )
     }
 
     /// Create a VFIO channel in warm handoff mode — preserves PFIFO/PMC
@@ -103,7 +111,15 @@ impl VfioChannel {
         userd_iova: u64,
         channel_id: u32,
     ) -> DriverResult<Self> {
-        Self::create_with_config(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id, &pfifo::PfifoInitConfig::warm_handoff())
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::warm_handoff(),
+        )
     }
 
     fn create_with_config(
@@ -147,7 +163,7 @@ impl VfioChannel {
             );
         };
 
-        let (runq, runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
+        let (runq, _runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
         pfifo_trace(bar0, "after-pfifo-init");
 
         // Configure BAR2 in PHYSICAL mode targeting system memory.

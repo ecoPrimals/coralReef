@@ -5,6 +5,7 @@
 //! [`crate::device::DeviceSlot::with_sysfs`].
 
 use crate::device::PowerState;
+use crate::error::SysfsError;
 use coral_driver::linux_paths;
 
 /// Operations that mirror [`crate::sysfs`] free functions for dependency injection.
@@ -31,7 +32,7 @@ pub trait SysfsOps: Send + Sync + 'static {
     fn has_active_drm_consumers(&self, bdf: &str) -> bool;
 
     /// Write to a sysfs path (same semantics as [`crate::sysfs::sysfs_write`]).
-    fn sysfs_write(&self, path: &str, data: &str) -> Result<(), String>;
+    fn sysfs_write(&self, path: &str, data: &str) -> Result<(), SysfsError>;
 
     /// Ensure peers in the IOMMU group are bound to `vfio-pci`.
     fn bind_iommu_group_to_vfio(&self, primary_bdf: &str, group_id: u32);
@@ -70,8 +71,11 @@ impl SysfsOps for RealSysfs {
         crate::sysfs::has_active_drm_consumers(bdf)
     }
 
-    fn sysfs_write(&self, path: &str, data: &str) -> Result<(), String> {
-        crate::sysfs::sysfs_write(path, data).map_err(|e| e.to_string())
+    fn sysfs_write(&self, path: &str, data: &str) -> Result<(), SysfsError> {
+        crate::sysfs::sysfs_write(path, data).map_err(|source| SysfsError::Io {
+            path: path.to_string(),
+            source,
+        })
     }
 
     fn bind_iommu_group_to_vfio(&self, primary_bdf: &str, group_id: u32) {
@@ -131,6 +135,8 @@ mod mock {
     use std::collections::HashMap;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::error::SysfsError;
 
     use super::*;
 
@@ -224,10 +230,12 @@ mod mock {
             self.drm_consumers.get(bdf).copied().unwrap_or(false)
         }
 
-        fn sysfs_write(&self, path: &str, data: &str) -> Result<(), String> {
+        fn sysfs_write(&self, path: &str, data: &str) -> Result<(), SysfsError> {
             self.writes
                 .lock()
-                .map_err(|e| format!("mock writes mutex poisoned: {e}"))?
+                .map_err(|e| SysfsError::MockWritesMutexPoisoned {
+                    detail: e.to_string(),
+                })?
                 .push((path.to_string(), data.to_string()));
             Ok(())
         }

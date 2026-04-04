@@ -23,9 +23,7 @@ use coral_driver::nv::vfio_compute::acr_boot::{
     AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
     attempt_sysmem_acr_boot_with_config,
 };
-use coral_driver::vfio::channel::devinit::{
-    DevinitStatus, FalconDiagnostic, execute_devinit_with_diagnostics,
-};
+use coral_driver::vfio::channel::devinit::{DevinitStatus, execute_devinit_with_diagnostics};
 use coral_driver::vfio::device::MappedBar;
 
 mod r120 {
@@ -39,14 +37,14 @@ mod r120 {
     pub const PC: usize = 0x030;
     pub const EXCI: usize = 0x148;
     pub const MAILBOX0: usize = 0x040;
-    pub const HWCFG: usize = 0x108;
+    pub const _HWCFG: usize = 0x108;
 
     pub const CPUCTL_HRESET: u32 = 1 << 4;
     pub const CPUCTL_HALTED: u32 = 1 << 5;
     pub const INDEXED_WPR: usize = 0x100CD4;
 
-    pub const PMC_BOOT0: usize = 0x000000;
-    pub const PMC_ENABLE: usize = 0x000200;
+    pub const _PMC_BOOT0: usize = 0x000000;
+    pub const _PMC_ENABLE: usize = 0x000200;
 }
 
 fn read_wpr2(bar0: &MappedBar) -> (u64, u64, bool) {
@@ -144,7 +142,7 @@ fn exp120_sovereign_devinit() {
 
     eprintln!("\n  ── WPR2 (post-DEVINIT) ──");
     let (w_s2, w_e2, w_v2) = read_wpr2(bar0);
-    let w_sz2 = if w_e2 > w_s2 { w_e2 - w_s2 } else { 0 };
+    let w_sz2 = w_e2.saturating_sub(w_s2);
     eprintln!("  WPR2: start={w_s2:#012x} end={w_e2:#012x} size={w_sz2:#x} valid={w_v2}");
 
     let status2 = DevinitStatus::probe(bar0);

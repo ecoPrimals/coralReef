@@ -254,36 +254,10 @@ mod tests {
     use super::*;
     use crate::gsp::firmware_parser::GrFirmwareBlobs;
     use crate::gsp::gr_init::GrInitSequence;
-    use std::collections::BTreeMap;
+    use crate::gsp::test_utils::MockBar0;
 
-    struct MockRegs {
-        registers: BTreeMap<u32, u32>,
-    }
-
-    impl MockRegs {
-        fn new() -> Self {
-            Self {
-                registers: BTreeMap::new(),
-            }
-        }
-    }
-
-    impl RegisterAccess for MockRegs {
-        fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
-            self.registers
-                .get(&offset)
-                .copied()
-                .ok_or(ApplyError::MmioFailed {
-                    offset,
-                    detail: "uninitialized".to_string(),
-                })
-        }
-
-        fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {
-            self.registers.insert(offset, value);
-            Ok(())
-        }
-    }
+    /// Large enough for real `GrInitSequence::for_gv100` BAR0-class writes (bundle MMIO offsets).
+    const MOCK_BAR0_SIZE: usize = 0x0020_0000;
 
     #[test]
     fn dry_run_gv100() {
@@ -306,21 +280,28 @@ mod tests {
 
     #[test]
     fn apply_bar0_mock() {
-        match GrFirmwareBlobs::parse("gv100") {
-            Ok(blobs) => {
-                let seq = GrInitSequence::for_gv100(&blobs);
-                let mut regs = MockRegs::new();
-                let result = apply_bar0(&seq, &mut regs);
-                assert!(!result.dry_run);
-                assert!(result.success());
-                assert!(result.bar0_writes >= 2, "at least PMC_ENABLE + FIFO_ENABLE");
-
-                // Verify the writes went through
-                let errs = verify_pre_init(&regs);
-                assert!(errs.is_empty(), "verification should pass: {errs:?}");
+        // Synthetic bundle: avoids filesystem and keeps BAR0 offsets inside `MockBar0` (real
+        // `sw_bundle_init.bin` can include MMIO past the mock window or odd alignments).
+        let bundle = {
+            let mut b = Vec::new();
+            // Above `MAX_CHANNEL_METHOD` so `split_for_application` keeps these as BAR0; stay
+            // inside [`MOCK_BAR0_SIZE`] (unlike real blobs that can use high PGRAPH MMIO).
+            for (addr, value) in [(0x0001_0000u32, 1u32), (0x0001_0004u32, 2u32)] {
+                b.extend_from_slice(&addr.to_le_bytes());
+                b.extend_from_slice(&value.to_le_bytes());
             }
-            Err(e) => tracing::debug!(error = %e, "GV100 firmware not present"),
-        }
+            b
+        };
+        let blobs = GrFirmwareBlobs::from_legacy_bytes(&bundle, &[], &[], &[], "gv100");
+        let seq = GrInitSequence::for_gv100(&blobs);
+        let mut regs = MockBar0::new(MOCK_BAR0_SIZE);
+        let result = apply_bar0(&seq, &mut regs);
+        assert!(!result.dry_run);
+        assert!(result.success(), "{result:?}");
+        assert!(result.bar0_writes >= 2, "at least PMC_ENABLE + FIFO_ENABLE");
+
+        let errs = verify_pre_init(&regs);
+        assert!(errs.is_empty(), "verification should pass: {errs:?}");
     }
 
     #[test]
@@ -571,17 +552,55 @@ mod tests {
                 },
             ],
         };
-        let mut regs = MockRegs::new();
+        let mut regs = MockBar0::new(MOCK_BAR0_SIZE);
         let result = apply_bar0(&seq, &mut regs);
         assert!(result.success());
         assert_eq!(result.bar0_writes, 2);
 
-        // Verify mock register map contains expected values
-        assert_eq!(regs.read_u32(0x0000_0200).unwrap(), 0xFFFF_FFFF);
-        assert_eq!(regs.read_u32(0x0000_2504).unwrap(), 0x0000_0001);
+        assert_eq!(regs.read_u32(0x0000_0200).expect("read PMC"), 0xFFFF_FFFF);
+        assert_eq!(regs.read_u32(0x0000_2504).expect("read PFIFO"), 0x0000_0001);
 
         let errs = verify_pre_init(&regs);
         assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn mock_bar0_apply_bar0_then_verify_pre_init_bytes() {
+        use crate::gsp::gr_init::{GrRegWrite, RegCategory};
+        let seq = GrInitSequence {
+            chip: "mock-bytes".to_string(),
+            writes: vec![
+                GrRegWrite {
+                    offset: 0x0000_0200,
+                    value: 0x0000_0001,
+                    category: RegCategory::MasterControl,
+                    delay_us: 0,
+                },
+                GrRegWrite {
+                    offset: 0x0000_2504,
+                    value: 0x0000_0001,
+                    category: RegCategory::Fifo,
+                    delay_us: 0,
+                },
+            ],
+        };
+        let mut bar = MockBar0::new(MOCK_BAR0_SIZE);
+        let result = apply_bar0(&seq, &mut bar);
+        assert!(result.success(), "{result:?}");
+        assert_eq!(result.bar0_writes, 2);
+        assert_eq!(result.fecs_entries, 0);
+
+        assert_eq!(bar.read_u32(0x200).expect("PMC"), 1);
+        assert_eq!(bar.read_u32(0x2504).expect("PFIFO"), 1);
+        assert!(verify_pre_init(&bar).is_empty());
+    }
+
+    #[test]
+    fn mock_bar0_seed_then_verify_pre_init() {
+        let mut bar = MockBar0::new(MOCK_BAR0_SIZE);
+        bar.seed_u32(0x0000_0200, 0x0000_0001);
+        bar.seed_u32(0x0000_2504, 0x0000_0001);
+        assert!(verify_pre_init(&bar).is_empty());
     }
 
     #[test]

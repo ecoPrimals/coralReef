@@ -88,9 +88,9 @@ trait CoralReefRpc {
     #[method(name = "identity.get")]
     async fn identity_get(&self) -> Result<service::IdentityGetResponse, ErrorObjectOwned>;
 
-    /// `capabilities.list` — list capability IDs this primal provides.
-    #[method(name = "capabilities.list")]
-    async fn capabilities_list(&self) -> Result<Vec<String>, ErrorObjectOwned>;
+    /// `capability.list` — capability domains this primal serves.
+    #[method(name = "capability.list")]
+    async fn capability_list(&self) -> Result<service::CapabilityListResponse, ErrorObjectOwned>;
 }
 
 struct RpcImpl;
@@ -145,9 +145,8 @@ impl CoralReefRpcServer for RpcImpl {
         Ok(service::handle_identity_get())
     }
 
-    async fn capabilities_list(&self) -> Result<Vec<String>, ErrorObjectOwned> {
-        let desc = crate::capability::self_description();
-        Ok(desc.provides.iter().map(|c| c.id.to_string()).collect())
+    async fn capability_list(&self) -> Result<service::CapabilityListResponse, ErrorObjectOwned> {
+        Ok(service::handle_capability_list())
     }
 }
 

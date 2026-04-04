@@ -36,10 +36,6 @@ pub enum DeviceError {
     NotManaged { bdf: Arc<str> },
 
     #[error("sysfs I/O error at {path}: {source}")]
-    #[allow(
-        dead_code,
-        reason = "reserved for upcoming sysfs evolution; used in tests — lint suppressed in test cfgs"
-    )]
     SysfsIo {
         path: String,
         source: std::io::Error,
@@ -50,6 +46,120 @@ pub enum DeviceError {
          Close all GPU-using applications on this card first."
     )]
     ActiveDrmConsumers { bdf: Arc<str> },
+}
+
+/// Sysfs write failures for [`crate::sysfs_ops::SysfsOps::sysfs_write`].
+#[derive(Debug, thiserror::Error)]
+pub enum SysfsError {
+    #[error("sysfs I/O error at {path}: {source}")]
+    Io {
+        path: String,
+        source: std::io::Error,
+    },
+
+    /// Mutex poison in test doubles (`MockSysfs`).
+    #[error("mock sysfs writes mutex poisoned: {detail}")]
+    MockWritesMutexPoisoned { detail: String },
+}
+
+/// Failed to bind the JSON-RPC socket (TCP or Unix).
+#[derive(Debug, thiserror::Error)]
+pub enum SocketServerError {
+    #[error("bind TCP {addr}: {source}")]
+    BindTcp {
+        addr: String,
+        source: std::io::Error,
+    },
+
+    #[error("get TCP local addr: {source}")]
+    TcpLocalAddr { source: std::io::Error },
+
+    #[error("bind Unix {path}: {source}")]
+    BindUnix {
+        path: String,
+        source: std::io::Error,
+    },
+
+    #[error("Unix socket path not supported on this platform; use TCP address (e.g. {fallback})")]
+    UnixNotSupported { fallback: String },
+}
+
+/// Integer parse failures for CLI helpers (hex or decimal).
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("invalid hex '{input}': {source}")]
+    Hex {
+        input: String,
+        source: std::num::ParseIntError,
+    },
+
+    #[error("invalid number '{input}': {source}")]
+    Dec {
+        input: String,
+        source: std::num::ParseIntError,
+    },
+}
+
+/// No config file in the search list could be loaded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigLoadError {
+    /// Paths that were attempted, in order.
+    pub paths: Vec<String>,
+}
+
+impl fmt::Display for ConfigLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "no valid configuration found (tried: {})",
+            self.paths.join(", ")
+        )
+    }
+}
+
+impl std::error::Error for ConfigLoadError {}
+
+/// Blocking CUDA / base64 steps for `device.dispatch`.
+#[derive(Debug, thiserror::Error)]
+pub enum ComputeDispatchError {
+    #[error("base64 decode shader: {0}")]
+    ShaderBase64(#[from] base64::DecodeError),
+
+    #[error("base64 decode input: {0}")]
+    InputBase64(base64::DecodeError),
+
+    #[error("CUDA compute dispatch requires building coral-glowplug with `--features cuda`")]
+    CudaFeatureDisabled,
+
+    #[error("CUDA open for {bdf}: {message}")]
+    CudaOpen { bdf: String, message: String },
+
+    #[error("alloc input: {message}")]
+    AllocInput { message: String },
+
+    #[error("upload: {message}")]
+    Upload { message: String },
+
+    #[error("alloc output: {message}")]
+    AllocOutput { message: String },
+
+    #[error("dispatch: {message}")]
+    Dispatch { message: String },
+
+    #[error("sync: {message}")]
+    Sync { message: String },
+
+    #[error("readback: {message}")]
+    Readback { message: String },
+}
+
+impl From<ComputeDispatchError> for RpcError {
+    fn from(err: ComputeDispatchError) -> Self {
+        Self {
+            code: RpcErrorCode::DEVICE_ERROR,
+            message: err.to_string(),
+        }
+    }
 }
 
 /// Errors from configuration loading and parsing.

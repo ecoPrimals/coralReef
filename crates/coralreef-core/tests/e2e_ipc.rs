@@ -130,12 +130,12 @@ async fn e2e_ipc_full_integration() {
     assert_eq!(status.status, "operational");
 
     // shader.compile.capabilities
-    let archs: Vec<String> = client
+    let caps: service::CompileCapabilitiesResponse = client
         .request("shader.compile.capabilities", no_params())
         .await
         .unwrap();
     let default_arch = coral_reef::GpuArch::default().to_string();
-    assert!(archs.contains(&default_arch));
+    assert!(caps.supported_archs.contains(&default_arch));
 
     // health.check
     let health_check: service::HealthCheckResponse =

@@ -51,10 +51,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }
@@ -167,64 +167,60 @@ fn exp113_trap_analysis() {
 
     let fw = AcrFirmwareSet::load(chip).expect("firmware load");
 
-    let mut results = Vec::new();
-
-    // Variant A: No hot-swap (pure legacy PDEs) — isolate hot-swap as cause
-    results.push(run_variant(
-        &bdf,
-        &fw,
-        "A: No hot-swap (legacy PDEs throughout)",
-        DualPhaseConfig {
-            skip_hotswap: true,
-            skip_blob_dma: false,
-            ..Default::default()
-        },
-    ));
-
-    // Variant B: blob_size=0 — confirm HS without trap
-    results.push(run_variant(
-        &bdf,
-        &fw,
-        "B: blob_size=0 (skip blob DMA)",
-        DualPhaseConfig {
-            skip_blob_dma: true,
-            ..Default::default()
-        },
-    ));
-
-    // Variant C: WPR2 pre-set + full init
-    results.push(run_variant(
-        &bdf,
-        &fw,
-        "C: WPR2 pre-set + full init",
-        DualPhaseConfig {
-            set_wpr2: true,
-            ..Default::default()
-        },
-    ));
-
-    // Variant D: Delayed hot-swap (100ms)
-    results.push(run_variant(
-        &bdf,
-        &fw,
-        "D: Delayed hot-swap (100ms)",
-        DualPhaseConfig {
-            hotswap_delay_us: 100_000,
-            ..Default::default()
-        },
-    ));
-
-    // Variant E: No hot-swap + WPR2 set
-    results.push(run_variant(
-        &bdf,
-        &fw,
-        "E: No hot-swap + WPR2 set",
-        DualPhaseConfig {
-            skip_hotswap: true,
-            set_wpr2: true,
-            ..Default::default()
-        },
-    ));
+    let results = vec![
+        // Variant A: No hot-swap (pure legacy PDEs) — isolate hot-swap as cause
+        run_variant(
+            &bdf,
+            &fw,
+            "A: No hot-swap (legacy PDEs throughout)",
+            DualPhaseConfig {
+                skip_hotswap: true,
+                skip_blob_dma: false,
+                ..Default::default()
+            },
+        ),
+        // Variant B: blob_size=0 — confirm HS without trap
+        run_variant(
+            &bdf,
+            &fw,
+            "B: blob_size=0 (skip blob DMA)",
+            DualPhaseConfig {
+                skip_blob_dma: true,
+                ..Default::default()
+            },
+        ),
+        // Variant C: WPR2 pre-set + full init
+        run_variant(
+            &bdf,
+            &fw,
+            "C: WPR2 pre-set + full init",
+            DualPhaseConfig {
+                set_wpr2: true,
+                ..Default::default()
+            },
+        ),
+        // Variant D: Delayed hot-swap (100ms)
+        run_variant(
+            &bdf,
+            &fw,
+            "D: Delayed hot-swap (100ms)",
+            DualPhaseConfig {
+                hotswap_delay_us: 100_000,
+                ..Default::default()
+            },
+        ),
+        // Variant E: No hot-swap + WPR2 set
+        run_variant(
+            &bdf,
+            &fw,
+            "E: No hot-swap + WPR2 set",
+            DualPhaseConfig {
+                skip_hotswap: true,
+                set_wpr2: true,
+                ..Default::default()
+            },
+        ),
+    ];
 
     // ── Summary table ──
     let summ = "=".repeat(100);

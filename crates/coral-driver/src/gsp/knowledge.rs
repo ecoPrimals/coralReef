@@ -11,6 +11,8 @@
 //!   sizing, memory placement based on observed hardware behavior
 
 use super::firmware_parser::{FirmwareFormat, GrFirmwareBlobs};
+use super::firmware_source::nvidia_firmware_base;
+use super::firmware_source::{FilesystemFirmwareSource, NvidiaFirmwareSource};
 use super::gr_init::GrInitSequence;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -78,12 +80,22 @@ impl GpuKnowledge {
 
     /// Learn from all available NVIDIA firmware on this system.
     ///
-    /// Probes `/lib/firmware/nvidia/` for every chip that has GR
-    /// firmware and parses the init sequences.
+    /// Uses [`FilesystemFirmwareSource`](crate::gsp::FilesystemFirmwareSource) (default
+    /// `/lib/firmware/nvidia/`, override `CORALREEF_NVIDIA_FIRMWARE_PATH`). For tests or custom
+    /// layouts, call [`Self::learn_nvidia_firmware_with_source`].
     pub fn learn_nvidia_firmware(&mut self) {
-        let nvidia_chips = discover_nvidia_chips();
+        let source = FilesystemFirmwareSource::new();
+        self.learn_nvidia_firmware_with_source(&source);
+    }
+
+    /// Learn from NVIDIA firmware supplied by `source` (filesystem, in-memory mock, etc.).
+    ///
+    /// If `list_chips` fails (for example unreadable directory), behaves like an empty firmware
+    /// tree: nothing is learned. Chips whose firmware fails to load are skipped.
+    pub fn learn_nvidia_firmware_with_source(&mut self, source: &dyn NvidiaFirmwareSource) {
+        let nvidia_chips = source.list_chips().unwrap_or_default();
         for chip in nvidia_chips {
-            if let Ok(blobs) = GrFirmwareBlobs::parse(&chip) {
+            if let Ok(blobs) = source.load_gr_firmware(&chip) {
                 let gr_init = GrInitSequence::from_blobs(&blobs);
                 let register_count = blobs.unique_bundle_addrs().len();
                 let has_firmware = has_gsp_or_pmu(&chip);
@@ -370,32 +382,10 @@ fn detect_address_space(blobs: &GrFirmwareBlobs) -> AddressSpace {
     }
 }
 
-/// Discover NVIDIA chip codenames from firmware directory.
-fn discover_nvidia_chips() -> Vec<String> {
-    let base = std::path::Path::new("/lib/firmware/nvidia");
-    let Ok(entries) = std::fs::read_dir(base) else {
-        return Vec::new();
-    };
-    let mut chips = Vec::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        // Only chip codenames (gv100, ga102, etc.), not version dirs
-        if name.starts_with('g') || name.starts_with('t') || name.starts_with('a') {
-            let gr_dir = entry.path().join("gr");
-            if gr_dir.is_dir() {
-                chips.push(name);
-            }
-        }
-    }
-    chips.sort();
-    chips
-}
-
 /// Check if a chip has GSP or PMU firmware.
 fn has_gsp_or_pmu(chip: &str) -> bool {
-    let base = format!("/lib/firmware/nvidia/{chip}");
-    std::path::Path::new(&format!("{base}/gsp")).is_dir()
-        || std::path::Path::new(&format!("{base}/pmu")).is_dir()
+    let base = nvidia_firmware_base().join(chip);
+    base.join("gsp").is_dir() || base.join("pmu").is_dir()
 }
 
 /// Map chip codename to SM version.

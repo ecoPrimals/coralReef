@@ -176,6 +176,54 @@ mod tests {
     use super::*;
     use crate::gsp::firmware_parser::GrFirmwareBlobs;
 
+    fn synthetic_blobs() -> GrFirmwareBlobs {
+        let mut bundle = Vec::new();
+        bundle.extend_from_slice(&0x0040_1000u32.to_le_bytes());
+        bundle.extend_from_slice(&0xAAA_AAAu32.to_le_bytes());
+        bundle.extend_from_slice(&0x0040_2000u32.to_le_bytes());
+        bundle.extend_from_slice(&0xBBB_BBBu32.to_le_bytes());
+        let mut method = Vec::new();
+        method.extend_from_slice(&0x2080_0100u32.to_le_bytes());
+        method.extend_from_slice(&0x00C0FFEEu32.to_le_bytes());
+        GrFirmwareBlobs::from_legacy_bytes(&bundle, &method, &[], &[], "synthetic")
+    }
+
+    #[test]
+    fn gv100_from_blobs_includes_master_fifo_and_firmware_writes() {
+        let blobs = synthetic_blobs();
+        let seq = GrInitSequence::for_gv100(&blobs);
+        assert_eq!(seq.chip, "gv100");
+        assert!(seq.len() >= 2 + blobs.bundle_count() + blobs.method_count());
+        let master = seq.category_writes(RegCategory::MasterControl);
+        assert_eq!(master.len(), 1);
+        assert_eq!(master[0].offset, 0x200);
+        assert_eq!(master[0].delay_us, 100);
+        let fifo = seq.category_writes(RegCategory::Fifo);
+        assert_eq!(fifo.len(), 1);
+        assert_eq!(fifo[0].offset, 0x2504);
+        let bundle = seq.category_writes(RegCategory::BundleInit);
+        assert_eq!(bundle.len(), 2);
+        assert_eq!(bundle[0].offset, 0x0040_1000);
+        assert_eq!(bundle[1].offset, 0x0040_2000);
+        let method = seq.category_writes(RegCategory::MethodInit);
+        assert_eq!(method.len(), 1);
+        assert_eq!(method[0].offset, 0x2080_0100);
+    }
+
+    #[test]
+    fn from_blobs_chip_name_and_ordering() {
+        let blobs = synthetic_blobs();
+        let seq = GrInitSequence::from_blobs(&blobs);
+        assert_eq!(seq.chip, "synthetic");
+        assert_eq!(seq.len(), blobs.bundle_count() + blobs.method_count());
+        let json = seq.to_json().expect("json");
+        assert!(
+            json.contains("4198400"),
+            "expected bundle offset 0x00401000 in JSON: {json}"
+        );
+        assert!(json.contains("BundleInit"));
+    }
+
     #[test]
     fn gv100_init_from_real_firmware() {
         match GrFirmwareBlobs::parse("gv100") {

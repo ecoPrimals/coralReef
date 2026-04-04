@@ -5,6 +5,13 @@ use crate::rpc::{check_rpc_error, rpc_call};
 
 use base64::Engine;
 use serde_json::json;
+use std::path::PathBuf;
+
+fn livepatch_enabled_path() -> PathBuf {
+    std::env::var("CORALREEF_LIVEPATCH_ENABLED_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/sys/kernel/livepatch/livepatch_nvkm_mc_reset/enabled"))
+}
 
 pub(crate) fn rpc_status(socket: &str) {
     let response = rpc_call(socket, "device.list", json!({}));
@@ -145,12 +152,15 @@ pub(crate) fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
     // Livepatch must be DISABLED before nouveau loads so gk104_runl_commit
     // (and other functions) run normally during init. If it's enabled and
     // nouveau loads, the NOP would prevent runlist submission and break init.
-    let lp_enabled = "/sys/kernel/livepatch/livepatch_nvkm_mc_reset/enabled";
-    if std::path::Path::new(lp_enabled).exists() {
-        let cur = std::fs::read_to_string(lp_enabled).unwrap_or_default();
+    let lp_enabled = livepatch_enabled_path();
+    let lp_enabled_str = lp_enabled
+        .to_str()
+        .expect("CORALREEF_LIVEPATCH_ENABLED_PATH must be UTF-8");
+    if lp_enabled.exists() {
+        let cur = std::fs::read_to_string(&lp_enabled).unwrap_or_default();
         if cur.trim() == "1" {
             println!("step 0: disabling livepatch before nouveau load...");
-            sysfs_write_privileged(lp_enabled, "0");
+            sysfs_write_privileged(lp_enabled_str, "0");
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
@@ -177,9 +187,9 @@ pub(crate) fn rpc_warm_fecs(socket: &str, bdf: &str, settle_secs: u64) {
     // Enable livepatch AFTER init, BEFORE teardown — NOPs freeze the
     // runlist, prevent falcon halts, and skip engine resets so FECS
     // stays alive in its context-switch-ready HALT state.
-    if std::path::Path::new(lp_enabled).exists() {
+    if lp_enabled.exists() {
         println!("step 2b: enabling livepatch (freezing runlist for warm handoff)...");
-        sysfs_write_privileged(lp_enabled, "1");
+        sysfs_write_privileged(lp_enabled_str, "1");
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
@@ -708,18 +718,26 @@ pub(crate) fn rpc_journal_stats(_glowplug_socket: &str, bdf: Option<String>) {
     }
 }
 
+const DEFAULT_CORALREEF_SYSFS_WRITE: &str = "/usr/local/bin/coralreef-sysfs-write";
+
+fn coralreef_sysfs_write_path() -> String {
+    std::env::var("CORALREEF_SYSFS_WRITE_PATH")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_CORALREEF_SYSFS_WRITE.to_string())
+}
+
 /// Write to a privileged sysfs path via `sudo -n coralreef-sysfs-write`.
 /// Falls back to direct write if the helper is not installed.
 fn sysfs_write_privileged(path: &str, value: &str) {
+    let helper = coralreef_sysfs_write_path();
     let status = std::process::Command::new("sudo")
-        .args(["-n", "/usr/local/bin/coralreef-sysfs-write", path, value])
+        .args(["-n", &helper, path, value])
         .status();
     match status {
         Ok(s) if s.success() => {}
         Ok(s) => {
-            eprintln!(
-                "warning: coralreef-sysfs-write {path} exited with {s}, trying direct write"
-            );
+            eprintln!("warning: coralreef-sysfs-write {path} exited with {s}, trying direct write");
             let _ = std::fs::write(path, value);
         }
         Err(_) => {

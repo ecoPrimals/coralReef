@@ -295,8 +295,9 @@ fn oracle_capture_via_vfio_without_holder_returns_err() {
     let err = slot
         .oracle_capture_via_vfio(4)
         .expect_err("oracle capture requires VFIO");
+    let msg = err.to_string();
     assert!(
-        err.contains("VFIO") || err.contains("vfio"),
-        "unexpected message: {err}"
+        msg.contains("VFIO") || msg.contains("vfio"),
+        "unexpected message: {msg}"
     );
 }

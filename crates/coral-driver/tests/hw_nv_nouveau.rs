@@ -20,12 +20,6 @@ mod tests {
         NvDevice::open().expect("NvDevice::open() — is nouveau loaded?")
     }
 
-    #[expect(dead_code, reason = "available for Titan V-specific hardware tests")]
-    fn open_nv_sm70() -> NvDevice {
-        NvDevice::open_with_sm(70)
-            .expect("NvDevice::open_with_sm(70) — is nouveau loaded with Titan V?")
-    }
-
     fn compile_for_sm(sm: u32, wgsl: &str) -> coral_reef::backend::CompiledBinary {
         let arch = match sm {
             86.. => NvArch::Sm86,
@@ -44,10 +38,6 @@ mod tests {
             .unwrap_or_else(|e| panic!("SM{sm} compilation failed: {e}"))
     }
 
-    fn compile_for_sm70(wgsl: &str) -> coral_reef::backend::CompiledBinary {
-        compile_for_sm(70, wgsl)
-    }
-
     const WRITE_42_SHADER: &str = r"
 @group(0) @binding(0)
 var<storage, read_write> out: array<u32>;
@@ -59,13 +49,13 @@ fn main() {
 ";
 
     #[test]
-    #[ignore = "requires nouveau hardware (Titan V / SM70)"]
+    #[ignore = "requires nouveau hardware"]
     fn nouveau_device_opens() {
         let _dev = open_nv();
     }
 
     #[test]
-    #[ignore = "requires nouveau hardware (Titan V / SM70)"]
+    #[ignore = "requires nouveau hardware"]
     fn nouveau_alloc_free() {
         let mut dev = open_nv();
         let buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc GTT");
@@ -73,7 +63,7 @@ fn main() {
     }
 
     #[test]
-    #[ignore = "requires nouveau hardware (Titan V / SM70)"]
+    #[ignore = "requires nouveau hardware"]
     fn nouveau_upload_readback_roundtrip() {
         let mut dev = open_nv();
         let buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
@@ -90,10 +80,11 @@ fn main() {
     }
 
     #[test]
-    #[ignore = "requires nouveau hardware (Titan V / SM70)"]
+    #[ignore = "requires nouveau hardware"]
     fn nouveau_full_dispatch_cycle() {
-        let compiled = compile_for_sm70(WRITE_42_SHADER);
         let mut dev = open_nv();
+        let sm = dev.sm_version();
+        let compiled = compile_for_sm(sm, WRITE_42_SHADER);
 
         let buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
         dev.upload(buf, 0, &[0u8; 4096]).expect("zero buffer");
@@ -118,10 +109,11 @@ fn main() {
     }
 
     #[test]
-    #[ignore = "requires nouveau hardware (Titan V / SM70)"]
+    #[ignore = "requires nouveau hardware"]
     fn nouveau_multiple_dispatches() {
-        let compiled = compile_for_sm70(WRITE_42_SHADER);
         let mut dev = open_nv();
+        let sm = dev.sm_version();
+        let compiled = compile_for_sm(sm, WRITE_42_SHADER);
 
         let buf = dev.alloc(4096, MemoryDomain::Gtt).expect("alloc");
 
@@ -148,7 +140,7 @@ fn main() {
     }
 
     #[test]
-    #[ignore = "requires nouveau hardware (Titan V / SM70)"]
+    #[ignore = "requires nouveau hardware"]
     fn nouveau_sync_without_dispatch() {
         let mut dev = open_nv();
         dev.sync().expect("sync without dispatch should succeed");

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::ember_client;
-use crate::helpers::{init_tracing, open_vfio, vfio_bdf};
-use coral_driver::{ComputeDevice, DispatchDims, ShaderInfo};
+use crate::helpers::{init_tracing, open_vfio};
 
 /// Exp 091d: Direct ACR IMEM load — bypass BL DMA.
 ///

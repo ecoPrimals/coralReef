@@ -344,4 +344,59 @@ mod tests {
             &(FECS_BASE + FALCON_CPUCTL, CPUCTL_START)
         );
     }
+
+    #[test]
+    fn fecs_booted_decodes_bit0() {
+        struct StatusRegs(u32);
+        impl RegisterAccess for StatusRegs {
+            fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
+                if offset == FECS_STATUS {
+                    Ok(self.0)
+                } else {
+                    Ok(0)
+                }
+            }
+            fn write_u32(&mut self, _offset: u32, _value: u32) -> Result<(), ApplyError> {
+                Ok(())
+            }
+        }
+        assert!(!fecs_booted(&StatusRegs(0)).expect("read"));
+        assert!(!fecs_booted(&StatusRegs(2)).expect("read"));
+        assert!(fecs_booted(&StatusRegs(1)).expect("read"));
+        assert!(fecs_booted(&StatusRegs(0xFFFF_FFFF)).expect("read"));
+    }
+
+    #[test]
+    fn dmem_upload_remainder_partial_word() {
+        let mut regs = MockRegs::new(0);
+        let data = [0x01u8, 0x02, 0x03]; // 3 bytes → one padded u32 write
+        upload_dmem(&mut regs, FECS_BASE, 0, &data).unwrap();
+        assert_eq!(regs.writes[0], (FECS_BASE + FALCON_DMEM_CTRL, 1 << 24));
+        assert_eq!(regs.writes[1], (FECS_BASE + FALCON_DMEM_DATA, 0x0003_0201));
+        assert_eq!(regs.writes.len(), 2);
+    }
+
+    #[test]
+    fn pmc_unk260_writes_boolean() {
+        let mut regs = MockRegs::new(0);
+        pmc_unk260(&mut regs, true).unwrap();
+        assert_eq!(regs.writes.last().unwrap(), &(0x260, 1));
+        pmc_unk260(&mut regs, false).unwrap();
+        assert_eq!(regs.writes.last().unwrap(), &(0x260, 0));
+    }
+
+    #[test]
+    fn falcon_diagnostic_display_format() {
+        let d = FalconDiagnostic {
+            cpuctl: 0x0000_0001,
+            mailbox0: 0x0000_0002,
+            mailbox1: 0x0000_0003,
+            sctl: 0x0000_0004,
+            status_method: 0x0000_0005,
+        };
+        let s = d.to_string();
+        assert!(s.contains("CPUCTL=0x00000001"));
+        assert!(s.contains("MB0=0x00000002"));
+        assert!(s.contains("STATUS=0x00000005"));
+    }
 }

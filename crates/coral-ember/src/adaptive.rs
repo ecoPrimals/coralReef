@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use crate::error::SwapError;
 use crate::journal::Journal;
 use crate::vendor_lifecycle::{RebindStrategy, ResetMethod, VendorLifecycle};
 
@@ -133,7 +134,7 @@ impl VendorLifecycle for AdaptiveLifecycle {
         self.inner.description()
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), SwapError> {
         self.inner.prepare_for_unbind(bdf, current_driver)
     }
 
@@ -173,7 +174,7 @@ impl VendorLifecycle for AdaptiveLifecycle {
         self.inner.stabilize_after_bind(bdf, target_driver);
     }
 
-    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), SwapError> {
         self.inner.verify_health(bdf, target_driver)
     }
 
@@ -218,6 +219,7 @@ impl VendorLifecycle for AdaptiveLifecycle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::SwapError;
     use crate::journal::{Journal, JournalEntry};
     use crate::observation::{HealthResult, ResetObservation, SwapObservation, SwapTiming};
 
@@ -228,7 +230,7 @@ mod tests {
         fn description(&self) -> &str {
             "Stub"
         }
-        fn prepare_for_unbind(&self, _bdf: &str, _driver: &str) -> Result<(), String> {
+        fn prepare_for_unbind(&self, _bdf: &str, _driver: &str) -> Result<(), SwapError> {
             Ok(())
         }
         fn rebind_strategy(&self, _target: &str) -> RebindStrategy {
@@ -238,7 +240,7 @@ mod tests {
             10
         }
         fn stabilize_after_bind(&self, _bdf: &str, _target: &str) {}
-        fn verify_health(&self, _bdf: &str, _target: &str) -> Result<(), String> {
+        fn verify_health(&self, _bdf: &str, _target: &str) -> Result<(), SwapError> {
             Ok(())
         }
         fn available_reset_methods(&self) -> Vec<ResetMethod> {
@@ -289,6 +291,22 @@ mod tests {
         let adaptive =
             AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, "0000:03:00.0".into());
         assert_eq!(adaptive.settle_secs("nouveau"), 10);
+    }
+
+    #[test]
+    fn settle_secs_uses_static_when_below_min_data_points() {
+        let (_dir, journal) = test_journal();
+        let bdf = "0000:03:00.0";
+        for _ in 0..2 {
+            journal.append(&swap_entry(bdf, "nouveau", 50_000)).unwrap();
+        }
+
+        let adaptive = AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, bdf.to_string());
+        assert_eq!(
+            adaptive.settle_secs("nouveau"),
+            10,
+            "MIN_DATA_POINTS is 3 — two swaps should not override settle time"
+        );
     }
 
     #[test]

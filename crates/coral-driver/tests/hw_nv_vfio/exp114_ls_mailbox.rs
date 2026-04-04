@@ -51,10 +51,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }

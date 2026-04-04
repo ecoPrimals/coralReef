@@ -12,25 +12,32 @@
 //! This module generates both files from the device configuration, so the
 //! isolation stays in sync with hardware changes automatically.
 //!
-//! Directory layout: `CORALREEF_X11_CONF_DIR` (default `/etc/X11/xorg.conf.d`) and
-//! `CORALREEF_UDEV_RULES_DIR` (default `/etc/udev/rules.d`) plus fixed filenames
+//! Directory layout: `CORALREEF_XORG_CONF_DIR` (default `/etc/X11/xorg.conf.d`; if unset,
+//! `CORALREEF_X11_CONF_DIR` is still honored) and `CORALREEF_UDEV_RULES_DIR` (default
+//! `/etc/udev/rules.d`) plus fixed filenames
 //! `11-coralreef-gpu-isolation.conf` and `61-coralreef-drm-ignore.rules`.
 
 use crate::EmberDeviceConfig;
 
-/// Default Xorg drop-in directory when `CORALREEF_X11_CONF_DIR` is unset.
-pub const DEFAULT_X11_CONF_DIR: &str = "/etc/X11/xorg.conf.d";
+/// Default Xorg drop-in directory when neither `CORALREEF_XORG_CONF_DIR` nor
+/// `CORALREEF_X11_CONF_DIR` is set.
+pub const DEFAULT_XORG_CONF_DIR: &str = "/etc/X11/xorg.conf.d";
 /// Default udev rules directory when `CORALREEF_UDEV_RULES_DIR` is unset.
 pub const DEFAULT_UDEV_RULES_DIR: &str = "/etc/udev/rules.d";
 
 const XORG_ISOLATION_CONF_NAME: &str = "11-coralreef-gpu-isolation.conf";
 const UDEV_ISOLATION_RULES_NAME: &str = "61-coralreef-drm-ignore.rules";
 
-fn x11_conf_dir() -> String {
-    std::env::var("CORALREEF_X11_CONF_DIR")
+fn xorg_conf_dir() -> String {
+    std::env::var("CORALREEF_XORG_CONF_DIR")
         .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_X11_CONF_DIR.to_string())
+        .or_else(|| {
+            std::env::var("CORALREEF_X11_CONF_DIR")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| DEFAULT_XORG_CONF_DIR.to_string())
 }
 
 fn udev_rules_dir() -> String {
@@ -74,10 +81,10 @@ pub fn default_udev_path() -> String {
 }
 
 /// Full path to the Xorg GPU isolation drop-in (`11-coralreef-gpu-isolation.conf`
-/// under [`DEFAULT_X11_CONF_DIR`] or `CORALREEF_X11_CONF_DIR`).
+/// under [`DEFAULT_XORG_CONF_DIR`], `CORALREEF_XORG_CONF_DIR`, or `CORALREEF_X11_CONF_DIR`).
 #[must_use]
 pub fn default_xorg_path() -> String {
-    std::path::Path::new(&x11_conf_dir())
+    std::path::Path::new(&xorg_conf_dir())
         .join(XORG_ISOLATION_CONF_NAME)
         .to_string_lossy()
         .into_owned()

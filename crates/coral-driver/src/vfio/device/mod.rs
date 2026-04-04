@@ -5,7 +5,7 @@
 //! container → group → device fd → BAR mmap. DMA buffers are allocated
 //! separately via [`super::DmaBuffer`].
 
-use crate::error::DriverError;
+use crate::error::{DriverError, DriverResult};
 use std::borrow::Cow;
 use std::ffi::CStr;
 use std::fs::OpenOptions;
@@ -19,12 +19,11 @@ use super::types::{
     VfioGroupStatus, VfioRegionInfo,
 };
 use crate::gsp::{ApplyError, RegisterAccess};
-use crate::mmio::VolatilePtr;
+use crate::mmio_region::MmioRegion;
 
 /// A mapped BAR region from a VFIO device.
 pub struct MappedBar {
-    base_ptr: *mut u8,
-    size: usize,
+    region: MmioRegion,
 }
 
 impl MappedBar {
@@ -33,26 +32,13 @@ impl MappedBar {
     /// # Errors
     ///
     /// Returns error if offset is out of range or not 4-byte aligned.
-    #[expect(
-        clippy::cast_ptr_alignment,
-        reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
-    )]
     pub fn read_u32(&self, offset: usize) -> Result<u32, DriverError> {
         if !offset.is_multiple_of(4) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} is not 4-byte aligned"
             ))));
         }
-        if offset + 4 > self.size {
-            return Err(DriverError::MmapFailed(Cow::Owned(format!(
-                "BAR offset {offset:#x} out of range (size {:#x})",
-                self.size
-            ))));
-        }
-        // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
-        // bounds checked above; volatile for MMIO.
-        let vol = unsafe { VolatilePtr::new(self.base_ptr.add(offset).cast::<u32>()) };
-        Ok(vol.read())
+        self.region.read_u32(offset)
     }
 
     /// Write a 32-bit register at the given byte offset.
@@ -60,33 +46,19 @@ impl MappedBar {
     /// # Errors
     ///
     /// Returns error if offset is out of range or not 4-byte aligned.
-    #[expect(
-        clippy::cast_ptr_alignment,
-        reason = "BAR offsets are u32-aligned by hardware spec; alignment validated at runtime"
-    )]
     pub fn write_u32(&self, offset: usize, value: u32) -> Result<(), DriverError> {
         if !offset.is_multiple_of(4) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "BAR offset {offset:#x} is not 4-byte aligned"
             ))));
         }
-        if offset + 4 > self.size {
-            return Err(DriverError::MmapFailed(Cow::Owned(format!(
-                "BAR offset {offset:#x} out of range (size {:#x})",
-                self.size
-            ))));
-        }
-        // SAFETY: base_ptr valid from mmap (page-aligned); offset alignment and
-        // bounds checked above; volatile for MMIO.
-        let vol = unsafe { VolatilePtr::new(self.base_ptr.add(offset).cast::<u32>()) };
-        vol.write(value);
-        Ok(())
+        self.region.write_u32(offset, value)
     }
 
     /// Size of this BAR region in bytes.
     #[must_use]
     pub const fn size(&self) -> usize {
-        self.size
+        self.region.len()
     }
 
     /// Apply a GR init sequence's BAR0 writes.
@@ -109,7 +81,7 @@ impl MappedBar {
     /// Raw pointer to the BAR base (for callers that need ptr arithmetic).
     #[must_use]
     pub const fn base_ptr(&self) -> *mut u8 {
-        self.base_ptr
+        self.region.as_ptr()
     }
 }
 
@@ -127,15 +99,6 @@ impl RegisterAccess for MappedBar {
             offset,
             detail: e.to_string(),
         })
-    }
-}
-
-impl Drop for MappedBar {
-    fn drop(&mut self) {
-        // SAFETY: base_ptr from mmap; size unchanged since mapping.
-        unsafe {
-            let _ = rustix::mm::munmap(self.base_ptr.cast(), self.size);
-        }
     }
 }
 
@@ -437,10 +400,10 @@ impl VfioDevice {
             "VFIO BAR mapped"
         );
 
-        Ok(MappedBar {
-            base_ptr,
-            size: region_size,
-        })
+        // SAFETY: `base_ptr`/`region_size` come from the successful `mmap` above.
+        let region = unsafe { MmioRegion::new(base_ptr, region_size) };
+
+        Ok(MappedBar { region })
     }
 
     /// Reset the device via VFIO (FLR).
@@ -644,16 +607,15 @@ impl VfioDevice {
     ///
     /// Prefer [`sendable_fds`](Self::sendable_fds) for backend-agnostic fd passing.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on an iommufd-backed device.
-    #[must_use]
-    pub fn container_fd(&self) -> RawFd {
+    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no legacy container fd).
+    pub fn container_fd(&self) -> DriverResult<RawFd> {
         match &self.backend {
-            VfioBackend::LegacyGroup { container, .. } => container.as_raw_fd(),
-            VfioBackend::Iommufd { .. } => {
-                panic!("container_fd() not available on iommufd backend")
-            }
+            VfioBackend::LegacyGroup { container, .. } => Ok(container.as_raw_fd()),
+            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
+                "container_fd() not available on iommufd backend".into(),
+            )),
         }
     }
 
@@ -661,16 +623,15 @@ impl VfioDevice {
     ///
     /// Prefer [`sendable_fds`](Self::sendable_fds) for backend-agnostic fd passing.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on an iommufd-backed device.
-    #[must_use]
-    pub fn container_as_fd(&self) -> BorrowedFd<'_> {
+    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no legacy container fd).
+    pub fn container_as_fd(&self) -> DriverResult<BorrowedFd<'_>> {
         match &self.backend {
-            VfioBackend::LegacyGroup { container, .. } => container.as_fd(),
-            VfioBackend::Iommufd { .. } => {
-                panic!("container_as_fd() not available on iommufd backend")
-            }
+            VfioBackend::LegacyGroup { container, .. } => Ok(container.as_fd()),
+            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
+                "container_as_fd() not available on iommufd backend".into(),
+            )),
         }
     }
 
@@ -712,31 +673,29 @@ impl VfioDevice {
 
     /// Raw fd of the VFIO group (legacy path only, for ember `SCM_RIGHTS`).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on an iommufd-backed device.
-    #[must_use]
-    pub fn group_fd(&self) -> RawFd {
+    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no VFIO group fd).
+    pub fn group_fd(&self) -> DriverResult<RawFd> {
         match &self.backend {
-            VfioBackend::LegacyGroup { group, .. } => group.as_raw_fd(),
-            VfioBackend::Iommufd { .. } => {
-                panic!("group_fd() not available on iommufd backend")
-            }
+            VfioBackend::LegacyGroup { group, .. } => Ok(group.as_raw_fd()),
+            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
+                "group_fd() not available on iommufd backend".into(),
+            )),
         }
     }
 
     /// Borrowed handle to the VFIO group fd (legacy path only).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on an iommufd-backed device.
-    #[must_use]
-    pub fn group_as_fd(&self) -> BorrowedFd<'_> {
+    /// Returns [`DriverError::Unsupported`] on an iommufd-backed device (no VFIO group fd).
+    pub fn group_as_fd(&self) -> DriverResult<BorrowedFd<'_>> {
         match &self.backend {
-            VfioBackend::LegacyGroup { group, .. } => group.as_fd(),
-            VfioBackend::Iommufd { .. } => {
-                panic!("group_as_fd() not available on iommufd backend")
-            }
+            VfioBackend::LegacyGroup { group, .. } => Ok(group.as_fd()),
+            VfioBackend::Iommufd { .. } => Err(DriverError::Unsupported(
+                "group_as_fd() not available on iommufd backend".into(),
+            )),
         }
     }
 

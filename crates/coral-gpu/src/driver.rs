@@ -5,6 +5,8 @@
 
 #[cfg(all(target_os = "linux", feature = "vfio"))]
 use coral_driver::linux_paths;
+#[cfg(target_os = "linux")]
+use coral_reef::AmdArch;
 use coral_reef::{GpuTarget, NvArch};
 
 use crate::preference;
@@ -38,17 +40,103 @@ pub fn default_nv_sm_nouveau() -> u32 {
         .unwrap_or(DEFAULT_NV_SM_NOUVEAU)
 }
 
-/// Map an SM version number to the corresponding `NvArch`.
-#[cfg(target_os = "linux")]
-pub(crate) const fn sm_to_nvarch(sm: u32) -> NvArch {
+/// Map an SM version number to the closest [`NvArch`] variant for codegen.
+///
+/// Maxwell (SM 50–53) maps to [`NvArch::Sm35`] (closest Kepler-class slot in
+/// our enum). Pascal (SM 60–62) maps to [`NvArch::Sm75`]. Hopper (SM 90) and
+/// Blackwell SM100 use the nearest available variants with a warning. Any
+/// still-unmapped SM falls back to [`NvArch::Sm70`] with a warning.
+#[must_use]
+pub(crate) fn sm_to_nvarch(sm: u32) -> NvArch {
     match sm {
         35 | 37 => NvArch::Sm35,
+        50 | 52 | 53 => NvArch::Sm35,
+        60..=62 => NvArch::Sm75,
+        70..=74 => NvArch::Sm70,
         75 => NvArch::Sm75,
-        80 => NvArch::Sm80,
-        86 => NvArch::Sm86,
+        76..=79 => NvArch::Sm75,
+        80..=85 => NvArch::Sm80,
+        86..=88 => NvArch::Sm86,
         89 => NvArch::Sm89,
+        90 => {
+            tracing::warn!(
+                sm,
+                "Hopper SM90 has no dedicated NvArch variant; using Sm89 for codegen"
+            );
+            NvArch::Sm89
+        }
+        91..=99 => {
+            tracing::warn!(
+                sm,
+                "unmapped NVIDIA SM version; using NvArch::Sm70 for codegen"
+            );
+            NvArch::Sm70
+        }
+        100 => {
+            tracing::warn!(
+                sm,
+                "Blackwell SM100 (datacenter) approximated as NvArch::Sm120 for codegen"
+            );
+            NvArch::Sm120
+        }
+        101..=119 => {
+            tracing::warn!(
+                sm,
+                "unmapped NVIDIA SM version; using NvArch::Sm70 for codegen"
+            );
+            NvArch::Sm70
+        }
         120 => NvArch::Sm120,
-        _ => NvArch::Sm70,
+        _ => {
+            tracing::warn!(
+                sm,
+                "unknown NVIDIA SM version; using NvArch::Sm70 for codegen"
+            );
+            NvArch::Sm70
+        }
+    }
+}
+
+/// Map `amd_arch()` / PCI-derived strings to [`AmdArch`] for the given render node.
+#[cfg(target_os = "linux")]
+#[must_use]
+pub(crate) fn amd_arch_from_sysfs(path: &str) -> AmdArch {
+    use coral_driver::nv::ioctl::probe_gpu_identity;
+
+    let Some(id) = probe_gpu_identity(path) else {
+        tracing::warn!(
+            path,
+            "AMD arch: probe_gpu_identity failed; defaulting to Rdna2"
+        );
+        return AmdArch::Rdna2;
+    };
+
+    match id.amd_arch() {
+        Some("gfx9") => AmdArch::Gcn5,
+        Some("rdna1") => {
+            tracing::warn!("AMD RDNA1 has no dedicated AmdArch variant; using Rdna2 for codegen");
+            AmdArch::Rdna2
+        }
+        Some("rdna2") => AmdArch::Rdna2,
+        Some("rdna3") => AmdArch::Rdna3,
+        Some("rdna4") => AmdArch::Rdna4,
+        Some(other) => {
+            if let Some(parsed) = AmdArch::parse(other) {
+                parsed
+            } else {
+                tracing::warn!(
+                    arch = other,
+                    "unknown AMD architecture string from sysfs; defaulting to Rdna2"
+                );
+                AmdArch::Rdna2
+            }
+        }
+        None => {
+            tracing::warn!(
+                "AMD PCI identity did not match a known architecture; defaulting to Rdna2"
+            );
+            AmdArch::Rdna2
+        }
     }
 }
 
@@ -84,14 +172,14 @@ pub(crate) fn sm_target_from_sysfs(path: &str) -> GpuTarget {
     GpuTarget::Nvidia(sm_to_nvarch(sm))
 }
 
-/// Map an SM version to the NVIDIA compute class constant.
+/// Map an SM version to the NVIDIA compute engine class ID (DRM/NVIF).
+///
+/// Delegates to [`coral_driver::nv::identity::sm_to_compute_class`] so Kepler
+/// through Blackwell use the same constants as BAR0 / VFIO paths.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
-pub(crate) const fn sm_to_compute_class(sm: u32) -> u32 {
-    match sm {
-        70..=74 => coral_driver::nv::pushbuf::class::VOLTA_COMPUTE_A,
-        75..=79 => coral_driver::nv::pushbuf::class::TURING_COMPUTE_A,
-        _ => coral_driver::nv::pushbuf::class::AMPERE_COMPUTE_A,
-    }
+#[must_use]
+pub(crate) fn sm_to_compute_class(sm: u32) -> u32 {
+    coral_driver::nv::identity::sm_to_compute_class(sm)
 }
 
 /// Discover a VFIO-bound NVIDIA GPU by scanning sysfs for `vfio-pci` bindings.
@@ -136,7 +224,7 @@ pub(crate) fn vfio_sm_from_device_id(device_id: Option<u16>) -> u32 {
         Some(0x2200..=0x2203 | 0x2207..=0x22FF) => 80, // GA100
         Some(0x2204..=0x2206) => 86,                   // GA102 (RTX 3090/3080)
         Some(0x2300..=0x23FF) => 86,                   // GA10x
-        Some(0x2400..=0x26FF) => 89,                   // Ada Lovelace
+        Some(0x2400..=0x28FF) => 89,                   // Ada Lovelace (AD102-AD107)
         Some(0x2900..=0x29FF) => 120,                  // Blackwell (GB20x)
         _ => default_nv_sm(),
     }

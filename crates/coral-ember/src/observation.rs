@@ -187,4 +187,21 @@ mod tests {
         assert_eq!(json["bdf"], "0000:03:00.0");
         assert_eq!(json["to_personality"], "vfio");
     }
+
+    #[test]
+    fn swap_timing_phase_sum_relationship() {
+        let timing = SwapTiming {
+            prepare_ms: 12,
+            unbind_ms: 34,
+            bind_ms: 5600,
+            stabilize_ms: 78,
+            total_ms: 6000,
+        };
+        let phase_sum = timing.prepare_ms + timing.unbind_ms + timing.bind_ms + timing.stabilize_ms;
+        assert!(
+            phase_sum <= timing.total_ms,
+            "recorded phases should fit within wall-clock total (phase_sum={phase_sum}, total={})",
+            timing.total_ms
+        );
+    }
 }

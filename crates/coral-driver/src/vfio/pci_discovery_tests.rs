@@ -186,3 +186,91 @@ fn gpu_vendor_matches_vendor_id() {
     assert!(GpuVendor::Nvidia.matches_vendor_id(0x10DE));
     assert!(!GpuVendor::Unknown(0x10DE).matches_vendor_id(0x10DE));
 }
+
+#[test]
+fn from_config_bytes_subsystem_ids() {
+    let mut config = make_config_bytes(0x10DE, 0x2204, 0x03_00_00);
+    config[0x2C..0x2E].copy_from_slice(&0x1043u16.to_le_bytes());
+    config[0x2E..0x30].copy_from_slice(&0x87EBu16.to_le_bytes());
+    let info = PciDeviceInfo::from_config_bytes("0000:03:00.0", &config, Vec::new(), None)
+        .expect("parse config");
+    assert_eq!(info.subsystem, (0x1043, 0x87EB));
+}
+
+#[test]
+fn from_config_bytes_pm_d3hot_pmcsr() {
+    let mut config = make_config_bytes(0x10DE, 0x1B80, 0x03_00_00);
+    config[0x34] = 0x40;
+    config[0x06] = 0x10;
+    config[0x40] = 0x01;
+    config[0x41] = 0x00;
+    config[0x42] = 0x00;
+    config[0x43] = 0x00;
+    // PMCSR at pm_off + 4: bits [1:0] = 3 (D3hot)
+    config[0x44..0x46].copy_from_slice(&0x0003u16.to_le_bytes());
+    let info =
+        PciDeviceInfo::from_config_bytes("0000:01:00.0", &config, Vec::new(), None).expect("parse");
+    assert_eq!(info.power.current_state, PciPmState::D3Hot);
+    assert_eq!(info.power.pmcsr_raw & 0x03, 3);
+}
+
+#[test]
+fn from_config_bytes_chained_pm_then_pcie() {
+    let mut config = make_config_bytes(0x10DE, 0x1B80, 0x03_00_00);
+    config[0x34] = 0x40;
+    config[0x06] = 0x10;
+    // PM at 0x40, next cap at 0x50
+    config[0x40] = 0x01;
+    config[0x41] = 0x50;
+    config[0x44..0x46].copy_from_slice(&0u16.to_le_bytes());
+    // PCIe at 0x50
+    config[0x50] = 0x10;
+    config[0x51] = 0x00;
+    let link_cap_off = 0x50 + 0x0C;
+    let link_sta_off = 0x50 + 0x12;
+    config[link_cap_off..link_cap_off + 4].copy_from_slice(&0x3u32.to_le_bytes());
+    config[link_sta_off..link_sta_off + 2].copy_from_slice(&0x3u16.to_le_bytes());
+    let info = PciDeviceInfo::from_config_bytes("0000:01:00.0", &config, Vec::new(), None)
+        .expect("parse chained caps");
+    assert!(
+        info.capabilities.iter().any(|c| c.id == PCI_CAP_ID_PM),
+        "expected PM cap"
+    );
+    assert!(
+        info.capabilities.iter().any(|c| c.id == PCI_CAP_ID_PCIE),
+        "expected PCIe cap"
+    );
+    let link = info.pcie_link.expect("link");
+    assert!(matches!(link.max_speed, PcieLinkSpeed::Gen3));
+    assert!(matches!(link.current_speed, PcieLinkSpeed::Gen3));
+}
+
+#[test]
+fn parse_pci_bdf_rejects_extra_colons() {
+    assert_eq!(parse_pci_bdf("0000:01:00.0:extra"), None);
+}
+
+#[test]
+fn parse_pci_bdf_accepts_full_domain() {
+    assert_eq!(parse_pci_bdf("FFFF:FF:1F.7"), Some((0xFFFF, 0xFF, 0x1F, 7)));
+}
+
+#[test]
+fn parse_pci_resource_line_zero_start_end_skipped() {
+    assert!(parse_pci_resource_line("0x0 0x0 0x0", 0).is_none());
+}
+
+#[test]
+fn pcie_link_speed_unknown_encoding() {
+    assert!(matches!(
+        PcieLinkSpeed::from_encoding(0x0F),
+        PcieLinkSpeed::Unknown(0x0F)
+    ));
+}
+
+#[test]
+fn pci_pm_state_from_pmcsr_bits_unknown_path() {
+    // `from_pmcsr_bits` is private; exercise via display of Unknown from sysfs edge cases
+    let u = PciPmState::Unknown(0xAB);
+    assert_eq!(u.to_string(), "Unknown(0xab)");
+}

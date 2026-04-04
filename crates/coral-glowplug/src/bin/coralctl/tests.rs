@@ -36,7 +36,7 @@ fn try_load_config_nonexistent_path_errors() {
     let missing = dir.path().join("definitely-missing-glowplug.toml");
     let err = try_load_config(Some(missing.to_string_lossy().into_owned())).unwrap_err();
     assert!(
-        err.iter().any(|p| p.contains("definitely-missing")),
+        err.paths.iter().any(|p| p.contains("definitely-missing")),
         "expected missing path in error list: {err:?}"
     );
 }

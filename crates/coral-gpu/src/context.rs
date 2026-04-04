@@ -185,8 +185,16 @@ impl GpuContext {
                 Self::with_device(target, Box::new(dev))
             }
             preference::DRIVER_AMDGPU => {
-                let dev = coral_driver::amd::AmdDevice::open().map_err(GpuError::Driver)?;
-                let target = GpuTarget::Amd(AmdArch::Rdna2);
+                use coral_driver::drm::enumerate_render_nodes;
+
+                let path = enumerate_render_nodes()
+                    .into_iter()
+                    .find(|n| n.driver == preference::DRIVER_AMDGPU)
+                    .map(|n| n.path)
+                    .ok_or_else(|| GpuError::NoDevice("no amdgpu render node found".into()))?;
+                let dev =
+                    coral_driver::amd::AmdDevice::open_path(&path).map_err(GpuError::Driver)?;
+                let target = GpuTarget::Amd(driver::amd_arch_from_sysfs(&path));
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
@@ -208,7 +216,8 @@ impl GpuContext {
                     }
                 }
                 let dev = coral_driver::nv::NvDrmDevice::open().map_err(GpuError::Driver)?;
-                let target = GpuTarget::Nvidia(NvArch::Sm86);
+                let sm = driver::sm_from_sysfs_or(driver::default_nv_sm());
+                let target = GpuTarget::Nvidia(driver::sm_to_nvarch(sm));
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nouveau")]
@@ -230,7 +239,7 @@ impl GpuContext {
             preference::DRIVER_AMDGPU => {
                 let dev =
                     coral_driver::amd::AmdDevice::open_path(path).map_err(GpuError::Driver)?;
-                let target = GpuTarget::Amd(AmdArch::Rdna2);
+                let target = GpuTarget::Amd(driver::amd_arch_from_sysfs(path));
                 Self::with_device(target, Box::new(dev))
             }
             #[cfg(feature = "nvidia-drm")]
@@ -346,9 +355,27 @@ impl GpuContext {
             }
             ("amd", Some(preference::DRIVER_AMDGPU) | None) => {
                 let target = match arch {
+                    Some("gcn5") | Some("gfx9") => GpuTarget::Amd(AmdArch::Gcn5),
+                    Some("rdna2") => GpuTarget::Amd(AmdArch::Rdna2),
                     Some("rdna3") => GpuTarget::Amd(AmdArch::Rdna3),
                     Some("rdna4") => GpuTarget::Amd(AmdArch::Rdna4),
-                    _ => GpuTarget::Amd(AmdArch::Rdna2),
+                    Some(other) => GpuTarget::Amd(AmdArch::parse(other).ok_or_else(|| {
+                        GpuError::NoDevice(format!("unknown AMD architecture '{other}'").into())
+                    })?),
+                    None => {
+                        let path = if let Some(p) = render_node {
+                            p.to_string()
+                        } else {
+                            coral_driver::drm::enumerate_render_nodes()
+                                .into_iter()
+                                .find(|n| n.driver == preference::DRIVER_AMDGPU)
+                                .map(|n| n.path)
+                                .ok_or_else(|| {
+                                    GpuError::NoDevice("no amdgpu render node found".into())
+                                })?
+                        };
+                        GpuTarget::Amd(driver::amd_arch_from_sysfs(&path))
+                    }
                 };
                 let dev = render_node
                     .map_or_else(
@@ -363,11 +390,22 @@ impl GpuContext {
                 let target = match arch {
                     Some("sm120") => GpuTarget::Nvidia(NvArch::Sm120),
                     Some("sm89") => GpuTarget::Nvidia(NvArch::Sm89),
+                    Some("sm86") => GpuTarget::Nvidia(NvArch::Sm86),
                     Some("sm80") => GpuTarget::Nvidia(NvArch::Sm80),
                     Some("sm75") => GpuTarget::Nvidia(NvArch::Sm75),
                     Some("sm70") => GpuTarget::Nvidia(NvArch::Sm70),
                     Some("sm35") => GpuTarget::Nvidia(NvArch::Sm35),
-                    _ => GpuTarget::Nvidia(NvArch::Sm86),
+                    Some(other) => GpuTarget::Nvidia(NvArch::parse(other).ok_or_else(|| {
+                        GpuError::NoDevice(format!("unknown NVIDIA architecture '{other}'").into())
+                    })?),
+                    None => {
+                        if let Some(path) = render_node {
+                            driver::sm_target_from_sysfs(path)
+                        } else {
+                            let sm = driver::sm_from_sysfs_or(driver::default_nv_sm());
+                            GpuTarget::Nvidia(driver::sm_to_nvarch(sm))
+                        }
+                    }
                 };
                 let dev = render_node
                     .map_or_else(

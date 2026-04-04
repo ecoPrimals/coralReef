@@ -44,10 +44,10 @@ mod freg116 {
     pub const PC: usize = 0x030;
     pub const EXCI: usize = 0x148;
     pub const MAILBOX0: usize = 0x040;
-    pub const MAILBOX1: usize = 0x044;
+    pub const _MAILBOX1: usize = 0x044;
     pub const BOOTVEC: usize = 0x104;
-    pub const HWCFG: usize = 0x108;
-    pub const MTHD_STATUS: usize = 0xC18;
+    pub const _HWCFG: usize = 0x108;
+    pub const _MTHD_STATUS: usize = 0xC18;
 
     pub const CPUCTL_HRESET: u32 = 1 << 4;
     pub const CPUCTL_HALTED: u32 = 1 << 5;
@@ -63,10 +63,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }
@@ -200,11 +200,7 @@ fn exp116_wpr_reuse() {
 
     eprintln!("\n── A3: WPR2 Hardware Boundaries ──");
     let (wpr2_start, wpr2_end) = read_wpr2_boundaries(&bar0);
-    let wpr2_size = if wpr2_end > wpr2_start {
-        wpr2_end - wpr2_start
-    } else {
-        0
-    };
+    let wpr2_size = wpr2_end.saturating_sub(wpr2_start);
     eprintln!(
         "  WPR2: start={wpr2_start:#x} end={wpr2_end:#x} size={wpr2_size:#x} ({} KiB)",
         wpr2_size / 1024

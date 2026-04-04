@@ -2,10 +2,13 @@
 //! `deploy-udev`: generate VFIO udev rules from glowplug config.
 
 use coral_glowplug::config;
+use coral_glowplug::error::ConfigLoadError;
 use coral_glowplug::sysfs;
 
 /// Try each config path until one loads successfully.
-pub(crate) fn try_load_config(config_path: Option<String>) -> Result<config::Config, Vec<String>> {
+pub(crate) fn try_load_config(
+    config_path: Option<String>,
+) -> Result<config::Config, ConfigLoadError> {
     let paths = if let Some(path) = config_path {
         vec![path]
     } else {
@@ -21,15 +24,15 @@ pub(crate) fn try_load_config(config_path: Option<String>) -> Result<config::Con
         }
     }
 
-    Err(paths)
+    Err(ConfigLoadError { paths })
 }
 
 fn load_config(config_path: Option<String>) -> config::Config {
     match try_load_config(config_path) {
         Ok(cfg) => cfg,
-        Err(paths) => {
+        Err(err) => {
             eprintln!("error: no valid config found. Tried:");
-            for path in &paths {
+            for path in &err.paths {
                 eprintln!("  - {path}");
             }
             eprintln!(

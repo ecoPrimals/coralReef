@@ -113,3 +113,39 @@ fn fma_capability_amd_rdna3_rdna4_throughput() {
     assert!((rdna4.f32_fma_throughput_ratio - 2.0).abs() < EPS);
     assert!(rdna3.f64_fma && rdna4.f64_fma);
 }
+
+#[test]
+fn fma_capability_amd_gcn5_native_f64() {
+    let cap = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Gcn5));
+    assert!(cap.f32_fma);
+    assert!(cap.f64_fma);
+    const EPS: f32 = 1e-6;
+    assert!((cap.f32_fma_throughput_ratio - 2.0).abs() < EPS);
+}
+
+#[test]
+fn fma_capability_intel_archs_use_placeholder_policy() {
+    const EPS: f32 = 1e-6;
+    for &intel in IntelArch::ALL {
+        let cap = FmaCapability::for_target(GpuTarget::Intel(intel));
+        assert!(cap.f32_fma, "{intel:?}");
+        assert!(!cap.f64_fma, "{intel:?}");
+        assert_eq!(cap.recommended_policy, FmaPolicy::Auto);
+        assert!(
+            (cap.f32_fma_throughput_ratio - 1.0).abs() < EPS,
+            "{intel:?}: expected 1.0 throughput ratio"
+        );
+    }
+}
+
+#[test]
+fn fma_capability_nvidia_all_archs_share_f32_throughput_model() {
+    const EPS: f32 = 1e-6;
+    for &nv in NvArch::ALL {
+        let cap = FmaCapability::for_target(GpuTarget::Nvidia(nv));
+        assert!(
+            (cap.f32_fma_throughput_ratio - 2.0).abs() < EPS,
+            "{nv:?}: expected 2.0 f32 FMA throughput ratio"
+        );
+    }
+}

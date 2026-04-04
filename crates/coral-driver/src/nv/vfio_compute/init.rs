@@ -236,7 +236,9 @@ impl NvVfioComputeDevice {
         use std::borrow::Cow;
 
         let r = |a: usize| self.bar0.read_u32(a).unwrap_or(0xDEAD_DEAD);
-        let w = |a: usize, v: u32| { let _ = self.bar0.write_u32(a, v); };
+        let w = |a: usize, v: u32| {
+            let _ = self.bar0.write_u32(a, v);
+        };
 
         let fecs_cpuctl = r(falcon::FECS_BASE + falcon::CPUCTL);
         let fecs_sctl = r(falcon::FECS_BASE + falcon::SCTL);
@@ -256,12 +258,13 @@ impl NvVfioComputeDevice {
             fecs_exci = format_args!("{fecs_exci:#010x}"),
             fecs_mb0 = format_args!("{fecs_mb0:#010x}"),
             gr_enable = format_args!("{gr_enable:#010x}"),
-            halted, hreset, hs_mode,
+            halted,
+            hreset,
+            hs_mode,
             "warm restart: FECS state"
         );
 
-        let fecs_dead =
-            fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
+        let fecs_dead = fecs_cpuctl == 0xDEAD_DEAD || fecs_cpuctl & 0xBADF_0000 == 0xBADF_0000;
         if fecs_dead {
             return Err(DriverError::SubmitFailed(Cow::Borrowed(
                 "FECS unreachable (PRI timeout) — GPU is cold",
@@ -311,6 +314,7 @@ impl NvVfioComputeDevice {
     /// 3. MAILBOX0/MAILBOX1 = 0 (clean state for firmware handshake)
     /// 4. CPUCTL = IINVAL | STARTCPU (invalidate icache + start CPU)
     /// 5. Also write CPUCTL_ALIAS for Volta HS compatibility
+    #[expect(dead_code, reason = "reserved for warm handoff boot path")]
     fn warm_start_falcon(bar0: &MappedBar, base: usize) {
         use crate::vfio::channel::registers::falcon;
 
@@ -331,7 +335,10 @@ impl NvVfioComputeDevice {
         // Step 1: Release engine from local reset if ENGCTL has reset bit set.
         // This is the gate that prevents STARTCPU from working.
         if engctl & 1 != 0 {
-            tracing::info!(base = format_args!("{base:#x}"), "ENGCTL reset active — releasing");
+            tracing::info!(
+                base = format_args!("{base:#x}"),
+                "ENGCTL reset active — releasing"
+            );
             let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -390,9 +397,7 @@ impl NvVfioComputeDevice {
         };
 
         if image_size == 0 {
-            tracing::warn!(
-                "FECS returned image_size=0 — method interface not responsive yet"
-            );
+            tracing::warn!("FECS returned image_size=0 — method interface not responsive yet");
             return Ok(());
         }
 

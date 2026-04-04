@@ -140,7 +140,7 @@ mod tests {
         assert!(map.is_empty());
         map.insert(1, 10);
         assert_eq!(map.remove(&1), Some(10));
-        assert!(map.get(&1).is_none());
+        assert!(!map.contains_key(&1));
     }
 
     #[test]

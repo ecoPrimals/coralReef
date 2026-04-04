@@ -64,6 +64,8 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
+use coral_glowplug::error::SocketServerError;
+
 use protocol::{CLIENT_IDLE_TIMEOUT, INITIAL_BUF_CAPACITY, MAX_REQUEST_LINE_BYTES, make_response};
 
 /// Maximum concurrent client connections.
@@ -139,17 +141,20 @@ impl SocketServer {
     /// - Otherwise, treats `addr` as a Unix socket path (Unix platforms only).
     ///
     /// On non-Unix platforms, only TCP addresses are supported.
-    pub async fn bind(addr: &str) -> Result<Self, String> {
+    pub async fn bind(addr: &str) -> Result<Self, SocketServerError> {
         let started_at = std::time::Instant::now();
 
         if let Ok(socket_addr) = addr.parse::<SocketAddr>() {
             // TCP transport
-            let listener = TcpListener::bind(socket_addr)
-                .await
-                .map_err(|e| format!("bind TCP {addr}: {e}"))?;
+            let listener = TcpListener::bind(socket_addr).await.map_err(|source| {
+                SocketServerError::BindTcp {
+                    addr: addr.to_string(),
+                    source,
+                }
+            })?;
             let bound = listener
                 .local_addr()
-                .map_err(|e| format!("get TCP local addr: {e}"))?;
+                .map_err(|source| SocketServerError::TcpLocalAddr { source })?;
             tracing::info!(%bound, "JSON-RPC 2.0 TCP server listening");
             Ok(Self {
                 transport: Transport::Tcp(listener),
@@ -165,7 +170,10 @@ impl SocketServer {
                 let _ = std::fs::remove_file(addr);
 
                 let listener =
-                    UnixListener::bind(addr).map_err(|e| format!("bind Unix {addr}: {e}"))?;
+                    UnixListener::bind(addr).map_err(|source| SocketServerError::BindUnix {
+                        path: addr.to_string(),
+                        source,
+                    })?;
 
                 let _ = std::fs::set_permissions(
                     addr,
@@ -184,10 +192,9 @@ impl SocketServer {
             }
             #[cfg(not(unix))]
             {
-                Err(format!(
-                    "Unix socket path not supported on this platform; use TCP address (e.g. {})",
-                    coral_glowplug::config::FALLBACK_TCP_BIND
-                ))
+                Err(SocketServerError::UnixNotSupported {
+                    fallback: coral_glowplug::config::FALLBACK_TCP_BIND.to_string(),
+                })
             }
         }
     }
@@ -283,7 +290,7 @@ async fn handle_client(
     stream: ClientStream,
     devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
     started_at: std::time::Instant,
-) -> Result<(), String> {
+) -> Result<(), SocketServerError> {
     match stream {
         #[cfg(unix)]
         ClientStream::Unix(s) => handle_client_stream(s, devices, started_at).await,
@@ -301,7 +308,7 @@ async fn handle_client_stream<S>(
     stream: S,
     devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
     started_at: std::time::Instant,
-) -> Result<(), String>
+) -> Result<(), SocketServerError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {

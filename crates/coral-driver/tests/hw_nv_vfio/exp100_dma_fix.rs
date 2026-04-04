@@ -27,14 +27,14 @@ mod freg {
     pub const EXCI: usize = 0x148;
     pub const MAILBOX0: usize = 0x040;
     pub const MAILBOX1: usize = 0x044;
-    pub const BOOTVEC: usize = 0x104;
+    pub const _BOOTVEC: usize = 0x104;
     pub const IMEMC: usize = 0x180;
     pub const IMEMD: usize = 0x184;
 
     pub const CPUCTL_HRESET: u32 = 1 << 4;
     pub const CPUCTL_HALTED: u32 = 1 << 5;
 
-    pub fn imem_size(hwcfg: u32) -> usize {
+    pub fn _imem_size(hwcfg: u32) -> usize {
         ((hwcfg & 0x1FF) as usize) << 8
     }
 }
@@ -114,7 +114,7 @@ fn exp100_full_iommu_acr_boot() {
         let exci = r(freg::EXCI);
         let mb0 = r(freg::MAILBOX0);
         let mb1 = r(freg::MAILBOX1);
-        let hwcfg = r(freg::HWCFG);
+        let _hwcfg = r(freg::HWCFG);
         let hreset = cpuctl & freg::CPUCTL_HRESET != 0;
         let halted = cpuctl & freg::CPUCTL_HALTED != 0;
         let hs = sctl == 0x3002;
@@ -125,7 +125,7 @@ fn exp100_full_iommu_acr_boot() {
         let w = |off: usize, val: u32| {
             let _ = bar0.write_u32(base + off, val);
         };
-        w(freg::IMEMC, (1u32 << 25) | 0);
+        w(freg::IMEMC, 1u32 << 25);
         let imem: Vec<u32> = (0..32).map(|_| r(freg::IMEMD)).collect();
         let nz = imem.iter().filter(|&&w| w != 0 && w != 0xDEAD_DEAD).count();
         eprintln!("    IMEM[0..128]: {nz}/32 non-zero");

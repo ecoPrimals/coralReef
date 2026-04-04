@@ -43,7 +43,7 @@ mod r118 {
     pub const PC: u32 = 0x030;
     pub const EXCI: u32 = 0x148;
     pub const MAILBOX0: u32 = 0x040;
-    pub const MAILBOX1: u32 = 0x044;
+    pub const _MAILBOX1: u32 = 0x044;
 
     pub const CPUCTL_HRESET: u32 = 1 << 4;
     pub const CPUCTL_HALTED: u32 = 1 << 5;
@@ -60,10 +60,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }
@@ -426,18 +426,14 @@ fn exp118_wpr2_preserve() {
                     let _ = gp3.swap(&bdf, "vfio-pci");
                     std::thread::sleep(std::time::Duration::from_millis(500));
 
-                    if let Ok(fds) = ember_client::request_fds(&bdf) {
-                        if let Ok(vfio_dev) =
+                    if let Ok(fds) = ember_client::request_fds(&bdf)
+                        && let Ok(vfio_dev) =
                             coral_driver::vfio::VfioDevice::from_received(&bdf, fds)
-                        {
-                            if let Ok(bar0) = vfio_dev.map_bar(0) {
-                                let (ws, we, wv) = read_wpr2(&bar0);
-                                eprintln!(
-                                    "  Post-rebind WPR2: start={ws:#x} end={we:#x} valid={wv}"
-                                );
-                                falcon_state(&bar0, "SEC2", r118::SEC2_BASE as usize);
-                            }
-                        }
+                        && let Ok(bar0) = vfio_dev.map_bar(0)
+                    {
+                        let (ws, we, wv) = read_wpr2(&bar0);
+                        eprintln!("  Post-rebind WPR2: start={ws:#x} end={we:#x} valid={wv}");
+                        falcon_state(&bar0, "SEC2", r118::SEC2_BASE as usize);
                     }
                 }
             }

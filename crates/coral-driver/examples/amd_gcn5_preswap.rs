@@ -42,7 +42,7 @@ const WGSL_MULTI_WG: &str = r"
 }
 ";
 
-const WGSL_MULTI_BUF: &str = r"
+const _WGSL_MULTI_BUF: &str = r"
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let x = out[gid.x];
@@ -399,7 +399,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         0xDEAD_BEEF, // literal: 0xDEADBEEF
         // global_store_dword v[2:3], v0, off (store 0xDEADBEEF to offset 0)
         0xdc708000,
-        (0x7f << 16) | (0 << 8) | 2,
+        (0x7f << 16) | 2,
         0xbf8c0000, // s_waitcnt vmcnt(0) — flush store to L2
         // global_load_dword v1, v[2:3], off (load from offset 0 into v1)
         0xdc508000,
@@ -451,37 +451,37 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
     }
 
     // Original diagnostics follow...
-    let handcraft_glc: Vec<u32> = vec![
+    let _handcraft_glc: Vec<u32> = vec![
         // v_mov_b32 v2, s0           → v2 = VA_lo
         0x7e040200,
         // v_mov_b32 v3, s1           → v3 = VA_hi
         0x7e060201,
         // global_load_dword v0, v[2:3], off GLC=1
         0xdc518000, // GFX9 opcode=20, GLC at bit16
-        (0x7f << 16) | (0 << 8) | 2,
+        (0x7f << 16) | 2,
         // s_waitcnt vmcnt(0)
         0xbf8c0000,
         // v_add_f32 v0, v0, 1.0f (inline constant 242 = 1.0)
-        (3 << 25) | (0 << 17) | (0 << 9) | 242,
+        (3 << 25) | 242,
         // global_store_dword v[2:3], v0, off
         0xdc708000,
-        (0x7f << 16) | (0 << 8) | 2,
+        (0x7f << 16) | 2,
         // s_waitcnt vmcnt(0)
         0xbf8c0000,
         // s_endpgm
         0xbf810000,
     ];
     // Try FLAT segment (SEG=00) instead of GLOBAL (SEG=10)
-    let handcraft_flat: Vec<u32> = vec![
+    let _handcraft_flat: Vec<u32> = vec![
         0x7e040200, // v_mov_b32 v2, s0
         0x7e060201, // v_mov_b32 v3, s1
         // flat_load_dword v0, v[2:3] (SEG=00, not GLOBAL=10)
         0xdc300000, // SEG bits [15:14] = 00 (FLAT), no offset
-        (0x7f << 16) | (0 << 8) | 2,
-        0xbf8c0000,                             // s_waitcnt 0
-        (3 << 25) | (0 << 17) | (0 << 9) | 242, // v_add_f32
-        0xdc700000,                             // flat_store_dword SEG=00
-        (0x7f << 16) | (0 << 8) | 2,
+        (0x7f << 16) | 2,
+        0xbf8c0000,      // s_waitcnt 0
+        (3 << 25) | 242, // v_add_f32
+        0xdc700000,      // flat_store_dword SEG=00
+        (0x7f << 16) | 2,
         0xbf8c0000,
         0xbf810000,
     ];
@@ -490,18 +490,18 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
     // Actually: let's try with SADDR=s[0:1] and VADDR=zero offset
     // SADDR field = 0 means s0 pair; but we need VADDR to be 0.
     // v_mov_b32 v0, 0 first, then load with SADDR=s0
-    let handcraft_saddr: Vec<u32> = vec![
+    let _handcraft_saddr: Vec<u32> = vec![
         0x7e000280, // v_mov_b32 v0, 0 (inline const 128=0)
         // global_load_dword v1, v0, s[0:1]
         // SADDR = 0 (s0 pair), VADDR = v0 (=0)
         0xdc508000,
-        (0 << 16) | (1 << 24) | 0, // SADDR=s0, VDST=v1, VADDR=v0
+        (1 << 24), // SADDR=s0, VDST=v1, VADDR=v0
         0xbf8c0000,
         // v_add_f32 v1, v1, 1.0
         (3 << 25) | (1 << 17) | (1 << 9) | 242,
         // Store back: SADDR=s0, VADDR=v0 (offset 0)
         0xdc708000,
-        (0 << 16) | (1 << 8) | 0, // SADDR=s0, VDATA=v1, VADDR=v0
+        (1 << 8), // SADDR=s0, VDATA=v1, VADDR=v0
         0xbf8c0000,
         0xbf810000,
     ];
@@ -521,11 +521,11 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         0x7e060201, // v_mov_b32 v3, s1 (VA hi)
         // global_load_dword v0, v[2:3], off
         0xdc508000,
-        (0x7f << 16) | (0 << 8) | 2,
+        (0x7f << 16) | 2,
         0xbf8c0000, // s_waitcnt 0
         0xbf810000, // s_endpgm
     ];
-    let variants: Vec<(&str, Vec<u32>)> = vec![("LOAD only (GTT buf)", load_only.clone())];
+    let _variants: Vec<(&str, Vec<u32>)> = vec![("LOAD only (GTT buf)", load_only.clone())];
 
     let mut any_pass = false;
     // Test with both GTT and VRAM buffers
@@ -564,11 +564,11 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
             0x7e040200, // v_mov_b32 v2, s0
             0x7e060201, // v_mov_b32 v3, s1
             0xdc518000, // global_load_dword v0, v[2:3], off GLC=1
-            (0x7f << 16) | (0 << 8) | 2,
-            0xbf8c0000,                             // s_waitcnt 0
-            (3 << 25) | (0 << 17) | (0 << 9) | 242, // v_add_f32 v0, 1.0, v0
-            0xdc708000,                             // global_store_dword
-            (0x7f << 16) | (0 << 8) | 2,
+            (0x7f << 16) | 2,
+            0xbf8c0000,      // s_waitcnt 0
+            (3 << 25) | 242, // v_add_f32 v0, 1.0, v0
+            0xdc708000,      // global_store_dword
+            (0x7f << 16) | 2,
             0xbf8c0000,
             0xbf810000,
         ];

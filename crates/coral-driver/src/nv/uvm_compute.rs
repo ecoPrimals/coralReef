@@ -19,6 +19,17 @@ use super::uvm::{
     NvGpuDevice, NvUvmDevice, RmClient, VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
 };
 
+/// Flush one cache line so GPU DMA sees CPU writes (UVM mmap paths; mirrors `vfio::cache_ops`).
+#[cfg(target_arch = "x86_64")]
+#[inline]
+unsafe fn uvm_cache_line_flush(addr: *const u8) {
+    unsafe { core::arch::x86_64::_mm_clflush(addr) }
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+#[inline]
+unsafe fn uvm_cache_line_flush(_addr: *const u8) {}
+
 /// GPU generation derived from SM version, used for class selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GpuGen {
@@ -474,7 +485,7 @@ impl NvUvmComputeDevice {
         // Flush GPFIFO entry from CPU cache so GPU DMA sees it.
         // SAFETY: gpfifo_slot..+8 is within the valid GPFIFO mapping.
         unsafe {
-            crate::vfio::cache_ops::cache_line_flush(gpfifo_slot as *const u8);
+            uvm_cache_line_flush(gpfifo_slot as *const u8);
         }
 
         let doorbell = (self.userd_cpu_addr + USERD_GP_PUT_OFFSET as u64) as *mut u32;
@@ -486,7 +497,7 @@ impl NvUvmComputeDevice {
         // Flush USERD page from CPU cache so GPU sees GP_PUT update.
         // SAFETY: doorbell points within the valid USERD mapping.
         unsafe {
-            crate::vfio::cache_ops::cache_line_flush(doorbell as *const u8);
+            uvm_cache_line_flush(doorbell as *const u8);
         }
 
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);

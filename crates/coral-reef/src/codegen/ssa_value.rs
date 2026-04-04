@@ -148,11 +148,12 @@ enum SSARefInner {
 /// registers, with the base register aligned to the number of values, aligned
 /// to the next power of two.
 ///
-/// An SSA reference can reference between 1 and 16 SSA values.  It dereferences
-/// to a slice for easy access to individual SSA values.  The structure is
-/// designed so that is always 16B, regardless of how many SSA values are
-/// referenced so it's easy and fairly cheap to clone and embed in other
-/// structures.
+/// An SSA reference can reference between 1 and 32 SSA values (matching the
+/// maximum register-promotable value width used by `type_reg_comps`).
+/// It dereferences to a slice for easy access to individual SSA values.  The
+/// structure is designed so that it is always 16B, regardless of how many SSA
+/// values are referenced so it's easy and fairly cheap to clone and embed in
+/// other structures.
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct SSARef {
     v: SSARefInner,
@@ -165,7 +166,8 @@ const _: () = {
 
 impl SSARef {
     const SMALL_SIZE: usize = 4;
-    const LARGE_SIZE: usize = 16;
+    /// Upper bound on SSA scalars in one ref: must cover `type_reg_comps` max (32).
+    const LARGE_SIZE: usize = 32;
 
     /// Returns a new SSA reference.
     ///
@@ -311,9 +313,9 @@ impl HasRegFile for SSARef {
 
 #[test]
 fn test_ssa_ref_round_trip() {
-    for len in 1..16 {
+    for len in 1..=SSARef::LARGE_SIZE {
         let vec: Vec<_> = (0..len)
-            .map(|i| SSAValue::new(RegFile::GPR, 1337 ^ i ^ len))
+            .map(|i| SSAValue::new(RegFile::GPR, 0x0539 ^ i as u32 ^ len as u32))
             .collect();
 
         let ssa_ref = SSARef::new(&vec);

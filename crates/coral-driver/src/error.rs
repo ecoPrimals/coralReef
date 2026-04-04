@@ -77,6 +77,10 @@ pub enum DriverError {
     /// Wrapped I/O error from file operations.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Operation or API not available for this device / backend (e.g. legacy VFIO group fd on iommufd).
+    #[error("unsupported: {0}")]
+    Unsupported(Cow<'static, str>),
 }
 
 impl DriverError {
@@ -233,6 +237,13 @@ mod tests {
         let e: DriverError = DriverError::from(inner);
         assert!(matches!(e, DriverError::Io(_)));
         assert!(e.to_string().contains("would block"));
+    }
+
+    #[test]
+    fn error_display_unsupported() {
+        let e = DriverError::Unsupported("legacy API on iommufd".into());
+        assert!(e.to_string().contains("unsupported"));
+        assert!(e.to_string().contains("legacy API"));
     }
 
     #[test]

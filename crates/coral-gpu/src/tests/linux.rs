@@ -155,13 +155,15 @@ mod linux_tests {
         };
 
         #[test]
-        fn sm_to_compute_class_matches_known_ranges() {
+        fn sm_to_compute_class_matches_identity_table() {
+            use coral_driver::nv::identity::sm_to_compute_class as identity_class;
+
+            for sm in [35_u32, 50, 60, 70, 74, 75, 79, 80, 86, 89, 90, 100, 120] {
+                assert_eq!(sm_to_compute_class(sm), identity_class(sm), "SM {sm}");
+            }
             assert_eq!(sm_to_compute_class(70), VOLTA_COMPUTE_A);
-            assert_eq!(sm_to_compute_class(74), VOLTA_COMPUTE_A);
             assert_eq!(sm_to_compute_class(75), TURING_COMPUTE_A);
-            assert_eq!(sm_to_compute_class(79), TURING_COMPUTE_A);
             assert_eq!(sm_to_compute_class(80), AMPERE_COMPUTE_A);
-            assert_eq!(sm_to_compute_class(90), AMPERE_COMPUTE_A);
         }
 
         #[test]

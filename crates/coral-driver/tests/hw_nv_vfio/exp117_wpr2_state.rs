@@ -47,7 +47,7 @@ mod regs {
     pub const EXCI: u32 = 0x148;
     pub const MAILBOX0: u32 = 0x040;
     pub const MAILBOX1: u32 = 0x044;
-    pub const BOOTVEC: u32 = 0x104;
+    pub const _BOOTVEC: u32 = 0x104;
 
     pub const CPUCTL_HRESET: u32 = 1 << 4;
     pub const CPUCTL_HALTED: u32 = 1 << 5;
@@ -73,10 +73,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }

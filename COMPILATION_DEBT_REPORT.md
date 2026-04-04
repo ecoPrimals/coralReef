@@ -2,7 +2,7 @@
 
 # Compilation Gaps and Debt Report
 
-**Generated:** March 10, 2026 (metrics updated March 30, Iter 70c)  
+**Generated:** March 10, 2026 (metrics updated April 4, Iter 72)  
 **Workspace:** coralReef
 
 ---
@@ -27,7 +27,7 @@ test result: ok. 84 passed; 0 failed; 0 ignored (wgsl_corpus)
 test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 ```
 
-**Workspace totals (Iter 70):** 4189 tests passing, ~153 ignored (hardware-gated + diagnostic + VFIO HW). 2 pre-existing failures (upstream SSA regression in `corpus_euler_hll_f64`). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
+**Workspace totals (Iter 72):** 4269 tests passing with 0 failures, ~153 ignored (hardware-gated + diagnostic + VFIO HW). GPU-agnostic auto-detection confirmed (RTX 4070 SM89). Per-target lines above are a representative snapshot; ignored counts per integration target may shift as suites evolve.
 
 ---
 
@@ -56,7 +56,7 @@ test result: ok. 14 passed; 0 failed; 5 ignored (spring_absorption_wave3)
 
 | File | Test | Reason |
 |------|------|--------|
-| `hw_nv_nouveau.rs` | nouveau_device_opens, nouveau_alloc_free, nouveau_upload_readback_roundtrip, nouveau_full_dispatch_cycle, nouveau_multiple_dispatches, nouveau_sync_without_dispatch | requires nouveau hardware (Titan V / SM70) |
+| `hw_nv_nouveau.rs` | nouveau_device_opens, nouveau_alloc_free, nouveau_upload_readback_roundtrip, nouveau_full_dispatch_cycle, nouveau_multiple_dispatches, nouveau_sync_without_dispatch | requires nouveau hardware |
 | `hw_nv_nouveau.rs` | nouveau_diagnose_channel_alloc, nouveau_channel_alloc_hex_dump, nouveau_firmware_probe, nouveau_gpu_identity_probe, nouveau_gem_alloc_without_channel | requires nouveau hardware — diagnostic |
 
 ### 2.4 Hardware-gated (multi-GPU)
@@ -191,9 +191,9 @@ Most are ICE / illegal-path guards in codegen; some are assertion-style panics.
 | coral-reef/src/lib.rs | `#[allow(non_camel_case_types, non_snake_case, dead_code, missing_docs)]` | Broad; consider per-module or per-type overrides |
 | coral-reef/src/codegen/amd/isa_generated/mod.rs | Multiple `#[allow(dead_code)]` | Generated code; acceptable |
 
-### Status (Iter 62–65)
+### Status (Iter 62–71)
 
-Two rounds of tightening:
+Three rounds of tightening:
 
 **Iter 58**: 14 `#[allow]` → `#[expect]` across 8 files (vendor_lifecycle, ember, types,
 page_tables, support, activate, main.rs).
@@ -204,6 +204,11 @@ page_tables, support, activate, main.rs).
 - coral-reef: codegen/mod.rs, codegen/lower_f64/mod.rs
 - amd-isa-gen: generate.rs (generated template strings now emit `#[expect]`)
 
+**Iter 71**: Further migration across coralreef-core and coral-driver:
+- coralreef-core: `F64TranscendentalCapabilities` `struct_excessive_bools`
+- coral-driver: `mmu_oracle/diff.rs`, `acr_boot/wpr.rs` `too_many_arguments`; `vfio/types.rs` `dead_code` with `cfg_attr(not(test), ...)` pattern
+- coral-driver: `vfio/channel/registers.rs` — `cfg_attr` pattern for constants used only in tests
+
 `#[allow]` is retained for configuration-dependent lints (dead_code on pub methods called
 only by tests, unused_imports under feature gates, SysfsIo variant used in tests) that
 would cause "unfulfilled lint expectation" warnings in some build configurations.
@@ -212,10 +217,10 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 
 ## Summary
 
-| Metric | Value (as of Iter 70c) |
+| Metric | Value (as of Iter 72) |
 |--------|-------|
-| Tests passing | 4189 default + 48 VFIO |
-| Ignored tests | ~153 |
+| Tests passing | 4269 passing, 0 failures workspace-wide |
+| Ignored tests | ~153 (hardware-gated) |
 | EVOLUTION markers | 10 (documented future optimizations — intentional) |
 | TODO markers | 0 |
 | Production unwraps | 0 (eliminated Iter 69) |
@@ -223,29 +228,34 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | Non-compiling shaders | 0 (93/93 resolved Iter 31) |
 | todo!/unimplemented! | 0 |
 | panic! in production | ~150+ (codegen ICE guards — intentional; ~80 standardized to ice!() macro) |
-| #[allow] narrowing | 14 tightened to `#[expect]` (Iter 58); lib.rs → codegen/mod.rs scoped |
+| #[allow] narrowing | 3 rounds of tightening (Iters 58, 60, 71); cfg-dependent lints use `#[allow(..., reason)]` |
 | unsafe { zeroed() } | 0 (eliminated via bytemuck::Zeroable, Iter 37) |
 | unsafe { from_raw_parts_mut } | 0 (eliminated → safe as_mut_slice(), Iter 47) |
 | extern "C" | 0 (eliminated Iter 48: raw_nv_ioctl → nv_rm_ioctl via rustix) |
-| Files over 1000 LOC | 1 (test file exp123k_k80_sovereign.rs) |
-| Clippy warnings | 0 (pedantic + nursery, -D warnings) — Iter 70c deep clean |
+| Files over 1000 LOC | **0** (exp123k split Iter 71; all production + test files compliant) |
+| Clippy warnings | 0 (pedantic + nursery, -D warnings) |
 | Doc warnings | 0 (all intra-doc links fixed Iter 69) |
-| Line coverage (llvm-cov) | ~64% workspace (target 90%; Iter 70) |
-| Function coverage | ~72% (target 90%; Iter 70) |
-| Untestable lines | ~19,009 in coral-driver (VFIO/DRM/GPU channel — requires hardware) |
+| Line coverage (llvm-cov) | **64.0%** workspace / **80.8%** non-hardware (target 90%; Iter 72) |
+| Function coverage | **72.2%** (target 90%; Iter 72) |
+| Untestable lines | ~22,806 in coral-driver (VFIO/DRM/GPU channel — requires hardware) |
+| HW abstraction traits | `RegisterAccess` (BAR0), `NvidiaFirmwareSource` (firmware I/O), `MockBar0` (test) — Iter 71 |
+| MmioRegion RAII | Safe volatile read/write with bounds checking + Drop-based munmap (Iter 71) |
+| GPU auto-detection | Any NVIDIA SM35–SM120, any AMD GCN5–RDNA4; `local_gpu_discovery` tests (Iter 72) |
 | IPC health methods | 3 (`health.check`, `health.liveness`, `health.readiness` — wateringHole compliant) |
-| IPC discovery / ecosystem | `identity.get` (CAPABILITY_BASED_DISCOVERY_STANDARD), `capability.register`, `capabilities.list`, `ipc.heartbeat` (45s), Songbird registration via `ecosystem.rs` (Iter 65+70) |
+| IPC discovery / ecosystem | `identity.get`, `capability.list`, `capability.register`, `ipc.heartbeat` (45s), Songbird registration (Iter 65+70+71) |
 | IPC chaos/fault tests | 6 (Iter 45) + 12 fault injection (Iter 53) + 27 chaos/fault/pen (Iter 56) |
 | eprintln! in production | 0 (migrated to tracing, Iters 45+67+70c) |
-| Zero-copy | `Arc<str>` for shader source + device bdf (Iter 58); `bytes::Bytes` for binary payloads; shader_model refs not clones (Iter 58) |
+| Zero-copy | `Arc<str>` for shader source + device bdf; `bytes::Bytes` for binary payloads; `MmioRegion` for BAR0 |
 | Socket path standard | `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock` (wateringHole IPC protocol) |
 | Config discovery | CLI > env `$CORALREEF_CONFIG` > XDG config > system fallback (Iter 56) |
 | Driver constants | Named constants for PCI vendor IDs, class codes; env var fallbacks (Iter 56) |
 | RM ioctl sovereignty | nv_rm_ioctl via rustix (zero extern "C") |
-| SAFETY documentation | All `unsafe impl Send/Sync` documented; VolatilePtr wrapper (Iter 56); all coral-driver `unsafe` blocks have SAFETY comments (Iter 65) |
-| Unsafe evolution | VolatilePtr safe MMIO; DmaBuffer Arc\<OwnedFd\> (Iter 58); SCM_RIGHTS fully safe via AsFd (Iter 58); from_raw_fd consolidated (Iter 58) |
-| Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based (Iter 56) |
+| SAFETY documentation | All `unsafe impl Send/Sync` documented; MmioRegion RAII (Iter 71); all unsafe blocks have SAFETY comments |
+| Unsafe evolution | MmioRegion consolidates volatile BAR ops (Iter 71); DmaBuffer Arc\<OwnedFd\>; SCM_RIGHTS safe via AsFd |
+| Hardcoding evolution | PCI vendor IDs → named constants; primal names → capability-based; all paths env-overridable |
 | Primal self-knowledge | Zero hardcoded primal names in production; capability-based discovery (Iter 56) |
+| Workspace deps | `serde`, `serde_json`, `rustix`, `tempfile`, `toml` centralized in `[workspace.dependencies]` (Iter 71) |
+| CUDA isolation | Non-default on coral-glowplug; `--features cuda` opt-in (Iter 71) |
 | SPDX headers | 490+ .rs files have SPDX |
 | scyBorg license | AGPL-3.0-only; NAK MIT exception documented |
 | Shutdown safety | coral-glowplug: cancellation token + mutex timeout; no spawn_blocking deadlock (Iter 56) |

@@ -170,14 +170,9 @@ impl GpuIdentity {
             | 0x2460..=0x2489
             | 0x2501..=0x2531
             | 0x2560..=0x2572
-            | 0x2580..=0x25AC
-            | 0x2684..=0x26B1
-            | 0x2700..=0x2730
-            | 0x2780..=0x2799
-            | 0x2820..=0x2860
-            | 0x2880..=0x2899 => Some(86),
-            // Ada Lovelace AD102/AD103/AD104/AD106/AD107
-            0x2600..=0x2683 => Some(89),
+            | 0x2580..=0x25AC => Some(86),
+            // Ada Lovelace AD102/AD103/AD104/AD106/AD107 (RTX 4090–4060)
+            0x2600..=0x28FF => Some(89),
             // Hopper GH100 (H100 SXM/PCIe, H200)
             0x2321..=0x233F => Some(90),
             // Blackwell GB202 (RTX 5090), GB203 (RTX 5080), GB205 (RTX 5070 Ti),
@@ -462,7 +457,7 @@ mod tests {
 
     #[test]
     fn nvidia_sm_ada_lovelace_sm89() {
-        // Ada Lovelace AD102/AD103/AD104 (0x2600..=0x2683 maps to SM89)
+        // Ada Lovelace AD102 (RTX 4090)
         let ada_ad102 = GpuIdentity {
             vendor_id: PCI_VENDOR_NVIDIA,
             device_id: 0x2680,
@@ -470,19 +465,37 @@ mod tests {
         };
         assert_eq!(ada_ad102.nvidia_sm(), Some(89));
 
+        // Ada Lovelace AD103 (RTX 4080)
         let ada_ad103 = GpuIdentity {
             vendor_id: PCI_VENDOR_NVIDIA,
-            device_id: 0x2682,
+            device_id: 0x2704,
             sysfs_path: String::new(),
         };
         assert_eq!(ada_ad103.nvidia_sm(), Some(89));
 
-        let ada_ad104 = GpuIdentity {
+        // Ada Lovelace AD104 (RTX 4070) — PCI 0x2786
+        let rtx_4070 = GpuIdentity {
             vendor_id: PCI_VENDOR_NVIDIA,
-            device_id: 0x2683,
+            device_id: 0x2786,
             sysfs_path: String::new(),
         };
-        assert_eq!(ada_ad104.nvidia_sm(), Some(89));
+        assert_eq!(rtx_4070.nvidia_sm(), Some(89));
+
+        // Ada Lovelace AD106 (RTX 4060 Ti)
+        let rtx_4060_ti = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x2803,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(rtx_4060_ti.nvidia_sm(), Some(89));
+
+        // Ada Lovelace AD107 (RTX 4060)
+        let rtx_4060 = GpuIdentity {
+            vendor_id: PCI_VENDOR_NVIDIA,
+            device_id: 0x2882,
+            sysfs_path: String::new(),
+        };
+        assert_eq!(rtx_4060.nvidia_sm(), Some(89));
     }
 
     #[test]
@@ -596,12 +609,12 @@ mod tests {
 
     #[test]
     fn boot0_gb202_blackwell_consumer() {
-        assert_eq!(boot0_to_sm(0x1B20_00a1), Some(120)); // RTX 5090
+        assert_eq!(boot0_to_sm(0x1B20_00A1), Some(120)); // RTX 5090
     }
 
     #[test]
     fn boot0_gb100_blackwell_datacenter() {
-        assert_eq!(boot0_to_sm(0x1A00_00a1), Some(100)); // B100
+        assert_eq!(boot0_to_sm(0x1A00_00A1), Some(100)); // B100
     }
 
     #[test]
@@ -621,10 +634,10 @@ mod tests {
 
     #[test]
     fn chipset_variant_blackwell() {
-        assert_eq!(chipset_variant(0x1B20_00a1), "gb202");
-        assert_eq!(chipset_variant(0x1B30_00a1), "gb203");
-        assert_eq!(chipset_variant(0x1B50_00a1), "gb205");
-        assert_eq!(chipset_variant(0x1A00_00a1), "gb100");
+        assert_eq!(chipset_variant(0x1B20_00A1), "gb202");
+        assert_eq!(chipset_variant(0x1B30_00A1), "gb203");
+        assert_eq!(chipset_variant(0x1B50_00A1), "gb205");
+        assert_eq!(chipset_variant(0x1A00_00A1), "gb100");
     }
 
     #[test]
@@ -660,14 +673,14 @@ mod tests {
 
     #[test]
     fn boot0_kepler_gk110() {
-        assert_eq!(boot0_to_sm(0x0F00_00a1), Some(35));
-        assert_eq!(boot0_to_sm(0x0F10_00a1), Some(35));
+        assert_eq!(boot0_to_sm(0x0F00_00A1), Some(35));
+        assert_eq!(boot0_to_sm(0x0F10_00A1), Some(35));
     }
 
     #[test]
     fn chipset_variant_kepler() {
-        assert_eq!(chipset_variant(0x0F00_00a1), "gk110");
-        assert_eq!(chipset_variant(0x0F10_00a1), "gk110b");
+        assert_eq!(chipset_variant(0x0F00_00A1), "gk110");
+        assert_eq!(chipset_variant(0x0F10_00A1), "gk110b");
     }
 
     #[test]

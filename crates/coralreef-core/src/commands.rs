@@ -7,6 +7,8 @@ use coral_reef::{AmdArch, CompileError, CompileOptions, GpuArch, GpuTarget, NvAr
 use std::io;
 use std::path::Path;
 
+use crate::lifecycle::PrimalError;
+
 /// `UniBin` exit codes per ecoPrimals standard.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +21,32 @@ pub enum ExitStatus {
     ConfigError = 2,
     /// Internal error (panic, OOM).
     InternalError = 3,
+}
+
+/// Errors from the `doctor` diagnostic (`run_doctor`).
+#[derive(Debug, thiserror::Error)]
+pub enum DoctorError {
+    /// Primal failed to start.
+    #[error("primal start failed: {0}")]
+    Start(#[source] PrimalError),
+
+    /// Health check failed.
+    #[error("health check failed: {0}")]
+    Health(#[source] PrimalError),
+
+    /// WGSL smoke compile failed on a target (excluding deliberate `NotImplemented`).
+    #[error("compile pipeline failed for {target:?}: {source}")]
+    CompilePipeline {
+        /// Target that failed.
+        target: GpuTarget,
+        /// Compiler error.
+        #[source]
+        source: CompileError,
+    },
+
+    /// Primal failed to stop after diagnostics.
+    #[error("primal stop failed: {0}")]
+    Stop(#[source] PrimalError),
 }
 
 /// Map a compile error to the appropriate exit status.
@@ -83,8 +111,8 @@ pub fn compile_file(
 ///
 /// # Errors
 ///
-/// Returns an error string if primal start, health check, or stop fails.
-pub async fn run_doctor() -> Result<String, String> {
+/// Returns [`DoctorError`] if primal start, health check, compile smoke, or stop fails.
+pub async fn run_doctor() -> Result<String, DoctorError> {
     use crate::CoralReefPrimal;
     use crate::health::PrimalHealth;
     use crate::lifecycle::PrimalLifecycle;
@@ -114,16 +142,10 @@ pub async fn run_doctor() -> Result<String, String> {
     let mut primal = CoralReefPrimal::new();
     let _ = writeln!(report, "[OK] Primal created (state: {:?})", primal.state());
 
-    primal
-        .start()
-        .await
-        .map_err(|e| format!("primal start failed: {e}"))?;
+    primal.start().await.map_err(DoctorError::Start)?;
     let _ = writeln!(report, "[OK] Primal started (state: {:?})", primal.state());
 
-    let health = primal
-        .health_check()
-        .await
-        .map_err(|e| format!("health check failed: {e}"))?;
+    let health = primal.health_check().await.map_err(DoctorError::Health)?;
     let _ = writeln!(report, "[OK] Health: {:?}", health.status);
 
     let test_wgsl = "@compute @workgroup_size(1)\nfn main() {}";
@@ -149,7 +171,7 @@ pub async fn run_doctor() -> Result<String, String> {
             Err(CompileError::NotImplemented(_)) => {}
             Err(e) => {
                 let _ = primal.stop().await;
-                return Err(format!("compile pipeline failed for {target}: {e}"));
+                return Err(DoctorError::CompilePipeline { target, source: e });
             }
         }
     }
@@ -159,10 +181,7 @@ pub async fn run_doctor() -> Result<String, String> {
         );
     }
 
-    primal
-        .stop()
-        .await
-        .map_err(|e| format!("primal stop failed: {e}"))?;
+    primal.stop().await.map_err(DoctorError::Stop)?;
     report.push_str("[OK] Primal stopped cleanly\n\nDiagnostic complete.");
     Ok(report)
 }
@@ -215,7 +234,7 @@ mod tests {
     async fn test_run_doctor_succeeds() {
         let result = run_doctor().await;
         assert!(result.is_ok());
-        let report = result.unwrap();
+        let report = result.expect("run_doctor succeeds");
         assert!(report.contains("doctor"));
         assert!(report.contains("[OK]"));
         assert!(report.contains("Diagnostic complete"));
@@ -223,14 +242,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_doctor_contains_capabilities() {
-        let result = run_doctor().await.unwrap();
+        let result = run_doctor().await.expect("run_doctor succeeds");
         assert!(result.contains("Capabilities (provides)"));
         assert!(result.contains("shader.compile"));
     }
 
     #[tokio::test]
     async fn test_run_doctor_contains_architectures() {
-        let result = run_doctor().await.unwrap();
+        let result = run_doctor().await.expect("run_doctor succeeds");
         assert!(result.contains("Supported architectures"));
         assert!(result.contains("sm_70"));
     }

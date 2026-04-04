@@ -3,6 +3,8 @@
 
 use std::fmt;
 
+use crate::error::SwapError;
+
 /// Available PCI reset methods for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetMethod {
@@ -55,7 +57,7 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     /// methods, pinning power rails, or quiescing vendor-specific firmware.
     ///
     /// `current_driver` is the driver currently bound (e.g. "vfio-pci", "amdgpu").
-    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), String>;
+    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), SwapError>;
 
     /// How to rebind a native driver after the device is in unbound state.
     /// `target_driver` is the intended destination (e.g. "amdgpu", "nouveau").
@@ -74,7 +76,7 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
 
     /// Post-bind health check. Called after the target driver appears in sysfs.
     /// Should verify the device is actually functional (temp sensors, VRAM, etc.)
-    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), String>;
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), SwapError>;
 
     /// Which reset methods are safe/available for this hardware, in priority order.
     /// The caller should try methods in order and stop at the first success.

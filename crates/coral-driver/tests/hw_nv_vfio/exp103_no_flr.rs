@@ -23,7 +23,7 @@ mod freg103 {
     pub const PC: usize = 0x030;
     pub const EXCI: usize = 0x148;
     pub const MAILBOX0: usize = 0x040;
-    pub const MAILBOX1: usize = 0x044;
+    pub const _MAILBOX1: usize = 0x044;
     pub const CPUCTL_HRESET: u32 = 1 << 4;
     pub const CPUCTL_HALTED: u32 = 1 << 5;
 }

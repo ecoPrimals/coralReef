@@ -119,10 +119,9 @@ pub fn dispatch_jsonrpc(
             let resp = service::handle_identity_get();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
-        "capabilities.list" => {
-            let desc = crate::capability::self_description();
-            let caps: Vec<&str> = desc.provides.iter().map(|c| c.id.as_ref()).collect();
-            serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
+        "capability.list" => {
+            let resp = service::handle_capability_list();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"
@@ -167,7 +166,7 @@ pub fn make_response(
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     dead_code,
-    reason = "re-exported from `ipc` for tests and the `e2e` feature"
+    reason = "cfg-gated legacy alias; unused in this crate when e2e is off (callers use dispatch_jsonrpc)"
 )]
 pub fn dispatch(
     method: &str,

@@ -788,7 +788,7 @@ mod amd_encoding_helpers_tests {
 
     #[test]
     fn patch_vop3_prefix_for_gfx9_rewrites_prefix_and_opcode() {
-        let mut w = (0b11_0101u32 << 26) | ((320_u32 & 0x3FF) << 16) | 0x00AB_u32;
+        let mut w = (0b11_0101u32 << 26) | ((0x0140_u32 & 0x3FF) << 16) | 0x00AB_u32;
         patch_vop3_prefix_for_gfx9(std::slice::from_mut(&mut w));
         assert_eq!((w >> 26) & 0x3F, 0b11_0100, "GFX9 VOP3 prefix");
         assert_eq!((w >> 16) & 0x3FF, 448, "320 + 128 remap");

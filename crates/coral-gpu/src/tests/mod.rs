@@ -21,6 +21,7 @@ mod kernel_cache_roundtrip;
 mod kernel_metadata_cache;
 #[cfg(target_os = "linux")]
 mod linux;
+mod local_gpu;
 mod mock_device;
 mod no_device;
 #[cfg(not(target_os = "linux"))]

@@ -147,7 +147,7 @@ async fn newline_tcp_shader_compile_status_roundtrip() {
 }
 
 #[tokio::test]
-async fn newline_tcp_capabilities_list_returns_known_capabilities() {
+async fn newline_tcp_capability_list_returns_known_domains() {
     let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
     let (addr, handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx)
         .await
@@ -155,7 +155,7 @@ async fn newline_tcp_capabilities_list_returns_known_capabilities() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
     let req = json!({
         "jsonrpc": "2.0",
-        "method": "capabilities.list",
+        "method": "capability.list",
         "params": {},
         "id": 42_u64
     });
@@ -165,18 +165,29 @@ async fn newline_tcp_capabilities_list_returns_known_capabilities() {
     let mut out = String::new();
     reader.read_line(&mut out).await.unwrap();
     let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
-    let caps = v
-        .get("result")
-        .expect("capabilities.list must return result")
-        .as_array()
-        .expect("result must be an array");
+    let result = v.get("result").expect("capability.list must return result");
+    let parsed: service::CapabilityListResponse =
+        serde_json::from_value(result.clone()).expect("capability.list result shape");
+    assert_eq!(parsed.version.as_ref(), env!("CARGO_PKG_VERSION"));
     assert!(
-        caps.iter().any(|c| c.as_str() == Some("shader.compile")),
-        "must include shader.compile: {caps:?}"
+        parsed.capabilities.iter().any(|d| d == "shader.compile"),
+        "must include shader.compile: {:?}",
+        parsed.capabilities
     );
     assert!(
-        caps.iter().any(|c| c.as_str() == Some("shader.health")),
-        "must include shader.health: {caps:?}"
+        parsed.capabilities.iter().any(|d| d == "shader.health"),
+        "must include shader.health: {:?}",
+        parsed.capabilities
+    );
+    assert!(
+        parsed.capabilities.iter().any(|d| d == "health"),
+        "must include health domain: {:?}",
+        parsed.capabilities
+    );
+    assert!(
+        parsed.capabilities.iter().any(|d| d == "identity"),
+        "must include identity domain: {:?}",
+        parsed.capabilities
     );
     let _ = shutdown_tx.send(());
     handle.abort();

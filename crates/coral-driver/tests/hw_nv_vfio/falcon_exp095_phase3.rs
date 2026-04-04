@@ -161,7 +161,7 @@ pub fn exp095_phase3_deferred(dev: &NvVfioComputeDevice) {
 
         // Also try GM200 indexed write approach
         let gm200_lo = (wpr_beg_val >> 8) | 0x01; // enable bit
-        let gm200_hi = wpr_end_val >> 8;
+        let _gm200_hi = wpr_end_val >> 8;
         let _ = bar0.write_u32(0x100CD4, gm200_lo);
         std::thread::sleep(std::time::Duration::from_micros(10));
         let rb_lo = bar0.read_u32(0x100CD4).unwrap_or(0xDEAD);
@@ -345,8 +345,7 @@ pub fn exp095_phase3_deferred(dev: &NvVfioComputeDevice) {
     // ── Upload BL to IMEM ──
     let hwcfg = r(0x108);
     let code_limit = (hwcfg & 0x1FF) * 256;
-    let boot_size =
-        ((parsed.bl_desc.bl_code_off + parsed.bl_desc.bl_code_size + 0xFF) & !0xFF) as u32;
+    let boot_size = (parsed.bl_desc.bl_code_off + parsed.bl_desc.bl_code_size + 0xFF) & !0xFF;
     let imem_addr = code_limit.saturating_sub(boot_size);
     let start_tag = parsed.bl_desc.bl_start_tag;
     let boot_addr = start_tag << 8;
@@ -405,7 +404,6 @@ pub fn exp095_phase3_deferred(dev: &NvVfioComputeDevice) {
 
     // Verify DMEM upload: read back first 4 words of BL desc at offset 0
     {
-        use coral_driver::nv::vfio_compute::acr_boot::sec2_emem_read;
         let _ = bar0.write_u32(SEC2_BASE + 0x1C0, 0); // DMEM index port 0
         let dm0 = bar0.read_u32(SEC2_BASE + 0x1C4).unwrap_or(0xDEAD); // word 0 (reserved)
         let _ = bar0.write_u32(SEC2_BASE + 0x1C0, 32); // offset 32 = ctx_dma

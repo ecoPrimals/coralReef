@@ -184,7 +184,7 @@ fn handle_client_ember_vfio_fds_missing_bdf_errors() {
     let m = managed(&[TEST_BDF]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None)
         .expect_err("handler returns error");
-    assert!(err.contains("bdf"), "{err}");
+    assert!(err.to_string().contains("bdf"), "{err}");
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn handle_client_ember_reacquire_missing_bdf_errors() {
     let m = managed(&[TEST_BDF]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None)
         .expect_err("handler returns error");
-    assert!(err.contains("bdf"), "{err}");
+    assert!(err.to_string().contains("bdf"), "{err}");
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn handle_client_ember_release_missing_bdf_errors() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None)
         .expect_err("handler returns error");
-    assert!(err.contains("bdf"));
+    assert!(err.to_string().contains("bdf"));
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn handle_client_ember_swap_missing_params() {
     let m = managed(&[TEST_BDF]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None)
         .expect_err("handler returns error");
-    assert!(err.contains("target"));
+    assert!(err.to_string().contains("target"));
 }
 
 #[test]
@@ -319,7 +319,11 @@ fn handle_client_non_utf8_request_errors() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None)
         .expect_err("handler returns error");
-    assert!(err.contains("utf8"), "{err}");
+    let es = err.to_string();
+    assert!(
+        es.to_lowercase().contains("utf"),
+        "expected UTF-8 decode in error: {es}"
+    );
 }
 
 #[test]

@@ -107,18 +107,23 @@ impl<S: SysfsOps> DeviceSlot<S> {
     pub fn oracle_capture_via_vfio(
         &self,
         max_channels: usize,
-    ) -> Result<coral_driver::vfio::channel::mmu_oracle::PageTableDump, String> {
-        let holder = self.vfio_holder.as_ref().ok_or_else(|| {
-            format!(
-                "device {} has no VFIO holder — cannot capture oracle",
-                self.bdf
-            )
-        })?;
+    ) -> Result<coral_driver::vfio::channel::mmu_oracle::PageTableDump, DeviceError> {
+        let holder = self
+            .vfio_holder
+            .as_ref()
+            .ok_or_else(|| DeviceError::VfioOpen {
+                bdf: self.bdf.clone(),
+                reason: "no VFIO holder — cannot capture oracle".into(),
+            })?;
         coral_driver::vfio::channel::mmu_oracle::capture_page_tables_via_mapped_bar(
             &self.bdf,
             &holder.bar0,
             max_channels,
         )
+        .map_err(|reason| DeviceError::VfioOpen {
+            bdf: self.bdf.clone(),
+            reason,
+        })
     }
 
     /// Write-readback test on VRAM via the PRAMIN window.

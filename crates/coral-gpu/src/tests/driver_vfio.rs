@@ -16,7 +16,8 @@ mod vfio_mapping {
         assert_eq!(sm_to_compute_class(75), TURING_COMPUTE_A);
         assert_eq!(sm_to_compute_class(79), TURING_COMPUTE_A);
         assert_eq!(sm_to_compute_class(80), AMPERE_COMPUTE_A);
-        assert_eq!(sm_to_compute_class(120), AMPERE_COMPUTE_A);
+        // SM 100+ uses the identity-table fallback (`identity::sm_to_compute_class`), not Ampere.
+        assert_eq!(sm_to_compute_class(120), 0xC8C0);
     }
 
     #[test]

@@ -2,34 +2,35 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 70c.
+**Current position**: Phase 10 — Iteration 72.
 
-**Last completed**: Typed error system (`SysfsError`, `SwapError`, `TraceError`), observer directory refactor, ~100 println→tracing, ECOSYSTEM_NAMESPACE runtime-configurable, cache_ops consolidation, 19 new tests.
+**Last completed**: GPU-agnostic auto-detection (any NVIDIA SM35–SM120 + any AMD GCN5–RDNA4), Ada Lovelace PCI identity fix (RTX 4070 0x2786 → SM89), AMD arch auto-detect from sysfs, nvidia-drm fallback uses sysfs SM instead of hardcoded Sm86, GPU-agnostic test infrastructure, `local_gpu_discovery` tests.
 
-**Tests**: 3258+ passing, 2 pre-existing upstream failures (SSA regression).
+**Tests**: 4269 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: MmioRegion safe RAII wrapper (consolidate 79 unsafe sites), vendor_lifecycle `Result<_, String>` → typed errors, coverage push toward 90%, hardware integration testing, toadStool E2E pipeline.
+**Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation.
 
-**Last updated**: March 30, 2026 (Phase 10 — Iteration 70c — Deep Evolution. clippy pedantic+nursery zero warnings; 0 production files >1000 LOC)
+**Last updated**: April 4, 2026 (Phase 10 — Iteration 72 — GPU-Agnostic Evolution. Auto-detection works with any NVIDIA or AMD GPU. RTX 4070 confirmed SM89. `sm_to_nvarch` covers Maxwell–Blackwell. AMD auto-detect from sysfs PCI identity. Test infrastructure discovers local GPU and adapts.)
 
 ---
 
 ## Team Evolution Priorities (Iteration 70c+)
 
-### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–70)**
+### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–71)**
 
-All production files under 1000 LOC. Iter 70 added three more splits:
+All files under 1000 LOC (including tests). Iter 71 resolved the last oversized test file:
 
 | File | Was | Now | Status |
 |------|-----|-----|--------|
 | `acr_boot.rs` | 4462 | `acr_boot/` (12 submodules) | **Resolved (Iter 64)** |
 | `coralctl.rs` | 1649 | `coralctl/` (main + 5 handlers) | **Resolved (Iter 64)** |
 | `socket.rs` | 1434 | `socket/` (mod + protocol + handlers) | **Resolved (Iter 64)** |
-| `swap.rs` | 1102 | 708 + `swap_preflight.rs` (362) | **Resolved (Iter 70)** |
+| `swap.rs` | 1102 | `swap/` (mod + preflight + bind) | **Resolved (Iter 70)** |
 | `vfio_compute/mod.rs` | 1018 | 855 + `gr_engine_status.rs` (173) | **Resolved (Iter 70)** |
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
+| `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `sysmem_impl.rs` (973), `pci_discovery.rs` (967), `uvm_compute.rs` (959).
+**Approaching 1000 (monitor):** `codegen_coverage_saturation.rs` (982), `spill_values/tests.rs` (979), `opt_copy_prop/tests.rs` (973), `sysmem_impl.rs` (973), `uvm_compute.rs` (969), `pci_discovery.rs` (966).
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
@@ -53,24 +54,33 @@ All production files under 1000 LOC. Iter 70 added three more splits:
 
 ### Untestable Code — Hardware Abstraction Plan
 
-`coral-driver` has 19,009 lines (74%) at 0% coverage — VFIO/DRM/GPU-channel code that requires actual GPU hardware. This is the primary barrier to 90% workspace coverage. Plan:
+`coral-driver` has ~22,806 lines (73%) missed — VFIO/DRM/GPU-channel code that requires actual GPU hardware. This is the primary barrier to 90% workspace coverage. Iter 71–72 advanced the plan:
 
-1. **Abstract hardware interfaces** behind traits (`VfioOps`, `BarOps`, `DmaOps`) so unit tests can inject mock implementations
-2. **Titan V now bound to glowplug** — enable `#[ignore]` hardware tests in CI
-3. **Layered testing**: pure-logic tests (register math, packet building) already covered; need integration harness for VFIO/DRM paths
-4. **Target**: 70% coral-driver (from 26%) via trait abstraction + Titan V CI
+1. **`MmioRegion` RAII wrapper** — consolidates volatile BAR0 read/write into bounds-checked safe API; used by `Bar0Access`, `SysfsBar0`, `MappedBar` (Iter 71) ✅
+2. **`MockBar0`** — heap-backed `RegisterAccess` impl for unit testing GSP applicator, `resolve_sm`, BOOT0 decoding without hardware (Iter 71) ✅
+3. **`NvidiaFirmwareSource` trait** — abstracts firmware file I/O; `FilesystemFirmwareSource` (production) + `MockFirmwareSource` (test) enable firmware parsing tests without `/lib/firmware/nvidia` (Iter 71) ✅
+4. **GPU-agnostic test infrastructure** — `local_gpu_discovery` tests auto-detect any local GPU and validate (Iter 72) ✅
+5. **Any-GPU hardware CI** — RTX 4070 confirmed working (SM89 auto-detected); tests no longer Titan V-specific
+6. **Remaining**: `VfioHardware`/`PciSysfs` traits for VFIO ioctl and sysfs path mocking
 
-### Coverage Gains (Iter 64)
+### Coverage (Iter 72 — per-crate line coverage)
 
-| Crate | Before | After |
-|-------|--------|-------|
-| coralreef-core | 85.6% | **96.0%** |
-| coral-reef-stubs | 59.1% | **97.7%** |
-| coral-reef (compiler) | 73.3% | **82.0%** |
-| coral-ember | 35.5% | **67.5%** |
-| coral-glowplug | 62.6% | **60.8%** |
-| Workspace total | 62.9% | **65.9%** |
-| Non-hardware | — | **81.5%** |
+| Crate | Lines | Missed | Coverage |
+|-------|-------|--------|----------|
+| coral-reef-isa | 79 | 0 | **100.0%** |
+| coral-reef-stubs | 2,713 | 44 | **98.4%** |
+| primal-rpc-client | 128 | 2 | **98.4%** |
+| coralreef-core | 6,780 | 387 | **94.3%** |
+| coral-reef-bitview | 311 | 27 | **91.3%** |
+| nak-ir-proc | 414 | 47 | **88.6%** |
+| coral-reef (compiler) | 44,444 | 7,570 | **83.0%** |
+| coral-gpu | 645 | 199 | **69.1%** |
+| coral-glowplug | 8,892 | 3,480 | **60.9%** |
+| coral-ember | 3,686 | 1,466 | **60.2%** |
+| coral-driver | 31,177 | 22,806 | **26.8%** |
+| **Workspace total** | **100,468** | **36,132** | **64.0%** |
+
+Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now be expanded on any NVIDIA or AMD GPU.
 
 ---
 
@@ -150,6 +160,35 @@ All production files under 1000 LOC. Iter 70 added three more splits:
 ---
 
 ## Phase 10 — Spring Absorption + Compiler Hardening (Iteration 60)
+
+### Iteration 72 — GPU-Agnostic Evolution
+- [x] **Ada Lovelace PCI identity fix**: Device IDs 0x2600–0x28FF correctly map to SM89 (was misclassifying RTX 4070/4080/4060 as Ampere SM86)
+- [x] **GPU-agnostic auto-detection**: `GpuContext::auto()` now works with any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU
+- [x] **nvidia-drm fallback fixed**: Uses sysfs SM detection instead of hardcoded `NvArch::Sm86` when UVM init fails
+- [x] **AMD arch auto-detection**: New `amd_arch_from_sysfs()` reads PCI identity and maps to correct `AmdArch` (gcn5/rdna1/rdna2/rdna3/rdna4) — replaces hardcoded RDNA2
+- [x] **`sm_to_nvarch` expanded**: Maps Maxwell (SM50–53), Pascal (SM60–62), Hopper (SM90), Blackwell (SM100) with `tracing::warn` for approximate mappings; unknown SMs warn instead of silently falling back to SM70
+- [x] **VFIO SM detection extended**: `vfio_sm_from_device_id` covers full Ada range (0x2400–0x28FF)
+- [x] **`sm_to_compute_class` delegated**: Forwards to `coral_driver::nv::identity::sm_to_compute_class` for accurate Kepler–Blackwell class selection
+- [x] **GPU-agnostic test infrastructure**: `local_gpu_discovery.rs` with 4 tests — auto-discovers any local GPU, compiles for it, reports identity; gracefully skips if no GPU present
+- [x] **`require_gpu!()` macro**: Test helper for hardware tests — discovers or skips, no hardcoded GPU assumptions
+- [x] **nouveau test generalization**: Removed "Titan V / SM70" from ignore reasons; `open()` auto-detects instead of `open_with_sm(70)`
+- [x] **`from_descriptor_with_path` AMD evolved**: `arch=None` auto-detects from sysfs PCI identity instead of defaulting to RDNA2
+- [x] **RTX 4070 confirmed**: SM89 Ada Lovelace auto-detected and compiling correctly
+- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (4269 pass, 0 fail, 153 ignored), doc ✅
+
+### Iteration 71 — Deep Debt Resolution + Coverage Infrastructure
+- [x] **SSA regression fixed**: `LARGE_SIZE` 16→32 in `ssa_value.rs` — matches `type_reg_comps` cap for f64 array promotion; `corpus_euler_hll_f64_{sm70,rdna2}` now pass (2 failures → 0)
+- [x] **MmioRegion RAII wrapper**: Safe bounds-checked volatile read/write with `Drop`-based `munmap`; `Bar0Access`, `SysfsBar0`, `MappedBar` migrated from raw pointer ops to `MmioRegion`; unsafe consolidated to single module
+- [x] **MockBar0 + RegisterAccess expansion**: Heap-backed `MockBar0` in `gsp/test_utils.rs`; `resolve_sm` refactored to accept `&dyn RegisterAccess`; BOOT0 decoding tests for GP100/TU102/GA102; GSP applicator tests via mock BAR
+- [x] **NvidiaFirmwareSource trait**: `FilesystemFirmwareSource` (production) + `MockFirmwareSource` (test); `learn_nvidia_firmware_with_source` enables firmware parsing tests without filesystem; `discover_nvidia_chips_from` extracted
+- [x] **exp123k test split**: 1665 LOC → `exp123k_k80_sovereign/` directory (7 files, max 457); helpers/vbios/nvidia470/experiments separated by semantic cohesion
+- [x] **`#[allow]`→`#[expect]` migration**: `struct_excessive_bools`, `too_many_arguments`, `dead_code` across coralreef-core, coral-driver; cfg-dependent lints use `#[allow(..., reason)]` to avoid unfulfilled expectations
+- [x] **Workspace dep centralization**: `rustix`, `tempfile`, `toml` added to `[workspace.dependencies]`; `serde`, `serde_json` unified across coral-driver/ember/glowplug/amd-isa-gen
+- [x] **CUDA non-default on coral-glowplug**: `cuda` feature gate on `coral-glowplug` — default builds vendor-SDK-free; `cargo build --features cuda` for CUDA deployments
+- [x] **unreachable!() dead arm fixed**: `coral-ember/src/ipc/helpers.rs` `try_reset_methods` refactored to single match with VfioFlr continue — no dead arm
+- [x] **Per-crate coverage tests**: coral-driver (bar0, kepler_falcon, pci_discovery, identity, gr_init, rm_observer), coral-gpu (FMA, sm_to_nvarch, PCIe grouping), coral-ember (journal, adaptive, vendor lifecycle, observation)
+- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (593 coral-reef, 0 failures workspace-wide), doc ✅
+- [x] 0 files over 1000 LOC (including tests). ~64% workspace line coverage, ~81% non-hardware
 
 ### Iteration 65 — Deep Debt Solutions + Ecosystem Integration
 - [x] Comprehensive audit execution — all 20 priority audit items addressed
@@ -473,7 +512,7 @@ the full Spring absorption map.
 - [x] **Shared memory sizing** — `CompilationInfo.shared_mem_bytes` + `barrier_count` wired compiler → QMD — resolved Iteration 9
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
 - [ ] Titan V (SM70) hardware execution validation (nouveau dispatch ready, needs on-site)
-- [ ] RTX 5060 (SM89) UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell + completion polling); `NvDrmDevice` delegates to `NvUvmComputeDevice` — needs on-site hardware validation (RTX 3090 decommissioned)
+- [ ] RTX 4070 (SM89) UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell + completion polling); `NvDrmDevice` delegates to `NvUvmComputeDevice` — identity detection confirmed, needs UVM hardware validation
 - [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
 
 ### P0 — AMD E2E critical fixes (Iteration 10)
@@ -567,12 +606,15 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4047 tests passing, 0 failed, ~121 ignored hardware-gated. ~66% workspace line coverage.
+4269 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
+GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
+RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
+IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
 Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
-Hardware: 2× Titan V (VFIO sovereign, now bound to glowplug) + RTX 5060 (nvidia-drm/UVM).
-Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift.
+Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
+MmioRegion RAII wrapper consolidates unsafe BAR0 ops. MockBar0 + NvidiaFirmwareSource enable hardware-free testing.
+Default builds are vendor-SDK-free (CUDA opt-in via `--features cuda`). Workspace deps centralized.
 All pure Rust. Sovereignty is a runtime choice.*

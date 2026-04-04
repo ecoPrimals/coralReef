@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::ember_client;
 use crate::helpers::{init_tracing, open_vfio, vfio_bdf};
-use coral_driver::{ComputeDevice, DispatchDims, ShaderInfo};
 
 /// Exp 095: Sovereign ACR boot with VRAM recovery via nouveau DEVINIT cycle.
 ///
@@ -33,7 +31,7 @@ fn vfio_clean_vram_acr_boot() {
     // ── Phase 0: Quick VRAM probe ──
     eprintln!("── Phase 0: VRAM probe ──");
     let mut dev = open_vfio();
-    let vram_alive = {
+    let _vram_alive = {
         let bar0 = dev.bar0_ref();
         let win = bar0.read_u32(0x1700).unwrap_or(0xDEAD);
         eprintln!("BAR0_WINDOW = {win:#010x}");
@@ -535,7 +533,7 @@ fn vfio_clean_vram_acr_boot() {
         let irqmask = r(0x018); // read back IRQMASK
         eprintln!("IRQMASK after IRQMSET(SWGEN0): {irqmask:#010x}");
 
-        let _ = bar0.write_u32(SEC2_BASE + 0x000, 1u32 << 6); // IRQSSET: trigger SWGEN0
+        let _ = bar0.write_u32(SEC2_BASE, 1u32 << 6); // IRQSSET: trigger SWGEN0
         std::thread::sleep(std::time::Duration::from_millis(200));
         let pc_b = r(0x030);
         let irqstat_b = r(0x008);
@@ -547,7 +545,7 @@ fn vfio_clean_vram_acr_boot() {
 
         // Experiment 3: Also enable + trigger SWGEN1 (bit 7)
         let _ = bar0.write_u32(SEC2_BASE + 0x010, 1u32 << 7); // IRQMSET: enable SWGEN1
-        let _ = bar0.write_u32(SEC2_BASE + 0x000, 1u32 << 7); // IRQSSET: trigger SWGEN1
+        let _ = bar0.write_u32(SEC2_BASE, 1u32 << 7); // IRQSSET: trigger SWGEN1
         std::thread::sleep(std::time::Duration::from_millis(200));
         let pc_c = r(0x030);
         let irqstat_c = r(0x008);
@@ -559,7 +557,7 @@ fn vfio_clean_vram_acr_boot() {
 
         // Experiment 4: Enable EXT interrupt (bit 0, external/engine interrupt)
         let _ = bar0.write_u32(SEC2_BASE + 0x010, 1u32 << 0); // IRQMSET: enable EXT(0)
-        let _ = bar0.write_u32(SEC2_BASE + 0x000, 1u32 << 0); // IRQSSET: trigger EXT(0)
+        let _ = bar0.write_u32(SEC2_BASE, 1u32 << 0); // IRQSSET: trigger EXT(0)
         std::thread::sleep(std::time::Duration::from_millis(200));
         let pc_d = r(0x030);
         let irqstat_d = r(0x008);
@@ -665,7 +663,7 @@ fn vfio_clean_vram_acr_boot() {
         let falcon_mask = (1u32 << 2) | (1u32 << 3); // FECS=2, GPCCS=3
         let _ = bar0.write_u32(SEC2_BASE + 0x044, falcon_mask); // MB1 = falcon mask
         let _ = bar0.write_u32(SEC2_BASE + 0x040, 1); // MB0 = BOOTSTRAP_FALCON cmd
-        let _ = bar0.write_u32(SEC2_BASE + 0x000, 1u32 << 6); // IRQSSET SWGEN0
+        let _ = bar0.write_u32(SEC2_BASE, 1u32 << 6); // IRQSSET SWGEN0
         std::thread::sleep(std::time::Duration::from_millis(500));
         let mb0_a = bar0.read_u32(SEC2_BASE + 0x040).unwrap_or(0);
         let mb1_a = bar0.read_u32(SEC2_BASE + 0x044).unwrap_or(0);
@@ -696,7 +694,7 @@ fn vfio_clean_vram_acr_boot() {
             }
             let new_tail = tail + 16;
             let _ = bar0.write_u32(SEC2_BASE + 0xA04, new_tail);
-            let _ = bar0.write_u32(SEC2_BASE + 0x000, 1u32 << 6); // IRQSSET SWGEN0
+            let _ = bar0.write_u32(SEC2_BASE, 1u32 << 6); // IRQSSET SWGEN0
             eprintln!("  {label}: falcon_id={falcon_id} @tail={tail:#x}→{new_tail:#x}");
         };
         send_bootstrap(3, 1, "GPCCS");
@@ -723,7 +721,7 @@ fn vfio_clean_vram_acr_boot() {
                 let _ = bar0.write_u32(SEC2_BASE + 0xAC4, w);
             }
             let _ = bar0.write_u32(SEC2_BASE + 0xA04, tail + 16);
-            let _ = bar0.write_u32(SEC2_BASE + 0x000, 1u32 << 6);
+            let _ = bar0.write_u32(SEC2_BASE, 1u32 << 6);
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
 

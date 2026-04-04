@@ -97,6 +97,18 @@ pub struct CompileResponse {
     pub status: Option<String>,
 }
 
+/// `capability.list` response — capability domains this primal serves.
+///
+/// Per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD`: semantic discovery
+/// without hardcoded primal names.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityListResponse {
+    /// Capability domain strings offered by this primal (e.g. `shader.compile`, `health`).
+    pub capabilities: Vec<String>,
+    /// Primal semantic version.
+    pub version: Cow<'static, str>,
+}
+
 /// `identity.get` response — primal self-description for capability-based discovery.
 ///
 /// Per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD`: name, version, capability
@@ -163,7 +175,7 @@ pub struct CompileCapabilitiesResponse {
 /// polynomial/Newton-Raphson software implementation using only basic f64
 /// arithmetic, bypassing broken driver JIT (e.g. NVVM) entirely.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "1:1 map of f64 transcendental functions"
 )]
@@ -328,5 +340,17 @@ mod identity_tests {
     fn default_opt_level_is_valid() {
         let level = default_opt_level();
         assert!(level <= 3, "opt level must be 0-3, got {level}");
+    }
+
+    #[test]
+    fn capability_list_response_serde_roundtrip() {
+        let r = CapabilityListResponse {
+            capabilities: vec!["health".to_owned(), "shader.compile".to_owned()],
+            version: env!("CARGO_PKG_VERSION").into(),
+        };
+        let json = serde_json::to_string(&r).expect("serialize");
+        let roundtrip: CapabilityListResponse = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(roundtrip.capabilities, r.capabilities);
+        assert_eq!(roundtrip.version.as_ref(), r.version.as_ref());
     }
 }

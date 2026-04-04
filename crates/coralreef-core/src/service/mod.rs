@@ -10,12 +10,13 @@ pub use compile::{
     handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
 };
 pub use types::{
-    CompileCapabilitiesResponse, CompileRequest, CompileResponse, CompileSpirvRequestTarpc,
-    CompileWgslRequest, F64TranscendentalCapabilities, HealthCheckResponse, HealthResponse,
-    IdentityGetResponse, LivenessResponse, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
-    ReadinessResponse,
+    CapabilityListResponse, CompileCapabilitiesResponse, CompileRequest, CompileResponse,
+    CompileSpirvRequestTarpc, CompileWgslRequest, F64TranscendentalCapabilities,
+    HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
+    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse,
 };
 
+use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 use crate::capability::SelfDescription;
@@ -49,6 +50,22 @@ pub fn handle_identity_get() -> IdentityGetResponse {
         .get()
         .cloned()
         .unwrap_or_else(IdentityGetResponse::fallback)
+}
+
+/// `capability.list` — capability domains this primal serves (wateringHole discovery).
+///
+/// Includes advertised [`crate::capability::Capability`] ids plus JSON-RPC namespaces
+/// exposed by this binary (`health.*`, `identity.get`).
+#[must_use]
+pub fn handle_capability_list() -> CapabilityListResponse {
+    let desc = crate::capability::self_description();
+    let mut domains: BTreeSet<String> = desc.provides.iter().map(|c| c.id.to_string()).collect();
+    domains.insert("health".into());
+    domains.insert("identity".into());
+    CapabilityListResponse {
+        capabilities: domains.into_iter().collect(),
+        version: config::PRIMAL_VERSION.into(),
+    }
 }
 
 /// Generate a health response listing all supported architectures.
@@ -198,6 +215,25 @@ mod tests {
         assert!(!resp.version.is_empty());
         assert!(!resp.supported_archs.is_empty());
         assert!(!resp.family_id.is_empty());
+    }
+
+    #[test]
+    fn test_handle_capability_list() {
+        let resp = handle_capability_list();
+        assert_eq!(resp.version.as_ref(), env!("CARGO_PKG_VERSION"));
+        assert!(resp.capabilities.iter().any(|d| d == "shader.compile"));
+        assert!(resp.capabilities.iter().any(|d| d == "shader.health"));
+        assert!(resp.capabilities.iter().any(|d| d == "health"));
+        assert!(resp.capabilities.iter().any(|d| d == "identity"));
+        let sorted = {
+            let mut v = resp.capabilities.clone();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            resp.capabilities, sorted,
+            "capability domains must be sorted for stable discovery"
+        );
     }
 
     #[test]

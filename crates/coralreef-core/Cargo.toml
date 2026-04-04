@@ -59,6 +59,6 @@ required-features = ["e2e"]
 [dev-dependencies]
 naga = { version = "28", features = ["wgsl-in", "spv-out"] }
 primal-rpc-client = { path = "../primal-rpc-client" }
-tempfile = "3"
+tempfile.workspace = true
 jsonrpsee-http-client = { version = "0.26", default-features = false }
 jsonrpsee-core = { version = "0.26", default-features = false, features = ["client", "http-helpers"] }

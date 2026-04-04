@@ -2,9 +2,9 @@
 
 use super::{
     AmdRdnaLifecycle, AmdVega20Lifecycle, BrainChipLifecycle, GenericLifecycle, IntelXeLifecycle,
-    NvidiaKeplerLifecycle, NvidiaLifecycle, NvidiaOracleLifecycle, RebindStrategy, ResetMethod,
-    VendorLifecycle, detect_lifecycle, detect_lifecycle_for_target, is_amd_vega20,
-    is_nvidia_kepler, lifecycle_from_pci_ids,
+    NvidiaKeplerLifecycle, NvidiaLifecycle, NvidiaOpenLifecycle, NvidiaOracleLifecycle,
+    RebindStrategy, ResetMethod, VendorLifecycle, detect_lifecycle, detect_lifecycle_for_target,
+    is_amd_vega20, is_nvidia_kepler, lifecycle_from_pci_ids,
 };
 
 #[test]
@@ -86,6 +86,19 @@ fn nvidia_uses_simple_bind() {
 }
 
 #[test]
+fn nvidia_open_lifecycle_description_and_settle() {
+    let lc = NvidiaOpenLifecycle { device_id: 0x2204 };
+    assert!(lc.description().contains("Open"));
+    assert!(lc.description().contains("GSP"));
+    assert_eq!(lc.settle_secs("nouveau"), 10);
+    assert_eq!(lc.settle_secs("nvidia"), 8);
+    assert_eq!(lc.rebind_strategy("nouveau"), RebindStrategy::SimpleBind);
+    let methods = lc.available_reset_methods();
+    assert_eq!(methods.len(), 3);
+    assert_eq!(methods[0], ResetMethod::BridgeSbr);
+}
+
+#[test]
 fn nvidia_nouveau_gets_longer_settle() {
     let lc = NvidiaLifecycle { device_id: 0x1d81 };
     assert_eq!(lc.settle_secs("nouveau"), 10);
@@ -128,7 +141,7 @@ fn nvidia_prepare_for_unbind_clears_reset_method() {
     let err = lc
         .prepare_for_unbind("not-a-bdf", "nouveau")
         .expect_err("should fail on fake BDF (sysfs path absent)");
-    assert!(!err.is_empty());
+    assert!(!err.to_string().is_empty());
 }
 
 #[test]
@@ -317,7 +330,7 @@ fn amd_vega20_prepare_for_unbind_errors_on_garbage_bdf() {
     let err = lc
         .prepare_for_unbind("not-a-bdf", "vfio-pci")
         .expect_err("reset_method sysfs");
-    assert!(!err.is_empty());
+    assert!(!err.to_string().is_empty());
 }
 
 #[test]
@@ -341,7 +354,7 @@ fn nvidia_oracle_prepare_and_verify_best_effort_on_missing_sysfs() {
     let err = lc
         .prepare_for_unbind("9999:99:99.9", "vfio-pci")
         .expect_err("reset_method write on absent device");
-    assert!(!err.is_empty());
+    assert!(!err.to_string().is_empty());
     lc.verify_health("9999:99:99.9", "nvidia_oracle")
         .expect("health when power state unknown");
 }

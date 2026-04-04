@@ -20,15 +20,15 @@ pub(crate) async fn compute_info_async(
         .get("bdf")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
-    let bdf = validate_bdf(raw_bdf)?.to_owned();
+    let bdf: Arc<str> = Arc::from(validate_bdf(raw_bdf)?);
 
     let (chip, personality, role, protected) = {
         let devs = devices.lock().await;
         let slot = devs
             .iter()
-            .find(|d| d.bdf.as_ref() == bdf)
+            .find(|d| d.bdf == bdf)
             .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                bdf: Arc::from(bdf.as_str()),
+                bdf: Arc::clone(&bdf),
             })
             .map_err(RpcError::from)?;
         (
@@ -39,12 +39,12 @@ pub(crate) async fn compute_info_async(
         )
     };
 
-    let bdf2 = bdf.clone();
-    let info = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf2))
+    let bdf_task = Arc::clone(&bdf);
+    let info = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf_task))
         .await
         .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
 
-    let render_node = coral_glowplug::sysfs::find_render_node(&bdf);
+    let render_node = coral_glowplug::sysfs::find_render_node(bdf.as_ref());
     Ok(serde_json::json!({
         "bdf": bdf,
         "chip": chip,
@@ -67,15 +67,15 @@ pub(crate) async fn quota_info_async(
         .get("bdf")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
-    let bdf = validate_bdf(raw_bdf)?.to_owned();
+    let bdf: Arc<str> = Arc::from(validate_bdf(raw_bdf)?);
 
     let (role, protected, quota) = {
         let devs = devices.lock().await;
         let slot = devs
             .iter()
-            .find(|d| d.bdf.as_ref() == bdf)
+            .find(|d| d.bdf == bdf)
             .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                bdf: Arc::from(bdf.as_str()),
+                bdf: Arc::clone(&bdf),
             })
             .map_err(RpcError::from)?;
         (
@@ -85,8 +85,8 @@ pub(crate) async fn quota_info_async(
         )
     };
 
-    let bdf2 = bdf.clone();
-    let current = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf2))
+    let bdf_task = Arc::clone(&bdf);
+    let current = tokio::task::spawn_blocking(move || query_nvidia_smi(&bdf_task))
         .await
         .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
 
@@ -116,15 +116,15 @@ pub(crate) async fn set_quota_async(
         .get("bdf")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
-    let bdf = validate_bdf(raw_bdf)?.to_owned();
+    let bdf: Arc<str> = Arc::from(validate_bdf(raw_bdf)?);
 
     let quota = {
         let mut devs = devices.lock().await;
         let slot = devs
             .iter_mut()
-            .find(|d| d.bdf.as_ref() == bdf)
+            .find(|d| d.bdf == bdf)
             .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                bdf: Arc::from(bdf.as_str()),
+                bdf: Arc::clone(&bdf),
             })
             .map_err(RpcError::from)?;
 
@@ -152,9 +152,9 @@ pub(crate) async fn set_quota_async(
         quota
     };
 
-    let bdf2 = bdf.clone();
+    let bdf_task = Arc::clone(&bdf);
     let quota2 = quota.clone();
-    let results = tokio::task::spawn_blocking(move || apply_quota(&bdf2, &quota2))
+    let results = tokio::task::spawn_blocking(move || apply_quota(bdf_task.as_ref(), &quota2))
         .await
         .map_err(|e| RpcError::internal(format!("nvidia-smi task panicked: {e}")))?;
 

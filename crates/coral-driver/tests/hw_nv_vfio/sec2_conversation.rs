@@ -15,7 +15,7 @@ use coral_driver::nv::vfio_compute::acr_boot::sec2_queue::{FalconId, Sec2QueuePr
 #[ignore = "requires VFIO-bound GPU hardware"]
 fn sec2_conversation_full_cycle() {
     init_tracing();
-    let mut dev = open_vfio();
+    let dev = open_vfio();
 
     eprintln!("\n=== SEC2 Conversation: Full Cycle ===\n");
 

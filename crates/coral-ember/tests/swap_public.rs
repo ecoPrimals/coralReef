@@ -65,7 +65,7 @@ fn verify_drm_isolation_fails_when_xorg_missing_autoaddgpu_false() {
         udev.to_str().expect("utf8"),
     )
     .expect_err("expected drm isolation failure");
-    assert!(err.contains("AutoAddGPU"));
+    assert!(err.to_string().contains("AutoAddGPU"));
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn verify_drm_isolation_fails_when_udev_missing_bdf_token() {
         udev.to_str().expect("utf8"),
     )
     .expect_err("expected udev mismatch");
-    assert!(err.contains("does not cover BDF"));
+    assert!(err.to_string().contains("does not cover BDF"));
 }
 
 #[test]
@@ -97,9 +97,7 @@ fn handle_swap_non_drm_native_target_skips_drm_gate() {
     );
     let msg = err.to_string();
     assert!(
-        msg.contains("preflight")
-            || msg.contains("swap_device")
-            || msg.contains("sysfs"),
+        msg.contains("preflight") || msg.contains("swap_device") || msg.contains("sysfs"),
         "expected preflight, sysfs, or swap error for nonexistent device: {err}"
     );
 }

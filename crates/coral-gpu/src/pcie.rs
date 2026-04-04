@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright © 2026 ecoPrimals
 
-use coral_reef::{AmdArch, GpuTarget};
+use coral_reef::GpuTarget;
 
 use crate::driver;
 
@@ -21,6 +21,18 @@ pub struct PcieDeviceInfo {
     pub target: GpuTarget,
 }
 
+#[cfg(target_os = "linux")]
+const DEFAULT_DRI_PATH: &str = "/dev/dri";
+
+#[cfg(target_os = "linux")]
+fn dri_base_path() -> std::path::PathBuf {
+    std::env::var("CORALREEF_DRI_PATH")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_DRI_PATH))
+}
+
 /// Probe PCIe topology for all available GPU render nodes.
 ///
 /// Reads sysfs to discover render nodes, their PCIe addresses, and
@@ -28,10 +40,10 @@ pub struct PcieDeviceInfo {
 #[cfg(target_os = "linux")]
 #[must_use]
 pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
-    let dri_path = std::path::Path::new("/dev/dri");
+    let dri_path = dri_base_path();
     let mut devices = Vec::new();
 
-    let entries = match std::fs::read_dir(dri_path) {
+    let entries = match std::fs::read_dir(&dri_path) {
         Ok(e) => e,
         Err(_) => return devices,
     };
@@ -43,7 +55,7 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
             continue;
         }
 
-        let render_path = format!("/dev/dri/{name_str}");
+        let render_path = dri_path.join(&name).to_string_lossy().into_owned();
         let sysfs_device = format!("/sys/class/drm/{name_str}/device");
 
         let pcie_address = std::fs::read_link(&sysfs_device)
@@ -59,7 +71,9 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
                 let sm = driver::sm_from_sysfs(&render_path);
                 GpuTarget::Nvidia(driver::sm_to_nvarch(sm))
             }
-            Some(coral_driver::nv::identity::PCI_VENDOR_AMD) => GpuTarget::Amd(AmdArch::Rdna2),
+            Some(coral_driver::nv::identity::PCI_VENDOR_AMD) => {
+                GpuTarget::Amd(driver::amd_arch_from_sysfs(&render_path))
+            }
             _ => continue,
         };
 

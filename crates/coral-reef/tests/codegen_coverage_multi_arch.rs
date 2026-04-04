@@ -168,7 +168,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     compile_fixture_all_nv(wgsl);
 }
 
-/// Naga expression + func_ops paths: compose/swizzle, splat, mat2×2, f64 vec2,
+/// `Naga` expression + `func_ops` paths: `compose`/`swizzle`, `splat`, `mat2×2`, `f64` `vec2`,
 /// `arrayLength` on `array<vec4<f32>>`, `all`/`any`, `select`, int bitwise ops.
 #[test]
 fn multi_arch_naga_expr_and_func_ops() {

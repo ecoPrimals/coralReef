@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 quick-xml = { version = "0.39", features = ["serialize"] }
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

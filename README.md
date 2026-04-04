@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — Deep Debt Solutions + Ecosystem Integration + hotSpring Wiring (Iter 66)  
+**Status**: Phase 10+ — GPU-Agnostic Evolution + Deep Debt Solutions (Iter 72)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 4047 passing, 0 failed (~121 ignored hardware-gated)
+cargo test --workspace     # 4269 passing, 0 failed (~153 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -211,7 +211,7 @@ cd showcase/00-local-primal/01-hello-compiler && ./demo.sh
 |-----|-------------|---------------|-----|------|
 | NVIDIA Titan V #1 | Volta SM70 (GV100) | vfio-pci | 1/2 | Oracle card (VFIO sovereign) |
 | NVIDIA Titan V #2 | Volta SM70 (GV100) | vfio-pci | 1/2 | Compute target (VFIO sovereign) |
-| NVIDIA RTX 5060 | Blackwell SM120 (GB206) | nvidia-drm | 1/64 | Desktop + UVM dispatch |
+| NVIDIA RTX 4070 | Ada SM89 (AD104) | nvidia-drm | 1/64 | Desktop + UVM dispatch |
 
 ## vs CUDA / Kokkos
 

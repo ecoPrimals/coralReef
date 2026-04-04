@@ -347,7 +347,7 @@ impl Journal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::observation::{HealthResult, SwapTiming};
+    use crate::observation::{HealthResult, SwapObservation, SwapTiming};
 
     fn test_swap_obs(bdf: &str, to: &str, total_ms: u64) -> SwapObservation {
         SwapObservation {
@@ -565,5 +565,200 @@ mod tests {
         let non_matching = JournalEntry::Swap(test_swap_obs("x", "vfio", 100));
         assert!(filter.matches(&matching));
         assert!(!filter.matches(&non_matching));
+    }
+
+    #[test]
+    fn journal_entry_accessors_cover_all_variants() {
+        let swap = JournalEntry::Swap(test_swap_obs("0000:01:00.0", "vfio", 1000));
+        assert_eq!(swap.bdf(), "0000:01:00.0");
+        assert_eq!(swap.timestamp_epoch_ms(), 1700000000000 + 1000);
+        assert_eq!(swap.kind_tag(), "Swap");
+
+        let reset = JournalEntry::Reset(test_reset_obs("0000:02:00.0", "flr", true));
+        assert_eq!(reset.bdf(), "0000:02:00.0");
+        assert_eq!(reset.timestamp_epoch_ms(), 1700000000000);
+        assert_eq!(reset.kind_tag(), "Reset");
+
+        let boot = JournalEntry::BootAttempt {
+            bdf: "0000:03:00.0".into(),
+            strategy: "EmemBoot".into(),
+            success: true,
+            sec2_exci: 0,
+            fecs_pc: 0,
+            gpccs_exci: 0,
+            notes: vec![],
+            timestamp_epoch_ms: 1800000000000,
+        };
+        assert_eq!(boot.bdf(), "0000:03:00.0");
+        assert_eq!(boot.timestamp_epoch_ms(), 1800000000000);
+        assert_eq!(boot.kind_tag(), "BootAttempt");
+    }
+
+    #[test]
+    fn journal_query_respects_after_and_before_epoch_filters() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let journal = Journal::open(dir.path().join("epoch.jsonl"));
+
+        journal
+            .append(&JournalEntry::Swap(test_swap_obs(
+                "0000:01:00.0",
+                "nouveau",
+                5000,
+            )))
+            .unwrap();
+        journal
+            .append(&JournalEntry::Swap(test_swap_obs(
+                "0000:01:00.0",
+                "vfio",
+                8000,
+            )))
+            .unwrap();
+
+        let t0 = 1700000000000_u64;
+        let mid = t0 + 6000;
+        let end = t0 + 9000;
+
+        let only_late = journal
+            .query(&JournalFilter {
+                bdf: Some("0000:01:00.0".into()),
+                after: Some(mid),
+                ..Default::default()
+            })
+            .expect("after");
+        assert_eq!(only_late.len(), 1);
+        assert_eq!(only_late[0].timestamp_epoch_ms(), t0 + 8000);
+
+        let only_early = journal
+            .query(&JournalFilter {
+                bdf: Some("0000:01:00.0".into()),
+                before: Some(mid),
+                ..Default::default()
+            })
+            .expect("before");
+        assert_eq!(only_early.len(), 1);
+        assert_eq!(only_early[0].timestamp_epoch_ms(), t0 + 5000);
+
+        let windowed = journal
+            .query(&JournalFilter {
+                bdf: Some("0000:01:00.0".into()),
+                after: Some(t0 + 4000),
+                before: Some(end),
+                ..Default::default()
+            })
+            .expect("window");
+        assert_eq!(windowed.len(), 2);
+    }
+
+    #[test]
+    fn journal_filter_personality_matches_from_personality() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let journal = Journal::open(dir.path().join("from_person.jsonl"));
+
+        let entry = JournalEntry::Swap(SwapObservation {
+            bdf: "0000:01:00.0".into(),
+            from_personality: Some("nouveau".into()),
+            to_personality: "vfio".into(),
+            timestamp_epoch_ms: 1700000000000,
+            timing: SwapTiming {
+                prepare_ms: 1,
+                unbind_ms: 2,
+                bind_ms: 3,
+                stabilize_ms: 4,
+                total_ms: 10,
+            },
+            trace_path: None,
+            health: HealthResult::Ok,
+            lifecycle_description: "test".into(),
+            reset_method_used: None,
+        });
+        journal.append(&entry).unwrap();
+
+        let found = journal
+            .query(&JournalFilter {
+                personality: Some("nouveau".into()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert_eq!(found.len(), 1);
+
+        let not_found = journal
+            .query(&JournalFilter {
+                personality: Some("amdgpu".into()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert!(not_found.is_empty());
+    }
+
+    #[test]
+    fn journal_stats_counts_boot_attempts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let journal = Journal::open(dir.path().join("boot_stats.jsonl"));
+
+        journal
+            .append(&JournalEntry::Swap(test_swap_obs(
+                "0000:01:00.0",
+                "vfio",
+                1000,
+            )))
+            .unwrap();
+        journal
+            .append(&JournalEntry::BootAttempt {
+                bdf: "0000:01:00.0".into(),
+                strategy: "ColdBoot".into(),
+                success: false,
+                sec2_exci: 1,
+                fecs_pc: 2,
+                gpccs_exci: 3,
+                notes: vec![],
+                timestamp_epoch_ms: 1700000000100,
+            })
+            .unwrap();
+
+        let stats = journal.stats(Some("0000:01:00.0")).expect("stats");
+        assert_eq!(stats.total_swaps, 1);
+        assert_eq!(stats.total_boot_attempts, 1);
+        assert_eq!(stats.total_resets, 0);
+    }
+
+    #[test]
+    fn journal_query_boot_attempt_filters_by_personality_strategy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let journal = Journal::open(dir.path().join("boot_filter.jsonl"));
+
+        journal
+            .append(&JournalEntry::BootAttempt {
+                bdf: "0000:01:00.0".into(),
+                strategy: "StrategyA".into(),
+                success: true,
+                sec2_exci: 0,
+                fecs_pc: 0,
+                gpccs_exci: 0,
+                notes: vec![],
+                timestamp_epoch_ms: 1700000000000,
+            })
+            .unwrap();
+        journal
+            .append(&JournalEntry::BootAttempt {
+                bdf: "0000:01:00.0".into(),
+                strategy: "StrategyB".into(),
+                success: false,
+                sec2_exci: 0,
+                fecs_pc: 0,
+                gpccs_exci: 0,
+                notes: vec![],
+                timestamp_epoch_ms: 1700000000001,
+            })
+            .unwrap();
+
+        let a = journal
+            .query(&JournalFilter {
+                kind: Some("BootAttempt".into()),
+                personality: Some("StrategyA".into()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].kind_tag(), "BootAttempt");
     }
 }

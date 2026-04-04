@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Fallback lifecycle for unknown PCI vendors.
 
+use crate::error::SwapError;
 use crate::sysfs;
 use coral_driver::linux_paths;
 
@@ -25,7 +26,7 @@ impl VendorLifecycle for GenericLifecycle {
         "Unknown vendor (conservative defaults)"
     }
 
-    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), String> {
+    fn prepare_for_unbind(&self, bdf: &str, current_driver: &str) -> Result<(), SwapError> {
         sysfs::pin_power(bdf);
 
         if current_driver == "vfio-pci" {
@@ -58,10 +59,13 @@ impl VendorLifecycle for GenericLifecycle {
         sysfs::pin_power(bdf);
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), String> {
+    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), SwapError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
-            return Err(format!("{bdf}: device in D3cold after bind"));
+            return Err(SwapError::VerifyHealth {
+                bdf: bdf.to_string(),
+                detail: "device in D3cold after bind".to_string(),
+            });
         }
         Ok(())
     }

@@ -24,7 +24,7 @@ mod falcon_reg {
     pub const IRQMSET: usize = 0x010;
     pub const CPUCTL: usize = 0x100;
     pub const CPUCTL_ALIAS: usize = 0x130;
-    pub const BOOTVEC: usize = 0x104;
+    pub const _BOOTVEC: usize = 0x104;
     pub const HWCFG: usize = 0x108;
     pub const SCTL: usize = 0x240;
     pub const EXCI: usize = 0x148;
@@ -141,7 +141,7 @@ fn sec2_full_init_conversation() {
     let w = |off: usize, val: u32| {
         let _ = bar0.write_u32(SEC2_BASE + off, val);
     };
-    w(falcon::DMEMC, (1u32 << 25) | 0);
+    w(falcon::DMEMC, 1u32 << 25);
     let dmem_test = r(falcon::DMEMD);
     let dmem_locked = dmem_test == 0xDEAD_5EC2;
     eprintln!("  DMEM[0]={dmem_test:#010x} locked={dmem_locked}");
@@ -237,7 +237,7 @@ fn sec2_full_init_conversation() {
 
     // EMEM first 256 bytes for comparison
     eprintln!("\n  EMEM[0x00..0x40] (first 16 words):");
-    w(falcon::EMEMC0, (1u32 << 25) | 0);
+    w(falcon::EMEMC0, 1u32 << 25);
     for i in 0..4 {
         let ws: Vec<u32> = (0..4).map(|_| r(falcon::EMEMD0)).collect();
         let off = i * 16;
@@ -303,7 +303,7 @@ fn sec2_emem_discovery_after_hs() {
     // ── Phase 3: DMEM sample (verify lockdown) ──
     eprintln!("\n── Phase 3: DMEM Lockdown Check ──");
     let dmem_locked = {
-        w(falcon::DMEMC, (1u32 << 25) | 0);
+        w(falcon::DMEMC, 1u32 << 25);
         let w0 = r(falcon::DMEMD);
         let w1 = r(falcon::DMEMD);
         let w2 = r(falcon::DMEMD);
@@ -315,7 +315,7 @@ fn sec2_emem_discovery_after_hs() {
 
     // Also try a few known offsets where the init message might live
     for off in [0x0F00u32, 0x1000, 0x2000, 0x4000, 0x8000] {
-        w(falcon::DMEMC, (1u32 << 25) | off);
+        w(falcon::DMEMC, 1u32 << 25 | off);
         let w0 = r(falcon::DMEMD);
         let unit_id = w0 & 0xFF;
         let size = (w0 >> 8) & 0xFF;
@@ -415,12 +415,12 @@ fn sec2_emem_discovery_after_hs() {
 
         // Also scan for queue-like pointers (DMEM addresses in typical range 0x100-0xFFFF)
         for (i, &word) in words.iter().enumerate() {
-            if word >= 0x0100 && word <= 0xFFFF && word & 0x03 == 0 {
+            if (0x0100..=0xFFFF).contains(&word) && word & 0x03 == 0 {
                 let next_idx = i + 1;
                 if next_idx < words.len() {
                     let next = words[next_idx];
                     let size_field = next & 0xFFFF;
-                    if size_field >= 64 && size_field <= 4096 {
+                    if (64..=4096).contains(&size_field) {
                         let emem_off = offset + (i as u32) * 4;
                         eprintln!(
                             "  [queue-like] EMEM[{emem_off:#05x}]: ptr={word:#06x} next={next:#010x} (size_field={size_field})"
@@ -553,7 +553,7 @@ fn sec2_emem_discovery_after_hs() {
 
             // ── Phase 9: Full EMEM structured dump (first 512 bytes) ──
             eprintln!("\n── Phase 9: EMEM Structured Dump (first 512B) ──");
-            w(falcon::EMEMC0, (1u32 << 25) | 0);
+            w(falcon::EMEMC0, 1u32 << 25);
             let emem_first: Vec<u32> = (0..128).map(|_| r(falcon::EMEMD0)).collect();
             for row in 0..16 {
                 let base = row * 8;

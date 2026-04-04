@@ -3,10 +3,11 @@
 //! [`super::handle_swap_device`].
 
 use crate::drm_isolation;
+use crate::error::SwapError;
 use crate::sysfs;
 use coral_driver::linux_paths;
 
-pub(super) fn verify_drm_isolation(bdf: &str) -> Result<(), String> {
+pub(in crate::swap) fn verify_drm_isolation(bdf: &str) -> Result<(), SwapError> {
     verify_drm_isolation_with_paths(
         bdf,
         &drm_isolation::default_xorg_path(),
@@ -20,7 +21,7 @@ pub fn verify_drm_isolation_with_paths(
     bdf: &str,
     xorg_path: &str,
     udev_path: &str,
-) -> Result<(), String> {
+) -> Result<(), SwapError> {
     let mut failures = Vec::new();
 
     match std::fs::read_to_string(xorg_path) {
@@ -58,7 +59,7 @@ pub fn verify_drm_isolation_with_paths(
             failures.join("; ")
         );
         tracing::error!("{msg}");
-        Err(msg)
+        Err(SwapError::DrmIsolation(msg))
     }
 }
 
@@ -156,7 +157,7 @@ pub(super) fn is_active_display_gpu(bdf: &str) -> bool {
 /// Pre-flight check: verify the device is in a sane state before any
 /// sysfs unbind/bind. Rejects early if the device would cause the kernel
 /// to hang on a driver transition (D3cold, unreachable config space, etc.).
-pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
+pub(super) fn preflight_device_check(bdf: &str) -> Result<(), SwapError> {
     let sysfs_path = linux_paths::sysfs_pci_device_path(bdf);
     if !std::path::Path::new(&sysfs_path).exists() {
         tracing::debug!(
@@ -170,10 +171,12 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
     if let Some(power) = sysfs::read_power_state(bdf) {
         match power.as_str() {
             "D3cold" => {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: device in D3cold. \
-                     Platform powered it off — sysfs operations will hang."
-                ));
+                return Err(SwapError::Preflight {
+                    bdf: bdf.to_string(),
+                    reason:
+                        "device in D3cold — platform powered it off; sysfs operations will hang"
+                            .to_string(),
+                });
             }
             "D3hot" => {
                 tracing::warn!(
@@ -183,9 +186,10 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
                 sysfs::pin_power(bdf);
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 if sysfs::read_power_state(bdf).as_deref() != Some("D0") {
-                    return Err(format!(
-                        "preflight FAILED for {bdf}: device stuck in D3hot after pin_power"
-                    ));
+                    return Err(SwapError::Preflight {
+                        bdf: bdf.to_string(),
+                        reason: "device stuck in D3hot after pin_power".to_string(),
+                    });
                 }
             }
             _ => {}
@@ -194,10 +198,10 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
 
     let vendor_id = sysfs::read_pci_id(bdf, "vendor");
     if vendor_id == 0xFFFF {
-        return Err(format!(
-            "preflight FAILED for {bdf}: vendor ID is 0xFFFF — \
-             device not responding on PCIe bus"
-        ));
+        return Err(SwapError::Preflight {
+            bdf: bdf.to_string(),
+            reason: "vendor ID is 0xFFFF — device not responding on PCIe bus".to_string(),
+        });
     }
 
     let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
@@ -206,10 +210,11 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
             let vendor = u16::from_le_bytes([buf[0], buf[1]]);
             let device = u16::from_le_bytes([buf[2], buf[3]]);
             if vendor == 0xFFFF {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: raw config space returns 0xFFFF — \
-                     device not responding on PCIe bus"
-                ));
+                return Err(SwapError::Preflight {
+                    bdf: bdf.to_string(),
+                    reason: "raw config space returns 0xFFFF — device not responding on PCIe bus"
+                        .to_string(),
+                });
             }
             tracing::debug!(
                 bdf,
@@ -243,11 +248,13 @@ pub(super) fn preflight_device_check(bdf: &str) -> Result<(), String> {
             let resource0_path = linux_paths::sysfs_pci_device_file(bdf, "resource0");
             let is_cold = is_gpu_cold_via_ptimer(&resource0_path);
             if is_cold {
-                return Err(format!(
-                    "preflight FAILED for {bdf}: device is cold/un-POSTed (empty reset_method, \
-                     PTIMER frozen). Unbinding vfio-pci will cause kernel D-state. \
-                     Boot with nouveau first to POST the device, then swap to vfio-pci."
-                ));
+                return Err(SwapError::Preflight {
+                    bdf: bdf.to_string(),
+                    reason: "device is cold/un-POSTed (empty reset_method, PTIMER frozen). \
+                     Unbinding vfio-pci will cause kernel D-state. Boot with nouveau first to POST \
+                     the device, then swap to vfio-pci."
+                        .to_string(),
+                });
             }
             tracing::warn!(
                 bdf,
@@ -423,7 +430,7 @@ EndSection
         )
         .expect_err("expected error when AutoAddGPU false is absent");
         assert!(
-            err.contains("AutoAddGPU") || err.contains("missing"),
+            err.to_string().contains("AutoAddGPU") || err.to_string().contains("missing"),
             "unexpected message: {err}"
         );
     }
@@ -436,8 +443,9 @@ EndSection
             "/nonexistent/udev.rules",
         )
         .expect_err("expected error when both config paths are missing");
+        let s = err.to_string();
         assert!(
-            err.contains("xorg.conf") && err.contains("udev.rules"),
+            s.contains("xorg.conf") && s.contains("udev.rules"),
             "expected both paths mentioned: {err}"
         );
     }

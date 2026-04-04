@@ -16,13 +16,14 @@ use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, RwLock};
 
+use crate::error::EmberIpcError;
 use crate::hold::HeldDevice;
 use crate::journal::Journal;
 
 pub use fd::send_with_fds;
 pub use jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 
-use jsonrpc::{ipc_io_error_string, write_jsonrpc_error};
+use jsonrpc::write_jsonrpc_error;
 
 const MAX_REQUEST_SIZE: usize = 4096;
 
@@ -32,27 +33,26 @@ const MAX_REQUEST_SIZE: usize = 4096;
 ///
 /// # Errors
 ///
-/// Returns `Err` when a required parameter is missing for a method that uses `?` (e.g. `ember.swap`
-/// without `target`); socket write/serialize errors are returned as `Err` strings (including I/O
-/// errors from writing JSON-RPC responses).
+/// Returns `Err` for transport failures (I/O, UTF-8, lock poison). Application faults are encoded in
+/// JSON-RPC error responses on the stream.
 pub fn handle_client(
     stream: &mut UnixStream,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
     managed_bdfs: &HashSet<String>,
     started_at: std::time::Instant,
     journal: Option<&Arc<Journal>>,
-) -> Result<(), String> {
+) -> Result<(), EmberIpcError> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-        .map_err(|e| format!("set timeout: {e}"))?;
+        .map_err(EmberIpcError::from)?;
 
     let mut buf = [0u8; MAX_REQUEST_SIZE];
-    let n = stream.read(&mut buf).map_err(|e| format!("read: {e}"))?;
+    let n = stream.read(&mut buf).map_err(EmberIpcError::from)?;
     if n == 0 {
         return Ok(());
     }
 
-    let line = std::str::from_utf8(&buf[..n]).map_err(|e| format!("utf8: {e}"))?;
+    let line = std::str::from_utf8(&buf[..n]).map_err(EmberIpcError::from)?;
     let line = line.trim();
 
     let req: JsonRpcRequest = match serde_json::from_str(line) {
@@ -64,7 +64,7 @@ pub fn handle_client(
                 -32700,
                 &format!("parse error: {e}"),
             )
-            .map_err(ipc_io_error_string)?;
+            .map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -76,7 +76,7 @@ pub fn handle_client(
             -32600,
             &format!("invalid jsonrpc version: {}", req.jsonrpc),
         )
-        .map_err(ipc_io_error_string)?;
+        .map_err(EmberIpcError::from)?;
         return Ok(());
     }
 
@@ -122,7 +122,7 @@ pub fn handle_client(
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
-                .map_err(ipc_io_error_string)?;
+                .map_err(EmberIpcError::from)?;
         }
     }
 
@@ -140,18 +140,18 @@ pub fn handle_client_tcp(
     managed_bdfs: &HashSet<String>,
     started_at: std::time::Instant,
     journal: Option<&Arc<Journal>>,
-) -> Result<(), String> {
+) -> Result<(), EmberIpcError> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-        .map_err(|e| format!("set timeout: {e}"))?;
+        .map_err(EmberIpcError::from)?;
 
     let mut buf = [0u8; MAX_REQUEST_SIZE];
-    let n = stream.read(&mut buf).map_err(|e| format!("read: {e}"))?;
+    let n = stream.read(&mut buf).map_err(EmberIpcError::from)?;
     if n == 0 {
         return Ok(());
     }
 
-    let line = std::str::from_utf8(&buf[..n]).map_err(|e| format!("utf8: {e}"))?;
+    let line = std::str::from_utf8(&buf[..n]).map_err(EmberIpcError::from)?;
     let line = line.trim();
 
     let req: JsonRpcRequest = match serde_json::from_str(line) {
@@ -163,7 +163,7 @@ pub fn handle_client_tcp(
                 -32700,
                 &format!("parse error: {e}"),
             )
-            .map_err(ipc_io_error_string)?;
+            .map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -175,7 +175,7 @@ pub fn handle_client_tcp(
             -32600,
             &format!("invalid jsonrpc version: {}", req.jsonrpc),
         )
-        .map_err(ipc_io_error_string)?;
+        .map_err(EmberIpcError::from)?;
         return Ok(());
     }
 
@@ -221,7 +221,7 @@ pub fn handle_client_tcp(
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
-                .map_err(ipc_io_error_string)?;
+                .map_err(EmberIpcError::from)?;
         }
     }
 

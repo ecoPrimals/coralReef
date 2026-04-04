@@ -14,28 +14,26 @@
 //! exclusively for well-known init sequences parsed from NVIDIA firmware
 //! blobs by the `gsp::firmware_parser` module.
 
+use crate::error::DriverError;
+use crate::gsp::{ApplyError, RegisterAccess};
+use crate::mmio_region::MmioRegion;
 use std::fs::OpenOptions;
 use std::os::unix::io::AsRawFd;
-use std::ptr::NonNull;
-
-use crate::gsp::{ApplyError, RegisterAccess};
-use crate::mmio::VolatilePtr;
 
 /// GPU BAR0 MMIO mapping for direct register access.
 ///
 /// Wraps an mmap of the PCI BAR0 resource file. All reads and writes are
 /// volatile, matching hardware MMIO semantics.
 pub struct Bar0Access {
-    ptr: NonNull<u8>,
-    size: usize,
     _file: std::fs::File,
+    region: MmioRegion,
 }
 
 impl std::fmt::Debug for Bar0Access {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bar0Access")
-            .field("size", &self.size)
-            .field("ptr", &self.ptr)
+            .field("size", &self.region.len())
+            .field("ptr", &self.region.as_ptr())
             .finish_non_exhaustive()
     }
 }
@@ -121,10 +119,15 @@ impl Bar0Access {
             detail: format!("mmap {path} ({size} bytes): {e}"),
         })?;
 
-        let ptr = NonNull::new(raw_ptr.cast::<u8>()).ok_or_else(|| ApplyError::MmioFailed {
-            offset: 0,
-            detail: format!("mmap {path}: returned null"),
-        })?;
+        if raw_ptr.is_null() {
+            return Err(ApplyError::MmioFailed {
+                offset: 0,
+                detail: format!("mmap {path}: returned null"),
+            });
+        }
+
+        // SAFETY: `raw_ptr`/`size` come from the successful `mmap` above; unmapped only in `MmioRegion::drop`.
+        let region = unsafe { MmioRegion::new(raw_ptr.cast::<u8>(), size) };
 
         tracing::info!(
             path,
@@ -133,16 +136,31 @@ impl Bar0Access {
         );
 
         Ok(Self {
-            ptr,
-            size,
             _file: file,
+            region,
         })
+    }
+
+    /// Construct BAR0 access from a heap-backed [`MmioRegion`] for unit tests.
+    ///
+    /// Keeps a dummy open file handle so the struct layout matches production
+    /// mmap-backed BAR0; only `region` is used for reads/writes.
+    #[cfg(test)]
+    pub(crate) fn from_mmio_region_for_test(region: MmioRegion) -> Self {
+        let file = OpenOptions::new()
+            .read(true)
+            .open("/dev/null")
+            .expect("open /dev/null for Bar0Access test placeholder");
+        Self {
+            _file: file,
+            region,
+        }
     }
 
     /// BAR0 mapping size in bytes.
     #[must_use]
     pub const fn size(&self) -> usize {
-        self.size
+        self.region.len()
     }
 
     /// Read a GPU identification register (`NV_PMC_BOOT_0` at offset 0x0).
@@ -158,66 +176,70 @@ impl Bar0Access {
 }
 
 impl RegisterAccess for Bar0Access {
-    #[expect(
-        clippy::cast_ptr_alignment,
-        reason = "MMIO register access at known-aligned offsets"
-    )]
     fn read_u32(&self, offset: u32) -> Result<u32, ApplyError> {
         let off = offset as usize;
-        if off + 4 > self.size {
-            return Err(ApplyError::MmioFailed {
+        self.region
+            .read_u32(off)
+            .map_err(|e: DriverError| ApplyError::MmioFailed {
                 offset,
-                detail: format!("offset {off:#x} + 4 exceeds BAR0 size {:#x}", self.size),
-            });
-        }
-        // SAFETY: ptr is a valid mmap of BAR0. Offset is bounds-checked.
-        // Volatile read is required for MMIO semantics.
-        let vol = unsafe { VolatilePtr::new(self.ptr.as_ptr().add(off).cast::<u32>()) };
-        Ok(vol.read())
+                detail: e.to_string(),
+            })
     }
 
-    #[expect(
-        clippy::cast_ptr_alignment,
-        reason = "MMIO register access at known-aligned offsets"
-    )]
     fn write_u32(&mut self, offset: u32, value: u32) -> Result<(), ApplyError> {
         let off = offset as usize;
-        if off + 4 > self.size {
-            return Err(ApplyError::MmioFailed {
+        self.region
+            .write_u32(off, value)
+            .map_err(|e: DriverError| ApplyError::MmioFailed {
                 offset,
-                detail: format!("offset {off:#x} + 4 exceeds BAR0 size {:#x}", self.size),
-            });
-        }
-        // SAFETY: ptr is a valid mmap of BAR0. Offset is bounds-checked.
-        // Volatile write is required for MMIO semantics.
-        let vol = unsafe { VolatilePtr::new(self.ptr.as_ptr().add(off).cast::<u32>()) };
-        vol.write(value);
-        Ok(())
+                detail: e.to_string(),
+            })
     }
 }
 
-impl Drop for Bar0Access {
-    fn drop(&mut self) {
-        // SAFETY: ptr was returned by a successful mmap in open_resource().
-        // Size matches the original mmap length. Drop runs exactly once.
-        unsafe {
-            let _ = rustix::mm::munmap(self.ptr.as_ptr().cast::<std::ffi::c_void>(), self.size);
-        }
-    }
-}
-
-// SAFETY: ptr points to mmap'd BAR0 MMIO; lifetime tied to _file (keeps mapping
-// valid). All access is via VolatilePtr (atomic for aligned u32 on x86/aarch64).
-// Bar0Access is used across async/thread boundaries for GSP init.
+// SAFETY: MMIO mapping lifetime is tied to `_file`; access is via [`MmioRegion`]
+// volatile reads/writes (atomic for aligned `u32` on x86/aarch64). `Bar0Access`
+// is used across async/thread boundaries for GSP init.
 unsafe impl Send for Bar0Access {}
 
-// SAFETY: Same as Send — ptr valid while _file lives; volatile access is
-// thread-safe for aligned 32-bit MMIO; no interior mutability of the pointer.
+// SAFETY: Same as `Send` — mapping valid while `_file` lives; volatile MMIO
+// access is thread-safe for aligned 32-bit operations.
 unsafe impl Sync for Bar0Access {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mmio_region::MmioRegion;
+
+    #[test]
+    fn bar0_heap_region_read_boot_id_and_offset() {
+        let mut backing = vec![0u8; 256].into_boxed_slice();
+        let boot0 = 0x1720_00A1u32;
+        backing[0..4].copy_from_slice(&boot0.to_le_bytes());
+        backing[16..20].copy_from_slice(&0xCAFE_BABEu32.to_le_bytes());
+        let region = MmioRegion::from_heap_slice_for_test(backing);
+        let bar0 = Bar0Access::from_mmio_region_for_test(region);
+        assert_eq!(bar0.size(), 256);
+        assert_eq!(bar0.read_boot_id().expect("BOOT0"), boot0);
+        assert_eq!(bar0.read_u32(16).expect("off 16"), 0xCAFE_BABE);
+    }
+
+    #[test]
+    fn bar0_heap_region_read_oob_reports_offset() {
+        let backing = vec![0u8; 8].into_boxed_slice();
+        let region = MmioRegion::from_heap_slice_for_test(backing);
+        let bar0 = Bar0Access::from_mmio_region_for_test(region);
+        match bar0.read_u32(8) {
+            Err(ApplyError::MmioFailed { offset, detail }) => {
+                assert_eq!(offset, 8);
+                assert!(
+                    detail.contains("out of range") || detail.contains("MMIO read"),
+                    "unexpected detail: {detail}"
+                );
+            }
+            other => panic!("expected MmioFailed, got {other:?}"),
+        }
+    }
 
     #[test]
     fn bar0_nonexistent_path_fails() {

@@ -15,6 +15,7 @@
 //! configurable timeout and kills the child if it hangs. The parent daemon
 //! stays responsive regardless of kernel misbehavior.
 
+use crate::error::SysfsError;
 use coral_driver::linux_paths;
 use std::time::Duration;
 
@@ -39,7 +40,7 @@ pub(crate) fn parse_iommu_group_file_name(name: &str) -> u32 {
 /// If the child enters D-state and doesn't complete within
 /// [`SYSFS_WRITE_TIMEOUT`], it is killed and an error is returned.
 /// The parent ember process remains responsive in all cases.
-pub fn sysfs_write(path: &str, value: &str) -> Result<(), String> {
+pub fn sysfs_write(path: &str, value: &str) -> Result<(), SysfsError> {
     guarded_sysfs_write(path, value, SYSFS_WRITE_TIMEOUT)
 }
 
@@ -52,7 +53,7 @@ pub fn sysfs_write(path: &str, value: &str) -> Result<(), String> {
 /// - A thread in D-state poisons `pthread_join` and blocks process exit
 /// - A child process in D-state can be `SIGKILL`'d by the parent
 /// - The parent's `waitpid` never enters D-state itself
-fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(), String> {
+fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(), SysfsError> {
     use std::process::{Command, Stdio};
 
     // `/usr/bin/env` is the conventional FHS location for the `env(1)` utility.
@@ -71,7 +72,10 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("sysfs write {path}: spawn failed: {e}"))?;
+        .map_err(|e| SysfsError::Write {
+            path: path.to_string(),
+            reason: format!("spawn failed: {e}"),
+        })?;
 
     let deadline = std::time::Instant::now() + timeout;
     loop {
@@ -89,9 +93,10 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
                         Some(buf)
                     })
                     .unwrap_or_default();
-                return Err(format!(
-                    "sysfs write {path}: child exited {status}: {stderr}"
-                ));
+                return Err(SysfsError::Write {
+                    path: path.to_string(),
+                    reason: format!("child exited {status}: {stderr}"),
+                });
             }
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
@@ -107,13 +112,11 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
                     // unblocks. A blocking wait() here would hang this thread
                     // indefinitely. Brief try_wait loop, then abandon the zombie
                     // — it is reaped when the D-state eventually resolves.
-                    let reaped = (0..10).any(|_| {
-                        match child.try_wait() {
-                            Ok(Some(_)) | Err(_) => true,
-                            Ok(None) => {
-                                std::thread::sleep(Duration::from_millis(100));
-                                false
-                            }
+                    let reaped = (0..10).any(|_| match child.try_wait() {
+                        Ok(Some(_)) | Err(_) => true,
+                        Ok(None) => {
+                            std::thread::sleep(Duration::from_millis(100));
+                            false
                         }
                     });
                     if !reaped {
@@ -124,16 +127,21 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
                              abandoning zombie (will be reaped when kernel unblocks)"
                         );
                     }
-                    return Err(format!(
-                        "sysfs write {path}: timed out after {}s (child killed — \
-                         kernel sysfs operation likely in D-state)",
-                        timeout.as_secs()
-                    ));
+                    return Err(SysfsError::Write {
+                        path: path.to_string(),
+                        reason: format!(
+                            "timed out after {}s (child killed — kernel sysfs operation likely in D-state)",
+                            timeout.as_secs()
+                        ),
+                    });
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
-                return Err(format!("sysfs write {path}: waitpid failed: {e}"));
+                return Err(SysfsError::Write {
+                    path: path.to_string(),
+                    reason: format!("waitpid failed: {e}"),
+                });
             }
         }
     }
@@ -151,9 +159,16 @@ fn guarded_sysfs_write(path: &str, value: &str, timeout: Duration) -> Result<(),
 /// which the kernel's `sysfs_streq` treats as an empty string. Without
 /// this, writes like `reset_method = ""` silently do nothing and the
 /// device retains its previous reset method.
-pub fn sysfs_write_direct(path: &str, value: &str) -> Result<(), String> {
-    let bytes: &[u8] = if value.is_empty() { b"\n" } else { value.as_bytes() };
-    std::fs::write(path, bytes).map_err(|e| format!("sysfs write {path}: {e}"))
+pub fn sysfs_write_direct(path: &str, value: &str) -> Result<(), SysfsError> {
+    let bytes: &[u8] = if value.is_empty() {
+        b"\n"
+    } else {
+        value.as_bytes()
+    };
+    std::fs::write(path, bytes).map_err(|e| SysfsError::Write {
+        path: path.to_string(),
+        reason: e.to_string(),
+    })
 }
 
 pub fn read_current_driver(bdf: &str) -> Option<String> {
@@ -276,9 +291,11 @@ pub fn set_driver_override(bdf: &str, driver: &str) {
 }
 
 /// Error when a PM power cycle leaves the device in `D3cold`.
-pub(crate) fn err_if_pm_cycle_d3cold(bdf: &str, after_power_state: &str) -> Result<(), String> {
+pub(crate) fn err_if_pm_cycle_d3cold(bdf: &str, after_power_state: &str) -> Result<(), SysfsError> {
     if after_power_state == "D3cold" {
-        return Err(format!("{bdf}: PM power cycle resulted in D3cold"));
+        return Err(SysfsError::PmCycleD3cold {
+            bdf: bdf.to_string(),
+        });
     }
     Ok(())
 }
@@ -352,7 +369,7 @@ pub fn pin_bridge_power(bdf: &str) {
 ///
 /// Uses the guarded write path because a reset on a hung device can
 /// stall the writing thread indefinitely.
-pub fn pci_device_reset(bdf: &str) -> Result<(), String> {
+pub fn pci_device_reset(bdf: &str) -> Result<(), SysfsError> {
     let path = linux_paths::sysfs_pci_device_file(bdf, "reset");
     tracing::info!(bdf, path = %path, "triggering PCI device reset via sysfs");
     sysfs_write(&path, "1")
@@ -385,15 +402,17 @@ pub fn find_parent_bridge(bdf: &str) -> Option<String> {
 /// devices behind the bridge. This works even when the device is VFIO-bound,
 /// unlike the device-level `reset` file which often fails with I/O errors on
 /// FLR-incapable hardware.
-pub fn pci_bridge_reset(bdf: &str) -> Result<(), String> {
-    let bridge_bdf = find_parent_bridge(bdf)
-        .ok_or_else(|| format!("{bdf}: cannot find parent PCI bridge for bridge-level SBR"))?;
+pub fn pci_bridge_reset(bdf: &str) -> Result<(), SysfsError> {
+    let bridge_bdf = find_parent_bridge(bdf).ok_or_else(|| SysfsError::BridgeNotFound {
+        bdf: bdf.to_string(),
+    })?;
 
     let bridge_reset = linux_paths::sysfs_pci_device_file(&bridge_bdf, "reset");
     if !std::path::Path::new(&bridge_reset).exists() {
-        return Err(format!(
-            "{bdf}: parent bridge {bridge_bdf} has no reset file"
-        ));
+        return Err(SysfsError::BridgeResetMissing {
+            bdf: bdf.to_string(),
+            bridge_bdf,
+        });
     }
 
     tracing::info!(
@@ -422,7 +441,7 @@ pub fn pci_bridge_reset(bdf: &str) -> Result<(), String> {
 /// Used as a fallback when both device-level and bridge-level resets fail.
 /// WARNING: The device will be absent from sysfs between remove and rescan.
 /// VFIO fds become invalid and must be reacquired after rescan.
-pub fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
+pub fn pci_remove_rescan(bdf: &str) -> Result<(), SysfsError> {
     pci_remove_rescan_targeted(bdf, None)
 }
 
@@ -433,7 +452,10 @@ pub fn pci_remove_rescan(bdf: &str) -> Result<(), String> {
 /// device, and a manual `drivers_probe` triggers binding. This prevents
 /// the kernel's `vfio-pci.ids` cmdline parameter (or any other built-in
 /// match table) from reclaiming the device during rescan.
-pub fn pci_remove_rescan_targeted(bdf: &str, target_driver: Option<&str>) -> Result<(), String> {
+pub fn pci_remove_rescan_targeted(
+    bdf: &str,
+    target_driver: Option<&str>,
+) -> Result<(), SysfsError> {
     pin_bridge_power(bdf);
     pin_power(bdf);
 
@@ -462,7 +484,7 @@ pub fn pci_remove_rescan_targeted(bdf: &str, target_driver: Option<&str>) -> Res
     result
 }
 
-fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(), String> {
+fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(), SysfsError> {
     tracing::info!(bdf, "PCI remove + rescan: removing device");
     pci_remove(bdf)?;
 
@@ -506,19 +528,21 @@ fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(),
         }
     }
 
-    Err(format!("{bdf}: device did not re-appear after PCI rescan"))
+    Err(SysfsError::DeviceNotReappeared {
+        bdf: bdf.to_string(),
+    })
 }
 
 /// Remove a PCI device from the kernel's device tree.
 /// This forces full cleanup of sysfs entries, DRM nodes, hwmon, etc.
-pub fn pci_remove(bdf: &str) -> Result<(), String> {
+pub fn pci_remove(bdf: &str) -> Result<(), SysfsError> {
     let path = linux_paths::sysfs_pci_device_file(bdf, "remove");
     sysfs_write(&path, "1")
 }
 
 /// Trigger a PCI bus rescan, causing the kernel to re-enumerate
 /// all devices and probe matching drivers.
-pub fn pci_rescan() -> Result<(), String> {
+pub fn pci_rescan() -> Result<(), SysfsError> {
     sysfs_write(&linux_paths::sysfs_pci_bus_rescan(), "1")
 }
 
@@ -528,7 +552,7 @@ pub fn pci_rescan() -> Result<(), String> {
 ///
 /// Power state transitions use the guarded write path since they can
 /// stall if the device firmware is unresponsive.
-pub fn pm_power_cycle(bdf: &str) -> Result<(), String> {
+pub fn pm_power_cycle(bdf: &str) -> Result<(), SysfsError> {
     let power_state_path = linux_paths::sysfs_pci_device_file(bdf, "power_state");
 
     let current = std::fs::read_to_string(&power_state_path)
@@ -614,7 +638,7 @@ mod tests {
     #[test]
     fn guarded_sysfs_write_missing_parent_is_error() {
         let err = sysfs_write("/nonexistent-coral-ember-path/nope", "1").unwrap_err();
-        assert!(err.contains("sysfs write"));
+        assert!(err.to_string().contains("sysfs write"));
     }
 
     #[test]
@@ -638,15 +662,16 @@ mod tests {
     #[test]
     fn direct_sysfs_write_missing_parent_is_error() {
         let err = sysfs_write_direct("/nonexistent-coral-ember-path/nope", "1").unwrap_err();
-        assert!(err.contains("sysfs write"));
+        assert!(err.to_string().contains("sysfs write"));
     }
 
     #[test]
     fn err_if_pm_cycle_d3cold_rejects_d3cold() {
         let bdf = "0000:01:00.0";
         let err = err_if_pm_cycle_d3cold(bdf, "D3cold").unwrap_err();
-        assert!(err.contains(bdf));
-        assert!(err.contains("D3cold"));
+        let s = err.to_string();
+        assert!(s.contains(bdf));
+        assert!(s.contains("D3cold"));
     }
 
     #[test]
@@ -669,7 +694,7 @@ mod tests {
     #[test]
     fn pci_rescan_write_failure_is_propagated_when_rescan_missing() {
         let err = sysfs_write("/nonexistent-coral-ember-pci/rescan", "1").unwrap_err();
-        assert!(err.contains("sysfs write"));
+        assert!(err.to_string().contains("sysfs write"));
     }
 
     #[test]
@@ -678,7 +703,7 @@ mod tests {
         // Invalid BDF ensures early failure (device doesn't exist).
         let err = pci_remove_rescan_targeted("9999:99:99.9", None).unwrap_err();
         assert!(
-            err.contains("sysfs write"),
+            err.to_string().contains("sysfs write"),
             "expected sysfs error, got: {err}"
         );
     }
@@ -687,10 +712,9 @@ mod tests {
     fn pci_remove_rescan_targeted_accepts_some_target() {
         // With a target driver, the function should still fail on
         // invalid BDF but exercise the autoprobe-disable path.
-        let err =
-            pci_remove_rescan_targeted("9999:99:99.9", Some("nouveau")).unwrap_err();
+        let err = pci_remove_rescan_targeted("9999:99:99.9", Some("nouveau")).unwrap_err();
         assert!(
-            err.contains("sysfs write"),
+            err.to_string().contains("sysfs write"),
             "expected sysfs error, got: {err}"
         );
     }

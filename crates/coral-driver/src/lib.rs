@@ -44,6 +44,9 @@ pub mod linux_paths;
 pub(crate) mod mmio;
 
 #[cfg(target_os = "linux")]
+pub(crate) mod mmio_region;
+
+#[cfg(target_os = "linux")]
 pub mod drm;
 
 #[cfg(target_os = "linux")]

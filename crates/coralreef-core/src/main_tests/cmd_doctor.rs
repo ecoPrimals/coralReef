@@ -7,7 +7,7 @@ use coralreef_core::commands;
 async fn cmd_doctor_output_formatting() {
     let result = cmd_doctor().await;
     assert!(matches!(result, UniBinExit::Success));
-    let report = commands::run_doctor().await.unwrap();
+    let report = commands::run_doctor().await.expect("run_doctor succeeds");
     assert!(report.contains("doctor"));
     assert!(report.contains("[OK]"));
     assert!(report.contains("Capabilities"));

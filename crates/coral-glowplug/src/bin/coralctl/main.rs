@@ -22,6 +22,8 @@ mod handlers_diag;
 mod oracle;
 mod rpc;
 
+use coral_glowplug::error::ParseError;
+
 #[cfg(test)]
 mod tests;
 
@@ -339,12 +341,17 @@ enum OracleAction {
     },
 }
 
-fn parse_hex_or_dec(s: &str) -> Result<u64, String> {
+fn parse_hex_or_dec(s: &str) -> Result<u64, ParseError> {
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        u64::from_str_radix(hex, 16).map_err(|e| format!("invalid hex '{s}': {e}"))
+        u64::from_str_radix(hex, 16).map_err(|source| ParseError::Hex {
+            input: s.to_string(),
+            source,
+        })
     } else {
-        s.parse::<u64>()
-            .map_err(|e| format!("invalid number '{s}': {e}"))
+        s.parse::<u64>().map_err(|source| ParseError::Dec {
+            input: s.to_string(),
+            source,
+        })
     }
 }
 

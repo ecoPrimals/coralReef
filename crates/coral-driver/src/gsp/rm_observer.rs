@@ -478,4 +478,67 @@ mod tests {
         assert!(json.contains("gv100"));
         Ok(())
     }
+
+    #[test]
+    fn logging_observer_elapsed_us_saturates_to_u64_max() {
+        let mut obs = LoggingObserver::new();
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 0,
+            h_new: 1,
+            h_class: 0x0041,
+            params_size: 0,
+            status: 0,
+            elapsed: std::time::Duration::MAX,
+        });
+        let log = obs.into_log();
+        assert_eq!(log.records[0].elapsed_us, u64::MAX);
+    }
+
+    #[test]
+    fn logging_observer_control_failure_excluded_from_recipe() {
+        let mut obs = LoggingObserver::new();
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 0,
+            h_new: 1,
+            h_class: 0x0041,
+            params_size: 0,
+            status: 0,
+            elapsed: std::time::Duration::from_micros(1),
+        });
+        obs.on_control(
+            1,
+            1,
+            0x2080_014A,
+            0x103,
+            std::time::Duration::from_micros(2),
+        );
+        let log = obs.into_log();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log.records[1].op, RmOp::Control);
+        assert_eq!(log.records[1].status, 0x103);
+        assert!(log.allocation_recipe().len() == 1);
+        assert_eq!(log.successful_classes(), vec![0x0041]);
+    }
+
+    #[test]
+    fn logging_observer_free_does_not_add_to_allocation_recipe() {
+        let mut obs = LoggingObserver::new();
+        obs.on_alloc(&RmAllocEvent {
+            h_root: 1,
+            h_parent: 0,
+            h_new: 1,
+            h_class: 0x1111,
+            params_size: 8,
+            status: 0,
+            elapsed: std::time::Duration::ZERO,
+        });
+        obs.on_free(1, 1, 0);
+        let log = obs.into_log();
+        let recipe = log.allocation_recipe();
+        assert_eq!(recipe.len(), 1);
+        assert_eq!(recipe[0].class, 0x1111);
+        assert!(recipe[0].has_params);
+    }
 }

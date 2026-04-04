@@ -20,7 +20,6 @@
 //! ```
 
 use crate::helpers::{init_tracing, open_vfio};
-use coral_driver::gsp::RegisterAccess;
 use coral_driver::nv::vfio_compute::acr_boot::{
     AcrFirmwareSet, BootConfig, FalconBootvecOffsets, attempt_acr_mailbox_command,
     attempt_sysmem_acr_boot_with_config,
@@ -113,11 +112,7 @@ fn exp119_cold_boot_wpr2() {
 
     eprintln!("\n  ── WPR2 Hardware Boundaries ──");
     let (wpr2_start, wpr2_end, wpr2_valid) = read_wpr2(bar0);
-    let wpr2_size = if wpr2_end > wpr2_start {
-        wpr2_end - wpr2_start
-    } else {
-        0
-    };
+    let wpr2_size = wpr2_end.saturating_sub(wpr2_start);
     eprintln!(
         "  WPR2: start={wpr2_start:#012x} end={wpr2_end:#012x} \
          size={wpr2_size:#x} ({} KiB) valid={wpr2_valid}",

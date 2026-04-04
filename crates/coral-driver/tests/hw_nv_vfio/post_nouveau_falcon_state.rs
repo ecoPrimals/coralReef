@@ -23,7 +23,7 @@ const FECS_BASE: usize = 0x409000;
 const GPCCS_BASE: usize = 0x41a000;
 
 mod freg {
-    pub const IRQSSET: usize = 0x000;
+    pub const _IRQSSET: usize = 0x000;
     pub const IRQSTAT: usize = 0x008;
     pub const IRQMASK: usize = 0x018;
     pub const PC: usize = 0x030;
@@ -68,7 +68,7 @@ fn post_nouveau_falcon_state() {
             crate::glowplug_client::GlowPlugClient::connect().expect("GlowPlug connection");
 
         match gp.swap(&bdf, "nouveau") {
-            Ok(r) => eprintln!("  swap→nouveau: OK"),
+            Ok(_r) => eprintln!("  swap→nouveau: OK"),
             Err(e) => {
                 eprintln!("  swap→nouveau FAILED: {e}");
                 return;
@@ -126,7 +126,7 @@ fn post_nouveau_falcon_state() {
             let _ = bar0.write_u32(base + off, val);
         };
         // IMEMC: BIT(25) = read, auto-increment
-        w(freg::IMEMC, (1u32 << 25) | 0);
+        w(freg::IMEMC, 1u32 << 25);
         let imem_first: Vec<u32> = (0..64).map(|_| r(freg::IMEMD)).collect();
         let imem_nonzero = imem_first
             .iter()
@@ -148,7 +148,7 @@ fn post_nouveau_falcon_state() {
         // Also check end of IMEM (where BL lives)
         if imem_sz > 256 {
             let end_off = (imem_sz - 256) as u32;
-            w(freg::IMEMC, (1u32 << 25) | end_off);
+            w(freg::IMEMC, 1u32 << 25 | end_off);
             let imem_end: Vec<u32> = (0..64).map(|_| r(freg::IMEMD)).collect();
             let end_nz = imem_end
                 .iter()
@@ -171,13 +171,13 @@ fn post_nouveau_falcon_state() {
         }
 
         // DMEM probe: first 64 words
-        w(freg::DMEMC, (1u32 << 25) | 0);
+        w(freg::DMEMC, 1u32 << 25);
         let dmem_first: Vec<u32> = (0..64).map(|_| r(freg::DMEMD)).collect();
         let dmem_nonzero = dmem_first
             .iter()
             .filter(|&&w| w != 0 && w != 0xDEAD_DEAD && w != 0xDEAD_5EC2)
             .count();
-        let dmem_locked = dmem_first.iter().any(|&w| w == 0xDEAD_5EC2);
+        let dmem_locked = dmem_first.contains(&0xDEAD_5EC2);
 
         eprintln!("    DMEM[0..256]: {dmem_nonzero}/64 non-zero locked={dmem_locked}");
         if dmem_nonzero > 0 {
@@ -206,27 +206,27 @@ fn post_nouveau_falcon_state() {
 
     // ── Phase 2: Full state dump ──
     eprintln!("\n── Phase 2: Post-Nouveau Falcon State ──");
-    let (sec2_cpuctl, sec2_sctl, sec2_pc, sec2_exci, _, _, _, sec2_hs, _) =
+    let (_sec2_cpuctl, _sec2_sctl, _sec2_pc, _sec2_exci, _, _, _, sec2_hs, _) =
         dump_falcon("SEC2", SEC2_BASE);
     let (
         fecs_cpuctl,
-        fecs_sctl,
-        fecs_pc,
-        fecs_exci,
-        fecs_hwcfg,
+        _fecs_sctl,
+        _fecs_pc,
+        _fecs_exci,
+        _fecs_hwcfg,
         fecs_imem_nz,
-        fecs_dmem_nz,
+        _fecs_dmem_nz,
         fecs_hs,
         fecs_hreset,
     ) = dump_falcon("FECS", FECS_BASE);
     let (
-        gpccs_cpuctl,
-        gpccs_sctl,
-        gpccs_pc,
-        gpccs_exci,
-        gpccs_hwcfg,
+        _gpccs_cpuctl,
+        _gpccs_sctl,
+        _gpccs_pc,
+        _gpccs_exci,
+        _gpccs_hwcfg,
         gpccs_imem_nz,
-        gpccs_dmem_nz,
+        _gpccs_dmem_nz,
         gpccs_hs,
         gpccs_hreset,
     ) = dump_falcon("GPCCS", GPCCS_BASE);

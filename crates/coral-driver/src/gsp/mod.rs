@@ -53,9 +53,12 @@
 mod applicator;
 mod dispatch;
 mod firmware_parser;
+mod firmware_source;
 mod gr_init;
 mod knowledge;
 pub mod rm_observer;
+#[cfg(test)]
+pub(crate) mod test_utils;
 
 /// Applicator: bridge between learned init sequences and BAR0 hardware access.
 pub use applicator::{
@@ -65,6 +68,8 @@ pub use applicator::{
 pub use dispatch::{DispatchHints, build_dispatch_hints, build_hint_for};
 /// Parsed GR firmware blobs from `/lib/firmware/nvidia/{chip}/gr/`.
 pub use firmware_parser::{BundleEntry, FirmwareFormat, GrFirmwareBlobs, MethodEntry};
+/// Pluggable NVIDIA firmware loading ([`NvidiaFirmwareSource`]) and filesystem implementation.
+pub use firmware_source::{FilesystemFirmwareSource, NvidiaFirmwareSource};
 /// GR engine init register sequence (learned from firmware).
 pub use gr_init::{GrInitSequence, GrRegWrite, RegCategory};
 /// Cross-architecture GPU knowledge base.

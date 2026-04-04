@@ -82,7 +82,3 @@ pub(crate) fn write_jsonrpc_error(
         serde_json::to_string(&resp).map_err(|e| std::io::Error::new(ErrorKind::InvalidData, e))?;
     stream.write_all(format!("{json}\n").as_bytes())
 }
-
-pub(crate) fn ipc_io_error_string(e: std::io::Error) -> String {
-    e.to_string()
-}

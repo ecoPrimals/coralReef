@@ -118,6 +118,10 @@ impl PfifoInitConfig {
 /// # Errors
 ///
 /// Returns error if BAR0 reads indicate D3hot or no PBDMAs are found.
+#[expect(
+    dead_code,
+    reason = "default PFIFO init — used when channel creation uses default config"
+)]
 pub(super) fn init_pfifo_engine(bar0: &MappedBar) -> DriverResult<(u32, u32)> {
     init_pfifo_engine_with(bar0, &PfifoInitConfig::default())
 }
@@ -276,7 +280,9 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             );
         }
     } else {
-        tracing::info!("runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)");
+        tracing::info!(
+            "runlist preempt skipped (warm handoff — preserving FECS GR scheduling state)"
+        );
     }
 
     // Force-clear PBDMA registers to remove nouveau's stale channel context.
@@ -443,7 +449,9 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
             tracing::debug!(runlist = rl, "flushed runlist (empty, GV100 per-RL)");
         }
     } else {
-        tracing::info!("empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)");
+        tracing::info!(
+            "empty runlist flush skipped (warm handoff — preserving FECS GR scheduling state)"
+        );
     }
     if cfg.post_flush_settle_ms > 0 {
         std::thread::sleep(std::time::Duration::from_millis(cfg.post_flush_settle_ms));

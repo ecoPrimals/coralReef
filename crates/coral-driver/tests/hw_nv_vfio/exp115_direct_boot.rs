@@ -46,7 +46,7 @@ mod freg115 {
     pub const DMEMC: usize = 0x1c0;
     pub const DMEMD: usize = 0x1c4;
     pub const MTHD_STATUS: usize = 0xC18;
-    pub const HWCFG: usize = 0x108;
+    pub const _HWCFG: usize = 0x108;
 
     pub const CPUCTL_IINVAL: u32 = 1 << 0;
     pub const CPUCTL_STARTCPU: u32 = 1 << 1;
@@ -54,7 +54,7 @@ mod freg115 {
     pub const CPUCTL_HALTED: u32 = 1 << 5;
 
     pub const PMC_ENABLE: usize = 0x0000_0200;
-    pub const PMC_UNK260: usize = 0x0000_0260;
+    pub const _PMC_UNK260: usize = 0x0000_0260;
 }
 
 fn discover_bdf() -> String {
@@ -67,10 +67,10 @@ fn discover_bdf() -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.contains(':') && name.contains('.') {
                 let vendor_path = format!("{driver_path}/{name}/vendor");
-                if let Ok(vendor) = std::fs::read_to_string(&vendor_path) {
-                    if vendor.trim() == "0x10de" {
-                        return name;
-                    }
+                if let Ok(vendor) = std::fs::read_to_string(&vendor_path)
+                    && vendor.trim() == "0x10de"
+                {
+                    return name;
                 }
             }
         }
@@ -284,7 +284,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::GPCCS_BASE);
-    let (gpccs_a_cpu, gpccs_a_pc, gpccs_a_exci) =
+    let (_gpccs_a_cpu, gpccs_a_pc, gpccs_a_exci) =
         poll_falcon(&bar0, "GPCCS", freg115::GPCCS_BASE, 200);
 
     let gpccs_a_ok = gpccs_a_exci == 0 && gpccs_a_pc != 0;
@@ -300,7 +300,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::FECS_BASE);
-    let (fecs_a_cpu, fecs_a_pc, fecs_a_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 200);
+    let (_fecs_a_cpu, fecs_a_pc, fecs_a_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 200);
 
     let fecs_a_ok = fecs_a_exci == 0 && fecs_a_pc != 0;
     eprintln!("  FECS-A result: alive={fecs_a_ok}");
@@ -350,7 +350,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::GPCCS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::GPCCS_BASE);
-    let (gpccs_b_cpu, gpccs_b_pc, gpccs_b_exci) =
+    let (_gpccs_b_cpu, gpccs_b_pc, gpccs_b_exci) =
         poll_falcon(&bar0, "GPCCS", freg115::GPCCS_BASE, 500);
 
     let gpccs_b_ok = gpccs_b_exci == 0 && gpccs_b_pc != 0;
@@ -374,7 +374,7 @@ fn exp115_direct_boot() {
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX0, 0);
     let _ = bar0.write_u32(freg115::FECS_BASE + freg115::MAILBOX1, 0);
     start_falcon(&bar0, freg115::FECS_BASE);
-    let (fecs_b_cpu, fecs_b_pc, fecs_b_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 500);
+    let (_fecs_b_cpu, fecs_b_pc, fecs_b_exci) = poll_falcon(&bar0, "FECS", freg115::FECS_BASE, 500);
 
     let fecs_b_ok = fecs_b_exci == 0 && fecs_b_pc != 0;
     eprintln!("  FECS-B result: alive={fecs_b_ok}");

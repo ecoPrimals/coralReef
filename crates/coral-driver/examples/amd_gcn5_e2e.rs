@@ -121,7 +121,7 @@ fn main() {
         // Test B: Thread-indexed store using v_lshlrev + v_add
         let handcraft: Vec<u32> = vec![
             // v_lshlrev_b32 v1, 2, v0   → v1 = tid_x * 4  (GFX9 VOP2 op 18)
-            (18 << 25) | (1 << 17) | (0 << 9) | 130,
+            ((18 << 25) | (1 << 17)) | 130,
             // v_mov_b32 v2, s0           → v2 = VA_low
             0x7e040200,
             // v_mov_b32 v3, s1           → v3 = VA_high
@@ -149,7 +149,7 @@ fn main() {
             0x7e060201,
             // global_store_dword v[2:3], v0, off — store v0 to element 0
             0xdc708000,
-            (0x7f << 16) | (0 << 8) | 2,
+            (0x7f << 16) | 2,
             // s_waitcnt vmcnt(0)
             0xbf8c0000,
             // s_endpgm
@@ -223,7 +223,7 @@ fn main() {
         // Test G: Use VOP2 V_MUL_U32_U24 (op 8 on GFX9) for multiply
         let test_g: Vec<u32> = vec![
             // v_mul_u32_u24 v1, 4, v0  → v1 = 4 * v0  (GFX9 VOP2 op 8)
-            (8 << 25) | (1 << 17) | (0 << 9) | 132,
+            ((8 << 25) | (1 << 17)) | 132,
             // v_mov_b32 v2, s0
             0x7E040200,
             // v_mov_b32 v3, s1
@@ -489,10 +489,8 @@ fn main() {
                 ]);
                 if w == 0x42280000 {
                     found_offsets.push(i);
-                } else if w != 0 {
-                    if found_offsets.len() < 20 || i < 128 {
-                        println!("  [scan] dword[{i}] = 0x{w:08x} (non-zero)");
-                    }
+                } else if w != 0 && (found_offsets.len() < 20 || i < 128) {
+                    println!("  [scan] dword[{i}] = 0x{w:08x} (non-zero)");
                 }
             }
         }

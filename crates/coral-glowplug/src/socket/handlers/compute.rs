@@ -21,7 +21,7 @@ pub(crate) async fn oracle_capture_async(
         .get("bdf")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
-    let bdf = validate_bdf(raw_bdf)?.to_owned();
+    let bdf: Arc<str> = Arc::from(validate_bdf(raw_bdf)?);
     let max_channels = params
         .get("max_channels")
         .and_then(|v| v.as_u64())
@@ -31,9 +31,9 @@ pub(crate) async fn oracle_capture_async(
         let devs = devices.lock().await;
         let slot = devs
             .iter()
-            .find(|d| d.bdf.as_ref() == bdf)
+            .find(|d| d.bdf == bdf)
             .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                bdf: Arc::from(bdf.as_str()),
+                bdf: Arc::clone(&bdf),
             })
             .map_err(RpcError::from)?;
         let guard = slot.try_acquire_busy().ok_or_else(|| {
@@ -44,12 +44,12 @@ pub(crate) async fn oracle_capture_async(
         (slot.vfio_bar0_handle(), guard)
     };
 
-    let bdf_clone = bdf.clone();
+    let bdf_task = Arc::clone(&bdf);
     let result = tokio::task::spawn_blocking(move || {
         if let Some(handle) = bar0_handle {
-            handle.capture_page_tables(&bdf_clone, max_channels)
+            handle.capture_page_tables(&bdf_task, max_channels)
         } else {
-            coral_driver::vfio::channel::mmu_oracle::capture_page_tables(&bdf_clone, max_channels)
+            coral_driver::vfio::channel::mmu_oracle::capture_page_tables(&bdf_task, max_channels)
         }
     })
     .await
@@ -69,18 +69,117 @@ pub(crate) async fn oracle_capture_async(
 ///  - `dims`:       `[x, y, z]` workgroup grid dimensions
 ///  - `workgroup`:  `[x, y, z]` threads per workgroup (default `[64,1,1]`)
 ///  - `shared_mem`: shared memory bytes (default 0)
+#[cfg(feature = "cuda")]
+struct CudaDispatchWork {
+    bdf_for_task: Arc<str>,
+    shader_bytes: Vec<u8>,
+    input_data: Vec<Vec<u8>>,
+    output_sizes: Vec<u64>,
+    dims: [u32; 3],
+    workgroup: [u32; 3],
+    shared_mem: u32,
+    kernel_name: String,
+}
+
+#[cfg(feature = "cuda")]
+fn cuda_dispatch_blocking(
+    work: CudaDispatchWork,
+) -> Result<Vec<Vec<u8>>, coral_glowplug::error::ComputeDispatchError> {
+    use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
+    use coral_glowplug::error::ComputeDispatchError;
+
+    let CudaDispatchWork {
+        bdf_for_task,
+        shader_bytes,
+        input_data,
+        output_sizes,
+        dims,
+        workgroup,
+        shared_mem,
+        kernel_name,
+    } = work;
+
+    let bdf_str = bdf_for_task.as_ref().to_owned();
+
+    let mut dev = coral_driver::cuda::CudaComputeDevice::from_bdf_hint(bdf_for_task.as_ref())
+        .map_err(|e| ComputeDispatchError::CudaOpen {
+            bdf: bdf_str.clone(),
+            message: e.to_string(),
+        })?;
+
+    let mut handles: Vec<BufferHandle> = Vec::new();
+
+    for data in &input_data {
+        let h = dev
+            .alloc(data.len() as u64, MemoryDomain::VramOrGtt)
+            .map_err(|e| ComputeDispatchError::AllocInput {
+                message: e.to_string(),
+            })?;
+        dev.upload(h, 0, data)
+            .map_err(|e| ComputeDispatchError::Upload {
+                message: e.to_string(),
+            })?;
+        handles.push(h);
+    }
+
+    let output_start = handles.len();
+    for &size in &output_sizes {
+        let h = dev.alloc(size, MemoryDomain::VramOrGtt).map_err(|e| {
+            ComputeDispatchError::AllocOutput {
+                message: e.to_string(),
+            }
+        })?;
+        handles.push(h);
+    }
+
+    let info = ShaderInfo {
+        gpr_count: 0,
+        shared_mem_bytes: shared_mem,
+        barrier_count: 0,
+        workgroup,
+        wave_size: 32,
+    };
+
+    dev.dispatch_named(
+        &shader_bytes,
+        &handles,
+        DispatchDims::new(dims[0], dims[1], dims[2]),
+        &info,
+        &kernel_name,
+    )
+    .map_err(|e| ComputeDispatchError::Dispatch {
+        message: e.to_string(),
+    })?;
+
+    dev.sync().map_err(|e| ComputeDispatchError::Sync {
+        message: e.to_string(),
+    })?;
+
+    let mut outputs = Vec::new();
+    for (i, &size) in output_sizes.iter().enumerate() {
+        let h = handles[output_start + i];
+        let data =
+            dev.readback(h, 0, size as usize)
+                .map_err(|e| ComputeDispatchError::Readback {
+                    message: e.to_string(),
+                })?;
+        outputs.push(data);
+    }
+
+    Ok(outputs)
+}
+
 pub(crate) async fn compute_dispatch_async(
     params: &serde_json::Value,
     devices: &Mutex<Vec<coral_glowplug::device::DeviceSlot>>,
 ) -> Result<serde_json::Value, coral_glowplug::error::RpcError> {
-    use coral_driver::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
     use coral_glowplug::error::RpcError;
 
     let raw_bdf = params
         .get("bdf")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf'"))?;
-    let bdf = validate_bdf(raw_bdf)?.to_owned();
+    let bdf: Arc<str> = Arc::from(validate_bdf(raw_bdf)?);
 
     let shader_b64 = params
         .get("shader")
@@ -141,9 +240,9 @@ pub(crate) async fn compute_dispatch_async(
         let devs = devices.lock().await;
         let slot = devs
             .iter()
-            .find(|d| d.bdf.as_ref() == bdf)
+            .find(|d| d.bdf == bdf)
             .ok_or_else(|| coral_glowplug::error::DeviceError::NotManaged {
-                bdf: Arc::from(bdf.as_str()),
+                bdf: Arc::clone(&bdf),
             })
             .map_err(RpcError::from)?;
         slot.try_acquire_busy().ok_or_else(|| {
@@ -153,77 +252,53 @@ pub(crate) async fn compute_dispatch_async(
         })?
     };
 
-    let bdf_for_task = bdf.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<u8>>, String> {
-        use base64::Engine;
-        let b64 = base64::engine::general_purpose::STANDARD;
+    let bdf_for_task = Arc::clone(&bdf);
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<Vec<Vec<u8>>, coral_glowplug::error::ComputeDispatchError> {
+            use base64::Engine;
+            use coral_glowplug::error::ComputeDispatchError;
+            let b64 = base64::engine::general_purpose::STANDARD;
 
-        let shader_bytes = b64
-            .decode(&shader_b64)
-            .map_err(|e| format!("base64 decode shader: {e}"))?;
+            let shader_bytes = b64
+                .decode(&shader_b64)
+                .map_err(ComputeDispatchError::ShaderBase64)?;
 
-        let input_data: Vec<Vec<u8>> = inputs
-            .iter()
-            .map(|s| {
-                b64.decode(s)
-                    .map_err(|e| format!("base64 decode input: {e}"))
+            let input_data: Vec<Vec<u8>> = inputs
+                .iter()
+                .map(|s| b64.decode(s).map_err(ComputeDispatchError::InputBase64))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            #[cfg(not(feature = "cuda"))]
+            {
+                let _ = (
+                    &bdf_for_task,
+                    &shader_bytes,
+                    &input_data,
+                    &output_sizes,
+                    dims,
+                    workgroup,
+                    shared_mem,
+                    &kernel_name,
+                );
+                Err(ComputeDispatchError::CudaFeatureDisabled)
+            }
+
+            #[cfg(feature = "cuda")]
+            cuda_dispatch_blocking(CudaDispatchWork {
+                bdf_for_task,
+                shader_bytes,
+                input_data,
+                output_sizes,
+                dims,
+                workgroup,
+                shared_mem,
+                kernel_name,
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut dev = coral_driver::cuda::CudaComputeDevice::from_bdf_hint(&bdf_for_task)
-            .map_err(|e| format!("CUDA open for {bdf_for_task}: {e}"))?;
-
-        let mut handles: Vec<BufferHandle> = Vec::new();
-
-        for data in &input_data {
-            let h = dev
-                .alloc(data.len() as u64, MemoryDomain::VramOrGtt)
-                .map_err(|e| format!("alloc input: {e}"))?;
-            dev.upload(h, 0, data).map_err(|e| format!("upload: {e}"))?;
-            handles.push(h);
-        }
-
-        let output_start = handles.len();
-        for &size in &output_sizes {
-            let h = dev
-                .alloc(size, MemoryDomain::VramOrGtt)
-                .map_err(|e| format!("alloc output: {e}"))?;
-            handles.push(h);
-        }
-
-        let info = ShaderInfo {
-            gpr_count: 0,
-            shared_mem_bytes: shared_mem,
-            barrier_count: 0,
-            workgroup,
-            wave_size: 32,
-        };
-
-        dev.dispatch_named(
-            &shader_bytes,
-            &handles,
-            DispatchDims::new(dims[0], dims[1], dims[2]),
-            &info,
-            &kernel_name,
-        )
-        .map_err(|e| format!("dispatch: {e}"))?;
-
-        dev.sync().map_err(|e| format!("sync: {e}"))?;
-
-        let mut outputs = Vec::new();
-        for (i, &size) in output_sizes.iter().enumerate() {
-            let h = handles[output_start + i];
-            let data = dev
-                .readback(h, 0, size as usize)
-                .map_err(|e| format!("readback: {e}"))?;
-            outputs.push(data);
-        }
-
-        Ok(outputs)
-    })
+        },
+    )
     .await
     .map_err(|e| RpcError::internal(format!("dispatch task panicked: {e}")))?
-    .map_err(RpcError::device_error)?;
+    .map_err(RpcError::from)?;
 
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;

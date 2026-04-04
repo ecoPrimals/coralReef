@@ -351,21 +351,21 @@ fn find_config_prefers_explicit_xdg_config_home() {
 }
 
 #[test]
-fn default_xorg_path_respects_coralreef_x11_conf_dir_env() {
+fn default_xorg_path_respects_coralreef_xorg_conf_dir_env() {
     let _guard = ENV_LOCK.lock().expect("env test lock");
     let dir = TempDir::new().expect("tempdir");
-    let prev = std::env::var("CORALREEF_X11_CONF_DIR").ok();
+    let prev = std::env::var("CORALREEF_XORG_CONF_DIR").ok();
     unsafe {
         env_set_var(
-            "CORALREEF_X11_CONF_DIR",
+            "CORALREEF_XORG_CONF_DIR",
             dir.path().to_str().expect("utf8 temp path"),
         );
     }
     let path = default_xorg_path();
     if let Some(v) = prev {
-        unsafe { env_set_var("CORALREEF_X11_CONF_DIR", &v) };
+        unsafe { env_set_var("CORALREEF_XORG_CONF_DIR", &v) };
     } else {
-        unsafe { env_remove_var("CORALREEF_X11_CONF_DIR") };
+        unsafe { env_remove_var("CORALREEF_XORG_CONF_DIR") };
     }
     let expected = dir
         .path()
