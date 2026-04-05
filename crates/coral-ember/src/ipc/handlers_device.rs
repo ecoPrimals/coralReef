@@ -177,10 +177,12 @@ pub(crate) fn reacquire(
                     HeldDevice {
                         bdf: bdf.to_string(),
                         device,
+                        bar0: None,
                         ring_meta: crate::hold::RingMeta::default(),
                         req_eventfd,
                         experiment_dirty: false,
                         dma_prepare_state: None,
+                        mmio_fault_count: 0,
                     },
                 );
                 drop(map);
@@ -447,23 +449,26 @@ pub(crate) fn prepare_dma(
         .map_err(EmberIpcError::from);
     }
 
-    let bar0 = match dev.device.map_bar(0) {
-        Ok(b) => b,
-        Err(e) => {
-            drop(map);
-            return write_jsonrpc_error(
-                stream,
-                id,
-                -32000,
-                &format!("{bdf}: BAR0 map failed: {e}"),
-            )
-            .map_err(EmberIpcError::from);
+    if dev.bar0.is_none() {
+        match dev.device.map_bar(0) {
+            Ok(b) => { dev.bar0 = Some(b); }
+            Err(e) => {
+                drop(map);
+                return write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("{bdf}: BAR0 map failed: {e}"),
+                )
+                .map_err(EmberIpcError::from);
+            }
         }
-    };
+    }
 
-    let result =
-        coral_driver::vfio::device::dma_safety::prepare_dma(&bar0, &dev.device);
-    drop(bar0);
+    let result = {
+        let bar0 = dev.bar0.as_ref().unwrap();
+        coral_driver::vfio::device::dma_safety::prepare_dma(bar0, &dev.device)
+    };
 
     match result {
         Ok(state) => {

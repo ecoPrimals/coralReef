@@ -592,7 +592,7 @@ fn emit_binary(compiled: &CompiledShader, target: GpuTarget) -> Vec<u8> {
 /// # Errors
 ///
 /// Returns [`CompileError`] if compilation fails.
-#[doc(hidden)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) -> Result<Vec<u8>, CompileError> {
     if wgsl.is_empty() {
         return Err(CompileError::InvalidInput("empty WGSL source".into()));

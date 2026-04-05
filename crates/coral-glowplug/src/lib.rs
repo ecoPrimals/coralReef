@@ -47,6 +47,7 @@
 
 pub mod config;
 pub mod device;
+pub mod ecosystem;
 pub mod ember;
 pub mod error;
 #[cfg(unix)]
@@ -66,8 +67,8 @@ pub use sysfs_ops::{RealSysfs, SysfsOps};
 #[cfg(test)]
 pub use sysfs_ops::MockSysfs;
 
-#[doc(hidden)]
+#[cfg(feature = "test-support")]
 pub use ember::test_support_default_ember_socket;
 
-#[doc(hidden)]
+#[cfg(feature = "test-support")]
 pub use health::test_support_notify_watchdog;

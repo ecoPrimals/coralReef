@@ -41,26 +41,37 @@ pub(super) fn bind_vfio(
 
     match coral_driver::vfio::VfioDevice::open(bdf) {
         Ok(device) => {
-            // Bus master stays OFF — ember holds fds but never does DMA.
-            // Clients (experiments, glowplug) enable bus_master explicitly
-            // when they need GPU DMA, AFTER quiescing stale engines.
+            // Immediately quiesce warm engines before any client can touch BAR0.
+            // A warm swap (nouveau→vfio) leaves PMC_ENABLE with many live engines
+            // whose stale firmware/channels cause PRI ring hangs on register reads.
+            match device.map_bar(0) {
+                Ok(bar0) => {
+                    coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                }
+                Err(e) => {
+                    tracing::warn!(bdf, error = %e, "swap_bind: BAR0 map failed for post-swap quiesce");
+                }
+            }
+
             let req_eventfd = crate::arm_req_irq(&device, bdf);
             tracing::info!(
                 bdf,
                 backend = ?device.backend_kind(),
                 device_fd = device.device_fd(),
                 req_armed = req_eventfd.is_some(),
-                "swap_device: VFIO fds reacquired"
+                "swap_device: VFIO fds reacquired (post-swap quiesce applied)"
             );
             held.insert(
                 bdf.to_string(),
                 HeldDevice {
                     bdf: bdf.to_string(),
                     device,
+                    bar0: None,
                     ring_meta: crate::hold::RingMeta::default(),
                     req_eventfd,
                     experiment_dirty: false,
                     dma_prepare_state: None,
+                    mmio_fault_count: 0,
                 },
             );
         }

@@ -20,13 +20,20 @@ use coral_ember::observation::SwapObservation;
 
 use crate::error::EmberError;
 
-/// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
+/// Ember socket path, matching the canonical wateringHole formula used by
+/// `coral-ember`'s server side. `$CORALREEF_EMBER_SOCKET` overrides; default
+/// is `$XDG_RUNTIME_DIR/biomeos/coral-ember-{family}.sock`.
 fn default_ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    coral_ember::ember_socket_path()
 }
 
 /// Returns the resolved ember socket path (for integration tests that set `CORALREEF_EMBER_SOCKET`).
-#[doc(hidden)]
+#[cfg(feature = "test-support")]
 pub fn test_support_default_ember_socket() -> String {
     default_ember_socket()
 }
@@ -100,7 +107,7 @@ impl EmberClient {
 
     /// Try to connect to the ember. Returns None if the ember is not running.
     ///
-    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
+    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: wateringHole canonical path).
     pub fn connect() -> Option<Self> {
         #[cfg(test)]
         if EMBER_DISABLED.with(|c| c.get()) {

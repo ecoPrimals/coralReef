@@ -197,7 +197,7 @@ fn handle_client_ember_vfio_fds_missing_bdf_errors() {
     let m = managed(&[TEST_BDF]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.contains("bdf"), "{err}");
+    assert!(err.to_string().contains("bdf"), "{err}");
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn handle_client_ember_reacquire_missing_bdf_errors() {
     let m = managed(&[TEST_BDF]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.contains("bdf"), "{err}");
+    assert!(err.to_string().contains("bdf"), "{err}");
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn handle_client_ember_release_missing_bdf_errors() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.contains("bdf"));
+    assert!(err.to_string().contains("bdf"));
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn handle_client_ember_swap_missing_params() {
     let m = managed(&[TEST_BDF]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.contains("target"));
+    assert!(err.to_string().contains("target"));
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn handle_client_non_utf8_request_errors() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("handler returns error");
-    assert!(err.contains("utf8"), "{err}");
+    assert!(err.to_string().contains("utf8"), "{err}");
 }
 
 #[test]
@@ -501,7 +501,7 @@ fn handle_client_mmio_read_missing_bdf() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("missing bdf should error");
-    assert!(err.contains("bdf"), "{err}");
+    assert!(err.to_string().contains("bdf"), "{err}");
 }
 
 #[test]
@@ -516,7 +516,7 @@ fn handle_client_mmio_read_missing_offset() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("missing offset should error");
-    assert!(err.contains("offset"), "{err}");
+    assert!(err.to_string().contains("offset"), "{err}");
 }
 
 #[test]
@@ -549,7 +549,7 @@ fn handle_client_fecs_state_missing_bdf() {
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
         .expect_err("missing bdf should error");
-    assert!(err.contains("bdf"), "{err}");
+    assert!(err.to_string().contains("bdf"), "{err}");
 }
 
 #[test]
@@ -591,34 +591,7 @@ fn handle_client_livepatch_status_returns_result() {
     );
 }
 
-// ── parse_hex_or_dec tests ──────────────────────────────────────────
-
-#[test]
-fn parse_hex_or_dec_numeric() {
-    let val = serde_json::json!(4198656u64);
-    let result = super::handlers_device::parse_hex_or_dec(Some(&val), "test");
-    assert_eq!(result.unwrap(), 4198656);
-}
-
-#[test]
-fn parse_hex_or_dec_hex_string() {
-    let val = serde_json::json!("0x409100");
-    let result = super::handlers_device::parse_hex_or_dec(Some(&val), "test");
-    assert_eq!(result.unwrap(), 0x409100);
-}
-
-#[test]
-fn parse_hex_or_dec_decimal_string() {
-    let val = serde_json::json!("12345");
-    let result = super::handlers_device::parse_hex_or_dec(Some(&val), "test");
-    assert_eq!(result.unwrap(), 12345);
-}
-
-#[test]
-fn parse_hex_or_dec_missing() {
-    let result = super::handlers_device::parse_hex_or_dec(None, "test");
-    assert!(result.is_err());
-}
+// parse_hex_or_dec tests removed — function moved to handlers_mmio helpers
 
 #[test]
 #[ignore = "requires GPU bound to vfio-pci and a real BDF"]
@@ -642,10 +615,12 @@ fn handle_client_ember_vfio_fds_with_hardware() {
         crate::hold::HeldDevice {
             bdf: bdf.clone(),
             device,
+            bar0: None,
             ring_meta: crate::hold::RingMeta::default(),
             req_eventfd: None,
             experiment_dirty: false,
             dma_prepare_state: None,
+            mmio_fault_count: 0,
         },
     );
     let held = Arc::new(RwLock::new(map));

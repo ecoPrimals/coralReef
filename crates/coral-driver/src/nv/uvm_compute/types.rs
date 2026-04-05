@@ -7,18 +7,16 @@ use crate::nv::uvm::{
     VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
 };
 
-/// Flush one cache line so GPU DMA sees CPU writes (UVM mmap paths; mirrors `vfio::cache_ops`).
-#[cfg(target_arch = "x86_64")]
+/// Flush one cache line so GPU DMA sees CPU writes (UVM mmap paths).
+///
+/// # Safety
+///
+/// `addr` must point to valid mapped memory.
 #[inline]
 pub(super) unsafe fn uvm_cache_line_flush(addr: *const u8) {
-    // SAFETY: Caller documents `addr` points into a valid CPU mapping; `_mm_clflush`
-    // only affects the cache line containing that address.
-    unsafe { core::arch::x86_64::_mm_clflush(addr) }
+    // SAFETY: Caller guarantees addr is valid; delegates to shared cache module.
+    unsafe { crate::cache::cache_line_flush(addr) }
 }
-
-#[cfg(not(target_arch = "x86_64"))]
-#[inline]
-pub(super) unsafe fn uvm_cache_line_flush(_addr: *const u8) {}
 
 /// GPU generation derived from SM version, used for class selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

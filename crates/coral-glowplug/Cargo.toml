@@ -22,6 +22,7 @@ path = "src/bin/coralctl/main.rs"
 default = []
 cuda = ["coral-driver/cuda"]
 no-ember = []
+test-support = []
 
 [dependencies]
 base64 = "0.22"
@@ -39,4 +40,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-
 
 [dev-dependencies]
 coral-driver = { path = "../coral-driver", features = ["vfio"] }
+coral-glowplug = { path = ".", features = ["test-support"] }
 tempfile.workspace = true

@@ -16,7 +16,7 @@ mod socket;
 use clap::Parser;
 use config::Config;
 use coral_driver::linux_paths;
-use coral_glowplug::{config, device, ember, health, pci_ids, personality, sysfs};
+use coral_glowplug::{config, device, ecosystem, ember, health, pci_ids, personality, sysfs};
 use device::DeviceSlot;
 use personality::Personality;
 use std::sync::Arc;
@@ -368,6 +368,11 @@ async fn main() {
         tracing::info!("╚══════════════════════════════════════════════════════════╝");
     }
 
+    {
+        let device_count = devices.lock().await.len();
+        ecosystem::write_discovery_file(&server.bound_addr(), device_count);
+    }
+
     #[cfg(target_os = "linux")]
     if let Ok(ref path) = std::env::var("NOTIFY_SOCKET") {
         let _ = std::os::unix::net::UnixDatagram::unbound()
@@ -441,6 +446,7 @@ async fn main() {
         }
     }
 
+    ecosystem::remove_discovery_file();
     tracing::info!("coral-glowplug stopped cleanly");
 }
 

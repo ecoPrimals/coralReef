@@ -16,6 +16,7 @@
 
 pub mod adaptive;
 pub mod drm_isolation;
+pub mod ecosystem;
 pub(crate) mod error;
 mod guarded_open;
 mod hold;
@@ -126,6 +127,9 @@ pub struct EmberRunOptions {
 ///
 /// Follows the wateringHole IPC standard: `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family>.sock`.
 ///
+/// Family ID resolution: `$BIOMEOS_FAMILY_ID` (wateringHole canonical) with
+/// fallback to `$CORALREEF_FAMILY_ID` / `$FAMILY_ID` for backward compatibility.
+///
 /// ```
 /// let path = coral_ember::ember_socket_path();
 /// assert!(path.ends_with("ember.sock"));
@@ -133,10 +137,13 @@ pub struct EmberRunOptions {
 #[must_use]
 pub fn ember_socket_path() -> String {
     if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
-        return p;
+        if !p.is_empty() {
+            return p;
+        }
     }
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let family = std::env::var("CORALREEF_FAMILY_ID")
+    let family = std::env::var("BIOMEOS_FAMILY_ID")
+        .or_else(|_| std::env::var("CORALREEF_FAMILY_ID"))
         .or_else(|_| std::env::var("FAMILY_ID"))
         .unwrap_or_else(|_| "default".to_string());
     format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
@@ -329,6 +336,15 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
         match rx.recv_timeout(guarded_open::GUARDED_OPEN_TIMEOUT) {
             Ok((Ok(device), _cold_sensitive)) => {
+                match device.map_bar(0) {
+                    Ok(bar0) => {
+                        coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                    }
+                    Err(e) => {
+                        tracing::warn!(bdf = %dev_config.bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
+                    }
+                }
+
                 let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
                 tracing::info!(
                     bdf = %dev_config.bdf,
@@ -336,17 +352,19 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                     device_fd = device.device_fd(),
                     num_fds = device.sendable_fds().len(),
                     req_armed = req_eventfd.is_some(),
-                    "VFIO device held by ember"
+                    "VFIO device held by ember (post-swap quiesce applied)"
                 );
                 held_init.insert(
                     dev_config.bdf.clone(),
                     HeldDevice {
                         bdf: dev_config.bdf.clone(),
                         device,
+                        bar0: None,
                         ring_meta: hold::RingMeta::default(),
                         req_eventfd,
                         experiment_dirty: false,
                         dma_prepare_state: None,
+                        mmio_fault_count: 0,
                     },
                 );
             }
@@ -424,6 +442,18 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o660),
     );
     set_socket_group(&socket_path, "coralreef");
+
+    let device_count = held.read().map(|m| m.len()).unwrap_or(0);
+    let tcp_bind_str = opts.listen_port.map(|port| {
+        let host =
+            std::env::var("CORALREEF_EMBER_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        format!("{host}:{port}")
+    });
+    ecosystem::write_discovery_file(
+        &socket_path,
+        tcp_bind_str.as_deref(),
+        device_count,
+    );
 
     tracing::info!("╔══════════════════════════════════════════════════════════╗");
     tracing::info!("║ coral-ember — Immortal VFIO fd Holder (threaded)        ║");

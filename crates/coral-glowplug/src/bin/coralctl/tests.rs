@@ -19,8 +19,11 @@ fn resolve_glowplug_socket_path_matches_env_set_semantics() {
 
 #[test]
 fn resolve_glowplug_socket_path_matches_env_unset_semantics() {
-    const FALLBACK_SOCKET: &str = "/run/coralreef/glowplug.sock";
-    assert_eq!(resolve_glowplug_socket_path(None), FALLBACK_SOCKET);
+    let path = resolve_glowplug_socket_path(None);
+    assert!(
+        path.ends_with("/biomeos/coral-glowplug-default.sock") || path.contains("coral-glowplug"),
+        "unexpected default socket path: {path}",
+    );
 }
 
 #[test]

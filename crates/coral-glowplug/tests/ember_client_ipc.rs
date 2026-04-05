@@ -30,9 +30,10 @@ fn default_ember_socket_respects_env() {
     unsafe {
         std::env::remove_var("CORALREEF_EMBER_SOCKET");
     }
-    assert_eq!(
-        coral_glowplug::test_support_default_ember_socket(),
-        "/run/coralreef/ember.sock"
+    let default_path = coral_glowplug::test_support_default_ember_socket();
+    assert!(
+        default_path.contains("coral-ember") && default_path.ends_with(".sock"),
+        "unexpected default ember path: {default_path}",
     );
     // SAFETY: same as above.
     unsafe {

@@ -523,11 +523,9 @@ pub(crate) fn rpc_health(socket: &str) {
 }
 
 /// Resolve the ember socket path for direct journal access.
+/// Uses the canonical wateringHole formula matching `coral-ember`'s server side.
 pub(super) fn ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/run/coralreef/ember.sock".to_string())
+    coral_ember::ember_socket_path()
 }
 
 pub(crate) fn rpc_journal_query(

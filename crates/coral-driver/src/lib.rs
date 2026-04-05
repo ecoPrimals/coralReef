@@ -35,6 +35,7 @@
 //!     /dev/dri/renderD*  /dev/vfio/* ← Linux DRM / VFIO
 //! ```
 
+pub mod cache;
 pub mod error;
 
 /// Linux sysfs/procfs path roots (`CORALREEF_SYSFS_ROOT`, `CORALREEF_PROC_ROOT`).

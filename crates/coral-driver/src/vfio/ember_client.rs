@@ -21,9 +21,21 @@ use crate::vfio::{ReceivedVfioFds, VfioDevice};
 
 const MAX_RESPONSE: usize = 4096;
 
-/// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
+/// Ember socket path, matching the canonical wateringHole formula used by
+/// `coral-ember`'s server side. `$CORALREEF_EMBER_SOCKET` overrides; default
+/// is `$XDG_RUNTIME_DIR/biomeos/coral-ember-{family}.sock`.
 fn default_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
+    if let Ok(p) = std::env::var("CORALREEF_EMBER_SOCKET") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("BIOMEOS_FAMILY_ID")
+        .or_else(|_| std::env::var("CORALREEF_FAMILY_ID"))
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
 }
 
 /// A VFIO session obtained from coral-ember via FD sharing.

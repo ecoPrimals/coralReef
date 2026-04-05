@@ -4,6 +4,7 @@
 mod fd;
 mod handlers_device;
 mod handlers_journal;
+pub(crate) mod handlers_mmio;
 pub(crate) mod handlers_policy;
 mod helpers;
 mod jsonrpc;
@@ -26,7 +27,9 @@ pub use jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 
 use jsonrpc::write_jsonrpc_error;
 
-const MAX_REQUEST_SIZE: usize = 4096;
+/// Max request size — 2MB to accommodate base64-encoded PRAMIN payloads
+/// (a 200KB WPR blob encodes to ~270KB base64 + JSON overhead).
+const MAX_REQUEST_SIZE: usize = 2 * 1024 * 1024;
 
 /// Handle one JSON-RPC request on `stream` (read one line, dispatch, write response).
 ///
@@ -45,17 +48,14 @@ pub fn handle_client(
     policies: &handlers_policy::PolicyStore,
 ) -> Result<(), EmberIpcError> {
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
         .map_err(EmberIpcError::from)?;
 
-    let mut buf = [0u8; MAX_REQUEST_SIZE];
-    let n = stream.read(&mut buf).map_err(EmberIpcError::from)?;
-    if n == 0 {
+    let line = read_request_line(stream)?;
+    let line = line.trim();
+    if line.is_empty() {
         return Ok(());
     }
-
-    let line = std::str::from_utf8(&buf[..n]).map_err(EmberIpcError::from)?;
-    let line = line.trim();
 
     let req: JsonRpcRequest = match serde_json::from_str(line) {
         Ok(r) => r,
@@ -128,6 +128,41 @@ pub fn handle_client(
         "ember.cleanup_dma" => {
             handlers_device::cleanup_dma(stream, held, id, params)?;
         }
+        // MMIO Gateway — Layer 1: low-level register access
+        "ember.mmio.read" => {
+            handlers_mmio::mmio_read(stream, held, id, params)?;
+        }
+        "ember.mmio.write" => {
+            handlers_mmio::mmio_write(stream, held, id, params)?;
+        }
+        "ember.mmio.batch" => {
+            handlers_mmio::mmio_batch(stream, held, id, params)?;
+        }
+        "ember.pramin.write" => {
+            handlers_mmio::pramin_write(stream, held, id, params)?;
+        }
+        "ember.pramin.read" => {
+            handlers_mmio::pramin_read(stream, held, id, params)?;
+        }
+        // MMIO Gateway — Layer 2: high-level experiment RPCs
+        "ember.sec2.prepare_physical" => {
+            handlers_mmio::sec2_prepare_physical(stream, held, id, params)?;
+        }
+        "ember.falcon.upload_imem" => {
+            handlers_mmio::falcon_upload_imem(stream, held, id, params)?;
+        }
+        "ember.falcon.upload_dmem" => {
+            handlers_mmio::falcon_upload_dmem(stream, held, id, params)?;
+        }
+        "ember.falcon.start_cpu" => {
+            handlers_mmio::falcon_start_cpu(stream, held, id, params)?;
+        }
+        "ember.falcon.poll" => {
+            handlers_mmio::falcon_poll(stream, held, id, params)?;
+        }
+        "ember.mmio.circuit_breaker" => {
+            handlers_mmio::circuit_breaker(stream, held, id, params)?;
+        }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;
         }
@@ -163,17 +198,14 @@ pub fn handle_client_tcp(
     policies: &handlers_policy::PolicyStore,
 ) -> Result<(), EmberIpcError> {
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
         .map_err(EmberIpcError::from)?;
 
-    let mut buf = [0u8; MAX_REQUEST_SIZE];
-    let n = stream.read(&mut buf).map_err(EmberIpcError::from)?;
-    if n == 0 {
+    let line = read_request_line(stream)?;
+    let line = line.trim();
+    if line.is_empty() {
         return Ok(());
     }
-
-    let line = std::str::from_utf8(&buf[..n]).map_err(EmberIpcError::from)?;
-    let line = line.trim();
 
     let req: JsonRpcRequest = match serde_json::from_str(line) {
         Ok(r) => r,
@@ -246,6 +278,40 @@ pub fn handle_client_tcp(
         "ember.cleanup_dma" => {
             handlers_device::cleanup_dma(stream, held, id, params)?;
         }
+        // MMIO Gateway RPCs available over TCP too
+        "ember.mmio.read" => {
+            handlers_mmio::mmio_read(stream, held, id, params)?;
+        }
+        "ember.mmio.write" => {
+            handlers_mmio::mmio_write(stream, held, id, params)?;
+        }
+        "ember.mmio.batch" => {
+            handlers_mmio::mmio_batch(stream, held, id, params)?;
+        }
+        "ember.pramin.write" => {
+            handlers_mmio::pramin_write(stream, held, id, params)?;
+        }
+        "ember.pramin.read" => {
+            handlers_mmio::pramin_read(stream, held, id, params)?;
+        }
+        "ember.sec2.prepare_physical" => {
+            handlers_mmio::sec2_prepare_physical(stream, held, id, params)?;
+        }
+        "ember.falcon.upload_imem" => {
+            handlers_mmio::falcon_upload_imem(stream, held, id, params)?;
+        }
+        "ember.falcon.upload_dmem" => {
+            handlers_mmio::falcon_upload_dmem(stream, held, id, params)?;
+        }
+        "ember.falcon.start_cpu" => {
+            handlers_mmio::falcon_start_cpu(stream, held, id, params)?;
+        }
+        "ember.falcon.poll" => {
+            handlers_mmio::falcon_poll(stream, held, id, params)?;
+        }
+        "ember.mmio.circuit_breaker" => {
+            handlers_mmio::circuit_breaker(stream, held, id, params)?;
+        }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;
         }
@@ -265,4 +331,23 @@ pub fn handle_client_tcp(
     }
 
     Ok(())
+}
+
+/// Read a newline-delimited JSON-RPC request from any `Read` stream.
+/// Supports payloads up to `MAX_REQUEST_SIZE` by reading in chunks until `\n`.
+fn read_request_line(stream: &mut impl Read) -> Result<String, EmberIpcError> {
+    let mut buf = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 8192];
+    loop {
+        let n = stream.read(&mut chunk).map_err(EmberIpcError::from)?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.contains(&b'\n') || buf.len() >= MAX_REQUEST_SIZE {
+            break;
+        }
+    }
+    let s = std::str::from_utf8(&buf).map_err(EmberIpcError::from)?;
+    Ok(s.to_string())
 }

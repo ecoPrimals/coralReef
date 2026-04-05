@@ -137,6 +137,15 @@ pub fn apply_hold_actions(
 
         match coral_driver::vfio::VfioDevice::open(bdf) {
             Ok(device) => {
+            match device.map_bar(0) {
+                Ok(bar0) => {
+                    coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                }
+                Err(e) => {
+                    tracing::warn!(bdf = %bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
+                }
+            }
+
                 let req_eventfd = crate::arm_req_irq(&device, bdf);
                 tracing::info!(
                     bdf = %bdf,
@@ -144,15 +153,19 @@ pub fn apply_hold_actions(
                     device_fd = device.device_fd(),
                     num_fds = device.sendable_fds().len(),
                     req_armed = req_eventfd.is_some(),
-                    "VFIO device held by ember"
+                    "VFIO device held by ember (post-swap quiesce applied)"
                 );
                 held_init.insert(
                     bdf.clone(),
                     HeldDevice {
                         bdf: bdf.clone(),
                         device,
+                        bar0: None,
                         ring_meta: hold::RingMeta::default(),
                         req_eventfd,
+                        experiment_dirty: false,
+                        dma_prepare_state: None,
+                        mmio_fault_count: 0,
                     },
                 );
             }

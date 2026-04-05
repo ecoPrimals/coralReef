@@ -36,7 +36,7 @@ fn notify_watchdog() {
 }
 
 /// Invokes [`notify_watchdog`] (for integration tests that adjust `NOTIFY_SOCKET` via `unsafe` env).
-#[doc(hidden)]
+#[cfg(feature = "test-support")]
 pub fn test_support_notify_watchdog() {
     notify_watchdog();
 }

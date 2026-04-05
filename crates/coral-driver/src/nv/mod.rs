@@ -14,6 +14,7 @@
 //!   Compute dispatch pending UVM integration. The compatibility path.
 
 pub mod bar0;
+pub mod chip;
 pub mod identity;
 pub mod ioctl;
 pub mod kepler_falcon;

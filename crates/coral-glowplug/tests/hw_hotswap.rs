@@ -20,8 +20,20 @@ use std::time::Duration;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn socket_path() -> String {
-    std::env::var("CORALREEF_GLOWPLUG_SOCK")
-        .unwrap_or_else(|_| "/run/coralreef/glowplug.sock".to_owned())
+    if let Ok(p) = std::env::var("CORALREEF_GLOWPLUG_SOCKET") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    // Legacy env var name
+    if let Ok(p) = std::env::var("CORALREEF_GLOWPLUG_SOCK") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_owned());
+    let family = std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".to_owned());
+    format!("{runtime_dir}/biomeos/coral-glowplug-{family}.sock")
 }
 
 fn connect() -> BufReader<UnixStream> {

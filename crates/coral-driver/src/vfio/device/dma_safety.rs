@@ -34,10 +34,19 @@ pub fn is_poisonous_read(offset: usize) -> bool {
 }
 
 const PMC_ENABLE: usize = 0x000200;
+const PMC_INTR_EN_SET: usize = 0x000240;
+const PMC_INTR_EN_CLR: usize = 0x000244;
 const PFIFO_ENABLE: usize = 0x002200;
 const PFIFO_BIT: u32 = 1 << 8;
+const PMU_BIT: u32 = 1 << 0;
+const SEC2_BIT: u32 = 1 << 5;
+const TOP_BIT: u32 = 1 << 30;
 const PRIV_RING_COMMAND: usize = 0x0012_004C;
 const PRIV_RING_CMD_ACK: u32 = 0x2;
+/// Minimal safe PMC_ENABLE: only SEC2 + PFIFO + PMU + TOP.
+/// All other engines (GR, PBDMA, NVDEC, etc.) are disabled to prevent
+/// stale DMA/firmware from causing PRI ring faults during BAR0 reads.
+const MINIMAL_PMC: u32 = SEC2_BIT | PFIFO_BIT | PMU_BIT | TOP_BIT;
 
 /// Saved state from [`prepare_dma`], needed by [`cleanup_dma`] to restore
 /// AER masks and bus mastering.
@@ -49,6 +58,69 @@ pub struct DmaPrepareState {
     pub pmc_before: u32,
     /// PMC_ENABLE after quiesce (diagnostic).
     pub pmc_after: u32,
+}
+
+/// Aggressively quiesce a GPU after a warm driver swap (nouveau/nvidia → vfio).
+///
+/// After nouveau teardown, the GPU may have many engines alive in PMC_ENABLE
+/// with stale firmware, channels, and DMA descriptors.  Reading registers on
+/// these live engines can trigger PRI ring hangs that lock up the entire system.
+///
+/// This function strips PMC_ENABLE to a minimal set (SEC2 + PFIFO + PMU + TOP),
+/// stops the PFIFO scheduler, and blind-ACKs PRI ring faults.  Call this
+/// **immediately** after a warm swap before any BAR0 register reads beyond
+/// BOOT0/PMC_ENABLE.
+///
+/// PRAMIN and the memory fabric survive because PFB is always-on on GV100+
+/// (not gated by PMC_ENABLE).
+pub fn post_swap_quiesce(bar0: &MappedBar) {
+    let r = |off: usize| bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(off, val);
+    };
+
+    let pmc_before = r(PMC_ENABLE);
+    let warm = pmc_before.count_ones() > 4;
+
+    if !warm {
+        tracing::info!(
+            pmc = format_args!("{pmc_before:#010x}"),
+            "post_swap_quiesce: already minimal — skipping"
+        );
+        return;
+    }
+
+    tracing::warn!(
+        pmc_before = format_args!("{pmc_before:#010x}"),
+        active_engines = pmc_before.count_ones(),
+        "post_swap_quiesce: WARM GPU detected — stripping engines"
+    );
+
+    // Step 1: Disable all interrupts to prevent cascading during quiesce
+    w(PMC_INTR_EN_CLR, 0xFFFF_FFFF);
+
+    // Step 2: Stop PFIFO scheduler before touching PMC_ENABLE
+    w(PFIFO_ENABLE, 0);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    // Step 3: Blind-ACK any pending PRI ring faults (write-only)
+    w(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // Step 4: Strip PMC_ENABLE to minimal — kills GR, PBDMA, NVDEC, etc.
+    w(PMC_ENABLE, MINIMAL_PMC);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    // Step 5: Second blind-ACK to clear any faults from engine teardown
+    w(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    let pmc_after = r(PMC_ENABLE);
+    tracing::info!(
+        pmc_before = format_args!("{pmc_before:#010x}"),
+        pmc_after = format_args!("{pmc_after:#010x}"),
+        "post_swap_quiesce: engines stripped, PRI ACKed"
+    );
 }
 
 /// Safely prepare a GPU for DMA after a driver swap.

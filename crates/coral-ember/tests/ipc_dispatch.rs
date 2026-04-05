@@ -141,7 +141,7 @@ fn dispatch_ember_release_missing_bdf_errors() {
     let held = empty_held();
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
-    assert!(err.contains("bdf"));
+    assert!(err.to_string().contains("bdf"));
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn dispatch_ember_swap_missing_target() {
     let m = managed(&[]);
     let err =
         handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing target");
-    assert!(err.contains("target"));
+    assert!(err.to_string().contains("target"));
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn dispatch_ember_vfio_fds_missing_bdf_param() {
     let held = empty_held();
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
-    assert!(err.contains("bdf"));
+    assert!(err.to_string().contains("bdf"));
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn dispatch_ember_reacquire_missing_bdf_param() {
     let held = empty_held();
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
-    assert!(err.contains("bdf"));
+    assert!(err.to_string().contains("bdf"));
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn dispatch_ember_swap_missing_bdf_param() {
     let held = empty_held();
     let m = managed(&[]);
     let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
-    assert!(err.contains("bdf"));
+    assert!(err.to_string().contains("bdf"));
 }
 
 #[test]

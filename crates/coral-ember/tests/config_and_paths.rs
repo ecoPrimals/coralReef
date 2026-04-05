@@ -54,12 +54,21 @@ fn with_env_cleared<F: FnOnce()>(vars: &[&str], f: F) {
 
 #[test]
 fn ember_socket_path_default_without_env() {
-    with_env_cleared(&["CORALREEF_EMBER_SOCKET"], || {
-        assert_eq!(
-            coral_ember::ember_socket_path(),
-            "/run/coralreef/ember.sock"
-        );
-    });
+    with_env_cleared(
+        &[
+            "CORALREEF_EMBER_SOCKET",
+            "BIOMEOS_FAMILY_ID",
+            "CORALREEF_FAMILY_ID",
+            "FAMILY_ID",
+        ],
+        || {
+            let path = coral_ember::ember_socket_path();
+            assert!(
+                path.ends_with("/biomeos/coral-ember-default.sock"),
+                "unexpected default socket path: {path}",
+            );
+        },
+    );
 }
 
 #[test]

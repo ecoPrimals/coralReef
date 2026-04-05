@@ -98,6 +98,38 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
     Ok(base.join(ecosystem_namespace()))
 }
 
+/// Compute a canonical socket path for any named service in the ecosystem.
+///
+/// Format: `{discovery_dir}/{service_name}-{family_id}.sock`
+///
+/// This is the single source of truth for service socket locations per the
+/// wateringHole `PRIMAL_IPC_PROTOCOL` v3.0. All primals and clients should
+/// use this to compute default paths instead of hardcoding `/run/coralreef/`.
+#[must_use]
+pub fn service_socket_path(service_name: &str) -> String {
+    let base = discovery_dir().unwrap_or_else(|_| PathBuf::from("/tmp/biomeos"));
+    let sock_name = format!("{service_name}-{}.sock", family_id());
+    base.join(sock_name).display().to_string()
+}
+
+/// Resolve a service socket path: env var override first, then canonical default.
+///
+/// Pattern: check `$env_var` for an explicit override; if unset or empty,
+/// fall back to [`service_socket_path`] with the given service name.
+///
+/// ```
+/// # // Example (not actually run — env-dependent)
+/// // For ember: resolve_socket("CORALREEF_EMBER_SOCKET", "coral-ember")
+/// // For glowplug: resolve_socket("CORALREEF_GLOWPLUG_SOCKET", "coral-glowplug")
+/// ```
+#[must_use]
+pub fn resolve_socket(env_var: &str, service_name: &str) -> String {
+    std::env::var(env_var)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| service_socket_path(service_name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +231,29 @@ mod tests {
         let path = discovery_dir().unwrap();
         let parent = path.parent().unwrap_or(&path);
         assert!(parent.exists() || std::fs::create_dir_all(parent).is_ok());
+    }
+
+    #[test]
+    fn test_service_socket_path_format() {
+        let path = service_socket_path("coral-ember");
+        assert!(path.ends_with(".sock"));
+        assert!(path.contains("coral-ember"));
+        assert!(path.contains("biomeos"));
+    }
+
+    #[test]
+    fn test_service_socket_path_includes_family() {
+        let path = service_socket_path("coral-ember");
+        let fid = family_id();
+        assert!(
+            path.contains(&fid),
+            "expected family_id '{fid}' in path '{path}'"
+        );
+    }
+
+    #[test]
+    fn test_resolve_socket_with_missing_env() {
+        let path = resolve_socket("__CORALREEF_TEST_NOSUCHVAR__", "coral-ember");
+        assert_eq!(path, service_socket_path("coral-ember"));
     }
 }

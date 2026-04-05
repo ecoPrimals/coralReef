@@ -405,6 +405,15 @@ impl<S: SysfsOps> DeviceSlot<S> {
             return;
         }
 
+        // PMC_ENABLE < 0x1000_0000 means GPU fabric is cold — skip PRAMIN
+        // and domain probes to avoid reads that may hang on cold silicon.
+        if self.health.pmc_enable < 0x1000_0000 {
+            self.health.vram_alive = false;
+            self.health.domains_alive = 0;
+            self.health.domains_faulted = 0;
+            return;
+        }
+
         self.health.vram_alive = Self::pramin_write_readback(holder);
 
         let domains: &[(usize, &str)] = &[
@@ -421,7 +430,11 @@ impl<S: SysfsOps> DeviceSlot<S> {
 
         let mut alive = 0;
         let mut faulted = 0;
-        for &(off, _) in domains {
+        for &(off, name) in domains {
+            if coral_driver::vfio::device::dma_safety::is_poisonous_read(off) {
+                tracing::debug!(bdf = %self.bdf, domain = name, "skipped poisonous domain probe");
+                continue;
+            }
             if is_faulted_read(r(off)) {
                 faulted += 1;
             } else {

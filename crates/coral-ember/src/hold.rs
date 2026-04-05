@@ -12,6 +12,10 @@ pub struct HeldDevice {
     pub bdf: String,
     /// Open VFIO device — backend (legacy or iommufd) determined at open time.
     pub device: coral_driver::vfio::VfioDevice,
+    /// Lazily-mapped BAR0 for server-side MMIO operations. Mapped on first
+    /// `ember.mmio.*` / `ember.pramin.*` / `ember.sec2.*` / `ember.falcon.*`
+    /// RPC call. Dropped on device release or experiment end.
+    pub bar0: Option<coral_driver::vfio::device::MappedBar>,
     /// Ring/mailbox metadata persisted across glowplug restarts.
     /// Glowplug writes this before shutdown; reads it after reacquiring fds.
     pub ring_meta: RingMeta,
@@ -29,7 +33,15 @@ pub struct HeldDevice {
     /// Saved DMA prepare state from `ember.prepare_dma` — holds AER mask state
     /// needed by `ember.cleanup_dma` to restore masks after an experiment.
     pub dma_prepare_state: Option<coral_driver::vfio::device::dma_safety::DmaPrepareState>,
+    /// Consecutive faulted BOOT0 reads. When this exceeds
+    /// [`MMIO_CIRCUIT_BREAKER_THRESHOLD`], all MMIO RPCs are refused until
+    /// the device is manually reset or recycled.
+    pub mmio_fault_count: u32,
 }
+
+/// After this many consecutive faulted pre-flight checks, ember refuses
+/// further MMIO operations on the device to prevent system lockups.
+pub const MMIO_CIRCUIT_BREAKER_THRESHOLD: u32 = 3;
 
 impl HeldDevice {
     /// Construct a `HeldDevice` without arming the REQ IRQ.
@@ -40,11 +52,25 @@ impl HeldDevice {
         Self {
             bdf,
             device,
+            bar0: None,
             ring_meta: RingMeta::default(),
             req_eventfd: None,
             experiment_dirty: false,
             dma_prepare_state: None,
+            mmio_fault_count: 0,
         }
+    }
+
+    /// Ensure BAR0 is mapped, returning a reference to it. Maps lazily on
+    /// first call; subsequent calls return the cached mapping.
+    pub fn ensure_bar0(
+        &mut self,
+    ) -> Result<&coral_driver::vfio::device::MappedBar, coral_driver::error::DriverError> {
+        if self.bar0.is_none() {
+            let mapped = self.device.map_bar(0)?;
+            self.bar0 = Some(mapped);
+        }
+        Ok(self.bar0.as_ref().unwrap())
     }
 }
 
