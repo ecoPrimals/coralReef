@@ -9,10 +9,13 @@ Before=coral-glowplug.service display-manager.service
 Type=notify
 NotifyAccess=main
 ExecStartPre=/bin/sh -c 'echo Y > /sys/module/vfio_pci/parameters/disable_idle_d3 2>/dev/null || true'
-ExecStart=/usr/local/bin/coral-ember /etc/coralreef/glowplug.toml
-# CRITICAL: Restart=no — if the ember dies, VFIO fds are lost and PM reset
-# will occur. Only a cold reboot can recover. The ember must never crash.
-Restart=no
+ExecStart=/usr/local/bin/coral-ember server /etc/coralreef/glowplug.toml
+# Sacrificial Ember: glowplug's fd vault holds backup VFIO fds, so ember
+# can restart without triggering PM reset. On failure, systemd restarts
+# ember with --resurrect to receive fds from the vault.
+Restart=on-failure
+RestartSec=2
+ExecStartPre=/bin/sh -c 'test -S /run/coralreef/glowplug.sock && echo RESURRECT_AVAILABLE=1 || true'
 TimeoutStartSec=30
 TimeoutStopSec=3
 KillMode=mixed

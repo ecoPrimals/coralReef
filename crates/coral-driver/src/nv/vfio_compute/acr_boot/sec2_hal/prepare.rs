@@ -266,30 +266,33 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
     (halted, notes)
 }
 
-/// Issue STARTCPU to a falcon, using CPUCTL_ALIAS if ALIAS_EN (bit 6) is set.
+/// Issue STARTCPU to a falcon, trying CPUCTL_ALIAS first then CPUCTL.
 ///
-/// Matches Nouveau's `nvkm_falcon_v1_start`:
-/// ```c
-/// u32 reg = nvkm_falcon_rd32(falcon, 0x100);
-/// if (reg & BIT(6))
-///     nvkm_falcon_wr32(falcon, 0x130, 0x2);
-/// else
-///     nvkm_falcon_wr32(falcon, 0x100, 0x2);
-/// ```
+/// Nouveau's `gm200_flcn_start` writes STARTCPU to CPUCTL_ALIAS (0x130),
+/// but empirically on GV100 without a bound instance block, CPUCTL_ALIAS
+/// has no effect (falcon stays halted). CPUCTL (0x100) does trigger execution.
+///
+/// This function tries CPUCTL_ALIAS first (matching nouveau), checks if
+/// the falcon started, and falls back to CPUCTL if it's still halted.
 pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
     let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0);
     let bootvec = bar0.read_u32(base + falcon::BOOTVEC).unwrap_or(0xDEAD);
-    let alias_en = cpuctl & (1 << 6) != 0;
     tracing::info!(
-        "falcon_start_cpu: base={:#x} cpuctl={:#010x} bootvec={:#010x} alias_en={}",
+        "falcon_start_cpu: base={:#x} cpuctl={:#010x} bootvec={:#010x}",
         base,
         cpuctl,
         bootvec,
-        alias_en
     );
-    if alias_en {
-        let _ = bar0.write_u32(base + falcon::CPUCTL_ALIAS, falcon::CPUCTL_STARTCPU);
-    } else {
+
+    // Try CPUCTL_ALIAS first (nouveau's gm200_flcn_start)
+    let _ = bar0.write_u32(base + falcon::CPUCTL_ALIAS, falcon::CPUCTL_STARTCPU);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    let cpuctl_after = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0);
+    if cpuctl_after & falcon::CPUCTL_HALTED != 0 {
+        tracing::warn!(
+            "falcon_start_cpu: CPUCTL_ALIAS had no effect (still halted), falling back to CPUCTL"
+        );
         let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
     }
 
@@ -329,6 +332,24 @@ pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
 ///   - ITFEN bits [5:4] for DMA control (not DMAIDX at 0x604)
 ///   - Debug register at 0x408 (not 0x084)
 pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
+    // Fine-grained fsync trace — survives system lockups so we can read
+    // the exact last successful BAR0 operation after a crash and reboot.
+    fn t(msg: &str) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/var/lib/coralreef/traces/ember_sec2_trace.log")
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let _ = writeln!(f, "[{ts}] {msg}");
+            let _ = f.sync_all();
+        }
+    }
+
     let base = falcon::SEC2_BASE;
     let r = |off: usize| bar0.read_u32(base + off).unwrap_or(0xDEAD);
     let w = |off: usize, val: u32| {
@@ -336,91 +357,154 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
     };
     let mut notes = Vec::new();
 
-    let pre_cpuctl = r(falcon::CPUCTL);
-    let pre_sctl = r(falcon::SCTL);
-    notes.push(format!(
-        "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x}"
-    ));
+    let _ = std::fs::remove_file("/var/lib/coralreef/traces/ember_sec2_trace.log");
+    t("sec2_prepare_v1 ENTER");
 
-    // ── Phase 0: Ensure PFIFO + PMU are enabled in PMC_ENABLE ──
+    // ══════════════════════════════════════════════════════════════════════
+    // CRITICAL: PRAMIN writes MUST happen FIRST — before ANY register ops.
     //
-    // Post-nouveau, PMC_ENABLE may only have SEC2 + TOP. The falcon
-    // instance block bind walks VRAM page tables via FBIF, and the
-    // bind completion FSM depends on PFIFO fabric routing being alive.
-    // PFB is always-on on GV100 (bit 16 is not accepted), but PFIFO
-    // (bit 8) and PMU (bit 0) must be explicitly enabled.
-    {
-        let pmc_pre = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
-        let pfifo_bit = 1u32 << 8;
-        let pmu_bit = 1u32 << 0;
-        let needed = pfifo_bit | pmu_bit;
-        if pmc_pre & needed != needed {
-            let pmc_new = pmc_pre | needed;
-            let _ = bar0.write_u32(misc::PMC_ENABLE, pmc_new);
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            let pmc_after = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
-            tracing::info!(
-                pmc_before = format_args!("{pmc_pre:#010x}"),
-                pmc_after = format_args!("{pmc_after:#010x}"),
-                "sec2_prepare_v1: enabled PFIFO+PMU in PMC_ENABLE"
-            );
-            notes.push(format!(
-                "PMC_ENABLE: {pmc_pre:#010x} → {pmc_after:#010x} (PFIFO+PMU enabled)"
-            ));
-        } else {
-            notes.push(format!("PMC_ENABLE: {pmc_pre:#010x} (PFIFO+PMU already set)"));
-        }
-    }
+    // On GV100, PRAMIN writes to VRAM via BAR0 0x700000 share the GPU's
+    // internal memory arbiter with engine DMA paths. The PMC reset of SEC2
+    // (toggling bit 5 in PMC_ENABLE) causes SEC2's engine logic to go
+    // through a hardware init cycle. During and after this cycle, the
+    // memory arbiter enters a state where host PRAMIN writes cause it to
+    // deadlock — freezing the entire PCIe root complex (all CPU cores).
+    //
+    // The page table data is pure VRAM content that doesn't depend on any
+    // register state. VRAM survives PMC resets (only the engine, not FBPA,
+    // is affected). So we build the page tables while the GPU is in its
+    // pristine nouveau-warmed state, THEN do the register sequence.
+    //
+    // Proven crash sequence: PMC reset → PRAMIN write → root complex freeze
+    // Safe sequence: PRAMIN write → PMC reset → FBIF → bind
+    // ══════════════════════════════════════════════════════════════════════
 
-    // ── Phase 1: nvkm_falcon_reset (disable + enable) ──
-    //
-    // SAFETY: After MC disable, SEC2 PRI registers are DEAD. Any read to
-    // SEC2 address space (0x87000+) while the engine is off can hang the
-    // CPU forever in the PRI fabric. All writes during the disabled window
-    // must be BLIND (no read-modify-write). PRI blind ACK after each PMC
-    // toggle clears any cascading routing faults.
+    // ── Phase 0: VRAM liveness check + PRAMIN writes (GPU pristine) ──
 
     const PRIV_RING_COMMAND: usize = 0x0012_004C;
     const PRIV_RING_CMD_ACK: u32 = 0x2;
 
-    // Step 1a: nvkm_falcon_v1_disable → MC disable
+    t("PRI_DRAIN: writing ACK to 0x12004C");
+    let _ = bar0.write_u32(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    t("PRI_DRAIN: reading BOOT0");
+    let boot0_check = bar0.read_u32(0x000).unwrap_or(0xDEAD_DEAD);
+    t(&format!("PRI_DRAIN: BOOT0={boot0_check:#010x}"));
+    if boot0_check == 0xDEAD_DEAD || boot0_check == 0xFFFF_FFFF {
+        notes.push(format!(
+            "PRI ring drain FAILED: BOOT0={boot0_check:#010x} — ring may be wedged"
+        ));
+        return (false, notes);
+    }
+    notes.push("PRI ring drained (ACK + BOOT0 verify OK)".to_string());
+
+    t("VRAM_CHECK: probing PRAMIN window");
+    {
+        use crate::vfio::memory::{MemoryRegion, PraminRegion};
+        match PraminRegion::new(bar0, 0x0001_0000, 4) {
+            Ok(rgn) => {
+                let probe = rgn.read_u32(0).unwrap_or(0xDEAD_DEAD);
+                t(&format!("VRAM_CHECK: probe={probe:#010x}"));
+                if probe & 0xFFF0_0000 == 0xBAD0_0000 || probe == 0xDEAD_DEAD {
+                    notes.push(format!(
+                        "VRAM DEAD: PRAMIN probe returned {probe:#010x} — FBPA uninitialized. \
+                         Warm GPU with nouveau first."
+                    ));
+                    return (false, notes);
+                }
+                notes.push(format!("VRAM liveness: OK (probe={probe:#010x})"));
+            }
+            Err(e) => {
+                t(&format!("VRAM_CHECK: PRAMIN open failed: {e}"));
+                notes.push(format!("VRAM liveness: PRAMIN open failed: {e}"));
+                return (false, notes);
+            }
+        }
+    }
+
+    t("PT_BUILD: writing page tables BEFORE PMC reset (GPU pristine)");
+    let pt_ok = instance_block::build_vram_falcon_inst_block(bar0);
+    t(&format!("PT_BUILD: complete ok={pt_ok}"));
+    notes.push(format!("VRAM page tables: ok={pt_ok} (written before any register changes)"));
+
+    if !pt_ok {
+        notes.push("PT_BUILD failed — aborting before PMC reset".to_string());
+        return (false, notes);
+    }
+
+    // ── Phase 1: Diagnostics (read-only) ──
+
+    t("DIAG: reading SEC2 CPUCTL");
+    let pre_cpuctl = r(falcon::CPUCTL);
+    t(&format!("DIAG: SEC2 CPUCTL={pre_cpuctl:#010x}"));
+    t("DIAG: reading SEC2 SCTL");
+    let pre_sctl = r(falcon::SCTL);
+    t(&format!("DIAG: SEC2 SCTL={pre_sctl:#010x}"));
+    notes.push(format!(
+        "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x}"
+    ));
+
+    {
+        t("PMC0: reading PMC_ENABLE");
+        let pmc_pre = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
+        t(&format!("PMC0: PMC_ENABLE={pmc_pre:#010x} (PFIFO/PMU deferred)"));
+        notes.push(format!(
+            "PMC_ENABLE: {pmc_pre:#010x} (PFIFO+PMU deferred — not needed for SEC2)"
+        ));
+    }
+
+    // ── Phase 2: nvkm_falcon_reset (disable + enable) ──
+
+    // Step 2a: MC disable
+    t("RESET_2a: find SEC2 PMC bit");
     let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(5);
     let sec2_mask = 1u32 << sec2_bit;
+    t(&format!("RESET_2a: SEC2 PMC bit={sec2_bit}"));
+    t("RESET_2a: reading PMC_ENABLE");
     let pmc = bar0.read_u32(misc::PMC_ENABLE).unwrap_or(0);
+    t(&format!("RESET_2a: PMC_ENABLE={pmc:#010x}"));
     if pmc & sec2_mask != 0 {
-        let _ = bar0.write_u32(misc::PMC_ENABLE, pmc & !sec2_mask);
+        let disable_val = pmc & !sec2_mask;
+        t(&format!("RESET_2a: DISABLING SEC2 — writing PMC_ENABLE={disable_val:#010x}"));
+        let _ = bar0.write_u32(misc::PMC_ENABLE, disable_val);
+        t("RESET_2a: reading PMC_ENABLE (flush)");
         let _ = bar0.read_u32(misc::PMC_ENABLE);
         std::thread::sleep(std::time::Duration::from_micros(20));
-        // Blind ACK — disabling an engine can generate PRI routing faults
+        t("RESET_2a: PRI ACK after MC disable");
         let _ = bar0.write_u32(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
         std::thread::sleep(std::time::Duration::from_millis(5));
+        t("RESET_2a: MC disable complete");
     }
     notes.push(format!("MC disable: PMC bit {sec2_bit} + PRI ACK"));
 
-    // Step 1b: gp102_sec2_flcn_enable — ENGCTL toggle (SEC2-specific WAR)
-    //
-    // CRITICAL: SEC2 is DISABLED in PMC — DO NOT read any SEC2 registers.
-    // The prior code did `r(ENGCTL) | 0x01` which reads from a dead engine
-    // and hangs the CPU. Use blind writes only.
+    // Step 2b: ENGCTL toggle (blind writes — SEC2 is MC-disabled!)
+    t("RESET_2b: ENGCTL blind write 0x01 (SEC2 disabled — NO READS)");
     let _ = bar0.write_u32(base + falcon::ENGCTL, 0x01);
     std::thread::sleep(std::time::Duration::from_micros(10));
+    t("RESET_2b: ENGCTL blind write 0x00");
     let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
+    t("RESET_2b: ENGCTL toggle done");
     notes.push("ENGCTL blind toggle (SEC2 pre-enable WAR — no reads)".to_string());
 
-    // Step 1c: nvkm_falcon_v1_enable → MC enable
-    let _ = bar0.write_u32(misc::PMC_ENABLE, pmc | sec2_mask);
+    // Step 2c: MC enable
+    let enable_val = pmc | sec2_mask;
+    t(&format!("RESET_2c: ENABLING SEC2 — writing PMC_ENABLE={enable_val:#010x}"));
+    let _ = bar0.write_u32(misc::PMC_ENABLE, enable_val);
+    t("RESET_2c: reading PMC_ENABLE (flush)");
     let _ = bar0.read_u32(misc::PMC_ENABLE);
     std::thread::sleep(std::time::Duration::from_micros(20));
-    // Blind ACK — re-enabling can produce transient PRI faults as the
-    // engine's clock domain comes up
+    t("RESET_2c: PRI ACK after MC enable");
     let _ = bar0.write_u32(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
     std::thread::sleep(std::time::Duration::from_millis(5));
+    t("RESET_2c: MC enable complete — SEC2 registers should be alive");
     notes.push("MC enable + PRI ACK".to_string());
 
-    // Step 1d: nvkm_falcon_v1_wait_idle (wait for DMACTL scrub)
+    // Step 2d: Wait for DMACTL scrub
+    t("SCRUB: polling DMACTL");
     let scrub_start = std::time::Instant::now();
     loop {
         let dmactl = r(falcon::DMACTL);
+        t(&format!("SCRUB: DMACTL={dmactl:#010x}"));
         if dmactl & 0x06 == 0 {
             notes.push(format!(
                 "Scrub done in {:?} DMACTL={dmactl:#010x}",
@@ -435,20 +519,23 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    // Step 1e: Write device boot0 to SEC2 debug register at 0x408
+    // Step 2e: Write device boot0 to SEC2 debug register at 0x408
+    t("DEBUG: reading BOOT0");
     let boot0 = bar0.read_u32(0x000).unwrap_or(0);
+    t(&format!("DEBUG: BOOT0={boot0:#010x}, writing to SEC2_DEBUG (0x408)"));
     w(falcon::SEC2_DEBUG, boot0);
-    notes.push(format!(
-        "Debug reg 0x408 ← {boot0:#010x}"
-    ));
+    t("DEBUG: SEC2_DEBUG written");
+    notes.push(format!("Debug reg 0x408 ← {boot0:#010x}"));
 
     // Wait for ROM to halt
+    t("HALT: polling CPUCTL for HALTED bit");
     let halt_start = std::time::Instant::now();
     let mut halted = false;
     loop {
         let cpuctl = r(falcon::CPUCTL);
         if cpuctl & falcon::CPUCTL_HALTED != 0 {
             halted = true;
+            t(&format!("HALT: ROM halted cpuctl={cpuctl:#010x}"));
             notes.push(format!(
                 "ROM halted in {:?} cpuctl={cpuctl:#010x}",
                 halt_start.elapsed()
@@ -456,6 +543,7 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
             break;
         }
         if halt_start.elapsed() > std::time::Duration::from_millis(3000) {
+            t(&format!("HALT: TIMEOUT cpuctl={cpuctl:#010x}"));
             notes.push(format!(
                 "HALT timeout (3s) cpuctl={:#010x}",
                 r(falcon::CPUCTL)
@@ -465,35 +553,59 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
+    t("POST_RESET: reading CPUCTL");
     let post_cpuctl = r(falcon::CPUCTL);
+    t("POST_RESET: reading SCTL");
     let post_sctl = r(falcon::SCTL);
+    t(&format!("POST_RESET: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted}"));
     notes.push(format!(
         "Post-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted}"
     ));
 
-    // ── Phase 2: FBIF_TRANSCFG → VRAM routing ──
-    //
-    // Before binding the instance block, route FBIF DMA to physical VRAM.
-    // This breaks the circular dependency where the MMU walker needs FBIF to
-    // read page tables from VRAM, but FBIF defaults to VIRT (which requires
-    // the bind that hasn't completed yet). This matches nouveau's sequence:
-    // nvkm_falcon_mask(falcon, 0x624, 0x03, 0x01)  [PHYS_VID]
+    // ── Phase 3: Enable ITFEN + FBIF → PHYS_VID + Bind ──
+
+    // Step 3a: Enable ITFEN ACCESS_EN for DMA (required before bind)
+    t("ITFEN: enabling ACCESS_EN");
+    let itfen_before = r(falcon::ITFEN);
+    w(falcon::ITFEN, itfen_before | 0x01);
+    let itfen_after = r(falcon::ITFEN);
+    t(&format!("ITFEN: {itfen_before:#010x} → {itfen_after:#010x}"));
+    notes.push(format!("ITFEN: {itfen_before:#010x} → {itfen_after:#010x}"));
+
+    // Step 3b: FBIF_TRANSCFG → PHYS_VID
+    t("FBIF: reading FBIF_TRANSCFG");
     let fbif_before = r(falcon::FBIF_TRANSCFG);
-    w(
-        falcon::FBIF_TRANSCFG,
-        (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID,
-    );
+    let fbif_new = (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID;
+    t(&format!("FBIF: writing FBIF_TRANSCFG={fbif_new:#010x}"));
+    w(falcon::FBIF_TRANSCFG, fbif_new);
     let fbif_after = r(falcon::FBIF_TRANSCFG);
+    t(&format!("FBIF: FBIF_TRANSCFG={fbif_before:#010x} → {fbif_after:#010x}"));
     notes.push(format!(
-        "FBIF_TRANSCFG: {fbif_before:#010x} → {fbif_after:#010x} (PHYS_VID for VRAM PT walk)"
+        "FBIF_TRANSCFG: {fbif_before:#010x} → {fbif_after:#010x} (PHYS_VID for bind walker)"
     ));
 
-    // ── Phase 3: nvkm_falcon_bind_context (v1 path) ──
+    // Step 3c: Enable DMACTL
+    w(falcon::DMACTL, 0x01);
+    let dmactl_post = r(falcon::DMACTL);
+    t(&format!("DMACTL: set to 0x01, readback={dmactl_post:#010x}"));
+    notes.push(format!("DMACTL: {dmactl_post:#010x}"));
 
-    // Build VRAM page tables first
-    let pt_ok = instance_block::build_vram_falcon_inst_block(bar0);
-    notes.push(format!("VRAM page tables: ok={pt_ok}"));
+    // Step 3d: PRI drain + settle after FBIF reconfiguration
+    t("POST_FBIF: PRI drain + settle");
+    let _ = bar0.write_u32(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    let post_fbif_boot0 = bar0.read_u32(0x000).unwrap_or(0xDEAD_DEAD);
+    t(&format!("POST_FBIF: BOOT0={post_fbif_boot0:#010x} after PRI drain + 10ms settle"));
+    if post_fbif_boot0 == 0xDEAD_DEAD || post_fbif_boot0 == 0xFFFF_FFFF {
+        notes.push(format!(
+            "POST_FBIF: BOOT0={post_fbif_boot0:#010x} — PRI ring wedged after FBIF config"
+        ));
+        return (false, notes);
+    }
+    notes.push("PRI drained + settled 10ms after FBIF config".to_string());
 
+    // Step 3e: Bind instance block (needs ITFEN + FBIF=PHYS_VID) ──
+    t("BIND: falcon_v1_bind_context");
     let (bind_ok, bind_notes) = instance_block::falcon_v1_bind_context(
         &|off| r(off),
         &|off, val| w(off, val),
@@ -501,12 +613,15 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
         0, // target = VRAM
     );
     notes.extend(bind_notes);
+    t(&format!("BIND: complete ok={bind_ok}"));
 
+    let itfen_final = r(falcon::ITFEN);
+    let bind_stat_final = r(instance_block::FALCON_BIND_STAT);
+    t(&format!("FINAL: ITFEN={itfen_final:#010x} bind_stat={bind_stat_final:#010x}"));
     notes.push(format!(
-        "Bind: ok={bind_ok} ITFEN={:#010x} stat={:#010x}",
-        r(falcon::ITFEN),
-        r(instance_block::FALCON_BIND_STAT)
+        "Bind: ok={bind_ok} ITFEN={itfen_final:#010x} stat={bind_stat_final:#010x}"
     ));
 
+    t("sec2_prepare_v1 EXIT");
     (bind_ok && halted, notes)
 }

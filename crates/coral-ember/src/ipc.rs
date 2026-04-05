@@ -89,6 +89,9 @@ pub fn handle_client(
         "ember.vfio_fds" => {
             handlers_device::vfio_fds(stream, held, managed_bdfs, id, params)?;
         }
+        "ember.checkpoint_fds" => {
+            handlers_device::checkpoint_fds(stream, held, id)?;
+        }
         "ember.list" => {
             handlers_device::list(stream, held, id)?;
         }
@@ -163,6 +166,12 @@ pub fn handle_client(
         "ember.mmio.circuit_breaker" => {
             handlers_mmio::circuit_breaker(stream, held, id, params)?;
         }
+        "ember.device.health" => {
+            handlers_mmio::device_health(stream, held, id, params)?;
+        }
+        "ember.device.recover" => {
+            handlers_mmio::device_recover(stream, held, id, params)?;
+        }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;
         }
@@ -236,7 +245,7 @@ pub fn handle_client_tcp(
     let params = &req.params;
 
     match req.method.as_str() {
-        "ember.vfio_fds" => {
+        "ember.vfio_fds" | "ember.checkpoint_fds" => {
             handlers_device::vfio_fds_unavailable(stream, id)?;
         }
         "ember.list" => {
@@ -311,6 +320,12 @@ pub fn handle_client_tcp(
         }
         "ember.mmio.circuit_breaker" => {
             handlers_mmio::circuit_breaker(stream, held, id, params)?;
+        }
+        "ember.device.health" => {
+            handlers_mmio::device_health(stream, held, id, params)?;
+        }
+        "ember.device.recover" => {
+            handlers_mmio::device_recover(stream, held, id, params)?;
         }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;

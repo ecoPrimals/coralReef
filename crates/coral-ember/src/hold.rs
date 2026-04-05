@@ -6,6 +6,56 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Device health — tracks the GPU's lifecycle state for operation gating.
+///
+/// State machine:
+/// ```text
+///           ┌──────────┐
+///     ┌─────│  Cold     │◄──── PM reset / reboot
+///     │     └──────────┘
+///     │ warm cycle │
+///     │            ▼
+///     │     ┌──────────┐     PRAMIN writes
+///     │     │ Pristine  │────────────────────┐
+///     │     └──────────┘                     │
+///     │            │                         ▼
+///     │    engine   │                 ┌──────────────┐
+///     │    reset    │                 │ Configured    │
+///     │            ▼                 └──────────────┘
+///     │     ┌──────────┐     bind           │
+///     │     │ Active    │◄──────────────────┘
+///     │     └──────────┘
+///     │            │ error
+///     │            ▼
+///     │     ┌──────────┐  bus reset / warm
+///     │     │ Faulted   │────────────────────┐
+///     │     └──────────┘                     │
+///     │                                      ▼
+///     │     ┌──────────┐               ┌──────────┐
+///     └────►│          │◄──────────────│Recovering │
+///           └──────────┘  success      └──────────┘
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum DeviceHealth {
+    /// No warm state — needs nouveau warm cycle before any GPU operations.
+    Cold,
+    /// Nouveau-warmed, no register changes yet. PRAMIN writes and register
+    /// I/O are both safe. This is the starting state after a warm cycle.
+    Pristine,
+    /// PRAMIN page tables written, FBIF configured. Ready for bind.
+    Configured,
+    /// Falcon bound and running. Full operation permitted.
+    Active,
+    /// Error detected — needs recovery. Only diagnostics and recovery
+    /// operations are allowed; all MMIO RPCs return an error.
+    Faulted,
+    /// Bus reset or warm cycle in progress. Operations blocked.
+    Recovering,
+    /// Legacy alias for `Pristine` — used by existing code that sets `Alive`.
+    /// Semantically equivalent to `Pristine` for operation gating.
+    Alive,
+}
+
 /// A GPU (or other PCI device) held open by ember with an associated [`coral_driver::vfio::VfioDevice`].
 pub struct HeldDevice {
     /// PCI address (`0000:01:00.0` style).
@@ -37,6 +87,34 @@ pub struct HeldDevice {
     /// [`MMIO_CIRCUIT_BREAKER_THRESHOLD`], all MMIO RPCs are refused until
     /// the device is manually reset or recycled.
     pub mmio_fault_count: u32,
+    /// Current health state — checked by all MMIO handlers before touching
+    /// hardware. Set to [`DeviceHealth::Faulted`] by the MMIO watchdog
+    /// when an operation times out and a bus reset is triggered.
+    pub health: DeviceHealth,
+    /// Per-device PCIe protection state: AER/DPC/timeout hardening and
+    /// the MMIO write-ordering sequencer. Armed at acquisition, disarmed
+    /// at release.
+    pub pcie_armor: Option<crate::pcie_armor::PcieArmor>,
+}
+
+impl DeviceHealth {
+    /// Whether the device is in a state that allows MMIO register operations.
+    pub fn allows_mmio(&self) -> bool {
+        matches!(
+            self,
+            Self::Pristine | Self::Configured | Self::Active | Self::Alive
+        )
+    }
+
+    /// Whether the device is in a state that allows PRAMIN (bulk VRAM) writes.
+    pub fn allows_vram_write(&self) -> bool {
+        matches!(self, Self::Pristine | Self::Alive)
+    }
+
+    /// Whether the device needs a warm cycle before any operations.
+    pub fn needs_warm(&self) -> bool {
+        matches!(self, Self::Cold)
+    }
 }
 
 /// After this many consecutive faulted pre-flight checks, ember refuses
@@ -58,6 +136,8 @@ impl HeldDevice {
             experiment_dirty: false,
             dma_prepare_state: None,
             mmio_fault_count: 0,
+            health: DeviceHealth::Alive,
+            pcie_armor: None,
         }
     }
 

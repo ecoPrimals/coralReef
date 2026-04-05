@@ -14,7 +14,16 @@ use super::{
     require_u64,
 };
 
-/// `ember.sec2.prepare_physical` — runs sec2_prepare_physical_first() server-side.
+/// `ember.sec2.prepare_physical` — runs sec2_prepare_v1() server-side.
+///
+/// Uses falcon v1 register interface: PMC reset with correct SEC2 bit,
+/// VRAM page tables, instance block bind via 0x480, FBIF → PHYS_VID.
+///
+/// The entire operation runs in a **forked child process** to provide
+/// true process-level isolation. If the child's CPU core gets stuck on
+/// a PRAMIN write (PCIe flow-control stall), the parent detects the
+/// timeout, triggers a bus reset from the bridge side (always accessible),
+/// kills the child, and marks the device faulted. Ember stays alive.
 ///
 /// Params: `{bdf}`
 /// Result: `{ok, notes[]}`
@@ -41,21 +50,180 @@ pub(crate) fn sec2_prepare_physical(
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
-    let (ok, notes) = {
-        let bar0 = dev.bar0.as_ref().unwrap();
-        coral_driver::nv::vfio_compute::acr_boot::sec2_prepare_physical_first(bar0)
-    };
+    let bdf_owned = bdf.to_string();
 
-    dev.experiment_dirty = true;
-    drop(map);
+    // Get the raw BAR0 pointer + size so the forked child can use it.
+    // After fork(), the mmap'd region is inherited — same virtual address,
+    // same physical mapping. The child can do volatile writes directly.
+    let bar0 = dev.bar0.as_ref().unwrap();
+    let bar0_ptr = bar0.base_ptr() as usize;
+    let bar0_size = bar0.size();
 
-    tracing::info!(bdf, ok, notes_count = notes.len(), "ember.sec2.prepare_physical: complete");
-    write_jsonrpc_ok(
-        stream,
-        id,
-        serde_json::json!({"ok": ok, "notes": notes}),
-    )
-    .map_err(EmberIpcError::from)
+    tracing::info!(
+        bdf,
+        bar0_ptr = format_args!("{bar0_ptr:#x}"),
+        bar0_size = format_args!("{bar0_size:#x}"),
+        "sec2_prepare_physical: launching fork-isolated child"
+    );
+
+    let fork_result = crate::isolation::fork_isolated_mmio(
+        &bdf_owned,
+        crate::isolation::MMIO_WATCHDOG_TIMEOUT,
+        |pipe_fd| {
+            // ═══ CHILD PROCESS ═══
+            // Reconstruct MappedBar from the inherited mmap pointer.
+            // SAFETY: the mmap is inherited across fork — same virtual
+            // address, same physical device mapping. No Rust locks are
+            // acquired here (MappedBar::from_raw is a trivial constructor).
+            let child_bar0 = unsafe {
+                coral_driver::vfio::device::MappedBar::from_raw(
+                    bar0_ptr as *mut u8,
+                    bar0_size,
+                )
+            };
+            let (ok, notes) =
+                coral_driver::nv::vfio_compute::acr_boot::sec2_prepare_v1(&child_bar0);
+
+            // Serialize result as JSON to the pipe.
+            // Use raw libc::write to avoid Rust stdio locks (poisoned after fork).
+            let json = serde_json::json!({"ok": ok, "notes": notes});
+            if let Ok(bytes) = serde_json::to_vec(&json) {
+                let mut written = 0usize;
+                while written < bytes.len() {
+                    let n = unsafe {
+                        libc::write(
+                            pipe_fd,
+                            bytes[written..].as_ptr().cast(),
+                            bytes.len() - written,
+                        )
+                    };
+                    if n <= 0 {
+                        break;
+                    }
+                    written += n as usize;
+                }
+            }
+
+            // Do NOT let MappedBar::drop run — the parent still owns the mmap.
+            std::mem::forget(child_bar0);
+        },
+    );
+
+    match fork_result {
+        crate::isolation::ForkResult::Ok(_) => {
+            // Child succeeded. Read the result from the trace file since the
+            // pipe was closed. Parse the JSON from the sec2 trace if needed.
+            // For now, re-read the trace to get the result.
+            let trace_path = "/var/lib/coralreef/traces/ember_sec2_trace.log";
+            let trace = std::fs::read_to_string(trace_path).unwrap_or_default();
+            let ok = trace.contains("sec2_prepare_v1 EXIT");
+            let bind_ok = trace.contains("BIND: complete ok=true");
+
+            let mut notes = vec![
+                "fork-isolated: child completed successfully".to_string(),
+            ];
+
+            // Try to parse the result from the pipe data written by child
+            // (the pipe read fd was already closed in fork_isolated_mmio,
+            // so we rely on the trace file)
+            for line in trace.lines() {
+                if let Some(suffix) = line.split(']').nth(1) {
+                    let trimmed = suffix.trim();
+                    if trimmed.starts_with("PMC0:")
+                        || trimmed.starts_with("RESET_")
+                        || trimmed.starts_with("BIND:")
+                        || trimmed.starts_with("PT_BUILD:")
+                        || trimmed.starts_with("FINAL:")
+                        || trimmed.starts_with("POST_RESET:")
+                        || trimmed.starts_with("VRAM_CHECK:")
+                        || trimmed.starts_with("FBIF:")
+                    {
+                        notes.push(trimmed.to_string());
+                    }
+                }
+            }
+
+            dev.experiment_dirty = true;
+            drop(map);
+
+            tracing::info!(bdf, ok = bind_ok, "sec2_prepare_physical (fork): complete");
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({"ok": ok && bind_ok, "notes": notes}),
+            )
+            .map_err(EmberIpcError::from)
+        }
+
+        crate::isolation::ForkResult::Timeout => {
+            tracing::error!(
+                bdf,
+                "sec2_prepare_physical: fork child TIMED OUT — device bus-reset, marking FAULTED"
+            );
+            dev.health = crate::hold::DeviceHealth::Faulted;
+            dev.bar0 = None;
+            drop(map);
+
+            write_jsonrpc_error(
+                stream,
+                id,
+                -32099,
+                &format!(
+                    "{bdf_owned}: sec2_prepare_physical timed out in fork-isolated child — \
+                     GPU was bus-reset. Device marked faulted. \
+                     Use ember.device.recover to attempt recovery."
+                ),
+            )
+            .map_err(EmberIpcError::from)
+        }
+
+        crate::isolation::ForkResult::ChildFailed { status } => {
+            tracing::error!(
+                bdf,
+                status,
+                "sec2_prepare_physical: fork child failed"
+            );
+            dev.health = crate::hold::DeviceHealth::Faulted;
+            drop(map);
+
+            write_jsonrpc_error(
+                stream,
+                id,
+                -32098,
+                &format!(
+                    "{bdf_owned}: sec2_prepare_physical child process failed (status={status}). \
+                     Device marked faulted."
+                ),
+            )
+            .map_err(EmberIpcError::from)
+        }
+
+        crate::isolation::ForkResult::ForkFailed(e) => {
+            tracing::error!(bdf, error = %e, "sec2_prepare_physical: fork() failed");
+            drop(map);
+
+            write_jsonrpc_error(
+                stream,
+                id,
+                -32097,
+                &format!("{bdf_owned}: fork() failed: {e}. Cannot isolate dangerous operation."),
+            )
+            .map_err(EmberIpcError::from)
+        }
+
+        crate::isolation::ForkResult::PipeFailed(e) => {
+            tracing::error!(bdf, error = %e, "sec2_prepare_physical: pipe() failed");
+            drop(map);
+
+            write_jsonrpc_error(
+                stream,
+                id,
+                -32096,
+                &format!("{bdf_owned}: pipe() failed: {e}"),
+            )
+            .map_err(EmberIpcError::from)
+        }
+    }
 }
 
 /// `ember.falcon.upload_imem` — upload code to falcon IMEM server-side.

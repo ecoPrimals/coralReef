@@ -158,6 +158,17 @@ impl MappedBar {
     pub const fn base_ptr(&self) -> *mut u8 {
         self.base_ptr
     }
+
+    /// Reconstruct a `MappedBar` from a raw pointer and size.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must point to a valid mmap'd BAR0 region of at least `size` bytes
+    /// - The mapping must remain valid for the lifetime of the returned value
+    /// - Caller must not let Drop run if they don't own the mapping (use `mem::forget`)
+    pub unsafe fn from_raw(ptr: *mut u8, size: usize) -> Self {
+        Self { base_ptr: ptr, size }
+    }
 }
 
 impl RegisterAccess for MappedBar {

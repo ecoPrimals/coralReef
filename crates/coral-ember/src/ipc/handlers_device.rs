@@ -87,6 +87,78 @@ pub(crate) fn vfio_fds_unavailable(
     .map_err(EmberIpcError::from)
 }
 
+/// `ember.checkpoint_fds` — send ALL VFIO fds for ALL held devices via SCM_RIGHTS.
+///
+/// Response JSON contains a manifest of devices and their fd layout so the
+/// receiver (glowplug's FdVault) knows how to reconstruct each device.
+/// The fds are concatenated in BDF-sorted order; the manifest specifies
+/// the count per device.
+pub(crate) fn checkpoint_fds(
+    stream: &mut UnixStream,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+) -> Result<(), EmberIpcError> {
+    let map = held.read().map_err(|_| EmberIpcError::LockPoisoned)?;
+
+    let mut manifest = Vec::new();
+    let mut all_fds = Vec::new();
+
+    let mut sorted_bdfs: Vec<&String> = map.keys().collect();
+    sorted_bdfs.sort();
+
+    for bdf in sorted_bdfs {
+        let dev = &map[bdf];
+        let fds = dev.device.sendable_fds();
+        let kind = dev.device.backend_kind();
+
+        let mut entry = serde_json::json!({
+            "bdf": bdf,
+            "num_fds": fds.len(),
+        });
+
+        match kind {
+            coral_driver::vfio::VfioBackendKind::Legacy => {
+                entry["backend"] = serde_json::json!("legacy");
+            }
+            coral_driver::vfio::VfioBackendKind::Iommufd { ioas_id } => {
+                entry["backend"] = serde_json::json!("iommufd");
+                entry["ioas_id"] = serde_json::json!(ioas_id);
+            }
+        }
+
+        manifest.push(entry);
+        all_fds.extend(fds);
+    }
+
+    let total_fds = all_fds.len();
+    let num_devices = manifest.len();
+
+    let result = serde_json::json!({
+        "devices": manifest,
+        "total_fds": total_fds,
+    });
+
+    let resp = make_jsonrpc_ok(id, result);
+    let resp_bytes = format!(
+        "{}\n",
+        serde_json::to_string(&resp)
+            .map_err(|e| EmberIpcError::JsonSerialize(format!("serialize: {e}")))?
+    );
+
+    // Send while lock is still held so fds remain valid
+    send_with_fds(&*stream, resp_bytes.as_bytes(), &all_fds).map_err(EmberIpcError::from)?;
+
+    drop(all_fds);
+    drop(map);
+
+    tracing::info!(
+        num_devices,
+        total_fds,
+        "checkpoint: sent all VFIO fds to caller"
+    );
+    Ok(())
+}
+
 pub(crate) fn list(
     stream: &mut impl Write,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -183,6 +255,8 @@ pub(crate) fn reacquire(
                         experiment_dirty: false,
                         dma_prepare_state: None,
                         mmio_fault_count: 0,
+                        health: crate::hold::DeviceHealth::Alive,
+                        pcie_armor: Some(crate::pcie_armor::PcieArmor::arm(&bdf)),
                     },
                 );
                 drop(map);

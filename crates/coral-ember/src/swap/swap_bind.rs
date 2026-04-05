@@ -72,6 +72,8 @@ pub(super) fn bind_vfio(
                     experiment_dirty: false,
                     dma_prepare_state: None,
                     mmio_fault_count: 0,
+                    health: crate::hold::DeviceHealth::Alive,
+                    pcie_armor: Some(crate::pcie_armor::PcieArmor::arm(&bdf)),
                 },
             );
         }

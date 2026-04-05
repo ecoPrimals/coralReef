@@ -280,6 +280,459 @@ pub fn pin_power(bdf: &str) {
     );
 }
 
+/// Set aggressive PCIe completion timeouts for a device and its root port.
+///
+/// On reboot, PCIe timeouts reset to defaults (50ms–4s). If a BAR0 read
+/// hits an unresponsive engine (e.g., PRAMIN on a cold GPU), the CPU blocks
+/// for the full timeout. With a 4s default, the NMI watchdog fires and the
+/// system locks up. Setting short timeouts (50µs–10ms) ensures the CPU gets
+/// 0xFFFFFFFF quickly instead of hanging.
+///
+/// Uses `setpci` to write Device Control 2 (CAP_EXP+0x28):
+///   bits[3:0] = completion timeout value
+///   0x1 = 50µs–100µs, 0x2 = 1ms–10ms
+pub fn harden_pcie_timeouts(bdf: &str) {
+    let set = |target: &str, value: &str| {
+        match std::process::Command::new("setpci")
+            .args(["-s", target, &format!("CAP_EXP+0x28.W={value}")])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                tracing::info!(bdf = target, value, "PCIe completion timeout hardened");
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!(bdf = target, value, %stderr, "setpci failed");
+            }
+            Err(e) => {
+                tracing::warn!(bdf = target, %e, "setpci command not found");
+            }
+        }
+    };
+
+    // Device: 50µs–100µs timeout (fastest)
+    set(bdf, "0001");
+
+    // Parent root port: 1ms–10ms (slightly longer to avoid false positives)
+    if let Some(bridge) = find_parent_bridge(bdf) {
+        set(&bridge, "0002");
+
+        // Disable DPC (Downstream Port Containment) on the bridge.
+        // DPC escalates PCIe completion timeouts into full link teardowns,
+        // making all subsequent MMIO hang indefinitely. With DPC disabled,
+        // errors are logged via AER but the link stays up — reads return
+        // 0xFFFF_FFFF and software can handle the failure gracefully.
+        disable_dpc(&bridge);
+
+        // Disable AER error reporting on the bridge. When a GPU MMIO
+        // operation triggers a PCIe error, the kernel's AER handler tries
+        // to read the device's AER registers through the downstream link.
+        // If that link is stuck (flow-control stall), the AER handler
+        // enters D-state and cascades to a full system lockup. Disabling
+        // AER reporting at the bridge prevents this cascade entirely.
+        disable_bridge_aer(&bridge);
+    }
+
+    // Disable reset_method to prevent vfio from triggering resets
+    let reset_path = linux_paths::sysfs_pci_device_file(bdf, "reset_method");
+    let _ = sysfs_write_direct(&reset_path, "");
+
+    // Raise NMI watchdog threshold so our 5s MMIO watchdog + 10s bus reset
+    // have room to complete without triggering a hard system lockup.
+    harden_nmi_watchdog();
+}
+
+/// Disable DPC (Downstream Port Containment) on a PCIe root port.
+///
+/// DPC is a PCIe feature that takes the link down when a completion timeout or
+/// other uncorrectable error is detected. While useful in production, it's
+/// catastrophic for GPU experimentation: a single bad MMIO read escalates into
+/// a full link teardown, making every subsequent operation hang indefinitely
+/// (the CPU blocks waiting for a completion that will never arrive because
+/// the link is down).
+///
+/// With DPC disabled, errors are still logged via AER but the link stays up.
+/// MMIO reads to a faulted device return `0xFFFF_FFFF` and writes silently
+/// fail — both are detectable and recoverable by software.
+///
+/// Reads the bridge's PCIe extended capability list to find the DPC capability
+/// (ID `0x001D`), then clears the trigger-enable bits in its control register.
+pub fn disable_dpc(bridge_bdf: &str) {
+    let config_path = linux_paths::sysfs_pci_device_file(bridge_bdf, "config");
+
+    let config = match std::fs::read(&config_path) {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::warn!(bdf = bridge_bdf, error = %e, "cannot read PCI config — skipping DPC disable");
+            return;
+        }
+    };
+
+    if config.len() < 0x104 {
+        tracing::debug!(bdf = bridge_bdf, "config space too small for extended caps");
+        return;
+    }
+
+    const DPC_CAP_ID: u16 = 0x001D;
+    let mut offset = 0x100u16;
+
+    loop {
+        if offset == 0 || (offset as usize) + 4 > config.len() {
+            break;
+        }
+
+        let header = u32::from_le_bytes([
+            config[offset as usize],
+            config[offset as usize + 1],
+            config[offset as usize + 2],
+            config[offset as usize + 3],
+        ]);
+
+        let cap_id = (header & 0xFFFF) as u16;
+        let next_offset = ((header >> 20) & 0xFFC) as u16;
+
+        if cap_id == DPC_CAP_ID {
+            let ctrl_offset = offset + 6;
+
+            if (ctrl_offset as usize) + 2 > config.len() {
+                tracing::warn!(bdf = bridge_bdf, "DPC capability found but control register out of bounds");
+                return;
+            }
+
+            let current_ctrl = u16::from_le_bytes([
+                config[ctrl_offset as usize],
+                config[ctrl_offset as usize + 1],
+            ]);
+
+            if current_ctrl & 0x03 == 0 {
+                tracing::info!(bdf = bridge_bdf, "DPC already disabled on root port");
+                return;
+            }
+
+            // Clear trigger-enable (bits 0-1) and interrupt-enable (bit 3)
+            let new_ctrl = current_ctrl & !0x000B;
+
+            match std::process::Command::new("setpci")
+                .args([
+                    "-s",
+                    bridge_bdf,
+                    &format!("{ctrl_offset:#x}.W={new_ctrl:04x}"),
+                ])
+                .output()
+            {
+                Ok(out) if out.status.success() => {
+                    tracing::info!(
+                        bdf = bridge_bdf,
+                        offset = ctrl_offset,
+                        old_ctrl = format_args!("{current_ctrl:#06x}"),
+                        new_ctrl = format_args!("{new_ctrl:#06x}"),
+                        "DPC DISABLED — PCIe errors logged via AER without link teardown"
+                    );
+                }
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    tracing::warn!(bdf = bridge_bdf, %stderr, "setpci DPC disable failed");
+                }
+                Err(e) => {
+                    tracing::warn!(bdf = bridge_bdf, error = %e, "setpci not found for DPC disable");
+                }
+            }
+            return;
+        }
+
+        offset = next_offset;
+    }
+
+    tracing::debug!(bdf = bridge_bdf, "DPC capability not found on this bridge");
+}
+
+/// Disable AER error reporting on a bridge permanently (at startup).
+///
+/// Clears bits 0-2 (CERptEn, NFERptEn, FERptEn) in the AER Root Command
+/// register. This prevents the kernel's AER handler from chasing errors on
+/// downstream devices — if the device link is stuck, the AER handler would
+/// enter D-state trying to read AER registers through the dead link.
+fn disable_bridge_aer(bridge_bdf: &str) {
+    let config_path = linux_paths::sysfs_pci_device_file(bridge_bdf, "config");
+    let config = match std::fs::read(&config_path) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(bdf = bridge_bdf, error = %e, "cannot read config for AER disable");
+            return;
+        }
+    };
+
+    let Some(aer_base) = find_ext_cap(&config, AER_CAP_ID) else {
+        tracing::debug!(bdf = bridge_bdf, "AER capability not found");
+        return;
+    };
+    let root_cmd_off = aer_base + AER_ROOT_CMD_OFFSET;
+    if (root_cmd_off as usize) + 4 > config.len() {
+        return;
+    }
+
+    let current = u32::from_le_bytes([
+        config[root_cmd_off as usize],
+        config[root_cmd_off as usize + 1],
+        config[root_cmd_off as usize + 2],
+        config[root_cmd_off as usize + 3],
+    ]);
+
+    if current & AER_ROOT_CMD_REPORT_MASK == 0 {
+        tracing::info!(bdf = bridge_bdf, "AER reporting already disabled on bridge");
+        return;
+    }
+
+    let masked = current & !AER_ROOT_CMD_REPORT_MASK;
+    match std::process::Command::new("setpci")
+        .args(["-s", bridge_bdf, &format!("{root_cmd_off:#x}.L={masked:08x}")])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            tracing::info!(
+                bdf = bridge_bdf,
+                old = format_args!("{current:#010x}"),
+                new = format_args!("{masked:#010x}"),
+                "AER DISABLED on bridge — kernel error handler cannot cascade on stuck device"
+            );
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(bdf = bridge_bdf, %stderr, "setpci AER disable failed");
+        }
+        Err(e) => {
+            tracing::warn!(bdf = bridge_bdf, error = %e, "setpci not found for AER disable");
+        }
+    }
+}
+
+// ─── AER masking for fork-isolated operations ──────────────────────────────
+
+const AER_CAP_ID: u16 = 0x0001;
+/// AER Root Command register offset within the AER extended capability.
+const AER_ROOT_CMD_OFFSET: u16 = 0x2C;
+/// Bits 0-2: CERptEn, NFERptEn, FERptEn
+const AER_ROOT_CMD_REPORT_MASK: u32 = 0x07;
+
+/// Find the offset of an extended capability in PCI config space.
+fn find_ext_cap(config: &[u8], cap_id: u16) -> Option<u16> {
+    let mut offset = 0x100u16;
+    loop {
+        if offset == 0 || (offset as usize) + 4 > config.len() {
+            return None;
+        }
+        let header = u32::from_le_bytes([
+            config[offset as usize],
+            config[offset as usize + 1],
+            config[offset as usize + 2],
+            config[offset as usize + 3],
+        ]);
+        if (header & 0xFFFF) as u16 == cap_id {
+            return Some(offset);
+        }
+        let next = ((header >> 20) & 0xFFC) as u16;
+        if next == offset {
+            return None;
+        }
+        offset = next;
+    }
+}
+
+/// Disable AER error reporting on the parent bridge so the kernel's AER
+/// handler cannot try to access a hung device's config space (which would
+/// cascade into a kernel D-state lockup).
+///
+/// Returns the previous AER Root Command value so it can be restored later
+/// via [`unmask_bridge_aer`].
+pub fn mask_bridge_aer(bdf: &str) -> Option<(String, u32)> {
+    let bridge_bdf = find_parent_bridge(bdf)?;
+    let config_path = linux_paths::sysfs_pci_device_file(&bridge_bdf, "config");
+    let config = std::fs::read(&config_path).ok()?;
+
+    let aer_base = find_ext_cap(&config, AER_CAP_ID)?;
+    let root_cmd_off = aer_base + AER_ROOT_CMD_OFFSET;
+
+    if (root_cmd_off as usize) + 4 > config.len() {
+        tracing::warn!(bdf, bridge = %bridge_bdf, "AER Root Command register out of bounds");
+        return None;
+    }
+
+    let current = u32::from_le_bytes([
+        config[root_cmd_off as usize],
+        config[root_cmd_off as usize + 1],
+        config[root_cmd_off as usize + 2],
+        config[root_cmd_off as usize + 3],
+    ]);
+
+    if current & AER_ROOT_CMD_REPORT_MASK == 0 {
+        tracing::debug!(bdf, bridge = %bridge_bdf, "AER already masked");
+        return Some((bridge_bdf, current));
+    }
+
+    let masked = current & !AER_ROOT_CMD_REPORT_MASK;
+    match std::process::Command::new("setpci")
+        .args(["-s", &bridge_bdf, &format!("{root_cmd_off:#x}.L={masked:08x}")])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            tracing::info!(
+                bdf,
+                bridge = %bridge_bdf,
+                old = format_args!("{current:#010x}"),
+                new = format_args!("{masked:#010x}"),
+                "AER MASKED on bridge — kernel error handler will not chase hung device"
+            );
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(bdf, bridge = %bridge_bdf, %stderr, "setpci AER mask failed");
+        }
+        Err(e) => {
+            tracing::warn!(bdf, bridge = %bridge_bdf, error = %e, "setpci not found for AER mask");
+        }
+    }
+
+    Some((bridge_bdf, current))
+}
+
+/// Re-enable AER error reporting on a bridge after a fork-isolated operation
+/// completes. Pass the (bridge_bdf, original_value) returned by [`mask_bridge_aer`].
+pub fn unmask_bridge_aer(bridge_bdf: &str, original_root_cmd: u32) {
+    let config_path = linux_paths::sysfs_pci_device_file(bridge_bdf, "config");
+    let config = match std::fs::read(&config_path) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(bridge = %bridge_bdf, error = %e, "cannot read config for AER unmask");
+            return;
+        }
+    };
+
+    let Some(aer_base) = find_ext_cap(&config, AER_CAP_ID) else {
+        return;
+    };
+    let root_cmd_off = aer_base + AER_ROOT_CMD_OFFSET;
+
+    match std::process::Command::new("setpci")
+        .args([
+            "-s",
+            bridge_bdf,
+            &format!("{root_cmd_off:#x}.L={original_root_cmd:08x}"),
+        ])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            tracing::info!(
+                bridge = %bridge_bdf,
+                value = format_args!("{original_root_cmd:#010x}"),
+                "AER UNMASKED — bridge error reporting restored"
+            );
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(bridge = %bridge_bdf, %stderr, "setpci AER unmask failed");
+        }
+        Err(e) => {
+            tracing::warn!(bridge = %bridge_bdf, error = %e, "setpci not found for AER unmask");
+        }
+    }
+}
+
+// ─── Raw Secondary Bus Reset (bypasses kernel pci_save_state) ──────────────
+
+/// Trigger a PCIe Secondary Bus Reset (SBR) by directly toggling bit 6 of
+/// `PCI_BRIDGE_CONTROL` (config offset 0x3E) via sysfs config-space write.
+///
+/// Unlike the kernel's `/sys/bus/pci/devices/{bridge}/reset` file — which
+/// calls `pci_save_state()` on all downstream devices before the reset
+/// (hanging if the device's link is stuck) — this writes directly to the
+/// bridge's config space which is always accessible via ECAM.
+pub fn raw_bridge_sbr(bdf: &str) -> Result<(), SysfsError> {
+    let bridge_bdf = find_parent_bridge(bdf).ok_or_else(|| SysfsError::BridgeNotFound {
+        bdf: bdf.to_string(),
+    })?;
+
+    const PCI_BRIDGE_CONTROL: &str = "3e";
+
+    let read_bridge_ctrl = || -> Result<u16, SysfsError> {
+        let out = std::process::Command::new("setpci")
+            .args(["-s", &bridge_bdf, &format!("{PCI_BRIDGE_CONTROL}.W")])
+            .output()
+            .map_err(|e| SysfsError::Write {
+                path: bridge_bdf.clone(),
+                reason: format!("setpci read bridge ctrl: {e}"),
+            })?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        u16::from_str_radix(text.trim(), 16).map_err(|_| SysfsError::BridgeResetMissing {
+            bdf: bdf.to_string(),
+            bridge_bdf: bridge_bdf.clone(),
+        })
+    };
+
+    let write_bridge_ctrl = |val: u16| -> Result<(), SysfsError> {
+        let out = std::process::Command::new("setpci")
+            .args([
+                "-s",
+                &bridge_bdf,
+                &format!("{PCI_BRIDGE_CONTROL}.W={val:04x}"),
+            ])
+            .output()
+            .map_err(|e| SysfsError::Write {
+                path: bridge_bdf.clone(),
+                reason: format!("setpci write bridge ctrl: {e}"),
+            })?;
+        if !out.status.success() {
+            return Err(SysfsError::BridgeResetMissing {
+                bdf: bdf.to_string(),
+                bridge_bdf: bridge_bdf.clone(),
+            });
+        }
+        Ok(())
+    };
+
+    let ctrl = read_bridge_ctrl()?;
+
+    tracing::info!(
+        bdf,
+        bridge = %bridge_bdf,
+        ctrl = format_args!("{ctrl:#06x}"),
+        "raw SBR: asserting Secondary Bus Reset via PCI_BRIDGE_CONTROL"
+    );
+
+    // Assert SBR (bit 6)
+    write_bridge_ctrl(ctrl | 0x0040)?;
+
+    // Hold reset for 100ms (PCI spec minimum is 1ms, extra margin for safety)
+    std::thread::sleep(Duration::from_millis(100));
+
+    // De-assert SBR
+    write_bridge_ctrl(ctrl & !0x0040)?;
+
+    // Wait for link re-training
+    std::thread::sleep(Duration::from_millis(500));
+
+    pin_power(bdf);
+    pin_bridge_power(bdf);
+
+    tracing::info!(bdf, bridge = %bridge_bdf, "raw SBR complete — link should be re-trained");
+    Ok(())
+}
+
+/// Raise the kernel NMI watchdog threshold to prevent hard lockups during
+/// PCIe error recovery.
+///
+/// The NMI watchdog fires when a CPU core is stuck in kernel mode for
+/// `watchdog_thresh` seconds (default 10). During GPU recovery (bus reset
+/// + MMIO retry), a core can appear stuck for several seconds. Raising the
+/// threshold to 60s gives our 5s MMIO watchdog + bus reset ample headroom.
+fn harden_nmi_watchdog() {
+    match std::fs::write("/proc/sys/kernel/watchdog_thresh", "60") {
+        Ok(()) => tracing::info!("NMI watchdog threshold raised to 60s"),
+        Err(e) => {
+            tracing::debug!(error = %e, "cannot set NMI watchdog threshold (may need CAP_SYS_PTRACE)");
+        }
+    }
+}
+
 /// Write `driver_override` sysfs attribute to lock a device to a specific driver.
 /// Used to protect display GPUs from being rebound to vfio-pci or nouveau.
 pub fn set_driver_override(bdf: &str, driver: &str) {

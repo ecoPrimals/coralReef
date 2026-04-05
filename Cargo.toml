@@ -44,6 +44,7 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 
 # OS / filesystem helpers
+libc = "0.2"
 rustix = "1.1.4"
 tempfile = "3"
 toml = "0.8"

@@ -49,7 +49,9 @@ pub mod config;
 pub mod device;
 pub mod ecosystem;
 pub mod ember;
+pub mod ember_lifecycle;
 pub mod error;
+pub mod fd_vault;
 #[cfg(unix)]
 pub mod group_unix;
 pub mod health;

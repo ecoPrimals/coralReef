@@ -318,6 +318,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "coral-driver",
+ "libc",
  "rustix",
  "serde",
  "serde_json",

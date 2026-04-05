@@ -180,25 +180,29 @@ pub fn falcon_v1_bind_context(
     use crate::vfio::channel::registers::falcon;
     let mut notes = Vec::new();
 
-    // Step 1: ITFEN bits [5:4] = 0x30 (enable both DMA bits)
-    let itfen = r(falcon::ITFEN);
-    w(falcon::ITFEN, (itfen & !0x30) | 0x30);
+    // Step 1: Clear ITFEN entirely (nouveau: nvkm_falcon_wr32(falcon, 0x048, 0))
+    // MUST clear to 0 — preserving old bits (like bit 2 from physical mode)
+    // conflicts with v1 DMA bits [5:4].
+    let itfen_before = r(falcon::ITFEN);
+    w(falcon::ITFEN, 0);
     notes.push(format!(
-        "v1 ITFEN: {itfen:#010x} → {:#010x}",
+        "v1 ITFEN: {itfen_before:#010x} → {:#010x} (cleared)",
         r(falcon::ITFEN)
     ));
 
     // Step 2: Write instance block to 0x480
+    // Format: target[31:28] | (addr >> 12)[27:0] — NO bit 30 unlike gm200
     let bind_val = (target << 28) | ((inst_addr >> 12) as u32);
     w(falcon::FALCON_V1_INST, bind_val);
     notes.push(format!(
         "v1 inst: wrote {bind_val:#010x} to 0x480 (addr={inst_addr:#x} target={target})"
     ));
 
-    // Step 3: ITFEN bits [5:4] = 0x10 (clear bit 5, keep bit 4)
-    w(falcon::ITFEN, (itfen & !0x30) | 0x10);
+    // Step 3: Set ITFEN = 0x10 (bit 4 only — v1 DMA enable)
+    // nouveau: nvkm_falcon_wr32(falcon, 0x048, 0x10)
+    w(falcon::ITFEN, 0x10);
     notes.push(format!(
-        "v1 ITFEN→{:#010x} (bit4 only)",
+        "v1 ITFEN→{:#010x} (bit4=0x10)",
         r(falcon::ITFEN)
     ));
 
@@ -321,121 +325,149 @@ pub fn encode_sysmem_pte(iova: u64) -> u64 {
 /// Returns true if successful. Maps first 2MB of VRAM so falcon DMA can
 /// access VRAM addresses 0x0..0x200000 (covers our ACR payload + WPR).
 pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
-    let wv = |vram_addr: u32, offset: usize, val: u32| -> bool {
-        match PraminRegion::new(bar0, vram_addr, offset + 4) {
-            Ok(mut region) => region.write_u32(offset, val).is_ok(),
-            Err(_) => false,
+    // Crash-resilient trace: fsync after each page so we know exactly
+    // where the system dies if it locks up during PRAMIN writes.
+    fn pt_trace(msg: &str) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/var/lib/coralreef/traces/ember_sec2_trace.log")
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let _ = writeln!(f, "[{ts}] PT_BUILD: {msg}");
+            let _ = f.sync_all();
+        }
+    }
+
+    const REGION_BASE: u32 = FALCON_INST_VRAM; // 0x10000
+    const REGION_END: u32 = FALCON_PT0_VRAM + 0x1000; // 0x16000
+    const REGION_SIZE: usize = (REGION_END - REGION_BASE) as usize; // 0x6000
+
+    pt_trace("creating single PRAMIN region 0x10000..0x16000");
+    let mut rgn = match PraminRegion::new(bar0, REGION_BASE, REGION_SIZE) {
+        Ok(r) => r,
+        Err(e) => {
+            pt_trace(&format!("PRAMIN region FAILED: {e}"));
+            tracing::error!(%e, "build_vram_falcon_inst_block: PRAMIN region failed");
+            return false;
         }
     };
-    let wv64 = |vram_addr: u32, offset: usize, val: u64| -> bool {
+    pt_trace("PRAMIN region created OK");
+
+    let wv = |rgn: &mut PraminRegion, vram_addr: u32, offset: usize, val: u32| -> bool {
+        let abs = (vram_addr - REGION_BASE) as usize + offset;
+        rgn.write_u32(abs, val).is_ok()
+    };
+    let wv64 = |rgn: &mut PraminRegion, vram_addr: u32, offset: usize, val: u64| -> bool {
         let lo = (val & 0xFFFF_FFFF) as u32;
         let hi = (val >> 32) as u32;
-        wv(vram_addr, offset, lo) && wv(vram_addr, offset + 4, hi)
+        wv(rgn, vram_addr, offset, lo) && wv(rgn, vram_addr, offset + 4, hi)
     };
 
-    // Zero ALL pages first — stale VRAM garbage in unused PDE/PTE entries
-    // can look valid to the MMU walker and cause it to follow bogus pointers.
-    for &page_vram in &[
-        FALCON_INST_VRAM,
-        FALCON_PD3_VRAM,
-        FALCON_PD2_VRAM,
-        FALCON_PD1_VRAM,
-        FALCON_PD0_VRAM,
-        FALCON_PT0_VRAM,
-    ] {
+    // Zero each page with per-page tracing, read-back verification, and
+    // PRI drain pacing. Each page = 1024 writes. Without pacing, 6144
+    // rapid-fire PRAMIN writes saturate the PCIe posted-write buffer and
+    // can trigger DPC (Downstream Port Containment) on the root port.
+    let pages: [(&str, u32); 6] = [
+        ("INST", FALCON_INST_VRAM),
+        ("PD3", FALCON_PD3_VRAM),
+        ("PD2", FALCON_PD2_VRAM),
+        ("PD1", FALCON_PD1_VRAM),
+        ("PD0", FALCON_PD0_VRAM),
+        ("PT0", FALCON_PT0_VRAM),
+    ];
+
+    for (page_idx, (name, page_vram)) in pages.iter().enumerate() {
+        pt_trace(&format!("zeroing page {page_idx}/6: {name} @ {page_vram:#x} (1024 writes)"));
+
         for off in (0..0x1000).step_by(4) {
-            if !wv(page_vram, off, 0) {
+            if !wv(&mut rgn, *page_vram, off, 0) {
+                pt_trace(&format!("ZERO FAILED: {name} offset {off:#x}"));
                 tracing::warn!(page_vram, off, "failed to zero page");
                 return false;
             }
+
+            // Insert a read-back every 256 writes to force PCIe completion
+            // and prevent posted-write buffer overflow. The read is non-posted
+            // and acts as a natural flow-control barrier.
+            if off > 0 && off % 1024 == 0 {
+                let abs = (*page_vram - REGION_BASE) as usize;
+                let _ = rgn.read_u32(abs);
+            }
         }
+
+        // After each page: PRI drain + readback verification
+        let _ = bar0.write_u32(0x0012_004C, 0x2);
+        std::thread::sleep(std::time::Duration::from_micros(200));
+        let abs = (*page_vram - REGION_BASE) as usize;
+        let rb = rgn.read_u32(abs).unwrap_or(0xDEAD_DEAD);
+        pt_trace(&format!("page {name} zeroed OK, readback[0]={rb:#010x}"));
     }
 
-    // GV100 MMU v2 uses 16-byte (128-bit) PDE entries at all directory levels.
-    // Non-leaf PDEs: lower 8 bytes = 0 (V=0 → PDE mode), upper 8 bytes = pointer.
-    // PD0 dual PDE: lower 8 bytes = big PT (0 for small-only), upper 8 bytes = small PT.
+    pt_trace("all pages zeroed — writing PDEs");
 
-    // PD3[0] → PD2 (upper half of 16-byte entry)
-    if !wv64(FALCON_PD3_VRAM, 0, 0) {
-        return false;
-    }
-    if !wv64(FALCON_PD3_VRAM, 8, encode_vram_pde(FALCON_PD2_VRAM as u64)) {
-        return false;
-    }
+    // PD3[0] → PD2
+    if !wv64(&mut rgn, FALCON_PD3_VRAM, 0, 0) { return false; }
+    if !wv64(&mut rgn, FALCON_PD3_VRAM, 8, encode_vram_pde(FALCON_PD2_VRAM as u64)) { return false; }
     // PD2[0] → PD1
-    if !wv64(FALCON_PD2_VRAM, 0, 0) {
-        return false;
-    }
-    if !wv64(FALCON_PD2_VRAM, 8, encode_vram_pde(FALCON_PD1_VRAM as u64)) {
-        return false;
-    }
+    if !wv64(&mut rgn, FALCON_PD2_VRAM, 0, 0) { return false; }
+    if !wv64(&mut rgn, FALCON_PD2_VRAM, 8, encode_vram_pde(FALCON_PD1_VRAM as u64)) { return false; }
     // PD1[0] → PD0
-    if !wv64(FALCON_PD1_VRAM, 0, 0) {
-        return false;
-    }
-    if !wv64(FALCON_PD1_VRAM, 8, encode_vram_pde(FALCON_PD0_VRAM as u64)) {
-        return false;
-    }
-    // PD0[0] → PT0 (dual PDE: lower = big PT [none], upper = small PT)
-    if !wv64(FALCON_PD0_VRAM, 0, 0) {
-        return false;
-    }
-    if !wv64(FALCON_PD0_VRAM, 8, encode_vram_pde(FALCON_PT0_VRAM as u64)) {
-        return false;
-    }
+    if !wv64(&mut rgn, FALCON_PD1_VRAM, 0, 0) { return false; }
+    if !wv64(&mut rgn, FALCON_PD1_VRAM, 8, encode_vram_pde(FALCON_PD0_VRAM as u64)) { return false; }
+    // PD0[0] → PT0
+    if !wv64(&mut rgn, FALCON_PD0_VRAM, 0, 0) { return false; }
+    if !wv64(&mut rgn, FALCON_PD0_VRAM, 8, encode_vram_pde(FALCON_PT0_VRAM as u64)) { return false; }
 
-    // PT0: identity-map 512 small pages (4KiB each = 2MiB total).
-    // Starts at page 0 to avoid unmapped-VA faults if firmware accesses low VRAM.
+    pt_trace("PDEs written — writing 512 PTEs");
+
+    // PT0: identity-map 512 small pages (4KiB each = 2MiB total)
     for i in 0u64..512 {
         let phys = i * 4096;
         let pte = encode_vram_pte(phys);
-        if !wv64(FALCON_PT0_VRAM, (i as usize) * 8, pte) {
+        if !wv64(&mut rgn, FALCON_PT0_VRAM, (i as usize) * 8, pte) {
+            pt_trace(&format!("PTE write FAILED at entry {i}"));
             return false;
         }
+        // Read-back pacing every 64 PTEs
+        if i > 0 && i % 64 == 0 {
+            let abs = (FALCON_PT0_VRAM - REGION_BASE) as usize;
+            let _ = rgn.read_u32(abs);
+        }
     }
+
+    pt_trace("PTEs written — writing instance block header");
 
     // Instance block: PAGE_DIR_BASE at RAMIN offset 0x200
     let pdb_lo: u32 = ((FALCON_PD3_VRAM >> 12) << 12)
         | (1 << 11) // BIG_PAGE_SIZE = 64KiB
         | (1 << 10) // USE_VER2_PT_FORMAT
-        ; // target bits[1:0] = 0 = VRAM, VOL=0
-    if !wv(FALCON_INST_VRAM, 0x200, pdb_lo) {
-        return false;
-    }
-    if !wv(FALCON_INST_VRAM, 0x204, 0) {
-        return false;
-    }
+        ;
+    if !wv(&mut rgn, FALCON_INST_VRAM, 0x200, pdb_lo) { return false; }
+    if !wv(&mut rgn, FALCON_INST_VRAM, 0x204, 0) { return false; }
+    if !wv(&mut rgn, FALCON_INST_VRAM, 0x208, 0xFFFF_FFFF) { return false; }
+    if !wv(&mut rgn, FALCON_INST_VRAM, 0x20C, 0x0001_FFFF) { return false; }
 
-    // VA limit = 128TB
-    if !wv(FALCON_INST_VRAM, 0x208, 0xFFFF_FFFF) {
-        return false;
-    }
-    if !wv(FALCON_INST_VRAM, 0x20C, 0x0001_FFFF) {
-        return false;
-    }
-
-    // Verify: read back key entries (PDE pointer is at upper 8 bytes = offset +8)
-    let rv = |vram_addr: u32, offset: usize| -> u32 {
-        PraminRegion::new(bar0, vram_addr, offset + 4)
-            .ok()
-            .and_then(|r| r.read_u32(offset).ok())
-            .unwrap_or(0xDEAD)
+    // Verify key entries
+    let rv = |rgn: &PraminRegion, vram_addr: u32, offset: usize| -> u32 {
+        let abs = (vram_addr - REGION_BASE) as usize + offset;
+        rgn.read_u32(abs).unwrap_or(0xDEAD)
     };
-    let pdb_rb = rv(FALCON_INST_VRAM, 0x200);
-    let pd3_hi_lo = rv(FALCON_PD3_VRAM, 8);
-    let pd3_hi_hi = rv(FALCON_PD3_VRAM, 12);
-    let pt0_112_lo = rv(FALCON_PT0_VRAM, 112 * 8);
-    let pt0_112_hi = rv(FALCON_PT0_VRAM, 112 * 8 + 4);
-    let pt0_1_lo = rv(FALCON_PT0_VRAM, 8);
-    let pt0_1_hi = rv(FALCON_PT0_VRAM, 8 + 4);
+    let pdb_rb = rv(&rgn, FALCON_INST_VRAM, 0x200);
+    let pd3_hi_lo = rv(&rgn, FALCON_PD3_VRAM, 8);
+
+    pt_trace(&format!(
+        "instance block complete: pdb={pdb_lo:#010x} rb={pdb_rb:#010x} pd3_hi={pd3_hi_lo:#010x}"
+    ));
 
     tracing::info!(
         pdb_lo = format!("{pdb_lo:#010x}"),
         pdb_rb = format!("{pdb_rb:#010x}"),
-        pd3_upper = format!("{pd3_hi_lo:#010x}:{pd3_hi_hi:#010x}"),
-        pt112 = format!("{pt0_112_lo:#010x}:{pt0_112_hi:#010x}"),
-        pt1 = format!("{pt0_1_lo:#010x}:{pt0_1_hi:#010x}"),
-        "VRAM falcon instance block built"
+        "VRAM falcon instance block built (paced, single-window)"
     );
     true
 }

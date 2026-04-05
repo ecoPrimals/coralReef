@@ -621,6 +621,8 @@ fn handle_client_ember_vfio_fds_with_hardware() {
             experiment_dirty: false,
             dma_prepare_state: None,
             mmio_fault_count: 0,
+            health: crate::hold::DeviceHealth::Alive,
+            pcie_armor: None,
         },
     );
     let held = Arc::new(RwLock::new(map));

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
 //! coral-ember — Immortal VFIO fd holder for safe daemon restarts.
 //!
@@ -20,9 +20,12 @@ pub mod ecosystem;
 pub(crate) mod error;
 mod guarded_open;
 mod hold;
+#[allow(unsafe_code)]
+pub mod isolation;
 mod ipc;
 pub mod journal;
 pub mod observation;
+pub mod pcie_armor;
 mod swap;
 mod sysfs;
 pub mod trace;
@@ -35,7 +38,7 @@ use std::sync::{Arc, RwLock};
 
 use serde::Deserialize;
 
-pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
+pub use hold::{DeviceHealth, HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
 pub use ipc::handlers_policy::{BootPolicy, PolicyStore, new_policy_store};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};
@@ -112,6 +115,8 @@ pub const EMBER_LISTEN_PORT_ENV: &str = "CORALREEF_EMBER_PORT";
 /// let opts = EmberRunOptions {
 ///     config_path: Some("/etc/coralreef/glowplug.toml".into()),
 ///     listen_port: Some(9000),
+///     resurrect: false,
+///     glowplug_socket: None,
 /// };
 /// assert_eq!(opts.listen_port, Some(9000));
 /// ```
@@ -121,6 +126,13 @@ pub struct EmberRunOptions {
     pub config_path: Option<String>,
     /// When `Some`, also listens on `$CORALREEF_EMBER_TCP_HOST:port` (default `127.0.0.1`) for JSON-RPC over TCP.
     pub listen_port: Option<u16>,
+    /// When `true`, ember does not open VFIO devices from sysfs. Instead it
+    /// connects to glowplug's fd vault and receives VFIO fds via SCM_RIGHTS.
+    /// This allows ember to restart without triggering PM reset.
+    pub resurrect: bool,
+    /// Glowplug socket path for resurrection. When `None`, uses the default
+    /// glowplug socket path.
+    pub glowplug_socket: Option<String>,
 }
 
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
@@ -219,6 +231,8 @@ pub fn run() -> Result<(), i32> {
     run_with_options(EmberRunOptions {
         config_path: std::env::args().nth(1),
         listen_port: None,
+        resurrect: false,
+        glowplug_socket: None,
     })
 }
 
@@ -287,104 +301,153 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
     let started_at = std::time::Instant::now();
     let mut held_init: HashMap<String, HeldDevice> = HashMap::new();
-
     let mut deferred_bdfs: Vec<String> = Vec::new();
 
-    for dev_config in &compute_devices {
-        tracing::info!(bdf = %dev_config.bdf, "acquiring VFIO device for ember hold");
+    if opts.resurrect {
+        // ── RESURRECTION PATH ──
+        // Receive VFIO fds from glowplug's fd vault instead of opening from sysfs.
+        tracing::info!("RESURRECT MODE — requesting VFIO fds from glowplug vault");
 
-        let bdf = dev_config.bdf.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let glowplug_socket = opts.glowplug_socket.clone().unwrap_or_else(default_glowplug_socket);
 
-        std::thread::Builder::new()
-            .name(format!("ember-acquire-{bdf}"))
-            .spawn({
-                let bdf = bdf.clone();
-                move || {
-                    let lifecycle = vendor_lifecycle::detect_lifecycle(&bdf);
-                    let cold_sensitive = lifecycle.is_cold_sensitive();
+        match resurrect_from_vault(&glowplug_socket, &compute_devices) {
+            Ok(devices) => {
+                for (bdf, device) in devices {
+                    let armor = pcie_armor::PcieArmor::arm(&bdf);
+                    let req_eventfd = arm_req_irq(&device, &bdf);
+                    tracing::info!(
+                        bdf = %bdf,
+                        backend = ?device.backend_kind(),
+                        "RESURRECTED device from vault (PCIe armor active)"
+                    );
+                    held_init.insert(
+                        bdf.clone(),
+                        HeldDevice {
+                            bdf,
+                            device,
+                            bar0: None,
+                            ring_meta: hold::RingMeta::default(),
+                            req_eventfd,
+                            experiment_dirty: false,
+                            dma_prepare_state: None,
+                            mmio_fault_count: 0,
+                            health: hold::DeviceHealth::Alive,
+                            pcie_armor: Some(armor),
+                        },
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "resurrection failed — falling back to sysfs acquisition");
+                // Fall through to normal acquisition
+            }
+        }
+    }
 
-                    let current = sysfs::read_current_driver(&bdf);
-                    if let Some(ref drv) = current {
-                        if let Err(e) = lifecycle.prepare_for_unbind(&bdf, drv) {
-                            tracing::warn!(
-                                bdf = %bdf, error = %e,
-                                "startup: prepare_for_unbind failed (non-fatal)"
-                            );
+    if !opts.resurrect || held_init.is_empty() {
+        // ── NORMAL SYSFS ACQUISITION PATH ──
+        for dev_config in &compute_devices {
+            if held_init.contains_key(&dev_config.bdf) {
+                continue;
+            }
+
+            tracing::info!(bdf = %dev_config.bdf, "acquiring VFIO device for ember hold");
+
+            let bdf = dev_config.bdf.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+
+            std::thread::Builder::new()
+                .name(format!("ember-acquire-{bdf}"))
+                .spawn({
+                    let bdf = bdf.clone();
+                    move || {
+                        let lifecycle = vendor_lifecycle::detect_lifecycle(&bdf);
+                        let cold_sensitive = lifecycle.is_cold_sensitive();
+
+                        let current = sysfs::read_current_driver(&bdf);
+                        if let Some(ref drv) = current {
+                            if let Err(e) = lifecycle.prepare_for_unbind(&bdf, drv) {
+                                tracing::warn!(
+                                    bdf = %bdf, error = %e,
+                                    "startup: prepare_for_unbind failed (non-fatal)"
+                                );
+                            }
+                        } else {
+                            sysfs::pin_power(&bdf);
                         }
-                    } else {
+
+                        let group_id = sysfs::read_iommu_group(&bdf);
+                        if group_id != 0 {
+                            sysfs::bind_iommu_group_to_vfio(&bdf, group_id);
+                        }
+
                         sysfs::pin_power(&bdf);
+
+                        let armor = pcie_armor::PcieArmor::arm(&bdf);
+
+                        let open_result =
+                            coral_driver::vfio::VfioDevice::open(&bdf)
+                                .map_err(|e| e.to_string());
+
+                        let _ = tx.send((open_result, cold_sensitive, armor));
+                    }
+                })
+                .expect("failed to spawn device acquire thread");
+
+            match rx.recv_timeout(guarded_open::GUARDED_OPEN_TIMEOUT) {
+                Ok((Ok(device), _cold_sensitive, armor)) => {
+                    match device.map_bar(0) {
+                        Ok(bar0) => {
+                            coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                        }
+                        Err(e) => {
+                            tracing::warn!(bdf = %dev_config.bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
+                        }
                     }
 
-                    let group_id = sysfs::read_iommu_group(&bdf);
-                    if group_id != 0 {
-                        sysfs::bind_iommu_group_to_vfio(&bdf, group_id);
-                    }
-
-                    sysfs::pin_power(&bdf);
-
-                    // Bus master stays OFF at startup — ember holds fds
-                    // but never initiates DMA.  Clients opt-in explicitly.
-                    let open_result =
-                        coral_driver::vfio::VfioDevice::open(&bdf)
-                            .map_err(|e| e.to_string());
-
-                    let _ = tx.send((open_result, cold_sensitive));
+                    let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
+                    tracing::info!(
+                        bdf = %dev_config.bdf,
+                        backend = ?device.backend_kind(),
+                        device_fd = device.device_fd(),
+                        num_fds = device.sendable_fds().len(),
+                        req_armed = req_eventfd.is_some(),
+                        "VFIO device held by ember (post-swap quiesce applied, PCIe armor active)"
+                    );
+                    held_init.insert(
+                        dev_config.bdf.clone(),
+                        HeldDevice {
+                            bdf: dev_config.bdf.clone(),
+                            device,
+                            bar0: None,
+                            ring_meta: hold::RingMeta::default(),
+                            req_eventfd,
+                            experiment_dirty: false,
+                            dma_prepare_state: None,
+                            mmio_fault_count: 0,
+                            health: hold::DeviceHealth::Alive,
+                            pcie_armor: Some(armor),
+                        },
+                    );
                 }
-            })
-            .expect("failed to spawn device acquire thread");
-
-        match rx.recv_timeout(guarded_open::GUARDED_OPEN_TIMEOUT) {
-            Ok((Ok(device), _cold_sensitive)) => {
-                match device.map_bar(0) {
-                    Ok(bar0) => {
-                        coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
-                    }
-                    Err(e) => {
-                        tracing::warn!(bdf = %dev_config.bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
-                    }
+                Ok((Err(e), cold_sensitive, _armor)) => {
+                    tracing::warn!(
+                        bdf = %dev_config.bdf,
+                        cold_sensitive,
+                        error = %e,
+                        "VFIO open failed — device deferred (use ember.open_device to retry)"
+                    );
+                    deferred_bdfs.push(dev_config.bdf.clone());
                 }
-
-                let req_eventfd = arm_req_irq(&device, &dev_config.bdf);
-                tracing::info!(
-                    bdf = %dev_config.bdf,
-                    backend = ?device.backend_kind(),
-                    device_fd = device.device_fd(),
-                    num_fds = device.sendable_fds().len(),
-                    req_armed = req_eventfd.is_some(),
-                    "VFIO device held by ember (post-swap quiesce applied)"
-                );
-                held_init.insert(
-                    dev_config.bdf.clone(),
-                    HeldDevice {
-                        bdf: dev_config.bdf.clone(),
-                        device,
-                        bar0: None,
-                        ring_meta: hold::RingMeta::default(),
-                        req_eventfd,
-                        experiment_dirty: false,
-                        dma_prepare_state: None,
-                        mmio_fault_count: 0,
-                    },
-                );
-            }
-            Ok((Err(e), cold_sensitive)) => {
-                tracing::warn!(
-                    bdf = %dev_config.bdf,
-                    cold_sensitive,
-                    error = %e,
-                    "VFIO open failed — device deferred (use ember.open_device to retry)"
-                );
-                deferred_bdfs.push(dev_config.bdf.clone());
-            }
-            Err(_timeout) => {
-                tracing::error!(
-                    bdf = %dev_config.bdf,
-                    timeout_secs = guarded_open::GUARDED_OPEN_TIMEOUT.as_secs(),
-                    "device acquire TIMED OUT — sysfs or VFIO open stuck (D-state). \
-                     Thread leaked. Device deferred."
-                );
-                deferred_bdfs.push(dev_config.bdf.clone());
+                Err(_timeout) => {
+                    tracing::error!(
+                        bdf = %dev_config.bdf,
+                        timeout_secs = guarded_open::GUARDED_OPEN_TIMEOUT.as_secs(),
+                        "device acquire TIMED OUT — sysfs or VFIO open stuck (D-state). \
+                         Thread leaked. Device deferred."
+                    );
+                    deferred_bdfs.push(dev_config.bdf.clone());
+                }
             }
         }
     }
@@ -717,6 +780,129 @@ fn spawn_watchdog(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
             }
         })
         .expect("spawn ember watchdog thread");
+}
+
+/// Default glowplug socket path for resurrection fd retrieval.
+fn default_glowplug_socket() -> String {
+    if let Ok(p) = std::env::var("CORALREEF_GLOWPLUG_SOCKET") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let family = std::env::var("BIOMEOS_FAMILY_ID")
+        .or_else(|_| std::env::var("CORALREEF_FAMILY_ID"))
+        .or_else(|_| std::env::var("FAMILY_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+    format!("{runtime_dir}/biomeos/coral-glowplug-{family}.sock")
+}
+
+/// Receive VFIO fds from glowplug's fd vault to resurrect held devices.
+///
+/// Connects to glowplug's socket, calls `vault.restore_fds`, and
+/// reconstructs `VfioDevice` instances from the received fds.
+fn resurrect_from_vault(
+    glowplug_socket: &str,
+    expected_devices: &[&EmberDeviceConfig],
+) -> Result<Vec<(String, coral_driver::vfio::VfioDevice)>, String> {
+    use std::mem::MaybeUninit;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+
+    let stream = UnixStream::connect(glowplug_socket)
+        .map_err(|e| format!("connect to glowplug at {glowplug_socket}: {e}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .map_err(|e| format!("set timeout: {e}"))?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "vault.restore_fds",
+        "params": {
+            "bdfs": expected_devices.iter().map(|d| &d.bdf).collect::<Vec<_>>(),
+        },
+        "id": 1,
+    });
+    std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())
+        .map_err(|e| format!("write request: {e}"))?;
+
+    const MAX_FDS: usize = 32;
+    let mut buf = [0u8; 8192];
+    let mut iov = [rustix::io::IoSliceMut::new(&mut buf)];
+    let mut recv_space =
+        [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(MAX_FDS))];
+    let mut control = rustix::net::RecvAncillaryBuffer::new(&mut recv_space);
+    let msg = rustix::net::recvmsg(&stream, &mut iov, &mut control, rustix::net::RecvFlags::empty())
+        .map_err(|e| format!("recvmsg: {e}"))?;
+
+    let mut fds: Vec<OwnedFd> = Vec::new();
+    for ancillary in control.drain() {
+        if let rustix::net::RecvAncillaryMessage::ScmRights(iter) = ancillary {
+            fds.extend(iter);
+        }
+    }
+
+    let resp: serde_json::Value = serde_json::from_slice(&buf[..msg.bytes])
+        .map_err(|e| format!("parse response: {e}"))?;
+
+    if let Some(err) = resp.get("error") {
+        return Err(format!(
+            "glowplug vault error: {}",
+            err.get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown")
+        ));
+    }
+
+    let result = resp.get("result").cloned().unwrap_or_default();
+    let manifest: Vec<serde_json::Value> = result
+        .get("devices")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut devices = Vec::new();
+    let mut fd_iter = fds.into_iter();
+
+    for dev in &manifest {
+        let bdf = dev.get("bdf").and_then(|b| b.as_str()).unwrap_or("");
+        let backend = dev
+            .get("backend")
+            .and_then(|b| b.as_str())
+            .unwrap_or("legacy");
+        let num_fds = dev.get("num_fds").and_then(|n| n.as_u64()).unwrap_or(3) as usize;
+
+        let received = match backend {
+            "iommufd" => {
+                let iommufd = fd_iter.next().ok_or("not enough fds for iommufd")?;
+                let device = fd_iter.next().ok_or("not enough fds for iommufd")?;
+                let ioas_id = dev.get("ioas_id").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+                coral_driver::vfio::ReceivedVfioFds::Iommufd {
+                    iommufd,
+                    device,
+                    ioas_id,
+                }
+            }
+            _ => {
+                let container = fd_iter.next().ok_or("not enough fds for legacy")?;
+                let group = fd_iter.next().ok_or("not enough fds for legacy")?;
+                let device = fd_iter.next().ok_or("not enough fds for legacy")?;
+                coral_driver::vfio::ReceivedVfioFds::Legacy {
+                    container,
+                    group,
+                    device,
+                }
+            }
+        };
+
+        let vfio_device = coral_driver::vfio::VfioDevice::from_received(bdf, received)
+            .map_err(|e| format!("reconstruct VfioDevice for {bdf}: {e}"))?;
+
+        tracing::info!(bdf, backend, num_fds, "resurrected device from vault");
+        devices.push((bdf.to_string(), vfio_device));
+    }
+
+    Ok(devices)
 }
 
 #[cfg(test)]

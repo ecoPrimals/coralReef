@@ -10,6 +10,8 @@
 //! - [`pramin`]: bulk VRAM operations via PRAMIN window
 //! - [`falcon`]: high-level SEC2/falcon experiment RPCs
 
+mod device_health;
+#[allow(unsafe_code)]
 mod falcon;
 mod low_level;
 mod pramin;
@@ -19,6 +21,7 @@ pub(crate) use falcon::{
 };
 pub(crate) use low_level::{mmio_batch, mmio_read, mmio_write};
 pub(crate) use pramin::{pramin_read, pramin_write};
+pub(crate) use self::device_health::{device_health, device_recover};
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -48,6 +51,14 @@ pub(super) fn map_bar0_if_needed(
 /// trips the circuit breaker after [`crate::hold::MMIO_CIRCUIT_BREAKER_THRESHOLD`]
 /// consecutive failures.
 pub(super) fn preflight_check(dev: &mut HeldDevice) -> Result<u32, String> {
+    if !dev.health.allows_mmio() {
+        return Err(format!(
+            "{}: device health is {:?} — refusing MMIO until recovery. \
+             Use ember.device.recover or restart ember.",
+            dev.bdf, dev.health
+        ));
+    }
+
     if dev.mmio_fault_count >= crate::hold::MMIO_CIRCUIT_BREAKER_THRESHOLD {
         return Err(format!(
             "{}: MMIO circuit breaker OPEN — {} consecutive faulted reads. \
@@ -60,6 +71,12 @@ pub(super) fn preflight_check(dev: &mut HeldDevice) -> Result<u32, String> {
         Some(b) => b,
         None => return Err(format!("{}: BAR0 not mapped", dev.bdf)),
     };
+
+    // Drain any pending PRI ring faults before reading. Prior MMIO reads to
+    // powered-down engines (FECS, GPCCS, etc.) generate PRI route-error
+    // responses that queue in the PRI ring hub. If not drained, subsequent
+    // reads can stall indefinitely as the ring processes backed-up faults.
+    let _ = bar0.write_u32(0x0012_004C, 0x2); // PRIV_RING_COMMAND = ACK
 
     let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
 

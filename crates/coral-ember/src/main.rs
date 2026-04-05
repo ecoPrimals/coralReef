@@ -25,19 +25,35 @@ enum Commands {
         /// Path to `glowplug.toml` (optional; defaults to XDG/system discovery).
         #[arg(value_name = "CONFIG")]
         config: Option<String>,
+        /// Resurrect mode: receive VFIO fds from glowplug's fd vault instead
+        /// of opening from sysfs. Used after a crash to restart without PM reset.
+        #[arg(long)]
+        resurrect: bool,
+        /// Glowplug socket path for resurrection fd retrieval.
+        #[arg(long)]
+        glowplug_socket: Option<String>,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
     let opts = match cli.command {
-        Some(Commands::Server { port, config }) => EmberRunOptions {
+        Some(Commands::Server {
+            port,
+            config,
+            resurrect,
+            glowplug_socket,
+        }) => EmberRunOptions {
             config_path: config,
             listen_port: port,
+            resurrect,
+            glowplug_socket,
         },
         None => EmberRunOptions {
             config_path: cli.legacy_config,
             listen_port: None,
+            resurrect: false,
+            glowplug_socket: None,
         },
     };
 

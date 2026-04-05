@@ -22,6 +22,14 @@ fn ember_socket_path() -> String {
             return p;
         }
     }
+
+    // Try production socket first (systemd service path)
+    let production = "/run/coralreef/ember.sock";
+    if std::path::Path::new(production).exists() {
+        return production.to_string();
+    }
+
+    // Fall back to XDG runtime convention
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let family = std::env::var("BIOMEOS_FAMILY_ID")
         .or_else(|_| std::env::var("CORALREEF_FAMILY_ID"))
