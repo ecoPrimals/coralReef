@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 73.
+**Current position**: Phase 10 — Iteration 76.
 
-**Last completed**: Logic/IO untangling plan; pure extractions across coral-driver (`acr_buffer_layout`, `sysmem_decode`, `sysmem_vram`, `init_plan`, `channel_layout`, `pci_config`); test consolidation (`opt_copy_prop/tests/`, `spill_values/tests/`, codegen coverage saturation split); `cmd_compile` tempfile isolation; coral-glowplug boot safety / health / config extraction; coral-ember startup, reset plan, lifecycle steps. Prior: Iter 72 GPU-agnostic detection + Ada PCI fix; Iter 71 MmioRegion/MockBar0.
+**Last completed**: Deep debt smart refactoring (6 near-limit files → cohesive submodules); primalSpring audit resolution (license AGPL-3.0-or-later, `unsafe_code = "deny"`, CONTEXT.md, IPC cleanup); mock isolation (`SysfsError` variant `#[cfg(test)]`); idiomatic Rust (19 let-else conversions). Prior: Iter 74 deep debt execution (+89 tests, lint evolution, refactoring); Iter 73 logic/IO untangling; Iter 72 GPU-agnostic detection.
 
 **Tests**: 4407 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation.
+**Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation, coral-driver workspace lint inheritance (pedantic + nursery).
 
-**Last updated**: April 4, 2026 (Phase 10 — Iteration 73 — Logic/IO Untangling + Test Consolidation. Architectural separation patterns documented; driver-side pure modules and split test modules keep suites under 1000 LOC per file.)
+**Last updated**: April 6, 2026 (Phase 10 — Iteration 76 — Deep Debt Smart Refactoring + primalSpring Audit. Six near-limit production files refactored into cohesive submodules. Full audit verified zero library `.unwrap()`, zero hardcoding violations, pure Rust dep stack.)
 
 ---
 
@@ -30,7 +30,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `sysmem_impl.rs`; former `uvm_compute.rs` is split into `nv/uvm_compute/` (`types.rs`, `device.rs`, `compute_trait.rs`, `mod.rs`, `tests.rs`); former `pci_discovery.rs` is split into `vfio/pci_discovery/` (`types.rs`, `parse.rs`, `config_space.rs`, `device_info.rs`, `power_mgmt.rs`, `mod.rs`, `tests.rs`) — `codegen_coverage_saturation`, `opt_copy_prop/tests`, and `spill_values/tests` were split in Iter 73 into submodules/parts under 1000 LOC each.
+**Approaching 1000 (monitor):** `codegen_coverage_saturation.rs` (982, test), `nv/shader_header.rs` (905), `nv_metal.rs` (882), `vfio/memory.rs` (874). Former monolithic files now directories: `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 

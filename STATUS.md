@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 4, 2026  
-**Phase**: 10 — Iteration 73 (Logic/IO Untangling + Test Consolidation)
+**Last updated**: April 6, 2026  
+**Phase**: 10 — Iteration 76 (Deep Debt Smart Refactoring + primalSpring Audit)
 
 ---
 
@@ -21,8 +21,8 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
-| Tests | A+ | 4318 passing, 0 failed, ~153 ignored hardware-gated, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
+| Tests | A+ | 4407 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -41,7 +41,21 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 73** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 76** |
+
+### Iteration 76: Deep Debt Smart Refactoring + primalSpring Audit (Apr 6, 2026)
+
+**Theme**: Comprehensive deep debt execution — smart refactoring of near-limit files, mock isolation, idiomatic Rust evolution, and primalSpring downstream audit resolution.
+
+| Area | Change |
+|------|--------|
+| Smart refactoring | `sysmem_impl.rs` 973→66+5 submodules; `sec2_hal.rs` 935→9-file directory; `identity.rs` 926→7-file directory; `coral-ember/lib.rs` 924→54+4 modules; `cfg/mod.rs` 937→22+5 submodules; `service/mod.rs` 828→146+tests; `config.rs` 767→403+tests |
+| primalSpring audit | License AGPL-3.0-only→AGPL-3.0-or-later (857 files); `unsafe_code = "deny"` workspace lint; `CONTEXT.md` created; IPC `#[allow]` cleanup with cross-target documentation |
+| Mock isolation | `SysfsError::MockWritesMutexPoisoned` gated `#[cfg(test)]` |
+| Unsafe docs | 5 missing `// SAFETY:` comments added to coral-driver test files |
+| Idiomatic Rust | 19 `if let Some` → `let...else` conversions in handlers_device, nv/mod, personality |
+| Audit verified | Zero library `.unwrap()`, zero hardcoded IPs without env override, zero primal name hardcoding, pure Rust deps (no openssl/ring), zero TODO/FIXME/HACK |
+| Metrics | 4407 tests passing, 0 failed, 153 ignored; 0 clippy warnings; 0 files >1000 LOC |
 
 ### Iteration 73: Logic/IO Untangling + Test Consolidation (Apr 4, 2026)
 

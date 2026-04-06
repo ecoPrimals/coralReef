@@ -363,7 +363,7 @@ Endgame:
 | `coral-driver/src/nv/ioctl/new_uapi.rs` | 4 | `vm_init`, `vm_bind_map/unmap`, `exec_submit` — all via `drm_ioctl_named` |
 | `coral-driver/src/nv/uvm/mod.rs` | 3 | UVM_INITIALIZE, UVM raw_ioctl, NvUvmDevice helper |
 | `coral-driver/src/nv/uvm/rm_client.rs` | 8 | RM_ALLOC, RM_CONTROL, RM_FREE, raw_nv_ioctl, rm_map_memory, rm_unmap_memory, rm_map_memory_dma — kernel ABI boundary |
-| `coral-driver/src/nv/uvm_compute.rs` | 6 | `Send` + `Sync` impls, GPFIFO ring writes, USERD doorbell writes, GP_GET reads |
+| `coral-driver/src/nv/uvm_compute/` | 6 | `Send` + `Sync` impls, GPFIFO ring writes, USERD doorbell writes, GP_GET reads |
 
 All unsafe confined to `coral-driver` (kernel ABI boundary).
 8 of 9 crates enforce `#[deny(unsafe_code)]`.

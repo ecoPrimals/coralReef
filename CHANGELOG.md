@@ -4,11 +4,45 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 73
+**Current status**: Phase 10 — Iteration 76
 
 ---
 
 ## [Unreleased]
+
+### Iteration 76 — Deep Debt Smart Refactoring (2026-04-06)
+
+#### Smart Refactoring
+- `sysmem_impl.rs` (973 LOC) → 66-line orchestrator + 5 submodules (sysmem_prepare, sysmem_state, sysmem_wpr_mmu, sysmem_boot_finish)
+- `sec2_hal.rs` (935 LOC) → 9-file directory (probe, emem, diagnostics, pmc, falcon_reset, boot_prepare, falcon_cpu)
+- `identity.rs` (926 LOC) → 7-file directory (constants, chip_map, gpu_identity, sysfs, firmware, tests)
+- `coral-ember/lib.rs` (924 LOC) → 54 lines + config.rs, runtime.rs, background.rs, lib_tests.rs
+- `cfg/mod.rs` (937 LOC) → 22 lines + types.rs, ops.rs, traverse.rs, builder.rs, tests.rs
+- `service/mod.rs` (828 LOC) → 146 lines + tests.rs; `config.rs` (767) → 403 + tests/
+
+#### Mock Isolation
+- `SysfsError::MockWritesMutexPoisoned` gated behind `#[cfg(test)]`
+
+#### Idiomatic Rust
+- 19 `if let Some` → `let...else` conversions (handlers_device/mod.rs, nv/mod.rs, personality.rs)
+
+#### Unsafe Documentation
+- 5 missing `// SAFETY:` comments added to coral-driver test files
+
+#### Audit Verified
+- Zero library `.unwrap()` (all test-only), zero hardcoded IPs without env override, pure Rust dep stack, zero TODO/FIXME/HACK
+
+### Iteration 75 — primalSpring Audit Resolution (2026-04-06)
+
+#### License Evolution
+- AGPL-3.0-only → AGPL-3.0-or-later across 857 files (Cargo.toml, SPDX headers, LICENSE, docs, scripts, WGSL fixtures)
+
+#### Workspace Lints
+- Added `unsafe_code = "deny"` to `[workspace.lints.rust]`; coral-driver opts out and manages unsafe locally
+
+#### Documentation
+- Created `CONTEXT.md` at repo root (architecture overview, crate map, constraints)
+- IPC `#[allow]` cleanup: updated reason strings documenting cross-target lint behavior
 
 ### Iteration 74 — Deep Debt Execution (2026-04-04)
 
