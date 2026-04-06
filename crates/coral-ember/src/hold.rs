@@ -152,6 +152,49 @@ impl HeldDevice {
         }
         Ok(self.bar0.as_ref().unwrap())
     }
+
+    /// Emergency quiesce: disable bus mastering, drop BAR0, mark faulted.
+    ///
+    /// Called when a timeout or bus reset occurs. After this, the device
+    /// is inert — it cannot DMA, and no MMIO operations will be accepted.
+    /// The only recovery path is ember restart (via glowplug resurrection).
+    pub fn emergency_quiesce(&mut self) {
+        crate::isolation::disable_bus_master_via_sysfs(&self.bdf);
+        self.health = DeviceHealth::Faulted;
+        self.bar0 = None;
+        tracing::error!(bdf = %self.bdf, "EMERGENCY QUIESCE: bus master disabled, BAR0 dropped, device faulted");
+    }
+}
+
+/// Returns `true` when every device in the held map is [`DeviceHealth::Faulted`].
+///
+/// When all devices are faulted, ember should exit cleanly so glowplug
+/// can resurrect it with fresh state.
+pub fn all_faulted(held: &std::collections::HashMap<String, HeldDevice>) -> bool {
+    !held.is_empty() && held.values().all(|d| d.health == DeviceHealth::Faulted)
+}
+
+/// Check if all held devices are faulted; if so, exit for glowplug resurrection.
+///
+/// Call this after any `emergency_quiesce` and after the write lock is dropped.
+/// Re-acquires a read lock to inspect device states. If every device is faulted,
+/// disables bus master on all of them (belt-and-suspenders) and exits with code 1,
+/// which systemd's `Restart=on-failure` interprets as a restartable failure.
+pub fn check_voluntary_death(held: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, HeldDevice>>>) {
+    if let Ok(map) = held.read() {
+        if all_faulted(&map) {
+            let bdfs: Vec<String> = map.keys().cloned().collect();
+            drop(map);
+            tracing::error!(
+                devices = ?bdfs,
+                "ALL DEVICES FAULTED — ember exiting for glowplug resurrection"
+            );
+            for bdf in &bdfs {
+                crate::isolation::disable_bus_master_via_sysfs(bdf);
+            }
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Persistent metadata for mailbox/ring reconstruction after daemon restart.

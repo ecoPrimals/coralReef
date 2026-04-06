@@ -28,8 +28,7 @@ pub fn vfio_sm() -> u32 {
         .unwrap_or(0)
 }
 
-/// Open VFIO device — primary path: get fds from ember via SCM_RIGHTS.
-/// Fallback: open /dev/vfio/* directly (only works without ember).
+/// Open VFIO device — all GPU access MUST route through ember.
 ///
 /// SM and compute class are auto-detected from BOOT0 by default.
 /// Set `CORALREEF_VFIO_SM` to a nonzero value to validate instead.
@@ -38,18 +37,15 @@ pub fn open_vfio() -> NvVfioComputeDevice {
     let bdf = vfio_bdf();
     let sm = vfio_sm();
 
-    match ember_client::request_fds(&bdf) {
-        Ok(fds) => {
-            eprintln!("ember: received VFIO fds for {bdf}");
-            NvVfioComputeDevice::open_from_fds(&bdf, fds, sm, 0)
-                .expect("NvVfioComputeDevice::open_from_fds()")
-        }
-        Err(e) => {
-            eprintln!("ember unavailable ({e}), opening VFIO directly");
-            NvVfioComputeDevice::open(&bdf, sm, 0)
-                .expect("NvVfioComputeDevice::open() — is GPU bound to vfio-pci?")
-        }
-    }
+    let fds = ember_client::request_fds(&bdf).unwrap_or_else(|e| {
+        panic!(
+            "ember required for GPU access — all operations must route through ember \
+             (ember unavailable: {e}). Ensure coral-ember is running."
+        )
+    });
+    eprintln!("ember: received VFIO fds for {bdf}");
+    NvVfioComputeDevice::open_from_fds(&bdf, fds, sm, 0)
+        .expect("NvVfioComputeDevice::open_from_fds()")
 }
 
 /// Open VFIO device in warm handoff mode — skips GR init and uses

@@ -398,41 +398,35 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
     }
     notes.push("PRI ring drained (ACK + BOOT0 verify OK)".to_string());
 
-    t("VRAM_CHECK: probing PRAMIN window");
+    // VRAM liveness probe via PRAMIN single-read (minimal PCIe exposure).
+    // Only reads one u32 — no bulk writes that could stall the root complex.
+    t("VRAM_CHECK: probing PRAMIN window (single read)");
     {
-        use crate::vfio::memory::{MemoryRegion, PraminRegion};
-        match PraminRegion::new(bar0, 0x0001_0000, 4) {
-            Ok(rgn) => {
-                let probe = rgn.read_u32(0).unwrap_or(0xDEAD_DEAD);
-                t(&format!("VRAM_CHECK: probe={probe:#010x}"));
-                if probe & 0xFFF0_0000 == 0xBAD0_0000 || probe == 0xDEAD_DEAD {
-                    notes.push(format!(
-                        "VRAM DEAD: PRAMIN probe returned {probe:#010x} — FBPA uninitialized. \
-                         Warm GPU with nouveau first."
-                    ));
-                    return (false, notes);
-                }
-                notes.push(format!("VRAM liveness: OK (probe={probe:#010x})"));
-            }
-            Err(e) => {
-                t(&format!("VRAM_CHECK: PRAMIN open failed: {e}"));
-                notes.push(format!("VRAM liveness: PRAMIN open failed: {e}"));
-                return (false, notes);
-            }
+        let saved_window = bar0.read_u32(0x1700).unwrap_or(0xDEAD_DEAD);
+        let _ = bar0.write_u32(0x1700, 0x0001u32); // window → VRAM 0x10000
+        let probe = bar0.read_u32(0x0070_0000).unwrap_or(0xDEAD_DEAD);
+        let _ = bar0.write_u32(0x1700, saved_window); // restore
+        t(&format!("VRAM_CHECK: probe={probe:#010x}"));
+        if probe & 0xFFF0_0000 == 0xBAD0_0000 || probe == 0xDEAD_DEAD {
+            notes.push(format!(
+                "VRAM DEAD: PRAMIN probe returned {probe:#010x} — FBPA uninitialized. \
+                 Warm GPU with nouveau first."
+            ));
+            return (false, notes);
         }
+        notes.push(format!("VRAM liveness: OK (probe={probe:#010x})"));
     }
 
-    t("PT_BUILD: writing page tables BEFORE PMC reset (GPU pristine)");
-    let pt_ok = instance_block::build_vram_falcon_inst_block(bar0);
-    t(&format!("PT_BUILD: complete ok={pt_ok}"));
-    notes.push(format!("VRAM page tables: ok={pt_ok} (written before any register changes)"));
+    // Physical DMA mode: skip page table build entirely.
+    // On GV100, ITFEN bits [5:4] are hardware-locked, so the falcon v1 bind
+    // (which requires those bits) cannot work. Instead we use physical DMA:
+    // FBIF → PHYS_VID + ITFEN bit 2 (physical mode, set by ROM). The falcon's
+    // DMA engine accesses VRAM at physical addresses without page table walks.
+    // This eliminates ~24KB of dangerous PRAMIN bulk writes.
+    t("PT_BUILD: SKIPPED (physical DMA mode — no page tables needed)");
+    notes.push("PT_BUILD: SKIPPED (using physical DMA mode)".to_string());
 
-    if !pt_ok {
-        notes.push("PT_BUILD failed — aborting before PMC reset".to_string());
-        return (false, notes);
-    }
-
-    // ── Phase 1: Diagnostics (read-only) ──
+    // ── Phase 1: Diagnostics ──
 
     t("DIAG: reading SEC2 CPUCTL");
     let pre_cpuctl = r(falcon::CPUCTL);
@@ -443,6 +437,10 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
     notes.push(format!(
         "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x}"
     ));
+
+    let pre_itfen = r(falcon::ITFEN);
+    t(&format!("DIAG: ITFEN={pre_itfen:#010x}"));
+    notes.push(format!("Pre-reset ITFEN: {pre_itfen:#010x}"));
 
     {
         t("PMC0: reading PMC_ENABLE");
@@ -477,27 +475,20 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
     }
     notes.push(format!("MC disable: PMC bit {sec2_bit} + PRI ACK"));
 
-    // Step 2b: ENGCTL toggle (blind writes — SEC2 is MC-disabled!)
-    t("RESET_2b: ENGCTL blind write 0x01 (SEC2 disabled — NO READS)");
-    let _ = bar0.write_u32(base + falcon::ENGCTL, 0x01);
+    // Step 2b: MC enable (matching nouveau gp10b_flcn_reset_eng exactly:
+    // just MC disable + 10us + MC enable — no ENGCTL toggle)
     std::thread::sleep(std::time::Duration::from_micros(10));
-    t("RESET_2b: ENGCTL blind write 0x00");
-    let _ = bar0.write_u32(base + falcon::ENGCTL, 0x00);
-    t("RESET_2b: ENGCTL toggle done");
-    notes.push("ENGCTL blind toggle (SEC2 pre-enable WAR — no reads)".to_string());
-
-    // Step 2c: MC enable
     let enable_val = pmc | sec2_mask;
-    t(&format!("RESET_2c: ENABLING SEC2 — writing PMC_ENABLE={enable_val:#010x}"));
+    t(&format!("RESET_2b: ENABLING SEC2 — writing PMC_ENABLE={enable_val:#010x}"));
     let _ = bar0.write_u32(misc::PMC_ENABLE, enable_val);
-    t("RESET_2c: reading PMC_ENABLE (flush)");
+    t("RESET_2b: reading PMC_ENABLE (flush)");
     let _ = bar0.read_u32(misc::PMC_ENABLE);
     std::thread::sleep(std::time::Duration::from_micros(20));
-    t("RESET_2c: PRI ACK after MC enable");
+    t("RESET_2b: PRI ACK after MC enable");
     let _ = bar0.write_u32(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
     std::thread::sleep(std::time::Duration::from_millis(5));
-    t("RESET_2c: MC enable complete — SEC2 registers should be alive");
-    notes.push("MC enable + PRI ACK".to_string());
+    t("RESET_2b: MC enable complete — SEC2 registers should be alive");
+    notes.push("MC enable + PRI ACK (nouveau-exact: no ENGCTL toggle)".to_string());
 
     // Step 2d: Wait for DMACTL scrub
     t("SCRUB: polling DMACTL");
@@ -557,32 +548,46 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
     let post_cpuctl = r(falcon::CPUCTL);
     t("POST_RESET: reading SCTL");
     let post_sctl = r(falcon::SCTL);
-    t(&format!("POST_RESET: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted}"));
+    let hs_mode = post_sctl & 0x02 != 0;
+    t(&format!(
+        "POST_RESET: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted} hs={hs_mode}"
+    ));
     notes.push(format!(
-        "Post-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted}"
+        "Post-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} halted={halted} hs={hs_mode}"
     ));
 
-    // ── Phase 3: Enable ITFEN + FBIF → PHYS_VID + Bind ──
+    let itfen_post_reset = r(falcon::ITFEN);
+    t(&format!("POST_RESET: ITFEN={itfen_post_reset:#010x}"));
+    notes.push(format!("Post-reset ITFEN: {itfen_post_reset:#010x}"));
 
-    // Step 3a: Enable ITFEN ACCESS_EN for DMA (required before bind)
-    t("ITFEN: enabling ACCESS_EN");
-    let itfen_before = r(falcon::ITFEN);
-    w(falcon::ITFEN, itfen_before | 0x01);
-    let itfen_after = r(falcon::ITFEN);
-    t(&format!("ITFEN: {itfen_before:#010x} → {itfen_after:#010x}"));
-    notes.push(format!("ITFEN: {itfen_before:#010x} → {itfen_after:#010x}"));
+    // ── Phase 3: Configure DMA for physical VRAM access ──
+    //
+    // On GV100 SEC2, ITFEN bits [5:4] are hardware-locked (writes ignored).
+    // The falcon ROM sets ITFEN = 0x04 (bit 2 = physical DMA mode).
+    // Instead of the falcon v1 instance block bind (which requires bits 4-5),
+    // we use physical DMA mode: FBIF → PHYS_VID + ITFEN bit 2 already set.
+    // The falcon's DMA engine accesses VRAM at physical addresses directly.
 
-    // Step 3b: FBIF_TRANSCFG → PHYS_VID
+    // Step 3a: FBIF_TRANSCFG → PHYS_VID (physical video memory target)
     t("FBIF: reading FBIF_TRANSCFG");
     let fbif_before = r(falcon::FBIF_TRANSCFG);
-    let fbif_new = (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID;
-    t(&format!("FBIF: writing FBIF_TRANSCFG={fbif_new:#010x}"));
+    let fbif_new = (fbif_before & !0xFF) | falcon::FBIF_TARGET_PHYS_VID
+                                         | falcon::FBIF_PHYSICAL_OVERRIDE;
+    t(&format!("FBIF: writing FBIF_TRANSCFG={fbif_new:#010x} (PHYS_VID + override)"));
     w(falcon::FBIF_TRANSCFG, fbif_new);
     let fbif_after = r(falcon::FBIF_TRANSCFG);
     t(&format!("FBIF: FBIF_TRANSCFG={fbif_before:#010x} → {fbif_after:#010x}"));
     notes.push(format!(
-        "FBIF_TRANSCFG: {fbif_before:#010x} → {fbif_after:#010x} (PHYS_VID for bind walker)"
+        "FBIF_TRANSCFG: {fbif_before:#010x} → {fbif_after:#010x} (PHYS_VID + override)"
     ));
+
+    // Step 3b: Ensure ITFEN has ACCESS_EN (bit 0) + keep bit 2 (physical DMA)
+    t("ITFEN: setting ACCESS_EN + physical DMA");
+    let itfen_before = r(falcon::ITFEN);
+    w(falcon::ITFEN, itfen_before | 0x05);
+    let itfen_after = r(falcon::ITFEN);
+    t(&format!("ITFEN: {itfen_before:#010x} → {itfen_after:#010x}"));
+    notes.push(format!("ITFEN: {itfen_before:#010x} → {itfen_after:#010x}"));
 
     // Step 3c: Enable DMACTL
     w(falcon::DMACTL, 0x01);
@@ -604,24 +609,19 @@ pub fn sec2_prepare_v1(bar0: &MappedBar) -> (bool, Vec<String>) {
     }
     notes.push("PRI drained + settled 10ms after FBIF config".to_string());
 
-    // Step 3e: Bind instance block (needs ITFEN + FBIF=PHYS_VID) ──
-    t("BIND: falcon_v1_bind_context");
-    let (bind_ok, bind_notes) = instance_block::falcon_v1_bind_context(
-        &|off| r(off),
-        &|off, val| w(off, val),
-        FALCON_INST_VRAM as u64,
-        0, // target = VRAM
-    );
-    notes.extend(bind_notes);
-    t(&format!("BIND: complete ok={bind_ok}"));
-
+    // Step 3e: On GV100, skip v1 bind (ITFEN bits 4-5 locked). Physical DMA
+    // mode (ITFEN bit 2 + FBIF PHYS_VID) lets the falcon access VRAM directly
+    // at physical addresses without a page table walk.
     let itfen_final = r(falcon::ITFEN);
-    let bind_stat_final = r(instance_block::FALCON_BIND_STAT);
-    t(&format!("FINAL: ITFEN={itfen_final:#010x} bind_stat={bind_stat_final:#010x}"));
+    let dmactl_final = r(falcon::DMACTL);
+    let fbif_final = r(falcon::FBIF_TRANSCFG);
+    t(&format!(
+        "FINAL: ITFEN={itfen_final:#010x} DMACTL={dmactl_final:#010x} FBIF={fbif_final:#010x} (physical DMA mode)"
+    ));
     notes.push(format!(
-        "Bind: ok={bind_ok} ITFEN={itfen_final:#010x} stat={bind_stat_final:#010x}"
+        "Physical DMA: ITFEN={itfen_final:#010x} DMACTL={dmactl_final:#010x} FBIF={fbif_final:#010x}"
     ));
 
     t("sec2_prepare_v1 EXIT");
-    (bind_ok && halted, notes)
+    (halted, notes)
 }

@@ -38,7 +38,7 @@ use std::sync::{Arc, RwLock};
 
 use serde::Deserialize;
 
-pub use hold::{DeviceHealth, HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
+pub use hold::{DeviceHealth, HeldDevice, MailboxMeta, RingMeta, RingMetaEntry, all_faulted, check_voluntary_death};
 pub use ipc::handlers_policy::{BootPolicy, PolicyStore, new_policy_store};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};
@@ -539,7 +539,8 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
             .and_then(|sock| sock.send_to(b"READY=1", path));
     }
 
-    spawn_watchdog(Arc::clone(&held));
+    isolation::install_sigterm_handler();
+    spawn_watchdog(Arc::clone(&held), socket_path.clone());
     spawn_req_watcher(Arc::clone(&held));
 
     if let Some(port) = opts.listen_port {
@@ -748,9 +749,10 @@ const WATCHDOG_INTERVAL_SECS: u64 = 15;
 /// Spawn a background thread that periodically:
 /// 1. Sends `WATCHDOG=1` to systemd (if `NOTIFY_SOCKET` is set).
 /// 2. Verifies held VFIO fds are still valid (ring-keeper liveness).
+/// 3. Checks the SIGTERM shutdown flag and performs graceful cleanup.
 ///
 /// The thread is daemonic — it dies when the main process exits.
-fn spawn_watchdog(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
+fn spawn_watchdog(held: Arc<RwLock<HashMap<String, HeldDevice>>>, socket_path: String) {
     let interval = std::env::var("CORALREEF_EMBER_WATCHDOG_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -764,6 +766,18 @@ fn spawn_watchdog(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
             let interval = std::time::Duration::from_secs(interval);
             loop {
                 std::thread::sleep(interval);
+
+                if isolation::shutdown_requested() {
+                    tracing::info!("watchdog: SIGTERM received — initiating graceful shutdown");
+                    if let Ok(map) = held.read() {
+                        for dev in map.values() {
+                            isolation::disable_bus_master_via_sysfs(&dev.bdf);
+                        }
+                    }
+                    let _ = std::fs::remove_file(&socket_path);
+                    tracing::info!("watchdog: bus master disabled on all devices, socket removed — exiting");
+                    std::process::exit(0);
+                }
 
                 let device_count = held.read().map(|map| map.len()).unwrap_or(0);
 

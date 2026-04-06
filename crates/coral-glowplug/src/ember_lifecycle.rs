@@ -5,24 +5,22 @@
 //! This module manages ember's entire lifecycle:
 //!
 //! 1. **Spawn**: start ember via `systemctl start coral-ember`
-//! 2. **Monitor**: heartbeat protocol detects stuck/dead ember
-//! 3. **Kill**: graceful SIGTERM → SIGKILL timeout
-//! 4. **Resurrect**: kill current ember, verify vault has fds, spawn with `--resurrect`
+//! 2. **Monitor**: heartbeat via `ember.status` RPC detects stuck/dead ember
+//! 3. **Kill**: graceful SIGTERM → SIGKILL escalation via `systemctl stop`
+//! 4. **Resurrect**: stop current ember, restart — ember re-acquires VFIO devices from sysfs
 //!
-//! The lifecycle manager integrates with [`crate::fd_vault::FdVault`] to ensure
-//! VFIO bindings survive ember restarts.
+//! Ember is disposable. When it dies (voluntary exit on total fault, SIGTERM,
+//! crash), glowplug simply starts a fresh instance. Ember re-acquires its
+//! VFIO devices from sysfs on startup — no vault or fd transfer needed.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use crate::fd_vault::FdVault;
 
 /// Ember process states as seen by glowplug.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmberState {
     /// Ember is not running (initial state or after confirmed exit).
     Down,
-    /// Ember is starting (systemctl start issued, waiting for socket).
+    /// Ember is starting (`systemctl start` issued, waiting for heartbeat).
     Starting,
     /// Ember is running and responding to heartbeats.
     Alive,
@@ -30,8 +28,6 @@ pub enum EmberState {
     Unresponsive,
     /// Ember is being killed (SIGTERM sent, waiting for exit).
     Killing,
-    /// Ember is restarting in resurrect mode.
-    Resurrecting,
 }
 
 /// Configuration for the ember lifecycle manager.
@@ -41,9 +37,9 @@ pub struct EmberLifecycleConfig {
     pub heartbeat_interval: Duration,
     /// Number of missed heartbeats before declaring ember unresponsive.
     pub missed_heartbeat_threshold: u32,
-    /// Time to wait after SIGTERM before SIGKILL.
+    /// Time to wait after SIGTERM before considering the stop failed.
     pub kill_grace_period: Duration,
-    /// Time to wait for ember to start before giving up.
+    /// Time to wait for ember to start (first heartbeat) before giving up.
     pub start_timeout: Duration,
     /// Ember socket path for heartbeat checks.
     pub ember_socket: String,
@@ -65,8 +61,11 @@ impl Default for EmberLifecycleConfig {
 pub struct EmberLifecycle {
     state: EmberState,
     config: EmberLifecycleConfig,
-    vault: Arc<FdVault>,
     last_heartbeat: Option<Instant>,
+    /// When state entered `Starting` — used to enforce `start_timeout`.
+    start_entered_at: Option<Instant>,
+    /// When state entered `Killing` — used to enforce `kill_grace_period`.
+    kill_entered_at: Option<Instant>,
     missed_heartbeats: u32,
     spawn_count: u64,
     resurrect_count: u64,
@@ -74,12 +73,13 @@ pub struct EmberLifecycle {
 
 impl EmberLifecycle {
     /// Create a new lifecycle manager.
-    pub fn new(config: EmberLifecycleConfig, vault: Arc<FdVault>) -> Self {
+    pub fn new(config: EmberLifecycleConfig) -> Self {
         Self {
             state: EmberState::Down,
             config,
-            vault,
             last_heartbeat: None,
+            start_entered_at: None,
+            kill_entered_at: None,
             missed_heartbeats: 0,
             spawn_count: 0,
             resurrect_count: 0,
@@ -105,11 +105,12 @@ impl EmberLifecycle {
     pub fn record_heartbeat(&mut self) {
         self.last_heartbeat = Some(Instant::now());
         self.missed_heartbeats = 0;
-        if self.state == EmberState::Starting || self.state == EmberState::Resurrecting {
+        if self.state == EmberState::Starting || self.state == EmberState::Down {
             self.state = EmberState::Alive;
+            self.start_entered_at = None;
             tracing::info!(
                 spawn_count = self.spawn_count,
-                "ember lifecycle: first heartbeat received — state=Alive"
+                "ember lifecycle: heartbeat received — state=Alive"
             );
         }
     }
@@ -153,6 +154,7 @@ impl EmberLifecycle {
     pub fn spawn_ember(&mut self) -> Result<(), String> {
         tracing::info!("ember lifecycle: spawning ember");
         self.state = EmberState::Starting;
+        self.start_entered_at = Some(Instant::now());
         self.spawn_count += 1;
 
         let output = std::process::Command::new("systemctl")
@@ -163,6 +165,7 @@ impl EmberLifecycle {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             self.state = EmberState::Down;
+            self.start_entered_at = None;
             return Err(format!("systemctl start failed: {stderr}"));
         }
 
@@ -175,11 +178,13 @@ impl EmberLifecycle {
 
     /// Kill the current ember process.
     ///
-    /// Issues `systemctl stop coral-ember`. The service's KillMode=mixed
-    /// handles SIGTERM → SIGKILL escalation.
+    /// Issues `systemctl stop coral-ember`. Ember's SIGTERM handler will
+    /// disable bus master on all devices before exiting. If ember doesn't
+    /// exit within `kill_grace_period`, systemd escalates to SIGKILL.
     pub fn kill_ember(&mut self) -> Result<(), String> {
         tracing::info!("ember lifecycle: killing ember");
         self.state = EmberState::Killing;
+        self.kill_entered_at = Some(Instant::now());
 
         let output = std::process::Command::new("systemctl")
             .args(["stop", "coral-ember"])
@@ -194,54 +199,29 @@ impl EmberLifecycle {
         self.state = EmberState::Down;
         self.last_heartbeat = None;
         self.missed_heartbeats = 0;
+        self.kill_entered_at = None;
 
         tracing::info!("ember lifecycle: ember stopped");
         Ok(())
     }
 
-    /// Resurrect ember: kill current, verify vault, spawn with --resurrect.
+    /// Resurrect ember: stop current instance, then start a fresh one.
     ///
-    /// Performs a raw SBR on all vaulted devices before spawning the new ember
-    /// to clear any stuck PCIe state from the previous incarnation.
+    /// Ember re-acquires VFIO devices from sysfs on startup — no fd vault
+    /// or fd transfer is needed. The fresh instance starts clean.
     pub fn resurrect_ember(&mut self) -> Result<(), String> {
-        tracing::info!(
-            vault_devices = self.vault.device_count(),
-            "ember lifecycle: RESURRECTING"
-        );
-
-        if self.vault.device_count() == 0 {
-            return Err("cannot resurrect: fd vault is empty (no backup fds)".into());
-        }
+        tracing::info!("ember lifecycle: RESURRECTING");
 
         if self.state != EmberState::Down {
             self.kill_ember()?;
         }
 
-        self.state = EmberState::Resurrecting;
         self.resurrect_count += 1;
-        self.spawn_count += 1;
 
-        let output = std::process::Command::new("systemctl")
-            .args(["start", "coral-ember"])
-            .env("CORAL_EMBER_RESURRECT", "1")
-            .output()
-            .map_err(|e| format!("systemctl start (resurrect): {e}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            self.state = EmberState::Down;
-            return Err(format!("systemctl start (resurrect) failed: {stderr}"));
-        }
-
-        tracing::info!(
-            resurrect_count = self.resurrect_count,
-            spawn_count = self.spawn_count,
-            "ember lifecycle: resurrect start command issued"
-        );
-        Ok(())
+        self.spawn_ember()
     }
 
-    /// Perform the heartbeat check via IPC. Sends `ember.heartbeat` RPC
+    /// Perform the heartbeat check via IPC. Sends `ember.status` RPC
     /// and returns `true` if ember responded.
     pub fn probe_heartbeat(&self) -> bool {
         let socket_path = &self.config.ember_socket;
@@ -280,9 +260,18 @@ impl EmberLifecycle {
                     self.check_heartbeat();
                 }
             }
-            EmberState::Starting | EmberState::Resurrecting => {
+            EmberState::Starting => {
                 if self.probe_heartbeat() {
                     self.record_heartbeat();
+                } else if let Some(entered) = self.start_entered_at {
+                    if entered.elapsed() > self.config.start_timeout {
+                        tracing::error!(
+                            timeout_secs = self.config.start_timeout.as_secs(),
+                            "ember lifecycle: start timeout exceeded — giving up"
+                        );
+                        self.state = EmberState::Down;
+                        self.start_entered_at = None;
+                    }
                 }
             }
             EmberState::Unresponsive => {
@@ -294,18 +283,30 @@ impl EmberLifecycle {
                     self.state = EmberState::Down;
                 }
             }
-            EmberState::Down | EmberState::Killing => {}
+            EmberState::Down => {
+                if self.probe_heartbeat() {
+                    tracing::info!("ember lifecycle: ember already running (detected from Down state)");
+                    self.record_heartbeat();
+                }
+            }
+            EmberState::Killing => {
+                if let Some(entered) = self.kill_entered_at {
+                    if entered.elapsed() > self.config.kill_grace_period {
+                        tracing::warn!(
+                            "ember lifecycle: kill grace period exceeded — forcing state to Down"
+                        );
+                        self.state = EmberState::Down;
+                        self.kill_entered_at = None;
+                    }
+                }
+            }
         }
         self.state
     }
 
     /// Trigger an automatic nouveau warm cycle for a cold device.
     ///
-    /// Sequence: unbind from vfio → bind to nouveau → wait for init →
-    /// unbind nouveau → rebind to vfio → re-checkpoint fds.
-    ///
-    /// This is called by the lifecycle manager when a resurrected ember
-    /// reports VRAM as cold (0xbad0ac01).
+    /// Sequence: release from ember → bind to nouveau → wait → rebind to vfio → reacquire in ember.
     pub fn auto_warm_device(&self, bdf: &str, ember_socket: &str) -> Result<(), String> {
         tracing::info!(bdf, "auto-warm: initiating nouveau warm cycle");
 
@@ -329,7 +330,6 @@ impl EmberLifecycle {
             let _ = std::io::Read::read(&mut &stream, &mut buf);
         }
 
-        // Bind to nouveau for warm-up
         let bind_result = std::process::Command::new("sudo")
             .args(["tee", &format!("/sys/bus/pci/devices/{bdf}/driver_override")])
             .stdin(std::process::Stdio::piped())
@@ -340,10 +340,8 @@ impl EmberLifecycle {
             }
         }
 
-        // Wait for nouveau to initialize
         std::thread::sleep(Duration::from_secs(3));
 
-        // Rebind to vfio-pci
         let _ = std::process::Command::new("sudo")
             .args(["sh", "-c", &format!(
                 "echo > /sys/bus/pci/devices/{bdf}/driver_override && \
@@ -351,7 +349,6 @@ impl EmberLifecycle {
             )])
             .output();
 
-        // Reacquire in ember
         let stream = std::os::unix::net::UnixStream::connect(ember_socket)
             .map_err(|e| format!("auto-warm: reconnect to ember: {e}"))?;
         let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
@@ -365,11 +362,6 @@ impl EmberLifecycle {
             .map_err(|e| format!("auto-warm: reacquire write: {e}"))?;
         let mut buf = [0u8; 4096];
         let _ = std::io::Read::read(&mut &stream, &mut buf);
-
-        // Re-checkpoint fds to vault
-        if let Err(e) = self.vault.checkpoint_from_ember(ember_socket) {
-            tracing::warn!(bdf, error = %e, "auto-warm: re-checkpoint failed (non-fatal)");
-        }
 
         tracing::info!(bdf, "auto-warm: warm cycle complete");
         Ok(())
@@ -404,7 +396,6 @@ impl EmberLifecycle {
             Err(_) => return false,
         };
 
-        // If the response contains error or the data is 0xbad0ac01, VRAM is cold
         if resp.get("error").is_some() {
             return false;
         }
@@ -430,7 +421,6 @@ impl EmberLifecycle {
             "state": format!("{:?}", self.state),
             "spawn_count": self.spawn_count,
             "resurrect_count": self.resurrect_count,
-            "vault_devices": self.vault.device_count(),
             "missed_heartbeats": self.missed_heartbeats,
             "last_heartbeat_ago_ms": self.last_heartbeat.map(|t| t.elapsed().as_millis() as u64),
         })
@@ -453,8 +443,7 @@ mod tests {
 
     #[test]
     fn initial_state_is_down() {
-        let vault = Arc::new(FdVault::new());
-        let lc = EmberLifecycle::new(test_config(), vault);
+        let lc = EmberLifecycle::new(test_config());
         assert_eq!(lc.state(), EmberState::Down);
         assert_eq!(lc.spawn_count(), 0);
         assert_eq!(lc.resurrect_count(), 0);
@@ -462,36 +451,31 @@ mod tests {
 
     #[test]
     fn heartbeat_transitions_starting_to_alive() {
-        let vault = Arc::new(FdVault::new());
-        let mut lc = EmberLifecycle::new(test_config(), vault);
+        let mut lc = EmberLifecycle::new(test_config());
         lc.state = EmberState::Starting;
         lc.record_heartbeat();
         assert_eq!(lc.state(), EmberState::Alive);
     }
 
     #[test]
+    fn heartbeat_transitions_down_to_alive() {
+        let mut lc = EmberLifecycle::new(test_config());
+        assert_eq!(lc.state(), EmberState::Down);
+        lc.record_heartbeat();
+        assert_eq!(lc.state(), EmberState::Alive);
+    }
+
+    #[test]
     fn check_heartbeat_false_when_not_alive() {
-        let vault = Arc::new(FdVault::new());
-        let mut lc = EmberLifecycle::new(test_config(), vault);
+        let mut lc = EmberLifecycle::new(test_config());
         assert!(!lc.check_heartbeat());
     }
 
     #[test]
     fn status_is_valid_json() {
-        let vault = Arc::new(FdVault::new());
-        let lc = EmberLifecycle::new(test_config(), vault);
+        let lc = EmberLifecycle::new(test_config());
         let s = lc.status();
         assert_eq!(s["state"], "Down");
         assert_eq!(s["spawn_count"], 0);
-    }
-
-    #[test]
-    fn resurrect_fails_with_empty_vault() {
-        let vault = Arc::new(FdVault::new());
-        let mut lc = EmberLifecycle::new(test_config(), vault);
-        lc.state = EmberState::Down;
-        let result = lc.resurrect_ember();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("vault is empty"));
     }
 }

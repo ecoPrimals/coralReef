@@ -18,6 +18,7 @@ mod pramin;
 
 pub(crate) use falcon::{
     falcon_poll, falcon_start_cpu, falcon_upload_dmem, falcon_upload_imem, sec2_prepare_physical,
+    write_json_to_pipe_fd,
 };
 pub(crate) use low_level::{mmio_batch, mmio_read, mmio_write};
 pub(crate) use pramin::{pramin_read, pramin_write};

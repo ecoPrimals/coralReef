@@ -323,6 +323,68 @@ async fn main() {
         health::health_loop(health_devices, health_interval, &mut health_shutdown).await;
     });
 
+    // ── Ember lifecycle monitor ─────────────────────────────────────────
+    // Glowplug is immortal; ember is sacrificial. This background task
+    // monitors ember's heartbeat and restarts it if it dies or becomes
+    // unresponsive. Without this, a dead ember leaves GPUs orphaned.
+    let ember_socket = coral_ember::ember_socket_path();
+    let lifecycle_config = coral_glowplug::ember_lifecycle::EmberLifecycleConfig {
+        heartbeat_interval: std::time::Duration::from_secs(3),
+        missed_heartbeat_threshold: 3,
+        kill_grace_period: std::time::Duration::from_secs(5),
+        start_timeout: std::time::Duration::from_secs(30),
+        ember_socket: ember_socket.clone(),
+    };
+    let mut ember_lifecycle =
+        coral_glowplug::ember_lifecycle::EmberLifecycle::new(lifecycle_config);
+    if ember_lifecycle.probe_heartbeat() {
+        tracing::info!(ember_socket = %ember_socket, "ember heartbeat: ALIVE at startup");
+        ember_lifecycle.record_heartbeat();
+    } else {
+        tracing::warn!(ember_socket = %ember_socket, "ember heartbeat: not reachable at startup");
+    }
+
+    let mut lifecycle_shutdown = shutdown_rx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {},
+                _ = lifecycle_shutdown.changed() => break,
+            }
+            let state = tokio::task::spawn_blocking(move || {
+                let state = ember_lifecycle.tick();
+                (ember_lifecycle, state)
+            })
+            .await;
+            match state {
+                Ok((lc, st)) => {
+                    ember_lifecycle = lc;
+                    match st {
+                        coral_glowplug::ember_lifecycle::EmberState::Alive => {}
+                        coral_glowplug::ember_lifecycle::EmberState::Down => {
+                            tracing::warn!(
+                                "ember lifecycle: DOWN — attempting restart"
+                            );
+                            if let Err(e) = ember_lifecycle.spawn_ember() {
+                                tracing::error!(error = %e, "ember restart failed");
+                            }
+                        }
+                        other => {
+                            tracing::info!(
+                                state = ?other,
+                                "ember lifecycle tick"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "ember lifecycle task panicked");
+                    break;
+                }
+            }
+        }
+    });
+
     let server = match socket::SocketServer::bind(&config.daemon.socket).await {
         Ok(s) => s,
         Err(e) => {

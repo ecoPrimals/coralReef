@@ -160,20 +160,28 @@ fn exp145_v1_acr_boot() {
     eprintln!("  BOOT0={boot0:#010x}  PMC_ENABLE={pmc:#010x}");
 
     let warm = pmc > 0x1000_0000;
-    let sec2_probe = ember_read(&bdf, r145::SEC2_BASE + r145::CPUCTL, "SEC2_CPUCTL");
-    let pri_poisoned = sec2_probe & 0xFFF0_0000 == 0xBAD0_0000;
+
+    // Check true PRI ring health using BOOT0 (always accessible) and
+    // PRI_MASTER_INTR_STATUS (0x100), NOT SEC2_CPUCTL which returns
+    // 0xbad0xxxx when the engine is simply disabled in PMC_ENABLE.
+    let boot0_poison = boot0 & 0xFFF0_0000 == 0xBAD0_0000;
+    let pri_master_intr = ember_read(&bdf, 0x100, "PRI_MASTER_INTR");
+    let sec2_enabled = pmc & (1 << 20) != 0;
     eprintln!(
-        "  GPU state: {}{}",
+        "  GPU state: {} SEC2_enabled={sec2_enabled} PRI_INTR={pri_master_intr:#010x}",
         if warm { "WARM (fabric alive)" } else { "COLD" },
-        if pri_poisoned { " [PRI RING POISONED — reboot required]" } else { "" },
     );
-    if pri_poisoned {
-        trace("PHASE_A: PRI POISONED — aborting");
-        eprintln!("  *** PRI ring corrupted. Reboot, then swap to nvidia to warm GPU. ***");
+
+    if boot0_poison {
+        trace("PHASE_A: BOOT0 PRI POISONED — truly corrupted, aborting");
+        eprintln!("  *** BOOT0 returns PRI error — GPU fabric dead. Reboot required. ***");
         return;
     }
     if !warm {
         eprintln!("  *** GPU is cold. Swap to nvidia driver to warm, then back to vfio. ***");
+    }
+    if !sec2_enabled {
+        eprintln!("  SEC2 not in PMC_ENABLE — sec2_prepare will enable it");
     }
 
     trace("PHASE_A: pre-reset falcon state reads");
@@ -183,42 +191,14 @@ fn exp145_v1_acr_boot() {
     falcon_state_via_ember(&bdf, "GPCCS", r145::GPCCS_BASE);
     trace("PHASE_A: complete");
 
-    // ── Phase B: SEC2 reset + physical DMA (via ember) ──
-    let pmc_pre_b = ember_read(&bdf, r145::PMC_ENABLE, "PMC_PRE_PHASE_B");
-    trace(&format!(
-        "PHASE_B: calling ember.sec2.prepare_physical (PMC={pmc_pre_b:#010x})"
-    ));
-    eprintln!("\n  PHASE B: SEC2 Reset (via ember.sec2.prepare_physical)");
-    eprintln!("    PMC_ENABLE before = {pmc_pre_b:#010x}");
-
-    let (prepare_ok, prepare_notes) = match crate::ember_client::sec2_prepare_physical(&bdf) {
-        Ok((ok, notes)) => (ok, notes),
-        Err(e) => {
-            trace(&format!("PHASE_B: ember.sec2.prepare_physical FAILED: {e}"));
-            eprintln!("  *** ember.sec2.prepare_physical FAILED: {e} ***");
-            return;
-        }
-    };
-
-    trace(&format!(
-        "PHASE_B: sec2_prepare returned ok={prepare_ok} notes={}",
-        prepare_notes.len()
-    ));
-    for (i, note) in prepare_notes.iter().enumerate() {
-        trace(&format!("PHASE_B_NOTE[{i}]: {note}"));
-        eprintln!("    {note}");
-    }
-    eprintln!("  Prepare result: ok={prepare_ok}");
-    if !prepare_ok {
-        trace("PHASE_B: FAILED — aborting");
-        eprintln!("  *** SEC2 prepare failed — aborting ***");
-        return;
-    }
-    trace("PHASE_B: complete");
-
-    // ── Phase C: Load firmware ──
-    trace("PHASE_C: loading ACR firmware from disk");
-    eprintln!("\n  PHASE C: Load ACR Firmware");
+    // ── Phase B: Load firmware + Write to VRAM (BEFORE any PMC reset) ──
+    //
+    // PRAMIN-FIRST ORDERING: All bulk VRAM writes MUST happen before any
+    // engine reset. PMC reset → PRAMIN write is the proven crash sequence.
+    // By writing firmware to VRAM while the GPU is in its pristine post-
+    // nouveau state, we avoid PCIe flow-control stalls entirely.
+    trace("PHASE_B: loading ACR firmware from disk");
+    eprintln!("\n  PHASE B: Load ACR Firmware + Write to VRAM (PRAMIN-first)");
 
     let fw = AcrFirmwareSet::load("gv100").expect("load firmware");
     eprintln!("  {}", fw.summary());
@@ -231,7 +211,7 @@ fn exp145_v1_acr_boot() {
         parsed.load_header.data_size
     );
 
-    // ── Phase C1: Build and write WPR via ember PRAMIN gateway ──
+    // ── Phase B1: Build and write WPR via ember PRAMIN gateway ──
     let wpr_data = build_wpr(&fw, r145::VRAM_WPR as u64);
     let wpr_end = r145::VRAM_WPR as u64 + wpr_data.len() as u64;
     eprintln!(
@@ -242,33 +222,33 @@ fn exp145_v1_acr_boot() {
     );
     assert!(r145::VRAM_WPR % 0x40000 == 0, "WPR must be 256KB-aligned");
 
-    trace("PHASE_C1: writing WPR to VRAM via ember.pramin.write");
+    trace("PHASE_B1: writing WPR to VRAM via ember.pramin.write (pre-PMC-reset)");
     match crate::ember_client::pramin_write(&bdf, r145::VRAM_WPR, &wpr_data) {
         Ok(n) => {
-            trace(&format!("PHASE_C1: WPR written: {n} bytes"));
+            trace(&format!("PHASE_B1: WPR written: {n} bytes"));
             eprintln!("  WPR written: {n} bytes via ember.pramin.write");
         }
         Err(e) => {
-            trace(&format!("PHASE_C1: WPR write FAILED: {e}"));
+            trace(&format!("PHASE_B1: WPR write FAILED: {e}"));
             eprintln!("  *** WPR write failed: {e} ***");
             return;
         }
     }
 
-    trace("PHASE_C1: writing shadow copy");
+    trace("PHASE_B1: writing shadow copy");
     match crate::ember_client::pramin_write(&bdf, r145::VRAM_SHADOW as u32, &wpr_data) {
         Ok(n) => {
-            trace(&format!("PHASE_C1: shadow written: {n} bytes"));
+            trace(&format!("PHASE_B1: shadow written: {n} bytes"));
         }
         Err(e) => {
-            trace(&format!("PHASE_C1: shadow write FAILED: {e}"));
+            trace(&format!("PHASE_B1: shadow write FAILED: {e}"));
             eprintln!("  *** Shadow write failed: {e} ***");
             return;
         }
     }
     eprintln!("  WPR + shadow written to VRAM");
 
-    // ── Phase C2: Patch ACR descriptor ──
+    // ── Phase B2: Patch ACR descriptor ──
     let mut payload = parsed.acr_payload.clone();
     patch_acr_desc(
         &mut payload,
@@ -285,23 +265,111 @@ fn exp145_v1_acr_boot() {
     }
     eprintln!("  ACR descriptor patched (blob_size=0, WPR at {:#x})", r145::VRAM_WPR);
 
-    trace("PHASE_C2: writing ACR payload to VRAM via ember.pramin.write");
+    trace("PHASE_B2: writing ACR payload to VRAM via ember.pramin.write");
     match crate::ember_client::pramin_write(&bdf, r145::VRAM_ACR, &payload) {
         Ok(n) => {
-            trace(&format!("PHASE_C2: ACR payload written: {n} bytes"));
+            trace(&format!("PHASE_B2: ACR payload written: {n} bytes"));
             eprintln!("  ACR payload: {n}B → VRAM {:#x}", r145::VRAM_ACR);
         }
         Err(e) => {
-            trace(&format!("PHASE_C2: ACR payload write FAILED: {e}"));
+            trace(&format!("PHASE_B2: ACR payload write FAILED: {e}"));
             eprintln!("  *** ACR payload write failed: {e} ***");
             return;
         }
     }
+    // ── Phase B3: Build falcon instance block + page tables in VRAM ──
+    // Nouveau's gm200_flcn_fw_load binds an instance block for virtual DMA
+    // when a separate BL exists. Build the page table chain here so we can
+    // bind it after the PMC reset in Phase C.
+    trace("PHASE_B3: building instance block + page tables in VRAM");
+    {
+        use coral_driver::nv::vfio_compute::acr_boot::{
+            FALCON_INST_VRAM, FALCON_PD3_VRAM, FALCON_PD2_VRAM,
+            FALCON_PD1_VRAM, FALCON_PD0_VRAM, FALCON_PT0_VRAM,
+            encode_vram_pde, encode_vram_pte,
+        };
+
+        let mut buf = vec![0u8; 0x6000]; // 6 pages: INST+PD3+PD2+PD1+PD0+PT0
+
+        let w64 = |buf: &mut Vec<u8>, off: usize, val: u64| {
+            buf[off..off + 8].copy_from_slice(&val.to_le_bytes());
+        };
+        let w32 = |buf: &mut Vec<u8>, off: usize, val: u32| {
+            buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
+        };
+
+        // PDEs: each directory entry uses 16B dual PDE, value in upper 8 bytes
+        w64(&mut buf, 0x1008, encode_vram_pde(FALCON_PD2_VRAM as u64)); // PD3→PD2
+        w64(&mut buf, 0x2008, encode_vram_pde(FALCON_PD1_VRAM as u64)); // PD2→PD1
+        w64(&mut buf, 0x3008, encode_vram_pde(FALCON_PD0_VRAM as u64)); // PD1→PD0
+        w64(&mut buf, 0x4008, encode_vram_pde(FALCON_PT0_VRAM as u64)); // PD0→PT0
+
+        // PTEs: identity-map 512 pages (2MB) of VRAM
+        for i in 0u64..512 {
+            w64(&mut buf, 0x5000 + (i as usize) * 8, encode_vram_pte(i * 4096));
+        }
+
+        // Instance block: PAGE_DIR_BASE at RAMIN offset 0x200
+        let pdb_lo = ((FALCON_PD3_VRAM >> 12) << 12) | (1 << 11) | (1 << 10);
+        w32(&mut buf, 0x0200, pdb_lo);
+        w32(&mut buf, 0x0204, 0);
+        w32(&mut buf, 0x0208, 0xFFFF_FFFF);
+        w32(&mut buf, 0x020C, 0x0001_FFFF);
+
+        match crate::ember_client::pramin_write(&bdf, FALCON_INST_VRAM, &buf) {
+            Ok(n) => {
+                trace(&format!("PHASE_B3: instance block written: {n} bytes"));
+                eprintln!("  Instance block + page tables: {n}B → VRAM {FALCON_INST_VRAM:#x}");
+            }
+            Err(e) => {
+                trace(&format!("PHASE_B3: instance block write FAILED: {e}"));
+                eprintln!("  *** Instance block write failed: {e} ***");
+                return;
+            }
+        }
+    }
+
+    trace("PHASE_B: PRAMIN writes complete (all VRAM written before PMC reset)");
+
+    // ── Phase C: SEC2 reset + DMA setup (via ember) ──
+    //
+    // Now that all VRAM data is in place, it's safe to do the engine reset.
+    // The PMC reset only affects SEC2's clock — VRAM contents persist.
+    let pmc_pre_c = ember_read(&bdf, r145::PMC_ENABLE, "PMC_PRE_PHASE_C");
+    trace(&format!(
+        "PHASE_C: calling ember.sec2.prepare_physical (PMC={pmc_pre_c:#010x})"
+    ));
+    eprintln!("\n  PHASE C: SEC2 Reset (via ember.sec2.prepare_physical)");
+    eprintln!("    PMC_ENABLE before = {pmc_pre_c:#010x}");
+
+    let (prepare_ok, prepare_notes) = match crate::ember_client::sec2_prepare_physical(&bdf) {
+        Ok((ok, notes)) => (ok, notes),
+        Err(e) => {
+            trace(&format!("PHASE_C: ember.sec2.prepare_physical FAILED: {e}"));
+            eprintln!("  *** ember.sec2.prepare_physical FAILED: {e} ***");
+            return;
+        }
+    };
+
+    trace(&format!(
+        "PHASE_C: sec2_prepare returned ok={prepare_ok} notes={}",
+        prepare_notes.len()
+    ));
+    for (i, note) in prepare_notes.iter().enumerate() {
+        trace(&format!("PHASE_C_NOTE[{i}]: {note}"));
+        eprintln!("    {note}");
+    }
+    eprintln!("  Prepare result: ok={prepare_ok}");
+    if !prepare_ok {
+        trace("PHASE_C: FAILED — aborting");
+        eprintln!("  *** SEC2 prepare failed — aborting ***");
+        return;
+    }
     trace("PHASE_C: complete");
 
-    // ── Phase D: Load BL to IMEM + descriptor to DMEM (via ember) ──
-    trace("PHASE_D: BL upload via ember falcon RPCs");
-    eprintln!("\n  PHASE D: BL Upload (via ember)");
+    // ── Phase D: Bind instance block + Load BL to IMEM (via ember) ──
+    trace("PHASE_D: instance block bind + BL upload via ember");
+    eprintln!("\n  PHASE D: Instance Bind + BL Upload (via ember)");
 
     let base = r145::SEC2_BASE;
     let hwcfg = ember_read(&bdf, base + r145::HWCFG, "HWCFG");
@@ -312,27 +380,111 @@ fn exp145_v1_acr_boot() {
     let start_tag = parsed.bl_desc.bl_start_tag;
     let boot_addr = start_tag << 8;
 
-    trace("PHASE_D: IMEM upload via ember");
-    match crate::ember_client::falcon_upload_imem(
-        &bdf, base, imem_addr, &parsed.bl_code, start_tag,
-    ) {
-        Ok(()) => {
-            eprintln!(
-                "  BL code: {}B → IMEM@{imem_addr:#x} tag={start_tag:#x} boot={boot_addr:#x}",
-                parsed.bl_code.len()
-            );
+    // Write BOOT0 to falcon register 0x084 (gm200_flcn_enable).
+    let boot0 = ember_read(&bdf, 0x000, "BOOT0_CHIP_ID");
+    eprintln!("  Writing BOOT0={boot0:#010x} to falcon reg 0x084");
+    let _ = crate::ember_client::mmio_batch(&bdf, &[("w", base + 0x084, boot0)]);
+
+    // ── Bind instance block (matching gm200_flcn_fw_load + gm200_flcn_bind_inst) ──
+    // 1. Enable ITFEN ACCESS_EN (bit 0)
+    trace("PHASE_D: binding instance block for virtual DMA");
+    let itfen_cur = ember_read(&bdf, base + 0x048, "ITFEN_PRE_BIND");
+    let _ = crate::ember_client::mmio_batch(&bdf, &[
+        ("w", base + 0x048, itfen_cur | 0x01),  // ACCESS_EN
+    ]);
+
+    // 2. gm200_flcn_bind_inst: DMAIDX clear → bind_inst → mask triggers
+    let inst_addr: u32 = 0x10000; // FALCON_INST_VRAM
+    let bind_val = (1u32 << 30) | (0u32 << 28) | (inst_addr >> 12); // enable | VRAM | addr
+
+    // nvkm_falcon_mask(0x604, 0x07, 0x00) — clear DMAIDX to VIRT
+    let dmaidx_cur = ember_read(&bdf, base + 0x604, "DMAIDX_PRE");
+    let dmaidx_new = (dmaidx_cur & !0x07u32) | 0x00; // clear bits[2:0]
+
+    let _ = crate::ember_client::mmio_batch(&bdf, &[
+        ("w", base + 0x604, dmaidx_new),
+        ("w", base + 0x054, bind_val),
+    ]);
+    eprintln!("  bind_inst={bind_val:#010x}  DMAIDX: {dmaidx_cur:#x} → {dmaidx_new:#x}");
+
+    // nvkm_falcon_mask(0x090, 0x00010000, 0x00010000) — set bit 16
+    let unk090 = ember_read(&bdf, base + 0x090, "UNK090_PRE");
+    let unk090_new = (unk090 & !0x00010000u32) | 0x00010000u32;
+    let _ = crate::ember_client::mmio_batch(&bdf, &[("w", base + 0x090, unk090_new)]);
+
+    // nvkm_falcon_mask(0x0a4, 0x00000008, 0x00000008) — set bit 3
+    let eng_ctl = ember_read(&bdf, base + 0x0a4, "ENG_CTL_PRE");
+    let eng_ctl_new = (eng_ctl & !0x00000008u32) | 0x00000008u32;
+    let _ = crate::ember_client::mmio_batch(&bdf, &[("w", base + 0x0a4, eng_ctl_new)]);
+
+    // 3. Wait for bind_stat == 5 (bits[14:12] of 0x0DC)
+    trace("PHASE_D: waiting for bind_stat=5");
+    let mut bind_ok = false;
+    for _attempt in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let stat_raw = ember_read(&bdf, base + 0x0DC, "BIND_STAT");
+        let bind_stat = (stat_raw >> 12) & 0x7;
+        if bind_stat == 5 {
+            eprintln!("  Bind state reached 5 (0x0DC={stat_raw:#010x})");
+            bind_ok = true;
+            break;
         }
+    }
+    if !bind_ok {
+        let stat_final = ember_read(&bdf, base + 0x0DC, "BIND_STAT_FINAL");
+        let bind_state = (stat_final >> 12) & 7;
+        eprintln!("  *** Bind timeout: state={bind_state} (expected 5) ***");
+        trace(&format!("PHASE_D: bind TIMEOUT stat={stat_final:#x}"));
+    }
+
+    // 4. Clear bind interrupt (bit 3 of INTR register 0x004)
+    let _ = crate::ember_client::mmio_batch(&bdf, &[
+        ("w", base + 0x004, 0x00000008u32),
+    ]);
+
+    // 5. Channel trigger LOAD: nvkm_falcon_mask(0x058, 2, 2)
+    let ch_trig = ember_read(&bdf, base + 0x058, "CH_TRIG_PRE");
+    let ch_trig_new = (ch_trig & !0x02u32) | 0x02u32;
+    let _ = crate::ember_client::mmio_batch(&bdf, &[("w", base + 0x058, ch_trig_new)]);
+
+    // 6. Wait for bind_stat == 0
+    trace("PHASE_D: waiting for bind_stat=0");
+    for _attempt in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let stat_raw = ember_read(&bdf, base + 0x0DC, "BIND_STAT_FINAL");
+        let bind_stat = (stat_raw >> 12) & 0x7;
+        if bind_stat == 0 {
+            eprintln!("  Bind finalized: state=0");
+            break;
+        }
+    }
+
+    // ── Load BL to IMEM (gm200_flcn_fw_load: secure=false, BL only) ──
+    trace("PHASE_D: BL code → IMEM (secure=false)");
+    match crate::ember_client::falcon_upload_imem(
+        &bdf, base, imem_addr, &parsed.bl_code, start_tag, false,
+    ) {
+        Ok(()) => eprintln!(
+            "  BL code: {}B → IMEM@{imem_addr:#x} tag={start_tag:#x} boot={boot_addr:#x} secure=false",
+            parsed.bl_code.len()
+        ),
         Err(e) => {
-            trace(&format!("PHASE_D: IMEM upload FAILED: {e}"));
-            eprintln!("  *** IMEM upload failed: {e} ***");
+            trace(&format!("PHASE_D: BL IMEM upload FAILED: {e}"));
+            eprintln!("  *** BL IMEM upload failed: {e} ***");
             return;
         }
     }
 
-    let code_dma_base = r145::VRAM_ACR as u64;
+    // ── Build BL descriptor with VIRTUAL DMA addresses ──
+    // The instance block identity-maps first 2MB of VRAM, so virtual addr
+    // equals physical VRAM addr for the ACR payload.
+    let code_dma_base = r145::VRAM_ACR as u64; // Virtual = physical (identity-mapped)
     let data_dma_base = r145::VRAM_ACR as u64 + data_off as u64;
     let bl_desc = build_bl_dmem_desc(code_dma_base, data_dma_base, &parsed);
-    let ctx_dma = u32::from_le_bytes(bl_desc[32..36].try_into().unwrap_or([1, 0, 0, 0]));
+
+    // Keep ctx_dma=VIRT (1) — matching nouveau's gm200_acr_hsfw_load_bld.
+    // The default from build_bl_dmem_desc is VIRT(1), no need to patch.
+    let ctx_dma = u32::from_le_bytes(bl_desc[32..36].try_into().unwrap());
     eprintln!(
         "  BL desc: code={code_dma_base:#x} data={data_dma_base:#x} ctx_dma={ctx_dma} (VIRT)"
     );
@@ -355,6 +507,82 @@ fn exp145_v1_acr_boot() {
         return;
     }
     eprintln!("  BL descriptor: {}B → DMEM@0", bl_desc.len());
+
+    // Verify IMEM at boot address — confirm BL code survived upload
+    trace("PHASE_D: IMEM readback verification");
+    let imemc_read_ops = vec![
+        ("w", base + 0x180, (1u32 << 25) | imem_addr), // IMEMC: read mode + addr
+        ("r", base + 0x184, 0u32), // IMEMD word 0
+        ("r", base + 0x184, 0),    // IMEMD word 1
+        ("r", base + 0x184, 0),    // IMEMD word 2
+        ("r", base + 0x184, 0),    // IMEMD word 3
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &imemc_read_ops) {
+        let w0 = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w1 = results.get(2).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w2 = results.get(3).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w3 = results.get(4).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let expected_w0 = if parsed.bl_code.len() >= 4 {
+            u32::from_le_bytes(parsed.bl_code[0..4].try_into().unwrap())
+        } else { 0 };
+        let match_ok = w0 == expected_w0;
+        eprintln!(
+            "  IMEM@{imem_addr:#x} readback: [{w0:#010x} {w1:#010x} {w2:#010x} {w3:#010x}] expected[0]={expected_w0:#010x} match={}",
+            if match_ok { "YES" } else { "NO" }
+        );
+        trace(&format!("IMEM verify: [{w0:#010x} {w1:#010x} {w2:#010x} {w3:#010x}] match={match_ok}"));
+    }
+
+    // Verify DMEM BL descriptor — confirm ctx_dma patch
+    let dmemc_read_ops = vec![
+        ("w", base + 0x1C0, (1u32 << 25) | 0u32), // DMEMC: read mode + addr=0
+        ("r", base + 0x1C4, 0u32), // DMEMD word 0 (reserved[0])
+        ("r", base + 0x1C4, 0),    // word 1
+        ("r", base + 0x1C4, 0),    // word 2
+        ("r", base + 0x1C4, 0),    // word 3
+        ("r", base + 0x1C4, 0),    // word 4 (reserved[3])
+        ("r", base + 0x1C4, 0),    // word 5 (signature[0])
+        ("r", base + 0x1C4, 0),    // word 6 (signature[1])
+        ("r", base + 0x1C4, 0),    // word 7 (signature[2..3])
+        ("r", base + 0x1C4, 0),    // word 8 = ctx_dma (offset 32)
+        ("r", base + 0x1C4, 0),    // word 9 = code_dma_base low (offset 36)
+        ("r", base + 0x1C4, 0),    // word 10 = code_dma_base high (offset 40)
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &dmemc_read_ops) {
+        let ctx_dma = results.get(9).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let code_lo = results.get(10).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let code_hi = results.get(11).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        eprintln!(
+            "  DMEM BL desc readback: ctx_dma={ctx_dma} code_dma={code_hi:#x}:{code_lo:#x}"
+        );
+        trace(&format!("DMEM verify: ctx_dma={ctx_dma} code_dma={code_hi:#x}:{code_lo:#x}"));
+    }
+
+    // Read BROM-related registers (may or may not exist on GV100)
+    trace("PHASE_D: probing BROM registers");
+    let brom_probe_ops = vec![
+        ("r", base + 0x1180, 0u32), // FalconModSel
+        ("r", base + 0x1198, 0u32), // FalconBromCurrUcodeId
+        ("r", base + 0x119C, 0u32), // FalconBromEngidmask
+        ("r", base + 0x1210, 0u32), // FalconBromParaaddr0
+        ("r", base + 0x12C, 0u32),  // FalconHwcfg1 (for security model)
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &brom_probe_ops) {
+        let modsel = results.get(0).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let ucode_id = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let engid = results.get(2).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let paraaddr = results.get(3).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let hwcfg1 = results.get(4).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let sec_model = (hwcfg1 >> 4) & 0x3;
+        eprintln!("  BROM regs: ModSel={modsel:#x} UcodeId={ucode_id:#x} EngIdMask={engid:#x} ParaAddr0={paraaddr:#x} HWCFG1={hwcfg1:#x} sec_model={sec_model}");
+        trace(&format!("BROM: modsel={modsel:#x} uid={ucode_id:#x} engid={engid:#x} para={paraaddr:#x} hwcfg1={hwcfg1:#x} sec={sec_model}"));
+    }
+
+    // Read HS header fields for diagnostics
+    eprintln!("  HS header: sig_prod_off={:#x} sig_prod_size={} patch_loc={:#x} patch_sig={:#x}",
+        parsed.hs_header.sig_prod_offset, parsed.hs_header.sig_prod_size,
+        parsed.hs_header.patch_loc, parsed.hs_header.patch_sig);
+
     trace("PHASE_D: complete");
 
     // ── Phase E: Boot SEC2 (via ember) ──
@@ -404,21 +632,166 @@ fn exp145_v1_acr_boot() {
         );
     }
 
-    // Start CPU via ember
-    trace("PHASE_E: falcon_start_cpu via ember");
+    // Set MAILBOX0 + BOOTVEC via batch (safe register writes, no DMA risk).
+    // STARTCPU goes through ember.falcon.start_cpu which is FORK-ISOLATED —
+    // if the falcon's DMA locks the PCIe bus, the forked child dies instead
+    // of ember or the system.
+    trace("PHASE_E: writing MAILBOX0 + BOOTVEC via ember.mmio.batch");
+    let pre_start_ops = vec![
+        ("w", base + r145::MAILBOX0, 0xcafe_beef_u32), // Nouveau sentinel
+        ("w", base + r145::BOOTVEC, boot_addr),
+    ];
+    if let Err(e) = crate::ember_client::mmio_batch(&bdf, &pre_start_ops) {
+        trace(&format!("PHASE_E: pre-start register writes FAILED: {e}"));
+        eprintln!("  *** pre-start register writes failed: {e} ***");
+        return;
+    }
+
+    // STARTCPU via fork-isolated ember.falcon.start_cpu — NOT mmio_batch.
+    // mmio_batch only has thread-level watchdog protection. falcon.start_cpu
+    // forks a child process: if the falcon DMA causes a PCIe hang, the child
+    // is killed and the bus is reset. Ember survives.
+    trace("PHASE_E: STARTCPU via ember.falcon.start_cpu (fork-isolated)");
     match crate::ember_client::falcon_start_cpu(&bdf, base) {
         Ok(result) => {
             let pc = result.get("pc").and_then(|v| v.as_u64()).unwrap_or(0xDEAD);
+            let cpuctl = result.get("cpuctl").and_then(|v| v.as_u64()).unwrap_or(0xDEAD);
             let exci = result.get("exci").and_then(|v| v.as_u64()).unwrap_or(0xDEAD);
-            trace(&format!("PHASE_E: SEC2 started — pc={pc:#x} exci={exci:#x}"));
-            eprintln!("  falcon_start_cpu: pc={pc:#06x} exci={exci:#010x}");
+            eprintln!(
+                "  falcon.start_cpu: pc={pc:#06x} cpuctl={cpuctl:#010x} exci={exci:#010x}"
+            );
+            trace(&format!("PHASE_E: start_cpu OK pc={pc:#x} cpuctl={cpuctl:#x} exci={exci:#x}"));
         }
         Err(e) => {
-            trace(&format!("PHASE_E: falcon_start_cpu FAILED: {e}"));
-            eprintln!("  *** falcon_start_cpu failed: {e} ***");
+            trace(&format!("PHASE_E: falcon.start_cpu FAILED: {e}"));
+            eprintln!("  *** falcon.start_cpu FAILED (fork-isolated, ember survived): {e} ***");
+            eprintln!("  GPU may be faulted — use ember.device.recover to attempt recovery.");
             return;
         }
     }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Read state after boot attempts
+    let post_ops = vec![
+        ("r", base + r145::CPUCTL, 0u32),
+        ("r", base + r145::PC, 0),
+        ("r", base + r145::EXCI, 0),
+        ("r", base + r145::SCTL, 0),
+        ("r", base + r145::MAILBOX0, 0),
+        ("r", base + r145::BOOTVEC, 0),
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &post_ops) {
+        let cpuctl = results.first().and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let pc = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let exci = results.get(2).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let sctl = results.get(3).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let mb0 = results.get(4).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let bv = results.get(5).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let halted = cpuctl & 0x10 != 0;
+        let hs = sctl & 0x02 != 0;
+        trace(&format!(
+            "PHASE_E: cpuctl={cpuctl:#x} pc={pc:#x} exci={exci:#x} sctl={sctl:#x} mb0={mb0:#x} bv={bv:#x}"
+        ));
+        eprintln!(
+            "  Boot result: cpuctl={cpuctl:#010x} pc={pc:#06x} exci={exci:#010x} sctl={sctl:#010x} mb0={mb0:#010x} bv={bv:#x} halted={halted} hs={hs}"
+        );
+    }
+    // Post-STARTCPU: read TRACEPC buffer (execution history)
+    trace("PHASE_E: reading TRACEPC buffer");
+    let tracepc_idx_ops = vec![("r", base + r145::EXCI, 0u32)];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &tracepc_idx_ops) {
+        let exci_val = results.first().and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let trace_count = ((exci_val >> 16) & 0xFF).min(16);
+        if trace_count > 0 {
+            let mut tp_ops: Vec<(&str, usize, u32)> = Vec::new();
+            for i in 0..trace_count {
+                tp_ops.push(("w", base + r145::EXCI, i));
+                tp_ops.push(("r", base + 0x14C, 0)); // TRACEPC
+            }
+            if let Ok(tp_results) = crate::ember_client::mmio_batch(&bdf, &tp_ops) {
+                let traces: Vec<String> = (0..trace_count as usize)
+                    .filter_map(|i| {
+                        tp_results.get(i * 2 + 1).and_then(|v| v.as_u64())
+                    })
+                    .map(|pc| format!("{pc:#06x}"))
+                    .collect();
+                eprintln!("  TRACEPC ({trace_count}): [{}]", traces.join(" → "));
+                trace(&format!("TRACEPC: [{}]", traces.join(",")));
+            }
+        }
+    }
+
+    // Post-STARTCPU: re-read IMEM to see if ROM scrubbed it
+    trace("PHASE_E: IMEM readback post-STARTCPU");
+    let imemc_post_ops = vec![
+        ("w", base + 0x180, (1u32 << 25) | imem_addr),
+        ("r", base + 0x184, 0u32),
+        ("r", base + 0x184, 0),
+        ("r", base + 0x184, 0),
+        ("r", base + 0x184, 0),
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &imemc_post_ops) {
+        let w0 = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w1 = results.get(2).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w2 = results.get(3).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w3 = results.get(4).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let expected_w0 = if parsed.bl_code.len() >= 4 {
+            u32::from_le_bytes(parsed.bl_code[0..4].try_into().unwrap())
+        } else { 0 };
+        let survived = w0 == expected_w0;
+        eprintln!(
+            "  Post-boot IMEM@{imem_addr:#x}: [{w0:#010x} {w1:#010x} {w2:#010x} {w3:#010x}] survived={}",
+            if survived { "YES" } else { "SCRUBBED" }
+        );
+        trace(&format!("Post-boot IMEM: [{w0:#010x} {w1:#010x}] survived={survived}"));
+    }
+
+    // Check secure IMEM section (at 0x100) — was it scrubbed by BROM?
+    let sec_imem_check_ops = vec![
+        ("w", base + 0x180, (1u32 << 25) | 0x100u32), // IMEMC: read mode + addr=0x100
+        ("r", base + 0x184, 0u32),
+        ("r", base + 0x184, 0),
+        ("r", base + 0x184, 0),
+        ("r", base + 0x184, 0),
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &sec_imem_check_ops) {
+        let w0 = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w1 = results.get(2).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w2 = results.get(3).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let w3 = results.get(4).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let scrubbed = w0 == 0xdead5ec1;
+        eprintln!(
+            "  Post-boot SEC IMEM@0x100: [{w0:#010x} {w1:#010x} {w2:#010x} {w3:#010x}] scrubbed={scrubbed}"
+        );
+        trace(&format!("Post-boot SEC IMEM: [{w0:#010x} {w1:#010x} {w2:#010x} {w3:#010x}] scrubbed={scrubbed}"));
+    }
+
+    // Also check BROM registers post-boot
+    let brom_post_ops = vec![
+        ("r", base + 0x1180, 0u32), // FalconModSel
+        ("r", base + 0x1210, 0u32), // FalconBromParaaddr0
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &brom_post_ops) {
+        let modsel = results.get(0).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let para = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        eprintln!("  Post-boot BROM: ModSel={modsel:#x} ParaAddr0={para:#x}");
+    }
+
+    // Also check FBIF/DMACTL after boot — did the ROM reset them?
+    let post_boot_dma_ops = vec![
+        ("r", base + r145::FBIF_TRANSCFG, 0u32),
+        ("r", base + 0x048, 0), // ITFEN
+        ("r", base + 0x10C, 0), // DMACTL
+    ];
+    if let Ok(results) = crate::ember_client::mmio_batch(&bdf, &post_boot_dma_ops) {
+        let fbif = results.first().and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let itfen = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        let dmactl = results.get(2).and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+        eprintln!(
+            "  Post-boot DMA: FBIF={fbif:#x} ITFEN={itfen:#x} DMACTL={dmactl:#x}"
+        );
+    }
+
     trace("PHASE_E: SEC2 started — entering server-side poll");
 
     // ── Phase F: Poll (server-side via ember) ──

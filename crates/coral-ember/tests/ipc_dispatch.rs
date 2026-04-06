@@ -128,7 +128,7 @@ fn dispatch_ember_vfio_fds_missing_device() {
     let m = managed(&[TEST_BDF]);
     handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
     let v = drain_json_line(&mut client);
-    assert_eq!(v["error"]["code"].as_i64().expect("code"), -32000);
+    assert_eq!(v["error"]["code"].as_i64().expect("code"), -32600);
 }
 
 #[test]
@@ -218,8 +218,11 @@ fn dispatch_ember_vfio_fds_missing_bdf_param() {
     client.write_all(b"\n").expect("newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect_err("missing bdf");
-    assert!(err.to_string().contains("bdf"));
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler");
+    let v = drain_json_line(&mut client);
+    assert_eq!(v["error"]["code"].as_i64().expect("code"), -32600);
+    let msg = v["error"]["message"].as_str().expect("msg");
+    assert!(msg.contains("deprecated"), "{msg}");
 }
 
 #[test]

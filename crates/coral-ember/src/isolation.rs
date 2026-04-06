@@ -30,6 +30,97 @@ use std::time::Duration;
 
 use crate::sysfs;
 
+// ─── Graceful Shutdown ──────────────────────────────────────────────────────
+
+/// Global flag set by the SIGTERM handler. Checked by the watchdog thread
+/// to trigger graceful shutdown (disable bus master, remove socket, exit).
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Returns `true` if a SIGTERM has been received.
+pub fn shutdown_requested() -> bool {
+    SHUTDOWN_REQUESTED.load(Ordering::Acquire)
+}
+
+/// Install a SIGTERM handler that sets [`SHUTDOWN_REQUESTED`].
+///
+/// The handler only sets an `AtomicBool` (async-signal-safe). The actual
+/// cleanup work happens in the watchdog thread that polls this flag.
+pub fn install_sigterm_handler() {
+    extern "C" fn sigterm_handler(_sig: libc::c_int) {
+        SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    }
+
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = sigterm_handler as *const () as usize;
+        sa.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut sa.sa_mask);
+        libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut());
+    }
+    tracing::info!("SIGTERM handler installed — graceful shutdown enabled");
+}
+
+/// Disable PCI bus mastering via sysfs config space write.
+///
+/// Clears bit 2 of the PCI Command Register (offset 0x04) to prevent the
+/// GPU from initiating DMA transactions. This is critical after a bus reset
+/// — a misbehaving GPU with bus master enabled can poison the PCIe fabric
+/// even after SBR completes.
+///
+/// Uses sysfs (`/sys/bus/pci/devices/{bdf}/config`) which works even when
+/// BAR0 is stuck, since it goes through the host bridge, not the device.
+pub fn disable_bus_master_via_sysfs(bdf: &str) {
+    let config_path = format!(
+        "{}/bus/pci/devices/{bdf}/config",
+        coral_driver::linux_paths::sysfs_root()
+    );
+
+    let mut config = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&config_path)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(bdf, error = %e, "disable_bus_master: cannot open PCI config");
+            return;
+        }
+    };
+
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    if config.seek(SeekFrom::Start(4)).is_err() {
+        tracing::error!(bdf, "disable_bus_master: seek to command register failed");
+        return;
+    }
+    let mut cmd_bytes = [0u8; 2];
+    if config.read_exact(&mut cmd_bytes).is_err() {
+        tracing::error!(bdf, "disable_bus_master: read command register failed");
+        return;
+    }
+    let cmd = u16::from_le_bytes(cmd_bytes);
+    if cmd & 0x04 == 0 {
+        tracing::debug!(bdf, cmd = format_args!("{cmd:#06x}"), "bus master already disabled");
+        return;
+    }
+
+    let new_cmd = cmd & !0x04;
+    if config.seek(SeekFrom::Start(4)).is_err() {
+        tracing::error!(bdf, "disable_bus_master: seek for write failed");
+        return;
+    }
+    if config.write_all(&new_cmd.to_le_bytes()).is_err() {
+        tracing::error!(bdf, "disable_bus_master: write command register failed");
+        return;
+    }
+    tracing::warn!(
+        bdf,
+        old_cmd = format_args!("{cmd:#06x}"),
+        new_cmd = format_args!("{new_cmd:#06x}"),
+        "bus master DISABLED via sysfs"
+    );
+}
+
 /// Default timeout for dangerous MMIO operations.
 pub const MMIO_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -180,8 +271,6 @@ fn fork_isolated_mmio_inner(
                             error = %e,
                             "raw SBR failed — falling back to kernel bridge reset"
                         );
-                        // Fallback: try the kernel path (may hang if device
-                        // link is stuck, but we have AER masked so it's safer)
                         if let Err(e2) = sysfs::pci_bridge_reset(bdf) {
                             tracing::error!(
                                 bdf,
@@ -190,6 +279,10 @@ fn fork_isolated_mmio_inner(
                             );
                         }
                     }
+
+                    // Kill bus mastering AFTER SBR — prevents the GPU from
+                    // issuing rogue DMA that poisons the PCIe fabric.
+                    disable_bus_master_via_sysfs(bdf);
 
                     // Reap the child (bus reset should unblock the stuck core)
                     for attempt in 0..40 {
@@ -294,6 +387,8 @@ pub fn with_mmio_watchdog<R>(bdf: &str, timeout: Duration, op: impl FnOnce() -> 
                     }
                 }
             }
+
+            disable_bus_master_via_sysfs(&bdf_owned);
         })
         .expect("spawn MMIO watchdog thread");
 

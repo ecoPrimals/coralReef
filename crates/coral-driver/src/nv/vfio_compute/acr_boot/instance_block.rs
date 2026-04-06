@@ -162,15 +162,16 @@ pub fn falcon_bind_context(
 
 /// Execute the falcon v1 + SEC2-specific bind sequence matching nouveau exactly.
 ///
-/// Nouveau's `nvkm_falcon_v1_bind_context` + `gp102_sec2_flcn_bind_context`:
-/// 1. Set ITFEN (0x048) bits [5:4] = 0x30
+/// Matches `nvkm_falcon_v1_bind_context` (nvkm/subdev/falcon/v1.c):
+/// 1. Clear ITFEN (defensive — clear stale physical mode bits)
 /// 2. Write instance block to falcon v1 register (0x480):
 ///    `target << 28 | (addr >> 12)` (NO bit 30, unlike gm200)
-/// 3. Set ITFEN bits [5:4] = 0x10 (clear bit 5, keep bit 4)
-/// 4. Poll IRQSTAT (0x008) bit 3 AND bind_stat (0x0dc) [14:12] == 5
-/// 5. Ack interrupt (0x004) bit 3
-/// 6. Trigger channel load (0x058) bit 1
-/// 7. Poll bind_stat [14:12] == 0
+/// 3. Write ITFEN = 0x30 (bits 5:4 — triggers the context bind DMA walk)
+///    NOTE: 0x10 is the UNBIND value; 0x30 is the BIND trigger!
+/// 4. Poll IRQSTAT (0x008) bit 3 (bind completion interrupt)
+/// 5. Ack interrupt: write 0x08 to IRQSCLR (0x004)
+/// 6. Trigger channel load: write 0x02 to 0x058
+/// 7. Poll bind_stat (0x0dc) bits [14:12] → 0
 pub fn falcon_v1_bind_context(
     r: &dyn Fn(usize) -> u32,
     w: &dyn Fn(usize, u32),
@@ -180,42 +181,53 @@ pub fn falcon_v1_bind_context(
     use crate::vfio::channel::registers::falcon;
     let mut notes = Vec::new();
 
-    // Step 1: Clear ITFEN entirely (nouveau: nvkm_falcon_wr32(falcon, 0x048, 0))
-    // MUST clear to 0 — preserving old bits (like bit 2 from physical mode)
-    // conflicts with v1 DMA bits [5:4].
+    fn t(msg: &str) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/var/lib/coralreef/traces/ember_sec2_trace.log")
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let _ = writeln!(f, "[{ts}] {msg}");
+            let _ = f.sync_all();
+        }
+    }
+
+    // Step 1: Clear ITFEN (stale bit 2 from physical mode conflicts with v1 DMA)
     let itfen_before = r(falcon::ITFEN);
     w(falcon::ITFEN, 0);
+    let itfen_cleared = r(falcon::ITFEN);
+    t(&format!("BIND_V1: ITFEN clear {itfen_before:#010x} → {itfen_cleared:#010x}"));
     notes.push(format!(
-        "v1 ITFEN: {itfen_before:#010x} → {:#010x} (cleared)",
-        r(falcon::ITFEN)
+        "v1 ITFEN: {itfen_before:#010x} → {itfen_cleared:#010x} (cleared)"
     ));
 
     // Step 2: Write instance block to 0x480
-    // Format: target[31:28] | (addr >> 12)[27:0] — NO bit 30 unlike gm200
     let bind_val = (target << 28) | ((inst_addr >> 12) as u32);
     w(falcon::FALCON_V1_INST, bind_val);
+    t(&format!("BIND_V1: inst wrote {bind_val:#010x} to 0x480 (addr={inst_addr:#x} target={target})"));
     notes.push(format!(
         "v1 inst: wrote {bind_val:#010x} to 0x480 (addr={inst_addr:#x} target={target})"
     ));
 
-    // Step 3: Set ITFEN = 0x10 (bit 4 only — v1 DMA enable)
-    // nouveau: nvkm_falcon_wr32(falcon, 0x048, 0x10)
-    w(falcon::ITFEN, 0x10);
-    notes.push(format!(
-        "v1 ITFEN→{:#010x} (bit4=0x10)",
-        r(falcon::ITFEN)
-    ));
+    // Step 3: ITFEN = 0x30 triggers the bind (nouveau: nvkm_falcon_wr32(0x048, 0x30))
+    w(falcon::ITFEN, 0x30);
+    let itfen_after = r(falcon::ITFEN);
+    t(&format!("BIND_V1: ITFEN wrote 0x30, readback={itfen_after:#010x}"));
+    notes.push(format!("v1 ITFEN→{itfen_after:#010x} (0x30 = bind trigger)"));
 
-    // Step 4: Poll IRQSTAT bit 3 + bind_stat [14:12] == 5
+    // Step 4: Poll IRQSTAT bit 3 (bind completion interrupt)
     let start = std::time::Instant::now();
-    let mut bind_ok = false;
-    let mut last_irq;
-    let mut last_stat;
+    let mut bind_irq = false;
+    let mut last_irq = 0u32;
     loop {
         last_irq = r(falcon::IRQSTAT);
-        last_stat = r(FALCON_BIND_STAT);
-        if (last_irq & 0x0000_0008 != 0) && ((last_stat & 0x0000_7000) == 0x0000_5000) {
-            bind_ok = true;
+        if last_irq & 0x08 != 0 {
+            bind_irq = true;
             break;
         }
         if start.elapsed() > std::time::Duration::from_millis(10) {
@@ -224,44 +236,49 @@ pub fn falcon_v1_bind_context(
         std::thread::sleep(std::time::Duration::from_micros(10));
     }
 
-    if bind_ok {
+    if !bind_irq {
+        let stat = r(FALCON_BIND_STAT);
+        t(&format!("BIND_V1: IRQ TIMEOUT irq={last_irq:#010x} bind_stat={stat:#010x} itfen={:#010x}", r(falcon::ITFEN)));
         notes.push(format!(
-            "v1 bind_stat→5 OK in {:?} (irq={last_irq:#010x} stat={last_stat:#010x})",
-            start.elapsed()
+            "v1 bind IRQ TIMEOUT (irq={last_irq:#010x} bind_stat={stat:#010x})"
         ));
+        return (false, notes);
+    }
+    t(&format!("BIND_V1: IRQ OK {:?} irq={last_irq:#010x}", start.elapsed()));
+    notes.push(format!(
+        "v1 bind IRQ OK in {:?} (irq={last_irq:#010x})",
+        start.elapsed()
+    ));
 
-        // Step 5: Ack interrupt bit 3
-        let mask = r(falcon::IRQSCLR);
-        w(falcon::IRQSCLR, mask | 0x08);
+    // Step 5: Ack interrupt (nouveau: nvkm_falcon_wr32(0x004, 0x08))
+    w(falcon::IRQSCLR, 0x08);
 
-        // Step 6: Trigger channel load bit 1
-        let trigger = r(FALCON_CHANNEL_TRIGGER);
-        w(FALCON_CHANNEL_TRIGGER, trigger | 0x02);
+    // Step 6: Trigger channel load (nouveau: nvkm_falcon_wr32(0x058, 0x02))
+    w(FALCON_CHANNEL_TRIGGER, 0x02);
 
-        // Step 7: Poll bind_stat → 0
-        let start2 = std::time::Instant::now();
-        loop {
-            let stat = r(FALCON_BIND_STAT);
-            if (stat & 0x0000_7000) == 0 {
-                notes.push(format!(
-                    "v1 bind_stat→0 OK in {:?} ({stat:#010x})",
-                    start2.elapsed()
-                ));
-                break;
-            }
-            if start2.elapsed() > std::time::Duration::from_millis(10) {
-                notes.push(format!("v1 bind_stat→0 TIMEOUT ({stat:#010x})"));
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_micros(10));
+    // Step 7: Poll bind_stat [14:12] → 0
+    let start2 = std::time::Instant::now();
+    let mut final_ok = false;
+    loop {
+        let stat = r(FALCON_BIND_STAT);
+        if stat & 0x7000 == 0 {
+            final_ok = true;
+            t(&format!("BIND_V1: bind_stat→0 OK {:?} ({stat:#010x})", start2.elapsed()));
+            notes.push(format!(
+                "v1 bind_stat→0 OK in {:?} ({stat:#010x})",
+                start2.elapsed()
+            ));
+            break;
         }
-    } else {
-        notes.push(format!(
-            "v1 bind_stat→5 TIMEOUT (irq={last_irq:#010x} stat={last_stat:#010x})"
-        ));
+        if start2.elapsed() > std::time::Duration::from_millis(10) {
+            t(&format!("BIND_V1: bind_stat→0 TIMEOUT ({stat:#010x})"));
+            notes.push(format!("v1 bind_stat→0 TIMEOUT ({stat:#010x})"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(10));
     }
 
-    (bind_ok, notes)
+    (final_ok, notes)
 }
 
 // ── VRAM Instance Block for Falcon DMA ────────────────────────────────
@@ -308,7 +325,7 @@ pub(crate) fn encode_vram_pd0_pde(vram_addr: u64) -> u64 {
 ///   bits[32:8]: frame_number_vid = phys_addr >> 12
 ///
 /// Result: `(phys >> 12) << 8 | 1` = `(phys >> 4) | 1`
-pub(crate) fn encode_vram_pte(vram_phys: u64) -> u64 {
+pub fn encode_vram_pte(vram_phys: u64) -> u64 {
     const VALID: u64 = 1;
     (vram_phys >> 4) | VALID
 }

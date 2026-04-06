@@ -258,19 +258,24 @@ pub fn sec2_prepare_physical(bdf: &str) -> Result<(bool, Vec<String>), String> {
 }
 
 /// Upload code to falcon IMEM via ember.
+///
+/// When `secure` is true, IMEMC bit 28 is set, marking the IMEM region as
+/// accessible only in HS mode. Required for ACR bootloader on fuse-secured
+/// falcons (e.g. GV100 SEC2 with SCTL=0x3000).
 pub fn falcon_upload_imem(
     bdf: &str,
     base: usize,
     imem_addr: u32,
     code: &[u8],
     start_tag: u32,
+    secure: bool,
 ) -> Result<(), String> {
     let encoded = b64_encode(code);
     ember_rpc_large(
         "ember.falcon.upload_imem",
         serde_json::json!({
             "bdf": bdf, "base": base, "imem_addr": imem_addr,
-            "code_b64": encoded, "start_tag": start_tag,
+            "code_b64": encoded, "start_tag": start_tag, "secure": secure,
         }),
         21,
     )?;

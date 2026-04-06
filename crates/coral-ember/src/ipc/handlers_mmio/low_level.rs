@@ -51,7 +51,24 @@ pub(crate) fn mmio_read(
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
-    let value = dev.bar0.as_ref().unwrap().read_u32(offset).unwrap_or(0xDEAD_DEAD);
+    let bar0 = dev.bar0.as_ref().unwrap();
+    let bdf_owned = bdf.to_string();
+    let (value, watchdog_fired) = crate::isolation::with_mmio_watchdog(
+        &bdf_owned,
+        crate::isolation::OperationTier::RegisterIo.timeout(),
+        || bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD),
+    );
+
+    if watchdog_fired {
+        tracing::error!(bdf = bdf_owned, offset, "mmio_read: watchdog fired — bus-reset triggered");
+        dev.emergency_quiesce();
+        drop(map);
+        crate::hold::check_voluntary_death(held);
+        return write_jsonrpc_error(
+            stream, id, -32099,
+            &format!("{bdf_owned}: mmio_read at {offset:#x} triggered watchdog bus-reset. Device faulted."),
+        ).map_err(EmberIpcError::from);
+    }
     drop(map);
 
     write_jsonrpc_ok(stream, id, serde_json::json!({"value": value})).map_err(EmberIpcError::from)
@@ -89,9 +106,21 @@ pub(crate) fn mmio_write(
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
-    let write_result = dev.bar0.as_ref().unwrap().write_u32(offset, value);
+    let bdf_owned = bdf.to_string();
+    let bar0 = dev.bar0.as_ref().unwrap();
+    let (write_result, watchdog_fired) = crate::isolation::with_mmio_watchdog(
+        &bdf_owned,
+        crate::isolation::OperationTier::RegisterIo.timeout(),
+        || bar0.write_u32(offset, value),
+    );
+    if watchdog_fired {
+        dev.emergency_quiesce();
+    }
     dev.experiment_dirty = true;
     drop(map);
+    if watchdog_fired {
+        crate::hold::check_voluntary_death(held);
+    }
 
     match write_result {
         Ok(()) => write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
@@ -133,45 +162,59 @@ pub(crate) fn mmio_batch(
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
-    let bar0 = dev.bar0.as_ref().unwrap();
+    let bdf_owned = bdf.to_string();
     let mut results = Vec::with_capacity(ops.len());
     let mut had_write = false;
 
-    for (i, op) in ops.iter().enumerate() {
-        let op_type = op.get("type").and_then(|v| v.as_str()).unwrap_or("r");
-        let offset = match op.get("offset").and_then(|v| v.as_u64()) {
-            Some(o) => o as usize,
-            None => {
-                results.push(serde_json::json!({"error": format!("op[{i}]: missing offset")}));
-                continue;
-            }
-        };
+    let bar0 = dev.bar0.as_ref().unwrap();
+    let (_, watchdog_fired) = crate::isolation::with_mmio_watchdog(
+        &bdf_owned,
+        crate::isolation::OperationTier::RegisterIo.timeout(),
+        || {
+            for (i, op) in ops.iter().enumerate() {
+                let op_type = op.get("type").and_then(|v| v.as_str()).unwrap_or("r");
+                let offset = match op.get("offset").and_then(|v| v.as_u64()) {
+                    Some(o) => o as usize,
+                    None => {
+                        results.push(serde_json::json!({"error": format!("op[{i}]: missing offset")}));
+                        continue;
+                    }
+                };
 
-        match op_type {
-            "r" => {
-                if dma_safety::is_poisonous_read(offset) {
-                    results.push(serde_json::json!({"error": "poisonous", "offset": offset}));
-                    continue;
+                match op_type {
+                    "r" => {
+                        if dma_safety::is_poisonous_read(offset) {
+                            results.push(serde_json::json!({"error": "poisonous", "offset": offset}));
+                            continue;
+                        }
+                        let val = bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD);
+                        results.push(serde_json::json!(val));
+                    }
+                    "w" => {
+                        let value = op.get("value").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let _ = bar0.write_u32(offset, value);
+                        had_write = true;
+                        results.push(serde_json::json!(true));
+                    }
+                    other => {
+                        results.push(serde_json::json!({"error": format!("unknown op type: {other}")}));
+                    }
                 }
-                let val = bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD);
-                results.push(serde_json::json!(val));
             }
-            "w" => {
-                let value = op.get("value").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                let _ = bar0.write_u32(offset, value);
-                had_write = true;
-                results.push(serde_json::json!(true));
-            }
-            other => {
-                results.push(serde_json::json!({"error": format!("unknown op type: {other}")}));
-            }
-        }
-    }
+        },
+    );
 
+    let quiesced = watchdog_fired;
+    if watchdog_fired {
+        dev.emergency_quiesce();
+    }
     if had_write {
         dev.experiment_dirty = true;
     }
     drop(map);
+    if quiesced {
+        crate::hold::check_voluntary_death(held);
+    }
 
     write_jsonrpc_ok(stream, id, serde_json::json!({"results": results}))
         .map_err(EmberIpcError::from)

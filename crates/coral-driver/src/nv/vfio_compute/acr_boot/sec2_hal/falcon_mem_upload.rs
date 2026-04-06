@@ -25,7 +25,10 @@ pub fn falcon_imem_upload_secure(
     let w = |off: usize, val: u32| {
         let _ = bar0.write_u32(base + off, val);
     };
-    let sec_bit = if secure { 1u32 << 28 } else { 0 };
+    // Bit 28 = secure (marks page as HS-only), bit 29 = sec_atomic (ensures
+    // all writes complete before the secure tag is committed — required for PIO
+    // since PIO writes one word at a time, unlike DMA which does atomic 256B).
+    let sec_bit = if secure { (1u32 << 28) | (1u32 << 29) } else { 0 };
 
     for (chunk_idx, chunk) in data.chunks(256).enumerate() {
         let chunk_addr = imem_addr + (chunk_idx as u32) * 256;

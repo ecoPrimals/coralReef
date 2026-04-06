@@ -267,7 +267,7 @@ fn exp144_warm_acr_no_gr_reset() {
     let start_tag = parsed.bl_desc.bl_start_tag;
     let boot_addr = start_tag << 8;
 
-    if let Err(e) = crate::ember_client::falcon_upload_imem(&bdf, base, imem_addr, &parsed.bl_code, start_tag) {
+    if let Err(e) = crate::ember_client::falcon_upload_imem(&bdf, base, imem_addr, &parsed.bl_code, start_tag, true) {
         trace(&format!("PHASE_C: IMEM upload failed: {e}"));
         eprintln!("  *** IMEM upload failed: {e} ***");
         return;

@@ -16,61 +16,22 @@ use super::fd::send_with_fds;
 use super::helpers::{finish_managed_bdf_early, require_managed_bdf, try_reset_methods};
 use super::jsonrpc::{make_jsonrpc_ok, write_jsonrpc_error, write_jsonrpc_ok};
 
+#[deprecated(note = "use MMIO gateway RPCs instead of raw fd sharing")]
 pub(crate) fn vfio_fds(
     stream: &mut UnixStream,
-    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
-    managed_bdfs: &HashSet<String>,
+    _held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    _managed_bdfs: &HashSet<String>,
     id: serde_json::Value,
-    params: &serde_json::Value,
+    _params: &serde_json::Value,
 ) -> Result<(), EmberIpcError> {
-    let bdf = params
-        .get("bdf")
-        .and_then(|v| v.as_str())
-        .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
-    finish_managed_bdf_early(require_managed_bdf(bdf, managed_bdfs, stream, &id))?;
-    let map = held.read().map_err(|_| EmberIpcError::LockPoisoned)?;
-    let dev = match map.get(bdf) {
-        Some(d) => d,
-        None => {
-            drop(map);
-            write_jsonrpc_error(
-                stream,
-                id,
-                -32000,
-                &format!("device {bdf} not held by ember"),
-            )
-            .map_err(EmberIpcError::from)?;
-            return Ok(());
-        }
-    };
-
-    let fds = dev.device.sendable_fds();
-    let kind = dev.device.backend_kind();
-
-    let mut result = serde_json::json!({
-        "bdf": bdf,
-        "num_fds": fds.len(),
-    });
-    match kind {
-        coral_driver::vfio::VfioBackendKind::Legacy => {
-            result["backend"] = serde_json::json!("legacy");
-        }
-        coral_driver::vfio::VfioBackendKind::Iommufd { ioas_id } => {
-            result["backend"] = serde_json::json!("iommufd");
-            result["ioas_id"] = serde_json::json!(ioas_id);
-        }
-    }
-
-    let resp = make_jsonrpc_ok(id, result);
-    let resp_bytes = format!(
-        "{}\n",
-        serde_json::to_string(&resp)
-            .map_err(|e| EmberIpcError::JsonSerialize(format!("serialize: {e}")))?
-    );
-
-    send_with_fds(&*stream, resp_bytes.as_bytes(), &fds).map_err(EmberIpcError::from)?;
-    tracing::debug!(bdf, backend = ?kind, "sent VFIO fds to client");
-    Ok(())
+    tracing::warn!("ember.vfio_fds called — fd sharing is deprecated, use MMIO gateway RPCs");
+    write_jsonrpc_error(
+        stream,
+        id,
+        -32600,
+        "fd sharing deprecated — use MMIO gateway RPCs (ember.mmio.*, ember.pramin.*, ember.falcon.*)",
+    )
+    .map_err(EmberIpcError::from)
 }
 
 /// `ember.vfio_fds` over TCP (`SCM_RIGHTS` requires a Unix domain socket).
@@ -539,36 +500,125 @@ pub(crate) fn prepare_dma(
         }
     }
 
-    let result = {
-        let bar0 = dev.bar0.as_ref().unwrap();
-        coral_driver::vfio::device::dma_safety::prepare_dma(bar0, &dev.device)
-    };
+    // prepare_dma does BAR0 writes (PMC reset, PFIFO quiesce, PRI ring ACK)
+    // that can stall. Wrap in fork isolation so a stuck BAR0 kills the child,
+    // not ember.
+    let bar0 = dev.bar0.as_ref().unwrap();
+    let bar0_ptr = bar0.base_ptr() as usize;
+    let bar0_size = bar0.size();
+    let bdf_owned = bdf.to_string();
 
-    match result {
-        Ok(state) => {
-            let pmc_before = state.pmc_before;
-            let pmc_after = state.pmc_after;
-            dev.dma_prepare_state = Some(state);
-            dev.experiment_dirty = true;
-            drop(map);
-            tracing::info!(bdf, "ember.prepare_dma: complete");
-            write_jsonrpc_ok(
-                stream,
-                id,
-                serde_json::json!({
-                    "bdf": bdf,
-                    "ok": true,
-                    "pmc_before": format!("{pmc_before:#010x}"),
-                    "pmc_after": format!("{pmc_after:#010x}"),
-                }),
-            )
-            .map_err(EmberIpcError::from)
+    tracing::info!(bdf, "ember.prepare_dma: launching fork-isolated child");
+
+    let fork_result = crate::isolation::fork_isolated_mmio(
+        &bdf_owned,
+        crate::isolation::OperationTier::EngineReset.timeout(),
+        |pipe_fd| {
+            use super::handlers_mmio::write_json_to_pipe_fd;
+            #[allow(unsafe_code)]
+            let child_bar0 = unsafe {
+                coral_driver::vfio::device::MappedBar::from_raw(bar0_ptr as *mut u8, bar0_size)
+            };
+            let result = coral_driver::vfio::device::dma_safety::prepare_dma_bar0_only(&child_bar0);
+            match result {
+                Ok((pmc_before, pmc_after)) => {
+                    write_json_to_pipe_fd(
+                        pipe_fd,
+                        serde_json::json!({
+                            "ok": true,
+                            "pmc_before": pmc_before,
+                            "pmc_after": pmc_after,
+                        }),
+                    );
+                }
+                Err(e) => {
+                    write_json_to_pipe_fd(
+                        pipe_fd,
+                        serde_json::json!({"ok": false, "error": format!("{e}")}),
+                    );
+                }
+            }
+            std::mem::forget(child_bar0);
+        },
+    );
+
+    match fork_result {
+        crate::isolation::ForkResult::Ok(pipe_data) => {
+            let parsed: serde_json::Value = serde_json::from_slice(&pipe_data)
+                .unwrap_or(serde_json::json!({"ok": false, "error": "pipe parse failed"}));
+            if parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let pmc_before = parsed.get("pmc_before").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let pmc_after = parsed.get("pmc_after").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+                // PCI-level operations (AER mask, bus master enable) run in parent
+                // since they use VFIO ioctls, not BAR0 MMIO.
+                let aer_state = match dev.device.mask_aer() {
+                    Ok(aer) => Some(aer),
+                    Err(e) => {
+                        tracing::warn!(bdf = bdf_owned, error = %e, "AER mask failed (non-fatal)");
+                        None
+                    }
+                };
+                if let Err(e) = dev.device.enable_bus_master() {
+                    drop(map);
+                    return write_jsonrpc_error(
+                        stream, id, -32000,
+                        &format!("{bdf_owned}: bus_master enable failed: {e}"),
+                    ).map_err(EmberIpcError::from);
+                }
+
+                dev.dma_prepare_state = Some(coral_driver::vfio::device::dma_safety::DmaPrepareState {
+                    aer_state, pmc_before, pmc_after,
+                });
+                dev.experiment_dirty = true;
+                drop(map);
+                tracing::info!(bdf = bdf_owned, "ember.prepare_dma: complete (fork-isolated)");
+                write_jsonrpc_ok(
+                    stream, id,
+                    serde_json::json!({
+                        "bdf": bdf_owned,
+                        "ok": true,
+                        "pmc_before": format!("{pmc_before:#010x}"),
+                        "pmc_after": format!("{pmc_after:#010x}"),
+                    }),
+                ).map_err(EmberIpcError::from)
+            } else {
+                let err_msg = parsed.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+                drop(map);
+                tracing::error!(bdf = bdf_owned, "ember.prepare_dma: child reported failure: {err_msg}");
+                write_jsonrpc_error(stream, id, -32000, &format!("prepare_dma: {err_msg}"))
+                    .map_err(EmberIpcError::from)
+            }
         }
-        Err(e) => {
+
+        crate::isolation::ForkResult::Timeout => {
+            tracing::error!(bdf = bdf_owned, "prepare_dma: fork child TIMED OUT — device faulted");
+            dev.emergency_quiesce();
             drop(map);
-            tracing::error!(bdf, error = %e, "ember.prepare_dma: failed");
-            write_jsonrpc_error(stream, id, -32000, &format!("prepare_dma: {e}"))
-                .map_err(EmberIpcError::from)
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32099,
+                &format!("{bdf_owned}: prepare_dma timed out — GPU bus-reset, device faulted."),
+            ).map_err(EmberIpcError::from)
+        }
+
+        crate::isolation::ForkResult::ChildFailed { status } => {
+            tracing::error!(bdf = bdf_owned, status, "prepare_dma: fork child failed");
+            dev.emergency_quiesce();
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32098,
+                &format!("{bdf_owned}: prepare_dma child failed (status={status})."),
+            ).map_err(EmberIpcError::from)
+        }
+
+        crate::isolation::ForkResult::ForkFailed(e) | crate::isolation::ForkResult::PipeFailed(e) => {
+            drop(map);
+            write_jsonrpc_error(
+                stream, id, -32000,
+                &format!("{bdf_owned}: prepare_dma fork/pipe failed: {e}"),
+            ).map_err(EmberIpcError::from)
         }
     }
 }

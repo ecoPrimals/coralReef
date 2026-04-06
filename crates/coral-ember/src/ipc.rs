@@ -87,6 +87,7 @@ pub fn handle_client(
 
     match req.method.as_str() {
         "ember.vfio_fds" => {
+            #[allow(deprecated)]
             handlers_device::vfio_fds(stream, held, managed_bdfs, id, params)?;
         }
         "ember.checkpoint_fds" => {

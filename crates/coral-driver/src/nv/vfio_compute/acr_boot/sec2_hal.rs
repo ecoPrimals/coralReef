@@ -16,7 +16,7 @@ mod prepare;
 
 pub(crate) use falcon_mem_upload::sec2_dmem_read;
 pub(crate) use pmc::{find_sec2_pmc_bit, pmc_enable_sec2, pmc_reset_sec2};
-pub use falcon_mem_upload::{falcon_dmem_upload, falcon_imem_upload_nouveau};
+pub use falcon_mem_upload::{falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_imem_upload_secure};
 pub use prepare::{falcon_start_cpu, sec2_prepare_direct_boot, sec2_prepare_physical_first, sec2_prepare_v1};
 
 // ── SEC2 state probing ────────────────────────────────────────────────

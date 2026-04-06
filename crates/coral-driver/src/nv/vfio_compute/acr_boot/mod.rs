@@ -55,11 +55,12 @@ pub use firmware::{
 pub use instance_block::{
     FALCON_INST_VRAM, FALCON_PD0_VRAM, FALCON_PD1_VRAM, FALCON_PD2_VRAM, FALCON_PD3_VRAM,
     FALCON_PT0_VRAM, build_vram_falcon_inst_block, encode_bind_inst, encode_sysmem_pte,
-    encode_vram_pde, falcon_bind_context, falcon_v1_bind_context,
+    encode_vram_pde, encode_vram_pte, falcon_bind_context, falcon_v1_bind_context,
 };
 pub use sec2_hal::{
     Sec2Probe, Sec2State, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
-    falcon_start_cpu, reset_sec2, sec2_emem_read, sec2_emem_verify, sec2_emem_write,
+    falcon_imem_upload_secure, falcon_start_cpu, reset_sec2, sec2_emem_read, sec2_emem_verify,
+    sec2_emem_write,
     sec2_exit_diagnostics, sec2_prepare_direct_boot, sec2_prepare_physical_first,
     sec2_prepare_v1, sec2_tracepc_dump,
 };

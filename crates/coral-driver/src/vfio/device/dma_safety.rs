@@ -196,6 +196,35 @@ pub fn prepare_dma(
     })
 }
 
+/// BAR0-only portion of [`prepare_dma`] — suitable for fork-isolated children.
+///
+/// Performs only the BAR0 MMIO operations (PFIFO reset, scheduler stop, PRI
+/// ACK). AER masking and bus master enable use VFIO ioctls and must run in
+/// the parent process.
+///
+/// Returns `(pmc_before, pmc_after)` on success.
+pub fn prepare_dma_bar0_only(bar0: &MappedBar) -> Result<(u32, u32), DriverError> {
+    let r = |off: usize| bar0.read_u32(off).unwrap_or(0xDEAD_DEAD);
+    let w = |off: usize, val: u32| {
+        let _ = bar0.write_u32(off, val);
+    };
+
+    let pmc = r(PMC_ENABLE);
+    w(PMC_ENABLE, pmc & !PFIFO_BIT);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    w(PMC_ENABLE, pmc | PFIFO_BIT);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    let pmc_after = r(PMC_ENABLE);
+
+    w(PFIFO_ENABLE, 0);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    w(PRIV_RING_COMMAND, PRIV_RING_CMD_ACK);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    Ok((pmc, pmc_after))
+}
+
 /// Disable bus mastering and restore AER masks after an experiment.
 pub fn cleanup_dma(
     device: &VfioDevice,
