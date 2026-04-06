@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Componentwise operations, unary, select, cast, type helpers, and function inlining.
 use super::super::ir::*;
 use super::func::{FuncTranslator, VarRef};

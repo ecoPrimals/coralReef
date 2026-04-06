@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Persistent experiment journal — JSONL append log for swap, reset, and boot observations.
 //!
 //! Every driver swap, device reset, and boot attempt is recorded as a

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Naga IR → codegen IR translator.
 //!
 //! Translates a `naga::Module` (parsed from SPIR-V or WGSL) into the

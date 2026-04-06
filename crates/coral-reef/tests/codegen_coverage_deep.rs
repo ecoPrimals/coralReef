@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Deep integration coverage — scheduling, spilling, copy propagation, CFG, memory,
 //! integer/float ALU, barriers, phi lowering, legalization, textures, and legacy SM paths.
 //!

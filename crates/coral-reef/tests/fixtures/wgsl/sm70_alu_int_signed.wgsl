@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // sm70_encode/alu/int: signed integer ops, IMAD, IADD3, shifts
 // Exercises: signed multiply-add, overflow handling, shift encoding
 

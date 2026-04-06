@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Newline-delimited JSON-RPC 2.0 — shared dispatch and wire handling.
 //!
 //! Used by Unix socket and TCP listeners per wateringHole `PRIMAL_IPC_PROTOCOL` v3.1.
@@ -166,7 +166,7 @@ pub fn make_response(
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     dead_code,
-    reason = "cfg-gated legacy alias; unused in this crate when e2e is off (callers use dispatch_jsonrpc)"
+    reason = "pub alias for tests/e2e; lint fires on bin target but not lib"
 )]
 pub fn dispatch(
     method: &str,

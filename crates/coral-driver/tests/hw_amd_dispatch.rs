@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Layer 3 — AMD compute dispatch: compile a trivial shader + dispatch + sync.
 //!
 //! Run: `cargo test --test hw_amd_dispatch -- --ignored`

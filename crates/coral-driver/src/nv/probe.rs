@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GPU probing, BAR0 init, and open diagnostics for nouveau.
 
 use crate::drm::DrmDevice;

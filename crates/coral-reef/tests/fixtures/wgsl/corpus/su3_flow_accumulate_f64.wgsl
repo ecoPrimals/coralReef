@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Gradient flow K-buffer accumulation: K[i] = alpha * K[i] + Z[i]
 // Used in LSCFRK 2N-storage Lie group integrators (Bazavov & Chuna 2021).
 // Each K/Z element is an SU(3) algebra element: 18 f64 (3x3 complex).

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Coverage-focused tests that exercise deep codegen paths.
 //!
 //! Each test targets a specific optimization or lowering pass by crafting

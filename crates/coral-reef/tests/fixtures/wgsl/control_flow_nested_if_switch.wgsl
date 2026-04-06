@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Control flow: nested if/else (switch hits RA bug)
 // Exercises: repair_ssa, phi nodes, CFG merge blocks
 

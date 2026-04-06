@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Memory: atomic add (u32 and i32)
 // Exercises: atomic code paths in naga_translate and memory lowering
 

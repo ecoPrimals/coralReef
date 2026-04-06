@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GEM (Graphics Execution Manager) buffer objects for AMD GPUs.
 
 use super::ioctl;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Cross-primal end-to-end test: spawn the real `coralreef` binary in `server` mode,
 //! exercise JSON-RPC over TCP via [`jsonrpsee_http_client`] (TLS disabled — plain HTTP to the
 //! `jsonrpsee` server, no `ring`), SPIR-V compilation, optional tarpc, and graceful shutdown.

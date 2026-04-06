@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Capability-based device discovery via the ecoPrimals ecosystem.
 //!
 //! Follows the ecoPrimals **Node Atomic** pattern: coralReef discovers GPU

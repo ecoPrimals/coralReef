@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![no_main]
 
 use std::panic::{AssertUnwindSafe, catch_unwind};

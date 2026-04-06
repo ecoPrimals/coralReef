@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sovereign GSP — Rust GPU System Processor.
 //!
 //! A learned, adaptive replacement for NVIDIA's proprietary GSP firmware.

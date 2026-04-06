@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Minimal VFIO layer for sovereign GPU dispatch.
 //!
 //! Provides direct PCIe device access via Linux VFIO: open container/group/device,

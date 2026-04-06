@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA proprietary DRM driver backend (`nvidia-drm`).
 //!
 //! Provides device probing and identification via the nvidia-drm

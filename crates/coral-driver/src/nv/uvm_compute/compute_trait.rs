@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! [`ComputeDevice`] implementation, sync/drop, and `Send`/`Sync` markers.
 
 use std::os::fd::AsRawFd;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Ring buffer system for ordered, timed GPU command submission.
 //!
 //! Models the hardware ring buffer pattern (GPFIFO / PBDMA / command ring):

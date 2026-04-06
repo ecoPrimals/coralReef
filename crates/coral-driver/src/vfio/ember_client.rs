@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Ember FD-sharing client for diagnostic binaries.
 //!
 //! Connects to coral-ember's Unix socket, requests VFIO FDs via

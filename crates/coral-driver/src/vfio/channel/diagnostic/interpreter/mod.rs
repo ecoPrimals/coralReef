@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Layered GPU interpreter — discovers how to interface with a blank GPU.
 //!
 //! Each layer probes the GPU and produces a typed output that the next layer

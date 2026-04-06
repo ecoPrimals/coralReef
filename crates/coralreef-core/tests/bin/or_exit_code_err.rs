@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exercises `or_exit_code` on `Result::Err` with a non-default exit code.
 
 use coralreef_core::or_exit::OrExit;

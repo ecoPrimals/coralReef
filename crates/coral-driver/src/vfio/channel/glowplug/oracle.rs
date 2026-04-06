@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Oracle register cloning from a nouveau-warm card.
 
 use super::super::pri_monitor::{PriBusMonitor, WriteOutcome};

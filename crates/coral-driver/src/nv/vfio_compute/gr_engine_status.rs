@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GR engine diagnostic status from BAR0 registers.
 
 /// GR engine diagnostic status from BAR0 registers.

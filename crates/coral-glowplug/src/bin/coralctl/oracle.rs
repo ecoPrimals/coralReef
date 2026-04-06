@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! MMU oracle: RPC capture, local VFIO capture, and diff.
 
 use coral_driver::vfio::channel::mmu_oracle;

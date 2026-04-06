@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Small vector with zero/one/many optimization.
 //!
 //! Used for instruction mapping results where most operations

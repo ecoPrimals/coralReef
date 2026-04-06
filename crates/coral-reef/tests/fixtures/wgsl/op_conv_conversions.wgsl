@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // op_conv: f32<->i32, f32<->u32, bitcast
 // Exercises: OpF2I, OpI2F, OpF2U, OpU2F, OpB32
 

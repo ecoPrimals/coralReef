@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pure PCI reset planning for `device.reset` JSON-RPC.
 
 use crate::error::SwapError;

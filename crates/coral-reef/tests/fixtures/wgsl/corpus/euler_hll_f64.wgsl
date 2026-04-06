@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // 1D Euler fluid solver with HLL approximate Riemann solver.
 //
 // GPU-accelerated spatial mesh update for the kinetic-fluid coupling pipeline.

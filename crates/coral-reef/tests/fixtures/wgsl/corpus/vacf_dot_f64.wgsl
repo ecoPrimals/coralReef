@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // VACF Dot Product (f64) — Per-particle v(t0) · v(t)
 //

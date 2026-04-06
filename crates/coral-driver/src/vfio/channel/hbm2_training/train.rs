@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Convenience function for full HBM2 training sequence.
 
 use crate::vfio::device::MappedBar;

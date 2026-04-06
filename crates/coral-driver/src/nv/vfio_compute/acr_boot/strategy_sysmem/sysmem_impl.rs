@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::vfio::channel::registers::{falcon, misc};
 use crate::vfio::device::{DmaBackend, MappedBar};

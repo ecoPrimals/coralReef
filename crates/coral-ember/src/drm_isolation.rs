@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! DRM isolation — auto-generate udev rules and Xorg config from device list.
 //!
 //! When ember manages compute GPUs, those GPUs must be isolated from the

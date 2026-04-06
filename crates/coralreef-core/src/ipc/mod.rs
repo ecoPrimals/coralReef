@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! IPC transports — JSON-RPC 2.0 and tarpc servers.
 //!
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
@@ -31,7 +31,7 @@ pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     unused_imports,
-    reason = "cfg-gated public re-export; unused in this crate when e2e is off"
+    reason = "pub re-export for tests/e2e; lint fires on bin target but not lib"
 )]
 pub use tarpc_transport::{ShaderCompileTarpcClient, start_tarpc_tcp_server};
 
@@ -51,7 +51,7 @@ pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     unused_imports,
-    reason = "cfg-gated public re-export; unused in this crate when e2e is off"
+    reason = "pub re-export for tests/e2e; lint fires on bin target but not lib"
 )]
 pub use newline_jsonrpc::dispatch;
 
@@ -60,7 +60,7 @@ mod unix_jsonrpc;
 #[cfg(unix)]
 #[allow(
     unused_imports,
-    reason = "optional Unix embedder API; not referenced by the coralreef binary in all builds"
+    reason = "pub API for Unix embedders; lint fires on bin target but not lib"
 )]
 pub use unix_jsonrpc::unix_socket_path_for_base;
 #[cfg(unix)]

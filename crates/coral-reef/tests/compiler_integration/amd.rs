@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD RDNA2 integration tests — cross-vendor compilation validation.
 
 use coral_reef::{AmdArch, CompileOptions, GpuTarget, compile_wgsl};

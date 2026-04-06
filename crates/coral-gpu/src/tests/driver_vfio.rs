@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 
 //! VFIO sysfs-free helpers (`vfio_sm_from_device_id`, `sm_to_compute_class`) when `vfio` is enabled.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! V2 MMU page table encoding and population for Volta+ PFIFO channels.
 //!
 //! Implements the 5-level page table hierarchy (PD3→PD2→PD1→PD0→PT) used by

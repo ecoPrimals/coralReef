@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GPU architecture targets — vendor-agnostic.
 //!
 //! [`GpuTarget`] is the top-level enum discriminating between GPU vendors.

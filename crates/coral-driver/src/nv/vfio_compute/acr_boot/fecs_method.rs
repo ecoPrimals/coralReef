@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! FECS falcon method interface — direct BAR0 register communication.
 //!
 //! After ACR bootstrap + falcon start, FECS accepts method commands via:

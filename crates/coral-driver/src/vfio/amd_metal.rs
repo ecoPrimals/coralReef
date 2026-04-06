@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD Vega 20 (MI50/MI60, GFX906) `GpuMetal` implementation.
 //!
 //! EVOLUTION: Register offsets from AMD ISA docs — awaiting MI50 hardware validation.

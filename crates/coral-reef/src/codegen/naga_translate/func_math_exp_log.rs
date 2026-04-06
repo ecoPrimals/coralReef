@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exponential and logarithmic math operations: exp, exp2, log, log2, pow, sinh, cosh, tanh,
 //! asinh, acosh, atanh.
 

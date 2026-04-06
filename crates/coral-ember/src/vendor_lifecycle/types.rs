@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Core types for vendor lifecycle: reset methods, rebind strategy, and the [`VendorLifecycle`] trait.
 
 use std::fmt;

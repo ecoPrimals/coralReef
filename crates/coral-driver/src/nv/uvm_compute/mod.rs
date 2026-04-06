@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! UVM-based compute device — dispatches via the NVIDIA proprietary driver.
 //!
 //! Bypasses nouveau entirely, using the RM object hierarchy through

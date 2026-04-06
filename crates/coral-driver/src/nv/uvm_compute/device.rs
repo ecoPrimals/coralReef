@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! [`NvUvmComputeDevice`] construction, RM channel setup, and GPFIFO submission.
 
 use std::collections::HashMap;

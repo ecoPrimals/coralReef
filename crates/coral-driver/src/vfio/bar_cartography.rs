@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![expect(missing_docs, reason = "BAR cartography types; full docs planned")]
 //! BAR0 register space cartography — systematic scanning and classification.
 //!

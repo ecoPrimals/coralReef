@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Vendor-specific GPU lifecycle hooks for safe driver transitions.
 //!
 //! Different GPU vendors (and even chip families within a vendor) have

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Unit and integration tests for the JSON-RPC client.
 
 use crate::{RpcClient, RpcError, no_params};

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Kinetic energy: T_link = -0.5 * Re Tr(P^2) per link.
 // Self-contained: SU(3) multiply inline.
 

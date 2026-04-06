@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Safe wrapper for volatile MMIO register access.
 //!
 //! Encapsulates `ptr::read_volatile` / `ptr::write_volatile` behind a type that

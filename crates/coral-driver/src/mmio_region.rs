@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! RAII wrapper for mmap-backed MMIO with bounds-checked volatile access.
 //!
 //! Volatile `u32` loads/stores for mapped BAR/MMIO are implemented only in this

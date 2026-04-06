@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Unix JSON-RPC edge-case and integration tests.
 //!
 //! Covers error paths, param variations, server bind failures,

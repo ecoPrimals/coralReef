@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shared constants and BAR0/falcon helpers for Exp 123-K K80 tests.
 
 use coral_driver::gsp::RegisterAccess;

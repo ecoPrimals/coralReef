@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GPU Device Initialization (devinit) — sovereign HBM2/GDDR training via VBIOS + PMU.
 //!
 //! After a GPU enters D3cold and returns to D0, the HBM2 memory controller loses

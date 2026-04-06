@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 //! Integer ALU operation encoding — IAdd3, IMad, IMnMx, Lop2, Lop3, Shl, Shr,
 //! Shf, Sel, PopC, BRev, Flo, Bfe, BMsk.

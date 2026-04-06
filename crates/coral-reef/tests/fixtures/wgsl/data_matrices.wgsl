@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Data types: mat2x2, mat3x3, mat4x4
 // Exercises: matrix loads, matrix multiply, vector-matrix
 // Uses local_invocation_id for AMD compatibility (no SR_NTID)

@@ -12,7 +12,7 @@ This primal follows the ecoPrimals coding conventions (modeled on wateringHole s
 - **Docs**: `#![warn(missing_docs)]`
 - **Max file size**: 1000 LOC
 - **Test coverage**: 90%+ target (structural floor from encoder match arms)
-- **License**: AGPL-3.0-only (upstream-derived files retain original attribution)
+- **License**: AGPL-3.0-or-later (upstream-derived files retain original attribution)
 - **Error handling**: `thiserror` for libraries, `Result` propagation throughout pipeline
 - **Tooling**: `rustfmt.toml`, `clippy.toml`, `deny.toml` all configured
 

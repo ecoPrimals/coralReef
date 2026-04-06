@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! RM Protocol Observer — captures RM operations for the virtual GSP knowledge base.
 //!
 //! Every successful RM operation (alloc, control, free) is recorded as a

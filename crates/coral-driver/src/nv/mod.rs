@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA GPU driver — nouveau (sovereign) and nvidia-drm (compatible) backends.
 //!
 //! coralReef prefers nouveau because it forces deep sovereignty: we own

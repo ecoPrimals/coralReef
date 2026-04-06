@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Data types: vec2, vec3, vec4 operations (manual dot expansion)
 // Exercises: vector component access, swizzles, vector math
 

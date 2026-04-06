@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! RPC handlers: device lifecycle, compute, dispatch, and system health.
 
 use crate::rpc::{check_rpc_error, rpc_call};

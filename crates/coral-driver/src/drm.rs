@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pure Rust DRM ioctl interface — uses `rustix` for mmap/munmap and ioctl.
 //!
 //! All ioctl numbers and structures are defined here from the Linux

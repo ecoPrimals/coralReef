@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Quick diagnostic: step through nouveau ioctl chain to isolate EINVAL.
 
 use coral_driver::ComputeDevice;

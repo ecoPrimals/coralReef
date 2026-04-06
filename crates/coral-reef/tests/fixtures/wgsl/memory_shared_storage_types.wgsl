@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Memory: workgroup shared + storage buffers with i32/f32/u32
 // Exercises: shared memory layout, barrier, typed loads/stores
 

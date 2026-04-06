@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GR context lifecycle — allocate, bind, golden save/restore, context switch.
 //!
 //! Wires the FECS method ring (`fecs_method.rs`) into a complete GR context

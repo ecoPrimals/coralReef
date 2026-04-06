@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Systematic memory topology discovery for the GPU interpreter.
 //!
 //! Probes all memory access paths (PRAMIN→VRAM, DMA→sysmem, PBDMA→RAMFC)

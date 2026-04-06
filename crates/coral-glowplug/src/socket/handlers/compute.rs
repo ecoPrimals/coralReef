@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Async compute dispatch and MMU oracle capture handlers.
 //!
 //! These handlers are spawned via `tokio::task::spawn_blocking` to avoid

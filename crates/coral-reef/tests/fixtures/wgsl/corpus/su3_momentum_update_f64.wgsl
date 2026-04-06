@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Momentum update: P[i] += dt * F[i] for SU(3) algebra elements.
 // Each momentum/force is 18 f64 (3x3 complex, row-major).
 // Prepend: (none required — plain f64 arithmetic)

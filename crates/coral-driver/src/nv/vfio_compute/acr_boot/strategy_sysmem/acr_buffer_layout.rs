@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Pure buffer layout and SEC2 poll-step helpers for system-memory ACR boot.
 

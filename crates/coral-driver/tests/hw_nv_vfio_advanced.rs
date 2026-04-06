@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA VFIO — advanced tests: diagnostic matrix, HBM2 capture, metal discovery.
 //!
 //! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio_advanced --features vfio -- --ignored`

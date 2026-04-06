@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn file_header_contains_spdx() {
         let header = generate::file_header().unwrap();
-        assert!(header.contains("SPDX-License-Identifier: AGPL-3.0-only"));
+        assert!(header.contains("SPDX-License-Identifier: AGPL-3.0-or-later"));
         assert!(header.contains("AUTO-GENERATED"));
         assert!(header.contains("DO NOT EDIT BY HAND"));
     }

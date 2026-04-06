@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Safe wrapper for sysfs BAR0 mmap reads.
 //!
 //! Consolidates the mmap → volatile-read → munmap pattern used by

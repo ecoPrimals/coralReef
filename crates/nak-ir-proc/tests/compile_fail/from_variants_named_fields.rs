@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `FromVariants` requires each variant to have exactly one unnamed field.
 
 #![allow(dead_code)]

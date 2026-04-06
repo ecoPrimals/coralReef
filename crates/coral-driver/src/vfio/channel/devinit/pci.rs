@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! PCI power management helpers for devinit.
 //!
 //! Delegates to `pci_discovery` for actual implementation.

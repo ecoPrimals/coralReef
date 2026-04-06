@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Parse NVIDIA GR firmware blobs shipped under `CORALREEF_NVIDIA_FIRMWARE_ROOT` (default
 //! `/lib/firmware/nvidia`), in `{chip}/gr/`.
 //!

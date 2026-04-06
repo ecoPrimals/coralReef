@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! BAR0 register offsets and IOVA constants for Volta+ PFIFO channels.
 //!
 //! Register sources:

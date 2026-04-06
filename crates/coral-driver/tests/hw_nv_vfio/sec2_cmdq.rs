@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::ember_client;
 use crate::helpers::{init_tracing, open_vfio, vfio_bdf};

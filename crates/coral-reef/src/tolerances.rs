@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Compiler precision thresholds and heuristic limits.
 //!
 //! Named constants for compiler precision, inspired by ecosystem numerical

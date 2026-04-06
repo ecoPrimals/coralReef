@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Kepler+ push buffer construction — correct Type 1/3 header encoding.
 //!
 //! Push buffer headers on Kepler+ encode GPU method calls:

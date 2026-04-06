@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Rebind a GPU from vfio-pci to nouveau at runtime.
 #
 # Usage: sudo bash scripts/rebind-gpu-nouveau.sh [BDF]

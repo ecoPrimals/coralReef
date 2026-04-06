@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Abstractions for loading NVIDIA GR firmware without tying call sites to the filesystem.
 //!
 //! Production code uses [`FilesystemFirmwareSource`], which reads from

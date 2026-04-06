@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Recipe replay engine — apply captured init recipes to cold GPUs via VFIO BAR0.
 //!
 //! Supports two recipe formats:

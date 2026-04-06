@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! VRAM accessibility probe -- test if PRAMIN window can read/write VRAM
 //! on a cold VFIO card (no HBM2 training).
 //!

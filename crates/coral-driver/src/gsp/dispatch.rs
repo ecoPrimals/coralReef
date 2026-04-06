@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Dispatch optimizer — learned hints for compute workloads.
 //!
 //! Uses knowledge gathered from firmware analysis and runtime observation

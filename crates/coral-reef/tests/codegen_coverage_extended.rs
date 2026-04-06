@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Extended coverage tests — memory, control flow, ALU, SM variants, AMD RDNA2.
 //!
 //! Split from `codegen_coverage_targeted.rs` to stay under 1000 LOC.

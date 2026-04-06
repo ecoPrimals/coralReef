@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![expect(missing_docs, reason = "oracle/PMU emulation; full docs planned")]
 //! Oracle data loading and digital PMU emulation.
 //!

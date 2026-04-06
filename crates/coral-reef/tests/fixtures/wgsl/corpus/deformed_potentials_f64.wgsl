@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Skyrme + Coulomb Mean-Field Potentials on 2D Cylindrical Grid (f64)
 //
 // Computes the full mean-field potential V(ρ,z) for protons or neutrons

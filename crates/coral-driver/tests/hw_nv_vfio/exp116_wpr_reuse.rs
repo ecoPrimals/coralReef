@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Exp 116: WPR2 Discovery + blob_size=0 ACR Boot + BOOTSTRAP_FALCON
 //!

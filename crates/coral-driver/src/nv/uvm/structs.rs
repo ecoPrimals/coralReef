@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `#[repr(C)]` struct definitions for NVIDIA RM and UVM ioctls.
 //!
 //! All structs derived from `nvidia-open-gpu-kernel-modules` (MIT license).

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Forward and backward dataflow analysis — replacement for `compiler::dataflow`.
 //!
 //! Used for liveness analysis and dependency tracking.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! sysfs bind-time operations for [`super::handle_swap_device`] (VFIO and native DRM/compute drivers).
 
 use crate::error::SwapError;

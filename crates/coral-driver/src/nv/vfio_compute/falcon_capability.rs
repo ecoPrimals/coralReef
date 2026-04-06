@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Falcon capability discovery — runtime bit solver for PIO register layouts.
 //!
 //! Instead of hardcoding bit positions (which vary across falcon versions and

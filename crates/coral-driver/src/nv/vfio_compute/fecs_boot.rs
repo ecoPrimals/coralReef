@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sovereign FECS/GPCCS falcon boot — direct IMEM/DMEM firmware upload.
 //!
 //! Loads FECS (and optionally GPCCS) firmware from `/lib/firmware/nvidia/{chip}/gr/`

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Fast, non-cryptographic hash — drop-in replacement for `rustc-hash`.
 //!
 //! FxHash is a speedy hash algorithm used within rustc. The implementation

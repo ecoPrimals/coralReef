@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! End-to-end integration tests for the coralReef IPC layer.
 //!
 //! Starts both JSON-RPC and tarpc servers on random ports, exercises all

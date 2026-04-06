@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! PRAMIN chunked writes into VRAM (shared by legacy, native, and dual-phase paths).
 

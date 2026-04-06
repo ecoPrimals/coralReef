@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Structured MMU fault decoding for Volta+ VFIO sovereign pipeline.
 //!
 //! Reads the GPU's hub MMU fault registers (BAR0 `0x100xxx`) and decodes

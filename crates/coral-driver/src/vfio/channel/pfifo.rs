@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! PFIFO engine initialization and diagnostic readback for Volta+ GPUs.
 //!
 //! Implements the engine bring-up sequence from nouveau's `gk104_fifo_init()`,

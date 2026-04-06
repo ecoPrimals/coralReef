@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Test binary that exercises `OrExit` error path — exits with code 1.
 //! Run via: `cargo run --bin or_exit_err` (exits immediately)
 

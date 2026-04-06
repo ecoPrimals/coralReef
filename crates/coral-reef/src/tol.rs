@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Named tolerance tiers for precision validation.
 //!
 //! Adopted from ecosystem numerical validation's 13-tier tolerance architecture.

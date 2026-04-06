@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // expr_binary: LogicalAnd, LogicalOr (&&, ||)
 // Exercises: OpPLop3, predicate logic - use in if conditions to avoid select coercion
 

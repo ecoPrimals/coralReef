@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Parity compilation tests — same WGSL compiled for multiple targets.
 //!
 //! Validates that the compiler produces valid, non-empty binaries with

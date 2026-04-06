@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! JSON-RPC (HTTP over TCP) endpoint tests.
 //!
 //! Uses `primal-rpc-client` — the ecosystem's pure Rust JSON-RPC client.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! JSON-RPC method handlers — structured by domain.
 //!
 //! - [`device_ops`]: sync device lifecycle operations (list, get, swap, health, …)

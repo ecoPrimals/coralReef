@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Nouveau MMU oracle — reads page table state from a nouveau-bound card.
 //!
 //! When nouveau initializes a GPU, it sets up V2 MMU page tables in VRAM.

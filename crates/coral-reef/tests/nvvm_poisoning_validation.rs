@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVVM Poisoning Validation — DF64 Yukawa Force (`exp_df64` + `sqrt_df64`)
 //!
 //! hotSpring Exp 053: NVIDIA proprietary NVVM chokes on DF64 transcendentals

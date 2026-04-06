@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Tree reduction: sum N f64 values down to ceil(N/256) partial sums.
 // Dispatch twice for full scalar output:

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // chi2 contribution per nucleus: (B_calc - B_exp)^2 / sigma^2
 @group(0) @binding(0) var<storage, read> b_calc: array<f64>;
 @group(0) @binding(1) var<storage, read> b_exp: array<f64>;

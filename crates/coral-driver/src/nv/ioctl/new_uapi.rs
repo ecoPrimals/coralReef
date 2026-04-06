@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! New nouveau UAPI (kernel 6.6+) — `VM_INIT` / `VM_BIND` / `EXEC` pipeline.
 //!
 //! Ecosystem experiment Exp-051 confirmed: on kernel 6.17+ with Volta (GV100),

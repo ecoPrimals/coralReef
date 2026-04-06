@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![expect(missing_docs, reason = "benchmark harness; docs not required")]
 //! Criterion benchmarks for coral-reef compiler throughput.
 //!

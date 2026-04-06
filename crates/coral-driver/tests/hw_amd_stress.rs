@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD GPU stress tests — large buffers, concurrent dispatches, rapid cycles.
 //!
 //! Run: `cargo test --test hw_amd_stress -- --ignored`

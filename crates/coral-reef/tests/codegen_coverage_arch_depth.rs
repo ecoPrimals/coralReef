@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Deep architecture-specific coverage tests.
 //!
 //! Targets coverage gaps in f64, texture, memory, and control encoding

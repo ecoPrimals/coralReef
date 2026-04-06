@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed errors for sysfs, swap, trace, and IPC transport.
 #![expect(
     missing_docs,

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Posted-command mailbox for GPU firmware interaction.
 //!
 //! Models the mailbox pattern used by GPU firmware (FECS, GPCCS, SEC2):

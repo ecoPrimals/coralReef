@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Link update: U = exp(dt * P) * U via Cayley + reunitarize.
 // Cayley: exp(A) ≈ (I + A/2)(I - A/2)^{-1}, exact for anti-Hermitian.
 // Self-contained: all SU(3) ops inline.

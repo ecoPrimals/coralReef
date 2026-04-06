@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! VBIOS PROM read and BIT init script interpreter for Exp 123-K.
 
 use coral_driver::gsp::RegisterAccess;

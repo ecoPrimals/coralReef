@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! swap_device — the core ember-centric driver swap orchestrator.
 //!
 //! This module is the ONLY place where sysfs driver/unbind and

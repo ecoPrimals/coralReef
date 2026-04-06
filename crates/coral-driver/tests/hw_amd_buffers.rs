@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Layer 1 — AMD buffer operations: alloc, upload, readback, free.
 //!
 //! Run: `cargo test --test hw_amd_buffers -- --ignored`

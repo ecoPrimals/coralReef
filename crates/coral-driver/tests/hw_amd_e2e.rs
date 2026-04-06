@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Layer 4 — AMD E2E: compile + dispatch + readback + verify.
 //!
 //! This is the full sovereign pipeline test: WGSL source → coral-reef

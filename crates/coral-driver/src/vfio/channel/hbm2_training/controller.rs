@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! HBM2 typestate controller with phase-enforced transitions.
 
 use std::fmt;

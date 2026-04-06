@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exp 123-T0: Parasitic probe — read GPU falcon state via sysfs BAR0 while nouveau is active.
 //!
 //! NO vfio-pci required. Works with nouveau bound.

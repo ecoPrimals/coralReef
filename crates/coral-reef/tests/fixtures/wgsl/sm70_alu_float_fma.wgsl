@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // sm70_encode/alu: FMA, float min/max, transcendental chains
 // Exercises: OpFFma, OpFMnMx, MUFU, float ALU encoding
 

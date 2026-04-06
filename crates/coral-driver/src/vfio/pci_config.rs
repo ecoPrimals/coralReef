@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Low-level PCI config-space reads and capability-chain parsing (`pci_discovery` internals).
 
 use std::collections::HashSet;

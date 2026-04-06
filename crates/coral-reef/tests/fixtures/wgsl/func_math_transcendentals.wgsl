@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // func_math: pow, exp, log, sqrt, inverseSqrt (f32)
 // Exercises: OpTranscendental, log2/exp2 chains
 

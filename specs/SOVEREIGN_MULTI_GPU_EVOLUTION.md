@@ -360,7 +360,7 @@ All evolution passes must maintain:
 - `cargo doc --workspace --no-deps`: PASS (no warnings)
 - Zero `TODO`/`FIXME` in production (tracked in `WHATS_NEXT.md`)
 - All files < 1000 LOC
-- AGPL-3.0-only license
+- AGPL-3.0-or-later license
 - Zero hardcoded primal names
 - Capability-based discovery
 

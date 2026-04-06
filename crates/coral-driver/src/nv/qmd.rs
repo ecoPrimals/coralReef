@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! QMD (Queue Management Descriptor) construction for NVIDIA compute dispatch.
 //!
 //! Full 256-byte (64-word) QMD for Volta v2.1 and Ampere v3.0.

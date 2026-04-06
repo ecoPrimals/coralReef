@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! VFIO device management — open container/group/device, map BARs.
 //!
 //! `VfioDevice` wraps the full VFIO lifecycle for a single PCIe function:

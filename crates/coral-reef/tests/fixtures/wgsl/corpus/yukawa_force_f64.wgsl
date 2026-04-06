@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // DEPRECATED — Use barracuda::ops::md::forces::YukawaForceF64
 // Retained for fossil record. barracuda canonical: ops/md/forces/yukawa_f64.wgsl

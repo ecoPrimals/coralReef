@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 
 //! [`GpuContext::from_parts`] and [`GpuContext::compile_wgsl_cached`] integration with mocks.

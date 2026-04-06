@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Hot-swap integration tests — exercise glowPlug's personality swap,
 //! device lend/reclaim, and health monitoring on live hardware.
 //!

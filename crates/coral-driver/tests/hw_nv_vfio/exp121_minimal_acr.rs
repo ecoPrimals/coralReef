@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Exp 121: Minimal ACR Boot — No PFIFO, No GR Init, No Channel
 //!

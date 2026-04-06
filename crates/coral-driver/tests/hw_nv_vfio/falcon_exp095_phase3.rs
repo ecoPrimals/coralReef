@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 use coral_driver::nv::vfio_compute::NvVfioComputeDevice;
 use coral_driver::vfio::memory::{MemoryRegion, PraminRegion};

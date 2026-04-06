@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Control-flow graph — replacement for `compiler::cfg`.
 //!
 //! Provides a directed graph over basic blocks with predecessor/successor

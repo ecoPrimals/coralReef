@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Kepler Falcon PIO loader — direct IMEM/DMEM upload for FECS/GPCCS.
 //!
 //! On Kepler (GK110/GK210), FECS and GPCCS can be loaded via programmed I/O

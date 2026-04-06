@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Adaptive vendor lifecycle — learns from the experiment journal.
 //!
 //! Wraps any [`VendorLifecycle`] and overrides `settle_secs` and

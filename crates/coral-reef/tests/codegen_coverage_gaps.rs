@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Targeted tests for llvm-cov gaps: `emit`, `op_conv`, `calc_instr_deps`,
 //! debug metadata, cross-target fixtures, and legacy SM paths.
 

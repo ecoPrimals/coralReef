@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Instruction latency data for NVIDIA GPU instruction scheduling.
 //!
 //! SM100 (Blackwell B100) latency categories. Used by `sm120_instr_latencies`

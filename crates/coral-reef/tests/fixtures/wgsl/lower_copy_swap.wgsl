@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // lower_copy_swap: copy/swap patterns, phi nodes with multiple predecessors
 // Exercises: value swapping, copy elimination, SSA repair
 

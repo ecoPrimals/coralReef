@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Targeted coverage for `expr.rs` and `func_ops.rs`: compose/splat/swizzle,
 //! f64 vector lowering, relational builtins, casts, `arrayLength` stride path,
 //! logical/bitwise ops, and matrix expressions.

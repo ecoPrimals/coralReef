@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Synchronous device lifecycle handlers for glowplug JSON-RPC.
 //!
 //! These handlers run under the device lock and execute synchronously

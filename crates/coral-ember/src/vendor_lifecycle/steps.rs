@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pure lifecycle step lists and sysfs execution (injectable [`crate::sysfs::SysfsPort`]).
 
 use coral_driver::linux_paths;

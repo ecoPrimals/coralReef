@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Slice view traits — replacement for `compiler::as_slice`.
 //!
 //! Used by codegen IR for accessing instruction sources and destinations as

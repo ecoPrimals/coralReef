@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Vendor-agnostic GPU metal interface.
 //!
 //! The `GpuMetal` trait abstracts over NVIDIA, AMD, and Intel GPU register

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! VBIOS init script scanner — extracts register writes without full interpretation.
 //!
 //! Reference: nouveau nvkm/subdev/bios/init.c (Ben Skeggs, Red Hat)

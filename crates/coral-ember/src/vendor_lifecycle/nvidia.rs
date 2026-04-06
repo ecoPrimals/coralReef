@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA GPU lifecycle implementations (Kepler, Volta+, Open, Oracle).
 
 use crate::error::SwapError;

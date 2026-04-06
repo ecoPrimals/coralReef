@@ -25,7 +25,7 @@
 | Tests | A+ | 4318 passing, 0 failed, ~153 ignored hardware-gated, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
-| License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
+| License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |

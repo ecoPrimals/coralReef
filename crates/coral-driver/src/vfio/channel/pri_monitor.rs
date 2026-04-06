@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![expect(missing_docs, reason = "PRI bus monitor; full docs planned")]
 //! PRI Bus Monitor — backpressure sensor for sovereign GPU register access.
 //!

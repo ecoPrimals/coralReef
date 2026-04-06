@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! PM4 command buffer construction for AMD RDNA2 compute dispatch.
 //!
 //! PM4 (Packet Manager 4) is the command packet format used by AMD GPUs.

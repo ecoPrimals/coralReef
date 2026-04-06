@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exp 123-K2b: GK110-native FECS/GPCCS boot.
 
 use coral_driver::gsp::RegisterAccess;

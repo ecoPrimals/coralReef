@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Control flow: loop/break (matches coverage_phi_nodes_loop_carry pattern)
 // Exercises: repair_ssa, loop exit edges
 

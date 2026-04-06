@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Lightweight JSON-RPC 2.0 client for `coral-glowplug` socket.
 //!
 //! Used by hardware tests to borrow VFIO devices from the running

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! JSON-RPC 2.0 server — semantic method names per wateringHole standard.
 //!
 //! Method namespace: `shader.compile.*` — aligned with capability

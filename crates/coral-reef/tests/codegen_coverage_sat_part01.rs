@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! WGSL codegen saturation coverage (part 1 / 3).
 
 #[path = "codegen_sat/helpers.rs"]

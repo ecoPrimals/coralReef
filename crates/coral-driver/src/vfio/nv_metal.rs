@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA Volta `GpuMetal` implementation.
 //!
 //! Provides register maps, power domains, engine topology, and warm-up

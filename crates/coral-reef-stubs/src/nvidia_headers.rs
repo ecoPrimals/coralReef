@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Stub for `nvidia_headers` — NVIDIA hardware class definitions.
 //!
 //! These define the memory-mapped registers and methods for NVIDIA GPU

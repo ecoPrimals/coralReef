@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Ecosystem registration — `capability.register` and periodic `ipc.heartbeat`.
 //!
 //! Best-effort integration with the Songbird / Neural API registry discovered at

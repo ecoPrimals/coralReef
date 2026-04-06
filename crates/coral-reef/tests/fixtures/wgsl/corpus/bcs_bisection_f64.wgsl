@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // BCS Bisection Root-Finding (f64) — GPU-Parallel
 //
 // Solves batched BCS chemical-potential problems in parallel:

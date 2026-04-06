@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 //! coral-glowplug library — shared types for the sovereign PCIe device lifecycle broker.

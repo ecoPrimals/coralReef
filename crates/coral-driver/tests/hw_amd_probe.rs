@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Layer 0 — AMD device probe: can we open the DRM render node?
 //!
 //! `AmdDevice::open()` already verifies the kernel driver is `amdgpu`,

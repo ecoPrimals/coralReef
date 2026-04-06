@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Titan V (GV100) nouveau DRM dispatch — end-to-end compute validation.
 //!
 //! Phases:

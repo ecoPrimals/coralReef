@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 
 //! [`GpuContext::wave_size`] for AMD wave64 vs wave32 vs NVIDIA.

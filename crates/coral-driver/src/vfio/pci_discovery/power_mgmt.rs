@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sysfs-driven PCI power transitions and config snapshots.
 
 use crate::linux_paths;

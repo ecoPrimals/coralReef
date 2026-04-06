@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `SrcsAsSlice` requires a struct with named fields.
 
 #![allow(dead_code)]

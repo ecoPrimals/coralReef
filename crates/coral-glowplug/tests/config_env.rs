@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Environment-variable overrides for config search paths and TCP/socket defaults.
 //!
 //! Lives in `tests/` so the library unit tests stay `#![forbid(unsafe_code)]`;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Boot strategies: mailbox command, direct FECS, HRESET, EMEM, nouveau-style SEC2.
 

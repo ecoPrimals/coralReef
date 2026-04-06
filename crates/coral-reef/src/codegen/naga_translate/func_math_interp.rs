@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Interpolation and misc math: mix, step, smoothstep, sign, fma.
 
 use super::super::ir::*;

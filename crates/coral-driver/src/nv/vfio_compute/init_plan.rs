@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pure plans and snapshots for GR init and warm falcon restart (`init.rs` I/O).
 
 use std::borrow::Cow;

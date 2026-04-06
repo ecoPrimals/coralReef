@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sovereign BAR0 MMIO access — direct GPU register read/write via sysfs.
 //!
 //! Maps `/sys/class/drm/{node}/device/resource0` (or an explicit PCI sysfs

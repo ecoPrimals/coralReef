@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Compile-fail UI tests for `nak_ir_proc` (expected macro expansions that error).
 
 #[test]

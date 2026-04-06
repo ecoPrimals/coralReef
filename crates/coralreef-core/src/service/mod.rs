@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Compiler service — shared logic for both JSON-RPC and tarpc transports.
 //!
 //! Follows wateringHole semantic method naming: `shader.compile.{operation}`.

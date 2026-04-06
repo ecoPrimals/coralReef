@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sysfs helpers — Ember is the sole writer of driver/unbind and bind.
 //! Paths respect [`coral_driver::linux_paths`] (`CORALREEF_SYSFS_ROOT`).
 //!

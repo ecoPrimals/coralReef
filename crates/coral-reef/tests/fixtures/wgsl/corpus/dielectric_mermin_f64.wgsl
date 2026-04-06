@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Batched Mermin dielectric function ε(k,ω) on GPU.
 // Each thread evaluates one ω point through the full chain:
 //   plasma_W → χ₀ → ε_Vlasov → ε_Mermin → Im[1/ε] → S(k,ω)

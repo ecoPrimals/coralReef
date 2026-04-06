@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pure boot-safety evaluation — inputs are collected via sysfs/`/proc` elsewhere.
 
 use crate::pci_ids;

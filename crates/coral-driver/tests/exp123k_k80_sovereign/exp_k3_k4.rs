@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exp 123-K3 / K4: VBIOS DEVINIT and nvidia-470 recipe boot paths.
 
 use coral_driver::nv::bar0::Bar0Access;

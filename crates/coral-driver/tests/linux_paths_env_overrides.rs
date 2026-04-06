@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Custom `CORALREEF_SYSFS_ROOT` / `CORALREEF_PROC_ROOT`. Single `#[test]` so
 //! `OnceLock` initialization is deterministic (integration tests may run in parallel).

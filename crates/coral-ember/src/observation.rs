@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Structured observations from driver swaps and resets.
 //!
 //! Every `ember.swap` and `ember.device_reset` produces an observation

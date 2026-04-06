@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![expect(missing_docs, reason = "interpreter layer types; full docs planned")]
 //! Typed layer outputs for the GPU interpreter.
 //!

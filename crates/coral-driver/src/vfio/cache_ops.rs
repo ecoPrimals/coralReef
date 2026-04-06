@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Safe wrappers for x86_64 cache coherence intrinsics.
 //!
 //! Used for DMA buffer coherence: on non-coherent platforms (e.g. AMD Zen 2 with

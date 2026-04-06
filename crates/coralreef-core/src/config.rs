@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Configuration constants for coralreef-core.
 //!
 //! All ecosystem-level constants are derived from the primal's own identity

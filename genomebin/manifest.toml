@@ -9,7 +9,7 @@
 [primal]
 name = "coralreef"
 version = "0.1.0"
-license = "AGPL-3.0-only"
+license = "AGPL-3.0-or-later"
 binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"

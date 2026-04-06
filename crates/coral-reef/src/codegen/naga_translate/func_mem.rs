@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Memory access, load, store, and address computation for Naga translation.
 use super::super::ir::*;
 use super::func::{FuncTranslator, VarRef};

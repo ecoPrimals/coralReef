@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sovereign HBM2 memory training via typestate-enforced phase transitions.
 //!
 //! This module provides compile-time guarantees that HBM2 training phases

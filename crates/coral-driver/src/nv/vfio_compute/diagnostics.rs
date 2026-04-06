@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Layer 7 diagnostic capture — FECS falcon, engine topology, PBDMA state.
 //!
 //! Captures comprehensive GPU state to diagnose why GPFIFO completions

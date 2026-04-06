@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Chaos and fault injection tests for robustness.
 
 use coral_reef::{CompileOptions, GpuArch, compile, compile_wgsl};

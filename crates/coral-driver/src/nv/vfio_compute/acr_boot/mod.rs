@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sovereign SEC2/ACR falcon boot chain — the gateway to FECS.
 //!
 //! Three strategies for getting FECS/GPCCS running on GV100:

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Control flow: loop/break (matches coverage_nested_loops pattern)
 // Exercises: loop lowering, back edges, liveness
 

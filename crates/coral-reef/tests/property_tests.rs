@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Property-based tests for the coral-reef compiler.
 
 use coral_reef::{CompileOptions, GpuArch, compile, compile_wgsl};

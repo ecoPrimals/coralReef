@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA VFIO — oracle-driven tests: root PLL, digital PMU, boot follower, lifecycle.
 //!
 //! Run: `CORALREEF_VFIO_BDF=0000:01:00.0 cargo test --test hw_nv_vfio_oracle --features vfio -- --ignored`

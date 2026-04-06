@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // CG scalar: alpha = rz / pAp.  Single-thread GPU kernel.
 // Keeps the scalar on GPU — no readback for CG internals.

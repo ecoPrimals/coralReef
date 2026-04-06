@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // builder/emit: complex shader with many instruction types
 // Exercises: ALU, memory, control, conversions, transcendentals
 

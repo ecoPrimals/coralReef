@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! PCI vendor and device ID constants for capability-based device identification.
 //!
 //! Used by boot safety validation and chip identification. Keeps magic numbers

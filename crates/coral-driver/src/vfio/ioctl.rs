@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Safe Rust wrappers over VFIO kernel ioctls.
 //!
 //! Each function encapsulates one `unsafe` ioctl call with documented safety

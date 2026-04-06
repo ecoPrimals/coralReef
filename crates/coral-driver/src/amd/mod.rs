@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD GPU driver — amdgpu DRM backend.
 //!
 //! Provides compute shader dispatch via the amdgpu kernel driver:

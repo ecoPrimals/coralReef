@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sysfs and PCI bus helpers for device discovery and lifecycle management.
 //!
 //! Encapsulates all direct Linux sysfs filesystem interactions:

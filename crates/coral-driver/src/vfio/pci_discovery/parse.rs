@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sysfs and textual PCI helpers (BDF strings, `resource` lines, power/link sysfs).
 
 use super::types::{PciBar, PciPmState, PcieLinkSpeed};

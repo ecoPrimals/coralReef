@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GCN5 end-to-end: coral-reef compile → coral-driver dispatch → readback verify.
 //!
 //! Compiles a WGSL shader with `coral-reef` targeting GCN5 (GFX906),

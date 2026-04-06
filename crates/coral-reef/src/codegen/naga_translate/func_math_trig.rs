@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Trigonometric math operations: sin, cos, tan, atan, atan2, asin, acos.
 
 use super::super::ir::*;

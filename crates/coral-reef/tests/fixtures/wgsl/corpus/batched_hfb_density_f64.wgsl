@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Batched HFB Density + BCS + Energy (f64) — GPU Shader
 //
 // Three kernels that complete the post-eigensolve SCF step:

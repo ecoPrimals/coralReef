@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tests for newline-delimited JSON-RPC over TCP (`newline_jsonrpc`).
 
 use serde_json::json;

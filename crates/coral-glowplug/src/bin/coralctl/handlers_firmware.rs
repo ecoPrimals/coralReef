@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! coralctl handlers for mailbox and ring operations.
 //!
 //! These map CLI subcommands to `mailbox.*` and `ring.*` JSON-RPC methods

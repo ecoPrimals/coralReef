@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Math emission helpers for the naga translator.
 //!
 //! Extracted from `func_math.rs` to keep each file under 1000 LOC.

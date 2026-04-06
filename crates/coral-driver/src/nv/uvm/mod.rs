@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA UVM (Unified Virtual Memory) interface for proprietary driver compute.
 //!
 //! The nvidia-drm render node (`/dev/dri/renderD*`) provides device identification

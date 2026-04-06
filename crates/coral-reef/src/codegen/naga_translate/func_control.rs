@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Control flow translation: if/else, loops, phi node emission.
 use super::super::ir::*;
 use super::func::{FuncTranslator, LoopContext};

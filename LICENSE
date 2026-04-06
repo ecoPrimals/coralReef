@@ -672,7 +672,7 @@ This constitutes a symbiotic exception per the ecoPrimals scyBorg
 Provenance Trio guidance: the NAK-derived IR, register allocation,
 spiller, instruction scheduling, and NVIDIA encoder code retains its
 upstream MIT license while the surrounding coralReef codebase is
-AGPL-3.0-only. New code and AMD-specific modules are AGPL-3.0-only.
+AGPL-3.0-or-later. New code and AMD-specific modules are AGPL-3.0-or-later.
 
 ---
 
@@ -681,7 +681,7 @@ scyBorg Provenance Trio
 
 coralReef participates in the ecoPrimals scyBorg triple-copyleft framework:
 
-  1. Code: AGPL-3.0-only (this file)
+  1. Code: AGPL-3.0-or-later (this file)
   2. Game Mechanics: ORC License (see LICENSE-ORC)
   3. Creative Content: CC-BY-SA 4.0 (see LICENSE-CC-BY-SA in ecoPrimals root)
 

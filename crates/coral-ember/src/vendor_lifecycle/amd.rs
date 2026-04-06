@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD GPU lifecycle implementations (Vega 20, RDNA).
 
 use crate::error::SwapError;

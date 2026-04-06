@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Transport implementations: TCP, Unix socket, delegated TLS via local edge proxy.
 
 use crate::error::RpcError;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Dominator tree, loop detection, and related CFG analysis.
 //!
 //! Implements the Cooper-Harvey-Kennedy iterative dominator algorithm with

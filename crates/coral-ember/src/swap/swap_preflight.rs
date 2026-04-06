@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pre-flight sysfs sanity checks, DRM isolation verification, and cold-GPU heuristics for
 //! [`super::handle_swap_device`].
 

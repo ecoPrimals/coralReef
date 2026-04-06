@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD-specific DRM ioctl definitions.
 //!
 //! Structures and constants from the amdgpu kernel driver, defined in

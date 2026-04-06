@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // SU(3) gauge force: staple sum + traceless anti-Hermitian projection.
 // F(x,mu) = -(beta/3) * proj_TA( U_mu(x) * staple(x,mu) )
 // Self-contained: SU(3) matrix ops inline.

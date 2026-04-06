@@ -12,7 +12,7 @@ alwaysApply: true
 - `#![warn(missing_docs)]` on library crates. Doctests count as tests.
 
 ## License
-- `AGPL-3.0-only` everywhere. First line of every `.rs` file: `// SPDX-License-Identifier: AGPL-3.0-only`
+- `AGPL-3.0-or-later` everywhere. First line of every `.rs` file: `// SPDX-License-Identifier: AGPL-3.0-or-later`
 
 ## Code Size & Style
 - No file > 1000 lines. Split into cohesive submodules.

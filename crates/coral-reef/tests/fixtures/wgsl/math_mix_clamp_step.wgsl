@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Math: clamp, min, max, select (mix/step/smoothstep use unsupported builtins)
 // Exercises: naga_translate func_math, FMnMx, select chains
 

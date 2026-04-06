@@ -259,5 +259,5 @@ would cause "unfulfilled lint expectation" warnings in some build configurations
 | Workspace deps | `serde`, `serde_json`, `rustix`, `tempfile`, `toml` centralized in `[workspace.dependencies]` (Iter 71) |
 | CUDA isolation | Non-default on coral-glowplug; `--features cuda` opt-in (Iter 71) |
 | SPDX headers | 490+ .rs files have SPDX |
-| scyBorg license | AGPL-3.0-only; NAK MIT exception documented |
+| scyBorg license | AGPL-3.0-or-later; NAK MIT exception documented |
 | Shutdown safety | coral-glowplug: cancellation token + mutex timeout; no spawn_blocking deadlock (Iter 56) |

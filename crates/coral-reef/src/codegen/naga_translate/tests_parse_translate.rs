@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Parsing, translation entry point, E2E WGSL → IR, and expression coverage tests.
 
 use super::super::ir::{ComputeShaderInfo, Op, ShaderModelInfo, ShaderStageInfo, SrcRef};

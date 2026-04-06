@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Ember socket + JSON-RPC integration tests (env mutation uses `unsafe` — not allowed in the library crate).
 
 use std::io::{Read, Write};

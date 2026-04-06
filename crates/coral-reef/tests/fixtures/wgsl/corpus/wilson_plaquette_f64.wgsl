@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Wilson plaquette: per-site sum of 6 planes, Re Tr P_μν / 3.
 // Self-contained: no library dependencies. SU(3) ops inline.
 

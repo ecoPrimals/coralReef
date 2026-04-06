@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA VFIO — channel creation, PFIFO, runlist tests.
 //!
 //! Tests for PFIFO diagnostic matrix, ProbeInterpreter, and PRI bus backpressure.

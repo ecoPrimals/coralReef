@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
 //! f64 log2(x) via MUFU.LOG2/EX2/RCP seed + 2 Newton refinement iterations (~52-bit accuracy).

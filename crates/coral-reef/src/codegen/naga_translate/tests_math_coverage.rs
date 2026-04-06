@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Math function coverage tests: exponential, logarithmic, hyperbolic, sqrt, rounding, vector, and bitwise.
 
 use super::super::ir::{Op, ShaderModelInfo};

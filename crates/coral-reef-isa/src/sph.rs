@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shader Program Header (SPH) — metadata prepended to compiled shaders.
 //!
 //! The SPH tells the GPU about register usage, shared memory, barriers,

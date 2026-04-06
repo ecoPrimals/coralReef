@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! nvidia-470 cold→warm register recipe for Exp 123-K4.
 
 use coral_driver::gsp::RegisterAccess;

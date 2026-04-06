@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // sm70_encode/control: branches, loops, barriers
 // Exercises: BRA, BRX, SSY/SYNC, back edges, merge blocks
 

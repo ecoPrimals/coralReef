@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![expect(missing_docs, reason = "VBIOS parsing; full docs planned")]
 //! VBIOS ROM reading and parsing (BIT table, PMU firmware table).
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # coralReef udev rules for VFIO device management
 #
 # Both Titan V GPUs (10de:1d81) are claimed by vfio-pci at module load

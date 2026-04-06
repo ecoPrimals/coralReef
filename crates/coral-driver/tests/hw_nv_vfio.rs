@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA VFIO hardware validation — core device opening, BAR0, basic ops.
 //!
 //! These tests exercise the VFIO compute pipeline:

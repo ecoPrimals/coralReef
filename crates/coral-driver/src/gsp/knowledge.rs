@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sovereign GSP knowledge base — learned from all available hardware.
 //!
 //! Aggregates initialization knowledge from multiple GPU architectures

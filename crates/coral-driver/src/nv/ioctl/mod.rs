@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Nouveau DRM ioctl definitions — pure Rust, no `*-sys` crates.
 //!
 //! Ioctl numbers and structures are derived from the Linux kernel

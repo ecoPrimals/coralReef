@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! AMD DRM NOP dispatch test — validates the entire PM4 submission pipeline.
 //!
 //! hotSpring Exp 072: Proves `AmdDevice::open()` → alloc → upload → dispatch →

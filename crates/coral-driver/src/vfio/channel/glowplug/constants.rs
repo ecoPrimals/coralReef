@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 /// Register ranges that are meaningful for HBM2/FB initialization.
 /// These are the domains we read from an oracle (nouveau-warm) card and

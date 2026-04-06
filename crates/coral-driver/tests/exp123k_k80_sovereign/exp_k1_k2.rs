@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exp 123-K1 / K2: GR enable + FECS PIO boot.
 
 use coral_driver::gsp::RegisterAccess;

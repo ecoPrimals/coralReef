@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! [`coral_driver::linux_paths::sysfs_vfio_cdev_name`] under a fake sysfs root (single test per
 //! binary so `CORALREEF_SYSFS_ROOT` wins before [`coral_driver::linux_paths::sysfs_root`] locks).
 

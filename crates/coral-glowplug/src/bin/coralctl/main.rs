@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! coralctl — CLI companion for coral-glowplug and coral-ember.
 //!
 //! All device management commands go through glowplug's JSON-RPC socket.

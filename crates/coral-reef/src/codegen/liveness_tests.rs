@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 use super::*;
 use crate::codegen::ir::{
     BasicBlock, Function, Instr, LabelAllocator, OpCopy, OpExit, OpRegOut, PhiAllocator, RegFile,

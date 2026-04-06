@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pre-swap MI50 validation suite: comprehensive GCN5 pipeline exercises.
 //!
 //! Phases:

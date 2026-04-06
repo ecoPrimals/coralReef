@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![allow(
     missing_docs,
     reason = "Experimental diagnostic probing — docs evolve with stabilization."

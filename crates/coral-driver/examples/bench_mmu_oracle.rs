@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! MMU Oracle — capture full page table chain from any driver state.
 //!
 //! Usage:

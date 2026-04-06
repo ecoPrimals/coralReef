@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Intel Xe / Arc discrete GPU lifecycle (stubbed conservative defaults).
 
 use crate::error::SwapError;

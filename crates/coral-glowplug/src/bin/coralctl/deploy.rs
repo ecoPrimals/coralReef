@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `deploy-udev`: generate VFIO udev rules from glowplug config.
 
 use coral_glowplug::config;

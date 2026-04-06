@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shader source frontend abstraction.
 //!
 //! The [`Frontend`] trait decouples the compiler core from any specific

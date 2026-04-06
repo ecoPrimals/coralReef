@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GPU generation, GPFIFO encoding, and per-buffer bookkeeping for UVM compute.
 
 use crate::nv::uvm::{

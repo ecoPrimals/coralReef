@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Fault injection tests — verify the compiler handles edge cases gracefully.
 //!
 //! Each test asserts that compilation either succeeds or returns a proper

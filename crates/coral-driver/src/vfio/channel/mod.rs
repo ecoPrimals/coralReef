@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! PFIFO hardware channel creation for Volta+ via BAR0 MMIO.
 //!
 //! Creates a GPU command channel from scratch using direct register writes,

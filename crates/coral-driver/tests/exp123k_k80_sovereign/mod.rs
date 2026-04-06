@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Exp 123-K: K80 Sovereign Compute — GR enable, falcon wake, PIO boot.
 //!
 //! Tesla K80 = dual GK210 (Kepler, SM 3.7). No firmware security.

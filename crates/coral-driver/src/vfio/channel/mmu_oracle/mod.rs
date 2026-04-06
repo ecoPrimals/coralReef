@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Driver-agnostic MMU page table oracle for Volta+ (V2 MMU).
 //!
 //! Captures the full GPU page table hierarchy from any driver state (nouveau,

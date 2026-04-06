@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Periodic health monitor for managed devices.
 //!
 //! Runs a background loop that checks each device's VRAM, power state,

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! mmiotrace integration — captures MMIO register writes during driver bind.
 //!
 //! The kernel's mmiotrace facility records every `ioremap`'d MMIO write/read

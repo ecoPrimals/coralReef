@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Unix group database path and GID resolution for JSON-RPC socket ownership.
 //!
 //! Override the passwd-style group file with `CORALREEF_GROUP_FILE` (default `/etc/group`).

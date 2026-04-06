@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Trait-based abstraction over sysfs and related kernel interfaces for testability.
 //!
 //! Production code uses [`RealSysfs`]; unit tests can inject `MockSysfs` via

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Vendor-agnostic PCI device discovery and power management.
 //!
 //! Parses PCI configuration space via sysfs to enumerate BARs, capabilities,

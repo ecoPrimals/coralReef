@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Bridge between GlowPlug's software [`Ring`] and coral-driver's hardware
 //! [`Sec2Queues`], providing tracked, persistent falcon conversation.

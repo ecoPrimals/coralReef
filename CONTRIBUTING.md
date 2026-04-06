@@ -23,7 +23,7 @@ cargo fmt --check
 
 coralReef follows ecoPrimals ecosystem conventions from `wateringHole/`.
 
-- **License**: AGPL-3.0-only (see LICENSE). Upstream-derived files retain original attribution.
+- **License**: AGPL-3.0-or-later (see LICENSE). Upstream-derived files retain original attribution.
 - **Linting**: `clippy::all` + `clippy::pedantic` + `clippy::nursery` + `missing_docs`, zero warnings
 - **Formatting**: `cargo fmt` — no exceptions
 - **Max file size**: 1000 lines

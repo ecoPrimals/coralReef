@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Unix JSON-RPC advanced coverage: socket setup failures, environment paths,
 //! large payloads, concurrent races, and drop semantics.
 

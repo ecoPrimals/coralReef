@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA GPU probing — DRM render node discovery and device info.
 //!
 //! Tests probe the NVIDIA DRM render node (renderD129 on this system)

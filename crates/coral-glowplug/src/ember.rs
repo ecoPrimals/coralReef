@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #![warn(missing_docs)]
 //! Ember client — connects to coral-ember and receives VFIO fds via `SCM_RIGHTS`.
 //!

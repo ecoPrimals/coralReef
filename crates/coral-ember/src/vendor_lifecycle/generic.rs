@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Fallback lifecycle for unknown PCI vendors.
 
 use crate::error::SwapError;

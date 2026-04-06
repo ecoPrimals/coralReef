@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! tarpc (TCP and Unix) endpoint tests.
 
 // All panic!("expected TCP address") below are test-only assertions:

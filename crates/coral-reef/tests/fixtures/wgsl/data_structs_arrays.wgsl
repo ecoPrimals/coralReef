@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Data types: structs, arrays of structs
 // Exercises: struct field access, array indexing, copy
 // Uses local_invocation_id for AMD compatibility (no SR_NTID)

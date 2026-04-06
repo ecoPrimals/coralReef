@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `notify_watchdog` integration smoke test (Rust 2024 `remove_var` is `unsafe`).
 
 use std::sync::Mutex;

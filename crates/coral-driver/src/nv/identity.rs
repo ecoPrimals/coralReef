@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GPU identity probing via sysfs — no ioctl dependencies.
 //!
 //! Reads PCI vendor/device IDs from `/sys/class/drm/` to identify the

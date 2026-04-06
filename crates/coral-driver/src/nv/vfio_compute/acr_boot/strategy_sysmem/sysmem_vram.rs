@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::vfio::device::Bar0;
 use crate::vfio::memory::{MemoryRegion, PraminRegion};

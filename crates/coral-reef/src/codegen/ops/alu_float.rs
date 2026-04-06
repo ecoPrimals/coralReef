@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 //! Float ALU operation encoding — FAdd, FMul, FFma, FMnMx, DAdd, DMul, DFma, etc.
 //!

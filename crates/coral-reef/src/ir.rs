@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Public IR types re-exported from the codegen module.
 //!
 //! The full internal IR lives in `codegen::ir`.  This module provides

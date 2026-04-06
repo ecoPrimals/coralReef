@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2022) — upstream NAK.
 //! Internal compiler pipeline — pure Rust, no C FFI.

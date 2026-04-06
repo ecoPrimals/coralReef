@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! JSON-RPC client over the glowplug Unix socket (pure `std`, no extra deps).
 
 use serde_json::Value;

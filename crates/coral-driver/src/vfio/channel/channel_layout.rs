@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pure IOVA layout and BAR0 encoding values for [`super::VfioChannel`] setup.
 //!
 //! [`ChannelLayout::compute`] has no I/O — it only derives the fixed infrastructure

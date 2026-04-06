@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Exp 119: Cold-Boot WPR2 — FWSEC State on Direct VFIO Bind
 //!

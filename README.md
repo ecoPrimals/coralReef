@@ -222,7 +222,7 @@ cd showcase/00-local-primal/01-hello-compiler && ./demo.sh
 | GPU ISAs | PTX → SASS (NVIDIA only) | Delegates to vendor | SASS (SM35–SM120) + GCN5/RDNA (AMD) |
 | Runtime library | libcuda.so | kokkos runtime | None — DRM ioctl dispatch |
 | Cross-vendor | No | Yes (via SDKs) | Yes (native, no SDK) |
-| Open source | No (ptxas proprietary) | Yes | Yes (AGPL-3.0-only) |
+| Open source | No (ptxas proprietary) | Yes | Yes (AGPL-3.0-or-later) |
 
 ## Sovereign Evolution
 
@@ -243,6 +243,6 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 
 ---
 
-**License**: AGPL-3.0-only (upstream-derived files retain original attribution)
+**License**: AGPL-3.0-or-later (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
 **IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `ipc.heartbeat`, `mailbox.{create,post,poll,complete,drain,stats}`, `ring.{create,submit,consume,fence,peek,stats}`, `ember.ring_meta.{get,set}` — JSON-RPC 2.0 + tarpc + Songbird ecosystem

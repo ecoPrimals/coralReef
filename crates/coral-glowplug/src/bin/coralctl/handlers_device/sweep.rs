@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `experiment sweep` RPC orchestration: personality matrix, timing tables, ember journal summary.
 
 use crate::rpc::rpc_call;

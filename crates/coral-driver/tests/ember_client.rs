@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Lightweight ember client for hardware tests.
 //!
 //! Requests VFIO fds from coral-ember via SCM_RIGHTS so tests can construct

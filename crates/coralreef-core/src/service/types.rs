@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Request and response types for the compiler service.
 //!
 //! Separated from handler logic for clarity. All types are `Serialize` +

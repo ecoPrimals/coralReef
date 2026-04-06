@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! VFIO device holder — keeps file descriptors alive across glowplug restarts.
 //!
 //! Backend-agnostic: holds either legacy (container/group/device) or

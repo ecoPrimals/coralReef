@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 //! Rust code generation for AMD ISA tables.
 
@@ -22,7 +22,7 @@ pub struct EncodingOutput {
 /// Generate the standard file header for generated code.
 pub fn file_header() -> Result<String> {
     let mut out = String::new();
-    writeln!(out, "// SPDX-License-Identifier: AGPL-3.0-only")?;
+    writeln!(out, "// SPDX-License-Identifier: AGPL-3.0-or-later")?;
     writeln!(out, "// Copyright © 2026 ecoPrimals")?;
     writeln!(
         out,
