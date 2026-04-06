@@ -584,18 +584,19 @@ impl NvDevice {
             .map_err(|_| DriverError::platform_overflow("descriptor buffer size exceeds usize"))?;
         let mut desc_data = vec![0u8; desc_len];
         for (i, bh) in buffers.iter().enumerate() {
-            if let Some(buf) = self.buffers.get(&bh.0) {
-                let off = i * 8;
-                let va = buf.gpu_va;
-                let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
-                let va_lo = u32::try_from(va & 0xFFFF_FFFF).unwrap_or(u32::MAX);
-                let va_hi = u32::try_from(va >> 32).unwrap_or(u32::MAX);
-                desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
-                desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
-                let sz_off = off + 8;
-                if sz_off + 4 <= desc_data.len() {
-                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
-                }
+            let Some(buf) = self.buffers.get(&bh.0) else {
+                continue;
+            };
+            let off = i * 8;
+            let va = buf.gpu_va;
+            let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
+            let va_lo = u32::try_from(va & 0xFFFF_FFFF).unwrap_or(u32::MAX);
+            let va_hi = u32::try_from(va >> 32).unwrap_or(u32::MAX);
+            desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
+            desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
+            let sz_off = off + 8;
+            if sz_off + 4 <= desc_data.len() {
+                desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
             }
         }
         self.upload(desc_handle, 0, &desc_data)?;
@@ -671,9 +672,10 @@ impl NvDevice {
                 bo_handles.push(b.gem_handle);
             }
             for bh in buffers {
-                if let Some(b) = self.buffers.get(&bh.0) {
-                    bo_handles.push(b.gem_handle);
-                }
+                let Some(b) = self.buffers.get(&bh.0) else {
+                    continue;
+                };
+                bo_handles.push(b.gem_handle);
             }
             ioctl::pushbuf_submit(self.drm.fd(), self.channel, pb_gem, 0, pb_size, &bo_handles)?;
         }

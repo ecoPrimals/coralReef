@@ -58,6 +58,7 @@ pub enum SysfsError {
     },
 
     /// Mutex poison in test doubles (`MockSysfs`).
+    #[cfg(test)]
     #[error("mock sysfs writes mutex poisoned: {detail}")]
     MockWritesMutexPoisoned { detail: String },
 }

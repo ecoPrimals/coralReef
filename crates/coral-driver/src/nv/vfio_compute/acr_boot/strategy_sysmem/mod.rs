@@ -3,7 +3,12 @@
 //! System-memory ACR boot (IOMMU DMA).
 
 mod boot_config;
+mod sysmem_boot_finish;
 mod sysmem_impl;
+mod sysmem_prepare;
+mod sysmem_state;
+mod sysmem_vram;
+mod sysmem_wpr_mmu;
 
 pub use boot_config::BootConfig;
 

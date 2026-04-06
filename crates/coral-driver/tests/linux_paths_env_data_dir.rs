@@ -13,6 +13,7 @@ fn optional_data_dir_prefers_coralreef_then_legacy() {
     }
     assert!(linux_paths::optional_data_dir().is_none());
 
+    // SAFETY: serialized by test lock; no concurrent environment access
     unsafe {
         std::env::set_var("HOTSPRING_DATA_DIR", "/legacy-data");
     }
@@ -21,6 +22,7 @@ fn optional_data_dir_prefers_coralreef_then_legacy() {
         Some("/legacy-data")
     );
 
+    // SAFETY: serialized by test lock; no concurrent environment access
     unsafe {
         std::env::set_var("CORALREEF_DATA_DIR", "/coral-data");
     }

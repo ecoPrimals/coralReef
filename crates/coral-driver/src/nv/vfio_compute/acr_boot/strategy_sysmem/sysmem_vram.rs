@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::vfio::device::Bar0;
+use crate::vfio::device::MappedBar;
 use crate::vfio::memory::{MemoryRegion, PraminRegion};
 
 /// Copy `data` to a VRAM window via PRAMIN so HS-mode falcon DMA can observe it.
-pub(super) fn mirror_payload_to_vram(bar0: &dyn Bar0, vram_addr: u32, data: &[u8]) -> bool {
+pub(super) fn mirror_payload_to_vram(bar0: &MappedBar, vram_addr: u32, data: &[u8]) -> bool {
     let mut off = 0usize;
     while off < data.len() {
         let chunk_vram = vram_addr + off as u32;

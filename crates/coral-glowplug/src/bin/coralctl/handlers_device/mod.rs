@@ -91,20 +91,21 @@ pub(crate) fn rpc_swap(socket: &str, bdf: &str, target: &str, trace: bool) {
     let response = rpc_call(socket, "device.swap", params);
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        let personality = result
-            .get("personality")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        let vram = result
-            .get("vram_alive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        if trace {
-            println!("ok: {bdf} now on {personality} (vram_alive={vram}, trace captured)");
-        } else {
-            println!("ok: {bdf} now on {personality} (vram_alive={vram})");
-        }
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let personality = result
+        .get("personality")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let vram = result
+        .get("vram_alive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if trace {
+        println!("ok: {bdf} now on {personality} (vram_alive={vram}, trace captured)");
+    } else {
+        println!("ok: {bdf} now on {personality} (vram_alive={vram})");
     }
 }
 
@@ -217,117 +218,44 @@ pub(crate) fn rpc_compute_info(socket: &str, bdf: &str) {
     let response = rpc_call(socket, "device.compute_info", json!({"bdf": bdf}));
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        let chip = result.get("chip").and_then(|v| v.as_str()).unwrap_or("?");
-        let role = result.get("role").and_then(|v| v.as_str()).unwrap_or("?");
-        let protected = result
-            .get("protected")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let render = result
-            .get("render_node")
-            .and_then(|v| v.as_str())
-            .unwrap_or("none");
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let chip = result.get("chip").and_then(|v| v.as_str()).unwrap_or("?");
+    let role = result.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+    let protected = result
+        .get("protected")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let render = result
+        .get("render_node")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none");
 
-        println!(
-            "{bdf}  {chip}  role={role}{}",
-            if protected { " [PROTECTED]" } else { "" }
-        );
-        println!("  Render Node: {render}");
+    println!(
+        "{bdf}  {chip}  role={role}{}",
+        if protected { " [PROTECTED]" } else { "" }
+    );
+    println!("  Render Node: {render}");
 
-        if let Some(c) = result.get("compute") {
-            if let Some(err) = c.get("error") {
-                println!("  Compute: unavailable ({})", err.as_str().unwrap_or("?"));
-            } else {
-                let name = c.get("gpu_name").and_then(|v| v.as_str()).unwrap_or("?");
-                let mem_total = c
-                    .get("memory_total_mib")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                let mem_free = c
-                    .get("memory_free_mib")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                let mem_used = c
-                    .get("memory_used_mib")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                let temp = c.get("temperature_c").and_then(|v| v.as_u64()).unwrap_or(0);
-                let power = c
-                    .get("power_draw_w")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                let power_limit = c
-                    .get("power_limit_w")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                let sm = c.get("clock_sm_mhz").and_then(|v| v.as_u64()).unwrap_or(0);
-                let mem_clk = c.get("clock_mem_mhz").and_then(|v| v.as_u64()).unwrap_or(0);
-                let cc = c.get("compute_cap").and_then(|v| v.as_str()).unwrap_or("?");
-                let pcie = c.get("pcie_width").and_then(|v| v.as_u64()).unwrap_or(0);
-
-                println!("  GPU:         {name}");
-                println!("  Compute Cap: {cc}");
-                println!(
-                    "  Memory:      {mem_used:.0} / {mem_total:.0} MiB ({mem_free:.0} MiB free)"
-                );
-                println!("  Temperature: {temp}C");
-                println!("  Power:       {power:.1}W / {power_limit:.0}W");
-                println!("  Clocks:      SM {sm} MHz, Mem {mem_clk} MHz");
-                println!("  PCIe Width:  x{pcie}");
-            }
-        }
-    }
-}
-
-pub(crate) fn rpc_get_quota(socket: &str, bdf: &str) {
-    let response = rpc_call(socket, "device.quota", json!({"bdf": bdf}));
-    check_rpc_error(&response);
-
-    if let Some(result) = response.get("result") {
-        let role = result.get("role").and_then(|v| v.as_str()).unwrap_or("?");
-        let protected = result
-            .get("protected")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        println!(
-            "{bdf}  role={role}{}",
-            if protected { " [PROTECTED]" } else { "" }
-        );
-
-        if let Some(q) = result.get("quota") {
-            let pl = q.get("power_limit_w").and_then(|v| v.as_u64());
-            let vb = q.get("vram_budget_mib").and_then(|v| v.as_u64());
-            let cm = q
-                .get("compute_mode")
-                .and_then(|v| v.as_str())
-                .unwrap_or("default");
-            let cp = q
-                .get("compute_priority")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            println!("  Quota:");
-            println!(
-                "    Power Limit:  {}",
-                pl.map_or("default".to_string(), |w| format!("{w}W"))
-            );
-            println!(
-                "    VRAM Budget:  {}",
-                vb.map_or("unlimited".to_string(), |m| format!("{m} MiB"))
-            );
-            println!("    Compute Mode: {cm}");
-            println!("    Priority:     {cp}");
-        }
-
-        if let Some(c) = result.get("current").filter(|c| c.get("error").is_none()) {
-            let mem_used = c
-                .get("memory_used_mib")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
+    if let Some(c) = result.get("compute") {
+        if let Some(err) = c.get("error") {
+            println!("  Compute: unavailable ({})", err.as_str().unwrap_or("?"));
+        } else {
+            let name = c.get("gpu_name").and_then(|v| v.as_str()).unwrap_or("?");
             let mem_total = c
                 .get("memory_total_mib")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
+            let mem_free = c
+                .get("memory_free_mib")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let mem_used = c
+                .get("memory_used_mib")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let temp = c.get("temperature_c").and_then(|v| v.as_u64()).unwrap_or(0);
             let power = c
                 .get("power_draw_w")
                 .and_then(|v| v.as_f64())
@@ -336,10 +264,83 @@ pub(crate) fn rpc_get_quota(socket: &str, bdf: &str) {
                 .get("power_limit_w")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            println!("  Current:");
-            println!("    Memory:       {mem_used:.0} / {mem_total:.0} MiB");
-            println!("    Power:        {power:.1}W / {power_limit:.0}W");
+            let sm = c.get("clock_sm_mhz").and_then(|v| v.as_u64()).unwrap_or(0);
+            let mem_clk = c.get("clock_mem_mhz").and_then(|v| v.as_u64()).unwrap_or(0);
+            let cc = c.get("compute_cap").and_then(|v| v.as_str()).unwrap_or("?");
+            let pcie = c.get("pcie_width").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            println!("  GPU:         {name}");
+            println!("  Compute Cap: {cc}");
+            println!("  Memory:      {mem_used:.0} / {mem_total:.0} MiB ({mem_free:.0} MiB free)");
+            println!("  Temperature: {temp}C");
+            println!("  Power:       {power:.1}W / {power_limit:.0}W");
+            println!("  Clocks:      SM {sm} MHz, Mem {mem_clk} MHz");
+            println!("  PCIe Width:  x{pcie}");
         }
+    }
+}
+
+pub(crate) fn rpc_get_quota(socket: &str, bdf: &str) {
+    let response = rpc_call(socket, "device.quota", json!({"bdf": bdf}));
+    check_rpc_error(&response);
+
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let role = result.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+    let protected = result
+        .get("protected")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    println!(
+        "{bdf}  role={role}{}",
+        if protected { " [PROTECTED]" } else { "" }
+    );
+
+    if let Some(q) = result.get("quota") {
+        let pl = q.get("power_limit_w").and_then(|v| v.as_u64());
+        let vb = q.get("vram_budget_mib").and_then(|v| v.as_u64());
+        let cm = q
+            .get("compute_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
+        let cp = q
+            .get("compute_priority")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        println!("  Quota:");
+        println!(
+            "    Power Limit:  {}",
+            pl.map_or("default".to_string(), |w| format!("{w}W"))
+        );
+        println!(
+            "    VRAM Budget:  {}",
+            vb.map_or("unlimited".to_string(), |m| format!("{m} MiB"))
+        );
+        println!("    Compute Mode: {cm}");
+        println!("    Priority:     {cp}");
+    }
+
+    if let Some(c) = result.get("current").filter(|c| c.get("error").is_none()) {
+        let mem_used = c
+            .get("memory_used_mib")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let mem_total = c
+            .get("memory_total_mib")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let power = c
+            .get("power_draw_w")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let power_limit = c
+            .get("power_limit_w")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        println!("  Current:");
+        println!("    Memory:       {mem_used:.0} / {mem_total:.0} MiB");
+        println!("    Power:        {power:.1}W / {power_limit:.0}W");
     }
 }
 
@@ -364,32 +365,33 @@ pub(crate) fn rpc_set_quota(
     let response = rpc_call(socket, "device.set_quota", params);
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        println!("Quota updated for {bdf}");
-        if let Some(q) = result.get("quota") {
-            let pl = q.get("power_limit_w").and_then(|v| v.as_u64());
-            let vb = q.get("vram_budget_mib").and_then(|v| v.as_u64());
-            let cm = q
-                .get("compute_mode")
-                .and_then(|v| v.as_str())
-                .unwrap_or("default");
-            println!(
-                "  Power Limit:  {}",
-                pl.map_or("default".to_string(), |w| format!("{w}W"))
-            );
-            println!(
-                "  VRAM Budget:  {}",
-                vb.map_or("unlimited".to_string(), |m| format!("{m} MiB"))
-            );
-            println!("  Compute Mode: {cm}");
-        }
-        if let Some(applied) = result.get("applied") {
-            for (key, val) in applied.as_object().into_iter().flatten() {
-                let ok = val.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-                let msg = val.get("message").and_then(|v| v.as_str()).unwrap_or("");
-                let status = if ok { "OK" } else { "FAILED" };
-                println!("  {key}: [{status}] {msg}");
-            }
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    println!("Quota updated for {bdf}");
+    if let Some(q) = result.get("quota") {
+        let pl = q.get("power_limit_w").and_then(|v| v.as_u64());
+        let vb = q.get("vram_budget_mib").and_then(|v| v.as_u64());
+        let cm = q
+            .get("compute_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
+        println!(
+            "  Power Limit:  {}",
+            pl.map_or("default".to_string(), |w| format!("{w}W"))
+        );
+        println!(
+            "  VRAM Budget:  {}",
+            vb.map_or("unlimited".to_string(), |m| format!("{m} MiB"))
+        );
+        println!("  Compute Mode: {cm}");
+    }
+    if let Some(applied) = result.get("applied") {
+        for (key, val) in applied.as_object().into_iter().flatten() {
+            let ok = val.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let msg = val.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            let status = if ok { "OK" } else { "FAILED" };
+            println!("  {key}: [{status}] {msg}");
         }
     }
 }
@@ -461,31 +463,33 @@ pub(crate) fn rpc_dispatch(
     let response = rpc_call(socket, "device.dispatch", params);
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        let outputs: Vec<serde_json::Value> = result
-            .get("outputs")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        eprintln!("dispatch complete: {} output buffer(s)", outputs.len());
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let outputs: Vec<serde_json::Value> = result
+        .get("outputs")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    eprintln!("dispatch complete: {} output buffer(s)", outputs.len());
 
-        for (i, out) in outputs.iter().enumerate() {
-            if let Some(encoded) = out.as_str() {
-                let data = b64.decode(encoded).unwrap_or_else(|e| {
-                    eprintln!("error: base64 decode output {i}: {e}");
-                    std::process::exit(1);
-                });
-                eprintln!("  output[{i}]: {} bytes", data.len());
+    for (i, out) in outputs.iter().enumerate() {
+        let Some(encoded) = out.as_str() else {
+            continue;
+        };
+        let data = b64.decode(encoded).unwrap_or_else(|e| {
+            eprintln!("error: base64 decode output {i}: {e}");
+            std::process::exit(1);
+        });
+        eprintln!("  output[{i}]: {} bytes", data.len());
 
-                if let Some(dir) = output_dir {
-                    let path = format!("{dir}/output_{i}.bin");
-                    std::fs::write(&path, &data).unwrap_or_else(|e| {
-                        eprintln!("error: write {path}: {e}");
-                        std::process::exit(1);
-                    });
-                    eprintln!("  written to {path}");
-                }
-            }
+        if let Some(dir) = output_dir {
+            let path = format!("{dir}/output_{i}.bin");
+            std::fs::write(&path, &data).unwrap_or_else(|e| {
+                eprintln!("error: write {path}: {e}");
+                std::process::exit(1);
+            });
+            eprintln!("  written to {path}");
         }
     }
 }
@@ -494,31 +498,32 @@ pub(crate) fn rpc_health(socket: &str) {
     let response = rpc_call(socket, "health.check", json!({}));
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        let alive = result
-            .get("alive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let device_count = result
-            .get("device_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let healthy_count = result
-            .get("healthy_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let status = if alive && healthy_count == device_count {
-            "HEALTHY"
-        } else if alive {
-            "DEGRADED"
-        } else {
-            "DOWN"
-        };
-        println!("system: {status}  ({healthy_count}/{device_count} devices healthy)");
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let alive = result
+        .get("alive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let device_count = result
+        .get("device_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let healthy_count = result
+        .get("healthy_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let status = if alive && healthy_count == device_count {
+        "HEALTHY"
+    } else if alive {
+        "DEGRADED"
+    } else {
+        "DOWN"
+    };
+    println!("system: {status}  ({healthy_count}/{device_count} devices healthy)");
 
-        if !alive {
-            println!("  daemon reports not alive");
-        }
+    if !alive {
+        println!("  daemon reports not alive");
     }
 }
 
@@ -552,83 +557,84 @@ pub(crate) fn rpc_journal_query(
     let response = rpc_call(&ember_socket(), "ember.journal.query", params);
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        let entries = result
-            .get("entries")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let entries = result
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
-        if entries.is_empty() {
-            println!("No journal entries found.");
-            return;
-        }
+    if entries.is_empty() {
+        println!("No journal entries found.");
+        return;
+    }
 
-        println!("{} journal entries:", entries.len());
-        println!("{}", "-".repeat(80));
+    println!("{} journal entries:", entries.len());
+    println!("{}", "-".repeat(80));
 
-        for entry in &entries {
-            let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
-            let bdf = entry.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
-            let ts = entry
-                .get("timestamp_epoch_ms")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+    for entry in &entries {
+        let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
+        let bdf = entry.get("bdf").and_then(|v| v.as_str()).unwrap_or("?");
+        let ts = entry
+            .get("timestamp_epoch_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
 
-            match kind {
-                "Swap" => {
-                    let to = entry
-                        .get("to_personality")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let from = entry
-                        .get("from_personality")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("none");
-                    let total_ms = entry
-                        .get("timing")
-                        .and_then(|t| t.get("total_ms"))
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let trace = entry
-                        .get("trace_path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    print!("[{ts}] SWAP {bdf}: {from} → {to} ({total_ms}ms)");
-                    if !trace.is_empty() {
-                        print!(" trace={trace}");
-                    }
-                    println!();
+        match kind {
+            "Swap" => {
+                let to = entry
+                    .get("to_personality")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let from = entry
+                    .get("from_personality")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("none");
+                let total_ms = entry
+                    .get("timing")
+                    .and_then(|t| t.get("total_ms"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let trace = entry
+                    .get("trace_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                print!("[{ts}] SWAP {bdf}: {from} → {to} ({total_ms}ms)");
+                if !trace.is_empty() {
+                    print!(" trace={trace}");
                 }
-                "Reset" => {
-                    let method = entry.get("method").and_then(|v| v.as_str()).unwrap_or("?");
-                    let success = entry
-                        .get("success")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let dur = entry
-                        .get("duration_ms")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let status = if success { "OK" } else { "FAIL" };
-                    println!("[{ts}] RESET {bdf}: {method} {status} ({dur}ms)");
-                }
-                "BootAttempt" => {
-                    let strategy = entry
-                        .get("strategy")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let success = entry
-                        .get("success")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let sec2 = entry.get("sec2_exci").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let status = if success { "OK" } else { "FAIL" };
-                    println!("[{ts}] BOOT {bdf}: {strategy} {status} (sec2_exci=0x{sec2:08x})");
-                }
-                _ => {
-                    println!("[{ts}] {kind} {bdf}");
-                }
+                println!();
+            }
+            "Reset" => {
+                let method = entry.get("method").and_then(|v| v.as_str()).unwrap_or("?");
+                let success = entry
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let dur = entry
+                    .get("duration_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let status = if success { "OK" } else { "FAIL" };
+                println!("[{ts}] RESET {bdf}: {method} {status} ({dur}ms)");
+            }
+            "BootAttempt" => {
+                let strategy = entry
+                    .get("strategy")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let success = entry
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let sec2 = entry.get("sec2_exci").and_then(|v| v.as_u64()).unwrap_or(0);
+                let status = if success { "OK" } else { "FAIL" };
+                println!("[{ts}] BOOT {bdf}: {strategy} {status} (sec2_exci=0x{sec2:08x})");
+            }
+            _ => {
+                println!("[{ts}] {kind} {bdf}");
             }
         }
     }
@@ -643,77 +649,78 @@ pub(crate) fn rpc_journal_stats(_glowplug_socket: &str, bdf: Option<String>) {
     let response = rpc_call(&ember_socket(), "ember.journal.stats", params);
     check_rpc_error(&response);
 
-    if let Some(result) = response.get("result") {
-        let total_swaps = result
-            .get("total_swaps")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let total_resets = result
-            .get("total_resets")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let total_boots = result
-            .get("total_boot_attempts")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+    let Some(result) = response.get("result") else {
+        return;
+    };
+    let total_swaps = result
+        .get("total_swaps")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let total_resets = result
+        .get("total_resets")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let total_boots = result
+        .get("total_boot_attempts")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
-        println!("Journal Statistics");
-        println!("{}", "=".repeat(60));
+    println!("Journal Statistics");
+    println!("{}", "=".repeat(60));
+    println!(
+        "Total: {} swaps, {} resets, {} boot attempts",
+        total_swaps, total_resets, total_boots
+    );
+
+    if let Some(personalities) = result.get("personality_stats").and_then(|v| v.as_array())
+        && !personalities.is_empty()
+    {
+        println!("\nPersonality Swap Timing:");
         println!(
-            "Total: {} swaps, {} resets, {} boot attempts",
-            total_swaps, total_resets, total_boots
+            "  {:<16} {:>6} {:>10} {:>10} {:>10}",
+            "PERSONALITY", "COUNT", "AVG_TOTAL", "AVG_BIND", "AVG_UNBIND"
         );
-
-        if let Some(personalities) = result.get("personality_stats").and_then(|v| v.as_array())
-            && !personalities.is_empty()
-        {
-            println!("\nPersonality Swap Timing:");
+        for p in personalities {
+            let name = p.get("personality").and_then(|v| v.as_str()).unwrap_or("?");
+            let count = p.get("swap_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let avg_total = p.get("avg_total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+            let avg_bind = p.get("avg_bind_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+            let avg_unbind = p.get("avg_unbind_ms").and_then(|v| v.as_u64()).unwrap_or(0);
             println!(
-                "  {:<16} {:>6} {:>10} {:>10} {:>10}",
-                "PERSONALITY", "COUNT", "AVG_TOTAL", "AVG_BIND", "AVG_UNBIND"
+                "  {:<16} {:>6} {:>8}ms {:>8}ms {:>8}ms",
+                name, count, avg_total, avg_bind, avg_unbind
             );
-            for p in personalities {
-                let name = p.get("personality").and_then(|v| v.as_str()).unwrap_or("?");
-                let count = p.get("swap_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                let avg_total = p.get("avg_total_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                let avg_bind = p.get("avg_bind_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                let avg_unbind = p.get("avg_unbind_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                println!(
-                    "  {:<16} {:>6} {:>8}ms {:>8}ms {:>8}ms",
-                    name, count, avg_total, avg_bind, avg_unbind
-                );
-            }
         }
+    }
 
-        if let Some(resets) = result.get("reset_method_stats").and_then(|v| v.as_array())
-            && !resets.is_empty()
-        {
-            println!("\nReset Method Stats:");
+    if let Some(resets) = result.get("reset_method_stats").and_then(|v| v.as_array())
+        && !resets.is_empty()
+    {
+        println!("\nReset Method Stats:");
+        println!(
+            "  {:<16} {:>8} {:>8} {:>10} {:>10}",
+            "METHOD", "ATTEMPTS", "SUCCESS", "RATE", "AVG_MS"
+        );
+        for r in resets {
+            let method = r.get("method").and_then(|v| v.as_str()).unwrap_or("?");
+            let attempts = r.get("attempts").and_then(|v| v.as_u64()).unwrap_or(0);
+            let successes = r.get("successes").and_then(|v| v.as_u64()).unwrap_or(0);
+            let rate = r
+                .get("success_rate")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let avg_ms = r
+                .get("avg_duration_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             println!(
-                "  {:<16} {:>8} {:>8} {:>10} {:>10}",
-                "METHOD", "ATTEMPTS", "SUCCESS", "RATE", "AVG_MS"
+                "  {:<16} {:>8} {:>8} {:>9.0}% {:>8}ms",
+                method,
+                attempts,
+                successes,
+                rate * 100.0,
+                avg_ms
             );
-            for r in resets {
-                let method = r.get("method").and_then(|v| v.as_str()).unwrap_or("?");
-                let attempts = r.get("attempts").and_then(|v| v.as_u64()).unwrap_or(0);
-                let successes = r.get("successes").and_then(|v| v.as_u64()).unwrap_or(0);
-                let rate = r
-                    .get("success_rate")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                let avg_ms = r
-                    .get("avg_duration_ms")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                println!(
-                    "  {:<16} {:>8} {:>8} {:>9.0}% {:>8}ms",
-                    method,
-                    attempts,
-                    successes,
-                    rate * 100.0,
-                    avg_ms
-                );
-            }
         }
     }
 }

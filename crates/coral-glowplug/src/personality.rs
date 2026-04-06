@@ -80,9 +80,10 @@ pub struct NouveauPersonality {
 impl fmt::Display for NouveauPersonality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "nouveau")?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -115,9 +116,10 @@ pub struct AmdgpuPersonality {
 impl fmt::Display for AmdgpuPersonality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "amdgpu")?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -150,9 +152,10 @@ pub struct NvidiaPersonality {
 impl fmt::Display for NvidiaPersonality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "nvidia")?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -191,9 +194,10 @@ pub struct NvidiaOpenPersonality {
 impl fmt::Display for NvidiaOpenPersonality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "nvidia-open")?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -226,9 +230,10 @@ pub struct XePersonality {
 impl fmt::Display for XePersonality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "xe")?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -261,9 +266,10 @@ pub struct I915Personality {
 impl fmt::Display for I915Personality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "i915")?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -326,9 +332,10 @@ pub struct NvidiaOraclePersonality {
 impl fmt::Display for NvidiaOraclePersonality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.module_name)?;
-        if let Some(card) = &self.drm_card_path {
-            write!(f, " ({card})")?;
-        }
+        let Some(card) = &self.drm_card_path else {
+            return Ok(());
+        };
+        write!(f, " ({card})")?;
         Ok(())
     }
 }
@@ -537,9 +544,10 @@ impl fmt::Display for Personality {
                 module_name,
             } => {
                 write!(f, "{module_name}")?;
-                if let Some(card) = drm_card {
-                    write!(f, " ({card})")?;
-                }
+                let Some(card) = drm_card else {
+                    return Ok(());
+                };
+                write!(f, " ({card})")?;
                 Ok(())
             }
             Self::Nouveau { drm_card }
@@ -549,9 +557,10 @@ impl fmt::Display for Personality {
             | Self::Xe { drm_card }
             | Self::I915 { drm_card } => {
                 write!(f, "{}", self.name())?;
-                if let Some(card) = drm_card {
-                    write!(f, " ({card})")?;
-                }
+                let Some(card) = drm_card else {
+                    return Ok(());
+                };
+                write!(f, " ({card})")?;
                 Ok(())
             }
             Self::Akida => write!(f, "akida-pcie"),

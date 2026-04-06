@@ -227,6 +227,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("cannot open {resource0_path}: {e}"));
 
         let bar0_size: usize = 16 * 1024 * 1024; // 16 MB
+        // SAFETY: fd is a valid DMA buffer file descriptor; length matches allocation
         let oracle_ptr = unsafe {
             rustix::mm::mmap(
                 std::ptr::null_mut(),
@@ -241,6 +242,7 @@ mod tests {
 
         let oracle_read = |offset: usize| -> u32 {
             assert!(offset + 4 <= bar0_size);
+            // SAFETY: pointer is within the mmap'd region and properly aligned
             unsafe { std::ptr::read_volatile(oracle_ptr.cast::<u8>().add(offset).cast::<u32>()) }
         };
 
@@ -301,6 +303,7 @@ mod tests {
             eprintln!("║   ... {} more", oracle_pfb.len() - 40);
         }
 
+        // SAFETY: fd is a valid DMA buffer file descriptor; length matches allocation
         unsafe {
             let _ = rustix::mm::munmap(oracle_ptr, bar0_size);
         }
