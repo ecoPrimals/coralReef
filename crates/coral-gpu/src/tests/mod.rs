@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 
-//! Unit tests for `coral-gpu`, split by theme (mocks, context, drivers, FMA, PCIe, Linux-only).
+//! Unit tests for `coral-gpu`, split by theme (mocks, context, drivers, FMA, `PCIe`, Linux-only).
 
 mod common;
 mod context_accessors_and_errors;

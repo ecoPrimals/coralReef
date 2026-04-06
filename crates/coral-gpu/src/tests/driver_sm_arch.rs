@@ -14,8 +14,7 @@ fn sm_to_nvarch_maps_known_versions() {
         let arch = crate::driver::sm_to_nvarch(sm);
         let expected = match sm {
             70..=74 => NvArch::Sm70,
-            75 => NvArch::Sm75,
-            76..=79 => NvArch::Sm75,
+            75..=79 => NvArch::Sm75,
             80..=85 => NvArch::Sm80,
             86..=88 => NvArch::Sm86,
             89 => NvArch::Sm89,

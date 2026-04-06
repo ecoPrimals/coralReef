@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
 
-//! Linux-only driver helpers, PCIe topology, and opt-in hardware integration tests.
+//! Linux-only driver helpers, `PCIe` topology, and opt-in hardware integration tests.
 
 use crate::GpuContext;
 

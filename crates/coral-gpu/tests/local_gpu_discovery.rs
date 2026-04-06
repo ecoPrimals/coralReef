@@ -79,14 +79,14 @@ fn enumerate_all_gpus() {
 
 #[test]
 fn compile_for_local_gpu() {
-    let Some(ctx) = discover_local_gpu() else {
-        eprintln!("SKIPPED: no GPU available");
-        return;
-    };
     const WGSL: &str = r"
 @compute @workgroup_size(1)
 fn main() {}
 ";
+    let Some(ctx) = discover_local_gpu() else {
+        eprintln!("SKIPPED: no GPU available");
+        return;
+    };
     let kernel = match ctx.compile_wgsl(WGSL) {
         Ok(k) => k,
         Err(e) => {

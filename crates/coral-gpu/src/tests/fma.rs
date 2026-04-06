@@ -63,11 +63,11 @@ fn fma_capability_debug_format() {
 
 #[test]
 fn fma_capability_intel_planned_target() {
+    const INTEL_FMA_RATIO_TOLERANCE: f32 = 1e-6;
     let cap = FmaCapability::for_target(GpuTarget::Intel(IntelArch::XeHpg));
     assert!(cap.f32_fma);
     assert!(!cap.f64_fma);
     assert_eq!(cap.recommended_policy, FmaPolicy::Auto);
-    const INTEL_FMA_RATIO_TOLERANCE: f32 = 1e-6;
     assert!(
         (cap.f32_fma_throughput_ratio - 1.0).abs() < INTEL_FMA_RATIO_TOLERANCE,
         "expected 1.0 throughput ratio for Intel placeholder, got {}",
@@ -93,7 +93,7 @@ fn fma_capability_nvidia_sm86_matches_dfma_model() {
     let cap = FmaCapability::for_target(GpuTarget::Nvidia(NvArch::Sm86));
     assert!(cap.f32_fma);
     assert!(cap.f64_fma);
-    assert_eq!(cap.f32_fma_throughput_ratio, 2.0);
+    assert!((cap.f32_fma_throughput_ratio - 2.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -106,9 +106,9 @@ fn fma_capability_all_nvidia_archs_report_dfma() {
 
 #[test]
 fn fma_capability_amd_rdna3_rdna4_throughput() {
+    const EPS: f32 = 1e-6;
     let rdna3 = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Rdna3));
     let rdna4 = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Rdna4));
-    const EPS: f32 = 1e-6;
     assert!((rdna3.f32_fma_throughput_ratio - 2.0).abs() < EPS);
     assert!((rdna4.f32_fma_throughput_ratio - 2.0).abs() < EPS);
     assert!(rdna3.f64_fma && rdna4.f64_fma);
@@ -116,10 +116,10 @@ fn fma_capability_amd_rdna3_rdna4_throughput() {
 
 #[test]
 fn fma_capability_amd_gcn5_native_f64() {
+    const EPS: f32 = 1e-6;
     let cap = FmaCapability::for_target(GpuTarget::Amd(AmdArch::Gcn5));
     assert!(cap.f32_fma);
     assert!(cap.f64_fma);
-    const EPS: f32 = 1e-6;
     assert!((cap.f32_fma_throughput_ratio - 2.0).abs() < EPS);
 }
 
