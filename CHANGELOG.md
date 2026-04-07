@@ -4,11 +4,36 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 77
+**Current status**: Phase 10 — Iteration 78
 
 ---
 
 ## [Unreleased]
+
+### Iteration 78 — Multi-Ember Fleet Architecture (2026-04-07)
+
+#### Ember (coral-ember)
+- **`--bdf` CLI flag**: Single-device mode — filter config to one BDF, per-device socket path
+- **`--standby` CLI flag**: Hot-standby mode — start with no devices, wait for `ember.adopt_device` RPC
+- **Per-BDF socket paths**: `/run/coralreef/ember-{slug}.sock` convention via `ember_instance_socket_path()`
+- **`bdf_to_slug()` helper**: Convert BDF to filesystem-safe slug (colons → hyphens)
+- **`ember.adopt_device` RPC**: Standby ember dynamically adopts a device by opening VFIO from sysfs
+- **`recv_with_fds()`**: SCM_RIGHTS fd reception infrastructure for future hot-adopt fd transfer
+- **Enhanced `ember.status`**: Per-device health, mmio_fault_count, experiment_dirty in response
+
+#### GlowPlug (coral-glowplug)
+- **`EmberFleet` orchestrator**: Per-device `EmberInstance` with independent heartbeat, checkpoint, resurrection
+- **`StandbyEmber` pool**: Pre-spawned standby embers with probe/adopt lifecycle
+- **Fault-informed resurrection**: `FaultRecord` history → `ResurrectionStrategy` selection (HotAdopt, WarmThenRespawn, FullRecovery, ColdRespawn)
+- **Fleet discovery file**: `/tmp/biomeos/coral-ember-fleet.json` written every tick cycle
+- **`fleet_mode` config**: `[daemon] fleet_mode = true` + `standby_pool_size = 1`
+- **Systemd template units**: `coral-ember@.service` (per-device), `coral-ember-standby@.service` (hot-standby)
+- **Backward compatible**: `fleet_mode = false` (default) preserves single-ember legacy behavior
+
+#### Tests
+- 4 new fleet-specific unit tests (instance paths, standby paths, strategy selection, fleet creation)
+- All 170 coral-ember tests pass, 285+ coral-glowplug tests pass
+- Pre-existing vendor_lifecycle test failures unchanged (2 — not fleet-related)
 
 ### Iteration 77 — Ember Survivability Hardening (2026-04-07)
 

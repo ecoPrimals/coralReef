@@ -1,0 +1,53 @@
+# coral-ember@.service — Per-device ember instance (fleet mode)
+#
+# Systemd template unit: glowplug spawns one instance per GPU via
+#   systemctl start coral-ember@0000-03-00.0
+#
+# The instance name (%i) is the BDF slug (colons replaced with hyphens).
+# The socket path is /run/coralreef/ember-{slug}.sock.
+#
+# Install:
+#   sudo cp coral-ember@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+
+[Unit]
+Description=coral-ember@%i — Per-Device VFIO fd Holder
+Documentation=https://github.com/ecoPrimals/coralReef
+After=local-fs.target systemd-modules-load.service
+Wants=systemd-modules-load.service
+Before=coral-glowplug.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStartPre=/bin/sh -c 'echo Y > /sys/module/vfio_pci/parameters/disable_idle_d3 2>/dev/null || true'
+ExecStart=/usr/local/bin/coral-ember server --bdf %I /etc/coralreef/glowplug.toml
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+Environment=RUST_LOG=info
+Environment=CORALREEF_EMBER_SOCKET=/run/coralreef/ember-%i.sock
+SupplementaryGroups=coralreef
+UMask=0117
+RuntimeDirectory=coralreef
+RuntimeDirectoryMode=0750
+
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
+NoNewPrivileges=true
+
+ProtectSystem=strict
+ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc /sys/kernel/debug/tracing /var/lib/coralreef /usr/local/bin
+ReadOnlyPaths=/lib/modules /etc/modprobe.d /lib/modprobe.d
+PrivateTmp=true
+ProtectHome=true
+
+SystemCallFilter=@system-service @module ioctl sendmsg
+SystemCallErrorNumber=EPERM
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

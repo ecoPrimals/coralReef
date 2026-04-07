@@ -46,6 +46,7 @@ pub fn handle_client(
     started_at: std::time::Instant,
     journal: Option<&Arc<Journal>>,
     policies: &handlers_policy::PolicyStore,
+    warm_cycling: &Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> Result<(), EmberIpcError> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(30)))
@@ -103,7 +104,7 @@ pub fn handle_client(
             handlers_device::reacquire(stream, held, managed_bdfs, id, params)?;
         }
         "ember.warm_cycle" => {
-            handlers_device::warm_cycle(stream, held, managed_bdfs, id, params)?;
+            handlers_device::warm_cycle(stream, held, managed_bdfs, id, params, warm_cycling)?;
         }
         "ember.swap" => {
             handlers_device::swap(stream, held, managed_bdfs, id, params, journal)?;
@@ -188,6 +189,9 @@ pub fn handle_client(
         "ember.policy.matrix" => {
             handlers_policy::matrix(stream, id, params)?;
         }
+        "ember.adopt_device" => {
+            handlers_device::adopt_device(stream, held, id, params)?;
+        }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
                 .map_err(EmberIpcError::from)?;
@@ -209,6 +213,7 @@ pub fn handle_client_tcp(
     started_at: std::time::Instant,
     journal: Option<&Arc<Journal>>,
     policies: &handlers_policy::PolicyStore,
+    warm_cycling: &Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> Result<(), EmberIpcError> {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(30)))
@@ -262,7 +267,7 @@ pub fn handle_client_tcp(
             handlers_device::reacquire(stream, held, managed_bdfs, id, params)?;
         }
         "ember.warm_cycle" => {
-            handlers_device::warm_cycle(stream, held, managed_bdfs, id, params)?;
+            handlers_device::warm_cycle(stream, held, managed_bdfs, id, params, warm_cycling)?;
         }
         "ember.swap" => {
             handlers_device::swap(stream, held, managed_bdfs, id, params, journal)?;
@@ -345,6 +350,9 @@ pub fn handle_client_tcp(
         }
         "ember.policy.matrix" => {
             handlers_policy::matrix(stream, id, params)?;
+        }
+        "ember.adopt_device" => {
+            handlers_device::adopt_device(stream, held, id, params)?;
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))

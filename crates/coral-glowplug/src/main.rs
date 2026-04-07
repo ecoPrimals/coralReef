@@ -324,71 +324,129 @@ async fn main() {
     });
 
     // ── Ember lifecycle monitor ─────────────────────────────────────────
-    // Glowplug is immortal; ember is sacrificial. This background task
-    // monitors ember's heartbeat and restarts it if it dies or becomes
-    // unresponsive. Without this, a dead ember leaves GPUs orphaned.
-    let ember_socket = coral_ember::ember_socket_path();
+    // Glowplug is immortal; ember is sacrificial. In fleet mode, each GPU
+    // gets its own ember process; in legacy mode, one ember holds all GPUs.
+    let fleet_mode = config.daemon.fleet_mode;
     let managed_bdfs: Vec<String> = config.device.iter()
         .filter(|d| !d.is_protected())
         .map(|d| d.bdf.clone())
         .collect();
-    let lifecycle_config = coral_glowplug::ember_lifecycle::EmberLifecycleConfig {
-        heartbeat_interval: std::time::Duration::from_secs(3),
-        missed_heartbeat_threshold: 3,
-        kill_grace_period: std::time::Duration::from_secs(5),
-        start_timeout: std::time::Duration::from_secs(30),
-        ember_socket: ember_socket.clone(),
-        managed_bdfs,
-    };
-    let mut ember_lifecycle =
-        coral_glowplug::ember_lifecycle::EmberLifecycle::new(lifecycle_config);
-    if ember_lifecycle.probe_heartbeat() {
-        tracing::info!(ember_socket = %ember_socket, "ember heartbeat: ALIVE at startup");
-        ember_lifecycle.record_heartbeat();
-    } else {
-        tracing::warn!(ember_socket = %ember_socket, "ember heartbeat: not reachable at startup");
-    }
 
     let mut lifecycle_shutdown = shutdown_rx.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {},
-                _ = lifecycle_shutdown.changed() => break,
-            }
-            let state = tokio::task::spawn_blocking(move || {
-                let state = ember_lifecycle.tick();
-                (ember_lifecycle, state)
-            })
-            .await;
-            match state {
-                Ok((lc, st)) => {
-                    ember_lifecycle = lc;
-                    match st {
-                        coral_glowplug::ember_lifecycle::EmberState::Alive => {}
-                        coral_glowplug::ember_lifecycle::EmberState::Down => {
-                            tracing::warn!(
-                                "ember lifecycle: DOWN — attempting resurrection"
-                            );
-                            if let Err(e) = ember_lifecycle.resurrect_ember() {
-                                tracing::error!(error = %e, "ember resurrection failed");
-                            }
-                        }
-                        other => {
-                            tracing::info!(
-                                state = ?other,
-                                "ember lifecycle tick"
-                            );
+
+    if fleet_mode {
+        // ── FLEET MODE: per-device embers + hot-standby pool ──
+        let devices: Vec<(String, Option<String>)> = config.device.iter()
+            .filter(|d| !d.is_protected())
+            .map(|d| (d.bdf.clone(), d.name.clone()))
+            .collect();
+        let fleet_config = coral_glowplug::ember_fleet::FleetConfig {
+            heartbeat_interval: std::time::Duration::from_secs(3),
+            missed_heartbeat_threshold: 3,
+            kill_grace_period: std::time::Duration::from_secs(5),
+            start_timeout: std::time::Duration::from_secs(30),
+            standby_pool_size: config.daemon.standby_pool_size,
+        };
+        let mut fleet = coral_glowplug::ember_fleet::EmberFleet::new(&devices, fleet_config);
+
+        tracing::info!(
+            device_count = devices.len(),
+            standby_pool = config.daemon.standby_pool_size,
+            "FLEET MODE: spawning per-device embers"
+        );
+
+        let spawn_errors = fleet.spawn_all();
+        for e in &spawn_errors {
+            tracing::error!(error = %e, "fleet: initial spawn error");
+        }
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {},
+                    _ = lifecycle_shutdown.changed() => break,
+                }
+                let result = tokio::task::spawn_blocking(move || {
+                    let needs_resurrect = fleet.tick_all();
+                    for bdf in &needs_resurrect {
+                        tracing::warn!(bdf = %bdf, "fleet: attempting resurrection");
+                        if let Err(e) = fleet.resurrect(bdf) {
+                            tracing::error!(bdf = %bdf, error = %e, "fleet resurrection failed");
                         }
                     }
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "ember lifecycle task panicked");
-                    break;
+                    fleet.write_discovery();
+                    fleet
+                })
+                .await;
+                match result {
+                    Ok(f) => { fleet = f; }
+                    Err(e) => {
+                        tracing::error!(error = %e, "fleet lifecycle task panicked");
+                        break;
+                    }
                 }
             }
+        });
+    } else {
+        // ── LEGACY MODE: single ember holding all GPUs ──
+        let ember_socket = coral_ember::ember_socket_path();
+        let lifecycle_config = coral_glowplug::ember_lifecycle::EmberLifecycleConfig {
+            heartbeat_interval: std::time::Duration::from_secs(3),
+            missed_heartbeat_threshold: 3,
+            kill_grace_period: std::time::Duration::from_secs(5),
+            start_timeout: std::time::Duration::from_secs(30),
+            ember_socket: ember_socket.clone(),
+            managed_bdfs,
+        };
+        let mut ember_lifecycle =
+            coral_glowplug::ember_lifecycle::EmberLifecycle::new(lifecycle_config);
+        if ember_lifecycle.probe_heartbeat() {
+            tracing::info!(ember_socket = %ember_socket, "ember heartbeat: ALIVE at startup");
+            ember_lifecycle.record_heartbeat();
+        } else {
+            tracing::warn!(ember_socket = %ember_socket, "ember heartbeat: not reachable at startup");
         }
-    });
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {},
+                    _ = lifecycle_shutdown.changed() => break,
+                }
+                let state = tokio::task::spawn_blocking(move || {
+                    let state = ember_lifecycle.tick();
+                    (ember_lifecycle, state)
+                })
+                .await;
+                match state {
+                    Ok((lc, st)) => {
+                        ember_lifecycle = lc;
+                        match st {
+                            coral_glowplug::ember_lifecycle::EmberState::Alive => {}
+                            coral_glowplug::ember_lifecycle::EmberState::Down => {
+                                tracing::warn!(
+                                    "ember lifecycle: DOWN — attempting resurrection"
+                                );
+                                if let Err(e) = ember_lifecycle.resurrect_ember() {
+                                    tracing::error!(error = %e, "ember resurrection failed");
+                                }
+                            }
+                            other => {
+                                tracing::info!(
+                                    state = ?other,
+                                    "ember lifecycle tick"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "ember lifecycle task panicked");
+                        break;
+                    }
+                }
+            }
+        });
+    }
 
     let server = match socket::SocketServer::bind(&config.daemon.socket).await {
         Ok(s) => s,
@@ -432,6 +490,12 @@ async fn main() {
             "║ Health check: every {}ms",
             config.daemon.health_interval_ms
         );
+        if config.daemon.fleet_mode {
+            tracing::info!("║ Ember mode: FLEET (per-device + hot-standby)");
+            tracing::info!("║ Standby pool: {}", config.daemon.standby_pool_size);
+        } else {
+            tracing::info!("║ Ember mode: LEGACY (single process)");
+        }
         tracing::info!("╚══════════════════════════════════════════════════════════╝");
     }
 

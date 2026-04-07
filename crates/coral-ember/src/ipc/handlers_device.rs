@@ -245,6 +245,7 @@ pub(crate) fn warm_cycle(
     managed_bdfs: &HashSet<String>,
     id: serde_json::Value,
     params: &serde_json::Value,
+    warm_cycling: &Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> Result<(), EmberIpcError> {
     let bdf = params
         .get("bdf")
@@ -252,50 +253,101 @@ pub(crate) fn warm_cycle(
         .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
     finish_managed_bdf_early(require_managed_bdf(bdf, managed_bdfs, stream, &id))?;
 
-    tracing::info!(bdf, "ember.warm_cycle: releasing device");
+    if let Ok(mut set) = warm_cycling.lock() {
+        set.insert(bdf.to_string());
+    }
 
-    // 1. Release
+    tracing::info!(bdf, "ember.warm_cycle: starting driver-managed warm cycle");
+
+    let device_path = format!("/sys/bus/pci/devices/{bdf}");
+    let override_path = format!("{device_path}/driver_override");
+    let driver_link = format!("{device_path}/driver");
+    let reset_method_path = format!("{device_path}/reset_method");
+
+    // 1. Suppress PM reset: clear reset_method BEFORE closing VFIO fd.
+    //    If we drop the HeldDevice first, the VFIO fd close triggers a kernel
+    //    PM reset that can lock the PCIe fabric (the kernel reads
+    //    reset_method to decide how to reset on fd close).
+    let _ = std::fs::write(&reset_method_path, "");
+    tracing::info!(bdf, "warm cycle: reset_method cleared (suppress PM reset)");
+
+    // 2. Release VFIO fd — kernel won't PM-reset because reset_method is blank.
     {
         let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
         if map.remove(bdf).is_none() {
             tracing::warn!(bdf, "ember.warm_cycle: device not held (proceeding anyway)");
         }
     }
+    std::thread::sleep(std::time::Duration::from_millis(200));
 
-    // 2. Unbind current driver
-    let device_path = format!("/sys/bus/pci/devices/{bdf}");
-    let driver_link = format!("{device_path}/driver");
+    // 3. Unbind current driver (vfio-pci or whatever is bound).
+    //    With reset_method cleared, vfio-pci unbind won't trigger a reset.
     if let Ok(link) = std::fs::read_link(&driver_link) {
         if let Some(driver_name) = link.file_name().and_then(|n| n.to_str()) {
             let unbind = format!("/sys/bus/pci/drivers/{driver_name}/unbind");
             let _ = std::fs::write(&unbind, bdf);
             std::thread::sleep(std::time::Duration::from_millis(500));
+            tracing::info!(bdf, driver = driver_name, "warm cycle: unbound driver");
         }
     }
 
-    // 3. Bind to nouveau for memory controller retrain
-    let override_path = format!("{device_path}/driver_override");
+    // 4. Load nouveau module (may be blacklisted; modprobe handles install rules)
+    let modprobe_ok = std::process::Command::new("modprobe")
+        .arg("nouveau")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !modprobe_ok {
+        tracing::warn!(bdf, "warm cycle: modprobe nouveau non-zero (may already be loaded)");
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // 5. Set driver_override to nouveau and trigger probe.
+    //    driver_override ensures ONLY nouveau can bind — not nvidia, not the
+    //    display server, nothing else.
     if let Err(e) = std::fs::write(&override_path, "nouveau") {
         tracing::error!(bdf, error = %e, "ember.warm_cycle: failed to set nouveau override");
-        return write_jsonrpc_error(stream, id, -32000, &format!("warm cycle failed: {e}"))
+        return write_jsonrpc_error(stream, id, -32000, &format!("warm cycle: nouveau override failed: {e}"))
             .map_err(EmberIpcError::from);
     }
-    let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/bind", bdf);
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    let _ = std::fs::write("/sys/bus/pci/drivers_probe", bdf);
+    tracing::info!(bdf, "warm cycle: nouveau probe issued");
 
-    // 4. Unbind nouveau
+    // 6. Wait for nouveau initialization (memory controller retrain, fb init)
+    std::thread::sleep(std::time::Duration::from_secs(4));
+
+    // Check if nouveau actually bound
+    let nouveau_bound = std::fs::read_link(&driver_link)
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
+        .map(|d| d == "nouveau")
+        .unwrap_or(false);
+
+    if !nouveau_bound {
+        tracing::warn!(bdf, "warm cycle: nouveau did not bind — trying direct bind");
+        let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/bind", bdf);
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    }
+
+    // 7. Unbind nouveau
     let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf);
     std::thread::sleep(std::time::Duration::from_millis(500));
+    tracing::info!(bdf, "warm cycle: nouveau unbound");
 
-    // 5. Restore vfio-pci override
+    // 8. Restore vfio-pci: clear reset_method again (nouveau may have restored
+    //    it), set override, trigger probe.
+    let _ = std::fs::write(&reset_method_path, "");
     if let Err(e) = std::fs::write(&override_path, "vfio-pci") {
         tracing::error!(bdf, error = %e, "ember.warm_cycle: failed to restore vfio-pci override");
-        return write_jsonrpc_error(stream, id, -32000, &format!("warm cycle restore failed: {e}"))
+        return write_jsonrpc_error(stream, id, -32000, &format!("warm cycle: vfio-pci restore failed: {e}"))
             .map_err(EmberIpcError::from);
     }
+    let _ = std::fs::write("/sys/bus/pci/drivers_probe", bdf);
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    tracing::info!(bdf, "warm cycle: vfio-pci override + probe done");
 
-    // 6. Reacquire
-    match coral_driver::vfio::VfioDevice::open(bdf) {
+    // 9. Reacquire
+    let result = match coral_driver::vfio::VfioDevice::open(bdf) {
         Ok(device) => {
             let req_eventfd = crate::arm_req_irq(&device, bdf);
             tracing::info!(bdf, "ember.warm_cycle: device reacquired (fresh)");
@@ -325,7 +377,13 @@ pub(crate) fn warm_cycle(
             write_jsonrpc_error(stream, id, -32000, &format!("warm cycle reacquire failed: {e}"))
                 .map_err(EmberIpcError::from)
         }
+    };
+
+    if let Ok(mut set) = warm_cycling.lock() {
+        set.remove(bdf);
     }
+
+    result
 }
 
 pub(crate) fn swap(
@@ -472,13 +530,23 @@ pub(crate) fn status(
     started_at: std::time::Instant,
 ) -> Result<(), EmberIpcError> {
     let map = held.read().map_err(|_| EmberIpcError::LockPoisoned)?;
-    let devices: Vec<String> = map.keys().cloned().collect();
+    let devices: Vec<serde_json::Value> = map.values().map(|h| {
+        serde_json::json!({
+            "bdf": h.bdf,
+            "health": format!("{:?}", h.health),
+            "mmio_fault_count": h.mmio_fault_count,
+            "experiment_dirty": h.experiment_dirty,
+            "needs_warm_cycle": h.needs_warm_cycle,
+        })
+    }).collect();
+    let device_bdfs: Vec<&str> = map.keys().map(|s| s.as_str()).collect();
     drop(map);
     write_jsonrpc_ok(
         stream,
         id,
         serde_json::json!({
-            "devices": devices,
+            "devices": device_bdfs,
+            "device_health": devices,
             "uptime_secs": started_at.elapsed().as_secs(),
         }),
     )
@@ -848,6 +916,81 @@ pub(crate) fn cleanup_dma(
         Err(e) => {
             tracing::error!(bdf = bdf_owned, error = %e, "ember.cleanup_dma: failed");
             write_jsonrpc_error(stream, id, -32000, &format!("cleanup_dma: {e}"))
+                .map_err(EmberIpcError::from)
+        }
+    }
+}
+
+/// `ember.adopt_device` — Hot-standby adoption: receive a BDF, open the VFIO
+/// device, and begin holding it. Used by glowplug fleet mode to promote a
+/// standby ember into an active per-device ember.
+///
+/// Unlike other device RPCs, this does NOT require the BDF to be in
+/// `managed_bdfs` — the standby starts empty and dynamically adopts.
+pub(crate) fn adopt_device(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), EmberIpcError> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
+
+    tracing::info!(bdf, "ember.adopt_device: adopting device into standby");
+
+    {
+        let map = held.read().map_err(|_| EmberIpcError::LockPoisoned)?;
+        if map.contains_key(bdf) {
+            tracing::warn!(bdf, "adopt_device: already held");
+            return write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({"bdf": bdf, "adopted": true, "already_held": true}),
+            )
+            .map_err(EmberIpcError::from);
+        }
+    }
+
+    match coral_driver::vfio::VfioDevice::open(bdf) {
+        Ok(device) => {
+            let armor = crate::pcie_armor::PcieArmor::arm(bdf);
+            let req_eventfd = crate::arm_req_irq(&device, bdf);
+            tracing::info!(
+                bdf,
+                backend = ?device.backend_kind(),
+                device_fd = device.device_fd(),
+                "adopt_device: VFIO device acquired"
+            );
+            let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+            map.insert(
+                bdf.to_string(),
+                HeldDevice {
+                    bdf: bdf.to_string(),
+                    device,
+                    bar0: None,
+                    ring_meta: crate::hold::RingMeta::default(),
+                    req_eventfd,
+                    experiment_dirty: false,
+                    needs_warm_cycle: false,
+                    dma_prepare_state: None,
+                    mmio_fault_count: 0,
+                    health: crate::hold::DeviceHealth::Alive,
+                    pcie_armor: Some(armor),
+                },
+            );
+            drop(map);
+            write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({"bdf": bdf, "adopted": true}),
+            )
+            .map_err(EmberIpcError::from)
+        }
+        Err(e) => {
+            tracing::error!(bdf, error = %e, "adopt_device: VFIO open failed");
+            write_jsonrpc_error(stream, id, -32000, &format!("adopt_device: {e}"))
                 .map_err(EmberIpcError::from)
         }
     }

@@ -450,7 +450,7 @@ impl EmberLifecycle {
         let req = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "ember.pramin.read",
-            "params": {"bdf": bdf, "offset": 0, "size": 4},
+            "params": {"bdf": bdf, "vram_addr": 0x10000, "length": 4},
             "id": 1,
         });
         if std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes()).is_err() {
@@ -509,6 +509,11 @@ impl EmberLifecycle {
 /// 3. Wait for nouveau to initialize (trains HBM2)
 /// 4. Unbind nouveau, set driver_override back to vfio-pci
 /// 5. Let ember re-acquire on startup
+/// Public wrapper for fleet module access.
+pub fn sysfs_warm_cycle_pub(bdf: &str) -> Result<(), String> {
+    sysfs_warm_cycle(bdf)
+}
+
 fn sysfs_warm_cycle(bdf: &str) -> Result<(), String> {
     let device_path = format!("/sys/bus/pci/devices/{bdf}");
     let override_path = format!("{device_path}/driver_override");
@@ -524,24 +529,48 @@ fn sysfs_warm_cycle(bdf: &str) -> Result<(), String> {
         }
     }
 
-    // Step 2: Bind to nouveau
+    // Step 2: Ensure nouveau module is loaded (may be blacklisted at boot)
+    let modprobe_ok = std::process::Command::new("modprobe")
+        .arg("nouveau")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !modprobe_ok {
+        tracing::warn!(bdf, "warm cycle: modprobe nouveau non-zero (may already be loaded)");
+    }
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Step 3: Set driver_override to nouveau and trigger probe
     std::fs::write(&override_path, "nouveau")
         .map_err(|e| format!("set driver_override to nouveau: {e}"))?;
-    let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/bind", bdf);
-    tracing::info!(bdf, "warm cycle: nouveau bind issued");
+    let _ = std::fs::write("/sys/bus/pci/drivers_probe", bdf);
+    tracing::info!(bdf, "warm cycle: nouveau probe issued");
 
-    // Step 3: Wait for nouveau initialization (memory controller retrain)
-    std::thread::sleep(Duration::from_secs(3));
+    // Step 4: Wait for nouveau initialization (memory controller retrain)
+    std::thread::sleep(Duration::from_secs(4));
 
-    // Step 4: Unbind nouveau
+    // Verify nouveau actually bound
+    let bound = std::fs::read_link(&driver_path)
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
+        .unwrap_or_default();
+    if bound != "nouveau" {
+        tracing::warn!(bdf, bound_driver = %bound, "warm cycle: nouveau did not bind via probe, trying direct");
+        let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/bind", bdf);
+        std::thread::sleep(Duration::from_secs(3));
+    }
+
+    // Step 5: Unbind nouveau
     let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf);
     std::thread::sleep(Duration::from_millis(500));
     tracing::info!(bdf, "warm cycle: nouveau unbound");
 
-    // Step 5: Set driver_override back to vfio-pci for ember
+    // Step 6: Set driver_override back to vfio-pci and trigger probe
     std::fs::write(&override_path, "vfio-pci")
         .map_err(|e| format!("set driver_override to vfio-pci: {e}"))?;
-    tracing::info!(bdf, "warm cycle: driver_override set to vfio-pci");
+    let _ = std::fs::write("/sys/bus/pci/drivers_probe", bdf);
+    std::thread::sleep(Duration::from_secs(1));
+    tracing::info!(bdf, "warm cycle: vfio-pci override + probe done");
 
     Ok(())
 }

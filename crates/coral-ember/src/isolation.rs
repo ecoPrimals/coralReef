@@ -241,25 +241,17 @@ fn fork_isolated_mmio_opt(
     disable_bus_master: bool,
     op: impl FnOnce(i32),
 ) -> ForkResult {
-    // ── Phase 0: Mask AER on the bridge ──────────────────────────────────
-    let aer_saved = sysfs::mask_bridge_aer(bdf);
+    // AER is kept masked for the device's entire lifetime by PcieArmor
+    // (armed at device acquisition, disarmed at release). Per-operation
+    // AER cycling was removed because it caused a setpci/sysfs I/O storm
+    // that overwhelmed the PCIe root complex during rapid batch operations.
 
-    // ── Phase 0b: Pre-open bridge config fd for SBR ─────────────────────
-    // If the child's MMIO stall cascades to the AMD IOHUB, opening a new
-    // file in the timeout handler may itself hang. Pre-opening the fd
-    // (and seeking to PCI_BRIDGE_CONTROL at offset 0x3E) gives the timeout
-    // handler a fast path: a single pwrite(2) to an already-open fd.
+    // Pre-open bridge config fd for SBR escalation in the timeout handler.
     let bridge_fd = sysfs::find_parent_bridge(bdf).and_then(|bridge_bdf| {
         pre_open_bridge_sbr_fd(&bridge_bdf)
     });
 
-    let result = fork_isolated_mmio_inner(bdf, timeout, op, bridge_fd, disable_bus_master);
-
-    if let Some((ref bridge_bdf, original_val)) = aer_saved {
-        sysfs::unmask_bridge_aer(bridge_bdf, original_val);
-    }
-
-    result
+    fork_isolated_mmio_inner(bdf, timeout, op, bridge_fd, disable_bus_master)
 }
 
 /// Pre-open the bridge's sysfs config file for SBR, returning

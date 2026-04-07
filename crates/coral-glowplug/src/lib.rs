@@ -49,6 +49,7 @@ pub mod config;
 pub mod device;
 pub mod ecosystem;
 pub mod ember;
+pub mod ember_fleet;
 pub mod ember_lifecycle;
 pub mod error;
 pub mod fd_vault;

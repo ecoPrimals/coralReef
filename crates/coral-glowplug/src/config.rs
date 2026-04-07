@@ -94,6 +94,14 @@ pub struct DaemonConfig {
     pub log_level: String,
     #[serde(default = "default_health_interval")]
     pub health_interval_ms: u64,
+    #[serde(default)]
+    pub fleet_mode: bool,
+    #[serde(default = "default_standby_pool_size")]
+    pub standby_pool_size: usize,
+}
+
+fn default_standby_pool_size() -> usize {
+    1
 }
 
 impl Default for DaemonConfig {
@@ -102,6 +110,8 @@ impl Default for DaemonConfig {
             socket: default_socket(),
             log_level: default_log_level(),
             health_interval_ms: default_health_interval(),
+            fleet_mode: false,
+            standby_pool_size: default_standby_pool_size(),
         }
     }
 }

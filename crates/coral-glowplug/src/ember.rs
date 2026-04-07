@@ -191,6 +191,23 @@ impl EmberClient {
         Ok(())
     }
 
+    /// Warm cycle a device: release VFIO, bind nouveau for VRAM retrain, rebind vfio-pci.
+    ///
+    /// Ember handles module loading, driver binding, and reacquisition internally.
+    /// Idempotent: safe to call even if the device is already in a clean state.
+    pub fn warm_cycle(&self, bdf: &str) -> Result<(), EmberError> {
+        let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(60)))?;
+
+        let req = make_rpc_request("ember.warm_cycle", serde_json::json!({"bdf": bdf}));
+        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+
+        let mut buf = [0u8; MAX_RESPONSE_SIZE];
+        let n = std::io::Read::read(&mut &stream, &mut buf)?;
+        parse_rpc_response(&buf[..n])?;
+        Ok(())
+    }
+
     /// Ask ember to perform a PCI device reset via sysfs.
     ///
     /// This is the SBR path — writes `1` to the sysfs `reset` file for the

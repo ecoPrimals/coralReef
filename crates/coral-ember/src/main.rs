@@ -32,6 +32,12 @@ enum Commands {
         /// Glowplug socket path for resurrection fd retrieval.
         #[arg(long)]
         glowplug_socket: Option<String>,
+        /// Hold only this single BDF (fleet mode: one ember per device).
+        #[arg(long)]
+        bdf: Option<String>,
+        /// Start as hot-standby with no devices; wait for ember.adopt_device RPC.
+        #[arg(long)]
+        standby: bool,
     },
 }
 
@@ -43,17 +49,23 @@ fn main() {
             config,
             resurrect,
             glowplug_socket,
+            bdf,
+            standby,
         }) => EmberRunOptions {
             config_path: config,
             listen_port: port,
             resurrect,
             glowplug_socket,
+            single_bdf: bdf,
+            standby,
         },
         None => EmberRunOptions {
             config_path: cli.legacy_config,
             listen_port: None,
             resurrect: false,
             glowplug_socket: None,
+            single_bdf: None,
+            standby: false,
         },
     };
 

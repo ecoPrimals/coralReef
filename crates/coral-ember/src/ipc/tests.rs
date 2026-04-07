@@ -30,6 +30,10 @@ fn policies() -> PolicyStore {
     new_policy_store()
 }
 
+fn warm_cycling() -> Arc<Mutex<HashSet<String>>> {
+    Arc::new(Mutex::new(HashSet::new()))
+}
+
 const TEST_BDF: &str = "0000:01:00.0";
 const BOGUS_BDF: &str = "9999:99:99.9";
 
@@ -59,7 +63,7 @@ fn handle_client_empty_read_returns_ok() {
     drop(b);
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut a, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut a, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     drop(a);
 }
 
@@ -72,7 +76,7 @@ fn handle_client_invalid_json_emits_parse_error() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -93,7 +97,7 @@ fn handle_client_wrong_jsonrpc_version() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -114,7 +118,7 @@ fn handle_client_ember_list_empty() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["devices"], serde_json::json!([]));
 }
@@ -133,7 +137,7 @@ fn handle_client_ember_status_reports_uptime() {
     let started = Instant::now() - Duration::from_secs(10);
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, started, None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, started, None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     let uptime = v["result"]["uptime_secs"].as_u64().expect("uptime field");
     assert!(uptime >= 10);
@@ -152,7 +156,7 @@ fn handle_client_unknown_method() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -174,7 +178,7 @@ fn handle_client_ember_vfio_fds_returns_deprecated_error() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -197,7 +201,7 @@ fn handle_client_ember_vfio_fds_no_bdf_still_deprecated() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -218,7 +222,7 @@ fn handle_client_ember_reacquire_missing_bdf_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("handler returns error");
     assert!(err.to_string().contains("bdf"), "{err}");
 }
@@ -236,7 +240,7 @@ fn handle_client_ember_release_missing_bdf_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("handler returns error");
     assert!(err.to_string().contains("bdf"));
 }
@@ -255,7 +259,7 @@ fn handle_client_ember_release_not_held() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -276,7 +280,7 @@ fn handle_client_ember_swap_missing_params() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("handler returns error");
     assert!(err.to_string().contains("target"));
 }
@@ -295,7 +299,7 @@ fn handle_client_ember_reacquire_open_failure_returns_jsonrpc_error() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -320,7 +324,7 @@ fn handle_client_ember_swap_unbound_success() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(v["result"]["to_personality"], "unbound");
     assert_eq!(v["id"], serde_json::json!(42));
@@ -335,7 +339,7 @@ fn handle_client_non_utf8_request_errors() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("handler returns error");
     assert!(
         err.to_string().contains("utf8") || err.to_string().contains("utf-8") || err.to_string().contains("UTF-8"),
@@ -366,7 +370,7 @@ fn handle_client_ember_swap_reports_error_from_swap() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[BOGUS_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -394,7 +398,7 @@ fn handle_client_swap_rejects_unmanaged_bdf() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -420,7 +424,7 @@ fn handle_client_reacquire_rejects_unmanaged_bdf() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -442,7 +446,7 @@ fn handle_client_ember_vfio_fds_unmanaged_bdf_still_deprecated() {
         .expect("write request to test socket");
     let held = empty_held();
     let m = managed(&[TEST_BDF]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
     let v = drain_json_line(&mut client);
     assert_eq!(
         v["error"]["code"].as_i64().expect("jsonrpc error code"),
@@ -507,7 +511,7 @@ fn handle_client_mmio_read_missing_bdf() {
     client.write_all(b"\n").expect("write newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("missing bdf should error");
     assert!(err.to_string().contains("bdf"), "{err}");
 }
@@ -522,7 +526,7 @@ fn handle_client_mmio_read_missing_offset() {
     client.write_all(b"\n").expect("write newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("missing offset should error");
     assert!(err.to_string().contains("offset"), "{err}");
 }
@@ -539,7 +543,7 @@ fn handle_client_mmio_read_nonexistent_device_returns_error() {
     client
         .set_read_timeout(Some(std::time::Duration::from_secs(2)))
         .expect("set timeout");
-    let result = handle_client(&mut server, &held, &m, Instant::now(), None, &policies());
+    let result = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling());
     match result {
         Ok(()) => {
             let v = drain_json_line(&mut client);
@@ -570,7 +574,7 @@ fn handle_client_fecs_state_missing_bdf() {
     client.write_all(b"\n").expect("write newline");
     let held = empty_held();
     let m = managed(&[]);
-    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies())
+    let err = handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling())
         .expect_err("missing bdf should error");
     assert!(err.to_string().contains("bdf"), "{err}");
 }
@@ -586,7 +590,7 @@ fn handle_client_fecs_state_nonexistent_device_returns_error() {
     client.write_all(b"\n").expect("write newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handler completes");
     let v = drain_json_line(&mut client);
     assert!(
         v["error"]["code"].as_i64().is_some(),
@@ -606,7 +610,7 @@ fn handle_client_livepatch_status_returns_result() {
     client.write_all(b"\n").expect("write newline");
     let held = empty_held();
     let m = managed(&[]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handler completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handler completes");
     let v = drain_json_line(&mut client);
     let result = &v["result"];
     assert!(result.get("loaded").is_some(), "should have 'loaded' field");
@@ -653,7 +657,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
     );
     let held = Arc::new(RwLock::new(map));
     let m = managed(&[&bdf]);
-    handle_client(&mut server, &held, &m, Instant::now(), None, &policies()).expect("handle_client completes");
+    handle_client(&mut server, &held, &m, Instant::now(), None, &policies(), &warm_cycling()).expect("handle_client completes");
 }
 
 #[test]

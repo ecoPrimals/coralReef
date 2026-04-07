@@ -95,6 +95,24 @@ impl FdVault {
             .unwrap_or_default()
     }
 
+    /// Evict (release) vaulted fds for a specific BDF.
+    ///
+    /// Must be called BEFORE a warm cycle so the kernel's VFIO refcount drops
+    /// to zero, allowing clean driver unbind. Returns true if the BDF was
+    /// present and evicted.
+    pub fn evict(&self, bdf: &str) -> bool {
+        match self.entries.write() {
+            Ok(mut map) => {
+                let had = map.remove(bdf).is_some();
+                if had {
+                    tracing::info!(bdf, "fd vault: evicted (VFIO fds released for warm cycle)");
+                }
+                had
+            }
+            Err(_) => false,
+        }
+    }
+
     /// Checkpoint: connect to ember, request all fds, stash them.
     ///
     /// Replaces any previously vaulted fds (the old `OwnedFd`s are dropped,

@@ -133,6 +133,13 @@ pub struct EmberRunOptions {
     /// Glowplug socket path for resurrection. When `None`, uses the default
     /// glowplug socket path.
     pub glowplug_socket: Option<String>,
+    /// When `Some`, filter the config to hold only this single BDF.
+    /// Used by fleet mode: glowplug spawns one ember per device via
+    /// `coral-ember server --bdf 0000:03:00.0`.
+    pub single_bdf: Option<String>,
+    /// When true, this ember starts with no devices and waits for an
+    /// `ember.adopt_device` RPC to receive vault fds from glowplug.
+    pub standby: bool,
 }
 
 /// Default socket path for ember IPC. Override with `$CORALREEF_EMBER_SOCKET`.
@@ -159,6 +166,27 @@ pub fn ember_socket_path() -> String {
         .or_else(|_| std::env::var("FAMILY_ID"))
         .unwrap_or_else(|_| "default".to_string());
     format!("{runtime_dir}/biomeos/coral-ember-{family}.sock")
+}
+
+/// Convert a BDF like `0000:03:00.0` into a filesystem-safe slug like `0000-03-00.0`.
+#[must_use]
+pub fn bdf_to_slug(bdf: &str) -> String {
+    bdf.replace(':', "-")
+}
+
+/// Socket path for a per-device ember instance in fleet mode.
+///
+/// Returns `/run/coralreef/ember-{slug}.sock` where slug is the BDF with
+/// colons replaced by hyphens.
+#[must_use]
+pub fn ember_instance_socket_path(bdf: &str) -> String {
+    format!("/run/coralreef/ember-{}.sock", bdf_to_slug(bdf))
+}
+
+/// Socket path for a hot-standby ember instance.
+#[must_use]
+pub fn ember_standby_socket_path(index: usize) -> String {
+    format!("/run/coralreef/ember-standby-{index}.sock")
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).
@@ -230,9 +258,7 @@ fn set_socket_group(path: &str, group_name: &str) {
 pub fn run() -> Result<(), i32> {
     run_with_options(EmberRunOptions {
         config_path: std::env::args().nth(1),
-        listen_port: None,
-        resurrect: false,
-        glowplug_socket: None,
+        ..Default::default()
     })
 }
 
@@ -270,7 +296,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         }
     };
 
-    let config: EmberConfig = match parse_glowplug_config(&config_str) {
+    let mut config: EmberConfig = match parse_glowplug_config(&config_str) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!(path = %config_path, error = %e, "failed to parse config");
@@ -278,7 +304,20 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         }
     };
 
-    if config.device.is_empty() {
+    if opts.single_bdf.is_some() {
+        let bdf = opts.single_bdf.as_deref().unwrap();
+        config.device.retain(|d| d.bdf == bdf);
+        if config.device.is_empty() {
+            tracing::error!(bdf, "BDF not found in config — nothing to hold");
+            return Err(1);
+        }
+        tracing::info!(bdf, "fleet mode: single-device ember");
+    }
+
+    if opts.standby {
+        tracing::info!("HOT-STANDBY MODE — no devices, waiting for ember.adopt_device");
+        config.device.clear();
+    } else if config.device.is_empty() {
         tracing::error!("no devices configured — nothing to hold");
         return Err(1);
     }
@@ -506,7 +545,17 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
     let policies = ipc::handlers_policy::new_policy_store();
 
-    let socket_path = ember_socket_path();
+    let socket_path = if let Some(ref bdf) = opts.single_bdf {
+        ember_instance_socket_path(bdf)
+    } else if opts.standby {
+        let idx = std::env::var("CORALREEF_STANDBY_INDEX")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0);
+        ember_standby_socket_path(idx)
+    } else {
+        ember_socket_path()
+    };
 
     if let Some(parent) = std::path::Path::new(&socket_path).parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -562,7 +611,10 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
 
     isolation::install_sigterm_handler();
     spawn_watchdog(Arc::clone(&held), socket_path.clone());
-    spawn_req_watcher(Arc::clone(&held));
+
+    let warm_cycling: Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
+        Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+    spawn_req_watcher(Arc::clone(&held), Arc::clone(&warm_cycling));
 
     if let Some(port) = opts.listen_port {
         let tcp_host =
@@ -580,6 +632,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         let managed_tcp = Arc::clone(&managed_bdfs);
         let journal_tcp = Arc::clone(&journal);
         let policies_tcp = Arc::clone(&policies);
+        let warm_cycling_tcp = Arc::clone(&warm_cycling);
         let started_tcp = started_at;
         std::thread::Builder::new()
             .name("ember-tcp-accept".into())
@@ -591,6 +644,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                             let managed = Arc::clone(&managed_tcp);
                             let journal = Arc::clone(&journal_tcp);
                             let policies = Arc::clone(&policies_tcp);
+                            let warm_cycling = Arc::clone(&warm_cycling_tcp);
                             std::thread::spawn(move || {
                                 if let Err(e) = ipc::handle_client_tcp(
                                     &mut stream,
@@ -599,6 +653,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                                     started_tcp,
                                     Some(&journal),
                                     &policies,
+                                    &warm_cycling,
                                 ) {
                                     tracing::warn!(error = %e, "ember TCP client handler error");
                                 }
@@ -620,6 +675,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 let managed = Arc::clone(&managed_bdfs);
                 let journal = Arc::clone(&journal);
                 let policies = Arc::clone(&policies);
+                let warm_cycling = Arc::clone(&warm_cycling);
                 std::thread::spawn(move || {
                     if let Err(e) = ipc::handle_client(
                         &mut stream,
@@ -628,6 +684,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                         started_at,
                         Some(&journal),
                         &policies,
+                        &warm_cycling,
                     ) {
                         tracing::warn!(error = %e, "client handler error");
                     }
@@ -678,7 +735,10 @@ fn arm_req_irq(device: &coral_driver::vfio::VfioDevice, bdf: &str) -> Option<std
 ///
 /// The thread rebuilds its poll set each cycle from `try_clone()`'d eventfds,
 /// so it remains correct as devices are added/removed from the held map.
-fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
+fn spawn_req_watcher(
+    held: Arc<RwLock<HashMap<String, HeldDevice>>>,
+    warm_cycling: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+) {
     use rustix::event::{PollFd, PollFlags, poll};
     use rustix::time::Timespec;
 
@@ -724,14 +784,23 @@ fn spawn_req_watcher(held: Arc<RwLock<HashMap<String, HeldDevice>>>) {
                             let revents = pfd.revents();
                             if revents.contains(PollFlags::IN) {
                                 let bdf = &bdfs[i];
+
+                                let mut buf = [0u8; 8];
+                                let _ = rustix::io::read(&cloned_fds[i], &mut buf);
+
+                                if warm_cycling.lock().map(|s| s.contains(bdf.as_str())).unwrap_or(false) {
+                                    tracing::info!(
+                                        bdf,
+                                        "VFIO REQ IRQ during warm cycle — suppressed (expected)"
+                                    );
+                                    continue;
+                                }
+
                                 tracing::warn!(
                                     bdf,
                                     "VFIO device-release request from kernel — \
                                      auto-releasing VFIO fds to prevent D-state"
                                 );
-
-                                let mut buf = [0u8; 8];
-                                let _ = rustix::io::read(&cloned_fds[i], &mut buf);
 
                                 match held.try_write() {
                                     Ok(mut map) => {

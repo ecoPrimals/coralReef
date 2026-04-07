@@ -627,6 +627,10 @@ fn handle_experiment_end(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing 'bdf' parameter"))?;
     let bdf = validate_bdf(bdf)?;
+    let auto_warm = params
+        .get("auto_warm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let slot = devices
         .iter_mut()
         .find(|d| d.bdf.as_ref() == bdf)
@@ -644,11 +648,38 @@ fn handle_experiment_end(
                 elapsed_secs = elapsed,
                 "experiment session ended — health probes resuming"
             );
+
+            // Warm cycle restores clean GPU state after an experiment dirties it.
+            let warm_result = if auto_warm {
+                match coral_glowplug::ember::EmberClient::connect() {
+                    Some(client) => {
+                        tracing::info!(bdf = %bdf, "experiment_end: triggering warm cycle");
+                        match client.warm_cycle(bdf) {
+                            Ok(()) => {
+                                tracing::info!(bdf = %bdf, "experiment_end: warm cycle OK");
+                                "ok"
+                            }
+                            Err(e) => {
+                                tracing::warn!(bdf = %bdf, error = %e, "experiment_end: warm cycle failed");
+                                "failed"
+                            }
+                        }
+                    }
+                    None => {
+                        tracing::warn!(bdf = %bdf, "experiment_end: ember not reachable, skipping warm cycle");
+                        "skipped"
+                    }
+                }
+            } else {
+                "disabled"
+            };
+
             Ok(serde_json::json!({
                 "bdf": bdf,
                 "experiment": session.name,
                 "elapsed_secs": elapsed,
                 "status": "ended",
+                "warm_cycle": warm_result,
             }))
         }
         None => Ok(serde_json::json!({
