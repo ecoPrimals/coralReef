@@ -80,6 +80,15 @@ pub struct HeldDevice {
     /// (Exp 138) uses this to apply extra caution (PRAMIN restore, BAR0 health
     /// check) before releasing VFIO fds.
     pub experiment_dirty: bool,
+    /// Set after any DMA-capable operation (falcon start_cpu, SEC2 boot).
+    /// GPU internal PRAMIN bulk write path becomes degraded after DMA: sustained
+    /// VRAM writes (256+ words) exhaust PCIe flow-control credits, cascading
+    /// through the AMD NBIO/data fabric to freeze ALL CPU cores.
+    ///
+    /// Only cleared by a full GPU warm cycle (nouveau bind/unbind) which
+    /// retrains HBM2 and reinitializes the memory controller. Unlike
+    /// `experiment_dirty`, this flag survives `cleanup_dma` / `experiment_end`.
+    pub needs_warm_cycle: bool,
     /// Saved DMA prepare state from `ember.prepare_dma` — holds AER mask state
     /// needed by `ember.cleanup_dma` to restore masks after an experiment.
     pub dma_prepare_state: Option<coral_driver::vfio::device::dma_safety::DmaPrepareState>,
@@ -134,6 +143,7 @@ impl HeldDevice {
             ring_meta: RingMeta::default(),
             req_eventfd: None,
             experiment_dirty: false,
+            needs_warm_cycle: false,
             dma_prepare_state: None,
             mmio_fault_count: 0,
             health: DeviceHealth::Alive,
@@ -153,16 +163,29 @@ impl HeldDevice {
         Ok(self.bar0.as_ref().unwrap())
     }
 
-    /// Emergency quiesce: disable bus mastering, drop BAR0, mark faulted.
+    /// Emergency quiesce: drop BAR0 and mark faulted. **Zero device I/O.**
     ///
-    /// Called when a timeout or bus reset occurs. After this, the device
-    /// is inert — it cannot DMA, and no MMIO operations will be accepted.
-    /// The only recovery path is ember restart (via glowplug resurrection).
+    /// Called when a fork timeout occurs. At this point, the PCIe root
+    /// complex / AMD NBIO may be completely frozen by GPU credit exhaustion.
+    /// ANY access to the device's PCI config space (including
+    /// disable_bus_master_via_sysfs) will stall the calling thread and
+    /// cascade into a full system lockup.
+    ///
+    /// This function ONLY touches in-process state: drop the BAR0 mmap
+    /// (munmap is process-local, no device I/O) and flip the health flag.
+    /// The bus master disable happens later via glowplug resurrection
+    /// (which does a full service restart + GPU warm cycle).
     pub fn emergency_quiesce(&mut self) {
-        crate::isolation::disable_bus_master_via_sysfs(&self.bdf);
         self.health = DeviceHealth::Faulted;
         self.bar0 = None;
-        tracing::error!(bdf = %self.bdf, "EMERGENCY QUIESCE: bus master disabled, BAR0 dropped, device faulted");
+        // Fire-and-forget trace: if journald is backlogged after a GPU
+        // stall, a synchronous tracing::error! blocks the calling thread.
+        let bdf = self.bdf.clone();
+        let _ = std::thread::Builder::new()
+            .name("quiesce-trace".into())
+            .spawn(move || {
+                tracing::error!(bdf = %bdf, "EMERGENCY QUIESCE: BAR0 dropped, device faulted (zero device I/O)");
+            });
     }
 }
 
@@ -178,21 +201,32 @@ pub fn all_faulted(held: &std::collections::HashMap<String, HeldDevice>) -> bool
 ///
 /// Call this after any `emergency_quiesce` and after the write lock is dropped.
 /// Re-acquires a read lock to inspect device states. If every device is faulted,
-/// disables bus master on all of them (belt-and-suspenders) and exits with code 1,
-/// which systemd's `Restart=on-failure` interprets as a restartable failure.
+/// exits with code 1 so systemd's `Restart=on-failure` triggers a glowplug
+/// resurrection cycle.
+///
+/// **CRITICAL**: This function does ZERO device I/O. When a GPU freezes the
+/// AMD NBIO via PCIe credit exhaustion, ANY PCI config access (including
+/// disable_bus_master_via_sysfs) stalls the calling thread and cascades into
+/// a full system lockup. Bus master disable is handled by glowplug's
+/// resurrection cycle (full service restart + GPU warm).
 pub fn check_voluntary_death(held: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, HeldDevice>>>) {
     if let Ok(map) = held.read() {
         if all_faulted(&map) {
             let bdfs: Vec<String> = map.keys().cloned().collect();
             drop(map);
-            tracing::error!(
-                devices = ?bdfs,
-                "ALL DEVICES FAULTED — ember exiting for glowplug resurrection"
-            );
-            for bdf in &bdfs {
-                crate::isolation::disable_bus_master_via_sysfs(bdf);
-            }
-            std::process::exit(1);
+            // Fire-and-forget trace before abort. If journald is frozen,
+            // the background thread stalls but abort() still fires.
+            let _ = std::thread::Builder::new()
+                .name("death-trace".into())
+                .spawn(move || {
+                    tracing::error!(
+                        devices = ?bdfs,
+                        "ALL DEVICES FAULTED — ember aborting for glowplug resurrection"
+                    );
+                });
+            // Brief pause to let the trace flush if journald is healthy.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::process::abort();
         }
     }
 }

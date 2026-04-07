@@ -13,7 +13,10 @@
 //! crash), glowplug simply starts a fresh instance. Ember re-acquires its
 //! VFIO devices from sysfs on startup — no vault or fd transfer needed.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use crate::fd_vault::FdVault;
 
 /// Ember process states as seen by glowplug.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +46,8 @@ pub struct EmberLifecycleConfig {
     pub start_timeout: Duration,
     /// Ember socket path for heartbeat checks.
     pub ember_socket: String,
+    /// BDFs of managed compute devices — used for GPU warm cycle during resurrection.
+    pub managed_bdfs: Vec<String>,
 }
 
 impl Default for EmberLifecycleConfig {
@@ -53,6 +58,7 @@ impl Default for EmberLifecycleConfig {
             kill_grace_period: Duration::from_secs(5),
             start_timeout: Duration::from_secs(30),
             ember_socket: String::new(),
+            managed_bdfs: Vec::new(),
         }
     }
 }
@@ -69,6 +75,10 @@ pub struct EmberLifecycle {
     missed_heartbeats: u32,
     spawn_count: u64,
     resurrect_count: u64,
+    /// Backup VFIO fds — keeps GPU bindings alive across ember death.
+    vault: Arc<FdVault>,
+    /// Last successful fd checkpoint time.
+    last_checkpoint: Option<Instant>,
 }
 
 impl EmberLifecycle {
@@ -83,7 +93,14 @@ impl EmberLifecycle {
             missed_heartbeats: 0,
             spawn_count: 0,
             resurrect_count: 0,
+            vault: Arc::new(FdVault::new()),
+            last_checkpoint: None,
         }
+    }
+
+    /// Shared reference to the fd vault (for health monitor reads).
+    pub fn vault(&self) -> &Arc<FdVault> {
+        &self.vault
     }
 
     /// Current ember state.
@@ -205,18 +222,71 @@ impl EmberLifecycle {
         Ok(())
     }
 
-    /// Resurrect ember: stop current instance, then start a fresh one.
+    /// Checkpoint VFIO fds from a live ember into the vault.
     ///
-    /// Ember re-acquires VFIO devices from sysfs on startup — no fd vault
-    /// or fd transfer is needed. The fresh instance starts clean.
+    /// Should be called periodically while ember is `Alive`. The vaulted fds
+    /// keep VFIO bindings alive in the kernel even if ember dies — preventing
+    /// the PM reset that would cold-down the GPU.
+    pub fn checkpoint_fds(&mut self) {
+        if self.state != EmberState::Alive || self.config.ember_socket.is_empty() {
+            return;
+        }
+
+        // Don't checkpoint too frequently — every 30s is enough
+        if let Some(last) = self.last_checkpoint {
+            if last.elapsed() < Duration::from_secs(30) {
+                return;
+            }
+        }
+
+        match self.vault.checkpoint_from_ember(&self.config.ember_socket) {
+            Ok(count) => {
+                tracing::info!(devices = count, "fd vault: checkpoint OK");
+                self.last_checkpoint = Some(Instant::now());
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "fd vault: checkpoint failed (non-fatal)");
+            }
+        }
+    }
+
+    /// Resurrect ember: stop current instance, conditionally warm-cycle GPUs,
+    /// then start fresh.
+    ///
+    /// If the fd vault holds backup fds, the VFIO binding stayed alive through
+    /// ember's death — no warm cycle needed (GPU is still warm). If the vault
+    /// is empty (first start, or fds were lost), do a full nouveau warm cycle.
     pub fn resurrect_ember(&mut self) -> Result<(), String> {
-        tracing::info!("ember lifecycle: RESURRECTING");
+        let vault_live = self.vault.device_count() > 0;
+        tracing::info!(
+            vault_devices = self.vault.device_count(),
+            warm_cycle_needed = !vault_live,
+            "ember lifecycle: RESURRECTING"
+        );
 
         if self.state != EmberState::Down {
             self.kill_ember()?;
         }
 
+        if vault_live {
+            // Vault kept VFIO binding alive — GPU is still warm. Clear the
+            // vault so the new ember re-opens fresh fds (old ones stay valid
+            // in kernel until the OwnedFds here are dropped).
+            tracing::info!("resurrection: vault has live fds — skipping warm cycle");
+            self.vault.clear();
+        } else {
+            // No vaulted fds — GPU went through PM reset and is cold. Warm
+            // cycle via nouveau to retrain the memory controller.
+            for bdf in &self.config.managed_bdfs {
+                match sysfs_warm_cycle(bdf) {
+                    Ok(()) => tracing::info!(bdf, "resurrection warm cycle: SUCCESS"),
+                    Err(e) => tracing::warn!(bdf, error = %e, "resurrection warm cycle: FAILED (ember may still recover)"),
+                }
+            }
+        }
+
         self.resurrect_count += 1;
+        self.last_checkpoint = None;
 
         self.spawn_ember()
     }
@@ -256,6 +326,7 @@ impl EmberLifecycle {
             EmberState::Alive => {
                 if self.probe_heartbeat() {
                     self.record_heartbeat();
+                    self.checkpoint_fds();
                 } else {
                     self.check_heartbeat();
                 }
@@ -427,6 +498,54 @@ impl EmberLifecycle {
     }
 }
 
+/// Perform a GPU warm cycle via sysfs: bind to nouveau, wait, unbind.
+///
+/// This retrains the GPU's memory controller and clears PRAMIN degradation.
+/// Called by glowplug during resurrection when ember is dead (no RPC possible).
+///
+/// Sequence:
+/// 1. Ensure vfio-pci unbinds the device (ember is already dead)
+/// 2. Set driver_override to nouveau, trigger probe
+/// 3. Wait for nouveau to initialize (trains HBM2)
+/// 4. Unbind nouveau, set driver_override back to vfio-pci
+/// 5. Let ember re-acquire on startup
+fn sysfs_warm_cycle(bdf: &str) -> Result<(), String> {
+    let device_path = format!("/sys/bus/pci/devices/{bdf}");
+    let override_path = format!("{device_path}/driver_override");
+    let driver_path = format!("{device_path}/driver");
+
+    // Step 1: Unbind current driver (if any)
+    if let Ok(link) = std::fs::read_link(&driver_path) {
+        if let Some(driver_name) = link.file_name().and_then(|n| n.to_str()) {
+            let unbind_path = format!("/sys/bus/pci/drivers/{driver_name}/unbind");
+            let _ = std::fs::write(&unbind_path, bdf);
+            std::thread::sleep(Duration::from_millis(500));
+            tracing::info!(bdf, driver = driver_name, "warm cycle: unbound current driver");
+        }
+    }
+
+    // Step 2: Bind to nouveau
+    std::fs::write(&override_path, "nouveau")
+        .map_err(|e| format!("set driver_override to nouveau: {e}"))?;
+    let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/bind", bdf);
+    tracing::info!(bdf, "warm cycle: nouveau bind issued");
+
+    // Step 3: Wait for nouveau initialization (memory controller retrain)
+    std::thread::sleep(Duration::from_secs(3));
+
+    // Step 4: Unbind nouveau
+    let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf);
+    std::thread::sleep(Duration::from_millis(500));
+    tracing::info!(bdf, "warm cycle: nouveau unbound");
+
+    // Step 5: Set driver_override back to vfio-pci for ember
+    std::fs::write(&override_path, "vfio-pci")
+        .map_err(|e| format!("set driver_override to vfio-pci: {e}"))?;
+    tracing::info!(bdf, "warm cycle: driver_override set to vfio-pci");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +557,7 @@ mod tests {
             kill_grace_period: Duration::from_secs(1),
             start_timeout: Duration::from_secs(5),
             ember_socket: String::new(),
+            managed_bdfs: Vec::new(),
         }
     }
 

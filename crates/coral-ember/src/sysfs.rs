@@ -19,6 +19,66 @@ use crate::error::SysfsError;
 use coral_driver::linux_paths;
 use std::time::Duration;
 
+/// Run `setpci` with a timeout to prevent ember from hanging if ECAM is stuck.
+///
+/// Returns the child's stdout on success, or an error if the command fails
+/// or times out. If the child hangs (ECAM access stuck), it is killed after
+/// `timeout` and an error is returned — ember stays alive.
+fn setpci_with_timeout(
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("setpci")
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("setpci spawn: {e}"))?;
+
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    let stdout = child.stdout.take().map(|mut s| {
+                        let mut buf = String::new();
+                        let _ = std::io::Read::read_to_string(&mut s, &mut buf);
+                        buf
+                    }).unwrap_or_default();
+                    return Ok(stdout);
+                }
+                let stderr = child.stderr.take().map(|mut s| {
+                    let mut buf = String::new();
+                    let _ = std::io::Read::read_to_string(&mut s, &mut buf);
+                    buf
+                }).unwrap_or_default();
+                return Err(format!("setpci exited {status}: {stderr}"));
+            }
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    tracing::error!(
+                        ?args,
+                        timeout_ms = timeout.as_millis(),
+                        pid = child.id(),
+                        "setpci TIMED OUT — ECAM may be stuck, killing"
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "setpci timed out after {}ms (killed)",
+                        timeout.as_millis()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("setpci waitpid: {e}")),
+        }
+    }
+}
+
 /// Default timeout for sysfs writes that can enter D-state.
 const SYSFS_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -293,20 +353,10 @@ pub fn pin_power(bdf: &str) {
 ///   0x1 = 50µs–100µs, 0x2 = 1ms–10ms
 pub fn harden_pcie_timeouts(bdf: &str) {
     let set = |target: &str, value: &str| {
-        match std::process::Command::new("setpci")
-            .args(["-s", target, &format!("CAP_EXP+0x28.W={value}")])
-            .output()
-        {
-            Ok(out) if out.status.success() => {
-                tracing::info!(bdf = target, value, "PCIe completion timeout hardened");
-            }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                tracing::warn!(bdf = target, value, %stderr, "setpci failed");
-            }
-            Err(e) => {
-                tracing::warn!(bdf = target, %e, "setpci command not found");
-            }
+        let arg = format!("CAP_EXP+0x28.W={value}");
+        match setpci_with_timeout(&["-s", target, &arg], Duration::from_secs(5)) {
+            Ok(_) => tracing::info!(bdf = target, value, "PCIe completion timeout hardened"),
+            Err(e) => tracing::warn!(bdf = target, value, error = %e, "setpci timeout/failed"),
         }
     };
 
@@ -411,16 +461,10 @@ pub fn disable_dpc(bridge_bdf: &str) {
 
             // Clear trigger-enable (bits 0-1) and interrupt-enable (bit 3)
             let new_ctrl = current_ctrl & !0x000B;
+            let arg = format!("{ctrl_offset:#x}.W={new_ctrl:04x}");
 
-            match std::process::Command::new("setpci")
-                .args([
-                    "-s",
-                    bridge_bdf,
-                    &format!("{ctrl_offset:#x}.W={new_ctrl:04x}"),
-                ])
-                .output()
-            {
-                Ok(out) if out.status.success() => {
+            match setpci_with_timeout(&["-s", bridge_bdf, &arg], Duration::from_secs(5)) {
+                Ok(_) => {
                     tracing::info!(
                         bdf = bridge_bdf,
                         offset = ctrl_offset,
@@ -429,12 +473,8 @@ pub fn disable_dpc(bridge_bdf: &str) {
                         "DPC DISABLED — PCIe errors logged via AER without link teardown"
                     );
                 }
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    tracing::warn!(bdf = bridge_bdf, %stderr, "setpci DPC disable failed");
-                }
                 Err(e) => {
-                    tracing::warn!(bdf = bridge_bdf, error = %e, "setpci not found for DPC disable");
+                    tracing::warn!(bdf = bridge_bdf, error = %e, "setpci DPC disable failed/timed out");
                 }
             }
             return;
@@ -484,11 +524,9 @@ fn disable_bridge_aer(bridge_bdf: &str) {
     }
 
     let masked = current & !AER_ROOT_CMD_REPORT_MASK;
-    match std::process::Command::new("setpci")
-        .args(["-s", bridge_bdf, &format!("{root_cmd_off:#x}.L={masked:08x}")])
-        .output()
-    {
-        Ok(out) if out.status.success() => {
+    let arg = format!("{root_cmd_off:#x}.L={masked:08x}");
+    match setpci_with_timeout(&["-s", bridge_bdf, &arg], Duration::from_secs(5)) {
+        Ok(_) => {
             tracing::info!(
                 bdf = bridge_bdf,
                 old = format_args!("{current:#010x}"),
@@ -496,12 +534,8 @@ fn disable_bridge_aer(bridge_bdf: &str) {
                 "AER DISABLED on bridge — kernel error handler cannot cascade on stuck device"
             );
         }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            tracing::warn!(bdf = bridge_bdf, %stderr, "setpci AER disable failed");
-        }
         Err(e) => {
-            tracing::warn!(bdf = bridge_bdf, error = %e, "setpci not found for AER disable");
+            tracing::warn!(bdf = bridge_bdf, error = %e, "setpci AER disable failed/timed out");
         }
     }
 }
@@ -570,11 +604,9 @@ pub fn mask_bridge_aer(bdf: &str) -> Option<(String, u32)> {
     }
 
     let masked = current & !AER_ROOT_CMD_REPORT_MASK;
-    match std::process::Command::new("setpci")
-        .args(["-s", &bridge_bdf, &format!("{root_cmd_off:#x}.L={masked:08x}")])
-        .output()
-    {
-        Ok(out) if out.status.success() => {
+    let arg = format!("{root_cmd_off:#x}.L={masked:08x}");
+    match setpci_with_timeout(&["-s", &bridge_bdf, &arg], Duration::from_secs(5)) {
+        Ok(_) => {
             tracing::info!(
                 bdf,
                 bridge = %bridge_bdf,
@@ -583,12 +615,8 @@ pub fn mask_bridge_aer(bdf: &str) -> Option<(String, u32)> {
                 "AER MASKED on bridge — kernel error handler will not chase hung device"
             );
         }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            tracing::warn!(bdf, bridge = %bridge_bdf, %stderr, "setpci AER mask failed");
-        }
         Err(e) => {
-            tracing::warn!(bdf, bridge = %bridge_bdf, error = %e, "setpci not found for AER mask");
+            tracing::warn!(bdf, bridge = %bridge_bdf, error = %e, "setpci AER mask failed/timed out");
         }
     }
 
@@ -612,27 +640,17 @@ pub fn unmask_bridge_aer(bridge_bdf: &str, original_root_cmd: u32) {
     };
     let root_cmd_off = aer_base + AER_ROOT_CMD_OFFSET;
 
-    match std::process::Command::new("setpci")
-        .args([
-            "-s",
-            bridge_bdf,
-            &format!("{root_cmd_off:#x}.L={original_root_cmd:08x}"),
-        ])
-        .output()
-    {
-        Ok(out) if out.status.success() => {
+    let arg = format!("{root_cmd_off:#x}.L={original_root_cmd:08x}");
+    match setpci_with_timeout(&["-s", bridge_bdf, &arg], Duration::from_secs(5)) {
+        Ok(_) => {
             tracing::info!(
                 bridge = %bridge_bdf,
                 value = format_args!("{original_root_cmd:#010x}"),
                 "AER UNMASKED — bridge error reporting restored"
             );
         }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            tracing::warn!(bridge = %bridge_bdf, %stderr, "setpci AER unmask failed");
-        }
         Err(e) => {
-            tracing::warn!(bridge = %bridge_bdf, error = %e, "setpci not found for AER unmask");
+            tracing::warn!(bridge = %bridge_bdf, error = %e, "setpci AER unmask failed/timed out");
         }
     }
 }
@@ -640,72 +658,91 @@ pub fn unmask_bridge_aer(bridge_bdf: &str, original_root_cmd: u32) {
 // ─── Raw Secondary Bus Reset (bypasses kernel pci_save_state) ──────────────
 
 /// Trigger a PCIe Secondary Bus Reset (SBR) by directly toggling bit 6 of
-/// `PCI_BRIDGE_CONTROL` (config offset 0x3E) via sysfs config-space write.
+/// `PCI_BRIDGE_CONTROL` (config offset 0x3E) via direct sysfs config write.
 ///
-/// Unlike the kernel's `/sys/bus/pci/devices/{bridge}/reset` file — which
-/// calls `pci_save_state()` on all downstream devices before the reset
-/// (hanging if the device's link is stuck) — this writes directly to the
-/// bridge's config space which is always accessible via ECAM.
+/// Uses direct `read(2)`/`write(2)` on the bridge's sysfs `config` file
+/// instead of spawning `setpci`. This is critical in the fork-isolation
+/// timeout handler: if the ECAM path is sluggish (AMD IOHUB processing a
+/// PCIe error), spawning `setpci` with blocking `.output()` would hang
+/// ember indefinitely. Direct fd writes are faster and can be wrapped in
+/// a fork-isolated child of their own if needed.
 pub fn raw_bridge_sbr(bdf: &str) -> Result<(), SysfsError> {
     let bridge_bdf = find_parent_bridge(bdf).ok_or_else(|| SysfsError::BridgeNotFound {
         bdf: bdf.to_string(),
     })?;
 
-    const PCI_BRIDGE_CONTROL: &str = "3e";
+    raw_bridge_sbr_direct(bdf, &bridge_bdf)
+}
 
-    let read_bridge_ctrl = || -> Result<u16, SysfsError> {
-        let out = std::process::Command::new("setpci")
-            .args(["-s", &bridge_bdf, &format!("{PCI_BRIDGE_CONTROL}.W")])
-            .output()
-            .map_err(|e| SysfsError::Write {
-                path: bridge_bdf.clone(),
-                reason: format!("setpci read bridge ctrl: {e}"),
-            })?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        u16::from_str_radix(text.trim(), 16).map_err(|_| SysfsError::BridgeResetMissing {
-            bdf: bdf.to_string(),
-            bridge_bdf: bridge_bdf.clone(),
-        })
-    };
+/// Direct config-space SBR implementation using fd read/write.
+///
+/// Opens the bridge's sysfs `config` file and reads/writes PCI_BRIDGE_CONTROL
+/// at offset 0x3E. No process spawning, no blocking `.output()`.
+fn raw_bridge_sbr_direct(bdf: &str, bridge_bdf: &str) -> Result<(), SysfsError> {
+    use std::io::{Read, Seek, SeekFrom, Write};
 
-    let write_bridge_ctrl = |val: u16| -> Result<(), SysfsError> {
-        let out = std::process::Command::new("setpci")
-            .args([
-                "-s",
-                &bridge_bdf,
-                &format!("{PCI_BRIDGE_CONTROL}.W={val:04x}"),
-            ])
-            .output()
-            .map_err(|e| SysfsError::Write {
-                path: bridge_bdf.clone(),
-                reason: format!("setpci write bridge ctrl: {e}"),
-            })?;
-        if !out.status.success() {
-            return Err(SysfsError::BridgeResetMissing {
-                bdf: bdf.to_string(),
-                bridge_bdf: bridge_bdf.clone(),
-            });
-        }
-        Ok(())
-    };
+    const PCI_BRIDGE_CONTROL_OFFSET: u64 = 0x3E;
 
-    let ctrl = read_bridge_ctrl()?;
+    let config_path = linux_paths::sysfs_pci_device_file(bridge_bdf, "config");
+    let mut config = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&config_path)
+        .map_err(|e| SysfsError::Write {
+            path: config_path.clone(),
+            reason: format!("open bridge config for SBR: {e}"),
+        })?;
+
+    config
+        .seek(SeekFrom::Start(PCI_BRIDGE_CONTROL_OFFSET))
+        .map_err(|e| SysfsError::Write {
+            path: config_path.clone(),
+            reason: format!("seek to PCI_BRIDGE_CONTROL: {e}"),
+        })?;
+    let mut ctrl_bytes = [0u8; 2];
+    config.read_exact(&mut ctrl_bytes).map_err(|e| SysfsError::Write {
+        path: config_path.clone(),
+        reason: format!("read PCI_BRIDGE_CONTROL: {e}"),
+    })?;
+    let ctrl = u16::from_le_bytes(ctrl_bytes);
 
     tracing::info!(
         bdf,
         bridge = %bridge_bdf,
         ctrl = format_args!("{ctrl:#06x}"),
-        "raw SBR: asserting Secondary Bus Reset via PCI_BRIDGE_CONTROL"
+        "raw SBR: asserting Secondary Bus Reset via direct config write"
     );
 
     // Assert SBR (bit 6)
-    write_bridge_ctrl(ctrl | 0x0040)?;
+    config
+        .seek(SeekFrom::Start(PCI_BRIDGE_CONTROL_OFFSET))
+        .map_err(|e| SysfsError::Write {
+            path: config_path.clone(),
+            reason: format!("seek for SBR assert: {e}"),
+        })?;
+    config
+        .write_all(&(ctrl | 0x0040).to_le_bytes())
+        .map_err(|e| SysfsError::Write {
+            path: config_path.clone(),
+            reason: format!("write SBR assert: {e}"),
+        })?;
 
     // Hold reset for 100ms (PCI spec minimum is 1ms, extra margin for safety)
     std::thread::sleep(Duration::from_millis(100));
 
     // De-assert SBR
-    write_bridge_ctrl(ctrl & !0x0040)?;
+    config
+        .seek(SeekFrom::Start(PCI_BRIDGE_CONTROL_OFFSET))
+        .map_err(|e| SysfsError::Write {
+            path: config_path.clone(),
+            reason: format!("seek for SBR de-assert: {e}"),
+        })?;
+    config
+        .write_all(&(ctrl & !0x0040).to_le_bytes())
+        .map_err(|e| SysfsError::Write {
+            path: config_path.clone(),
+            reason: format!("write SBR de-assert: {e}"),
+        })?;
 
     // Wait for link re-training
     std::thread::sleep(Duration::from_millis(500));
@@ -716,6 +753,118 @@ pub fn raw_bridge_sbr(bdf: &str) -> Result<(), SysfsError> {
     tracing::info!(bdf, bridge = %bridge_bdf, "raw SBR complete — link should be re-trained");
     Ok(())
 }
+
+/// Trigger SBR via legacy PCI I/O ports (CF8/CFC).
+///
+/// This bypasses ECAM (memory-mapped config space) entirely. On AMD Zen,
+/// ECAM accesses go through the same PCIe root complex as data TLPs. When
+/// a downstream device stalls PCIe flow-control credits, ECAM accesses to
+/// the bridge also stall — making the normal sysfs/ECAM SBR path useless.
+///
+/// Legacy I/O port config accesses (CF8/CFC) are routed through the CPU's
+/// I/O bus → data fabric → NBIO config aperture, which is a separate path
+/// from the PCIe transaction layer. This works even when the root complex's
+/// posted-write credit pool is completely exhausted.
+///
+/// Requires CAP_SYS_RAWIO (or root) for `ioperm(2)`.
+///
+/// `bridge_bdf` must be on bus 0 (legacy PCI config only covers bus 0
+/// directly; buses > 0 require Type 1 config cycles which still go through
+/// the root complex). For devices behind a root port on bus 0, this works.
+#[allow(unsafe_code)]
+pub fn io_port_sbr(bridge_bdf: &str) -> Result<(), SysfsError> {
+    let parts: Vec<&str> = bridge_bdf.split(':').collect();
+    if parts.len() < 3 {
+        return Err(SysfsError::BridgeNotFound { bdf: bridge_bdf.to_string() });
+    }
+    let domain_bus: Vec<&str> = if parts.len() == 3 {
+        // "0000:00:01.3" → domain="0000", bus="00", devfn="01.3"
+        vec![parts[0], parts[1], parts[2]]
+    } else {
+        return Err(SysfsError::BridgeNotFound { bdf: bridge_bdf.to_string() });
+    };
+
+    let bus = u8::from_str_radix(domain_bus[1], 16).map_err(|_| SysfsError::BridgeNotFound {
+        bdf: bridge_bdf.to_string(),
+    })?;
+    if bus != 0 {
+        return Err(SysfsError::BridgeResetMissing {
+            bdf: bridge_bdf.to_string(),
+            bridge_bdf: format!("bus {bus} != 0, I/O port SBR only works for bus 0"),
+        });
+    }
+
+    let devfn_parts: Vec<&str> = domain_bus[2].split('.').collect();
+    if devfn_parts.len() != 2 {
+        return Err(SysfsError::BridgeNotFound { bdf: bridge_bdf.to_string() });
+    }
+    let dev = u8::from_str_radix(devfn_parts[0], 16).map_err(|_| SysfsError::BridgeNotFound {
+        bdf: bridge_bdf.to_string(),
+    })?;
+    let func = u8::from_str_radix(devfn_parts[1], 16).map_err(|_| SysfsError::BridgeNotFound {
+        bdf: bridge_bdf.to_string(),
+    })?;
+
+    // CONFIG_ADDRESS: bit31=enable | bus<<16 | dev<<11 | func<<8 | offset
+    // Bridge Control is at offset 0x3E. Dword-aligned = 0x3C.
+    let config_addr: u32 = 0x8000_0000
+        | (u32::from(dev) << 11)
+        | (u32::from(func) << 8)
+        | 0x3C;
+
+    // SAFETY: ioperm grants access to I/O ports 0xCF8-0xCFF for this process.
+    // Requires CAP_SYS_RAWIO. We release permission at the end.
+    if unsafe { libc::ioperm(0xCF8, 8, 1) } != 0 {
+        return Err(SysfsError::BridgeResetMissing {
+            bdf: bridge_bdf.to_string(),
+            bridge_bdf: "ioperm(CF8) failed — need CAP_SYS_RAWIO".to_string(),
+        });
+    }
+
+    // Read current dword at offset 0x3C (contains Bridge Control at bytes 2-3)
+    io_outl(0xCF8, config_addr);
+    let dword = io_inl(0xCFC);
+
+    // Assert SBR (bit 6 of Bridge Control = bit 22 of the dword)
+    io_outl(0xCF8, config_addr);
+    io_outl(0xCFC, dword | (1 << 22));
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // De-assert SBR
+    io_outl(0xCF8, config_addr);
+    io_outl(0xCFC, dword & !(1 << 22));
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    unsafe { libc::ioperm(0xCF8, 8, 0); }
+
+    Ok(())
+}
+
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+fn io_outl(port: u16, val: u32) {
+    unsafe {
+        std::arch::asm!("out dx, eax", in("dx") port, in("eax") val, options(nomem, nostack));
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+fn io_inl(port: u16) -> u32 {
+    let val: u32;
+    unsafe {
+        std::arch::asm!("in eax, dx", out("eax") val, in("dx") port, options(nomem, nostack));
+    }
+    val
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn io_outl(_port: u16, _val: u32) {}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn io_inl(_port: u16) -> u32 { 0xFFFF_FFFF }
 
 /// Raise the kernel NMI watchdog threshold to prevent hard lockups during
 /// PCIe error recovery.
@@ -764,19 +913,46 @@ pub fn read_pci_id(bdf: &str, field: &str) -> u16 {
 }
 
 /// Read the current PCIe power state (D0, D3hot, D3cold, unknown).
+/// Read PCI power state with a 2-second timeout.
+///
+/// On a wedged GPU the sysfs read can D-state the calling thread
+/// indefinitely. The timeout-guarded variant spawns a thread and
+/// abandons it if it doesn't return in time.
 pub fn read_power_state(bdf: &str) -> Option<String> {
     let path = linux_paths::sysfs_pci_device_file(bdf, "power_state");
-    std::fs::read_to_string(&path)
-        .ok()
-        .map(|s| s.trim().to_string())
+    guarded_sysfs_read(&path, Duration::from_secs(2))
 }
 
 /// Returns `true` when the device is in D3cold (powered off by the platform).
 ///
 /// D3cold devices must NOT have VFIO operations attempted against them.
 /// Ember checks this before reacquire and swap to prevent cascade failures.
+/// Uses a timeout-guarded sysfs read to prevent D-state stalls.
 pub fn is_d3cold(bdf: &str) -> bool {
     read_power_state(bdf).as_deref() == Some("D3cold")
+}
+
+/// Timeout-guarded sysfs read. Spawns a thread for the blocking I/O and
+/// abandons it if it doesn't return within `timeout`. This prevents a
+/// D-stated sysfs node from stalling the calling thread.
+fn guarded_sysfs_read(path: &str, timeout: Duration) -> Option<String> {
+    let path_owned = path.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = std::thread::Builder::new()
+        .name("sysfs-read-guard".into())
+        .spawn(move || {
+            let result = std::fs::read_to_string(&path_owned)
+                .ok()
+                .map(|s| s.trim().to_string());
+            let _ = tx.send(result);
+        });
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(path, "guarded sysfs read TIMED OUT — sysfs may be D-stated");
+            None
+        }
+    }
 }
 
 /// Pin power on all upstream PCI bridges to prevent them from

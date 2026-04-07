@@ -24,7 +24,7 @@ use crate::hold::HeldDevice;
 
 use super::super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
 use super::{
-    base64_decode, base64_encode, le_bytes_to_u32, map_bar0_if_needed, preflight_check,
+    base64_decode, base64_encode, le_bytes_to_u32, map_bar0_if_needed, preflight_gate,
     require_bdf, require_held_mut,
 };
 
@@ -44,7 +44,6 @@ fn pt(msg: &str) {
             .unwrap_or_default()
             .as_millis();
         let _ = writeln!(f, "[{ts}] {msg}");
-        let _ = f.sync_all();
     }
 }
 
@@ -111,6 +110,49 @@ fn pramin_write_child(
         pt(&format!("LIVENESS: FAILED — {e}"));
     } else {
         pt("LIVENESS: PASSED — VRAM alive");
+    }
+
+    // PRAMIN write-then-readback canary: verify the PRAMIN write path
+    // is functional BEFORE committing to bulk writes. A single read can
+    // succeed (cached or lucky timing) while bulk writes stall because the
+    // GPU's internal memory controller or PRAMIN engine buffer is stuck.
+    //
+    // The canary writes a known pattern to the target VRAM address via
+    // PRAMIN, reads it back, and verifies the round-trip. This exercises
+    // the full BAR0 → PRAMIN engine → VRAM → readback path.
+    if err.is_none() {
+        pt("CANARY: PRI drain before write test");
+        let _ = bar0.write_u32(0x12004C, 0x02);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        pt("CANARY: setting BAR0_WINDOW for target VRAM");
+        let canary_window = (vram_addr >> 16) as u32;
+        let _ = bar0.write_u32(0x1700, canary_window);
+        let pramin_base = 0x0070_0000_usize + (vram_addr as usize & 0xFFFF);
+
+        let original = bar0.read_u32(pramin_base).unwrap_or(0xDEAD_DEAD);
+        pt(&format!("CANARY: original value at PRAMIN={original:#010x}"));
+
+        let canary_val = 0xA5A5_BEEF_u32;
+        pt(&format!("CANARY: writing {canary_val:#010x} to PRAMIN"));
+        let _ = bar0.write_u32(pramin_base, canary_val);
+
+        let readback = bar0.read_u32(pramin_base).unwrap_or(0xDEAD_DEAD);
+        pt(&format!("CANARY: readback={readback:#010x} expected={canary_val:#010x}"));
+
+        // Restore original value
+        let _ = bar0.write_u32(pramin_base, original);
+        let _ = bar0.write_u32(0x1700, saved_window);
+
+        if readback != canary_val {
+            err = Some(format!(
+                "PRAMIN canary FAILED: wrote {canary_val:#010x}, read back {readback:#010x} — \
+                 PRAMIN write path is stalled or broken. GPU needs SBR + warm cycle."
+            ));
+            pt(&format!("CANARY: FAILED — {}", err.as_deref().unwrap_or("")));
+        } else {
+            pt("CANARY: PASSED — PRAMIN write path verified");
+        }
     }
 
     for (chunk_idx, chunk) in data.chunks(4096).enumerate() {
@@ -235,7 +277,7 @@ pub(crate) fn pramin_write(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
@@ -245,6 +287,32 @@ pub(crate) fn pramin_write(
     let bar0_ptr = bar0.base_ptr() as usize;
     let bar0_size = bar0.size();
 
+    // ── Warm cycle gate ──
+    // After any experiment that runs DMA (SEC2 ACR boot, etc.), the GPU's
+    // internal PRAMIN bulk write path becomes degraded. Sustained writes
+    // (256+ words) stall, exhausting PCIe flow-control credits. On AMD Zen,
+    // this cascades through the NBIO → data fabric and freezes ALL CPU cores
+    // (not just the writing core). No software recovery is possible.
+    //
+    // The ONLY proven restoration is a full GPU warm cycle (nouveau bind →
+    // unbind). We block PRAMIN writes after DMA experiments rather than
+    // attempting a canary write (which triggers the same unrecoverable freeze).
+    if dev.needs_warm_cycle {
+        tracing::warn!(
+            bdf,
+            vram_addr = format_args!("{vram_addr:#x}"),
+            data_len = data.len(),
+            "PRAMIN write BLOCKED — GPU needs warm cycle after previous DMA experiment"
+        );
+        drop(map);
+        return write_jsonrpc_error(
+            stream, id, -32017,
+            &format!("{bdf_owned}: PRAMIN write blocked. GPU bulk write path is degraded \
+                after previous DMA experiment. Run a GPU warm cycle (nouveau bind/unbind) \
+                to restore VRAM write capability, then retry."),
+        ).map_err(EmberIpcError::from);
+    }
+
     tracing::info!(
         bdf,
         vram_addr = format_args!("{vram_addr:#x}"),
@@ -252,7 +320,7 @@ pub(crate) fn pramin_write(
         "pramin_write: launching fork-isolated child"
     );
 
-    let fork_result = crate::isolation::fork_isolated_mmio(
+    let fork_result = crate::isolation::fork_isolated_mmio_bus_master_on(
         &bdf_owned,
         crate::isolation::OperationTier::BulkVram.timeout(),
         |pipe_fd| {
@@ -404,6 +472,19 @@ fn pramin_read_child(
         ));
     }
 
+    if err.is_none() {
+        let _ = bar0.write_u32(0x12004C, 0x02);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let boot0_check = bar0.read_u32(0x000).unwrap_or(0xDEAD_DEAD);
+        if boot0_check == 0xDEAD_DEAD || boot0_check == 0xFFFF_FFFF
+            || boot0_check & 0xFFF0_0000 == 0xBAD0_0000
+        {
+            err = Some(format!(
+                "PRI ring dead after drain: BOOT0={boot0_check:#010x}"
+            ));
+        }
+    }
+
     for (chunk_idx, _) in (0..length).step_by(4096).enumerate() {
         if err.is_some() {
             break;
@@ -480,7 +561,7 @@ pub(crate) fn pramin_read(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
@@ -497,7 +578,7 @@ pub(crate) fn pramin_read(
         "pramin_read: launching fork-isolated child"
     );
 
-    let fork_result = crate::isolation::fork_isolated_mmio(
+    let fork_result = crate::isolation::fork_isolated_mmio_bus_master_on(
         &bdf_owned,
         crate::isolation::OperationTier::BulkVram.timeout(),
         |pipe_fd| {

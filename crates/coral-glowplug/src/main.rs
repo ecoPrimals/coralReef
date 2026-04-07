@@ -328,12 +328,17 @@ async fn main() {
     // monitors ember's heartbeat and restarts it if it dies or becomes
     // unresponsive. Without this, a dead ember leaves GPUs orphaned.
     let ember_socket = coral_ember::ember_socket_path();
+    let managed_bdfs: Vec<String> = config.device.iter()
+        .filter(|d| !d.is_protected())
+        .map(|d| d.bdf.clone())
+        .collect();
     let lifecycle_config = coral_glowplug::ember_lifecycle::EmberLifecycleConfig {
         heartbeat_interval: std::time::Duration::from_secs(3),
         missed_heartbeat_threshold: 3,
         kill_grace_period: std::time::Duration::from_secs(5),
         start_timeout: std::time::Duration::from_secs(30),
         ember_socket: ember_socket.clone(),
+        managed_bdfs,
     };
     let mut ember_lifecycle =
         coral_glowplug::ember_lifecycle::EmberLifecycle::new(lifecycle_config);
@@ -363,10 +368,10 @@ async fn main() {
                         coral_glowplug::ember_lifecycle::EmberState::Alive => {}
                         coral_glowplug::ember_lifecycle::EmberState::Down => {
                             tracing::warn!(
-                                "ember lifecycle: DOWN — attempting restart"
+                                "ember lifecycle: DOWN — attempting resurrection"
                             );
-                            if let Err(e) = ember_lifecycle.spawn_ember() {
-                                tracing::error!(error = %e, "ember restart failed");
+                            if let Err(e) = ember_lifecycle.resurrect_ember() {
+                                tracing::error!(error = %e, "ember resurrection failed");
                             }
                         }
                         other => {

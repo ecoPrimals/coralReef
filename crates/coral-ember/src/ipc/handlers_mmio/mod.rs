@@ -13,6 +13,7 @@
 mod device_health;
 #[allow(unsafe_code)]
 mod falcon;
+#[allow(unsafe_code)]
 mod low_level;
 mod pramin;
 
@@ -43,15 +44,13 @@ pub(super) fn map_bar0_if_needed(
     Ok(())
 }
 
-/// Pre-flight health check: reads BOOT0 (offset 0x0) and verifies the GPU
-/// is responsive. Returns `Ok(boot0_value)` on success, `Err(msg)` if the
-/// device is faulted or the circuit breaker is open.
+/// Pre-flight gate: pure in-memory checks with ZERO device I/O.
 ///
-/// On a healthy read, resets the fault counter to 0. On a faulted read
-/// (0xFFFF_FFFF or 0xDEAD_DEAD patterns), increments the counter and
-/// trips the circuit breaker after [`crate::hold::MMIO_CIRCUIT_BREAKER_THRESHOLD`]
-/// consecutive failures.
-pub(super) fn preflight_check(dev: &mut HeldDevice) -> Result<u32, String> {
+/// Verifies health state, circuit breaker, and BAR0 availability before
+/// any MMIO operation. The actual PRI ACK + BOOT0 read happens inside the
+/// fork-isolated child (combined with the operation itself) so that a
+/// stalled GPU register read cannot freeze the main ember thread.
+pub(super) fn preflight_gate(dev: &HeldDevice) -> Result<(), String> {
     if !dev.health.allows_mmio() {
         return Err(format!(
             "{}: device health is {:?} — refusing MMIO until recovery. \
@@ -68,19 +67,17 @@ pub(super) fn preflight_check(dev: &mut HeldDevice) -> Result<u32, String> {
         ));
     }
 
-    let bar0 = match dev.bar0.as_ref() {
-        Some(b) => b,
-        None => return Err(format!("{}: BAR0 not mapped", dev.bdf)),
-    };
+    if dev.bar0.is_none() {
+        return Err(format!("{}: BAR0 not mapped", dev.bdf));
+    }
 
-    // Drain any pending PRI ring faults before reading. Prior MMIO reads to
-    // powered-down engines (FECS, GPCCS, etc.) generate PRI route-error
-    // responses that queue in the PRI ring hub. If not drained, subsequent
-    // reads can stall indefinitely as the ring processes backed-up faults.
-    let _ = bar0.write_u32(0x0012_004C, 0x2); // PRIV_RING_COMMAND = ACK
+    Ok(())
+}
 
-    let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
-
+/// Update fault counters based on a BOOT0 value reported by a fork child.
+///
+/// Returns `Err` with a message if BOOT0 indicates the GPU is non-responsive.
+pub(super) fn update_fault_counter(dev: &mut HeldDevice, boot0: u32) -> Result<(), String> {
     if boot0 == 0xFFFF_FFFF || boot0 == 0xDEAD_DEAD || boot0 == 0 {
         dev.mmio_fault_count += 1;
         tracing::warn!(
@@ -114,7 +111,7 @@ pub(super) fn preflight_check(dev: &mut HeldDevice) -> Result<u32, String> {
         );
     }
     dev.mmio_fault_count = 0;
-    Ok(boot0)
+    Ok(())
 }
 
 /// `ember.mmio.circuit_breaker` — query or reset the MMIO circuit breaker.

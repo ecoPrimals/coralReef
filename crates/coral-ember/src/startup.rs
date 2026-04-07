@@ -139,7 +139,26 @@ pub fn apply_hold_actions(
             Ok(device) => {
             match device.map_bar(0) {
                 Ok(bar0) => {
-                    coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                    let ptr = bar0.base_ptr() as usize;
+                    let sz = bar0.size();
+                    let bdf_q = bdf.clone();
+                    let qr = crate::isolation::fork_isolated_mmio(
+                        &bdf_q,
+                        std::time::Duration::from_secs(2),
+                        |_pipe_fd| {
+                            #[allow(unsafe_code)]
+                            let b = unsafe {
+                                coral_driver::vfio::device::MappedBar::from_raw(
+                                    ptr as *mut u8, sz,
+                                )
+                            };
+                            coral_driver::vfio::device::dma_safety::post_swap_quiesce(&b);
+                            std::mem::forget(b);
+                        },
+                    );
+                    if matches!(qr, crate::isolation::ForkResult::Timeout) {
+                        tracing::error!(bdf = %bdf, "startup: post_swap_quiesce TIMED OUT");
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(bdf = %bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
@@ -164,6 +183,7 @@ pub fn apply_hold_actions(
                         ring_meta: hold::RingMeta::default(),
                         req_eventfd,
                         experiment_dirty: false,
+                        needs_warm_cycle: false,
                         dma_prepare_state: None,
                         mmio_fault_count: 0,
                     },

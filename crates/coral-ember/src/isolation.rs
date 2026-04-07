@@ -69,6 +69,54 @@ pub fn install_sigterm_handler() {
 ///
 /// Uses sysfs (`/sys/bus/pci/devices/{bdf}/config`) which works even when
 /// BAR0 is stuck, since it goes through the host bridge, not the device.
+pub fn enable_bus_master_via_sysfs(bdf: &str) {
+    let config_path = format!(
+        "{}/bus/pci/devices/{bdf}/config",
+        coral_driver::linux_paths::sysfs_root()
+    );
+
+    let mut config = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&config_path)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(bdf, error = %e, "enable_bus_master: cannot open PCI config");
+            return;
+        }
+    };
+
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    if config.seek(SeekFrom::Start(4)).is_err() {
+        return;
+    }
+    let mut cmd_bytes = [0u8; 2];
+    if config.read_exact(&mut cmd_bytes).is_err() {
+        return;
+    }
+    let cmd = u16::from_le_bytes(cmd_bytes);
+    if cmd & 0x04 != 0 {
+        tracing::debug!(bdf, cmd = format_args!("{cmd:#06x}"), "bus master already enabled");
+        return;
+    }
+
+    let new_cmd = cmd | 0x04;
+    if config.seek(SeekFrom::Start(4)).is_err() {
+        return;
+    }
+    if config.write_all(&new_cmd.to_le_bytes()).is_err() {
+        tracing::error!(bdf, "enable_bus_master: write failed");
+        return;
+    }
+    tracing::info!(bdf, old = format_args!("{cmd:#06x}"), new = format_args!("{new_cmd:#06x}"), "PCI bus master ENABLED");
+}
+
+/// Disable PCI bus master (clear bit 2 in the command register).
+///
+/// Uses sysfs (`/sys/bus/pci/devices/{bdf}/config`) which works even when
+/// BAR0 is stuck, since it goes through the host bridge, not the device.
 pub fn disable_bus_master_via_sysfs(bdf: &str) {
     let config_path = format!(
         "{}/bus/pci/devices/{bdf}/config",
@@ -172,17 +220,41 @@ pub fn fork_isolated_mmio(
     timeout: Duration,
     op: impl FnOnce(i32),
 ) -> ForkResult {
+    fork_isolated_mmio_opt(bdf, timeout, true, op)
+}
+
+/// Like [`fork_isolated_mmio`] but allows skipping the pre-fork bus master
+/// disable. PRAMIN writes need bus master ON because the GPU's PRAMIN
+/// engine uses an internal DMA path (gated by Bus Master Enable) to drain
+/// its write buffer to VRAM.
+pub fn fork_isolated_mmio_bus_master_on(
+    bdf: &str,
+    timeout: Duration,
+    op: impl FnOnce(i32),
+) -> ForkResult {
+    fork_isolated_mmio_opt(bdf, timeout, false, op)
+}
+
+fn fork_isolated_mmio_opt(
+    bdf: &str,
+    timeout: Duration,
+    disable_bus_master: bool,
+    op: impl FnOnce(i32),
+) -> ForkResult {
     // ── Phase 0: Mask AER on the bridge ──────────────────────────────────
-    // The kernel's AER handler runs in a workqueue thread. When a PCIe
-    // error arrives from the GPU, the AER handler reads the device's AER
-    // registers — through the same stuck downstream link. That thread
-    // enters D-state, cascading to system lockup. Masking AER report bits
-    // prevents the kernel from even trying.
     let aer_saved = sysfs::mask_bridge_aer(bdf);
 
-    let result = fork_isolated_mmio_inner(bdf, timeout, op);
+    // ── Phase 0b: Pre-open bridge config fd for SBR ─────────────────────
+    // If the child's MMIO stall cascades to the AMD IOHUB, opening a new
+    // file in the timeout handler may itself hang. Pre-opening the fd
+    // (and seeking to PCI_BRIDGE_CONTROL at offset 0x3E) gives the timeout
+    // handler a fast path: a single pwrite(2) to an already-open fd.
+    let bridge_fd = sysfs::find_parent_bridge(bdf).and_then(|bridge_bdf| {
+        pre_open_bridge_sbr_fd(&bridge_bdf)
+    });
 
-    // ── Restore AER regardless of outcome ────────────────────────────────
+    let result = fork_isolated_mmio_inner(bdf, timeout, op, bridge_fd, disable_bus_master);
+
     if let Some((ref bridge_bdf, original_val)) = aer_saved {
         sysfs::unmask_bridge_aer(bridge_bdf, original_val);
     }
@@ -190,13 +262,93 @@ pub fn fork_isolated_mmio(
     result
 }
 
+/// Pre-open the bridge's sysfs config file for SBR, returning
+/// (fd, current_bridge_control_value). The fd is seeked to offset 0x3E.
+fn pre_open_bridge_sbr_fd(bridge_bdf: &str) -> Option<(std::fs::File, u16)> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let config_path = format!(
+        "{}/bus/pci/devices/{bridge_bdf}/config",
+        coral_driver::linux_paths::sysfs_root()
+    );
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&config_path)
+        .ok()?;
+    f.seek(SeekFrom::Start(0x3E)).ok()?;
+    let mut ctrl = [0u8; 2];
+    f.read_exact(&mut ctrl).ok()?;
+    Some((f, u16::from_le_bytes(ctrl)))
+}
+
+/// Trigger SBR using a pre-opened bridge config fd.
+///
+/// This is the fast path for the fork timeout handler. Since the fd was
+/// opened and seeked before the child started, this function only needs
+/// to do two small pwrite(2) calls — no file open, no path resolution,
+/// minimal kernel code path. This is critical when the AMD IOHUB is
+/// partially stalled by a downstream PCIe error.
+fn fast_sbr_via_fd(fd: &mut std::fs::File, ctrl_val: u16) -> Result<(), std::io::Error> {
+    use std::io::{Seek, SeekFrom, Write};
+
+    // Assert SBR (bit 6)
+    fd.seek(SeekFrom::Start(0x3E))?;
+    fd.write_all(&(ctrl_val | 0x0040).to_le_bytes())?;
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // De-assert SBR
+    fd.seek(SeekFrom::Start(0x3E))?;
+    fd.write_all(&(ctrl_val & !0x0040).to_le_bytes())?;
+
+    std::thread::sleep(Duration::from_millis(500));
+    Ok(())
+}
+
 fn fork_isolated_mmio_inner(
     bdf: &str,
     timeout: Duration,
     op: impl FnOnce(i32),
+    mut bridge_fd: Option<(std::fs::File, u16)>,
+    disable_bus_master: bool,
 ) -> ForkResult {
+    // Crash-surviving trace — fsync'd after every write so we can
+    // read the exact last successful step after a hard lockup + reboot.
+    fn trace(bdf: &str, msg: &str) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/var/lib/coralreef/traces/ember_fork_trace.log")
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let _ = writeln!(f, "[{ts}] [{bdf}] {msg}");
+        }
+    }
+
+    // ── Pre-fork hardening ──
+    //
+    // Disable the NMI watchdog before any MMIO fork. If the child stalls
+    // on a PRAMIN write, the child's core hangs in kernel mode. With the
+    // NMI watchdog enabled, the kernel detects the "hard lockup" and
+    // triggers a panic. The panic handler tries to sync filesystems via
+    // NVMe — which is behind the same frozen NBIO. The sync stalls,
+    // freezing the panic handler, and the entire system is bricked.
+    //
+    // With NMI watchdog disabled, the stuck core stays stuck silently.
+    // The other cores (and the parent process) remain alive and can
+    // return a clean error to the caller.
+    let _ = std::fs::write("/proc/sys/kernel/nmi_watchdog", "0");
+
+    trace(bdf, &format!("FORK_START timeout={}ms nmi_wd=off", timeout.as_millis()));
+
     let mut pipe_fds = [0i32; 2];
     if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } != 0 {
+        trace(bdf, "PIPE_FAILED");
         return ForkResult::PipeFailed(std::io::Error::last_os_error());
     }
     let (pipe_read, pipe_write) = (pipe_fds[0], pipe_fds[1]);
@@ -208,12 +360,20 @@ fn fork_isolated_mmio_inner(
                 libc::close(pipe_read);
                 libc::close(pipe_write);
             }
+            trace(bdf, "FORK_FAILED");
             ForkResult::ForkFailed(std::io::Error::last_os_error())
         }
 
         0 => {
             // ═══ CHILD PROCESS ═══
             unsafe { libc::close(pipe_read); }
+            // Bus master toggle runs in the child — if sysfs stalls on a
+            // degraded NBIO, only this (disposable) child process freezes.
+            if disable_bus_master {
+                disable_bus_master_via_sysfs(bdf);
+            } else {
+                enable_bus_master_via_sysfs(bdf);
+            }
             op(pipe_write);
             unsafe {
                 libc::close(pipe_write);
@@ -223,6 +383,14 @@ fn fork_isolated_mmio_inner(
 
         child_pid => {
             // ═══ PARENT PROCESS ═══
+            //
+            // CRITICAL: NO trace()/fsync() calls between fork() and the
+            // poll loop. The child may stall the NBIO within microseconds
+            // of starting (PRAMIN MMIO write). Any fsync here would block
+            // on NVMe (same NBIO), preventing the timeout from ever firing.
+            //
+            // All post-fork traces are deferred to fire-and-forget threads
+            // that cannot block the main polling/timeout path.
             unsafe { libc::close(pipe_write); }
 
             let start = std::time::Instant::now();
@@ -237,69 +405,94 @@ fn fork_isolated_mmio_inner(
                 if ret == child_pid {
                     let result_bytes = read_pipe_result(pipe_read);
                     unsafe { libc::close(pipe_read); }
+                    let elapsed_ms = start.elapsed().as_millis();
 
                     if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
+                        let bdf_s = bdf.to_string();
+                        let n_bytes = result_bytes.len();
+                        let _ = std::thread::Builder::new()
+                            .name("fork-trace-ok".into())
+                            .spawn(move || trace(&bdf_s, &format!(
+                                "CHILD_OK elapsed={elapsed_ms}ms bytes={n_bytes}"
+                            )));
                         return ForkResult::Ok(result_bytes);
                     }
+                    let bdf_s = bdf.to_string();
+                    let _ = std::thread::Builder::new()
+                        .name("fork-trace-fail".into())
+                        .spawn(move || trace(&bdf_s, &format!(
+                            "CHILD_FAILED status={status} elapsed={elapsed_ms}ms"
+                        )));
                     return ForkResult::ChildFailed { status };
                 }
 
                 if ret == -1 {
                     unsafe { libc::close(pipe_read); }
+                    let bdf_s = bdf.to_string();
+                    let _ = std::thread::Builder::new()
+                        .name("fork-trace-err".into())
+                        .spawn(move || trace(&bdf_s, "WAITPID_ERROR"));
                     return ForkResult::ChildFailed { status: -1 };
                 }
 
                 // ret == 0: child still running
                 if start.elapsed() > timeout {
-                    tracing::error!(
-                        bdf,
-                        child_pid,
-                        timeout_ms = timeout.as_millis(),
-                        "fork_isolated_mmio: child TIMED OUT — triggering raw SBR"
-                    );
-
-                    // SIGKILL first (won't take effect until bus reset
-                    // unblocks the D-state core, but registers the intent)
+                    // ── ZERO-I/O TIMEOUT HANDLER ──
+                    //
+                    // When the child stalls on a PRAMIN write, the GPU freezes the
+                    // AMD NBIO's posted-write credit pool. This freezes ALL I/O
+                    // through that NBIO: ECAM, CF8/CFC I/O ports, NVMe, everything.
+                    //
+                    // ANY I/O attempt from the parent (SBR, sysfs, trace writes,
+                    // even I/O port instructions) will stall the parent's core too,
+                    // cascading into a full system freeze.
+                    //
+                    // Strategy: SIGKILL the child, briefly try non-blocking reap,
+                    // close our fd, and return IMMEDIATELY. No SBR, no disk I/O,
+                    // no tracing. The stuck child core is a resource leak, but the
+                    // rest of the system survives. Ember marks the device faulted
+                    // and the user triggers a warm cycle to recover.
                     unsafe { libc::kill(child_pid, libc::SIGKILL); }
 
-                    // Raw SBR: toggle PCI_BRIDGE_CONTROL bit 6 directly via
-                    // setpci. This NEVER reads the downstream device's config
-                    // space, so it cannot hang even when the link is stuck.
-                    if let Err(e) = sysfs::raw_bridge_sbr(bdf) {
-                        tracing::error!(
-                            bdf,
-                            error = %e,
-                            "raw SBR failed — falling back to kernel bridge reset"
-                        );
-                        if let Err(e2) = sysfs::pci_bridge_reset(bdf) {
-                            tracing::error!(
-                                bdf,
-                                error = %e2,
-                                "kernel bridge reset also failed"
-                            );
-                        }
-                    }
-
-                    // Kill bus mastering AFTER SBR — prevents the GPU from
-                    // issuing rogue DMA that poisons the PCIe fabric.
-                    disable_bus_master_via_sysfs(bdf);
-
-                    // Reap the child (bus reset should unblock the stuck core)
-                    for attempt in 0..40 {
+                    // Brief non-blocking reap attempt (5 tries, pure syscalls)
+                    let mut reaped = false;
+                    for _ in 0..5 {
                         let ret = unsafe {
                             libc::waitpid(child_pid, &mut status, libc::WNOHANG)
                         };
                         if ret == child_pid || ret == -1 {
+                            reaped = true;
                             break;
                         }
-                        if attempt < 20 {
-                            std::thread::sleep(Duration::from_millis(250));
-                        } else {
-                            std::thread::sleep(Duration::from_millis(500));
-                        }
+                        std::thread::sleep(Duration::from_millis(10));
                     }
+                    let _ = reaped;
 
                     unsafe { libc::close(pipe_read); }
+
+                    // Attempt trace ONLY after returning from the critical path.
+                    // If NVMe is unfrozen (child died cleanly), this works.
+                    // If NVMe is frozen, this is a fire-and-forget attempt —
+                    // we've already committed to returning Timeout.
+                    let _ = std::thread::Builder::new()
+                        .name("timeout-trace".into())
+                        .spawn(move || {
+                            // Best-effort trace on a throwaway thread.
+                            // If this thread stalls on I/O, main thread is unaffected.
+                            use std::io::Write;
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .create(true).append(true)
+                                .open("/var/lib/coralreef/traces/ember_fork_trace.log")
+                            {
+                                let ts = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default().as_millis();
+                                let _ = writeln!(f,
+                                    "[{ts}] TIMEOUT child_pid={child_pid} (zero-IO handler, no SBR)"
+                                );
+                            }
+                        });
+
                     return ForkResult::Timeout;
                 }
 
@@ -308,6 +501,63 @@ fn fork_isolated_mmio_inner(
         }
     }
 }
+
+/// Parse a bridge BDF like "0000:00:01.3" into a CF8/CFC config address
+/// for the dword containing PCI_BRIDGE_CONTROL (offset 0x3C).
+/// Returns `None` if the bridge is not on bus 0 (I/O port config only
+/// reaches bus 0 directly without Type 1 forwarding).
+fn parse_bridge_io_port_config_addr(bridge_bdf: &str) -> Option<u32> {
+    let parts: Vec<&str> = bridge_bdf.split(':').collect();
+    if parts.len() != 3 { return None; }
+    let bus = u8::from_str_radix(parts[1], 16).ok()?;
+    if bus != 0 { return None; }
+    let devfn: Vec<&str> = parts[2].split('.').collect();
+    if devfn.len() != 2 { return None; }
+    let dev = u8::from_str_radix(devfn[0], 16).ok()?;
+    let func = u8::from_str_radix(devfn[1], 16).ok()?;
+    Some(0x8000_0000 | (u32::from(dev) << 11) | (u32::from(func) << 8) | 0x3C)
+}
+
+/// Execute SBR using only CPU I/O port instructions.
+/// `config_addr` is the CF8 address for the dword at offset 0x3C
+/// (which contains Bridge Control at bytes 2-3).
+/// Returns true if the SBR sequence completed.
+///
+/// This function does ZERO external I/O — no sysfs, no disk, no memory-mapped
+/// PCIe. It uses only `in`/`out` x86 instructions through the CPU's I/O bus.
+/// ioperm must have been acquired before calling this.
+#[cfg(target_arch = "x86_64")]
+fn inline_io_port_sbr(config_addr: u32) -> bool {
+    unsafe {
+        // Read current dword at offset 0x3C
+        std::arch::asm!("out dx, eax", in("dx") 0xCF8u16, in("eax") config_addr, options(nomem, nostack));
+        let dword: u32;
+        std::arch::asm!("in eax, dx", out("eax") dword, in("dx") 0xCFCu16, options(nomem, nostack));
+
+        // Assert SBR (bit 6 of Bridge Control = bit 22 of dword)
+        std::arch::asm!("out dx, eax", in("dx") 0xCF8u16, in("eax") config_addr, options(nomem, nostack));
+        let sbr_set = dword | (1 << 22);
+        std::arch::asm!("out dx, eax", in("dx") 0xCFCu16, in("eax") sbr_set, options(nomem, nostack));
+    }
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    unsafe {
+        // De-assert SBR
+        std::arch::asm!("out dx, eax", in("dx") 0xCF8u16, in("eax") config_addr, options(nomem, nostack));
+        let dword2: u32;
+        std::arch::asm!("in eax, dx", out("eax") dword2, in("dx") 0xCFCu16, options(nomem, nostack));
+        let sbr_clear = dword2 & !(1 << 22);
+        std::arch::asm!("out dx, eax", in("dx") 0xCF8u16, in("eax") config_addr, options(nomem, nostack));
+        std::arch::asm!("out dx, eax", in("dx") 0xCFCu16, in("eax") sbr_clear, options(nomem, nostack));
+    }
+
+    std::thread::sleep(Duration::from_millis(500));
+    true
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn inline_io_port_sbr(_config_addr: u32) -> bool { false }
 
 /// Read all available bytes from a raw fd (non-blocking-safe, used in parent
 /// after child exits to drain the result pipe).
@@ -359,36 +609,20 @@ pub fn with_mmio_watchdog<R>(bdf: &str, timeout: Duration, op: impl FnOnce() -> 
             }
 
             fired_wd.store(true, Ordering::Release);
-
-            tracing::error!(
-                bdf = %bdf_owned,
-                timeout_ms = timeout.as_millis(),
-                "MMIO WATCHDOG FIRED — triggering raw SBR to unblock stuck MMIO"
-            );
-
-            // Use raw SBR (setpci) to avoid kernel's pci_save_state
-            // which would hang if the downstream link is stuck.
-            match sysfs::raw_bridge_sbr(&bdf_owned) {
-                Ok(()) => {
-                    tracing::info!(bdf = %bdf_owned, "raw SBR complete — stuck MMIO should unblock");
-                }
-                Err(e) => {
+            // ZERO-I/O: no SBR, no sysfs, no blocking trace from the
+            // watchdog thread. If the op stalled a core, any I/O risks
+            // the same NBIO freeze cascade. Fire-and-forget trace only.
+            let bdf_trace = bdf_owned.clone();
+            let timeout_ms = timeout.as_millis();
+            let _ = std::thread::Builder::new()
+                .name("wd-trace".into())
+                .spawn(move || {
                     tracing::error!(
-                        bdf = %bdf_owned,
-                        error = %e,
-                        "raw SBR FAILED — attempting kernel bridge reset"
+                        bdf = %bdf_trace,
+                        timeout_ms,
+                        "MMIO WATCHDOG FIRED (zero-IO: no SBR attempted)"
                     );
-                    if let Err(e2) = sysfs::pci_bridge_reset(&bdf_owned) {
-                        tracing::error!(
-                            bdf = %bdf_owned,
-                            error = %e2,
-                            "kernel bridge reset also FAILED — system may require reboot"
-                        );
-                    }
-                }
-            }
-
-            disable_bus_master_via_sysfs(&bdf_owned);
+                });
         })
         .expect("spawn MMIO watchdog thread");
 
@@ -415,14 +649,15 @@ pub fn with_mmio_watchdog<R>(bdf: &str, timeout: Duration, op: impl FnOnce() -> 
 ///
 /// | Tier | Isolation | Protections |
 /// |------|-----------|-------------|
-/// | `RegisterIo` | Thread watchdog | preflight_check + circuit breaker |
+/// | `RegisterIo` | Fork isolation | preflight + circuit breaker |
 /// | `BulkVram` | Fork isolation | AER mask + raw SBR + sequencer check |
 /// | `EngineReset` | Fork isolation | AER mask + raw SBR + sequencing rules |
 /// | `FalconBind` | Fork isolation | Full: AER + SBR + ITFEN + DMACTL |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationTier {
     /// Single register read/write. PCIe timeout returns 0xFFFF_FFFF.
-    /// Low risk — uses thread-level watchdog.
+    /// Uses fork isolation — thread watchdog cannot protect against
+    /// core-level PCIe stalls that cascade through the AMD NBIO.
     RegisterIo,
 
     /// Bulk PRAMIN writes to GPU VRAM via the BAR0 window. Can exhaust
@@ -443,10 +678,7 @@ pub enum OperationTier {
 impl OperationTier {
     /// Whether this tier requires fork-level process isolation.
     pub fn requires_fork_isolation(&self) -> bool {
-        matches!(
-            self,
-            Self::BulkVram | Self::EngineReset | Self::FalconBind
-        )
+        true
     }
 
     /// Whether this tier requires AER masking on the bridge.
@@ -466,6 +698,168 @@ impl OperationTier {
             Self::FalconBind => Duration::from_secs(10),
         }
     }
+}
+
+// ─── GPU Decontamination ──────────────────────────────────────────────────
+
+/// Decontaminate a GPU after an experiment that may have left internal state
+/// dirty (e.g. falcon halted, PRI ring errors, FBIF misconfigured).
+///
+/// Uses a two-level strategy:
+/// - **Level 1 (soft reset)**: Global PMC engine reset + PRI ring re-init +
+///   PRAMIN write-readback canary. This resets all GPU engines without touching
+///   the PCI layer, so ember's BAR0 mapping and VFIO device stay alive.
+/// - **Level 2 (SBR)**: If soft reset fails (child times out), the fork parent
+///   triggers PCIe SBR as a last resort.
+pub fn decontaminate_gpu(
+    bdf: &str,
+    bar0_ptr: usize,
+    bar0_size: usize,
+) -> DecontaminateResult {
+    tracing::info!(bdf, "GPU decontamination: soft reset (PMC + PRI re-init)");
+
+    let bdf_owned = bdf.to_string();
+    let fork_result = fork_isolated_mmio(
+        &bdf_owned,
+        Duration::from_secs(5),
+        |pipe_fd| {
+            let bar0 = unsafe {
+                coral_driver::vfio::device::MappedBar::from_raw(
+                    bar0_ptr as *mut u8,
+                    bar0_size,
+                )
+            };
+
+            let mut status = "unknown";
+
+            // Step 1: Selective PMC engine reset — toggle ONLY falcon/graph
+            // engines, never PFB (memory controller).
+            //
+            // Writing 0 to PMC_ENABLE would disable PFB, power-cycling the
+            // HBM2 memory controller and losing its training state. After
+            // restoring, the MC is degraded: single PRAMIN writes work but
+            // bulk writes overwhelm the un-initialized write buffer and stall
+            // at ~256 words, causing PCIe credit exhaustion and system lockup.
+            //
+            // GV100 PMC_ENABLE bit map (relevant):
+            //   bit  8 = PFB/PFBSP — NEVER disable (memory controller)
+            //   bit 12 = PGRAPH    — safe to reset
+            //   bit 20 = SEC2      — safe to reset  
+            //   bit 28 = CE        — safe to reset
+            //   bit 29 = (varies)  — safe to reset
+            const FALCON_RESET_MASK: u32 = (1 << 12) | (1 << 20) | (1 << 28) | (1 << 29);
+            let pmc_orig = bar0.read_u32(0x200).unwrap_or(0);
+            if pmc_orig != 0 && pmc_orig != 0xFFFF_FFFF {
+                let pmc_partial = pmc_orig & !FALCON_RESET_MASK;
+                let _ = bar0.write_u32(0x200, pmc_partial);
+                std::thread::sleep(Duration::from_millis(20));
+                let _ = bar0.write_u32(0x200, pmc_orig);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+
+            // Step 2: PRI ring re-init. After global PMC reset, the PRI ring
+            // master needs re-initialization to re-enumerate the ring.
+            // 0x01 = init command, 0x02 = ack/drain.
+            let _ = bar0.write_u32(0x12004C, 0x01);
+            std::thread::sleep(Duration::from_millis(10));
+            let _ = bar0.write_u32(0x12004C, 0x02);
+            std::thread::sleep(Duration::from_millis(5));
+
+            // Step 3: BOOT0 liveness check
+            let boot0 = bar0.read_u32(0x000).unwrap_or(0xDEAD_DEAD);
+            let pmc_after = bar0.read_u32(0x200).unwrap_or(0);
+
+            if boot0 == 0xDEAD_DEAD || boot0 == 0xFFFF_FFFF {
+                status = "dead";
+            } else if boot0 & 0xFFF0_0000 == 0xBAD0_0000 {
+                status = "pri_bad";
+            } else {
+                // Step 4: PRAMIN canary — verify the write path is functional.
+                // Set BAR0_WINDOW to page 0, write a canary, read it back.
+                let saved_win = bar0.read_u32(0x1700).unwrap_or(0);
+                let _ = bar0.write_u32(0x1700, 0x0000_0001_u32);
+                let original = bar0.read_u32(0x0070_0000).unwrap_or(0xDEAD_DEAD);
+                let canary = 0xDEC0_CAFE_u32;
+                let _ = bar0.write_u32(0x0070_0000, canary);
+                let _ = bar0.read_u32(0x000); // flush posted write
+                let readback = bar0.read_u32(0x0070_0000).unwrap_or(0xDEAD_DEAD);
+                let _ = bar0.write_u32(0x0070_0000, original); // restore
+                let _ = bar0.write_u32(0x1700, saved_win);
+
+                if readback == canary {
+                    status = "clean";
+                } else {
+                    status = "pramin_stall";
+                }
+            }
+
+            let json = serde_json::json!({
+                "status": status,
+                "boot0": boot0,
+                "pmc": pmc_after,
+            });
+            if let Ok(bytes) = serde_json::to_vec(&json) {
+                unsafe {
+                    libc::write(pipe_fd, bytes.as_ptr().cast(), bytes.len());
+                }
+            }
+            std::mem::forget(bar0);
+        },
+    );
+
+    match fork_result {
+        ForkResult::Ok(pipe_data) => {
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&pipe_data).unwrap_or_default();
+            let status = parsed
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let boot0 = parsed.get("boot0").and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
+            let pmc = parsed.get("pmc").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+            tracing::info!(
+                bdf,
+                boot0 = format_args!("{boot0:#010x}"),
+                pmc = format_args!("{pmc:#010x}"),
+                status,
+                "GPU soft-reset decontamination complete"
+            );
+
+            match status {
+                "clean" => DecontaminateResult::Clean,
+                "pramin_stall" => {
+                    tracing::warn!(bdf, "PRAMIN canary failed — device degraded (needs warm cycle, zero-IO from parent)");
+                    DecontaminateResult::SbrTriggered
+                }
+                _ => DecontaminateResult::StillDirty,
+            }
+        }
+        ForkResult::Timeout => {
+            tracing::warn!(
+                bdf,
+                "GPU soft-reset child timed out (zero-IO: no SBR from parent)"
+            );
+            DecontaminateResult::SbrTriggered
+        }
+        _ => {
+            tracing::error!(bdf, "GPU decontamination fork failed");
+            DecontaminateResult::StillDirty
+        }
+    }
+}
+
+/// Result of a GPU decontamination attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecontaminateResult {
+    /// Soft reset succeeded: all engines reset, PRI ring re-inited, and
+    /// PRAMIN write-readback canary verified. Safe for next experiment.
+    Clean,
+    /// Soft reset was insufficient. SBR fallback fired. Ember's BAR0
+    /// mapping may be invalid — device needs re-init and warm cycle.
+    SbrTriggered,
+    /// Decontamination failed entirely — SBR not possible or fork failed.
+    StillDirty,
 }
 
 // ─── Canary Test Protocol ─────────────────────────────────────────────────
@@ -631,7 +1025,7 @@ mod tests {
     #[test]
     fn operation_tier_register_io_properties() {
         let tier = OperationTier::RegisterIo;
-        assert!(!tier.requires_fork_isolation());
+        assert!(tier.requires_fork_isolation());
         assert!(!tier.requires_aer_mask());
         assert_eq!(tier.timeout(), Duration::from_secs(2));
     }

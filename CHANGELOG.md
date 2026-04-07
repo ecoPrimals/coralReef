@@ -4,11 +4,38 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 73
+**Current status**: Phase 10 — Iteration 77
 
 ---
 
 ## [Unreleased]
+
+### Iteration 77 — Ember Survivability Hardening (2026-04-07)
+
+#### Ember (coral-ember)
+- **Fork-isolated preflight**: PRI ACK + BOOT0 read moved into fork child; parent checks reported BOOT0 via pipe
+- **Fork-isolated low-level MMIO**: `with_mmio_watchdog` replaced with `fork_isolated_mmio` in `mmio_read`, `mmio_write`, `mmio_batch`
+- **Fork-isolated post_swap_quiesce**: All `post_swap_quiesce` calls wrapped in `fork_isolated_mmio` (lib.rs, startup.rs, swap_bind.rs)
+- **Zero-I/O recovery paths**: Removed parent-side `disable_bus_master_via_sysfs` from all recovery/fault/shutdown paths
+- **`abort()` not `exit()`**: Replaced `std::process::exit` with `std::process::abort` in `check_voluntary_death` and shutdown watchdog
+- **Removed `sync_all()` from trace**: Best-effort append only (isolation.rs, pramin.rs)
+- **Guarded sysfs**: `sysfs_write_direct` → `sysfs_write` in swap_bind.rs; new `guarded_sysfs_read` with timeout for `is_d3cold`
+- **Non-blocking tracing**: Fire-and-forget background threads for `emergency_quiesce` and `check_voluntary_death` error traces
+- **`ember.warm_cycle` RPC**: New handler — release → nouveau bind/unbind → reacquire (clears `needs_warm_cycle`)
+
+#### GlowPlug (coral-glowplug)
+- **Warm cycle in resurrection**: `resurrect_ember()` performs sysfs nouveau bind/unbind on all managed GPUs before restart
+- **FdVault integration**: Periodic fd checkpoint from live ember (every 30s), vault-aware resurrection (skip warm cycle if vault has live fds)
+- **Resurrection over spawn**: Main lifecycle loop calls `resurrect_ember()` instead of bare `spawn_ember()` when ember goes Down
+- **`managed_bdfs` in config**: EmberLifecycleConfig carries BDF list for warm cycle targeting
+
+#### Validation
+- 8 consecutive exp145 crash probes — zero lockups
+- Cold VRAM (`0xbad0ac0X`) detected and reported as clean error
+- Ember stays alive and responsive throughout all tests
+- 170 coral-ember tests pass, 285 coral-glowplug lib tests pass
+
+### Iteration 76 — Sacrificial Ember + MMIO Gateway (2026-04-06)
 
 ### Iteration 74 — Deep Debt Execution (2026-04-04)
 

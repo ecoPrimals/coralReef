@@ -329,6 +329,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                             ring_meta: hold::RingMeta::default(),
                             req_eventfd,
                             experiment_dirty: false,
+                            needs_warm_cycle: false,
                             dma_prepare_state: None,
                             mmio_fault_count: 0,
                             health: hold::DeviceHealth::Alive,
@@ -398,7 +399,26 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 Ok((Ok(device), _cold_sensitive, armor)) => {
                     match device.map_bar(0) {
                         Ok(bar0) => {
-                            coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                            let ptr = bar0.base_ptr() as usize;
+                            let sz = bar0.size();
+                            let bdf_q = dev_config.bdf.clone();
+                            let qr = isolation::fork_isolated_mmio(
+                                &bdf_q,
+                                std::time::Duration::from_secs(2),
+                                |_pipe_fd| {
+                                    #[allow(unsafe_code)]
+                                    let b = unsafe {
+                                        coral_driver::vfio::device::MappedBar::from_raw(
+                                            ptr as *mut u8, sz,
+                                        )
+                                    };
+                                    coral_driver::vfio::device::dma_safety::post_swap_quiesce(&b);
+                                    std::mem::forget(b);
+                                },
+                            );
+                            if matches!(qr, isolation::ForkResult::Timeout) {
+                                tracing::error!(bdf = %dev_config.bdf, "startup: post_swap_quiesce TIMED OUT — device may be degraded");
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(bdf = %dev_config.bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
@@ -423,6 +443,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                             ring_meta: hold::RingMeta::default(),
                             req_eventfd,
                             experiment_dirty: false,
+                            needs_warm_cycle: false,
                             dma_prepare_state: None,
                             mmio_fault_count: 0,
                             health: hold::DeviceHealth::Alive,
@@ -769,14 +790,14 @@ fn spawn_watchdog(held: Arc<RwLock<HashMap<String, HeldDevice>>>, socket_path: S
 
                 if isolation::shutdown_requested() {
                     tracing::info!("watchdog: SIGTERM received — initiating graceful shutdown");
-                    if let Ok(map) = held.read() {
-                        for dev in map.values() {
-                            isolation::disable_bus_master_via_sysfs(&dev.bdf);
-                        }
-                    }
+                    // Zero-IO shutdown: remove socket only (local fs op, safe).
+                    // Bus master disable is skipped — if the GPU is wedged,
+                    // sysfs writes stall the watchdog thread and cascade to
+                    // a full system lockup. Glowplug's resurrection cycle
+                    // handles bus master cleanup after ember exits.
                     let _ = std::fs::remove_file(&socket_path);
-                    tracing::info!("watchdog: bus master disabled on all devices, socket removed — exiting");
-                    std::process::exit(0);
+                    tracing::info!("watchdog: socket removed — aborting (zero device I/O)");
+                    std::process::abort();
                 }
 
                 let device_count = held.read().map(|map| map.len()).unwrap_or(0);

@@ -590,7 +590,7 @@ fn exp145_v1_acr_boot() {
     eprintln!("  PHASE E: Boot SEC2 — via ember MMIO gateway");
     eprintln!("{eq}");
 
-    trace("PHASE_E: calling ember.prepare_dma (quiesce + bus_master via ember)");
+    trace("PHASE_E: calling ember.prepare_dma (quiesce, bus_master=OFF for PHYS_VID safety)");
     match crate::ember_client::prepare_dma(&bdf) {
         Ok(result) => {
             trace(&format!("PHASE_E: ember.prepare_dma OK: {result}"));

@@ -10,7 +10,7 @@ use crate::hold::HeldDevice;
 
 use super::super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
 use super::{
-    decode_b64_param, map_bar0_if_needed, preflight_check, require_bdf, require_held_mut,
+    decode_b64_param, map_bar0_if_needed, preflight_gate, require_bdf, require_held_mut,
     require_u64,
 };
 
@@ -65,7 +65,7 @@ pub(crate) fn sec2_prepare_physical(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
@@ -260,7 +260,7 @@ pub(crate) fn falcon_upload_imem(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
@@ -431,7 +431,7 @@ pub(crate) fn falcon_upload_dmem(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
@@ -597,7 +597,7 @@ pub(crate) fn falcon_start_cpu(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
@@ -658,13 +658,14 @@ pub(crate) fn falcon_start_cpu(
             let cpuctl = parsed.get("cpuctl").and_then(|v| v.as_u64()).unwrap_or(0xDEAD) as u32;
 
             dev.experiment_dirty = true;
+            dev.needs_warm_cycle = true;
             drop(map);
 
             tracing::info!(
                 bdf,
                 base = format_args!("{base:#x}"),
                 pc = format_args!("{pc:#x}"),
-                "ember.falcon.start_cpu (fork): complete"
+                "ember.falcon.start_cpu (fork): complete — needs_warm_cycle set"
             );
             write_jsonrpc_ok(
                 stream,
@@ -773,7 +774,7 @@ pub(crate) fn falcon_poll(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }

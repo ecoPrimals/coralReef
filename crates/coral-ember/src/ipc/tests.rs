@@ -644,6 +644,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
             ring_meta: crate::hold::RingMeta::default(),
             req_eventfd: None,
             experiment_dirty: false,
+            needs_warm_cycle: false,
             dma_prepare_state: None,
             mmio_fault_count: 0,
             health: crate::hold::DeviceHealth::Alive,

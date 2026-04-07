@@ -27,7 +27,7 @@ pub(super) fn bind_vfio(
     let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), bdf);
 
     let reset_path = linux_paths::sysfs_pci_device_file(bdf, "reset_method");
-    if let Err(e) = sysfs::sysfs_write_direct(&reset_path, "") {
+    if let Err(e) = sysfs::sysfs_write(&reset_path, "") {
         tracing::warn!(bdf, error = %e, "failed to disable reset_method after vfio-pci bind");
     } else {
         tracing::info!(bdf, "reset_method disabled immediately after vfio-pci bind");
@@ -46,7 +46,26 @@ pub(super) fn bind_vfio(
             // whose stale firmware/channels cause PRI ring hangs on register reads.
             match device.map_bar(0) {
                 Ok(bar0) => {
-                    coral_driver::vfio::device::dma_safety::post_swap_quiesce(&bar0);
+                    let ptr = bar0.base_ptr() as usize;
+                    let sz = bar0.size();
+                    let bdf_q = bdf.to_string();
+                    let qr = crate::isolation::fork_isolated_mmio(
+                        &bdf_q,
+                        std::time::Duration::from_secs(2),
+                        |_pipe_fd| {
+                            #[allow(unsafe_code)]
+                            let b = unsafe {
+                                coral_driver::vfio::device::MappedBar::from_raw(
+                                    ptr as *mut u8, sz,
+                                )
+                            };
+                            coral_driver::vfio::device::dma_safety::post_swap_quiesce(&b);
+                            std::mem::forget(b);
+                        },
+                    );
+                    if matches!(qr, crate::isolation::ForkResult::Timeout) {
+                        tracing::error!(bdf, "swap_bind: post_swap_quiesce TIMED OUT");
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(bdf, error = %e, "swap_bind: BAR0 map failed for post-swap quiesce");
@@ -70,6 +89,7 @@ pub(super) fn bind_vfio(
                     ring_meta: crate::hold::RingMeta::default(),
                     req_eventfd,
                     experiment_dirty: false,
+                    needs_warm_cycle: false,
                     dma_prepare_state: None,
                     mmio_fault_count: 0,
                     health: crate::hold::DeviceHealth::Alive,
@@ -188,7 +208,7 @@ pub(super) fn bind_native(
             match sysfs::pm_power_cycle(bdf) {
                 Ok(()) => {
                     tracing::info!(bdf, "PM cycle OK, attempting bind");
-                    let _ = sysfs::sysfs_write_direct(
+                    let _ = sysfs::sysfs_write(
                         &linux_paths::sysfs_pci_device_file(bdf, "reset_method"),
                         "",
                     );

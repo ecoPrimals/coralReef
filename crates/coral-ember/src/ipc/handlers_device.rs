@@ -214,6 +214,7 @@ pub(crate) fn reacquire(
                         ring_meta: crate::hold::RingMeta::default(),
                         req_eventfd,
                         experiment_dirty: false,
+                        needs_warm_cycle: false,
                         dma_prepare_state: None,
                         mmio_fault_count: 0,
                         health: crate::hold::DeviceHealth::Alive,
@@ -230,6 +231,99 @@ pub(crate) fn reacquire(
                 write_jsonrpc_error(stream, id, -32000, &format!("reacquire failed: {e}"))
                     .map_err(EmberIpcError::from)
             }
+        }
+    }
+}
+
+/// Perform a full GPU warm cycle: release → nouveau bind/unbind → reacquire.
+///
+/// Clears PRAMIN degradation and `needs_warm_cycle` flag. Used by glowplug
+/// when ember is still alive, or by experiments that detect cold VRAM.
+pub(crate) fn warm_cycle(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    managed_bdfs: &HashSet<String>,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), EmberIpcError> {
+    let bdf = params
+        .get("bdf")
+        .and_then(|v| v.as_str())
+        .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
+    finish_managed_bdf_early(require_managed_bdf(bdf, managed_bdfs, stream, &id))?;
+
+    tracing::info!(bdf, "ember.warm_cycle: releasing device");
+
+    // 1. Release
+    {
+        let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+        if map.remove(bdf).is_none() {
+            tracing::warn!(bdf, "ember.warm_cycle: device not held (proceeding anyway)");
+        }
+    }
+
+    // 2. Unbind current driver
+    let device_path = format!("/sys/bus/pci/devices/{bdf}");
+    let driver_link = format!("{device_path}/driver");
+    if let Ok(link) = std::fs::read_link(&driver_link) {
+        if let Some(driver_name) = link.file_name().and_then(|n| n.to_str()) {
+            let unbind = format!("/sys/bus/pci/drivers/{driver_name}/unbind");
+            let _ = std::fs::write(&unbind, bdf);
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
+    // 3. Bind to nouveau for memory controller retrain
+    let override_path = format!("{device_path}/driver_override");
+    if let Err(e) = std::fs::write(&override_path, "nouveau") {
+        tracing::error!(bdf, error = %e, "ember.warm_cycle: failed to set nouveau override");
+        return write_jsonrpc_error(stream, id, -32000, &format!("warm cycle failed: {e}"))
+            .map_err(EmberIpcError::from);
+    }
+    let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/bind", bdf);
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    // 4. Unbind nouveau
+    let _ = std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // 5. Restore vfio-pci override
+    if let Err(e) = std::fs::write(&override_path, "vfio-pci") {
+        tracing::error!(bdf, error = %e, "ember.warm_cycle: failed to restore vfio-pci override");
+        return write_jsonrpc_error(stream, id, -32000, &format!("warm cycle restore failed: {e}"))
+            .map_err(EmberIpcError::from);
+    }
+
+    // 6. Reacquire
+    match coral_driver::vfio::VfioDevice::open(bdf) {
+        Ok(device) => {
+            let req_eventfd = crate::arm_req_irq(&device, bdf);
+            tracing::info!(bdf, "ember.warm_cycle: device reacquired (fresh)");
+            let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+            map.insert(
+                bdf.to_string(),
+                HeldDevice {
+                    bdf: bdf.to_string(),
+                    device,
+                    bar0: None,
+                    ring_meta: crate::hold::RingMeta::default(),
+                    req_eventfd,
+                    experiment_dirty: false,
+                    needs_warm_cycle: false,
+                    dma_prepare_state: None,
+                    mmio_fault_count: 0,
+                    health: crate::hold::DeviceHealth::Alive,
+                    pcie_armor: Some(crate::pcie_armor::PcieArmor::arm(bdf)),
+                },
+            );
+            drop(map);
+            write_jsonrpc_ok(stream, id, serde_json::json!({"bdf": bdf, "warm_cycle": "ok"}))
+                .map_err(EmberIpcError::from)
+        }
+        Err(e) => {
+            tracing::error!(bdf, error = %e, "ember.warm_cycle: reacquire failed");
+            write_jsonrpc_error(stream, id, -32000, &format!("warm cycle reacquire failed: {e}"))
+                .map_err(EmberIpcError::from)
         }
     }
 }
@@ -446,7 +540,14 @@ pub(crate) fn ring_meta_set(
 ///
 /// Maps BAR0 server-side, runs the centralized quiesce sequence
 /// (PFIFO reset, scheduler stop, blind PRI ACK), masks AER, and
-/// enables bus mastering. Stores the DMA state for later cleanup.
+/// optionally enables bus mastering. Stores the DMA state for later cleanup.
+///
+/// Params: `{bdf, bus_master?}`
+///   - `bus_master`: `true` to enable PCIe bus mastering (default: `false`).
+///     Only set `true` when the experiment needs the GPU to DMA to system
+///     memory. For PHYS_VID falcon experiments (internal VRAM access),
+///     keep bus master off — this prevents the GPU from issuing PCIe DMA
+///     that can lock up the root complex if page tables are misconfigured.
 pub(crate) fn prepare_dma(
     stream: &mut impl Write,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -457,6 +558,10 @@ pub(crate) fn prepare_dma(
         .get("bdf")
         .and_then(|v| v.as_str())
         .ok_or(EmberIpcError::InvalidRequest("missing 'bdf' parameter"))?;
+    let enable_bus_master = params
+        .get("bus_master")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
     let dev = match map.get_mut(bdf) {
@@ -550,7 +655,7 @@ pub(crate) fn prepare_dma(
                 let pmc_before = parsed.get("pmc_before").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 let pmc_after = parsed.get("pmc_after").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
-                // PCI-level operations (AER mask, bus master enable) run in parent
+                // PCI-level operations (AER mask, optional bus master) run in parent
                 // since they use VFIO ioctls, not BAR0 MMIO.
                 let aer_state = match dev.device.mask_aer() {
                     Ok(aer) => Some(aer),
@@ -559,12 +664,17 @@ pub(crate) fn prepare_dma(
                         None
                     }
                 };
-                if let Err(e) = dev.device.enable_bus_master() {
-                    drop(map);
-                    return write_jsonrpc_error(
-                        stream, id, -32000,
-                        &format!("{bdf_owned}: bus_master enable failed: {e}"),
-                    ).map_err(EmberIpcError::from);
+                if enable_bus_master {
+                    if let Err(e) = dev.device.enable_bus_master() {
+                        drop(map);
+                        return write_jsonrpc_error(
+                            stream, id, -32000,
+                            &format!("{bdf_owned}: bus_master enable failed: {e}"),
+                        ).map_err(EmberIpcError::from);
+                    }
+                    tracing::info!(bdf = bdf_owned, "bus master ENABLED (experiment requested it)");
+                } else {
+                    tracing::info!(bdf = bdf_owned, "bus master stays OFF (PHYS_VID safe mode)");
                 }
 
                 dev.dma_prepare_state = Some(coral_driver::vfio::device::dma_safety::DmaPrepareState {
@@ -623,7 +733,13 @@ pub(crate) fn prepare_dma(
     }
 }
 
-/// Clean up after a DMA experiment — disable bus master, restore AER masks.
+/// Clean up after a DMA experiment — disable bus master, restore AER masks,
+/// and decontaminate the GPU if the experiment modified hardware state.
+///
+/// GPU decontamination (PRI drain + SEC2 PMC reset) is critical: experiments
+/// that start falcon CPUs leave the GPU's internal PRI ring in a dirty state.
+/// Without decontamination, the next experiment's PRAMIN writes can trigger
+/// an unrecoverable PCIe flow-control stall that locks the entire system.
 pub(crate) fn cleanup_dma(
     stream: &mut impl Write,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -664,22 +780,73 @@ pub(crate) fn cleanup_dma(
         }
     };
 
+    let was_dirty = dev.experiment_dirty;
+    let bdf_owned = bdf.to_string();
+
+    // Decontaminate GPU before restoring DMA state. If the experiment started
+    // a falcon CPU, the GPU's PRI ring may have pending errors that would
+    // cause the next experiment's PRAMIN writes to stall catastrophically.
+    let mut decontaminate_note = String::new();
+    if was_dirty {
+        if let Some(ref bar0) = dev.bar0 {
+            let bar0_ptr = bar0.base_ptr() as usize;
+            let bar0_size = bar0.size();
+            drop(map);
+
+            tracing::info!(bdf = bdf_owned, "cleanup_dma: GPU is dirty — decontaminating");
+            let decon_result = crate::isolation::decontaminate_gpu(
+                &bdf_owned, bar0_ptr, bar0_size,
+            );
+
+            decontaminate_note = match decon_result {
+                crate::isolation::DecontaminateResult::Clean => {
+                    "gpu_soft_reset_clean".to_string()
+                }
+                crate::isolation::DecontaminateResult::SbrTriggered => {
+                    tracing::warn!(bdf = bdf_owned, "GPU soft reset failed — SBR escalation fired");
+                    "gpu_sbr_escalation".to_string()
+                }
+                crate::isolation::DecontaminateResult::StillDirty => {
+                    tracing::warn!(bdf = bdf_owned, "GPU decontamination failed");
+                    "gpu_decontamination_failed".to_string()
+                }
+            };
+
+            map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+            if let Some(d) = map.get_mut(&*bdf_owned) {
+                d.experiment_dirty = false;
+            }
+        } else {
+            dev.experiment_dirty = false;
+        }
+    }
+
     let result =
-        coral_driver::vfio::device::dma_safety::cleanup_dma(&dev.device, &state);
+        coral_driver::vfio::device::dma_safety::cleanup_dma(
+            &map.get(&*bdf_owned)
+                .ok_or(EmberIpcError::InvalidRequest("device gone"))?
+                .device,
+            &state,
+        );
     drop(map);
 
     match result {
         Ok(()) => {
-            tracing::info!(bdf, "ember.cleanup_dma: complete");
+            tracing::info!(bdf = bdf_owned, decontaminate = %decontaminate_note, "ember.cleanup_dma: complete");
             write_jsonrpc_ok(
                 stream,
                 id,
-                serde_json::json!({"bdf": bdf, "ok": true}),
+                serde_json::json!({
+                    "bdf": bdf_owned,
+                    "ok": true,
+                    "decontaminated": was_dirty,
+                    "decontaminate_result": decontaminate_note,
+                }),
             )
             .map_err(EmberIpcError::from)
         }
         Err(e) => {
-            tracing::error!(bdf, error = %e, "ember.cleanup_dma: failed");
+            tracing::error!(bdf = bdf_owned, error = %e, "ember.cleanup_dma: failed");
             write_jsonrpc_error(stream, id, -32000, &format!("cleanup_dma: {e}"))
                 .map_err(EmberIpcError::from)
         }

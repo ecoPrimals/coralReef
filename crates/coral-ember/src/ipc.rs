@@ -102,6 +102,9 @@ pub fn handle_client(
         "ember.reacquire" => {
             handlers_device::reacquire(stream, held, managed_bdfs, id, params)?;
         }
+        "ember.warm_cycle" => {
+            handlers_device::warm_cycle(stream, held, managed_bdfs, id, params)?;
+        }
         "ember.swap" => {
             handlers_device::swap(stream, held, managed_bdfs, id, params, journal)?;
         }
@@ -257,6 +260,9 @@ pub fn handle_client_tcp(
         }
         "ember.reacquire" => {
             handlers_device::reacquire(stream, held, managed_bdfs, id, params)?;
+        }
+        "ember.warm_cycle" => {
+            handlers_device::warm_cycle(stream, held, managed_bdfs, id, params)?;
         }
         "ember.swap" => {
             handlers_device::swap(stream, held, managed_bdfs, id, params, journal)?;

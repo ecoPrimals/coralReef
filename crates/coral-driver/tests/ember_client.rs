@@ -86,6 +86,14 @@ pub fn device_reset(bdf: &str, method: &str) -> Result<(), String> {
 /// scheduler stop, blind PRI ring ACK), masks AER, and enables bus mastering.
 /// Call [`cleanup_dma`] when the experiment is done.
 pub fn prepare_dma(bdf: &str) -> Result<serde_json::Value, String> {
+    prepare_dma_opts(bdf, false)
+}
+
+pub fn prepare_dma_with_bus_master(bdf: &str) -> Result<serde_json::Value, String> {
+    prepare_dma_opts(bdf, true)
+}
+
+fn prepare_dma_opts(bdf: &str, bus_master: bool) -> Result<serde_json::Value, String> {
     let socket_path = ember_socket_path();
     let stream =
         UnixStream::connect(&socket_path).map_err(|e| format!("connect to ember: {e}"))?;
@@ -96,7 +104,7 @@ pub fn prepare_dma(bdf: &str) -> Result<serde_json::Value, String> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "ember.prepare_dma",
-        "params": {"bdf": bdf},
+        "params": {"bdf": bdf, "bus_master": bus_master},
         "id": 3
     });
     let req_bytes = format!("{req}\n");

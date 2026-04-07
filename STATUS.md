@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 4, 2026  
-**Phase**: 10 — Iteration 73 (Logic/IO Untangling + Test Consolidation)
+**Last updated**: April 7, 2026  
+**Phase**: 10 — Iteration 77 (Ember Survivability Hardening + FdVault + Warm Cycle Resurrection)
 
 ---
 

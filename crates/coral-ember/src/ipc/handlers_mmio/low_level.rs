@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Low-level BAR0 register read/write/batch handlers.
+//!
+//! All operations use fork isolation — a stalled PCIe MMIO cannot freeze
+//! the main ember thread. Each fork child combines PRI ring drain + BOOT0
+//! preflight with the actual register operation in a single fork, so the
+//! parent never touches BAR0 directly.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -9,9 +14,10 @@ use coral_driver::vfio::device::dma_safety;
 
 use crate::error::EmberIpcError;
 use crate::hold::HeldDevice;
+use crate::isolation::{self, ForkResult};
 
 use super::super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
-use super::{map_bar0_if_needed, preflight_check, require_bdf, require_held_mut, require_offset};
+use super::{map_bar0_if_needed, preflight_gate, update_fault_counter, require_bdf, require_held_mut, require_offset};
 
 /// `ember.mmio.read` — validated single BAR0 register read.
 ///
@@ -46,32 +52,88 @@ pub(crate) fn mmio_read(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
     let bar0 = dev.bar0.as_ref().unwrap();
+    let bar0_ptr = bar0.base_ptr() as usize;
+    let bar0_size = bar0.size();
     let bdf_owned = bdf.to_string();
-    let (value, watchdog_fired) = crate::isolation::with_mmio_watchdog(
-        &bdf_owned,
-        crate::isolation::OperationTier::RegisterIo.timeout(),
-        || bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD),
-    );
-
-    if watchdog_fired {
-        tracing::error!(bdf = bdf_owned, offset, "mmio_read: watchdog fired — bus-reset triggered");
-        dev.emergency_quiesce();
-        drop(map);
-        crate::hold::check_voluntary_death(held);
-        return write_jsonrpc_error(
-            stream, id, -32099,
-            &format!("{bdf_owned}: mmio_read at {offset:#x} triggered watchdog bus-reset. Device faulted."),
-        ).map_err(EmberIpcError::from);
-    }
     drop(map);
 
-    write_jsonrpc_ok(stream, id, serde_json::json!({"value": value})).map_err(EmberIpcError::from)
+    let fork_result = isolation::fork_isolated_mmio(
+        &bdf_owned,
+        isolation::OperationTier::RegisterIo.timeout(),
+        |pipe_fd| {
+            let bar0 = unsafe {
+                coral_driver::vfio::device::MappedBar::from_raw(bar0_ptr as *mut u8, bar0_size)
+            };
+            let _ = bar0.write_u32(0x0012_004C, 0x2); // PRI ring ACK
+            let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+            let value = bar0.read_u32(offset).unwrap_or(0xDEAD_DEAD);
+            // 8 bytes: boot0 (4 LE) + value (4 LE)
+            let mut buf = [0u8; 8];
+            buf[..4].copy_from_slice(&boot0.to_le_bytes());
+            buf[4..].copy_from_slice(&value.to_le_bytes());
+            unsafe { libc::write(pipe_fd, buf.as_ptr().cast(), 8); }
+            std::mem::forget(bar0);
+        },
+    );
+
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    match fork_result {
+        ForkResult::Ok(data) if data.len() >= 8 => {
+            let boot0 = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+            let value = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                if let Err(e) = update_fault_counter(dev, boot0) {
+                    drop(map);
+                    return write_jsonrpc_error(stream, id, -32011, &e)
+                        .map_err(EmberIpcError::from);
+                }
+            }
+            drop(map);
+            write_jsonrpc_ok(stream, id, serde_json::json!({"value": value}))
+                .map_err(EmberIpcError::from)
+        }
+        ForkResult::Ok(_) => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.mmio_fault_count += 1;
+            }
+            drop(map);
+            write_jsonrpc_error(stream, id, -32000, &format!("{bdf_owned}: fork child returned truncated data"))
+                .map_err(EmberIpcError::from)
+        }
+        ForkResult::Timeout => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.emergency_quiesce();
+            }
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32099,
+                &format!("{bdf_owned}: mmio_read at {offset:#x} timed out — device faulted."),
+            ).map_err(EmberIpcError::from)
+        }
+        ForkResult::ChildFailed { status } => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.emergency_quiesce();
+            }
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32098,
+                &format!("{bdf_owned}: mmio_read child failed (status={status})."),
+            ).map_err(EmberIpcError::from)
+        }
+        ForkResult::ForkFailed(e) | ForkResult::PipeFailed(e) => {
+            drop(map);
+            write_jsonrpc_error(stream, id, -32000, &format!("{bdf_owned}: fork/pipe failed: {e}"))
+                .map_err(EmberIpcError::from)
+        }
+    }
 }
 
 /// `ember.mmio.write` — validated single BAR0 register write.
@@ -101,32 +163,93 @@ pub(crate) fn mmio_write(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
-    let bdf_owned = bdf.to_string();
     let bar0 = dev.bar0.as_ref().unwrap();
-    let (write_result, watchdog_fired) = crate::isolation::with_mmio_watchdog(
-        &bdf_owned,
-        crate::isolation::OperationTier::RegisterIo.timeout(),
-        || bar0.write_u32(offset, value),
-    );
-    if watchdog_fired {
-        dev.emergency_quiesce();
-    }
-    dev.experiment_dirty = true;
+    let bar0_ptr = bar0.base_ptr() as usize;
+    let bar0_size = bar0.size();
+    let bdf_owned = bdf.to_string();
     drop(map);
-    if watchdog_fired {
-        crate::hold::check_voluntary_death(held);
-    }
 
-    match write_result {
-        Ok(()) => write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
-            .map_err(EmberIpcError::from),
-        Err(e) => write_jsonrpc_error(stream, id, -32000, &format!("write failed: {e}"))
-            .map_err(EmberIpcError::from),
+    let fork_result = isolation::fork_isolated_mmio(
+        &bdf_owned,
+        isolation::OperationTier::RegisterIo.timeout(),
+        |pipe_fd| {
+            let bar0 = unsafe {
+                coral_driver::vfio::device::MappedBar::from_raw(bar0_ptr as *mut u8, bar0_size)
+            };
+            let _ = bar0.write_u32(0x0012_004C, 0x2); // PRI ring ACK
+            let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+            let write_ok = bar0.write_u32(offset, value).is_ok();
+            // 5 bytes: boot0 (4 LE) + status (1: 0=ok, 1=fail)
+            let mut buf = [0u8; 5];
+            buf[..4].copy_from_slice(&boot0.to_le_bytes());
+            buf[4] = if write_ok { 0 } else { 1 };
+            unsafe { libc::write(pipe_fd, buf.as_ptr().cast(), 5); }
+            std::mem::forget(bar0);
+        },
+    );
+
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    match fork_result {
+        ForkResult::Ok(data) if data.len() >= 5 => {
+            let boot0 = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+            let write_ok = data[4] == 0;
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                if let Err(e) = update_fault_counter(dev, boot0) {
+                    drop(map);
+                    return write_jsonrpc_error(stream, id, -32011, &e)
+                        .map_err(EmberIpcError::from);
+                }
+                dev.experiment_dirty = true;
+            }
+            drop(map);
+            if write_ok {
+                write_jsonrpc_ok(stream, id, serde_json::json!({"ok": true}))
+                    .map_err(EmberIpcError::from)
+            } else {
+                write_jsonrpc_error(stream, id, -32000, &format!("{bdf_owned}: write failed"))
+                    .map_err(EmberIpcError::from)
+            }
+        }
+        ForkResult::Ok(_) => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.mmio_fault_count += 1;
+            }
+            drop(map);
+            write_jsonrpc_error(stream, id, -32000, &format!("{bdf_owned}: fork child returned truncated data"))
+                .map_err(EmberIpcError::from)
+        }
+        ForkResult::Timeout => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.emergency_quiesce();
+            }
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32099,
+                &format!("{bdf_owned}: mmio_write at {offset:#x} timed out — device faulted."),
+            ).map_err(EmberIpcError::from)
+        }
+        ForkResult::ChildFailed { status } => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.emergency_quiesce();
+            }
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32098,
+                &format!("{bdf_owned}: mmio_write child failed (status={status})."),
+            ).map_err(EmberIpcError::from)
+        }
+        ForkResult::ForkFailed(e) | ForkResult::PipeFailed(e) => {
+            drop(map);
+            write_jsonrpc_error(stream, id, -32000, &format!("{bdf_owned}: fork/pipe failed: {e}"))
+                .map_err(EmberIpcError::from)
+        }
     }
 }
 
@@ -157,20 +280,30 @@ pub(crate) fn mmio_batch(
             .map_err(EmberIpcError::from);
     }
 
-    if let Err(e) = preflight_check(dev) {
+    if let Err(e) = preflight_gate(dev) {
         drop(map);
         return write_jsonrpc_error(stream, id, -32011, &e).map_err(EmberIpcError::from);
     }
 
-    let bdf_owned = bdf.to_string();
-    let mut results = Vec::with_capacity(ops.len());
-    let mut had_write = false;
-
     let bar0 = dev.bar0.as_ref().unwrap();
-    let (_, watchdog_fired) = crate::isolation::with_mmio_watchdog(
+    let bar0_ptr = bar0.base_ptr() as usize;
+    let bar0_size = bar0.size();
+    let bdf_owned = bdf.to_string();
+    drop(map);
+
+    let fork_result = isolation::fork_isolated_mmio(
         &bdf_owned,
-        crate::isolation::OperationTier::RegisterIo.timeout(),
-        || {
+        isolation::OperationTier::RegisterIo.timeout(),
+        |pipe_fd| {
+            let bar0 = unsafe {
+                coral_driver::vfio::device::MappedBar::from_raw(bar0_ptr as *mut u8, bar0_size)
+            };
+            let _ = bar0.write_u32(0x0012_004C, 0x2); // PRI ring ACK
+            let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+
+            let mut results = Vec::with_capacity(ops.len());
+            let mut had_write = false;
+
             for (i, op) in ops.iter().enumerate() {
                 let op_type = op.get("type").and_then(|v| v.as_str()).unwrap_or("r");
                 let offset = match op.get("offset").and_then(|v| v.as_u64()) {
@@ -201,21 +334,68 @@ pub(crate) fn mmio_batch(
                     }
                 }
             }
+
+            let json = serde_json::json!({
+                "boot0": boot0,
+                "results": results,
+                "had_write": had_write,
+            });
+            if let Ok(bytes) = serde_json::to_vec(&json) {
+                unsafe { libc::write(pipe_fd, bytes.as_ptr().cast(), bytes.len()); }
+            }
+            std::mem::forget(bar0);
         },
     );
 
-    let quiesced = watchdog_fired;
-    if watchdog_fired {
-        dev.emergency_quiesce();
-    }
-    if had_write {
-        dev.experiment_dirty = true;
-    }
-    drop(map);
-    if quiesced {
-        crate::hold::check_voluntary_death(held);
-    }
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    match fork_result {
+        ForkResult::Ok(data) => {
+            let parsed: serde_json::Value = serde_json::from_slice(&data)
+                .unwrap_or(serde_json::json!({"boot0": 0xFFFFFFFFu32, "results": []}));
+            let boot0 = parsed.get("boot0").and_then(|v| v.as_u64()).unwrap_or(0xFFFF_FFFF) as u32;
+            let results = parsed.get("results").cloned().unwrap_or(serde_json::json!([]));
+            let had_write = parsed.get("had_write").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    write_jsonrpc_ok(stream, id, serde_json::json!({"results": results}))
-        .map_err(EmberIpcError::from)
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                if let Err(e) = update_fault_counter(dev, boot0) {
+                    drop(map);
+                    return write_jsonrpc_error(stream, id, -32011, &e)
+                        .map_err(EmberIpcError::from);
+                }
+                if had_write {
+                    dev.experiment_dirty = true;
+                }
+            }
+            drop(map);
+            write_jsonrpc_ok(stream, id, serde_json::json!({"results": results}))
+                .map_err(EmberIpcError::from)
+        }
+        ForkResult::Timeout => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.emergency_quiesce();
+            }
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32099,
+                &format!("{bdf_owned}: mmio_batch timed out — device faulted."),
+            ).map_err(EmberIpcError::from)
+        }
+        ForkResult::ChildFailed { status } => {
+            if let Some(dev) = map.get_mut(&bdf_owned) {
+                dev.emergency_quiesce();
+            }
+            drop(map);
+            crate::hold::check_voluntary_death(held);
+            write_jsonrpc_error(
+                stream, id, -32098,
+                &format!("{bdf_owned}: mmio_batch child failed (status={status})."),
+            ).map_err(EmberIpcError::from)
+        }
+        ForkResult::ForkFailed(e) | ForkResult::PipeFailed(e) => {
+            drop(map);
+            write_jsonrpc_error(stream, id, -32000, &format!("{bdf_owned}: fork/pipe failed: {e}"))
+                .map_err(EmberIpcError::from)
+        }
+    }
 }
