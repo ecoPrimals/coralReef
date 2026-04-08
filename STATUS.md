@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: April 7, 2026  
-**Phase**: 10 — Iteration 77 (Ember Survivability Hardening + FdVault + Warm Cycle Resurrection)
+**Phase**: 10 — Iteration 78+ (Multi-Ember Fleet + Firmware Boundary Pivot + NOP Dispatch via DRM)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: observer.rs 934→observer/ (6 files), swap.rs 1102→708+swap_preflight, vfio_compute 1018→855+gr_engine_status (Iter 70); vendor_lifecycle→8, ipc→6, ACR→directories (Iter 69); vfio/channel 2894→5 modules (Iter 46) |
-| Tests | A+ | 4318 passing, 0 failed, ~153 ignored hardware-gated, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 4407+ passing, 0 failed, ~153 ignored hardware-gated, ~64% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-only (upstream-derived files retain original attribution) |
@@ -41,7 +41,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 73** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 78+** (Ember fleet + Firmware boundary + NOP dispatch) |
 
 ### Iteration 73: Logic/IO Untangling + Test Consolidation (Apr 4, 2026)
 

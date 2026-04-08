@@ -91,4 +91,12 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     fn is_cold_sensitive(&self) -> bool {
         false
     }
+
+    /// Whether the swap orchestrator should skip the sysfs `driver/unbind`
+    /// write and rely entirely on the rebind strategy (e.g. `PciRescan`)
+    /// to handle driver removal. Required for Kepler GPUs where the unbind
+    /// write causes an unrecoverable PCI D-state.
+    fn skip_sysfs_unbind(&self) -> bool {
+        false
+    }
 }

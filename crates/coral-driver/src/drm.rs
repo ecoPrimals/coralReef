@@ -121,7 +121,7 @@ pub struct DrmVersion {
 /// Consolidates `mmap`/`munmap`/`from_raw_parts` into a single safe abstraction
 /// used by both AMD (GEM) and NVIDIA (nouveau) backends.
 #[derive(Debug)]
-pub(crate) struct MappedRegion {
+pub struct MappedRegion {
     ptr: NonNull<u8>,
     len: usize,
 }
@@ -132,7 +132,7 @@ impl MappedRegion {
     /// # Errors
     ///
     /// Returns [`DriverError::MmapFailed`] if mmap fails.
-    pub(crate) fn new(
+    pub fn new(
         len: usize,
         prot: rustix::mm::ProtFlags,
         flags: rustix::mm::MapFlags,
@@ -169,7 +169,7 @@ impl MappedRegion {
 
     /// View the mapped region as a byte slice.
     #[must_use]
-    pub(crate) const fn as_slice(&self) -> &[u8] {
+    pub const fn as_slice(&self) -> &[u8] {
         // SAFETY:
         // 1. Validity:   ptr is non-null from successful mmap (checked in new())
         // 2. Alignment:  u8 has alignment 1; mmap returns page-aligned memory
@@ -180,7 +180,7 @@ impl MappedRegion {
 
     /// View the mapped region as a mutable byte slice.
     #[must_use]
-    pub(crate) const fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub const fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY:
         // 1. Validity:   ptr is non-null from successful mmap (checked in new())
         // 2. Alignment:  u8 has alignment 1; mmap returns page-aligned memory
@@ -194,7 +194,7 @@ impl MappedRegion {
     /// # Errors
     ///
     /// Returns [`DriverError::MmapFailed`] if the range is out of bounds.
-    pub(crate) fn slice_at(&self, offset: usize, len: usize) -> DriverResult<&[u8]> {
+    pub fn slice_at(&self, offset: usize, len: usize) -> DriverResult<&[u8]> {
         let end = offset
             .checked_add(len)
             .ok_or_else(|| DriverError::MmapFailed("slice range overflow".into()))?;
@@ -215,7 +215,7 @@ impl MappedRegion {
     /// # Errors
     ///
     /// Returns [`DriverError::MmapFailed`] if the range is out of bounds.
-    pub(crate) fn slice_at_mut(&mut self, offset: usize, len: usize) -> DriverResult<&mut [u8]> {
+    pub fn slice_at_mut(&mut self, offset: usize, len: usize) -> DriverResult<&mut [u8]> {
         let end = offset
             .checked_add(len)
             .ok_or_else(|| DriverError::MmapFailed("slice range overflow".into()))?;

@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 73.
+**Current position**: Phase 10 — Iteration 78+.
 
-**Last completed**: Logic/IO untangling plan; pure extractions across coral-driver (`acr_buffer_layout`, `sysmem_decode`, `sysmem_vram`, `init_plan`, `channel_layout`, `pci_config`); test consolidation (`opt_copy_prop/tests/`, `spill_values/tests/`, codegen coverage saturation split); `cmd_compile` tempfile isolation; coral-glowplug boot safety / health / config extraction; coral-ember startup, reset plan, lifecycle steps. Prior: Iter 72 GPU-agnostic detection + Ada PCI fix; Iter 71 MmioRegion/MockBar0.
+**Last completed**: Iteration 78 Multi-Ember Fleet Architecture (per-device ember, hot-standby, fleet discovery). Iteration 77 Ember Survivability Hardening (fork-isolated MMIO, FdVault, warm cycle). Firmware Boundary Pivot (Exp 163): driver/firmware/hardware delineation, NOP dispatch via DRM (pure Rust), PmuInterface struct, FalconProbe. Prior: Iter 74 Deep Debt Execution, Iter 73 Logic/IO Untangling.
 
-**Tests**: 4407 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4407+ passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation.
+**Next focus**: Full compute dispatch via DRM (shader upload, QMD, multi-buffer), PMU command vocabulary mapping, GSP RPC client (Turing+ firmware interface), coverage push toward 90%.
 
-**Last updated**: April 4, 2026 (Phase 10 — Iteration 73 — Logic/IO Untangling + Test Consolidation. Architectural separation patterns documented; driver-side pure modules and split test modules keep suites under 1000 LOC per file.)
+**Last updated**: April 7, 2026 (Phase 10 — Iteration 78+ — Multi-Ember Fleet + Firmware Boundary Pivot. NOP dispatch proven via pure Rust DRM ioctls on Titan V. Firmware-agnostic interface pattern established.)
 
 ---
 

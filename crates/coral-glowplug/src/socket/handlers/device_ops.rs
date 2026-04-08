@@ -552,9 +552,11 @@ fn handle_reset(
             }))
         }
         "sbr" | "bridge-sbr" | "remove-rescan" | "auto" => {
-            let ember = coral_glowplug::ember::EmberClient::connect().ok_or_else(|| {
-                RpcError::device_error("ember not available — cannot perform reset".to_string())
-            })?;
+            let ember = coral_glowplug::ember::EmberClient::connect_for_bdf(&bdf)
+                .or_else(|| coral_glowplug::ember::EmberClient::connect())
+                .ok_or_else(|| {
+                    RpcError::device_error("ember not available — cannot perform reset".to_string())
+                })?;
             ember
                 .device_reset(&bdf, method)
                 .map_err(|e| RpcError::device_error(format!("ember reset: {e}")))?;
@@ -651,7 +653,9 @@ fn handle_experiment_end(
 
             // Warm cycle restores clean GPU state after an experiment dirties it.
             let warm_result = if auto_warm {
-                match coral_glowplug::ember::EmberClient::connect() {
+                match coral_glowplug::ember::EmberClient::connect_for_bdf(bdf)
+                    .or_else(|| coral_glowplug::ember::EmberClient::connect())
+                {
                     Some(client) => {
                         tracing::info!(bdf = %bdf, "experiment_end: triggering warm cycle");
                         match client.warm_cycle(bdf) {

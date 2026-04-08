@@ -134,6 +134,40 @@ impl EmberClient {
         }
     }
 
+    /// Connect to the ember responsible for a specific BDF (fleet mode).
+    ///
+    /// Search order: fleet socket → per-device socket → legacy socket.
+    pub fn connect_for_bdf(bdf: &str) -> Option<Self> {
+        #[cfg(test)]
+        if EMBER_DISABLED.with(|c| c.get()) {
+            return None;
+        }
+
+        let slug = coral_ember::bdf_to_slug(bdf);
+        let candidates = [
+            format!("/run/coralreef/fleet/ember-{slug}.sock"),
+            coral_ember::ember_instance_socket_path(bdf),
+            default_ember_socket(),
+        ];
+        for path in &candidates {
+            if !std::path::Path::new(path).exists() {
+                continue;
+            }
+            match UnixStream::connect(path) {
+                Ok(stream) => {
+                    drop(stream);
+                    tracing::info!(path = %path, bdf, "ember available for BDF");
+                    return Some(Self { socket_path: path.clone() });
+                }
+                Err(e) => {
+                    tracing::debug!(path, bdf, error = %e, "ember not reachable for BDF");
+                }
+            }
+        }
+        tracing::debug!(bdf, "no ember reachable for BDF");
+        None
+    }
+
     /// List devices held by the ember.
     pub fn list_devices(&self) -> Result<Vec<String>, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;

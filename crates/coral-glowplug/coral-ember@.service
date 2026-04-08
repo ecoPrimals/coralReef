@@ -15,13 +15,12 @@ Description=coral-ember@%i — Per-Device VFIO fd Holder
 Documentation=https://github.com/ecoPrimals/coralReef
 After=local-fs.target systemd-modules-load.service
 Wants=systemd-modules-load.service
-Before=coral-glowplug.service
 
 [Service]
 Type=notify
 NotifyAccess=main
 ExecStartPre=/bin/sh -c 'echo Y > /sys/module/vfio_pci/parameters/disable_idle_d3 2>/dev/null || true'
-ExecStart=/usr/local/bin/coral-ember server --bdf %I /etc/coralreef/glowplug.toml
+ExecStart=/usr/local/bin/coral-ember server --bdf %i /etc/coralreef/glowplug.toml
 Restart=no
 TimeoutStartSec=30
 TimeoutStopSec=30
@@ -29,25 +28,7 @@ KillMode=mixed
 KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=RUST_LOG=info
-Environment=CORALREEF_EMBER_SOCKET=/run/coralreef/ember-%i.sock
-SupplementaryGroups=coralreef
-UMask=0117
-RuntimeDirectory=coralreef
-RuntimeDirectoryMode=0750
-
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
-AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
-NoNewPrivileges=true
-
-ProtectSystem=strict
-ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc /sys/kernel/debug/tracing /var/lib/coralreef /usr/local/bin
-ReadOnlyPaths=/lib/modules /etc/modprobe.d /lib/modprobe.d
-PrivateTmp=true
-ProtectHome=true
-
-SystemCallFilter=@system-service @module ioctl sendmsg
-SystemCallErrorNumber=EPERM
-MemoryDenyWriteExecute=true
+Environment=CORALREEF_EMBER_SOCKET=/run/coralreef/fleet/ember-%i.sock
 
 [Install]
 WantedBy=multi-user.target

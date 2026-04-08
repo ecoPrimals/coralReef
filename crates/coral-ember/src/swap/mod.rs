@@ -188,15 +188,23 @@ pub fn handle_swap_device_with_journal(
         );
     }
 
-    // Unbind current driver.
+    // Unbind current driver (skipped when lifecycle says PCI rescan handles it).
     if let Some(ref drv) = current {
-        tracing::info!(bdf, driver = %drv, "swap_device: unbinding current driver");
-        sysfs::sysfs_write(
-            &linux_paths::sysfs_pci_device_file(bdf, "driver/unbind"),
-            bdf,
-        )?;
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        sysfs::pin_power(bdf);
+        if lifecycle.skip_sysfs_unbind() {
+            tracing::info!(
+                bdf,
+                driver = %drv,
+                "swap_device: skipping sysfs unbind (lifecycle will PCI-remove instead)"
+            );
+        } else {
+            tracing::info!(bdf, driver = %drv, "swap_device: unbinding current driver");
+            sysfs::sysfs_write(
+                &linux_paths::sysfs_pci_device_file(bdf, "driver/unbind"),
+                bdf,
+            )?;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            sysfs::pin_power(bdf);
+        }
     }
     let unbind_ms = unbind_start.elapsed().as_millis() as u64;
 

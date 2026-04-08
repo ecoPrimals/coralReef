@@ -481,7 +481,7 @@ pub fn gem_cpu_prep(fd: RawFd, gem_handle: u32) -> DriverResult<()> {
 ///
 /// Returns a [`MappedRegion`] that provides safe slice access and
 /// automatically unmaps on drop. Uses the unified mmap abstraction.
-pub(crate) fn gem_mmap_region(fd: RawFd, map_handle: u64, size: u64) -> DriverResult<MappedRegion> {
+pub fn gem_mmap_region(fd: RawFd, map_handle: u64, size: u64) -> DriverResult<MappedRegion> {
     let len = usize::try_from(size).map_err(|_| {
         DriverError::platform_overflow("buffer size exceeds platform pointer width")
     })?;

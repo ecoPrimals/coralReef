@@ -18,7 +18,7 @@ pub(crate) async fn spawn_test_server() -> (
     let (tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut rx = shutdown_rx.clone();
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices, &mut rx).await;
+        server.accept_loop(devices, &mut rx, None).await;
     });
     for _ in 0..50 {
         if tokio::net::TcpStream::connect(&addr).await.is_ok() {

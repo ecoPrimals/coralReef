@@ -333,6 +333,7 @@ async fn main() {
         .collect();
 
     let mut lifecycle_shutdown = shutdown_rx.clone();
+    let vault: Option<std::sync::Arc<coral_glowplug::fd_vault::FdVault>>;
 
     if fleet_mode {
         // ── FLEET MODE: per-device embers + hot-standby pool ──
@@ -387,6 +388,7 @@ async fn main() {
                 }
             }
         });
+        vault = None; // Fleet vaults are per-ember; wired separately
     } else {
         // ── LEGACY MODE: single ember holding all GPUs ──
         let ember_socket = coral_ember::ember_socket_path();
@@ -400,6 +402,7 @@ async fn main() {
         };
         let mut ember_lifecycle =
             coral_glowplug::ember_lifecycle::EmberLifecycle::new(lifecycle_config);
+        vault = Some(ember_lifecycle.vault().clone());
         if ember_lifecycle.probe_heartbeat() {
             tracing::info!(ember_socket = %ember_socket, "ember heartbeat: ALIVE at startup");
             ember_lifecycle.record_heartbeat();
@@ -514,7 +517,7 @@ async fn main() {
     let mut accept_shutdown = shutdown_rx.clone();
     let accept_handle = tokio::spawn(async move {
         server
-            .accept_loop(accept_devices, &mut accept_shutdown)
+            .accept_loop(accept_devices, &mut accept_shutdown, vault)
             .await;
     });
 

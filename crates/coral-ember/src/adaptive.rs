@@ -214,6 +214,14 @@ impl VendorLifecycle for AdaptiveLifecycle {
 
         reordered
     }
+
+    fn is_cold_sensitive(&self) -> bool {
+        self.inner.is_cold_sensitive()
+    }
+
+    fn skip_sysfs_unbind(&self) -> bool {
+        self.inner.skip_sysfs_unbind()
+    }
 }
 
 #[cfg(test)]

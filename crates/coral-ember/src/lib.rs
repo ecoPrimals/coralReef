@@ -34,6 +34,7 @@ pub(crate) mod vendor_lifecycle;
 use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use serde::Deserialize;
@@ -174,19 +175,37 @@ pub fn bdf_to_slug(bdf: &str) -> String {
     bdf.replace(':', "-")
 }
 
+/// Convert a slug like `0000-03-00.0` back to canonical BDF `0000:03:00.0`.
+///
+/// Accepts both formats — if already colon-separated, returns as-is.
+#[must_use]
+pub fn slug_to_bdf(slug: &str) -> String {
+    if slug.contains(':') {
+        return slug.to_string();
+    }
+    let mut out = slug.to_string();
+    // PCI BDF has colons at positions 4 and 7: 0000:03:00.0
+    if out.len() >= 10 {
+        out.replace_range(4..5, ":");
+        out.replace_range(7..8, ":");
+    }
+    out
+}
+
 /// Socket path for a per-device ember instance in fleet mode.
 ///
-/// Returns `/run/coralreef/ember-{slug}.sock` where slug is the BDF with
-/// colons replaced by hyphens.
+/// Returns `/run/coralreef/fleet/ember-{slug}.sock` where slug is the BDF with
+/// colons replaced by hyphens. Uses a `fleet/` subdirectory to survive
+/// glowplug restarts (the parent `/run/coralreef/` may be recreated).
 #[must_use]
 pub fn ember_instance_socket_path(bdf: &str) -> String {
-    format!("/run/coralreef/ember-{}.sock", bdf_to_slug(bdf))
+    format!("/run/coralreef/fleet/ember-{}.sock", bdf_to_slug(bdf))
 }
 
 /// Socket path for a hot-standby ember instance.
 #[must_use]
 pub fn ember_standby_socket_path(index: usize) -> String {
-    format!("/run/coralreef/ember-standby-{index}.sock")
+    format!("/run/coralreef/fleet/ember-standby-{index}.sock")
 }
 
 /// System-wide glowplug config path (same default and `$CORALREEF_GLOWPLUG_CONFIG` as coral-glowplug).
@@ -305,13 +324,14 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     };
 
     if opts.single_bdf.is_some() {
-        let bdf = opts.single_bdf.as_deref().unwrap();
+        let raw_bdf = opts.single_bdf.as_deref().unwrap();
+        let bdf = slug_to_bdf(raw_bdf);
         config.device.retain(|d| d.bdf == bdf);
         if config.device.is_empty() {
-            tracing::error!(bdf, "BDF not found in config — nothing to hold");
+            tracing::error!(%bdf, raw = raw_bdf, "BDF not found in config — nothing to hold");
             return Err(1);
         }
-        tracing::info!(bdf, "fleet mode: single-device ember");
+        tracing::info!(%bdf, "fleet mode: single-device ember");
     }
 
     if opts.standby {
@@ -373,6 +393,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                             mmio_fault_count: 0,
                             health: hold::DeviceHealth::Alive,
                             pcie_armor: Some(armor),
+                            teardown_policy: Default::default(),
                         },
                     );
                 }
@@ -487,6 +508,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                             mmio_fault_count: 0,
                             health: hold::DeviceHealth::Alive,
                             pcie_armor: Some(armor),
+                            teardown_policy: Default::default(),
                         },
                     );
                 }
@@ -668,14 +690,40 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
             .expect("spawn ember TCP accept thread");
     }
 
+    let active_connections = Arc::new(AtomicUsize::new(0));
+
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                let current = active_connections.load(Ordering::Relaxed);
+                if current >= MAX_CONCURRENT_CLIENTS {
+                    tracing::warn!(
+                        active = current,
+                        max = MAX_CONCURRENT_CLIENTS,
+                        "overloaded — rejecting connection"
+                    );
+                    let overload = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32000,
+                            "message": "ember overloaded — try again later"
+                        },
+                        "id": null
+                    });
+                    let _ = std::io::Write::write_all(
+                        &mut stream,
+                        format!("{overload}\n").as_bytes(),
+                    );
+                    continue;
+                }
+                active_connections.fetch_add(1, Ordering::Relaxed);
+
                 let held = Arc::clone(&held);
                 let managed = Arc::clone(&managed_bdfs);
                 let journal = Arc::clone(&journal);
                 let policies = Arc::clone(&policies);
                 let warm_cycling = Arc::clone(&warm_cycling);
+                let conn_counter = Arc::clone(&active_connections);
                 std::thread::spawn(move || {
                     if let Err(e) = ipc::handle_client(
                         &mut stream,
@@ -688,6 +736,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                     ) {
                         tracing::warn!(error = %e, "client handler error");
                     }
+                    conn_counter.fetch_sub(1, Ordering::Relaxed);
                 });
             }
             Err(e) => {
@@ -835,6 +884,12 @@ fn spawn_req_watcher(
 
 /// Default watchdog interval in seconds (half a typical `WatchdogSec=30`).
 const WATCHDOG_INTERVAL_SECS: u64 = 15;
+
+/// Maximum concurrent client connections before overload response.
+///
+/// Protects ember from RPC floods that would exhaust threads/fds.
+/// Excess connections receive a JSON-RPC error and are closed immediately.
+const MAX_CONCURRENT_CLIENTS: usize = 32;
 
 /// Spawn a background thread that periodically:
 /// 1. Sends `WATCHDOG=1` to systemd (if `NOTIFY_SOCKET` is set).

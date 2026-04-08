@@ -33,6 +33,100 @@ pub fn is_poisonous_read(offset: usize) -> bool {
     POISONOUS_POST_NOUVEAU.contains(&offset)
 }
 
+// ─── MMIO Write Firewall ────────────────────────────────────────────
+//
+// nvidia's driver teardown sequence scrubs the GPU's security context:
+// stops PMU (killing the Resource Manager), wipes Falcon DMEM with
+// 0xDEAD5EC2, clears FECS firmware from IMEM, and strips PMC_ENABLE.
+// Once these writes execute, host MMIO loses PRI privilege on Volta+
+// and Falcon engines become permanently locked until a full driver
+// re-initialization.
+//
+// The write firewall blocks these specific teardown patterns so that
+// a monitored unload preserves the security context for sovereign use.
+
+const PMU_BASE: usize = 0x10_A000;
+const FECS_BASE: usize = 0x40_9000;
+
+/// Falcon register offsets relative to engine base.
+const FALCON_CPUCTL: usize = 0x100;
+const FALCON_DMEMC0: usize = 0x1C0;
+const FALCON_DMEMD0: usize = 0x1C4;
+const FALCON_IMEMC0: usize = 0x180;
+const FALCON_IMEMD0: usize = 0x184;
+
+/// nvidia's DMEM scrub sentinel written during driver unload.
+const DEAD_SEC2_SENTINEL: u32 = 0xDEAD_5EC2;
+
+/// CPUCTL bit patterns that halt/stop/reset a Falcon engine.
+const CPUCTL_HALT: u32 = 0x10;
+const CPUCTL_SRESET: u32 = 0x40;
+
+/// Controls whether the MMIO write firewall blocks driver teardown writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeardownPolicy {
+    /// All writes pass through (default).
+    AllowAll,
+    /// Block writes that destroy the GPU security context.
+    BlockTeardown,
+    /// Block and log each blocked write (for diagnostics).
+    BlockAndLog,
+}
+
+impl Default for TeardownPolicy {
+    fn default() -> Self {
+        Self::AllowAll
+    }
+}
+
+impl TeardownPolicy {
+    pub fn blocks(&self) -> bool {
+        matches!(self, Self::BlockTeardown | Self::BlockAndLog)
+    }
+
+    pub fn logs(&self) -> bool {
+        matches!(self, Self::BlockAndLog)
+    }
+}
+
+/// Returns `true` if writing `value` to `offset` would destroy the GPU
+/// security context during driver teardown.
+///
+/// Recognized teardown patterns (discovered via Exp160/161 mmiotrace):
+///
+/// - **PMU CPUCTL halt/stop/reset**: kills the Resource Manager firmware
+/// - **PMU DMEM scrub (0xDEAD5EC2)**: wipes RM state
+/// - **FECS IMEM zeroing**: clears FECS firmware from instruction memory
+/// - **PMC_ENABLE mass-strip**: disables engines, revoking PRI privilege
+pub fn is_teardown_write(offset: usize, value: u32) -> bool {
+    // PMU Falcon CPUCTL — halt/stop/reset kills the RM
+    if offset == PMU_BASE + FALCON_CPUCTL
+        && (value & (CPUCTL_HALT | CPUCTL_SRESET) != 0)
+    {
+        return true;
+    }
+
+    // PMU DMEM scrub — sentinel pattern wipes RM data memory
+    if offset == PMU_BASE + FALCON_DMEMD0 && value == DEAD_SEC2_SENTINEL {
+        return true;
+    }
+
+    // FECS IMEM zeroing — clears graphics firmware
+    if offset == FECS_BASE + FALCON_IMEMD0 && value == 0 {
+        return true;
+    }
+
+    // PMC_ENABLE mass-strip: if writing a value with significantly fewer
+    // engines than the full warm state (0x5FEC_DFF1 has 21 bits set),
+    // the write is likely a teardown. Block writes that would clear more
+    // than 8 engine bits compared to a warm GPU.
+    if offset == PMC_ENABLE && value.count_ones() < 8 {
+        return true;
+    }
+
+    false
+}
+
 const PMC_ENABLE: usize = 0x000200;
 const PMC_INTR_EN_SET: usize = 0x000240;
 const PMC_INTR_EN_CLR: usize = 0x000244;
@@ -262,5 +356,73 @@ mod tests {
         assert!(!is_poisonous_read(0x0000_0200)); // PMC_ENABLE
         assert!(!is_poisonous_read(0x0000_2200)); // PFIFO_ENABLE
         assert!(!is_poisonous_read(0x0012_004C)); // PRIV_RING_COMMAND (write-only, safe)
+    }
+
+    // ── Teardown firewall tests ──
+
+    #[test]
+    fn pmu_cpuctl_halt_blocked() {
+        assert!(is_teardown_write(0x10_A100, 0x10)); // HALT
+        assert!(is_teardown_write(0x10_A100, 0x40)); // SRESET
+        assert!(is_teardown_write(0x10_A100, 0x50)); // HALT + SRESET
+    }
+
+    #[test]
+    fn pmu_cpuctl_start_allowed() {
+        assert!(!is_teardown_write(0x10_A100, 0x02)); // START — not a teardown
+    }
+
+    #[test]
+    fn pmu_dmem_scrub_blocked() {
+        assert!(is_teardown_write(0x10_A1C4, 0xDEAD_5EC2));
+    }
+
+    #[test]
+    fn pmu_dmem_normal_write_allowed() {
+        assert!(!is_teardown_write(0x10_A1C4, 0x0000_0001));
+        assert!(!is_teardown_write(0x10_A1C4, 0xFFFF_FFFF));
+    }
+
+    #[test]
+    fn fecs_imem_zero_blocked() {
+        assert!(is_teardown_write(0x40_9184, 0));
+    }
+
+    #[test]
+    fn fecs_imem_firmware_allowed() {
+        assert!(!is_teardown_write(0x40_9184, 0xCF42_0049));
+    }
+
+    #[test]
+    fn pmc_enable_mass_strip_blocked() {
+        assert!(is_teardown_write(0x200, 0x0000_0121)); // 3 bits — teardown
+        assert!(is_teardown_write(0x200, 0x0000_0000)); // 0 bits — full off
+    }
+
+    #[test]
+    fn pmc_enable_warm_state_allowed() {
+        assert!(!is_teardown_write(0x200, 0x5FEC_DFF1)); // 21 bits — warm
+        assert!(!is_teardown_write(0x200, 0xFFFF_FFFF)); // 32 bits — all on
+    }
+
+    #[test]
+    fn unrelated_writes_allowed() {
+        assert!(!is_teardown_write(0x0000_0000, 0x1234_5678)); // BOOT0
+        assert!(!is_teardown_write(0x0012_004C, 0x0000_0002)); // PRI ACK
+        assert!(!is_teardown_write(0x0070_0000, 0xDEAD_BEEF)); // PRAMIN
+    }
+
+    #[test]
+    fn teardown_policy_default_allows_all() {
+        assert_eq!(TeardownPolicy::default(), TeardownPolicy::AllowAll);
+        assert!(!TeardownPolicy::AllowAll.blocks());
+    }
+
+    #[test]
+    fn teardown_policy_block_and_log() {
+        assert!(TeardownPolicy::BlockAndLog.blocks());
+        assert!(TeardownPolicy::BlockAndLog.logs());
+        assert!(TeardownPolicy::BlockTeardown.blocks());
+        assert!(!TeardownPolicy::BlockTeardown.logs());
     }
 }

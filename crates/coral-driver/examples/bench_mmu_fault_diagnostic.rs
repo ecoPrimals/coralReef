@@ -12,6 +12,7 @@
 //! Requires: GPU bound to `vfio-pci`, IOMMU enabled.
 
 use coral_driver::nv::vfio_compute::RawVfioDevice;
+use coral_driver::nv::vfio_compute::falcon_capability::FalconProbe;
 use coral_driver::vfio::channel::VfioChannel;
 use coral_driver::vfio::channel::mmu_fault;
 use coral_driver::vfio::device::MappedBar;
@@ -25,14 +26,17 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     let use_ember = args.iter().any(|a| a == "--ember");
+    let ce_pos = args.iter().position(|a| a == "--ce");
     let bdf = args
         .iter()
+        .enumerate()
         .skip(1)
-        .find(|a| !a.starts_with('-'))
-        .cloned()
+        .filter(|(i, a)| !a.starts_with('-') && ce_pos.map_or(true, |cp| *i != cp + 1))
+        .map(|(_, a)| a.clone())
+        .next()
         .unwrap_or_else(|| {
-            eprintln!("Usage: bench_mmu_fault_diagnostic [--ember] <BDF>");
-            eprintln!("Example: bench_mmu_fault_diagnostic 0000:06:00.0");
+            eprintln!("Usage: bench_mmu_fault_diagnostic [--ember] [--vram] [--ce <RL>] <BDF>");
+            eprintln!("Example: bench_mmu_fault_diagnostic --vram --ce 2 0000:06:00.0");
             std::process::exit(1);
         });
 
@@ -66,22 +70,101 @@ fn main() {
     };
     eprintln!("  ✓ VFIO device opened");
 
+    if let Err(e) = raw.enable_bus_master() {
+        eprintln!("  ⚠ Bus master enable failed: {e}");
+    }
+
     let boot0 = raw.bar0.read_u32(0x0000_0000).unwrap_or(0xDEAD);
     eprintln!("  BOOT0 = {boot0:#010x}");
+
+    // ── Phase 1.5: Firmware Boundary Probe ──────────────────────────────
+    let clear_pbdma = args.iter().any(|a| a == "--clear-pbdma");
+    {
+        eprintln!("\n▶ Phase 1.5: Firmware Boundary Probe");
+        let probe = FalconProbe::discover(&raw.bar0);
+        eprintln!("{probe}");
+
+        if !probe.dispatch_viable() {
+            eprintln!("\n  ⚠ Dispatch NOT viable. Blockers:");
+            for b in probe.dispatch_blockers() {
+                eprintln!("    - {b}");
+            }
+            eprintln!("  (Continuing diagnostic for data collection)");
+        }
+
+        let r = |reg: usize| raw.bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
+        let pfifo_en_reg = r(0x2200);
+        let pfifo_intr = r(0x2100);
+        eprintln!("  PFIFO_ENABLE= {pfifo_en_reg:#010x}");
+        eprintln!("  PFIFO_INTR  = {pfifo_intr:#010x}");
+
+        let pbdma_map = r(0x2004);
+        eprintln!("  PBDMA_MAP   = {pbdma_map:#010x}");
+        for pid in [1_usize, 2, 3, 21] {
+            let b = 0x40000 + pid * 0x2000;
+            let userd = r(b + 0xD0);
+            let gpbase_hi = r(b + 0x44);
+            let sig = r(b + 0xC0);
+            let idle = r(b + 0x04);
+            eprintln!("  PBDMA{pid:2}: USERD={userd:#010x} GP_HI={gpbase_hi:#010x} SIG={sig:#010x} IDLE={idle:#010x}");
+        }
+
+        if clear_pbdma {
+            eprintln!("\n  ── --clear-pbdma: Clearing stale PBDMA registers ──");
+            for pid in [1_usize, 2, 3] {
+                let b = 0x40000 + pid * 0x2000;
+                let _ = raw.bar0.write_u32(b + 0x0D0, 0);
+                let _ = raw.bar0.write_u32(b + 0x0D4, 0);
+                let _ = raw.bar0.write_u32(b + 0x058, 0);
+                let _ = raw.bar0.write_u32(b + 0x054, 0);
+                let _ = raw.bar0.write_u32(b + 0x048, 0);
+                let userd_rb = r(b + 0xD0);
+                eprintln!("  PBDMA{pid}: USERD after clear = {userd_rb:#010x}");
+            }
+        }
+    }
 
     eprintln!("\n▶ Phase 2: Pre-channel MMU state");
     let pre_fault = mmu_fault::read_mmu_faults(&raw.bar0);
     print_fault("pre-channel", &pre_fault);
 
+    // Detect VRAM state to choose channel creation strategy.
+    let use_vram = args.iter().any(|a| a == "--vram");
+    let ce_runlist: Option<u32> = args.iter()
+        .position(|a| a == "--ce")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok());
+    let pmc = raw.bar0.read_u32(0x200).unwrap_or(0);
+    let vram_alive = pmc != 0x40000020 && pmc != 0;
+    if use_vram {
+        eprintln!("  --vram mode: using VRAM-based scheduler structures");
+    }
+    if let Some(rl) = ce_runlist {
+        eprintln!("  --ce mode: targeting runlist {rl} (copy engine, bypasses FECS)");
+    }
+    eprintln!("  PMC_ENABLE = {pmc:#010x} (VRAM {})", if vram_alive { "alive" } else { "dead" });
+
     eprintln!("\n▶ Phase 3: Create PFIFO channel");
-    let channel = match VfioChannel::create(
-        raw.container.clone(),
-        &raw.bar0,
-        RawVfioDevice::gpfifo_iova(),
-        RawVfioDevice::gpfifo_entries(),
-        RawVfioDevice::userd_iova(),
-        0,
-    ) {
+    let channel = match if use_vram && vram_alive {
+        VfioChannel::create_vram_sched_on(
+            raw.container.clone(),
+            &raw.bar0,
+            RawVfioDevice::gpfifo_iova(),
+            RawVfioDevice::gpfifo_entries(),
+            RawVfioDevice::userd_iova(),
+            0,
+            ce_runlist,
+        )
+    } else {
+        VfioChannel::create(
+            raw.container.clone(),
+            &raw.bar0,
+            RawVfioDevice::gpfifo_iova(),
+            RawVfioDevice::gpfifo_entries(),
+            RawVfioDevice::userd_iova(),
+            0,
+        )
+    } {
         Ok(ch) => {
             eprintln!("  ✓ Channel created (id={})", ch.id());
             ch
@@ -174,52 +257,83 @@ fn main() {
     };
     eprintln!("  USERD GP_GET = {gp_get} (expected: 1 if consumed)");
 
-    eprintln!("\n▶ Phase 7: PBDMA state");
-    for pbdma_id in 0..4_usize {
-        let base = 0x40000 + pbdma_id * 0x2000;
-        let intr = raw.bar0.read_u32(base + 0x108).unwrap_or(0xDEAD);
-        let state = raw.bar0.read_u32(base + 0xB0).unwrap_or(0xDEAD);
-        let gp_fetch = raw.bar0.read_u32(base + 0x48).unwrap_or(0xDEAD);
-        let gp_put = raw.bar0.read_u32(base + 0x54).unwrap_or(0xDEAD);
-        let userd_lo = raw.bar0.read_u32(base + 0xD0).unwrap_or(0xDEAD);
-        let gpbase = raw.bar0.read_u32(base + 0x40).unwrap_or(0xDEAD);
-        let sig = raw.bar0.read_u32(base + 0xC0).unwrap_or(0xDEAD);
-        if intr != 0 || state != 0 || gp_fetch != 0 {
-            eprintln!(
-                "  PBDMA{pbdma_id}: INTR={intr:#010x} STATE={state:#010x} GP_FETCH={gp_fetch} GP_PUT={gp_put} USERD={userd_lo:#010x} GP_BASE={gpbase:#010x} SIG={sig:#010x}"
-            );
-        }
-    }
+    // Map runlist to PBDMA (GV100 topology from PBDMA_RL_SEQ[0-3]):
+    // PBDMA1,2→RL1(GR), PBDMA3→RL2(CE), PBDMA21→RL4(CE)
+    let pbdma_for_rl = |rl: u32| -> usize {
+        match rl { 1 => 1, 2 => 3, 4 => 21, _ => 1 }
+    };
+    let target_rl = ce_runlist.unwrap_or(1);
+    let target_pbdma = pbdma_for_rl(target_rl);
+    let pb = 0x40000 + target_pbdma * 0x2000;
+    let r = |reg: usize| raw.bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
 
-    let pfifo_intr = raw.bar0.read_u32(0x2100).unwrap_or(0xDEAD);
-    let priv_ring = raw.bar0.read_u32(0x0001_2070).unwrap_or(0xDEAD);
+    eprintln!("\n▶ Phase 7: PBDMA{target_pbdma} state (post-doorbell, RL{target_rl})");
+
+    let gpu_pci_cmd = r(0x88004);
+    eprintln!("  GPU PCI CMD  = {gpu_pci_cmd:#010x} (bus_master={})", gpu_pci_cmd & 4 != 0);
+
+    eprintln!("  PBDMA{target_pbdma} GP_BASE_LO = {:#010x}", r(pb + 0x040));
+    eprintln!("  PBDMA{target_pbdma} GP_BASE_HI = {:#010x}", r(pb + 0x044));
+    eprintln!("  PBDMA{target_pbdma} GP_FETCH   = {:#010x}", r(pb + 0x048));
+    eprintln!("  PBDMA{target_pbdma} GP_STATE   = {:#010x}", r(pb + 0x04C));
+    eprintln!("  PBDMA{target_pbdma} GP_PUT     = {:#010x}", r(pb + 0x054));
+    eprintln!("  PBDMA{target_pbdma} GP_GET     = {:#010x}", r(pb + 0x058));
+    eprintln!("  PBDMA{target_pbdma} USERD_LO   = {:#010x}", r(pb + 0x0D0));
+    eprintln!("  PBDMA{target_pbdma} USERD_HI   = {:#010x}", r(pb + 0x0D4));
+    eprintln!("  PBDMA{target_pbdma} SIG        = {:#010x}", r(pb + 0x0C0));
+    eprintln!("  PBDMA{target_pbdma} CONFIG     = {:#010x}", r(pb + 0x0A8));
+    eprintln!("  PBDMA{target_pbdma} CH_INFO    = {:#010x}", r(pb + 0x0AC));
+    eprintln!("  PBDMA{target_pbdma} CH_STATE   = {:#010x}", r(pb + 0x0B0));
+    eprintln!("  PBDMA{target_pbdma} INTR       = {:#010x}", r(pb + 0x108));
+    eprintln!("  PBDMA{target_pbdma} IDLE       = {:#010x}", r(pb + 0x004));
+    eprintln!("  PBDMA{target_pbdma} CTX USERD  = {:#010x}", r(pb + 0x008));
+    eprintln!("  PBDMA{target_pbdma} CTX 0x0F4  = {:#010x}", r(pb + 0x0F4));
+    eprintln!("  PBDMA{target_pbdma} CTX 0x0F8  = {:#010x}", r(pb + 0x0F8));
+
+    let pfifo_intr = r(0x2100);
+    let priv_ring = r(0x0001_2070);
     eprintln!("  PFIFO_INTR = {pfifo_intr:#010x}");
     eprintln!("  PRIV_RING  = {priv_ring:#010x}");
 
     // Phase 8: Direct PBDMA programming — bypass the HOST scheduler.
     if gp_get == 0 {
         eprintln!("\n▶ Phase 8: Direct PBDMA programming (bypass scheduler)");
-        let pbdma_id = 1_usize; // PBDMA serving RL1 (GR engine)
+        let pbdma_id = target_pbdma;
         let base = 0x40000 + pbdma_id * 0x2000;
 
-        // Write GPFIFO base (IOVA 0x1000), USERD (IOVA 0x2000), and instance block.
         let gpfifo_iova: u64 = 0x1000;
         let userd_iova: u64 = 0x2000;
-        let limit2 = 9_u32; // 512 entries → ilog2(512) = 9
+        let limit2 = 9_u32;
+        const TARGET_SYS_MEM_COH: u32 = 2;
 
-        let _ = raw
-            .bar0
-            .write_u32(base + 0x008, (userd_iova as u32 & 0xFFFF_FE00) | 2); // USERD_LO + target=COH
-        let _ = raw.bar0.write_u32(base + 0x00C, (userd_iova >> 32) as u32); // USERD_HI
-        let _ = raw.bar0.write_u32(base + 0x010, 0x0000_FACE); // SIGNATURE
-        let _ = raw.bar0.write_u32(base + 0x030, 0x7FFF_F902); // ACQUIRE
-        let _ = raw.bar0.write_u32(base + 0x048, gpfifo_iova as u32); // GP_BASE_LO
-        let _ = raw
-            .bar0
-            .write_u32(base + 0x04C, (gpfifo_iova >> 32) as u32 | (limit2 << 16)); // GP_BASE_HI
-        let _ = raw.bar0.write_u32(base + 0x050, 0); // GP_FETCH = 0
-        let _ = raw.bar0.write_u32(base + 0x058, 0); // GP_GET = 0
-        let _ = raw.bar0.write_u32(base + 0x054, 1); // GP_PUT = 1 (triggers fetch)
+        // GP_BASE with TARGET=SYS_MEM_COH + VALID. Without TARGET bits,
+        // PBDMA fetches from VRAM 0x1000 instead of system memory IOVA 0x1000.
+        let _ = raw.bar0.write_u32(base + 0x040, gpfifo_iova as u32);
+        let gp_base_hi = (gpfifo_iova >> 32) as u32
+            | (limit2 << 16)
+            | (TARGET_SYS_MEM_COH << 8) // aperture = SYS_MEM_COH
+            | (1 << 2);                 // VALID
+        let _ = raw.bar0.write_u32(base + 0x044, gp_base_hi);
+        // USERD with TARGET=SYS_MEM_COH
+        let _ = raw.bar0.write_u32(
+            base + 0x0D0,
+            (userd_iova as u32 & 0xFFFF_FE00) | TARGET_SYS_MEM_COH,
+        );
+        let _ = raw.bar0.write_u32(base + 0x0D4, (userd_iova >> 32) as u32);
+        let _ = raw.bar0.write_u32(base + 0x0C0, 0x0000_FACE); // SIG
+        let _ = raw.bar0.write_u32(base + 0x0AC, 0x1000_3080); // CH_INFO
+        let _ = raw.bar0.write_u32(base + 0x0A8, 0x0000_1100); // CONFIG
+        let _ = raw.bar0.write_u32(base + 0x048, 0); // GP_FETCH
+        let _ = raw.bar0.write_u32(base + 0x04C, 0); // GP_STATE
+        let _ = raw.bar0.write_u32(base + 0x054, 1); // GP_PUT
+
+        // Bind instance block + enable channel + doorbell.
+        let _ = raw.bar0.write_u32(0x800000 + channel.id() as usize * 8,
+            0x80000030); // PCCSR_INST: VRAM 0x30000, BIND=TRUE
+        let _ = raw.bar0.write_u32(0x800000 + channel.id() as usize * 8 + 4,
+            (1 << 10) | 0x2); // CHANNEL_ENABLE_SET
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let _ = raw.bar0.write_u32(0x81_0090, channel.id()); // doorbell
 
         std::thread::sleep(std::time::Duration::from_millis(100));
 

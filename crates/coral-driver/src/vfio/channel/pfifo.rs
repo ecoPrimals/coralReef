@@ -43,9 +43,16 @@ pub struct PfifoInitConfig {
     /// unload all channels; with none remaining FECS disables GR.
     pub preempt_runlists: bool,
     /// `true` → write `SCHED_EN (0x2504) = 1`; `false` → write `SCHED_DISABLE (0x2630) = 0`.
+    /// Ignored when `discovery_only` is true.
     pub use_sched_en: bool,
     /// Milliseconds to wait after empty-runlist flush.
     pub post_flush_settle_ms: u64,
+    /// GV100 discovery-only mode: skip ALL PFIFO/scheduler register writes.
+    /// On GV100, PFIFO_ENABLE (0x2200), SCHED_EN (0x2504), and SCHED_DISABLE
+    /// (0x2630) are PRI-gated or non-functional. The scheduler runs implicitly
+    /// when the engine is enabled in PMC. Only PRIV_RING fault clearing and
+    /// read-only PBDMA discovery are performed.
+    pub discovery_only: bool,
 }
 
 impl Default for PfifoInitConfig {
@@ -63,6 +70,7 @@ impl Default for PfifoInitConfig {
             preempt_runlists: true,
             use_sched_en: true,
             post_flush_settle_ms: 20,
+            discovery_only: false,
         }
     }
 }
@@ -83,6 +91,7 @@ impl PfifoInitConfig {
             preempt_runlists: false,
             use_sched_en: false,
             post_flush_settle_ms: 0,
+            discovery_only: false,
         }
     }
 
@@ -102,6 +111,51 @@ impl PfifoInitConfig {
             preempt_runlists: false,
             use_sched_en: true,
             post_flush_settle_ms: 10,
+            discovery_only: false,
+        }
+    }
+
+    /// GV100 discovery-only mode for warm handoff from nouveau.
+    /// On GV100, PFIFO_ENABLE/SCHED_EN/SCHED_DISABLE are non-functional
+    /// (PRI-gated). The scheduler runs implicitly when the engine is PMC-
+    /// enabled. This config only clears PRIV_RING faults and reads PBDMA/
+    /// runlist topology — no PFIFO register writes at all.
+    #[must_use]
+    pub fn gv100_warm() -> Self {
+        Self {
+            clear_priv_ring: true,
+            pmc_glow_plug: false,
+            pfifo_settle_ms: 0,
+            retry_on_priv_fault: false,
+            pmc_pfifo_reset: false,
+            pbdma_force_clear: false,
+            flush_empty_runlists: false,
+            preempt_runlists: false,
+            use_sched_en: false,
+            post_flush_settle_ms: 0,
+            discovery_only: true,
+        }
+    }
+
+    /// Config for sovereign compute after nvidia `NVreg_PreserveHwState=1`
+    /// unload. The GPU retains full initialization (HBM2 trained, PMU RM
+    /// alive, all engines enabled, PRI privilege active). We preserve
+    /// everything and only clear stale interrupts before creating our
+    /// own channel alongside the preserved RM context.
+    #[must_use]
+    pub fn preserved_nvidia() -> Self {
+        Self {
+            clear_priv_ring: true,
+            pmc_glow_plug: false,
+            pfifo_settle_ms: 5,
+            retry_on_priv_fault: true,
+            pmc_pfifo_reset: false,
+            pbdma_force_clear: false,
+            flush_empty_runlists: false,
+            preempt_runlists: false,
+            use_sched_en: false,
+            post_flush_settle_ms: 5,
+            discovery_only: false,
         }
     }
 }
@@ -174,71 +228,91 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
         );
     }
 
+    let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
+
+    if cfg.discovery_only {
+        tracing::info!(
+            pmc = format_args!("{pmc_before:#010x}"),
+            "GV100 discovery-only mode — skipping all PFIFO register writes"
+        );
+    }
+
     // Glow plug — enable all engines in PMC_ENABLE (0x200).
     // NB: DEVICE_ENABLE (0x600) is NOT present on GV100 (returns 0xBAD00200
     // PBUS timeout). Do not write it.
-    let pmc_before = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-    if cfg.pmc_glow_plug {
+    if !cfg.discovery_only && cfg.pmc_glow_plug {
         w(pmc::ENABLE, 0xFFFF_FFFF)?;
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     let pmc_after = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
-    tracing::info!(
-        pmc_before = format_args!("{pmc_before:#010x}"),
-        pmc_after = format_args!("{pmc_after:#010x}"),
-        "PMC glow plug"
-    );
+    if !cfg.discovery_only {
+        tracing::info!(
+            pmc_before = format_args!("{pmc_before:#010x}"),
+            pmc_after = format_args!("{pmc_after:#010x}"),
+            "PMC glow plug"
+        );
+    }
 
-    // PMC-level PFIFO reset: bit 8 per gk104_mc_reset (NOT bit 1).
-    // On GV100, bit 1 of PMC_ENABLE is not the PFIFO engine control.
-    // nouveau's gk104_mc_reset uses device-specific engine→bit mappings;
-    // for PFIFO (NVKM_ENGINE_FIFO) the bit is 8.
-    if cfg.pmc_pfifo_reset {
+    // Nouveau engine reset sequence: UNK260=0 → PMC bit toggle → UNK260=1.
+    // UNK260 gates clock distribution; it MUST be disabled during the PMC
+    // reset and re-enabled after, otherwise the engine comes out of reset
+    // with stale clock state and PFIFO_ENABLE won't stick.
+    if !cfg.discovery_only && cfg.pmc_pfifo_reset {
+        w(misc::PMC_UNK260, 0)?;
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
         let pmc_cur = bar0.read_u32(pmc::ENABLE).unwrap_or(0);
         const PFIFO_BIT: u32 = 1 << 8;
         w(pmc::ENABLE, pmc_cur & !PFIFO_BIT)?;
         std::thread::sleep(std::time::Duration::from_millis(5));
         w(pmc::ENABLE, pmc_cur | PFIFO_BIT)?;
         std::thread::sleep(std::time::Duration::from_millis(10));
+
+        w(misc::PMC_UNK260, 1)?;
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
         let rb = bar0.read_u32(pmc::ENABLE).unwrap_or(0xDEAD);
         tracing::info!(
             pmc_cur = format_args!("{pmc_cur:#010x}"),
             pmc_after = format_args!("{rb:#010x}"),
-            "PMC PFIFO reset (bit 8)"
+            "PMC PFIFO reset (UNK260-bracketed, bit 8)"
         );
-    } else {
+    } else if !cfg.discovery_only {
         tracing::info!("PMC PFIFO reset skipped (warm handoff)");
     }
 
-    // Initialize PFIFO — verify the enable write takes effect.
-    let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
-    w(pfifo::ENABLE, 0)?;
-    std::thread::sleep(std::time::Duration::from_millis(1));
-    w(pfifo::ENABLE, 1)?;
-    std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
-    let mut readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+    // nouveau gv100_fifo_init: PFIFO_ENABLE = 0xFFFF_FFFF, FB_TIMEOUT.
+    // On GV100 these registers are non-functional (PFIFO_ENABLE reads 0
+    // even with nouveau running), so skip in discovery_only mode.
+    if !cfg.discovery_only {
+        let pfifo_en = bar0.read_u32(pfifo::ENABLE).unwrap_or(0);
+        w(pfifo::ENABLE, 0xFFFF_FFFF)?;
+        w(pfifo::FB_TIMEOUT, 0x1000_0000)?;
+        std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
+        let mut readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
 
-    if readback == 0 && cfg.retry_on_priv_fault {
-        tracing::warn!("PFIFO_ENABLE=0 after first write — retrying with PRI fault re-clear");
-        let priv_st = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
-        if priv_st != 0 {
-            for _ in 0..5 {
-                w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                if bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0) == 0 {
-                    break;
+        if readback == 0 && cfg.retry_on_priv_fault {
+            tracing::warn!("PFIFO_ENABLE=0 after first write — retrying with PRI fault re-clear");
+            let priv_st = bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0);
+            if priv_st != 0 {
+                for _ in 0..5 {
+                    w(pri::PRIV_RING_COMMAND, pri::PRIV_RING_CMD_ACK)?;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    if bar0.read_u32(pri::PRIV_RING_INTR_STATUS).unwrap_or(0) == 0 {
+                        break;
+                    }
                 }
             }
+            w(pfifo::ENABLE, 0xFFFF_FFFF)?;
+            std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
+            readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
         }
-        w(pfifo::ENABLE, 1)?;
-        std::thread::sleep(std::time::Duration::from_millis(cfg.pfifo_settle_ms));
-        readback = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+        tracing::info!(
+            pfifo_before = format_args!("{pfifo_en:#010x}"),
+            pfifo_after = format_args!("{readback:#010x}"),
+            "PFIFO enable (0xFFFFFFFF + FB_TIMEOUT)"
+        );
     }
-    tracing::info!(
-        pfifo_before = format_args!("{pfifo_en:#010x}"),
-        pfifo_after = format_args!("{readback:#010x}"),
-        "PFIFO enable"
-    );
 
     let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
 
@@ -384,42 +458,46 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
         "PBDMA/runlist discovery"
     );
 
-    // Per-PBDMA init (gk104_fifo_init_pbdmas + gk208_runq_init).
-    for id in 0..32_usize {
-        if pbdma_map & (1 << id) == 0 {
-            continue;
+    if !cfg.discovery_only {
+        // Per-PBDMA init (gk104_fifo_init_pbdmas + gk208_runq_init).
+        for id in 0..32_usize {
+            if pbdma_map & (1 << id) == 0 {
+                continue;
+            }
+            let b = 0x0004_0000 + id * 0x2000;
+            w(pbdma::intr(id), 0xFFFF_FFFF)?;
+            w(pbdma::intr_en(id), 0xFFFF_FEFF)?;
+            w(b + 0x13C, 0)?;
+            w(pbdma::hce_intr(id), 0)?;
+            w(pbdma::hce_intr_en(id), 0)?;
+            w(b + 0x164, 0xFFFF_FFFF)?;
         }
-        let b = 0x0004_0000 + id * 0x2000;
-        w(pbdma::intr(id), 0xFFFF_FFFF)?;
-        w(pbdma::intr_en(id), 0xFFFF_FEFF)?;
-        w(b + 0x13C, 0)?;
-        w(pbdma::hce_intr(id), 0)?;
-        w(pbdma::hce_intr_en(id), 0)?;
-        w(b + 0x164, 0xFFFF_FFFF)?;
-    }
 
-    {
-        let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
-        tracing::debug!(pfifo_en = format_args!("{ck:#010x}"), "after PBDMA init");
-    }
+        {
+            let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+            tracing::debug!(pfifo_en = format_args!("{ck:#010x}"), "after PBDMA init");
+        }
 
-    // Clear + enable PFIFO interrupts and scheduler.
-    w(pfifo::INTR, 0xFFFF_FFFF)?;
-    w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
-    if cfg.use_sched_en {
-        w(pfifo::SCHED_EN, 1)?;
-    } else {
-        w(pfifo::SCHED_DISABLE, 0)?;
-    }
+        // Clear + enable PFIFO interrupts and scheduler.
+        // On GV100, SCHED_EN (0x2504) and SCHED_DISABLE (0x2630) are
+        // PRI-gated — the scheduler runs implicitly. Skip these writes.
+        w(pfifo::INTR, 0xFFFF_FFFF)?;
+        w(pfifo::INTR_EN, 0x7FFF_FFFF)?;
+        if cfg.use_sched_en {
+            w(pfifo::SCHED_EN, 1)?;
+        } else {
+            w(pfifo::SCHED_DISABLE, 0)?;
+        }
 
-    {
-        let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
-        let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0xDEAD);
-        tracing::debug!(
-            pfifo_en = format_args!("{ck:#010x}"),
-            intr = format_args!("{intr:#010x}"),
-            "after scheduler enable"
-        );
+        {
+            let ck = bar0.read_u32(pfifo::ENABLE).unwrap_or(0xDEAD);
+            let intr = bar0.read_u32(pfifo::INTR).unwrap_or(0xDEAD);
+            tracing::debug!(
+                pfifo_en = format_args!("{ck:#010x}"),
+                intr = format_args!("{intr:#010x}"),
+                "after scheduler enable"
+            );
+        }
     }
 
     // GV100 per-runlist registers at stride 0x10 — flush with count=0.

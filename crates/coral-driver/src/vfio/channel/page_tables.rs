@@ -161,7 +161,8 @@ pub(super) fn populate_instance_block_custom(
     write_u32_le(inst, ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF);
     write_u32_le(inst, ramfc::HCE_CTRL, 0x0000_0020);
     write_u32_le(inst, ramfc::CHID, channel_id);
-    write_u32_le(inst, ramfc::CHANNEL_INFO, 0x0300_0000 | channel_id);
+    write_u32_le(inst, 0x0F4, 0x0000_1100); // PBDMA target: SYS_MEM + PRIV
+    write_u32_le(inst, 0x0F8, 0x1000_3080); // PBDMA format config
 
     let pdb_lo: u32 = ((pd3_iova >> 12) as u32) << 12
         | (1 << 11)
@@ -228,8 +229,8 @@ pub(super) fn populate_instance_block(
     write_u32_le(inst, ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF);
     write_u32_le(inst, ramfc::HCE_CTRL, 0x0000_0020);
     write_u32_le(inst, ramfc::CHID, channel_id);
-    // CONFIG (0xA8) not written — register doesn't exist on GV100 PBDMA
-    write_u32_le(inst, ramfc::CHANNEL_INFO, 0x0300_0000 | channel_id);
+    write_u32_le(inst, 0x0F4, 0x0000_1100); // PBDMA target: SYS_MEM + PRIV
+    write_u32_le(inst, 0x0F8, 0x1000_3080); // PBDMA format config
 
     // ── NV_RAMIN page directory base (offset 0x200) ────────────────
     let pdb_lo: u32 = ((PD3_IOVA >> 12) as u32) << 12
@@ -270,8 +271,14 @@ pub(super) fn populate_runlist(
     runq: u32,
 ) {
     // ── TSG (channel group) header — 16 bytes ──────────────────────
-    write_u32_le(rl, 0x00, (128 << 24) | (3 << 16) | 1);
-    write_u32_le(rl, 0x04, 1);
+    // GV100 format (gv100_runl_insert_cgrp):
+    //   DW0: [31:26] tsg_length (channels in group)
+    //        [25:18] timeslice (128 = max priority)
+    //        [0]     type = 1 (TSG header)
+    //   DW1: [15:0]  tsg_id
+    let tsg_dw0 = (1u32 << 26) | (1u32 << 14) | 128;
+    write_u32_le(rl, 0x00, tsg_dw0);
+    write_u32_le(rl, 0x04, 0); // TSG ID = 0
     write_u32_le(rl, 0x08, 0);
     write_u32_le(rl, 0x0C, 0);
 
@@ -283,7 +290,7 @@ pub(super) fn populate_runlist(
     write_u32_le(
         rl,
         0x10,
-        (userd_iova as u32 & 0xFFFF_FF00) | (TARGET_SYS_MEM_COHERENT << 6) | (runq << 1),
+        (userd_iova as u32 & 0xFFFF_F000) | (TARGET_SYS_MEM_COHERENT << 2) | (runq << 1),
     );
     write_u32_le(rl, 0x14, (userd_iova >> 32) as u32);
     write_u32_le(
@@ -304,15 +311,16 @@ pub(super) fn populate_runlist_static(
     inst_target: u32,
     runq: u32,
 ) {
-    write_u32_le(rl, 0x00, (128 << 24) | (3 << 16) | 1);
-    write_u32_le(rl, 0x04, 1);
+    let tsg_dw0 = (1u32 << 26) | (1u32 << 14) | 128;
+    write_u32_le(rl, 0x00, tsg_dw0);
+    write_u32_le(rl, 0x04, 0);
     write_u32_le(rl, 0x08, 0);
     write_u32_le(rl, 0x0C, 0);
-    // DW0: [31:8] USERD_ADDR, [7:6] USERD_TARGET, [1] RUNQ, [0] TYPE=0
+    // DW0: [31:12] USERD_ADDR, [3:2] USERD_TARGET, [1] RUNQ, [0] TYPE=0
     write_u32_le(
         rl,
         0x10,
-        (userd_iova as u32 & 0xFFFF_FF00) | (userd_target << 6) | (runq << 1),
+        (userd_iova as u32 & 0xFFFF_F000) | (userd_target << 2) | (runq << 1),
     );
     // DW1: USERD_ADDR_HI
     write_u32_le(rl, 0x14, (userd_iova >> 32) as u32);

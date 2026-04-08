@@ -720,6 +720,20 @@ pub(super) const BAR2_PD0_OFF: u32 = 0x4000;
 /// VRAM offset of SPT (small page table, relative to BAR2_VRAM_BASE).
 pub(super) const BAR2_SPT_OFF: u32 = 0x5000;
 
+// ── VRAM-scheduled channel structures ────────────────────────────────
+// When the PFIFO scheduler cannot DMA from system memory (GV100 post-
+// nouveau warm-cycle), the instance block and runlist must reside in
+// VRAM. These are separate from the BAR2 page tables above.
+//
+// VRAM layout (2 × 4KB pages):
+//   0x30000  Channel instance block (RAMFC + RAMIN PDB)
+//   0x31000  Runlist (TSG header + channel entry)
+
+/// VRAM offset for the PFIFO channel instance block.
+pub(super) const CHAN_VRAM_INST: u32 = 0x0003_0000;
+/// VRAM offset for the PFIFO channel runlist.
+pub(super) const CHAN_VRAM_RUNLIST: u32 = 0x0003_1000;
+
 #[cfg(test)]
 mod tests {
     use super::falcon;

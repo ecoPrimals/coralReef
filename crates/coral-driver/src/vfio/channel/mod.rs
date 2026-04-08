@@ -122,6 +122,29 @@ impl VfioChannel {
         )
     }
 
+    /// Create a VFIO channel on a GPU initialized by nvidia-535 with
+    /// `NVreg_PreserveHwState=1`. The GPU retains HBM2 training, PMU RM
+    /// firmware, and full PRI privilege from the nvidia driver session.
+    /// We create our channel alongside the preserved security context.
+    pub fn create_sovereign(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+    ) -> DriverResult<Self> {
+        Self::create_with_config(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            &pfifo::PfifoInitConfig::preserved_nvidia(),
+        )
+    }
+
     fn create_with_config(
         container: DmaBackend,
         bar0: &MappedBar,
@@ -140,19 +163,6 @@ impl VfioChannel {
         let pt0 = DmaBuffer::new(container.clone(), 4096, PT0_IOVA)?;
         let fault_buf = DmaBuffer::new(container.clone(), 4096, FAULT_BUF_IOVA)?;
 
-        let mut chan = Self {
-            instance,
-            runlist,
-            pd3,
-            pd2,
-            pd1,
-            pd0,
-            pt0,
-            fault_buf,
-            channel_id,
-            runlist_id: 0,
-        };
-
         let pfifo_trace = |bar0: &MappedBar, label: &str| {
             let en = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0xDEAD);
             let intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0xDEAD);
@@ -163,7 +173,20 @@ impl VfioChannel {
             );
         };
 
-        let (runq, _runlist_id) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
+        let (runq, target_runlist) = pfifo::init_pfifo_engine_with(bar0, pfifo_cfg)?;
+
+        let mut chan = Self {
+            instance,
+            runlist,
+            pd3,
+            pd2,
+            pd1,
+            pd0,
+            pt0,
+            fault_buf,
+            channel_id,
+            runlist_id: target_runlist,
+        };
         pfifo_trace(bar0, "after-pfifo-init");
 
         // Configure BAR2 in PHYSICAL mode targeting system memory.
@@ -317,6 +340,369 @@ impl VfioChannel {
             instance_iova = format_args!("{INSTANCE_IOVA:#x}"),
             pfifo_live,
             "VFIO PFIFO channel created"
+        );
+
+        Ok(chan)
+    }
+
+    /// Create a channel with scheduler structures in VRAM.
+    ///
+    /// On GV100, the PFIFO scheduler cannot DMA-read from system memory.
+    /// After a nouveau warm-cycle (HBM2 trained, VRAM alive), we write
+    /// the instance block and runlist into VRAM via PRAMIN, while keeping
+    /// GPFIFO/USERD in system memory DMA buffers accessed via page table
+    /// translation.
+    ///
+    /// Prerequisites: VRAM alive (nouveau warm-cycle or nvidia init).
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "VRAM offsets fit in u32 for our allocation range"
+    )]
+    pub fn create_vram_sched(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+    ) -> DriverResult<Self> {
+        Self::create_vram_sched_on(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, channel_id, None)
+    }
+
+    /// Like [`create_vram_sched`] but targets a specific runlist.
+    /// Pass `Some(2)` for a CE runlist (bypasses FECS for GR-free dispatch).
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "VRAM offsets fit in u32 for our allocation range"
+    )]
+    pub fn create_vram_sched_on(
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+        override_runlist: Option<u32>,
+    ) -> DriverResult<Self> {
+        let pfifo_trace = |bar0: &MappedBar, label: &str| {
+            let en = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0xDEAD);
+            let intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0xDEAD);
+            tracing::debug!(
+                en = format_args!("{en:#010x}"),
+                intr = format_args!("{intr:#010x}"),
+                "{label}"
+            );
+        };
+
+        let instance = DmaBuffer::new(container.clone(), 4096, INSTANCE_IOVA)?;
+        let runlist = DmaBuffer::new(container.clone(), 4096, RUNLIST_IOVA)?;
+        let pd3 = DmaBuffer::new(container.clone(), 4096, PD3_IOVA)?;
+        let pd2 = DmaBuffer::new(container.clone(), 4096, PD2_IOVA)?;
+        let pd1 = DmaBuffer::new(container.clone(), 4096, PD1_IOVA)?;
+        let pd0 = DmaBuffer::new(container.clone(), 4096, PD0_IOVA)?;
+        let pt0 = DmaBuffer::new(container.clone(), 4096, PT0_IOVA)?;
+        let fault_buf = DmaBuffer::new(container.clone(), 4096, FAULT_BUF_IOVA)?;
+
+        // GV100 discovery-only mode: on GV100, PFIFO_ENABLE (0x2200),
+        // SCHED_EN (0x2504), and SCHED_DISABLE (0x2630) are non-functional
+        // (PRI-gated even with nouveau running). The scheduler runs
+        // implicitly when PFIFO is PMC-enabled. We only need PRIV_RING
+        // fault clearing and PBDMA/runlist topology discovery.
+        let pfifo_cfg = pfifo::PfifoInitConfig::gv100_warm();
+        let (_, discovered_runlist) = pfifo::init_pfifo_engine_with(bar0, &pfifo_cfg)?;
+        let target_runlist = override_runlist.unwrap_or(discovered_runlist);
+        if override_runlist.is_some() {
+            tracing::info!(
+                discovered = discovered_runlist,
+                target = target_runlist,
+                "runlist override active"
+            );
+        }
+        pfifo_trace(bar0, "vram-sched: after-pfifo-init");
+
+        // Set up BAR2 VRAM page tables (identity maps IOVAs → system memory).
+        pfifo::setup_bar2_page_table(bar0)?;
+        pfifo_trace(bar0, "vram-sched: after-bar2-vram-setup");
+
+        // Configure MMU fault buffers.
+        {
+            use registers::mmu;
+            let fb_lo = (FAULT_BUF_IOVA >> 12) as u32;
+            let fb_entries: u32 = 64;
+            bar0.write_u32(mmu::FAULT_BUF0_LO, fb_lo)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_LO: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_HI, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_HI: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_SIZE, fb_entries)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_SIZE: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_GET, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_GET: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF0_PUT, 0x8000_0000)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF0_PUT: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_LO, fb_lo)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_LO: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_HI, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_HI: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_SIZE, fb_entries)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_SIZE: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_GET, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_GET: {e}"))))?;
+            bar0.write_u32(mmu::FAULT_BUF1_PUT, 0x8000_0000)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("FAULT_BUF1_PUT: {e}"))))?;
+        }
+        pfifo_trace(bar0, "vram-sched: after-fault-buf");
+
+        let mut chan = Self {
+            instance,
+            runlist,
+            pd3,
+            pd2,
+            pd1,
+            pd0,
+            pt0,
+            fault_buf,
+            channel_id,
+            runlist_id: target_runlist,
+        };
+
+        // Write instance block (RAMFC + PDB) into VRAM via PRAMIN.
+        // Reuse the BAR2 page tables at VRAM 0x21000 for the channel's PDB.
+        let vram_pd3 = registers::BAR2_VRAM_BASE + registers::BAR2_PD3_OFF;
+        {
+            let w = |off: usize, val: u32| {
+                bar0.write_u32(registers::misc::PRAMIN_BASE + off, val)
+                    .map_err(|e| DriverError::SubmitFailed(Cow::Owned(
+                        format!("PRAMIN write inst+{off:#x}: {e}")
+                    )))
+            };
+
+            // Steer PRAMIN window to CHAN_VRAM_INST region.
+            bar0.write_u32(
+                registers::misc::BAR0_WINDOW,
+                registers::CHAN_VRAM_INST >> 16,
+            ).map_err(|e| DriverError::SubmitFailed(Cow::Owned(
+                format!("BAR0_WINDOW: {e}")
+            )))?;
+            std::thread::sleep(std::time::Duration::from_millis(1));
+
+            // Zero the instance block region.
+            for off in (0..4096).step_by(4) {
+                w(off, 0)?;
+            }
+
+            // RAMFC fields — match nouveau gv100_chan_ramfc_write exactly.
+            let limit2 = gpfifo_entries.ilog2();
+            w(ramfc::USERD_LO, (userd_iova as u32 & 0xFFFF_FE00) | PBDMA_TARGET_SYS_MEM_COHERENT)?;
+            w(ramfc::USERD_HI, (userd_iova >> 32) as u32)?;
+            w(ramfc::SIGNATURE, 0x0000_FACE)?;
+            w(ramfc::ACQUIRE, 0x7FFF_F902)?;
+            w(ramfc::GP_BASE_LO, gpfifo_iova as u32)?;
+            w(ramfc::GP_BASE_HI, (gpfifo_iova >> 32) as u32 | (limit2 << 16))?;
+            w(ramfc::PB_HEADER, 0x2040_0000)?;
+            w(ramfc::SUBDEVICE, 0x3000_0000 | 0xFFF)?;
+            w(ramfc::HCE_CTRL, 0x0000_0020)?;
+            w(ramfc::CHID, channel_id)?;
+            // 0x0F4: PBDMA target config — SYS_MEM(bit12) + PRIV(bit8).
+            w(0x0F4, 0x0000_1100)?;
+            // 0x0F8: PBDMA format/method config (nouveau: 0x10003080).
+            w(0x0F8, 0x1000_3080)?;
+
+            // RAMIN PDB: point to BAR2's PD3 in VRAM (target=VID_MEM=0).
+            let pdb_lo = vram_pd3
+                | (1 << 11)  // BIG_PAGE_SIZE = 64 KiB
+                | (1 << 10); // USE_VER2_PT_FORMAT = TRUE
+            // target bits [1:0] = 0 (VID_MEM), VOL=0 for VRAM
+            w(ramin::PAGE_DIR_BASE_LO, pdb_lo)?;
+            w(ramin::PAGE_DIR_BASE_HI, 0)?;
+            w(ramin::ADDR_LIMIT_LO, 0xFFFF_FFFF)?;
+            w(ramin::ADDR_LIMIT_HI, 0x0001_FFFF)?;
+            w(ramin::ENGINE_WFI_VEID, 0)?;
+            w(ramin::SC_PDB_VALID, 1)?;
+            w(ramin::SC0_PAGE_DIR_BASE_LO, pdb_lo)?;
+            w(ramin::SC0_PAGE_DIR_BASE_HI, 0)?;
+            w(ramin::SC1_PAGE_DIR_BASE_LO, 1)?;
+            w(ramin::SC1_PAGE_DIR_BASE_HI, 1)?;
+
+            tracing::info!(
+                vram_inst = format_args!("{:#x}", registers::CHAN_VRAM_INST),
+                vram_pd3 = format_args!("{vram_pd3:#x}"),
+                "channel instance block written to VRAM"
+            );
+
+            // Verify RAMFC readback from VRAM via PRAMIN (window still set).
+            let pm = registers::misc::PRAMIN_BASE;
+            let rb_userd = bar0.read_u32(pm + ramfc::USERD_LO).unwrap_or(0xDEAD);
+            let rb_sig = bar0.read_u32(pm + ramfc::SIGNATURE).unwrap_or(0xDEAD);
+            let rb_gpbase = bar0.read_u32(pm + ramfc::GP_BASE_LO).unwrap_or(0xDEAD);
+            let rb_0f4 = bar0.read_u32(pm + 0x0F4).unwrap_or(0xDEAD);
+            let rb_0f8 = bar0.read_u32(pm + 0x0F8).unwrap_or(0xDEAD);
+            let rb_pdb = bar0.read_u32(pm + ramin::PAGE_DIR_BASE_LO).unwrap_or(0xDEAD);
+            tracing::info!(
+                rb_userd = format_args!("{rb_userd:#010x}"),
+                rb_sig = format_args!("{rb_sig:#010x}"),
+                rb_gpbase = format_args!("{rb_gpbase:#010x}"),
+                rb_0f4 = format_args!("{rb_0f4:#010x}"),
+                rb_0f8 = format_args!("{rb_0f8:#010x}"),
+                rb_pdb = format_args!("{rb_pdb:#010x}"),
+                "VRAM readback verification"
+            );
+        }
+        pfifo_trace(bar0, "vram-sched: after-inst-write");
+
+        // Write runlist (TSG + channel entry) into VRAM via PRAMIN.
+        // PRAMIN window is still at CHAN_VRAM_INST >> 16 = 0x3 (VRAM 0x30000).
+        // The runlist at 0x31000 is at PRAMIN offset 0x1000 within this window.
+        {
+            let rl_pramin_off = (registers::CHAN_VRAM_RUNLIST
+                - (registers::CHAN_VRAM_INST & 0xFFFF_0000)) as usize;
+            let w = |off: usize, val: u32| {
+                bar0.write_u32(registers::misc::PRAMIN_BASE + rl_pramin_off + off, val)
+                    .map_err(|e| DriverError::SubmitFailed(Cow::Owned(
+                        format!("PRAMIN write rl+{off:#x}: {e}")
+                    )))
+            };
+
+            // Zero the runlist region.
+            for off in (0..4096).step_by(4) {
+                w(off, 0)?;
+            }
+
+            // TSG header (16 bytes) — GV100 RAMRL format:
+            //   [26]    = 1 (TSG header marker)
+            //   [25:14] = channel count (1)
+            //   [7:0]   = timeslice_lo (128 = 0x80)
+            let tsg_dw0 = (1u32 << 26) | (1u32 << 14) | 128;
+            w(0x00, tsg_dw0)?;
+            w(0x04, 0)?; // TSG ID = 0
+            w(0x08, 0)?;
+            w(0x0C, 0)?;
+
+            // Channel entry (16 bytes) — USERD in system memory, INST in VRAM.
+            // DW0 format: [31:12]=USERD_ADDR, [3:2]=TARGET, [1]=RUNQ, [0]=TYPE(0=chan)
+            let userd_dw0 = (userd_iova as u32 & 0xFFFF_F000)
+                | (TARGET_SYS_MEM_COHERENT << 2);
+            w(0x10, userd_dw0)?;
+            w(0x14, (userd_iova >> 32) as u32)?;
+            // DW2: INST in VRAM (target bits [21:20] = 0 = VID_MEM)
+            let inst_dw2 = (registers::CHAN_VRAM_INST & 0xFFFF_F000) | channel_id;
+            w(0x18, inst_dw2)?;
+            w(0x1C, 0)?;
+
+            tracing::info!(
+                vram_runlist = format_args!("{:#x}", registers::CHAN_VRAM_RUNLIST),
+                "runlist written to VRAM"
+            );
+        }
+        pfifo_trace(bar0, "vram-sched: after-runlist-write");
+
+        // Restore PRAMIN window.
+        bar0.write_u32(registers::misc::BAR0_WINDOW, 0).ok();
+
+        // TLB invalidate for the VRAM page tables.
+        // Use VRAM target (0) instead of SYS_MEM_COH (2).
+        {
+            use registers::pfb;
+            for _ in 0..200 {
+                let ctrl = bar0.read_u32(pfb::MMU_CTRL).unwrap_or(0);
+                if ctrl & 0x00FF_0000 != 0 { break; }
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+            let pdb_inv = ((vram_pd3 as u64) >> 12) << 4; // target=0 (VID_MEM)
+            bar0.write_u32(pfb::MMU_INVALIDATE_PDB, pdb_inv as u32)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("TLB inv PDB: {e}"))))?;
+            bar0.write_u32(pfb::MMU_INVALIDATE_PDB_HI, 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("TLB inv PDB_HI: {e}"))))?;
+            bar0.write_u32(pfb::MMU_INVALIDATE, 0x8000_0005)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("TLB inv trigger: {e}"))))?;
+            for _ in 0..200 {
+                let ctrl = bar0.read_u32(pfb::MMU_CTRL).unwrap_or(0);
+                if ctrl & 0x0000_8000 != 0 { break; }
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+            tracing::info!(vram_pd3 = format_args!("{vram_pd3:#x}"), "VRAM TLB invalidated");
+        }
+        pfifo_trace(bar0, "vram-sched: after-tlb-inv");
+
+        // Clear stale PCCSR.
+        let stale = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
+        if stale != 0 {
+            Self::clear_stale_pccsr(bar0, channel_id, stale)?;
+        }
+
+        // Bind PCCSR to VRAM instance block (target=VID_MEM=0).
+        let pccsr_inst_val = (registers::CHAN_VRAM_INST >> 12)
+            | pccsr::INST_BIND_TRUE; // target=0 (VID_MEM)
+        bar0.write_u32(pccsr::inst(channel_id), pccsr_inst_val)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("PCCSR bind: {e}"))))?;
+        tracing::debug!(
+            pccsr_inst = format_args!("{pccsr_inst_val:#010x}"),
+            "PCCSR bound to VRAM instance block"
+        );
+        pfifo_trace(bar0, "vram-sched: after-bind");
+
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        chan.clear_channel_faults(bar0)?;
+        chan.enable_channel(bar0)?;
+        pfifo_trace(bar0, "vram-sched: after-enable");
+
+        // UNK260 bracket + PFIFO_ENABLE + FB_TIMEOUT already done in init_pfifo_engine_with.
+        let pfifo_rb = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0xDEAD);
+        tracing::info!(pfifo_en = format_args!("{pfifo_rb:#010x}"), "PFIFO enable (pre-runlist-submit)");
+
+        // Submit runlist from VRAM (no SYS_MEM target).
+        let rl_vram_addr = registers::CHAN_VRAM_RUNLIST as u64;
+        let rl_base = (rl_vram_addr >> 12) as u32; // target=0 (VID_MEM)
+        let rl_submit = 2u32 << 16; // 2 entries, upper_addr=0
+        let rl_base_reg = registers::pfifo::runlist_base(chan.runlist_id);
+        let rl_submit_reg = registers::pfifo::runlist_submit(chan.runlist_id);
+        bar0.write_u32(rl_base_reg, rl_base)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base: {e}"))))?;
+        bar0.write_u32(rl_submit_reg, rl_submit)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist submit: {e}"))))?;
+        let rb_base = bar0.read_u32(rl_base_reg).unwrap_or(0xDEAD);
+        let rb_submit = bar0.read_u32(rl_submit_reg).unwrap_or(0xDEAD);
+        tracing::info!(
+            rl_base = format_args!("{rl_base:#010x}"),
+            rl_submit = format_args!("{rl_submit:#010x}"),
+            rb_base = format_args!("{rb_base:#010x}"),
+            rb_submit = format_args!("{rb_submit:#010x}"),
+            rl_base_reg = format_args!("{rl_base_reg:#06x}"),
+            rl_submit_reg = format_args!("{rl_submit_reg:#06x}"),
+            runlist_id = chan.runlist_id,
+            "runlist submitted from VRAM (readback verification)"
+        );
+        pfifo_trace(bar0, "vram-sched: after-runlist-submit");
+
+        // Wait for runlist completion.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let intr_post = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0xDEAD);
+        tracing::info!(
+            intr = format_args!("{intr_post:#010x}"),
+            "vram-sched: post-submit interrupt status"
+        );
+        pfifo_trace(bar0, "vram-sched: after-50ms-settle");
+
+        // Non-destructive liveness check: read PFIFO_EN and PCCSR state
+        // without issuing a preempt (which would evict our channel from PBDMA).
+        let pfifo_en = bar0.read_u32(registers::pfifo::ENABLE).unwrap_or(0);
+        let pccsr_chan = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
+        let pfifo_live = pccsr_chan & pccsr::CHANNEL_ENABLE_SET != 0;
+        tracing::info!(
+            pfifo_en = format_args!("{pfifo_en:#010x}"),
+            pccsr_chan = format_args!("{pccsr_chan:#010x}"),
+            pfifo_live,
+            "PFIFO liveness check (no preempt — preserving PBDMA context)"
+        );
+
+        let faults = mmu_fault::read_mmu_faults(bar0);
+        mmu_fault::log_mmu_faults(&faults);
+
+        tracing::info!(
+            channel_id,
+            gpfifo_iova = format_args!("{gpfifo_iova:#x}"),
+            userd_iova = format_args!("{userd_iova:#x}"),
+            pfifo_live,
+            "VRAM-sched PFIFO channel created"
         );
 
         Ok(chan)

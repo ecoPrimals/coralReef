@@ -59,7 +59,10 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
     fn rebind_strategy(&self, target_driver: &str) -> RebindStrategy {
         match target_driver {
             "vfio" | "vfio-pci" => RebindStrategy::SimpleBind,
-            _ => RebindStrategy::SimpleWithRescanFallback,
+            // Kepler goes D-state on cold vfio-pci unbind, so the sysfs
+            // unbind write hangs. PCI remove+rescan bypasses this entirely
+            // by tearing down the kernel device tree and re-enumerating.
+            _ => RebindStrategy::PciRescan,
         }
     }
 
@@ -76,6 +79,12 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
 
         let _ =
             sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
+    }
+
+    fn skip_sysfs_unbind(&self) -> bool {
+        // Kepler (GK110/GK210) goes into PCI D-state on cold vfio-pci
+        // unbind. PciRescan handles driver removal during re-enumeration.
+        true
     }
 
     fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), SwapError> {

@@ -81,9 +81,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
         // Drop local VFIO holder before asking ember to swap
         drop(self.vfio_holder.take());
 
-        // Delegate the entire driver swap to ember
-        let client =
-            crate::ember::EmberClient::connect().ok_or_else(|| DeviceError::DriverBind {
+        // Delegate the entire driver swap to ember (fleet-aware routing)
+        let client = crate::ember::EmberClient::connect_for_bdf(&self.bdf)
+            .or_else(|| crate::ember::EmberClient::connect())
+            .ok_or_else(|| DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: target.into(),
                 reason: "ember not available — driver swap requires ember for safe transition"

@@ -219,6 +219,7 @@ pub(crate) fn reacquire(
                         mmio_fault_count: 0,
                         health: crate::hold::DeviceHealth::Alive,
                         pcie_armor: Some(crate::pcie_armor::PcieArmor::arm(&bdf)),
+                        teardown_policy: Default::default(),
                     },
                 );
                 drop(map);
@@ -366,6 +367,7 @@ pub(crate) fn warm_cycle(
                     mmio_fault_count: 0,
                     health: crate::hold::DeviceHealth::Alive,
                     pcie_armor: Some(crate::pcie_armor::PcieArmor::arm(bdf)),
+                    teardown_policy: Default::default(),
                 },
             );
             drop(map);
@@ -539,7 +541,7 @@ pub(crate) fn status(
             "needs_warm_cycle": h.needs_warm_cycle,
         })
     }).collect();
-    let device_bdfs: Vec<&str> = map.keys().map(|s| s.as_str()).collect();
+    let device_bdfs: Vec<String> = map.keys().cloned().collect();
     drop(map);
     write_jsonrpc_ok(
         stream,
@@ -978,6 +980,7 @@ pub(crate) fn adopt_device(
                     mmio_fault_count: 0,
                     health: crate::hold::DeviceHealth::Alive,
                     pcie_armor: Some(armor),
+                    teardown_policy: Default::default(),
                 },
             );
             drop(map);

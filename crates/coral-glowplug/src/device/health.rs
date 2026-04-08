@@ -496,9 +496,10 @@ impl<S: SysfsOps> DeviceSlot<S> {
         // Drop local VFIO holder
         drop(self.vfio_holder.take());
 
-        // Ember required for resurrection
-        let client =
-            crate::ember::EmberClient::connect().ok_or_else(|| DeviceError::DriverBind {
+        // Ember required for resurrection (fleet-aware routing)
+        let client = crate::ember::EmberClient::connect_for_bdf(&self.bdf)
+            .or_else(|| crate::ember::EmberClient::connect())
+            .ok_or_else(|| DeviceError::DriverBind {
                 bdf: self.bdf.clone(),
                 driver: warm_driver.into(),
                 reason: "ember not available — resurrection requires ember for safe transition"

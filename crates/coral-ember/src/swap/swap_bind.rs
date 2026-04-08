@@ -94,6 +94,7 @@ pub(super) fn bind_vfio(
                     mmio_fault_count: 0,
                     health: crate::hold::DeviceHealth::Alive,
                     pcie_armor: Some(crate::pcie_armor::PcieArmor::arm(&bdf)),
+                    teardown_policy: Default::default(),
                 },
             );
         }

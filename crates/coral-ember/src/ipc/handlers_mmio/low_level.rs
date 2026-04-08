@@ -140,6 +140,11 @@ pub(crate) fn mmio_read(
 ///
 /// Params: `{bdf, offset, value}` (both as integers)
 /// Result: `{ok: true}`
+///
+/// Respects the per-device [`TeardownPolicy`]: when `BlockTeardown` or
+/// `BlockAndLog` is active, writes that would destroy the GPU security
+/// context (PMU halt, DMEM scrub, FECS clear, PMC strip) are rejected
+/// with error code `-32012`.
 pub(crate) fn mmio_write(
     stream: &mut impl Write,
     held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
@@ -155,6 +160,28 @@ pub(crate) fn mmio_write(
 
     let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
     let dev = require_held_mut(&mut map, bdf, stream, &id)?;
+
+    if dev.teardown_policy.blocks() && dma_safety::is_teardown_write(offset, value) {
+        if dev.teardown_policy.logs() {
+            tracing::warn!(
+                bdf = %dev.bdf,
+                offset = format_args!("{offset:#x}"),
+                value = format_args!("{value:#010x}"),
+                "MMIO write firewall: BLOCKED teardown write"
+            );
+        }
+        drop(map);
+        return write_jsonrpc_error(
+            stream,
+            id,
+            -32012,
+            &format!(
+                "teardown write blocked: offset {offset:#x} value {value:#010x} \
+                 would destroy GPU security context"
+            ),
+        )
+        .map_err(EmberIpcError::from);
+    }
 
     if let Err(e) = map_bar0_if_needed(dev) {
         let bdf = bdf.to_string();
@@ -273,6 +300,8 @@ pub(crate) fn mmio_batch(
     let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
     let dev = require_held_mut(&mut map, bdf, stream, &id)?;
 
+    let batch_policy = dev.teardown_policy;
+
     if let Err(e) = map_bar0_if_needed(dev) {
         let bdf = bdf.to_string();
         drop(map);
@@ -325,6 +354,14 @@ pub(crate) fn mmio_batch(
                     }
                     "w" => {
                         let value = op.get("value").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        if batch_policy.blocks() && dma_safety::is_teardown_write(offset, value) {
+                            results.push(serde_json::json!({
+                                "error": "teardown_blocked",
+                                "offset": offset,
+                                "value": value,
+                            }));
+                            continue;
+                        }
                         let _ = bar0.write_u32(offset, value);
                         had_write = true;
                         results.push(serde_json::json!(true));

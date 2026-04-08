@@ -29,7 +29,7 @@ async fn test_tcp_client_health_check() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -79,7 +79,7 @@ async fn test_tcp_device_list_and_get() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -124,7 +124,7 @@ async fn test_invalid_jsonrpc_version() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -161,7 +161,7 @@ async fn test_parse_error() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -194,7 +194,7 @@ async fn test_unknown_method_over_tcp() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -231,7 +231,7 @@ async fn test_empty_and_whitespace_lines_skipped_before_request() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -269,7 +269,7 @@ async fn test_daemon_shutdown_via_jsonrpc() {
     let devices_clone = devices.clone();
 
     let handle = tokio::spawn(async move {
-        server.accept_loop(devices_clone, &mut shutdown_rx).await;
+        server.accept_loop(devices_clone, &mut shutdown_rx, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;

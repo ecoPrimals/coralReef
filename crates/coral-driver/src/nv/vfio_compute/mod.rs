@@ -33,6 +33,7 @@ pub mod fecs_boot;
 pub mod gr_context;
 mod gr_engine_status;
 mod init;
+pub mod pmu_interface;
 mod submission;
 
 pub use gr_engine_status::GrEngineStatus;
@@ -184,6 +185,11 @@ impl RawVfioDevice {
     /// Returns the IOVA of the USERD doorbell page.
     pub const fn userd_iova() -> u64 {
         USERD_IOVA
+    }
+
+    /// Enable PCI bus mastering via VFIO config space.
+    pub fn enable_bus_master(&self) -> DriverResult<()> {
+        self.device.enable_bus_master()
     }
 
     /// Leaks the device handle without running drop (for diagnostic use).

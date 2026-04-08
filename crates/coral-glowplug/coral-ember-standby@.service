@@ -26,24 +26,6 @@ KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=RUST_LOG=info
 Environment=CORALREEF_STANDBY_INDEX=%i
-SupplementaryGroups=coralreef
-UMask=0117
-RuntimeDirectory=coralreef
-RuntimeDirectoryMode=0750
-
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
-AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_SYS_MODULE
-NoNewPrivileges=true
-
-ProtectSystem=strict
-ReadWritePaths=/sys/bus/pci /sys/kernel/iommu_groups /run/coralreef /proc /sys/kernel/debug/tracing /var/lib/coralreef /usr/local/bin
-ReadOnlyPaths=/lib/modules /etc/modprobe.d /lib/modprobe.d
-PrivateTmp=true
-ProtectHome=true
-
-SystemCallFilter=@system-service @module ioctl sendmsg
-SystemCallErrorNumber=EPERM
-MemoryDenyWriteExecute=true
 
 [Install]
 WantedBy=multi-user.target

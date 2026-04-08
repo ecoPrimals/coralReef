@@ -565,7 +565,6 @@ fn handle_client_mmio_read_nonexistent_device_returns_error() {
 // ── ember.fecs.state tests ───────────────────────────────────────────
 
 #[test]
-#[ignore = "ember.fecs.state handler not yet wired into IPC dispatch"]
 fn handle_client_fecs_state_missing_bdf() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
     let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
@@ -580,7 +579,6 @@ fn handle_client_fecs_state_missing_bdf() {
 }
 
 #[test]
-#[ignore = "ember.fecs.state handler not yet wired into IPC dispatch"]
 fn handle_client_fecs_state_nonexistent_device_returns_error() {
     let _guard = IPC_TEST_LOCK.lock().expect("ipc test lock");
     let (mut server, mut client) = UnixStream::pair().expect("unix stream pair");
@@ -653,6 +651,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
             mmio_fault_count: 0,
             health: crate::hold::DeviceHealth::Alive,
             pcie_armor: None,
+            teardown_policy: Default::default(),
         },
     );
     let held = Arc::new(RwLock::new(map));

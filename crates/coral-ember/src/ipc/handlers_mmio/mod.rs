@@ -13,6 +13,7 @@
 mod device_health;
 #[allow(unsafe_code)]
 mod falcon;
+mod fecs_state;
 #[allow(unsafe_code)]
 mod low_level;
 mod pramin;
@@ -21,9 +22,92 @@ pub(crate) use falcon::{
     falcon_poll, falcon_start_cpu, falcon_upload_dmem, falcon_upload_imem, sec2_prepare_physical,
     write_json_to_pipe_fd,
 };
+pub(crate) use fecs_state::fecs_state;
 pub(crate) use low_level::{mmio_batch, mmio_read, mmio_write};
 pub(crate) use pramin::{pramin_read, pramin_write};
 pub(crate) use self::device_health::{device_health, device_recover};
+
+/// `ember.mmio.policy` — get or set the MMIO write firewall policy for a device.
+///
+/// Params: `{bdf, policy?: "allow_all"|"block_teardown"|"block_and_log"}`
+///
+/// When `policy` is omitted, returns the current policy without changing it.
+/// When `policy` is provided, sets the new policy and returns confirmation.
+///
+/// Result: `{bdf, policy, description}`
+pub(crate) fn mmio_policy(
+    stream: &mut impl Write,
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    id: serde_json::Value,
+    params: &serde_json::Value,
+) -> Result<(), EmberIpcError> {
+    use coral_driver::vfio::device::dma_safety::TeardownPolicy;
+
+    let bdf = require_bdf(params)?;
+    let new_policy_str = params.get("policy").and_then(|v| v.as_str());
+
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    let dev = require_held_mut(&mut map, bdf, stream, &id)?;
+
+    if let Some(policy_str) = new_policy_str {
+        let policy = match policy_str {
+            "allow_all" => TeardownPolicy::AllowAll,
+            "block_teardown" => TeardownPolicy::BlockTeardown,
+            "block_and_log" => TeardownPolicy::BlockAndLog,
+            other => {
+                let bdf = bdf.to_string();
+                drop(map);
+                return write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32602,
+                    &format!(
+                        "{bdf}: invalid policy '{other}'. \
+                         Valid: allow_all, block_teardown, block_and_log"
+                    ),
+                )
+                .map_err(EmberIpcError::from);
+            }
+        };
+        tracing::info!(
+            bdf = %dev.bdf,
+            old = ?dev.teardown_policy,
+            new = ?policy,
+            "MMIO write firewall policy changed"
+        );
+        dev.teardown_policy = policy;
+    }
+
+    let current = dev.teardown_policy;
+    let bdf = bdf.to_string();
+    drop(map);
+
+    let (name, description) = match current {
+        TeardownPolicy::AllowAll => (
+            "allow_all",
+            "All MMIO writes pass through to hardware",
+        ),
+        TeardownPolicy::BlockTeardown => (
+            "block_teardown",
+            "Teardown writes (PMU halt, DMEM scrub, FECS clear, PMC strip) are silently blocked",
+        ),
+        TeardownPolicy::BlockAndLog => (
+            "block_and_log",
+            "Teardown writes are blocked and logged to tracing",
+        ),
+    };
+
+    write_jsonrpc_ok(
+        stream,
+        id,
+        serde_json::json!({
+            "bdf": bdf,
+            "policy": name,
+            "description": description,
+        }),
+    )
+    .map_err(EmberIpcError::from)
+}
 
 use std::collections::HashMap;
 use std::io::Write;

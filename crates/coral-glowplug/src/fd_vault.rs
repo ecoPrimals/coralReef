@@ -11,11 +11,14 @@
 
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
-use rustix::io::IoSliceMut;
-use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
+use rustix::io::{IoSlice, IoSliceMut};
+use rustix::net::{
+    RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
+    SendAncillaryMessage, SendFlags, recvmsg, sendmsg,
+};
 
 use crate::error::EmberError;
 
@@ -235,10 +238,137 @@ impl FdVault {
             .and_then(|mut m| m.remove(bdf))
     }
 
+    /// Prepare vaulted fds for restoration to a resurrecting ember.
+    ///
+    /// Takes (removes) the vaulted fds for each requested BDF and returns
+    /// them as a flat `Vec<OwnedFd>` in manifest order, plus a JSON manifest
+    /// describing the fd layout so the receiver can reconstruct `VfioDevice`s.
+    pub fn restore_for_bdfs(
+        &self,
+        bdfs: &[String],
+    ) -> Result<(Vec<OwnedFd>, serde_json::Value), String> {
+        let mut all_fds = Vec::new();
+        let mut manifest = Vec::new();
+
+        for bdf in bdfs {
+            let vaulted = self
+                .take(bdf)
+                .ok_or_else(|| format!("no vaulted fds for BDF {bdf}"))?;
+            match vaulted {
+                VaultedFds::Legacy {
+                    container,
+                    group,
+                    device,
+                } => {
+                    manifest.push(serde_json::json!({
+                        "bdf": bdf,
+                        "backend": "legacy",
+                        "num_fds": 3,
+                    }));
+                    all_fds.push(container);
+                    all_fds.push(group);
+                    all_fds.push(device);
+                }
+                VaultedFds::Iommufd {
+                    iommufd,
+                    device,
+                    ioas_id,
+                } => {
+                    manifest.push(serde_json::json!({
+                        "bdf": bdf,
+                        "backend": "iommufd",
+                        "num_fds": 2,
+                        "ioas_id": ioas_id,
+                    }));
+                    all_fds.push(iommufd);
+                    all_fds.push(device);
+                }
+            }
+        }
+
+        Ok((all_fds, serde_json::json!({ "devices": manifest })))
+    }
+
     /// Remove all vaulted fds (e.g. after a full system reset).
     pub fn clear(&self) {
         if let Ok(mut m) = self.entries.write() {
             m.clear();
+        }
+    }
+}
+
+/// Send data with ancillary `SCM_RIGHTS` file descriptors via `sendmsg`.
+///
+/// Mirrors the identical helper in `coral-ember::ipc::fd` — duplicated to
+/// avoid a cross-crate dependency for a 10-line function.
+pub fn send_with_fds(
+    stream: impl AsFd,
+    data: &[u8],
+    fds: &[BorrowedFd<'_>],
+) -> std::io::Result<()> {
+    let iov = [IoSlice::new(data)];
+    let mut space = vec![MaybeUninit::uninit(); SendAncillaryMessage::ScmRights(fds).size()];
+    let mut control = SendAncillaryBuffer::new(&mut space);
+    if !control.push(SendAncillaryMessage::ScmRights(fds)) {
+        return Err(std::io::Error::other(
+            "ancillary buffer too small for SCM_RIGHTS",
+        ));
+    }
+    sendmsg(stream, &iov, &mut control, SendFlags::empty())?;
+    Ok(())
+}
+
+/// Handle a `vault.restore_fds` JSON-RPC request on a synchronous Unix stream.
+///
+/// Reads the request, extracts BDFs, takes the vaulted fds, and sends the
+/// JSON response + fds back via SCM_RIGHTS in a single `sendmsg`.
+pub fn handle_vault_restore(stream: &UnixStream, vault: &FdVault) -> std::io::Result<()> {
+    let mut buf = [0u8; 4096];
+    let n = std::io::Read::read(&mut &*stream, &mut buf)?;
+    if n == 0 {
+        return Err(std::io::Error::other("empty vault restore request"));
+    }
+
+    let req: serde_json::Value = serde_json::from_slice(&buf[..n])
+        .map_err(|e| std::io::Error::other(format!("parse vault request: {e}")))?;
+
+    let bdfs: Vec<String> = req
+        .get("params")
+        .and_then(|p| p.get("bdfs"))
+        .and_then(|b| b.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let id = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
+
+    match vault.restore_for_bdfs(&bdfs) {
+        Ok((fds, result)) => {
+            let response = serde_json::json!({
+                "jsonrpc": "2.0",
+                "result": result,
+                "id": id,
+            });
+            let response_bytes = format!("{response}\n");
+            let borrowed: Vec<BorrowedFd<'_>> = fds.iter().map(AsFd::as_fd).collect();
+            send_with_fds(&*stream, response_bytes.as_bytes(), &borrowed)?;
+            tracing::info!(
+                bdf_count = bdfs.len(),
+                fd_count = fds.len(),
+                "vault restore: fds sent to resurrecting ember"
+            );
+            Ok(())
+        }
+        Err(msg) => {
+            let response = serde_json::json!({
+                "jsonrpc": "2.0",
+                "error": { "code": -32000, "message": msg },
+                "id": id,
+            });
+            std::io::Write::write_all(&mut &*stream, format!("{response}\n").as_bytes())
         }
     }
 }
@@ -285,5 +415,22 @@ mod tests {
         let vault = FdVault::new();
         vault.clear();
         assert_eq!(vault.device_count(), 0);
+    }
+
+    #[test]
+    fn restore_for_bdfs_missing_returns_error() {
+        let vault = FdVault::new();
+        let result = vault.restore_for_bdfs(&["0000:03:00.0".into()]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no vaulted fds"));
+    }
+
+    #[test]
+    fn restore_for_bdfs_empty_list_succeeds() {
+        let vault = FdVault::new();
+        let (fds, manifest) = vault.restore_for_bdfs(&[]).unwrap();
+        assert!(fds.is_empty());
+        let devices = manifest.get("devices").unwrap().as_array().unwrap();
+        assert!(devices.is_empty());
     }
 }

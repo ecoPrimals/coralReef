@@ -171,11 +171,17 @@ pub fn handle_client(
         "ember.mmio.circuit_breaker" => {
             handlers_mmio::circuit_breaker(stream, held, id, params)?;
         }
+        "ember.mmio.policy" => {
+            handlers_mmio::mmio_policy(stream, held, id, params)?;
+        }
         "ember.device.health" => {
             handlers_mmio::device_health(stream, held, id, params)?;
         }
         "ember.device.recover" => {
             handlers_mmio::device_recover(stream, held, id, params)?;
+        }
+        "ember.fecs.state" => {
+            handlers_mmio::fecs_state(stream, held, id, params)?;
         }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;
@@ -333,11 +339,17 @@ pub fn handle_client_tcp(
         "ember.mmio.circuit_breaker" => {
             handlers_mmio::circuit_breaker(stream, held, id, params)?;
         }
+        "ember.mmio.policy" => {
+            handlers_mmio::mmio_policy(stream, held, id, params)?;
+        }
         "ember.device.health" => {
             handlers_mmio::device_health(stream, held, id, params)?;
         }
         "ember.device.recover" => {
             handlers_mmio::device_recover(stream, held, id, params)?;
+        }
+        "ember.fecs.state" => {
+            handlers_mmio::fecs_state(stream, held, id, params)?;
         }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;

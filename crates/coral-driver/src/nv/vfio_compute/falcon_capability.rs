@@ -224,6 +224,240 @@ impl fmt::Display for FalconCapabilities {
     }
 }
 
+// ── Runtime state (firmware boundary) ─────────────────────────────────────
+
+/// Runtime state of a falcon processor — the firmware boundary probe.
+///
+/// This is the GPU equivalent of checking whether a motherboard's UEFI/BIOS
+/// is running. The distinction between `Waiting` and `Halted` is critical:
+/// under nouveau, PMU shows `Waiting` (firmware loaded, processing commands)
+/// while after teardown it shows `Halted` (firmware dead, needs ACR reboot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FalconState {
+    /// Falcon is actively executing code (CPUCTL bits 4,5 both clear).
+    Running,
+    /// Falcon firmware is loaded and waiting for commands (CPUCTL bit 5 set,
+    /// bit 4 clear). This is the PMU's normal operational state under nouveau.
+    /// The falcon is alive and its services (PRI gates, etc.) are available.
+    Waiting,
+    /// Falcon has halted (CPUCTL bit 4 set). Firmware executed a HALT
+    /// instruction or completed its boot sequence. Context-dependent:
+    /// - Under nouveau: FECS normally halts between scheduling events (alive)
+    /// - After teardown: falcon is dead, needs ACR boot to restart
+    Halted,
+    /// Both CPUCTL bits 4 and 5 set — hard reset or fully stopped state.
+    Reset,
+    /// Falcon registers are inaccessible (PRI-gated, returns 0xBADxxxxx).
+    /// The engine hosting this falcon may be clock-gated or PMC-disabled.
+    Inaccessible,
+}
+
+impl FalconState {
+    /// Whether the falcon's firmware is loaded and functional (Running or Waiting).
+    #[must_use]
+    pub const fn is_alive(self) -> bool {
+        matches!(self, Self::Running | Self::Waiting)
+    }
+}
+
+impl fmt::Display for FalconState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Running => write!(f, "RUNNING"),
+            Self::Waiting => write!(f, "WAITING"),
+            Self::Halted => write!(f, "HALTED"),
+            Self::Reset => write!(f, "RESET"),
+            Self::Inaccessible => write!(f, "INACCESSIBLE"),
+        }
+    }
+}
+
+/// Firmware boundary probe result for a single falcon.
+#[derive(Debug, Clone)]
+pub struct FalconStatus {
+    /// Falcon name (PMU, FECS, GPCCS, SEC2).
+    pub name: String,
+    /// BAR0 base address.
+    pub base: usize,
+    /// Runtime state.
+    pub state: FalconState,
+    /// Raw CPUCTL register value.
+    pub cpuctl_raw: u32,
+    /// Mailbox0 value (for communication probing).
+    pub mailbox0: u32,
+    /// Mailbox1 value.
+    pub mailbox1: u32,
+    /// Boot vector address.
+    pub bootvec: u32,
+}
+
+impl fmt::Display for FalconStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:5} @ {:#08x}: {} (cpuctl={:#010x} mbox0={:#010x} bootvec={:#010x})",
+            self.name, self.base, self.state, self.cpuctl_raw, self.mailbox0, self.bootvec
+        )
+    }
+}
+
+/// Complete firmware boundary probe — discovers all falcon states and
+/// determines whether the GPU's firmware layer supports channel dispatch.
+///
+/// Follows the toadStool pattern: discover firmware state, report viability,
+/// never try to replace the firmware.
+#[derive(Debug, Clone)]
+pub struct FalconProbe {
+    /// Per-falcon status.
+    pub falcons: Vec<FalconStatus>,
+    /// PMC_ENABLE register value.
+    pub pmc_enable: u32,
+    /// PMC_UNK260 (PRI gate control) register value.
+    pub pmc_unk260: u32,
+    /// Whether PRI gates appear open (UNK260 is not 0xBADxxxxx).
+    pub pri_gates_open: bool,
+}
+
+impl FalconProbe {
+    /// Probe all standard GV100 falcons and PMC state.
+    pub fn discover(bar0: &MappedBar) -> Self {
+        let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
+
+        let pmc_enable = r(0x200);
+        let pmc_unk260 = r(0x260);
+        let pri_gates_open = pmc_unk260 & 0xBAD0_0000 != 0xBAD0_0000;
+
+        let targets: &[(&str, usize)] = &[
+            ("PMU", falcon::PMU_BASE),
+            ("SEC2", falcon::SEC2_BASE),
+            ("FECS", falcon::FECS_BASE),
+            ("GPCCS", falcon::GPCCS_BASE),
+        ];
+
+        let falcons = targets
+            .iter()
+            .map(|&(name, base)| {
+                let cpuctl_raw = r(base + falcon::CPUCTL);
+                let mailbox0 = r(base + falcon::MAILBOX0);
+                let mailbox1 = r(base + falcon::MAILBOX1);
+                let bootvec = r(base + falcon::BOOTVEC);
+
+                let state = if cpuctl_raw & 0xBAD0_0000 == 0xBAD0_0000 {
+                    FalconState::Inaccessible
+                } else {
+                    let bit4 = cpuctl_raw & (1 << 4) != 0;
+                    let bit5 = cpuctl_raw & (1 << 5) != 0;
+                    match (bit4, bit5) {
+                        (false, false) => FalconState::Running,
+                        (false, true) => FalconState::Waiting,
+                        (true, false) => FalconState::Halted,
+                        (true, true) => FalconState::Reset,
+                    }
+                };
+
+                FalconStatus {
+                    name: name.to_string(),
+                    base,
+                    state,
+                    cpuctl_raw,
+                    mailbox0,
+                    mailbox1,
+                    bootvec,
+                }
+            })
+            .collect();
+
+        Self {
+            falcons,
+            pmc_enable,
+            pmc_unk260,
+            pri_gates_open,
+        }
+    }
+
+    /// Is the PMU falcon alive (Running or Waiting)? Without a functional PMU,
+    /// PRI gates are closed and most GPU register writes are silently dropped.
+    ///
+    /// PMU `Waiting` (CPUCTL bit 5) is its normal operational state under
+    /// nouveau — firmware is loaded and processing mailbox commands.
+    #[must_use]
+    pub fn pmu_alive(&self) -> bool {
+        self.falcon_state("PMU").is_some_and(FalconState::is_alive)
+    }
+
+    /// Is the FECS falcon alive? Without FECS, GR engine context switches
+    /// cannot complete and channels on GR runlists will hang.
+    ///
+    /// Note: FECS `Halted` is normal when no GR work is pending — it sleeps
+    /// between scheduling events. What matters is whether PMU is alive to
+    /// wake FECS when needed.
+    #[must_use]
+    pub fn fecs_alive(&self) -> bool {
+        self.falcon_state("FECS").is_some_and(FalconState::is_alive)
+    }
+
+    /// Can we dispatch compute work through the PFIFO scheduler?
+    ///
+    /// The PMU must be alive (Running or Waiting) to keep PRI gates open.
+    /// FECS being `Halted` is acceptable if PMU is alive — the scheduler
+    /// can wake FECS for context switches.
+    #[must_use]
+    pub fn dispatch_viable(&self) -> bool {
+        self.pmu_alive()
+    }
+
+    /// Get the state of a named falcon.
+    #[must_use]
+    pub fn falcon_state(&self, name: &str) -> Option<FalconState> {
+        self.falcons.iter().find(|f| f.name == name).map(|f| f.state)
+    }
+
+    /// Summary of what blocks dispatch, if anything.
+    #[must_use]
+    pub fn dispatch_blockers(&self) -> Vec<String> {
+        let mut blockers = Vec::new();
+        if !self.pmu_alive() {
+            let pmu_state = self.falcon_state("PMU").unwrap_or(FalconState::Inaccessible);
+            blockers.push(format!(
+                "PMU {pmu_state} — PRI gates closed, PFIFO register writes are dead. \
+                 Needs ACR boot chain (SEC2 -> PMU firmware load) to restart."
+            ));
+        }
+        if !self.pri_gates_open {
+            blockers.push(format!(
+                "PRI gates closed (UNK260={:#010x}) — most engine registers inaccessible",
+                self.pmc_unk260
+            ));
+        }
+        blockers
+    }
+}
+
+impl fmt::Display for FalconProbe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Firmware Boundary Probe:")?;
+        writeln!(
+            f,
+            "  PMC_ENABLE={:#010x}  UNK260={:#010x}  PRI_GATES={}",
+            self.pmc_enable,
+            self.pmc_unk260,
+            if self.pri_gates_open { "OPEN" } else { "CLOSED" }
+        )?;
+        for falcon in &self.falcons {
+            writeln!(f, "  {falcon}")?;
+        }
+        let viable = self.dispatch_viable();
+        write!(f, "  dispatch_viable={viable}")?;
+        if !viable {
+            let blockers = self.dispatch_blockers();
+            for b in &blockers {
+                write!(f, "\n    BLOCKED: {b}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 // ── Probing ──────────────────────────────────────────────────────────────
 
 const TEST_PATTERN: u32 = 0xCAFE_BABE;

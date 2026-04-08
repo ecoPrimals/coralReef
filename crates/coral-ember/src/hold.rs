@@ -104,6 +104,11 @@ pub struct HeldDevice {
     /// the MMIO write-ordering sequencer. Armed at acquisition, disarmed
     /// at release.
     pub pcie_armor: Option<crate::pcie_armor::PcieArmor>,
+    /// MMIO write firewall policy. When set to `BlockTeardown` or
+    /// `BlockAndLog`, writes that would destroy the GPU's security
+    /// context (PMU halt, DMEM scrub, FECS clear, PMC strip) are
+    /// rejected before reaching hardware.
+    pub teardown_policy: coral_driver::vfio::device::dma_safety::TeardownPolicy,
 }
 
 impl DeviceHealth {
@@ -148,6 +153,7 @@ impl HeldDevice {
             mmio_fault_count: 0,
             health: DeviceHealth::Alive,
             pcie_armor: None,
+            teardown_policy: Default::default(),
         }
     }
 

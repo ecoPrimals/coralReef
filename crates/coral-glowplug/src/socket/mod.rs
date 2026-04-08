@@ -47,6 +47,7 @@
 //! | `ring.fence`       | Consume entries through a fence value          |
 //! | `ring.peek`        | Peek at next pending entry without consuming   |
 //! | `ring.stats`       | Ring statistics for a device                  |
+//! | `vault.restore_fds` | Return vaulted VFIO fds via SCM_RIGHTS (ember resurrection) |
 //! | `daemon.status`    | Daemon uptime and device count              |
 //! | `daemon.shutdown`  | Graceful shutdown                           |
 
@@ -224,6 +225,7 @@ impl SocketServer {
         &self,
         devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
         shutdown: &mut tokio::sync::watch::Receiver<bool>,
+        vault: Option<Arc<coral_glowplug::fd_vault::FdVault>>,
     ) {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CLIENTS));
 
@@ -259,8 +261,9 @@ impl SocketServer {
                         };
                         let devices = devices.clone();
                         let started_at = self.started_at;
+                        let vault = vault.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_client(stream, devices, started_at).await {
+                            if let Err(e) = handle_client(stream, devices, started_at, vault).await {
                                 tracing::warn!(error = %e, "client handler error");
                             }
                             drop(permit);
@@ -292,12 +295,66 @@ async fn handle_client(
     stream: ClientStream,
     devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
     started_at: std::time::Instant,
+    vault: Option<Arc<coral_glowplug::fd_vault::FdVault>>,
 ) -> Result<(), SocketServerError> {
     match stream {
         #[cfg(unix)]
-        ClientStream::Unix(s) => handle_client_stream(s, devices, started_at).await,
+        ClientStream::Unix(s) => {
+            if let Some(ref vault) = vault {
+                if is_vault_restore_request(&s).await {
+                    return handle_vault_restore_async(s, vault).await;
+                }
+            }
+            handle_client_stream(s, devices, started_at).await
+        }
         ClientStream::Tcp(s) => handle_client_stream(s, devices, started_at).await,
     }
+}
+
+/// Peek at the first bytes of a Unix stream (MSG_PEEK) to detect `vault.restore_fds`.
+///
+/// Returns `true` if the first request is a vault restore. MSG_PEEK leaves the
+/// data in the kernel buffer so the normal handler can still read it.
+#[cfg(unix)]
+async fn is_vault_restore_request(stream: &tokio::net::UnixStream) -> bool {
+    if stream.readable().await.is_err() {
+        return false;
+    }
+    let mut peek_buf = [0u8; 512];
+    match rustix::net::recv(stream, &mut peek_buf, rustix::net::RecvFlags::PEEK) {
+        Ok((_, n)) if n > 0 => std::str::from_utf8(&peek_buf[..n])
+            .unwrap_or("")
+            .contains("vault.restore_fds"),
+        _ => false,
+    }
+}
+
+/// Route a vault.restore_fds request to the synchronous SCM_RIGHTS handler.
+///
+/// Converts the tokio stream to a std stream and handles in a blocking task,
+/// since SCM_RIGHTS sendmsg requires the raw fd (not the async writer).
+#[cfg(unix)]
+async fn handle_vault_restore_async(
+    stream: tokio::net::UnixStream,
+    vault: &Arc<coral_glowplug::fd_vault::FdVault>,
+) -> Result<(), SocketServerError> {
+    let vault = vault.clone();
+    match stream.into_std() {
+        Ok(std_stream) => {
+            let _ = std_stream.set_nonblocking(false);
+            let result = tokio::task::spawn_blocking(move || {
+                coral_glowplug::fd_vault::handle_vault_restore(&std_stream, &vault)
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "vault restore handler error"),
+                Err(e) => tracing::warn!(error = %e, "vault restore task panicked"),
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "vault: failed to convert stream to std"),
+    }
+    Ok(())
 }
 
 /// Generic JSON-RPC handler — identical logic for Unix and TCP (ecoBin).
