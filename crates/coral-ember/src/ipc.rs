@@ -183,6 +183,20 @@ pub fn handle_client(
         "ember.fecs.state" => {
             handlers_mmio::fecs_state(stream, held, id, params)?;
         }
+        // Sovereign GPU — HBM2 training via BAR0
+        "ember.gpu.train_hbm2" => {
+            handlers_mmio::gpu_train_hbm2(stream, held, id, params)?;
+        }
+        // Sovereign GPU — firmware management (nouveau replacement)
+        "ember.firmware.inventory" => {
+            handlers_mmio::firmware_inventory(stream, held, id, params)?;
+        }
+        "ember.firmware.load" => {
+            handlers_mmio::firmware_load(stream, held, id, params)?;
+        }
+        "ember.sovereign.init" => {
+            handlers_mmio::sovereign_init(stream, held, id, params)?;
+        }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;
         }
@@ -350,6 +364,18 @@ pub fn handle_client_tcp(
         }
         "ember.fecs.state" => {
             handlers_mmio::fecs_state(stream, held, id, params)?;
+        }
+        "ember.gpu.train_hbm2" => {
+            handlers_mmio::gpu_train_hbm2(stream, held, id, params)?;
+        }
+        "ember.firmware.inventory" => {
+            handlers_mmio::firmware_inventory(stream, held, id, params)?;
+        }
+        "ember.firmware.load" => {
+            handlers_mmio::firmware_load(stream, held, id, params)?;
+        }
+        "ember.sovereign.init" => {
+            handlers_mmio::sovereign_init(stream, held, id, params)?;
         }
         "ember.policy.get" => {
             handlers_policy::get(stream, policies, id, params)?;

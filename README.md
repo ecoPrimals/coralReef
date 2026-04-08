@@ -240,6 +240,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
 | 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4318 tests, ~64% workspace line coverage |
+| 10+ | Ember firmware intermediary | **Active** — `ember.firmware.inventory`, `ember.firmware.load`, `ember.sovereign.init` RPCs. Ember replaces nouveau as firmware manager: probes firmware availability, loads ACR/GR/VBIOS blobs, runs 8-stage SovereignInit pipeline (HBM2→PMC→Topology→PFB→Falcon→GR→PFIFO→Context). Fork-isolated for crash safety. 40 RPC methods total. |
 
 ---
 

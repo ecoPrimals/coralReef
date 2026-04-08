@@ -15,6 +15,10 @@ mod device_health;
 mod falcon;
 mod fecs_state;
 #[allow(unsafe_code)]
+mod firmware;
+#[allow(unsafe_code)]
+mod gpu_training;
+#[allow(unsafe_code)]
 mod low_level;
 mod pramin;
 
@@ -23,6 +27,8 @@ pub(crate) use falcon::{
     write_json_to_pipe_fd,
 };
 pub(crate) use fecs_state::fecs_state;
+pub(crate) use firmware::{firmware_inventory, firmware_load, sovereign_init};
+pub(crate) use gpu_training::gpu_train_hbm2;
 pub(crate) use low_level::{mmio_batch, mmio_read, mmio_write};
 pub(crate) use pramin::{pramin_read, pramin_write};
 pub(crate) use self::device_health::{device_health, device_recover};
