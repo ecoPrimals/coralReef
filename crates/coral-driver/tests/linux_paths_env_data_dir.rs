@@ -1,28 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! `CORALREEF_DATA_DIR` / `HOTSPRING_DATA_DIR` for optional data paths.
+//! `CORALREEF_DATA_DIR` for optional data paths.
 
 use coral_driver::linux_paths;
 
 #[test]
-fn optional_data_dir_prefers_coralreef_then_legacy() {
+fn optional_data_dir_reads_coralreef_env() {
     // SAFETY: integration test binary; env mutation before reads.
     unsafe {
         std::env::remove_var("CORALREEF_DATA_DIR");
-        std::env::remove_var("HOTSPRING_DATA_DIR");
     }
     assert!(linux_paths::optional_data_dir().is_none());
 
-    // SAFETY: serialized by test lock; no concurrent environment access
-    unsafe {
-        std::env::set_var("HOTSPRING_DATA_DIR", "/legacy-data");
-    }
-    assert_eq!(
-        linux_paths::optional_data_dir().as_deref(),
-        Some("/legacy-data")
-    );
-
-    // SAFETY: serialized by test lock; no concurrent environment access
+    // SAFETY: integration test binary; env mutation before reads.
     unsafe {
         std::env::set_var("CORALREEF_DATA_DIR", "/coral-data");
     }
@@ -30,4 +20,9 @@ fn optional_data_dir_prefers_coralreef_then_legacy() {
         linux_paths::optional_data_dir().as_deref(),
         Some("/coral-data")
     );
+
+    // SAFETY: integration test binary; restore env for other tests.
+    unsafe {
+        std::env::remove_var("CORALREEF_DATA_DIR");
+    }
 }

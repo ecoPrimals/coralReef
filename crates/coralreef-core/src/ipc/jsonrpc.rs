@@ -88,7 +88,7 @@ trait CoralReefRpc {
     #[method(name = "identity.get")]
     async fn identity_get(&self) -> Result<service::IdentityGetResponse, ErrorObjectOwned>;
 
-    /// `capability.list` — capability domains this primal serves.
+    /// `capability.list` — Wire Standard L2 (`primal`, `version`, `methods`) plus domain `capabilities`.
     #[method(name = "capability.list")]
     async fn capability_list(&self) -> Result<service::CapabilityListResponse, ErrorObjectOwned>;
 }

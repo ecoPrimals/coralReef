@@ -168,7 +168,18 @@ async fn newline_tcp_capability_list_returns_known_domains() {
     let result = v.get("result").expect("capability.list must return result");
     let parsed: service::CapabilityListResponse =
         serde_json::from_value(result.clone()).expect("capability.list result shape");
+    assert_eq!(parsed.primal.as_ref(), env!("CARGO_PKG_NAME"));
     assert_eq!(parsed.version.as_ref(), env!("CARGO_PKG_VERSION"));
+    assert!(
+        parsed.methods.iter().any(|m| m == "shader.compile.wgsl"),
+        "must expose shader.compile.wgsl: {:?}",
+        parsed.methods
+    );
+    assert!(
+        parsed.methods.contains(&"capability.list".to_owned()),
+        "must list capability.list method: {:?}",
+        parsed.methods
+    );
     assert!(
         parsed.capabilities.iter().any(|d| d == "shader.compile"),
         "must include shader.compile: {:?}",

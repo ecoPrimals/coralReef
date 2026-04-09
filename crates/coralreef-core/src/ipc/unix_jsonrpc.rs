@@ -23,6 +23,7 @@ mod inner {
     use tokio::task::JoinHandle;
 
     use super::super::newline_jsonrpc::process_newline_reader_writer;
+    use crate::ipc::btsp::{self, GateVerdict};
 
     /// `true` when the bound socket path uses the shared ecosystem directory segment.
     fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
@@ -108,16 +109,26 @@ mod inner {
 
         tracing::info!(path = %bound_path.display(), "Unix JSON-RPC server listening");
 
+        let mode = btsp::btsp_mode().clone();
+
         let handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     accept = listener.accept() => {
                         match accept {
                             Ok((stream, _addr)) => {
-                                tokio::spawn(async move {
-                                    let (reader, writer) = stream.into_split();
-                                    process_newline_reader_writer(reader, writer).await;
-                                });
+                                match btsp::gate_connection(&mode) {
+                                    GateVerdict::Allow => {
+                                        tokio::spawn(async move {
+                                            let (reader, writer) = stream.into_split();
+                                            process_newline_reader_writer(reader, writer).await;
+                                        });
+                                    }
+                                    GateVerdict::Refuse(reason) => {
+                                        tracing::warn!(reason, "BTSP gate refused connection");
+                                        drop(stream);
+                                    }
+                                }
                             }
                             Err(e) => {
                                 tracing::warn!("Unix accept error: {e}");

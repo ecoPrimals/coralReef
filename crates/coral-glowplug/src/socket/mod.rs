@@ -48,6 +48,7 @@
 //! | `daemon.status`    | Daemon uptime and device count              |
 //! | `daemon.shutdown`  | Graceful shutdown                           |
 
+pub(crate) mod btsp;
 mod handlers;
 mod protocol;
 
@@ -224,6 +225,7 @@ impl SocketServer {
         shutdown: &mut tokio::sync::watch::Receiver<bool>,
     ) {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CLIENTS));
+        let mode = btsp::btsp_mode().clone();
 
         loop {
             let accept_fut = async {
@@ -251,6 +253,14 @@ impl SocketServer {
             tokio::select! {
                 accepted = accept_fut => {
                     if let Some(stream) = accepted {
+                        match btsp::gate_connection(&mode) {
+                            btsp::GateVerdict::Allow => {}
+                            btsp::GateVerdict::Refuse(reason) => {
+                                tracing::warn!(reason, "BTSP gate refused connection");
+                                drop(stream);
+                                continue;
+                            }
+                        }
                         let Ok(permit) = semaphore.clone().try_acquire_owned() else {
                             tracing::warn!("max concurrent clients reached ({MAX_CONCURRENT_CLIENTS}), rejecting");
                             continue;

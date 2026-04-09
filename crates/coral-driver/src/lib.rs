@@ -86,6 +86,7 @@ pub use error::{DriverError, DriverResult};
 ///     barrier_count: 1,
 ///     workgroup: [64, 1, 1],
 ///     wave_size: 32,
+///     local_mem_bytes: None,
 /// };
 /// let _ = (buffers, dims, info, MemoryDomain::Vram);
 /// ```
@@ -147,6 +148,7 @@ pub struct DispatchDims {
 ///     barrier_count: 2,
 ///     workgroup: [128, 1, 1],
 ///     wave_size: 32,
+///     local_mem_bytes: Some(256),
 /// };
 /// let defaults: ShaderInfo = ShaderInfo::default();
 /// assert_eq!(defaults.workgroup, [1, 1, 1]);
@@ -165,6 +167,9 @@ pub struct ShaderInfo {
     /// Wave/warp size: 32 for RDNA wave32 / NVIDIA, 64 for GCN wave64.
     /// Controls VGPR granularity and dispatch initiator flags.
     pub wave_size: u32,
+    /// Per-thread local (scratch) memory in bytes, from compiler spill analysis.
+    /// `None` means no local memory required; the QMD field defaults to 0.
+    pub local_mem_bytes: Option<u32>,
 }
 
 impl Default for ShaderInfo {
@@ -175,6 +180,7 @@ impl Default for ShaderInfo {
             barrier_count: 0,
             workgroup: [1, 1, 1],
             wave_size: 32,
+            local_mem_bytes: None,
         }
     }
 }
@@ -330,6 +336,7 @@ mod tests {
         assert_eq!(info.barrier_count, 0);
         assert_eq!(info.workgroup, [1, 1, 1]);
         assert_eq!(info.wave_size, 32);
+        assert_eq!(info.local_mem_bytes, None);
     }
 
     #[test]
@@ -340,6 +347,7 @@ mod tests {
             barrier_count: 2,
             workgroup: [64, 1, 1],
             wave_size: 32,
+            local_mem_bytes: None,
         };
         let debug = format!("{info:?}");
         assert!(debug.contains("ShaderInfo"));
@@ -355,6 +363,7 @@ mod tests {
             barrier_count: 1,
             workgroup: [32, 2, 1],
             wave_size: 32,
+            local_mem_bytes: None,
         };
         let b = a;
         assert_eq!(a.gpr_count, b.gpr_count);

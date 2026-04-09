@@ -250,7 +250,7 @@ impl AssignRegsBlock {
                 let (src, dst) = match &instr.op {
                     Op::Pin(pin) => (&pin.src, &pin.dst),
                     Op::Unpin(unpin) => (&unpin.src, &unpin.dst),
-                    _ => unreachable!(),
+                    _ => unreachable!("outer match is Op::Pin|Op::Unpin only"),
                 };
 
                 // These basically act as a vector version of OpCopy except that

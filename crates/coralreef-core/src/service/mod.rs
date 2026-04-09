@@ -52,19 +52,36 @@ pub fn handle_identity_get() -> IdentityGetResponse {
         .unwrap_or_else(IdentityGetResponse::fallback)
 }
 
-/// `capability.list` — capability domains this primal serves (wateringHole discovery).
+/// `capability.list` — Wire Standard L2 method inventory plus domain discovery.
 ///
 /// Includes advertised [`crate::capability::Capability`] ids plus JSON-RPC namespaces
-/// exposed by this binary (`health.*`, `identity.get`).
+/// exposed by this binary (`health.*`, `identity.get`), and the flat `methods` list
+/// required by `CAPABILITY_WIRE_STANDARD`.
 #[must_use]
 pub fn handle_capability_list() -> CapabilityListResponse {
     let desc = crate::capability::self_description();
     let mut domains: BTreeSet<String> = desc.provides.iter().map(|c| c.id.to_string()).collect();
     domains.insert("health".into());
     domains.insert("identity".into());
+
+    let methods = vec![
+        "shader.compile.spirv".into(),
+        "shader.compile.wgsl".into(),
+        "shader.compile.status".into(),
+        "shader.compile.capabilities".into(),
+        "shader.compile.wgsl.multi".into(),
+        "health.check".into(),
+        "health.liveness".into(),
+        "health.readiness".into(),
+        "identity.get".into(),
+        "capability.list".into(),
+    ];
+
     CapabilityListResponse {
-        capabilities: domains.into_iter().collect(),
+        primal: config::PRIMAL_NAME.into(),
         version: config::PRIMAL_VERSION.into(),
+        methods,
+        capabilities: domains.into_iter().collect(),
     }
 }
 

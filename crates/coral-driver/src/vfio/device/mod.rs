@@ -25,7 +25,7 @@ use crate::mmio_region::MmioRegion;
 ///
 /// ## Thread safety (`Send` / `Sync`)
 ///
-/// The region wraps a [`crate::mmio_region::MmioRegion`] whose pointer refers to a `MAP_SHARED` MMIO
+/// The region wraps a `MmioRegion` whose pointer refers to a `MAP_SHARED` MMIO
 /// mapping tied to the VFIO device fd lifetime. Access is performed only through
 /// volatile operations (`read_u32` / `write_u32`), which are safe to use from
 /// multiple threads for aligned 32-bit MMIO on supported architectures when the

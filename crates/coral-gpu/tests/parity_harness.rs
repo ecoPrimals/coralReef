@@ -270,6 +270,7 @@ fn parity_hw_amd_store42_dispatch() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 64,
+        local_mem_bytes: None,
     };
 
     dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)

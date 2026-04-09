@@ -73,7 +73,7 @@ impl fmt::Display for IMadSpSrcType {
             Self::U24 => "24",
             Self::U16Lo => "16h0",
             Self::U16Hi => "16h1",
-            _ => unreachable!(),
+            _ => unreachable!("unsigned() maps signed variants to these four kinds only"),
         };
         write!(f, "{sign}{width}")
     }

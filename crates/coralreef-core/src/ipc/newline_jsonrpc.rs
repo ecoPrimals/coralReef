@@ -11,6 +11,7 @@ use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use super::btsp::{self, GateVerdict};
 use super::error::IpcServiceError;
 use super::{CoralReefError, IpcError};
 use crate::service;
@@ -232,16 +233,26 @@ pub async fn start_newline_tcp_jsonrpc(
 
     tracing::info!(%bound, "newline-delimited JSON-RPC (TCP) listening");
 
+    let mode = btsp::btsp_mode().clone();
+
     let handle = tokio::spawn(async move {
         loop {
             tokio::select! {
                 accept = listener.accept() => {
                     match accept {
                         Ok((stream, _peer)) => {
-                            tokio::spawn(async move {
-                                let (reader, writer) = stream.into_split();
-                                process_newline_reader_writer(reader, writer).await;
-                            });
+                            match btsp::gate_connection(&mode) {
+                                GateVerdict::Allow => {
+                                    tokio::spawn(async move {
+                                        let (reader, writer) = stream.into_split();
+                                        process_newline_reader_writer(reader, writer).await;
+                                    });
+                                }
+                                GateVerdict::Refuse(reason) => {
+                                    tracing::warn!(reason, "BTSP gate refused TCP connection");
+                                    drop(stream);
+                                }
+                            }
                         }
                         Err(e) => {
                             tracing::warn!("TCP newline JSON-RPC accept error: {e}");

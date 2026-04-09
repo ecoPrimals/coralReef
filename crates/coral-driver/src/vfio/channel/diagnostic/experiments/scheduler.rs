@@ -55,7 +55,7 @@ pub(super) fn bind_with_inst_bind_enable_runlist(
     let ib_userd_lo = ctx.r(pb + 0x08);
     let ib_sig = ctx.r(pb + 0x10);
     let ib_gpb = ctx.r(pb + 0x48);
-    eprintln!(
+    tracing::info!(
         "║   D INST_BIND: R8={ib_userd_lo:#010x} SIG={ib_sig:#010x} GPB={ib_gpb:#010x} (BEEF=sentinel)"
     );
 

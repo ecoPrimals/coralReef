@@ -465,12 +465,11 @@ impl SM70Op for OpHmma {
 
         assert!(matches!(self.dst_type, FloatType::F16 | FloatType::F32));
         e.set_bit(76, self.dst_type == FloatType::F32);
+        // HMMA src type field: BF16 and TF32 have hardware encodings 1 and 2; not emitted.
         e.set_field(
             82..84,
             match self.src_type {
                 FloatType::F16 => 0u8,
-                // FloatType::BF16 => 1u8,
-                // FloatType::TF32 => 2u8,
                 _ => crate::codegen::ice!("HMMA src_type must be F16; unsupported variant reached"),
             },
         );
@@ -498,14 +497,12 @@ impl SM70Op for OpLdsm {
                 _ => crate::codegen::ice!("Invalid LDSM mat count"),
             },
         );
+        // LDSM size field: M8N16 and M8N32 are encodings 2 and 3 (value expansion); not used.
         e.set_field(
             78..80,
             match self.mat_size {
                 LdsmSize::M8N8 => 0u8,
                 LdsmSize::MT8N8 => 1u8,
-                // Those do value expansion and are weird, we'll probably never use them.
-                // LdsmSize::M8N16 => 2,
-                // LdsmSize::M8N32 => 3,
             },
         );
     }

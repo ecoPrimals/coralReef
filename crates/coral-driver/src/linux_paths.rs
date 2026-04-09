@@ -4,8 +4,7 @@
 //! Environment:
 //! - `CORALREEF_SYSFS_ROOT` — sysfs mount (default `/sys`).
 //! - `CORALREEF_PROC_ROOT` — procfs mount (default `/proc`).
-//! - `CORALREEF_DATA_DIR` — optional data directory for dumps and training assets
-//!   (falls back to `HOTSPRING_DATA_DIR` for backward compatibility).
+//! - `CORALREEF_DATA_DIR` — optional data directory for dumps and training assets.
 
 use std::sync::OnceLock;
 
@@ -47,17 +46,12 @@ pub fn proc_root() -> &'static str {
 
 /// Optional data directory for VBIOS dumps and similar assets.
 ///
-/// Reads `$CORALREEF_DATA_DIR`, then `$HOTSPRING_DATA_DIR` if unset (legacy).
+/// Reads `$CORALREEF_DATA_DIR`. Returns `None` if unset or empty.
 #[must_use]
 pub fn optional_data_dir() -> Option<String> {
     std::env::var("CORALREEF_DATA_DIR")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            std::env::var("HOTSPRING_DATA_DIR")
-                .ok()
-                .filter(|s| !s.is_empty())
-        })
 }
 
 /// Join path segments under [`sysfs_root`].
@@ -318,7 +312,6 @@ mod tests {
         // process environment variables; no concurrent readers elsewhere in tests.
         unsafe {
             std::env::remove_var("CORALREEF_DATA_DIR");
-            std::env::remove_var("HOTSPRING_DATA_DIR");
         }
         assert!(optional_data_dir().is_none());
 
@@ -330,31 +323,7 @@ mod tests {
 
         // SAFETY: Same mutex and test-only env contract as above.
         unsafe {
-            std::env::set_var("CORALREEF_DATA_DIR", "");
-            std::env::set_var("HOTSPRING_DATA_DIR", "/var/hot");
-        }
-        assert_eq!(optional_data_dir().as_deref(), Some("/var/hot"));
-
-        // SAFETY: Same mutex and test-only env contract as above.
-        unsafe {
             std::env::remove_var("CORALREEF_DATA_DIR");
-            std::env::remove_var("HOTSPRING_DATA_DIR");
-        }
-    }
-
-    #[test]
-    fn optional_data_dir_empty_hot_spring_ignored() {
-        let _guard = OPTIONAL_DATA_DIR_TEST_LOCK.lock().expect("lock");
-        // SAFETY: test-only env mutation under a mutex; no concurrent reads
-        // of these env vars in this process outside guarded tests.
-        unsafe {
-            std::env::remove_var("CORALREEF_DATA_DIR");
-            std::env::set_var("HOTSPRING_DATA_DIR", "");
-        }
-        assert!(optional_data_dir().is_none());
-        // SAFETY: same guard; restoring env to clean state.
-        unsafe {
-            std::env::remove_var("HOTSPRING_DATA_DIR");
         }
     }
 
@@ -385,7 +354,6 @@ mod tests {
         // process environment variables; no concurrent readers elsewhere in tests.
         unsafe {
             std::env::set_var("CORALREEF_DATA_DIR", "   ");
-            std::env::remove_var("HOTSPRING_DATA_DIR");
         }
         assert_eq!(optional_data_dir().as_deref(), Some("   "));
         // SAFETY: Same mutex and test-only env contract as above.

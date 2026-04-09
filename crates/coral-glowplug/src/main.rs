@@ -159,6 +159,11 @@ async fn main() {
         )
         .init();
 
+    if let Err(e) = config::validate_insecure_guard() {
+        tracing::error!(error = %e, "configuration rejected");
+        std::process::exit(2);
+    }
+
     let cli = Cli::parse();
 
     let config = if let Some(ref path) = cli.config {

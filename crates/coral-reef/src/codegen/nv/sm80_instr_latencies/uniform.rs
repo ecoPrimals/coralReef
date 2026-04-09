@@ -54,6 +54,7 @@ impl URegLatencySM80 {
         let vcoupled = if uniform_op { Udp } else { vcoupled };
         let vdecoupled = if uniform_op { Udp } else { vdecoupled };
 
+        // Uniform-only ops from tables: mov32i→Uldc, p2ur→Udp; UR2UP when modeled.
         match op {
             Op::BMsk(_) => vcoupled,
             Op::BRev(_) => vcoupled,
@@ -87,13 +88,10 @@ impl URegLatencySM80 {
                 }
             }
 
-            // mov32i => URegLatency::Uldc,
-            // p2ur => Udp,
             Op::PLop3(_) => vcoupled,
             Op::PopC(_) => vdecoupled,
             Op::Prmt(_) => vcoupled,
             Op::PSetP(_) => vcoupled,
-            // UR2UP
             Op::Sel(_) => vcoupled,
             Op::Sgxt(_) => vcoupled,
             Op::Shf(_) => vcoupled,

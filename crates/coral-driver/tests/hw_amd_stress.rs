@@ -87,6 +87,7 @@ fn sequential_dispatches_10x() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     for i in 0..10 {
@@ -150,6 +151,7 @@ fn dispatch_no_buffers_20x() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     for i in 0..20 {
@@ -183,6 +185,7 @@ fn mixed_domain_alloc_with_dispatch() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     dev.dispatch(&compiled.binary, &[], DispatchDims::linear(1), &info)

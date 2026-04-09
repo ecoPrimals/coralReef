@@ -53,10 +53,10 @@ pub(super) fn ramfc_mirror_sched_doorbell(ctx: &mut ExperimentContext<'_>) -> Dr
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let method0 = ctx.r(ctx.pb() + pbdma::METHOD0);
     let data0 = ctx.r(ctx.pb() + pbdma::DATA0);
-    eprintln!(
+    tracing::info!(
         "║   R: PCCSR={post:#010x} CTX: PUT={ctx_put} FETCH={ctx_fetch} USERD={ctx_userd:#010x} SIG={ctx_sig:#010x}"
     );
-    eprintln!(
+    tracing::info!(
         "║   R: DIRECT: FETCH={direct_fetch} USERD={direct_userd:#010x} INTR={intr:#010x} METHOD={method0:#010x} DATA={data0:#010x}"
     );
     Ok(())
@@ -118,10 +118,10 @@ pub(super) fn both_paths_sched_doorbell(ctx: &mut ExperimentContext<'_>) -> Driv
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let method0 = ctx.r(pb + pbdma::METHOD0);
     let data0 = ctx.r(pb + pbdma::DATA0);
-    eprintln!(
+    tracing::info!(
         "║   S: PCCSR={post:#010x} CTX_FETCH={ctx_fetch} DIR_FETCH={direct_fetch} CTX_USERD={ctx_userd:#010x} DIR_USERD={direct_userd:#010x}"
     );
-    eprintln!(
+    tracing::info!(
         "║   S: STATE={state:#010x} INTR={intr:#010x} METHOD={method0:#010x} DATA={data0:#010x} sched={}",
         post & 2 != 0
     );
@@ -173,10 +173,10 @@ pub(super) fn clean_sched_no_work(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let status = pccsr::status_name(post);
-    eprintln!(
+    tracing::info!(
         "║   U: PCCSR={post:#010x} STATUS={status} PUT={ctx_put} FETCH={ctx_fetch} STATE={state:#010x} INTR={intr:#010x}"
     );
-    eprintln!(
+    tracing::info!(
         "║   U: faulted={} sched={}",
         post & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0,
         post & 2 != 0
@@ -245,13 +245,13 @@ pub(super) fn sched_with_nop_pushbuf(ctx: &mut ExperimentContext<'_>) -> DriverR
     let state = ctx.r(pb + pbdma::CHANNEL_STATE);
     let ctx_sig = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let status = pccsr::status_name(post);
-    eprintln!(
+    tracing::info!(
         "║   U2: PCCSR={post:#010x} STATUS={status} CTX_PUT={ctx_put} CTX_FETCH={ctx_fetch} DIR_PUT={dir_put} DIR_FETCH={dir_fetch}"
     );
-    eprintln!(
+    tracing::info!(
         "║   U2: SIG={ctx_sig:#010x} STATE={state:#010x} INTR={intr:#010x} GP_BASE={ctx_get:#010x}"
     );
-    eprintln!(
+    tracing::info!(
         "║   U2: faulted={} sched={}",
         post & (pccsr::PBDMA_FAULTED_RESET | pccsr::ENG_FAULTED_RESET) != 0,
         post & 2 != 0
@@ -269,7 +269,7 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let _ = ctx.w(pb + pbdma::CTX_GP_BASE_HI, 0xDEAD_004C);
 
     let sched_dis = ctx.r(pfifo::SCHED_DISABLE);
-    eprintln!(
+    tracing::info!(
         "║   V: SCHED_DIS={sched_dis:#010x} PFIFO_INTR={:#010x}",
         ctx.r(pfifo::INTR)
     );
@@ -291,7 +291,7 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let post_rl = ctx.r(pccsr::channel(ctx.channel_id));
     let pfifo_intr = ctx.r(pfifo::INTR);
     let rl_ack = ctx.r(pfifo::RUNLIST_ACK);
-    eprintln!(
+    tracing::info!(
         "║   V: post-rl PCCSR={post_rl:#010x} sched={} PFIFO_INTR={pfifo_intr:#010x} RL_ACK={rl_ack:#010x}",
         post_rl & 2 != 0
     );
@@ -300,7 +300,7 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let ctx_sig = ctx.r(pb + pbdma::CTX_SIGNATURE);
     let ctx_gpbase = ctx.r(pb + pbdma::CTX_GP_BASE_LO);
     let sentinel_changed = ctx_userd != 0xDEAD_0008 || ctx_sig != 0xDEAD_0010;
-    eprintln!(
+    tracing::info!(
         "║   V: CTX: USERD={ctx_userd:#010x} SIG={ctx_sig:#010x} GP_BASE={ctx_gpbase:#010x} loaded={}",
         sentinel_changed
     );
@@ -312,7 +312,7 @@ pub(super) fn scheduler_path_only(ctx: &mut ExperimentContext<'_>) -> DriverResu
     let ctx_userd_post = ctx.r(pb + pbdma::CTX_USERD_LO);
     let intr = ctx.r(pbdma::intr(ctx.target_pbdma));
     let pfifo_post = ctx.r(pfifo::INTR);
-    eprintln!(
+    tracing::info!(
         "║   V: post-db PCCSR={post_db:#010x} CTX_USERD={ctx_userd_post:#010x} INTR={intr:#010x} PFIFO={pfifo_post:#010x}"
     );
     Ok(())

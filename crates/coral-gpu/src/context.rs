@@ -684,6 +684,7 @@ impl GpuContext {
             barrier_count: kernel.barrier_count,
             workgroup: kernel.workgroup,
             wave_size: kernel.wave_size,
+            local_mem_bytes: None,
         };
         Ok(self
             .device_mut()?
@@ -712,6 +713,7 @@ impl GpuContext {
             barrier_count: entry.barrier_count,
             workgroup: entry.workgroup,
             wave_size: entry.wave_size,
+            local_mem_bytes: None,
         };
         Ok(self
             .device_mut()?

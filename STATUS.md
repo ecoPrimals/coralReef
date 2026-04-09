@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 6, 2026  
-**Phase**: 10 — Iteration 76 (Deep Debt Smart Refactoring + primalSpring Audit)
+**Last updated**: April 9, 2026  
+**Phase**: 10 — Iteration 77 (primalSpring Gap Resolution + Deep Debt Evolution)
 
 ---
 
@@ -12,8 +12,8 @@
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
-| UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink |
+| UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 scaffolding (mode detection + connection gating) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -22,8 +22,8 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4407 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
-| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
+| Tests | A+ | 4341 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`); `String` → `thiserror` evolution (e.g. `validate_insecure_guard` → `ConfigError`); zero production `.unwrap()`; `Result<_, String>` eliminated from public APIs (Iter 70c) |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
@@ -41,7 +41,21 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 76** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 77** |
+
+### Iteration 77: primalSpring Gap Resolution + Deep Debt Evolution (Apr 9, 2026)
+
+**Theme**: Wire Standard L2, BTSP Phase 2 scaffolding, BIOMEOS_INSECURE guard, typed-config errors, codegen hygiene, and large-file directory refactors.
+
+| Area | Change |
+|------|--------|
+| Security | CR-01: BIOMEOS_INSECURE guard — all 3 binaries refuse startup when `FAMILY_ID` + insecure mode |
+| Wire Standard | CR-02: `capability.list` returns Wire Standard L2 envelope (flat `methods` array) |
+| BTSP | CR-03: Phase 2 scaffolding — `BtspMode` detection, `gate_connection()` in accept loops |
+| Code quality | `validate_insecure_guard`: `Result<(), String>` → `ConfigError` (`thiserror`); `#[allow]` → `#[expect]` in `codegen/mod.rs`; commented-out match arms → architectural doc comments (13+ codegen files); `eprintln!` → `tracing::info!` in coral-driver diagnostics (5 files); `matches!()` clippy fix in `sm75_instr_latencies` |
+| Refactoring | `shader_header.rs` (905 LOC) → `shader_header/` (5 submodules, max 385 lines); `personality.rs` (809 LOC) → `personality/` (2 submodules, max 469 lines) |
+| Documentation | `discovery.rs` / `ecosystem.rs` T6 overstep audit (legitimate: client-only + GPU targeting); module docs for BTSP, Wire Standard, discovery |
+| Metrics | 4341 tests passing, 0 failed, 153 ignored; 0 clippy warnings; 0 files >1000 LOC |
 
 ### Iteration 76: Deep Debt Smart Refactoring + primalSpring Audit (Apr 6, 2026)
 
@@ -1091,7 +1105,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4407 passing, 0 failed, 153 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4341 passing, 0 failed, 153 ignored hardware-gated) |
 | `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

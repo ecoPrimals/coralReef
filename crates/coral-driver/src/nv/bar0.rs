@@ -29,7 +29,7 @@ use std::os::unix::io::AsRawFd;
 ///
 /// The mapping is owned together with the open `resource0` [`std::fs::File`]; the
 /// kernel keeps the mmap valid for the file’s lifetime. Volatile MMIO accesses
-/// are performed through [`crate::mmio_region::MmioRegion`] and are safe to use
+/// are performed through `MmioRegion` and are safe to use
 /// across threads for aligned 32-bit operations when hardware access ordering is
 /// respected by callers—matching other BAR0 wrappers in this crate.
 pub struct Bar0Access {

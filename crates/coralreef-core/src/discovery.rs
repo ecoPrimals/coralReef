@@ -1,24 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Capability-based device discovery via the ecoPrimals ecosystem.
+//! GPU targets for shader compilation — **not** a general “discovery primal”.
 //!
-//! Follows the ecoPrimals **Node Atomic** pattern: coralReef discovers GPU
-//! hardware through capability-based IPC rather than scanning `/dev/dri/`
-//! directly. When no ecosystem provider is available (standalone mode),
-//! falls back to direct DRM render node enumeration.
+//! This module implements **local helpers** so coralReef can choose backends and
+//! render nodes. That is within the `shader.*` domain (knowing which GPUs exist for
+//! compilation and device bring-up). It does **not** register JSON-RPC methods in a
+//! foreign namespace (e.g. no `discovery.*` server surface owned by coralReef).
+//!
+//! Follows the ecoPrimals **Node Atomic** pattern: prefer reading the shared
+//! discovery directory for peers that advertise GPU capabilities; only if that
+//! yields nothing does coralReef fall back to local DRM render-node enumeration.
+//! Self-advertisement of coralReef’s own transports is handled by the binary
+//! (`write_discovery_file` in `main.rs`), per wateringHole / `PRIMAL_SELF_KNOWLEDGE_STANDARD`.
 //!
 //! ## Discovery flow
 //!
 //! ```text
 //! coralReef → discovery_dir/*.json → find "gpu.dispatch" capability
-//!         → provider endpoint → gpu.info / gpu.enumerate
+//!         → embedded device entries in discovery JSON
 //!         → GpuDeviceDescriptor { vendor, arch, render_node_path }
 //!
 //!         (fallback if no ecosystem provider)
 //!         → DRM render node scan → DrmDeviceInfo { driver, path }
 //! ```
 //!
-//! No primal names are hardcoded. coralReef only knows it needs
-//! `"gpu.dispatch"` — whoever provides it is discovered at runtime.
+//! No primal names are hardcoded. coralReef only matches capability ids such as
+//! `"gpu.dispatch"` — providers are identified at runtime from their discovery files.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -133,15 +139,13 @@ struct DiscoveryDevice {
     memory_bytes: Option<u64>,
 }
 
-/// Discover GPU devices through the ecoPrimals ecosystem.
+/// Discover GPU devices for shader targeting: shared dir first, then local DRM scan.
 ///
-/// 1. Checks the shared discovery directory for capability files
-///    containing `"gpu.dispatch"` or `"gpu-*"` capabilities.
-/// 2. Falls back to direct DRM render node enumeration if no
-///    ecosystem provider is found.
+/// 1. Reads the shared discovery directory for JSON files whose `provides` /
+///    `capabilities` include GPU-related ids (`discover_from_ecosystem`).
+/// 2. If that lists no devices, falls back to `discover_from_drm` on Linux.
 ///
-/// This function never panics — discovery failures are logged and
-/// result in an empty or DRM-only device list.
+/// This function never panics — failures degrade to an empty or DRM-only list.
 #[must_use]
 pub fn discover_gpu_devices() -> Vec<GpuDeviceDescriptor> {
     let mut devices = Vec::new();
@@ -159,9 +163,11 @@ pub fn discover_gpu_devices() -> Vec<GpuDeviceDescriptor> {
     devices
 }
 
-/// Discover GPU devices from the ecoPrimals capability directory.
+/// Read peer discovery files that advertise GPU capabilities and extract device rows.
 ///
-/// Scans `$DISCOVERY_DIR/*.json` for entries advertising GPU capabilities.
+/// Consumer-only: does not write the shared directory (coralReef’s own `*.json` is
+/// written by the binary). Matches wateringHole-shaped files listing `gpu.dispatch`
+/// or related ids plus optional `devices` metadata.
 fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescriptor>> {
     let entries = std::fs::read_dir(discovery_dir).ok()?;
     let mut devices = Vec::new();
@@ -213,11 +219,11 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
     }
 }
 
-/// Discover GPU devices by scanning DRM render nodes directly.
+/// Local enumeration of DRM render nodes when ecosystem JSON lists no GPUs.
 ///
-/// Fallback path when no ecosystem provider is available (standalone mode).
-/// For NVIDIA devices, probes sysfs to determine the actual SM architecture
-/// instead of guessing from driver name.
+/// Standalone / dev machines without a GPU provider in the discovery dir. Uses
+/// `coral_driver` to list nodes and probe identity — appropriate for `shader.*`
+/// compilation targeting, not a separate “hardware inventory” primal.
 #[cfg(target_os = "linux")]
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
     use coral_driver::drm::enumerate_render_nodes;

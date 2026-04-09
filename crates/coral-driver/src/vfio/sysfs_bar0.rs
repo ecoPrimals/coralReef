@@ -13,7 +13,7 @@ use crate::mmio_region::MmioRegion;
 ///
 /// ## Thread safety (`Send` / `Sync`)
 ///
-/// The [`std::fs::File`] keeps the sysfs mapping alive; [`crate::mmio_region::MmioRegion`]
+/// The [`std::fs::File`] keeps the sysfs mapping alive; `MmioRegion`
 /// holds the base pointer and length. Read-only volatile `u32` loads are safe to
 /// share across threads for aligned MMIO access on the supported platforms, in line
 /// with other BAR0 readers in this crate.

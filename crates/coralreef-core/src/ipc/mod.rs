@@ -28,6 +28,9 @@ mod tarpc_transport;
 pub use tarpc_transport::start_tarpc_server;
 #[cfg(all(test, unix))]
 pub use tarpc_transport::start_tarpc_unix_server;
+// This module is built for both the `coralreef_core` library and the `coralreef` binary.
+// `unused_imports` on these `pub use` lines fires only for the binary crate, so
+// `expect(unused_imports)` would be unfulfilled on the library build.
 #[cfg(any(test, feature = "e2e"))]
 #[allow(
     unused_imports,
@@ -54,6 +57,8 @@ pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
     reason = "pub re-export for tests/e2e; lint fires on bin target but not lib"
 )]
 pub use newline_jsonrpc::dispatch;
+
+pub mod btsp;
 
 #[cfg(unix)]
 mod unix_jsonrpc;

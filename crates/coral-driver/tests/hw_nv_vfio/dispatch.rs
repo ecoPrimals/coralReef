@@ -35,6 +35,7 @@ fn vfio_dispatch_nop_shader() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     dev.dispatch(&compiled.binary, &[], DispatchDims::linear(1), &info)
@@ -117,6 +118,7 @@ fn vfio_dispatch_warm_handoff() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     match dev.dispatch_traced(&compiled.binary, &[], DispatchDims::linear(1), &info) {

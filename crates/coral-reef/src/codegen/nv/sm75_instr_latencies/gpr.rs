@@ -35,6 +35,8 @@ pub(super) enum RegLatencySM75 {
 impl RegLatencySM75 {
     pub(super) fn op_category(op: &Op, reader: bool, op_reg_idx: usize) -> Self {
         use RegLatencySM75::*;
+        // Schedule classes from NVIDIA tables not mapped to `Op` variants here: S2UR→Decoupled,
+        // B2R→Decoupled, LEPC→CoupledDisp64.
         match op {
             // this will need updating if imad grows support for input predicates
             Op::IMad(_) | Op::IMul(_) => IMADLo,
@@ -131,7 +133,6 @@ impl RegLatencySM75 {
                 (HmmaSize::M16N8K16, _) => RedirectedHMMA_16816,
                 _ => crate::codegen::ice!("Illegal HMMA in reg category {h}"),
             },
-            // S2UR  => Decoupled,
             Op::R2UR(_) => {
                 if reader {
                     Decoupled
@@ -146,8 +147,6 @@ impl RegLatencySM75 {
                     CoupledAlu
                 }
             }
-            // B2R => Decoupled,
-            // LEPC => CoupledDisp64
             Op::BMov(bmov) => match bmov.dst {
                 Dst::Reg(reg) => {
                     if reg.is_gpr() {

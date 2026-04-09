@@ -87,7 +87,9 @@ impl SM32Op for OpLd {
                 let opc = match self.access.space {
                     MemSpace::Local => 0x7a0,
                     MemSpace::Shared => 0x7a4,
-                    MemSpace::Global(_) => unreachable!(),
+                    MemSpace::Global(_) => {
+                        unreachable!("Local|Shared arm: Global was matched in outer MemSpace")
+                    }
                 };
                 e.set_opcode(opc, 2);
 
@@ -170,7 +172,9 @@ impl SM32Op for OpSt {
                 let opc = match self.access.space {
                     MemSpace::Local => 0x7a8,
                     MemSpace::Shared => 0x7ac,
-                    MemSpace::Global(_) => unreachable!(),
+                    MemSpace::Global(_) => {
+                        unreachable!("Local|Shared arm: Global was matched in outer MemSpace")
+                    }
                 };
                 e.set_opcode(opc, 2);
 
@@ -294,12 +298,12 @@ impl SM32Op for OpAtom {
                     e.set_dst(&self.dst);
                     e.set_reg_src(23..31, self.data());
 
+                    // Global atomic data-type field: hardware uses 4 for U128; not supported here.
                     let data_type = match self.atom_type {
                         AtomType::U32 => 0_u8,
                         AtomType::I32 => 1_u8,
                         AtomType::U64 => 2_u8,
                         AtomType::F32 => 3_u8,
-                        // NOTE: U128 => 4_u8,
                         AtomType::I64 => 5_u8,
                         _ => crate::codegen::ice!("Unsupported data type"),
                     };

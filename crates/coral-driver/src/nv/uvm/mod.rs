@@ -75,6 +75,12 @@ pub const NV_ESC_RM_UNMAP_MEMORY: u32 = 0x4F;
 /// Map RM memory into GPU virtual address space (DMA mapping).
 pub const NV_ESC_RM_MAP_MEMORY_DMA: u32 = 0x57;
 
+/// `NVOS46_FLAGS_SHADER_ACCESS` (bits 7:6) = READ_WRITE (3).
+///
+/// Enables GPU shader instructions (LDC, LDG, STG, etc.) to access the
+/// DMA mapping. Without this, shader reads silently return zero.
+pub const NVOS46_FLAGS_SHADER_ACCESS_READ_WRITE: u32 = 3 << 6;
+
 /// Unmap GPU VA mapping.
 pub const NV_ESC_RM_UNMAP_MEMORY_DMA: u32 = 0x58;
 
@@ -313,6 +319,30 @@ pub const NV2080_ENGINE_TYPE_GR0: u32 = 0x0000_0001;
 
 /// RM control command: query GPU GID (UUID).
 pub const NV2080_CTRL_CMD_GPU_GET_GID_INFO: u32 = 0x2080_014A;
+
+/// RM control command: query GR engine info (V2, inline array).
+pub const NV2080_CTRL_CMD_GR_GET_INFO_V2: u32 = 0x2080_1228;
+
+/// RM control command: set per-thread local memory size on a device.
+///
+/// Triggers the RM to allocate the SLM pool and configure the GR context.
+/// Equivalent to `cuCtxSetLimit(CU_LIMIT_STACK_SIZE, ...)`.
+/// NOTE: Returns NOT_SUPPORTED on GSP-RM (driver 580+).
+pub const NV0080_CTRL_CMD_GR_SET_LOCAL_MEMORY_SIZE: u32 = 0x0080_1105;
+
+/// RM control command: bind GR context switch state for a channel.
+///
+/// Called on the subdevice (NV2080) handle. This is how CUDA triggers full
+/// GR context creation (including SLM pool allocation) WITHOUT allocating
+/// a GR class object on the channel. The GSP firmware creates all context
+/// buffers when this is called.
+pub const NV2080_CTRL_CMD_GR_CTXSW_SETUP_BIND: u32 = 0x2080_1218;
+
+/// GR info index: total number of SMs (streaming multiprocessors).
+pub const NV2080_CTRL_GR_INFO_INDEX_SM_COUNT: u32 = 0x002B;
+
+/// GR info index: maximum resident warps per SM.
+pub const NV2080_CTRL_GR_INFO_INDEX_MAX_WARPS_PER_SM: u32 = 0x002A;
 
 /// RM control command: get GPFIFO work submit token (channel doorbell).
 pub const NVA06F_CTRL_CMD_GPFIFO_GET_WORK_SUBMIT_TOKEN: u32 = 0xA06F_0108;

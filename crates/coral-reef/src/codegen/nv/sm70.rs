@@ -180,7 +180,6 @@ impl ShaderModel for ShaderModel70 {
                 // CCTL.C needs 8, CCTL.I needs 11
                 11
             }
-            // Op::DepBar(_) => 4,
             _ => 1, // EVOLUTION(opt): co-issue
         }
     }

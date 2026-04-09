@@ -111,16 +111,21 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use std::io::Write;
+    use std::path::PathBuf;
 
-    fn write_xml_temp(xml: &str) -> std::path::PathBuf {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(xml.as_bytes()).unwrap();
-        f.flush().unwrap();
-        f.into_temp_path().keep().unwrap()
+    fn write_xml_temp(xml: &str) -> Result<PathBuf> {
+        let mut f = tempfile::NamedTempFile::new()
+            .context("create temp file for AMD ISA XML test fixture")?;
+        f.write_all(xml.as_bytes())
+            .context("write AMD ISA XML test fixture bytes")?;
+        f.flush().context("flush AMD ISA XML test fixture")?;
+        f.into_temp_path()
+            .keep()
+            .context("persist AMD ISA XML test fixture path")
     }
 
     #[test]
-    fn parse_xml_basic_encoding_and_instruction() {
+    fn parse_xml_basic_encoding_and_instruction() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -146,16 +151,20 @@ mod tests {
     </InstructionEncoding>
   </Instruction>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, instructions) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, instructions) = parse::parse_xml(&path)?;
         assert_eq!(encodings.len(), 1);
-        let info = encodings.get("ENC_SOP1").unwrap();
+        let info = encodings
+            .get("ENC_SOP1")
+            .context("ENC_SOP1 encoding expected in parsed test XML")?;
         assert_eq!(info.bits, 32);
         assert_eq!(info.fields.len(), 1);
         assert_eq!(info.fields[0].name, "OP");
         assert_eq!(info.fields[0].offset, 0);
         assert_eq!(info.fields[0].width, 8);
-        let instrs = instructions.get("ENC_SOP1").unwrap();
+        let instrs = instructions
+            .get("ENC_SOP1")
+            .context("ENC_SOP1 instructions expected in parsed test XML")?;
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].name, "S_MOV_B32");
         assert_eq!(instrs[0].opcode, 3);
@@ -163,10 +172,11 @@ mod tests {
         assert!(!instrs[0].is_branch);
         assert!(!instrs[0].is_terminator);
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_multiple_encodings() {
+    fn parse_xml_multiple_encodings() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -184,17 +194,27 @@ mod tests {
     </BitMap>
   </Encoding>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, _) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, _) = parse::parse_xml(&path)?;
         assert_eq!(encodings.len(), 2);
-        assert_eq!(encodings.get("ENC_SOP1").unwrap().bits, 32);
-        assert_eq!(encodings.get("ENC_VOP1").unwrap().bits, 64);
-        assert_eq!(encodings.get("ENC_VOP1").unwrap().fields[0].offset, 18);
+        assert_eq!(
+            encodings
+                .get("ENC_SOP1")
+                .context("ENC_SOP1 encoding expected")?
+                .bits,
+            32
+        );
+        let vop1 = encodings
+            .get("ENC_VOP1")
+            .context("ENC_VOP1 encoding expected")?;
+        assert_eq!(vop1.bits, 64);
+        assert_eq!(vop1.fields[0].offset, 18);
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_branch_and_terminator_flags() {
+    fn parse_xml_branch_and_terminator_flags() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -227,20 +247,29 @@ mod tests {
     </InstructionEncoding>
   </Instruction>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (_, instructions) = parse::parse_xml(&path).unwrap();
-        let instrs = instructions.get("ENC_SOPP").unwrap();
-        let br = instrs.iter().find(|i| i.name == "S_BRANCH").unwrap();
+        let path = write_xml_temp(xml)?;
+        let (_, instructions) = parse::parse_xml(&path)?;
+        let instrs = instructions
+            .get("ENC_SOPP")
+            .context("ENC_SOPP instructions expected in parsed test XML")?;
+        let br = instrs
+            .iter()
+            .find(|i| i.name == "S_BRANCH")
+            .context("S_BRANCH instruction expected in test fixture")?;
         assert!(br.is_branch);
         assert!(!br.is_terminator);
-        let term = instrs.iter().find(|i| i.name == "S_ENDPGM").unwrap();
+        let term = instrs
+            .iter()
+            .find(|i| i.name == "S_ENDPGM")
+            .context("S_ENDPGM instruction expected in test fixture")?;
         assert!(!term.is_branch);
         assert!(term.is_terminator);
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_non_compute_encoding_excluded() {
+    fn parse_xml_non_compute_encoding_excluded() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -251,15 +280,16 @@ mod tests {
     </BitMap>
   </Encoding>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, instructions) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, instructions) = parse::parse_xml(&path)?;
         assert!(encodings.is_empty());
         assert!(instructions.is_empty());
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_description_truncation() {
+    fn parse_xml_description_truncation() -> Result<()> {
         let long_desc = "a".repeat(150);
         let xml = format!(
             r#"<?xml version="1.0"?>
@@ -285,16 +315,20 @@ mod tests {
 </root>"#,
             long_desc
         );
-        let path = write_xml_temp(&xml);
-        let (_, instructions) = parse::parse_xml(&path).unwrap();
-        let desc = &instructions.get("ENC_SOP1").unwrap()[0].desc;
+        let path = write_xml_temp(&xml)?;
+        let (_, instructions) = parse::parse_xml(&path)?;
+        let desc = &instructions
+            .get("ENC_SOP1")
+            .context("ENC_SOP1 instructions expected for description truncation test")?[0]
+            .desc;
         assert_eq!(desc.len(), 120);
         assert!(desc.ends_with("..."));
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_duplicate_encoding_dedup() {
+    fn parse_xml_duplicate_encoding_dedup() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -321,15 +355,18 @@ mod tests {
     </InstructionEncoding>
   </Instruction>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (_, instructions) = parse::parse_xml(&path).unwrap();
-        let instrs = instructions.get("ENC_SOP1").unwrap();
+        let path = write_xml_temp(xml)?;
+        let (_, instructions) = parse::parse_xml(&path)?;
+        let instrs = instructions
+            .get("ENC_SOP1")
+            .context("ENC_SOP1 instructions expected for dedup test")?;
         assert_eq!(instrs.len(), 1);
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_instructions_sorted_by_opcode() {
+    fn parse_xml_instructions_sorted_by_opcode() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -362,28 +399,32 @@ mod tests {
     </InstructionEncoding>
   </Instruction>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (_, instructions) = parse::parse_xml(&path).unwrap();
-        let instrs = instructions.get("ENC_SOP1").unwrap();
+        let path = write_xml_temp(xml)?;
+        let (_, instructions) = parse::parse_xml(&path)?;
+        let instrs = instructions
+            .get("ENC_SOP1")
+            .context("ENC_SOP1 instructions expected for sort test")?;
         assert_eq!(instrs[0].opcode, 1);
         assert_eq!(instrs[0].name, "INSTR_A");
         assert_eq!(instrs[1].opcode, 10);
         assert_eq!(instrs[1].name, "INSTR_Z");
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_empty_no_encodings() {
+    fn parse_xml_empty_no_encodings() -> Result<()> {
         let xml = r#"<?xml version="1.0"?><root></root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, instructions) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, instructions) = parse::parse_xml(&path)?;
         assert!(encodings.is_empty());
         assert!(instructions.is_empty());
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_encoding_with_no_instructions() {
+    fn parse_xml_encoding_with_no_instructions() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -394,15 +435,16 @@ mod tests {
     </BitMap>
   </Encoding>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, instructions) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, instructions) = parse::parse_xml(&path)?;
         assert_eq!(encodings.len(), 1);
         assert!(instructions.get("ENC_SOP1").is_none_or(|v| v.is_empty()));
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_non_default_condition_excluded() {
+    fn parse_xml_non_default_condition_excluded() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -424,15 +466,16 @@ mod tests {
     </InstructionEncoding>
   </Instruction>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, instructions) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, instructions) = parse::parse_xml(&path)?;
         assert_eq!(encodings.len(), 1);
         assert!(instructions.get("ENC_SOP1").is_none_or(|v| v.is_empty()));
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_description_escape() {
+    fn parse_xml_description_escape() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -454,25 +497,31 @@ mod tests {
     </InstructionEncoding>
   </Instruction>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (_, instructions) = parse::parse_xml(&path).unwrap();
-        let desc = &instructions.get("ENC_SOP1").unwrap()[0].desc;
+        let path = write_xml_temp(xml)?;
+        let (_, instructions) = parse::parse_xml(&path)?;
+        let desc = &instructions
+            .get("ENC_SOP1")
+            .context("ENC_SOP1 instructions expected for escape test")?[0]
+            .desc;
         assert!(desc.contains("\\\\"));
         assert!(desc.contains("\\\""));
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_invalid_xml_error() {
-        let path = write_xml_temp("<root></mismatched>");
+    fn parse_xml_invalid_xml_error() -> Result<()> {
+        let path = write_xml_temp("<root></mismatched>")?;
         let result = parse::parse_xml(&path);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("XML parse error"));
+        let err = result.expect_err("mismatched XML tags should fail to parse");
+        assert!(err.to_string().contains("XML parse error"));
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
-    fn parse_xml_encoding_no_fields_excluded() {
+    fn parse_xml_encoding_no_fields_excluded() -> Result<()> {
         let xml = r#"<?xml version="1.0"?>
 <root>
   <Encoding>
@@ -481,10 +530,11 @@ mod tests {
     <BitMap></BitMap>
   </Encoding>
 </root>"#;
-        let path = write_xml_temp(xml);
-        let (encodings, _) = parse::parse_xml(&path).unwrap();
+        let path = write_xml_temp(xml)?;
+        let (encodings, _) = parse::parse_xml(&path)?;
         assert!(encodings.is_empty());
         std::fs::remove_file(&path).ok();
+        Ok(())
     }
 
     #[test]
@@ -495,20 +545,23 @@ mod tests {
     }
 
     #[test]
-    fn file_header_contains_spdx() {
-        let header = generate::file_header().unwrap();
+    fn file_header_contains_spdx() -> Result<()> {
+        let header = generate::file_header().context("file_header for SPDX test")?;
         assert!(header.contains("SPDX-License-Identifier: AGPL-3.0-or-later"));
         assert!(header.contains("AUTO-GENERATED"));
         assert!(header.contains("DO NOT EDIT BY HAND"));
+        Ok(())
     }
 
     #[test]
-    fn generate_types_has_bitfield_and_instrentry() {
-        let types = generate::generate_types_file().unwrap();
+    fn generate_types_has_bitfield_and_instrentry() -> Result<()> {
+        let types =
+            generate::generate_types_file().context("generate_types_file for shape test")?;
         assert!(types.contains("pub struct BitField"));
         assert!(types.contains("pub struct InstrEntry"));
         assert!(types.contains("pub offset: u32"));
         assert!(types.contains("pub opcode: u16"));
+        Ok(())
     }
 
     #[test]
@@ -547,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_encoding_produces_valid_rust() {
+    fn generate_encoding_produces_valid_rust() -> Result<()> {
         let info = parse::EncodingInfo {
             bits: 64,
             fields: vec![parse::BitField {
@@ -563,13 +616,15 @@ mod tests {
             is_branch: false,
             is_terminator: false,
         }];
-        let out = generate::generate_encoding_file("ENC_VOP1", &info, Some(&instrs)).unwrap();
+        let out = generate::generate_encoding_file("ENC_VOP1", &info, Some(&instrs))
+            .context("generate_encoding_file ENC_VOP1 smoke test")?;
         assert!(out.main_file.contains("V_ADD_F32"));
         assert!(out.main_file.contains("opcode: 3"));
+        Ok(())
     }
 
     #[test]
-    fn generate_encoding_vop3_sub_split() {
+    fn generate_encoding_vop3_sub_split() -> Result<()> {
         let info = parse::EncodingInfo {
             bits: 64,
             fields: vec![parse::BitField {
@@ -608,7 +663,8 @@ mod tests {
                 is_terminator: false,
             },
         ];
-        let out = generate::generate_encoding_file("ENC_VOP3", &info, Some(&instrs)).unwrap();
+        let out = generate::generate_encoding_file("ENC_VOP3", &info, Some(&instrs))
+            .context("generate_encoding_file ENC_VOP3 sub-split test")?;
         assert!(out.main_file.contains("mod table_cmp_f32_f64"));
         assert!(out.main_file.contains("mod table_cmp_int"));
         assert!(out.main_file.contains("mod table_arith"));
@@ -616,10 +672,11 @@ mod tests {
         assert!(out.main_file.contains("mod table_logic"));
         assert_eq!(out.table_sub_files.len(), 5);
         assert!(out.table_file.is_none());
+        Ok(())
     }
 
     #[test]
-    fn generate_encoding_vopc_split() {
+    fn generate_encoding_vopc_split() -> Result<()> {
         let info = parse::EncodingInfo {
             bits: 64,
             fields: vec![parse::BitField {
@@ -644,16 +701,18 @@ mod tests {
                 is_terminator: false,
             },
         ];
-        let out = generate::generate_encoding_file("ENC_VOPC", &info, Some(&instrs)).unwrap();
+        let out = generate::generate_encoding_file("ENC_VOPC", &info, Some(&instrs))
+            .context("generate_encoding_file ENC_VOPC split test")?;
         assert!(out.main_file.contains("mod table_a"));
         assert!(out.main_file.contains("mod table_b"));
         assert_eq!(out.table_sub_files.len(), 2);
         assert!(out.table_sub_files[0].0 == "table_a.rs");
         assert!(out.table_sub_files[1].0 == "table_b.rs");
+        Ok(())
     }
 
     #[test]
-    fn generate_encoding_needs_split() {
+    fn generate_encoding_needs_split() -> Result<()> {
         let info = parse::EncodingInfo {
             bits: 64,
             fields: vec![parse::BitField {
@@ -671,14 +730,16 @@ mod tests {
                 is_terminator: false,
             })
             .collect();
-        let out = generate::generate_encoding_file("ENC_SOP1", &info, Some(&instrs)).unwrap();
+        let out = generate::generate_encoding_file("ENC_SOP1", &info, Some(&instrs))
+            .context("generate_encoding_file ENC_SOP1 line-split test")?;
         assert!(out.main_file.contains("mod table"));
         assert!(out.main_file.contains("pub use table::"));
         assert!(out.table_file.is_some());
+        Ok(())
     }
 
     #[test]
-    fn generate_encoding_no_instructions() {
+    fn generate_encoding_no_instructions() -> Result<()> {
         let info = parse::EncodingInfo {
             bits: 32,
             fields: vec![parse::BitField {
@@ -687,10 +748,12 @@ mod tests {
                 width: 8,
             }],
         };
-        let out = generate::generate_encoding_file("ENC_SOP1", &info, None).unwrap();
+        let out = generate::generate_encoding_file("ENC_SOP1", &info, None)
+            .context("generate_encoding_file without instructions")?;
         assert!(out.main_file.contains("fields"));
         assert!(out.table_file.is_none());
         assert!(out.table_sub_files.is_empty());
+        Ok(())
     }
 
     #[test]
@@ -709,23 +772,26 @@ mod tests {
     }
 
     #[test]
-    fn generate_types_file_contains_required_fields() {
-        let types = generate::generate_types_file().unwrap();
+    fn generate_types_file_contains_required_fields() -> Result<()> {
+        let types = generate::generate_types_file()
+            .context("generate_types_file for required fields test")?;
         assert!(types.contains("is_branch"));
         assert!(types.contains("is_terminator"));
         assert!(types.contains("BitField"));
         assert!(types.contains("InstrEntry"));
+        Ok(())
     }
 
     #[test]
-    fn file_header_contains_generator_info() {
-        let header = generate::file_header().unwrap();
+    fn file_header_contains_generator_info() -> Result<()> {
+        let header = generate::file_header().context("file_header for generator info test")?;
         assert!(header.contains("amd-isa-gen"));
         assert!(header.contains("cargo run -p amd-isa-gen"));
+        Ok(())
     }
 
     #[test]
-    fn generate_mod_file() {
+    fn generate_mod_file() -> Result<()> {
         let mut encoding_fields = BTreeMap::new();
         encoding_fields.insert(
             "ENC_SOP1".to_string(),
@@ -749,9 +815,11 @@ mod tests {
                 is_terminator: false,
             }],
         );
-        let out = generate::generate_mod_file(&encoding_fields, &instructions).unwrap();
+        let out = generate::generate_mod_file(&encoding_fields, &instructions)
+            .context("generate_mod_file smoke test")?;
         assert!(out.contains("pub mod sop1"));
         assert!(out.contains("TOTAL_INSTRUCTIONS: usize = 1"));
         assert!(out.contains("\"ENC_SOP1\" => Some(32)"));
+        Ok(())
     }
 }

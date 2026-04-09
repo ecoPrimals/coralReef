@@ -9,8 +9,8 @@ fn discovery_dir_returns_path() {
     assert!(dir.ends_with(crate::config::ECOSYSTEM_NAMESPACE));
 }
 
-#[test]
-fn write_and_remove_discovery_file() {
+#[tokio::test]
+async fn write_and_remove_discovery_file() {
     let desc = SelfDescription {
         provides: vec![Capability {
             id: "test.provide".into(),
@@ -30,7 +30,7 @@ fn write_and_remove_discovery_file() {
         ],
     };
 
-    write_discovery_file(&desc).unwrap();
+    write_discovery_file(&desc).await.unwrap();
     let dir = discovery_dir().unwrap();
     let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
     assert!(path.exists(), "discovery file should exist after write");
@@ -45,7 +45,7 @@ fn write_and_remove_discovery_file() {
     assert_eq!(json["transports"]["jsonrpc_line"]["bind"], "");
     assert_eq!(json["transports"]["tarpc"]["bind"], "127.0.0.1:12346");
 
-    remove_discovery_file();
+    remove_discovery_file().await;
     assert!(!path.exists(), "discovery file should be removed");
 
     let desc_empty = SelfDescription {
@@ -53,19 +53,19 @@ fn write_and_remove_discovery_file() {
         requires: vec![],
         transports: vec![],
     };
-    write_discovery_file(&desc_empty).unwrap();
+    write_discovery_file(&desc_empty).await.unwrap();
     let contents_empty = std::fs::read_to_string(&path).unwrap();
     let json_empty: serde_json::Value = serde_json::from_str(&contents_empty).unwrap();
     assert_eq!(json_empty["transports"]["jsonrpc"]["bind"], "");
     assert_eq!(json_empty["transports"]["jsonrpc_line"]["bind"], "");
     assert_eq!(json_empty["transports"]["tarpc"]["bind"], "");
-    remove_discovery_file();
+    remove_discovery_file().await;
 }
 
-#[test]
-fn remove_discovery_file_idempotent() {
-    remove_discovery_file();
-    remove_discovery_file();
+#[tokio::test]
+async fn remove_discovery_file_idempotent() {
+    remove_discovery_file().await;
+    remove_discovery_file().await;
 }
 
 #[test]

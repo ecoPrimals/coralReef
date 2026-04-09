@@ -2,6 +2,13 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2025)
 //! SM32 texture and surface instruction encoders.
+//!
+//! Several texture opcodes use bits 32–34 for the phase selector: `0` = none, `1` = `.t`, `2` = `.p`.
+//! Encoders here emit `.p` (`0x2`) where applicable.
+//!
+//! For `txq`, bits 25–31 encode the query kind. Besides the variants
+//! handled in code, hardware assigns `Filter` → `0x10`, `Lod` → `0x12`, `Wrap` → `0x14`,
+//! `BorderColour` → `0x16` (not modeled in the IR yet).
 
 use super::encoder::*;
 use crate::codegen::ir::{IMadSpSrcType, RegFile};
@@ -87,10 +94,6 @@ impl SM32Op for OpTex {
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
-        // phase?: 32..34
-        // 0 => none
-        // 1 => .t
-        // 2 => .p
         e.set_field(32..34, 0x2_u8);
 
         e.set_field(34..38, self.channel_mask.to_bits());
@@ -127,10 +130,6 @@ impl SM32Op for OpTld {
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
-        // phase?: 32..34
-        // 0 => none
-        // 1 => .t
-        // 2 => .p
         e.set_field(32..34, 0x2_u8);
 
         e.set_field(34..38, self.channel_mask.to_bits());
@@ -169,10 +168,6 @@ impl SM32Op for OpTld4 {
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
-        // phase?: 32..34
-        // 0 => none
-        // 1 => .t
-        // 2 => .p
         e.set_field(32..34, 0x2_u8);
 
         e.set_field(34..38, self.channel_mask.to_bits());
@@ -214,10 +209,6 @@ impl SM32Op for OpTmml {
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
-        // phase?: 32..34
-        // 0 => none
-        // 1 => .t
-        // 2 => .p
         e.set_field(32..34, 0x2_u8);
 
         e.set_field(34..38, self.channel_mask.to_bits());
@@ -251,10 +242,6 @@ impl SM32Op for OpTxd {
         e.set_reg_src(10..18, &self.srcs[0]);
         e.set_reg_src(23..31, &self.srcs[1]);
         e.set_bit(31, self.nodep);
-        // phase?: 32..34
-        // 0 => none
-        // 1 => .t
-        // 2 => .p
         e.set_field(32..34, 0x2_u8);
 
         e.set_field(34..38, self.channel_mask.to_bits());
@@ -292,14 +279,9 @@ impl SM32Op for OpTxq {
                 TexQuery::Dimension => 1_u8,
                 TexQuery::TextureType => 2_u8,
                 TexQuery::SamplerPos => 5_u8,
-                // TexQuery::Filter => 0x10_u8,
-                // TexQuery::Lod => 0x12_u8,
-                // TexQuery::Wrap => 0x14_u8,
-                // TexQuery::BorderColour => 0x16,
             },
         );
         e.set_bit(31, self.nodep);
-        // phase: (default|.t|.p|inv)
         e.set_field(32..34, 0x2_u8);
         e.set_field(34..38, self.channel_mask.to_bits());
     }
@@ -430,7 +412,9 @@ impl SM32Op for OpIMadSp {
                         U24 => 1,
                         U16Lo => 2,
                         U16Hi => 3,
-                        S32 | S24 | S16Hi | S16Lo => unreachable!(),
+                        S32 | S24 | S16Hi | S16Lo => {
+                            unreachable!("src0.unsigned() removes signed IMadSpSrcType variants")
+                        }
                     },
                 );
 
@@ -441,7 +425,9 @@ impl SM32Op for OpIMadSp {
                         U24 => 1,
                         U16Lo => 2,
                         U16Hi => unreachable!("SM32 legalization rejects IMadSp src2 U16Hi"),
-                        _ => unreachable!(),
+                        _ => unreachable!(
+                            "IMadSp src2 unsigned() is U32/U24/U16Lo after legalization"
+                        ),
                     },
                 );
                 e.set_bit(56, src1.sign());

@@ -97,16 +97,24 @@ pub struct CompileResponse {
     pub status: Option<String>,
 }
 
-/// `capability.list` response — capability domains this primal serves.
+/// `capability.list` response — Wire Standard Level 2 compliance.
 ///
-/// Per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD`: semantic discovery
-/// without hardcoded primal names.
+/// Per wateringHole `CAPABILITY_WIRE_STANDARD` v1.0: the response MUST
+/// contain `primal`, `version`, and `methods` (flat string array of every
+/// callable JSON-RPC method).
+///
+/// Also includes `capabilities` for backward compatibility with existing
+/// ecosystem consumers that expect domain-level discovery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapabilityListResponse {
-    /// Capability domain strings offered by this primal (e.g. `shader.compile`, `health`).
-    pub capabilities: Vec<String>,
+    /// Canonical primal name (lowercase, no spaces).
+    pub primal: Cow<'static, str>,
     /// Primal semantic version.
     pub version: Cow<'static, str>,
+    /// Every callable JSON-RPC method (Wire Standard L2 routing signal).
+    pub methods: Vec<String>,
+    /// Capability domain strings (backward compat with domain-level discovery).
+    pub capabilities: Vec<String>,
 }
 
 /// `identity.get` response — primal self-description for capability-based discovery.
@@ -345,12 +353,16 @@ mod identity_tests {
     #[test]
     fn capability_list_response_serde_roundtrip() {
         let r = CapabilityListResponse {
-            capabilities: vec!["health".to_owned(), "shader.compile".to_owned()],
+            primal: env!("CARGO_PKG_NAME").into(),
             version: env!("CARGO_PKG_VERSION").into(),
+            methods: vec!["health.check".to_owned(), "capability.list".to_owned()],
+            capabilities: vec!["health".to_owned(), "shader.compile".to_owned()],
         };
         let json = serde_json::to_string(&r).expect("serialize");
         let roundtrip: CapabilityListResponse = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(roundtrip.capabilities, r.capabilities);
+        assert_eq!(roundtrip.primal.as_ref(), r.primal.as_ref());
         assert_eq!(roundtrip.version.as_ref(), r.version.as_ref());
+        assert_eq!(roundtrip.methods, r.methods);
+        assert_eq!(roundtrip.capabilities, r.capabilities);
     }
 }

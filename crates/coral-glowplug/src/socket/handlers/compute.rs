@@ -138,6 +138,7 @@ fn cuda_dispatch_blocking(
         barrier_count: 0,
         workgroup,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     dev.dispatch_named(

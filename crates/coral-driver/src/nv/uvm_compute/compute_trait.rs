@@ -185,6 +185,7 @@ impl ComputeDevice for NvUvmComputeDevice {
             gpr_count: info.gpr_count.max(4),
             shared_mem_bytes: info.shared_mem_bytes,
             barrier_count: info.barrier_count,
+            local_mem_low_bytes: info.local_mem_bytes.unwrap_or(0),
             cbufs,
         };
         let qmd_words = qmd::build_qmd_for_sm(self.sm_version(), &qmd_params);

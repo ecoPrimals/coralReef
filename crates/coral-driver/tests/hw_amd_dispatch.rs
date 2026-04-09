@@ -41,6 +41,7 @@ fn dispatch_trivial_shader() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     dev.dispatch(&compiled.binary, &[], DispatchDims::linear(1), &info)
@@ -60,6 +61,7 @@ fn dispatch_multiple_workgroups() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     dev.dispatch(&compiled.binary, &[], DispatchDims::linear(64), &info)

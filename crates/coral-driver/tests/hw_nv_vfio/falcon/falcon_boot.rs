@@ -102,6 +102,7 @@ fn vfio_sovereign_fecs_boot() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 32,
+        local_mem_bytes: None,
     };
 
     match dev.dispatch_traced(&compiled.binary, &[], DispatchDims::linear(1), &info) {

@@ -11,6 +11,9 @@ use crate::codegen::ir::*;
 // scoreboards but not delays.  There are also redirected instructions which
 // depending on the SM, can be coupled or decoupled so both delays and
 // scoreboards needs to be provided.
+//
+// `needs_scoreboards` does not treat `RedirectedFP16` as needing scoreboards on Turing; revisit if
+// hardware guidance changes.
 
 mod gpr;
 mod uniform;
@@ -29,19 +32,16 @@ impl SM75Latency {
                 uniform::URegLatencySM75::R2UR
             )
         } else {
-            match gpr::RegLatencySM75::op_category(op, false, 0) {
-                gpr::RegLatencySM75::RedirectedFP64 |
-                // We don't think fp16 needs scoreboarding on any known hw
-                // Put this back if we figure out it does.
-                //RegLatencySM75::RedirectedFP16 |
-                gpr::RegLatencySM75::RedirectedHMMA_884_F16(_) |
-                gpr::RegLatencySM75::RedirectedHMMA_884_F32(_) |
-                gpr::RegLatencySM75::RedirectedHMMA_1688 |
-                gpr::RegLatencySM75::RedirectedHMMA_16816 |
-                gpr::RegLatencySM75::IMMA(_) |
-                gpr::RegLatencySM75::Decoupled => true,
-                _ => false
-            }
+            matches!(
+                gpr::RegLatencySM75::op_category(op, false, 0),
+                gpr::RegLatencySM75::RedirectedFP64
+                    | gpr::RegLatencySM75::RedirectedHMMA_884_F16(_)
+                    | gpr::RegLatencySM75::RedirectedHMMA_884_F32(_)
+                    | gpr::RegLatencySM75::RedirectedHMMA_1688
+                    | gpr::RegLatencySM75::RedirectedHMMA_16816
+                    | gpr::RegLatencySM75::IMMA(_)
+                    | gpr::RegLatencySM75::Decoupled
+            )
         }
     }
 

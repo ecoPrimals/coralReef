@@ -224,6 +224,11 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
 }
 
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniBinExit {
+    if let Err(e) = config::validate_insecure_guard() {
+        tracing::error!(error = %e, "configuration rejected");
+        return UniBinExit::ConfigError;
+    }
+
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
     tracing::info!(rpc_bind, tarpc_bind, ?port, "binding addresses");
 
@@ -311,7 +316,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
     service::set_identity_from_self_description(&desc);
 
     // File-based discovery: write transport info so peer primals can find us.
-    if let Err(e) = write_discovery_file(&desc) {
+    if let Err(e) = write_discovery_file(&desc).await {
         tracing::warn!(error = %e, "failed to write discovery file (peers must use fallback discovery)");
     }
 
@@ -344,7 +349,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
         tracing::warn!("{}", shutdown_join_timeout_elapsed_message(join_timeout));
     }
 
-    remove_discovery_file();
+    remove_discovery_file().await;
 
     UniBinExit::Signal
 }
@@ -357,9 +362,11 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
 /// Format follows wateringHole Phase 10: `provides`, `transports` as
 /// `{ "jsonrpc": { "bind": "..." }, "tarpc": { "bind": "..." } }`,
 /// `primal`, `version`, `pid`.
-fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> io::Result<()> {
+async fn write_discovery_file(
+    desc: &coralreef_core::capability::SelfDescription,
+) -> io::Result<()> {
     let dir = discovery_dir()?;
-    std::fs::create_dir_all(&dir)?;
+    tokio::fs::create_dir_all(&dir).await?;
     let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
 
     let jsonrpc_addr = desc
@@ -395,22 +402,20 @@ fn write_discovery_file(desc: &coralreef_core::capability::SelfDescription) -> i
         },
     });
 
-    std::fs::write(
+    tokio::fs::write(
         &path,
         serde_json::to_string_pretty(&discovery).expect("JSON Value serialization is infallible"),
-    )?;
+    )
+    .await?;
     tracing::info!(path = %path.display(), "wrote discovery file");
     Ok(())
 }
 
 /// Remove the discovery file on shutdown.
-fn remove_discovery_file() {
+async fn remove_discovery_file() {
     if let Ok(dir) = discovery_dir() {
         let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
-        if path.exists() {
-            let _ = std::fs::remove_file(&path);
-            tracing::debug!(path = %path.display(), "removed discovery file");
-        }
+        let _ = tokio::fs::remove_file(&path).await;
     }
 }
 

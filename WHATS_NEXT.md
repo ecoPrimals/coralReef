@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 76.
+**Current position**: Phase 10 — Iteration 77.
 
-**Last completed**: Deep debt smart refactoring (6 near-limit files → cohesive submodules); primalSpring audit resolution (license AGPL-3.0-or-later, `unsafe_code = "deny"`, CONTEXT.md, IPC cleanup); mock isolation (`SysfsError` variant `#[cfg(test)]`); idiomatic Rust (19 let-else conversions). Prior: Iter 74 deep debt execution (+89 tests, lint evolution, refactoring); Iter 73 logic/IO untangling; Iter 72 GPU-agnostic detection.
+**Last completed**: CR-01 BIOMEOS_INSECURE guard; CR-02 Wire Standard L2; CR-03 BTSP Phase 2 scaffolding; typed errors (`String` → `thiserror`); commented-out code cleanup; `eprintln!` → `tracing`; shader_header/personality smart refactoring; domain overstep documentation.
 
-**Tests**: 4407 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4341 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: Coverage push toward 90% (any local GPU for hardware tests), Intel GPU backend, barraCuda integration, UVM hardware validation, coral-driver workspace lint inheritance (pedantic + nursery).
+**Next focus**: musl-static verification; BTSP Phase 2 full handshake (blocked on BearDog); coral-driver `Result<_, String>` → typed errors; coverage push; plasmidBin.
 
-**Last updated**: April 6, 2026 (Phase 10 — Iteration 76 — Deep Debt Smart Refactoring + primalSpring Audit. Six near-limit production files refactored into cohesive submodules. Full audit verified zero library `.unwrap()`, zero hardcoding violations, pure Rust dep stack.)
+**Last updated**: April 9, 2026 (Phase 10 — Iteration 77 — primalSpring Gap Resolution + Deep Debt Evolution.)
 
 ---
 
@@ -30,7 +30,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `codegen_coverage_saturation.rs` (982, test), `nv/shader_header.rs` (905), `nv_metal.rs` (882), `vfio/memory.rs` (874). Former monolithic files now directories: `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
+**Approaching 1000 (monitor):** `codegen_coverage_saturation.rs` (982, test), `nv_metal.rs` (882), `vfio/memory.rs` (874). Former monolithic files now directories: `shader_header` → 5 submodules (Iter 77); `personality` → 2 submodules (Iter 77); `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
@@ -167,7 +167,7 @@ Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now
 - [x] **coralreef-core**: `cmd_compile` tests use `tempfile::tempdir` (no fixed `/tmp`)
 - [x] **coral-glowplug**: Boot safety evaluation, health decisions, config classification extracted
 - [x] **coral-ember**: Startup decomposition, reset plan, lifecycle steps
-- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (4407 pass, 0 fail, 153 ignored), doc ✅
+- [x] Quality gates: fmt ✅, clippy ✅ (pedantic+nursery), test ✅ (4318 pass, 0 fail, 153 ignored), doc ✅
 
 ### Iteration 72 — GPU-Agnostic Evolution
 - [x] **Ada Lovelace PCI identity fix**: Device IDs 0x2600–0x28FF correctly map to SM89 (was misclassifying RTX 4070/4080/4060 as Ampere SM86)
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4407 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
+4341 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.

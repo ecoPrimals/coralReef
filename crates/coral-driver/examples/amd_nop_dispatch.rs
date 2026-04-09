@@ -67,6 +67,7 @@ fn main() {
         barrier_count: 0,
         workgroup: [1, 1, 1],
         wave_size: 32,
+        local_mem_bytes: None,
     };
     let dims = DispatchDims::new(1, 1, 1);
 

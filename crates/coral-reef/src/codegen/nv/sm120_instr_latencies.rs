@@ -18,6 +18,9 @@ use coral_reef_stubs::nak_latencies::sm100::*;
 // scoreboards but not delays.  There are also redirected instructions which
 // depending on the SM, can be coupled or Decoupled so both delays and
 // scoreboards needs to be provided.
+//
+// GPR table gaps: B2R→DecoupledAgu, LEPC→Disp64 when those ops exist in IR. Uniform table gaps:
+// mov32i→uldc, p2ur→udp; UR2UP when modeled.
 
 fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
     use RegLatencySM100::*;
@@ -131,8 +134,6 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
                 Dualalu
             }
         }
-        // B2R => DecoupledAgu,
-        // LEPC => Disp64
         Op::BMov(_) => Branch,
         Op::Nop(_) => Disp64,
         Op::Imma(_) => Imma,
@@ -232,8 +233,6 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
             }
         }
 
-        // mov32i => uldc
-        // p2ur => udp,
         Op::PLop3(_) => coupled,
         Op::PopC(_) => {
             if uniform_op {
@@ -244,7 +243,6 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
         }
         Op::Prmt(_) => coupled,
         Op::PSetP(_) => coupled,
-        // UR2UP
         Op::Sel(_) => coupled,
         Op::Sgxt(_) => coupled,
         Op::Shf(_) => coupled,

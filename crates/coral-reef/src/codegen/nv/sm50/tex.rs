@@ -2,6 +2,9 @@
 // Copyright © 2025-2026 ecoPrimals
 // Derived from Collabora, Ltd. (2023)
 //! SM50 texture instruction encoders.
+//!
+//! `txq` query field (bits 22–28): additional hardware encodings include `Filter` → `0x10`, `Lod` →
+//! `0x12`, `Wrap` → `0x14`, `BorderColour` → `0x16` (not in the IR yet).
 
 use super::encoder::*;
 
@@ -223,10 +226,6 @@ impl SM50Op for OpTxq {
                 TexQuery::Dimension => 1_u8,
                 TexQuery::TextureType => 2_u8,
                 TexQuery::SamplerPos => 5_u8,
-                // TexQuery::Filter => 0x10_u8,
-                // TexQuery::Lod => 0x12_u8,
-                // TexQuery::Wrap => 0x14_u8,
-                // TexQuery::BorderColour => 0x16,
             },
         );
         e.set_tex_channel_mask(31..35, self.channel_mask);

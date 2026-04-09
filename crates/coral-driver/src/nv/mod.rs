@@ -615,6 +615,7 @@ impl NvDevice {
             gpr_count: info.gpr_count.max(4),
             shared_mem_bytes: info.shared_mem_bytes,
             barrier_count: info.barrier_count,
+            local_mem_low_bytes: info.local_mem_bytes.unwrap_or(0),
             cbufs,
         };
         let qmd_words = qmd::build_qmd_for_sm(self.sm_version, &qmd_params);
@@ -709,10 +710,10 @@ mod tests {
     #[test]
     fn qmd_construction() {
         let qmd = qmd::build_compute_qmd(0x1_0000_0000, DispatchDims::new(64, 1, 1), 256);
-        // CTA_RASTER_WIDTH at bit 224 = word 7
-        assert_eq!(qmd[7], 64);
-        // CTA_RASTER_HEIGHT at bit 256 = word 8 lower 16 bits
-        assert_eq!(qmd[8] & 0xFFFF, 1);
+        // build_compute_qmd uses v3.0 layout: CTA_RASTER_WIDTH at bit 384 (word 12)
+        assert_eq!(qmd[12], 64);
+        // CTA_RASTER_HEIGHT at bit 416 (word 13, lower 16 bits)
+        assert_eq!(qmd[13] & 0xFFFF, 1);
     }
 
     #[test]

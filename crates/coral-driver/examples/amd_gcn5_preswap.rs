@@ -109,6 +109,7 @@ fn shader_info(compiled: &coral_reef::CompiledBinary) -> ShaderInfo {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 64,
+        local_mem_bytes: None,
     }
 }
 
@@ -418,6 +419,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         barrier_count: 0,
         workgroup: [64, 1, 1],
         wave_size: 64,
+        local_mem_bytes: None,
     };
     {
         let buf = dev.alloc((n * 4) as u64, MemoryDomain::Gtt).expect("alloc");
@@ -513,6 +515,7 @@ fn phase_d(dev: &mut AmdDevice) -> bool {
         barrier_count: 0,
         workgroup: [64, 1, 1],
         wave_size: 64,
+        local_mem_bytes: None,
     };
 
     // Simplest possible: JUST a load, then exit. No store, no arithmetic.

@@ -6,7 +6,8 @@ use crate::error::{DriverError, DriverResult};
 use super::super::rm_helpers::nv_rm_ioctl;
 use super::super::structs::{NvRmMapMemoryDmaParams, NvRmMapMemoryParams, NvRmUnmapMemoryParams};
 use super::super::{
-    NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY, nv_ioctl_rw,
+    NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY,
+    NVOS46_FLAGS_SHADER_ACCESS_READ_WRITE, nv_ioctl_rw,
 };
 use super::RmClient;
 
@@ -159,6 +160,11 @@ impl RmClient {
     /// [`alloc_virtual_memory`](Self::alloc_virtual_memory), NOT a raw
     /// `FERMI_VASPACE_A` handle.
     ///
+    /// **Note:** This creates the mapping with default flags (`SHADER_ACCESS =
+    /// DEFAULT`), which may not allow shader read/write. For buffers that
+    /// shaders will access (CBUFs, output buffers, shader code, SLM), use
+    /// [`rm_map_memory_dma_shader`](Self::rm_map_memory_dma_shader) instead.
+    ///
     /// # Errors
     ///
     /// Returns [`DriverError`] if the RM mapping fails.
@@ -170,6 +176,42 @@ impl RmClient {
         offset: u64,
         length: u64,
     ) -> DriverResult<u64> {
+        self.rm_map_memory_dma_with_flags(h_device, h_virt_mem, h_memory, offset, length, 0)
+    }
+
+    /// Map an RM memory object with shader read/write access enabled.
+    ///
+    /// Same as [`rm_map_memory_dma`](Self::rm_map_memory_dma) but sets
+    /// `NVOS46_FLAGS_SHADER_ACCESS_READ_WRITE` (bits 7:6 = 3) so that GPU
+    /// shader instructions (LDC, LDG, STG, etc.) can access the mapping.
+    /// Without this flag, shader memory accesses may silently return zero.
+    pub fn rm_map_memory_dma_shader(
+        &mut self,
+        h_device: u32,
+        h_virt_mem: u32,
+        h_memory: u32,
+        offset: u64,
+        length: u64,
+    ) -> DriverResult<u64> {
+        self.rm_map_memory_dma_with_flags(
+            h_device,
+            h_virt_mem,
+            h_memory,
+            offset,
+            length,
+            NVOS46_FLAGS_SHADER_ACCESS_READ_WRITE,
+        )
+    }
+
+    fn rm_map_memory_dma_with_flags(
+        &mut self,
+        h_device: u32,
+        h_virt_mem: u32,
+        h_memory: u32,
+        offset: u64,
+        length: u64,
+        flags: u32,
+    ) -> DriverResult<u64> {
         let mut params = NvRmMapMemoryDmaParams {
             h_client: self.h_client,
             h_device,
@@ -177,6 +219,7 @@ impl RmClient {
             h_memory,
             offset,
             length,
+            flags,
             ..Default::default()
         };
 
@@ -184,7 +227,6 @@ impl RmClient {
             NV_ESC_RM_MAP_MEMORY_DMA,
             std::mem::size_of::<NvRmMapMemoryDmaParams>(),
         );
-        // ioctl contract: NvRmMapMemoryDmaParams for `NV_ESC_RM_MAP_MEMORY_DMA`.
         nv_rm_ioctl(
             self.ctl.fd(),
             ioctl_nr,
@@ -197,7 +239,60 @@ impl RmClient {
             h_memory = format_args!("0x{h_memory:08X}"),
             gpu_va = format_args!("0x{:016X}", params.dma_offset),
             length,
+            flags = format_args!("0x{flags:08X}"),
             "RM memory mapped to GPU VA space"
+        );
+        Ok(params.dma_offset)
+    }
+
+    /// Map an RM memory object at a FIXED GPU virtual address.
+    ///
+    /// Uses `NVOS46_FLAGS_DMA_OFFSET_FIXED` (bit 0) to force the RM to map
+    /// the buffer at exactly `fixed_va`. The address must be within the
+    /// `NV01_MEMORY_VIRTUAL` range and satisfy any alignment constraints.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the RM mapping fails.
+    pub fn rm_map_memory_dma_fixed(
+        &mut self,
+        h_device: u32,
+        h_virt_mem: u32,
+        h_memory: u32,
+        offset: u64,
+        length: u64,
+        fixed_va: u64,
+    ) -> DriverResult<u64> {
+        let mut params = NvRmMapMemoryDmaParams {
+            h_client: self.h_client,
+            h_device,
+            h_dma: h_virt_mem,
+            h_memory,
+            offset,
+            length,
+            flags: 1, // NVOS46_FLAGS_DMA_OFFSET_FIXED
+            dma_offset: fixed_va,
+            ..Default::default()
+        };
+
+        let ioctl_nr = nv_ioctl_rw(
+            NV_ESC_RM_MAP_MEMORY_DMA,
+            std::mem::size_of::<NvRmMapMemoryDmaParams>(),
+        );
+        nv_rm_ioctl(
+            self.ctl.fd(),
+            ioctl_nr,
+            &mut params,
+            "RM_MAP_MEMORY_DMA(fixed)",
+            |p| p.status,
+        )?;
+
+        tracing::debug!(
+            h_memory = format_args!("0x{h_memory:08X}"),
+            gpu_va = format_args!("0x{:016X}", params.dma_offset),
+            fixed_va = format_args!("0x{fixed_va:016X}"),
+            length,
+            "RM memory mapped at fixed GPU VA"
         );
         Ok(params.dma_offset)
     }

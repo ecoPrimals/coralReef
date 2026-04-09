@@ -77,7 +77,10 @@ fn test_handle_health_check() {
 #[test]
 fn test_handle_capability_list() {
     let resp = handle_capability_list();
+    assert_eq!(resp.primal.as_ref(), env!("CARGO_PKG_NAME"));
     assert_eq!(resp.version.as_ref(), env!("CARGO_PKG_VERSION"));
+    assert!(resp.methods.iter().any(|m| m == "shader.compile.wgsl"));
+    assert!(resp.methods.iter().any(|m| m == "capability.list"));
     assert!(resp.capabilities.iter().any(|d| d == "shader.compile"));
     assert!(resp.capabilities.iter().any(|d| d == "shader.health"));
     assert!(resp.capabilities.iter().any(|d| d == "health"));
@@ -91,6 +94,26 @@ fn test_handle_capability_list() {
         resp.capabilities, sorted,
         "capability domains must be sorted for stable discovery"
     );
+}
+
+#[test]
+fn capability_list_wire_standard_l2() {
+    let resp = handle_capability_list();
+    assert_eq!(resp.primal.as_ref(), env!("CARGO_PKG_NAME"));
+    assert!(!resp.version.is_empty());
+    assert!(!resp.methods.is_empty());
+    // Wire Standard L2: every method is dotted notation
+    for method in &resp.methods {
+        assert!(
+            method.contains('.'),
+            "method must use dotted notation: {method}"
+        );
+    }
+    // Required methods per wire standard
+    assert!(resp.methods.contains(&"health.check".to_string()));
+    assert!(resp.methods.contains(&"health.liveness".to_string()));
+    assert!(resp.methods.contains(&"identity.get".to_string()));
+    assert!(resp.methods.contains(&"capability.list".to_string()));
 }
 
 #[test]

@@ -169,6 +169,7 @@ fn main() {
                 barrier_count: 0,
                 workgroup: [64, 1, 1],
                 wave_size: 64,
+                local_mem_bytes: None,
             };
             print!("  {name}: ");
             match dev.dispatch(&bytes, &[out_buf], DispatchDims::new(1, 1, 1), &hc_info) {
@@ -252,6 +253,7 @@ fn main() {
                 barrier_count: 0,
                 workgroup: [64, 1, 1],
                 wave_size: 64,
+                local_mem_bytes: None,
             };
             print!("  {name}: ");
             match dev.dispatch(&bytes, &[out_buf], DispatchDims::new(1, 1, 1), &hc_info) {
@@ -320,6 +322,7 @@ fn main() {
                 barrier_count: 0,
                 workgroup: [64, 1, 1],
                 wave_size: 64,
+                local_mem_bytes: None,
             };
             print!("  {name}: ");
             match dev.dispatch(&bytes, &[out_buf], DispatchDims::new(1, 1, 1), &hc_info) {
@@ -366,6 +369,7 @@ fn main() {
                 barrier_count: 0,
                 workgroup: [64, 1, 1],
                 wave_size: 64,
+                local_mem_bytes: None,
             };
             print!("  Test D (compiler binary, gpr=5): ");
             match dev.dispatch(
@@ -416,6 +420,7 @@ fn main() {
         barrier_count: compiled.info.barrier_count,
         workgroup: compiled.info.local_size,
         wave_size: 64,
+        local_mem_bytes: None,
     };
     let dims = DispatchDims::new(1, 1, 1);
 

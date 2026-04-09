@@ -18,6 +18,11 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
+## Project status (Iteration 77)
+
+- **Tests**: 4341 workspace tests (see `STATUS.md` / `CHANGELOG.md` for ignored-hardware counts).
+- **Compliance (Iter 77)**: CR-01 BIOMEOS_INSECURE guard; CR-02 Wire Standard L2 (`capability.list`); CR-03 BTSP Phase 2 scaffolding (`BtspMode`, `gate_connection()` in accept loops). Details in `CHANGELOG.md` and `STATUS.md`.
+
 ## Architecture
 
 ```

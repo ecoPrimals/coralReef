@@ -27,6 +27,7 @@ pub mod trace;
 pub(crate) mod vendor_lifecycle;
 
 mod background;
+pub(crate) mod btsp;
 mod config;
 mod runtime;
 
@@ -34,9 +35,9 @@ pub(crate) use background::arm_req_irq;
 
 pub use config::{
     EMBER_LISTEN_PORT_ENV, EmberConfig, EmberDeviceConfig, EmberRunOptions, ember_socket_path,
-    find_config, parse_glowplug_config, system_glowplug_config_path,
+    find_config, parse_glowplug_config, system_glowplug_config_path, validate_insecure_guard,
 };
-pub use error::EmberIpcError;
+pub use error::{ConfigError, EmberIpcError};
 pub use hold::{HeldDevice, MailboxMeta, RingMeta, RingMetaEntry};
 pub use ipc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, handle_client, send_with_fds};
 pub use journal::{Journal, JournalEntry, JournalFilter, JournalStats};

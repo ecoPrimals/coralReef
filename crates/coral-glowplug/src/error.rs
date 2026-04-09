@@ -177,6 +177,16 @@ pub enum ConfigError {
         path: String,
         source: toml::de::Error,
     },
+
+    #[error(
+        "BIOMEOS_INSECURE=1 cannot be used with BIOMEOS_FAMILY_ID={family_id} — \
+         a primal cannot claim a family and skip authentication \
+         (wateringHole PRIMAL_SELF_KNOWLEDGE_STANDARD v1.1)"
+    )]
+    InsecureWithFamily {
+        /// Value of `BIOMEOS_FAMILY_ID` when insecure mode was also requested.
+        family_id: String,
+    },
 }
 
 /// JSON-RPC error codes aligned with the JSON-RPC 2.0 specification.
@@ -371,6 +381,17 @@ mod tests {
             err.to_string()
                 .contains("failed to parse config /etc/coral/config.toml")
         );
+    }
+
+    #[test]
+    fn config_error_display_insecure_with_family() {
+        let err = ConfigError::InsecureWithFamily {
+            family_id: "prod-a".into(),
+        };
+        let s = err.to_string();
+        assert!(s.contains("BIOMEOS_INSECURE"));
+        assert!(s.contains("prod-a"));
+        assert!(s.contains("PRIMAL_SELF_KNOWLEDGE_STANDARD"));
     }
 
     #[test]

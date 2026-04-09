@@ -1,8 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Ecosystem registration — `capability.register` and periodic `ipc.heartbeat`.
+//! Ecosystem registration — JSON-RPC **client** calls to a registry primal.
 //!
-//! Best-effort integration with the Songbird / Neural API registry discovered at
-//! runtime under `$XDG_RUNTIME_DIR/biomeos/`. No hardcoded peer names.
+//! Sends `capability.register` once and `ipc.heartbeat` on an interval. coralReef
+//! does **not** implement those methods as a server; they belong to the ecosystem
+//! registry primal’s domain. This module only discovers that peer via the shared
+//! capability directory (`capability.register` in `provides`) and connects with
+//! a line-delimited JSON-RPC request over Unix (`send_jsonrpc_line` in this module).
+//! That client role is intentional T6 compliance: call
+//! other primals by capability, do not own their namespaces.
+//!
+//! Best-effort integration with the registry discovered at runtime under
+//! `$XDG_RUNTIME_DIR/biomeos/` (or `BIOMEOS_ECOSYSTEM_REGISTRY`). No hardcoded
+//! peer names.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -28,7 +37,8 @@ pub enum EcosystemError {
 
 /// Spawn background tasks: one-shot `capability.register` and `ipc.heartbeat` every 45s.
 ///
-/// If no registry is discovered, logs at debug and returns immediately.
+/// Invokes the registry primal’s methods over JSON-RPC; coralReef does not expose
+/// these methods. If no registry is discovered, logs at debug and returns immediately.
 pub fn spawn_registration(desc: SelfDescription) {
     #[cfg(unix)]
     {
@@ -81,7 +91,8 @@ async fn heartbeat_loop(path: PathBuf) {
 
 /// Discover JSON-RPC bind address for a primal that provides `capability.register`.
 ///
-/// Resolution order:
+/// Read-only scan of peer discovery files (same wateringHole directory the binary
+/// may write into for self-advertisement). Resolution order:
 /// 1. `$BIOMEOS_ECOSYSTEM_REGISTRY` — full bind string (e.g. `unix:///path/registry.sock`).
 /// 2. Scan `discovery_dir()` for `*.json` describing a provider that lists `capability.register`.
 #[must_use]

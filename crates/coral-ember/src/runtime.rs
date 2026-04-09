@@ -41,12 +41,13 @@ fn set_socket_group(path: &str, group_name: &str) {
 /// Equivalent to [`run_with_options`] with a legacy first positional config path from [`std::env::args`]
 /// and no TCP listen port.
 ///
-/// On startup failure, returns `Err(exit_code)` (typically `1`). On success, blocks in the accept
-/// loop until the process is terminated.
+/// On startup failure, returns `Err(exit_code)` (`2` for insecure+family guard, else typically `1`).
+/// On success, blocks in the accept loop until the process is terminated.
 ///
 /// # Errors
 ///
-/// Returns `Err(1)` when configuration is missing, invalid, empty, or VFIO setup fails.
+/// Returns `Err(2)` when the insecure/family guard fails. Returns `Err(1)` when configuration is
+/// missing, invalid, empty, or VFIO setup fails.
 pub fn run() -> Result<(), i32> {
     run_with_options(crate::EmberRunOptions {
         config_path: std::env::args().nth(1),
@@ -62,6 +63,8 @@ pub fn run() -> Result<(), i32> {
 ///
 /// # Errors
 ///
+/// Returns `Err(2)` when `BIOMEOS_INSECURE` is set together with a non-default
+/// `BIOMEOS_FAMILY_ID` (wateringHole `PRIMAL_SELF_KNOWLEDGE_STANDARD` v1.1).
 /// Returns `Err(1)` when configuration is missing, invalid, empty, or VFIO setup fails.
 pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     tracing_subscriber::fmt()
@@ -70,6 +73,11 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+
+    if let Err(e) = crate::config::validate_insecure_guard() {
+        tracing::error!(error = %e, "configuration rejected");
+        return Err(2);
+    }
 
     let config_path = match opts.config_path.or_else(find_config) {
         Some(p) => p,
@@ -235,6 +243,8 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     spawn_watchdog(Arc::clone(&held));
     spawn_req_watcher(Arc::clone(&held));
 
+    let btsp_mode = crate::btsp::btsp_mode().clone();
+
     if let Some(port) = opts.listen_port {
         let tcp_host =
             std::env::var("CORALREEF_EMBER_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -251,12 +261,20 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         let managed_tcp = Arc::clone(&managed_bdfs);
         let journal_tcp = Arc::clone(&journal);
         let started_tcp = started_at;
+        let btsp_tcp = btsp_mode.clone();
         std::thread::Builder::new()
             .name("ember-tcp-accept".into())
             .spawn(move || {
                 for stream in tcp_listener.incoming() {
                     match stream {
                         Ok(mut stream) => {
+                            if let crate::btsp::GateVerdict::Refuse(reason) =
+                                crate::btsp::gate_connection(&btsp_tcp)
+                            {
+                                tracing::warn!(reason, "BTSP gate refused TCP connection");
+                                drop(stream);
+                                continue;
+                            }
                             let held = Arc::clone(&held_tcp);
                             let managed = Arc::clone(&managed_tcp);
                             let journal = Arc::clone(&journal_tcp);
@@ -284,6 +302,13 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                if let crate::btsp::GateVerdict::Refuse(reason) =
+                    crate::btsp::gate_connection(&btsp_mode)
+                {
+                    tracing::warn!(reason, "BTSP gate refused connection");
+                    drop(stream);
+                    continue;
+                }
                 let held = Arc::clone(&held);
                 let managed = Arc::clone(&managed_bdfs);
                 let journal = Arc::clone(&journal);

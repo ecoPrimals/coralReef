@@ -13,22 +13,22 @@ impl SM70Encoder<'_> {
                 MemOrder::Weak => MemScope::CTA,
                 MemOrder::Strong(s) => *s,
             };
+            // Scope field: SM-level is encoding 1; not represented as `MemScope` in IR.
             self.set_field(
                 77..79,
                 match scope {
                     MemScope::CTA => 0_u8,
-                    // SM => 1_u8,
                     MemScope::GPU => 2_u8,
                     MemScope::System => 3_u8,
                 },
             );
+            // Order subfield: MMIO would be encoding 3; not represented in IR.
             self.set_field(
                 79..81,
                 match order {
                     MemOrder::Constant => 0_u8,
                     MemOrder::Weak => 1_u8,
                     MemOrder::Strong(_) => 2_u8,
-                    // MMIO => 3_u8,
                 },
             );
         } else {
@@ -382,29 +382,20 @@ impl SM70Encoder<'_> {
 
     fn set_atom_type(&mut self, atom_type: AtomType, su: bool) {
         if self.sm >= 90 && !su {
-            // Float/int is differentiated by opcode
+            // Float/int is differentiated by opcode. SM90+ atom type field also maps wider float
+            // vector widths (f16x4/8, bf16*, f32*) and U128 to distinct codes; only the subset
+            // below is emitted.
             self.set_field(
                 73..77,
                 match atom_type {
                     AtomType::F16x2 => 0_u8,
-                    // f16x4 => 1
-                    // f16x8 => 2
-                    // bf16x2 => 3
-                    // bf16x4 => 4
-                    // bf16x8 => 5
                     AtomType::F32 => 9_u8, // .ftz
-                    // f32x2.ftz => 10
-                    // f32x4.ftz => 11
-                    // f32x1 => 12
-                    // f32x2 => 13
-                    // f32x4 => 14
                     AtomType::F64 => 15_u8,
 
                     AtomType::U32 => 0,
                     AtomType::I32 => 1,
                     AtomType::U64 => 2,
                     AtomType::I64 => 3,
-                    // u128 => 4,
                 },
             );
         } else {
@@ -666,11 +657,11 @@ impl SM70Op for OpMemBar {
         e.set_opcode(0x992);
 
         e.set_bit(72, false); // !.MMIO
+        // Scope field: SM-level is encoding 1; not represented as `MemScope` in IR.
         e.set_field(
             76..79,
             match self.scope {
                 MemScope::CTA => 0_u8,
-                // SM => 1_u8,
                 MemScope::GPU => 2_u8,
                 MemScope::System => 3_u8,
             },

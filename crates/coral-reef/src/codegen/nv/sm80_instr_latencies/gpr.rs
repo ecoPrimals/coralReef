@@ -37,6 +37,8 @@ pub(super) enum RegLatencySM80 {
 impl RegLatencySM80 {
     pub(super) fn op_category(op: &Op, reader: bool, op_reg_idx: usize) -> Self {
         use RegLatencySM80::*;
+        // Schedule classes from NVIDIA tables not mapped to `Op` variants here: S2UR→DecoupledAgu,
+        // B2R→DecoupledAgu, LEPC→CoupledDisp64.
         match op {
             // this will need updating if imad grows support for input predicates
             Op::IMad(_) | Op::IMul(_) => CoupledFMA,
@@ -117,9 +119,8 @@ impl RegLatencySM80 {
             Op::HFma2(_) | Op::HMul2(_) => FP16,
 
             Op::HSet2(_) | Op::HSetP2(_) | Op::HMnMx2(_) => FP16_Alu,
-            // let in for documentation purposes
+            // HMMA: M16N8K8 with TF32 sources maps to MMA_2x_collect in hardware; not modeled.
             Op::Hmma(h) => match (h.mat_size, h.dst_type, h.src_type) {
-                // (HmmaSize::M16N8K8, FloatType::F32, FloatType::TF32) => MMA_2x_collect,
                 (HmmaSize::M16N8K8, FloatType::F32, FloatType::F16)
                 | (HmmaSize::M16N8K8, FloatType::F16, _) => MMA_1x_collect,
                 (HmmaSize::M16N8K16, _, _) => MMA_2x_collect,
@@ -141,7 +142,6 @@ impl RegLatencySM80 {
             | Op::LdTram(_)
             | Op::Shfl(_)
             | Op::Ldsm(_) => DecoupledAgu,
-            // S2UR  => Decoupled,
             Op::R2UR(_) | Op::Redux(_) => {
                 if reader {
                     Decoupled
@@ -156,8 +156,6 @@ impl RegLatencySM80 {
                     CoupledAlu
                 }
             }
-            // B2R => DecoupledAgu,
-            // LEPC => CoupledDisp64
             Op::BMov(_) => Cbu,
             Op::Nop(_) => CoupledDisp64,
             Op::Imma(i) => match (i.mat_size, i.src_types[0]) {

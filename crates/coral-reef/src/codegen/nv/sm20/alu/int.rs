@@ -472,7 +472,7 @@ impl SM20Op for OpIMadSp {
                         U24 => 1,
                         U16Lo => 2,
                         U16Hi => 3,
-                        _ => unreachable!(),
+                        _ => unreachable!("IMadSp src0 unsigned() is always U32/U24/U16Lo/U16Hi"),
                     },
                 );
                 e.set_field(
@@ -482,7 +482,7 @@ impl SM20Op for OpIMadSp {
                         U24 => 1,
                         U16Lo => 2,
                         U16Hi => unreachable!("SM20 legalization rejects IMadSp src2 U16Hi"),
-                        _ => unreachable!(),
+                        _ => unreachable!("IMadSp src2 unsigned() has no other variants here"),
                     },
                 );
             }

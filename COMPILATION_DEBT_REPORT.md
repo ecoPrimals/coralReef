@@ -2,8 +2,12 @@
 
 # Compilation Gaps and Debt Report
 
+> **Note**: This report was generated at Iter 73 (March 10, 2026). For current state, see `CHANGELOG.md` (Iter 77, April 9, 2026) and `STATUS.md`.
+
 **Generated:** March 10, 2026 (metrics updated April 4, Iter 73)  
 **Workspace:** coralReef
+
+**Superseded by Iter 77 (April 9, 2026)** — current iteration summary and changelog: see `CHANGELOG.md` (and root `STATUS.md` / `WHATS_NEXT.md` for test counts and phase).
 
 ---
 

@@ -4,11 +4,37 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 76
+**Current status**: Phase 10 — Iteration 77
 
 ---
 
 ## [Unreleased]
+
+### Iteration 77 — primalSpring Gap Resolution + Deep Debt Evolution (2026-04-09)
+
+#### Security
+- CR-01: BIOMEOS_INSECURE guard — all 3 binaries refuse startup when FAMILY_ID + INSECURE=1
+
+#### Wire Standard
+- CR-02: `capability.list` returns Wire Standard L2 envelope (primal, version, methods, capabilities)
+
+#### BTSP
+- CR-03: BTSP Phase 2 scaffolding — BtspMode detection, gate_connection() in all accept loops
+
+#### Code Quality
+- validate_insecure_guard evolved from Result<(), String> to typed ConfigError (thiserror)
+- `#[allow]` → `#[expect]` conversion in codegen/mod.rs
+- Commented-out code cleaned in 13+ codegen files (match arms → architectural doc comments)
+- eprintln! → tracing::info! in coral-driver diagnostic experiments (5 files)
+- matches!() clippy fix in sm75_instr_latencies
+
+#### Refactoring
+- shader_header.rs (905 LOC) → shader_header/ directory (5 submodules, max 385 lines)
+- personality.rs (809 LOC) → personality/ directory (2 submodules, max 469 lines)
+
+#### Documentation
+- discovery.rs and ecosystem.rs: T6 overstep audit — both legitimate (client-only + GPU targeting)
+- Module docs clarified for BTSP, Wire Standard, discovery roles
 
 ### Iteration 76 — Deep Debt Smart Refactoring (2026-04-06)
 

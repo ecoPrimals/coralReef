@@ -30,7 +30,7 @@
 //! # }
 //! ```
 //!
-//! Unix socket and [`no_params`](crate::no_params) for methods that take no arguments:
+//! Unix socket and [`no_params`] for methods that take no arguments:
 //!
 //! ```no_run
 //! # async fn example() -> Result<(), primal_rpc_client::RpcError> {

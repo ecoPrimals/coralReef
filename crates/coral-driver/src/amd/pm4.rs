@@ -359,6 +359,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [64, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x1_0000_0000, DispatchDims::linear(64), &info, &[], 10);
@@ -373,6 +374,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [64, 1, 1],
         };
         let buf_vas = [0x1_0000_0000_u64, 0x2_0000_0000_u64];
@@ -426,6 +428,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [1, 1, 1],
         };
         let pm4 = build_compute_dispatch(0, DispatchDims::new(1, 1, 1), &info, &[], 10);
@@ -440,6 +443,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [32, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(32), &info, &[], 10);
@@ -457,6 +461,7 @@ mod tests {
             shared_mem_bytes: 256,
             barrier_count: 1,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [64, 2, 1],
         };
         let buf_vas = [0x1_0000_0000_u64, 0x2_0000_0000_u64, 0x3_0000_0000_u64];
@@ -477,6 +482,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [16, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(16), &info, &[], 10);
@@ -503,6 +509,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [32, 4, 2],
         };
         let dims = DispatchDims::new(128, 64, 8);
@@ -524,6 +531,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [64, 1, 1],
         };
         let pm4 = build_compute_dispatch(shader_va, DispatchDims::linear(1), &info, &[], 10);
@@ -543,6 +551,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [1, 1, 1],
         };
         let pm4 = build_compute_dispatch(0, DispatchDims::new(1, 1, 1), &info, &[], 10);
@@ -572,6 +581,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [1, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x1000, DispatchDims::new(1, 1, 1), &info, &[], 10);
@@ -598,6 +608,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 64,
+            local_mem_bytes: None,
             workgroup: [256, 1, 1],
         };
         let lim = compute_resource_limits(&info);
@@ -616,6 +627,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 64,
+            local_mem_bytes: None,
             workgroup: [64, 1, 1],
         };
         let lim = compute_resource_limits(&info);
@@ -629,6 +641,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [32, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(1), &info, &[], 10);
@@ -647,6 +660,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 64,
+            local_mem_bytes: None,
             workgroup: [64, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x1000, DispatchDims::linear(1), &info, &[], 9);
@@ -669,6 +683,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 64,
+            local_mem_bytes: None,
             workgroup: [64, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x2000, DispatchDims::linear(1), &info, &[], 9);
@@ -695,6 +710,7 @@ mod tests {
             shared_mem_bytes: 0,
             barrier_count: 0,
             wave_size: 32,
+            local_mem_bytes: None,
             workgroup: [32, 1, 1],
         };
         let pm4 = build_compute_dispatch(0x2000, DispatchDims::linear(1), &info, &[], 10);

@@ -5,6 +5,20 @@
     reason = "Variants are self-describing via `#[error]` and thiserror `Display`."
 )]
 
+/// Environment / startup configuration validation errors.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error(
+        "BIOMEOS_INSECURE=1 cannot be used with BIOMEOS_FAMILY_ID={family_id} — \
+         a primal cannot claim a family and skip authentication \
+         (wateringHole PRIMAL_SELF_KNOWLEDGE_STANDARD v1.1)"
+    )]
+    InsecureWithFamily {
+        /// Value of `BIOMEOS_FAMILY_ID` when insecure mode was also requested.
+        family_id: String,
+    },
+}
+
 /// Errors from sysfs driver operations.
 #[derive(Debug, thiserror::Error)]
 pub enum SysfsError {

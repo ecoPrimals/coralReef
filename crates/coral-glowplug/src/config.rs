@@ -251,8 +251,28 @@ fn ecosystem_namespace() -> &'static str {
 }
 
 /// Instance isolation id for socket filenames (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
-fn family_id() -> String {
+pub(crate) fn family_id() -> String {
     std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+}
+
+/// Check that `BIOMEOS_INSECURE` and `BIOMEOS_FAMILY_ID` are not both active.
+///
+/// Per wateringHole `PRIMAL_SELF_KNOWLEDGE_STANDARD` v1.1: a primal must
+/// refuse to start when a non-default family ID is set AND insecure mode is
+/// requested — you cannot claim a family AND skip authentication.
+///
+/// # Errors
+///
+/// Returns [`crate::error::ConfigError::InsecureWithFamily`] if the invariant is violated.
+pub fn validate_insecure_guard() -> Result<(), crate::error::ConfigError> {
+    let fid = family_id();
+    let insecure = std::env::var("BIOMEOS_INSECURE")
+        .ok()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    if insecure && fid != "default" {
+        return Err(crate::error::ConfigError::InsecureWithFamily { family_id: fid });
+    }
+    Ok(())
 }
 
 /// Platform-aware default socket address (ecoBin / wateringHole compliance).
