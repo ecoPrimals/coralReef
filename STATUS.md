@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capabilities.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 scaffolding (mode detection + connection gating) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 scaffolding (mode detection + connection gating) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -105,10 +105,10 @@
 
 | Area | Change |
 |------|--------|
-| `capabilities.list` | Added JSON-RPC method to both newline-delimited and HTTP servers |
+| `capability.list` | Added JSON-RPC method to both newline-delimited and HTTP servers |
 | `cargo clippy` | Fixed 8 additional errors: branches_sharing_code (×2), redundant_clone, collapsible_if, struct_excessive_bools, unused_variables, dead_code, missing_docs, too_many_arguments, unfulfilled_lint_expectations |
 | File sizes | `swap.rs` 1102→708 (extracted `swap_preflight.rs`), `vfio_compute/mod.rs` 1018→855 (extracted `gr_engine_status.rs`) |
-| ludoSpring V35 P1 | UDS framing confirmed raw newline-delimited (Iter 69). `capability.register` confirmed working (Iter 69). `capabilities.list` added (Iter 70). |
+| ludoSpring V35 P1 | UDS framing confirmed raw newline-delimited (Iter 69). `capability.register` confirmed working (Iter 69). `capability.list` added (Iter 70). |
 
 ### Iteration 69: Deep Debt Resolution + wateringHole Compliance (Mar 29, 2026)
 

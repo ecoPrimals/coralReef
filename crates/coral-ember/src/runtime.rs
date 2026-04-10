@@ -243,8 +243,6 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     spawn_watchdog(Arc::clone(&held));
     spawn_req_watcher(Arc::clone(&held));
 
-    let btsp_mode = crate::btsp::btsp_mode().clone();
-
     if let Some(port) = opts.listen_port {
         let tcp_host =
             std::env::var("CORALREEF_EMBER_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -261,17 +259,15 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
         let managed_tcp = Arc::clone(&managed_bdfs);
         let journal_tcp = Arc::clone(&journal);
         let started_tcp = started_at;
-        let btsp_tcp = btsp_mode.clone();
         std::thread::Builder::new()
             .name("ember-tcp-accept".into())
             .spawn(move || {
                 for stream in tcp_listener.incoming() {
                     match stream {
                         Ok(mut stream) => {
-                            if let crate::btsp::GateVerdict::Refuse(reason) =
-                                crate::btsp::gate_connection(&btsp_tcp)
-                            {
-                                tracing::warn!(reason, "BTSP gate refused TCP connection");
+                            let outcome = crate::btsp::guard_connection();
+                            if !outcome.should_accept() {
+                                tracing::warn!(?outcome, "BTSP rejected TCP connection");
                                 drop(stream);
                                 continue;
                             }
@@ -302,10 +298,9 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                if let crate::btsp::GateVerdict::Refuse(reason) =
-                    crate::btsp::gate_connection(&btsp_mode)
-                {
-                    tracing::warn!(reason, "BTSP gate refused connection");
+                let outcome = crate::btsp::guard_connection();
+                if !outcome.should_accept() {
+                    tracing::warn!(?outcome, "BTSP rejected connection");
                     drop(stream);
                     continue;
                 }

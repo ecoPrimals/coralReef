@@ -154,8 +154,8 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 ### Iteration 70 — ludoSpring V35 Gap Resolution + Deep Audit (2026-03-30)
 
 #### Added
-- `capabilities.list` JSON-RPC method on both newline-delimited (UDS/TCP) and HTTP servers
-- Unit test for `capabilities.list` endpoint
+- `capability.list` JSON-RPC method on both newline-delimited (UDS/TCP) and HTTP servers
+- Unit test for `capability.list` endpoint
 
 #### Changed
 - `swap.rs` 1102→708 lines: extracted preflight checks to `swap_preflight.rs` (362 lines)

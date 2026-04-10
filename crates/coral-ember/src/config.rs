@@ -87,6 +87,15 @@ pub(crate) fn family_id() -> String {
     std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
 }
 
+/// Ecosystem namespace for shared directories (sockets, discovery).
+pub(crate) fn ecosystem_namespace() -> &'static str {
+    use std::sync::OnceLock;
+    static NS: OnceLock<String> = OnceLock::new();
+    NS.get_or_init(|| {
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
+    })
+}
+
 /// Check that `BIOMEOS_INSECURE` and `BIOMEOS_FAMILY_ID` are not both active.
 ///
 /// Per wateringHole `PRIMAL_SELF_KNOWLEDGE_STANDARD` v1.1: a primal must
