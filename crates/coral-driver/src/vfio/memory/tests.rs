@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use super::regions::pramin_window_layout;
 use super::*;
 
 /// Same sentinels and equality rule as `nv::vfio_compute::acr_boot::strategy_sysmem`
@@ -240,10 +241,23 @@ fn memory_delta_lost_paths() {
 
 #[test]
 fn path_status_bad0_prefix_edge_cases() {
-    let err_reads = [0xBAD0_0000_u32, 0xBAD0_FFFF, 0xBADF_0000, 0xBADF_FFFF];
-    for read in err_reads {
+    let bad0_err_reads = [0xBAD0_0000_u32, 0xBAD0_FFFF];
+    for read in bad0_err_reads {
         let s = PathStatus::from_sentinel_test(0x1111_1111, read, 0);
-        assert!(s.is_error_pattern(), "{read:#x} expected error pattern");
+        assert!(
+            s.is_error_pattern(),
+            "{read:#x} expected BAD0 error pattern"
+        );
+    }
+    // `from_sentinel_test` treats `(read >> 16) == 0xBAD0` as GPU error; 0xBADF is distinct.
+    let badf_corrupt_reads = [0xBADF_0000_u32, 0xBADF_FFFF];
+    for read in badf_corrupt_reads {
+        let s = PathStatus::from_sentinel_test(0x1111_1111, read, 0);
+        assert!(
+            !s.is_error_pattern(),
+            "{read:#x} should not classify as BAD0 error tag"
+        );
+        assert!(matches!(s, PathStatus::Corrupted { .. }));
     }
     let not_err = [0xBAD1_0000_u32, 0x0000_BAD0];
     for read in not_err {

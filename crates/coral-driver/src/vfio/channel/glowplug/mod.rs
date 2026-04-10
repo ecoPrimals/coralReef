@@ -22,6 +22,7 @@ mod state;
 mod types;
 mod warm;
 
+use crate::error::ChannelError;
 use crate::vfio::bar_cartography;
 use crate::vfio::device::{DmaBackend, MappedBar};
 use crate::vfio::gpu_vendor::GpuMetal;
@@ -93,21 +94,21 @@ impl<'a> GlowPlug<'a> {
     }
 
     /// Load oracle state from a live nouveau-warm card.
-    pub fn load_oracle_live(&mut self, oracle_bdf: &str) -> Result<(), String> {
+    pub fn load_oracle_live(&mut self, oracle_bdf: &str) -> Result<(), ChannelError> {
         let state = OracleState::from_live_card(oracle_bdf)?;
         self.oracle_state = Some(state);
         Ok(())
     }
 
     /// Load oracle state from a BAR0 binary dump file.
-    pub fn load_oracle_dump(&mut self, path: &std::path::Path) -> Result<(), String> {
+    pub fn load_oracle_dump(&mut self, path: &std::path::Path) -> Result<(), ChannelError> {
         let state = OracleState::from_bar0_dump(path)?;
         self.oracle_state = Some(state);
         Ok(())
     }
 
     /// Load oracle state from a text register dump file.
-    pub fn load_oracle_text(&mut self, path: &std::path::Path) -> Result<(), String> {
+    pub fn load_oracle_text(&mut self, path: &std::path::Path) -> Result<(), ChannelError> {
         let state = OracleState::from_text_dump(path)?;
         self.oracle_state = Some(state);
         Ok(())

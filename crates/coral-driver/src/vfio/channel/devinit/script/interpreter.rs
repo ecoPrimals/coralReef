@@ -4,6 +4,7 @@
 //!
 //! Reference: nouveau nvkm/subdev/bios/init.c (Ben Skeggs, Red Hat)
 
+use crate::error::DevinitError;
 use crate::vfio::device::MappedBar;
 
 use super::super::vbios::BitTable;
@@ -211,7 +212,7 @@ impl<'a> VbiosInterpreter<'a> {
         self.rd16(base + 0x06) as usize
     }
 
-    fn run(&mut self) -> Result<(), String> {
+    fn run(&mut self) -> Result<(), DevinitError> {
         let cond_table = self.find_condition_table();
         self.nested += 1;
         let max_ops = 50_000;
@@ -625,10 +626,10 @@ impl<'a> VbiosInterpreter<'a> {
                     self.stats.ops_skipped += 1;
                     self.offset += 1;
                     if self.stats.unknown_opcodes.len() > 100 {
-                        return Err(format!(
-                            "Too many unknown opcodes (>100), last at {:#x}: {op:#04x}",
-                            self.offset - 1,
-                        ));
+                        return Err(DevinitError::InterpreterTooManyUnknownOpcodes {
+                            last_offset: self.offset - 1,
+                            last_opcode: op,
+                        });
                     }
                 }
             }
@@ -660,26 +661,29 @@ pub(crate) fn ram_restrict_group_count(rom: &[u8]) -> usize {
 /// This is the sovereign alternative to PMU FALCON execution. It interprets
 /// the boot script opcode stream directly, respecting control flow, conditions,
 /// and delays. Approximately 50 opcodes are handled.
-pub fn interpret_boot_scripts(bar0: &MappedBar, rom: &[u8]) -> Result<InterpreterStats, String> {
+pub fn interpret_boot_scripts(
+    bar0: &MappedBar,
+    rom: &[u8],
+) -> Result<InterpreterStats, DevinitError> {
     let bit = BitTable::parse(rom)?;
-    let bit_i = bit.find(b'I').ok_or("BIT 'I' not found")?;
+    let bit_i = bit.find(b'I').ok_or(DevinitError::BitINotFound)?;
 
     let i_off = bit_i.data_offset as usize;
     if i_off + 2 > rom.len() {
-        return Err("BIT 'I' data too short".into());
+        return Err(DevinitError::BitIDataTooShort);
     }
 
     let init_tables_base = u16::from_le_bytes([rom[i_off], rom[i_off + 1]]) as usize;
 
     if init_tables_base == 0 || init_tables_base + 2 > rom.len() {
-        return Err("Init tables base pointer is null or invalid".into());
+        return Err(DevinitError::InterpreterInitTablesInvalid);
     }
 
     let script_table_ptr =
         u16::from_le_bytes([rom[init_tables_base], rom[init_tables_base + 1]]) as usize;
 
     if script_table_ptr == 0 || script_table_ptr >= rom.len() {
-        return Err("Init script table pointer is null or invalid".into());
+        return Err(DevinitError::InterpreterScriptTableInvalid);
     }
 
     tracing::debug!(

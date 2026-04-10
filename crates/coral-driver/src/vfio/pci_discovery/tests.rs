@@ -42,7 +42,7 @@ fn from_config_bytes_too_short() {
     let config = [0u8; 32];
     let result = PciDeviceInfo::from_config_bytes("0000:00:00.0", &config, Vec::new(), None);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("too short"));
+    assert!(result.unwrap_err().to_string().contains("too short"));
 }
 
 #[test]

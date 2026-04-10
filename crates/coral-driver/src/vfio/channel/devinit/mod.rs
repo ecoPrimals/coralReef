@@ -35,6 +35,7 @@ mod script;
 mod vbios;
 
 // Re-exports for public API
+pub use crate::error::DevinitError;
 pub use pci::{force_pci_d0, pci_power_cycle_devinit};
 pub use pmu::{DevinitStatus, FalconDiagnostic, execute_devinit, execute_devinit_with_diagnostics};
 pub use script::{

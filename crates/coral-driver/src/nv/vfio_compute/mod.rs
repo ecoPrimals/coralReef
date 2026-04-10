@@ -26,6 +26,7 @@
 //! ```
 
 pub mod acr_boot;
+mod device_open;
 pub mod diagnostics;
 mod dispatch;
 pub mod falcon_capability;
@@ -33,71 +34,22 @@ pub mod fecs_boot;
 pub mod gr_context;
 mod gr_engine_status;
 mod init;
+mod layout;
+mod raw_device;
 mod submission;
 
 pub use gr_engine_status::GrEngineStatus;
+pub use raw_device::RawVfioDevice;
+
+pub(super) use layout::{LOCAL_MEM_WINDOW_LEGACY, LOCAL_MEM_WINDOW_VOLTA, gpfifo, sm_to_chip};
 
 use crate::error::{DriverError, DriverResult};
-use crate::gsp::{ApplyError, RegisterAccess};
 use crate::vfio::channel::VfioChannel;
 use crate::vfio::device::{DmaBackend, MappedBar, VfioDevice};
 use crate::vfio::dma::DmaBuffer;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
-use std::borrow::Cow;
 use std::collections::HashMap;
-use std::os::fd::AsRawFd;
-
-fn apply_error_to_driver(e: ApplyError) -> DriverError {
-    DriverError::MmapFailed(Cow::Owned(e.to_string()))
-}
-
-/// BAR0 register offsets for NVIDIA GPU.
-mod bar0_reg {
-    /// Boot0 register — chip identification.
-    pub const BOOT0: usize = 0x0000_0000;
-}
-
-/// GPFIFO configuration constants.
-pub(super) mod gpfifo {
-    /// Number of GPFIFO entries (must be power of 2).
-    pub const ENTRIES: usize = 128;
-    /// Size of each GPFIFO entry in bytes.
-    pub const ENTRY_SIZE: usize = 8;
-    /// Total GPFIFO ring size in bytes.
-    pub const RING_SIZE: usize = ENTRIES * ENTRY_SIZE;
-
-    /// Encode a GPFIFO indirect-buffer entry (NVB06F GP_ENTRY format).
-    pub fn encode_entry(gpu_addr: u64, len_bytes: u32) -> u64 {
-        let lo = gpu_addr & 0xFFFF_FFFC;
-        let hi_addr = (gpu_addr >> 32) & 0xFF;
-        let len_dwords = u64::from(len_bytes / 4);
-        let hi = hi_addr | (len_dwords << 10);
-        lo | (hi << 32)
-    }
-}
-
-/// IOVA base for user DMA allocations — above GPFIFO/USERD.
-const USER_IOVA_BASE: u64 = 0x10_0000;
-
-/// GPFIFO ring IOVA.
-const GPFIFO_IOVA: u64 = 0x1000;
-
-/// USERD page IOVA.
-const USERD_IOVA: u64 = 0x2000;
-
-/// Local memory window address for Volta+ (SM >= 70).
-pub(super) const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
-
-/// Local memory window address for pre-Volta (SM < 70).
-pub(super) const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
-
-/// Map SM version to chip codename for firmware lookup.
-///
-/// Delegates to [`crate::nv::identity::chip_name`] — single source of truth.
-pub(super) const fn sm_to_chip(sm: u32) -> &'static str {
-    crate::nv::identity::chip_name(sm)
-}
 
 /// DMA-backed GPU buffer tracked by the VFIO device.
 struct VfioBuffer {
@@ -126,312 +78,11 @@ pub struct NvVfioComputeDevice {
     device: VfioDevice,
 }
 
-/// Raw VFIO device handle for diagnostic/experimental access to BAR0.
-///
-/// Drop order: DMA buffers drop before `device` (which closes the container fd).
-pub struct RawVfioDevice {
-    /// MMIO-mapped BAR0 region for register access.
-    pub bar0: MappedBar,
-    /// Shared VFIO container handle for DMA mapping and diagnostics.
-    pub container: DmaBackend,
-    /// DMA buffer holding the GPFIFO command ring.
-    pub gpfifo_ring: DmaBuffer,
-    /// DMA buffer for the USERD (user data) doorbell page.
-    pub userd: DmaBuffer,
-    #[expect(dead_code, reason = "kept alive for fd lifecycle")]
-    device: VfioDevice,
-}
-
-impl RawVfioDevice {
-    /// Raw numeric VFIO container fd (same open file as [`Self::container`]).
-    #[must_use]
-    pub fn container_fd(&self) -> std::os::fd::RawFd {
-        match &self.container {
-            DmaBackend::LegacyContainer(fd) => fd.as_raw_fd(),
-            DmaBackend::Iommufd { fd, .. } => fd.as_raw_fd(),
-        }
-    }
-
-    /// Open a raw VFIO device by PCI BDF address (e.g. `"0000:06:00.0"`).
-    pub fn open(bdf: &str) -> DriverResult<Self> {
-        if let Err(e) = crate::vfio::channel::devinit::force_pci_d0(bdf) {
-            tracing::warn!(bdf, error = %e, "force_pci_d0 failed (may already be in D0)");
-        }
-        let device = VfioDevice::open(bdf)?;
-        let container = device.dma_backend();
-        let bar0 = device.map_bar(0)?;
-        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
-        Ok(Self {
-            device,
-            bar0,
-            container,
-            gpfifo_ring,
-            userd,
-        })
-    }
-
-    /// Returns the IOVA of the GPFIFO ring buffer.
-    pub const fn gpfifo_iova() -> u64 {
-        GPFIFO_IOVA
-    }
-
-    /// Returns the number of GPFIFO ring entries.
-    pub const fn gpfifo_entries() -> u32 {
-        gpfifo::ENTRIES as u32
-    }
-
-    /// Returns the IOVA of the USERD doorbell page.
-    pub const fn userd_iova() -> u64 {
-        USERD_IOVA
-    }
-
-    /// Leaks the device handle without running drop (for diagnostic use).
-    pub fn leak(self) {
-        std::mem::forget(self);
-    }
-}
-
 impl NvVfioComputeDevice {
     /// The SM architecture version of this device (auto-detected or validated).
     #[must_use]
     pub fn sm_version(&self) -> u32 {
         self.sm_version
-    }
-
-    /// Resolve SM version and compute class from BOOT0, validating against
-    /// caller-supplied hints. Pass `sm_version=0` to auto-detect; pass a
-    /// nonzero value to assert it matches hardware.
-    ///
-    /// Accepts any [`RegisterAccess`] implementation (for example VFIO
-    /// [`MappedBar`](crate::vfio::device::MappedBar) or unit-test doubles).
-    fn resolve_sm(
-        regs: &dyn RegisterAccess,
-        bdf: &str,
-        caller_sm: u32,
-        caller_class: u32,
-    ) -> DriverResult<(u32, u32)> {
-        let boot0 = regs
-            .read_u32(bar0_reg::BOOT0 as u32)
-            .map_err(apply_error_to_driver)?;
-        let hw_sm = crate::nv::identity::boot0_to_sm(boot0);
-
-        let sm =
-            if caller_sm == 0 {
-                match hw_sm {
-                    Some(sm) => {
-                        tracing::info!(
-                            bdf,
-                            boot0 = format_args!("{boot0:#010x}"),
-                            sm,
-                            "SM auto-detected from BOOT0"
-                        );
-                        sm
-                    }
-                    None => {
-                        return Err(DriverError::OpenFailed(format!(
-                        "BOOT0 {boot0:#010x} maps to unknown chipset — cannot auto-detect SM. \
-                         Pass an explicit sm_version or add the chipset to boot0_to_sm()."
-                    ).into()));
-                    }
-                }
-            } else {
-                if let Some(hw) = hw_sm {
-                    if hw != caller_sm {
-                        return Err(DriverError::OpenFailed(
-                            format!(
-                                "SM mismatch: caller passed sm={caller_sm} but BOOT0 {boot0:#010x} \
-                         decodes to sm={hw}. Wrong SM corrupts GPU state — aborting."
-                            )
-                            .into(),
-                        ));
-                    }
-                } else {
-                    tracing::warn!(
-                        bdf,
-                        boot0 = format_args!("{boot0:#010x}"),
-                        caller_sm,
-                        "BOOT0 chipset unknown — trusting caller-supplied SM"
-                    );
-                }
-                caller_sm
-            };
-
-        let compute_class = if caller_class == 0 {
-            crate::nv::identity::sm_to_compute_class(sm)
-        } else {
-            caller_class
-        };
-
-        tracing::info!(
-            bdf,
-            boot0 = format_args!("{boot0:#010x}"),
-            sm,
-            compute_class = format_args!("{compute_class:#06x}"),
-            "VFIO GPU identity resolved"
-        );
-
-        Ok((sm, compute_class))
-    }
-
-    /// Opens an NVIDIA VFIO compute device by PCI BDF.
-    ///
-    /// Pass `sm_version=0` and `compute_class=0` to auto-detect from BOOT0.
-    /// Nonzero values are validated against the hardware register.
-    pub fn open(bdf: &str, sm_version: u32, compute_class: u32) -> DriverResult<Self> {
-        let device = VfioDevice::open(bdf)?;
-        let container = device.dma_backend();
-        let bar0 = device.map_bar(0)?;
-
-        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
-
-        NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
-
-        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "GPFIFO entries constant always fits u32"
-        )]
-        let channel = VfioChannel::create(
-            container.clone(),
-            &bar0,
-            GPFIFO_IOVA,
-            gpfifo::ENTRIES as u32,
-            USERD_IOVA,
-            0,
-        )?;
-
-        let mut dev = Self {
-            device,
-            bar0,
-            sm_version,
-            compute_class,
-            gpfifo_ring,
-            gpfifo_put: 0,
-            userd,
-            channel,
-            next_handle: 1,
-            next_iova: USER_IOVA_BASE,
-            container,
-            buffers: HashMap::new(),
-            inflight: Vec::new(),
-        };
-
-        dev.apply_fecs_channel_init();
-
-        Ok(dev)
-    }
-
-    /// Opens from pre-existing VFIO fds (received from coral-ember via `SCM_RIGHTS`).
-    ///
-    /// Pass `sm_version=0` and `compute_class=0` to auto-detect from BOOT0.
-    /// Nonzero values are validated against the hardware register.
-    pub fn open_from_fds(
-        bdf: &str,
-        fds: crate::vfio::ReceivedVfioFds,
-        sm_version: u32,
-        compute_class: u32,
-    ) -> DriverResult<Self> {
-        let device = VfioDevice::from_received(bdf, fds)?;
-        let container = device.dma_backend();
-        let bar0 = device.map_bar(0)?;
-
-        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
-
-        NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
-
-        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "GPFIFO entries constant always fits u32"
-        )]
-        let channel = VfioChannel::create(
-            container.clone(),
-            &bar0,
-            GPFIFO_IOVA,
-            gpfifo::ENTRIES as u32,
-            USERD_IOVA,
-            0,
-        )?;
-
-        let mut dev = Self {
-            device,
-            bar0,
-            sm_version,
-            compute_class,
-            gpfifo_ring,
-            gpfifo_put: 0,
-            userd,
-            channel,
-            next_handle: 1,
-            next_iova: USER_IOVA_BASE,
-            container,
-            buffers: HashMap::new(),
-            inflight: Vec::new(),
-        };
-
-        dev.apply_fecs_channel_init();
-        Ok(dev)
-    }
-
-    /// Open from ember FDs in warm handoff mode.
-    ///
-    /// After `coralctl warm-fecs` + livepatch, FECS/GPCCS firmware is
-    /// preserved in IMEM. This path skips GR BAR0 init (already done by
-    /// nouveau) and uses a lighter PFIFO init that preserves PMC/engine state.
-    pub fn open_warm(
-        bdf: &str,
-        fds: crate::vfio::ReceivedVfioFds,
-        sm_version: u32,
-        compute_class: u32,
-    ) -> DriverResult<Self> {
-        let device = VfioDevice::from_received(bdf, fds)?;
-        let container = device.dma_backend();
-        let bar0 = device.map_bar(0)?;
-
-        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
-
-        tracing::info!("warm handoff mode: skipping GR BAR0 init (nouveau already configured)");
-
-        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
-        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "GPFIFO entries constant always fits u32"
-        )]
-        let channel = VfioChannel::create_warm(
-            container.clone(),
-            &bar0,
-            GPFIFO_IOVA,
-            gpfifo::ENTRIES as u32,
-            USERD_IOVA,
-            0,
-        )?;
-
-        let mut dev = Self {
-            device,
-            bar0,
-            sm_version,
-            compute_class,
-            gpfifo_ring,
-            gpfifo_put: 0,
-            userd,
-            channel,
-            next_handle: 1,
-            next_iova: USER_IOVA_BASE,
-            container,
-            buffers: HashMap::new(),
-            inflight: Vec::new(),
-        };
-
-        dev.restart_warm_falcons()?;
-
-        Ok(dev)
     }
 
     /// Reads GR engine diagnostic status from BAR0 registers.
@@ -806,61 +457,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gpfifo_entry_encoding() {
-        let addr = 0x1000_u64;
-        let size = 64_u32;
-        let entry = gpfifo::encode_entry(addr, size);
-        let dw0 = entry as u32;
-        assert_eq!(dw0, 0x1000, "DW0 = addr with type=0");
-        let dw1 = (entry >> 32) as u32;
-        let len_field = (dw1 >> 10) & 0x1F_FFFF;
-        assert_eq!(len_field, 16, "length = 16 dwords");
-        let recovered = (dw0 as u64 & 0xFFFF_FFFC) | ((dw1 as u64 & 0xFF) << 32);
-        assert_eq!(recovered, addr);
-    }
-
-    #[test]
-    fn gpfifo_entry_zero() {
-        assert_eq!(gpfifo::encode_entry(0, 0), 0);
-    }
-
-    #[test]
-    fn gpfifo_ring_size() {
-        assert_eq!(gpfifo::RING_SIZE, 128 * 8);
-    }
-
-    #[test]
-    fn gpfifo_entry_large_addr() {
-        let addr = 0x10_0000_0000_u64;
-        let size = 256_u32;
-        let entry = gpfifo::encode_entry(addr, size);
-        let dw0 = entry as u32;
-        let dw1 = (entry >> 32) as u32;
-        let recovered = (dw0 as u64 & 0xFFFF_FFFC) | ((dw1 as u64 & 0xFF) << 32);
-        assert_eq!(recovered, addr);
-        let len_field = (dw1 >> 10) & 0x1F_FFFF;
-        assert_eq!(len_field, 64, "length = 64 dwords");
-    }
-
-    #[test]
-    fn iova_constants_non_overlapping() {
-        const { assert!(GPFIFO_IOVA < USERD_IOVA) };
-        const { assert!(USERD_IOVA + 4096 <= USER_IOVA_BASE) };
-    }
-
-    #[test]
     fn open_nonexistent_device() {
         let result = NvVfioComputeDevice::open("9999:99:99.9", 86, 0xC6C0);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn local_mem_window_volta() {
-        assert_eq!(LOCAL_MEM_WINDOW_VOLTA, 0xFF00_0000_0000_0000);
-    }
-
-    #[test]
-    fn local_mem_window_legacy() {
-        assert_eq!(LOCAL_MEM_WINDOW_LEGACY, 0xFF00_0000);
     }
 }

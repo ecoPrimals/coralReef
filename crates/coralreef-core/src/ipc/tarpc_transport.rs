@@ -4,7 +4,7 @@
 use futures::StreamExt;
 use tokio::sync::watch;
 
-use crate::service;
+use crate::service::{self, TarpcCompileError};
 
 use super::{BoundAddr, IpcError};
 
@@ -22,11 +22,12 @@ pub trait ShaderCompileTarpc {
     /// Uses `Bytes` for zero-copy SPIR-V input.
     async fn spirv(
         request: service::CompileSpirvRequestTarpc,
-    ) -> Result<service::CompileResponse, String>;
+    ) -> Result<service::CompileResponse, TarpcCompileError>;
 
     /// Compile WGSL source to native GPU binary (`shader.compile.wgsl`).
-    async fn wgsl(request: service::CompileWgslRequest)
-    -> Result<service::CompileResponse, String>;
+    async fn wgsl(
+        request: service::CompileWgslRequest,
+    ) -> Result<service::CompileResponse, TarpcCompileError>;
 
     /// Health/status check (`shader.compile.status`).
     async fn status() -> service::HealthResponse;
@@ -37,7 +38,7 @@ pub trait ShaderCompileTarpc {
     /// Compile WGSL to multiple GPU targets (`shader.compile.wgsl.multi`).
     async fn wgsl_multi(
         request: service::MultiDeviceCompileRequest,
-    ) -> Result<service::MultiDeviceCompileResponse, String>;
+    ) -> Result<service::MultiDeviceCompileResponse, TarpcCompileError>;
 
     /// Full health probe (`health.check`).
     async fn health_check() -> service::HealthCheckResponse;
@@ -58,22 +59,22 @@ impl ShaderCompileTarpc for TarpcServer {
         self,
         _ctx: tarpc::context::Context,
         request: service::CompileSpirvRequestTarpc,
-    ) -> Result<service::CompileResponse, String> {
+    ) -> Result<service::CompileResponse, TarpcCompileError> {
         service::handle_compile_spirv(
             &request.spirv,
             request.arch,
             request.opt_level,
             request.fp64_software,
         )
-        .map_err(|e| e.to_string())
+        .map_err(service::TarpcCompileError::from_error)
     }
 
     async fn wgsl(
         self,
         _ctx: tarpc::context::Context,
         request: service::CompileWgslRequest,
-    ) -> Result<service::CompileResponse, String> {
-        service::handle_compile_wgsl(&request).map_err(|e| e.to_string())
+    ) -> Result<service::CompileResponse, TarpcCompileError> {
+        service::handle_compile_wgsl(&request).map_err(service::TarpcCompileError::from_error)
     }
 
     async fn status(self, _ctx: tarpc::context::Context) -> service::HealthResponse {
@@ -88,8 +89,8 @@ impl ShaderCompileTarpc for TarpcServer {
         self,
         _ctx: tarpc::context::Context,
         request: service::MultiDeviceCompileRequest,
-    ) -> Result<service::MultiDeviceCompileResponse, String> {
-        service::handle_compile_wgsl_multi(request).map_err(|e| e.to_string())
+    ) -> Result<service::MultiDeviceCompileResponse, TarpcCompileError> {
+        service::handle_compile_wgsl_multi(request).map_err(service::TarpcCompileError::from_error)
     }
 
     async fn health_check(self, _ctx: tarpc::context::Context) -> service::HealthCheckResponse {

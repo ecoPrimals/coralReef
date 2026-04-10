@@ -8,7 +8,7 @@
 /// Delegates to [`crate::vfio::pci_discovery::force_pci_d0`]. Kept here
 /// for backward compatibility with existing call sites in glowplug.rs
 /// and vfio_compute.rs.
-pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
+pub fn force_pci_d0(bdf: &str) -> Result<(), crate::PciDiscoveryError> {
     crate::vfio::pci_discovery::force_pci_d0(bdf)
 }
 
@@ -16,6 +16,6 @@ pub fn force_pci_d0(bdf: &str) -> Result<(), String> {
 ///
 /// Delegates to [`crate::vfio::pci_discovery::pci_power_cycle`]. Kept
 /// here for backward compatibility.
-pub fn pci_power_cycle_devinit(bdf: &str) -> Result<bool, String> {
+pub fn pci_power_cycle_devinit(bdf: &str) -> Result<bool, crate::PciDiscoveryError> {
     crate::vfio::pci_discovery::pci_power_cycle(bdf)
 }

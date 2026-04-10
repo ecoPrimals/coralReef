@@ -13,6 +13,8 @@
 
 use std::ptr::NonNull;
 
+use crate::error::ChannelError;
+
 use super::registers::{misc, pccsr, ramin};
 
 const PRAMIN_OFFSET: usize = 0x0070_0000;
@@ -78,13 +80,13 @@ struct Bar0Rw {
 }
 
 impl Bar0Rw {
-    fn open(bdf: &str) -> Result<Self, String> {
-        let path = format!("/sys/bus/pci/devices/{bdf}/resource0");
+    fn open(bdf: &str) -> Result<Self, ChannelError> {
+        let path = crate::linux_paths::sysfs_pci_device_file(bdf, "resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
-            .map_err(|e| format!("cannot open {path}: {e}"))?;
+            .map_err(|e| ChannelError::resource_io("open", path.clone(), e))?;
 
         let size = 16 * 1024 * 1024; // 16 MiB BAR0
         // SAFETY: mmap of PCI BAR0 sysfs resource with R/W for PRAMIN window sliding.
@@ -98,9 +100,13 @@ impl Bar0Rw {
                 0,
             )
         }
-        .map_err(|e| format!("mmap {path}: {e}"))?;
+        .map_err(|e| ChannelError::Bar0Mmap {
+            path: path.clone(),
+            source: e,
+        })?;
 
-        let ptr = NonNull::new(raw.cast::<u8>()).ok_or_else(|| "mmap returned null".to_owned())?;
+        let ptr = NonNull::new(raw.cast::<u8>())
+            .ok_or(ChannelError::Bar0MmapNull { path: path.clone() })?;
 
         Ok(Self {
             ptr,
@@ -232,7 +238,7 @@ fn find_active_channel(bar0: &Bar0Rw) -> Option<(u32, u32)> {
 /// 3. Reads the instance block from VRAM via PRAMIN
 /// 4. Walks the V2 page table chain: PD3 → PD2 → PD1 → PD0 → PT
 /// 5. Returns raw PDE/PTE values for comparison with sovereign encoding
-pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, String> {
+pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, ChannelError> {
     let bar0 = Bar0Rw::open(bdf)?;
     let mut log = Vec::new();
 
@@ -240,7 +246,7 @@ pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, Strin
     log.push(format!("BOOT0: {boot0:#010x}"));
 
     if boot0 == 0xFFFF_FFFF {
-        return Err("BAR0 reads 0xFFFFFFFF — card may be in D3hot or not bound".into());
+        return Err(ChannelError::Bar0ReadsAllOnes);
     }
 
     // Save current BAR0 window so we can restore it.
@@ -248,7 +254,7 @@ pub fn read_nouveau_page_tables(bdf: &str) -> Result<NouveauPageTableDump, Strin
     log.push(format!("BAR0_WINDOW (saved): {saved_window:#010x}"));
 
     let (channel_id, pccsr_inst_raw) =
-        find_active_channel(&bar0).ok_or("no active channel found in PCCSR (0-511)")?;
+        find_active_channel(&bar0).ok_or(ChannelError::NoActivePccsrChannel)?;
 
     log.push(format!(
         "channel {channel_id}: PCCSR inst={pccsr_inst_raw:#010x}"

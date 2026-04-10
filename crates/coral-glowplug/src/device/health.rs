@@ -120,9 +120,9 @@ impl<S: SysfsOps> DeviceSlot<S> {
             &holder.bar0,
             max_channels,
         )
-        .map_err(|reason| DeviceError::VfioOpen {
+        .map_err(|e| DeviceError::VfioOpen {
             bdf: self.bdf.clone(),
-            reason,
+            reason: e.to_string(),
         })
     }
 

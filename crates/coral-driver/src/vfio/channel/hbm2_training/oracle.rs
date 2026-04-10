@@ -2,6 +2,7 @@
 #![expect(missing_docs, reason = "HBM2 oracle capture/replay; full docs planned")]
 //! Differential capture/replay harness for oracle-based HBM2 training.
 
+use crate::error::ChannelError;
 use crate::vfio::device::MappedBar;
 use crate::vfio::memory::{MemoryRegion, PraminRegion};
 
@@ -60,7 +61,7 @@ impl GoldenCapture {
 }
 
 /// Capture the golden register state from an oracle card via sysfs BAR0.
-pub fn capture_oracle_state(oracle_bdf: &str) -> Result<GoldenCapture, String> {
+pub fn capture_oracle_state(oracle_bdf: &str) -> Result<GoldenCapture, ChannelError> {
     use crate::vfio::sysfs_bar0::{DEFAULT_BAR0_SIZE, SysfsBar0};
 
     let bar0 = SysfsBar0::open(oracle_bdf, DEFAULT_BAR0_SIZE)?;
@@ -70,7 +71,7 @@ pub fn capture_oracle_state(oracle_bdf: &str) -> Result<GoldenCapture, String> {
 
     let boot0 = bar0.read_u32(0);
     if boot0 == 0xFFFF_FFFF {
-        return Err("Oracle BAR0 reads 0xFFFFFFFF — card in D3hot?".into());
+        return Err(ChannelError::Bar0ReadsAllOnes);
     }
 
     let pmc_enable = bar0.read_u32(0x200);
@@ -226,15 +227,18 @@ pub struct ReplayResult {
 }
 
 /// Perform the complete differential capture → diff → replay pipeline.
-pub fn differential_training(bar0: &MappedBar, oracle_bdf: &str) -> Result<ReplayResult, String> {
+pub fn differential_training(
+    bar0: &MappedBar,
+    oracle_bdf: &str,
+) -> Result<ReplayResult, ChannelError> {
     let golden = capture_oracle_state(oracle_bdf)?;
 
     let target_boot0 = bar0.read_u32(0).unwrap_or(0xDEAD_DEAD);
     if golden.boot0 != target_boot0 {
-        return Err(format!(
-            "BOOT0 mismatch: oracle={:#010x} target={:#010x}",
-            golden.boot0, target_boot0,
-        ));
+        return Err(ChannelError::Boot0Mismatch {
+            oracle: golden.boot0,
+            target: target_boot0,
+        });
     }
 
     let diffs = diff_golden_vs_cold(bar0, &golden);

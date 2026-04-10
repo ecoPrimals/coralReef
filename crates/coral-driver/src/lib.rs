@@ -63,7 +63,7 @@ pub mod cuda;
 
 pub mod gsp;
 
-pub use error::{DriverError, DriverResult};
+pub use error::{ChannelError, DevinitError, DriverError, DriverResult, PciDiscoveryError};
 
 /// An opaque GPU buffer handle.
 ///

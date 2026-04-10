@@ -36,6 +36,7 @@ pub(crate) fn btsp_mode() -> &'static BtspMode {
 
 /// Result of a BTSP handshake attempt.
 #[derive(Debug)]
+// `dead_code` on variants is not always emitted; `#[expect(dead_code)]` can be unfulfilled.
 #[allow(
     dead_code,
     reason = "fields used via Debug formatting in tracing::warn!(?outcome, ...)"

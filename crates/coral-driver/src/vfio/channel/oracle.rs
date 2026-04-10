@@ -26,6 +26,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::error::ChannelError;
+
 use super::pri_monitor::{PriBusMonitor, WriteOutcome};
 use super::registers::pri;
 use crate::vfio::device::MappedBar;
@@ -124,13 +126,19 @@ fn is_dangerous_register(off: usize) -> bool {
     )
 }
 
+/// Minimum BAR0 dump size for oracle extraction (1 MiB — matches legacy `0x100000` check).
+const BAR0_DUMP_MIN_BYTES: usize = 0x10_0000;
+
 impl OracleState {
     /// Load oracle state from a raw BAR0 binary dump (16MB file).
-    pub fn from_bar0_dump(path: &Path) -> Result<Self, String> {
+    pub fn from_bar0_dump(path: &Path) -> Result<Self, ChannelError> {
         let data = std::fs::read(path)
-            .map_err(|e| format!("cannot read BAR0 dump {}: {e}", path.display()))?;
-        if data.len() < 0x100000 {
-            return Err(format!("BAR0 dump too small: {} bytes", data.len()));
+            .map_err(|e| ChannelError::resource_io("read", path.display().to_string(), e))?;
+        if data.len() < BAR0_DUMP_MIN_BYTES {
+            return Err(ChannelError::Bar0DumpTooShort {
+                len: data.len(),
+                need: BAR0_DUMP_MIN_BYTES,
+            });
         }
 
         let mut registers = BTreeMap::new();
@@ -158,9 +166,9 @@ impl OracleState {
     }
 
     /// Load oracle state from a text dump (format: `DOMAIN 0xOFFSET 0xVALUE`).
-    pub fn from_text_dump(path: &Path) -> Result<Self, String> {
+    pub fn from_text_dump(path: &Path) -> Result<Self, ChannelError> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("cannot read text dump {}: {e}", path.display()))?;
+            .map_err(|e| ChannelError::resource_io("read", path.display().to_string(), e))?;
 
         let mut registers = BTreeMap::new();
         for line in content.lines() {
@@ -179,10 +187,17 @@ impl OracleState {
                 (parts[0], parts[1])
             };
 
-            let off = usize::from_str_radix(off_str.trim_start_matches("0x"), 16)
-                .map_err(|_| format!("bad offset: {off_str}"))?;
-            let val = u32::from_str_radix(val_str.trim_start_matches("0x"), 16)
-                .map_err(|_| format!("bad value: {val_str}"))?;
+            let off =
+                usize::from_str_radix(off_str.trim_start_matches("0x"), 16).map_err(|_| {
+                    ChannelError::InvalidHexOffset {
+                        token: off_str.to_string(),
+                    }
+                })?;
+            let val = u32::from_str_radix(val_str.trim_start_matches("0x"), 16).map_err(|_| {
+                ChannelError::InvalidHexValue {
+                    token: val_str.to_string(),
+                }
+            })?;
 
             registers.insert(off, val);
         }
@@ -194,7 +209,7 @@ impl OracleState {
     }
 
     /// Load oracle state from a live nouveau-warm card via sysfs mmap.
-    pub fn from_live_card(bdf: &str) -> Result<Self, String> {
+    pub fn from_live_card(bdf: &str) -> Result<Self, ChannelError> {
         use crate::vfio::sysfs_bar0::{DEFAULT_BAR0_SIZE, SysfsBar0};
 
         let bar0 = SysfsBar0::open(bdf, DEFAULT_BAR0_SIZE)?;

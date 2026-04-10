@@ -3,6 +3,8 @@
 
 use std::collections::HashSet;
 
+use crate::PciDiscoveryError;
+
 use super::types::{
     PCI_CAP_ID_PCIE, PCI_CAP_ID_PM, PCI_STATUS_CAP_LIST, PciCapability, PciPmState, PciPowerInfo,
     PcieLinkInfo, PcieLinkSpeed,
@@ -118,14 +120,18 @@ pub(super) fn parse_pcie_link_from_config(
 }
 
 /// Locate the PM capability offset in config space (first PM cap in the chain).
-pub(super) fn find_pm_capability_offset(config: &[u8]) -> Result<usize, String> {
-    if config.len() < 0x40 {
-        return Err("PCI config too short".into());
+pub fn find_pm_capability_offset(config: &[u8]) -> Result<usize, PciDiscoveryError> {
+    const MIN_HEADER: usize = 0x40;
+    if config.len() < MIN_HEADER {
+        return Err(PciDiscoveryError::ConfigTooShort {
+            len: config.len(),
+            need: MIN_HEADER,
+        });
     }
 
     let status = pci_config_read_u16(config, 0x06);
     if status & PCI_STATUS_CAP_LIST == 0 {
-        return Err("No PCI capabilities list".into());
+        return Err(PciDiscoveryError::NoPciCapabilitiesList);
     }
 
     let mut cap_ptr = (config[0x34] & 0xFC) as usize;
@@ -138,5 +144,5 @@ pub(super) fn find_pm_capability_offset(config: &[u8]) -> Result<usize, String> 
         cap_ptr = (config[cap_ptr + 1] & 0xFC) as usize;
     }
 
-    Err("PM capability not found".into())
+    Err(PciDiscoveryError::PmCapabilityNotFound)
 }

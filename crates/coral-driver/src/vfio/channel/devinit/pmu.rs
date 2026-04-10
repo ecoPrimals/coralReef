@@ -7,6 +7,7 @@
 
 use std::fmt::Write as FmtWrite;
 
+use crate::error::DevinitError;
 use crate::vfio::device::MappedBar;
 
 use super::script::interpret_boot_scripts;
@@ -316,7 +317,7 @@ impl FalconDiagnostic {
     }
 
     /// Find the best available VBIOS ROM, trying all sources.
-    pub fn best_vbios(&self, bar0: &MappedBar, bdf: Option<&str>) -> Result<Vec<u8>, String> {
+    pub fn best_vbios(&self, bar0: &MappedBar, bdf: Option<&str>) -> Result<Vec<u8>, DevinitError> {
         if self.prom_accessible
             && let Ok(rom) = read_vbios_prom(bar0)
         {
@@ -342,7 +343,7 @@ impl FalconDiagnostic {
             }
         }
 
-        Err("No VBIOS source available".into())
+        Err(DevinitError::NoVbiosSource)
     }
 }
 
@@ -360,7 +361,7 @@ fn check_vram_via_pramin(bar0: &MappedBar) -> bool {
 pub fn execute_devinit_with_diagnostics(
     bar0: &MappedBar,
     bdf: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<bool, DevinitError> {
     let diag = FalconDiagnostic::probe(bar0, bdf);
     diag.print_report();
 
@@ -523,7 +524,7 @@ pub fn pmu_exec(bar0: &MappedBar, init_addr: u32) {
 ///
 /// Returns Ok(true) if devinit completed, Ok(false) if it wasn't needed,
 /// or Err on failure.
-pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
+pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, DevinitError> {
     use super::vbios::parse_pmu_table;
 
     let status = DevinitStatus::probe(bar0);
@@ -546,15 +547,13 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
         );
     }
 
-    let bit_i = bit
-        .find(b'I')
-        .ok_or("BIT 'I' entry not found — cannot locate devinit scripts")?;
+    let bit_i = bit.find(b'I').ok_or(DevinitError::BitINotFound)?;
 
     if bit_i.version != 1 || bit_i.data_size < 0x1c {
-        return Err(format!(
-            "BIT 'I' entry: unexpected version {} or size {} (need ver=1, size>=0x1c)",
-            bit_i.version, bit_i.data_size
-        ));
+        return Err(DevinitError::BitIUnexpectedLayout {
+            version: bit_i.version,
+            data_size: bit_i.data_size,
+        });
     }
 
     let pmu_fws = parse_pmu_table(rom, &bit)?;
@@ -583,14 +582,14 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
     let devinit_fw = pmu_fws
         .iter()
         .find(|fw| fw.app_type == 0x04)
-        .ok_or("PMU DEVINIT firmware (type 0x04) not found in VBIOS")?;
+        .ok_or(DevinitError::PmuDevinitFirmwareNotFound)?;
 
     let rom_len = rom.len() as u32;
     if devinit_fw.boot_addr + devinit_fw.boot_size > rom_len
         || devinit_fw.code_addr + devinit_fw.code_size > rom_len
         || devinit_fw.data_addr + devinit_fw.data_size > rom_len
     {
-        return Err("DEVINIT firmware sections extend beyond ROM".into());
+        return Err(DevinitError::DevinitFirmwareBeyondRom);
     }
 
     tracing::info!("PMU FALCON devinit upload starting");
@@ -726,9 +725,7 @@ pub fn execute_devinit(bar0: &MappedBar, rom: &[u8]) -> Result<bool, String> {
             ctrl = format!("{ctrl:#010x}"),
             "DEVINIT timeout"
         );
-        return Err(format!(
-            "PMU DEVINIT timed out after 2s (MBOX0={mbox:#010x})"
-        ));
+        return Err(DevinitError::PmuDevinitTimeout { mbox0: mbox });
     }
 
     // Run PRE_OS app (type 0x01) — for fan control

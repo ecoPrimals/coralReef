@@ -13,7 +13,7 @@ pub use types::{
     CapabilityListResponse, CompileCapabilitiesResponse, CompileRequest, CompileResponse,
     CompileSpirvRequestTarpc, CompileWgslRequest, F64TranscendentalCapabilities,
     HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
-    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse,
+    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse, TarpcCompileError,
 };
 
 use std::collections::BTreeSet;

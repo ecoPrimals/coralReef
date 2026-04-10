@@ -41,6 +41,7 @@ pub mod ioctl;
 pub mod irq;
 pub mod memory;
 pub mod nv_metal;
+pub(crate) mod pci_config;
 pub mod pci_discovery;
 pub mod sysfs_bar0;
 pub mod types;

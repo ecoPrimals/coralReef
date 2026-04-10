@@ -48,7 +48,10 @@ pub(super) fn probe_vram_and_mc(bar0: &MappedBar, notes: &mut Vec<String>) {
     ));
 }
 
-#[allow(clippy::result_large_err)] // `AcrBootResult` is the intentional early-exit payload
+#[expect(
+    clippy::result_large_err,
+    reason = "AcrBootResult is the intentional early-exit payload"
+)]
 pub(super) fn parse_acr_firmware(
     fw: &AcrFirmwareSet,
     notes: &mut Vec<String>,
@@ -70,7 +73,10 @@ pub(super) fn parse_acr_firmware(
 }
 
 /// Allocates the low catch-all, page-directory chain, ACR/WPR/shadow buffers, and IOVA gap fillers.
-#[allow(clippy::result_large_err)] // `AcrBootResult` is the intentional early-exit payload
+#[expect(
+    clippy::result_large_err,
+    reason = "AcrBootResult is the intentional early-exit payload"
+)]
 pub(super) fn allocate_dma(
     container: DmaBackend,
     fw: &AcrFirmwareSet,

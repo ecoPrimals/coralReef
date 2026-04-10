@@ -324,6 +324,35 @@ pub const fn default_opt_level() -> u32 {
     2
 }
 
+/// Serializable compilation error for tarpc transport.
+///
+/// `CompileError` (in `coral-reef`) does not derive `Serialize`/`Deserialize`
+/// because it uses `Cow<'static, str>` and is a library error type.
+/// This wrapper preserves the error message across the bincode wire while
+/// providing a typed error rather than raw `String`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TarpcCompileError {
+    /// Human-readable error message (from `CompileError::to_string()`).
+    pub message: String,
+}
+
+impl std::fmt::Display for TarpcCompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TarpcCompileError {}
+
+impl TarpcCompileError {
+    /// Wrap any error into a tarpc-transportable error.
+    pub fn from_error(e: impl std::fmt::Display) -> Self {
+        Self {
+            message: e.to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod identity_tests {
     use super::*;

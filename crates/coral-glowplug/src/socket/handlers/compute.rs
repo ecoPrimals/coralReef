@@ -54,7 +54,7 @@ pub(crate) async fn oracle_capture_async(
     })
     .await
     .map_err(|e| RpcError::internal(format!("oracle task panicked: {e}")))?
-    .map_err(RpcError::device_error)?;
+    .map_err(|e| RpcError::device_error(e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| RpcError::internal(e.to_string()))
 }

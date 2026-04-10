@@ -2,6 +2,7 @@
 #![expect(missing_docs, reason = "VBIOS parsing; full docs planned")]
 //! VBIOS ROM reading and parsing (BIT table, PMU firmware table).
 
+use crate::error::DevinitError;
 use crate::vfio::device::MappedBar;
 
 /// BAR0 offset of the PROM (Programmable ROM) region.
@@ -41,16 +42,16 @@ impl BitTable {
     /// - `bit_offset + 10` = entry_count
     /// - `bit_offset + 12` = first entry
     ///   Each entry (6 bytes): id(1) + version(1) + data_size(u16 LE) + data_offset(u16 LE)
-    pub fn parse(rom: &[u8]) -> Result<Self, String> {
+    pub fn parse(rom: &[u8]) -> Result<Self, DevinitError> {
         let sig: &[u8] = &[0xFF, 0xB8, b'B', b'I', b'T'];
 
         let bit_offset = rom
             .windows(sig.len())
             .position(|w| w == sig)
-            .ok_or("BIT signature (\\xFF\\xB8BIT) not found in VBIOS")?;
+            .ok_or(DevinitError::BitSignatureNotFound)?;
 
         if bit_offset + 12 >= rom.len() {
-            return Err("BIT header truncated".into());
+            return Err(DevinitError::BitHeaderTruncated);
         }
 
         let entry_size = rom[bit_offset + 9] as usize;
@@ -65,9 +66,10 @@ impl BitTable {
         );
 
         if !(6..=16).contains(&entry_size) || entry_count > 64 {
-            return Err(format!(
-                "BIT header invalid: entry_size={entry_size} count={entry_count}"
-            ));
+            return Err(DevinitError::BitHeaderInvalid {
+                entry_size,
+                entry_count,
+            });
         }
 
         let mut entries = Vec::with_capacity(entry_count);
@@ -128,12 +130,12 @@ pub struct PmuFirmware {
 /// The PMU firmware table format (from nouveau's nvbios/pmu.c):
 /// Header: version(1) + header_size(1) + entry_count(1) + entry_size(1)
 /// Each entry: type(1) + various offsets depending on version.
-pub fn parse_pmu_table(rom: &[u8], bit: &BitTable) -> Result<Vec<PmuFirmware>, String> {
-    let p_entry = bit.find(b'p').ok_or("BIT 'p' (PMU) entry not found")?;
+pub fn parse_pmu_table(rom: &[u8], bit: &BitTable) -> Result<Vec<PmuFirmware>, DevinitError> {
+    let p_entry = bit.find(b'p').ok_or(DevinitError::PmuBitEntryNotFound)?;
 
     let table_ptr_off = p_entry.data_offset as usize;
     if table_ptr_off + 2 > rom.len() {
-        return Err("PMU table pointer out of bounds".into());
+        return Err(DevinitError::PmuTablePointerOutOfBounds);
     }
 
     // The 'p' entry data contains a pointer to the PMU firmware table
@@ -150,7 +152,9 @@ pub fn parse_pmu_table(rom: &[u8], bit: &BitTable) -> Result<Vec<PmuFirmware>, S
     };
 
     if pmu_table_off == 0 || pmu_table_off + 4 > rom.len() {
-        return Err(format!("PMU table at {pmu_table_off:#x} out of bounds"));
+        return Err(DevinitError::PmuTableOutOfBounds {
+            offset: pmu_table_off,
+        });
     }
 
     let version = rom[pmu_table_off];
@@ -159,9 +163,12 @@ pub fn parse_pmu_table(rom: &[u8], bit: &BitTable) -> Result<Vec<PmuFirmware>, S
     let entry_size = rom[pmu_table_off + 3] as usize;
 
     if version == 0 || entry_size < 10 {
-        return Err(format!(
-            "unexpected PMU table format: ver={version} hdr={header_size} entries={entry_count} entry_size={entry_size}"
-        ));
+        return Err(DevinitError::PmuTableUnexpectedFormat {
+            version,
+            header_size,
+            entry_count,
+            entry_size,
+        });
     }
 
     let entries_start = pmu_table_off + header_size;
@@ -254,7 +261,7 @@ pub fn parse_pmu_table(rom: &[u8], bit: &BitTable) -> Result<Vec<PmuFirmware>, S
 /// ROM (VGA/EFI option ROM) which lacks the PMU devinit code.
 ///
 /// Source: nouveau `nvkm/subdev/bios/shadowprom.c`
-pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, String> {
+pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, DevinitError> {
     // Enable PROM access (clear bit 0 of 0x1854)
     let enable_reg = bar0.read_u32(PROM_ENABLE_REG).unwrap_or(0xDEAD);
     let _ = bar0.write_u32(PROM_ENABLE_REG, enable_reg & !1);
@@ -264,9 +271,7 @@ pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, String> {
     if (sig_lo & 0xFFFF) != 0xAA55 {
         // Restore PROM enable
         let _ = bar0.write_u32(PROM_ENABLE_REG, enable_reg);
-        return Err(format!(
-            "PROM signature mismatch: got {sig_lo:#010x} (expected 0x????AA55)"
-        ));
+        return Err(DevinitError::PromSignatureMismatch { got: sig_lo });
     }
 
     // Image size is at byte 2 (in 512-byte units)
@@ -304,7 +309,7 @@ pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, String> {
     let _ = bar0.write_u32(PROM_ENABLE_REG, enable_reg);
 
     if rom.len() < 512 {
-        return Err(format!("PROM too small: {} bytes", rom.len()));
+        return Err(DevinitError::PromTooSmall { len: rom.len() });
     }
 
     tracing::info!(
@@ -321,16 +326,17 @@ pub fn read_vbios_prom(bar0: &MappedBar) -> Result<Vec<u8>, String> {
 /// Note: the sysfs `rom` file provides the PCI Expansion ROM, not the full
 /// NVIDIA internal BIOS. It typically lacks the BIT table and PMU firmware.
 /// Prefer `read_vbios_prom()` for the full VBIOS.
-pub fn read_vbios_sysfs(bdf: &str) -> Result<Vec<u8>, String> {
+pub fn read_vbios_sysfs(bdf: &str) -> Result<Vec<u8>, DevinitError> {
     let rom_path = crate::linux_paths::sysfs_pci_device_file(bdf, "rom");
 
     // Enable ROM readback
-    std::fs::write(&rom_path, "1").map_err(|e| format!("enable ROM: {e}"))?;
+    std::fs::write(&rom_path, "1")
+        .map_err(|e| DevinitError::vbios_resource_io("write", rom_path.clone(), e))?;
 
     // Read the full ROM
     let data = std::fs::read(&rom_path).map_err(|e| {
         let _ = std::fs::write(&rom_path, "0");
-        format!("read ROM: {e}")
+        DevinitError::vbios_resource_io("read", rom_path.clone(), e)
     })?;
 
     // Disable ROM readback
@@ -340,22 +346,22 @@ pub fn read_vbios_sysfs(bdf: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Read a pre-dumped VBIOS ROM from a file path.
-pub fn read_vbios_file(path: &str) -> Result<Vec<u8>, String> {
-    let data = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+pub fn read_vbios_file(path: &str) -> Result<Vec<u8>, DevinitError> {
+    let data = std::fs::read(path).map_err(|e| DevinitError::vbios_resource_io("read", path, e))?;
     validate_vbios(&data)
 }
 
-pub(crate) fn validate_vbios(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn validate_vbios(data: &[u8]) -> Result<Vec<u8>, DevinitError> {
     if data.len() < 512 {
-        return Err(format!("ROM too small: {} bytes", data.len()));
+        return Err(DevinitError::RomTooSmall { len: data.len() });
     }
 
     // Verify PCI ROM signature (0x55AA at offset 0)
     if data[0] != 0x55 || data[1] != 0xAA {
-        return Err(format!(
-            "bad ROM signature: {:#04x} {:#04x} (expected 0x55 0xAA)",
-            data[0], data[1]
-        ));
+        return Err(DevinitError::RomBadSignature {
+            byte0: data[0],
+            byte1: data[1],
+        });
     }
 
     Ok(data.to_vec())

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Full warm-up sequence — bring the GPU from any state to Warm.
 
+use crate::error::DevinitError;
+
 use super::super::devinit;
 use super::super::diagnostic::interpreter::memory_probe;
 use super::super::hbm2_training;
@@ -462,7 +464,7 @@ fn run_step_vram_strategies(
             if let Some(bdf) = &gp.bdf {
                 devinit::read_vbios_sysfs(bdf)
             } else {
-                Err("no BDF for sysfs fallback".into())
+                Err(DevinitError::NoBdfForSysfsVbios)
             }
         });
         if let Ok(rom) = rom_result {
@@ -627,7 +629,7 @@ fn run_step_vram_strategies(
             if let Some(bdf) = &gp.bdf {
                 devinit::read_vbios_sysfs(bdf)
             } else {
-                Err("no BDF for sysfs fallback".into())
+                Err(DevinitError::NoBdfForSysfsVbios)
             }
         });
         if let Ok(rom) = rom_result {

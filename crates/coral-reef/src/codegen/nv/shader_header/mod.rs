@@ -10,7 +10,10 @@ mod sphv3_layout;
 mod types;
 
 // Public surface of this module: not referenced by name inside `mod.rs`.
-#[allow(unused_imports)]
+#[expect(
+    unused_imports,
+    reason = "pub use re-exports define the module API; names are not referenced inside this mod.rs"
+)]
 pub use self::{
     encode::encode_header,
     program_header::ShaderProgramHeader,

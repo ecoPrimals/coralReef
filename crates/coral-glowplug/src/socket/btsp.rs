@@ -40,6 +40,7 @@ pub fn btsp_mode() -> &'static BtspMode {
 
 /// Result of a BTSP handshake attempt on an incoming connection.
 #[derive(Debug)]
+// `dead_code` on variants is not always emitted; `#[expect(dead_code)]` can be unfulfilled.
 #[allow(
     dead_code,
     reason = "fields used via Debug formatting in tracing::warn!(?outcome, ...)"
@@ -58,6 +59,7 @@ pub enum BtspOutcome {
         reason: String,
     },
     /// Handshake explicitly failed — refuse.
+    // Same rationale as `BtspOutcome`: `dead_code` is not reliably emitted for this variant.
     #[allow(
         dead_code,
         reason = "variant used when btsp.session.verify rejects a proof"

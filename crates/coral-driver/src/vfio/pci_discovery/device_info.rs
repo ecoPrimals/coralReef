@@ -3,6 +3,7 @@
 
 use std::fmt::Write as FmtWrite;
 
+use crate::PciDiscoveryError;
 use crate::linux_paths;
 
 use super::config_space::{
@@ -64,9 +65,13 @@ impl PciDeviceInfo {
         config: &[u8],
         bars: Vec<PciBar>,
         pcie_link: Option<PcieLinkInfo>,
-    ) -> Result<Self, String> {
-        if config.len() < 64 {
-            return Err(format!("PCI config too short: {} bytes", config.len()));
+    ) -> Result<Self, PciDiscoveryError> {
+        const MIN_CONFIG: usize = 64;
+        if config.len() < MIN_CONFIG {
+            return Err(PciDiscoveryError::ConfigTooShort {
+                len: config.len(),
+                need: MIN_CONFIG,
+            });
         }
 
         let vendor_id = pci_config_read_u16(config, 0x00);
@@ -104,14 +109,21 @@ impl PciDeviceInfo {
     }
 
     /// Parse PCI device info from sysfs config space.
-    pub fn from_sysfs(bdf: &str) -> Result<Self, String> {
-        parse_pci_bdf(bdf).ok_or_else(|| format!("invalid PCI BDF: {bdf}"))?;
+    pub fn from_sysfs(bdf: &str) -> Result<Self, PciDiscoveryError> {
+        parse_pci_bdf(bdf).ok_or_else(|| PciDiscoveryError::InvalidBdf {
+            bdf: bdf.to_string(),
+        })?;
 
         let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
-        let config = std::fs::read(&config_path).map_err(|e| format!("read {config_path}: {e}"))?;
+        let config = std::fs::read(&config_path)
+            .map_err(|e| PciDiscoveryError::sysfs_io("read PCI config", config_path.clone(), e))?;
 
-        if config.len() < 64 {
-            return Err(format!("PCI config too short: {} bytes", config.len()));
+        const MIN_CONFIG: usize = 64;
+        if config.len() < MIN_CONFIG {
+            return Err(PciDiscoveryError::ConfigTooShort {
+                len: config.len(),
+                need: MIN_CONFIG,
+            });
         }
 
         let vendor_id = pci_config_read_u16(&config, 0x00);

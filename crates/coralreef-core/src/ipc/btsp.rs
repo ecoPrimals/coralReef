@@ -45,6 +45,8 @@ pub enum BtspMode {
 impl BtspMode {
     /// `true` when the handshake is required on incoming connections.
     #[must_use]
+    // `dead_code` is not always emitted for this `pub` API; `#[expect(dead_code)]` would be
+    // unfulfilled on normal lib builds.
     #[allow(
         dead_code,
         reason = "public API used in tests and future guard_connection evolution"
@@ -70,6 +72,8 @@ pub fn btsp_mode() -> &'static BtspMode {
 
 /// Result of a BTSP handshake attempt on an incoming connection.
 #[derive(Debug)]
+// `dead_code` is not consistently emitted for enum variants only referenced via `Debug`;
+// `#[expect(dead_code)]` is unfulfilled when rustc omits the lint.
 #[allow(
     dead_code,
     reason = "fields/variants used via Debug formatting in tracing + future btsp.session.verify"

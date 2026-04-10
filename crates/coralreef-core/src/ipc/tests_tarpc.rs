@@ -242,10 +242,10 @@ async fn test_tarpc_compile_valid_shader() {
             );
             assert_eq!(resp.size, resp.binary.len());
         }
-        Err(msg) => {
+        Err(err) => {
             assert!(
-                msg.contains("not implemented") || msg.contains("NotImplemented"),
-                "IPC should propagate compile errors: {msg}"
+                err.message.contains("not implemented") || err.message.contains("NotImplemented"),
+                "IPC should propagate compile errors: {err}"
             );
         }
     }
@@ -388,7 +388,7 @@ async fn test_tarpc_wgsl_multi() {
         }
         Ok(Err(e)) => {
             assert!(
-                e.contains("implemented") || e.contains("not"),
+                e.message.contains("implemented") || e.message.contains("not"),
                 "unexpected error: {e}"
             );
         }
@@ -442,7 +442,7 @@ async fn test_tarpc_wgsl_multi_partial_failure() {
         }
         Ok(Err(e)) => {
             assert!(
-                e.contains("unsupported") || e.contains("sm_99"),
+                e.message.contains("unsupported") || e.message.contains("sm_99"),
                 "expected arch error: {e}"
             );
         }

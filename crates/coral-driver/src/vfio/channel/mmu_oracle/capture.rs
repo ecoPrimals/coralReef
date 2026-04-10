@@ -6,6 +6,8 @@ use std::ptr::NonNull;
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::ChannelError;
+
 use super::super::registers::{misc, pccsr, ramin};
 
 const PRAMIN_OFFSET: usize = 0x0070_0000;
@@ -21,13 +23,13 @@ pub(crate) struct Bar0Rw {
 }
 
 impl Bar0Rw {
-    pub fn open(bdf: &str) -> Result<Self, String> {
-        let path = format!("/sys/bus/pci/devices/{bdf}/resource0");
+    pub fn open(bdf: &str) -> Result<Self, ChannelError> {
+        let path = crate::linux_paths::sysfs_pci_device_file(bdf, "resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
-            .map_err(|e| format!("cannot open {path}: {e}"))?;
+            .map_err(|e| ChannelError::resource_io("open", path.clone(), e))?;
 
         let size = 16 * 1024 * 1024; // 16 MiB BAR0
         // SAFETY: mmap of PCI BAR0 sysfs resource with R/W for PRAMIN window sliding.
@@ -41,9 +43,12 @@ impl Bar0Rw {
                 0,
             )
         }
-        .map_err(|e| format!("mmap {path}: {e}"))?;
+        .map_err(|e| ChannelError::Bar0Mmap {
+            path: path.clone(),
+            source: e,
+        })?;
 
-        let ptr = NonNull::new(raw.cast::<u8>()).ok_or_else(|| "mmap returned null".to_owned())?;
+        let ptr = NonNull::new(raw.cast::<u8>()).ok_or(ChannelError::Bar0MmapNull { path })?;
 
         Ok(Self {
             ptr,
@@ -60,8 +65,8 @@ impl Bar0Rw {
     /// # Safety
     /// The caller must ensure the pointer remains valid for the lifetime of
     /// this `Bar0Rw` and the underlying mapping is at least `size` bytes.
-    pub(crate) unsafe fn from_raw(ptr: *mut u8, size: usize) -> Result<Self, String> {
-        let ptr = NonNull::new(ptr).ok_or_else(|| "null bar0 pointer".to_owned())?;
+    pub(crate) unsafe fn from_raw(ptr: *mut u8, size: usize) -> Result<Self, ChannelError> {
+        let ptr = NonNull::new(ptr).ok_or(ChannelError::Bar0ExternalNull)?;
         Ok(Self {
             ptr,
             size,
@@ -82,12 +87,12 @@ impl Bar0Rw {
     ///
     /// Prefer this over [`read_u32`] in new code (PMU probing, etc.) where
     /// sentinel ambiguity is unacceptable.
-    pub fn try_read_u32(&self, offset: usize) -> Result<u32, String> {
+    pub fn try_read_u32(&self, offset: usize) -> Result<u32, ChannelError> {
         if offset + 4 > self.size {
-            return Err(format!(
-                "BAR0 read out of bounds: offset=0x{offset:x}, size=0x{:x}",
-                self.size
-            ));
+            return Err(ChannelError::Bar0ReadOutOfBounds {
+                offset,
+                map_size: self.size,
+            });
         }
         // SAFETY: bounds checked, volatile for MMIO.
         Ok(unsafe { std::ptr::read_volatile(self.ptr.as_ptr().add(offset).cast::<u32>()) })
@@ -104,12 +109,12 @@ impl Bar0Rw {
     }
 
     /// Write a 32-bit MMIO register, returning an error for out-of-bounds access.
-    pub fn try_write_u32(&self, offset: usize, val: u32) -> Result<(), String> {
+    pub fn try_write_u32(&self, offset: usize, val: u32) -> Result<(), ChannelError> {
         if offset + 4 > self.size {
-            return Err(format!(
-                "BAR0 write out of bounds: offset=0x{offset:x}, size=0x{:x}",
-                self.size
-            ));
+            return Err(ChannelError::Bar0WriteOutOfBounds {
+                offset,
+                map_size: self.size,
+            });
         }
         // SAFETY: bounds checked, volatile for MMIO.
         unsafe {
@@ -668,7 +673,7 @@ pub fn capture_page_tables_via_mapped_bar(
     bdf: &str,
     mapped_bar: &crate::vfio::device::MappedBar,
     max_channels: usize,
-) -> Result<PageTableDump, String> {
+) -> Result<PageTableDump, ChannelError> {
     // SAFETY: `mapped_bar` is a live VFIO BAR0 mapping; `base_ptr`/`size` describe the
     // full mapped region for the borrow of `mapped_bar`, satisfying `Bar0Rw::from_raw`.
     let bar0 = unsafe { Bar0Rw::from_raw(mapped_bar.base_ptr(), mapped_bar.size())? };
@@ -722,7 +727,7 @@ impl Bar0Handle {
         &self,
         bdf: &str,
         max_channels: usize,
-    ) -> Result<PageTableDump, String> {
+    ) -> Result<PageTableDump, ChannelError> {
         // SAFETY: `Bar0Handle` is only constructed from a live `MappedBar`; the caller
         // keeps that mapping alive, so `ptr`/`size` remain valid for `Bar0Rw::from_raw`.
         let bar0 = unsafe { Bar0Rw::from_raw(self.ptr, self.size)? };
@@ -730,7 +735,7 @@ impl Bar0Handle {
     }
 
     /// Read a 32-bit BAR0 register with proper error handling.
-    pub fn try_read_u32(&self, offset: usize) -> Result<u32, String> {
+    pub fn try_read_u32(&self, offset: usize) -> Result<u32, ChannelError> {
         // SAFETY: Same invariants as `capture_page_tables`: underlying BAR0 mapping outlives
         // this handle, so `ptr`/`size` satisfy `Bar0Rw::from_raw`.
         let bar0 = unsafe { Bar0Rw::from_raw(self.ptr, self.size)? };
@@ -738,7 +743,7 @@ impl Bar0Handle {
     }
 
     /// Write a 32-bit BAR0 register with proper error handling.
-    pub fn try_write_u32(&self, offset: usize, val: u32) -> Result<(), String> {
+    pub fn try_write_u32(&self, offset: usize, val: u32) -> Result<(), ChannelError> {
         // SAFETY: Same invariants as `capture_page_tables`: underlying BAR0 mapping outlives
         // this handle, so `ptr`/`size` satisfy `Bar0Rw::from_raw`.
         let bar0 = unsafe { Bar0Rw::from_raw(self.ptr, self.size)? };
@@ -752,7 +757,7 @@ impl Bar0Handle {
     }
 }
 
-pub fn capture_page_tables(bdf: &str, max_channels: usize) -> Result<PageTableDump, String> {
+pub fn capture_page_tables(bdf: &str, max_channels: usize) -> Result<PageTableDump, ChannelError> {
     let bar0 = Bar0Rw::open(bdf)?;
     capture_page_tables_inner(bdf, &bar0, max_channels)
 }
@@ -761,12 +766,12 @@ fn capture_page_tables_inner(
     bdf: &str,
     bar0: &Bar0Rw,
     max_channels: usize,
-) -> Result<PageTableDump, String> {
+) -> Result<PageTableDump, ChannelError> {
     let driver = detect_driver(bdf);
 
     let boot0 = bar0.read_u32(misc::BOOT0);
     if boot0 == 0xFFFF_FFFF {
-        return Err("BAR0 reads 0xFFFFFFFF — card may be in D3hot or not bound".into());
+        return Err(ChannelError::Bar0ReadsAllOnes);
     }
 
     let saved_window = bar0.read_u32(misc::BAR0_WINDOW);

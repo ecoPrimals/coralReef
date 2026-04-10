@@ -17,6 +17,8 @@ mod parse;
 mod power_mgmt;
 mod types;
 
+pub use config_space::find_pm_capability_offset;
+
 pub use device_info::PciDeviceInfo;
 pub use power_mgmt::{force_pci_d0, pci_power_cycle, set_pci_power_state, snapshot_config_space};
 pub use types::{

@@ -3,6 +3,8 @@
 //!
 //! Reference: nouveau nvkm/subdev/bios/init.c (Ben Skeggs, Red Hat)
 
+use crate::error::DevinitError;
+
 use super::super::vbios::BitTable;
 
 /// A register write extracted from a VBIOS init script.
@@ -175,20 +177,20 @@ pub fn scan_init_script_writes(rom: &[u8], start: usize, length: usize) -> Vec<S
 ///
 /// Parses the BIT 'I' entry to find boot script location and size,
 /// then scans for register write opcodes.
-pub fn extract_boot_script_writes(rom: &[u8]) -> Result<Vec<ScriptRegWrite>, String> {
+pub fn extract_boot_script_writes(rom: &[u8]) -> Result<Vec<ScriptRegWrite>, DevinitError> {
     let bit = BitTable::parse(rom)?;
-    let bit_i = bit.find(b'I').ok_or("BIT 'I' not found")?;
+    let bit_i = bit.find(b'I').ok_or(DevinitError::BitINotFound)?;
 
     let i_off = bit_i.data_offset as usize;
     if i_off + 0x1c > rom.len() {
-        return Err("BIT 'I' data too short".into());
+        return Err(DevinitError::BitIDataTooShort);
     }
 
     let script_off = u16::from_le_bytes([rom[i_off + 0x18], rom[i_off + 0x19]]) as usize;
     let script_len = u16::from_le_bytes([rom[i_off + 0x1a], rom[i_off + 0x1b]]) as usize;
 
     if script_off == 0 || script_len == 0 {
-        return Err("No boot scripts in BIT 'I'".into());
+        return Err(DevinitError::NoBootScriptsInBitI);
     }
 
     tracing::debug!(

@@ -4,6 +4,7 @@
 //! Consolidates the mmap → volatile-read → munmap pattern used by
 //! multiple oracle modules into a single safe API with bounds checking.
 
+use crate::error::ChannelError;
 use crate::mmio_region::MmioRegion;
 
 /// Read-only mmap of a PCI BAR0 resource via sysfs.
@@ -37,12 +38,12 @@ impl SysfsBar0 {
     /// # Errors
     ///
     /// Returns an error if the sysfs path cannot be opened or mmap fails.
-    pub fn open(bdf: &str, size: usize) -> Result<Self, String> {
+    pub fn open(bdf: &str, size: usize) -> Result<Self, ChannelError> {
         let path = crate::linux_paths::sysfs_pci_device_file(bdf, "resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)
             .open(&path)
-            .map_err(|e| format!("cannot open {path}: {e}"))?;
+            .map_err(|e| ChannelError::resource_io("open", path.clone(), e))?;
 
         // SAFETY: mmap of a sysfs PCI resource file with read-only protection.
         // The file descriptor is kept alive in the struct.
@@ -56,10 +57,13 @@ impl SysfsBar0 {
                 0,
             )
         }
-        .map_err(|e| format!("mmap {path} failed: {e}"))?;
+        .map_err(|e| ChannelError::Bar0Mmap {
+            path: path.clone(),
+            source: e,
+        })?;
 
         if raw.is_null() {
-            return Err("mmap returned null".to_owned());
+            return Err(ChannelError::Bar0MmapNull { path });
         }
 
         // SAFETY: `raw`/`size` come from the successful `mmap` above.
