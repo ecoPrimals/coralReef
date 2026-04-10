@@ -4,11 +4,45 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 77
+**Current status**: Phase 10 — Iteration 78
 
 ---
 
 ## [Unreleased]
+
+### Iteration 78 — Deep Debt Evolution: Typed Errors + Smart Refactoring (2026-04-09)
+
+#### Typed Error Migration
+- tarpc transport: `Result<_, String>` → `TarpcCompileError` (Serialize/Deserialize typed wrapper)
+- Wave 1: `PciDiscoveryError` — PCI config space, power management, device info, sysfs I/O
+- Wave 2: `ChannelError` — BAR0 oracle (dump/text/live), nouveau page tables, glowplug, sysfs BAR0, HBM2 training
+- Wave 3: `DevinitError` — VBIOS parsing, PMU devinit, BIT tables, script interpreter, PMU timeout
+
+#### Smart Refactoring (7 files split)
+- `nv_metal.rs` (882 LOC) → `nv_metal/` (6 submodules: reg_offsets, identity, metal, probe, detect, tests)
+- `memory.rs` (874 LOC) → `memory/` (4 submodules: core, regions, topology, tests)
+- `vfio_compute/mod.rs` (866 LOC) → 464 + 3 new siblings (layout, raw_device, device_open)
+- `falcon_capability.rs` (856 LOC) → `falcon_capability/` (4 submodules: types, probe, pio)
+- `knowledge.rs` (852 LOC) → `knowledge/` (5 submodules: types, chip, gpu_knowledge, tests)
+- `device/mod.rs` (835 LOC) → ~32 + 4 siblings (mapped_bar, open, runtime, handles)
+- `codegen/ops/mod.rs` (831 LOC) → ~34 + 3 siblings (gfx9, amd_dispatch, encoding_helpers)
+
+#### Lint Hardening
+- `#[allow(clippy::result_large_err)]` → `#[expect]` in sysmem_prepare.rs
+- `#[allow(unused_imports)]` → `#[expect]` in shader_header/mod.rs
+
+#### BTSP Phase 2 (BearDog Delegation)
+- `gate_connection()` evolved to `guard_connection()` with full BearDog delegation
+- Capability-based security provider discovery (crypto-{family_id}.sock → crypto.sock → .json scan)
+- `BtspOutcome` enum: DevMode, Authenticated, Degraded, Rejected
+- Async implementation (coralreef-core, coral-glowplug) + blocking (coral-ember)
+- Degraded mode: accept with warning when BearDog unavailable (operational resilience)
+
+#### Metrics
+- 4459 tests passing, 0 failed, 153 ignored (hardware-gated)
+- 0 clippy warnings (pedantic + nursery)
+- 0 doc warnings
+- 0 files >1000 LOC
 
 ### Iteration 77 — primalSpring Gap Resolution + Deep Debt Evolution (2026-04-09)
 

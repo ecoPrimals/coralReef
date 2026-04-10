@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 77.
+**Current position**: Phase 10 — Iteration 78.
 
-**Last completed**: CR-01 BIOMEOS_INSECURE guard; CR-02 Wire Standard L2; CR-03 BTSP Phase 2 scaffolding; typed errors (`String` → `thiserror`); commented-out code cleanup; `eprintln!` → `tracing`; shader_header/personality smart refactoring; domain overstep documentation.
+**Last completed**: Three-wave typed error migration (`PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`); smart refactoring of 7 production files (nv_metal, memory, vfio_compute, falcon_capability, knowledge, device, ops); BTSP Phase 2 BearDog delegation wired; lint hardening (`#[allow]` → `#[expect]`).
 
-**Tests**: 4341 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4459 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: musl-static verification; BTSP Phase 2 full handshake (blocked on BearDog); coral-driver `Result<_, String>` → typed errors; coverage push; plasmidBin.
+**Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coral-driver `Result<_, String>` wave 4+ (~20 deep hw functions); coverage push; plasmidBin.
 
-**Last updated**: April 9, 2026 (Phase 10 — Iteration 77 — primalSpring Gap Resolution + Deep Debt Evolution.)
+**Last updated**: April 9, 2026 (Phase 10 — Iteration 78 — Deep Debt Evolution: Typed Errors + Smart Refactoring.)
 
 ---
 

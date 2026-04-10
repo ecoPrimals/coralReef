@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — GPU-Agnostic Evolution + Deep Debt Solutions (Iter 73)  
+**Status**: Phase 10+ — GPU-Agnostic Evolution + Deep Debt Solutions (Iter 78)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 4318 passing, 0 failed (~153 ignored hardware-gated)
+cargo test --workspace     # 4459 passing, 0 failed (~153 ignored hardware-gated)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -175,7 +175,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4318 passing, 0 failed, ~153 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4459 passing, 0 failed, ~153 ignored hardware-gated) |
 | `cargo llvm-cov` | ~64% workspace line coverage |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -239,7 +239,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
-| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4318 tests, ~64% workspace line coverage |
+| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, 4459 tests, ~64% workspace line coverage |
 
 ---
 

@@ -141,7 +141,7 @@ specific blockers. The table below tracks provenance and cross-spring adoption.
 | `yukawa_force_celllist_f64` | 12,272 B | 747 ms |
 | `rk4_parallel` | 8,624 B | 1,527 ms |
 
-### Blocker Triage (current — iteration 33)
+### Blocker Triage (historical — all resolved by iteration 33)
 
 | Blocker | Shaders Affected | Impact |
 |---------|-----------------|--------|

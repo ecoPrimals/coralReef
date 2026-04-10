@@ -2,7 +2,7 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: April 9, 2026 (Phase 10 — Iteration 77)
+**Last updated**: April 9, 2026 (Phase 10 — Iteration 78)
 **Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity & primalSpring / compliance evolution (CR-01/CR-02/CR-03)
 
 ---
