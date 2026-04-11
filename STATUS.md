@@ -45,7 +45,7 @@
 
 ### Iteration 79: Deep Debt Cleanup — ecoBin Deny, IPC Latency, Configurable Hardcoding (Apr 11, 2026)
 
-**Theme**: ecoBin v3 `deny.toml` C/FFI bans (CR-01), multi-stage ML pipeline docs + capability metadata, IPC compile latency budgets, hardcoded values evolved to env-configurable, primal self-knowledge in health responses, TCP IPC coverage.
+**Theme**: ecoBin v3 `deny.toml` C/FFI bans (CR-01), multi-stage ML pipeline docs + capability metadata, IPC compile latency budgets, hardcoded values evolved to env-configurable, primal self-knowledge in health responses, TCP IPC coverage, typed error Wave 4 completion, dead code removal.
 
 | Area | Change |
 |------|--------|
@@ -55,6 +55,9 @@
 | Self-knowledge | glowplug health: hardcoded name → `CARGO_PKG_NAME` + `CARGO_PKG_VERSION` |
 | Configurable | `CORALREEF_HEARTBEAT_SECS` (default 45s), `CORALREEF_INTEL_SETTLE_SECS` (default 5s), `BIOMEOS_ECOSYSTEM_NAMESPACE` in BTSP |
 | Intel lifecycle | `IntelXeLifecycle` evolved from stub to configurable constructor with env-based settle time |
+| Typed errors (CR-04) | Wave 4 complete: `BootTrace::from_mmiotrace` → `ChannelError`; `ChannelAllocDiag.result` → `DriverError`. Zero `Result<_, String>` in coral-driver production |
+| Dead code (CR-05) | `cpu_exec.rs` removed — orphaned Phase 3 stub (not compiled, missing types/deps) |
+| libc canary | Documented as transitive-only (tokio→mio); zero direct imports; ban deferred until mio#1735 |
 | Lint fix | Conditional `#[expect]` → `#[allow]` for wildcard_imports/enum_glob_use in codegen/mod.rs |
 | TCP coverage | 3 new TCP IPC tests for coral-ember `handle_client_tcp` |
 
@@ -1113,7 +1116,7 @@
 | `rustix` backend | `linux_raw` | Confirmed: depends on `linux-raw-sys`, zero `libc` |
 | `ring` | **Eliminated** | `jsonrpsee[client]` removed; `primal-rpc-client` crate for tests + production |
 | `libc` (transitive) | Tracked | `tokio`→`mio`→`libc` (mio#1735), `socket2`→`libc`, `signal-hook-registry`→`libc`, `getrandom`→`libc`, `parking_lot_core`→`libc` |
-| `libc` canary | Prepared | `deny.toml` has commented-out `libc` ban — uncomment when upstream migrates |
+| `libc` canary | Tracked | `libc` is transitive only (tokio→mio, tracing, etc.) — zero direct imports in coralReef. Ban deferred until upstream `mio`→`rustix` migration (mio#1735) |
 | Our code → `libc` | **Zero** | No workspace crate has direct `libc` dependency |
 
 ### Phase 10 Remaining / Phase 11 Roadmap

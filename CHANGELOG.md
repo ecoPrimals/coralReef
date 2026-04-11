@@ -31,6 +31,18 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `IntelXeLifecycle` evolved from stub to configurable constructor with env-based settle time
 - `device_id` stored for future Arc vs Battlemage differentiation
 
+#### Typed Errors Wave 4 (CR-04 complete)
+- `BootTrace::from_mmiotrace`: `Result<Self, String>` → `Result<Self, ChannelError>` (VFIO diagnostic domain)
+- `ChannelAllocDiag.result`: `Result<u32, String>` → `Result<u32, DriverError>` (preserves ioctl context)
+- Zero `Result<_, String>` remaining in coral-driver production code
+
+#### Dead Code Removal (CR-05)
+- `cpu_exec.rs` deleted — orphaned Phase 3 stub (not in module tree, missing types, missing deps)
+
+#### libc Canary
+- `libc` documented as transitive-only dependency (tokio→mio, signal-hook-registry); zero direct imports
+- Ban deferred until upstream `mio`→`rustix` migration (mio#1735); STATUS.md corrected
+
 #### Lint & Coverage
 - Conditional `#[expect]` → `#[allow]` for wildcard_imports/enum_glob_use in codegen/mod.rs (fires conditionally across lib vs test targets)
 - 3 new TCP IPC tests for coral-ember `handle_client_tcp` path

@@ -126,9 +126,10 @@ impl BootTrace {
     /// W 4 0.123456 1 0xfee00000 0x00000001 0x00000000 0x0
     /// R 4 0.123460 1 0xfee00004 0x00000042 0x0
     /// ```
-    pub fn from_mmiotrace(path: &Path) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("cannot read mmiotrace {}: {e}", path.display()))?;
+    pub fn from_mmiotrace(path: &Path) -> Result<Self, crate::error::ChannelError> {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            crate::error::ChannelError::resource_io("read", path.display().to_string(), e)
+        })?;
 
         let mut writes = Vec::new();
         let mut reads = Vec::new();

@@ -18,8 +18,8 @@ use super::{
 pub struct ChannelAllocDiag {
     /// Human-readable description of the attempt.
     pub description: String,
-    /// Result of the attempt.
-    pub result: std::result::Result<u32, String>,
+    /// Result of the attempt — typed `DriverError` preserves ioctl context.
+    pub result: std::result::Result<u32, crate::error::DriverError>,
 }
 
 /// Run a series of diagnostic channel allocation attempts to isolate EINVAL.
@@ -51,7 +51,7 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
                 let _ = destroy_channel(fd, ch);
                 Ok(ch)
             }
-            Err(e) => Err(format!("{e}")),
+            Err(e) => Err(e),
         };
         results.push(ChannelAllocDiag {
             description: desc,
@@ -67,7 +67,7 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
                 let _ = destroy_channel(fd, ch);
                 Ok(ch)
             }
-            Err(e) => Err(format!("{e}")),
+            Err(e) => Err(e),
         };
         results.push(ChannelAllocDiag {
             description: desc,
@@ -83,7 +83,7 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
                 let _ = destroy_channel(fd, ch);
                 Ok(ch)
             }
-            Err(e) => Err(format!("{e}")),
+            Err(e) => Err(e),
         };
         results.push(ChannelAllocDiag {
             description: desc,
@@ -106,7 +106,7 @@ pub fn diagnose_channel_alloc(fd: RawFd, compute_class: u32) -> Vec<ChannelAlloc
                 let _ = destroy_channel(fd, ch);
                 Ok(ch)
             }
-            Err(e) => Err(format!("{e}")),
+            Err(e) => Err(e),
         };
         results.push(ChannelAllocDiag {
             description: desc,
