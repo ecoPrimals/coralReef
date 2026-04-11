@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 9, 2026  
-**Phase**: 10 — Iteration 78 (Deep Debt Evolution: Typed Errors + Smart Refactoring)
+**Last updated**: April 11, 2026  
+**Phase**: 10 — Iteration 79 (Deep Debt Cleanup: ecoBin Deny, IPC Latency, Configurable Hardcoding)
 
 ---
 
@@ -22,14 +22,14 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4459 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 4462 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`); `String` → `thiserror` evolution across 3 waves (PCI discovery, channel oracle, devinit pipeline); zero production `.unwrap()` |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
-| Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml`, pure Rust ISA generator |
+| Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml` (ecoBin v3 C/FFI bans), pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
 | Uniform buffers | A | `var<uniform>` → CBuf reads (scalar/vector/matrix), struct field access |
@@ -41,7 +41,22 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 78** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 79** |
+
+### Iteration 79: Deep Debt Cleanup — ecoBin Deny, IPC Latency, Configurable Hardcoding (Apr 11, 2026)
+
+**Theme**: ecoBin v3 `deny.toml` C/FFI bans (CR-01), multi-stage ML pipeline docs + capability metadata, IPC compile latency budgets, hardcoded values evolved to env-configurable, primal self-knowledge in health responses, TCP IPC coverage.
+
+| Area | Change |
+|------|--------|
+| ecoBin v3 | `deny.toml` C/FFI ban list: openssl-sys, ring, aws-lc-sys, native-tls, cmake, pkg-config, bindgen, bzip2-sys, curl-sys, libz-sys, zstd-sys, lz4-sys, libsqlite3-sys |
+| IPC latency | `capability.list` metadata: compile_latency (p50/p99 per target), IPC_COMPOSITION_AND_LATENCY.md |
+| ML pipelines | `capability.list` metadata: multi_stage_ml support, sequential_compile_and_dispatch pattern |
+| Self-knowledge | glowplug health: hardcoded name → `CARGO_PKG_NAME` + `CARGO_PKG_VERSION` |
+| Configurable | `CORALREEF_HEARTBEAT_SECS` (default 45s), `CORALREEF_INTEL_SETTLE_SECS` (default 5s), `BIOMEOS_ECOSYSTEM_NAMESPACE` in BTSP |
+| Intel lifecycle | `IntelXeLifecycle` evolved from stub to configurable constructor with env-based settle time |
+| Lint fix | Conditional `#[expect]` → `#[allow]` for wildcard_imports/enum_glob_use in codegen/mod.rs |
+| TCP coverage | 3 new TCP IPC tests for coral-ember `handle_client_tcp` |
 
 ### Iteration 78: Deep Debt Evolution — Typed Errors + Smart Refactoring (Apr 9, 2026)
 
@@ -1117,7 +1132,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4341 passing, 0 failed, 153 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4462 passing, 0 failed, 153 ignored hardware-gated) |
 | `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

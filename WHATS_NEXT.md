@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 78.
+**Current position**: Phase 10 — Iteration 79.
 
-**Last completed**: Three-wave typed error migration (`PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`); smart refactoring of 7 production files (nv_metal, memory, vfio_compute, falcon_capability, knowledge, device, ops); BTSP Phase 2 BearDog delegation wired; lint hardening (`#[allow]` → `#[expect]`).
+**Last completed**: ecoBin v3 `deny.toml` C/FFI bans (CR-01); multi-stage ML pipeline documentation + capability metadata; IPC compile latency budgets; hardcoded values evolved to env-configurable (`CORALREEF_HEARTBEAT_SECS`, `CORALREEF_INTEL_SETTLE_SECS`, `BIOMEOS_ECOSYSTEM_NAMESPACE` in BTSP); primal self-knowledge in health responses (`CARGO_PKG_NAME` + `CARGO_PKG_VERSION`); TCP IPC coverage for coral-ember; root doc synchronization.
 
-**Tests**: 4459 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4462 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coral-driver `Result<_, String>` wave 4+ (~20 deep hw functions); coverage push; plasmidBin.
+**Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coral-driver `Result<_, String>` wave 4+ (~20 deep hw functions); coverage push toward 90%; plasmidBin.
 
-**Last updated**: April 9, 2026 (Phase 10 — Iteration 78 — Deep Debt Evolution: Typed Errors + Smart Refactoring.)
+**Last updated**: April 11, 2026 (Phase 10 — Iteration 79 — Deep Debt Cleanup: ecoBin Deny, IPC Latency, Configurable Hardcoding.)
 
 ---
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4341 tests passing, zero failures. ~64% workspace line coverage (~81% non-hardware).
+4462 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
@@ -625,4 +625,5 @@ Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 MmioRegion RAII wrapper consolidates unsafe BAR0 ops. MockBar0 + NvidiaFirmwareSource enable hardware-free testing.
 Default builds are vendor-SDK-free (CUDA opt-in via `--features cuda`). Workspace deps centralized.
+ecoBin v3 `deny.toml` bans all C/FFI deps. Compile latency + ML pipeline composition discoverable via `capability.list`.
 All pure Rust. Sovereignty is a runtime choice.*

@@ -66,6 +66,19 @@ pub fn self_description() -> SelfDescription {
                     "input_formats": ["spirv", "wgsl", "glsl"],
                     "architectures": all_archs,
                     "fma_policies": ["auto", "fused", "separate"],
+                    "compile_latency": {
+                        "unit": "ms",
+                        "note": "measured on typical compute shaders (64-thread workgroup, f32 ALU)",
+                        "wgsl_to_nvidia_sass": { "p50": 10, "p99": 25 },
+                        "wgsl_to_amd_rdna2":   { "p50": 0.1, "p99": 0.5 },
+                        "spirv_to_nvidia_sass": { "p50": 19, "p99": 35 },
+                    },
+                    "multi_stage_ml": {
+                        "supported": true,
+                        "pattern": "sequential_compile_and_dispatch",
+                        "description": "Call shader.compile.wgsl N times with distinct stage WGSL (tokenizer, attention, FFN), then dispatch sequentially via gpu.dispatch provider. Memory layout and inter-stage barriers are caller responsibility.",
+                        "max_concurrent_compiles": 64,
+                    },
                 }),
             },
             Capability {

@@ -24,6 +24,34 @@ multiple-versions = "warn"
 # "warn" for wildcards: path/workspace deps are standard in Rust workspaces
 wildcards = "warn"
 
+# ecoBin v3.0 compliance: C-backed crates banned from application builds.
+# coralReef is a sovereign Rust GPU compiler — no C/FFI in the supply chain.
+# coral-driver uses `rustix` for kernel ABI; optional `cudarc` feature is
+# behind a feature gate and excluded from default builds.
+deny = [
+    # C crypto / TLS — Tower Atomic delegation (Songbird + BearDog) replaces these
+    { name = "openssl-sys", reason = "ecoBin: C crypto FFI. Sovereign stack uses rustls + RustCrypto." },
+    { name = "openssl", reason = "ecoBin: C crypto. Sovereign stack uses rustls + RustCrypto." },
+    { name = "native-tls", reason = "ecoBin: platform C TLS. Use rustls.", use-instead = "rustls" },
+    { name = "aws-lc-sys", reason = "ecoBin: C crypto FFI. Use RustCrypto.", use-instead = "sha2, aes-gcm" },
+    { name = "aws-lc-rs", reason = "ecoBin: C/ASM crypto. Use RustCrypto.", use-instead = "sha2, aes-gcm, ed25519-dalek" },
+    { name = "ring", reason = "ecoBin: C/ASM crypto. Eliminated in Iter 58; must not return.", use-instead = "RustCrypto suite" },
+
+    # C build tooling — pure Rust only
+    { name = "cmake", reason = "ecoBin: C build system. Pure Rust deps only." },
+    { name = "pkg-config", reason = "ecoBin: C pkg-config FFI discovery. Pure Rust deps only." },
+    { name = "bindgen", reason = "ecoBin: C header FFI generation. Pure Rust deps only." },
+    { name = "vcpkg", reason = "ecoBin: C/C++ package manager integration." },
+
+    # C compression / system FFI
+    { name = "bzip2-sys", reason = "ecoBin: C compression FFI.", use-instead = "bzip2-rs" },
+    { name = "curl-sys", reason = "ecoBin: C HTTP FFI." },
+    { name = "libz-sys", reason = "ecoBin: C compression FFI.", use-instead = "flate2 (rust_backend)" },
+    { name = "zstd-sys", reason = "ecoBin: C compression FFI." },
+    { name = "lz4-sys", reason = "ecoBin: C compression FFI." },
+    { name = "libsqlite3-sys", reason = "ecoBin: C database FFI." },
+]
+
 [advisories]
 # unmaintained: scope of crates to check (all/workspace/transitive/none)
 unmaintained = "all"

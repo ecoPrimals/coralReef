@@ -54,7 +54,8 @@ pub(crate) fn dispatch(
         "device.reset" => handle_reset(params, devices),
         "health.check" | "health.liveness" => Ok(serde_json::json!({
             "alive": true,
-            "name": "coral-glowplug",
+            "name": env!("CARGO_PKG_NAME"),
+            "version": env!("CARGO_PKG_VERSION"),
             "device_count": devices.len(),
             "healthy_count": devices.iter().filter(|d| d.health.vram_alive).count(),
         })),

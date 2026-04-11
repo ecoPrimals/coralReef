@@ -107,7 +107,7 @@ fn nvidia_nouveau_gets_longer_settle() {
 
 #[test]
 fn intel_xe_simple_bind() {
-    let lc = IntelXeLifecycle { device_id: 0x56a0 };
+    let lc = IntelXeLifecycle::new(0x56a0);
     assert_eq!(lc.rebind_strategy("xe"), RebindStrategy::SimpleBind);
     assert_eq!(lc.rebind_strategy("i915"), RebindStrategy::SimpleBind);
 }
@@ -170,7 +170,7 @@ fn amd_rdna_lifecycle_basics() {
 
 #[test]
 fn intel_xe_description_and_settle() {
-    let lc = IntelXeLifecycle { device_id: 0x56a0 };
+    let lc = IntelXeLifecycle::new(0x56a0);
     assert!(lc.description().contains("Intel"));
     assert_eq!(lc.settle_secs("i915"), 5);
     assert_eq!(lc.settle_secs("xe"), 5);
@@ -245,7 +245,7 @@ fn nvidia_verify_health_ok_when_sysfs_missing_or_not_d3cold() {
 
 #[test]
 fn intel_amd_rdna_brainchip_verify_health_ok_without_d3cold_sysfs() {
-    let intel = IntelXeLifecycle { device_id: 0x56a0 };
+    let intel = IntelXeLifecycle::new(0x56a0);
     let rdna = AmdRdnaLifecycle { device_id: 0x73bf };
     let brain = BrainChipLifecycle { device_id: 1 };
     intel.verify_health("9999:99:99.9", "xe").unwrap();

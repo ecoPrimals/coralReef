@@ -10,7 +10,18 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 const SECURITY_DOMAIN: &str = "crypto";
-const ECOSYSTEM_NAMESPACE: &str = "biomeos";
+
+/// Ecosystem namespace for socket path resolution.
+///
+/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`),
+/// consistent with `config::ecosystem_namespace()`.
+fn ecosystem_namespace() -> &'static str {
+    use std::sync::OnceLock;
+    static NS: OnceLock<String> = OnceLock::new();
+    NS.get_or_init(|| {
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
+    })
+}
 
 /// BTSP operating mode derived from environment at startup.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +131,7 @@ pub async fn guard_connection() -> BtspOutcome {
 fn resolve_socket_dir() -> PathBuf {
     let base =
         std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    base.join(ECOSYSTEM_NAMESPACE)
+    base.join(ecosystem_namespace())
 }
 
 fn discover_security_socket(family_id: &str) -> Option<PathBuf> {

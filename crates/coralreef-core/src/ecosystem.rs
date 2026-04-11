@@ -78,7 +78,11 @@ pub fn spawn_registration(desc: SelfDescription) {
 async fn heartbeat_loop(path: PathBuf) {
     use tokio::time::{MissedTickBehavior, interval};
 
-    let mut ticker = interval(Duration::from_secs(45));
+    let heartbeat_secs = std::env::var("CORALREEF_HEARTBEAT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(45u64);
+    let mut ticker = interval(Duration::from_secs(heartbeat_secs));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     ticker.tick().await;
     loop {

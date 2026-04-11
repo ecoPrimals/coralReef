@@ -619,3 +619,94 @@ fn handlers_journal_append_boot_attempt_succeeds() {
     let v = first_json_line_bytes(&buf);
     assert_eq!(v["result"]["ok"], true);
 }
+
+// ---------------------------------------------------------------------------
+// TCP IPC parity tests — exercises handle_client_tcp for coverage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tcp_ember_status_returns_result() {
+    let _lock = IPC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let held = empty_held();
+    let managed = managed(&[TEST_BDF]);
+    let started = Instant::now();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let h = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        super::handle_client_tcp(&mut stream, &held, &managed, started, None).unwrap();
+    });
+
+    let mut client = std::net::TcpStream::connect(addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let req = serde_json::json!({
+        "jsonrpc": "2.0", "method": "ember.list", "id": 1
+    });
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    client.write_all(line.as_bytes()).unwrap();
+
+    let mut buf = vec![0u8; 4096];
+    std::thread::sleep(Duration::from_millis(50));
+    let n = client.read(&mut buf).unwrap();
+    let response = std::str::from_utf8(&buf[..n]).unwrap().trim();
+    let v: serde_json::Value = serde_json::from_str(response).unwrap();
+    assert!(v["result"]["devices"].is_array());
+
+    h.join().unwrap();
+}
+
+#[test]
+fn tcp_parse_error_returns_jsonrpc_error() {
+    let _lock = IPC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let held = empty_held();
+    let managed = managed(&[]);
+    let started = Instant::now();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let h = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        super::handle_client_tcp(&mut stream, &held, &managed, started, None).unwrap();
+    });
+
+    let mut client = std::net::TcpStream::connect(addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    client.write_all(b"not valid json\n").unwrap();
+    client.shutdown(std::net::Shutdown::Write).unwrap();
+
+    let mut buf = String::new();
+    client.read_to_string(&mut buf).unwrap();
+    let v: serde_json::Value = serde_json::from_str(buf.trim()).unwrap();
+    assert!(v["error"]["code"].as_i64().is_some());
+
+    h.join().unwrap();
+}
+
+#[test]
+fn tcp_empty_request_returns_ok() {
+    let _lock = IPC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let held = empty_held();
+    let managed = managed(&[]);
+    let started = Instant::now();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let h = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        super::handle_client_tcp(&mut stream, &held, &managed, started, None).unwrap();
+    });
+
+    let client = std::net::TcpStream::connect(addr).unwrap();
+    client.shutdown(std::net::Shutdown::Write).unwrap();
+
+    h.join().unwrap();
+}

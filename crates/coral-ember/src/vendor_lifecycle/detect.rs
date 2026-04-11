@@ -64,7 +64,7 @@ pub(crate) fn lifecycle_from_pci_ids(vendor_id: u16, device_id: u16) -> Box<dyn 
                 Box::new(AmdRdnaLifecycle { device_id })
             }
         }
-        INTEL_VENDOR => Box::new(IntelXeLifecycle { device_id }),
+        INTEL_VENDOR => Box::new(IntelXeLifecycle::new(device_id)),
         BRAINCHIP_VENDOR => Box::new(BrainChipLifecycle { device_id }),
         _ => Box::new(GenericLifecycle {
             vendor_id,

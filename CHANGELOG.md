@@ -4,11 +4,42 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 78
+**Current status**: Phase 10 — Iteration 79
 
 ---
 
 ## [Unreleased]
+
+### Iteration 79 — Deep Debt Cleanup: ecoBin Deny, IPC Latency, Configurable Hardcoding (2026-04-11)
+
+#### ecoBin v3 Compliance (CR-01)
+- `deny.toml` C/FFI ban list: openssl-sys, ring, aws-lc-sys, native-tls, cmake, pkg-config, bindgen, vcpkg, bzip2-sys, curl-sys, libz-sys, zstd-sys, lz4-sys, libsqlite3-sys
+- `cargo deny check` passes with all bans active
+
+#### IPC Composition & Latency
+- `capability.list` metadata: `compile_latency` (p50/p99 per compile path — WGSL→SASS, WGSL→RDNA2, SPIR-V→SASS)
+- `capability.list` metadata: `multi_stage_ml` (supported, sequential_compile_and_dispatch pattern, max 64 concurrent compiles)
+- New doc: `docs/IPC_COMPOSITION_AND_LATENCY.md` — composition patterns for ML pipelines, latency budget tables
+
+#### Hardcoding → Configurable
+- `CORALREEF_HEARTBEAT_SECS` env var (default 45s) for ecosystem heartbeat interval
+- `CORALREEF_INTEL_SETTLE_SECS` env var (default 5s) for Intel FLR settle time
+- `BIOMEOS_ECOSYSTEM_NAMESPACE` consolidated in BTSP module (was hardcoded constant)
+- glowplug health: hardcoded primal name → `env!("CARGO_PKG_NAME")` + `env!("CARGO_PKG_VERSION")`
+
+#### Intel Lifecycle Evolution
+- `IntelXeLifecycle` evolved from stub to configurable constructor with env-based settle time
+- `device_id` stored for future Arc vs Battlemage differentiation
+
+#### Lint & Coverage
+- Conditional `#[expect]` → `#[allow]` for wildcard_imports/enum_glob_use in codegen/mod.rs (fires conditionally across lib vs test targets)
+- 3 new TCP IPC tests for coral-ember `handle_client_tcp` path
+
+#### Metrics
+- 4462 tests passing, 0 failed, 153 ignored (hardware-gated)
+- 0 clippy warnings (pedantic + nursery)
+- 0 doc warnings
+- 0 files >1000 LOC
 
 ### Iteration 78 — Deep Debt Evolution: Typed Errors + Smart Refactoring (2026-04-09)
 
