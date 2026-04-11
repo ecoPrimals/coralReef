@@ -19,5 +19,8 @@ mod tests;
 
 pub use gpu_knowledge::GpuKnowledge;
 pub use types::{AddressSpace, ArchKnowledge, GenerationStats, RegisterTransferMap};
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "pub re-export for downstream crates; lint fires conditionally across lib/bin targets"
+)]
 pub use types::{GpuVendor, KnowledgeSummary};

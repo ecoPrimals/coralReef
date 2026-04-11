@@ -8,7 +8,18 @@ use crate::nv::uvm::{
 use crate::{ComputeDevice, MemoryDomain};
 
 use super::device::NvUvmComputeDevice;
-use super::types::{GPFIFO_SIZE, GpuGen, USERD_SIZE, gpfifo_entry, page_align};
+use super::types::{
+    GPFIFO_SIZE, GpuGen, USERD_GP_GET_OFFSET, USERD_GP_PUT_OFFSET, USERD_SIZE, gpfifo_entry,
+    page_align,
+};
+
+const GPFIFO_VA_MASK: u64 = (1_u64 << 42) - 4;
+const GPFIFO_LENGTH_SHIFT: u32 = 42;
+
+const fn gpfifo_length_field_mask() -> u64 {
+    let usable_bits = u64::BITS - GPFIFO_LENGTH_SHIFT;
+    (1_u64 << usable_bits) - 1
+}
 
 #[test]
 fn gpu_gen_class_selection() {
@@ -73,6 +84,59 @@ fn gpu_gen_sm_roundtrip() {
     assert_eq!(GpuGen::Hopper, GpuGen::from_sm(90));
     assert_eq!(GpuGen::BlackwellA, GpuGen::from_sm(100));
     assert_eq!(GpuGen::BlackwellB, GpuGen::from_sm(120));
+}
+
+#[test]
+fn userd_gp_offsets_match_volta_ramuserd_layout() {
+    assert_eq!(USERD_GP_PUT_OFFSET, 0x8C);
+    assert_eq!(USERD_GP_GET_OFFSET, 0x88);
+    assert_eq!(USERD_GP_PUT_OFFSET, 35 * 4);
+    assert_eq!(USERD_GP_GET_OFFSET, 34 * 4);
+}
+
+#[test]
+fn gpu_gen_from_sm_boundary_values() {
+    assert_eq!(GpuGen::from_sm(0), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(74), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(75), GpuGen::Turing);
+    assert_eq!(GpuGen::from_sm(76), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(79), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(81), GpuGen::AmpereB);
+    assert_eq!(GpuGen::from_sm(88), GpuGen::AmpereB);
+    assert_eq!(GpuGen::from_sm(99), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(101), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(119), GpuGen::Volta);
+    assert_eq!(GpuGen::from_sm(121), GpuGen::BlackwellB);
+    assert_eq!(GpuGen::from_sm(u32::MAX), GpuGen::BlackwellB);
+}
+
+#[test]
+fn gpfifo_entry_masks_va_to_four_byte_alignment() {
+    let misaligned = 0x1_0000_1003_u64;
+    let entry = gpfifo_entry(misaligned, 1);
+    assert_eq!(entry & GPFIFO_VA_MASK, misaligned & !3);
+    assert_eq!(entry & 3, 0);
+    assert_eq!(entry >> 42, 1);
+}
+
+#[test]
+fn gpfifo_entry_max_length_truncates_to_field_width() {
+    let max_len = u32::MAX;
+    let entry = gpfifo_entry(0, max_len);
+    assert_eq!(entry & GPFIFO_VA_MASK, 0);
+    let stored = entry >> GPFIFO_LENGTH_SHIFT;
+    let expected = (max_len as u64) & gpfifo_length_field_mask();
+    assert_eq!(stored, expected);
+    assert_eq!(stored, 0x003F_FFFF);
+}
+
+#[test]
+fn gpfifo_entry_length_round_trip_all_bits() {
+    let va = 0x0000_003F_FFFF_F000_u64;
+    let len = 0x003F_FFFF_u32;
+    let entry = gpfifo_entry(va, len);
+    assert_eq!(entry >> GPFIFO_LENGTH_SHIFT, u64::from(len));
+    assert_eq!(entry & GPFIFO_VA_MASK, va & !3);
 }
 
 fn detect_sm_version() -> u32 {
