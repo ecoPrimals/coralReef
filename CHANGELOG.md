@@ -4,7 +4,7 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 79
+**Current status**: Phase 10 — Iteration 79c
 
 ---
 
@@ -51,6 +51,22 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - 4462 tests passing, 0 failed, 153 ignored (hardware-gated)
 - 0 clippy warnings (pedantic + nursery)
 - 0 doc warnings
+- 0 files >1000 LOC
+
+### Iteration 79c — Dead Code Cleanup, Test Recovery, #[allow] Audit (2026-04-11)
+
+#### Dead Code Recovery
+- Orphaned `uvm_compute_tests.rs` (275 lines, never compiled): 5 unique tests merged into active `uvm_compute/tests.rs` (USERD offsets, SM boundary values, GPFIFO alignment/overflow/round-trip), orphan deleted
+
+#### Lint Audit
+- All `#[allow]` in production code audited: added missing `reason=` on `gsp/knowledge` re-export
+- `probe/channel.rs` reason documented (missing_docs partial coverage makes `#[expect]` fail)
+- Confirmed: all remaining `#[allow]` attrs are intentionally conditional (dead_code on enum variants, unused_imports across lib/bin targets)
+
+#### Metrics
+- 4467 tests passing (+5 recovered from orphan), 0 failed, 153 ignored
+- 0 clippy warnings (pedantic + nursery)
+- 0 doc warnings, 0 fmt issues
 - 0 files >1000 LOC
 
 ### Iteration 78 — Deep Debt Evolution: Typed Errors + Smart Refactoring (2026-04-09)

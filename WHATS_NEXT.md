@@ -6,7 +6,7 @@
 
 **Last completed**: ecoBin v3 `deny.toml` C/FFI bans (CR-01); multi-stage ML pipeline documentation + capability metadata; IPC compile latency budgets; hardcoded values evolved to env-configurable (`CORALREEF_HEARTBEAT_SECS`, `CORALREEF_INTEL_SETTLE_SECS`, `BIOMEOS_ECOSYSTEM_NAMESPACE` in BTSP); primal self-knowledge in health responses (`CARGO_PKG_NAME` + `CARGO_PKG_VERSION`); TCP IPC coverage for coral-ember; root doc synchronization.
 
-**Tests**: 4462 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4467 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coral-driver `Result<_, String>` wave 4+ (~20 deep hw functions); coverage push toward 90%; plasmidBin.
 
@@ -391,7 +391,7 @@ Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now
 - [x] 5 ignored doctests fixed (coral-gpu, coral-reef, coral-reef-isa, nak-ir-proc)
 - [x] Unsafe evolution: `// SAFETY:` comments on all unsafe blocks, null checks for mmap, assert over debug_assert for DMA slices
 - [x] Clippy pedantic: `map_unwrap_or` → `map_or`, `identity_op` resolved, `cast_possible_truncation` with `#[expect]`
-- [x] STATUS.md and COMPILATION_DEBT_REPORT.md updated with iteration 45 metrics
+- [x] STATUS.md updated with iteration 45 metrics (COMPILATION_DEBT_REPORT.md archived to fossilRecord)
 
 ### Iteration 44 — USERD_TARGET + INST_TARGET Runlist Fix
 - [x] Runlist DW0: `USERD_TARGET` bits (3:2) set to SYS_MEM_COHERENT (2) — PBDMA reads USERD from system memory
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4462 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4467 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
