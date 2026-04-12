@@ -120,7 +120,7 @@ fn main() {
     // Phase 7: Map GEM buffer and write NOP push buffer
     print!("  Phase 7: mmap + write NOP... ");
     let nop_words: [u32; 2] = [
-        pushbuf::mthd_incr(0, pushbuf::method::SET_OBJECT, 1),
+        pushbuf::mthd_incr(pushbuf::subchan::COMPUTE, pushbuf::method::SET_OBJECT, 1),
         compute_class,
     ];
     let nop_bytes = bytemuck::cast_slice::<u32, u8>(&nop_words);

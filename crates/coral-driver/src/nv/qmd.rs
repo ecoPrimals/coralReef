@@ -176,23 +176,107 @@ pub fn build_qmd_v21(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
 
 /// Build a QMD v2.2 (Volta SM70/Turing SM75) for compute dispatch.
 ///
-/// Same field layout as v2.1 but with `QMD_VERSION`=2.
+/// Field positions from NVIDIA `clc3c0qmd.h` (QMD Version 02_02).
+/// The v2.2 layout is **completely different** from v2.1 — field
+/// positions changed throughout the 256-byte structure.
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "GPU QMD fields are deliberately split into 32-bit halves"
+)]
 pub fn build_qmd_v22(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
-    let mut q = build_qmd_v21(params);
-    qmd_set_field(&mut q, 4, 4, 2);
+    let mut q = [0u32; QMD_SIZE_WORDS];
+
+    // QMD_VERSION [579:576] = 2, QMD_MAJOR_VERSION [583:580] = 2
+    qmd_set_field(&mut q, 576, 4, 2);
+    qmd_set_field(&mut q, 580, 4, 2);
+
+    // API_VISIBLE_CALL_LIMIT [378] = NO_CHECK (1)
+    qmd_set_field(&mut q, 378, 1, 1);
+
+    // CTA raster dimensions (grid)
+    qmd_set_field(&mut q, 384, 32, u64::from(params.grid.x));  // CTA_RASTER_WIDTH
+    qmd_set_field(&mut q, 416, 16, u64::from(params.grid.y));  // CTA_RASTER_HEIGHT
+    qmd_set_field(&mut q, 448, 16, u64::from(params.grid.z));  // CTA_RASTER_DEPTH
+
+    // SHARED_MEMORY_SIZE [561:544] (18 bits, 256-byte aligned)
+    let shared_aligned = (params.shared_mem_bytes + 255) & !255;
+    qmd_set_field(&mut q, 544, 18, u64::from(shared_aligned));
+
+    // SM config shared memory sizes (7-bit each).
+    // MIN = 0, MAX = 0x1a (max config), TARGET = shared config level.
+    // These control the L1/shared memory split. Setting MAX to 0x1a
+    // allows any shared memory size; TARGET matches the actual request.
+    let smem_config = if shared_aligned > 0 {
+        // Rough mapping: each unit ≈ 1 KB. Minimum 1 for nonzero shared.
+        ((shared_aligned / 1024) as u64).max(1).min(0x7F)
+    } else {
+        0
+    };
+    qmd_set_field(&mut q, 562, 7, smem_config);       // MIN_SM_CONFIG
+    qmd_set_field(&mut q, 569, 7, 0x1a);              // MAX_SM_CONFIG
+    qmd_set_field(&mut q, 657, 7, smem_config);       // TARGET_SM_CONFIG
+
+    // CTA thread dimensions (workgroup)
+    qmd_set_field(&mut q, 592, 16, u64::from(params.workgroup[0])); // CTA_THREAD_DIMENSION0
+    qmd_set_field(&mut q, 608, 16, u64::from(params.workgroup[1])); // CTA_THREAD_DIMENSION1
+    qmd_set_field(&mut q, 624, 16, u64::from(params.workgroup[2])); // CTA_THREAD_DIMENSION2
+
+    // CONSTANT_BUFFER_VALID(i) [640+i] — 1 bit per CBUF slot
+    for cb in &params.cbufs {
+        let idx = cb.index as usize;
+        if idx < MAX_CBUFS {
+            qmd_set_field(&mut q, 640 + idx, 1, 1);
+        }
+    }
+
+    // REGISTER_COUNT_V [656:648] (9 bits)
+    let reg_count = params.gpr_count.min(255);
+    qmd_set_field(&mut q, 648, 9, u64::from(reg_count));
+
+    // BARRIER_COUNT [959:955] (5 bits)
+    qmd_set_field(&mut q, 955, 5, u64::from(params.barrier_count));
+
+    // SHADER_LOCAL_MEMORY_LOW_SIZE [951:928] (24 bits)
+    // SHADER_LOCAL_MEMORY_HIGH_SIZE [983:960] (24 bits)
+    // (left at 0 — shader local memory is configured separately via QMD)
+
+    // REGISTER_COUNT [991:984] (8 bits) — duplicated for SKED validation
+    qmd_set_field(&mut q, 984, 8, u64::from(reg_count));
+
+    // SHADER_LOCAL_MEMORY_CRS_SIZE [1015:992] (24 bits)
+    // (Call/Return Stack — left at 0 for simple shaders)
+
+    // Constant buffer bindings: ADDR_LOWER(i) at bit 1024+i*64 (32 bits),
+    // ADDR_UPPER(i) at bit 1056+i*64 (17 bits),
+    // SIZE_SHIFTED4(i) at bit 1075+i*64 (13 bits)
+    for cb in &params.cbufs {
+        let idx = cb.index as usize;
+        if idx < MAX_CBUFS {
+            let base = 1024 + idx * 64;
+            qmd_set_field(&mut q, base, 32, cb.addr & 0xFFFF_FFFF);
+            qmd_set_field(&mut q, base + 32, 17, cb.addr >> 32);
+            qmd_set_field(&mut q, base + 51, 13, u64::from(cb.size >> 4));
+        }
+    }
+
+    // PROGRAM_ADDRESS_LOWER [1567:1536] (32 bits)
+    qmd_set_field(&mut q, 1536, 32, params.shader_va & 0xFFFF_FFFF);
+    // PROGRAM_ADDRESS_UPPER [1584:1568] (17 bits)
+    qmd_set_field(&mut q, 1568, 17, params.shader_va >> 32);
+
     q
 }
 
 /// Build a QMD v3.0 (Ampere SM86+) for compute dispatch.
 ///
-/// Same field layout as v2.1/v2.2 but with `QMD_MAJOR_VERSION`=3, `QMD_VERSION`=0.
+/// Ampere reuses the v2.2 field layout but with version 3.0.
+/// TODO: verify against `clc6c0qmd.h` once Ampere hardware is available.
 #[must_use]
 pub fn build_qmd_v30(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
-    let mut q = build_qmd_v21(params);
-    q[0] &= !0xFF;
-    qmd_set_field(&mut q, 0, 4, 3);
-    qmd_set_field(&mut q, 4, 4, 0);
+    let mut q = build_qmd_v22(params);
+    qmd_set_field(&mut q, 576, 4, 0); // QMD_VERSION = 0
+    qmd_set_field(&mut q, 580, 4, 3); // QMD_MAJOR_VERSION = 3
     q
 }
 
@@ -259,8 +343,8 @@ mod tests {
     fn qmd_v30_version() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q = build_qmd_v30(&params);
-        assert_eq!(get_field(&q, 0, 4), 3, "major version");
-        assert_eq!(get_field(&q, 4, 4), 0, "minor version");
+        assert_eq!(get_field(&q, 580, 4), 3, "major version");
+        assert_eq!(get_field(&q, 576, 4), 0, "minor version");
     }
 
     #[test]
@@ -360,9 +444,9 @@ mod tests {
     #[test]
     fn legacy_build_compute_qmd_compat() {
         let q = build_compute_qmd(0x1_0000_0000, DispatchDims::new(64, 1, 1), 256);
-        assert_eq!(get_field(&q, 224, 32), 64, "CTA_RASTER_WIDTH");
-        assert_eq!(get_field(&q, 256, 16), 1, "CTA_RASTER_HEIGHT");
-        assert_eq!(get_field(&q, 272, 16), 1, "CTA_RASTER_DEPTH");
+        assert_eq!(get_field(&q, 384, 32), 64, "CTA_RASTER_WIDTH");
+        assert_eq!(get_field(&q, 416, 16), 1, "CTA_RASTER_HEIGHT");
+        assert_eq!(get_field(&q, 448, 16), 1, "CTA_RASTER_DEPTH");
     }
 
     #[test]
@@ -426,26 +510,27 @@ mod tests {
     #[test]
     fn qmd_v30_preserves_other_fields() {
         let params = QmdParams::simple(0x1_0000_0000, DispatchDims::new(8, 4, 2), 64);
-        let q21 = build_qmd_v21(&params);
+        let q22 = build_qmd_v22(&params);
         let q30 = build_qmd_v30(&params);
-        // Grid, shader addr, etc. should be identical
+        // Grid, shader addr, register count should be identical
         assert_eq!(
-            get_field(&q21, 224, 32),
-            get_field(&q30, 224, 32),
+            get_field(&q22, 384, 32),
+            get_field(&q30, 384, 32),
             "grid width"
         );
         assert_eq!(
-            get_field(&q21, 832, 32),
-            get_field(&q30, 832, 32),
+            get_field(&q22, 1536, 32),
+            get_field(&q30, 1536, 32),
             "shader addr lo"
         );
         assert_eq!(
-            get_field(&q21, 864, 32),
-            get_field(&q30, 864, 32),
-            "shader addr hi"
+            get_field(&q22, 648, 9),
+            get_field(&q30, 648, 9),
+            "register count"
         );
         // But version should differ
-        assert_ne!(q21[0] & 0xF, q30[0] & 0xF, "major version");
+        assert_eq!(get_field(&q22, 580, 4), 2, "v2.2 major");
+        assert_eq!(get_field(&q30, 580, 4), 3, "v3.0 major");
     }
 
     #[test]
@@ -459,20 +544,18 @@ mod tests {
     #[test]
     fn build_qmd_for_sm_selects_version() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
-        // SM 0..=69 → v2.1
+        // SM 0..=69 → v2.1 (old layout: version at bits 0-7)
         let q_69 = build_qmd_for_sm(69, &params);
-        assert_eq!(get_field(&q_69, 0, 4), 2);
-        assert_eq!(get_field(&q_69, 4, 4), 1);
-        // SM 70..=79 → v2.2
+        assert_eq!(get_field(&q_69, 0, 4), 2, "v2.1 major");
+        assert_eq!(get_field(&q_69, 4, 4), 1, "v2.1 minor");
+        // SM 70..=79 → v2.2 (new layout: version at bits 576-583)
         let q_70 = build_qmd_for_sm(70, &params);
-        assert_eq!(get_field(&q_70, 0, 4), 2);
-        assert_eq!(get_field(&q_70, 4, 4), 2);
-        let q_75 = build_qmd_for_sm(75, &params);
-        assert_eq!(get_field(&q_75, 4, 4), 2);
-        // SM 80+ → v3.0
+        assert_eq!(get_field(&q_70, 580, 4), 2, "v2.2 major");
+        assert_eq!(get_field(&q_70, 576, 4), 2, "v2.2 minor");
+        // SM 80+ → v3.0 (same layout as v2.2 but version 3.0)
         let q_86 = build_qmd_for_sm(86, &params);
-        assert_eq!(get_field(&q_86, 0, 4), 3);
-        assert_eq!(get_field(&q_86, 4, 4), 0);
+        assert_eq!(get_field(&q_86, 580, 4), 3, "v3.0 major");
+        assert_eq!(get_field(&q_86, 576, 4), 0, "v3.0 minor");
     }
 
     #[test]
@@ -529,10 +612,11 @@ mod tests {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q_69 = build_qmd_for_sm(69, &params);
         let q_70 = build_qmd_for_sm(70, &params);
+        // v2.1 stores version at bits 0-7; v2.2 stores at bits 576-583
+        // They must produce structurally different QMDs
         assert_ne!(
-            get_field(&q_69, 4, 4),
-            get_field(&q_70, 4, 4),
-            "SM 69 vs 70 should differ in minor version"
+            q_69, q_70,
+            "SM 69 vs 70 should produce different QMD layouts"
         );
     }
 
@@ -541,8 +625,8 @@ mod tests {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q_79 = build_qmd_for_sm(79, &params);
         let q_80 = build_qmd_for_sm(80, &params);
-        assert_eq!(get_field(&q_79, 0, 4), 2, "SM 79 = v2.x");
-        assert_eq!(get_field(&q_80, 0, 4), 3, "SM 80+ = v3.0");
+        assert_eq!(get_field(&q_79, 580, 4), 2, "SM 79 = v2.2");
+        assert_eq!(get_field(&q_80, 580, 4), 3, "SM 80+ = v3.0");
     }
 
     #[test]
@@ -555,11 +639,48 @@ mod tests {
     }
 
     #[test]
-    fn qmd_v22_sets_minor_version_two() {
+    fn qmd_v22_version_at_correct_offset() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q = build_qmd_v22(&params);
-        assert_eq!(get_field(&q, 0, 4), 2);
-        assert_eq!(get_field(&q, 4, 4), 2);
+        assert_eq!(get_field(&q, 576, 4), 2, "QMD_VERSION at 576");
+        assert_eq!(get_field(&q, 580, 4), 2, "QMD_MAJOR_VERSION at 580");
+    }
+
+    #[test]
+    fn qmd_v22_thread_dimensions() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.workgroup = [64, 1, 1];
+        let q = build_qmd_v22(&params);
+        assert_eq!(get_field(&q, 592, 16), 64, "CTA_THREAD_DIMENSION0");
+        assert_eq!(get_field(&q, 608, 16), 1, "CTA_THREAD_DIMENSION1");
+        assert_eq!(get_field(&q, 624, 16), 1, "CTA_THREAD_DIMENSION2");
+    }
+
+    #[test]
+    fn qmd_v22_register_count() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 48);
+        let q = build_qmd_v22(&params);
+        assert_eq!(get_field(&q, 648, 9), 48, "REGISTER_COUNT_V");
+        assert_eq!(get_field(&q, 984, 8), 48, "REGISTER_COUNT");
+    }
+
+    #[test]
+    fn qmd_v22_program_address() {
+        let va = 0x1_0000_0000_u64;
+        let params = QmdParams::simple(va, DispatchDims::linear(1), 32);
+        let q = build_qmd_v22(&params);
+        let lo = get_field(&q, 1536, 32);
+        let hi = get_field(&q, 1568, 17);
+        assert_eq!(lo | (hi << 32), va);
+    }
+
+    #[test]
+    fn qmd_v22_grid_dimensions() {
+        let params = QmdParams::simple(0, DispatchDims::new(64, 8, 2), 32);
+        let q = build_qmd_v22(&params);
+        assert_eq!(get_field(&q, 384, 32), 64, "CTA_RASTER_WIDTH");
+        assert_eq!(get_field(&q, 416, 16), 8, "CTA_RASTER_HEIGHT");
+        assert_eq!(get_field(&q, 448, 16), 2, "CTA_RASTER_DEPTH");
     }
 
     #[test]

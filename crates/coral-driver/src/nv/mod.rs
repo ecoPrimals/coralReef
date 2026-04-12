@@ -70,9 +70,12 @@ const GPU_PAGE_MASK: u64 = GPU_PAGE_SIZE - 1;
 /// Local memory window address for Volta+ (SM >= 70).
 ///
 /// The shader local memory window tells the GPU where to map per-thread
-/// scratch space. Volta uses a 64-bit address space with the window
-/// high in virtual memory.
-const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
+/// scratch space. Must fit the NVC3C0 register bitfield: upper 17 bits
+/// (bits 48:32) + lower 32 bits = 49-bit address.
+///
+/// 0x1_FF00_0000 = 8 GiB mark, well within the 49-bit limit and above
+/// the kernel-managed area.
+const LOCAL_MEM_WINDOW_VOLTA: u64 = 0x1_FF00_0000;
 
 /// Local memory window address for pre-Volta (SM < 70).
 const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
@@ -142,6 +145,28 @@ impl NvDevice {
         Self::open_from_drm(drm, sm)
     }
 
+    /// Open in firmware-managed mode — skips BAR0 GR init and FECS
+    /// channel methods, trusting the GPU's falcon firmware (PMU, FECS)
+    /// to handle engine initialization.
+    ///
+    /// Use this when nouveau (or any driver with PMU firmware) is active.
+    /// This is the correct path for Volta+ where falcon firmware manages
+    /// the GR engine lifecycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if no nouveau render node is found or
+    /// channel creation fails.
+    #[cfg(feature = "nouveau")]
+    pub fn open_firmware_managed() -> DriverResult<Self> {
+        let drm = DrmDevice::open_by_driver("nouveau")?;
+        let sm = ioctl::probe_gpu_identity(&drm.path)
+            .and_then(|id| id.nvidia_sm())
+            .unwrap_or(70);
+        tracing::info!(path = %drm.path, detected_sm = sm, "nouveau SM auto-detected (firmware-managed)");
+        Self::open_from_drm_inner(drm, sm, true)
+    }
+
     /// Open the NVIDIA GPU device via nouveau, specifying the SM architecture.
     ///
     /// The SM version determines which compute engine class to request from
@@ -174,13 +199,35 @@ impl NvDevice {
 
     #[cfg(feature = "nouveau")]
     fn open_from_drm(drm: DrmDevice, sm: u32) -> DriverResult<Self> {
+        Self::open_from_drm_inner(drm, sm, false)
+    }
+
+    /// Open with firmware-aware mode: when `firmware_managed` is true,
+    /// skip BAR0 GR init and FECS channel methods (the GPU's falcon
+    /// firmware already handles GR engine initialization).
+    ///
+    /// Use `firmware_managed = true` when nouveau (or any kernel driver
+    /// with PMU firmware support) is managing the GPU. Use `false` only
+    /// for sovereign cold-boot paths where no firmware is running.
+    #[cfg(feature = "nouveau")]
+    fn open_from_drm_inner(
+        drm: DrmDevice,
+        sm: u32,
+        firmware_managed: bool,
+    ) -> DriverResult<Self> {
         let compute_class = probe::compute_class_for_sm(sm);
 
-        // Phase 0: Sovereign BAR0 GR init — write PGRAPH registers BEFORE
-        // channel creation so the compute engine has valid context state.
-        // This replaces the PMU firmware that nouveau lacks on Volta, and
-        // supplements GSP on Ampere where the kernel path may be incomplete.
-        probe::try_bar0_gr_init(&drm.path, sm);
+        if !firmware_managed {
+            // Phase 0 (sovereign only): BAR0 GR init — write PGRAPH
+            // registers. This replaces the PMU firmware that nouveau
+            // lacks on Volta when doing sovereign cold-boot.
+            probe::try_bar0_gr_init(&drm.path, sm);
+        } else {
+            tracing::info!(
+                path = %drm.path, sm,
+                "firmware-managed mode — skipping BAR0 GR init (falcon firmware handles GR)"
+            );
+        }
 
         // Phase 1: New UAPI probe (kernel 6.6+). On kernel 6.17+ Volta,
         // VM_INIT is required — CHANNEL_ALLOC fails without it.
@@ -203,7 +250,7 @@ impl NvDevice {
             }
         };
 
-        // Phase 2: Channel creation (should benefit from BAR0 GR init).
+        // Phase 2: Channel creation.
         let channel = match ioctl::create_channel(drm.fd(), compute_class) {
             Ok(ch) => ch,
             Err(e) => {
@@ -221,9 +268,36 @@ impl NvDevice {
         tracing::info!(
             path = %drm.path, channel,
             compute_class = format_args!("0x{compute_class:04X}"),
-            new_uapi,
+            new_uapi, firmware_managed,
             "NVIDIA nouveau channel created with compute subchannel"
         );
+
+        if firmware_managed {
+            // Create the GR compute context object via NVIF NEW. This is
+            // required on Volta+ where CHANNEL_ALLOC creates a bare GPFIFO
+            // channel without engine objects. The kernel-side nouveau creates
+            // the full GR context (including all related subchannel objects)
+            // when we instantiate the compute class.
+            let channel_token = u64::from(channel);
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "compute_class fits in i32"
+            )]
+            match ioctl::nvif_object_new(drm.fd(), channel_token, 1, compute_class as i32) {
+                Ok(()) => {
+                    tracing::info!(
+                        channel, compute_class = format_args!("0x{compute_class:04X}"),
+                        "NVIF compute object created — GR context active"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        channel, error = %e,
+                        "NVIF object creation failed — compute dispatch may not work"
+                    );
+                }
+            }
+        }
 
         let exec_syncobj = if new_uapi {
             ioctl::syncobj_create(drm.fd()).ok()
@@ -245,9 +319,10 @@ impl NvDevice {
             inflight: Vec::new(),
         };
 
-        // Phase 3: Submit any remaining FECS channel methods (low-address
-        // entries that can go through the push buffer).
-        dev.try_fecs_channel_init();
+        if !firmware_managed {
+            // Phase 3 (sovereign only): Submit FECS channel methods.
+            dev.try_fecs_channel_init();
+        }
 
         Ok(dev)
     }
@@ -562,7 +637,14 @@ impl NvDevice {
         temps.push(shader_handle);
         self.upload(shader_handle, 0, shader)?;
 
-        let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
+        let shader_base_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
+
+        // Compute shader binaries start with a zeroed SPH (Shader Program
+        // Header). The header is always CURRENT_MAX_SHADER_HEADER_SIZE words
+        // (32 × 4 = 128 bytes) in the compiled binary, regardless of SM version.
+        // PROGRAM_ADDRESS must point past the header to the first instruction.
+        const SPH_BYTES: u64 = 128; // 32 words × 4
+        let shader_va = shader_base_va + SPH_BYTES;
 
         // Build CBUF descriptor buffer for group 0.
         //
@@ -708,10 +790,10 @@ mod tests {
     #[test]
     fn qmd_construction() {
         let qmd = qmd::build_compute_qmd(0x1_0000_0000, DispatchDims::new(64, 1, 1), 256);
-        // CTA_RASTER_WIDTH at bit 224 = word 7
-        assert_eq!(qmd[7], 64);
-        // CTA_RASTER_HEIGHT at bit 256 = word 8 lower 16 bits
-        assert_eq!(qmd[8] & 0xFFFF, 1);
+        // CTA_RASTER_WIDTH at bit 384 = word 12 (v2.2 layout)
+        assert_eq!(qmd[12], 64);
+        // CTA_RASTER_HEIGHT at bit 416 = word 13 lower 16 bits
+        assert_eq!(qmd[13] & 0xFFFF, 1);
     }
 
     #[test]

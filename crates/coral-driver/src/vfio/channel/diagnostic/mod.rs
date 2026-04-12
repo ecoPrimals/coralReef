@@ -7,6 +7,7 @@ pub mod interpreter;
 mod matrix;
 pub mod replay;
 mod runner;
+pub mod subsystem_validator;
 mod types;
 
 pub use experiments::context::GpuCapabilities;

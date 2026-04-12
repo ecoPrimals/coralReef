@@ -9,141 +9,136 @@ use crate::vfio::device::MappedBar;
 use super::super::pushbuf::PushBuf;
 use super::{NvVfioComputeDevice, sm_to_chip};
 
-impl NvVfioComputeDevice {
-    /// Apply BAR0 GR init writes from NVIDIA firmware blobs.
-    ///
-    /// Parses `sw_bundle_init.bin` etc. from `/lib/firmware/nvidia/{chip}/gr/`,
-    /// builds the init sequence, then applies the BAR0-targeted writes
-    /// (PMC engine enable, FIFO enable, PGRAPH register programming).
-    pub(super) fn apply_gr_bar0_init(bar0: &MappedBar, sm_version: u32) {
-        let chip = sm_to_chip(sm_version);
-        let blobs = match GrFirmwareBlobs::parse(chip) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!(chip, error = %e, "GR firmware not available — skipping BAR0 GR init");
-                return;
-            }
-        };
-
-        let seq = if sm_version == 70 {
-            GrInitSequence::for_gv100(&blobs)
-        } else {
-            GrInitSequence::from_blobs(&blobs)
-        };
-
-        let (bar0_writes, fecs_entries) = gsp::split_for_application(&seq);
-
-        tracing::info!(
-            chip,
-            bar0_writes = bar0_writes.len(),
-            fecs_entries = fecs_entries.len(),
-            total = seq.len(),
-            "sovereign VFIO GR init: applying {} BAR0 register writes",
-            bar0_writes.len()
-        );
-
-        // Only apply writes with 4-byte-aligned offsets that fit within BAR0.
-        let bar0_size = bar0.size() as u32;
-        let writes: Vec<(u32, u32)> = bar0_writes
-            .iter()
-            .filter(|w| {
-                if w.offset % 4 != 0 {
-                    tracing::debug!(
-                        chip,
-                        offset = format!("{:#010x}", w.offset),
-                        "skipping non-aligned BAR0 write"
-                    );
-                    return false;
-                }
-                if w.offset + 4 > bar0_size {
-                    tracing::debug!(
-                        chip,
-                        offset = format!("{:#010x}", w.offset),
-                        bar0_size = format!("{bar0_size:#010x}"),
-                        "skipping out-of-range BAR0 write"
-                    );
-                    return false;
-                }
-                true
-            })
-            .map(|w| (w.offset, w.value))
-            .collect();
-
-        let (applied, failed) = bar0.apply_gr_bar0_writes(&writes);
-
-        if failed > 0 {
-            tracing::warn!(chip, applied, failed, "BAR0 GR init had write failures");
-        } else {
-            tracing::info!(chip, applied, "BAR0 GR init complete");
+/// Apply BAR0 GR init writes from NVIDIA firmware blobs.
+///
+/// Parses `sw_bundle_init.bin` etc. from `/lib/firmware/nvidia/{chip}/gr/`,
+/// builds the init sequence, then applies the BAR0-targeted writes
+/// (PMC engine enable, FIFO enable, PGRAPH register programming).
+///
+/// Returns `(bar0_applied, bar0_failed, fecs_entry_count)`.
+pub(super) fn apply_gr_bar0_init(bar0: &MappedBar, sm_version: u32) -> (u32, u32, usize) {
+    let chip = sm_to_chip(sm_version);
+    let blobs = match GrFirmwareBlobs::parse(chip) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(chip, error = %e, "GR firmware not available — skipping BAR0 GR init");
+            return (0, 0, 0);
         }
+    };
 
-        // Brief settle after engine enable writes.
-        for w in &bar0_writes {
-            if w.delay_us > 0 {
-                std::thread::sleep(std::time::Duration::from_micros(u64::from(w.delay_us)));
+    let seq = if sm_version == 70 {
+        GrInitSequence::for_gv100(&blobs)
+    } else {
+        GrInitSequence::from_blobs(&blobs)
+    };
+
+    let (bar0_writes, fecs_entries) = gsp::split_for_application(&seq);
+    let fecs_count = fecs_entries.len();
+
+    tracing::info!(
+        chip,
+        bar0_writes = bar0_writes.len(),
+        fecs_entries = fecs_count,
+        total = seq.len(),
+        "sovereign VFIO GR init: applying {} BAR0 register writes",
+        bar0_writes.len()
+    );
+
+    let bar0_size = bar0.size() as u32;
+    let writes: Vec<(u32, u32)> = bar0_writes
+        .iter()
+        .filter(|w| {
+            if w.offset % 4 != 0 {
+                tracing::debug!(
+                    chip,
+                    offset = format!("{:#010x}", w.offset),
+                    "skipping non-aligned BAR0 write"
+                );
+                return false;
             }
-        }
+            if w.offset + 4 > bar0_size {
+                tracing::debug!(
+                    chip,
+                    offset = format!("{:#010x}", w.offset),
+                    bar0_size = format!("{bar0_size:#010x}"),
+                    "skipping out-of-range BAR0 write"
+                );
+                return false;
+            }
+            true
+        })
+        .map(|w| (w.offset, w.value))
+        .collect();
 
-        // Apply sw_nonctx.bin — GR engine MMIO configuration that FECS expects.
-        // These are PGRAPH/GPC/TPC register writes (0x40xxxx-0x41xxxx) that
-        // nouveau applies via gf100_gr_mmio(gr, gr->sw_nonctx) BEFORE
-        // booting the falcons. Without these, FECS stalls during init.
-        Self::apply_nonctx_writes(bar0, &blobs, chip);
+    let (applied, failed) = bar0.apply_gr_bar0_writes(&writes);
 
-        // Apply dynamic GR writes that depend on hardware register reads.
-        // These can't be in sw_nonctx.bin since they're computed at runtime.
-        Self::apply_dynamic_gr_init(bar0, sm_version);
+    if failed > 0 {
+        tracing::warn!(chip, applied, failed, "BAR0 GR init had write failures");
+    } else {
+        tracing::info!(chip, applied, "BAR0 GR init complete");
     }
 
-    /// Apply non-context register writes from `sw_nonctx.bin`.
-    ///
-    /// The file is packed u32 pairs `(BAR0_addr, value)`. These configure
-    /// the GR engine (PGRAPH, GPC, TPC, SM registers) to the state that
-    /// FECS firmware expects before it can initialize its command loop.
-    fn apply_nonctx_writes(bar0: &MappedBar, blobs: &GrFirmwareBlobs, chip: &str) {
-        if blobs.nonctx_data.is_empty() {
-            tracing::debug!(chip, "no sw_nonctx data — skipping");
-            return;
+    for w in &bar0_writes {
+        if w.delay_us > 0 {
+            std::thread::sleep(std::time::Duration::from_micros(u64::from(w.delay_us)));
         }
-
-        let bar0_size = bar0.size() as u32;
-        let mut applied = 0u32;
-        let mut skipped = 0u32;
-        let data = &blobs.nonctx_data;
-
-        for chunk in data.chunks_exact(8) {
-            let addr = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            let value = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-
-            if addr % 4 != 0 || addr + 4 > bar0_size {
-                skipped += 1;
-                continue;
-            }
-
-            if bar0.write_u32(addr as usize, value).is_ok() {
-                applied += 1;
-            } else {
-                skipped += 1;
-            }
-        }
-
-        tracing::info!(
-            chip,
-            applied,
-            skipped,
-            total = data.len() / 8,
-            "sw_nonctx GR MMIO init complete"
-        );
     }
 
-    /// Apply dynamic GR init writes computed from hardware registers.
-    ///
-    /// Nouveau computes these at runtime in `gf100_gr_init()`:
-    /// - GPC MMU addresses from PFB registers
-    /// - Active LTC/FBP counts
-    /// - SWDX PES mask from GPC topology
-    /// - Interrupt/trap enables
-    fn apply_dynamic_gr_init(bar0: &MappedBar, sm_version: u32) {
+    apply_nonctx_writes(bar0, &blobs, chip);
+    apply_dynamic_gr_init(bar0, sm_version);
+
+    (applied as u32, failed as u32, fecs_count)
+}
+
+/// Apply non-context register writes from `sw_nonctx.bin`.
+///
+/// The file is packed u32 pairs `(BAR0_addr, value)`. These configure
+/// the GR engine (PGRAPH, GPC, TPC, SM registers) to the state that
+/// FECS firmware expects before it can initialize its command loop.
+fn apply_nonctx_writes(bar0: &MappedBar, blobs: &GrFirmwareBlobs, chip: &str) {
+    if blobs.nonctx_data.is_empty() {
+        tracing::debug!(chip, "no sw_nonctx data — skipping");
+        return;
+    }
+
+    let bar0_size = bar0.size() as u32;
+    let mut applied = 0u32;
+    let mut skipped = 0u32;
+    let data = &blobs.nonctx_data;
+
+    for chunk in data.chunks_exact(8) {
+        let addr = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        let value = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+
+        if addr % 4 != 0 || addr + 4 > bar0_size {
+            skipped += 1;
+            continue;
+        }
+
+        if bar0.write_u32(addr as usize, value).is_ok() {
+            applied += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    tracing::info!(
+        chip,
+        applied,
+        skipped,
+        total = data.len() / 8,
+        "sw_nonctx GR MMIO init complete"
+    );
+}
+
+/// Apply dynamic GR init writes computed from hardware registers.
+///
+/// Nouveau computes these at runtime in `gf100_gr_init()`:
+/// - GPC MMU addresses from PFB registers
+/// - Active LTC/FBP counts
+/// - SWDX PES mask from GPC topology
+/// - Interrupt/trap enables
+fn apply_dynamic_gr_init(bar0: &MappedBar, sm_version: u32) {
         let r = |addr: usize| bar0.read_u32(addr).unwrap_or(0);
 
         // gm200_gr_init_gpc_mmu (GV100 path):
@@ -217,8 +212,9 @@ impl NvVfioComputeDevice {
             gpc_mmu_cfg = format!("{gpc_mmu_cfg:#010x}"),
             "dynamic GR init complete"
         );
-    }
+}
 
+impl NvVfioComputeDevice {
     /// Restart FECS/GPCCS falcons after a warm handoff from nouveau.
     ///
     /// After `coralctl warm-fecs` + livepatch, both falcons are in HRESET

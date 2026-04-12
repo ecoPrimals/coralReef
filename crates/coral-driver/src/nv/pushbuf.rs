@@ -48,23 +48,42 @@ pub mod class {
     };
 }
 
-/// NVIDIA compute class method registers (offsets in bytes).
+/// NVC3C0 (Volta Compute A) method register offsets.
+///
+/// Sourced from NVIDIA open-gpu-doc `clc3c0.h`. These are the correct
+/// offsets for Volta+; earlier coral-driver revisions used incorrect
+/// values from a different class.
 pub mod method {
-    /// Set the target object (compute class).
+    /// Bind an object class to this subchannel.
     pub const SET_OBJECT: u32 = 0x0000;
-    /// Invalidate instruction and data caches.
-    pub const INVALIDATE_SHADER_CACHES: u32 = 0x0088;
-    /// Set shared memory window (upper 32 bits).
-    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_A: u32 = 0x077C;
-    /// Set shared memory window (lower 32 bits).
-    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_B: u32 = 0x0780;
-    /// Launch compute: QMD address (upper 32 bits).
-    pub const SEND_PCAS_A: u32 = 0x0D00;
-    /// Launch compute: QMD address (lower 32 bits).
-    pub const SEND_SIGNALING_PCAS_B: u32 = 0x0D04;
+
+    /// Invalidate instruction and data shader caches.
+    pub const INVALIDATE_SHADER_CACHES: u32 = 0x021C;
+
+    /// Local memory window base address (upper 17 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_A: u32 = 0x07B0;
+    /// Local memory window base address (lower 32 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_B: u32 = 0x07B4;
+
+    /// QMD address shifted right by 8 bits.
+    pub const SEND_PCAS_A: u32 = 0x02B4;
+    /// Launch compute: invalidate + schedule flags.
+    pub const SEND_SIGNALING_PCAS_B: u32 = 0x02BC;
 
     /// Invalidate instruction + data caches (bits 0 + 4).
     pub const INVALIDATE_INSTR_AND_DATA: u32 = 0x11;
+
+    /// SEND_SIGNALING_PCAS_B flags: invalidate=true, schedule=true.
+    pub const SIGNALING_INVALIDATE_SCHEDULE: u32 = 0x3;
+}
+
+/// NVK-style subchannel assignments for Volta+ GR engine.
+///
+/// The GR engine multiplexes 3D and compute on separate subchannels;
+/// subchannel 0 is reserved for 3D (class 0xC397 on Volta).
+pub mod subchan {
+    /// Compute engine subchannel (NVC3C0).
+    pub const COMPUTE: u32 = 1;
 }
 
 /// Default word capacity for push buffers — sufficient for most
@@ -147,12 +166,15 @@ impl PushBuf {
 
     /// Build a compute dispatch push buffer for Volta+ (SM70+).
     ///
-    /// Sets up the compute class, invalidates caches, and launches
-    /// via `SEND_PCAS_A`/`B` with the QMD address.
+    /// Binds the compute class on subchannel 1, invalidates caches, sets the
+    /// local memory window, and launches via `SEND_PCAS_A`/`SEND_SIGNALING_PCAS_B`.
+    ///
+    /// `qmd_addr` must be 256-byte aligned — the hardware reads it shifted
+    /// right by 8.
     #[must_use]
     pub fn compute_dispatch(compute_class: u32, qmd_addr: u64, local_mem_window: u64) -> Self {
         let mut pb = Self::new();
-        let sub = 0_u32;
+        let sub = subchan::COMPUTE;
 
         pb.push_1(sub, method::SET_OBJECT, compute_class);
 
@@ -178,8 +200,12 @@ impl PushBuf {
                 local_mem_window as u32,
             );
 
-            pb.push_1(sub, method::SEND_PCAS_A, (qmd_addr >> 32) as u32);
-            pb.push_1(sub, method::SEND_SIGNALING_PCAS_B, qmd_addr as u32);
+            pb.push_1(sub, method::SEND_PCAS_A, (qmd_addr >> 8) as u32);
+            pb.push_1(
+                sub,
+                method::SEND_SIGNALING_PCAS_B,
+                method::SIGNALING_INVALIDATE_SCHEDULE,
+            );
         }
 
         pb
@@ -187,13 +213,11 @@ impl PushBuf {
 
     /// Build a GR context init push buffer from FECS method entries.
     ///
-    /// Submits the method init entries from firmware blobs as class
-    /// method writes on subchannel 0. This initializes the GR engine
-    /// context so that subsequent compute dispatches have a valid
-    /// context (prevents CTXNOTVALID from PBDMA).
+    /// Binds the compute class on subchannel 1 (the Volta+ compute
+    /// subchannel), then submits method entries from firmware blobs.
     ///
     /// Each method entry is a `(addr, value)` pair where `addr` is a
-    /// GR class method offset and `value` is the data to write.
+    /// NVC3C0 method offset and `value` is the data to write.
     ///
     /// Callers must ensure all addresses fit in the 13-bit push buffer
     /// method encoding (<= 0x7FFC). Use [`crate::gsp::split_for_application`]
@@ -201,7 +225,7 @@ impl PushBuf {
     #[must_use]
     pub fn gr_context_init(compute_class: u32, method_entries: &[(u32, u32)]) -> Self {
         let mut pb = Self::new();
-        let sub = 0_u32;
+        let sub = subchan::COMPUTE;
 
         pb.push_1(sub, method::SET_OBJECT, compute_class);
 
@@ -244,15 +268,16 @@ mod tests {
 
     #[test]
     fn mthd_incr_with_method() {
-        // INVALIDATE_SHADER_CACHES = 0x0088
-        // method>>2 = 0x22, count=1, subchan=0
-        let hdr = mthd_incr(0, 0x0088, 1);
+        // INVALIDATE_SHADER_CACHES = 0x021C
+        let hdr = mthd_incr(subchan::COMPUTE, method::INVALIDATE_SHADER_CACHES, 1);
         let method_field = hdr & 0x1FFF;
         let count_field = (hdr >> 16) & 0x1FFF;
         let type_field = hdr >> 29;
+        let subchan_field = (hdr >> 13) & 0x7;
         assert_eq!(type_field, 1);
         assert_eq!(count_field, 1);
-        assert_eq!(method_field, 0x0088 >> 2);
+        assert_eq!(subchan_field, subchan::COMPUTE);
+        assert_eq!(method_field, 0x021C >> 2);
     }
 
     #[test]
@@ -273,13 +298,14 @@ mod tests {
     fn pushbuf_compute_dispatch_structure() {
         let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, 0x1_0000_0000, 0xFF00_0000);
         let words = pb.as_words();
-        // Should have: SET_OBJECT(hdr,data), INVALIDATE(hdr,data),
-        // LOCAL_MEM_A(hdr,data), LOCAL_MEM_B(hdr,data),
-        // SEND_PCAS_A(hdr,data), SEND_PCAS_B(hdr,data) = 12 words
+        // SET_OBJECT + INVALIDATE + LOCAL_MEM_A + LOCAL_MEM_B + PCAS_A + SIG_PCAS_B = 12 words
         assert_eq!(words.len(), 12);
 
-        // First pair: SET_OBJECT
-        assert_eq!(words[0], mthd_incr(0, method::SET_OBJECT, 1));
+        // First pair: SET_OBJECT on compute subchannel
+        assert_eq!(
+            words[0],
+            mthd_incr(subchan::COMPUTE, method::SET_OBJECT, 1)
+        );
         assert_eq!(words[1], class::VOLTA_COMPUTE_A);
     }
 
@@ -338,26 +364,25 @@ mod tests {
     #[test]
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "deliberate truncation test for 32-bit halves"
+        reason = "deliberate truncation test for shifted QMD address"
     )]
-    #[expect(
-        clippy::similar_names,
-        reason = "pcas_a and pcas_b are the actual GPU register names"
-    )]
-    fn pushbuf_compute_dispatch_qmd_addr_split() {
-        let qmd_addr = 0x80_1234_5678_9ABC_u64;
+    fn pushbuf_compute_dispatch_qmd_addr_shifted8() {
+        let qmd_addr = 0x80_1234_5678_9A00_u64; // 256-byte aligned
         let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, qmd_addr, 0xFF00_0000);
         let words = pb.as_words();
         let send_pcas_a_idx = words
             .iter()
-            .position(|&w| w == mthd_incr(0, method::SEND_PCAS_A, 1))
+            .position(|&w| w == mthd_incr(subchan::COMPUTE, method::SEND_PCAS_A, 1))
             .expect("compute_dispatch must emit SEND_PCAS_A");
-        assert_eq!(words[send_pcas_a_idx + 1], (qmd_addr >> 32) as u32);
-        let send_pcas_b_idx = words
+        assert_eq!(words[send_pcas_a_idx + 1], (qmd_addr >> 8) as u32);
+        let sig_pcas_b_idx = words
             .iter()
-            .position(|&w| w == mthd_incr(0, method::SEND_SIGNALING_PCAS_B, 1))
+            .position(|&w| w == mthd_incr(subchan::COMPUTE, method::SEND_SIGNALING_PCAS_B, 1))
             .expect("compute_dispatch must emit SEND_SIGNALING_PCAS_B");
-        assert_eq!(words[send_pcas_b_idx + 1], qmd_addr as u32);
+        assert_eq!(
+            words[sig_pcas_b_idx + 1],
+            method::SIGNALING_INVALIDATE_SCHEDULE
+        );
     }
 
     #[test]
@@ -366,14 +391,15 @@ mod tests {
         let pb = PushBuf::gr_context_init(class::VOLTA_COMPUTE_A, &methods);
         let words = pb.as_words();
 
-        // SET_OBJECT header + data, then 3 * (method header + data) = 8 words
         assert_eq!(words.len(), 8);
 
-        // First pair: SET_OBJECT
-        assert_eq!(words[0], mthd_incr(0, method::SET_OBJECT, 1));
+        // SET_OBJECT on compute subchannel
+        assert_eq!(
+            words[0],
+            mthd_incr(subchan::COMPUTE, method::SET_OBJECT, 1)
+        );
         assert_eq!(words[1], class::VOLTA_COMPUTE_A);
 
-        // Method entries submitted as individual push_1 calls
         assert_eq!(words[3], 0xAAAA);
         assert_eq!(words[5], 0xBBBB);
         assert_eq!(words[7], 0xCCCC);
@@ -457,13 +483,13 @@ mod tests {
 
     #[test]
     fn pushbuf_gr_context_init_method_addrs_encoded() {
-        let methods = [(0x0004, 0x11), (0x0100, 0x22)]; // 0x0004 and 0x0100 fit in 13 bits
+        let methods = [(0x0004, 0x11), (0x0100, 0x22)];
         let pb = PushBuf::gr_context_init(class::VOLTA_COMPUTE_A, &methods);
         let words = pb.as_words();
-        assert_eq!(words.len(), 6); // SET_OBJECT + 2 method pairs
-        assert_eq!(words[2], mthd_incr(0, 0x0004, 1));
+        assert_eq!(words.len(), 6);
+        assert_eq!(words[2], mthd_incr(subchan::COMPUTE, 0x0004, 1));
         assert_eq!(words[3], 0x11);
-        assert_eq!(words[4], mthd_incr(0, 0x0100, 1));
+        assert_eq!(words[4], mthd_incr(subchan::COMPUTE, 0x0100, 1));
         assert_eq!(words[5], 0x22);
     }
 }

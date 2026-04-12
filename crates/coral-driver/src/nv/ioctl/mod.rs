@@ -47,6 +47,7 @@ const DRM_COMMAND_BASE: u32 = 0x40;
 // CHANNEL_ALLOC=0x02, CHANNEL_FREE=0x03.
 const DRM_NOUVEAU_CHANNEL_ALLOC: u32 = DRM_COMMAND_BASE + 0x02;
 const DRM_NOUVEAU_CHANNEL_FREE: u32 = DRM_COMMAND_BASE + 0x03;
+const DRM_NOUVEAU_GROBJ_ALLOC: u32 = DRM_COMMAND_BASE + 0x04;
 const DRM_NOUVEAU_GEM_NEW: u32 = DRM_COMMAND_BASE + 0x40;
 const DRM_NOUVEAU_GEM_PUSHBUF: u32 = DRM_COMMAND_BASE + 0x41;
 const DRM_NOUVEAU_GEM_CPU_PREP: u32 = DRM_COMMAND_BASE + 0x42;
@@ -56,6 +57,7 @@ const _DRM_NOUVEAU_GEM_CPU_FINI: u32 = DRM_COMMAND_BASE + 0x43;
 // NVK (Mesa 25.1+) uses this path: VM_INIT → GEM_NEW → VM_BIND → EXEC.
 // Ecosystem Exp-051 confirmed: legacy CHANNEL_ALLOC → EINVAL on GV100 kernel 6.17.
 // See: /usr/include/drm/nouveau_drm.h (drm_nouveau_vm_init, vm_bind, exec)
+const DRM_NOUVEAU_NVIF: u32 = DRM_COMMAND_BASE + 0x07;
 const DRM_NOUVEAU_VM_INIT: u32 = DRM_COMMAND_BASE + 0x10;
 const DRM_NOUVEAU_VM_BIND: u32 = DRM_COMMAND_BASE + 0x11;
 const DRM_NOUVEAU_EXEC: u32 = DRM_COMMAND_BASE + 0x12;
@@ -339,6 +341,166 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
         size_of_u32::<NouveauChannelFree>(),
     );
     drm::drm_ioctl_named(fd, ioctl_nr, &mut free, "nouveau_channel_free")
+}
+
+/// Create an engine object within a channel (GROBJ_ALLOC).
+///
+/// On Volta+, `CHANNEL_ALLOC` creates a bare GPFIFO channel without
+/// subchannel objects. The GR engine context must be instantiated
+/// separately via this ioctl (or NVIF). Without it, the PBDMA will
+/// fail with `CTXNOTVALID` when trying to process push buffer methods.
+///
+/// `handle` is the NVIF object handle (must match subchan handle in push
+/// buffer headers). `class` is the engine class (e.g. `0xC3C0` for
+/// `VOLTA_COMPUTE_A`).
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if the kernel rejects the request (e.g. the
+/// class is unsupported or the channel doesn't exist).
+pub fn grobj_alloc(fd: RawFd, channel: u32, handle: u32, class: u32) -> DriverResult<()> {
+    #[repr(C)]
+    #[derive(Default)]
+    struct NouveauGrobjAlloc {
+        channel: i32,
+        handle: u32,
+        class: i32,
+    }
+
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "channel ids and classes fit in i32"
+    )]
+    let mut req = NouveauGrobjAlloc {
+        channel: channel as i32,
+        handle,
+        class: class as i32,
+    };
+    let ioctl_nr = drm::drm_iowr_pub(
+        DRM_NOUVEAU_GROBJ_ALLOC,
+        std::mem::size_of::<NouveauGrobjAlloc>() as u32,
+    );
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nouveau_grobj_alloc")
+}
+
+/// Create an NVIF object via the raw NVIF ioctl (DRM_NOUVEAU_NVIF).
+///
+/// This matches exactly what NVK does after CHANNEL_ALLOC: it creates
+/// subchannel engine objects through the NVIF protocol rather than
+/// GROBJ_ALLOC. The NVIF path properly registers objects in the GPFIFO
+/// subchannel table.
+///
+/// `token` identifies the parent (typically the channel id).
+/// `handle` and `oclass` specify the new object's handle and engine class.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] on kernel failure.
+pub fn nvif_object_new(
+    fd: RawFd,
+    parent_token: u64,
+    handle: u32,
+    oclass: i32,
+) -> DriverResult<()> {
+    // nvif_ioctl_v0 (24 bytes) + nvif_ioctl_new_v0 (32 bytes) = 56 bytes
+    #[repr(C)]
+    #[derive(Default)]
+    struct NvifNew {
+        // nvif_ioctl_v0
+        version: u8,
+        itype: u8,
+        pad02: [u8; 4],
+        owner: u8,
+        route: u8,
+        token: u64,
+        object: u64,
+        // nvif_ioctl_new_v0
+        new_version: u8,
+        new_pad01: [u8; 6],
+        new_route: u8,
+        new_token: u64,
+        new_object: u64,
+        new_handle: u32,
+        new_oclass: i32,
+    }
+
+    let mut req = NvifNew {
+        version: 0,
+        itype: 0x02, // NVIF_IOCTL_V0_NEW
+        owner: 0x00, // NVIF
+        route: 0xff, // HIDDEN (matches NVK)
+        token: parent_token,
+        object: 0,
+        new_version: 0,
+        new_route: 0xff,
+        new_token: 0,
+        new_object: 0,
+        new_handle: handle,
+        new_oclass: oclass,
+        ..Default::default()
+    };
+
+    let ioctl_nr = drm::drm_iowr_pub(
+        DRM_NOUVEAU_NVIF,
+        std::mem::size_of::<NvifNew>() as u32,
+    );
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nvif_object_new")
+}
+
+/// Query the supported subchannel classes for a channel via NVIF SCLASS.
+///
+/// Returns up to 16 supported class codes.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] on kernel failure.
+pub fn nvif_sclass(fd: RawFd, channel_token: u64) -> DriverResult<Vec<i32>> {
+    #[repr(C)]
+    struct NvifSclass {
+        // nvif_ioctl_v0
+        version: u8,
+        itype: u8,
+        pad02: [u8; 4],
+        owner: u8,
+        route: u8,
+        token: u64,
+        object: u64,
+        // nvif_ioctl_sclass_v0
+        sclass_version: u8,
+        count: u8,
+        sclass_pad: [u8; 6],
+        // 16 entries of (oclass: i32, minver: i16, maxver: i16)
+        entries: [[u8; 8]; 16],
+    }
+
+    let mut req = NvifSclass {
+        version: 0,
+        itype: 0x01, // SCLASS
+        pad02: [0; 4],
+        owner: 0x00,
+        route: 0xff, // HIDDEN
+        token: channel_token,
+        object: 0,
+        sclass_version: 0,
+        count: 16,
+        sclass_pad: [0; 6],
+        entries: [[0u8; 8]; 16],
+    };
+
+    let ioctl_nr = drm::drm_iowr_pub(
+        DRM_NOUVEAU_NVIF,
+        std::mem::size_of::<NvifSclass>() as u32,
+    );
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut req, "nvif_sclass")?;
+
+    let count = req.count as usize;
+    let mut classes = Vec::with_capacity(count);
+    for i in 0..count.min(16) {
+        let entry = &req.entries[i];
+        let oclass = i32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
+        classes.push(oclass);
+    }
+    Ok(classes)
 }
 
 /// Result of a GEM buffer creation.

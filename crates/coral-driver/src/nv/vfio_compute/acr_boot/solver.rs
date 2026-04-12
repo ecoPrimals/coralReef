@@ -13,9 +13,11 @@ use super::fecs_method;
 use super::firmware::AcrFirmwareSet;
 use super::sec2_hal::Sec2Probe;
 use super::strategy_chain::{
-    attempt_acr_chain, attempt_direct_acr_load, attempt_pio_acr_with_sysmem_wpr,
+    attempt_direct_acr_load, attempt_pio_acr_with_sysmem_wpr,
     attempt_pio_acr_with_vram_wpr,
 };
+#[cfg(feature = "legacy-acr")]
+use super::strategy_chain::attempt_acr_chain;
 use super::strategy_hybrid::attempt_hybrid_acr_boot;
 use super::strategy_mailbox::{
     FalconBootvecOffsets, attempt_acr_mailbox_command, attempt_direct_falcon_upload,
@@ -23,20 +25,20 @@ use super::strategy_mailbox::{
     attempt_physical_first_boot,
 };
 use super::strategy_sysmem::attempt_sysmem_acr_boot;
-use super::strategy_vram::{
-    DualPhaseConfig, attempt_dual_phase_boot_cfg, attempt_vram_acr_boot,
-};
+use super::strategy_vram::attempt_vram_acr_boot;
+#[cfg(feature = "legacy-acr")]
+use super::strategy_vram::{DualPhaseConfig, attempt_dual_phase_boot_cfg};
 
 // ── Falcon Boot Solver (top-level orchestrator) ──────────────────────
 //
-// POST-DEVINIT CLEANUP (pending Exp 142 confirmation):
-// Once sovereign_boot() runs VBIOS DEVINIT as Phase 0 and ACR HS auth
-// succeeds, the strategy chain can be simplified:
-//   - Strategy 7c (PIO ACR + sysmem WPR) becomes the primary path
-//   - Strategies 1-3d (that work around uninitialized hardware) may be
-//     simplified or removed
-//   - The warm-up STARTCPU and FBIF hacks in earlier strategies become
-//     unnecessary with properly initialized hardware
+// With SovereignInit running VBIOS DEVINIT as Stage 0 (HBM2 training)
+// before this solver is invoked:
+//   - Strategy 7c (PIO ACR + sysmem WPR) is the primary post-DEVINIT path
+//   - Strategies 3c/3d and 8 are gated behind the `legacy-acr` feature
+//     flag since they use legacy page directory / physical DMA formats
+//   - Strategy 1 (Nouveau-style SEC2) remains as the faithful reproduction
+//   - Strategy 6 (Direct HRESET) and 7b (PIO ACR + VRAM WPR) are PIO-safe
+//     fallbacks that work without DMA
 
 /// Classified FECS state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,16 +191,48 @@ impl fmt::Display for FalconProbe {
 }
 
 /// Boot strategy selected by the solver.
+///
+/// Each variant maps to a numbered strategy in `boot_inner`. After DEVINIT
+/// and HS auth, `PioAcrSysmemWpr` (7c) is the primary path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootStrategy {
-    /// FECS is already running — no boot needed.
+    /// Strategy 0: FECS is already running — no boot needed.
     AlreadyRunning,
-    /// Direct HRESET experiments (low cost, may not work).
+    /// Strategy 1: Nouveau-style SEC2 boot (corrected reset + bind).
+    NouveauSec2Boot,
+    /// Strategy 1b: Physical-first SEC2 boot (no instance block).
+    PhysicalFirstSec2,
+    /// Strategy 2: VRAM-based ACR boot (PRAMIN → VRAM → falcon DMA).
+    VramAcrBoot,
+    /// Strategy 3: System-memory ACR boot (IOMMU DMA).
+    SysmemAcrBoot,
+    /// Strategy 3b: Hybrid ACR boot (VRAM pages + sysmem data).
+    HybridAcrBoot,
+    /// Strategy 3c: Dual-phase VRAM ACR boot (legacy PDEs).
+    #[cfg(feature = "legacy-acr")]
+    DualPhaseVram,
+    /// Strategy 3d: Dual-phase + WPR2 hardware boundaries.
+    #[cfg(feature = "legacy-acr")]
+    DualPhaseWpr2,
+    /// Strategy 4: Direct FECS boot (bypass ACR, requires HRESET).
+    DirectFecsBoot,
+    /// Strategy 5: ACR mailbox command (live SEC2).
+    AcrMailbox,
+    /// Strategy 6: Direct HRESET experiments (PIO-safe).
     DirectHreset,
-    /// SEC2 EMEM-based ACR boot (works on HS-locked falcon).
+    /// Strategy 7c: PIO ACR + sysmem WPR — **primary post-DEVINIT path**.
+    PioAcrSysmemWpr,
+    /// Strategy 7b: PIO ACR + VRAM WPR (PIO-safe, no BL DMA).
+    PioAcrVramWpr,
+    /// Strategy 7: Direct ACR IMEM load (canary + firmware).
+    DirectAcrImem,
+    /// Strategy 8: Full ACR chain with DMA (legacy physical addressing).
+    #[cfg(feature = "legacy-acr")]
+    FullAcrChain,
+    /// Strategy 9: EMEM-based SEC2 boot fallback.
     EmemBoot,
-    /// SEC2 IMEM-based ACR boot (works on clean-reset falcon).
-    ImemBoot,
+    /// Strategy 10: Direct host GPCCS/FECS firmware upload.
+    DirectFalconUpload,
     /// All strategies exhausted.
     NoViablePath,
 }
@@ -272,7 +306,25 @@ impl FalconBootSolver {
                 fw
             }
             Err(e) => {
-                tracing::error!("Failed to load firmware: {e}");
+                tracing::error!("Failed to load ACR firmware for {chip}: {e}");
+                let sec2_snap = Sec2Probe::capture(bar0);
+                results.push(AcrBootResult {
+                    strategy: "firmware_load",
+                    sec2_before: sec2_snap.clone(),
+                    sec2_after: sec2_snap,
+                    fecs_cpuctl_after: probe.fecs_cpuctl,
+                    fecs_mailbox0_after: probe.fecs_mailbox0,
+                    gpccs_cpuctl_after: probe.gpccs_cpuctl,
+                    fecs_pc_after: probe.fecs_pc,
+                    fecs_exci_after: probe.fecs_exci,
+                    gpccs_pc_after: probe.gpccs_pc,
+                    gpccs_exci_after: probe.gpccs_exci,
+                    success: false,
+                    notes: vec![format!(
+                        "ACR firmware missing for {chip}: {e}. \
+                         Install nvidia firmware to /lib/firmware/nvidia/{chip}/"
+                    )],
+                });
                 return Ok(results);
             }
         };
@@ -344,34 +396,41 @@ impl FalconBootSolver {
                 }
             }
 
-            // ── Strategy 3c: Dual-phase VRAM ACR boot (default WPR2 off) ──
-            tracing::info!("Strategy 3c: Dual-phase VRAM ACR boot (legacy PDEs)...");
-            let dp_default = attempt_dual_phase_boot_cfg(bar0, &fw, &DualPhaseConfig::default());
-            tracing::info!("{dp_default}");
-            record(&dp_default);
-            let dp_default_success = dp_default.success;
-            results.push(dp_default);
-            if dp_default_success {
-                return Ok(results);
-            }
+            // ── Strategy 3c: Dual-phase VRAM ACR boot (legacy PDEs) ──
+            // Gated behind `legacy-acr` — these use legacy page directory formats
+            // that are unnecessary after proper DEVINIT + HS auth.
+            #[cfg(feature = "legacy-acr")]
+            {
+                tracing::info!("Strategy 3c: Dual-phase VRAM ACR boot (legacy PDEs)...");
+                let dp_default = attempt_dual_phase_boot_cfg(bar0, &fw, &DualPhaseConfig::default());
+                tracing::info!("{dp_default}");
+                record(&dp_default);
+                let dp_default_success = dp_default.success;
+                results.push(dp_default);
+                if dp_default_success {
+                    return Ok(results);
+                }
 
-            // ── Strategy 3d: Dual-phase with WPR2 hardware boundaries set ──
-            tracing::info!("Strategy 3d: Dual-phase VRAM ACR boot + WPR2 set...");
-            let dp_wpr2 = attempt_dual_phase_boot_cfg(
-                bar0,
-                &fw,
-                &DualPhaseConfig {
-                    set_wpr2: true,
-                    ..DualPhaseConfig::default()
-                },
-            );
-            tracing::info!("{dp_wpr2}");
-            record(&dp_wpr2);
-            let dp_wpr2_success = dp_wpr2.success;
-            results.push(dp_wpr2);
-            if dp_wpr2_success {
-                return Ok(results);
+                // ── Strategy 3d: Dual-phase with WPR2 hardware boundaries set ──
+                tracing::info!("Strategy 3d: Dual-phase VRAM ACR boot + WPR2 set...");
+                let dp_wpr2 = attempt_dual_phase_boot_cfg(
+                    bar0,
+                    &fw,
+                    &DualPhaseConfig {
+                        set_wpr2: true,
+                        ..DualPhaseConfig::default()
+                    },
+                );
+                tracing::info!("{dp_wpr2}");
+                record(&dp_wpr2);
+                let dp_wpr2_success = dp_wpr2.success;
+                results.push(dp_wpr2);
+                if dp_wpr2_success {
+                    return Ok(results);
+                }
             }
+            #[cfg(not(feature = "legacy-acr"))]
+            tracing::debug!("Strategies 3c/3d: skipped (legacy-acr feature not enabled)");
         }
 
         // ── Strategy 4: Direct FECS boot (bypass ACR) ──
@@ -482,7 +541,10 @@ impl FalconBootSolver {
                 return Ok(results);
             }
 
-            // ── Strategy 8: Full ACR chain with DMA ──
+            // ── Strategy 8: Full ACR chain with DMA (legacy physical addressing) ──
+            // Gated behind `legacy-acr` — this path uses physical DMA addressing
+            // that is superseded by PIO ACR strategies post-DEVINIT.
+            #[cfg(feature = "legacy-acr")]
             if let Some(dma_backend) = container {
                 tracing::info!("Strategy 8: Full ACR chain boot (DMA-backed, legacy)...");
                 let chain_result = attempt_acr_chain(bar0, &fw, dma_backend);
@@ -493,9 +555,9 @@ impl FalconBootSolver {
                 if chain_success {
                     return Ok(results);
                 }
-            } else {
-                tracing::info!("No DMA backend — skipping ACR chain");
             }
+            #[cfg(not(feature = "legacy-acr"))]
+            tracing::debug!("Strategy 8: skipped (legacy-acr feature not enabled)");
 
             // ── Strategy 9: EMEM-based boot fallback ──
             tracing::info!("Strategy 9: EMEM-based SEC2 boot (fallback)...");

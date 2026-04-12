@@ -23,6 +23,7 @@ vfio = []
 cuda = ["dep:cudarc"]
 test-utils = []
 rdna2-buffer-read = []
+legacy-acr = []
 
 [dev-dependencies]
 coral-reef.workspace = true

@@ -34,6 +34,7 @@ pub mod gr_context;
 mod gr_engine_status;
 mod init;
 pub mod pmu_interface;
+pub mod sovereign_init;
 mod submission;
 
 pub use gr_engine_status::GrEngineStatus;
@@ -291,7 +292,7 @@ impl NvVfioComputeDevice {
 
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
-        NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
+        init::apply_gr_bar0_init(&bar0, sm_version);
 
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
@@ -330,6 +331,82 @@ impl NvVfioComputeDevice {
         Ok(dev)
     }
 
+    /// Sovereign GPU open — full nouveau replacement via pure Rust.
+    ///
+    /// Runs the complete `SovereignInit` pipeline from cold or warm state:
+    ///   Stage 0: HBM2 Training      (auto-detect cold vs warm)
+    ///   Stage 1: PMC Engine Gating   (un-gate all clock domains)
+    ///   Stage 2: Topology Discovery  (GPC/TPC/SM/FBP/PBDMA)
+    ///   Stage 3: PFB Memory Init     (FBHUB, MMU, NISO)
+    ///   Stage 4: Falcon Boot         (SEC2 → ACR → FECS/GPCCS solver)
+    ///   Stage 5: GR Engine Init      (firmware BAR0 writes + dynamic config)
+    ///   Stage 6: PFIFO Discovery     (PBDMA map, scheduler, engine table)
+    ///
+    /// Then creates a PFIFO channel and applies FECS channel init methods.
+    ///
+    /// No nouveau. No nvidia. No DRM. Pure Rust + VFIO + firmware blobs.
+    ///
+    /// Pass `sm_version=0` to auto-detect from BOOT0.
+    pub fn open_sovereign(bdf: &str, sm_version: u32) -> DriverResult<(Self, sovereign_init::SovereignInitResult)> {
+        let device = VfioDevice::open(bdf)?;
+        let container = device.dma_backend();
+        let bar0 = device.map_bar(0)?;
+
+        let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, 0)?;
+
+        let init = sovereign_init::SovereignInit::new(&bar0, sm_version)
+            .with_bdf(bdf)
+            .with_dma_backend(container.clone());
+        let init_result = init.init_all();
+
+        tracing::info!(
+            bdf,
+            sm_version,
+            stages = init_result.stages.len(),
+            hbm2_trained = init_result.hbm2_trained,
+            falcons_alive = init_result.falcons_alive,
+            gr_ready = init_result.gr_ready,
+            pfifo_ready = init_result.pfifo_ready,
+            "sovereign open: init pipeline complete"
+        );
+
+        let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
+        let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "GPFIFO entries constant always fits u32"
+        )]
+        let channel = VfioChannel::create_sovereign(
+            container.clone(),
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+            0,
+        )?;
+
+        let mut dev = Self {
+            device,
+            bar0,
+            sm_version,
+            compute_class,
+            gpfifo_ring,
+            gpfifo_put: 0,
+            userd,
+            channel,
+            next_handle: 1,
+            next_iova: USER_IOVA_BASE,
+            container,
+            buffers: HashMap::new(),
+            inflight: Vec::new(),
+        };
+
+        dev.apply_fecs_channel_init();
+
+        Ok((dev, init_result))
+    }
+
     /// Opens from pre-existing VFIO fds (received from coral-ember via `SCM_RIGHTS`).
     ///
     /// Pass `sm_version=0` and `compute_class=0` to auto-detect from BOOT0.
@@ -346,7 +423,7 @@ impl NvVfioComputeDevice {
 
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
-        NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
+        init::apply_gr_bar0_init(&bar0, sm_version);
 
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;

@@ -88,6 +88,80 @@ pub struct RecipeStep {
     pub priority: u32,
 }
 
+/// GPU init stage for the trace-and-replace sovereign driver strategy.
+///
+/// Each stage maps to a subsystem that can be independently validated against
+/// a nouveau reference capture, then replaced with a pure Rust implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum InitStage {
+    PmcEngineGating,
+    ClockPll,
+    PriTopology,
+    PfbMemory,
+    FalconBoot,
+    GrEngineInit,
+    PfifoChannel,
+    Other,
+}
+
+impl InitStage {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PmcEngineGating => "PMC_ENGINE_GATING",
+            Self::ClockPll => "CLOCK_PLL",
+            Self::PriTopology => "PRI_TOPOLOGY",
+            Self::PfbMemory => "PFB_MEMORY",
+            Self::FalconBoot => "FALCON_BOOT",
+            Self::GrEngineInit => "GR_ENGINE_INIT",
+            Self::PfifoChannel => "PFIFO_CHANNEL",
+            Self::Other => "OTHER",
+        }
+    }
+
+    pub fn all_ordered() -> &'static [InitStage] {
+        &[
+            Self::PmcEngineGating,
+            Self::ClockPll,
+            Self::PriTopology,
+            Self::PfbMemory,
+            Self::FalconBoot,
+            Self::GrEngineInit,
+            Self::PfifoChannel,
+            Self::Other,
+        ]
+    }
+}
+
+impl std::fmt::Display for InitStage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A staged init recipe: writes grouped by init stage in dependency order.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StagedRecipe {
+    pub gpu: String,
+    pub driver: String,
+    pub total_writes: usize,
+    pub stages: Vec<StageBlock>,
+}
+
+/// All writes for a single init stage.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StageBlock {
+    pub stage: InitStage,
+    pub writes: Vec<StageWrite>,
+}
+
+/// A single register write within a stage, preserving original ordering.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StageWrite {
+    pub offset: usize,
+    pub value: u32,
+    pub timestamp_us: u64,
+}
+
 /// Domain ranges and their dependency priority (lower = write first).
 const DOMAIN_PRIORITY: &[(&str, usize, usize, u32)] = &[
     ("ROOT_PLL", 0x136000, 0x137000, 0),
@@ -116,6 +190,31 @@ fn classify_domain(offset: usize) -> (&'static str, u32) {
         }
     }
     ("UNKNOWN", 99)
+}
+
+/// Classify an MMIO offset into an init stage for the trace-and-replace strategy.
+fn classify_stage(offset: usize) -> InitStage {
+    match offset {
+        // PMC + PBUS: engine gating and power control
+        0x000000..0x002000 => InitStage::PmcEngineGating,
+        // Clock PLLs, root PLL, clock domains
+        0x130000..0x138000 => InitStage::ClockPll,
+        // PRI topology, PRI master/hub, PTOP
+        0x020000..0x024000 | 0x120000..0x123000 => InitStage::PriTopology,
+        // PFB, FBHUB, FBPA, LTC (memory controller subsystem)
+        0x100000..0x101000 | 0x17E000..0x190000 | 0x9A0000..0x9B0000 => InitStage::PfbMemory,
+        // Falcon processors: SEC2, PMU, FECS, GPCCS, ACR
+        0x087000..0x088000 | 0x10A000..0x10C000 | 0x409000..0x40A000
+        | 0x41A000..0x41B000 | 0x840000..0x841000 | 0x862000..0x863000 => {
+            InitStage::FalconBoot
+        }
+        // PGRAPH and GPC registers (GR engine)
+        0x400000..0x500000 | 0x500000..0x600000 => InitStage::GrEngineInit,
+        // PFIFO, PBDMA, PRAMIN, PCCSR, USERMODE (channel infrastructure)
+        0x002000..0x004000 | 0x040000..0x0A0000 | 0x700000..0x710000
+        | 0x800000..0x900000 | 0x810000..0x811000 => InitStage::PfifoChannel,
+        _ => InitStage::Other,
+    }
 }
 
 impl BootTrace {
@@ -252,6 +351,85 @@ impl BootTrace {
             *counts.entry(domain.to_string()).or_default() += 1;
         }
         counts
+    }
+
+    /// Build a staged recipe from the trace, grouped by init stage.
+    ///
+    /// Writes are classified into [`InitStage`] categories and preserved in
+    /// original trace order within each stage. This is the primary input for
+    /// the sovereign replay tool.
+    pub fn to_staged_recipe(&self) -> StagedRecipe {
+        let mut stage_map: BTreeMap<u8, Vec<StageWrite>> = BTreeMap::new();
+
+        for w in &self.writes {
+            let stage = classify_stage(w.offset);
+            let key = *InitStage::all_ordered()
+                .iter()
+                .position(|s| *s == stage)
+                .get_or_insert(7) as u8;
+            stage_map.entry(key).or_default().push(StageWrite {
+                offset: w.offset,
+                value: w.value,
+                timestamp_us: w.timestamp_us,
+            });
+        }
+
+        let stages: Vec<StageBlock> = InitStage::all_ordered()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, stage)| {
+                stage_map.remove(&(idx as u8)).map(|writes| StageBlock {
+                    stage: *stage,
+                    writes,
+                })
+            })
+            .collect();
+
+        let total_writes = stages.iter().map(|s| s.writes.len()).sum();
+
+        StagedRecipe {
+            gpu: "GV100".to_string(),
+            driver: self.driver.clone(),
+            total_writes,
+            stages,
+        }
+    }
+
+    /// Summary of write counts per init stage.
+    pub fn stage_summary(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::new();
+        for w in &self.writes {
+            let stage = classify_stage(w.offset);
+            *counts.entry(stage.as_str().to_string()).or_default() += 1;
+        }
+        counts
+    }
+}
+
+impl StagedRecipe {
+    /// Load a staged recipe from a JSON file (produced by extract-recipe.py or
+    /// serialized from Rust).
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read recipe {}: {e}", path.display()))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("cannot parse recipe {}: {e}", path.display()))
+    }
+
+    /// Save the staged recipe to a JSON file.
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("cannot serialize recipe: {e}"))?;
+        std::fs::write(path, content)
+            .map_err(|e| format!("cannot write recipe {}: {e}", path.display()))
+    }
+
+    /// Get writes for a specific stage.
+    pub fn stage_writes(&self, stage: InitStage) -> &[StageWrite] {
+        self.stages
+            .iter()
+            .find(|b| b.stage == stage)
+            .map_or(&[], |b| &b.writes)
     }
 }
 
@@ -390,5 +568,75 @@ mod tests {
         assert_eq!(recipe[0].domain, "ROOT_PLL");
         assert_eq!(recipe[1].domain, "PMC");
         assert_eq!(recipe[2].domain, "PFIFO");
+    }
+
+    #[test]
+    fn classify_stages() {
+        assert_eq!(classify_stage(0x000200), InitStage::PmcEngineGating);
+        assert_eq!(classify_stage(0x001100), InitStage::PmcEngineGating);
+        assert_eq!(classify_stage(0x137000), InitStage::ClockPll);
+        assert_eq!(classify_stage(0x136400), InitStage::ClockPll);
+        assert_eq!(classify_stage(0x020100), InitStage::PriTopology);
+        assert_eq!(classify_stage(0x122000), InitStage::PriTopology);
+        assert_eq!(classify_stage(0x100400), InitStage::PfbMemory);
+        assert_eq!(classify_stage(0x9A0100), InitStage::PfbMemory);
+        assert_eq!(classify_stage(0x10A100), InitStage::FalconBoot);
+        assert_eq!(classify_stage(0x409100), InitStage::FalconBoot);
+        assert_eq!(classify_stage(0x840100), InitStage::FalconBoot);
+        assert_eq!(classify_stage(0x400500), InitStage::GrEngineInit);
+        assert_eq!(classify_stage(0x500100), InitStage::GrEngineInit);
+        assert_eq!(classify_stage(0x002200), InitStage::PfifoChannel);
+        assert_eq!(classify_stage(0x800100), InitStage::PfifoChannel);
+        assert_eq!(classify_stage(0x810090), InitStage::PfifoChannel);
+        assert_eq!(classify_stage(0xFFF000), InitStage::Other);
+    }
+
+    #[test]
+    fn staged_recipe_from_trace() {
+        let trace = BootTrace {
+            writes: vec![
+                MmioWrite { timestamp_us: 0, offset: 0x000200, value: 0xFF, width: 4 },
+                MmioWrite { timestamp_us: 10, offset: 0x137000, value: 0x01, width: 4 },
+                MmioWrite { timestamp_us: 20, offset: 0x400500, value: 0x42, width: 4 },
+                MmioWrite { timestamp_us: 30, offset: 0x002200, value: 0x11, width: 4 },
+            ],
+            reads: vec![],
+            driver: "nouveau".to_string(),
+            duration_us: 30,
+        };
+
+        let recipe = trace.to_staged_recipe();
+        assert_eq!(recipe.total_writes, 4);
+        assert_eq!(recipe.gpu, "GV100");
+        assert_eq!(recipe.stages.len(), 4);
+        assert_eq!(recipe.stages[0].stage, InitStage::PmcEngineGating);
+        assert_eq!(recipe.stages[0].writes.len(), 1);
+        assert_eq!(recipe.stages[0].writes[0].offset, 0x000200);
+        assert_eq!(recipe.stages[1].stage, InitStage::ClockPll);
+        assert_eq!(recipe.stages[2].stage, InitStage::GrEngineInit);
+        assert_eq!(recipe.stages[3].stage, InitStage::PfifoChannel);
+    }
+
+    #[test]
+    fn staged_recipe_serde_roundtrip() {
+        let recipe = StagedRecipe {
+            gpu: "GV100".to_string(),
+            driver: "nouveau".to_string(),
+            total_writes: 1,
+            stages: vec![StageBlock {
+                stage: InitStage::PmcEngineGating,
+                writes: vec![StageWrite {
+                    offset: 0x200,
+                    value: 0xFF,
+                    timestamp_us: 0,
+                }],
+            }],
+        };
+
+        let json = serde_json::to_string(&recipe).unwrap();
+        let back: StagedRecipe = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.total_writes, 1);
+        assert_eq!(back.stages[0].stage, InitStage::PmcEngineGating);
+        assert_eq!(back.stages[0].writes[0].offset, 0x200);
     }
 }

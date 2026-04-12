@@ -292,7 +292,7 @@ fn phase_e(dev: &mut NvDevice) -> bool {
     );
 
     let tol = 1e-8;
-    let fx_ok = (forces[0] - (-cpu_fx)).abs() < tol && (forces[3] - cpu_fx).abs() < tol;
+    let fx_ok = (forces[0] - cpu_fx).abs() < tol && (forces[3] + cpu_fx).abs() < tol;
     let fy_ok = forces[1].abs() < tol && forces[4].abs() < tol;
     let fz_ok = forces[2].abs() < tol && forces[5].abs() < tol;
 
@@ -320,9 +320,9 @@ fn main() {
     println!("╚═══════════════════════════════════════════════════╝");
     println!();
 
-    let mut dev = match NvDevice::open() {
+    let mut dev = match NvDevice::open_firmware_managed() {
         Ok(d) => {
-            println!("  Opened nouveau device");
+            println!("  Opened nouveau device (firmware-managed mode)");
             d
         }
         Err(e) => {

@@ -41,44 +41,16 @@ pub(super) fn bind_vfio(
 
     match coral_driver::vfio::VfioDevice::open(bdf) {
         Ok(device) => {
-            // Immediately quiesce warm engines before any client can touch BAR0.
-            // A warm swap (nouveau→vfio) leaves PMC_ENABLE with many live engines
-            // whose stale firmware/channels cause PRI ring hangs on register reads.
-            match device.map_bar(0) {
-                Ok(bar0) => {
-                    let ptr = bar0.base_ptr() as usize;
-                    let sz = bar0.size();
-                    let bdf_q = bdf.to_string();
-                    let qr = crate::isolation::fork_isolated_mmio(
-                        &bdf_q,
-                        std::time::Duration::from_secs(2),
-                        |_pipe_fd| {
-                            #[allow(unsafe_code)]
-                            let b = unsafe {
-                                coral_driver::vfio::device::MappedBar::from_raw(
-                                    ptr as *mut u8, sz,
-                                )
-                            };
-                            coral_driver::vfio::device::dma_safety::post_swap_quiesce(&b);
-                            std::mem::forget(b);
-                        },
-                    );
-                    if matches!(qr, crate::isolation::ForkResult::Timeout) {
-                        tracing::error!(bdf, "swap_bind: post_swap_quiesce TIMED OUT");
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(bdf, error = %e, "swap_bind: BAR0 map failed for post-swap quiesce");
-                }
-            }
-
+            // ZERO BAR0 I/O on swap-bind. Quiesce is deferred to explicit
+            // RPC calls. PCIe bus hangs from BAR0 reads on cold/partial GPUs
+            // propagate past fork isolation and lock the entire system.
             let req_eventfd = crate::arm_req_irq(&device, bdf);
             tracing::info!(
                 bdf,
                 backend = ?device.backend_kind(),
                 device_fd = device.device_fd(),
                 req_armed = req_eventfd.is_some(),
-                "swap_device: VFIO fds reacquired (post-swap quiesce applied)"
+                "swap_device: VFIO fds reacquired (zero-MMIO hold, quiesce deferred)"
             );
             held.insert(
                 bdf.to_string(),

@@ -265,16 +265,31 @@ pub struct FirmwareInventory {
     pub pmu: FwStatus,
     /// GPU System Processor — Ampere+ substitute for PMU.
     pub gsp: FwStatus,
+    /// VBIOS PROM readable — on Volta and earlier, VBIOS provides PMU microcode.
+    pub vbios_prom: FwStatus,
 }
 
 impl FirmwareInventory {
-    /// Whether nouveau can likely initialize a compute channel.
-    ///
-    /// Requires either PMU firmware (Volta/Turing) or GSP firmware (Ampere+).
-    /// GR firmware is always required for compute.
+    /// On SM < 75 (Volta and earlier), PMU firmware is embedded in the
+    /// VBIOS rather than shipped as separate blob files on disk.
     #[must_use]
-    pub const fn compute_viable(&self) -> bool {
-        self.gr.is_present() && (self.pmu.is_present() || self.gsp.is_present())
+    pub fn pmu_available(&self) -> bool {
+        self.pmu.is_present() || self.vbios_pmu_substitute()
+    }
+
+    /// VBIOS acts as PMU firmware source for pre-Turing chips.
+    #[must_use]
+    fn vbios_pmu_substitute(&self) -> bool {
+        self.vbios_prom.is_present() && sm_uses_vbios_pmu(&self.chip)
+    }
+
+    /// Whether the sovereign pipeline can likely reach compute.
+    ///
+    /// Requires GR firmware plus either PMU blobs, VBIOS-embedded PMU
+    /// (Volta/earlier), or GSP firmware (Ampere+).
+    #[must_use]
+    pub fn compute_viable(&self) -> bool {
+        self.gr.is_present() && (self.pmu_available() || self.gsp.is_present())
     }
 
     /// Human-readable summary of missing components blocking compute.
@@ -284,11 +299,23 @@ impl FirmwareInventory {
         if !self.gr.is_present() {
             blockers.push("GR (graphics/compute engine)");
         }
-        if !self.pmu.is_present() && !self.gsp.is_present() {
+        if !self.pmu_available() && !self.gsp.is_present() {
             blockers.push("PMU or GSP (compute init firmware)");
         }
         blockers
     }
+}
+
+/// Pre-Turing chips (SM < 75) have PMU microcode in the VBIOS
+/// rather than as separate firmware blobs.
+fn sm_uses_vbios_pmu(chip: &str) -> bool {
+    matches!(
+        chip,
+        "gv100" | "gv10b" | "gp100" | "gp102" | "gp104" | "gp106" | "gp107" | "gp108"
+            | "gm200" | "gm204" | "gm206" | "gm20b" | "gk104" | "gk106" | "gk107" | "gk110"
+            | "gk20a" | "gk208" | "gf100" | "gf104" | "gf106" | "gf108" | "gf110" | "gf117"
+            | "gf119"
+    )
 }
 
 /// Probe firmware inventory for an NVIDIA GPU chip.
@@ -327,6 +354,7 @@ pub fn firmware_inventory(chip: &str) -> FirmwareInventory {
                 "gsp-535.113.01.bin",
             ],
         ),
+        vbios_prom: FwStatus::Missing, // caller sets via BAR0 probe
     }
 }
 
@@ -552,6 +580,7 @@ mod tests {
             nvdec: FwStatus::Present,
             pmu: FwStatus::Missing,
             gsp: FwStatus::Missing,
+            vbios_prom: FwStatus::Missing,
         };
         assert!(!inv.compute_viable(), "no PMU or GSP → not viable");
         assert!(!inv.compute_blockers().is_empty());
@@ -897,6 +926,7 @@ mod tests {
             nvdec: FwStatus::Present,
             pmu: FwStatus::Present,
             gsp: FwStatus::Present,
+            vbios_prom: FwStatus::Missing,
         };
         let b = inv.compute_blockers();
         assert_eq!(b.len(), 1);
@@ -913,10 +943,44 @@ mod tests {
             nvdec: FwStatus::Present,
             pmu: FwStatus::Missing,
             gsp: FwStatus::Missing,
+            vbios_prom: FwStatus::Missing,
         };
         let b = inv.compute_blockers();
         assert_eq!(b.len(), 1);
         assert!(b[0].contains("PMU"));
+    }
+
+    #[test]
+    fn firmware_inventory_vbios_pmu_substitute_gv100() {
+        let inv = FirmwareInventory {
+            chip: "gv100".into(),
+            acr: FwStatus::Present,
+            gr: FwStatus::Present,
+            sec2: FwStatus::Present,
+            nvdec: FwStatus::Present,
+            pmu: FwStatus::Missing,
+            gsp: FwStatus::Missing,
+            vbios_prom: FwStatus::Present,
+        };
+        assert!(inv.pmu_available(), "gv100 VBIOS provides PMU");
+        assert!(inv.compute_viable(), "gv100 viable with VBIOS PMU");
+        assert!(inv.compute_blockers().is_empty());
+    }
+
+    #[test]
+    fn firmware_inventory_vbios_no_substitute_turing() {
+        let inv = FirmwareInventory {
+            chip: "tu102".into(),
+            acr: FwStatus::Present,
+            gr: FwStatus::Present,
+            sec2: FwStatus::Present,
+            nvdec: FwStatus::Present,
+            pmu: FwStatus::Missing,
+            gsp: FwStatus::Missing,
+            vbios_prom: FwStatus::Present,
+        };
+        assert!(!inv.pmu_available(), "tu102 needs separate PMU blobs");
+        assert!(!inv.compute_viable());
     }
 
     #[test]

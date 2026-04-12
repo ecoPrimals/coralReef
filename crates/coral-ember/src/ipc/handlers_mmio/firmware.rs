@@ -72,22 +72,39 @@ pub(crate) fn firmware_inventory(
             let sm = coral_driver::nv::identity::boot0_to_sm(boot0).unwrap_or(0);
             let chip = coral_driver::nv::identity::chip_name(sm);
 
-            let inv = coral_driver::nv::identity::firmware_inventory(chip);
+            let mut inv = coral_driver::nv::identity::firmware_inventory(chip);
 
-            let vbios_available =
-                coral_driver::vfio::channel::devinit::read_vbios_prom(&bar0).is_ok();
+            // PMC_ENABLE (0x200): if engines are gated on, the GPU was
+            // warm-cycled (nouveau/nvidia ran DEVINIT). On a cold boot
+            // the register reads ~0 and VBIOS PROM access is unsafe —
+            // the memory controller isn't initialized and BAR0 PROM
+            // reads can hang the PCIe bus.
+            let pmc_enable = bar0.read_u32(0x200).unwrap_or(0);
+            let gpu_warm = pmc_enable.count_ones() >= 4;
+
+            let vbios_available = if gpu_warm {
+                let ok = coral_driver::vfio::channel::devinit::read_vbios_prom(&bar0).is_ok();
+                if ok {
+                    inv.vbios_prom = coral_driver::nv::identity::FwStatus::Present;
+                }
+                ok
+            } else {
+                false
+            };
 
             let payload = serde_json::json!({
                 "boot0": format!("{boot0:#010x}"),
                 "chip": chip,
                 "sm": sm,
-                "acr": format!("{:?}", inv.acr),
-                "gr": format!("{:?}", inv.gr),
-                "sec2": format!("{:?}", inv.sec2),
-                "pmu": format!("{:?}", inv.pmu),
-                "gsp": format!("{:?}", inv.gsp),
-                "nvdec": format!("{:?}", inv.nvdec),
+                "acr": inv.acr.is_present(),
+                "gr": inv.gr.is_present(),
+                "sec2": inv.sec2.is_present(),
+                "pmu": inv.pmu_available(),
+                "gsp": inv.gsp.is_present(),
+                "nvdec": inv.nvdec.is_present(),
                 "vbios_prom": vbios_available,
+                "gpu_warm": gpu_warm,
+                "pmc_enable": format!("{pmc_enable:#010x}"),
                 "compute_viable": inv.compute_viable(),
                 "blockers": inv.compute_blockers(),
             });
@@ -222,15 +239,24 @@ pub(crate) fn firmware_load(
     handle_fork_result(stream, id, fork_result, &bdf_owned, "firmware load")
 }
 
-/// `ember.sovereign.init` — run the full SovereignInit pipeline on a held device.
+/// `ember.sovereign.init` — staged sovereign init with per-stage fork isolation.
 ///
-/// Orchestrates: HBM2 training → PMC gating → topology discovery → PFB →
-/// falcon boot (15 strategies) → GR init → PFIFO discovery. Fork-isolated
-/// with a 60s timeout (full cold boot is the heaviest operation).
+/// Each stage runs in its own fork-isolated child with a short timeout.
+/// If any stage hangs (PCIe bus hang from BAR0 writes), ember kills just
+/// that child and reports which stage failed — the system stays alive.
 ///
-/// Params: `{bdf, cold?: bool}`
-/// Result: `{bdf, chip, hbm2_trained, pmc_gated, topology_ok, pfb_ok, falcons_alive,
-///          gr_ready, pfifo_ready, fecs_responsive, compute_ready, diagnostics}`
+/// Stages:
+///   0. Probe: read-only BOOT0 + PMC_ENABLE + DEVINIT check
+///   1. HBM2 Training (cold only, auto-detected)
+///   2. PMC + Engine Gating
+///   3. Topology Discovery (read-only)
+///   4. PFB + Memory Controller
+///   5. Falcon Boot (SEC2 → ACR → FECS/GPCCS)
+///   6. GR Engine Init
+///   7. PFIFO Discovery
+///
+/// Params: `{bdf}`
+/// Result: `{bdf, chip, stages: [{name, status, detail}], compute_ready, diagnostics}`
 #[allow(unsafe_code)]
 pub(crate) fn sovereign_init(
     stream: &mut impl Write,
@@ -264,93 +290,294 @@ pub(crate) fn sovereign_init(
     let bar0 = dev.bar0.as_ref().unwrap();
     let bar0_ptr = bar0.base_ptr() as usize;
     let bar0_size = bar0.size();
+    let dma_backend = dev.device.dma_backend();
     let bdf_owned = bdf.to_string();
     drop(map);
 
-    let fork_result = isolation::fork_isolated_mmio(
-        &bdf_owned,
-        std::time::Duration::from_secs(60),
+    let mut completed_stages: Vec<serde_json::Value> = Vec::new();
+    let mut sm: u32 = 70;
+    let mut chip = String::from("gv100");
+    let mut boot0_val: u32 = 0xFFFF_FFFF;
+    let mut halted = false;
+
+    // ── Stage 0: Read-only probe (3s timeout) ──────────────────────
+    // Three warmth levels:
+    //   - "hot":  PMC_ENABLE has many bits → engines alive (e.g. nvidia driver still loaded)
+    //   - "warm": PMC_ENABLE has ANY bits → HBM2 trained, engines gated (post-nouveau teardown)
+    //   - "cold": PMC_ENABLE == 0 → true cold boot, memory controller uninitialized
+    // We only block on "cold". "Warm" is safe — the PMC stage will ungate engines.
+    let probe = run_isolated_stage(
+        &bdf_owned, bar0_ptr, bar0_size, "probe",
+        std::time::Duration::from_secs(3),
+        |bar0, pipe_fd| {
+            let b0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
+            let s = coral_driver::nv::identity::boot0_to_sm(b0).unwrap_or(70);
+            let c = coral_driver::nv::identity::chip_name(s);
+            let pmc = bar0.read_u32(0x200).unwrap_or(0);
+            let devinit = bar0.read_u32(0x0002_240C).unwrap_or(0);
+            // "warm enough" = any PMC bit set (post-nouveau teardown leaves ≥1 bit)
+            // OR DEVINIT status bit set. Truly cold reads PMC as 0x00000000.
+            let warm = pmc != 0 || (devinit & 2) != 0;
+            let payload = serde_json::json!({
+                "boot0": format!("{b0:#010x}"),
+                "sm": s, "chip": c,
+                "pmc_enable": format!("{pmc:#010x}"),
+                "pmc_bits": pmc.count_ones(),
+                "gpu_warm": warm,
+                "devinit_done": (devinit & 2) != 0,
+            });
+            pipe_json(pipe_fd, &payload);
+        },
+    );
+
+    match probe {
+        StageOutcome::Ok(data) => {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data) {
+                let warm = v["gpu_warm"].as_bool().unwrap_or(false);
+                sm = v["sm"].as_u64().unwrap_or(70) as u32;
+                chip = v["chip"].as_str().unwrap_or("gv100").to_string();
+                boot0_val = v["boot0"].as_str()
+                    .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                    .unwrap_or(0xFFFF_FFFF);
+                completed_stages.push(serde_json::json!({
+                    "name": "probe", "status": "ok", "detail": v,
+                }));
+                if !warm {
+                    completed_stages.push(serde_json::json!({
+                        "name": "probe", "status": "blocked",
+                        "detail": "GPU is truly cold (PMC_ENABLE=0x0). modprobe nouveau to warm-cycle HBM2.",
+                    }));
+                    halted = true;
+                }
+            }
+        }
+        StageOutcome::Timeout => {
+            completed_stages.push(serde_json::json!({
+                "name": "probe", "status": "timeout",
+                "detail": "Read-only probe timed out — GPU may be in D-state",
+            }));
+            halted = true;
+        }
+        StageOutcome::Failed(msg) => {
+            completed_stages.push(serde_json::json!({
+                "name": "probe", "status": "failed", "detail": msg,
+            }));
+            halted = true;
+        }
+    }
+
+    // Stages 1–7: each gets its own fork with a short timeout.
+    // We stop at the first stage that hangs.
+    struct StageDef {
+        name: &'static str,
+        timeout_secs: u64,
+        method: &'static str,
+    }
+    let stages = [
+        StageDef { name: "hbm2", timeout_secs: 10, method: "init_hbm2" },
+        StageDef { name: "pmc", timeout_secs: 5, method: "init_pmc" },
+        StageDef { name: "topology", timeout_secs: 5, method: "init_topology" },
+        StageDef { name: "pfb", timeout_secs: 5, method: "init_pfb" },
+        StageDef { name: "pri_ring_reset", timeout_secs: 5, method: "reset_pri_ring" },
+        StageDef { name: "falcons", timeout_secs: 15, method: "init_falcons" },
+        StageDef { name: "gr", timeout_secs: 10, method: "init_gr" },
+        StageDef { name: "pfifo", timeout_secs: 5, method: "init_pfifo_discovery" },
+    ];
+
+    let sm_cap = sm;
+    let bdf_cap = bdf_owned.clone();
+    let dma_cap = dma_backend.clone();
+
+    for stage_def in &stages {
+        if halted { break; }
+
+        let method = stage_def.method;
+        let sm_c = sm_cap;
+        let bdf_c = bdf_cap.clone();
+        let dma_c = dma_cap.clone();
+
+        let outcome = run_isolated_stage(
+            &bdf_owned, bar0_ptr, bar0_size, stage_def.name,
+            std::time::Duration::from_secs(stage_def.timeout_secs),
+            move |bar0, pipe_fd| {
+                let pipeline =
+                    coral_driver::nv::vfio_compute::sovereign_init::SovereignInit::new(bar0, sm_c)
+                        .with_bdf(&bdf_c)
+                        .with_dma_backend(dma_c);
+
+                let result = match method {
+                    "init_hbm2" => pipeline.init_hbm2(),
+                    "init_pmc" => pipeline.init_pmc(),
+                    "reset_pri_ring" => pipeline.reset_pri_ring(),
+                    "init_topology" => {
+                        let (r, topo) = pipeline.init_topology();
+                        if let Some(t) = &topo {
+                            let payload = serde_json::json!({
+                                "stage": r.stage, "ok": r.ok(),
+                                "writes_applied": r.writes_applied,
+                                "writes_failed": r.writes_failed,
+                                "duration_us": r.duration_us,
+                                "topology": {
+                                    "gpc": t.gpc_count, "sm": t.sm_count,
+                                    "fbp": t.fbp_count, "pbdma": t.pbdma_count,
+                                },
+                            });
+                            pipe_json(pipe_fd, &payload);
+                            return;
+                        }
+                        r
+                    }
+                    "init_pfb" => pipeline.init_pfb(),
+                    "init_falcons" => pipeline.init_falcons(),
+                    "init_gr" => pipeline.init_gr(),
+                    "init_pfifo_discovery" => pipeline.init_pfifo_discovery(),
+                    _ => unreachable!(),
+                };
+
+                let payload = serde_json::json!({
+                    "stage": result.stage, "ok": result.ok(),
+                    "writes_applied": result.writes_applied,
+                    "writes_failed": result.writes_failed,
+                    "duration_us": result.duration_us,
+                });
+                pipe_json(pipe_fd, &payload);
+            },
+        );
+
+        match outcome {
+            StageOutcome::Ok(data) => {
+                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data) {
+                    let ok = v["ok"].as_bool().unwrap_or(false);
+                    completed_stages.push(serde_json::json!({
+                        "name": stage_def.name,
+                        "status": if ok { "ok" } else { "failed" },
+                        "detail": v,
+                    }));
+                } else {
+                    completed_stages.push(serde_json::json!({
+                        "name": stage_def.name, "status": "ok",
+                        "detail": String::from_utf8_lossy(&data).to_string(),
+                    }));
+                }
+            }
+            StageOutcome::Timeout => {
+                tracing::error!(
+                    bdf = %bdf_owned, stage = stage_def.name,
+                    "sovereign init stage TIMED OUT — child sacrificed, stopping pipeline"
+                );
+                completed_stages.push(serde_json::json!({
+                    "name": stage_def.name, "status": "timeout",
+                    "detail": format!(
+                        "Stage timed out after {}s — fork child killed. \
+                         GPU may need warm cycle or the stage is incompatible.",
+                        stage_def.timeout_secs
+                    ),
+                }));
+                halted = true;
+            }
+            StageOutcome::Failed(msg) => {
+                completed_stages.push(serde_json::json!({
+                    "name": stage_def.name, "status": "crashed",
+                    "detail": msg,
+                }));
+                halted = true;
+            }
+        }
+    }
+
+    // Build final result
+    let all_ok = completed_stages.iter().all(|s| {
+        s["status"].as_str() == Some("ok")
+    });
+    let last_completed = completed_stages.last()
+        .and_then(|s| s["name"].as_str())
+        .unwrap_or("none");
+
+    let payload = serde_json::json!({
+        "bdf": bdf_owned,
+        "boot0": format!("{boot0_val:#010x}"),
+        "chip": chip,
+        "sm": sm,
+        "staged": true,
+        "stages": completed_stages,
+        "all_ok": all_ok,
+        "halted_at": if halted { Some(last_completed) } else { None },
+        "compute_ready": all_ok && !halted,
+    });
+
+    // Update device health
+    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
+    if let Some(dev) = map.get_mut(&bdf_owned) {
+        if halted {
+            dev.mmio_fault_count += 1;
+            if completed_stages.iter().any(|s| s["status"].as_str() == Some("timeout")) {
+                dev.health = crate::hold::DeviceHealth::Faulted;
+            }
+        } else if all_ok {
+            dev.health = crate::hold::DeviceHealth::Active;
+            dev.experiment_dirty = true;
+        }
+        let _ = update_fault_counter(dev, boot0_val);
+    }
+    drop(map);
+
+    write_jsonrpc_ok(stream, id, payload).map_err(EmberIpcError::from)
+}
+
+/// Outcome of a single fork-isolated stage.
+enum StageOutcome {
+    Ok(Vec<u8>),
+    Timeout,
+    Failed(String),
+}
+
+/// Run a single init stage in a fork-isolated child.
+#[allow(unsafe_code)]
+fn run_isolated_stage(
+    bdf: &str,
+    bar0_ptr: usize,
+    bar0_size: usize,
+    stage_name: &str,
+    timeout: std::time::Duration,
+    body: impl FnOnce(&coral_driver::vfio::device::MappedBar, i32),
+) -> StageOutcome {
+    tracing::info!(bdf, stage = stage_name, timeout_ms = timeout.as_millis() as u64, "sovereign stage: starting");
+    let result = isolation::fork_isolated_mmio(
+        bdf,
+        timeout,
         |pipe_fd| {
             let bar0 = unsafe {
                 coral_driver::vfio::device::MappedBar::from_raw(bar0_ptr as *mut u8, bar0_size)
             };
-
-            let boot0 = bar0.read_u32(0).unwrap_or(0xFFFF_FFFF);
-            let sm = coral_driver::nv::identity::boot0_to_sm(boot0).unwrap_or(70);
-            let chip = coral_driver::nv::identity::chip_name(sm);
-
-            let pipeline =
-                coral_driver::nv::vfio_compute::sovereign_init::SovereignInit::new(&bar0, sm)
-                    .with_bdf(&bdf_owned);
-
-            let result = pipeline.init_all();
-
-            let total_applied: u32 = result.stages.iter().map(|s| s.writes_applied).sum();
-            let total_failed: u32 = result.stages.iter().map(|s| s.writes_failed).sum();
-
-            let payload = serde_json::json!({
-                "boot0": format!("{boot0:#010x}"),
-                "chip": chip,
-                "sm": sm,
-                "hbm2_trained": result.hbm2_trained,
-                "falcons_alive": result.falcons_alive,
-                "gr_ready": result.gr_ready,
-                "pfifo_ready": result.pfifo_ready,
-                "fecs_responsive": result.fecs_responsive,
-                "compute_ready": result.compute_ready(),
-                "stages": result.stages.len(),
-                "all_ok": result.all_ok(),
-                "writes_applied": total_applied,
-                "writes_failed": total_failed,
-                "topology": result.topology.as_ref().map(|t| serde_json::json!({
-                    "gpc": t.gpc_count,
-                    "sm": t.sm_count,
-                    "fbp": t.fbp_count,
-                    "pbdma": t.pbdma_count,
-                })),
-                "diagnostics": result.diagnostic_summary(),
-            });
-            let bytes = serde_json::to_vec(&payload).unwrap_or_default();
-            unsafe { libc::write(pipe_fd, bytes.as_ptr().cast(), bytes.len()); }
+            body(&bar0, pipe_fd);
+            std::mem::forget(bar0);
         },
     );
-
-    let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
-    if let Some(dev) = map.get_mut(&bdf_owned) {
-        match &fork_result {
-            ForkResult::Ok(data) => {
-                let compute_ready = serde_json::from_slice::<serde_json::Value>(data)
-                    .ok()
-                    .and_then(|v| v.get("compute_ready").and_then(|b| b.as_bool()))
-                    .unwrap_or(false);
-                if compute_ready {
-                    dev.health = crate::hold::DeviceHealth::Active;
-                }
-                let boot0_str = serde_json::from_slice::<serde_json::Value>(data)
-                    .ok()
-                    .and_then(|v| v.get("boot0").and_then(|b| b.as_str()).map(String::from));
-                let boot0 = boot0_str
-                    .and_then(|s| {
-                        u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()
-                    })
-                    .unwrap_or(0xFFFF_FFFF);
-                let _ = update_fault_counter(dev, boot0);
-                dev.experiment_dirty = true;
-            }
-            ForkResult::Timeout | ForkResult::ChildFailed { .. } => {
-                dev.mmio_fault_count += 1;
-                dev.health = crate::hold::DeviceHealth::Faulted;
-                tracing::error!(
-                    bdf = %bdf_owned,
-                    "sovereign init fork failed — device marked faulted"
-                );
-            }
-            ForkResult::ForkFailed(_) | ForkResult::PipeFailed(_) => {}
+    match result {
+        ForkResult::Ok(data) => {
+            tracing::info!(bdf, stage = stage_name, bytes = data.len(), "sovereign stage: completed");
+            StageOutcome::Ok(data)
+        }
+        ForkResult::Timeout => {
+            tracing::error!(bdf, stage = stage_name, "sovereign stage: TIMEOUT — child killed");
+            StageOutcome::Timeout
+        }
+        ForkResult::ChildFailed { status } => {
+            tracing::error!(bdf, stage = stage_name, status, "sovereign stage: child crashed");
+            StageOutcome::Failed(format!("child exited with status {status}"))
+        }
+        ForkResult::ForkFailed(e) | ForkResult::PipeFailed(e) => {
+            tracing::error!(bdf, stage = stage_name, error = %e, "sovereign stage: fork/pipe failed");
+            StageOutcome::Failed(format!("fork error: {e}"))
         }
     }
-    drop(map);
+}
 
-    handle_fork_result(stream, id, fork_result, &bdf_owned, "sovereign init")
+/// Write a JSON value to the fork pipe.
+#[allow(unsafe_code)]
+fn pipe_json(pipe_fd: i32, val: &serde_json::Value) {
+    let bytes = serde_json::to_vec(val).unwrap_or_default();
+    unsafe { libc::write(pipe_fd, bytes.as_ptr().cast(), bytes.len()); }
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────

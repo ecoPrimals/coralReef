@@ -19,6 +19,7 @@
 mod deploy;
 mod handlers_device;
 mod handlers_diag;
+mod handlers_sovereign;
 mod oracle;
 mod rpc;
 
@@ -222,6 +223,37 @@ enum Command {
     Experiment {
         #[command(subcommand)]
         action: ExperimentAction,
+    },
+
+    /// Sovereign GPU compute — pure Rust init pipeline routed through ember.
+    ///
+    /// All operations go through ember's fork-isolated MMIO gateway.
+    /// Ember must be running and holding the device (via glowplug.toml or adopt).
+    Sovereign {
+        #[command(subcommand)]
+        action: SovereignAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SovereignAction {
+    /// Probe firmware availability for a GPU (ACR, GR, SEC2, VBIOS).
+    Inventory {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+    },
+    /// Load and validate firmware blobs (ACR + GR) from /lib/firmware/nvidia/.
+    LoadFirmware {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+    },
+    /// Run the full SovereignInit pipeline (HBM2 → PMC → Topology → PFB → Falcon → GR → PFIFO → Context).
+    ///
+    /// Replaces nouveau subsystem-by-subsystem in pure Rust.
+    /// Runs inside ember's fork-isolated process with PCIe armor.
+    Init {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
     },
 }
 
@@ -528,6 +560,17 @@ fn main() {
                     trace,
                     repeat,
                 );
+            }
+        },
+        Command::Sovereign { action } => match action {
+            SovereignAction::Inventory { bdf } => {
+                handlers_sovereign::rpc_firmware_inventory(&bdf);
+            }
+            SovereignAction::LoadFirmware { bdf } => {
+                handlers_sovereign::rpc_firmware_load(&bdf);
+            }
+            SovereignAction::Init { bdf } => {
+                handlers_sovereign::rpc_sovereign_init(&bdf);
             }
         },
     }

@@ -234,6 +234,74 @@ pub fn save_recipe(recipe: &[RecipeStep], path: &Path) -> Result<(), DriverError
     })
 }
 
+/// Apply a [`StagedRecipe`] to a cold GPU via VFIO BAR0.
+///
+/// Opens the device by BDF, maps BAR0, replays each stage in order,
+/// then validates PTIMER and PMC_BOOT_0.
+pub fn apply_staged_recipe(
+    bdf: &str,
+    recipe: &boot_follower::StagedRecipe,
+) -> Result<ReplayResult, DriverError> {
+    tracing::info!(bdf, stages = recipe.stages.len(), "staged replay: opening VFIO device");
+
+    let device = VfioDevice::open(bdf)?;
+    let bar0 = device.map_bar(0)?;
+
+    apply_staged_recipe_to_bar0(&bar0, recipe)
+}
+
+/// Apply a [`StagedRecipe`] to an already-mapped BAR0.
+///
+/// Writes each stage's registers in the order they appear in the recipe,
+/// flushing PCIe posted writes between stages.
+pub fn apply_staged_recipe_to_bar0(
+    bar0: &MappedBar,
+    recipe: &boot_follower::StagedRecipe,
+) -> Result<ReplayResult, DriverError> {
+    let mut applied: usize = 0;
+    let mut failed: usize = 0;
+    let mut domain_counts: std::collections::BTreeMap<String, (usize, usize)> =
+        std::collections::BTreeMap::new();
+
+    for block in &recipe.stages {
+        let stage_name = block.stage.as_str().to_string();
+        let entry = domain_counts.entry(stage_name.clone()).or_insert((0, 0));
+
+        for w in &block.writes {
+            match bar0.write_u32(w.offset, w.value) {
+                Ok(()) => {
+                    applied += 1;
+                    entry.0 += 1;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        offset = format_args!("{:#x}", w.offset),
+                        value = format_args!("{:#x}", w.value),
+                        stage = %stage_name,
+                        error = %e,
+                        "staged replay: write failed"
+                    );
+                    failed += 1;
+                    entry.1 += 1;
+                }
+            }
+        }
+
+        // Flush PCIe posted writes between stages
+        let _ = bar0.read_u32(PMC_BOOT_0);
+
+        tracing::debug!(
+            stage = %stage_name,
+            applied = entry.0,
+            failed = entry.1,
+            "staged replay: stage complete"
+        );
+    }
+
+    tracing::info!(applied, failed, "staged replay: writes complete, validating GPU");
+    validate_gpu(bar0, applied, failed, domain_counts)
+}
+
 /// Apply a recipe to a cold GPU via VFIO BAR0.
 ///
 /// Opens the device by BDF, maps BAR0, writes all recipe steps in priority

@@ -137,34 +137,11 @@ pub fn apply_hold_actions(
 
         match coral_driver::vfio::VfioDevice::open(bdf) {
             Ok(device) => {
-            match device.map_bar(0) {
-                Ok(bar0) => {
-                    let ptr = bar0.base_ptr() as usize;
-                    let sz = bar0.size();
-                    let bdf_q = bdf.clone();
-                    let qr = crate::isolation::fork_isolated_mmio(
-                        &bdf_q,
-                        std::time::Duration::from_secs(2),
-                        |_pipe_fd| {
-                            #[allow(unsafe_code)]
-                            let b = unsafe {
-                                coral_driver::vfio::device::MappedBar::from_raw(
-                                    ptr as *mut u8, sz,
-                                )
-                            };
-                            coral_driver::vfio::device::dma_safety::post_swap_quiesce(&b);
-                            std::mem::forget(b);
-                        },
-                    );
-                    if matches!(qr, crate::isolation::ForkResult::Timeout) {
-                        tracing::error!(bdf = %bdf, "startup: post_swap_quiesce TIMED OUT");
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(bdf = %bdf, error = %e, "startup: BAR0 map failed for post-swap quiesce");
-                }
-            }
-
+                // ZERO BAR0 I/O at startup. We only hold the VFIO fds.
+                // BAR0 mapping and quiesce are deferred to explicit RPC
+                // calls. Reading BAR0 on a cold or partially-initialized
+                // GPU can cause PCIe bus hangs that propagate past fork
+                // isolation and lock the entire system.
                 let req_eventfd = crate::arm_req_irq(&device, bdf);
                 tracing::info!(
                     bdf = %bdf,
@@ -172,7 +149,7 @@ pub fn apply_hold_actions(
                     device_fd = device.device_fd(),
                     num_fds = device.sendable_fds().len(),
                     req_armed = req_eventfd.is_some(),
-                    "VFIO device held by ember (post-swap quiesce applied)"
+                    "VFIO device held by ember (zero-MMIO hold, quiesce deferred)"
                 );
                 held_init.insert(
                     bdf.clone(),
@@ -186,6 +163,9 @@ pub fn apply_hold_actions(
                         needs_warm_cycle: false,
                         dma_prepare_state: None,
                         mmio_fault_count: 0,
+                        health: hold::DeviceHealth::Alive,
+                        pcie_armor: None,
+                        teardown_policy: Default::default(),
                     },
                 );
             }
