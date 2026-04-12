@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 11, 2026  
-**Phase**: 10 — Iteration 79c (Dead Code Cleanup, Test Recovery, #[allow] Audit)
+**Last updated**: April 12, 2026  
+**Phase**: 10 — Iteration 80 (Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt)
 
 ---
 
@@ -41,7 +41,22 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 79c** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 80** |
+
+### Iteration 80: Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt (Apr 12, 2026)
+
+**Theme**: Documented the `shader.compile.wgsl` wire contract (unblocking spring composition for neuralSpring and all GPU-using springs); surfaced `CompilationInfo` through IPC responses; aligned crypto socket discovery across core/ember/glowplug; idiomatic Rust evolution (zero-allocation parse, DRY Display impls, socket-derived Host headers); comprehensive deep debt audit confirming zero hardcoded primal names, zero production mocks, zero Result<_, String>, all unsafe annotated.
+
+| Area | Change |
+|------|--------|
+| Wire contract | New `docs/SHADER_COMPILE_WIRE_CONTRACT.md`: JSON-RPC/tarpc schemas for all `shader.compile.*` methods, error codes, multi-stage ML composition guidance, capability discovery responses |
+| CompilationInfo | `CompilationInfoResponse` struct (gpr_count, instr_count, shared_mem_bytes, barrier_count, workgroup_size) added to `CompileResponse` and `DeviceCompileResult` |
+| Compile handlers | `handle_compile_wgsl` and `handle_compile_wgsl_multi` now call `compile_wgsl_full` to populate metadata |
+| IPC docs | `IPC_COMPOSITION_AND_LATENCY.md` updated with wire contract reference and info fields in sequence diagrams |
+| Socket alignment | `coral-glowplug/config.rs`: centralized `resolve_socket_dir()` / `family_id()` / `ecosystem_namespace()` as `pub`; `coral-ember/config.rs`: centralized `resolve_socket_dir()`; both BTSP modules delegate to config |
+| NvArch::parse | Eliminated `format!()` allocation per comparison — direct match table (zero allocation) |
+| IntelArch Display | Consolidated to `f.write_str(self.short_name())` |
+| UDS Host header | `primal-rpc-client` transport: socket-name-derived instead of hardcoded `"localhost"` |
 
 ### Iteration 79: Deep Debt Cleanup — ecoBin Deny, IPC Latency, Configurable Hardcoding (Apr 11, 2026)
 

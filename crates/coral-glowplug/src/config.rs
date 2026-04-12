@@ -242,7 +242,7 @@ pub fn default_tcp_fallback() -> String {
 ///
 /// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`).
 /// This is a protocol-defined path component, not a capability registry or primal lookup key.
-fn ecosystem_namespace() -> &'static str {
+pub fn ecosystem_namespace() -> &'static str {
     use std::sync::OnceLock;
     static NS: OnceLock<String> = OnceLock::new();
     NS.get_or_init(|| {
@@ -251,8 +251,19 @@ fn ecosystem_namespace() -> &'static str {
 }
 
 /// Instance isolation id for socket filenames (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
-pub(crate) fn family_id() -> String {
+pub fn family_id() -> String {
     std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+}
+
+/// Base directory for ecosystem socket/discovery files.
+///
+/// `$XDG_RUNTIME_DIR/<namespace>` (or `$TMPDIR/<namespace>` when XDG is unset).
+/// Shared by both primal socket layout and BTSP security socket discovery.
+#[must_use]
+pub fn resolve_socket_dir() -> std::path::PathBuf {
+    let base = std::env::var("XDG_RUNTIME_DIR")
+        .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
+    base.join(ecosystem_namespace())
 }
 
 /// Check that `BIOMEOS_INSECURE` and `BIOMEOS_FAMILY_ID` are not both active.
@@ -284,13 +295,8 @@ pub fn validate_insecure_guard() -> Result<(), crate::error::ConfigError> {
 fn default_socket() -> String {
     #[cfg(unix)]
     {
-        let base = std::env::var("XDG_RUNTIME_DIR")
-            .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
         let sock_name = format!("{}-{}.sock", env!("CARGO_PKG_NAME"), family_id());
-        base.join(ecosystem_namespace())
-            .join(sock_name)
-            .display()
-            .to_string()
+        resolve_socket_dir().join(sock_name).display().to_string()
     }
     #[cfg(not(unix))]
     {

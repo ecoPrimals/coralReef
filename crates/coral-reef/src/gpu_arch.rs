@@ -180,13 +180,16 @@ impl NvArch {
     /// Returns `None` if the string doesn't match any known architecture.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .find(|a| {
-                let sm = a.sm();
-                s == format!("sm_{sm}") || s == format!("sm{sm}")
-            })
-            .copied()
+        match s {
+            "sm_35" | "sm35" => Some(Self::Sm35),
+            "sm_70" | "sm70" => Some(Self::Sm70),
+            "sm_75" | "sm75" => Some(Self::Sm75),
+            "sm_80" | "sm80" => Some(Self::Sm80),
+            "sm_86" | "sm86" => Some(Self::Sm86),
+            "sm_89" | "sm89" => Some(Self::Sm89),
+            "sm_120" | "sm120" => Some(Self::Sm120),
+            _ => None,
+        }
     }
 
     /// Short architecture identifier (e.g. `"sm70"`, `"sm86"`).
@@ -495,12 +498,7 @@ impl IntelArch {
 
 impl std::fmt::Display for IntelArch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::XeHpg => write!(f, "xe_hpg"),
-            Self::Dg2Alchemist => write!(f, "dg2_alchemist"),
-            Self::Xe2Hpg => write!(f, "xe2_hpg"),
-            Self::XeLpg => write!(f, "xe_lpg"),
-        }
+        f.write_str(self.short_name())
     }
 }
 

@@ -5,8 +5,8 @@ use bytes::Bytes;
 use coral_reef::{AmdArch, CompileError, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
 use super::types::{
-    CompileRequest, CompileResponse, CompileWgslRequest, DeviceCompileResult,
-    MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+    CompilationInfoResponse, CompileRequest, CompileResponse, CompileWgslRequest,
+    DeviceCompileResult, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
 };
 
 /// Parse an architecture string into a [`GpuTarget`].
@@ -88,6 +88,7 @@ pub fn handle_compile_spirv(
         size,
         arch: Some(arch),
         status: Some("success".to_owned()),
+        info: None,
     })
 }
 
@@ -118,6 +119,10 @@ pub fn parse_fma_policy(s: Option<&str>) -> FmaPolicy {
 
 /// Execute a WGSL compile request.
 ///
+/// Uses `compile_wgsl_full` to return both the binary and compilation
+/// metadata (`CompilationInfo`) so callers can construct dispatch
+/// descriptors without re-parsing.
+///
 /// # Errors
 ///
 /// Returns [`CompileError`] on invalid input or compilation failure.
@@ -128,13 +133,20 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         .map_or(req.fp64_software, |s| s == "software");
     let fma = parse_fma_policy(req.fma_policy.as_deref());
     let options = build_options(&req.arch, req.opt_level, fp64_sw, fma)?;
-    let binary = coral_reef::compile_wgsl(req.wgsl_source.as_ref(), &options)?;
-    let size = binary.len();
+    let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
+    let size = compiled.binary.len();
     Ok(CompileResponse {
-        binary: Bytes::from(binary),
+        binary: Bytes::from(compiled.binary),
         size,
         arch: Some(req.arch.clone()),
         status: Some("success".to_owned()),
+        info: Some(CompilationInfoResponse {
+            gpr_count: compiled.info.gpr_count,
+            instr_count: compiled.info.instr_count,
+            shared_mem_bytes: compiled.info.shared_mem_bytes,
+            barrier_count: compiled.info.barrier_count,
+            workgroup_size: compiled.info.local_size,
+        }),
     })
 }
 
@@ -172,7 +184,7 @@ pub fn handle_compile_wgsl_multi(
     let mut success_count = 0usize;
 
     for target in req.targets {
-        let result = (|| -> Result<(Bytes, usize), CompileError> {
+        let result = (|| -> Result<coral_reef::CompiledBinary, CompileError> {
             let gpu_target = parse_target(&target.arch)?;
             let options = CompileOptions {
                 target: gpu_target,
@@ -182,20 +194,26 @@ pub fn handle_compile_wgsl_multi(
                 fma_policy: fma,
                 ..CompileOptions::default()
             };
-            let binary = coral_reef::compile_wgsl(req.wgsl_source.as_ref(), &options)?;
-            let size = binary.len();
-            Ok((Bytes::from(binary), size))
+            coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)
         })();
 
         match result {
-            Ok((binary, size)) => {
+            Ok(compiled) => {
                 success_count += 1;
+                let size = compiled.binary.len();
                 results.push(DeviceCompileResult {
                     card_index: target.card_index,
                     arch: target.arch,
-                    binary: Some(binary),
+                    binary: Some(Bytes::from(compiled.binary)),
                     size,
                     error: None,
+                    info: Some(CompilationInfoResponse {
+                        gpr_count: compiled.info.gpr_count,
+                        instr_count: compiled.info.instr_count,
+                        shared_mem_bytes: compiled.info.shared_mem_bytes,
+                        barrier_count: compiled.info.barrier_count,
+                        workgroup_size: compiled.info.local_size,
+                    }),
                 });
             }
             Err(e) => {
@@ -205,6 +223,7 @@ pub fn handle_compile_wgsl_multi(
                     binary: None,
                     size: 0,
                     error: Some(e.to_string()),
+                    info: None,
                 });
             }
         }

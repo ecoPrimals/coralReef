@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 79.
+**Current position**: Phase 10 — Iteration 80.
 
-**Last completed**: ecoBin v3 `deny.toml` C/FFI bans (CR-01); multi-stage ML pipeline documentation + capability metadata; IPC compile latency budgets; hardcoded values evolved to env-configurable (`CORALREEF_HEARTBEAT_SECS`, `CORALREEF_INTEL_SETTLE_SECS`, `BIOMEOS_ECOSYSTEM_NAMESPACE` in BTSP); primal self-knowledge in health responses (`CARGO_PKG_NAME` + `CARGO_PKG_VERSION`); TCP IPC coverage for coral-ember; root doc synchronization.
+**Last completed**: Wire contract documentation (`SHADER_COMPILE_WIRE_CONTRACT.md`) unblocking spring composition; `CompilationInfoResponse` in IPC compile responses (GPR count, instruction count, shared memory, barriers, workgroup size); crypto socket discovery alignment across core/ember/glowplug; `NvArch::parse()` zero-allocation rewrite; UDS Host header evolution; deep debt audit (all mocks test-isolated, zero hardcoded primal names, all unsafe annotated).
 
 **Tests**: 4467 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coral-driver `Result<_, String>` wave 4+ (~20 deep hw functions); coverage push toward 90%; plasmidBin.
+**Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 11, 2026 (Phase 10 — Iteration 79 — Deep Debt Cleanup: ecoBin Deny, IPC Latency, Configurable Hardcoding.)
+**Last updated**: April 12, 2026 (Phase 10 — Iteration 80 — Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt.)
 
 ---
 

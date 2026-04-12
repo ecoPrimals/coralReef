@@ -356,8 +356,8 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
 
 /// Write a discovery file so peer primals can find this service.
 ///
-/// File path: `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}/{CARGO_PKG_NAME}.json`
-/// Contains transport addresses and capability summary.
+/// File path: `{dir}/{CARGO_PKG_NAME}.json` where `dir` defaults to
+/// `$XDG_RUNTIME_DIR/{ECOSYSTEM_NAMESPACE}`.
 ///
 /// Format follows wateringHole Phase 10: `provides`, `transports` as
 /// `{ "jsonrpc": { "bind": "..." }, "tarpc": { "bind": "..." } }`,
@@ -365,8 +365,18 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
 async fn write_discovery_file(
     desc: &coralreef_core::capability::SelfDescription,
 ) -> io::Result<()> {
-    let dir = discovery_dir()?;
-    tokio::fs::create_dir_all(&dir).await?;
+    write_discovery_file_to(&discovery_dir()?, desc).await
+}
+
+/// Write a discovery file into an explicit directory.
+///
+/// Separated from [`write_discovery_file`] so tests can target an isolated
+/// temp directory instead of the shared `$XDG_RUNTIME_DIR/biomeos/` path.
+async fn write_discovery_file_to(
+    dir: &std::path::Path,
+    desc: &coralreef_core::capability::SelfDescription,
+) -> io::Result<()> {
+    tokio::fs::create_dir_all(dir).await?;
     let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
 
     let jsonrpc_addr = desc
@@ -385,7 +395,6 @@ async fn write_discovery_file(
         .find(|t| t.protocol.starts_with("tarpc"))
         .map_or("", |t| t.address.as_ref());
 
-    // Phase 10: each transport has { "bind": "..." }
     let jsonrpc_bind = jsonrpc_addr.to_string();
     let jsonrpc_line_bind = jsonrpc_line_addr.to_string();
 
@@ -413,7 +422,12 @@ async fn write_discovery_file(
 
 /// Remove the discovery file on shutdown.
 async fn remove_discovery_file() {
-    if let Ok(dir) = discovery_dir() {
+    remove_discovery_file_from(discovery_dir().ok().as_deref()).await;
+}
+
+/// Remove a discovery file from an explicit directory.
+async fn remove_discovery_file_from(dir: Option<&std::path::Path>) {
+    if let Some(dir) = dir {
         let path = dir.join(format!("{}.json", env!("CARGO_PKG_NAME")));
         let _ = tokio::fs::remove_file(&path).await;
     }

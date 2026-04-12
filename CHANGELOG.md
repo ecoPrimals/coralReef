@@ -4,11 +4,44 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 79c
+**Current status**: Phase 10 — Iteration 80
 
 ---
 
 ## [Unreleased]
+
+### Iteration 80 — Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt (2026-04-12)
+
+#### Wire Contract Documentation (Composition Blocker)
+- New `docs/SHADER_COMPILE_WIRE_CONTRACT.md`: authoritative JSON-RPC/tarpc wire contract for all `shader.compile.*` methods
+- Request/response/error schemas for `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`
+- Multi-stage ML pipeline composition guidance for neuralSpring
+- Capability discovery response schemas (`capability.list`, `shader.compile.capabilities`)
+- tarpc transport notes, composition checklist for springs
+
+#### CompilationInfo in IPC Responses
+- `CompilationInfoResponse` struct: `gpr_count`, `instr_count`, `shared_mem_bytes`, `barrier_count`, `workgroup_size`
+- `CompileResponse.info` and `DeviceCompileResult.info` carry compilation metadata over IPC
+- `handle_compile_wgsl` and `handle_compile_wgsl_multi` use `compile_wgsl_full` to populate info
+- Updated `IPC_COMPOSITION_AND_LATENCY.md` to reference wire contract and show info fields in sequence diagrams
+
+#### Crypto Socket Discovery Alignment
+- `coral-glowplug/src/config.rs`: centralized `resolve_socket_dir()`, `family_id()`, `ecosystem_namespace()` as `pub`
+- `coral-glowplug/src/socket/btsp.rs`: delegates to centralized config (removed duplicate helpers)
+- `coral-ember/src/config.rs`: new `resolve_socket_dir()` helper
+- `coral-ember/src/btsp.rs`: delegates to centralized config
+
+#### Idiomatic Rust Evolution
+- `NvArch::parse()`: eliminated format!() per-comparison allocation — zero-allocation match table
+- `IntelArch::Display`: consolidated to delegate to `short_name()` (single source of truth)
+- `primal-rpc-client` UDS transport: `Host: localhost` → socket-name-derived host header
+
+#### Metrics
+- 4467 tests passing, 0 failed, 153 ignored (hardware-gated)
+- 0 clippy warnings (pedantic + nursery)
+- 0 doc warnings, 0 fmt issues
+- 0 files >1000 LOC
+- `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok
 
 ### Iteration 79 — Deep Debt Cleanup: ecoBin Deny, IPC Latency, Configurable Hardcoding (2026-04-11)
 

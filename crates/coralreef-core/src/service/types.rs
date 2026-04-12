@@ -83,6 +83,9 @@ pub struct CompileWgslRequest {
 ///
 /// Uses `bytes::Bytes` for zero-copy IPC payloads — `Bytes::from(Vec<u8>)`
 /// takes ownership of the allocation without copying.
+///
+/// Includes [`CompilationInfoResponse`] so callers (barraCuda, springs) can
+/// construct QMD / dispatch descriptors without re-parsing the binary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResponse {
     /// Compiled GPU binary (zero-copy via `bytes::Bytes`).
@@ -95,6 +98,28 @@ pub struct CompileResponse {
     /// Compilation status (e.g. `"success"`, `"partial"`).
     #[serde(default)]
     pub status: Option<String>,
+    /// Compilation metadata for dispatch (GPR count, shared memory, barriers, workgroup size).
+    #[serde(default)]
+    pub info: Option<CompilationInfoResponse>,
+}
+
+/// Compilation metadata needed by the dispatch layer (toadStool, coralDriver).
+///
+/// Maps 1:1 from the compiler's internal `CompilationInfo`. Serialized as
+/// part of every `CompileResponse` so callers can build GPU dispatch
+/// descriptors (QMD, PM4) without re-analyzing the binary.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompilationInfoResponse {
+    /// General-purpose registers used by the shader.
+    pub gpr_count: u32,
+    /// Instructions emitted.
+    pub instr_count: u32,
+    /// Shared memory in bytes (from `var<workgroup>`).
+    pub shared_mem_bytes: u32,
+    /// Number of barriers used.
+    pub barrier_count: u32,
+    /// Workgroup dimensions from `@workgroup_size(x, y, z)`.
+    pub workgroup_size: [u32; 3],
 }
 
 /// `capability.list` response — Wire Standard Level 2 compliance.
@@ -266,6 +291,9 @@ pub struct DeviceCompileResult {
     /// Error message if compilation failed for this target.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Compilation metadata (GPR count, shared memory, etc.), or `None` on failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub info: Option<CompilationInfoResponse>,
 }
 
 /// Response from multi-device compilation.

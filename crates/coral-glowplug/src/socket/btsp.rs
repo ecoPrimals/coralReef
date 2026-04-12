@@ -11,18 +11,6 @@ use std::sync::OnceLock;
 
 const SECURITY_DOMAIN: &str = "crypto";
 
-/// Ecosystem namespace for socket path resolution.
-///
-/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`),
-/// consistent with `config::ecosystem_namespace()`.
-fn ecosystem_namespace() -> &'static str {
-    use std::sync::OnceLock;
-    static NS: OnceLock<String> = OnceLock::new();
-    NS.get_or_init(|| {
-        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
-    })
-}
-
 /// BTSP operating mode derived from environment at startup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BtspMode {
@@ -40,7 +28,7 @@ pub enum BtspMode {
 pub fn btsp_mode() -> &'static BtspMode {
     static MODE: OnceLock<BtspMode> = OnceLock::new();
     MODE.get_or_init(|| {
-        let fid = std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into());
+        let fid = coral_glowplug::config::family_id();
         if fid == "default" {
             BtspMode::Development
         } else {
@@ -129,9 +117,7 @@ pub async fn guard_connection() -> BtspOutcome {
 }
 
 fn resolve_socket_dir() -> PathBuf {
-    let base =
-        std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    base.join(ecosystem_namespace())
+    coral_glowplug::config::resolve_socket_dir()
 }
 
 fn discover_security_socket(family_id: &str) -> Option<PathBuf> {

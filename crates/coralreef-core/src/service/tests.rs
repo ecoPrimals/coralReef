@@ -7,9 +7,9 @@ use compile::parse_target;
 use coral_reef::{AmdArch, FmaPolicy, GpuArch, GpuTarget, NvArch};
 use std::sync::Arc;
 use types::{
-    CompileRequest, CompileResponse, CompileSpirvRequestTarpc, CompileWgslRequest,
-    DeviceCompileResult, DeviceTarget, HealthResponse, MultiDeviceCompileRequest,
-    MultiDeviceCompileResponse,
+    CompilationInfoResponse, CompileRequest, CompileResponse, CompileSpirvRequestTarpc,
+    CompileWgslRequest, DeviceCompileResult, DeviceTarget, HealthResponse,
+    MultiDeviceCompileRequest, MultiDeviceCompileResponse,
 };
 
 #[test]
@@ -504,6 +504,13 @@ fn test_compile_response_serde_roundtrip() {
         size: 3,
         arch: Some("sm_70".to_owned()),
         status: Some("success".to_owned()),
+        info: Some(CompilationInfoResponse {
+            gpr_count: 24,
+            instr_count: 100,
+            shared_mem_bytes: 256,
+            barrier_count: 1,
+            workgroup_size: [64, 1, 1],
+        }),
     };
     let json = serde_json::to_string(&resp).unwrap();
     let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
@@ -511,6 +518,11 @@ fn test_compile_response_serde_roundtrip() {
     assert_eq!(roundtrip.size, resp.size);
     assert_eq!(roundtrip.arch, resp.arch);
     assert_eq!(roundtrip.status, resp.status);
+    let info = roundtrip.info.expect("info should be present");
+    assert_eq!(info.gpr_count, 24);
+    assert_eq!(info.shared_mem_bytes, 256);
+    assert_eq!(info.barrier_count, 1);
+    assert_eq!(info.workgroup_size, [64, 1, 1]);
 }
 
 #[test]
@@ -520,6 +532,7 @@ fn test_compile_response_defaults_from_json() {
         size: 3,
         arch: None,
         status: None,
+        info: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
@@ -527,6 +540,7 @@ fn test_compile_response_defaults_from_json() {
     assert_eq!(roundtrip.size, 3);
     assert!(roundtrip.arch.is_none());
     assert!(roundtrip.status.is_none());
+    assert!(roundtrip.info.is_none());
 }
 
 #[test]
@@ -559,6 +573,13 @@ fn test_device_compile_result_serde_roundtrip() {
         binary: Some(Bytes::from(vec![0xCA, 0xFE])),
         size: 2,
         error: None,
+        info: Some(CompilationInfoResponse {
+            gpr_count: 16,
+            instr_count: 50,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+            workgroup_size: [256, 1, 1],
+        }),
     };
     let json = serde_json::to_string(&result).unwrap();
     let roundtrip: DeviceCompileResult = serde_json::from_str(&json).unwrap();
@@ -575,6 +596,7 @@ fn test_device_compile_result_error_skips_binary_in_json() {
         binary: None,
         size: 0,
         error: Some("unsupported arch".to_owned()),
+        info: None,
     };
     let json = serde_json::to_string(&result).unwrap();
     assert!(!json.contains("\"binary\""));
@@ -593,6 +615,7 @@ fn test_multi_device_compile_response_serde_roundtrip() {
             binary: Some(Bytes::from(vec![1, 2, 3])),
             size: 3,
             error: None,
+            info: Some(CompilationInfoResponse::default()),
         }],
         success_count: 1,
         total_count: 1,

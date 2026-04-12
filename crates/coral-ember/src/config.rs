@@ -96,6 +96,17 @@ pub(crate) fn ecosystem_namespace() -> &'static str {
     })
 }
 
+/// Base directory for ecosystem socket/discovery files.
+///
+/// `$XDG_RUNTIME_DIR/<namespace>` (or `$TMPDIR/<namespace>` when XDG is unset).
+/// Shared by both primal socket layout and BTSP security socket discovery.
+#[must_use]
+pub(crate) fn resolve_socket_dir() -> std::path::PathBuf {
+    let base = std::env::var("XDG_RUNTIME_DIR")
+        .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
+    base.join(ecosystem_namespace())
+}
+
 /// Check that `BIOMEOS_INSECURE` and `BIOMEOS_FAMILY_ID` are not both active.
 ///
 /// Per wateringHole `PRIMAL_SELF_KNOWLEDGE_STANDARD` v1.1: a primal must

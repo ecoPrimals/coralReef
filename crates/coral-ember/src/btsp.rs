@@ -96,9 +96,7 @@ pub(crate) fn guard_connection() -> BtspOutcome {
 }
 
 fn resolve_socket_dir() -> PathBuf {
-    let base =
-        std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    base.join(crate::config::ecosystem_namespace())
+    crate::config::resolve_socket_dir()
 }
 
 fn discover_security_socket(family_id: &str) -> Option<PathBuf> {

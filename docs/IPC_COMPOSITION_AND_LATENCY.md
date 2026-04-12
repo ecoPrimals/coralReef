@@ -2,8 +2,10 @@
 
 # IPC Composition & Compile Latency Guide
 
-**Last updated**: April 11, 2026 (Phase 10 — Iteration 79)
+**Last updated**: April 12, 2026 (Iteration 80)
 **Audience**: Spring teams composing with coralReef (`shader.compile.*`)
+**Wire contract**: See [SHADER_COMPILE_WIRE_CONTRACT.md](SHADER_COMPILE_WIRE_CONTRACT.md)
+for exact request/response/error JSON shapes.
 
 ---
 
@@ -57,19 +59,22 @@ operations. This is intentional — coralReef is a compiler, not a runtime sched
 neuralSpring                      coralReef                   gpu.dispatch provider
      │                                │                              │
      ├─ shader.compile.wgsl ─────────►│ (tokenizer.wgsl)             │
-     │◄──── CompileResponse ──────────┤ binary_a                     │
+     │◄──── {binary_a, info_a} ───────┤                              │
      │                                │                              │
      ├─ shader.compile.wgsl ─────────►│ (attention.wgsl)             │
-     │◄──── CompileResponse ──────────┤ binary_b                     │
+     │◄──── {binary_b, info_b} ───────┤                              │
      │                                │                              │
      ├─ shader.compile.wgsl ─────────►│ (ffn.wgsl)                   │
-     │◄──── CompileResponse ──────────┤ binary_c                     │
+     │◄──── {binary_c, info_c} ───────┤                              │
      │                                │                              │
-     ├─ gpu.dispatch(binary_a, bufs) ─┼─────────────────────────────►│
+     ├─ gpu.dispatch(binary_a,        │                              │
+     │    info_a, bufs) ──────────────┼─────────────────────────────►│
      │◄──── done ─────────────────────┼──────────────────────────────┤
-     ├─ gpu.dispatch(binary_b, bufs) ─┼─────────────────────────────►│
+     ├─ gpu.dispatch(binary_b,        │                              │
+     │    info_b, bufs) ──────────────┼─────────────────────────────►│
      │◄──── done ─────────────────────┼──────────────────────────────┤
-     ├─ gpu.dispatch(binary_c, bufs) ─┼─────────────────────────────►│
+     ├─ gpu.dispatch(binary_c,        │                              │
+     │    info_c, bufs) ──────────────┼─────────────────────────────►│
      │◄──── done ─────────────────────┼──────────────────────────────┤
 ```
 
