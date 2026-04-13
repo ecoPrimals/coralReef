@@ -13,19 +13,32 @@ license = "AGPL-3.0-or-later"
 binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"
-description = "Sovereign Rust GPU shader compiler. Compiles WGSL and SPIR-V compute shaders to native GPU binaries. coralDriver + coralGpu. Zero C dependencies."
+iteration = 80
+tests = 4467
+description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). coralDriver + coralGpu. Zero C dependencies."
 
 [capabilities]
-list = [
-    "shader.compile.spirv",
+provided = [
     "shader.compile.wgsl",
+    "shader.compile.spirv",
     "shader.compile.wgsl.multi",
     "shader.compile.status",
     "shader.compile.capabilities",
+    "health.check",
+    "health.liveness",
+    "health.readiness",
+    "identity.get",
+    "capability.list",
+    "capability.register",
+    "ipc.heartbeat",
 ]
+consumed = []
+
+[capabilities.gpu_targets]
+nvidia = ["sm35", "sm70", "sm75", "sm80", "sm86", "sm89", "sm120"]
+amd = ["gcn5", "rdna2", "rdna3", "rdna4"]
 
 [dependencies]
-# Sovereign — zero external service dependencies
 external = []
 
 [platforms]
@@ -33,7 +46,10 @@ primary = "linux-x86_64"
 cross_ready = ["linux-aarch64"]
 
 [ipc_transports]
-# JSON-RPC 2.0 over TCP
-jsonrpc = "tcp"
-# tarpc over Unix socket + TCP
+jsonrpc = ["unix_socket", "tcp"]
 tarpc = ["unix_socket", "tcp"]
+
+[security]
+btsp_phase = 2
+forbid_unsafe = ["coralreef-core", "coral-reef", "coral-glowplug", "coral-ember", "primal-rpc-client", "coral-gpu"]
+unsafe_exception = "coral-driver (hardware ioctl/MMIO)"
