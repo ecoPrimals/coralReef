@@ -2,14 +2,23 @@
 
 Validated experiments for the sovereign GPU compiler.
 
+## Location
+
+Active experiments live within their respective crate source trees:
+
+- **VFIO channel diagnostic experiments**: `crates/coral-driver/src/vfio/channel/diagnostic/experiments/`
+  - `direct_pbdma` — Direct PBDMA command submission
+  - `dispatch` — GPU compute dispatch
+  - `sched_doorbell` — Scheduler doorbell interaction
+  - `scheduler` — PFIFO scheduler probing
+  - `runlist_ack` — Runlist bind/enable acknowledgment
+  - `vram` — VRAM allocation and mapping
+  - `context` — Experiment context (shared DMA state)
+  - `reinit` — Engine re-initialization
+
 ## Structure
 
-Each experiment lives in its own directory with:
-- A `README.md` describing the hypothesis and methodology
-- Source code and/or test fixtures
-- Results and validation data
-
-## Experiments
-
-_No experiments yet. Future experiments will validate compiler correctness,
-performance characteristics, and hardware compatibility._
+Each experiment module contains:
+- Hypothesis and methodology in doc comments
+- Self-contained functions callable from the diagnostic matrix
+- Register snapshot capture for post-mortem analysis

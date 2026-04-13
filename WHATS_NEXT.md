@@ -4,7 +4,7 @@
 
 **Current position**: Phase 10 — Iteration 80.
 
-**Last completed**: Wire contract documentation (`SHADER_COMPILE_WIRE_CONTRACT.md`) unblocking spring composition; `CompilationInfoResponse` in IPC compile responses (GPR count, instruction count, shared memory, barriers, workgroup size); crypto socket discovery alignment across core/ember/glowplug; `NvArch::parse()` zero-allocation rewrite; UDS Host header evolution; deep debt audit (all mocks test-isolated, zero hardcoded primal names, all unsafe annotated).
+**Last completed**: Wire contract documentation (`SHADER_COMPILE_WIRE_CONTRACT.md`) unblocking spring composition; `CompilationInfoResponse` in IPC compile responses (GPR count, instruction count, shared memory, barriers, workgroup size); crypto socket discovery alignment across core/ember/glowplug; `NvArch::parse()` zero-allocation rewrite; UDS Host header evolution; deep debt audit (all mocks test-isolated, zero hardcoded primal names, all unsafe annotated); engine register capture extraction (`capture.rs` 825→654+165 via static data tables); `#[must_use]` on all public compile handlers; `BootConfig::Display` zero-alloc fix.
 
 **Tests**: 4477 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 

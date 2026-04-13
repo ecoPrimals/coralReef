@@ -45,7 +45,7 @@
 
 ### Iteration 80: Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt (Apr 12, 2026)
 
-**Theme**: Documented the `shader.compile.wgsl` wire contract (unblocking spring composition for neuralSpring and all GPU-using springs); surfaced `CompilationInfo` through IPC responses; aligned crypto socket discovery across core/ember/glowplug; idiomatic Rust evolution (zero-allocation parse, DRY Display impls, socket-derived Host headers); comprehensive deep debt audit confirming zero hardcoded primal names, zero production mocks, zero Result<_, String>, all unsafe annotated.
+**Theme**: Documented the `shader.compile.wgsl` wire contract (unblocking spring composition for neuralSpring and all GPU-using springs); surfaced `CompilationInfo` through IPC responses; aligned crypto socket discovery across core/ember/glowplug; idiomatic Rust evolution (zero-allocation parse, DRY Display impls, socket-derived Host headers); comprehensive deep debt audit confirming zero hardcoded primal names, zero production mocks, zero Result<_, String>, all unsafe annotated. Smart refactoring: engine register capture extraction (825→654+165 via static data tables). `#[must_use]` on all public compile handlers. `BootConfig::Display` zero-alloc fix.
 
 | Area | Change |
 |------|--------|

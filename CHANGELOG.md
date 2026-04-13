@@ -44,10 +44,14 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 #### Feature Gate Fix
 - `coral-driver/uvm_compute`: fixed `crate::vfio::cache_ops` import without `#[cfg(feature = "vfio")]` — broke non-workspace builds. Inlined `CLFLUSH`/no-op directly in `uvm_compute`
 
+#### Smart Refactoring
+- `capture.rs` (825 LOC) → 654 + `engine_regs.rs` (165): extracted engine register capture tables into static data arrays with shared `read_regs()` helper (eliminated 7 duplicated for-loop patterns)
+- `BootConfig::Display`: inlined `write!` directly instead of allocating via `label()` → `format!()` → `write!`
+
 #### Wire Contract Test Coverage
 - 5 new focused serde roundtrip tests: `HealthCheckResponse`, `LivenessResponse`, `ReadinessResponse`, `CompileCapabilitiesResponse`, `TarpcCompileError`
 - f64 IR docstrings: "placeholder" → "pseudo-op" (correct compiler terminology)
-- `#[must_use]` on `make_response`, `parse_fma_policy`; removed redundant type annotation in `deserialize_arc_str`
+- `#[must_use]` on `make_response`, `parse_fma_policy`, `parse_target`, `handle_compile_spirv`, `handle_compile`, `handle_compile_wgsl`, `handle_compile_wgsl_multi`, `BootConfig::label`; removed redundant type annotation in `deserialize_arc_str`
 
 #### Metrics
 - 4477 tests passing, 0 failed, 153 ignored (hardware-gated)
