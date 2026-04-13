@@ -11,7 +11,7 @@
 
 coralReef is a pure-Rust GPU shader compiler. It compiles WGSL,
 SPIR-V, and GLSL 450 compute shaders to native GPU binaries, with
-full f64 transcendental support. Zero C dependencies, zero libc, FxHashMap internalized, zero vendor lock-in.
+full f64 transcendental support. Zero C dependencies, zero direct libc (transitive only via tokio/mio), FxHashMap internalized, zero vendor lock-in.
 
 NVIDIA backend complete (SM35–SM120: Kepler through Blackwell). AMD backend operational
 (RDNA2/GFX1030 — RX 6950 XT on-site, GCN5/GFX906 — MI50 E2E verified). Both share the same IR,
@@ -136,7 +136,7 @@ coralReef/
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, CLI (`server`/`compile`/`doctor`), JSON-RPC + tarpc (bincode) IPC, FMA control, multi-device compile API |
 | `coral-reef` | Shader compiler — spring absorption tests, f64 lowering, optimizers, RA, vendor encoding (78.6% coverage) |
-| `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero libc, UVM research infra |
+| `coral-driver` | Userspace GPU dispatch — AMD amdgpu (full: GEM+PM4+CS+fence) + NVIDIA nouveau (sovereign) + nvidia-drm (compatible) via DRM ioctl. Multi-GPU scan, pure Rust, zero direct libc, UVM research infra |
 | `coral-gpu` | Unified GPU compute — compile + dispatch in one API, multi-GPU auto-detect, `DriverPreference` (sovereign default: vfio > nouveau > amdgpu > nvidia-drm), `from_vfio()` convenience API, FMA capability reporting, `PCIe` topology discovery |
 | `coral-reef-bitview` | `BitViewable`/`BitMutViewable` traits + `TypedBitField<OFFSET, WIDTH>` compile-time safe bit access |
 | `coral-reef-isa` | ISA encoding tables, instruction latencies (SM35–SM120, AMD GCN5+RDNA2) |
@@ -176,7 +176,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 |-------|--------|
 | `cargo check --workspace` | PASS |
 | `cargo test --workspace` | PASS (4504 passing, 0 failed, ~153 ignored hardware-gated) |
-| `cargo llvm-cov` | ~64% workspace line coverage |
+| `cargo llvm-cov` | ~65% workspace line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
@@ -239,7 +239,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
 | 10 | Spring absorption, compiler hardening, E2E verified | **Complete** — Deep Audit + Coverage + Hardcoding Evolution |
-| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, wire contract documented, CompilationInfo on IPC, 4504 tests, ~64% workspace line coverage |
+| 10+ | Kepler/Blackwell ISA, ember threading, iommufd/cdev, wave_size, hotSpring firmware wiring | **Active** — SM35 (Kepler) + SM120 (Blackwell) arches, per-client ember threading, kernel-agnostic VFIO, GCN5 E2E dispatch on MI50, glowPlug mailbox/ring + ember ring-keeper, wire contract documented, CompilationInfo on IPC, 4504 tests, ~65% workspace line coverage |
 
 ---
 

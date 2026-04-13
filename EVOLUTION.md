@@ -456,16 +456,17 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 60 | Deep Audit Execution + Code Quality: unwrap→expect, 14+ #[allow]→#[expect] across 11 files, tex.rs smart refactor (986→505+484), +24 tests (lib preambles/emit/compile, main shutdown_timeout), 8 SAFETY comments on unsafe, 9 unreachable→ice in encoder, hardcoding evolution (ember socket + socket group → env vars), amd-isa-gen template evolution | **3062+** (102 ignored), 65.8% line / 79.6% non-hw |
 | 10 iter 62 | Deep Audit + Coverage + Hardcoding Evolution: 3460+ workspace tests, 68.7% line coverage, 108 ignored hardware-gated, quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC) | **3460+** (108 ignored), 68.7% line |
 | 10 iter 65 | Deep Debt Solutions + Ecosystem Integration: comprehensive audit closure (20 items), coralctl handlers refactor (1519→4 modules), `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird ecosystem registration, `CORALREEF_DATA_DIR` env evolution | **3956** (119 ignored), ~66% line |
-| 10 iter 66 (current) | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
+| 10 iter 66 | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
+| 10 iter 80 (current) | Wire contract, CompilationInfo IPC, socket alignment, deep debt (hot-path alloc, engine_regs extraction, BootConfig Display), feature-gate VFIO constructors, mmu_oracle unit tests, ML pipeline composition tests, `#[must_use]` audit | **4504** (153 ignored), ~65% line |
 | 10 iter 52 | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 73: 4318 tests passing, 153 ignored. ~64% line coverage (8 crates above 90%).
+Iteration 80: 4504 tests passing, 153 ignored. ~65% line coverage (8 crates above 90%).
 
-Zero clippy warnings. Zero doc warnings. Zero files over 1000 LOC (production).
+Zero clippy warnings (default + all-features). Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).
 OrExit\<T\> for zero-panic binary validation. IpcServiceError for structured IPC errors.
 coral-glowplug JSON-RPC 2.0 compliant with `device.lend`/`device.reclaim` VFIO broker,
@@ -476,8 +477,9 @@ VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 GP_PUT H1 cache flush experiment: proven insufficient — root cause is cold silicon (PFIFO/GPCCS not initialized).
 NVIDIA UVM dispatch: GPFIFO submission, USERD doorbell, completion polling.
 IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
-Hardware: 2× Titan V (VFIO sovereign) + RTX 5060 (nvidia-drm/UVM, dedicated display GPU).
-8 of 9 crates enforce #[deny(unsafe_code)].
+Wire contract documented (SHADER\_COMPILE\_WIRE\_CONTRACT.md). CompilationInfo in IPC responses.
+Hardware: 2× Titan V (VFIO sovereign) + RTX 4070 (nvidia-drm/UVM, dedicated display GPU).
+8 of 9 crates enforce #[deny(unsafe_code)]. deny.toml C/FFI ban list enforced.
 All pure Rust. Sovereignty is a runtime choice.*
 
 ---

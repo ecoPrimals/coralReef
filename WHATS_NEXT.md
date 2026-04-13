@@ -8,9 +8,9 @@
 
 **Tests**: 4504 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
+**Next focus**: musl-static verification; coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 12, 2026 (Phase 10 — Iteration 80 — Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt.)
+**Last updated**: April 13, 2026 (Phase 10 — Iteration 80 — Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt, Feature-Gate Cleanup, MMU Oracle Tests.)
 
 ---
 

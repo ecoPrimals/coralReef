@@ -220,7 +220,7 @@ Status (Iteration 15):
 | groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1556 tests passing, 64% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 30 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero libc, FMA contraction enforcement, multi-device compile |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 80 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero direct libc (transitive via tokio/mio), FMA contraction enforcement, multi-device compile |
 | hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; all P0 resolved (Iteration 9) |
 | barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1/P2 resolved. Pred→GPR fixed (iter 18). Back-edge RA + SSA dominance fixed (iter 19-20). Acos/Asin/Atan2 + Complex64 preamble complete (iter 25). |
 
@@ -289,10 +289,11 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 4318 tests passing, ~153 ignored, ~64% line coverage.
+*93/93 cross-spring WGSL shaders compile to native SASS. 4504 tests passing, ~153 ignored, ~65% line coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass (resolved Iteration 31).
 VFIO sovereign dispatch with PFIFO channel init, V2 MMU page tables, RAMUSERD correction.
 Firmware probing: glowPlug mailbox + multi-ring, ember ring-keeper persistence.
-Iteration 66: quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC).
-Next: Titan V hardware validation with PFIFO channel, coverage ~66%→90%, RDNA3/RDNA4 backend.*
+Wire contract documented (SHADER\_COMPILE\_WIRE\_CONTRACT.md). CompilationInfo in IPC responses.
+Iteration 80: quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC, deny.toml enforced).
+Next: Titan V hardware validation with PFIFO channel, coverage ~65%→90%, RDNA3/RDNA4 backend.*
