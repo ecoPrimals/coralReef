@@ -71,7 +71,7 @@ impl DisplayOp for OpDFma {
 }
 impl_display_for_op!(OpDFma);
 
-/// Placeholder op for f64 sqrt. Lowered to Newton-Raphson via MUFU.Rsq64H + DFMA.
+/// Pseudo-op for f64 sqrt. Lowered to Newton-Raphson via MUFU.Rsq64H + DFMA.
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpF64Sqrt {
@@ -89,7 +89,7 @@ impl DisplayOp for OpF64Sqrt {
 }
 impl_display_for_op!(OpF64Sqrt);
 
-/// Placeholder op for f64 reciprocal. Lowered to Newton-Raphson via MUFU.RCP64H + DFMA.
+/// Pseudo-op for f64 reciprocal. Lowered to Newton-Raphson via MUFU.RCP64H + DFMA.
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpF64Rcp {
@@ -107,7 +107,7 @@ impl DisplayOp for OpF64Rcp {
 }
 impl_display_for_op!(OpF64Rcp);
 
-/// Placeholder op for f64 exp2. Lowered to Horner polynomial via DFMA.
+/// Pseudo-op for f64 exp2. Lowered to Horner polynomial via DFMA.
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpF64Exp2 {
@@ -125,7 +125,7 @@ impl DisplayOp for OpF64Exp2 {
 }
 impl_display_for_op!(OpF64Exp2);
 
-/// Placeholder op for f64 log2. Lowered to MUFU.LOG2 f32 seed extended to f64.
+/// Pseudo-op for f64 log2. Lowered to MUFU.LOG2 f32 seed extended to f64.
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpF64Log2 {
@@ -143,7 +143,7 @@ impl DisplayOp for OpF64Log2 {
 }
 impl_display_for_op!(OpF64Log2);
 
-/// Placeholder op for f64 sin. Lowered to minimax polynomial.
+/// Pseudo-op for f64 sin. Lowered to minimax polynomial.
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpF64Sin {
@@ -161,7 +161,7 @@ impl DisplayOp for OpF64Sin {
 }
 impl_display_for_op!(OpF64Sin);
 
-/// Placeholder op for f64 cos. Lowered to minimax polynomial.
+/// Pseudo-op for f64 cos. Lowered to minimax polynomial.
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpF64Cos {

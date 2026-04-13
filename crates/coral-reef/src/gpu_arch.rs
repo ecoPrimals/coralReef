@@ -458,7 +458,7 @@ impl std::fmt::Display for AmdArch {
 }
 
 // ---------------------------------------------------------------------------
-// Intel architectures (placeholder)
+// Intel architectures (enum-only — backend not yet implemented)
 // ---------------------------------------------------------------------------
 //
 // Intel backend planned — register addresses TBD. These variants prepare the

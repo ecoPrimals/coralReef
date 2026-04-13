@@ -9,6 +9,8 @@ use super::types::{
     DeviceCompileResult, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
 };
 
+const STATUS_SUCCESS: &str = "success";
+
 /// Parse an architecture string into a [`GpuTarget`].
 ///
 /// Tries NVIDIA first, then AMD. No hardcoded arch list.
@@ -87,7 +89,7 @@ pub fn handle_compile_spirv(
         binary: Bytes::from(binary),
         size,
         arch: Some(arch),
-        status: Some("success".to_owned()),
+        status: Some(STATUS_SUCCESS.to_owned()),
         info: None,
     })
 }
@@ -109,6 +111,7 @@ pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileEr
 }
 
 /// Parse an optional FMA policy string into an [`FmaPolicy`].
+#[must_use]
 pub fn parse_fma_policy(s: Option<&str>) -> FmaPolicy {
     match s {
         Some("fused") => FmaPolicy::Fused,
@@ -139,7 +142,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         binary: Bytes::from(compiled.binary),
         size,
         arch: Some(req.arch.clone()),
-        status: Some("success".to_owned()),
+        status: Some(STATUS_SUCCESS.to_owned()),
         info: Some(CompilationInfoResponse {
             gpr_count: compiled.info.gpr_count,
             instr_count: compiled.info.instr_count,

@@ -259,7 +259,7 @@ pub fn estimate_variable_latency(sm: &dyn ShaderModel, op: &Op) -> u32 {
         Op::DFma(_) | Op::DSetP(_) => 54,
         Op::DAdd(_) | Op::DMnMx(_) | Op::DMul(_) => 48,
 
-        // f64 transcendental placeholders (expand to MUFU + several DFMA/DMul)
+        // f64 transcendental pseudo-ops (expand to MUFU + several DFMA/DMul)
         Op::F64Exp2(_)
         | Op::F64Log2(_)
         | Op::F64Rcp(_)

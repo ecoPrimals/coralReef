@@ -727,3 +727,92 @@ fn test_handle_compile_request_spirv_words_amd() {
         "CompileRequest path for AMD arch should work: {result:?}"
     );
 }
+
+// ---- Wire contract serde roundtrip tests for health / capability types ----
+
+#[test]
+fn test_health_check_response_serde_roundtrip() {
+    use types::HealthCheckResponse;
+
+    let resp = HealthCheckResponse {
+        name: "coralReef".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        healthy: true,
+        status: "operational".into(),
+        supported_archs: vec!["sm_70".to_owned(), "rdna2".to_owned()],
+        family_id: "default".into(),
+    };
+    let json = serde_json::to_string(&resp).expect("serialize");
+    let rt: HealthCheckResponse = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(rt.name, resp.name);
+    assert_eq!(rt.version, resp.version);
+    assert_eq!(rt.healthy, resp.healthy);
+    assert_eq!(rt.status, resp.status);
+    assert_eq!(rt.supported_archs, resp.supported_archs);
+    assert_eq!(rt.family_id, resp.family_id);
+}
+
+#[test]
+fn test_liveness_response_serde_roundtrip() {
+    use types::LivenessResponse;
+
+    let resp = LivenessResponse { alive: true };
+    let json = serde_json::to_string(&resp).expect("serialize");
+    let rt: LivenessResponse = serde_json::from_str(&json).expect("deserialize");
+    assert!(rt.alive);
+}
+
+#[test]
+fn test_readiness_response_serde_roundtrip() {
+    use types::ReadinessResponse;
+
+    let resp = ReadinessResponse {
+        ready: true,
+        name: "coralReef".into(),
+    };
+    let json = serde_json::to_string(&resp).expect("serialize");
+    let rt: ReadinessResponse = serde_json::from_str(&json).expect("deserialize");
+    assert!(rt.ready);
+    assert_eq!(rt.name, resp.name);
+}
+
+#[test]
+fn test_compile_capabilities_response_serde_roundtrip() {
+    use types::{CompileCapabilitiesResponse, F64TranscendentalCapabilities};
+
+    let resp = CompileCapabilitiesResponse {
+        supported_archs: vec!["sm_70".to_owned(), "sm_86".to_owned(), "rdna2".to_owned()],
+        f64_transcendentals: F64TranscendentalCapabilities {
+            sin: true,
+            cos: true,
+            sqrt: true,
+            exp2: true,
+            log2: true,
+            rcp: true,
+            exp: true,
+            log: true,
+            composite_lowering: true,
+        },
+    };
+    let json = serde_json::to_string(&resp).expect("serialize");
+    let rt: CompileCapabilitiesResponse = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(rt.supported_archs, resp.supported_archs);
+    assert!(rt.f64_transcendentals.sin);
+    assert!(rt.f64_transcendentals.cos);
+    assert!(rt.f64_transcendentals.sqrt);
+    assert!(rt.f64_transcendentals.exp2);
+    assert!(rt.f64_transcendentals.log2);
+    assert!(rt.f64_transcendentals.rcp);
+    assert!(rt.f64_transcendentals.composite_lowering);
+}
+
+#[test]
+fn test_tarpc_compile_error_serde_roundtrip() {
+    use types::TarpcCompileError;
+
+    let err = TarpcCompileError::from_error("unsupported architecture: foo_bar");
+    let json = serde_json::to_string(&err).expect("serialize");
+    let rt: TarpcCompileError = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(rt.message, "unsupported architecture: foo_bar");
+    assert_eq!(rt.to_string(), err.to_string());
+}

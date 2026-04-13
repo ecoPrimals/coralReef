@@ -320,7 +320,7 @@ impl Op {
             | Self::Match(_) => false,
             Self::Nop(_) | Self::Vote(_) => true,
 
-            // f64 transcendental placeholders (lowered before legalize)
+            // f64 transcendental pseudo-ops (lowered before legalize)
             Self::F64Exp2(_)
             | Self::F64Log2(_)
             | Self::F64Rcp(_)
@@ -499,7 +499,7 @@ impl Op {
             | Self::Nop(_)
             | Self::Vote(_) => false,
 
-            // f64 transcendental placeholders (lowered before legalize)
+            // f64 transcendental pseudo-ops (lowered before legalize)
             Self::F64Exp2(_)
             | Self::F64Log2(_)
             | Self::F64Rcp(_)

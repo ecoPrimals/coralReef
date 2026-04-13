@@ -37,7 +37,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `primal-rpc-client` UDS transport: `Host: localhost` → socket-name-derived host header
 
 #### Metrics
-- 4467 tests passing, 0 failed, 153 ignored (hardware-gated)
+- 4477 tests passing, 0 failed, 153 ignored (hardware-gated)
 - 0 clippy warnings (pedantic + nursery)
 - 0 doc warnings, 0 fmt issues
 - 0 files >1000 LOC
@@ -97,7 +97,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - Confirmed: all remaining `#[allow]` attrs are intentionally conditional (dead_code on enum variants, unused_imports across lib/bin targets)
 
 #### Metrics
-- 4467 tests passing (+5 recovered from orphan), 0 failed, 153 ignored
+- 4477 tests passing (+5 recovered from orphan), 0 failed, 153 ignored
 - 0 clippy warnings (pedantic + nursery)
 - 0 doc warnings, 0 fmt issues
 - 0 files >1000 LOC

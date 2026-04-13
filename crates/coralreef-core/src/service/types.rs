@@ -18,7 +18,7 @@ fn deserialize_arc_str<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s: String = String::deserialize(deserializer)?;
+    let s = String::deserialize(deserializer)?;
     Ok(Arc::from(s.into_boxed_str()))
 }
 

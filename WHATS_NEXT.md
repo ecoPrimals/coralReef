@@ -6,7 +6,7 @@
 
 **Last completed**: Wire contract documentation (`SHADER_COMPILE_WIRE_CONTRACT.md`) unblocking spring composition; `CompilationInfoResponse` in IPC compile responses (GPR count, instruction count, shared memory, barriers, workgroup size); crypto socket discovery alignment across core/ember/glowplug; `NvArch::parse()` zero-allocation rewrite; UDS Host header evolution; deep debt audit (all mocks test-isolated, zero hardcoded primal names, all unsafe annotated).
 
-**Tests**: 4467 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4477 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: musl-static verification; BTSP Phase 2 end-to-end (BearDog `btsp.session.create` integration test); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4467 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4477 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.

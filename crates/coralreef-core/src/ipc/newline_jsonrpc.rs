@@ -131,6 +131,7 @@ pub fn dispatch_jsonrpc(
 }
 
 /// Serialize a JSON-RPC 2.0 response from a handler result.
+#[must_use]
 pub fn make_response(
     id: serde_json::Value,
     result: Result<serde_json::Value, IpcServiceError>,
@@ -184,11 +185,11 @@ where
 {
     let mut lines = BufReader::new(reader).lines();
     while let Ok(Some(line)) = lines.next_line().await {
-        let line = line.trim().to_owned();
-        if line.is_empty() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             continue;
         }
-        let resp = match serde_json::from_str::<JsonRpcRequest>(&line) {
+        let resp = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
             Ok(req) => {
                 if req.jsonrpc == "2.0" {
                     let result = dispatch_jsonrpc(&req.method, req.params);
@@ -208,8 +209,9 @@ where
                 Err(IpcServiceError::transport(format!("parse error: {e}"))),
             ),
         };
-        let msg = format!("{resp}\n");
-        if writer.write_all(msg.as_bytes()).await.is_err() {
+        if writer.write_all(resp.as_bytes()).await.is_err()
+            || writer.write_all(b"\n").await.is_err()
+        {
             break;
         }
     }

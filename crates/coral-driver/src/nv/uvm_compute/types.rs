@@ -7,8 +7,26 @@ use crate::nv::uvm::{
     VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
 };
 
-/// Re-export the shared cache-line flush so UVM callers use one implementation.
-pub(super) use crate::vfio::cache_ops::cache_line_flush as uvm_cache_line_flush;
+/// Flush a single CPU cache line containing the given address.
+///
+/// On x86_64: `CLFLUSH` instruction. Other architectures: no-op (cache-coherent
+/// or handled by DMA mapping). Used for GPFIFO/USERD doorbell writes where the
+/// GPU DMA engine reads from system memory.
+///
+/// # Safety
+///
+/// `addr` must point to valid mapped memory.
+#[cfg(target_arch = "x86_64")]
+#[inline]
+pub(super) unsafe fn uvm_cache_line_flush(addr: *const u8) {
+    // SAFETY: Caller guarantees `addr` points to valid mapped memory.
+    unsafe { core::arch::x86_64::_mm_clflush(addr) }
+}
+
+/// No-op on non-x86_64 (cache-coherent DMA or hardware-managed).
+#[cfg(not(target_arch = "x86_64"))]
+#[inline]
+pub(super) unsafe fn uvm_cache_line_flush(_addr: *const u8) {}
 
 /// GPU generation derived from SM version, used for class selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
