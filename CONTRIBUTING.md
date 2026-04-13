@@ -14,7 +14,7 @@ rustup update stable
 git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
-cargo test --workspace            # 4477 passing (+153 ignored hardware)
+cargo test --workspace            # 4504 passing (+153 ignored hardware)
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```

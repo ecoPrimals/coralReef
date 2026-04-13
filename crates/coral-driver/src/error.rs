@@ -60,6 +60,7 @@ pub enum PciDiscoveryError {
     DeviceMissingAfterRescan,
 }
 
+#[cfg(feature = "vfio")]
 impl PciDiscoveryError {
     /// Wrap an [`std::io::Error`] with the sysfs path and operation label.
     pub(crate) fn sysfs_io(
@@ -231,6 +232,7 @@ pub enum DevinitError {
     NoBootScriptsInBitI,
 }
 
+#[cfg(feature = "vfio")]
 impl DevinitError {
     /// Wrap an [`std::io::Error`] with path and operation (VBIOS sysfs / file access).
     pub(crate) fn vbios_resource_io(
@@ -341,6 +343,7 @@ pub enum ChannelError {
     Bar0ExternalNull,
 }
 
+#[cfg(feature = "vfio")]
 impl ChannelError {
     /// Wrap an [`std::io::Error`] with path and operation (oracle file / sysfs access).
     pub(crate) fn resource_io(
@@ -647,6 +650,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vfio")]
     fn error_channel_resource_io_source() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
         let e = ChannelError::resource_io("read", "/tmp/x", io_err);
@@ -658,6 +662,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vfio")]
     fn error_devinit_vbios_resource_io_source() {
         let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
         let e = DevinitError::vbios_resource_io("read", "/sys/.../rom", io_err);

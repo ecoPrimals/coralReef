@@ -50,12 +50,23 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 #### Wire Contract Test Coverage
 - 5 new focused serde roundtrip tests: `HealthCheckResponse`, `LivenessResponse`, `ReadinessResponse`, `CompileCapabilitiesResponse`, `TarpcCompileError`
+- 6 multi-stage ML pipeline composition tests: sequential 3-stage compile, workgroup validation, cross-vendor, occupancy planning, stage independence, serde roundtrip with `CompilationInfo`
 - f64 IR docstrings: "placeholder" → "pseudo-op" (correct compiler terminology)
-- `#[must_use]` on `make_response`, `parse_fma_policy`, `parse_target`, `handle_compile_spirv`, `handle_compile`, `handle_compile_wgsl`, `handle_compile_wgsl_multi`, `BootConfig::label`; removed redundant type annotation in `deserialize_arc_str`
+- `#[must_use]` on `make_response`, `parse_fma_policy`, `parse_target`, `handle_compile_spirv`, `handle_compile`, `handle_compile_wgsl`, `handle_compile_wgsl_multi`, `dispatch_jsonrpc`, `BootConfig::label`; removed redundant type annotation in `deserialize_arc_str`
+
+#### Feature Gate Cleanup
+- `coral-driver/error.rs`: `PciDiscoveryError::sysfs_io`, `DevinitError::vbios_resource_io`, `ChannelError::resource_io` constructors gated behind `#[cfg(feature = "vfio")]` — eliminates dead_code warnings on default-feature builds
+- Associated tests gated behind `#[cfg(feature = "vfio")]` to match
+
+#### MMU Oracle Test Coverage
+- 11 new pure-Rust unit tests for `decode_entry_addr` (zero, flag-stripping, shift, roundtrip)
+- 5 new `EntryFlags` decode tests (invalid, VRAM, SYS_COH, SYS_NCOH, volatile)
+- Serde roundtrip tests for `EntryFlags`, `PageEntry`, `EngineRegisters`
+- Register table invariant tests (unique names, unique offsets, non-empty)
 
 #### Metrics
-- 4477 tests passing, 0 failed, 153 ignored (hardware-gated)
-- 0 clippy warnings (pedantic + nursery)
+- 4504 tests passing, 0 failed, 153 ignored (hardware-gated)
+- 0 clippy warnings (pedantic + nursery) — both default and all-features
 - 0 doc warnings, 0 fmt issues
 - 0 files >1000 LOC
 - `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok

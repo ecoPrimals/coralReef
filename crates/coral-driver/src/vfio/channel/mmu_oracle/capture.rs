@@ -652,3 +652,101 @@ fn capture_page_tables_inner(
         engine_registers,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_entry_addr_zero() {
+        assert_eq!(decode_entry_addr(0), 0);
+    }
+
+    #[test]
+    fn decode_entry_addr_strips_flags() {
+        assert_eq!(decode_entry_addr(0xF), 0, "low nibble is flags only");
+    }
+
+    #[test]
+    fn decode_entry_addr_shifts_correctly() {
+        let entry = 0x0010_0000u64;
+        let expected = entry << 4;
+        assert_eq!(decode_entry_addr(entry), expected);
+    }
+
+    #[test]
+    fn decode_entry_addr_roundtrip() {
+        let phys = 0x0001_2345_6780_0000u64;
+        let encoded = (phys >> 4) | 0x5;
+        let decoded = decode_entry_addr(encoded);
+        assert_eq!(decoded, phys);
+    }
+
+    #[test]
+    fn entry_flags_invalid_when_zero() {
+        let flags = EntryFlags::decode(0);
+        assert!(!flags.valid);
+        assert_eq!(flags.aperture, 0);
+        assert!(!flags.vol);
+    }
+
+    #[test]
+    fn entry_flags_valid_vram() {
+        let entry = 0x1 | (0x1 << 1);
+        let flags = EntryFlags::decode(entry);
+        assert!(flags.valid);
+        assert_eq!(flags.aperture, 1);
+        assert_eq!(flags.aperture_name, "VRAM");
+    }
+
+    #[test]
+    fn entry_flags_valid_sys_coh() {
+        let entry = 0x1 | (0x2 << 1);
+        let flags = EntryFlags::decode(entry);
+        assert!(flags.valid);
+        assert_eq!(flags.aperture, 2);
+        assert_eq!(flags.aperture_name, "SYS_COH");
+    }
+
+    #[test]
+    fn entry_flags_valid_sys_ncoh() {
+        let entry = 0x1 | (0x3 << 1);
+        let flags = EntryFlags::decode(entry);
+        assert!(flags.valid);
+        assert_eq!(flags.aperture, 3);
+        assert_eq!(flags.aperture_name, "SYS_NCOH");
+    }
+
+    #[test]
+    fn entry_flags_volatile_bit() {
+        let entry = 0x1 | (1 << 3);
+        let flags = EntryFlags::decode(entry);
+        assert!(flags.vol);
+    }
+
+    #[test]
+    fn entry_flags_serde_roundtrip() {
+        let flags = EntryFlags::decode(0x1 | (0x2 << 1) | (1 << 3));
+        let json = serde_json::to_string(&flags).expect("serialize");
+        let rt: EntryFlags = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(rt.valid, flags.valid);
+        assert_eq!(rt.aperture, flags.aperture);
+        assert_eq!(rt.aperture_name, flags.aperture_name);
+        assert_eq!(rt.vol, flags.vol);
+    }
+
+    #[test]
+    fn page_entry_serde_roundtrip() {
+        let entry = PageEntry {
+            index: 42,
+            raw: 0xDEAD_BEEF_0000_0001,
+            decoded_addr: decode_entry_addr(0xDEAD_BEEF_0000_0001),
+            flags: EntryFlags::decode(0xDEAD_BEEF_0000_0001),
+        };
+        let json = serde_json::to_string(&entry).expect("serialize");
+        let rt: PageEntry = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(rt.index, 42);
+        assert_eq!(rt.raw, entry.raw);
+        assert_eq!(rt.decoded_addr, entry.decoded_addr);
+    }
+}

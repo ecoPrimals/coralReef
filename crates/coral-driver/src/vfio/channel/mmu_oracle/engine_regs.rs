@@ -163,3 +163,87 @@ pub(super) fn capture_engine_registers(bar0: &Bar0Rw) -> EngineRegisters {
         misc: read_regs(bar0, MISC_REGS),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_registers_serde_roundtrip() {
+        let mut regs = EngineRegisters {
+            pfifo: BTreeMap::new(),
+            pmu: BTreeMap::new(),
+            fecs: BTreeMap::new(),
+            gpccs: BTreeMap::new(),
+            sec2: BTreeMap::new(),
+            mmu: BTreeMap::new(),
+            misc: BTreeMap::new(),
+        };
+        regs.pfifo.insert("PFIFO_INTR".into(), 0x0000_0001);
+        regs.pfifo.insert("PFIFO_ENABLE".into(), 0xFFFF_FFFF);
+        regs.misc.insert("BOOT0".into(), 0x1640_00A1);
+
+        let json = serde_json::to_string_pretty(&regs).expect("serialize");
+        let rt: EngineRegisters = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(rt.pfifo.len(), 2);
+        assert_eq!(rt.pfifo["PFIFO_INTR"], 0x0000_0001);
+        assert_eq!(rt.pfifo["PFIFO_ENABLE"], 0xFFFF_FFFF);
+        assert_eq!(rt.misc["BOOT0"], 0x1640_00A1);
+        assert!(rt.pmu.is_empty());
+    }
+
+    #[test]
+    fn register_tables_have_unique_names() {
+        let tables: &[RegTable] = &[
+            PFIFO_REGS,
+            PBDMA0_REGS,
+            PMU_REGS,
+            FECS_REGS,
+            GPCCS_REGS,
+            SEC2_REGS,
+            MMU_REGS,
+            MISC_REGS,
+        ];
+        for table in tables {
+            let mut seen = std::collections::HashSet::new();
+            for &(_, name) in *table {
+                assert!(seen.insert(name), "duplicate register name {name} in table");
+            }
+        }
+    }
+
+    #[test]
+    fn register_tables_have_no_overlapping_offsets_within_group() {
+        let tables: &[RegTable] = &[
+            PFIFO_REGS,
+            PBDMA0_REGS,
+            PMU_REGS,
+            FECS_REGS,
+            GPCCS_REGS,
+            SEC2_REGS,
+            MMU_REGS,
+            MISC_REGS,
+        ];
+        for table in tables {
+            let mut seen = std::collections::HashSet::new();
+            for &(off, name) in *table {
+                assert!(
+                    seen.insert(off),
+                    "duplicate offset 0x{off:08X} ({name}) in table"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn register_tables_are_non_empty() {
+        assert!(!PFIFO_REGS.is_empty());
+        assert!(!PBDMA0_REGS.is_empty());
+        assert!(!PMU_REGS.is_empty());
+        assert!(!FECS_REGS.is_empty());
+        assert!(!GPCCS_REGS.is_empty());
+        assert!(!SEC2_REGS.is_empty());
+        assert!(!MMU_REGS.is_empty());
+        assert!(!MISC_REGS.is_empty());
+    }
+}

@@ -64,6 +64,7 @@ fn extract_params<T: serde::de::DeserializeOwned>(
 ///
 /// Returns `IpcServiceError` if the method is unknown, params are
 /// invalid, or the handler itself fails.
+#[must_use = "returns the handler result or an error — check the result"]
 pub fn dispatch_jsonrpc(
     method: &str,
     params: serde_json::Value,
