@@ -14,13 +14,15 @@
 
 pub mod capture;
 pub mod diff;
+pub mod engine_regs;
 
 pub use capture::{
-    Bar0Handle, ChannelCapture, ChannelInfo, EngineRegisters, EntryFlags, InstanceBlock,
-    PageDirectory, PageEntry, PageTable, PageTableDump, Pd0Directory, Pd0Entry,
-    capture_page_tables, capture_page_tables_via_mapped_bar, decode_entry_addr, detect_driver,
+    Bar0Handle, ChannelCapture, ChannelInfo, EntryFlags, InstanceBlock, PageDirectory, PageEntry,
+    PageTable, PageTableDump, Pd0Directory, Pd0Entry, capture_page_tables,
+    capture_page_tables_via_mapped_bar, decode_entry_addr, detect_driver,
 };
 pub use diff::{
     DiffSummary, EngineRegisterDiffs, EntryDiff, PageTableDiffResult, RegisterDiff,
     diff_page_tables, print_diff_report,
 };
+pub use engine_regs::EngineRegisters;

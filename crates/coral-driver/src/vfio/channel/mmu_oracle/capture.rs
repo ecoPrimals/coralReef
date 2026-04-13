@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Page table and engine register capture (BAR0 / PRAMIN).
 
-use std::collections::BTreeMap;
 use std::ptr::NonNull;
 
 use serde::{Deserialize, Serialize};
@@ -260,17 +259,7 @@ pub struct ChannelInfo {
     pub instance_block: InstanceBlock,
 }
 
-/// Engine/falcon register state snapshot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EngineRegisters {
-    pub pfifo: BTreeMap<String, u32>,
-    pub pmu: BTreeMap<String, u32>,
-    pub fecs: BTreeMap<String, u32>,
-    pub gpccs: BTreeMap<String, u32>,
-    pub sec2: BTreeMap<String, u32>,
-    pub mmu: BTreeMap<String, u32>,
-    pub misc: BTreeMap<String, u32>,
-}
+pub use super::engine_regs::EngineRegisters;
 
 /// Full page table dump with engine register state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -495,166 +484,6 @@ fn walk_channel_page_tables(bar0: &Bar0Rw, info: &ChannelInfo) -> ChannelCapture
     }
 }
 
-/// Capture engine register state for cross-driver comparison.
-fn capture_engine_registers(bar0: &Bar0Rw) -> EngineRegisters {
-    let mut pfifo = BTreeMap::new();
-    let mut pmu = BTreeMap::new();
-    let mut fecs = BTreeMap::new();
-    let mut gpccs = BTreeMap::new();
-    let mut sec2 = BTreeMap::new();
-    let mut mmu = BTreeMap::new();
-    let mut misc_regs = BTreeMap::new();
-
-    // PFIFO
-    for &(off, name) in &[
-        (0x002100u32, "PFIFO_INTR"),
-        (0x002140, "PFIFO_INTR_EN"),
-        (0x002200, "PFIFO_ENABLE"),
-        (0x002204, "PFIFO_SCHED_EN"),
-        (0x002208, "PFIFO_CONTROL"),
-        (0x002254, "PFIFO_SCHED_STATUS"),
-        (0x002270, "PFIFO_RUNLIST_BASE"),
-        (0x002274, "PFIFO_RUNLIST_SUBMIT"),
-        (0x002634, "PFIFO_PBDMA_MAP"),
-    ] {
-        pfifo.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // PBDMA 0 state
-    for &(off, name) in &[
-        (0x040000u32, "PBDMA0_GP_BASE_LO"),
-        (0x040004, "PBDMA0_GP_BASE_HI"),
-        (0x040008, "PBDMA0_GP_FETCH"),
-        (0x04000C, "PBDMA0_GP_GET"),
-        (0x040010, "PBDMA0_GP_PUT"),
-        (0x040014, "PBDMA0_GP_ENTRY0"),
-        (0x040018, "PBDMA0_GP_ENTRY1"),
-        (0x040044, "PBDMA0_STATUS"),
-        (0x040048, "PBDMA0_CHANNEL"),
-        (0x04004C, "PBDMA0_SIGNATURE"),
-        (0x040054, "PBDMA0_USERD_LO"),
-        (0x040058, "PBDMA0_USERD_HI"),
-        (0x040080, "PBDMA0_TARGET"),
-        (0x0400B0, "PBDMA0_INTR"),
-        (0x0400C0, "PBDMA0_HCE_CTRL"),
-        (0x040100, "PBDMA0_METHOD0"),
-    ] {
-        pfifo.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // PMU Falcon
-    for &(off, name) in &[
-        (0x10A000u32, "PMU_FALCON_IRQSSET"),
-        (0x10A004, "PMU_FALCON_IRQSCLR"),
-        (0x10A008, "PMU_FALCON_IRQSTAT"),
-        (0x10A010, "PMU_FALCON_IRQMSET"),
-        (0x10A014, "PMU_FALCON_IRQMCLR"),
-        (0x10A040, "PMU_FALCON_MAILBOX0"),
-        (0x10A044, "PMU_FALCON_MAILBOX1"),
-        (0x10A080, "PMU_FALCON_OS"),
-        (0x10A100, "PMU_FALCON_CPUCTL"),
-        (0x10A104, "PMU_FALCON_BOOTVEC"),
-        (0x10A108, "PMU_FALCON_HWCFG"),
-        (0x10A10C, "PMU_FALCON_DMACTL"),
-        (0x10A110, "PMU_FALCON_ENGCTL"),
-        (0x10A118, "PMU_FALCON_CURCTX"),
-        (0x10A11C, "PMU_FALCON_NXTCTX"),
-        (0x10A4C0, "PMU_QUEUE_HEAD0"),
-        (0x10A4C4, "PMU_QUEUE_HEAD1"),
-        (0x10A4C8, "PMU_QUEUE_TAIL0"),
-        (0x10A4CC, "PMU_QUEUE_TAIL1"),
-    ] {
-        pmu.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // FECS (GR engine Falcon — Front End Command Scheduler)
-    for &(off, name) in &[
-        (0x409800u32, "FECS_FALCON_OS"),
-        (0x409840, "FECS_FALCON_MAILBOX0"),
-        (0x409844, "FECS_FALCON_MAILBOX1"),
-        (0x409900, "FECS_FALCON_CPUCTL"),
-        (0x409904, "FECS_FALCON_BOOTVEC"),
-        (0x409908, "FECS_FALCON_HWCFG"),
-        (0x409918, "FECS_FALCON_CURCTX"),
-        (0x40991C, "FECS_FALCON_NXTCTX"),
-        (0x409A00, "FECS_FALCON_IRQSSET"),
-        (0x409A04, "FECS_FALCON_IRQSCLR"),
-        (0x409A08, "FECS_FALCON_IRQSTAT"),
-        (0x409A10, "FECS_FALCON_IRQMSET"),
-        (0x409B00, "FECS_CTX_STATE"),
-        (0x409B04, "FECS_CTX_CONTROL"),
-        (0x409C18, "FECS_FECS_ENGINE_STATUS"),
-    ] {
-        fecs.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // GPCCS (GPC Command Scheduler — per-GPC Falcon)
-    for &(off, name) in &[
-        (0x502800u32, "GPCCS_FALCON_OS"),
-        (0x502840, "GPCCS_FALCON_MAILBOX0"),
-        (0x502844, "GPCCS_FALCON_MAILBOX1"),
-        (0x502900, "GPCCS_FALCON_CPUCTL"),
-        (0x502904, "GPCCS_FALCON_BOOTVEC"),
-        (0x502908, "GPCCS_FALCON_HWCFG"),
-    ] {
-        gpccs.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // SEC2 Falcon
-    for &(off, name) in &[
-        (0x840000u32, "SEC2_FALCON_IRQSSET"),
-        (0x840004, "SEC2_FALCON_IRQSCLR"),
-        (0x840008, "SEC2_FALCON_IRQSTAT"),
-        (0x840040, "SEC2_FALCON_MAILBOX0"),
-        (0x840044, "SEC2_FALCON_MAILBOX1"),
-        (0x840080, "SEC2_FALCON_OS"),
-        (0x840100, "SEC2_FALCON_CPUCTL"),
-        (0x840104, "SEC2_FALCON_BOOTVEC"),
-        (0x840108, "SEC2_FALCON_HWCFG"),
-    ] {
-        sec2.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // MMU
-    for &(off, name) in &[
-        (0x100C80u32, "PFB_MMU_CTRL"),
-        (0x100C84, "PFB_MMU_INVALIDATE_PDB"),
-        (0x100CB8, "PFB_MMU_INVALIDATE"),
-        (0x100E10, "PFB_PRI_MMU_FAULT_STATUS"),
-        (0x100E14, "PFB_PRI_MMU_FAULT_ADDR_LO"),
-        (0x100E18, "PFB_PRI_MMU_FAULT_ADDR_HI"),
-        (0x100E1C, "PFB_PRI_MMU_FAULT_INFO"),
-        (0x104A20, "HUBTLB_ERR"),
-    ] {
-        mmu.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    // Misc / PMC
-    for &(off, name) in &[
-        (0x000000u32, "BOOT0"),
-        (0x000004, "BOOT1"),
-        (0x000100, "PMC_INTR"),
-        (0x000140, "PMC_INTR_EN"),
-        (0x000200, "PMC_ENABLE"),
-        (0x000204, "PMC_ENABLE_1"),
-        (0x001700, "BAR0_WINDOW"),
-        (0x120058, "PRIV_RING_INTR_STATUS"),
-        (0x12004C, "PRIV_RING_COMMAND"),
-    ] {
-        misc_regs.insert(name.into(), bar0.read_u32(off as usize));
-    }
-
-    EngineRegisters {
-        pfifo,
-        pmu,
-        fecs,
-        gpccs,
-        sec2,
-        mmu,
-        misc: misc_regs,
-    }
-}
-
 /// Capture the full page table state from a GPU at the given BDF.
 ///
 /// Works regardless of which driver is currently bound (nouveau, nvidia,
@@ -802,7 +631,7 @@ fn capture_page_tables_inner(
         channels.push(capture);
     }
 
-    let engine_registers = capture_engine_registers(bar0);
+    let engine_registers = super::engine_regs::capture_engine_registers(bar0);
 
     // Restore BAR0 window
     bar0.set_window((saved_window as u64) << 16);

@@ -46,8 +46,16 @@ impl BootConfig {
     }
 
     /// Short label for matrix output.
+    #[must_use]
     pub fn label(&self) -> String {
-        format!(
+        self.to_string()
+    }
+}
+
+impl std::fmt::Display for BootConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "pde={} vram_pte={} blob0={} bind={} imem={} tlb={}",
             if self.pde_upper { "upper" } else { "lower" },
             self.acr_vram_pte,
@@ -56,11 +64,5 @@ impl BootConfig {
             self.imem_preload,
             self.tlb_invalidate,
         )
-    }
-}
-
-impl std::fmt::Display for BootConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.label())
     }
 }

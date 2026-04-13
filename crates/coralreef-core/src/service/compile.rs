@@ -18,6 +18,7 @@ const STATUS_SUCCESS: &str = "success";
 /// # Errors
 ///
 /// Returns an error if the architecture string is not recognized by any vendor.
+#[must_use = "returns the parsed target or an error — check the result"]
 pub fn parse_target(s: &str) -> Result<GpuTarget, CompileError> {
     if let Some(nv) = NvArch::parse(s) {
         return Ok(GpuTarget::Nvidia(nv));
@@ -71,6 +72,7 @@ fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
 /// # Errors
 ///
 /// Returns [`CompileError`] on invalid input or compilation failure.
+#[must_use = "contains the compiled binary or an error"]
 pub fn handle_compile_spirv(
     spirv: impl AsRef<[u8]>,
     arch: impl Into<String>,
@@ -101,6 +103,7 @@ pub fn handle_compile_spirv(
 /// # Errors
 ///
 /// Returns [`CompileError`] on invalid input or compilation failure.
+#[must_use = "contains the compiled binary or an error"]
 pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileError> {
     let bytes: Vec<u8> = req
         .spirv_words
@@ -129,6 +132,7 @@ pub fn parse_fma_policy(s: Option<&str>) -> FmaPolicy {
 /// # Errors
 ///
 /// Returns [`CompileError`] on invalid input or compilation failure.
+#[must_use = "contains the compiled binary or an error"]
 pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, CompileError> {
     let fp64_sw = req
         .fp64_strategy
@@ -164,6 +168,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
 /// Returns [`CompileError`] only if the request itself is malformed
 /// (e.g. empty WGSL source). Per-target failures are reported inline
 /// in the `error` field of each [`DeviceCompileResult`].
+#[must_use = "contains per-device results or an error"]
 pub fn handle_compile_wgsl_multi(
     req: MultiDeviceCompileRequest,
 ) -> Result<MultiDeviceCompileResponse, CompileError> {
