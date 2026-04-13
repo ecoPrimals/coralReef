@@ -33,8 +33,8 @@ Vendor-specific code lives under namespaced directories within `codegen/`:
 
 | Vendor | Module | ISA Reference | Register Model |
 |--------|--------|---------------|----------------|
-| NVIDIA | `codegen/nv/` | SASS (SM20–SM89) | GPR/UGPR/Pred/Carry/Bar |
-| AMD | `codegen/amd/` | GFX10+ (RDNA2) | VGPR/SGPR/VCC |
+| NVIDIA | `codegen/nv/` | SASS (SM35–SM120) | GPR/UGPR/Pred/Carry/Bar |
+| AMD | `codegen/amd/` | GCN5/RDNA2–RDNA4 | VGPR/SGPR/VCC |
 | Intel | `codegen/intel/` (future) | Xe EU ISA | GRF |
 
 Each vendor backend implements:

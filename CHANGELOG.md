@@ -36,6 +36,19 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `IntelArch::Display`: consolidated to delegate to `short_name()` (single source of truth)
 - `primal-rpc-client` UDS transport: `Host: localhost` → socket-name-derived host header
 
+#### Hot-Path Allocation Elimination
+- IPC newline handler: eliminated `format!("{resp}\n")` full-copy — writes bytes + newline separately
+- IPC newline handler: eliminated per-line `trim().to_owned()` — borrows `&str` from owned `String`
+- Compile handler: `STATUS_SUCCESS` constant avoids `"success".to_owned()` heap allocation per compile
+
+#### Feature Gate Fix
+- `coral-driver/uvm_compute`: fixed `crate::vfio::cache_ops` import without `#[cfg(feature = "vfio")]` — broke non-workspace builds. Inlined `CLFLUSH`/no-op directly in `uvm_compute`
+
+#### Wire Contract Test Coverage
+- 5 new focused serde roundtrip tests: `HealthCheckResponse`, `LivenessResponse`, `ReadinessResponse`, `CompileCapabilitiesResponse`, `TarpcCompileError`
+- f64 IR docstrings: "placeholder" → "pseudo-op" (correct compiler terminology)
+- `#[must_use]` on `make_response`, `parse_fma_policy`; removed redundant type annotation in `deserialize_arc_str`
+
 #### Metrics
 - 4477 tests passing, 0 failed, 153 ignored (hardware-gated)
 - 0 clippy warnings (pedantic + nursery)

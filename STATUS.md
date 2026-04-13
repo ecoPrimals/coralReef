@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 scaffolding (mode detection + connection gating) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 complete (mode detection, `guard_connection()`, BearDog delegation, `BtspOutcome`) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -101,7 +101,7 @@
 
 ### Iteration 77: primalSpring Gap Resolution + Deep Debt Evolution (Apr 9, 2026)
 
-**Theme**: Wire Standard L2, BTSP Phase 2 scaffolding, BIOMEOS_INSECURE guard, typed-config errors, codegen hygiene, and large-file directory refactors.
+**Theme**: Wire Standard L2, BTSP Phase 2, BIOMEOS_INSECURE guard, typed-config errors, codegen hygiene, and large-file directory refactors.
 
 | Area | Change |
 |------|--------|
@@ -404,7 +404,7 @@
 | Item | Status | Detail |
 |------|--------|--------|
 | Doc warnings eliminated | ✅ | 4 rustdoc warnings fixed: escaped bit-field notation `[27:24]`/`[1:0]`, fixed intra-doc links for `ORACLE_RANGES` and `NvVfioComputeDevice::open()` |
-| Clippy clean with VFIO | ✅ | `cargo clippy --workspace --features vfio -- -D warnings` — zero warnings |
+| Clippy clean (all features) | ✅ | `cargo clippy --all-features -- -D warnings` — zero warnings |
 | Hardcoded paths eliminated | ✅ | `/home/biomegate` paths in vbios loading and test output replaced with `$HOTSPRING_DATA_DIR` env var |
 | Production unwrap/expect evolved | ✅ | coral-glowplug: all `unwrap()`/`expect()` → `match`/`let-else` with `tracing::error!` + `exit(1)` |
 | `eprintln!` → tracing | ✅ | All production `eprintln!` migrated to `tracing::info!`/`tracing::warn!`/`tracing::error!` |
@@ -1163,7 +1163,7 @@
 | `cargo check --workspace` | PASS |
 | `cargo test --workspace` | PASS (4477 passing, 0 failed, 153 ignored hardware-gated) |
 | `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
-| `cargo clippy --workspace --features vfio -- -D warnings` | PASS (0 warnings) |
+| `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
 | Hardcoded paths | Evolved — all sysfs/proc via `CORALREEF_SYSFS_ROOT` / `CORALREEF_PROC_ROOT` env overrides |

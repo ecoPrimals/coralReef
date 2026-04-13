@@ -6,8 +6,9 @@
 
 coralReef is a sovereign Rust GPU shader compiler. It compiles WGSL,
 SPIR-V, and GLSL 450 compute shaders to native GPU binaries — NVIDIA
-SASS (SM35–SM120) and AMD GCN5/RDNA2 (GFX906, GFX1030). Full f64
-transcendental support. Zero C dependencies, zero FFI, zero vendor SDK.
+SASS (SM35–SM120) and AMD GCN5/RDNA2–RDNA4 (GFX906–GFX1201). Full f64
+transcendental support. Pure Rust; transitive libc only via tokio/mio
+(deferred to mio#1735 rustix migration). Zero vendor SDK.
 
 ## Ecosystem position
 

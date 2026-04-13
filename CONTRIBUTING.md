@@ -15,7 +15,7 @@ git clone https://github.com/ecoPrimals/coralReef.git
 cd coralReef
 cargo check --workspace
 cargo test --workspace            # 4477 passing (+153 ignored hardware)
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
 

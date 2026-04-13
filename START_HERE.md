@@ -13,8 +13,9 @@ GPU binaries. It includes full f64 transcendental support — NVIDIA via
 DFMA software lowering, AMD via native hardware instructions.
 
 Vendor-agnostic architecture with pluggable frontends and backends.
-NVIDIA SM70+ and AMD RDNA2 (GFX1030) backends are operational. Both
-share the same `ShaderModel` trait via Rust trait dispatch.
+NVIDIA SM35–SM120 (Kepler through Blackwell) and AMD GCN5/RDNA2–RDNA4
+backends are operational. Both share the same `ShaderModel` trait via
+Rust trait dispatch.
 
 Three input languages feed the same pipeline via the naga frontend:
 WGSL (primary), SPIR-V (binary intermediate), and GLSL 450 compute
@@ -35,8 +36,8 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 4462 passing, 0 failed (~153 ignored hardware-gated)
-cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace     # 4477 passing, 0 failed (~153 ignored hardware-gated)
+cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
 
@@ -55,8 +56,8 @@ coralReef/
 │   │           ├── ir/            SSA IR types
 │   │           ├── naga_translate/ naga → codegen IR translation
 │   │           ├── lower_f64/     f64 transcendental expansion
-│   │           ├── nv/            NVIDIA vendor backend (SM20–SM89)
-│   │           ├── amd/           AMD vendor backend (RDNA2 GFX1030)
+│   │           ├── nv/            NVIDIA vendor backend (SM35–SM120)
+│   │           ├── amd/           AMD vendor backend (GCN5/RDNA2–RDNA4)
 │   │           │   ├── shader_model.rs  ShaderModelRdna2 (trait impl)
 │   │           │   ├── encoding.rs      instruction encoding
 │   │           │   ├── isa_generated/   1,446 opcodes (Rust-generated)
@@ -120,8 +121,8 @@ Key modules in `crates/coral-reef/src/codegen/`:
   lower_f64 → legalize → register allocation → encode.
 - **`ir/`** — SSA intermediate representation with typed registers,
   predication, memory access descriptors, and shader metadata.
-- **`nv/`** — NVIDIA vendor backend: SM20–SM89 instruction encoders.
-- **`amd/`** — AMD vendor backend: RDNA2 GFX1030 encoder.
+- **`nv/`** — NVIDIA vendor backend: SM35–SM120 instruction encoders.
+- **`amd/`** — AMD vendor backend: GCN5/RDNA2–RDNA4 encoder.
 
 ## Architecture
 
