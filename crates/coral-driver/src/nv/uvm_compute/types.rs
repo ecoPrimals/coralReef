@@ -24,6 +24,10 @@ pub(super) unsafe fn uvm_cache_line_flush(addr: *const u8) {
 }
 
 /// No-op on non-x86_64 (cache-coherent DMA or hardware-managed).
+///
+/// # Safety
+///
+/// `addr` must point to valid mapped memory (same contract as the x86_64 variant).
 #[cfg(not(target_arch = "x86_64"))]
 #[inline]
 pub(super) unsafe fn uvm_cache_line_flush(_addr: *const u8) {}
