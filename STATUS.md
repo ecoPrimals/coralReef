@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4504 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 4506 passing, 0 failed, ~153 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`); `String` → `thiserror` evolution across 3 waves (PCI discovery, channel oracle, devinit pipeline); zero production `.unwrap()` |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -88,7 +88,7 @@
 | Feature gate cleanup | `PciDiscoveryError::sysfs_io`, `DevinitError::vbios_resource_io`, `ChannelError::resource_io` gated behind `#[cfg(feature = "vfio")]` — zero dead_code warnings on default builds |
 | MMU oracle tests | 15 new pure-Rust unit tests: `decode_entry_addr` (4), `EntryFlags` decode (5), serde roundtrips (3), register table invariants (3) |
 | ML pipeline tests | 6 new multi-stage ML pipeline composition tests: sequential compile, workgroup validation, cross-vendor, occupancy planning, stage independence, serde roundtrip |
-| Metrics | 4504 tests passing (+27 new), 0 failed, 153 ignored; 0 clippy warnings (default + all-features); 0 doc warnings; 0 files >1000 LOC |
+| Metrics | 4506 tests passing (+27 new), 0 failed, 153 ignored; 0 clippy warnings (default + all-features); 0 doc warnings; 0 files >1000 LOC |
 
 ### Iteration 78: Deep Debt Evolution — Typed Errors + Smart Refactoring (Apr 9, 2026)
 
@@ -1164,7 +1164,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4504 passing, 0 failed, 153 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4506 passing, 0 failed, 153 ignored hardware-gated) |
 | `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |

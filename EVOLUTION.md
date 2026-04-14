@@ -12,7 +12,7 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4504 tests (153 ignored), ~65% line coverage (8 crates above 90%),
+4506 tests (153 ignored), ~65% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -457,14 +457,14 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 62 | Deep Audit + Coverage + Hardcoding Evolution: 3460+ workspace tests, 68.7% line coverage, 108 ignored hardware-gated, quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC) | **3460+** (108 ignored), 68.7% line |
 | 10 iter 65 | Deep Debt Solutions + Ecosystem Integration: comprehensive audit closure (20 items), coralctl handlers refactor (1519→4 modules), `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird ecosystem registration, `CORALREEF_DATA_DIR` env evolution | **3956** (119 ignored), ~66% line |
 | 10 iter 66 | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
-| 10 iter 80 (current) | Wire contract, CompilationInfo IPC, socket alignment, deep debt (hot-path alloc, engine_regs extraction, BootConfig Display), feature-gate VFIO constructors, mmu_oracle unit tests, ML pipeline composition tests, `#[must_use]` audit | **4504** (153 ignored), ~65% line |
+| 10 iter 80 (current) | Wire contract, CompilationInfo IPC, socket alignment, deep debt (hot-path alloc, engine_regs extraction, BootConfig Display), feature-gate VFIO constructors, mmu_oracle unit tests, ML pipeline composition tests, `#[must_use]` audit | **4506** (153 ignored), ~65% line |
 | 10 iter 52 | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 80: 4504 tests passing, 153 ignored. ~65% line coverage (8 crates above 90%).
+Iteration 80: 4506 tests passing, 153 ignored. ~65% line coverage (8 crates above 90%).
 
 Zero clippy warnings (default + all-features). Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).

@@ -6,7 +6,7 @@
 
 **Last completed**: Feature-gate VFIO error constructors (dead_code elimination on default builds); `#[must_use]` on `dispatch_jsonrpc`; 15 new pure-Rust `mmu_oracle` unit tests (decode_entry_addr, EntryFlags, EngineRegisters serde, register table invariants); 6 multi-stage ML pipeline composition tests; wire contract documentation; `CompilationInfoResponse` in IPC; crypto socket alignment; engine register extraction; deep debt audit.
 
-**Tests**: 4504 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4506 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: musl-static verification; coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4504 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4506 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.

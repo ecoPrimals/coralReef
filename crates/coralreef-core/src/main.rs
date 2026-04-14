@@ -34,6 +34,15 @@ mod service;
 
 use ipc::default_tcp_bind;
 
+/// Resolve the IPC host for the newline TCP server.
+///
+/// Precedence: `$CORALREEF_IPC_HOST` > `$CORALREEF_NEWLINE_TCP_HOST` (legacy) > `127.0.0.1`.
+fn default_ipc_host() -> String {
+    std::env::var("CORALREEF_IPC_HOST")
+        .or_else(|_| std::env::var("CORALREEF_NEWLINE_TCP_HOST"))
+        .unwrap_or_else(|_| "127.0.0.1".to_owned())
+}
+
 #[derive(Debug, Parser)]
 #[command(name = env!("CARGO_PKG_NAME"), version, about, long_about = None)]
 struct Cli {
@@ -52,6 +61,12 @@ enum Commands {
         /// TCP port for newline-delimited JSON-RPC (`UniBin` v1.1).
         #[arg(long, help = "TCP port for newline-delimited JSON-RPC (UniBin v1.1)")]
         port: Option<u16>,
+
+        /// Host/IP to bind the newline TCP server.
+        /// Use `0.0.0.0` for network-facing (Docker/benchScale) deployments.
+        /// Respects `$CORALREEF_IPC_HOST` (or legacy `$CORALREEF_NEWLINE_TCP_HOST`).
+        #[arg(long, default_value_t = default_ipc_host())]
+        bind: String,
 
         /// Bind address for JSON-RPC server (TCP only — HTTP transport).
         /// Respects `$CORALREEF_TCP_BIND` for deployment configuration.
@@ -136,11 +151,12 @@ async fn main() -> ExitCode {
     let exit = match cli.command {
         Commands::Server {
             port,
+            bind,
             rpc_bind,
             tarpc_bind,
         } => {
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
-            cmd_server(&rpc_bind, &tarpc_bind, port).await
+            cmd_server(&rpc_bind, &tarpc_bind, port, &bind).await
         }
         Commands::Compile {
             input,
@@ -223,14 +239,19 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
     format!("shutdown timed out after {join_timeout:?}")
 }
 
-async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniBinExit {
+async fn cmd_server(
+    rpc_bind: &str,
+    tarpc_bind: &str,
+    port: Option<u16>,
+    bind_host: &str,
+) -> UniBinExit {
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
         return UniBinExit::ConfigError;
     }
 
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
-    tracing::info!(rpc_bind, tarpc_bind, ?port, "binding addresses");
+    tracing::info!(rpc_bind, tarpc_bind, ?port, bind_host, "binding addresses");
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 
@@ -242,9 +263,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str, port: Option<u16>) -> UniB
         }
     };
 
-    let newline_host =
-        std::env::var("CORALREEF_NEWLINE_TCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let newline_bind = port.map(|p| format!("{newline_host}:{p}"));
+    let newline_bind = port.map(|p| format!("{bind_host}:{p}"));
     let (newline_addr, newline_handle) = if let Some(ref bind) = newline_bind {
         match ipc::start_newline_tcp_jsonrpc(bind, shutdown_rx.clone()).await {
             Ok(x) => (Some(x.0), Some(x.1)),

@@ -54,6 +54,11 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - f64 IR docstrings: "placeholder" → "pseudo-op" (correct compiler terminology)
 - `#[must_use]` on `make_response`, `parse_fma_policy`, `parse_target`, `handle_compile_spirv`, `handle_compile`, `handle_compile_wgsl`, `handle_compile_wgsl_multi`, `dispatch_jsonrpc`, `BootConfig::label`; removed redundant type annotation in `deserialize_arc_str`
 
+#### CLI Bind Host (primalSpring benchScale gap)
+- New `--bind` flag on `coralreef server`: sets host/IP for newline TCP server (e.g. `--bind 0.0.0.0` for Docker/benchScale)
+- `CORALREEF_IPC_HOST` env var (primary), `CORALREEF_NEWLINE_TCP_HOST` (legacy fallback), default `127.0.0.1`
+- Resolves: coralReef unreachable from outside container in benchScale deployments
+
 #### Feature Gate Cleanup
 - `coral-driver/error.rs`: `PciDiscoveryError::sysfs_io`, `DevinitError::vbios_resource_io`, `ChannelError::resource_io` constructors gated behind `#[cfg(feature = "vfio")]` — eliminates dead_code warnings on default-feature builds
 - Associated tests gated behind `#[cfg(feature = "vfio")]` to match
@@ -65,7 +70,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - Register table invariant tests (unique names, unique offsets, non-empty)
 
 #### Metrics
-- 4504 tests passing, 0 failed, 153 ignored (hardware-gated)
+- 4506 tests passing, 0 failed, 153 ignored (hardware-gated)
 - 0 clippy warnings (pedantic + nursery) — both default and all-features
 - 0 doc warnings, 0 fmt issues
 - 0 files >1000 LOC
