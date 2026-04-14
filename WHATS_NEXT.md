@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Iteration 80.
 
-**Last completed**: Feature-gate VFIO error constructors (dead_code elimination on default builds); `#[must_use]` on `dispatch_jsonrpc`; 15 new pure-Rust `mmu_oracle` unit tests (decode_entry_addr, EntryFlags, EngineRegisters serde, register table invariants); 6 multi-stage ML pipeline composition tests; wire contract documentation; `CompilationInfoResponse` in IPC; crypto socket alignment; engine register extraction; deep debt audit.
+**Last completed**: `--bind` flag + `CORALREEF_IPC_HOST` env var for benchScale/Docker network-facing deployments (primalSpring CR-02); `# Safety` doc on non-x86 cache flush stub; feature-gate VFIO error constructors; 15 mmu_oracle unit tests; 6 ML pipeline composition tests; wire contract documentation; `CompilationInfoResponse` in IPC; deep debt audit (full codebase: zero TODO/FIXME, zero mocks in production, zero `Result<_, String>`, all SPDX headers present).
 
 **Tests**: 4506 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: musl-static verification; coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 13, 2026 (Phase 10 — Iteration 80 — Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt, Feature-Gate Cleanup, MMU Oracle Tests.)
+**Last updated**: April 14, 2026 (Phase 10 — Iteration 80 — `--bind` flag, safety docs, deep debt audit verified clean.)
 
 ---
 

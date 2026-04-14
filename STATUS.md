@@ -88,7 +88,9 @@
 | Feature gate cleanup | `PciDiscoveryError::sysfs_io`, `DevinitError::vbios_resource_io`, `ChannelError::resource_io` gated behind `#[cfg(feature = "vfio")]` — zero dead_code warnings on default builds |
 | MMU oracle tests | 15 new pure-Rust unit tests: `decode_entry_addr` (4), `EntryFlags` decode (5), serde roundtrips (3), register table invariants (3) |
 | ML pipeline tests | 6 new multi-stage ML pipeline composition tests: sequential compile, workgroup validation, cross-vendor, occupancy planning, stage independence, serde roundtrip |
-| Metrics | 4506 tests passing (+27 new), 0 failed, 153 ignored; 0 clippy warnings (default + all-features); 0 doc warnings; 0 files >1000 LOC |
+| CLI bind host (CR-02) | `--bind` flag + `CORALREEF_IPC_HOST` env var on `coralreef server` for Docker/benchScale network-facing deployments; `0.0.0.0` for cross-container TCP |
+| Safety docs | `# Safety` section on non-x86_64 `uvm_cache_line_flush` stub (parity with x86_64 variant) |
+| Metrics | 4506 tests passing, 0 failed, 153 ignored; 0 clippy warnings (default + all-features); 0 doc warnings; 0 files >1000 LOC |
 
 ### Iteration 78: Deep Debt Evolution — Typed Errors + Smart Refactoring (Apr 9, 2026)
 
